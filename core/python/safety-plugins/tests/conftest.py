@@ -36,6 +36,7 @@ self-contained and never depend on a ``.env`` file existing in CI:
 # ``safety_plugins/__init__.py`` (which calls ``load_dotenv()``).
 import os
 
+os.environ["PYTHON_DOTENV_DISABLED"] = "1"
 os.environ.setdefault("GOOGLE_CLOUD_PROJECT", "test-project")
 os.environ.setdefault("GOOGLE_CLOUD_LOCATION", "global")
 os.environ.setdefault("GOOGLE_GENAI_USE_VERTEXAI", "true")

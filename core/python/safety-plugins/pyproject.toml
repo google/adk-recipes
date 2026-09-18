@@ -5,7 +5,7 @@ requires-python = ">=3.11"
 
 dependencies = [
     "absl-py>=2.3.1",
-    "google-adk>=1.7.0",
+    "google-adk>=1.28.0",
     "google-auth>=2.30.0",
     "google-cloud-modelarmor>=0.2.8",
     "google-genai>=1.5.0",
