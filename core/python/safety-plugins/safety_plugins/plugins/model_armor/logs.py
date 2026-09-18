@@ -75,7 +75,7 @@ def record_screening_error(
     )
 
 
-def log_client_initialised(*, project_id: str, location_id: str) -> None:
+def log_client_initialized(*, project_id: str, location_id: str) -> None:
     logger.info(
         "Model Armor client initialized: project=%s region=%s",
         project_id,

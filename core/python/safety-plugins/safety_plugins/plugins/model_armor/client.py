@@ -22,7 +22,7 @@ from .constants import (
     ModelArmorMethod,
     ModelArmorResponse,
 )
-from .logs import log_client_initialised
+from .logs import log_client_initialized
 
 
 class UnsupportedModelArmorMethodError(ValueError):
@@ -66,7 +66,7 @@ class ModelArmorClient:
                     api_endpoint=f"modelarmor.{self._location_id}.rep.googleapis.com"
                 ),
             )
-            log_client_initialised(
+            log_client_initialized(
                 project_id=self._project_id,
                 location_id=self._location_id,
             )
