@@ -142,6 +142,7 @@ def plugin_with_client() -> tuple[ModelArmorSafetyFilterPlugin, MagicMock]:
             project_id="test-project",
             location_id="us-central1",
             template_id="test-template",
+            timeout_s=5,
         )
         yield plugin, client
 

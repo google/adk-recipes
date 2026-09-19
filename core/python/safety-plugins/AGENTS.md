@@ -72,7 +72,9 @@ returned as a fallback. External callback replacements must remain JSON dicts.
 - `GOOGLE_CLOUD_MODEL_ARMOR_PROJECT` optionally selects a separate project.
 - `GOOGLE_CLOUD_MODEL_ARMOR_LOCATION` selects the regional endpoint, falling
   back to `GOOGLE_CLOUD_LOCATION`. `global` is rejected for Model Armor.
-- `MODEL_ARMOR_TIMEOUT_S` defaults to 5 seconds and must be finite and positive.
+- Set `MODEL_ARMOR_TIMEOUT_S` or pass `timeout_s` explicitly. `.env.example`
+  supplies 5 seconds; the code has no implicit default. The value must be
+  finite and positive.
   The RPC has this deadline and no automatic retries; an application guard
   cancels calls that exceed the deadline by one second.
 - Resolve environment values at construction, not in default arguments.

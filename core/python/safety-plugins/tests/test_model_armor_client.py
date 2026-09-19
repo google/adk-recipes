@@ -137,3 +137,68 @@ def test_global_is_not_a_model_armor_region():
             location_id="global",
             template_id="test-template",
         )
+
+
+@pytest.mark.parametrize("value", [None, ""])
+def test_missing_timeout_requires_explicit_configuration(monkeypatch, value):
+    monkeypatch.delenv("MODEL_ARMOR_TIMEOUT_S", raising=False)
+    if value is not None:
+        monkeypatch.setenv("MODEL_ARMOR_TIMEOUT_S", value)
+    with patch(_FACTORY) as factory:
+        with pytest.raises(ValueError, match="Set MODEL_ARMOR_TIMEOUT_S"):
+            ModelArmorSafetyFilterPlugin(client=_client())
+        factory.assert_not_called()
+
+
+@pytest.mark.parametrize("value", ["invalid", "0", "-1", "nan", "inf"])
+def test_invalid_environment_timeout_is_rejected(monkeypatch, value):
+    monkeypatch.setenv("MODEL_ARMOR_TIMEOUT_S", value)
+    with pytest.raises(ValueError, match=r"finite.*positive"):
+        ModelArmorSafetyFilterPlugin(client=_client())
+
+
+@pytest.mark.parametrize("value", [None, "invalid"])
+def test_explicit_timeout_overrides_environment(monkeypatch, value):
+    monkeypatch.delenv("MODEL_ARMOR_TIMEOUT_S", raising=False)
+    if value is not None:
+        monkeypatch.setenv("MODEL_ARMOR_TIMEOUT_S", value)
+    plugin = ModelArmorSafetyFilterPlugin(client=_client(), timeout_s=2)
+    assert plugin.timeout_s == 2
+
+
+@pytest.mark.parametrize(
+    ("missing", "message"),
+    [
+        ("GOOGLE_CLOUD_PROJECT", "project and template ID"),
+        ("MODEL_ARMOR_TEMPLATE_ID", "project and template ID"),
+        ("GOOGLE_CLOUD_LOCATION", "regional location"),
+    ],
+)
+@pytest.mark.parametrize("value", [None, ""])
+def test_missing_template_configuration_fails_before_rpc(
+    monkeypatch, missing, message, value
+):
+    monkeypatch.delenv("GOOGLE_CLOUD_MODEL_ARMOR_PROJECT", raising=False)
+    monkeypatch.delenv("GOOGLE_CLOUD_MODEL_ARMOR_LOCATION", raising=False)
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "test-project")
+    monkeypatch.setenv("GOOGLE_CLOUD_LOCATION", "us-central1")
+    monkeypatch.setenv("MODEL_ARMOR_TEMPLATE_ID", "test-template")
+    monkeypatch.delenv(missing)
+    if value is not None:
+        monkeypatch.setenv(missing, value)
+    with patch(_FACTORY) as factory:
+        with pytest.raises(ValueError, match=message):
+            ModelArmorSafetyFilterPlugin(timeout_s=2)
+        factory.assert_not_called()
+
+
+def test_generic_environment_configuration_is_used(monkeypatch):
+    monkeypatch.delenv("GOOGLE_CLOUD_MODEL_ARMOR_PROJECT", raising=False)
+    monkeypatch.delenv("GOOGLE_CLOUD_MODEL_ARMOR_LOCATION", raising=False)
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "test-project")
+    monkeypatch.setenv("GOOGLE_CLOUD_LOCATION", "us-central1")
+    monkeypatch.setenv("MODEL_ARMOR_TEMPLATE_ID", "test-template")
+    plugin = ModelArmorSafetyFilterPlugin(timeout_s=2)
+    assert plugin.client._template_name == (
+        "projects/test-project/locations/us-central1/templates/test-template"
+    )

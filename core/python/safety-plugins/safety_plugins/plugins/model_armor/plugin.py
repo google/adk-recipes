@@ -133,27 +133,47 @@ class ModelArmorSafetyFilterPlugin(BasePlugin):
         timeout_s: float | None = None,
     ) -> None:
         super().__init__(name="ModelArmorPlugin")
-        self.timeout_s = (
-            float(os.environ.get("MODEL_ARMOR_TIMEOUT_S", "5"))
-            if timeout_s is None
-            else timeout_s
-        )
-        if not math.isfinite(self.timeout_s) or self.timeout_s <= 0:
+        if timeout_s is None:
+            configured_timeout = os.environ.get("MODEL_ARMOR_TIMEOUT_S")
+            if not configured_timeout:
+                raise ValueError(
+                    "Set MODEL_ARMOR_TIMEOUT_S or pass timeout_s explicitly"
+                )
+            try:
+                timeout_s = float(configured_timeout)
+            except ValueError as exc:
+                raise ValueError(
+                    "MODEL_ARMOR_TIMEOUT_S must be a finite positive number"
+                ) from exc
+        if not math.isfinite(timeout_s) or timeout_s <= 0:
             raise ValueError("Model Armor timeout must be finite and positive")
-        self.client = (
-            client
-            if client is not None
-            else ModelArmorClient(
-                project_id=project_id
+        self.timeout_s = timeout_s
+        if client is None:
+            project_id = (
+                project_id
                 or os.environ.get("GOOGLE_CLOUD_MODEL_ARMOR_PROJECT")
-                or os.environ.get("GOOGLE_CLOUD_PROJECT", ""),
-                location_id=location_id
-                or os.environ.get("GOOGLE_CLOUD_MODEL_ARMOR_LOCATION")
-                or os.environ.get("GOOGLE_CLOUD_LOCATION", ""),
-                template_id=template_id
-                or os.environ.get("MODEL_ARMOR_TEMPLATE_ID", ""),
+                or os.environ.get("GOOGLE_CLOUD_PROJECT")
             )
-        )
+            location_id = (
+                location_id
+                or os.environ.get("GOOGLE_CLOUD_MODEL_ARMOR_LOCATION")
+                or os.environ.get("GOOGLE_CLOUD_LOCATION")
+            )
+            template_id = template_id or os.environ.get(
+                "MODEL_ARMOR_TEMPLATE_ID"
+            )
+            if not project_id or not template_id:
+                raise ValueError(
+                    "Model Armor requires a project and template ID"
+                )
+            if not location_id:
+                raise ValueError("Model Armor requires a regional location")
+            client = ModelArmorClient(
+                project_id=project_id,
+                location_id=location_id,
+                template_id=template_id,
+            )
+        self.client = client
 
     async def close(self) -> None:
         """Release the Model Armor transport when the ADK runner closes."""
