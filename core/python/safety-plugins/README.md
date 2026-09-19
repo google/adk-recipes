@@ -215,7 +215,9 @@ Model Armor can use a separate project through
 `GOOGLE_CLOUD_MODEL_ARMOR_PROJECT`; otherwise it uses `GOOGLE_CLOUD_PROJECT`.
 Its location falls back to `GOOGLE_CLOUD_LOCATION` when the dedicated variable
 is absent, but must be regional (`global` is rejected). The timeout is in
-seconds and must be finite and positive.
+seconds and must be finite and positive. Set `MODEL_ARMOR_TIMEOUT_S` (the
+provided `.env.example` uses `5`) or pass `timeout_s` explicitly; there is no
+implicit timeout when the variable is absent.
 
 ## Running the Agent
 
