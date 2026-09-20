@@ -125,3 +125,9 @@ uv run pytest tests/integration
   with the same `header_provider`.
 - In production, run the agent as a dedicated service account that holds only
   the roles above, not as your user account.
+
+## Maintainer
+
+Vishal Bulbule ([@vishal-bulbule](https://github.com/vishal-bulbule)),
+vishal.bulbule@techtrapture.com. Open an issue in this repository and mention
+the handle for questions or fixes.

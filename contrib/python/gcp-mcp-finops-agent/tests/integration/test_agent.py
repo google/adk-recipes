@@ -53,7 +53,8 @@ async def test_agent_answers_from_a_query() -> None:
     async for event in runner.run_async(
         user_id="test_user", session_id=session.id, new_message=message
     ):
-        for part in event.content.parts if event.content else []:
+        parts = event.content.parts if event.content else None
+        for part in parts or []:
             if part.function_call:
                 tool_calls.append(part.function_call.name)
             if part.text:
