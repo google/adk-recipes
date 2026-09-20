@@ -1,0 +1,35 @@
+# ADK Recipe Manifest
+type: "standalone"
+status: "active"
+language: "python"
+
+description: "A FinOps agent that answers Google Cloud cost questions by querying the Cloud Billing export through the Google-hosted BigQuery MCP server, with per-request token refresh, a read-only tool allowlist and no local MCP server to run."
+
+architecture:
+  agent: "single"
+  stateful: false
+  datasources:
+    - "external"
+
+dependencies:
+  libraries:
+    - "ADK"
+    - "MCP"
+  services:
+    - "Agent Platform (formerly Vertex AI)"
+    - "BigQuery"
+    - "BigQuery MCP server"
+    - "Cloud Billing export"
+
+ownership:
+  team: "TechTrapture"
+  poc: "vishal-bulbule"
+
+tags:
+  - "mcp"
+  - "google-cloud-mcp"
+  - "bigquery"
+  - "finops"
+  - "cloud-billing"
+  - "cost-optimization"
+  - "read-only"
