@@ -202,3 +202,19 @@ def test_generic_environment_configuration_is_used(monkeypatch):
     assert plugin.client._template_name == (
         "projects/test-project/locations/us-central1/templates/test-template"
     )
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"project_id": "test-project"},
+        {"location_id": "us-central1"},
+        {"template_id": "test-template"},
+        {"project_id": ""},
+        {"location_id": ""},
+        {"template_id": ""},
+    ],
+)
+def test_client_with_explicit_template_configuration_is_rejected(kwargs):
+    with pytest.raises(ValueError, match="not both"):
+        ModelArmorSafetyFilterPlugin(client=_client(), timeout_s=2, **kwargs)

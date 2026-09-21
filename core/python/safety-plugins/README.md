@@ -97,8 +97,12 @@ The implementation is split into a reusable package:
 Copy this package to reuse Model Armor independently of the demo agents.
 `ModelArmorSafetyFilterPlugin()` reads configuration at construction, or accepts
 explicit project, location and template IDs. An injected `ModelArmorClient`
-can also supply explicit Google credentials. Close the Runner with `async with`
-to release the transport.
+can also supply explicit Google credentials. Pass either `client` or explicit
+project/location/template arguments; combining them raises `ValueError` rather
+than silently ignoring configuration. Environment template settings are ignored
+when a client is injected. `timeout_s` still applies in either case and must be
+passed explicitly or supplied through `MODEL_ARMOR_TIMEOUT_S`.
+Close the Runner with `async with` to release the transport.
 
 Blocked user content is replaced in place before ADK saves it. A temporary
 state marker stops the invocation in `before_run_callback`, with a
@@ -136,7 +140,7 @@ project with CI/CD, deployment scripts, and best practices built in.
 uvx google-agents-cli setup
 ```
 
-**Create a project from this recipe** (replace `my-safety-plugins` with your project name):
+**Create the project from this recipe** (replace `my-safety-plugins` with your project name):
 
 ```bash
 agents-cli create my-safety-plugins -a adk@safety-plugins
@@ -171,8 +175,8 @@ starter pack scaffolding, follow the steps below.
 
 ```bash
 # Clone this repository.
-git clone https://github.com/google/adk-samples.git
-cd adk-samples/core/python/safety-plugins
+git clone https://github.com/google/adk-recipes.git
+cd adk-recipes/core/python/safety-plugins
 # Install the package and dependencies.
 uv sync
 ```
