@@ -88,12 +88,12 @@ jobs:
 
           # Two calls, not one: a label that has been deleted or renamed
           # makes `gh issue edit` exit non-zero, and bundling it with the
-          # assignment would mean losing the reviewers — the whole point of
+          # assignment would mean losing the assignees — the whole point of
           # the workflow — over a bookkeeping label.
           gh issue edit "${ISSUE_NUMBER}" "${ARGS[@]}"
 
           if ! gh issue edit "${ISSUE_NUMBER}" --add-label "${LABEL}"; then
-            echo "::warning::Could not apply '${LABEL}' to #${ISSUE_NUMBER}; the stale reminder selects on it, so check the label exists."
+            echo "::warning::Could not apply '${LABEL}' to #${ISSUE_NUMBER}; check the label exists."
           fi
 
           # GitHub ignores an assignee it cannot assign — someone without

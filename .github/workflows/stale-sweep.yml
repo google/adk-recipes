@@ -20,24 +20,17 @@ name: Stale Sweep
 # "Resolve thresholds" step below does the subtraction once and fails the run
 # if it is not positive.
 #
-# WHY FOUR SEPARATE ACTION STEPS
-# ------------------------------
+# WHY THREE SEPARATE ACTION STEPS
+# -------------------------------
 # One invocation cannot say different things to different audiences, and
-# these four populations need different wording and wildly different
+# these three populations need different wording and wildly different
 # deadlines. Each step therefore silences the populations it does not own
-# (`-1` disables a stage entirely), and the four sets are disjoint by
+# (`-1` disables a stage entirely), and the three sets are disjoint by
 # construction:
 #
 #   1. human PRs        exempts `dependencies`, so step 2 owns those
 #   2. Dependabot PRs   `only-pr-labels: dependencies`
-#   3. issues           PR stages disabled, exempts `contribute`
-#   4. recipe proposals `only-issue-labels: contribute`
-#
-# Steps 3 and 4 split issues the way 1 and 2 split pull requests: a recipe
-# proposal gets a 7-day reminder aimed at its assigned reviewers, an
-# ordinary issue 180 days and a question aimed at its reporter. Both sides
-# derive from `recipe_proposals.label`, so they cannot drift into
-# overlapping or into leaving a gap.
+#   3. issues           PR stages disabled outright
 #
 # They share one `stale` label, which is safe precisely because the sets do
 # not overlap.
@@ -243,30 +236,6 @@ jobs:
             p stale_policy.issues.exempt_labels | paste -sd, -
           )"
 
-          PROP_NUDGE="$(p recipe_proposals.nudge_after_days)"
-          PROP_CLOSE="$(p recipe_proposals.close_after_days)"
-          PROP_LABEL="$(p recipe_proposals.label)"
-          PROP_GRACE=$(( PROP_CLOSE - PROP_NUDGE ))
-          PROP_MENTIONS="$(
-            p recipe_proposals.assignees | sed 's/^/@/' | paste -sd' ' -
-          )"
-
-          if [ "${PROP_GRACE}" -le 0 ]; then
-            echo "::error::recipe_proposals.close_after_days must exceed" \
-              "nudge_after_days. Got ${PROP_NUDGE}->${PROP_CLOSE}."
-            exit 1
-          fi
-
-          # The proposal step below reuses this list, so capture it BEFORE
-          # the proposal label is appended — otherwise that step would
-          # exempt the label it selects on and sweep nothing. It carries
-          # `security` and `recipe-canary`, both of which must survive.
-          PROP_EXEMPT="${ISSUE_EXEMPT}"
-
-          # Proposals have their own step and their own clock, so the
-          # general issues step must not also sweep them.
-          ISSUE_EXEMPT="${ISSUE_EXEMPT},${PROP_LABEL}"
-
           {
             echo "pr_nudge=${PR_NUDGE}"
             echo "pr_grace=${PR_GRACE}"
@@ -281,12 +250,6 @@ jobs:
             echo "bot_label=${BOT_LABEL}"
             echo "keep_label=${KEEP}"
             echo "stale_label=${STALE}"
-            echo "prop_nudge=${PROP_NUDGE}"
-            echo "prop_grace=${PROP_GRACE}"
-            echo "prop_close=${PROP_CLOSE}"
-            echo "prop_label=${PROP_LABEL}"
-            echo "prop_exempt=${PROP_EXEMPT}"
-            echo "prop_mentions=${PROP_MENTIONS}"
           } >> "${GITHUB_OUTPUT}"
 
           echo "PRs: nudge ${PR_NUDGE}d, close ${PR_CLOSE}d" \
@@ -457,50 +420,3 @@ jobs:
             reproduction steps stay searchable, and reopening takes one
             click. If you run into this again, reopening this issue is more
             useful to us than a fresh one.
-
-      - name: Recipe proposals
-        uses: actions/stale@4391f3da665fdf50b6810c1a66712fb9ba21aa93 # ratchet:actions/stale@v11
-        with:
-          debug-only: ${{ inputs.dry_run || false }}
-          days-before-pr-stale: -1
-          days-before-pr-close: -1
-          days-before-issue-stale: ${{ steps.policy.outputs.prop_nudge }}
-          days-before-issue-close: ${{ steps.policy.outputs.prop_grace }}
-          # The complement of the Issues step's exemption: that step exempts
-          # this label, this step requires it. actions/stale cannot filter
-          # on a title, which is why intake applies a label at all.
-          only-issue-labels: ${{ steps.policy.outputs.prop_label }}
-          stale-issue-label: ${{ steps.policy.outputs.stale_label }}
-          close-issue-reason: not_planned
-          exempt-issue-labels: ${{ steps.policy.outputs.prop_exempt }}
-          # Every proposal is assigned by intake, so inheriting
-          # `issues.exempt_assigned: true` here would exempt the entire
-          # population. The assignees are the audience of the reminder.
-          exempt-all-issue-assignees: false
-          exempt-all-issue-milestones: true
-          remove-stale-when-updated: true
-          ascending: true
-          sort-by: updated
-          operations-per-run: 200
-          stale-issue-message: >
-            ${{ steps.policy.outputs.prop_mentions }} — this recipe proposal
-            has had no reply for ${{ steps.policy.outputs.prop_nudge }} days.
-
-
-            Proposals are reviewed by hand, so nothing else will pick this
-            up. Accept the scope, ask for changes, or decline it.
-
-
-            Without activity it will be closed as `not planned` in
-            ${{ steps.policy.outputs.prop_grace }} days. Any comment resets
-            the clock, and `${{ steps.policy.outputs.keep_label }}` exempts
-            it for good.
-          close-issue-message: >
-            Closing as `not planned` after
-            ${{ steps.policy.outputs.prop_close }} days without activity,
-            per `recipe_proposals` in `.github/policy.yml`.
-
-
-            This reflects maintainer capacity, not a judgement on the
-            proposal. Reopening takes one click — if you still want to build
-            this, say so here.

@@ -140,23 +140,3 @@ def test_the_failure_notifier_stays_quiet_on_proposals():
             f"{name}: notify-failure will comment on a recipe proposal when "
             "an upstream job fails"
         )
-
-
-def test_the_proposal_sweep_does_not_exempt_its_own_assignees():
-    """Intake assigns every proposal, so inheriting
-    `issues.exempt_assigned: true` would exempt the whole population and the
-    reminder could never fire."""
-    steps = _yaml("stale-sweep.yml")["jobs"]["sweep"]["steps"]
-    step = next(s for s in steps if s.get("name") == "Recipe proposals")
-    assert str(step["with"]["exempt-all-issue-assignees"]).lower() == "false"
-    # `security` and `recipe-canary` must survive into this step, and the
-    # proposal label must not — it is what the step selects on.
-    assert "prop_exempt" in str(step["with"]["exempt-issue-labels"])
-
-
-def test_the_two_issue_populations_stay_disjoint():
-    """Both steps sweeping one issue would post two reminders quoting
-    different deadlines."""
-    script = _scripts(_yaml("stale-sweep.yml")["jobs"]["sweep"])
-    assert 'PROP_EXEMPT="${ISSUE_EXEMPT}"' in script
-    assert 'ISSUE_EXEMPT="${ISSUE_EXEMPT},${PROP_LABEL}"' in script

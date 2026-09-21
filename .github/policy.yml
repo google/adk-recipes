@@ -352,32 +352,19 @@ required_dirs:
 
 # --------------------------------------------------------------------------
 # Recipe proposals — issues titled `[RECIPE PROPOSAL]`, reviewed by hand.
+# The AI issue workflows are gated off them, and recipe-proposal-intake.yml
+# applies what the issue template would have.
 #
-# The AI issue workflows are gated off them. recipe-proposal-intake.yml
-# assigns `assignees` and applies `label`, and the recipe-proposal step in
-# stale-sweep.yml reminds them after `nudge_after_days`.
-#
-# ISSUE_TEMPLATE/propose-a-new-recipe.md names the same assignees, but they
-# are applied only to issues filed THROUGH the template — one created via
-# the REST API gets neither them nor the label (issue #2660). That is why
-# intake exists; keep the two lists in step.
+# ISSUE_TEMPLATE/propose-a-new-recipe.md names the same assignees and label,
+# but GitHub applies template front matter only to issues filed THROUGH the
+# template — one created via the REST API gets neither (issue #2660). Keep
+# the two in step; a test asserts they match.
 # --------------------------------------------------------------------------
 recipe_proposals:
-  # Named to match the issue template's `assignees:` front matter and the
-  # `--add-assignee` call that applies them.
   assignees:
     - pierpaolo28
     - kgu-here
-
-  # actions/stale selects by label and never by title, so this is what makes
-  # proposals addressable by the reminder step.
   label: contribute
-
-  # The close window is wide on purpose: the nudge resets `updated_at`, so
-  # it starts when the reminder lands, and it is maintainer latency being
-  # measured rather than the proposer's.
-  nudge_after_days: 7
-  close_after_days: 37
 
 stale_policy:
   # Applied to both pull requests and issues. Only users with write access
