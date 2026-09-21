@@ -1,6 +1,6 @@
 name: '📥 Recipe Proposal Intake'
 
-# Assigns `recipe_proposals.reviewers` to a new recipe proposal and applies
+# Assigns `recipe_proposals.assignees` to a new recipe proposal and applies
 # `recipe_proposals.label`, both from .github/policy.yml.
 #
 # The issue template already names the same reviewers, but GitHub applies
@@ -69,12 +69,12 @@ jobs:
             exit 0
           fi
 
-          mapfile -t REVIEWERS < <(p recipe_proposals.reviewers)
+          mapfile -t ASSIGNEES < <(p recipe_proposals.assignees)
           LABEL="$(p recipe_proposals.label)"
 
           ARGS=()
-          for reviewer in "${REVIEWERS[@]}"; do
-            ARGS+=(--add-assignee "${reviewer}")
+          for assignee in "${ASSIGNEES[@]}"; do
+            ARGS+=(--add-assignee "${assignee}")
           done
           gh issue edit "${ISSUE_NUMBER}" "${ARGS[@]}" --add-label "${LABEL}"
 
@@ -82,9 +82,13 @@ jobs:
           # write access, or a renamed account — and still returns success,
           # which is the silent failure this workflow exists to prevent.
           ACTUAL="$(gh issue view "${ISSUE_NUMBER}" --json assignees --jq '[.assignees[].login] | join(" ")')"
-          for reviewer in "${REVIEWERS[@]}"; do
-            if [[ " ${ACTUAL} " != *" ${reviewer} "* ]]; then
-              echo "::error::GitHub did not assign ${reviewer} (no write access, or the name in recipe_proposals.reviewers is stale)."
+
+          # Compared lower-cased: GitHub logins are case-insensitive and the
+          # API returns canonical casing, so `PierPaolo28` in policy.yml
+          # would otherwise fail this check on an assignment that worked.
+          for assignee in "${ASSIGNEES[@]}"; do
+            if [[ " ${ACTUAL,,} " != *" ${assignee,,} "* ]]; then
+              echo "::error::GitHub did not assign ${assignee} (no write access, or the name in recipe_proposals.assignees is stale)."
               exit 1
             fi
           done

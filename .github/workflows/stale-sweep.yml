@@ -241,7 +241,7 @@ jobs:
           PROP_LABEL="$(p recipe_proposals.label)"
           PROP_GRACE=$(( PROP_CLOSE - PROP_NUDGE ))
           PROP_MENTIONS="$(
-            p recipe_proposals.reviewers | sed 's/^/@/' | paste -sd' ' -
+            p recipe_proposals.assignees | sed 's/^/@/' | paste -sd' ' -
           )"
 
           if [ "${PROP_GRACE}" -le 0 ]; then

@@ -92,8 +92,13 @@ jobs:
           # Recipe proposals are reviewed by hand — no AI labelling, and no
           # failure comment either, since skipping `triage` skips
           # `notify-failure` with it (a skipped job is not a failure).
+          # Upper-cased before comparing, so `[Recipe Proposal]` matches
+          # too. The other three gates fold case the same way; one that did
+          # not would let a mixed-case title through here while every other
+          # workflow still treated it as a proposal.
+          TITLE="$(echo "${ISSUE_DATA}" | jq -r '.title')"
           SKIP='false'
-          if [[ "$(echo "${ISSUE_DATA}" | jq -r '.title')" == *"[RECIPE PROPOSAL]"* ]]; then
+          if [[ "${TITLE^^}" == *"[RECIPE PROPOSAL]"* ]]; then
             SKIP='true'
             echo "::notice::#${ISSUE_NUMBER} is a recipe proposal — skipping triage."
           fi

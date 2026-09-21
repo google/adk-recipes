@@ -354,8 +354,8 @@ required_dirs:
 # Recipe proposals — issues titled `[RECIPE PROPOSAL]`, reviewed by hand.
 #
 # The AI issue workflows are gated off them. recipe-proposal-intake.yml
-# assigns `reviewers` and applies `label`, and the recipe-proposal step in
-# stale-sweep.yml reminds those reviewers after `nudge_after_days`.
+# assigns `assignees` and applies `label`, and the recipe-proposal step in
+# stale-sweep.yml reminds them after `nudge_after_days`.
 #
 # ISSUE_TEMPLATE/propose-a-new-recipe.md names the same assignees, but they
 # are applied only to issues filed THROUGH the template — one created via
@@ -363,7 +363,9 @@ required_dirs:
 # intake exists; keep the two lists in step.
 # --------------------------------------------------------------------------
 recipe_proposals:
-  reviewers:
+  # Named to match the issue template's `assignees:` front matter and the
+  # `--add-assignee` call that applies them.
+  assignees:
     - pierpaolo28
     - kgu-here
 

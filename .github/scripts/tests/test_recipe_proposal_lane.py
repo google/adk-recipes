@@ -18,6 +18,7 @@ every check stays green, and the only symptom is a bot replying to a
 contributor's proposal weeks later.
 """
 
+import re
 from pathlib import Path
 
 import yaml
@@ -50,6 +51,44 @@ def test_every_ai_issue_workflow_skips_proposals():
     # issue that has no `status/ai-triaged` marker, which is every proposal.
     sweep = _yaml("ai-issue-scheduled-triage.yml")
     assert MARKER in _scripts(sweep["jobs"]["find"])
+
+
+def test_every_gate_folds_case():
+    """A gate that compares case-sensitively lets `[Recipe Proposal]` reach
+    the model while every other workflow still treats it as a proposal —
+    which is exactly what happened to the automated-triage gate in review.
+
+    Bash folds with `${VAR^^}`, jq with `ascii_upcase`.
+    """
+    for name, job in (
+        ("ai-issue-quick-response.yml", "resolve"),
+        ("ai-issue-automated-triage.yml", "resolve"),
+        ("recipe-proposal-intake.yml", "route"),
+    ):
+        # The COMPARISON line itself must fold, not merely some comment
+        # nearby mentioning that it does.
+        lines = [
+            ln
+            for ln in _scripts(_yaml(name)["jobs"][job]).splitlines()
+            if MARKER in ln and not ln.strip().startswith("#")
+        ]
+        assert lines, f"{name}: no {MARKER} comparison found at all"
+        for line in lines:
+            assert "^^" in line, (
+                f"{name}: case-sensitive comparison, so `[Recipe Proposal]` "
+                f"would slip past this gate:\n  {line.strip()}"
+            )
+
+    # The sweep's jq splits the fold and the literal across two lines, so
+    # this matches the whole expression rather than one line of it.
+    sweep = _scripts(_yaml("ai-issue-scheduled-triage.yml")["jobs"]["find"])
+    sweep = " ".join(
+        ln for ln in sweep.splitlines() if not ln.strip().startswith("#")
+    )
+    assert re.search(
+        r'ascii_upcase\s*\)\s*\|\s*contains\(\s*"\[RECIPE PROPOSAL\]"',
+        sweep,
+    ), "the scheduled sweep no longer upper-cases the title before matching"
 
 
 def test_intake_never_comments():
