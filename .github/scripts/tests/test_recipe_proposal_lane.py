@@ -25,6 +25,10 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[3]
 WORKFLOWS = ROOT / ".github" / "workflows"
+POLICY = ROOT / ".github" / "policy.yml"
+TEMPLATE = (
+    ROOT / ".github" / "ISSUE_TEMPLATE" / "propose-a-new-recipe.md"
+)
 MARKER = "[RECIPE PROPOSAL]"
 
 
@@ -91,11 +95,51 @@ def test_every_gate_folds_case():
     ), "the scheduled sweep no longer upper-cases the title before matching"
 
 
+def test_intake_takes_its_assignees_from_policy():
+    """Hardcoding the names in the workflow would work and would silently
+    put the source of truth in two places."""
+    script = _scripts(_yaml("recipe-proposal-intake.yml")["jobs"]["route"])
+    assert "recipe_proposals.assignees" in script
+
+
+def test_policy_and_the_issue_template_name_the_same_people():
+    """Two paths assign a proposal: the template (for issues filed through
+    it) and intake (for everything else). If they disagree, who reviews a
+    proposal depends on how it was filed — and nothing else would catch it.
+    """
+    policy = yaml.safe_load(POLICY.read_text(encoding="utf-8"))
+    _, front, _ = TEMPLATE.read_text(encoding="utf-8").split("---", 2)
+    front = yaml.safe_load(front)
+
+    template_assignees = [n.strip() for n in str(front["assignees"]).split(",")]
+    template_labels = [n.strip() for n in str(front["labels"]).split(",")]
+
+    assert template_assignees == policy["recipe_proposals"]["assignees"]
+    assert policy["recipe_proposals"]["label"] in template_labels
+    assert MARKER in front["title"]
+
+
 def test_intake_never_comments():
     """Intake holds `issues: write`; nothing but this stops a comment being
     added here later."""
     script = _scripts(_yaml("recipe-proposal-intake.yml")["jobs"]["route"])
     assert "gh issue comment" not in script
+
+
+def test_the_failure_notifier_stays_quiet_on_proposals():
+    """`resolve` can fail before any skip decision exists — an API blip —
+    and `notify-failure` comments on whatever is in its `needs`. Without
+    this guard that failure posts a bot comment on a recipe proposal, which
+    is the symptom the lane was built to stop."""
+    for name in ("ai-issue-automated-triage.yml", "ai-issue-quick-response.yml"):
+        steps = _yaml(name)["jobs"]["notify-failure"]["steps"]
+        script = "".join(
+            str((s.get("with") or {}).get("script") or "") for s in steps
+        )
+        assert "RECIPE PROPOSAL" in script.upper(), (
+            f"{name}: notify-failure will comment on a recipe proposal when "
+            "an upstream job fails"
+        )
 
 
 def test_the_proposal_sweep_does_not_exempt_its_own_assignees():

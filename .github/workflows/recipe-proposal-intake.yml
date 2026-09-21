@@ -3,7 +3,7 @@ name: '📥 Recipe Proposal Intake'
 # Assigns `recipe_proposals.assignees` to a new recipe proposal and applies
 # `recipe_proposals.label`, both from .github/policy.yml.
 #
-# The issue template already names the same reviewers, but GitHub applies
+# The issue template already names the same assignees, but GitHub applies
 # template front matter only to issues filed through the template — one
 # created via the REST API gets neither the assignees nor the label (issue
 # #2660). The title is the only signal present on every path.
@@ -50,7 +50,7 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: 'Assign the reviewers'
+      - name: 'Assign the reviewers and label the issue'
         env:
           GH_TOKEN: '${{ secrets.GITHUB_TOKEN }}'
           GH_REPO: '${{ github.repository }}'
@@ -72,11 +72,29 @@ jobs:
           mapfile -t ASSIGNEES < <(p recipe_proposals.assignees)
           LABEL="$(p recipe_proposals.label)"
 
+          # `mapfile` succeeds even when the command feeding it fails, so an
+          # empty list here would otherwise sail through: no assignees, a
+          # label applied, exit 0 — the silent failure this workflow exists
+          # to prevent.
+          if [[ ${#ASSIGNEES[@]} -eq 0 || -z "${LABEL}" ]]; then
+            echo "::error::recipe_proposals.assignees or .label is empty in .github/policy.yml."
+            exit 1
+          fi
+
           ARGS=()
           for assignee in "${ASSIGNEES[@]}"; do
             ARGS+=(--add-assignee "${assignee}")
           done
-          gh issue edit "${ISSUE_NUMBER}" "${ARGS[@]}" --add-label "${LABEL}"
+
+          # Two calls, not one: a label that has been deleted or renamed
+          # makes `gh issue edit` exit non-zero, and bundling it with the
+          # assignment would mean losing the reviewers — the whole point of
+          # the workflow — over a bookkeeping label.
+          gh issue edit "${ISSUE_NUMBER}" "${ARGS[@]}"
+
+          if ! gh issue edit "${ISSUE_NUMBER}" --add-label "${LABEL}"; then
+            echo "::warning::Could not apply '${LABEL}' to #${ISSUE_NUMBER}; the stale reminder selects on it, so check the label exists."
+          fi
 
           # GitHub ignores an assignee it cannot assign — someone without
           # write access, or a renamed account — and still returns success,

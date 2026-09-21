@@ -152,6 +152,17 @@ jobs:
             // avoids leaking a template expression into the JS source.
             // github.event.issue.number is null on workflow_dispatch, so
             // fall back to the dispatched input in that case.
+            // Recipe proposals are a human-only lane, so no bot comments
+            // on them — not even this one. `resolve` can fail before any
+            // skip decision exists (an API blip), and without this guard
+            // that failure lands a comment on a proposal, which is the
+            // symptom the lane was built to stop. Read from the event
+            // payload so it needs no checkout and cannot itself fail.
+            const title = context.payload.issue?.title ?? '';
+            if (title.toUpperCase().includes('[RECIPE PROPOSAL]')) {
+              core.notice('Recipe proposal — not posting a failure comment.');
+              return;
+            }
             const issueNumber = context.payload.issue?.number
               ?? Number(context.payload.inputs?.issue_number);
             if (!issueNumber) {
