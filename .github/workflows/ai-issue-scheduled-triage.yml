@@ -137,6 +137,12 @@ jobs:
               [ .[]
                 | select(.createdAt < $cutoff)
                 | select([.labels[].name] | index($triaged) | not)
+                # Recipe proposals are reviewed by hand and must never
+                # reach the model. Filtered on the title, not a label: one
+                # filed via the REST API has no labels until intake runs,
+                # and this sweep may look before that.
+                | select((.title | ascii_upcase)
+                         | contains("[RECIPE PROPOSAL]") | not)
                 | {number, title, body: ((.body // "")[0:$maxbody])}
               ]')"
 

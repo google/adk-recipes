@@ -349,6 +349,34 @@ required_dirs:
 # days of slack (60 becomes "60-67"). With a 30-day gap between the two
 # stages and a 7-day tick, nothing can skip a stage.
 # --------------------------------------------------------------------------
+
+# --------------------------------------------------------------------------
+# Recipe proposals — issues titled `[RECIPE PROPOSAL]`, reviewed by hand.
+#
+# The AI issue workflows are gated off them. recipe-proposal-intake.yml
+# assigns `reviewers` and applies `label`, and the recipe-proposal step in
+# stale-sweep.yml reminds those reviewers after `nudge_after_days`.
+#
+# ISSUE_TEMPLATE/propose-a-new-recipe.md names the same assignees, but they
+# are applied only to issues filed THROUGH the template — one created via
+# the REST API gets neither them nor the label (issue #2660). That is why
+# intake exists; keep the two lists in step.
+# --------------------------------------------------------------------------
+recipe_proposals:
+  reviewers:
+    - pierpaolo28
+    - kgu-here
+
+  # actions/stale selects by label and never by title, so this is what makes
+  # proposals addressable by the reminder step.
+  label: contribute
+
+  # The close window is wide on purpose: the nudge resets `updated_at`, so
+  # it starts when the reminder lands, and it is maintainer latency being
+  # measured rather than the proposer's.
+  nudge_after_days: 7
+  close_after_days: 37
+
 stale_policy:
   # Applied to both pull requests and issues. Only users with write access
   # can apply labels, so `keep_open_label` is a maintainer override rather
