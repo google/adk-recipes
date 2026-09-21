@@ -33,8 +33,8 @@ gcloud auth application-default login
 1. Clone the repository and navigate to this recipe directory:
 
 ```bash
-git clone https://github.com/google/adk-samples.git
-cd adk-samples/contrib/python/brand-search-optimization
+git clone https://github.com/google/adk-recipes.git
+cd adk-recipes/contrib/python/brand-search-optimization
 ```
 
 2. Create your environment file:

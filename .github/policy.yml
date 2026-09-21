@@ -507,7 +507,7 @@ stale_policy:
       # orphan clock it is dead 90 days after its last image upload.
       #
       # What breaks: core/python/long-horizon-harness/README.md embeds
-      # https://raw.githubusercontent.com/google/adk-samples/assets/long-horizon-harness/horizon-demo.gif
+      # https://raw.githubusercontent.com/google/adk-recipes/assets/long-horizon-harness/horizon-demo.gif
       # where `assets` is the GIT REF. Delete the branch and that image 404s
       # in the recipe's README. Nothing in CI would catch it — docs-links.yml
       # checks links, and this failure is silent until someone looks.

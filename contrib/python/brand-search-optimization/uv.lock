@@ -251,9 +251,9 @@ dependencies = [
     { name = "aiohttp" },
     { name = "gcsfs" },
     { name = "google-adk", extra = ["gcp", "otel-gcp"] },
-    { name = "google-auth" },
     { name = "google-cloud-bigquery" },
     { name = "google-genai" },
+    { name = "joserfc" },
     { name = "opentelemetry-resourcedetector-gcp" },
     { name = "pillow" },
     { name = "playwright" },
@@ -280,9 +280,9 @@ requires-dist = [
     { name = "aiohttp", specifier = ">=3.13.4" },
     { name = "gcsfs", specifier = ">=2024.11.0" },
     { name = "google-adk", extras = ["gcp", "otel-gcp"], specifier = ">=2.6.0,<3.0.0" },
-    { name = "google-auth", specifier = ">=2.0.0" },
     { name = "google-cloud-bigquery", specifier = ">=3.25.0" },
     { name = "google-genai", specifier = ">=1.9.0" },
+    { name = "joserfc", specifier = ">=1.6.8" },
     { name = "opentelemetry-resourcedetector-gcp", specifier = "<=1.12.0a0" },
     { name = "pillow", specifier = ">=11.0.0" },
     { name = "playwright", specifier = ">=1.40.0" },
@@ -1578,14 +1578,14 @@ wheels = [
 
 [[package]]
 name = "joserfc"
-version = "1.6.4"
+version = "1.7.5"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "cryptography" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/de/c6/de8fdbdfa75c8ca04fead38a82d573df8a82906e984c349d58665f459558/joserfc-1.6.4.tar.gz", hash = "sha256:34ce5f499bfcc5e9ad4cc75077f9278ab3227b71da9aaf28f9ab705f8a560d3c", size = 231866, upload-time = "2026-04-13T13:15:40.632Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/19/94/80fea1514b7c6d7d37804d3fe9ca81455f633347fc98731bd71ffe1faa17/joserfc-1.7.5.tar.gz", hash = "sha256:d5ff536e658e17664f8c1b1ab60dc4aa62aa973fcef1edd33cc44bda45d6f5ea", size = 234990, upload-time = "2026-08-29T13:05:42.057Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/b6/f7/210b27752e972edb36d239315b08d3eb6b14824cc4a590da2337d195260b/joserfc-1.6.4-py3-none-any.whl", hash = "sha256:3e4a22b509b41908989237a045e25c8308d5fd47ab96bdae2dd8057c6451003a", size = 70464, upload-time = "2026-04-13T13:15:39.259Z" },
+    { url = "https://files.pythonhosted.org/packages/67/c5/82addfd375e5ee6520644e0553e4aadde92d668c4fc99cc716d337fe7bb3/joserfc-1.7.5-py3-none-any.whl", hash = "sha256:add2c2c84e8373b084d526a8b53daba5d7a513a118cd2dcd9fc9f979d0922159", size = 71269, upload-time = "2026-08-29T13:05:40.718Z" },
 ]
 
 [[package]]

@@ -213,8 +213,8 @@ class MockBrowserComputer(BaseComputer):
     # 1x1 transparent PNG image bytes
     MOCK_SCREENSHOT_BYTES: bytes = (
         b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06"
-        b"\x00\x00\x00\x1f\x15c4\x00\x00\x00\rIDATx\x9cc`\x00\x00\x00\x02\x00\x01H\xaf"
-        b"\xa4q\x00\x00\x00\x00IEND\xaeB`\x82"
+        b"\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\x0cIDATx\x9cc`\x00\x02\x00\x00\x05"
+        b"\x00\x01z^\xab?\x00\x00\x00\x00IEND\xaeB`\x82"
     )
 
     def __init__(
@@ -243,17 +243,17 @@ class MockBrowserComputer(BaseComputer):
         self._url = _format_url(self._url or DEFAULT_INITIAL_SEARCH_URL)
         return await self.current_state()
 
-    async def click_at(self, x: int, y: int) -> ComputerState:
+    async def click_at(self, x: int = 0, y: int = 0) -> ComputerState:
         return await self.current_state()
 
-    async def hover_at(self, x: int, y: int) -> ComputerState:
+    async def hover_at(self, x: int = 0, y: int = 0) -> ComputerState:
         return await self.current_state()
 
     async def type_text_at(
         self,
-        x: int,
-        y: int,
-        text: str,
+        text: str = "",
+        x: int | None = None,
+        y: int | None = None,
         press_enter: bool = True,
         clear_before_typing: bool = True,
     ) -> ComputerState:
@@ -264,20 +264,20 @@ class MockBrowserComputer(BaseComputer):
         return await self.current_state()
 
     async def scroll_document(
-        self, direction: Literal["up", "down", "left", "right"]
+        self, direction: Literal["up", "down", "left", "right"] = "down"
     ) -> ComputerState:
         return await self.current_state()
 
     async def scroll_at(
         self,
-        x: int,
-        y: int,
-        direction: Literal["up", "down", "left", "right"],
-        magnitude: int,
+        direction: Literal["up", "down", "left", "right"] = "down",
+        x: int | None = None,
+        y: int | None = None,
+        magnitude: int = DEFAULT_SCROLL_OFFSET,
     ) -> ComputerState:
         return await self.current_state()
 
-    async def wait(self, seconds: int) -> ComputerState:
+    async def wait(self, seconds: int = 1) -> ComputerState:
         return await self.current_state()
 
     async def go_back(self) -> ComputerState:
@@ -312,11 +312,17 @@ class MockBrowserComputer(BaseComputer):
         self._visit(formatted_url)
         return await self.current_state()
 
-    async def key_combination(self, keys: list[str]) -> ComputerState:
+    async def key_combination(
+        self, keys: list[str] | None = None, key: str | None = None
+    ) -> ComputerState:
         return await self.current_state()
 
     async def drag_and_drop(
-        self, x: int, y: int, destination_x: int, destination_y: int
+        self,
+        x: int = 0,
+        y: int = 0,
+        destination_x: int = 0,
+        destination_y: int = 0,
     ) -> ComputerState:
         return await self.current_state()
 
@@ -374,7 +380,7 @@ class PlaywrightBrowserComputer(BaseComputer):
                     self._playwright = await async_playwright().start()
                 if self._browser is None:
                     self._browser = await self._playwright.chromium.launch(
-                        headless=self._headless,
+                        headless=self._headless
                     )
                 if sid not in self._contexts or self._contexts[sid] is None:
                     self._contexts[sid] = await self._browser.new_context(
@@ -399,7 +405,7 @@ class PlaywrightBrowserComputer(BaseComputer):
             await self._page.goto(target_url, wait_until="domcontentloaded")
         return await self.current_state()
 
-    async def click_at(self, x: int, y: int) -> ComputerState:
+    async def click_at(self, x: int = 0, y: int = 0) -> ComputerState:
         await self._ensure_browser()
         if self._page:
             await self._page.mouse.click(x, y)
@@ -411,7 +417,7 @@ class PlaywrightBrowserComputer(BaseComputer):
                 pass
         return await self.current_state()
 
-    async def hover_at(self, x: int, y: int) -> ComputerState:
+    async def hover_at(self, x: int = 0, y: int = 0) -> ComputerState:
         await self._ensure_browser()
         if self._page:
             await self._page.mouse.move(x, y)
@@ -419,15 +425,16 @@ class PlaywrightBrowserComputer(BaseComputer):
 
     async def type_text_at(
         self,
-        x: int,
-        y: int,
-        text: str,
+        text: str = "",
+        x: int | None = None,
+        y: int | None = None,
         press_enter: bool = True,
         clear_before_typing: bool = True,
     ) -> ComputerState:
         await self._ensure_browser()
         if self._page:
-            await self._page.mouse.click(x, y)
+            if x is not None and y is not None:
+                await self._page.mouse.click(x, y)
             if clear_before_typing:
                 await self._page.keyboard.press("Control+A")
                 await self._page.keyboard.press("Backspace")
@@ -443,7 +450,7 @@ class PlaywrightBrowserComputer(BaseComputer):
         return await self.current_state()
 
     async def scroll_document(
-        self, direction: Literal["up", "down", "left", "right"]
+        self, direction: Literal["up", "down", "left", "right"] = "down"
     ) -> ComputerState:
         await self._ensure_browser()
         if self._page:
@@ -456,20 +463,21 @@ class PlaywrightBrowserComputer(BaseComputer):
 
     async def scroll_at(
         self,
-        x: int,
-        y: int,
-        direction: Literal["up", "down", "left", "right"],
-        magnitude: int,
+        direction: Literal["up", "down", "left", "right"] = "down",
+        x: int | None = None,
+        y: int | None = None,
+        magnitude: int = DEFAULT_SCROLL_OFFSET,
     ) -> ComputerState:
         await self._ensure_browser()
         if self._page:
-            await self._page.mouse.move(x, y)
+            if x is not None and y is not None:
+                await self._page.mouse.move(x, y)
             delta_x, delta_y = _calculate_scroll_deltas(direction, magnitude)
             await self._page.mouse.wheel(delta_x, delta_y)
             await asyncio.sleep(POST_SCROLL_WAIT_SECONDS)
         return await self.current_state()
 
-    async def wait(self, seconds: int) -> ComputerState:
+    async def wait(self, seconds: int = 1) -> ComputerState:
         await self._ensure_browser()
         await asyncio.sleep(min(seconds, MAX_WAIT_SECONDS))
         return await self.current_state()
@@ -478,7 +486,9 @@ class PlaywrightBrowserComputer(BaseComputer):
         await self._ensure_browser()
         if self._page:
             try:
-                await self._page.go_back(timeout=DEFAULT_TIMEOUT_MS)
+                await self._page.go_back(
+                    wait_until="domcontentloaded", timeout=DEFAULT_TIMEOUT_MS
+                )
             except Exception:
                 pass
         return await self.current_state()
@@ -487,7 +497,9 @@ class PlaywrightBrowserComputer(BaseComputer):
         await self._ensure_browser()
         if self._page:
             try:
-                await self._page.go_forward(timeout=DEFAULT_TIMEOUT_MS)
+                await self._page.go_forward(
+                    wait_until="domcontentloaded", timeout=DEFAULT_TIMEOUT_MS
+                )
             except Exception:
                 pass
         return await self.current_state()
@@ -520,14 +532,21 @@ class PlaywrightBrowserComputer(BaseComputer):
             await self._page.goto(formatted_url, wait_until="domcontentloaded")
         return await self.current_state()
 
-    async def key_combination(self, keys: list[str]) -> ComputerState:
+    async def key_combination(
+        self, keys: list[str] | None = None, key: str | None = None
+    ) -> ComputerState:
         await self._ensure_browser()
-        if self._page and keys:
-            await self._page.keyboard.press("+".join(keys))
+        combo = keys or ([key] if key else [])
+        if self._page and combo:
+            await self._page.keyboard.press("+".join(combo))
         return await self.current_state()
 
     async def drag_and_drop(
-        self, x: int, y: int, destination_x: int, destination_y: int
+        self,
+        x: int = 0,
+        y: int = 0,
+        destination_x: int = 0,
+        destination_y: int = 0,
     ) -> ComputerState:
         await self._ensure_browser()
         if self._page:
@@ -539,12 +558,14 @@ class PlaywrightBrowserComputer(BaseComputer):
 
     async def current_state(self) -> ComputerState:
         await self._ensure_browser()
+        current_url = "about:blank"
         if self._page:
+            current_url = self._page.url or "about:blank"
             try:
                 screenshot_bytes = await self._page.screenshot(type="png")
                 return ComputerState(
                     screenshot=screenshot_bytes,
-                    url=self._page.url or "about:blank",
+                    url=self._page.url or current_url,
                 )
             except Exception as e:
                 logger.warning(
@@ -552,7 +573,7 @@ class PlaywrightBrowserComputer(BaseComputer):
                 )
         return ComputerState(
             screenshot=MockBrowserComputer.MOCK_SCREENSHOT_BYTES,
-            url="about:blank",
+            url=current_url,
         )
 
     async def close(self) -> None:

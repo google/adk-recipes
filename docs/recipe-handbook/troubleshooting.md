@@ -722,7 +722,7 @@ on the checker and not on your files.
 2. Run `uv run validate all <recipe-path>` from the repo root — a second
    failure is often the cause of the first.
 3. Open an issue at
-   [github.com/google/adk-samples/issues](https://github.com/google/adk-samples/issues):
+   [github.com/google/adk-recipes/issues](https://github.com/google/adk-recipes/issues):
 
    ```
    **Recipe path:** contrib/python/my-recipe

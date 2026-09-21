@@ -70,7 +70,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-REPO = os.environ.get("GITHUB_REPOSITORY", "google/adk-samples")
+REPO = os.environ.get("GITHUB_REPOSITORY", "google/adk-recipes")
 
 # Who hears about it when a recipe has no usable owner, and who is tagged for
 # a decision once the owner has not responded.

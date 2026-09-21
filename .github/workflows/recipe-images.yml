@@ -24,7 +24,7 @@ name: 📦 Recipe Images
 # consumer deploying one of these recipes into their own project has Agent
 # Engine pull the image with its own service agent, in a project we have
 # never heard of. Public read is what removes the otherwise unbounded set of
-# per-consumer IAM grants. These images contain only Apache-2.0 sample code
+# per-consumer IAM grants. These images contain only Apache-2.0 recipe code
 # already published in this repository — no secrets, no customer data.
 #
 # Three triggers, two different questions

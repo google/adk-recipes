@@ -111,8 +111,8 @@ with [Cloud Monitoring](https://cloud.google.com/monitoring) for email alerts:
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/google/adk-samples.git
-cd adk-samples/python/agents/ambient-expense-agent
+git clone https://github.com/google/adk-recipes.git
+cd adk-recipes/core/python/ambient-expense-agent
 ```
 
 ### 2. Configure authentication
@@ -230,6 +230,6 @@ make clean NOTIFICATION_EMAIL=finance@example.com
 
 ## Disclaimer
 
-This agent sample is provided for illustrative purposes only. It serves as a basic example of an agent and a foundational starting point for individuals or teams to develop their own agents.
+This agent recipe is provided for illustrative purposes only. It serves as a basic example of an agent and a foundational starting point for individuals or teams to develop their own agents.
 
-Users are solely responsible for any further development, testing, security hardening, and deployment of agents based on this sample. We recommend thorough review, testing, and the implementation of appropriate safeguards before using any derived agent in a live or critical system.
+Users are solely responsible for any further development, testing, security hardening, and deployment of agents based on this recipe. We recommend thorough review, testing, and the implementation of appropriate safeguards before using any derived agent in a live or critical system.

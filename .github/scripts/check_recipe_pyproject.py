@@ -711,7 +711,7 @@ def _locked_adk_version(recipe_dir: Path) -> Version | None:
     Read because the DECLARED specifier does not tell you what the recipe
     teaches. `google-adk>=1.0.0` admits 2.x, yet several recipes carrying that
     exact specifier resolve to 1.28.0 — the constraint is satisfied and the
-    sample still demonstrates the previous major. The lock is what `uv sync`
+    recipe still demonstrates the previous major. The lock is what `uv sync`
     installs, so the lock is what a reader ends up running.
 
     Every failure path returns None (no notice) rather than guessing. A
@@ -871,7 +871,7 @@ def check_adk_major(
             why=(
                 f"The specifier is not what a reader installs — the lock "
                 f"is. `uv sync` resolves this recipe to {locked}, so the "
-                f"sample demonstrates google-adk {locked.major}.x however "
+                f"recipe demonstrates google-adk {locked.major}.x however "
                 f"permissive the declaration looks."
             ),
             how=(
@@ -896,7 +896,7 @@ def _adk_prerelease_notice(
     """A core recipe locked to a prerelease of the current major.
 
     Separate from the behind-a-major notice because the reader's problem is
-    different: the API is current, but it is not stable, so the sample can
+    different: the API is current, but it is not stable, so the recipe can
     stop working without a deprecation cycle.
     """
     return Diagnostic(

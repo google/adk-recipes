@@ -17,7 +17,7 @@
 #   an owner without write access is silently dropped, leaving the path with
 #   NO owner rather than falling back to the catch-all. Both mistakes were
 #   live on the Go lines until #2605. Verify a change with:
-#     gh api repos/google/adk-samples/codeowners/errors
+#     gh api repos/google/adk-recipes/codeowners/errors
 
 # Catch-all: docs, CI workflows, root configs, anything not matched below
 * @happyhuman

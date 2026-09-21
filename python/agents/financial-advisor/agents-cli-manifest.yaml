@@ -1,0 +1,22 @@
+# agents-cli project manifest (agents-cli 1.x reads this file).
+#
+# Written by the make-python-recipe-deployable repo skill — NOT by an
+# agents-cli scaffold. `acli_version`, `generated_at` and `base_template` are
+# deliberately omitted rather than invented: no scaffold produced this recipe,
+# and a fabricated version makes agents-cli offer a `scaffold upgrade` that
+# cannot work. agents-cli treats an absent version as "unknown" and falls back
+# to generic guidance, which is the accurate outcome here.
+#
+# `agents-cli deploy` uses this file as the project-root marker and reads
+# `deployment_target` to choose how to deploy.
+name: "financial-advisor"
+agent_directory: "financial_advisor"
+language: "python"
+region: "us-central1"
+create_params:
+  deployment_target: "cloud_run"
+  session_type: "in_memory"
+  is_a2a: true
+  cicd_runner: "skip"
+  agent_gateway: false
+  agent_guidance_filename: "AGENTS.md"

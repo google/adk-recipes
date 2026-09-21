@@ -1264,7 +1264,7 @@ jobs:
           # list. An earlier version took every string in the ADC file, and in
           # THIS repository that is a false-positive generator: `.type` is
           # "external_account", `.token_url` is the public STS endpoint, and
-          # `.subject_token_type` is a published URN. adk-samples is full of
+          # `.subject_token_type` is a published URN. adk-recipes is full of
           # Google Cloud recipes, so a PR that adds or documents Workload
           # Identity Federation puts those exact strings in the diff — and the
           # reviewer is REQUIRED to quote the diff verbatim in `window`. That

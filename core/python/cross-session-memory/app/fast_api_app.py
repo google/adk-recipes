@@ -142,7 +142,7 @@ app: FastAPI = get_fast_api_app(
     otel_to_cloud=not use_in_memory_session,
 )
 app.title = "memory-bank-sample"
-app.description = "API for interacting with the Memory Bank sample agent"
+app.description = "API for interacting with the Memory Bank recipe agent"
 
 
 @app.post("/feedback")

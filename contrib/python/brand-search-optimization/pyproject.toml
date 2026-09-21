@@ -9,7 +9,6 @@ requires-python = ">=3.11,<3.13"
 
 dependencies = [
     "google-adk[gcp,otel-gcp]<3.0.0,>=2.6.0",
-    "google-auth>=2.0.0",
     "google-cloud-bigquery>=3.25.0",
     "google-genai>=1.9.0",
     "pillow>=11.0.0",
@@ -20,6 +19,7 @@ dependencies = [
     "aiohttp>=3.13.4",
     "gcsfs>=2024.11.0",
     "opentelemetry-resourcedetector-gcp<=1.12.0a0",
+    "joserfc>=1.6.8",
 ]
 
 [dependency-groups]

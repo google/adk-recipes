@@ -14,6 +14,7 @@
 
 """Defines visual Search Results Agent powered by Gemini Computer Use."""
 
+import copy
 from typing import Any
 
 from google.adk.agents import LlmAgent
@@ -23,46 +24,39 @@ from ...shared_libraries import constants
 from ...tools.browser_computer import get_computer_use_toolset
 from . import prompt
 
-# ADK's BaseComputer exposes the *legacy* Gemini 2.5 Computer Use function
-# names (click_at, type_text_at, hover_at, ...). Gemini 3.x models — including
-# the gemini-3.5-flash this recipe defaults to — emit the modern streamlined
-# action names instead (click, type, move, ...), so without this remapping the
-# model's function calls do not resolve against tools_dict and the agent stalls.
-#
-# Modern ENVIRONMENT_BROWSER action set, per
-# https://ai.google.dev/gemini-api/docs/computer-use:
-#   click, double_click, drag_and_drop, go_back, go_forward, hotkey, key_down,
-#   key_up, middle_click, mouse_down, mouse_up, move, navigate, press_key,
-#   right_click, scroll, take_screenshot, triple_click, type, wait
-#
-# Each alias is registered *in addition to* the legacy name, so the same build
-# keeps working against legacy gemini-2.5-computer-use-preview-10-2025.
 _TOOL_NAME_ALIASES: list[tuple[str, tuple[str, ...]]] = [
-    ("click_at", ("click",)),
+    (
+        "click_at",
+        (
+            "click",
+            "double_click",
+            "triple_click",
+            "right_click",
+            "middle_click",
+        ),
+    ),
     ("type_text_at", ("type",)),
-    ("hover_at", ("move",)),
-    ("scroll_document", ("scroll",)),
+    ("hover_at", ("move", "mouse_down", "mouse_up")),
     ("scroll_at", ("scroll",)),
     ("current_state", ("take_screenshot",)),
-    ("key_combination", ("press_key", "hotkey")),
+    ("key_combination", ("press_key", "hotkey", "key_down", "key_up")),
 ]
 
 
 async def adapt_computer_use_tools_callback(
-    _callback_context: Any,
+    callback_context: Any,
     llm_request: LlmRequest,
 ) -> None:
-    """Registers modern Gemini 3.x action names for the Computer Use tools.
-
-    Each alias points at the same tool object as the legacy name, so both
-    resolve and the recipe works against legacy and modern models alike.
-    """
+    """Registers modern Gemini 3.x action names as renamed copies of legacy tools."""
     for method_name, aliases in _TOOL_NAME_ALIASES:
         tool = llm_request.tools_dict.get(method_name)
         if tool is None:
             continue
         for alias in aliases:
-            llm_request.tools_dict.setdefault(alias, tool)
+            if alias not in llm_request.tools_dict:
+                aliased = copy.copy(tool)
+                aliased.name = alias
+                llm_request.tools_dict[alias] = aliased
 
 
 search_results_agent = LlmAgent(

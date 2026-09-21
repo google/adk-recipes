@@ -66,7 +66,7 @@ POLICY_PATH = Path(__file__).resolve().parents[1] / "policy.yml"
 
 # The GitHub repo to operate on. Set by Actions automatically; fall back to
 # the known upstream when running locally.
-REPO = os.environ.get("GITHUB_REPOSITORY", "google/adk-samples")
+REPO = os.environ.get("GITHUB_REPOSITORY", "google/adk-recipes")
 
 # One REST call per branch would work at this repo's size, but GraphQL gets
 # name + SHA + commit date for every branch in one paginated query.

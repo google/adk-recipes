@@ -23,6 +23,6 @@ Instructions:
    - Identify top 3 to 5 organically ranking competitor product titles.
    - Note product title patterns, structure (e.g. `[Brand] [Gender] [Product Line] [Key Feature] [Color/Spec]`), and prominent attributes shown in listings.
    - If needed, scroll the page (`scroll_document` or `scroll_at`) to observe additional organic listings.
-3. Extract and list the exact observed competitor product titles and their noticeable title structure conventions.
-4. Pass the observed search titles to the downstream comparison agent.
+3. Extract only the observed competitor product titles and their title structure conventions. Do NOT perform brand gap analysis, searchability scoring, or product title optimization yourself—that is strictly the job of `comparison_root_agent`.
+4. Immediately call `transfer_to_agent` with `agent_name="comparison_root_agent"` to hand off the observed competitor titles for comparison and report generation without waiting for another user prompt.
 """

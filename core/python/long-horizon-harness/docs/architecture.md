@@ -413,7 +413,7 @@ The costs:
 
 ## Where to go next
 
-- [`extending.md`](extending.md) — running & adapting the sample: env knobs, tools, routers, and backends.
+- [`extending.md`](extending.md) — running & adapting the recipe: env knobs, tools, routers, and backends.
 - [`docs/configuration.md`](configuration.md) — the environment-variable / extras catalog.
 - [`docs/security-model.md`](security-model.md) — the per-layer auth and security model.
 - [`docs/memory.md`](memory.md) — memory, self-improvement, and the dream-review loop.

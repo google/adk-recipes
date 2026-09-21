@@ -248,6 +248,14 @@ class TestBrowserComputer:
         state = await computer.open_web_browser()
         assert state.screenshot is not None
         assert len(state.screenshot) > 0
+        import io
+
+        from PIL import Image
+
+        with Image.open(io.BytesIO(state.screenshot)) as img:
+            img.load()
+            assert img.format == "PNG"
+            assert img.size == (1, 1)
 
         with patch(
             "brand_search_optimization.tools.browser_computer._resolved_addresses_allowed",

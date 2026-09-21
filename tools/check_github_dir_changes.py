@@ -182,7 +182,7 @@ def _query_permission_api(
     req = urllib.request.Request(api_url)
     req.add_header("Accept", "application/vnd.github+json")
     req.add_header("X-GitHub-Api-Version", "2022-11-28")
-    req.add_header("User-Agent", "adk-samples-ci")
+    req.add_header("User-Agent", "adk-recipes-ci")
     if token:
         req.add_header("Authorization", f"Bearer {token}")
 

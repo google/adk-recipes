@@ -48,6 +48,7 @@ jobs:
       issue_title: '${{ steps.resolve_issue.outputs.issue_title }}'
       issue_body: '${{ steps.resolve_issue.outputs.issue_body }}'
       issue_author: '${{ steps.resolve_issue.outputs.issue_author }}'
+      skip: '${{ steps.resolve_issue.outputs.skip }}'
     steps:
       - name: 'Resolve the issue details'
         id: 'resolve_issue'
@@ -73,6 +74,15 @@ jobs:
           echo "issue_number=${NUMBER}" >> "${GITHUB_OUTPUT}"
           echo "issue_author=${AUTHOR}" >> "${GITHUB_OUTPUT}"
 
+          # Recipe proposals follow their own review process: no AI reply,
+          # no auto-assignment.
+          SKIP='false'
+          if [[ "${TITLE^^}" == *"[RECIPE PROPOSAL]"* ]]; then
+            SKIP='true'
+            echo "Issue #${NUMBER} is a recipe proposal — skipping the automated response."
+          fi
+          echo "skip=${SKIP}" >> "${GITHUB_OUTPUT}"
+
           DELIM="EOF_$(uuidgen)"
           { echo "issue_title<<${DELIM}"; echo "${TITLE}"; echo "${DELIM}"; } >> "${GITHUB_OUTPUT}"
           { echo "issue_body<<${DELIM}"; echo "${BODY}"; echo "${DELIM}"; } >> "${GITHUB_OUTPUT}"
@@ -81,6 +91,8 @@ jobs:
 
   respond:
     needs: 'resolve'
+    if: |-
+      ${{ needs.resolve.outputs.skip != 'true' }}
     permissions:
       contents: 'read'
       id-token: 'write'

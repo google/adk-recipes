@@ -42,8 +42,8 @@ The orchestrator geocodes the input address, then calls all four specialist agen
 
 ```bash
 # Clone the repo
-git clone https://github.com/google/adk-samples.git
-cd adk-samples/contrib/python/market-research-agent
+git clone https://github.com/google/adk-recipes.git
+cd adk-recipes/contrib/python/market-research-agent
 
 # Install dependencies
 uv sync
@@ -135,4 +135,4 @@ uv run pytest tests/ -v
 
 ## Disclaimer
 
-This agent is provided as a sample for demonstration purposes. Market research outputs are estimates based on publicly available Google Places data and should not be used as the sole basis for business decisions.
+This agent is provided as a recipe for demonstration purposes. Market research outputs are estimates based on publicly available Google Places data and should not be used as the sole basis for business decisions.

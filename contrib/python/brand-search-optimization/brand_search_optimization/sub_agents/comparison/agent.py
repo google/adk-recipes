@@ -18,14 +18,12 @@ from google.adk.agents import LlmAgent
 
 from ...shared_libraries import constants
 from . import prompt
-from .models import TitleOptimizationReport
 
 comparison_generator_agent = LlmAgent(
     model=constants.MODEL,
     name="comparison_generator_agent",
     description="Generates detailed title comparison and search optimization proposals.",
     instruction=prompt.COMPARISON_AGENT_PROMPT,
-    output_schema=TitleOptimizationReport,
     output_key="comparison_proposals",
 )
 
@@ -43,6 +41,5 @@ comparison_root_agent = LlmAgent(
     description="Coordinates comparison generation and critique to produce the final optimization report.",
     instruction=prompt.COMPARISON_ROOT_AGENT_PROMPT,
     sub_agents=[comparison_generator_agent, comparison_critic_agent],
-    output_schema=TitleOptimizationReport,
     output_key="final_optimization_report",
 )

@@ -25,5 +25,5 @@ Instructions:
    - Feature/Attribute Keywords (e.g., "breathable mesh", "waterproof", "cushioned")
    - Occasion/Use-case Keywords (e.g., "marathon training", "daily walking")
 4. Filter out redundant keywords and rank them by general shopping search volume and commercial intent (rank generic product terms higher than pure brand tokens).
-5. Output the ranked list of top keywords and specify the single highest-value primary keyword for downstream search engine analysis.
+5. Output the ranked list of top keywords, specify the single highest-value primary keyword for downstream search engine analysis, and immediately call `transfer_to_agent` with `agent_name="search_results_agent"` to proceed with visual search inspection.
 """

@@ -40,7 +40,7 @@ name: Stale Branch Sweep
 # ------------------------------------
 # The run log and the job summary both record each deleted branch's SHA:
 #
-#   gh api -X POST repos/google/adk-samples/git/refs \
+#   gh api -X POST repos/google/adk-recipes/git/refs \
 #     -f ref="refs/heads/<name>" -f sha="<sha>"
 
 on:

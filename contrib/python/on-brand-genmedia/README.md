@@ -66,8 +66,8 @@ The Guidelines Driven Media Gen Agent implements a sequential workflow using spe
 
     ```bash
     # Clone this repository.
-    git clone https://github.com/google/adk-samples.git
-    cd adk-samples/python/agents/on-brand-genmedia
+    git clone https://github.com/google/adk-recipes.git
+    cd adk-recipes/contrib/python/on-brand-genmedia
     # Install the package and dependencies.
     uv sync
     ```
@@ -124,7 +124,7 @@ You can also use the [Google Agents CLI](https://github.com/google/agents-cli) t
 uvx google-agents-cli setup
 ```
 
-**Create the project from this sample** (replace `my-on-brand-genmedia` with your project name):
+**Create the project from this recipe** (replace `my-on-brand-genmedia` with your project name):
 
 ```bash
 agents-cli create my-on-brand-genmedia -a adk@on-brand-genmedia
@@ -177,13 +177,11 @@ You can deploy the Guidelines Driven Media Gen Agent directly to Google Cloud's 
 This section describes how to run automated evaluations on the **local agent logic** using datasets. It verifies agent behavior and tool usage before deployment (it does not call the live Endpoint on Vertex AI reasoning engine).
 
 For running evaluation, install the extra dependencies:
-
 ```bash
 uv sync --dev
 ```
 
 Then the tests and evaluation can be run from the project root directory using the `pytest` module:
-
 ```bash
 uv run pytest eval
 ```
@@ -215,7 +213,7 @@ Switch between different Gemini models (e.g., opting for Pro for planning, Flash
 
 ### 🔍 Advanced Retrieval & RAG Extensions
 
-The sample uses a classical **Lexical Retrieval (TF-IDF)** mechanism to find relevant brand assets in a local JSON file. This acts as a foundation for a production-grade **Retrieval-Augmented Generation (RAG)** pipeline.
+The recipe uses a classical **Lexical Retrieval (TF-IDF)** mechanism to find relevant brand assets in a local JSON file. This acts as a foundation for a production-grade **Retrieval-Augmented Generation (RAG)** pipeline.
 
 #### 5. Dynamic Asset Search Methods
 You can upgrade the retrieval tool to use more sophisticated search paradigms:
@@ -224,7 +222,7 @@ You can upgrade the retrieval tool to use more sophisticated search paradigms:
 *   **Hybrid Search**: Combine lexical (TF-IDF/BM25) and semantic search for maximum precision.
 
 #### 6. Enterprise Storage & DAM Integration
-While the sample reads from a local metadata store, the retrieval tool can be extended to connect directly with:
+While the recipe reads from a local metadata store, the retrieval tool can be extended to connect directly with:
 *   **Google Cloud Storage (GCS)**: List and fetch assets dynamically from cloud buckets.
 *   **Digital Asset Management (DAM) Systems**: Query enterprise asset repositories via APIs.
 
