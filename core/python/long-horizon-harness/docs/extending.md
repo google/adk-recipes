@@ -36,7 +36,7 @@ Per-user config the agent must NOT self-edit lives in the `.lha/` overlay
 
 ## 2. Lift the harness — env + edit points
 
-This is a sample, not a framework: configure it with environment variables and adapt
+This is a recipe, not a framework: configure it with environment variables and adapt
 it by editing the code. There's no wrapper API to learn.
 
 | Change | How |

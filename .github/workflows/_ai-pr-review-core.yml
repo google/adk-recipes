@@ -67,8 +67,6 @@ on:
     secrets:
       APP_PRIVATE_KEY:
         required: false
-      GITHUB_TOKEN_SECRET:
-        required: false
 
 # Nothing here is granted at the top level. Each job below declares the
 # narrowest set it needs, and the whole point of the three-job split is that no
@@ -99,18 +97,25 @@ permissions: {}
 #   - `post` takes no checkout, so there is no `.github/scripts/*.py` on its
 #     disk for a written file to become. It runs `gh api` and `jq`, nothing
 #     off the repo.
-#   - The App token minted for `review` cannot write.
+#   - The token held by `review` cannot write, on EITHER path.
 #
-# One honest caveat on that last point, because a comment that overstates a
-# guarantee is worse than no comment. It holds for the App-token path, which is
-# the configured one. When `app_id` is empty every `gh` call falls back to
-# `secrets.GITHUB_TOKEN_SECRET`, minted by the CALLING workflow, whose
-# `permissions:` block grants writes — a secret passed INTO a job is not
-# re-scoped by that job's own `permissions:`. So in the fallback configuration
-# `review` does hold a write-capable token. Nothing the agent can do reaches it
-# (it is absent from the agy step's environment, and the empty allowlist leaves
-# nothing to read it with), but do not read the split as a guarantee that
-# survives APP_ID being unset.
+# That last point used to carry a caveat, and the caveat was live rather than
+# theoretical: `vars.APP_ID` is not set on this repo, so the App-token step is
+# skipped on every run and the fallback is the only path that executes.
+#
+# The fallback used to be `secrets.GITHUB_TOKEN_SECRET`, passed in by the
+# CALLING workflow, whose `permissions:` block grants `issues: write` and
+# `pull-requests: write`. A secret passed INTO a job is NOT re-scoped by that
+# job's own `permissions:`, so `review` — declared `pull-requests: read` —
+# actually held a write-capable token on every single run.
+#
+# It is now `github.token`, which IS re-scoped by the job's `permissions:`.
+# `review` therefore gets a genuinely read-only token, and `post` and `notify`
+# get one scoped to the writes their own blocks declare. The App token still
+# takes precedence when APP_ID is configured, so nothing changes there.
+#
+# One step already did this (`Filter the diff and size the review`), which is
+# what proved the mechanism works in this context before the rest were moved.
 #
 # The cost is one extra runner and an artifact round-trip per lane, about a
 # minute. Keep it: the alternative is re-earning that minute every time someone
@@ -122,9 +127,21 @@ jobs:
 
     # No write anywhere. This job reads a PR and talks to Google Cloud; every
     # mutation the reviewer performs happens in `post`.
+    #
+    # `issues: read` is needed even though this job never touches an issue.
+    # Top-level PR comments live on the ISSUES endpoint, and
+    # post_review_comments.py reads them here — in the payload-building step,
+    # not in `post` — so that a finding already raised in an earlier round is
+    # suppressed rather than repeated. Without this scope that read 403s.
+    # It is caught and logged rather than raised, so the run stays green while
+    # four lanes silently re-post the same top-level comment on every push,
+    # which is the exact non-convergence the dedup exists to prevent. This
+    # only became load-bearing when the token stopped being the caller's
+    # write-capable secret and started being scoped by this block.
     permissions:
       contents: 'read'
       id-token: 'write'
+      issues: 'read'
       pull-requests: 'read'
 
     outputs:
@@ -193,7 +210,7 @@ jobs:
         if: |-
           ${{ inputs.event_name == 'pull_request_target' || inputs.event_name == 'workflow_dispatch' }}
         env:
-          GH_TOKEN: '${{ steps.generate_token.outputs.token || secrets.GITHUB_TOKEN_SECRET }}'
+          GH_TOKEN: '${{ steps.generate_token.outputs.token || github.token }}'
           EVENT_NAME: '${{ inputs.event_name }}'
           WORKFLOW_PR_NUMBER: '${{ inputs.pr_number_dispatch }}'
           PULL_REQUEST_NUMBER: '${{ inputs.pr_number_pull_request }}'
@@ -238,7 +255,7 @@ jobs:
         if: |-
           ${{ inputs.event_name == 'issue_comment' }}
         env:
-          GH_TOKEN: '${{ steps.generate_token.outputs.token || secrets.GITHUB_TOKEN_SECRET }}'
+          GH_TOKEN: '${{ steps.generate_token.outputs.token || github.token }}'
           COMMENT_BODY: '${{ inputs.comment_body }}'
           PR_NUMBER: '${{ inputs.pr_number_issue }}'
         run: |-
@@ -274,7 +291,7 @@ jobs:
       - name: 'Check whether the PR diff is fetchable'
         id: 'diff_size_guard'
         env:
-          GH_TOKEN: '${{ steps.generate_token.outputs.token || secrets.GITHUB_TOKEN_SECRET }}'
+          GH_TOKEN: '${{ steps.generate_token.outputs.token || github.token }}'
           PR_NUMBER: '${{ steps.get_pr.outputs.pr_number || steps.get_pr_comment.outputs.pr_number }}'
         run: |-
           set -euo pipefail
@@ -374,7 +391,7 @@ jobs:
         id: 'budget'
         if: steps.diff_size_guard.outputs.skip != 'true'
         env:
-          GH_TOKEN: '${{ steps.generate_token.outputs.token || secrets.GITHUB_TOKEN_SECRET }}'
+          GH_TOKEN: '${{ steps.generate_token.outputs.token || github.token }}'
           PR_NUMBER: '${{ steps.get_pr.outputs.pr_number || steps.get_pr_comment.outputs.pr_number }}'
           REVIEW_LABEL: '${{ inputs.review_label }}'
           EVENT_NAME: '${{ inputs.event_name }}'
@@ -424,7 +441,7 @@ jobs:
           steps.diff_size_guard.outputs.skip != 'true' &&
           steps.budget.outputs.skip != 'true'
         env:
-          GH_TOKEN: '${{ steps.generate_token.outputs.token || secrets.GITHUB_TOKEN_SECRET }}'
+          GH_TOKEN: '${{ steps.generate_token.outputs.token || github.token }}'
           PR_NUMBER: '${{ steps.get_pr.outputs.pr_number || steps.get_pr_comment.outputs.pr_number }}'
           LAST_REVIEWED_SHA: '${{ steps.budget.outputs.last_reviewed_sha }}'
           HEAD_SHA: '${{ steps.budget.outputs.head_sha }}'
@@ -569,12 +586,59 @@ jobs:
           steps.fetch_diff.outputs.empty != 'true'
         env:
           BUDGET_CEILING: '${{ steps.budget.outputs.max_comments }}'
+          GH_TOKEN: '${{ github.token }}'
+          PR_NUMBER: '${{ steps.get_pr.outputs.pr_number || steps.get_pr_comment.outputs.pr_number }}'
         run: |-
           set -euo pipefail
+
+          # The files THIS PR changes, asked of the API rather than read off
+          # the diff we fetched. The two differ exactly when it matters: an
+          # incremental diff taken across a merge of the BASE branch also
+          # carries whatever landed on base in between, and that is not this
+          # PR's code to review. On #2628 the PR changed 10 files and the
+          # lanes read 37, the other 27 belonging to #2626.
+          #
+          # Paged: the unpaged endpoint stops at 100 without saying so, and a
+          # short list here would drop real files out of the review.
+          #
+          # Retried three times like every other `gh` call in this workflow,
+          # and for a sharper reason than the others. This step made no
+          # network call at all before, so an unretried blip here would turn a
+          # transient API hiccup into a failed lane on a perfectly good PR.
+          #
+          # Written to a temporary file and moved into place only on success,
+          # so a run that dies mid-pagination cannot leave a SHORT list behind
+          # -- a short list is not a failure, it is a filter that silently
+          # drops real files out of the review.
+          FETCHED_FILES='false'
+          for attempt in 1 2 3; do
+            if gh api --paginate \
+                 "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/files" \
+                 --jq '.[].filename' > pr_files.partial; then
+              FETCHED_FILES='true'
+              break
+            fi
+            echo "::warning::gh api pulls/files failed (attempt ${attempt}/3); retrying in 5s..."
+            sleep 5
+          done
+
+          if [[ "${FETCHED_FILES}" == 'true' ]]; then
+            mv pr_files.partial pr_files.txt
+            echo "$(wc -l < pr_files.txt | tr -d ' ') file(s) belong to this PR."
+          else
+            # Fail OPEN, matching the script: an empty list filters nothing.
+            # Reviewing the whole diff is a bug we can see in the log; a list
+            # we could not fetch, treated as authoritative, would silently
+            # review nothing and report a clean PR.
+            rm -f pr_files.partial
+            : > pr_files.txt
+            echo "::warning::could not list this PR's files after 3 attempts; reviewing the diff unfiltered"
+          fi
 
           python3 .github/scripts/prepare_review_diff.py \
             --diff pr_diff.txt \
             --out pr_diff_reviewable.txt \
+            --only-files pr_files.txt \
             --budget-ceiling "${BUDGET_CEILING:-0}" \
             --github-output "${GITHUB_OUTPUT}"
 
@@ -586,7 +650,12 @@ jobs:
           steps.diff_size_guard.outputs.skip != 'true' &&
           steps.prepare_diff.outputs.reviewable == 'false'
         run: |-
-          echo "Every changed file is generated, vendored or a lockfile. Nothing to review."
+          # Two reasons reach here now, and the log is where someone goes to
+          # find out which: everything in the diff was generated/vendored/a
+          # lockfile, OR everything in it belonged to the base branch rather
+          # than to this PR, which is what a merge-only push looks like. The
+          # filter step above names the files for each.
+          echo "Nothing left to review: every file in the diff was either generated, vendored or a lockfile, or was not part of this PR at all (see the filter step for which)."
 
       # agy authenticates headlessly via Application Default Credentials, which
       # this step provides by exporting GOOGLE_APPLICATION_CREDENTIALS.
@@ -1139,47 +1208,37 @@ jobs:
             exit 1
           fi
 
-          # `head -c N <file>` rather than `printf ... | head -c N`: with a
-          # file argument nothing is writing into a pipe, so there is no
-          # SIGPIPE for `set -o pipefail` to turn into a failed step. Bytes,
-          # not characters, is what the argv limit constrains, and `head -c`
-          # counts bytes natively.
+          # Fitting the diff to the budget is a REVIEW decision, not a string
+          # operation, so it lives in prepare_review_diff.py where it can be
+          # tested. This used to be `head -c "${DIFF_BUDGET}"`, which cuts at a
+          # byte offset in git's order — roughly alphabetical. On PR #2626 that
+          # spent the whole budget on the six paths that sorted first, four of
+          # them markdown, and left every one of the fourteen source files
+          # unreviewed while telling the author to split the PR up.
           #
-          # pr_diff_used.txt is what the reviewer actually sees, so the
-          # posting step validates line anchors against THIS file, never the
-          # untruncated one — otherwise a finding in the discarded tail would
-          # look valid and be posted at a position GitHub rejects.
+          # The packer fills the same budget with whole files instead, source
+          # before tests before prose, smallest first inside a tier. Same PR,
+          # same budget: ten source files reviewed in full rather than none.
+          #
+          # pr_diff_used.txt is what the reviewer actually sees, so the posting
+          # step validates line anchors against THIS file, never the unpacked
+          # one — otherwise a finding in a file that did not fit would look
+          # valid and be posted at a position GitHub rejects.
           DIFF_BYTES="$(wc -c < pr_diff_reviewable.txt)"
           if (( DIFF_BYTES > DIFF_BUDGET )); then
-            echo "::warning::diff is ${DIFF_BYTES} bytes; trimming to ${DIFF_BUDGET} to fit the prompt budget"
-            {
-              head -c "${DIFF_BUDGET}" pr_diff_reviewable.txt
-              printf '\n[... diff truncated — review only what is shown above ...]'
-            } > pr_diff_used.txt
+            echo "::warning::diff is ${DIFF_BYTES} bytes; packing it into ${DIFF_BUDGET}"
+          fi
+          python3 .github/scripts/prepare_review_diff.py \
+            --diff pr_diff_reviewable.txt \
+            --out pr_diff_used.txt \
+            --max-bytes "${DIFF_BUDGET}" \
+            --unreviewed-out unreviewed_files.txt
 
-            # Name what fell off the end. A truncated review is not wrong, but
-            # it IS narrower than it looks: the author sees comments on the
-            # files that happened to sort early and silence on the rest, and
-            # reasonably reads that silence as approval. The cut lands at a
-            # byte offset, so the last file named in the kept text is the last
-            # one that was even partly seen; everything after it in the full
-            # diff was not looked at at all.
-            grep -o '^diff --git a/[^ ]*' pr_diff_reviewable.txt \
-              | sed 's|^diff --git a/||' > diff_all_files.txt || true
-            grep -o '^diff --git a/[^ ]*' pr_diff_used.txt \
-              | sed 's|^diff --git a/||' > diff_seen_files.txt || true
-            # comm needs sorted input; the diff order is not sorted.
-            sort -u diff_all_files.txt > all_sorted.txt
-            sort -u diff_seen_files.txt > seen_sorted.txt
-            comm -23 all_sorted.txt seen_sorted.txt > unreviewed_files.txt
-            UNREVIEWED="$(wc -l < unreviewed_files.txt | tr -d ' ')"
-            if (( UNREVIEWED > 0 )); then
-              echo "::warning::${UNREVIEWED} file(s) fell outside the prompt budget and were not reviewed by this lane"
-              head -n 20 unreviewed_files.txt | sed 's/^/  unreviewed: /'
-            fi
-          else
-            cp pr_diff_reviewable.txt pr_diff_used.txt
-            : > unreviewed_files.txt
+          # Silence on a file reads as approval of it, so a file that did not
+          # fit has to be named. The author is told in the review body too.
+          UNREVIEWED="$(wc -l < unreviewed_files.txt | tr -d ' ')"
+          if (( UNREVIEWED > 0 )); then
+            echo "::warning::${UNREVIEWED} file(s) did not fit the prompt budget and were not reviewed by this lane"
           fi
 
           cat prompt_head.txt pr_diff_used.txt > full_prompt.txt
@@ -1205,7 +1264,7 @@ jobs:
           # list. An earlier version took every string in the ADC file, and in
           # THIS repository that is a false-positive generator: `.type` is
           # "external_account", `.token_url` is the public STS endpoint, and
-          # `.subject_token_type` is a published URN. adk-samples is full of
+          # `.subject_token_type` is a published URN. adk-recipes is full of
           # Google Cloud recipes, so a PR that adds or documents Workload
           # Identity Federation puts those exact strings in the diff — and the
           # reviewer is REQUIRED to quote the diff verbatim in `window`. That
@@ -1378,7 +1437,7 @@ jobs:
           steps.prepare_diff.outputs.reviewable == 'true'
         id: 'build_review'
         env:
-          GH_TOKEN: '${{ steps.generate_token.outputs.token || secrets.GITHUB_TOKEN_SECRET }}'
+          GH_TOKEN: '${{ steps.generate_token.outputs.token || github.token }}'
           PR_NUMBER: '${{ steps.get_pr.outputs.pr_number || steps.get_pr_comment.outputs.pr_number }}'
           REVIEW_LABEL: '${{ inputs.review_label }}'
           # prepare_diff's number, not the budget step's: it is the SMALLER
@@ -1539,7 +1598,7 @@ jobs:
           needs.review.outputs.skip == 'true' &&
           needs.review.outputs.total_files != '0'
         env:
-          GH_TOKEN: '${{ steps.generate_token.outputs.token || secrets.GITHUB_TOKEN_SECRET }}'
+          GH_TOKEN: '${{ steps.generate_token.outputs.token || github.token }}'
           # REQUIRED, not tidiness. This job takes no checkout, so there is no
           # git remote for `gh` to infer the repository from and `gh pr
           # comment` would fail with "none of the git remotes point to a known
@@ -1566,7 +1625,7 @@ jobs:
           needs.review.outputs.has_payload == 'true'
         id: 'post_review'
         env:
-          GH_TOKEN: '${{ steps.generate_token.outputs.token || secrets.GITHUB_TOKEN_SECRET }}'
+          GH_TOKEN: '${{ steps.generate_token.outputs.token || github.token }}'
           PR_NUMBER: '${{ needs.review.outputs.pr_number }}'
           REVIEW_LABEL: '${{ inputs.review_label }}'
           DRY_RUN: '${{ inputs.dry_run }}'
@@ -1690,7 +1749,7 @@ jobs:
           PR_NUMBER: '${{ needs.review.outputs.pr_number }}'
           REVIEW_LABEL: '${{ inputs.review_label }}'
         with:
-          github-token: '${{ steps.generate_token.outputs.token || secrets.GITHUB_TOKEN_SECRET }}'
+          github-token: '${{ steps.generate_token.outputs.token || github.token }}'
           script: |-
             const issueNumber = Number(process.env.PR_NUMBER);
             if (!issueNumber) {

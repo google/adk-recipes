@@ -1,4 +1,4 @@
-# Copyright 2025 Google LLC
+# Copyright 2026 Google LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,17 +12,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Defines Brand Search Optimization Agent"""
+"""Defines the root Brand Search Optimization Agent."""
 
-from google.adk.agents.llm_agent import Agent
+from google.adk.agents import LlmAgent
+from google.adk.apps import App
 
 from . import prompt
 from .shared_libraries import constants
-from .sub_agents.comparison.agent import comparison_root_agent
-from .sub_agents.keyword_finding.agent import keyword_finding_agent
-from .sub_agents.search_results.agent import search_results_agent
+from .sub_agents import (
+    comparison_root_agent,
+    keyword_finding_agent,
+    search_results_agent,
+)
 
-root_agent = Agent(
+root_agent = LlmAgent(
     model=constants.MODEL,
     name=constants.AGENT_NAME,
     description=constants.DESCRIPTION,
@@ -33,3 +36,5 @@ root_agent = Agent(
         comparison_root_agent,
     ],
 )
+
+app = App(root_agent=root_agent, name="brand_search_optimization")

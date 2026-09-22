@@ -195,14 +195,49 @@ jobs:
           set -euo pipefail
 
           FAILED=0
-          ALLOW_PATTERN='pypi\.org|files\.pythonhosted\.org'
 
           while IFS= read -r lockfile; do
-            # Two-stage grep: first find all url/registry lines with an HTTPS URL,
-            # then reject lines that match the allowlist.
-            MATCHES=$(grep -En "(url|registry)\s*=" "$lockfile" | \
-              grep -E "https?://" | \
-              grep -Ev "($ALLOW_PATTERN)" || true)
+            # Each URL is extracted and tested SEPARATELY, rather than
+            # accepting or rejecting a whole line.
+            #
+            # Two defects in the previous form, both of which let a
+            # non-public registry through:
+            #
+            #  1. The pattern was the bare alternation `pypi\.org|...`
+            #     matched anywhere on the line, so any URL that merely
+            #     CONTAINED an allowed string passed:
+            #       https://pypi.org.attacker.example/simple   (host prefix)
+            #       https://internal.example/?m=files.pythonhosted.org (query)
+            #     The fix is to anchor at the start of the URL token and
+            #     require a `:` or `/` delimiter (or end) after the host.
+            #
+            #  2. Anchoring alone is still not enough while the decision is
+            #     line-scoped, because `grep -Ev` drops a line as soon as
+            #     ANYTHING on it matches. A line carrying both a disallowed
+            #     and an allowed URL passes, and uv.lock is TOML, which takes
+            #     trailing comments:
+            #       url = "https://evil.example/x"  # https://pypi.org/simple
+            #     A hand-edited lockfile is exactly the threat model here —
+            #     uv would never emit that — so the per-URL loop matters.
+            #
+            # awk rather than a shell loop for speed: a `grep` per URL spawns
+            # hundreds of thousands of processes across the repo's 44
+            # lockfiles and does not finish inside the job timeout. This is
+            # one process per file and completes in about a second for all
+            # of them. \047 is a single quote, which keeps the whole program
+            # quotable in single quotes.
+            MATCHES=$(awk '
+              /(url|registry)[[:space:]]*=/ {
+                rest = $0
+                while (match(rest, /https?:\/\/[^"\047[:space:],]+/)) {
+                  url = substr(rest, RSTART, RLENGTH)
+                  if (url !~ /^https?:\/\/([^\/@]*@)?(pypi\.org|files\.pythonhosted\.org)([:\/]|$)/) {
+                    printf "%d:%s\n", FNR, url
+                  }
+                  rest = substr(rest, RSTART + RLENGTH)
+                }
+              }
+            ' "$lockfile")
             if [ -n "$MATCHES" ]; then
               echo "[FAIL] $lockfile contains non-PyPI registry URLs:"
               echo "$MATCHES" | sed 's/^/  /'

@@ -1,5 +1,5 @@
 [project]
-name = "adk-samples-tools"
+name = "adk-recipes-tools"
 version = "0.1.0"
 requires-python = ">=3.11"
 authors = [
@@ -26,11 +26,19 @@ validate = "validate:main"
 # packaging is also imported by .github/scripts/check_recipe_pyproject.py,
 # but that gate injects its own deps via `uv run --with` and does not read
 # this group -- so it is declared here for the test run, not for that gate.
+#
+# ruff is here so that the remedy CI prints actually runs. python-format.yml
+# tells a contributor whose PR just failed to run `uv run ruff format`, and
+# three docs pages repeat that command, but ruff was in no dependency group
+# and absent from uv.lock -- so it died with "Failed to spawn: ruff", leaving
+# a red check and no way forward. CI itself invokes `uvx ruff`, which is why
+# the gap survived this long.
 dev = [
   "pytest>=8",
   "tomlkit>=0.13",
   "ruamel.yaml>=0.18",
   "packaging>=24",
+  "ruff>=0.14",
 ]
 
 [build-system]
@@ -55,6 +63,12 @@ packages = ["tools"]
 
 [tool.ruff]
 line-length = 80
+# NOTE: disagrees with requires-python = ">=3.11" above and with the 3.11
+# floor in AGENTS.md, and should eventually become "py311". The bump is not
+# free: it enables UP017/UP041/I001 on code that is clean today, adding 5 new
+# failures inside the CI-scanned roots (genmedia-for-commerce x4,
+# virtual-tryon x1) and 18 repo-wide. All autofixable, but they land in
+# recipes unrelated to whatever PR bumps this, so it needs its own change.
 target-version = "py310"
 # Resolve first-party imports per recipe, so a package not named `app` is
 # still first-party to its own recipe.

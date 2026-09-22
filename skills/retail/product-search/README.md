@@ -11,7 +11,7 @@ Codex, ...) via `npx skills add`. The tool discovers `SKILL.md` from this
 recipe and registers `/retail-product-search` as an invocable skill:
 
 ```bash
-npx skills add google/adk-samples --skill retail-product-search
+npx skills add google/adk-recipes --skill retail-product-search
 ```
 
 Installs to `~/.claude/skills/` or `~/.agents/skills/` depending on host.
@@ -21,8 +21,8 @@ Antigravity discovers from `~/.agents/skills/` automatically.
 consuming it):
 
 ```bash
-git clone https://github.com/google/adk-samples.git
-cd adk-samples/skills/retail/product-search
+git clone https://github.com/google/adk-recipes.git
+cd adk-recipes/skills/retail/product-search
 uv sync
 ```
 

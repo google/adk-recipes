@@ -48,36 +48,43 @@ on:
       #     Scoped to manifest.yaml rather than all of core/**: the recipe
       #     set is a function of which manifests exist AND of the `language:`
       #     line inside them, and nothing else under a recipe can change it.
-      #   .github/workflows/_ai-pr-review-core.yml
-      #     test_post_review_comments.py::
-      #     test_workflow_invokes_this_script_with_the_flags_it_defines parses
-      #     that workflow and pins the command line it uses to call
-      #     post_review_comments.py. The script is invoked from a shell block,
-      #     so a renamed flag or a moved file is invisible to ruff and pytest
-      #     alike — and a PR editing only the workflow is exactly the PR that
-      #     breaks the contract, so without this entry the pin cannot fire on
-      #     the change it exists to catch.
-      #   .github/workflows/_ai-issue-triage-core.yml & _ai-issue-response-core.yml
-      #     Same reasoning, for the security invariants in
-      #     .github/scripts/tests/test_ai_workflow_hardening.py. All three agy
-      #     workflows are pinned there — an empty tool allowlist above all —
-      #     and the PR that would undo one of them is a PR that touches only
-      #     that workflow. b/555419958 is what those pins exist for; leaving
-      #     these entries out would make them unable to fire.
+      #   .github/workflows/**
+      #     The whole directory, because the tests read the whole directory.
+      #     This entry used to enumerate the three _ai-*-core.yml files, which
+      #     under-matched badly:
+      #       - test_ai_workflow_hardening.py:408 globs WORKFLOWS/"*.yml" and
+      #         checks every caller/callee permission pair in the repo, so ANY
+      #         workflow can break it.
+      #       - LANES at :552 globs "ai-pr-review-*.yml" — all five lanes,
+      #         none of which were listed.
+      #       - test_house_rules_workflow.py:36 pins 18 invariants on
+      #         ai-pr-review-house-rules.yml, the ONLY lane that checks out
+      #         fork PR code, and it was not listed either. The most
+      #         security-exposed workflow in the repo was the one whose tests
+      #         could not fire on a PR that touched only it.
+      #       - test_post_review_comments.py pins the command line
+      #         _ai-pr-review-core.yml uses to invoke post_review_comments.py.
+      #     b/555419958 is what these pins exist for, and the note below about
+      #     a PR merging green is exactly what was happening. Globbing the
+      #     directory costs a few extra 51-second runs and removes a whole
+      #     class of "the test could not run" from the design.
+      #   .github/review-rules.md & .github/review-voice.md
+      #     test_ai_workflow_hardening.py:655-656 enforces a byte budget on
+      #     each, and :712 parses review-voice.md. Editing either is precisely
+      #     what can blow the budget.
       # Without these entries such a PR merges green and the failure only
       # surfaces later, on an unrelated PR that happens to touch tools/.
       - ".github/policy.yml"
       - ".github/schemas/**"
       - ".github/dependabot.yml"
-      - ".github/workflows/_ai-pr-review-core.yml"
-      - ".github/workflows/_ai-issue-triage-core.yml"
-      - ".github/workflows/_ai-issue-response-core.yml"
+      - ".github/workflows/**"
+      - ".github/review-rules.md"
+      - ".github/review-voice.md"
       - "core/**/manifest.yaml"
       - "contrib/**/manifest.yaml"
       - "skills/**/manifest.yaml"
       - "pyproject.toml"
       - "uv.lock"
-      - ".github/workflows/tools-tests.yml"
   push:
     branches:
       - main
@@ -90,16 +97,15 @@ on:
       - ".github/scripts/**"
       - ".github/policy.yml"
       - ".github/schemas/**"
-      - ".github/workflows/_ai-pr-review-core.yml"
-      - ".github/workflows/_ai-issue-triage-core.yml"
-      - ".github/workflows/_ai-issue-response-core.yml"
+      - ".github/workflows/**"
+      - ".github/review-rules.md"
+      - ".github/review-voice.md"
       - ".github/dependabot.yml"
       - "core/**/manifest.yaml"
       - "contrib/**/manifest.yaml"
       - "skills/**/manifest.yaml"
       - "pyproject.toml"
       - "uv.lock"
-      - ".github/workflows/tools-tests.yml"
   workflow_dispatch:
 
 permissions:

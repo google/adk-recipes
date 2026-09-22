@@ -83,6 +83,7 @@ class Doc(str, Enum):
     REQUIRED_FILES = "required-file-or-directory-missing"
     PLACEMENT = "recipe-is-in-the-wrong-folder"
     RETIRED_FOLDER = "changes-inside-a-retired-folder"
+    GITHUB_DIR_ADMIN = "only-repository-admins-may-modify-files-under-github"
 
     README_MISSING = "readmemd-is-missing-or-empty"
     README_TODO = "readmemd-contains-todo-placeholders"
@@ -111,6 +112,9 @@ class Doc(str, Enum):
 
     ADK_MAJOR = "core-recipe-is-behind-the-current-adk-major"
     RECIPE_INACTIVE = "recipe-is-marked-inactive"
+
+    DOCKER_BUILD = "dockerfile-build-failed"
+    DOCKER_SERVES = "recipe-container-does-not-serve"
 
     CI_FAULT = "ci-infrastructure-failure"
 

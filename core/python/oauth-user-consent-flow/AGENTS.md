@@ -63,7 +63,7 @@ user asks to read a Drive file         user asks to read a Drive file
 ## Most interesting files to study (in order)
 
 ### OAuth consent flow (the heart of this recipe)
-1. **`app/tools.py`** — the core of the sample. `negotiate_creds()` implements
+1. **`app/tools.py`** — the core of the recipe. `negotiate_creds()` implements
    the **three-stage credential resolution**: **Stage 1** reads a cached/injected
    token from `tool_context.state` (checks both `TOKEN_CACHE_KEY` and the
    `temp:<AUTH_ID>` key Gemini Enterprise injects; handles both a raw access-token

@@ -16,6 +16,7 @@ import contextlib
 import os
 from collections.abc import AsyncIterator
 
+import google.auth
 from a2a.server.tasks import InMemoryTaskStore
 from dotenv import load_dotenv
 from fastapi import FastAPI
@@ -26,6 +27,16 @@ from __AGENT_PACKAGE__.app_utils import services
 from __AGENT_PACKAGE__.app_utils.a2a import attach_a2a_routes
 
 load_dotenv()
+
+# Cloud telemetry needs Application Default Credentials. Resolve them here
+# rather than letting get_fast_api_app raise DefaultCredentialsError at
+# import time: a container built from this template has no ADC in CI, and an
+# unguarded otel_to_cloud=True makes the image unstartable there.
+try:
+    _, project_id = google.auth.default()
+except Exception:
+    project_id = None
+
 allow_origins = (
     os.getenv("ALLOW_ORIGINS", "").split(",")
     if os.getenv("ALLOW_ORIGINS")
@@ -64,7 +75,7 @@ app: FastAPI = get_fast_api_app(
     artifact_service_uri=services.ARTIFACT_SERVICE_URI,
     allow_origins=allow_origins,
     session_service_uri=services.SESSION_SERVICE_URI,
-    otel_to_cloud=True,
+    otel_to_cloud=project_id is not None and not os.getenv("INTEGRATION_TEST"),
     lifespan=lifespan,
 )
 app.title = "__PROJECT_NAME__"

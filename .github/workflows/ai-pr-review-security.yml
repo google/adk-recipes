@@ -162,4 +162,3 @@ jobs:
         * a GitHub Actions expression interpolated directly into a `run:` block
     secrets:
       APP_PRIVATE_KEY: '${{ secrets.APP_PRIVATE_KEY }}'
-      GITHUB_TOKEN_SECRET: '${{ secrets.GITHUB_TOKEN }}'

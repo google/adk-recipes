@@ -152,4 +152,3 @@ jobs:
         * a resource opened on one line and not closed on the visible failure path
     secrets:
       APP_PRIVATE_KEY: '${{ secrets.APP_PRIVATE_KEY }}'
-      GITHUB_TOKEN_SECRET: '${{ secrets.GITHUB_TOKEN }}'

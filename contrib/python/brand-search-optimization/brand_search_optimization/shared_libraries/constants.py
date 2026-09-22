@@ -12,12 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Defines constants."""
+"""Defines shared constants for brand search optimization."""
 
 import os
 
 AGENT_NAME = "brand_search_optimization"
-DESCRIPTION = "A helpful assistant for brand search optimization."
+DESCRIPTION = (
+    "A multi-agent assistant for optimizing brand product search performance "
+    "using Gemini Computer Use."
+)
 PROJECT = os.getenv("GOOGLE_CLOUD_PROJECT", "EMPTY")
 LOCATION = os.getenv("GOOGLE_CLOUD_LOCATION", "global")
 MODEL = os.getenv("MODEL")

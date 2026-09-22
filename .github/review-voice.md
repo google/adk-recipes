@@ -1,4 +1,4 @@
-# Review voice — `google/adk-samples`
+# Review voice — `google/adk-recipes`
 
 **How an automated review comment must read.** The AI reviewers get everything
 between the `BEGIN`/`END REVIEWER VOICE` markers injected verbatim into their

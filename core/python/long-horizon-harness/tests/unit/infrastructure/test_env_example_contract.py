@@ -14,7 +14,7 @@
 
 """`.env.example` is a catalog of names, not a second copy of the defaults.
 
-Both `make dev` and adk-samples CI copy `.env.example` to `.env` and source it,
+Both `make dev` and adk-recipes CI copy `.env.example` to `.env` and source it,
 so seeding must not change behaviour. A bare ``KEY=`` exports an empty string,
 which beats a code default under ``os.environ.get(KEY, "default")`` — hence the
 two rules enforced here.

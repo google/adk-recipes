@@ -446,6 +446,7 @@ def test_no_job_asks_for_more_than_every_caller_grants():
     [
         (PR_REVIEW, "review"),
         (ISSUE_RESPONSE, "respond"),
+        (ISSUE_TRIAGE, "triage"),
     ],
     ids=lambda item: getattr(item, "name", str(item)),
 )
@@ -478,6 +479,7 @@ def test_the_response_is_scanned_against_real_credential_material(path, job):
     [
         (PR_REVIEW, "review"),
         (ISSUE_RESPONSE, "respond"),
+        (ISSUE_TRIAGE, "triage"),
     ],
     ids=lambda item: getattr(item, "name", str(item)),
 )
@@ -713,3 +715,41 @@ def test_the_voice_corpus_carries_examples_not_adjectives():
     body = text.split("<!-- BEGIN REVIEWER VOICE -->")[1]
     assert body.count("- `") >= 15, "too few concrete examples to calibrate on"
     assert "GOOD:" in body and "BAD, with the reason:" in body
+
+
+# --------------------------------------------------------------------------
+# The review job's scopes must match what its steps actually call.
+#
+# This job's token used to be a secret minted by the caller, which carried the
+# caller's write scopes regardless of what the job declared. Now it is
+# `github.token`, scoped by the block below — so the block has to be right,
+# and a missing READ scope fails silently rather than loudly.
+# --------------------------------------------------------------------------
+
+
+def test_review_job_can_read_top_level_pr_comments():
+    """`issues: read` is required, and its absence is silent.
+
+    Top-level PR comments live on the issues endpoint.
+    post_review_comments.py reads them in the review job's payload-building
+    step to suppress findings already raised in an earlier round, and it
+    catches a failed read rather than raising. Drop this scope and the run
+    stays green while four lanes re-post the same comment on every push.
+    """
+    perms = _load(PR_REVIEW)["jobs"]["review"]["permissions"]
+    assert perms.get("issues") == "read", (
+        "review reads repos/{repo}/issues/{pr}/comments via "
+        "post_review_comments.py; without issues:read that read 403s and "
+        "top-level deduplication silently stops working"
+    )
+
+
+def test_review_job_holds_no_write_scope_other_than_id_token():
+    """The whole point of the three-job split: `review` cannot mutate."""
+    perms = _load(PR_REVIEW)["jobs"]["review"]["permissions"]
+    writes = {
+        scope: level
+        for scope, level in perms.items()
+        if level == "write" and scope != "id-token"
+    }
+    assert not writes, f"review must not hold write scopes, found {writes}"

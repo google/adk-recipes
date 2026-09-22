@@ -47,10 +47,10 @@ For a detailed walkthrough of every component, edge case, and design decision, s
 
 ### Step 1: Get the Code
 
-**Option A: Clone directly from adk-samples**
+**Option A: Clone directly from adk-recipes**
 ```bash
-git clone https://github.com/google/adk-samples.git
-cd adk-samples/contrib/python/multiformat-hybrid-rag
+git clone https://github.com/google/adk-recipes.git
+cd adk-recipes/contrib/python/multiformat-hybrid-rag
 ```
 
 **Option B: Create project from template**
@@ -63,7 +63,7 @@ This uses the [Google Agents CLI](https://github.com/google/agents-cli) to creat
 uvx google-agents-cli setup
 ```
 
-**Create the project from this sample**:
+**Create the project from this recipe**:
 
 ```bash
 agents-cli create my_rag_app -a adk@multiformat-hybrid-rag
@@ -283,6 +283,6 @@ See `.env` for the full list.
 
 ## Disclaimer
 
-This agent sample is provided for illustrative purposes only. It serves as a basic example of an agent and a foundational starting point for individuals or teams to develop their own agents.
+This agent recipe is provided for illustrative purposes only. It serves as a basic example of an agent and a foundational starting point for individuals or teams to develop their own agents.
 
-Users are solely responsible for any further development, testing, security hardening, and deployment of agents based on this sample. We recommend thorough review, testing, and the implementation of appropriate safeguards before using any derived agent in a live or critical system.
+Users are solely responsible for any further development, testing, security hardening, and deployment of agents based on this recipe. We recommend thorough review, testing, and the implementation of appropriate safeguards before using any derived agent in a live or critical system.

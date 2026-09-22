@@ -80,7 +80,8 @@ app: FastAPI = get_fast_api_app(
     artifact_service_uri=artifact_service_uri,
     allow_origins=allow_origins or ["*"],
     session_service_uri=session_service_uri,
-    otel_to_cloud=True,
+    otel_to_cloud=not os.getenv("INTEGRATION_TEST")
+    and os.getenv("USE_IN_MEMORY_SESSION") not in ("true", "1", "True", "TRUE"),
 )
 app.title = "GenMedia for Commerce"
 app.description = "ADK Agent + REST API for GenMedia workflows"

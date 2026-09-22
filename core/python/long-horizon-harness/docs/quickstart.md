@@ -36,8 +36,8 @@ Enable the **Vertex AI API**. The default `gemini-3.7-flash` needs nothing more.
 ## 3. Run it
 
 ```bash
-git clone https://github.com/google/adk-samples.git
-cd adk-samples/core/python/long-horizon-harness
+git clone https://github.com/google/adk-recipes.git
+cd adk-recipes/core/python/long-horizon-harness
 make dev-local          # backend (:8001, tools on host) + web UI (:3000)
 ```
 

@@ -12,13 +12,13 @@ name: 📦⚡ Dependabot Auto-Merge
 # (`workflow_call`) would require the upstream workflows to invoke this one
 # as a reusable workflow, which is a redesign of every gate listed below.
 #
-# What makes it tolerable here is that the job it guards never executes
-# PR-controlled code. It checks out the PR head (with `persist-credentials:
-# false`) only to read `pyproject.toml` and a `git diff` file list; every
-# decision is made from `gh` API output, and every privileged action is a
-# `gh pr` call. There is no build, no test run, no script from the PR.
+# What makes it tolerable here is that the job it guards never touches
+# PR-controlled code. It does not check the PR out at all: every decision is
+# made from `gh` API output, and every privileged action is a `gh pr` call.
+# There is no build, no test run, no script from the PR.
 #
-# Reassess if a step is ever added that runs anything out of the checkout.
+# Reassess if a step is ever added that checks the PR out or runs anything
+# from it.
 #
 # The directive has to sit ON this line, not above it: zizmor only honours
 # an ignore comment that falls inside the span the finding covers, and this
@@ -91,7 +91,7 @@ jobs:
   auto-merge:
     runs-on: ubuntu-latest
     permissions:
-      contents: write # actions/checkout, and `gh pr merge --squash`
+      contents: write # `gh pr merge --squash`
       pull-requests: write # `gh pr comment` (rebase nudge) and `gh pr merge`
       checks: read # `gh api .../commits/<sha>/check-runs`
     if: github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success'
@@ -146,31 +146,22 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           STEPS_PR_OUTPUTS_NUMBER: ${{ steps.pr.outputs.number }}
 
-      - name: Checkout code
-        if: steps.check.outputs.is_dependabot == 'true'
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7.0.1
-        with:
-          ref: refs/pull/${{ steps.pr.outputs.number }}/head
-          fetch-depth: 0
-          # This job never writes to the repo through git — it merges via
-          # `gh pr merge`, which authenticates from GITHUB_TOKEN in the step
-          # env, not from git's credential store. The only git operations
-          # are a read-only `git fetch origin <base>` and `git diff` on a
-          # public repository, both of which work unauthenticated. Leaving
-          # the credential on disk would serve no purpose while remaining
-          # exfiltratable by any later step (zizmor `artipacked`).
-          persist-credentials: false
-
+      # Deliberately no checkout: this job is privileged, so a checkout of
+      # refs/pull/<n>/head is CodeQL's `actions/untrusted-checkout/high`.
+      # Both reads below come from the API instead. Keep it that way.
       - name: Check if changes are in agents using starter pack for testing
         if: steps.check.outputs.is_dependabot == 'true'
         id: check-agent
         run: |
-          # Get the base branch for comparison
-          BASE_BRANCH=$(gh pr view ${STEPS_PR_OUTPUTS_NUMBER} --repo ${{ github.repository }} --json baseRefName --jq '.baseRefName')
-          git fetch origin $BASE_BRANCH
+          # Pins the reads below to one revision, so a push landing mid-run
+          # cannot have the decision made against two different trees.
+          HEAD_SHA=$(gh api "repos/${{ github.repository }}/pulls/${STEPS_PR_OUTPUTS_NUMBER}" --jq '.head.sha')
 
-          # Get all changed files
-          CHANGED_FILES=$(git diff --name-only origin/$BASE_BRANCH...HEAD)
+          # Get all changed files. --paginate: the default 30 per page would
+          # silently drop recipes from a wide bump.
+          CHANGED_FILES=$(gh api --paginate \
+            "repos/${{ github.repository }}/pulls/${STEPS_PR_OUTPUTS_NUMBER}/files?per_page=100" \
+            --jq '.[].filename')
 
           # Only auto-merge when every changed recipe has automated tests.
           # (This comment used to say python/agents/**, which policy.yml
@@ -196,12 +187,15 @@ jobs:
               # Python recipes: require [tool.agent-starter-pack] as the signal
               # that the recipe has automated tests wired up.
               if [[ "$dir" == *"/python/"* ]]; then
-                if [ ! -f "$dir/pyproject.toml" ]; then
+                # A 404 here is the "no pyproject.toml" case.
+                if ! PYPROJECT=$(gh api \
+                  "repos/${{ github.repository }}/contents/${dir}/pyproject.toml?ref=${HEAD_SHA}" \
+                  -H 'Accept: application/vnd.github.raw' 2>/dev/null); then
                   echo "$dir does not have pyproject.toml"
                   HAS_AUTOMATED_TESTS=false
                   break
                 fi
-                if ! grep -q '\[tool\.agent-starter-pack\]' "$dir/pyproject.toml"; then
+                if ! grep -q '\[tool\.agent-starter-pack\]' <<< "$PYPROJECT"; then
                   echo "$dir is not using agent starter pack for testing"
                   HAS_AUTOMATED_TESTS=false
                   break
@@ -245,13 +239,27 @@ jobs:
             # Get commit SHA
             HEAD_SHA=$(echo "$PR_DATA" | jq -r '.head.sha')
 
-            # Get check runs for this commit
-            CHECK_RUNS=$(gh api repos/${{ github.repository }}/commits/$HEAD_SHA/check-runs)
+            # Get check runs for this commit.
+            #
+            # --paginate is load-bearing, not tidiness. The unpaginated call
+            # returns .total_count for the whole commit but only the first 30
+            # check runs in .check_runs[]. This repo routinely exceeds 30
+            # checks on a single PR, so PENDING and FAILED were counted over a
+            # truncated slice while TOTAL was not: a PR whose 31st check was
+            # queued or failing read as "all checks completed successfully"
+            # and was merged on incomplete or red CI.
+            #
+            # --slurp wraps the pages in an array, hence the [.[].check_runs[]]
+            # flatten below. TOTAL is now the length of what we actually
+            # counted rather than a server-side figure the other two counts
+            # cannot see all of.
+            CHECK_RUNS=$(gh api --paginate --slurp \
+              "repos/${{ github.repository }}/commits/$HEAD_SHA/check-runs?per_page=100")
 
             # Count checks
-            TOTAL=$(echo "$CHECK_RUNS" | jq '.total_count')
-            PENDING=$(echo "$CHECK_RUNS" | jq '[.check_runs[] | select(.status == "queued" or .status == "in_progress")] | length')
-            FAILED=$(echo "$CHECK_RUNS" | jq '[.check_runs[] | select(.conclusion == "failure" or .conclusion == "cancelled" or .conclusion == "timed_out")] | length')
+            TOTAL=$(echo "$CHECK_RUNS" | jq '[.[].check_runs[]] | length')
+            PENDING=$(echo "$CHECK_RUNS" | jq '[.[].check_runs[] | select(.status == "queued" or .status == "in_progress")] | length')
+            FAILED=$(echo "$CHECK_RUNS" | jq '[.[].check_runs[] | select(.conclusion == "failure" or .conclusion == "cancelled" or .conclusion == "timed_out")] | length')
 
             echo "Total checks: $TOTAL, Pending: $PENDING, Failed: $FAILED"
 
@@ -282,12 +290,109 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           STEPS_PR_OUTPUTS_NUMBER: ${{ steps.pr.outputs.number }}
 
-      - name: Merge PR
+      # ---------------------------------------------------------------------------
+      # Branch protection decides whether the merge can happen at all, and it
+      # is not something green CI implies. `main` sets
+      # require_code_owner_reviews, and the approval this workflow posts comes
+      # from github-actions[bot], which owns no path in CODEOWNERS — so the
+      # review requirement is never satisfied by anything this workflow does.
+      #
+      # Without this gate the previous step's "All checks completed
+      # successfully" was followed one second later by `gh pr merge` failing
+      # with "base branch policy prohibits the merge", a non-zero exit, and a
+      # red run. That accounted for roughly 86% of this workflow's failures
+      # (~457 of 532) over the 90 days to 2026-09-16, while merging nothing
+      # since 2026-06-29.
+      #
+      # Reading reviewDecision and mergeStateStatus turns that into an honest,
+      # green, explanatory no-op. It does NOT restore auto-merge: that needs an
+      # approval identity which is a code owner, which is a repo-admin decision
+      # and not something a workflow can grant itself.
+      # ---------------------------------------------------------------------------
+      - name: Check merge eligibility
         if: |
           steps.check.outputs.is_dependabot == 'true' &&
           steps.check-agent.outputs.has_tests == 'true' &&
           steps.wait-checks.outputs.all_passed == 'true' &&
           steps.check.outputs.mergeable != 'CONFLICTING'
+        id: eligible
+        run: |
+          set -uo pipefail
+
+          # Deliberately not `set -e`. This step exists to stop a predictable
+          # merge refusal from producing a red run, so it must not become a
+          # new way to go red. Anything it cannot determine is treated as
+          # "do not merge", which is the safe direction.
+          # stderr goes to a file, never into PR_VIEW: gh can emit warnings on
+          # an otherwise successful call, and folding those into the captured
+          # stdout would hand malformed JSON to jq below.
+          ERR_FILE="$(mktemp)"
+          PR_VIEW=""
+          for attempt in 1 2 3; do
+            if PR_VIEW=$(gh pr view "${STEPS_PR_OUTPUTS_NUMBER}" \
+              --repo "${{ github.repository }}" \
+              --json reviewDecision,mergeStateStatus 2>"$ERR_FILE"); then
+              break
+            fi
+            echo "attempt ${attempt}: could not read PR state: $(cat "$ERR_FILE")"
+            PR_VIEW=""
+            sleep $((attempt * 5))
+          done
+
+          if [ -z "$PR_VIEW" ]; then
+            echo "::warning::could not determine merge eligibility after 3 attempts; not merging"
+            echo "can_merge=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          REVIEW_DECISION=$(echo "$PR_VIEW" | jq -r '.reviewDecision // ""')
+          MERGE_STATE=$(echo "$PR_VIEW" | jq -r '.mergeStateStatus // ""')
+
+          echo "reviewDecision=$REVIEW_DECISION mergeStateStatus=$MERGE_STATE"
+
+          # UNKNOWN means GitHub has not finished computing mergeability —
+          # it is derived asynchronously after a push. Merging on UNKNOWN is
+          # the race this gate exists to avoid, so decline and let a later
+          # run pick it up once the state has settled.
+          if [ "$MERGE_STATE" = "UNKNOWN" ] || [ -z "$MERGE_STATE" ]; then
+            echo "::notice::merge state not yet computed; not merging this run"
+            echo "can_merge=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # BLOCKED covers the code-owner case and any other unmet protection
+          # rule. REVIEW_REQUIRED is the same story stated from the review side.
+          if [ "$MERGE_STATE" = "BLOCKED" ] || [ "$REVIEW_DECISION" = "REVIEW_REQUIRED" ]; then
+            echo "can_merge=false" >> "$GITHUB_OUTPUT"
+            {
+              echo "### Auto-merge declined"
+              echo ""
+              echo "PR #${STEPS_PR_OUTPUTS_NUMBER} has green CI but branch protection will not accept the merge."
+              echo ""
+              echo "- \`reviewDecision\`: \`${REVIEW_DECISION:-none}\`"
+              echo "- \`mergeStateStatus\`: \`${MERGE_STATE:-unknown}\`"
+              echo ""
+              echo "\`main\` requires a review from a code owner. The approval this workflow"
+              echo "posts is authored by \`github-actions[bot]\`, which owns no path in"
+              echo "CODEOWNERS, so the requirement cannot be met from here. A human code"
+              echo "owner needs to approve and merge, or a repo admin needs to give the"
+              echo "automation a code-owner identity."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          echo "can_merge=true" >> "$GITHUB_OUTPUT"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          STEPS_PR_OUTPUTS_NUMBER: ${{ steps.pr.outputs.number }}
+
+      - name: Merge PR
+        if: |
+          steps.check.outputs.is_dependabot == 'true' &&
+          steps.check-agent.outputs.has_tests == 'true' &&
+          steps.wait-checks.outputs.all_passed == 'true' &&
+          steps.check.outputs.mergeable != 'CONFLICTING' &&
+          steps.eligible.outputs.can_merge == 'true'
         run: |
           echo "All checks passed, merging PR #${STEPS_PR_OUTPUTS_NUMBER}"
           gh pr merge ${STEPS_PR_OUTPUTS_NUMBER} --repo ${{ github.repository }} --squash

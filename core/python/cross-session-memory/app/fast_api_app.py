@@ -29,16 +29,26 @@ from app.app_utils.telemetry import setup_telemetry
 from app.app_utils.typing import Feedback
 
 setup_telemetry()
-_, project_id = google.auth.default()
+try:
+    _, project_id = google.auth.default()
+except Exception:
+    project_id = os.environ.get("GOOGLE_CLOUD_PROJECT")
+
 if os.environ.get("INTEGRATION_TEST"):
     import logging as _std_logging
 
     _cloud_logger = None
     _std_logger = _std_logging.getLogger(__name__)
 else:
-    logging_client = google_cloud_logging.Client()
-    _cloud_logger = logging_client.logger(__name__)
-    _std_logger = None
+    try:
+        logging_client = google_cloud_logging.Client()
+        _cloud_logger = logging_client.logger(__name__)
+        _std_logger = None
+    except Exception:
+        import logging as _std_logging
+
+        _cloud_logger = None
+        _std_logger = _std_logging.getLogger(__name__)
 
 
 def _log_struct(data: dict) -> None:
@@ -129,10 +139,10 @@ app: FastAPI = get_fast_api_app(
     session_service_uri=session_service_uri,
     # --- Memory Bank ---
     memory_service_uri=memory_service_uri,
-    otel_to_cloud=True,
+    otel_to_cloud=not use_in_memory_session,
 )
 app.title = "memory-bank-sample"
-app.description = "API for interacting with the Memory Bank sample agent"
+app.description = "API for interacting with the Memory Bank recipe agent"
 
 
 @app.post("/feedback")

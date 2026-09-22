@@ -19,7 +19,7 @@
 - Embedded headless: ``horizon.fast_api_app.build_runner()`` → an ADK ``Runner``.
 
 Configure via environment variables (see ``docs/configuration.md``); adapt by
-editing the code — this is a sample, not a framework.
+editing the code — this is a recipe, not a framework.
 """
 
 from importlib.metadata import PackageNotFoundError

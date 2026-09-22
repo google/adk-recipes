@@ -31,6 +31,11 @@ Each command below says which directory to run it from. Replace
 - [A file or directory the recipe must have is absent](#required-file-or-directory-missing)
 - [The recipe sits at the wrong path](#recipe-is-in-the-wrong-folder)
 - [The recipe lives in a folder that no longer accepts edits](#changes-inside-a-retired-folder)
+- [Only repository admins may modify files under .github/](#only-repository-admins-may-modify-files-under-github)
+
+**Containers (Dockerfile)**
+- [Dockerfile failed to build](#dockerfile-build-failed)
+- [Recipe container does not serve](#recipe-container-does-not-serve)
 
 ### Python
 
@@ -217,6 +222,31 @@ out is never blocked.
 
 **Confirm**, from the repo root —
 `uv run validate structure contrib/<language>/<recipe>`
+
+## Only repository admins may modify files under .github/
+
+**Symptom** — `[github-dir-admin-only] ... is under .github/, which can only be modified by repository administrators.`
+
+**Cause** — files in the `.github/` directory (CI workflows, issue templates, automation scripts, and repository policy configuration) control repository-wide infrastructure and security. Only repository administrators are permitted to create, modify, or delete files under `.github/`.
+
+**Fix** — restore `.github/` to exactly what is on `main`. The `git rm` line is
+needed as well as the checkout: `git checkout` restores files that exist on
+`main` but leaves behind any file your branch *added* under `.github/`, which
+would keep the check failing.
+
+    git rm -r --quiet --ignore-unmatch .github/
+    git checkout origin/main -- .github/
+    git commit -m "Revert changes under .github/"
+
+If CI workflow or repository configuration changes are needed, please open an issue describing the requested changes or reach out to a repository administrator.
+
+**Confirm**, from the repo root — this lists exactly the files CI would flag.
+It deliberately passes `--is-admin false`, because the permission lookup needs
+a token the check has in CI and you generally do not have locally:
+
+    git -c core.quotePath=false diff --no-renames --name-only origin/main...HEAD \
+      | uv run --no-project python tools/check_github_dir_changes.py \
+          --author "$(git config user.name)" --is-admin false
 
 ## README.md is missing or empty
 
@@ -587,6 +617,36 @@ different fixes:
 **Confirm**, from the repo root —
 `grep -n "google-adk" <recipe-path>/pyproject.toml <recipe-path>/uv.lock`
 
+## Dockerfile build failed
+
+**Symptom** — `[docker-build]` or `Docker image failed to build`
+
+**Cause** — a `Dockerfile` at the root of the recipe directory failed to build. Every recipe that provides a root Dockerfile must build cleanly.
+
+**Fix**
+
+1. Build the image locally to reproduce the failure:
+   ```bash
+   docker build -f <recipe-path>/Dockerfile <recipe-path>
+   ```
+2. If files are missing in a `COPY` instruction, ensure all referenced files are committed or created conditionally during build.
+3. If dependency synchronization fails during `uv sync`, ensure `uv.lock` is up to date and compatible with the container's Python version.
+
+## Recipe container does not serve
+
+**Symptom** — `[docker-serves]` or `Container exited unexpectedly` or `Service inside container did not become accessible`
+
+**Cause** — the built container image exited prematurely on startup or did not respond to HTTP requests on port 8080.
+
+**Fix**
+
+1. Run the container locally with test environment variables:
+   ```bash
+   docker run -p 8080:8080 -e USE_IN_MEMORY_SESSION=true -e INTEGRATION_TEST=1 -e MODEL_NAME=gemini-3.5-flash <image-tag>
+   ```
+2. Inspect the container logs (`docker logs <container-id>`) for startup exceptions.
+3. Ensure required configuration variables have defaults in code or `.env.example`, and that import-time GCP calls handle missing credentials gracefully when running offline or in tests.
+
 ## Non-blocking notices
 
 **Symptom** — a `[NOTICE]` header. None of these block your PR.
@@ -662,7 +722,7 @@ on the checker and not on your files.
 2. Run `uv run validate all <recipe-path>` from the repo root — a second
    failure is often the cause of the first.
 3. Open an issue at
-   [github.com/google/adk-samples/issues](https://github.com/google/adk-samples/issues):
+   [github.com/google/adk-recipes/issues](https://github.com/google/adk-recipes/issues):
 
    ```
    **Recipe path:** contrib/python/my-recipe

@@ -266,6 +266,29 @@ jobs:
             exit 1
           fi
 
+          # SECURITY: build the needle list BEFORE running the model, so the
+          # scan below cannot be skipped by an early exit. This core had no
+          # credential scan at all, unlike the PR-review and issue-response
+          # cores, while holding the same ADC and running a model over issue
+          # bodies anyone can write.
+          #
+          # Only secret-bearing fields are needles: `.type`, `.token_url`,
+          # `.audience` and `.quota_project_id` are public config that appears
+          # legitimately in this repo's recipes.
+          NEEDLES="${RUNNER_TEMP}/credential_needles.txt"
+          {
+            if [[ -n "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]]; then
+              printf '%s\n' "${ACTIONS_ID_TOKEN_REQUEST_TOKEN}"
+            fi
+            jq -r '[.credential_source?, .private_key?, .refresh_token?, .client_secret?] | .. | strings' \
+              "${GOOGLE_APPLICATION_CREDENTIALS:-/dev/null}" 2>/dev/null || true
+          } | awk 'length($0) >= 32' | sort -u > "${NEEDLES}"
+
+          if [[ ! -s "${NEEDLES}" ]]; then
+            echo "::error::Could not build the credential scan needle list; refusing to run an unscannable triage."
+            exit 1
+          fi
+
           # agy reports failures as JSON on STDOUT, not stderr, so the result
           # must be written to disk and echoed back explicitly — otherwise a
           # failure leaves a bare "exit 1" in the log with no reason attached.
@@ -277,6 +300,16 @@ jobs:
             --print-timeout "${PRINT_TIMEOUT}" > agy_result.json 2> agy_stderr.log
           AGY_EXIT=$?
           set -e
+
+          # SECURITY: scan before anything is printed or parsed. stderr is
+          # included because it is `cat`ed to a world-readable log below.
+          if grep -qFf "${NEEDLES}" agy_result.json agy_stderr.log 2>/dev/null; then
+            echo "::error::The model output contains this runner's credential material. Refusing to emit it. The agy tool allowlist is empty, so this should be unreachable — treat it as a live security incident, preserve the run, and see b/555419958."
+            rm -f agy_result.json agy_stderr.log
+            exit 1
+          fi
+
+          rm -f "${NEEDLES}"
 
           # SECURITY: print the envelope, never the response. The response is
           # model text derived from issue bodies, which are untrusted, and a

@@ -3,7 +3,7 @@ name: Propose a New Recipe
 about: Use this to submit your recipe idea
 title: "[RECIPE PROPOSAL]"
 labels: contribute
-assignees: pierpaolo28
+assignees: pierpaolo28, kgu-here
 type: Feature
 
 ---

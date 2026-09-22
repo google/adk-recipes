@@ -1,4 +1,4 @@
-# Copyright 2025 Google LLC
+# Copyright 2026 Google LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,29 +12,34 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from google.adk.agents.llm_agent import Agent
+"""Defines title comparison and evaluation agents."""
+
+from google.adk.agents import LlmAgent
 
 from ...shared_libraries import constants
 from . import prompt
 
-comparison_generator_agent = Agent(
+comparison_generator_agent = LlmAgent(
     model=constants.MODEL,
     name="comparison_generator_agent",
-    description="A helpful agent to generate comparison.",
+    description="Generates detailed title comparison and search optimization proposals.",
     instruction=prompt.COMPARISON_AGENT_PROMPT,
+    output_key="comparison_proposals",
 )
 
-comparsion_critic_agent = Agent(
+comparison_critic_agent = LlmAgent(
     model=constants.MODEL,
     name="comparison_critic_agent",
-    description="A helpful agent to critique comparison.",
+    description="Critiques title optimization proposals for quality, brand accuracy, and search intent alignment.",
     instruction=prompt.COMPARISON_CRITIC_AGENT_PROMPT,
+    output_key="critique_feedback",
 )
 
-comparison_root_agent = Agent(
+comparison_root_agent = LlmAgent(
     model=constants.MODEL,
     name="comparison_root_agent",
-    description="A helpful agent to compare titles",
+    description="Coordinates comparison generation and critique to produce the final optimization report.",
     instruction=prompt.COMPARISON_ROOT_AGENT_PROMPT,
-    sub_agents=[comparison_generator_agent, comparsion_critic_agent],
+    sub_agents=[comparison_generator_agent, comparison_critic_agent],
+    output_key="final_optimization_report",
 )

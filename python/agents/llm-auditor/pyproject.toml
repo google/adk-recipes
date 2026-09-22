@@ -1,0 +1,61 @@
+[project]
+name = "llm-auditor"
+version = "0.1.0"
+description = "The LLM Auditor evaluates LLM-generated answers, verifies actual accuracy using the web, and refines the response to ensure alignment with real-world knowledge."
+authors = [
+    { name = "Chun-Sung Ferng", email = "csferng@google.com" },
+    { name = "Cyrus Rashtchian", email = "cyroid@google.com" },
+    { name = "Da-Cheng Juan", email = "dacheng@google.com" },
+    { name = "Ivan Kuznetsov", email = "ivanku@google.com" },
+]
+license = {text = "Apache License 2.0"}
+readme = "README.md"
+requires-python = ">=3.11"
+
+dependencies = [
+    "agent-starter-pack>=0.32.0",
+    "google-adk>=1.31.0",
+    "google-auth>=2.30.0",
+    "google-cloud-aiplatform[adk,agent-engines]>=1.93.0",
+    "google-genai>=1.9.0",
+    "pydantic>=2.10.6",
+    "python-dotenv>=1.0.0",
+]
+
+[dependency-groups]
+dev = [
+    "google-adk[eval]>=1.31.0",
+    "pytest>=8.3.5",
+    "pytest-asyncio>=0.26.0",
+]
+deployment = [
+    "absl-py>=2.2.1",
+]
+
+[tool.hatch.build.targets.wheel]
+# Ensures Hatchling finds the package folder correctly
+packages = ["llm_auditor"]
+
+[tool.pytest.ini_options]
+pythonpath = "."
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+
+[project.optional-dependencies]
+lint = [
+    "ruff>=0.4.6",
+]
+
+[tool.agent-starter-pack]
+example_question = "Double check this: Earth is further away from the Sun than Mars."
+
+[tool.agent-starter-pack.settings]
+agent_directory = "llm_auditor"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[[tool.uv.index]]
+url = "https://pypi.org/simple/"
+default = true

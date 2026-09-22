@@ -510,3 +510,165 @@ def test_real_policy_file_declares_the_branch_thresholds():
     # `assets` is a live content branch; losing this entry deletes it.
     assert "assets" in cfg["protected"]
     assert "main" in cfg["protected"]
+
+
+# ---------------------------------------------------------------------------
+# The stacked-PR base ref, and the hour-long window the Monday ordering opens.
+#
+# stale-sweep.yml closes stale PRs at 05:00; this sweep runs at 06:00. In
+# between, a branch that was only ever a stack's BASE loses the protection
+# `open_pr_protected_refs` gave it, and nothing else was crediting it.
+# ---------------------------------------------------------------------------
+
+
+def test_base_of_just_closed_pr_is_not_orphaned():
+    """The 05:00 close must not make the 06:00 sweep delete the stack's base.
+
+    `prs_for_branch` filters on head_ref, so a base-only branch used to get no
+    credit at all once its PR closed and fell to the orphan clock, measured
+    from a last commit that is necessarily old — that is why the PR went stale.
+    It could be deleted within the hour of losing protection, falsifying the
+    close notice's promise that reopening the PR restores the work.
+    """
+    base = branch("feature/stack-base", days_since_commit=200)
+    just_closed = pr(
+        number=77,
+        head="feature/stack-child",
+        base="feature/stack-base",
+        state="CLOSED",
+        closed_days_ago=0,
+    )
+
+    verdict = s.classify(base, [just_closed], CFG, NOW, NEVER_ANCESTOR)
+
+    assert verdict.category == "closed-pr"
+    assert not verdict.delete, "base of a PR closed today must survive"
+    assert "#77" in verdict.reason
+
+
+def test_base_of_long_closed_pr_is_eventually_deleted():
+    """The grace period is bounded — this defers deletion, it does not block it."""
+    base = branch("feature/stack-base", days_since_commit=200)
+    long_closed = pr(
+        number=78,
+        head="feature/stack-child",
+        base="feature/stack-base",
+        state="CLOSED",
+        closed_days_ago=CFG["closed_pr_after_days"] + 1,
+    )
+
+    verdict = s.classify(base, [long_closed], CFG, NOW, NEVER_ANCESTOR)
+
+    assert verdict.category == "closed-pr"
+    assert verdict.delete
+
+
+def test_fork_pr_still_protects_the_base_it_targets():
+    """A base ref names a branch HERE even when the head lives in a fork."""
+    base = branch("feature/stack-base", days_since_commit=200)
+    fork_pr = pr(
+        number=79,
+        head="patch-1",
+        base="feature/stack-base",
+        state="CLOSED",
+        closed_days_ago=1,
+        fork=True,
+    )
+
+    verdict = s.classify(base, [fork_pr], CFG, NOW, NEVER_ANCESTOR)
+
+    assert verdict.category == "closed-pr"
+    assert not verdict.delete
+
+
+def test_plain_orphan_is_unaffected():
+    """A branch no PR ever referenced still takes the orphan clock."""
+    verdict = s.classify(
+        branch("feature/nobody", days_since_commit=200),
+        [
+            pr(
+                number=80,
+                head="other",
+                base="main",
+                state="CLOSED",
+                closed_days_ago=1,
+            )
+        ],
+        CFG,
+        NOW,
+        NEVER_ANCESTOR,
+    )
+    assert verdict.category == "orphan"
+    assert verdict.delete
+
+
+# ---------------------------------------------------------------------------
+# make_pr_lookup
+#
+# classify()'s base-ref rule is only reachable if the list it receives can
+# actually contain a PR whose BASE is the branch. That is a property of the
+# lookup, not of classify, and testing classify alone cannot show it: those
+# tests build the list by hand and can express an input the real lookup could
+# never produce.
+# ---------------------------------------------------------------------------
+
+
+def test_lookup_queries_both_head_and_base(monkeypatch):
+    """Without the --base query the stacked-base rule is dead code.
+
+    This is the test that was missing. classify() gained a rule keyed on
+    base_ref while the lookup still asked only for --head, so in production
+    the rule never fired and a stack's base could still be deleted, with a
+    green unit-test suite saying otherwise.
+    """
+    calls: list[tuple[str, str]] = []
+
+    def fake_gh(*args: str) -> str:
+        argv = list(args)
+        selector = next(a for a in argv if a in ("--head", "--base"))
+        branch = argv[argv.index(selector) + 1]
+        calls.append((selector, branch))
+        if selector == "--head":
+            return "[]"
+        return (
+            '[{"number": 77, "headRefName": "feature/child",'
+            ' "baseRefName": "feature/stack-base", "state": "CLOSED",'
+            ' "mergedAt": null, "closedAt": "2026-08-13T00:00:00Z",'
+            ' "isCrossRepository": false}]'
+        )
+
+    monkeypatch.setattr(s, "gh", fake_gh)
+    prs = s.make_pr_lookup()("feature/stack-base")
+
+    assert ("--head", "feature/stack-base") in calls
+    assert ("--base", "feature/stack-base") in calls, (
+        "lookup must ask for PRs targeting this branch, or classify's "
+        "base-ref rule can never fire"
+    )
+    assert [p.number for p in prs] == [77]
+
+
+def test_lookup_deduplicates_across_the_two_queries(monkeypatch):
+    """The same PR returned by both halves must be counted once."""
+    payload = (
+        '[{"number": 5, "headRefName": "a", "baseRefName": "a",'
+        ' "state": "CLOSED", "mergedAt": null,'
+        ' "closedAt": "2026-08-13T00:00:00Z", "isCrossRepository": false}]'
+    )
+    monkeypatch.setattr(s, "gh", lambda *a: payload)
+    assert [p.number for p in s.make_pr_lookup()("a")] == [5]
+
+
+def test_lookup_is_cached_per_branch(monkeypatch):
+    """Two selectors per branch, not two per call."""
+    n = {"count": 0}
+
+    def fake_gh(*args: str) -> str:
+        n["count"] += 1
+        return "[]"
+
+    monkeypatch.setattr(s, "gh", fake_gh)
+    lookup = s.make_pr_lookup()
+    lookup("b")
+    lookup("b")
+    assert n["count"] == 2, "expected one --head and one --base, then cache"

@@ -1,4 +1,4 @@
-# Repository rules — `google/adk-samples`
+# Repository rules — `google/adk-recipes`
 
 **Single source of truth for repo-specific review rules.** Four consumers:
 

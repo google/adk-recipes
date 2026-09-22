@@ -16,7 +16,7 @@
 
 Session/memory/artifact backends and the sandbox are resolved from the
 environment; every router mounts. The agent itself lives in ``horizon.agent`` —
-adapt the sample by editing that + these routes."""
+adapt the recipe by editing that + these routes."""
 
 import functools
 import logging

@@ -14,6 +14,7 @@
 import logging
 import os
 
+import google.auth
 from fastapi import FastAPI, HTTPException, status
 from google.adk.cli.fast_api import get_fast_api_app
 from pydantic import BaseModel, Field
@@ -23,10 +24,15 @@ from app.mcp_server import generate_answer
 from app.mcp_server import server as mcp_server
 from app.vector_search import search_knowledge_base
 
+try:
+    _, project_id = google.auth.default()
+except Exception:
+    project_id = None
+
 logger = logging.getLogger(__name__)
 
 allow_origins = (
-    os.getenv("ALLOW_ORIGINS", "").split(",")
+    os.getenv("ALLOW_ORIGINS").split(",")
     if os.getenv("ALLOW_ORIGINS")
     else None
 )
@@ -46,7 +52,7 @@ app: FastAPI = get_fast_api_app(
     artifact_service_uri=artifact_service_uri,
     allow_origins=allow_origins,
     session_service_uri=session_service_uri,
-    otel_to_cloud=True,
+    otel_to_cloud=project_id is not None and not os.getenv("INTEGRATION_TEST"),
 )
 app.title = "multiformat-hybrid-rag"
 app.description = "API for interacting with the Agent multiformat-hybrid-rag"

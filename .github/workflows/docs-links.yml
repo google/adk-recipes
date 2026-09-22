@@ -57,7 +57,7 @@ jobs:
         id: lychee
         # Lychee: covers relative filesystem links, anchor links, and
         # external HTTP(S) URLs. --no-progress keeps CI logs clean.
-        # --exclude on '^https?://github.com/google/adk-samples/(issues|pulls)'
+        # --exclude on '^https?://github.com/google/(adk-samples|adk-recipes)/(issues|pulls)'
         # avoids rate-limiting on unauthenticated GitHub API calls when
         # docs link to the repo's own issues page.
         #
@@ -78,7 +78,7 @@ jobs:
         with:
           args: >-
             --no-progress
-            --exclude '^https?://github\.com/google/adk-samples/(issues|pulls)'
+            --exclude '^https?://github\.com/google/(adk-samples|adk-recipes)/(issues|pulls)'
             'docs/**/*.md'
             'README.md'
             'CONTRIBUTING.md'
