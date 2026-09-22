@@ -1,7 +1,0 @@
-# Import all .gitignore patterns, then selectively un-ignore files
-# needed by Cloud Build that are gitignored locally.
-#!include:.gitignore
-
-# config.env is needed in the Docker build context for the preprocess
-# service (pipeline/utils/config.py loads defaults from it).
-!config.env

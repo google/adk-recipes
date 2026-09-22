@@ -23,13 +23,18 @@ routine's blast-radius bound.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from datetime import UTC, datetime
 from typing import Any, Literal
 
 from horizon.environment_context import active_environment
-from horizon.routines.manifest import DEFAULT_DELIVERY, write_routine_via_env
+from horizon.routines.manifest import (
+    DEFAULT_DELIVERY,
+    ROUTINE_OVERLAY_DIR,
+    write_routine_via_env,
+)
 from horizon.routines.run_once import run_routine_once
 from horizon.scheduler.cron import is_valid_cron, next_cron_fire
 from horizon.scheduler.routine_store import RoutineRow, get_routine_store
@@ -164,7 +169,7 @@ async def _list(tool_context) -> dict[str, Any]:
     }
 
 
-async def _cancel(id: str, tool_context) -> dict[str, Any]:
+async def _cancel(id: str, tool_context: Any) -> dict[str, Any]:
     if not id:
         return {"success": False, "error": "cancel requires id"}
     ident = _identity(tool_context)
@@ -172,11 +177,21 @@ async def _cancel(id: str, tool_context) -> dict[str, Any]:
         return {"success": False, "error": "no active invocation context"}
     user_id, _ = ident
     ok = await get_routine_store().cancel(id, user_id)
-    return (
-        {"success": ok, "id": id}
-        if ok
-        else {"success": False, "error": "no such routine"}
-    )
+    if not ok:
+        return {"success": False, "error": "no such routine"}
+
+    env = active_environment()
+    manifest_path = env.working_dir / ROUTINE_OVERLAY_DIR / f"{id}.yaml"
+    try:
+        await env.delete_file(manifest_path)
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        raise
+    except Exception as exc:
+        logger.debug(
+            "Failed to delete manifest for canceled routine %s: %s", id, exc
+        )
+
+    return {"success": True, "id": id}
 
 
 async def routine(
@@ -190,24 +205,21 @@ async def routine(
     id: str | None = None,
     tool_context: Any,
 ) -> dict[str, Any]:
-    """Create, test, list, or cancel a scheduled routine — a recurring task that
-    runs UNATTENDED in a fresh isolated sandbox with only the secrets you declare.
+    """Create, test, list, or cancel a scheduled routine — a recurring
+    task that runs UNATTENDED in a fresh isolated sandbox with only the
+    secrets you declare.
 
-    - ``test``: run the routine ONCE right now, under its real isolation (own
-      sandbox where shell runs unattended, only the declared ``secrets``), and
-      return the output — WITHOUT scheduling anything. Requires ``task``; pass the
-      same ``name``/``secrets`` you intend to schedule. ALWAYS test before
-      ``create`` so you can see it works and fix the task if not. Blocks until the
-      run finishes (or times out). Returns ``{success, status, output, ...}``.
-    - ``create``: requires ``name``, ``schedule`` (5-field cron like ``0 8 * * *``),
-      and ``task`` (what to do each run). Optional ``secrets`` (list of secret env
-      names the task needs — the ONLY secrets it will receive; default none) and
-      ``delivery`` (default ``report_back``). Asks the user to confirm before
-      scheduling; on the first call it returns ``status="awaiting_user_response"`` —
-      stop and let the user decide, do not claim it's scheduled until you get
-      ``success: true`` with an ``id``.
-    - ``list``: the caller's routines.
-    - ``cancel``: remove one of the caller's routines by ``id``.
+    - `test`: run it ONCE now under real isolation (own sandbox, only
+      declared `secrets`), without scheduling. Requires `task`; use the
+      same `name`/`secrets` you intend to schedule. ALWAYS test before
+      `create`. Blocks until done; returns `{success, status, output,
+      ...}`.
+    - `create`: requires `name`, `schedule` (5-field cron), `task`.
+      Optional `secrets` (only ones the run receives) and `delivery`
+      (default `report_back`). Asks the user to confirm; the first call
+      returns status="awaiting_user_response" — wait for the user, don't
+      claim it's scheduled until success: true with an `id`.
+    - `list` / `cancel`: the caller's routines, by `id` for cancel.
     """
     if action == "test":
         return await _test(

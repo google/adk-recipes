@@ -1,5 +1,5 @@
 {
-  "description": "adk_request_confirmation for a gated terminal command. UI renders a PermissionCard from payload.choices (trailing 'Decline' = cancel) because payload.kind === 'permission'.",
+  "description": "adk_request_confirmation for a gated bash command. UI renders a PermissionCard from payload.choices (trailing 'Decline' = cancel) because payload.kind === 'permission'.",
   "event": {
     "payload": {
       "$case": "statusUpdate",
@@ -22,17 +22,17 @@
                     "name": "adk_request_confirmation",
                     "args": {
                       "originalFunctionCall": {
-                        "id": "adk-call-terminal-1",
-                        "name": "terminal",
+                        "id": "adk-call-bash-1",
+                        "name": "bash",
                         "args": { "command": "bq rm -t mydataset.mytable" }
                       },
                       "toolConfirmation": {
                         "hint": "Run: bq rm -t mydataset.mytable",
                         "payload": {
                           "kind": "permission",
-                          "toolName": "terminal",
+                          "toolName": "bash",
                           "summary": "Run: bq rm -t mydataset.mytable",
-                          "proposedRule": { "toolName": "terminal", "commandPrefix": ["bq rm"], "decision": "allow" },
+                          "proposedRule": { "toolName": "bash", "commandPrefix": ["bq rm"], "decision": "allow" },
                           "question": "Run: bq rm -t mydataset.mytable",
                           "choices": [
                             "Yes, once",

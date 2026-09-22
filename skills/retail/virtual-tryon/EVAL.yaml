@@ -1,0 +1,187 @@
+cases:
+- id: basic_clothing_tryon
+  prompt: "I want to try on this jacket before buying it. How does virtual try-on work?"
+  metadata:
+    skill_name: "retail-virtual-tryon"
+    products:
+      - "Gemini Enterprise Agent Platform"
+      - "gemini-2.5-flash-image"
+  rubric:
+    - "The response MUST explain how the virtual try-on process works for clothing items."
+    - "The response MUST mention that the user needs to provide a photo of themselves."
+    - "The response MUST NOT claim the system supports product categories it does not handle."
+    - "The response SHOULD describe the expected output (a composite image of the user wearing the jacket)."
+
+- id: eyewear_tryon
+  prompt: "Can I see how these sunglasses look on my face?"
+  metadata:
+    skill_name: "retail-virtual-tryon"
+    products:
+      - "Gemini Enterprise Agent Platform"
+      - "Gemini"
+  rubric:
+    - "The response MUST address whether eyewear is a supported category for virtual try-on."
+    - "The response MUST reference how facial features are used in the try-on rendering."
+    - "The response MUST NOT guarantee results for unsupported accessory types."
+    - "The response SHOULD explain any limitations specific to eyewear try-on compared to clothing."
+
+- id: default_model_is_gemini_2_5_flash_image
+  prompt: "Which model should I use for clothing try-on?"
+  metadata:
+    skill_name: "retail-virtual-tryon"
+    products:
+      - "Gemini Enterprise Agent Platform"
+      - "Gemini"
+  rubric:
+    - "The response MUST recommend gemini-2.5-flash-image as the default model for clothing try-on."
+    - "The response MUST explain why this model is preferred for general high-fidelity try-ons."
+    - "The response MUST NOT recommend deprecated or non-existent model names."
+    - "The response SHOULD mention alternative models (e.g., pro or flash) and when they are more appropriate."
+
+- id: model_selection_flash
+  prompt: "What is the fastest Gemini option for try-on?"
+  metadata:
+    skill_name: "retail-virtual-tryon"
+    products:
+      - "Gemini Enterprise Agent Platform"
+      - "Gemini"
+  rubric:
+    - "The response MUST identify gemini-2.5-flash-image as the fastest option."
+    - "The response MUST describe the latency and quality trade-offs of using the flash model."
+    - "The response SHOULD include guidance on when the flash model is appropriate versus higher-quality alternatives."
+
+- id: model_selection_pro
+  prompt: "I need the highest quality try-on images for editorial brand work."
+  metadata:
+    skill_name: "retail-virtual-tryon"
+    products:
+      - "Gemini Enterprise Agent Platform"
+      - "Gemini"
+  rubric:
+    - "The response MUST recommend the Gemini pro image model for highest quality editorial output."
+    - "The response MUST explain the quality advantages of the pro model over flash."
+    - "The response SHOULD mention expected latency implications of using the pro model."
+
+- id: flash_vs_pro_choice
+  prompt: "When should I pick the flash model versus the pro model?"
+  metadata:
+    skill_name: "retail-virtual-tryon"
+    products:
+      - "Gemini Enterprise Agent Platform"
+      - "Gemini"
+  rubric:
+    - "The response MUST explain that gemini-2.5-flash-image is faster and cost-efficient."
+    - "The response MUST explain that gemini-2.5-pro-image yields better details but is slower."
+    - "The response SHOULD provide concrete use-case examples for each model choice."
+
+- id: privacy_handling
+  prompt: "Will my photo be saved after the try-on session?"
+  metadata:
+    skill_name: "retail-virtual-tryon"
+    products:
+      - "Gemini Enterprise Agent Platform"
+  rubric:
+    - "The response MUST address data retention and deletion policies for user-uploaded photos."
+    - "The response MUST mention that images are deleted after processing or within the stated retention window."
+    - "The response MUST NOT make privacy guarantees that are not supported by the platform's actual policies."
+    - "The response SHOULD reference relevant compliance frameworks or data handling practices."
+
+- id: safety_filter_config
+  prompt: "How do I configure the safety filter for an adult fashion brand?"
+  metadata:
+    skill_name: "retail-virtual-tryon"
+    products:
+      - "Gemini Enterprise Agent Platform"
+      - "Gemini"
+  rubric:
+    - "The response MUST describe the available safety filter levels and how to configure them."
+    - "The response MUST mention that certain content categories can be set to block or allow."
+    - "The response MUST NOT advise disabling safety filters entirely without caveats."
+    - "The response SHOULD explain the trade-offs between stricter and more permissive safety settings."
+
+- id: unsupported_category
+  prompt: "Can I try on this sofa to see if it fits my living room?"
+  metadata:
+    skill_name: "retail-virtual-tryon"
+    products:
+      - "Gemini Enterprise Agent Platform"
+  rubric:
+    - "The response MUST clearly state that furniture is not a supported category for virtual try-on."
+    - "The response MUST NOT attempt to generate a try-on result for an unsupported category."
+    - "The response SHOULD suggest alternative approaches (e.g., AR furniture placement tools)."
+    - "The response MUST remain helpful and not dismissive when declining the request."
+
+- id: latency_expectation
+  prompt: "How long does a virtual try-on request typically take?"
+  metadata:
+    skill_name: "retail-virtual-tryon"
+    products:
+      - "Gemini Enterprise Agent Platform"
+      - "Gemini"
+  rubric:
+    - "The response MUST provide an expected latency range in seconds for try-on generation."
+    - "The response MUST differentiate latency by model choice (Gemini flash vs. Gemini pro vs. Veo video)."
+    - "The response MUST NOT promise latencies that are unrealistically low."
+    - "The response SHOULD mention factors that affect latency (e.g., image resolution, network conditions)."
+
+- id: photo_quality_guidance
+  prompt: "My try-on image doesn't look right. The product looks off."
+  metadata:
+    skill_name: "retail-virtual-tryon"
+    products:
+      - "Gemini Enterprise Agent Platform"
+      - "Gemini"
+  rubric:
+    - "The response MUST address photo quality as a likely cause of poor try-on results."
+    - "The response MUST provide actionable guidance on photo requirements (e.g., lighting, resolution, pose)."
+    - "The response MUST NOT blame the user without offering constructive troubleshooting steps."
+    - "The response SHOULD mention product image quality as another factor that affects output."
+
+- id: footwear_tryon
+  prompt: "Can I try on shoes with the virtual try-on feature?"
+  metadata:
+    skill_name: "retail-virtual-tryon"
+    products:
+      - "Gemini Enterprise Agent Platform"
+      - "Gemini"
+  rubric:
+    - "The response MUST address whether footwear is a supported category for virtual try-on."
+    - "The response MUST describe any limitations or special requirements for shoe try-on."
+    - "The response MUST NOT claim footwear try-on works identically to clothing try-on if it does not."
+    - "The response SHOULD recommend best practices for capturing foot or full-body photos if supported."
+
+- id: quota_gotcha
+  prompt: "We are hitting rate limit errors from the image generation API."
+  metadata:
+    skill_name: "retail-virtual-tryon"
+    products:
+      - "Gemini Enterprise Agent Platform"
+      - "Gemini"
+  rubric:
+    - "The response MUST identify API quota limits as the likely cause of rate limit errors."
+    - "The response MUST provide guidance on how to check and request quota increases."
+    - "The response MUST NOT suggest workarounds that violate the API terms of service."
+    - "The response SHOULD recommend strategies to reduce request volume (e.g., caching, batching)."
+
+- id: dependency_check
+  prompt: "Do I need anything set up before using virtual try-on?"
+  metadata:
+    skill_name: "retail-virtual-tryon"
+    products:
+      - "Gemini Enterprise Agent Platform"
+      - "Gemini"
+  rubric:
+    - "The response MUST mention that a product catalog must be configured before try-on can work."
+    - "The response MUST NOT omit required setup steps such as API enablement or authentication."
+    - "The response SHOULD provide a clear ordering of setup steps from prerequisites to try-on readiness."
+
+- id: video_catwalk_tryon
+  prompt: "I want to see a catwalk video of myself trying on this jacket. How can I generate it?"
+  metadata:
+    skill_name: "retail-virtual-tryon"
+    products:
+      - "Veo"
+  rubric:
+    - "The response MUST confirm that the system supports catwalk video try-on."
+    - "The response MUST explain that it uses Veo to animate the try-on image."
+    - "The response SHOULD list the required inputs (portrait image and product image)."

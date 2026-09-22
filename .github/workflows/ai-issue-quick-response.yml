@@ -1,0 +1,168 @@
+name: '💬 AI Issue Quick Response'
+
+# Evaluates newly opened issues and provides an immediate, helpful preliminary
+# response or routes the issue to designated maintainers.
+# Hands the issue to `_ai-issue-response-core.yml`.
+
+on:
+  issues:
+    types:
+      - 'opened'
+  issue_comment:
+    types:
+      - 'created'
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: 'issue number to respond to'
+        required: true
+        type: 'number'
+
+concurrency:
+  group: '${{ github.workflow }}-${{ github.event.issue.number || github.event.inputs.issue_number || github.run_id }}'
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: 'bash'
+
+permissions: {}
+
+jobs:
+  resolve:
+    if: |-
+      github.event_name == 'issues' ||
+      github.event_name == 'workflow_dispatch' ||
+      (
+        github.event_name == 'issue_comment' &&
+        !github.event.issue.pull_request &&
+        contains(github.event.comment.body, '@gemini-cli /respond') &&
+        contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association)
+      )
+    timeout-minutes: 5
+    runs-on: 'ubuntu-latest'
+    permissions:
+      issues: 'read'
+    outputs:
+      issue_number: '${{ steps.resolve_issue.outputs.issue_number }}'
+      issue_title: '${{ steps.resolve_issue.outputs.issue_title }}'
+      issue_body: '${{ steps.resolve_issue.outputs.issue_body }}'
+      issue_author: '${{ steps.resolve_issue.outputs.issue_author }}'
+      skip: '${{ steps.resolve_issue.outputs.skip }}'
+    steps:
+      - name: 'Resolve the issue details'
+        id: 'resolve_issue'
+        env:
+          GH_TOKEN: '${{ secrets.GITHUB_TOKEN }}'
+          GH_REPO: '${{ github.repository }}'
+          ISSUE_NUMBER: '${{ github.event.issue.number || github.event.inputs.issue_number }}'
+        run: |-
+          set -euo pipefail
+
+          if [[ -z "${ISSUE_NUMBER}" ]]; then
+            echo "::error::No issue number resolved from the event or the dispatch input."
+            exit 1
+          fi
+
+          MAX_BODY_CHARS=4000
+          ISSUE_DATA="$(gh issue view "${ISSUE_NUMBER}" --json number,title,body,author)"
+          NUMBER="$(echo "${ISSUE_DATA}" | jq -r '.number')"
+          TITLE="$(echo "${ISSUE_DATA}" | jq -r '.title // ""')"
+          BODY="$(echo "${ISSUE_DATA}" | jq -r --argjson max "${MAX_BODY_CHARS}" '(.body // "")[0:$max]')"
+          AUTHOR="$(echo "${ISSUE_DATA}" | jq -r '.author.login // ""')"
+
+          echo "issue_number=${NUMBER}" >> "${GITHUB_OUTPUT}"
+          echo "issue_author=${AUTHOR}" >> "${GITHUB_OUTPUT}"
+
+          # Recipe proposals follow their own review process: no AI reply,
+          # no auto-assignment.
+          SKIP='false'
+          if [[ "${TITLE^^}" == *"[RECIPE PROPOSAL]"* ]]; then
+            SKIP='true'
+            echo "Issue #${NUMBER} is a recipe proposal — skipping the automated response."
+          fi
+          echo "skip=${SKIP}" >> "${GITHUB_OUTPUT}"
+
+          DELIM="EOF_$(uuidgen)"
+          { echo "issue_title<<${DELIM}"; echo "${TITLE}"; echo "${DELIM}"; } >> "${GITHUB_OUTPUT}"
+          { echo "issue_body<<${DELIM}"; echo "${BODY}"; echo "${DELIM}"; } >> "${GITHUB_OUTPUT}"
+
+          echo "Resolved issue #${NUMBER}: ${TITLE}"
+
+  respond:
+    needs: 'resolve'
+    if: |-
+      ${{ needs.resolve.outputs.skip != 'true' }}
+    permissions:
+      contents: 'read'
+      id-token: 'write'
+      issues: 'write'
+    uses: './.github/workflows/_ai-issue-response-core.yml'
+    with:
+      issue_number: '${{ needs.resolve.outputs.issue_number }}'
+      issue_title: '${{ needs.resolve.outputs.issue_title }}'
+      issue_body: '${{ needs.resolve.outputs.issue_body }}'
+      issue_author: '${{ needs.resolve.outputs.issue_author }}'
+      app_id: '${{ vars.APP_ID }}'
+    secrets:
+      APP_PRIVATE_KEY: '${{ secrets.APP_PRIVATE_KEY }}'
+
+  notify-failure:
+    needs:
+      - 'resolve'
+      - 'respond'
+    if: |-
+      ${{ always() && contains(needs.*.result, 'failure') }}
+    timeout-minutes: 5
+    runs-on: 'ubuntu-latest'
+    permissions:
+      issues: 'write'
+    steps:
+      - name: 'Post Issue Response Failure Comment'
+        uses: 'actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3'
+        with:
+          github-token: '${{ secrets.GITHUB_TOKEN }}'
+          script: |-
+            // Recipe proposals are a human-only lane, so no bot comments
+            // on them — not even this one. `resolve` can fail before any
+            // skip decision exists (an API blip), and without this guard
+            // that failure lands a comment on a proposal, which is the
+            // symptom the lane was built to stop. Read from the event
+            // payload so it needs no checkout and cannot itself fail.
+            const number = context.payload.issue?.number
+              ?? Number(context.payload.inputs?.issue_number);
+            let title = context.payload.issue?.title;
+            if (title === undefined && number) {
+              // workflow_dispatch carries no issue payload, so the title has
+              // to be fetched. Failing closed on a read error is deliberate:
+              // staying silent costs a failure notice, commenting on a
+              // proposal breaks the one rule this lane has.
+              try {
+                const { data } = await github.rest.issues.get({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: number,
+                });
+                title = data.title;
+              } catch (err) {
+                core.warning(`Could not read #${number} to check whether it is a recipe proposal (${err.message}); not commenting.`);
+                return;
+              }
+            }
+            if ((title ?? '').toUpperCase().includes('[RECIPE PROPOSAL]')) {
+              core.notice('Recipe proposal — not posting a failure comment.');
+              return;
+            }
+            const issueNumber = context.payload.issue?.number
+              ?? Number(context.payload.inputs?.issue_number);
+            if (!issueNumber) {
+              core.warning('No issue number available — cannot post failure comment.');
+              return;
+            }
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              body: `There was a problem generating an automated response for this issue. Please check the [action logs](${runUrl}) for details.`
+            });

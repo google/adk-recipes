@@ -36,7 +36,6 @@ import { SkillsPanel } from "@/components/panels/skills-panel";
 import { MemoryPanel, MEMORY_PANEL_PAGE_LIMIT } from "@/components/panels/memory-panel";
 import { AuthPanel } from "@/components/panels/auth-panel";
 import { SecretsPanel } from "@/components/panels/secrets-panel";
-import { useReminders } from "@/lib/horizon-reminders";
 import { useRoutines } from "@/lib/horizon-routines";
 import { ScheduledPanel } from "@/components/panels/scheduled-panel";
 import { DelegationTree } from "@/components/panels/delegation-tree";
@@ -60,7 +59,6 @@ export function SidePanels({ contextId }: SidePanelsProps) {
   // panel pills come from a single fetch.
   const { data: memories } = useLhaMemories(MEMORY_PANEL_PAGE_LIMIT);
   const { data: secrets } = useLhaSecrets();
-  const { data: reminders } = useReminders();
   const { data: routines } = useRoutines();
   const { status: googleStatus } = useGoogleConnection();
   const c = counts ?? { activity: 0, skills: 0, delegation: 0 };
@@ -71,7 +69,6 @@ export function SidePanels({ contextId }: SidePanelsProps) {
   const authCount =
     (googleStatus?.gcp.connected ? 1 : 0) +
     (googleStatus?.workspace.connected ? 1 : 0);
-  const remindersCount = reminders?.reminders.length ?? 0;
   const routinesCount = routines?.routines.length ?? 0;
   const { data: processes } = useProcesses();
   const runningCount = processes?.processes.filter((p) => p.running).length ?? 0;
@@ -106,11 +103,7 @@ export function SidePanels({ contextId }: SidePanelsProps) {
       <Section label="Secrets" Icon={KeyRound} count={secretsCount}>
         <SecretsPanel />
       </Section>
-      <Section
-        label="Scheduled"
-        Icon={Clock}
-        count={remindersCount + routinesCount}
-      >
+      <Section label="Scheduled" Icon={Clock} count={routinesCount}>
         <ScheduledPanel />
       </Section>
       <Section label="Skills" Icon={Sparkles} count={c.skills}>

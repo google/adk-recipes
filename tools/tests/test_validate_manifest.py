@@ -2,7 +2,7 @@
 """Unit tests for tools/validate_manifest.py.
 
 The `validate` / `validate_manifest` modules are importable directly because
-the repo root is installed as the `adk-samples-tools` package (see the hatch
+the repo root is installed as the `adk-recipes-tools` package (see the hatch
 `sources` mapping in pyproject.toml), so no sys.path shim is needed here.
 """
 
@@ -483,3 +483,115 @@ def test_main_invalid_manifest_emits_github_annotation(
 
     out = capsys.readouterr().out
     assert "::error file=core/bad/manifest.yaml::" in out
+
+
+# ---------------------------------------------------------------------------
+# inactive_recipes / report_inactive
+#
+# `status` gained its first consumer with the recipe canary, and all 85 lines
+# of it shipped untested.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "status: inactive",
+        'status: "inactive"',
+        "status: 'inactive'",
+        "status:   inactive",
+        "status: inactive  # sunsetting",
+        "status: INACTIVE",
+    ],
+)
+def test_inactive_is_detected_in_every_spelling(tmp_path, monkeypatch, line):
+    monkeypatch.setattr(m, "REPO_ROOT", tmp_path)
+    d = _make_recipe(tmp_path, "core/python/a", f"type: standalone\n{line}\n")
+    assert m.inactive_recipes([d]) == ["core/python/a"]
+
+
+def test_inactive_is_detected_in_a_crlf_manifest(tmp_path, monkeypatch):
+    """A Windows-authored manifest is detected like any other.
+
+    This looks like it should need `\\r` in the regex's trailing character
+    class, and does not: `read_text()` opens in text mode, so universal-
+    newline translation turns CRLF into LF before the regex ever runs.
+    Pinned because the apparent gap is inviting to "fix", and the added
+    `\\r` would be dead characters nothing can reach.
+    """
+    monkeypatch.setattr(m, "REPO_ROOT", tmp_path)
+    d = tmp_path / "core/python/a"
+    d.mkdir(parents=True)
+    (d / "manifest.yaml").write_bytes(
+        b"type: standalone\r\nstatus: inactive\r\n"
+    )
+    assert m.inactive_recipes([d]) == ["core/python/a"]
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "status: active",
+        "# status: inactive",
+        "old_status: inactive",
+        "status: inactive-ish",
+    ],
+)
+def test_active_and_near_misses_are_not_reported(tmp_path, monkeypatch, line):
+    monkeypatch.setattr(m, "REPO_ROOT", tmp_path)
+    d = _make_recipe(tmp_path, "core/python/a", f"type: standalone\n{line}\n")
+    assert m.inactive_recipes([d]) == []
+
+
+def test_a_missing_manifest_is_skipped_not_raised(tmp_path, monkeypatch):
+    """This runs AFTER validation, so a recipe whose manifest is absent or
+    unreadable must not produce a traceback on top of its diagnostic."""
+    monkeypatch.setattr(m, "REPO_ROOT", tmp_path)
+    d = _make_recipe(tmp_path, "core/python/a", manifest=None)
+    assert m.inactive_recipes([d]) == []
+
+
+def test_results_are_sorted(tmp_path, monkeypatch):
+    monkeypatch.setattr(m, "REPO_ROOT", tmp_path)
+    body = "type: standalone\nstatus: inactive\n"
+    dirs = [
+        _make_recipe(tmp_path, "core/python/c", body),
+        _make_recipe(tmp_path, "core/python/a", body),
+        _make_recipe(tmp_path, "core/python/b", body),
+    ]
+    assert m.inactive_recipes(dirs) == [
+        "core/python/a",
+        "core/python/b",
+        "core/python/c",
+    ]
+
+
+def test_report_inactive_prints_nothing_when_all_active(
+    tmp_path, monkeypatch, capsys
+):
+    monkeypatch.setattr(m, "REPO_ROOT", tmp_path)
+    d = _make_recipe(
+        tmp_path, "core/python/a", "type: standalone\nstatus: active\n"
+    )
+    m.report_inactive([d])
+    assert capsys.readouterr().out == ""
+
+
+def test_report_inactive_annotates_without_failing(
+    tmp_path, monkeypatch, capsys
+):
+    """Non-blocking by construction: it returns None, so no caller can fold
+    it into an exit code by accident."""
+    monkeypatch.setattr(m, "REPO_ROOT", tmp_path)
+    d = _make_recipe(
+        tmp_path, "core/python/a", "type: standalone\nstatus: inactive\n"
+    )
+    assert m.report_inactive([d]) is None
+    out = capsys.readouterr().out
+    assert "[NOTICE]" in out
+    assert "core/python/a" in out
+    assert "::warning file=core/python/a/manifest.yaml" in out
+    assert "::error" not in out
+    # The notice has to say what to do about it, not just that it is true.
+    assert "status: active" in out
+    assert Doc.RECIPE_INACTIVE.value in out

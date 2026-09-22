@@ -35,7 +35,7 @@ from horizon.models.selector import apply_compaction_threshold
 
 class TestInputTokenLimit:
     def test_known_default_model(self) -> None:
-        assert input_token_limit("gemini-3.6-flash") == 1_000_000
+        assert input_token_limit("gemini-3.7-flash") == 1_000_000
 
     def test_known_pro_model(self) -> None:
         assert input_token_limit("gemini-3.1-pro-preview") == 1_000_000
@@ -90,7 +90,7 @@ class _Cfg:
 class TestApplyCompactionThreshold:
     def test_sets_threshold_for_gemini(self) -> None:
         cfg = _Cfg()
-        apply_compaction_threshold(cfg, "gemini-3.6-flash")
+        apply_compaction_threshold(cfg, "gemini-3.7-flash")
         assert cfg.token_threshold == 750_000  # 75% of 1M
 
     def test_unknown_model_uses_default_limit(self) -> None:
@@ -100,9 +100,9 @@ class TestApplyCompactionThreshold:
 
     def test_none_config_is_noop(self) -> None:
         # Must not raise when no compaction config is present (e.g. tests).
-        apply_compaction_threshold(None, "gemini-3.6-flash")
+        apply_compaction_threshold(None, "gemini-3.7-flash")
 
     def test_leaves_retention_size_untouched(self) -> None:
         cfg = _Cfg()
-        apply_compaction_threshold(cfg, "gemini-3.6-flash")
+        apply_compaction_threshold(cfg, "gemini-3.7-flash")
         assert cfg.event_retention_size == 20

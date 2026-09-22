@@ -1,0 +1,234 @@
+name: 📦 Recipe Images
+
+# Build a container image for every deployable recipe and publish it to
+# Artifact Registry.
+#
+# Why this exists
+# ---------------
+# `.agents/skills/make-python-recipe-deployable` writes the files a recipe
+# needs in order to be served — Dockerfile, fast_api_app.py, and the
+# app_utils/ adapters that satisfy the Agent Engine container contract — and
+# then deliberately stops: "Image builds happen later via Cloud Build →
+# Artifact Registry." Nothing did that later step, so a recipe could be
+# marked deployable and still have no image anyone could deploy.
+#
+# The images matter beyond this repo. Agent Engine can deploy an agent
+# straight from a prebuilt image (`container_spec.image_uri`), which skips
+# the multi-minute per-deployment source build that App Design Center pays
+# today. That only works if a published image exists, which is what this
+# workflow guarantees.
+#
+# Public registry, on purpose
+# ---------------------------
+# adk-recipes-registry grants roles/artifactregistry.reader to allUsers. A
+# consumer deploying one of these recipes into their own project has Agent
+# Engine pull the image with its own service agent, in a project we have
+# never heard of. Public read is what removes the otherwise unbounded set of
+# per-consumer IAM grants. These images contain only Apache-2.0 recipe code
+# already published in this repository — no secrets, no customer data.
+#
+# Three triggers, two different questions
+# ---------------------------------------
+# `push` asks "did this change break its own image?" and rebuilds only the
+# recipes the push touched. `schedule` asks a question no push can. Every one
+# of these Dockerfiles resolves its dependencies at build time, and they do
+# not even agree on a base: python:3.11-slim, python:3.12-slim,
+# python:3.13-slim and ghcr.io/astral-sh/uv:python3.11-bookworm-slim are all
+# in use today. An image that built cleanly last month can pick up a patched
+# base layer, or fail outright against a yanked release, without a single
+# commit landing. Weekly is frequent enough to surface that while it is still
+# someone's working memory, and cheap because the matrix is small.
+#
+# Images are never deleted here. Tag hygiene and retention belong to a
+# registry policy, not to the job that writes them.
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      # Retired roots (python/agents, java/agents, ...) are absent on
+      # purpose; see `frozen_paths` in .github/policy.yml. They still contain
+      # Dockerfiles, and publishing from code that is closed to fixes would
+      # be worse than publishing nothing.
+      - "core/**"
+      - "contrib/**"
+      - "skills/**"
+      - ".github/workflows/recipe-images.yml"
+      - ".github/scripts/recipe_images_matrix.py"
+  schedule:
+    # Weekly, Tuesday 04:23 UTC. Off the hour and off Monday: scheduled runs
+    # are best-effort and GitHub sheds them under scheduler load, and the
+    # contended slots are the top of the hour and the start of the week.
+    - cron: "23 4 * * 2"
+  workflow_dispatch:
+    inputs:
+      recipe:
+        description: "Limit to one recipe path (e.g. core/python/ambient-expense-agent)"
+        type: string
+        required: false
+      dry_run:
+        description: "Build the images but do not push them"
+        type: boolean
+        default: false
+
+# Declared per job. At workflow level every job would inherit `id-token:
+# write` purely because `build` needs it to mint a WIF token (zizmor
+# `excessive-permissions`).
+permissions: {}
+
+concurrency:
+  # Serialized per ref rather than cancelled: a half-finished matrix leaves
+  # some recipes published at the new commit and some at the old one, which
+  # is a worse state to debug than a queued run.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  WORKLOAD_IDENTITY_PROVIDER: projects/148460639759/locations/global/workloadIdentityPools/adk-samples-github-pool/providers/adk-samples-github-provider
+  SERVICE_ACCOUNT: wif-service-account@adk-samples-repo-gcp-support.iam.gserviceaccount.com
+  REGISTRY_HOST: us-west1-docker.pkg.dev
+
+jobs:
+  matrix:
+    name: Build image matrix
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      matrix: ${{ steps.build.outputs.matrix }}
+      count: ${{ steps.build.outputs.count }}
+      # Computed once here rather than per matrix leg, so every image from a
+      # given run carries the same tag even if the legs straddle midnight UTC.
+      build_tag: ${{ steps.tag.outputs.value }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v4
+        with:
+          persist-credentials: false
+          # `--changed-from` diffs against the push's base commit, which has
+          # to be in the local history for the diff to mean anything.
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # ratchet:actions/setup-python@v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Compute build tag
+        id: tag
+        env:
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          echo "value=$(date -u +%Y%m%d)-${SHA:0:12}" >> "${GITHUB_OUTPUT}"
+
+      - name: Discover recipes with a root Dockerfile
+        id: build
+        env:
+          # A scheduled run rebuilds everything by design; only a push scopes
+          # itself to what it touched.
+          CHANGED_FROM: ${{ github.event_name == 'push' && github.event.before || '' }}
+          RECIPE: ${{ inputs.recipe }}
+        run: |
+          set -euo pipefail
+          args=()
+          if [ -n "${CHANGED_FROM}" ] && [ "${CHANGED_FROM}" != "0000000000000000000000000000000000000000" ]; then
+            args+=(--changed-from "${CHANGED_FROM}")
+          fi
+          if [ -n "${RECIPE}" ]; then
+            args+=(--recipe "${RECIPE}")
+          fi
+          matrix=$(python3 .github/scripts/recipe_images_matrix.py "${args[@]}")
+          count=$(printf '%s' "${matrix}" | python3 -c 'import json,sys; print(len(json.load(sys.stdin)["include"]))')
+          echo "matrix=${matrix}" >> "${GITHUB_OUTPUT}"
+          echo "count=${count}" >> "${GITHUB_OUTPUT}"
+          echo "Recipes to build: ${count}"
+          printf '%s' "${matrix}" | python3 -m json.tool
+
+  build:
+    name: ${{ matrix.path }}
+    needs: matrix
+    if: needs.matrix.outputs.count != '0'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      # Minting the OIDC token that Workload Identity Federation exchanges
+      # for a short-lived Google credential. No JSON key exists anywhere.
+      id-token: write
+    strategy:
+      # One broken recipe should not hide the state of every other one.
+      fail-fast: false
+      max-parallel: 4
+      matrix: ${{ fromJSON(needs.matrix.outputs.matrix) }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Authenticate to Google Cloud
+        id: auth
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # ratchet:google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ env.WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ env.SERVICE_ACCOUNT }}
+          token_format: access_token
+
+      - name: Log in to Artifact Registry
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # ratchet:docker/login-action@v4.6.0
+        with:
+          registry: ${{ env.REGISTRY_HOST }}
+          username: oauth2accesstoken
+          password: ${{ steps.auth.outputs.access_token }}
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # ratchet:docker/setup-buildx-action@v4.3.0
+
+      - name: Build and push
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # ratchet:docker/build-push-action@v7.3.0
+        with:
+          context: ${{ matrix.path }}
+          file: ${{ matrix.path }}/Dockerfile
+          # `latest` for humans and for docs that cannot chase a digest.
+          #
+          # The pinnable tag is date-and-commit, not commit alone. The weekly
+          # rebuild runs against an unchanged HEAD and produces a genuinely
+          # different image — that is the whole point of it, since these
+          # Dockerfiles resolve dependencies and base layers at build time —
+          # so a bare `:<sha>` would be rewritten every Tuesday and would not
+          # mean what a commit-shaped tag implies. Dating it keeps every
+          # published image immutable and still traceable to its source.
+          push: ${{ !inputs.dry_run }}
+          tags: |
+            ${{ matrix.image }}:latest
+            ${{ matrix.image }}:${{ needs.matrix.outputs.build_tag }}
+          build-args: |
+            AGENT_VERSION=${{ github.sha }}
+          provenance: false
+          # Shared across runs of the same recipe, not across recipes: these
+          # images share a base layer but nothing above it, and a common
+          # scope would have them evicting each other's dependency layers.
+          cache-from: type=gha,scope=${{ matrix.path }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.path }}
+
+      - name: Report
+        env:
+          IMAGE: ${{ matrix.image }}
+          BUILD_TAG: ${{ needs.matrix.outputs.build_tag }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          {
+            echo "### ${IMAGE}"
+            if [ "${DRY_RUN}" = "true" ]; then
+              echo "Built, not pushed (dry run)."
+            else
+              echo '```'
+              echo "${IMAGE}:latest"
+              echo "${IMAGE}:${BUILD_TAG}"
+              echo '```'
+            fi
+          } >> "${GITHUB_STEP_SUMMARY}"

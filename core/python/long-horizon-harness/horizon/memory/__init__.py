@@ -12,13 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Memory layer: ADK Memory Bank wrapper, add_memory tool, auto-capture callback."""
+"""Memory layer: ADK Memory Bank wrapper, memory tool, auto-capture callback."""
 
 from horizon.memory.add_memory_tool import (
     MEMORY_CHAR_LIMIT,
     USER_CHAR_LIMIT,
-    add_memory,
     add_memory_entry,
+    memory,
 )
 from horizon.memory.auto_capture import auto_capture_callback
 from horizon.memory.user_profile import (
@@ -29,9 +29,9 @@ from horizon.memory.user_profile import (
 __all__ = [
     "MEMORY_CHAR_LIMIT",
     "USER_CHAR_LIMIT",
-    "add_memory",
     "add_memory_entry",
     "auto_capture_callback",
     "load_user_profile",
+    "memory",
     "render_user_profile",
 ]

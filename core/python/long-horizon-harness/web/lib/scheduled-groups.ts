@@ -21,7 +21,6 @@ export interface ScheduledGroup {
 
 // Stable display order; groups with no sessions are dropped.
 const ORDER: { label: string; match: HorizonSessionSummary["jobType"][] }[] = [
-  { label: "Reminders", match: ["reminder"] },
   { label: "Dream review", match: ["dream_review"] },
   { label: "Routines", match: ["routine"] },
 ];

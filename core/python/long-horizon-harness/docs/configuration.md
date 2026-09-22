@@ -19,7 +19,7 @@ the per-layer security model in [`security-model.md`](security-model.md).
 ## Routes
 
 The served app (`horizon.fast_api_app:app`) mounts every router: A2A + `/lha/*`
-(sessions, state, tasks, memories, uploads, sandbox, processes, secrets, reminders, routines),
+(sessions, state, tasks, memories, uploads, sandbox, processes, secrets, routines),
 `/feedback`, the OAuth callbacks, and the `/scheduler/*` endpoints. To ship a subset,
 delete the `attach_*` calls you don't want in `horizon/fast_api_app.py`. What each
 route exposes — and the credentials the `secrets`/`oauth` routes inject — is in
@@ -54,7 +54,7 @@ route exposes — and the credentials the `secrets`/`oauth` routes inject — is
 
 | Var | Default | Notes |
 |---|---|---|
-| `LHA_ROOT_MODEL` | `gemini-3.6-flash` | Root-agent default; a key in `horizon/models/registry.py`. `/model` overrides per-session. |
+| `LHA_ROOT_MODEL` | `gemini-3.7-flash` | Root-agent default; a key in `horizon/models/registry.py`. `/model` overrides per-session. |
 | `LHA_VERTEX_SERVICE_TIER` | _(off)_ | Set to `priority` to pin Gemini to Vertex's `SERVICE_TIER_PRIORITY` per turn. **Off by default** — the tier needs a Vertex entitlement most projects lack. |
 
 ### Environment / sandbox
@@ -92,11 +92,23 @@ route exposes — and the credentials the `secrets`/`oauth` routes inject — is
 | `LHA_PRE_COMPRESS_FLUSH` | on | `0` disables the pre-compaction memory flush fork. |
 | `LHA_FORK_COOLDOWN` | `120` | Seconds between background forks, per session. |
 
+### Identity (SOUL.md)
+
+`~/.lha/SOUL.md`, if present, replaces `DEFAULT_AGENT_IDENTITY` as the opening line of the
+agent's system prompt (`horizon/conversation/soul_loader.py`). It is read once, at
+App-build time, as part of assembling `Agent.static_instruction`
+(`horizon/conversation/system_prompt.py:build_static_instruction`) — editing it now needs
+a process restart to take effect, not just a new session, since the constant prefix is no
+longer rebuilt per session.
+
 ### Context / compaction
 
 | Var | Default | Notes |
 |---|---|---|
 | `LHA_PRUNE_TOOL_OUTPUTS` | on | `0` disables zeroing of old large tool-result bodies. |
+| `LHA_PRELOAD_MAX_MEMORIES` | `20` | Cap on memories injected into the per-turn `<PAST_CONVERSATIONS>` block. ADK's `search_memory` takes no `top_k`, so without this the block grows with the user's memory count forever. |
+| `LHA_PRELOAD_MAX_CHARS` | `4000` | Character cap on the same block, applied after the count cap. |
+| `ADK_DISABLE_JSON_SCHEMA_FOR_FUNC_DECL` | unset | Selects ADK's lean declaration path process-wide. The root agent no longer needs it: `context/declaration_compaction.py` scopes the same switch to its own tool builds, worth 2,549 chars of the tool surface on every turn. Set it yourself only if you also want it for the child agents, and only if nothing else in the process would be re-rendered by it. |
 | `LHA_COMPACTION_WINDOW_FRACTION` | `0.75` | Fraction (0,1) of the model's input window at which compaction fires. |
 
 ### Scheduler / routines
@@ -104,7 +116,7 @@ route exposes — and the credentials the `secrets`/`oauth` routes inject — is
 | Var | Default | Notes |
 |---|---|---|
 | `LHA_ROUTINE_STORE` | `memory` | `memory` (not durable) or `postgres` (needs `LHA_REMINDER_DB_URL`; `lha[scheduler]`). |
-| `LHA_REMINDER_DB_URL` | — | Postgres URL shared by reminders + routines + resilient sessions. |
+| `LHA_REMINDER_DB_URL` | — | Postgres URL for routines + resilient sessions. Name is historical (predates the reminder capability's removal), kept as-is. |
 | `LHA_SCHEDULER_SA` | — | Service account whose OIDC token `/scheduler/*` accepts. Unset ⇒ endpoints reject. |
 | `LHA_SCHEDULER_AUDIENCE` | — | Expected `aud` on that token. Unset ⇒ endpoints reject. |
 | `LHA_SCHEDULER_AUTH_DISABLED` | _(off)_ | Skips scheduler token verification. Local testing only. |
@@ -149,7 +161,7 @@ deps are optional extras in `pyproject.toml`; the dev/test env pulls them all ba
 
 | Extra | Pulls | Needed for |
 |---|---|---|
-| `lha[postgres]` | `asyncpg`, `yoyo-migrations`, `bcrypt` | durable postgres stores (reminders, routines, resilient sessions) |
+| `lha[postgres]` | `asyncpg`, `yoyo-migrations`, `bcrypt` | durable postgres stores (routines, resilient sessions) |
 | `lha[scheduler]` | `lha[postgres]` | scheduler durability (`LHA_ROUTINE_STORE=postgres`) |
 | `lha[data]` | `pandas`, `matplotlib`, `seaborn` | in-sandbox data analysis (not imported by the harness) |
 | `lha[full]` / `lha[all]` | `postgres,scheduler,data` | the full deployed surface |

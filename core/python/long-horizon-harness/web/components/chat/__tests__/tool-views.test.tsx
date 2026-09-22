@@ -69,10 +69,21 @@ describe("preview helpers", () => {
     expect(
       patchPreview({
         path: "/tmp/foo/bar.py",
-        old_string: "a\nb\nc",
-        new_string: "a\nB",
+        edits: [{ oldText: "a\nb\nc", newText: "a\nB" }],
       }),
     ).toBe("bar.py · −3 +2");
+  });
+
+  it("patchPreview sums deltas across a batch and notes the edit count", () => {
+    expect(
+      patchPreview({
+        path: "/tmp/foo/bar.py",
+        edits: [
+          { oldText: "a\nb\nc", newText: "a\nB" },
+          { oldText: "x", newText: "y\nz" },
+        ],
+      }),
+    ).toBe("bar.py · −4 +4 (2 edits)");
   });
 
   it("writeFilePreview reports basename + total line count", () => {
@@ -101,28 +112,49 @@ describe("PatchView", () => {
       <PatchView
         args={{
           path: "/tmp/x.py",
-          old_string: "old line",
-          new_string: "new line",
+          edits: [{ oldText: "old line", newText: "new line" }],
         }}
-        result={{ success: false, error: "old_string not found in /tmp/x.py." }}
+        result={{ success: false, error: "edits[0]: oldText not found in /tmp/x.py." }}
       />,
     );
     // Path appears in the header (and the mono span inside it) — accept either.
     expect(screen.getAllByText(/\/tmp\/x\.py/).length).toBeGreaterThan(0);
-    expect(screen.getByText(/old_string not found/)).toBeInTheDocument();
+    expect(screen.getByText(/oldText not found/)).toBeInTheDocument();
     // Diff lines render with - / + prefixes.
     expect(screen.getByText("old line")).toBeInTheDocument();
     expect(screen.getByText("new line")).toBeInTheDocument();
   });
 
-  it("badges replace_all calls", () => {
+  it("badges a multi-edit batch call", () => {
     render(
       <PatchView
-        args={{ path: "a.py", old_string: "x", new_string: "y", replace_all: true }}
+        args={{
+          path: "a.py",
+          edits: [
+            { oldText: "x", newText: "y" },
+            { oldText: "p", newText: "q" },
+          ],
+        }}
         result={null}
       />,
     );
-    expect(screen.getByText("replace_all")).toBeInTheDocument();
+    expect(screen.getByText("2 edits")).toBeInTheDocument();
+  });
+
+  it("renders one diff block per edit in the batch", () => {
+    const { container } = render(
+      <PatchView
+        args={{
+          path: "a.py",
+          edits: [
+            { oldText: "x", newText: "y" },
+            { oldText: "p", newText: "q" },
+          ],
+        }}
+        result={null}
+      />,
+    );
+    expect(container.querySelectorAll("pre").length).toBe(2);
   });
 });
 
@@ -238,7 +270,7 @@ describe("ToolRow integration via MessageBubble dispatch", () => {
   it("PatchView mounts without throwing on null result", () => {
     const { container } = render(
       <PatchView
-        args={{ path: "a.py", old_string: "x", new_string: "y" }}
+        args={{ path: "a.py", edits: [{ oldText: "x", newText: "y" }] }}
         result={null}
       />,
     );

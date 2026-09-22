@@ -86,7 +86,7 @@ sys.meta_path.insert(0, _Block())
 from horizon.models import build_root_llm
 
 llm = build_root_llm()
-assert llm.model == "gemini-3.6-flash"
+assert llm.model == "gemini-3.7-flash"
 print("BUILD_DEFAULT_OK")
 """
 
@@ -106,11 +106,11 @@ def test_registry_membership_is_key_only():
     from horizon.models.registry import MODEL_REGISTRY
 
     # key-only ops never instantiate a backend
-    assert "gemini-3.6-flash" in MODEL_REGISTRY
+    assert "gemini-3.7-flash" in MODEL_REGISTRY
     assert "nope" not in MODEL_REGISTRY
     assert sorted(MODEL_REGISTRY) == [
         "gemini-3.1-pro-preview",
-        "gemini-3.6-flash",
+        "gemini-3.7-flash",
     ]
 
 

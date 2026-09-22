@@ -1,0 +1,209 @@
+# uses_catalog: true
+cases:
+- id: headphones_under_200
+  prompt: "I'm looking for wireless headphones under $200, what do you have?"
+  metadata:
+    skill_name: "retail-product-search"
+    products:
+      - "Vertex AI Vector Search"
+      - "BigQuery"
+  rubric:
+    - "The response MUST return product results that include wireless headphones from the catalog."
+    - "The response MUST only include products priced under $200."
+    - "The response MUST include key product details: name, price, and description for each result."
+    - "The response MUST NOT hallucinate product names, brands, or prices not present in the catalog."
+    - "The response SHOULD use semantic search to match the user intent, not just keyword matching."
+  assertions:
+    - type: contains_product
+      field: name
+      value: Wireless Headphones
+    - type: price_under
+      value: 200
+    - type: tool_called
+      tool: retrieve_docs
+    - type: no_hallucination
+      forbidden:
+        - Bose
+        - AirPods
+        - Sennheiser
+
+- id: cheapest_item
+  prompt: "What is the cheapest product you have available right now?"
+  metadata:
+    skill_name: "retail-product-search"
+    products:
+      - "Vertex AI Vector Search"
+      - "BigQuery"
+  rubric:
+    - "The response MUST identify the lowest-priced product in the catalog."
+    - "The response MUST include the exact price as a dollar amount."
+    - "The response MUST include the product name and a brief description."
+    - "The response MUST NOT fabricate prices or products not present in the catalog."
+  assertions:
+    - type: tool_called
+      tool: retrieve_docs
+    - type: mentions_price
+      value: true
+    - type: response_not_empty
+
+- id: keyboard_search
+  prompt: "I need a mechanical keyboard for coding, what do you recommend?"
+  metadata:
+    skill_name: "retail-product-search"
+    products:
+      - "Vertex AI Vector Search"
+      - "BigQuery"
+  rubric:
+    - "The response MUST return at least one mechanical keyboard product from the catalog."
+    - "The response MUST include the brand and price for each returned product."
+    - "The response MUST provide details relevant to coding use (e.g., key switch type, ergonomics)."
+    - "The response MUST NOT recommend products outside the catalog inventory."
+    - "The response SHOULD explain why the recommended product suits coding workflows."
+  assertions:
+    - type: contains_product
+      field: name
+      value: Mechanical Keyboard
+    - type: mentions_field
+      field: brand
+    - type: mentions_field
+      field: price
+    - type: tool_called
+      tool: retrieve_docs
+
+- id: category_filter
+  prompt: "Show me all audio products you carry."
+  metadata:
+    skill_name: "retail-product-search"
+    products:
+      - "Vertex AI Vector Search"
+      - "BigQuery"
+  rubric:
+    - "The response MUST return products categorized under Audio from the catalog."
+    - "The response MUST include the name and price for each audio product listed."
+    - "The response MUST NOT include products from non-audio categories in the results."
+    - "The response MUST NOT hallucinate audio products not present in the catalog (e.g., speaker systems, turntables)."
+  assertions:
+    - type: tool_called
+      tool: retrieve_docs
+    - type: contains_product
+      field: category
+      value: Audio
+    - type: no_hallucination
+      forbidden:
+        - speaker system
+        - turntable
+
+- id: brand_search
+  prompt: "Do you have any Sony products in your store?"
+  metadata:
+    skill_name: "retail-product-search"
+    products:
+      - "Vertex AI Vector Search"
+      - "BigQuery"
+  rubric:
+    - "The response MUST return products from the Sony brand present in the catalog."
+    - "The response MUST include the product name, category, and price for each Sony item."
+    - "The response MUST NOT fabricate Sony products that are not in the catalog."
+    - "The response MUST NOT include products from other brands unless explicitly relevant for comparison."
+  assertions:
+    - type: tool_called
+      tool: retrieve_docs
+    - type: contains_product
+      field: brand
+      value: Sony
+    - type: response_not_empty
+
+- id: no_results_handling
+  prompt: "Do you have any cars for sale?"
+  metadata:
+    skill_name: "retail-product-search"
+    products:
+      - "Vertex AI Vector Search"
+      - "BigQuery"
+  rubric:
+    - "The response MUST clearly state that no matching products were found in the catalog."
+    - "The response MUST NOT fabricate or hallucinate car products."
+    - "The response SHOULD suggest alternative actions (e.g., browsing other categories or refining the query)."
+    - "The response MUST remain helpful and polite even when no results are available."
+  assertions:
+    - type: tool_called
+      tool: retrieve_docs
+    - type: graceful_no_results
+
+- id: comparison_query
+  prompt: "Can you compare the keyboard and the headphones you have?"
+  metadata:
+    skill_name: "retail-product-search"
+    products:
+      - "Vertex AI Vector Search"
+      - "BigQuery"
+  rubric:
+    - "The response MUST include a side-by-side comparison covering at least name, price, and category."
+    - "The response MUST reference actual products from the catalog for both the keyboard and headphones."
+    - "The response MUST NOT invent specifications or features not listed in the catalog."
+    - "The response SHOULD highlight key differences that help the user make a purchase decision."
+  assertions:
+    - type: tool_called
+      tool: retrieve_docs
+    - type: mentions_field
+      field: price
+    - type: response_min_length
+      value: 50
+
+- id: price_range
+  prompt: "Show me products between $50 and $150."
+  metadata:
+    skill_name: "retail-product-search"
+    products:
+      - "Vertex AI Vector Search"
+      - "BigQuery"
+  rubric:
+    - "The response MUST only include products with prices between $50 and $150 inclusive."
+    - "The response MUST display the price for each returned product."
+    - "The response MUST NOT return products priced outside the specified range."
+    - "The response MUST NOT hallucinate products or prices not present in the catalog."
+  assertions:
+    - type: tool_called
+      tool: retrieve_docs
+    - type: mentions_price
+      value: true
+    - type: response_not_empty
+
+- id: vague_query_handling
+  prompt: "I need something for my desk, any suggestions?"
+  metadata:
+    skill_name: "retail-product-search"
+    products:
+      - "Vertex AI Vector Search"
+      - "BigQuery"
+  rubric:
+    - "The response MUST return relevant desk-related products from the catalog (e.g., keyboards, monitors)."
+    - "The response MUST include product name and price for each suggestion."
+    - "The response MUST NOT hallucinate products not in the catalog."
+    - "The response SHOULD interpret the vague query using semantic search rather than exact keyword matching."
+  assertions:
+    - type: tool_called
+      tool: retrieve_docs
+    - type: response_not_empty
+    - type: response_min_length
+      value: 30
+
+- id: skill_covers_vector_search
+  prompt: "How does the product search system work under the hood?"
+  metadata:
+    skill_name: "retail-product-search"
+    products:
+      - "Vertex AI Vector Search"
+      - "BigQuery"
+      - "Cloud Storage"
+  rubric:
+    - "The response MUST mention vector search as part of the product retrieval mechanism."
+    - "The response MUST reference BigQuery as the data storage or query layer."
+    - "The response MUST NOT claim the system uses technologies or services it does not employ."
+    - "The response SHOULD explain how semantic embeddings power product matching."
+  assertions:
+    - type: skill_covers
+      topic: vector search
+    - type: skill_covers
+      topic: bigquery
+    - type: response_not_empty

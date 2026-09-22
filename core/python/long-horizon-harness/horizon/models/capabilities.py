@@ -16,8 +16,9 @@
 
 Each model backend carries a ``ModelCapabilities`` (max inline-image bytes, a
 ``can_view_mime`` predicate, and an optional pre-dispatch ``prepare_contents``
-hook). The dispatcher and ``view_file`` read the capabilities by data, so
-neither names a concrete backend class: adding a model is one descriptor entry,
+hook). The dispatcher and the ``read`` tool's media path read the capabilities
+by data, so neither names a concrete backend class: adding a model is one
+descriptor entry,
 and a model with unusual media limits or content quirks sets its own fields
 instead of adding an ``isinstance`` branch.
 

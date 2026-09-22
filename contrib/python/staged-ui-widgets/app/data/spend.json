@@ -1,0 +1,66 @@
+{
+  "_comment": "Fictional spend history, twelve months ending Aug 2026. Monthly totals and a category split that sums to the total -- get_spend_summary reports both, so a split that does not add up makes the tool contradict itself; tests/unit/test_store.py holds that. The tool slices a window and computes the average, so the headline can never contradict the chart.",
+  "currency": "USD",
+  "months": [
+    {
+      "month": "2025-09",
+      "amount": 96.0,
+      "by_category": { "accessory": 56.0, "base-layer": 40.0 }
+    },
+    {
+      "month": "2025-10",
+      "amount": 214.5,
+      "by_category": { "mid-layer": 167.5, "accessory": 47.0 }
+    },
+    {
+      "month": "2025-11",
+      "amount": 331.0,
+      "by_category": { "shell": 268.0, "accessory": 63.0 }
+    },
+    {
+      "month": "2025-12",
+      "amount": 402.0,
+      "by_category": { "mid-layer": 232.0, "pack": 120.0, "accessory": 50.0 }
+    },
+    {
+      "month": "2026-01",
+      "amount": 58.0,
+      "by_category": { "accessory": 58.0 }
+    },
+    {
+      "month": "2026-02",
+      "amount": 124.0,
+      "by_category": { "road-shoes": 124.0 }
+    },
+    {
+      "month": "2026-03",
+      "amount": 212.0,
+      "by_category": { "trail-shoes": 132.0, "base-layer": 80.0 }
+    },
+    {
+      "month": "2026-04",
+      "amount": 98.5,
+      "by_category": { "mid-layer": 78.0, "accessory": 20.5 }
+    },
+    {
+      "month": "2026-05",
+      "amount": 341.0,
+      "by_category": { "pack": 189.0, "base-layer": 152.0 }
+    },
+    {
+      "month": "2026-06",
+      "amount": 152.0,
+      "by_category": { "mid-layer": 89.5, "accessory": 62.5 }
+    },
+    {
+      "month": "2026-07",
+      "amount": 275.0,
+      "by_category": { "shell": 268.0, "accessory": 7.0 }
+    },
+    {
+      "month": "2026-08",
+      "amount": 172.0,
+      "by_category": { "trail-shoes": 148.0, "accessory": 24.0 }
+    }
+  ]
+}

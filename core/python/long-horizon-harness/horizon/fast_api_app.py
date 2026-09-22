@@ -16,7 +16,7 @@
 
 Session/memory/artifact backends and the sandbox are resolved from the
 environment; every router mounts. The agent itself lives in ``horizon.agent`` —
-adapt the sample by editing that + these routes."""
+adapt the recipe by editing that + these routes."""
 
 import functools
 import logging
@@ -33,7 +33,6 @@ from horizon.infrastructure.db_resilience import (
     retry_on_disconnect,
 )
 from horizon.infrastructure.env import env_flag, env_str
-from horizon.scheduler import store as reminder_store
 
 if TYPE_CHECKING:
     from google.adk.runners import Runner
@@ -47,8 +46,8 @@ _DEV_DATA_DIR = os.path.join(AGENT_DIR, ".data")
 
 
 async def _shutdown_runtime() -> None:
-    # Sibling-agent siblings can write reminders, so drain them before
-    # closing the reminder store. Either may raise on shutdown — we log
+    # Sibling-agent siblings can write routines, so drain them before
+    # closing the routine store. Either may raise on shutdown — we log
     # and continue so the other cleanup still runs.
     from horizon.agent import SIBLING_AGENT_PLUGIN
 
@@ -58,16 +57,13 @@ async def _shutdown_runtime() -> None:
         logger.exception("shutdown: sibling agent plugin close failed")
     from horizon.scheduler.routine_store import active_routine_store
 
-    for label, store in (
-        ("reminder", reminder_store.active_reminder_store()),
-        ("routine", active_routine_store()),
-    ):
-        close = getattr(store, "close", None)
-        if close is not None:
-            try:
-                await close()
-            except Exception:
-                logger.exception("shutdown: %s store close failed", label)
+    store = active_routine_store()
+    close = getattr(store, "close", None)
+    if close is not None:
+        try:
+            await close()
+        except Exception:
+            logger.exception("shutdown: routine store close failed")
 
 
 class _ResilientTaskStore(TaskStore):
@@ -323,7 +319,6 @@ def _build_app() -> FastAPI:
     from horizon.api.feedback import attach_feedback_routes
     from horizon.api.memories import attach_memories_routes
     from horizon.api.processes import attach_processes_routes
-    from horizon.api.reminders import attach_reminders_routes
     from horizon.api.routines import attach_routines_routes
     from horizon.api.sandbox import attach_sandbox_routes
     from horizon.api.secrets import attach_secrets_routes
@@ -337,7 +332,6 @@ def _build_app() -> FastAPI:
         dream_review_endpoint,
         routine_tick_endpoint,
         snapshot_endpoint,
-        tick_endpoint,
     )
     from horizon.telemetry.otel import setup_telemetry
 
@@ -352,15 +346,15 @@ def _build_app() -> FastAPI:
     @contextlib.asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         runner = build_runner()
-        # Scheduler routers (tick / dream-review) reach the persistent
-        # session_service + agent through this handle to create and run
-        # inspectable scheduled sessions.
+        # Scheduler routers (routine-tick / dream-review) reach the
+        # persistent session_service + agent through this handle to create
+        # and run inspectable scheduled sessions.
         app.state.runner = runner
         task_store = _build_task_store()
         # attach_a2a_routes builds the card + handler (the 1.x handler needs the
-        # card) and returns the handler. The scheduler tick drives this same
-        # handler so reminder turns record an A2A Task (history the web UI can
-        # render) like any normal chat.
+        # card) and returns the handler. The scheduler routine-tick drives this
+        # same handler so a fired routine's turn records an A2A Task (history
+        # the web UI can render) like any normal chat.
         request_handler = await attach_a2a_routes(
             app,
             agent=root_agent,
@@ -378,7 +372,6 @@ def _build_app() -> FastAPI:
         attach_feedback_routes(app, runner=runner)
         attach_secrets_routes(app)
         attach_gcp_oauth_routes(app)
-        attach_reminders_routes(app)
         attach_routines_routes(app)
         try:
             yield
@@ -408,7 +401,6 @@ def _build_app() -> FastAPI:
     app.title = "horizon"
     app.description = "API for interacting with the Agent horizon"
     app.add_middleware(IdentityMiddleware)
-    app.include_router(tick_endpoint.router)
     app.include_router(dream_review_endpoint.router)
     app.include_router(snapshot_endpoint.router)
     app.include_router(routine_tick_endpoint.router)

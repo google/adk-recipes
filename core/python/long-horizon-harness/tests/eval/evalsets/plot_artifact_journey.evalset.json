@@ -1,42 +1,46 @@
 {
   "eval_set_id": "plot_artifact_journey",
   "name": "Plot Generation → Workspace → Artifact Round-Trip",
-  "description": "Locks in the end-to-end journey for the most common multimodal output: the user asks for a plot and expects to be able to download the rendered image. Two valid execution paths produce the bytes — either ADK's `code_execution` tool (when AGENT_ENGINE_RESOURCE_NAME / CODE_SANDBOX_RESOURCE_NAME is set; see horizon/agent.py) OR `terminal` routed through the per-user sandbox env when LHA_ENVIRONMENT_BACKEND=sandbox. Whichever path the model picks, the load-bearing pipeline is the same: (1) produce the PNG bytes, (2) persist them into the workspace via `write_file` (the code_execution sandbox FS is separate from the workspace and invisible to file_ops; even for terminal-in-sandbox the canonical persistence path is write_file so file_ops sees it), (3) call `artifact(action='save', path=<workspace_path>)` so the host artifact service registers it for the user to download. Skipping step 3 means no downloadable artifact; skipping step 2 means the bytes never reach file_ops. Rubrics grade observable tool selection only — pixel correctness of the plot is impractical for an LLM judge. Grading uses `rubric_based_final_response_quality_v1` (see tests/eval/eval_config.json).",
+  "description": "Locks in the end-to-end journey for the most common multimodal output: the user asks for a plot and expects to be able to download the rendered image. Two valid execution paths produce the bytes — either ADK's `code_execution` tool (when AGENT_ENGINE_RESOURCE_NAME / CODE_SANDBOX_RESOURCE_NAME is set; see horizon/agent.py) OR `bash` routed through the per-user sandbox env when LHA_ENVIRONMENT_BACKEND=sandbox. Whichever path the model picks, the load-bearing pipeline is the same: (1) produce the PNG bytes, (2) persist them into the workspace via `write` (the code_execution sandbox FS is separate from the workspace and invisible to file_ops; even for bash-in-sandbox the canonical persistence path is write so file_ops sees it), (3) call `artifact(action='save', path=<workspace_path>)` so the host artifact service registers it for the user to download. Skipping step 3 means no downloadable artifact; skipping step 2 means the bytes never reach file_ops. Rubrics grade observable tool selection only — pixel correctness of the plot is impractical for an LLM judge. Grading uses `rubric_based_final_response_quality_v1` (see tests/eval/eval_config.json).",
   "eval_cases": [
     {
       "eval_id": "plot_save_as_downloadable_artifact",
       "conversation": [
         {
           "user_content": {
-            "parts": [{"text": "Make a simple line chart of x=[1,2,3,4,5] vs y=[2,4,1,5,3] using matplotlib, save it as a PNG, and surface it to me as a downloadable artifact named `line_chart.png`."}]
+            "parts": [
+              {
+                "text": "Make a simple line chart of x=[1,2,3,4,5] vs y=[2,4,1,5,3] using matplotlib, save it as a PNG, and surface it to me as a downloadable artifact named `line_chart.png`."
+              }
+            ]
           },
           "rubrics": [
             {
               "rubric_id": "plot_actually_rendered_via_a_tool",
               "type": "FINAL_RESPONSE_QUALITY",
               "rubric_content": {
-                "text_property": "The PNG bytes are actually produced by a real tool call — not fabricated. Either `code_execution` with matplotlib/plotting code, OR `terminal` running a Python script (typically written first via `write_file`) is acceptable. The chosen path must include a FunctionCall whose body or command line generates the requested line chart from x=[1,2,3,4,5] and y=[2,4,1,5,3]. A response that fabricates a chart description, ASCII art, or claims to have generated a PNG without ANY plotting tool call fails."
+                "text_property": "The PNG bytes are actually produced by a real tool call — not fabricated. Either `code_execution` with matplotlib/plotting code, OR `bash` running a Python script (typically written first via `write`) is acceptable. The chosen path must include a FunctionCall whose body or command line generates the requested line chart from x=[1,2,3,4,5] and y=[2,4,1,5,3]. A response that fabricates a chart description, ASCII art, or claims to have generated a PNG without ANY plotting tool call fails."
               }
             },
             {
               "rubric_id": "plot_bytes_routed_into_workspace",
               "type": "FINAL_RESPONSE_QUALITY",
               "rubric_content": {
-                "text_property": "The image bytes are persisted to the workspace before being surfaced as an artifact. The model must end up with a workspace file (writable/readable via file_ops) holding the PNG bytes. Acceptable patterns: (a) `code_execution` base64-encodes the PNG to stdout and a follow-up `write_file` writes the decoded bytes to a workspace path; (b) a `write_file` puts a plotting script in the workspace, `terminal` runs it (terminal in this codebase routes through the per-user sandbox when LHA_ENVIRONMENT_BACKEND=sandbox), and the script writes the PNG into the same workspace where file_ops can see it; (c) the model writes the bytes directly via `write_file` after producing them. The failure mode this rubric is designed to catch: calling `plt.savefig('line_chart.png')` inside `code_execution` and immediately calling `artifact(action='save', path='line_chart.png')` — that path does NOT exist in the workspace because the code_execution sandbox FS is invisible to file_ops (see horizon/agent.py). A response that produces the PNG only in the sandbox FS and never lands it in the workspace fails."
+                "text_property": "The image bytes are persisted to the workspace before being surfaced as an artifact. The model must end up with a workspace file (writable/readable via file_ops) holding the PNG bytes. Acceptable patterns: (a) `code_execution` base64-encodes the PNG to stdout and a follow-up `write` writes the decoded bytes to a workspace path; (b) a `write` puts a plotting script in the workspace, `bash` runs it (bash in this codebase routes through the per-user sandbox when LHA_ENVIRONMENT_BACKEND=sandbox), and the script writes the PNG into the same workspace where file_ops can see it; (c) the model writes the bytes directly via `write` after producing them. The failure mode this rubric is designed to catch: calling `plt.savefig('line_chart.png')` inside `code_execution` and immediately calling `artifact(action='save', path='line_chart.png')` — that path does NOT exist in the workspace because the code_execution sandbox FS is invisible to file_ops (see horizon/agent.py). A response that produces the PNG only in the sandbox FS and never lands it in the workspace fails."
               }
             },
             {
               "rubric_id": "plot_surfaced_via_artifact_save",
               "type": "FINAL_RESPONSE_QUALITY",
               "rubric_content": {
-                "text_property": "The response includes a `artifact` FunctionCall with `action='save'` and a `path` pointing at the workspace file holding the PNG bytes. This is what makes the file leave the workspace and become a host-side artifact the user can download. The expected `name` (the artifact filename surfaced to the user) is `line_chart.png` — the user explicitly named it. A response that writes the PNG to the workspace but never calls `artifact(action='save')` fails — the user asked for a downloadable artifact, not just a workspace file. A response that calls `artifact(action='save')` against a path that was never written (because the only `write_file` was for something else, or because the plotting code only used `plt.savefig` inside the sandbox FS) also fails."
+                "text_property": "The response includes a `artifact` FunctionCall with `action='save'` and a `path` pointing at the workspace file holding the PNG bytes. This is what makes the file leave the workspace and become a host-side artifact the user can download. The expected `name` (the artifact filename surfaced to the user) is `line_chart.png` — the user explicitly named it. A response that writes the PNG to the workspace but never calls `artifact(action='save')` fails — the user asked for a downloadable artifact, not just a workspace file. A response that calls `artifact(action='save')` against a path that was never written (because the only `write` was for something else, or because the plotting code only used `plt.savefig` inside the sandbox FS) also fails."
               }
             },
             {
               "rubric_id": "plot_does_not_fabricate_success",
               "type": "FINAL_RESPONSE_QUALITY",
               "rubric_content": {
-                "text_property": "The final text reply does NOT claim the artifact has been saved unless the trajectory actually contains a successful `artifact(action='save')` FunctionCall. Confidently asserting 'I've saved line_chart.png as an artifact, you can download it' with no matching tool call (or with a tool call that failed) fails this rubric. If `code_execution` or `write_file` errored out, the correct response is to surface the error and either retry or ask the user, not to claim success."
+                "text_property": "The final text reply does NOT claim the artifact has been saved unless the trajectory actually contains a successful `artifact(action='save')` FunctionCall. Confidently asserting 'I've saved line_chart.png as an artifact, you can download it' with no matching tool call (or with a tool call that failed) fails this rubric. If `code_execution` or `write` errored out, the correct response is to surface the error and either retry or ask the user, not to claim success."
               }
             }
           ]

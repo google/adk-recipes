@@ -42,6 +42,8 @@ class _Result:
 class _StubEnv:
     """Minimal BaseEnvironment stand-in capturing the executed command."""
 
+    on_host_fs = True
+
     def __init__(self, result: _Result | Exception) -> None:
         self._result = result
         self.commands: list[str] = []
@@ -132,7 +134,12 @@ class TestPostEditDiagnostics:
 
 
 class _RWStubEnv(_StubEnv):
-    """Adds read/write so patch/write_file can run against the stub."""
+    """Adds read/write so edit/write (the tools) can run against the stub.
+
+    Implements the Environment interface's read_file/write_file, which the
+    tools call internally — these must keep their Environment-API names,
+    not the horizon tool names.
+    """
 
     def __init__(self, result, files: dict[str, bytes] | None = None) -> None:
         super().__init__(result)
@@ -158,7 +165,7 @@ class _RWStubEnv(_StubEnv):
 
 class TestDiagnosticsIntegration:
     async def test_patch_attaches_diagnostics_for_py(self, tmp_path) -> None:
-        from horizon.tools.file_ops import patch
+        from horizon.tools.file_ops import edit
 
         target = tmp_path / "code.py"
         target.write_text("x = 1\n")
@@ -168,7 +175,9 @@ class TestDiagnosticsIntegration:
         )
         set_active_environment(env)
 
-        result = await patch(str(target), "x = 1", "x = 2")
+        result = await edit(
+            str(target), [{"oldText": "x = 1", "newText": "x = 2"}]
+        )
 
         assert result["success"] is True
         assert "diagnostics" in result
@@ -177,7 +186,7 @@ class TestDiagnosticsIntegration:
     async def test_write_file_attaches_diagnostics_for_py(
         self, tmp_path
     ) -> None:
-        from horizon.tools.file_ops import write_file
+        from horizon.tools.file_ops import write
 
         target = tmp_path / "code.py"
         env = _RWStubEnv(
@@ -185,19 +194,19 @@ class TestDiagnosticsIntegration:
         )
         set_active_environment(env)
 
-        result = await write_file(str(target), "x = 1\n")
+        result = await write(str(target), "x = 1\n")
 
         assert result["success"] is True
         assert "diagnostics" in result
 
     async def test_no_diagnostics_key_for_non_py(self, tmp_path) -> None:
-        from horizon.tools.file_ops import write_file
+        from horizon.tools.file_ops import write
 
         target = tmp_path / "notes.txt"
         env = _RWStubEnv(_Result(exit_code=0, stdout="[]"))
         set_active_environment(env)
 
-        result = await write_file(str(target), "hello\n")
+        result = await write(str(target), "hello\n")
 
         assert result["success"] is True
         assert "diagnostics" not in result
@@ -205,13 +214,13 @@ class TestDiagnosticsIntegration:
         assert not any("ruff check" in c for c in env.commands)
 
     async def test_clean_py_has_no_diagnostics_key(self, tmp_path) -> None:
-        from horizon.tools.file_ops import write_file
+        from horizon.tools.file_ops import write
 
         target = tmp_path / "clean.py"
         env = _RWStubEnv(_Result(exit_code=0, stdout="[]"))
         set_active_environment(env)
 
-        result = await write_file(str(target), "x = 1\n")
+        result = await write(str(target), "x = 1\n")
 
         assert result["success"] is True
         assert "diagnostics" not in result

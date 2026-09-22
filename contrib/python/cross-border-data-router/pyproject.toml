@@ -1,0 +1,40 @@
+[project]
+name = "cross-border-data-router"
+version = "0.1.0"
+requires-python = ">=3.11,<3.14"
+dependencies = [
+    "google-adk[gcp,a2a]>=2.0.0,<3.0.0",
+    "a2a-sdk>=0.3,<1",
+    "python-dotenv>=1.0.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3.4",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+# Use public PyPI as the default index for this recipe.
+[[tool.uv.index]]
+url = "https://pypi.org/simple/"
+default = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+[tool.pytest.ini_options]
+pythonpath = "."
+# Integration tests require live credentials and are excluded from CI.
+# Run them locally with: uv run pytest tests/integration
+addopts = "--ignore=tests/integration"
+filterwarnings = [
+    # google-adk's own LlmAgentConfig subclasses the (now-deprecated)
+    # BaseAgentConfig at import time -- fires on `import google.adk.agents`
+    # regardless of how a recipe uses the library, so there's nothing in
+    # this recipe's code to change. Silence it here rather than let every
+    # test run report a warning nobody can act on.
+    "ignore:BaseAgentConfig is deprecated.*:DeprecationWarning",
+]

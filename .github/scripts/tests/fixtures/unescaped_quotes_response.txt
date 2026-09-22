@@ -1,0 +1,30 @@
+I have performed a thorough review of the newly added `.github/workflows/typescript-tests.yml` workflow file, focusing exclusively on correctness, logic errors, and runtime failures.
+
+Here is a summary of the findings:
+
+1. **Bun runtime dependency missing (Runtime Failure)**:
+   The workflow attempts to detect and run Bun-specific tests if `bun.lockb` or `bun.lock` is present using `npx bun install` and `npx bun test`. However, the runner environment (`ubuntu-latest`) does not have Bun pre-installed, and Node.js setup alone does not provide it. Relying on `npx bun` is slow and unreliable as the npm package wrapper is deprecated and fails on many CI configurations. To fix this, the official `oven-sh/setup-bun` action should be used before running tests for Bun-based recipes.
+
+2. **Corepack not enabled for Yarn (Potential Version Mismatches)**:
+   Modern Yarn (v2+) relies on Corepack to automatically match and run the correct package manager version specified in the recipe's `package.json`'s `"packageManager"` field. While the workflow correctly executes `corepack enable` in the `pnpm` block, it misses this step in the `yarn` block. This can lead to recipes failing to install or executing with an incorrect/fallback version of Yarn.
+
+No other major logic errors, shell scripting issues, or incorrect API usages were found in the path detection, file filtering, or gate-results checking code.
+
+```json
+[
+  {
+    "path": ".github/workflows/typescript-tests.yml",
+    "line": 256,
+    "body": "Modern Yarn (v2+) relies on Corepack to invoke the package manager version specified in package.json. Run 'corepack enable' before executing Yarn commands to avoid version mismatches or installation failures.",
+    "window": "  252:           elif [ -f "yarn.lock" ]; then\n  253:             yarn install --frozen-lockfile || yarn install\n  254:             yarn test",
+    "verify_steps": "Read lines 252-254; compare with the pnpm-lock block on lines 248-251 where 'corepack enable' is correctly included."
+  },
+  {
+    "path": ".github/workflows/typescript-tests.yml",
+    "line": 256,
+    "body": "Bun is not pre-installed on the ubuntu-latest runner, making 'npx bun' slow and prone to runtime failures. Use the oven-sh/setup-bun action to properly provision Bun before running tests for Bun recipes.",
+    "window": "  255:           elif [ -f "bun.lockb" ] || [ -f "bun.lock" ]; then\n  256:             npx bun install --frozen-lockfile || npx bun install\n  257:             npx bun test",
+    "verify_steps": "Read lines 255-257; observe that the workflow executes bun commands without first setting up Bun via a setup-bun action step."
+  }
+]
+```

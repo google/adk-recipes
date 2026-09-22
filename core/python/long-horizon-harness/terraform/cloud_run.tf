@@ -122,15 +122,9 @@ resource "google_cloud_run_v2_service" "app" {
         }
       }
 
-      env {
-        name  = "LHA_REMINDER_STORE"
-        value = "postgres"
-      }
-
-      # Routines reuse the reminder Cloud SQL instance (LHA_REMINDER_DB_URL).
-      # Without this they fall back to the in-memory store, which is per-replica:
-      # a routine created in one Cloud Run instance is invisible to the
-      # /lha/routines reader and the scheduler tick on any other instance.
+      # Without this, routines fall back to the in-memory store, which is
+      # per-replica: a routine created in one Cloud Run instance is invisible
+      # to the /lha/routines reader and the routine-tick on any other instance.
       env {
         name  = "LHA_ROUTINE_STORE"
         value = "postgres"
@@ -142,6 +136,8 @@ resource "google_cloud_run_v2_service" "app" {
         # /cloudsql/<connection_name> when the volume mount is attached.
         # Pulled from Secret Manager so the password doesn't land in
         # plain text in Cloud Run env metadata or Terraform state diffs.
+        # Name is historical, now owned solely by the routine store; kept
+        # as-is to avoid a Terraform/env rename for no user benefit.
         value_source {
           secret_key_ref {
             secret  = google_secret_manager_secret.db_url.secret_id

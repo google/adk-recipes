@@ -7,6 +7,11 @@ import pytest
 # import_module bypasses the package __init__'s `terminal` attribute (which is the
 # terminal *function*, shadowing the submodule) and returns the real module.
 terminal_mod = importlib.import_module("horizon.tools.processes.terminal")
+# open_handle moved to _spawn.py when the parameter space shrank: bash's
+# auto-promote-on-timeout path and process(action='spawn') both need the
+# identical env.spawn_process + secret-injection call, so it now lives in
+# one shared module instead of being duplicated or cross-imported.
+spawn_mod = importlib.import_module("horizon.tools.processes._spawn")
 
 
 class _RecordingEnv:
@@ -23,14 +28,14 @@ class _RecordingEnv:
 @pytest.mark.asyncio
 async def test_open_handle_uses_env_spawn(monkeypatch):
     rec = _RecordingEnv()
-    monkeypatch.setattr(terminal_mod, "active_environment", lambda: rec)
+    monkeypatch.setattr(spawn_mod, "active_environment", lambda: rec)
 
     async def _fake_secret_env():
         return {"K": "V"}
 
     monkeypatch.setattr("horizon.secrets.secret_env", _fake_secret_env)
 
-    handle = await terminal_mod._open_handle("echo hi", Path("/workspace"))
+    handle = await spawn_mod.open_handle("echo hi", Path("/workspace"))
     assert handle == "HANDLE"
     assert rec.calls == [("echo hi", Path("/workspace"), {"K": "V"})]
 

@@ -17,27 +17,74 @@ on:
       #     tools/tests/test_check_frozen_paths.py::
       #       test_real_policy_file_declares_the_retired_roots calls
       #       load_frozen_paths() with no argument, which falls back to
-      #       POLICY_PATH (tools/check_frozen_paths.py:38).
-      #     .github/scripts/tests/test_dependabot_config.py::
-      #       test_retired_roots_are_not_globbed reads frozen_paths directly.
+      #       POLICY_PATH (tools/check_frozen_paths.py:39).
       #   .github/schemas/manifest-schema.json
       #     test_validate_manifest.py and test_validate_structure.py call
       #     load_schema(), which hardcodes SCHEMA_PATH and takes no override
-      #     parameter (tools/validate_manifest.py:40,113).
+      #     parameter (tools/validate_manifest.py:50,134).
       #   .github/dependabot.yml
       #     .github/scripts/tests/test_dependabot_config.py loads it from
-      #     CONFIG_PATH to check its globs still cover every recipe manifest.
-      #     That file is hand-edited now that no generator owns it, so a
-      #     dependabot.yml-only PR is exactly the case that must run these
-      #     tests.
+      #     CONFIG_PATH to check every recipe ecosystem is still configured
+      #     purely to suppress updates, and that whatever can still open a
+      #     PR stays inside the repo's PR budget. That file is hand-edited,
+      #     so a dependabot.yml-only PR is exactly the case that must run
+      #     these tests.
+      #   */**/manifest.yaml
+      #     test_recipe_canary_matrix.py walks the real recipe tree and
+      #     checks the canary's recipe set against a second, independent
+      #     read of every manifest.yaml — a real YAML parser, versus the
+      #     regex the canary itself uses so it can run with no dependencies.
+      #     A PR that ADDS or DELETES a recipe is precisely the PR that can
+      #     make the two disagree, so it has to run these tests.
+      #
+      #     This costs a recipe contributor nothing. Both sides are derived
+      #     from the tree, so a well-formed recipe moves them together and
+      #     the check passes untouched. It fails only where the two readings
+      #     genuinely differ — in practice a `language:` line the parser
+      #     reads as Python and the canary's matcher does not, which is a
+      #     defect in the contributor's own manifest.yaml and is fixed
+      #     there. Adding a recipe never requires an edit under .github/.
+      #
+      #     Scoped to manifest.yaml rather than all of core/**: the recipe
+      #     set is a function of which manifests exist AND of the `language:`
+      #     line inside them, and nothing else under a recipe can change it.
+      #   .github/workflows/**
+      #     The whole directory, because the tests read the whole directory.
+      #     This entry used to enumerate the three _ai-*-core.yml files, which
+      #     under-matched badly:
+      #       - test_ai_workflow_hardening.py:408 globs WORKFLOWS/"*.yml" and
+      #         checks every caller/callee permission pair in the repo, so ANY
+      #         workflow can break it.
+      #       - LANES at :552 globs "ai-pr-review-*.yml" — all five lanes,
+      #         none of which were listed.
+      #       - test_house_rules_workflow.py:36 pins 18 invariants on
+      #         ai-pr-review-house-rules.yml, the ONLY lane that checks out
+      #         fork PR code, and it was not listed either. The most
+      #         security-exposed workflow in the repo was the one whose tests
+      #         could not fire on a PR that touched only it.
+      #       - test_post_review_comments.py pins the command line
+      #         _ai-pr-review-core.yml uses to invoke post_review_comments.py.
+      #     b/555419958 is what these pins exist for, and the note below about
+      #     a PR merging green is exactly what was happening. Globbing the
+      #     directory costs a few extra 51-second runs and removes a whole
+      #     class of "the test could not run" from the design.
+      #   .github/review-rules.md & .github/review-voice.md
+      #     test_ai_workflow_hardening.py:655-656 enforces a byte budget on
+      #     each, and :712 parses review-voice.md. Editing either is precisely
+      #     what can blow the budget.
       # Without these entries such a PR merges green and the failure only
       # surfaces later, on an unrelated PR that happens to touch tools/.
       - ".github/policy.yml"
       - ".github/schemas/**"
       - ".github/dependabot.yml"
+      - ".github/workflows/**"
+      - ".github/review-rules.md"
+      - ".github/review-voice.md"
+      - "core/**/manifest.yaml"
+      - "contrib/**/manifest.yaml"
+      - "skills/**/manifest.yaml"
       - "pyproject.toml"
       - "uv.lock"
-      - ".github/workflows/tools-tests.yml"
   push:
     branches:
       - main
@@ -50,10 +97,15 @@ on:
       - ".github/scripts/**"
       - ".github/policy.yml"
       - ".github/schemas/**"
+      - ".github/workflows/**"
+      - ".github/review-rules.md"
+      - ".github/review-voice.md"
       - ".github/dependabot.yml"
+      - "core/**/manifest.yaml"
+      - "contrib/**/manifest.yaml"
+      - "skills/**/manifest.yaml"
       - "pyproject.toml"
       - "uv.lock"
-      - ".github/workflows/tools-tests.yml"
   workflow_dispatch:
 
 permissions:
@@ -77,10 +129,10 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # ratchet:actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v4
 
       - name: Install uv
-        uses: astral-sh/setup-uv@445689ea25e0de0a23313031f5fe577c74ae45a1 # ratchet:astral-sh/setup-uv@v6.3.0
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # ratchet:astral-sh/setup-uv@v10.0.1
         with:
           # Test against the minimum supported Python version.
           python-version: "3.11"

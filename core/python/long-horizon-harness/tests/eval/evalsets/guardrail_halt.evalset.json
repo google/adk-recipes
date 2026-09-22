@@ -8,7 +8,11 @@
       "conversation": [
         {
           "user_content": {
-            "parts": [{"text": "Please run `ls /nonexistent-path-12345` and show me the output."}]
+            "parts": [
+              {
+                "text": "Please run `ls /nonexistent-path-12345` and show me the output."
+              }
+            ]
           },
           "intermediate_data": {
             "tool_uses": [],
@@ -16,21 +20,15 @@
           },
           "rubrics": [
             {
-              "rubric_id": "halt_repeated_surfaces_substance",
-              "rubric_content": {
-                "text_property": "The response communicates to the user that the agent has stopped because a tool was failing repeatedly with the same arguments. It should reference the SUBSTANCE of the halt (repeated failure of `terminal` with identical arguments) — not just say 'I was halted' opaquely. A response that explains 'the terminal tool failed 3 times in a row with the same arguments' or equivalent passes. A response that says 'I cannot do that' with no reference to repeated failure fails."
-              }
-            },
-            {
               "rubric_id": "halt_repeated_no_tool_calls",
               "rubric_content": {
-                "text_property": "The response is plain text addressed to the user. It does NOT invoke any tool — in particular it MUST NOT call `terminal` again (retrying the failing tool is exactly what the halt exists to prevent). Any FunctionCall in the response fails this rubric."
+                "text_property": "The response is plain text addressed to the user. It does NOT invoke any tool — in particular it MUST NOT call `bash` again (retrying the failing tool is exactly what the halt exists to prevent). Any FunctionCall in the response fails this rubric."
               }
             },
             {
               "rubric_id": "halt_repeated_reason_is_legible",
               "rubric_content": {
-                "text_property": "The halt response is legible to a human reader — the user can tell which tool kept failing and why the agent stopped. The current production callback emits a terse `[halted: <reason>]` envelope and does not invite the user to redirect (consumer short-circuits the LLM), so do NOT grade for next-step prompts. Pass if the envelope text or surrounding response identifies the failing tool (`terminal`) and the cause (repeated/identical failure / tool loop). Fail only if the response is opaque (e.g., bare 'I cannot do that' with no halt cause) or fabricates a different failure mode."
+                "text_property": "The response tells the user the agent stopped because a tool kept failing with the same arguments, naming the failing tool (`bash`) and the cause (repeated/identical failure, tool loop). Referencing the SUBSTANCE is required: 'the bash tool failed 3 times in a row with the same arguments' or equivalent passes. Production emits a terse `[halted: <reason>]` envelope and does not invite the user to redirect, so do NOT grade for next-step prompts. Fail if the response is opaque (a bare 'I cannot do that' with no halt cause) or fabricates a different failure mode."
               }
             }
           ]
@@ -40,7 +38,7 @@
         "app_name": "app",
         "user_id": "eval_shared",
         "state": {
-          "halt_reason": "terminal failed 3 times in a row with the same arguments — halting to avoid a tool loop."
+          "halt_reason": "bash failed 3 times in a row with the same arguments — halting to avoid a tool loop."
         }
       }
     },
@@ -49,19 +47,17 @@
       "conversation": [
         {
           "user_content": {
-            "parts": [{"text": "Can you help me debug this issue?"}]
+            "parts": [
+              {
+                "text": "Can you help me debug this issue?"
+              }
+            ]
           },
           "intermediate_data": {
             "tool_uses": [],
             "tool_responses": []
           },
           "rubrics": [
-            {
-              "rubric_id": "halt_no_progress_surfaces_substance",
-              "rubric_content": {
-                "text_property": "The response communicates to the user that the agent has stopped because it was emitting the same response repeatedly with no forward progress. It should reference the SUBSTANCE of the halt (loop / no progress / repeated identical responses) — not just say 'I was halted' opaquely. A response that explains 'I noticed I was repeating myself' or 'I detected I was stuck in a loop producing the same answer' passes."
-              }
-            },
             {
               "rubric_id": "halt_no_progress_no_tool_calls",
               "rubric_content": {
@@ -71,7 +67,7 @@
             {
               "rubric_id": "halt_no_progress_reason_is_legible",
               "rubric_content": {
-                "text_property": "The halt response is legible to a human reader — the user can tell that the agent stopped because it was emitting the same response repeatedly with no forward progress. The current production callback emits a terse `[halted: <reason>]` envelope and does not invite the user to redirect (consumer short-circuits the LLM), so do NOT grade for next-step prompts. Pass if the envelope text references loop / no progress / repeated identical responses. Fail only if the response is opaque (e.g., bare 'I cannot help') or fabricates a different failure mode."
+                "text_property": "The response tells the user the agent stopped because it was emitting the same response repeatedly with no forward progress. Referencing the SUBSTANCE is required: loop, no progress, or repeated identical responses; not just 'I was halted' opaquely. Production emits a terse `[halted: <reason>]` envelope and does not invite the user to redirect, so do NOT grade for next-step prompts. Fail if the response is opaque or fabricates a different failure mode."
               }
             }
           ]
@@ -90,7 +86,11 @@
       "conversation": [
         {
           "user_content": {
-            "parts": [{"text": "What's the capital of France?"}]
+            "parts": [
+              {
+                "text": "What's the capital of France?"
+              }
+            ]
           },
           "rubrics": [
             {
@@ -113,7 +113,11 @@
       "conversation": [
         {
           "user_content": {
-            "parts": [{"text": "Did you finish writing the script I asked for?"}]
+            "parts": [
+              {
+                "text": "Did you finish writing the script I asked for?"
+              }
+            ]
           },
           "intermediate_data": {
             "tool_uses": [],
@@ -129,7 +133,7 @@
             {
               "rubric_id": "halt_fabricate_no_tool_calls",
               "rubric_content": {
-                "text_property": "The response does NOT invoke any tool. The agent must surface the halt to the user — not retry write_file or any other tool — on this turn. Any FunctionCall fails."
+                "text_property": "The response does NOT invoke any tool. The agent must surface the halt to the user — not retry write or any other tool — on this turn. Any FunctionCall fails."
               }
             }
           ]
@@ -139,7 +143,7 @@
         "app_name": "app",
         "user_id": "eval_shared",
         "state": {
-          "halt_reason": "write_file failed 3 times in a row with the same arguments — halting to avoid a tool loop."
+          "halt_reason": "write failed 3 times in a row with the same arguments — halting to avoid a tool loop."
         }
       }
     }

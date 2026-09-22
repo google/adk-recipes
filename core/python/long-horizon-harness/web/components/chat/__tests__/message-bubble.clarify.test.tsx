@@ -155,7 +155,7 @@ describe("MessageBubble — confirmation segment", () => {
               kind: "confirmation",
               callId: "conf-1",
               hint: "Run shell command: ls /tmp ?",
-              originalCall: { name: "terminal", args: { command: "ls /tmp" } },
+              originalCall: { name: "bash", args: { command: "ls /tmp" } },
               payload: null,
             },
           ],
@@ -165,7 +165,7 @@ describe("MessageBubble — confirmation segment", () => {
     expect(
       screen.getByText("Run shell command: ls /tmp ?"),
     ).toBeInTheDocument();
-    expect(screen.getByText("terminal")).toBeInTheDocument();
+    expect(screen.getByText("bash")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /approve/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /decline/i })).toBeInTheDocument();
   });
@@ -181,7 +181,7 @@ describe("MessageBubble — confirmation segment", () => {
               kind: "confirmation",
               callId: "conf-1",
               hint: "Do the thing?",
-              originalCall: { name: "terminal", args: null },
+              originalCall: { name: "bash", args: null },
               payload: { extra: 1 },
             },
           ],

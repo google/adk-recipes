@@ -17,7 +17,7 @@
           "intermediate_data": {
             "tool_uses": [
               {
-                "name": "delegate",
+                "name": "subagent",
                 "args": {}
               }
             ]
@@ -26,13 +26,13 @@
             {
               "rubric_id": "delegate_called_for_self_contained_research",
               "rubric_content": {
-                "text_property": "Calls `delegate` for the FastAPI research. Doing the research inline in root context fails — the user framed it as a self-contained side task."
+                "text_property": "Calls `subagent` for the FastAPI research. Doing the research inline in root context fails — the user framed it as a self-contained side task."
               }
             },
             {
               "rubric_id": "delegate_picks_web_toolset_for_research",
               "rubric_content": {
-                "text_property": "The `delegate` call includes `'web'` in `toolsets`. Without web access the child cannot do research."
+                "text_property": "The `subagent` call includes `'web'` in `toolsets`. Without web access the child cannot do research."
               }
             },
             {
@@ -64,7 +64,7 @@
           "intermediate_data": {
             "tool_uses": [
               {
-                "name": "delegate",
+                "name": "subagent",
                 "args": {}
               }
             ]
@@ -73,7 +73,7 @@
             {
               "rubric_id": "delegate_called_for_parallel_fanout",
               "rubric_content": {
-                "text_property": "Calls `delegate` (one per linter or one for all three). Three sequential web searches in root context fails."
+                "text_property": "Calls `subagent` (one per linter or one for all three). Three sequential web searches in root context fails."
               }
             },
             {
@@ -105,7 +105,7 @@
           "intermediate_data": {
             "tool_uses": [
               {
-                "name": "read_file",
+                "name": "read",
                 "args": {
                   "path": "pyproject.toml"
                 }
@@ -116,13 +116,13 @@
             {
               "rubric_id": "delegate_not_called_for_trivial_read",
               "rubric_content": {
-                "text_property": "Does NOT call `delegate`. A single `read_file` is one-shot work."
+                "text_property": "Does NOT call `subagent`. A single `read` is one-shot work."
               }
             },
             {
               "rubric_id": "delegate_trivial_picks_read_file_directly",
               "rubric_content": {
-                "text_property": "Invokes `read_file` or `terminal` against `pyproject.toml`. Guessing without consulting the file fails."
+                "text_property": "Invokes `read` or `bash` against `pyproject.toml`. Guessing without consulting the file fails."
               }
             }
           ]
@@ -152,7 +152,7 @@
             {
               "rubric_id": "delegate_not_called_for_stateful_followup",
               "rubric_content": {
-                "text_property": "Does NOT call `delegate`. The work is conversationally stateful and the function hasn't been pasted yet."
+                "text_property": "Does NOT call `subagent`. The work is conversationally stateful and the function hasn't been pasted yet."
               }
             },
             {
@@ -184,7 +184,7 @@
           "intermediate_data": {
             "tool_uses": [
               {
-                "name": "delegate",
+                "name": "subagent",
                 "args": {}
               }
             ]
@@ -193,13 +193,13 @@
             {
               "rubric_id": "delegate_called_for_isolated_git_investigation",
               "rubric_content": {
-                "text_property": "Calls `delegate`. The user explicitly framed it as a side task."
+                "text_property": "Calls `subagent`. The user explicitly framed it as a side task."
               }
             },
             {
               "rubric_id": "delegate_picks_shell_for_git_log",
               "rubric_content": {
-                "text_property": "The `delegate` call passes `toolsets=['shell']` or omits `toolsets` (default file+shell). Web-only or file-only fails — the child needs terminal to run git."
+                "text_property": "The `subagent` call passes `toolsets=['shell']` or omits `toolsets` (default file+shell). Web-only or file-only fails — the child needs bash to run git."
               }
             }
           ]
@@ -225,7 +225,7 @@
           "intermediate_data": {
             "tool_uses": [
               {
-                "name": "delegate",
+                "name": "subagent",
                 "args": {}
               }
             ]
@@ -234,13 +234,13 @@
             {
               "rubric_id": "delegate_passes_skill_name_to_child",
               "rubric_content": {
-                "text_property": "The `delegate` call passes `skills=['gcloud-run-deploy']`. Equivalent: `skill(action='view', name='gcloud-run-deploy')` in root and the body pasted into `context`."
+                "text_property": "The `subagent` call passes `skills=['gcloud-run-deploy']`. Equivalent: `skill(action='view', name='gcloud-run-deploy')` in root and the body pasted into `context`."
               }
             },
             {
               "rubric_id": "delegate_called_for_skill_backed_task",
               "rubric_content": {
-                "text_property": "Calls `delegate`. The user explicitly asked to 'spin off a delegated task'."
+                "text_property": "Calls `subagent`. The user explicitly asked to 'spin off a delegated task'."
               }
             }
           ]
@@ -266,7 +266,7 @@
           "intermediate_data": {
             "tool_uses": [
               {
-                "name": "delegate",
+                "name": "subagent",
                 "args": {}
               }
             ]
@@ -275,13 +275,13 @@
             {
               "rubric_id": "delegate_called_for_codebase_audit",
               "rubric_content": {
-                "text_property": "Calls `delegate`. The user framed it as a side task."
+                "text_property": "Calls `subagent`. The user framed it as a side task."
               }
             },
             {
               "rubric_id": "delegate_picks_file_and_shell_for_audit",
               "rubric_content": {
-                "text_property": "The `delegate` call passes `toolsets` including both `'file'` and `'shell'`, or omits `toolsets` (default is both). Only one fails."
+                "text_property": "The `subagent` call passes `toolsets` including both `'file'` and `'shell'`, or omits `toolsets` (default is both). Only one fails."
               }
             }
           ]
@@ -300,14 +300,14 @@
           "user_content": {
             "parts": [
               {
-                "text": "Use the `delegate` tool to spin off a regression test for this bug: it only reproduces when `iteration_count > 5` and only for `user_id` strings starting with 'eval_'. Write it in pytest, in the existing test layout. The child won't see our conversation, so put both conditions in `goal` or `context`."
+                "text": "Use the `subagent` tool to spin off a regression test for this bug: it only reproduces when `iteration_count > 5` and only for `user_id` strings starting with 'eval_'. Write it in pytest, in the existing test layout. The child won't see our conversation, so put both conditions in `goal` or `context`."
               }
             ]
           },
           "intermediate_data": {
             "tool_uses": [
               {
-                "name": "delegate",
+                "name": "subagent",
                 "args": {}
               }
             ]
@@ -316,7 +316,7 @@
             {
               "rubric_id": "delegate_called_with_briefed_context",
               "rubric_content": {
-                "text_property": "Calls `delegate` with a non-empty `context` (or `goal`) that mentions BOTH the `iteration_count > 5` threshold AND the `user_id` 'eval_' prefix."
+                "text_property": "Calls `subagent` with a non-empty `context` (or `goal`) that mentions BOTH the `iteration_count > 5` threshold AND the `user_id` 'eval_' prefix."
               }
             }
           ]
@@ -335,7 +335,7 @@
           "user_content": {
             "parts": [
               {
-                "text": "What's the difference between `read_file` and `search_files` in this codebase?"
+                "text": "What's the difference between `read` and `search_files` in this codebase?"
               }
             ]
           },
@@ -346,13 +346,13 @@
             {
               "rubric_id": "delegate_not_called_for_explanatory_question",
               "rubric_content": {
-                "text_property": "Does NOT call `delegate`. Single explanatory questions don't need a child."
+                "text_property": "Does NOT call `subagent`. Single explanatory questions don't need a child."
               }
             },
             {
               "rubric_id": "delegate_explains_two_tools",
               "rubric_content": {
-                "text_property": "Explains the difference: `read_file` reads one file by path, `search_files` searches/greps across many. Refusing or punting fails."
+                "text_property": "Explains the difference: `read` reads one file by path, `search_files` searches/greps across many. Refusing or punting fails."
               }
             }
           ]
@@ -371,14 +371,14 @@
           "user_content": {
             "parts": [
               {
-                "text": "Spin off a sub-agent to extract a structured summary from this Python snippet — toolset name plus the list of tool callable names in each. I want a parseable structure I can feed into another script, not prose.\n\n```python\nTOOLSETS = dict(\n    file=['read_file', 'write_file', 'search_files', 'patch'],\n    shell=['terminal'],\n    web=['web_research'],\n    artifacts=['artifact'],\n)\n```"
+                "text": "Spin off a sub-agent to extract a structured summary from this Python snippet — toolset name plus the list of tool callable names in each. I want a parseable structure I can feed into another script, not prose.\n\n```python\nTOOLSETS = dict(\n    file=['read', 'write', 'search_files', 'edit'],\n    shell=['bash'],\n    web=['web_research'],\n    artifacts=['artifact'],\n)\n```"
               }
             ]
           },
           "intermediate_data": {
             "tool_uses": [
               {
-                "name": "delegate",
+                "name": "subagent",
                 "args": {}
               }
             ]
@@ -387,13 +387,13 @@
             {
               "rubric_id": "delegate_uses_json_output_format",
               "rubric_content": {
-                "text_property": "The `delegate` call passes `output_format='json'`. The user asked for a parseable structure."
+                "text_property": "The `subagent` call passes `output_format='json'`. The user asked for a parseable structure."
               }
             },
             {
               "rubric_id": "delegate_supplies_schema_when_shape_is_clear",
               "rubric_content": {
-                "text_property": "The `delegate` call supplies an `output_schema` describing the shape. Missing it is a minor demerit; a contradictory schema fails."
+                "text_property": "The `subagent` call supplies an `output_schema` describing the shape. Missing it is a minor demerit; a contradictory schema fails."
               }
             }
           ]
@@ -419,7 +419,7 @@
           "intermediate_data": {
             "tool_uses": [
               {
-                "name": "delegate",
+                "name": "subagent",
                 "args": {}
               }
             ]
@@ -428,13 +428,13 @@
             {
               "rubric_id": "delegate_passes_caller_instructions",
               "rubric_content": {
-                "text_property": "The `delegate` or `agent(action='spawn')` call passes the formatting requirements via `instructions` (or `inline_skills`). Omitting them fails."
+                "text_property": "The `subagent` call passes the formatting requirements via `instructions` (or `inline_skills`). Omitting them fails."
               }
             },
             {
               "rubric_id": "delegate_gives_child_file_tools",
               "rubric_content": {
-                "text_property": "The call gives the child file-read capability (`toolsets=['file']` default or `tools=['read_file']`)."
+                "text_property": "The call gives the child file-read capability (`toolsets=['file']` default or `tools=['read']`)."
               }
             }
           ]

@@ -1,0 +1,272 @@
+name: 🐹 Go Tests
+
+# Runs `go test` for each Go recipe affected by a PR (or every recipe
+# on `workflow_dispatch --run-all`). Uses a matrix job so one recipe
+# failing doesn't cancel the others.
+
+on:
+  pull_request:
+    paths:
+      # Only file types that can meaningfully affect Go test results.
+      # Doc-only PRs (README changes etc.) intentionally skip this workflow.
+      - "core/**/*.go"
+      - "core/**/go.mod"
+      - "core/**/go.sum"
+      - "core/**/manifest.yaml"
+      - "contrib/**/*.go"
+      - "contrib/**/go.mod"
+      - "contrib/**/go.sum"
+      - "contrib/**/manifest.yaml"
+      - "skills/**/*.go"
+      - "skills/**/go.mod"
+      - "skills/**/go.sum"
+      - "skills/**/manifest.yaml"
+      - ".github/workflows/go-tests.yml"
+  workflow_dispatch:
+    inputs:
+      run_all:
+        description: "Run tests for all Go recipes (ignore diff)"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+# Cancel superseded runs on the same PR (or on the same ref for
+# workflow_dispatch) so a rapid series of pushes doesn't queue up redundant
+# matrix runs.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  detect-recipes:
+    name: Detect affected Go recipes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      recipes: ${{ steps.detect.outputs.recipes }}
+      count: ${{ steps.detect.outputs.count }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect Go recipes to test
+        id: detect
+        env:
+          # Pass user-controlled and dynamic values through env vars rather
+          # than interpolating GitHub expressions directly into the script
+          # body (security hardening — see GitHub Actions hardening guide).
+          EVENT_NAME: ${{ github.event_name }}
+          RUN_ALL: ${{ github.event.inputs.run_all }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+
+          # pipefail matters here: without it, a transient `git fetch` failure
+          # would produce an empty diff → 0 recipes → skipped matrix →
+          # skipped gate → branch protection sees the required check as
+          # passing without ever running a test.
+
+          # Robust "is this a Go recipe" check: tolerates single/double/no
+          # quotes around the value, case-insensitive on the value, and a
+          # trailing YAML comment.
+          is_go_recipe() {
+            grep -qiE "^[[:space:]]*language:[[:space:]]*[\"']?go[\"']?[[:space:]]*(#.*)?$" "$1"
+          }
+
+          # Helper: collect all Go recipe dirs under core/, contrib/, and skills/.
+          # A recipe dir is any directory that contains a manifest.yaml
+          # declaring language: go.
+          all_go_recipes() {
+            for root in core contrib skills; do
+              [ -d "$root" ] || continue
+              while IFS= read -r manifest; do
+                if is_go_recipe "$manifest"; then
+                  dirname "$manifest"
+                fi
+              done < <(find "$root" -name "manifest.yaml")
+            done
+          }
+
+          # Helper: given a changed file path, return the recipe dir that
+          # owns it by walking up until we find a directory containing
+          # manifest.yaml.
+          find_recipe_dir() {
+            local path="$1"
+            local dir
+            dir="$(dirname "$path")"
+            while [ "$dir" != "." ] && [ "$dir" != "/" ]; do
+              if [ -f "$dir/manifest.yaml" ]; then
+                echo "$dir"
+                return
+              fi
+              dir="$(dirname "$dir")"
+            done
+          }
+
+          # These env vars can be null (workflow_dispatch has no PR;
+          # pull_request has no inputs). set -u would otherwise error.
+          RUN_ALL="${RUN_ALL:-}"
+          BASE_REF="${BASE_REF:-}"
+
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            if [ "$RUN_ALL" != "true" ]; then
+              # PR-diff mode requires a base ref, which workflow_dispatch
+              # does not provide. Silently falling back to origin/main
+              # produces an empty diff when the workflow was dispatched
+              # from main and green-lights the run without testing anything.
+              # Refuse the combination explicitly.
+              echo "::error::workflow_dispatch requires run_all=true. PR-diff mode is only available on pull_request events."
+              exit 1
+            fi
+            echo "workflow_dispatch with run_all=true — testing all Go recipes."
+            RECIPES=$(all_go_recipes)
+          else
+            # PR mode: diff against the base branch.
+            if [ -z "$BASE_REF" ]; then
+              echo "::error::pull_request event with no base ref — cannot compute diff."
+              exit 1
+            fi
+            git fetch origin "$BASE_REF"
+            CHANGED_FILES=$(git diff --name-only "origin/$BASE_REF"...HEAD)
+
+            echo "Changed files:"
+            echo "$CHANGED_FILES"
+
+            # Map each changed file to its recipe dir (nearest ancestor with
+            # manifest.yaml) and keep only unique Go recipe dirs.
+            RECIPES=""
+            while IFS= read -r file; do
+              [ -z "$file" ] && continue
+              case "$file" in
+                core/*|contrib/*|skills/*) ;;
+                *) continue ;;
+              esac
+              recipe_dir="$(find_recipe_dir "$file")"
+              [ -z "$recipe_dir" ] && continue
+              if is_go_recipe "$recipe_dir/manifest.yaml"; then
+                RECIPES="${RECIPES}${recipe_dir}"$'\n'
+              else
+                echo "[SKIP] $recipe_dir — not a Go recipe."
+              fi
+            done <<< "$CHANGED_FILES"
+
+            # Deduplicate and strip blank lines produced by trailing newlines
+            RECIPES=$(echo "$RECIPES" | sort -u | sed '/^[[:space:]]*$/d')
+          fi
+
+          if [ -z "$RECIPES" ]; then
+            echo "No Go recipes to test."
+            echo "recipes=[]" >> "$GITHUB_OUTPUT"
+            echo "count=0" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "Go recipes to test:"
+          echo "$RECIPES"
+
+          # Emit as a JSON array for the matrix
+          JSON=$(echo "$RECIPES" | jq -R . | jq -sc .)
+          echo "recipes=$JSON" >> "$GITHUB_OUTPUT"
+          echo "count=$(echo "$RECIPES" | wc -l | tr -d ' ')" >> "$GITHUB_OUTPUT"
+
+  run-tests:
+    name: "go test — ${{ matrix.recipe }}"
+    needs: detect-recipes
+    if: needs.detect-recipes.outputs.count != '0'
+    runs-on: ubuntu-latest
+    # 20 min covers dependency download + test execution with headroom.
+    timeout-minutes: 20
+
+    strategy:
+      fail-fast: false
+      matrix:
+        recipe: ${{ fromJson(needs.detect-recipes.outputs.recipes) }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v4
+
+      - name: Install Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # ratchet:actions/setup-go@v7.0.0
+        with:
+          go-version: "1.26"
+          cache: false
+
+      - name: Set up .env for tests
+        working-directory: ${{ matrix.recipe }}
+        run: |
+          set -euo pipefail
+          if [ ! -f .env ] && [ -f .env.example ]; then
+            cp .env.example .env
+            echo "Copied .env.example to .env"
+          fi
+
+      - name: Run Go tests
+        working-directory: ${{ matrix.recipe }}
+        env:
+          RECIPE: ${{ matrix.recipe }}
+        run: |
+          set -euo pipefail
+
+          if [ ! -f "go.mod" ]; then
+            echo "::error file=${RECIPE}::No go.mod found in ${RECIPE}."
+            exit 1
+          fi
+
+          go test -v ./...
+
+  # Final gate. `if: always()` so the required check always reports even when
+  # detect-recipes or run-tests were cancelled/skipped/failed — a skipped
+  # required check is often treated as passing by branch protection, which is
+  # the silent-green failure mode we're guarding against.
+  #
+  # Fails if:
+  #   - detect-recipes did not succeed (crash, cancellation, ...)
+  #   - run-tests ended in any state other than success or skipped
+  # `skipped` on run-tests is OK because it means detect-recipes legitimately
+  # found zero Go recipes to test.
+  test-results:
+    name: Go test results
+    needs: [detect-recipes, run-tests]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Check results
+        env:
+          DETECT_RESULT: ${{ needs.detect-recipes.result }}
+          RUN_RESULT: ${{ needs.run-tests.result }}
+        run: |
+          set -euo pipefail
+
+          # This job is a branch-protection gate: it reports the aggregate of
+          # a matrix, so it can never name the specific recipe that failed.
+          # Say that outright and point at the matrix legs, rather than
+          # leaving a bare "did not succeed" that reads like a CI glitch.
+          if [ "$DETECT_RESULT" != "success" ]; then
+            echo "::error::Could not work out which Go recipes this PR affects (detect-recipes: $DETECT_RESULT), so no tests ran. This is a CI tooling failure, not a problem with your changes — re-run the job. Docs: docs/recipe-handbook/troubleshooting.md#ci-infrastructure-failure"
+            exit 1
+          fi
+
+          case "$RUN_RESULT" in
+            success)
+              echo "All Go recipe tests passed."
+              ;;
+            skipped)
+              echo "No Go recipes to test — gate passes."
+              ;;
+            *)
+              echo "::error::One or more Go recipe test jobs did not pass (run-tests: $RUN_RESULT). This gate reports the aggregate — open the 'go test — <recipe>' job for the recipe that failed to see the actual test output. Docs: docs/recipe-handbook/troubleshooting.md"
+              echo ""
+              echo "This job is a gate, not a test run. The failure is in one"
+              echo "of the matrix legs above, each named 'go test — <recipe>'."
+              echo "Open the red one for the test output."
+              exit 1
+              ;;
+          esac

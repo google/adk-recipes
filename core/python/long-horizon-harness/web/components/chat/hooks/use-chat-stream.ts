@@ -13,11 +13,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Part } from "@a2a-js/sdk";
 import type { HorizonClient } from "@/lib/a2a-client";
-import { makeFileBytesPart, makeFileUrlPart } from "@/lib/a2a-part";
+import {
+  dataPartDict,
+  makeFileBytesPart,
+  makeFileUrlPart,
+} from "@/lib/a2a-part";
 import { extractParts, extractTaskId, isFinal } from "@/lib/horizon-events";
 import {
   appendPartsToSegments,
@@ -55,9 +58,9 @@ export interface UseChatStreamArgs {
 // horizon/tools/*). Kept narrow so quiet turns don't trigger refetches; widen as
 // new FS-touching tools land.
 const FS_TOUCHING_TOOLS = new Set([
-  "terminal", // arbitrary shell — assume any invocation may touch the FS
-  "write_file",
-  "patch",
+  "bash", // arbitrary shell — assume any invocation may touch the FS
+  "write",
+  "edit",
 ]);
 
 export interface SendOptions {
@@ -138,7 +141,11 @@ export function useChatStream({
       // continuation lands its resumed tool result in a fresh bubble with no
       // matching function_call, so appendPartsToSegments drops it — confirm()
       // collects them here to re-attach to the original spinning row.
-      onToolResult?: (r: { callId: string | null; name: string; result: unknown }) => void,
+      onToolResult?: (r: {
+        callId: string | null;
+        name: string;
+        result: unknown;
+      }) => void,
     ) => {
       let turnTouchedFs = false;
       try {
@@ -165,7 +172,11 @@ export function useChatStream({
               turnTouchedFs = true;
             }
             if (p.kind === "tool_result") {
-              onToolResult?.({ callId: p.callId, name: p.name, result: p.result });
+              onToolResult?.({
+                callId: p.callId,
+                name: p.name,
+                result: p.result,
+              });
             }
           }
           if (parts.length > 0) {
@@ -208,7 +219,9 @@ export function useChatStream({
         }
       } finally {
         setMessages((prev) =>
-          prev.map((m) => (m.id === assistantMsgId ? { ...m, pending: false } : m)),
+          prev.map((m) =>
+            m.id === assistantMsgId ? { ...m, pending: false } : m,
+          ),
         );
         setBusy(false);
         abortRef.current = null;
@@ -226,7 +239,11 @@ export function useChatStream({
       // Defense-in-depth: if the busyRef guard ever races, kill the prior stream
       // before opening a new one.
       abortRef.current?.abort();
-      if (!text.trim() && attachments.length === 0) return;
+      // A UI action (e.g. Export) sends parts and no prose; only a wholly
+      // empty message is a no-op.
+      const extra = opts?.extraParts ?? [];
+      if (!text.trim() && attachments.length === 0 && extra.length === 0)
+        return;
 
       // First send on a brand-new chat: lock the generated contextId into the
       // URL for bookmarkability. The caller updates search params on the current
@@ -250,7 +267,10 @@ export function useChatStream({
             })),
           );
           attachmentParts = encoded.map((e) =>
-            makeFileBytesPart(e.bytes, { filename: e.name, mediaType: e.mimeType }),
+            makeFileBytesPart(e.bytes, {
+              filename: e.name,
+              mediaType: e.mimeType,
+            }),
           );
           userFileSegments = encoded.map((e) => ({
             kind: "file",
@@ -276,6 +296,13 @@ export function useChatStream({
       const userMsgId = crypto.randomUUID();
       const assistantMsgId = crypto.randomUUID();
       const userSegments: MessageSegment[] = [...userFileSegments];
+      // Mirror caller-supplied data parts into the optimistic bubble, so a UI
+      // payload (e.g. a highlighted selection) renders before history catches
+      // up rather than popping in on the refetch.
+      for (const p of opts?.extraParts ?? []) {
+        const data = dataPartDict(p);
+        if (data) userSegments.push({ kind: "data", mime: undefined, data });
+      }
       if (text.trim()) userSegments.push({ kind: "text", text });
       setMessages((prev) => [
         ...prev,
@@ -324,24 +351,43 @@ export function useChatStream({
         const items = req.filter((r) => r.callId);
         if (items.length === 0) return;
         abortRef.current?.abort();
-        setMessages((prev) => items.reduce((acc, r) => resolveHitlSegments(acc, r), prev));
+        setMessages((prev) =>
+          items.reduce((acc, r) => resolveHitlSegments(acc, r), prev),
+        );
 
         const assistantMsgId = crypto.randomUUID();
         setMessages((prev) => [
           ...prev,
-          { id: assistantMsgId, role: "assistant", createdAt: Date.now(), segments: [], pending: true },
+          {
+            id: assistantMsgId,
+            role: "assistant",
+            createdAt: Date.now(),
+            segments: [],
+            pending: true,
+          },
         ]);
         setBusy(true);
 
         const controller = new AbortController();
         abortRef.current = controller;
         const stream = client.sendConfirmations(
-          items.map((r) => ({ callId: r.callId as string, confirmed: r.confirmed, payload: r.payload })),
+          items.map((r) => ({
+            callId: r.callId as string,
+            confirmed: r.confirmed,
+            payload: r.payload,
+          })),
           { signal: controller.signal },
         );
-        const toolResults: { callId: string | null; name: string; result: unknown }[] = [];
-        await consumeStream(assistantMsgId, stream, controller, (r) => toolResults.push(r));
-        if (toolResults.length > 0) setMessages((prev) => resolveToolResults(prev, toolResults));
+        const toolResults: {
+          callId: string | null;
+          name: string;
+          result: unknown;
+        }[] = [];
+        await consumeStream(assistantMsgId, stream, controller, (r) =>
+          toolResults.push(r),
+        );
+        if (toolResults.length > 0)
+          setMessages((prev) => resolveToolResults(prev, toolResults));
         return;
       }
 
@@ -376,7 +422,11 @@ export function useChatStream({
       // The continuation streams the resumed gated tool's function_response into
       // a fresh bubble with no matching function_call, so it never attaches to
       // the original spinning row. Collect those results and re-attach by callId.
-      const toolResults: { callId: string | null; name: string; result: unknown }[] = [];
+      const toolResults: {
+        callId: string | null;
+        name: string;
+        result: unknown;
+      }[] = [];
       await consumeStream(assistantMsgId, stream, controller, (r) =>
         toolResults.push(r),
       );
@@ -455,9 +505,12 @@ export function useChatStream({
 
 // Build an A2A FilePart from a stored file segment. Returns null if the
 // segment has neither bytes nor uri — nothing to send.
-function fileSegmentToPart(
-  file: { bytes?: string; uri?: string; mimeType?: string; name?: string },
-): Part | null {
+function fileSegmentToPart(file: {
+  bytes?: string;
+  uri?: string;
+  mimeType?: string;
+  name?: string;
+}): Part | null {
   if (file.bytes) {
     return makeFileBytesPart(file.bytes, {
       filename: file.name,
@@ -478,7 +531,8 @@ function fileSegmentToPart(
 function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onerror = () => reject(reader.error ?? new Error("file read failed"));
+    reader.onerror = () =>
+      reject(reader.error ?? new Error("file read failed"));
     reader.onload = () => {
       const result = reader.result;
       if (typeof result !== "string") {

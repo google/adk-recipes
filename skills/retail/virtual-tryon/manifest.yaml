@@ -1,0 +1,26 @@
+type: standalone
+status: active
+language: python
+description: Virtual try-on agent supporting image and video (catwalk) try-ons via Gemini image models and Veo on Gemini Enterprise Agent Platform, with a pre-flight product-cutout classifier and configurable safety levels.
+license: Apache-2.0
+architecture:
+  agent: single
+  stateful: false
+  datasources:
+    - external
+dependencies:
+  libraries:
+    - google-genai
+    - google-cloud-storage
+    - pillow
+  services:
+    - vertex-ai
+    - cloud-storage
+ownership:
+  team: FDE/Blackbelt
+  poc: tanvisinghal-0105
+tags:
+  - retail
+  - virtual-tryon
+  - image-generation
+  - video-generation

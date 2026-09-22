@@ -15,7 +15,7 @@
 """Deterministic tests for the memory tool.
 
 Tool shape:
-  - One LLM-callable tool: ``add_memory(content: str, scope: str = "agent")``.
+  - One LLM-callable tool: ``memory(content: str, scope: str = "agent")``.
   - Storage lives in the configured MemoryService — never on disk.
   - The ``scope`` arg routes to either "agent" or "user" memory namespaces;
     they share the underlying MemoryService but are tagged separately so
@@ -357,7 +357,7 @@ class TestAddMemoryEntry:
 
 
 # =========================================================================
-# Scope narrowing — user_profile no longer accepted via add_memory
+# Scope narrowing — user_profile no longer accepted via memory
 # =========================================================================
 
 

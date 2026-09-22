@@ -68,6 +68,8 @@ from horizon.guardrails._overlay import (
 from horizon.guardrails._regex_safety import safe_regex
 from horizon.guardrails.command_safety import classify as classify_command
 from horizon.guardrails.policy_grants import find_matching_grant
+from horizon.tools import names
+from horizon.tools.names import apply_tool_aliases
 
 _logger = logging.getLogger(__name__)
 
@@ -114,9 +116,22 @@ def _filter_unsafe_regexes(obj: dict[str, Any]) -> dict[str, Any]:
     return obj
 
 
+def _alias_canonical_tool_name(obj: dict[str, Any]) -> dict[str, Any]:
+    # default_policies.jsonl is data, not Python, so it can't reference
+    # horizon.tools.names directly. Aliasing at load time keeps a rule
+    # written under a since-renamed tool name pointed at the live tool.
+    canonical = obj.get("canonical_tool_name")
+    if not isinstance(canonical, str):
+        return obj
+    aliased = apply_tool_aliases(canonical)
+    if aliased == canonical:
+        return obj
+    return {**obj, "canonical_tool_name": aliased}
+
+
 def _parse_jsonl(text: str) -> list[dict[str, Any]]:
     return [
-        obj
+        _alias_canonical_tool_name(obj)
         for obj in iter_jsonl_objects(text, context="policies")
         if obj.get("canonical_tool_name")
     ]
@@ -287,8 +302,9 @@ def _block(
             f"tool call blocked by {source}: {reason}. If the user has "
             "explicitly approved this call, ask them to type "
             "`/grant <command>` to approve it for the rest of this "
-            "session, then retry. Otherwise re-run with a narrower "
-            f"target or edit {DEFAULT_POLICIES_FILENAME} to amend the rule."
+            "session, then retry. Otherwise re-run with a narrower target "
+            f"or ask the user to add a rule to {DEFAULT_POLICIES_FILENAME} "
+            "(you cannot write it yourself, see the `policy` skill)."
         ),
         "confirmation_required": True,
         "matched_rule": rule,
@@ -298,14 +314,23 @@ def _block(
 def _command_for(tool_name: str, args: Any) -> str | None:
     if not isinstance(args, dict):
         return None
-    if tool_name == "terminal" and isinstance(args.get("command"), str):
+    if tool_name == names.BASH and isinstance(args.get("command"), str):
         return args["command"]
     if (
-        tool_name == "process"
+        tool_name == names.PROCESS
         and args.get("action") == "write"
         and isinstance(args.get("data"), str)
     ):
         return args["data"]
+    # process(action='spawn') is a shell execution path (bash's former
+    # background=True moved here) — route it through command_safety exactly
+    # like every other shell entry point.
+    if (
+        tool_name == names.PROCESS
+        and args.get("action") == "spawn"
+        and isinstance(args.get("command"), str)
+    ):
+        return args["command"]
     return None
 
 
@@ -327,16 +352,33 @@ async def policies_guard(
         if reason is not None:
             return _block(reason, rule, source="policy")
 
-    # process(action="write") data payload also checked against terminal JSONL rules
+    # process(action="write") data payload also checked against bash JSONL rules
     if (
-        tool_name == "process"
+        tool_name == names.PROCESS
         and isinstance(args, dict)
         and args.get("action") == "write"
         and isinstance(args.get("data"), str)
     ):
         synthetic = {"command": args["data"]}
         for rule in rules:
-            reason = _evaluate(rule, "terminal", synthetic)
+            reason = _evaluate(rule, names.BASH, synthetic)
+            if reason is not None:
+                return _block(reason, rule, source="policy")
+
+    # process(action="spawn") command also checked against bash JSONL rules —
+    # same reasoning as the write branch above: this tool_name never matches
+    # a rule's canonical_tool_name="bash" directly, so the destructive-command
+    # seed (dd if=, fork bombs, cat ~/.ssh/, ...) would silently stop covering
+    # a spawned command without this synthetic re-check.
+    if (
+        tool_name == names.PROCESS
+        and isinstance(args, dict)
+        and args.get("action") == "spawn"
+        and isinstance(args.get("command"), str)
+    ):
+        synthetic = {"command": args["command"]}
+        for rule in rules:
+            reason = _evaluate(rule, names.BASH, synthetic)
             if reason is not None:
                 return _block(reason, rule, source="policy")
 

@@ -97,23 +97,24 @@ class TestBlockAnchorReplacer:
 
 
 class TestFindReplacement:
+    # There is no replace_all mode: the only caller (file_ops._resolve_edits)
+    # resolves one edits[] item at a time and always wants exactly one match;
+    # batching N occurrences means passing N edits, not a replace_all flag.
     def test_exact_unique_match(self) -> None:
-        res = find_replacement(
-            'print("hi")\n', 'print("hi")', replace_all=False
-        )
+        res = find_replacement('print("hi")\n', 'print("hi")')
         assert res.error is None
         assert res.search == 'print("hi")'
         assert res.count == 1
 
     def test_not_found_returns_error_listing_strategies(self) -> None:
-        res = find_replacement("a = 1\n", "nowhere", replace_all=False)
+        res = find_replacement("a = 1\n", "nowhere")
         assert res.search is None
         assert res.error is not None
         # error names what was tried so the model can react
         assert "simple" in res.error.lower() or "tried" in res.error.lower()
 
-    def test_ambiguous_exact_match_without_replace_all_errors(self) -> None:
-        res = find_replacement("x = 1\nx = 1\n", "x = 1", replace_all=False)
+    def test_ambiguous_exact_match_errors(self) -> None:
+        res = find_replacement("x = 1\nx = 1\n", "x = 1")
         assert res.search is None
         assert res.error is not None
         assert (
@@ -122,17 +123,9 @@ class TestFindReplacement:
             or "unique" in res.error.lower()
         )
 
-    def test_ambiguous_exact_match_with_replace_all_succeeds(self) -> None:
-        res = find_replacement("x = 1\nx = 1\n", "x = 1", replace_all=True)
-        assert res.error is None
-        assert res.search == "x = 1"
-        assert res.count == 2
-
     def test_fuzzy_fallback_when_indentation_drifts(self) -> None:
         content = "def f():\n        return 1\n"
-        res = find_replacement(
-            content, "def f():\n    return 1", replace_all=False
-        )
+        res = find_replacement(content, "def f():\n    return 1")
         assert res.error is None
         # resolved to the real (over-indented) text in the file
         assert "return 1" in res.search
@@ -141,6 +134,6 @@ class TestFindReplacement:
     def test_tighter_replacer_wins_over_looser(self) -> None:
         # exact match exists; must be chosen by simple_replacer, count 1
         content = "alpha\nbeta\ngamma\n"
-        res = find_replacement(content, "beta", replace_all=False)
+        res = find_replacement(content, "beta")
         assert res.search == "beta"
         assert res.count == 1

@@ -53,9 +53,9 @@ def test_build_app_object_default_tools_and_callbacks():
         or type(t).__name__
         for t in agent.tools
     }
-    assert "read_file" in tool_names
-    assert "write_file" in tool_names
-    assert "terminal" in tool_names
+    assert "read" in tool_names
+    assert "write" in tool_names
+    assert "bash" in tool_names
     bm = [
         getattr(c, "__name__", type(c).__name__)
         for c in agent.before_model_callback

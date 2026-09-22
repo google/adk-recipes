@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Content-safety policy for memory writes (add_memory)."""
+"""Content-safety policy for memory writes (the ``memory`` tool)."""
 
 from __future__ import annotations
 

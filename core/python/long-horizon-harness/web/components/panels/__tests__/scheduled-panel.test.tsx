@@ -15,9 +15,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 
-vi.mock("@/components/panels/reminders-panel", () => ({
-  RemindersPanel: () => <div>REMINDERS_BODY</div>,
-}));
 vi.mock("@/components/panels/routines-panel", () => ({
   RoutinesPanel: () => <div>ROUTINES_BODY</div>,
 }));
@@ -25,11 +22,8 @@ vi.mock("@/components/panels/routines-panel", () => ({
 import { ScheduledPanel } from "@/components/panels/scheduled-panel";
 
 describe("ScheduledPanel", () => {
-  it("renders both sub-groups with headers", () => {
+  it("renders the routines panel", () => {
     render(<ScheduledPanel />);
-    expect(screen.getByText("Reminders")).toBeInTheDocument();
-    expect(screen.getByText("REMINDERS_BODY")).toBeInTheDocument();
-    expect(screen.getByText("Routines")).toBeInTheDocument();
     expect(screen.getByText("ROUTINES_BODY")).toBeInTheDocument();
   });
 });

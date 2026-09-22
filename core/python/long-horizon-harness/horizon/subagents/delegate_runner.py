@@ -133,10 +133,15 @@ async def drive_child(
         await asyncio.wait_for(_drain(), timeout=timeout_s)
     except TimeoutError:
         status = "timeout"
+        summary_override = _unfinished_summary(
+            f"the child hit the {timeout_s}s timeout and did not finish",
+            chunks,
+        )
     except _MaxIterationsExceeded:
         status = "halted"
-        summary_override = (
-            f"max_iterations ({max_iterations}) exceeded — child halted."
+        summary_override = _unfinished_summary(
+            f"max_iterations ({max_iterations}) exceeded, child halted",
+            chunks,
         )
     except Exception as exc:
         _logger.exception("delegate child raised %s", type(exc).__name__)
@@ -145,12 +150,19 @@ async def drive_child(
 
     if pending is not None:
         status = "pending"
+        # A paused child has not done the work; without this the summary is
+        # its pre-approval narration, which reads like a finished report.
+        summary_override = _unfinished_summary(
+            "the child paused for approval and has not run the operation yet",
+            chunks,
+            label="PAUSED",
+        )
 
     return ChildDriveResult(
         status=status,
         summary=summary_override
         if summary_override is not None
-        else "".join(chunks),
+        else _reported_summary(chunks),
         telemetry={
             "iterations": iterations,
             "duration_ms": int((time.monotonic() - start) * 1000),
@@ -171,6 +183,44 @@ def _build_runner(
         session_service=session_service,
         memory_service=memory_service,
     )
+
+
+def _reported_summary(chunks: list[str]) -> str:
+    """A success flag with an empty body is the same vacuum a timeout left,
+    and the parent fills vacuums with plausible detail. Say it reported
+    nothing rather than returning ""."""
+    text = "".join(chunks)
+    if text.strip():
+        return text
+    return (
+        "The child finished but reported nothing. There is no result to "
+        "relay; do not describe work it might have done."
+    )
+
+
+def _envelope_error(
+    status: str, timeout_s: float | None, max_iterations: int | None
+) -> str | None:
+    """Machine-readable twin of the INCOMPLETE summary: the repo signals
+    failure with an `error` key and spawn.py's _result_summary reads one."""
+    if status == "timeout":
+        return f"Child timed out after {timeout_s}s without finishing."
+    if status == "halted":
+        return f"Child halted (max_iterations={max_iterations}) or crashed."
+    return None
+
+
+def _unfinished_summary(
+    reason: str, chunks: list[str], *, label: str = "INCOMPLETE"
+) -> str:
+    """Partial narration reads like a finished report, so the parent must see
+    the state in the summary itself, not only in the status field."""
+    text = (
+        f"{label}: {reason}. Do not report this work as done; anything "
+        "below is partial and unverified."
+    )
+    partial = "".join(chunks).strip()
+    return f"{text}\n\nPartial output:\n{partial}" if partial else text
 
 
 def _user_message(text: str) -> Content:
@@ -239,10 +289,15 @@ async def run_delegate(
         await asyncio.wait_for(_drain(), timeout=timeout_s)
     except TimeoutError:
         status = "timeout"
+        summary_override = _unfinished_summary(
+            f"the child hit the {timeout_s}s timeout and did not finish",
+            chunks,
+        )
     except _MaxIterationsExceeded:
         status = "halted"
-        summary_override = (
-            f"max_iterations ({max_iterations}) exceeded — child halted."
+        summary_override = _unfinished_summary(
+            f"max_iterations ({max_iterations}) exceeded, child halted",
+            chunks,
         )
     except Exception as exc:
         _logger.exception("delegate child raised %s", type(exc).__name__)
@@ -251,13 +306,17 @@ async def run_delegate(
 
     duration_ms = int((time.monotonic() - start) * 1000)
 
-    return {
+    envelope: dict[str, Any] = {
         "status": status,
         "summary": summary_override
         if summary_override is not None
-        else "".join(chunks),
+        else _reported_summary(chunks),
         "telemetry": {
             "iterations": iterations,
             "duration_ms": duration_ms,
         },
     }
+    error = _envelope_error(status, timeout_s, max_iterations)
+    if error is not None:
+        envelope["error"] = error
+    return envelope

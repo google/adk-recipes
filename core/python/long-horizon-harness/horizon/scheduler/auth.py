@@ -14,9 +14,8 @@
 
 """OIDC verifier for the ``/scheduler/*`` endpoints.
 
-Mirrors the outbound ID-token pattern in ``horizon/tools/push_to_user.py``:
-that helper *mints* an ID token via ``google.oauth2.id_token``; this
-module *verifies* one with the same library.
+Verifies an inbound ID token via ``google.oauth2.id_token``, the same library
+Cloud Scheduler's callers use to mint one.
 
 Configuration:
 
@@ -27,7 +26,7 @@ Configuration:
   emails. Verified token's ``email`` claim must match one (case-insensitive).
   Omit to allow any verified caller (rare — usually you want exactly one SA).
 * ``LHA_SCHEDULER_AUTH_DISABLED`` — set truthy to skip all checks.
-  Intended for local dev (``curl localhost:8000/scheduler/tick``). A
+  Intended for local dev (``curl localhost:8000/scheduler/routine-tick``). A
   WARNING is logged on first bypass so accidental prod use is visible.
 
 Fails closed: if audience is unset and auth is not explicitly disabled,

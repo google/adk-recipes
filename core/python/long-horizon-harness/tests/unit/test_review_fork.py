@@ -204,10 +204,10 @@ class TestSnapshotFormat:
 
 @pytest.mark.asyncio
 class TestToolWhitelist:
-    async def test_allows_add_memory(self):
+    async def test_allows_memory(self):
         from horizon.memory.review_fork import _whitelist_tools_callback
 
-        tool = SimpleNamespace(name="add_memory")
+        tool = SimpleNamespace(name="memory")
         result = await _whitelist_tools_callback(
             tool=tool, args={}, tool_context=SimpleNamespace()
         )
@@ -222,30 +222,34 @@ class TestToolWhitelist:
         )
         assert result is None
 
-    async def test_allows_load_skill_resource(self):
+    async def test_allows_load_skill_with_resource(self):
+        """load_skill also covers what used to be a separate
+        load_skill_resource tool — same tool name, an extra arg."""
         from horizon.memory.review_fork import _whitelist_tools_callback
 
-        tool = SimpleNamespace(name="load_skill_resource")
+        tool = SimpleNamespace(name="load_skill")
         result = await _whitelist_tools_callback(
             tool=tool,
-            args={"skill_name": "x", "file_path": "references/n.md"},
+            args={"skill_name": "x", "resource": "references/n.md"},
             tool_context=SimpleNamespace(),
         )
         assert result is None
 
-    async def test_allows_reload(self):
+    async def test_allows_load_skill_reload_action(self):
+        """reload folded into load_skill(action='reload') — same tool name,
+        no skill_name needed."""
         from horizon.memory.review_fork import _whitelist_tools_callback
 
-        tool = SimpleNamespace(name="reload")
+        tool = SimpleNamespace(name="load_skill")
         result = await _whitelist_tools_callback(
-            tool=tool, args={}, tool_context=SimpleNamespace()
+            tool=tool, args={"action": "reload"}, tool_context=SimpleNamespace()
         )
         assert result is None
 
-    async def test_allows_write_file_to_skills_path(self):
+    async def test_allows_write_to_skills_path(self):
         from horizon.memory.review_fork import _whitelist_tools_callback
 
-        tool = SimpleNamespace(name="write_file")
+        tool = SimpleNamespace(name="write")
         result = await _whitelist_tools_callback(
             tool=tool,
             args={"path": ".agents/skills/foo/SKILL.md", "content": "..."},
@@ -253,10 +257,10 @@ class TestToolWhitelist:
         )
         assert result is None
 
-    async def test_allows_patch_on_skills_path(self):
+    async def test_allows_edit_on_skills_path(self):
         from horizon.memory.review_fork import _whitelist_tools_callback
 
-        tool = SimpleNamespace(name="patch")
+        tool = SimpleNamespace(name="edit")
         result = await _whitelist_tools_callback(
             tool=tool,
             args={
@@ -268,12 +272,12 @@ class TestToolWhitelist:
         )
         assert result is None
 
-    async def test_denies_write_file_outside_skills(self):
+    async def test_denies_write_outside_skills(self):
         """The fork must not be able to scribble over arbitrary workspace
         files — only ``.agents/skills/<name>/...`` is in scope."""
         from horizon.memory.review_fork import _whitelist_tools_callback
 
-        tool = SimpleNamespace(name="write_file")
+        tool = SimpleNamespace(name="write")
         result = await _whitelist_tools_callback(
             tool=tool,
             args={"path": "reports/q3.md", "content": "..."},
@@ -283,12 +287,12 @@ class TestToolWhitelist:
         assert "error" in result
         assert ".agents/skills/" in result["error"]
 
-    async def test_denies_write_file_at_skills_root(self):
+    async def test_denies_write_at_skills_root(self):
         """``.agents/skills/README.md`` has no ``<name>/`` after the prefix —
         not attributable to a skill, so it's blocked."""
         from horizon.memory.review_fork import _whitelist_tools_callback
 
-        tool = SimpleNamespace(name="write_file")
+        tool = SimpleNamespace(name="write")
         result = await _whitelist_tools_callback(
             tool=tool,
             args={"path": ".agents/skills/README.md", "content": "..."},

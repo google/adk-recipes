@@ -61,6 +61,7 @@ from horizon.guardrails.policy_grants import (
     find_matching_grant,
     find_matching_grant_loose,
 )
+from horizon.tools import names
 
 
 def _serialize_args(args: Any) -> str:
@@ -138,7 +139,7 @@ def evaluate_exfil(
     # process(action="write") drives a backgrounded shell via the `data` arg,
     # not `command` — inspect that payload for the same command-shape exfil.
     if (
-        tool_name == "process"
+        tool_name == names.PROCESS
         and isinstance(args, dict)
         and args.get("action") == "write"
     ):

@@ -17,7 +17,7 @@ subsystem. Speaks the ``/processes/*`` REST surface exposed by the
 container shim in ``horizon/sandbox/runtime/server.py``.
 
 Mirrors the surface of ``LocalProcessHandle`` so the ``process`` /
-``terminal`` extension tools can hold either kind in their
+``bash`` extension tools can hold either kind in their
 ``ProcessRegistry``. The two diverge on one point: kill returns the
 exit code as reported by the container (the local handle reads it from
 ``subprocess.Popen.returncode``).

@@ -12,8 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Media-input helpers shared by the ``view_file`` tool (media gating) and
-``file_ops`` (mime sniffing).
+"""Media-input helpers shared by the ``read`` tool's media path (media
+gating) and ``file_ops`` (mime sniffing).
 
 Kept dependency-free (stdlib only) so importing them never pulls in a model SDK.
 """

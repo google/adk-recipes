@@ -26,7 +26,7 @@ pytestmark = pytest.mark.asyncio
 
 
 class _Tool:
-    name = "terminal"
+    name = "bash"
 
 
 class _Actions:
@@ -84,3 +84,54 @@ async def test_session_grant_suppresses_second_prompt(tmp_path, monkeypatch):
         tool=_Tool(), args={"command": "bq rm y"}, tool_context=ctx3
     )
     assert r3 is None  # "bq rm" prefix grant covers "bq rm y"
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "git push --force origin HEAD",
+        # Sneaky rephrases a model might try instead of the caught spelling
+        # above must be caught too, or the confirmation is a one-word filter.
+        "git push -f origin HEAD",
+        "git push --force-with-lease origin HEAD",
+    ],
+)
+async def test_git_push_force_and_rephrases_all_require_confirmation(
+    tmp_path, command
+):
+    from horizon.environment import LocalEnvironment
+    from horizon.environment_context import set_active_environment
+
+    env = LocalEnvironment(working_dir=tmp_path)
+    env._working_dir = tmp_path
+    set_active_environment(env)
+
+    ctx = _Ctx(state={})
+    result = await permission_guard(
+        tool=_Tool(), args={"command": command}, tool_context=ctx
+    )
+
+    # A before_tool_callback that returns a dict short-circuits the real tool
+    # call entirely (ADK contract) -- confirmation_required=True here IS the
+    # proof the push never ran, not merely a claim about it.
+    assert result is not None
+    assert result.get("confirmation_required") is True
+    assert "approval" in result["error"].lower()
+
+
+async def test_git_push_without_force_does_not_require_confirmation(tmp_path):
+    # Contrast case: the gate is force-specific, not a blanket push blocker.
+    from horizon.environment import LocalEnvironment
+    from horizon.environment_context import set_active_environment
+
+    env = LocalEnvironment(working_dir=tmp_path)
+    env._working_dir = tmp_path
+    set_active_environment(env)
+
+    ctx = _Ctx(state={})
+    result = await permission_guard(
+        tool=_Tool(),
+        args={"command": "git push origin main"},
+        tool_context=ctx,
+    )
+    assert result is None

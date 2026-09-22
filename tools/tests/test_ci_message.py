@@ -256,10 +256,23 @@ def test_no_contributor_checker_hand_builds_an_annotation():
     through Diagnostic makes those three mandatory. This test is the
     regression guard.
 
-    close_orphan_dependabot_prs.py is exempt: it is a maintenance bot whose
-    output is read by maintainers, not by a contributor fixing a PR.
+    Two maintenance bots are exempt, on the same grounds: they run on a
+    schedule, and their output is read by a maintainer inspecting a run
+    rather than by a contributor trying to get a pull request green.
+    Diagnostic's mandatory doc link points into the contributor
+    troubleshooting handbook, which has nothing to say about either.
+
+      close_orphan_dependabot_prs.py  closes stranded Dependabot PRs
+      sweep_stale_branches.py         deletes dead branches
+
+    The bar for adding to this set is "no contributor will ever read this",
+    not "writing a Diagnostic is inconvenient".
     """
-    exempt = {"ci_message.py", "close_orphan_dependabot_prs.py"}
+    exempt = {
+        "ci_message.py",
+        "close_orphan_dependabot_prs.py",
+        "sweep_stale_branches.py",
+    }
     pattern = re.compile(r'["\']::(error|warning|notice)')
     offenders: list[str] = []
 

@@ -19,9 +19,9 @@ Memory Bank's server-side extractor (a Gemini model) ingests text plus
 standard image/PDF media; it rejects any other ``inline_data`` mime with a
 400 ("Unable to submit request because it has a mimeType parameter with
 value ..., which is not supported"). Stored session events can legitimately
-carry such blobs — a user uploads a ``.json`` file, or ``view_file`` injects
-one — so the nightly dream pass must degrade them to a short text placeholder
-before generation.
+carry such blobs — a user uploads a ``.json`` file, or the ``read`` tool's
+media path injects one — so the nightly dream pass must degrade them to a
+short text placeholder before generation.
 """
 
 from __future__ import annotations
@@ -34,8 +34,9 @@ _EXTRACTABLE_PREFIXES = ("image/",)
 _EXTRACTABLE_EXACT = frozenset({"application/pdf"})
 
 
-# Deliberately separate from the view_file media gate: tightening the Memory
-# Bank extractor allowlist must not perturb what tools surface to the model.
+# Deliberately separate from the read tool's media gate: tightening the
+# Memory Bank extractor allowlist must not perturb what tools surface to
+# the model.
 def _extractor_can_ingest(mime: str | None) -> bool:
     if not mime:
         return False

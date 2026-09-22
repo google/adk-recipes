@@ -46,7 +46,7 @@ class _NoopExecutor:
 def _card() -> dict:
     app = FastAPI()
     agent = Agent(
-        name="card_agent", model="gemini-3.6-flash", description="card test"
+        name="card_agent", model="gemini-3.7-flash", description="card test"
     )
     asyncio.run(
         attach_a2a_routes(
@@ -80,7 +80,7 @@ def test_card_modifier_is_idempotent_across_fetches() -> None:
     # guard the extra 0.3 interface accumulates on each fetch.
     app = FastAPI()
     agent = Agent(
-        name="card_agent", model="gemini-3.6-flash", description="card test"
+        name="card_agent", model="gemini-3.7-flash", description="card test"
     )
     asyncio.run(
         attach_a2a_routes(

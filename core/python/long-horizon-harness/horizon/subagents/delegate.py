@@ -232,6 +232,15 @@ def _can_resurface(tool_context: Any) -> bool:
     return callable(getattr(tool_context, "request_confirmation", None))
 
 
+def _awaiting_summary(hint: str) -> str:
+    """An eval caught the parent reporting a paused child's work as finished.
+    The status field alone lost to the hint's confident phrasing, so say it."""
+    return (
+        "PAUSED: the child stopped to ask for approval, so none of the work "
+        f"is done yet. Relay this to the user and wait: {hint}"
+    )
+
+
 def _bubble_hint(name: str | None, child_hint: str) -> str:
     return f"[delegated: {name or 'task'}] {child_hint or 'approval required'}"
 
@@ -357,7 +366,7 @@ async def _delegate_resurfacing(
             )
             return {
                 "status": "awaiting_approval",
-                "summary": hint,
+                "summary": _awaiting_summary(hint),
                 "telemetry": res.telemetry,
             }
         await _cleanup_child_session(session_service, user_id, child_session_id)
@@ -449,9 +458,9 @@ async def delegate(
         into the child's prompt.
       timeout_s: Hard cap on child runtime in seconds. Default 120.
       model: Override the child's Gemini variant. Defaults to
-        ``gemini-3.6-flash``; ``gemini-3.1-pro-preview`` trades latency for
+        ``gemini-3.7-flash``; ``gemini-3.1-pro-preview`` trades latency for
         stronger reasoning.
-      tools: Concrete tool names (e.g. ``["read_file", "terminal"]``) to
+      tools: Concrete tool names (e.g. ``["read", "bash"]``) to
         add on top of any ``toolsets``. When ``tools`` is supplied without
         ``toolsets``, the child receives exactly those tools and nothing else.
       instructions: Free-form instruction text appended under a

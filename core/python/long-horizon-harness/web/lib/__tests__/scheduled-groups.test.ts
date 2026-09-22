@@ -29,12 +29,12 @@ function s(id: string, jobType: HorizonSessionSummary["jobType"]): HorizonSessio
 }
 
 describe("groupByJobType", () => {
-  it("orders Reminders before Dream review and drops empty groups", () => {
+  it("orders Dream review before Routines and drops empty groups", () => {
     const groups = groupByJobType([
-      s("a", "dream_review"),
-      s("b", "reminder"),
+      s("a", "routine"),
+      s("b", "dream_review"),
     ]);
-    expect(groups.map((g) => g.label)).toEqual(["Reminders", "Dream review"]);
+    expect(groups.map((g) => g.label)).toEqual(["Dream review", "Routines"]);
     expect(groups[0].sessions.map((x) => x.id)).toEqual(["b"]);
   });
 

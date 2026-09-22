@@ -281,7 +281,8 @@ async def generate_video_r2v(
 
 @router.post("/merge-videos")
 async def merge_videos(
-    videos: list[UploadFile] = File(...), speeds: str = Form(...)  # noqa: B008
+    videos: list[UploadFile] = File(...),  # noqa: B008
+    speeds: str = Form(...),
 ):
     """Merge multiple video files into one."""
     if not videos:

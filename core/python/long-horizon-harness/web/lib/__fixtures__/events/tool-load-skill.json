@@ -20,7 +20,7 @@
                   "value": {
                     "id": "adk-call-load-skill-1",
                     "name": "load_skill",
-                    "args": { "name": "plotting" }
+                    "args": { "skill_name": "plotting" }
                   }
                 },
                 "metadata": { "adk_type": "function_call" },

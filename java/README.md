@@ -1,4 +1,4 @@
-# Sample Agents (Java)
+# Recipe Agents (Java)
 
 > [!IMPORTANT]
 > **This folder is retired.** `java/agents/` no longer accepts new
@@ -13,10 +13,10 @@
 >
 > Pull requests that add or modify files under `java/agents/` fail CI.
 
-This folder contains Java agent samples for the [Agent Development Kit](https://github.com/google/adk-java) (ADK).
+This folder contains Java recipes for the [Agent Development Kit](https://github.com/google/adk-java) (ADK).
 
 
-Each folder in this directory contains a different agent sample.
+Each folder in this directory contains a different recipe.
 
 
 ## Getting Started
@@ -29,7 +29,7 @@ Each folder in this directory contains a different agent sample.
    *   Access to Google Cloud (Vertex AI, BigQuery, etc.) and/or a Gemini API Key (depending on the agent - see individual agent READMEs).
 
 
-2.  **Running a Sample Agent:**
+2.  **Running a Recipe Agent:**
    *   Navigate to the specific agent's directory (e.g., `cd agents/forecasting-agent`).
    *   Copy any example configuration files (e.g., `config.example.properties` to `config.properties`) and fill in the required environment variables or properties (API keys, project IDs, etc.). See the agent's specific README for details on required variables.
    *   Install dependencies and build the project using Maven or Gradle:
@@ -41,7 +41,7 @@ Each folder in this directory contains a different agent sample.
 ## Agent Categories
 
 
-Check out the Java agent samples below, organized by category:
+Check out the Java recipes below, organized by category:
 
 
 | Agent Name                                                      | Use Case                                                                                                                                         | Tags                                                                                | Interaction Type        | Complexity   | Agent Type   | Vertical                           |
@@ -53,7 +53,7 @@ Check out the Java agent samples below, organized by category:
 ## Using the Agents in this Repository
 
 
-This section provides general guidance on how to run, test, evaluate, and potentially deploy the Java agent samples found in this repository. While the core steps are similar, **each agent has its own specific requirements and detailed instructions within its dedicated `README.md` file.**
+This section provides general guidance on how to run, test, evaluate, and potentially deploy the Java recipes found in this repository. While the core steps are similar, **each agent has its own specific requirements and detailed instructions within its dedicated `README.md` file.**
 
 
 **Always consult the `README.md` inside the specific agent's directory (e.g., `java/agents/software-bug-assistant/README.md`) for the most accurate and detailed steps.**

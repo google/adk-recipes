@@ -1,0 +1,186 @@
+{
+ "source": "google/adk-samples#2373",
+ "note": "Real accept/reject decisions by the user, not a rating session. 16 posted (12 verbatim, 4 with a remedy appended), 4 cut. Home paths in captured windows are redacted to /Users/<dev>/; the finding is that a machine-specific path is hardcoded, not whose.",
+ "comments": [
+  {
+   "n": 1,
+   "path": "contrib/python/economic-research-agent/economic_research/agent.py",
+   "line": 443,
+   "comment": "This looks like a local path from someone's machine \u2014 should it be configurable?",
+   "window": "  438:                 import json\n  439:                 cleaned_eval = eval_text.replace(\"```json\", \"\").replace(\"```\", \"\").strip()\n  440:                 primitives = json.loads(cleaned_eval)\n  441:                 \n  442:                 # Write to a session metadata log file\n  443:                 log_dir = \"/Users/<dev>/.gemini/jetski/scratch/observability\"\n  444:                 os.makedirs(log_dir, exist_ok=True)\n  445:                 import uuid\n  446:                 session_id = str(uuid.uuid4())\n  447:                 log_path = os.path.join(log_dir, f\"{session_id}.json\")\n  448:                 with open(log_path, \"w\") as f:",
+   "verdict": "keep",
+   "rationale": "anchors on something visible at the line"
+  },
+  {
+   "n": 2,
+   "path": "contrib/python/economic-research-agent/deploy.sh",
+   "line": 103,
+   "comment": "Does `$DEPLOY_CMD` still have the key values in it at this point?",
+   "window": " 97: if [ ! -z \"$UPDATE_VARS\" ]; then\n 98:     DEPLOY_CMD=\"${DEPLOY_CMD} --update-env-vars=\\\"${UPDATE_VARS}\\\"\"\n 99: fi\n100: \n101: \n102: echo \"\ud83d\ude80 Executing Agent Runtime deployment...\"\n103: echo \"Command: $DEPLOY_CMD\"\n104: eval \"$DEPLOY_CMD\"\n105: \n106: # Step 4: Execute registration to Gemini Enterprise (Unless skipped or dry-run)\n107: if [ \"$NO_REGISTER\" = false ] && [ \"$DRY_RUN\" = false ]; then",
+   "verdict": "keep",
+   "rationale": "anchors on something visible at the line"
+  },
+  {
+   "n": 3,
+   "path": "contrib/python/economic-research-agent/tests/deploy_with_keys.py",
+   "line": 37,
+   "comment": "Is 200 characters enough to stay clear of the keys? The fixed prefix looks like about 64.",
+   "window": "  32:         \"--no-confirm-project\",\n  33:         \"--update-env-vars\", env_str\n  34:     ]\n  35:     \n  36:     print(\"\\ud83d\\ude80 Starting deployment to Agent Runtime with local API keys...\")\n  37:     print(f\"Command: {' '.join(cmd)[:200]}... [truncated keys]\")\n  38:     \n  39:     result = subprocess.run(cmd, capture_output=False)\n  40:     if result.returncode == 0:\n  41:         print(\"\\u2705 Deployed and configured with environment variables successfully!\")\n  42:     else:",
+   "verdict": "cut",
+   "rationale": "asks the reader to do arithmetic (200 vs a ~64-char prefix)"
+  },
+  {
+   "n": 4,
+   "path": "contrib/python/economic-research-agent/deployment_metadata.json",
+   "line": 2,
+   "comment": "real project id committed here",
+   "window": "  1: {\n  2:   \"remote_agent_runtime_id\": \"projects/697625214430/locations/us-east1/reasoningEngines/3370909136714727424\",\n  3:   \"deployment_target\": \"agent_runtime\",\n  4:   \"is_a2a\": false,\n  5:   \"deployment_timestamp\": \"2026-07-10T17:08:22.632797\"\n  6: }",
+   "verdict": "keep",
+   "rationale": "anchors on something visible at the line"
+  },
+  {
+   "n": 5,
+   "path": "contrib/python/economic-research-agent/economic_research/advisors/real_estate_advisor.py",
+   "line": 20,
+   "comment": "hardcoded project name here",
+   "window": "  15: # Load ERA Environment\n  16: env_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), \".env\")\n  17: load_dotenv(env_path)\n  18: \n  19: if not os.getenv(\"GOOGLE_CLOUD_PROJECT\"):\n  20:     os.environ[\"GOOGLE_CLOUD_PROJECT\"] = os.getenv(\"PROJECT_ID\", \"project-maui\")\n  21: \n  22: logger = logging.getLogger(__name__)\n  23: \n  24: from economic_research.tools.dynamic_entity_resolver import resolve_fips\n  25: from economic_research.tools.hud_skill import fetch_hud_fmr_data, fetch_hud_income_limits",
+   "verdict": "keep",
+   "rationale": "anchors on something visible at the line"
+  },
+  {
+   "n": 6,
+   "path": "contrib/python/economic-research-agent/economic_research/orchestrators/universal_whitepaper_orchestrator.py",
+   "line": 19,
+   "comment": "same default as the advisor module",
+   "window": "  14: # Load ERA Environment\n  15: env_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), \".env\")\n  16: load_dotenv(env_path)\n  17:\n  18: if not os.getenv(\"GOOGLE_CLOUD_PROJECT\"):\n  19:     os.environ[\"GOOGLE_CLOUD_PROJECT\"] = os.getenv(\"PROJECT_ID\", \"project-maui\")\n  20: if not os.getenv(\"GOOGLE_GENAI_USE_VERTEXAI\"):\n  21:     os.environ[\"GOOGLE_GENAI_USE_VERTEXAI\"] = \"1\"\n  22:\n  23: logger = logging.getLogger(__name__)",
+   "verdict": "keep",
+   "rationale": "anchors on something visible at the line"
+  },
+  {
+   "n": 7,
+   "path": "contrib/python/economic-research-agent/tests/run_remote_simulations.py",
+   "line": 10,
+   "comment": "Should this endpoint come from an env var rather than being pinned here?",
+   "window": "   5: import json\n   6: import subprocess\n   7: import google.auth\n   8: \n   9: # Deployed Agent Engine ID\n  10: REMOTE_ENGINE_ID = \"https://us-east1-aiplatform.googleapis.com/v1beta1/projects/697625214430/locations/us-east1/reasoningEngines/8517890192101605376\"\n  11: \n  12: # A selection of 100 unique representative queries (from FRED, BLS, CENSUS, HUD, etc. + README WOW queries)\n  13: WOW_QUERIES = [",
+   "verdict": "keep",
+   "rationale": "anchors on something visible at the line"
+  },
+  {
+   "n": 8,
+   "path": "contrib/python/economic-research-agent/tests/run_remote_simulations.py",
+   "line": 44,
+   "comment": "The padding appends the same query over and over, but the banner below calls them unique. Which is right?",
+   "window": "  39:                 txt = cases[i][\"conversation\"][0][\"user_content\"][\"parts\"][0][\"text\"]\n  40:                 if txt not in sim_queries:\n  41:                     sim_queries.append(txt)\n  42:                     \n  43:     # Fallback to make sure we have 100\n  44:     while len(sim_queries) < 100:\n  45:         sim_queries.append(\"What is the unemployment rate in Austin for the last year?\")\n  46:         \n  47:     return sim_queries[:100]",
+   "verdict": "keep",
+   "rationale": "anchors on something visible at the line"
+  },
+  {
+   "n": 9,
+   "path": "contrib/python/economic-research-agent/economic_research/tools/labor_shift_skill.py",
+   "line": 190,
+   "comment": "this `f` has nothing to interpolate",
+   "window": "185:                                     affected_roles = [\"Customer Service Representatives\", \"Logistics Clerks\", \"Billing Specialists\"]\n186:                                     driver = f\"Strong concentration of transaction-oriented and logistics roles ({prof_share + info_share:.1f}% knowledge-sector share). High risk of automation in support operations.\"\n187:                                 elif vulnerability_index > 50:\n188:                                     displacement = \"Medium (10-12%)\"\n189:                                     affected_roles = [\"Financial Clerks\", \"Insurance Underwriters\", \"Operations Assistants\"]\n190:                                     driver = f\"Balanced economy with corporate operations presence. Moderate displacement risk in back-office processing.\"\n191:                                 else:\n192:                                     displacement = \"Low (<4%)\"\n193:                                     affected_roles = [\"Software Developers\", \"Data Analysts\", \"Digital Marketing\"]\n194:                                     driver = f\"High concentration of advanced knowledge sectors ({prof_share + info_share:.1f}% knowledge-sector share) acting as validators and creators of AI workflows.\"\n195: ",
+   "verdict": "keep",
+   "rationale": "anchors on something visible at the line"
+  },
+  {
+   "n": 10,
+   "path": "contrib/python/economic-research-agent/economic_research/tools/labor_shift_skill.py",
+   "line": 14,
+   "comment": "`DENN` and `CHAL` break the pattern the rest of the map follows",
+   "window": "  9: MSA_CODES = {\n 10:     \"Austin\": \"AUST448\",\n 11:     \"Raleigh\": \"RALE937\",\n 12:     \"San Francisco\": \"SANF806\",\n 13:     \"Dallas\": \"DALL148\",\n 14:     \"Denver\": \"DENN508\",\n 15:     \"Seattle\": \"SEAT653\",\n 16:     \"Atlanta\": \"ATLA013\",\n 17:     \"Charlotte\": \"CHAL837\",\n 18:     \"Columbus\": \"COLU139\"\n 19: }",
+   "verdict": "cut",
+   "rationale": "asks the reader to infer a pattern across a map"
+  },
+  {
+   "n": 11,
+   "path": "contrib/python/economic-research-agent/economic_research/tools/eia_skill.py",
+   "line": 34,
+   "comment": "Should this default be the EIA sector id rather than the name?",
+   "window": " 29:     sector_map = {\n 30:         \"industrial\": \"IND\",\n 31:         \"commercial\": \"COM\",\n 32:         \"residential\": \"RES\",\n 33:     }\n 34:     s_id = sector_map.get(sector.lower(), \"industrial\")\n 35: \n 36:     for state in state_codes:\n 37:         state = state.upper().strip()\n 38:         url = (\n 39:             f\"https://api.eia.gov/v2/electricity/retail-sales/data/?api_key={eia_key}\"\n 40:             f\"&frequency=monthly&data[0]=price\"\n 41:             f\"&facets[stateid][]={state}\"\n 42:             f\"&facets[sectorid][]={s_id}\"",
+   "verdict": "keep",
+   "rationale": "anchors on something visible at the line"
+  },
+  {
+   "n": 12,
+   "path": "contrib/python/economic-research-agent/economic_research/tools/utility_logistics_skill.py",
+   "line": 28,
+   "comment": "Is falling back to `TX` right here? The label still says the requested state.",
+   "window": " 23:     for state in state_names:\n 24:         import us\n 25:         from economic_research.tools.eia_skill import fetch_state_electricity_rates\n 26: \n 27:         state_obj = us.states.lookup(state)\n 28:         state_code = state_obj.abbr if state_obj else \"TX\"\n 29: \n 30:         raw_eia = fetch_state_electricity_rates([state_code], sector=\"industrial\")\n 31:         try:\n 32:             parsed_eia = json.loads(raw_eia)\n 33:             if isinstance(parsed_eia, list) and len(parsed_eia) > 0 and \"Avg Price (cents/kWh)\" in parsed_eia[0]:",
+   "verdict": "keep",
+   "rationale": "anchors on something visible at the line"
+  },
+  {
+   "n": 13,
+   "path": "contrib/python/economic-research-agent/economic_research/tools/lifestyle_logistics_incentives_skills.py",
+   "line": 34,
+   "comment": "looks like three files got concatenated",
+   "window": "  29: \n  30:     return json.dumps(results, indent=2)\n  31: \n  32: \n  33: #  Copyright 2025 Google LLC.\n  34: \"\"\"ADK Skill: Lifestyle Density & Amenity Scoring (Google Places/WalkScore). Talent Retention.\"\"\"\n  35: \n  36: \n  37: class LifestyleRequest(BaseModel):\n  38:     city_names: list[str] = Field(\n  39:         ..., description=\"List of city names to fetch lifestyle benchmarks for.\"",
+   "verdict": "keep",
+   "rationale": "anchors on something visible at the line"
+  },
+  {
+   "n": 14,
+   "path": "contrib/python/economic-research-agent/economic_research/agent_runtime_app.py",
+   "line": 2,
+   "comment": "the licence header stops mid-sentence",
+   "window": "   1: # Copyright 2026 Google LLC\n   2: # Licensed under the Apache License, Version 2.0 (the \"License\");\n   3: \n   4: from vertexai.preview.reasoning_engines import AdkApp\n   5: from economic_research.agent import ERAAgent\n   6: \n   7: # Instantiate the agent",
+   "verdict": "keep",
+   "rationale": "anchors on something visible at the line"
+  },
+  {
+   "n": 15,
+   "path": "contrib/python/economic-research-agent/economic_research/tools/dynamic_entity_resolver.py",
+   "line": 1,
+   "comment": "no licence header on this one",
+   "window": "   1: \"\"\"ADK Tool: Dynamic Entity and Geography Resolver (FIPS, MSA, and HS Codes).\n   2: Evolved autonomously by AlphaEvolve using live Serper.dev integration to provide infinite geographic coverage.\n   3: \"\"\"\n   4: \n   5: import json\n   6: import logging\n   7: import os\n   8: import re\n   9: import urllib.request\n  10: from typing import Any",
+   "verdict": "keep",
+   "rationale": "anchors on something visible at the line"
+  },
+  {
+   "n": 16,
+   "path": "contrib/python/economic-research-agent/economic_research/orchestrators/universal_whitepaper_orchestrator.py",
+   "line": 217,
+   "comment": "Should the traceback go back to the caller as the whitepaper text?",
+   "window": "  212:\n  213:     except Exception as e:\n  214:         import traceback\n  215:         tb_str = traceback.format_exc()\n  216:         logger.error(f\"Failed Universal Whitepaper Orchestration: {tb_str}\")\n  217:         return f\"Error executing universal whitepaper pipeline: {tb_str}\"",
+   "verdict": "keep",
+   "rationale": "anchors on something visible at the line"
+  },
+  {
+   "n": 17,
+   "path": "contrib/python/economic-research-agent/tests/integration/test_full_golden_suite.py",
+   "line": 144,
+   "comment": "Would a failed call pass this? `error` is in the accepted list.",
+   "window": "  139:     assert \"N/A\" not in full_response or \"Source\" in full_response, (\n  140:         f\"Possible Grounding failure in {scenario['source']}.\"\n  141:     )\n  142:\n  143:     # Verify sources are cited or agent correctly declared limitations/declined\n  144:     declined_keywords = [\"cannot directly\", \"do not have access\", \"limitations\", \"unverifiable\", \"error\", \"unable to retrieve\", \"does not utilize\", \"did not find\"]\n  145:     assert any(\n  146:         keyword in full_response\n  147:         for keyword in [\n  148:             \"Source\",\n  149:             \"Data\",",
+   "verdict": "cut",
+   "rationale": "asks the reader to reason about test semantics"
+  },
+  {
+   "n": 18,
+   "path": "contrib/python/economic-research-agent/economic_research/tools/real_estate_skill.py",
+   "line": 33,
+   "comment": "`city_clean` isn't used below",
+   "window": "  28:     # Note: These are usually retrieved from a 'Real Estate' BigQuery table or a direct CoStar API.\n  29:     # Current implementation provides grounded benchmarks for site-selection comparison.\n  30:     results = []\n  31:\n  32:     for city in city_names:\n  33:         city_clean = city.split(\",\")[0].strip()\n  34:\n  35:         from economic_research.tools.dynamic_search_harvester import harvest_real_estate_roi\n  36:         harvested = harvest_real_estate_roi(city, property_type)\n  37:         results.append(harvested)",
+   "verdict": "keep",
+   "rationale": "anchors on something visible at the line"
+  },
+  {
+   "n": 19,
+   "path": "contrib/python/economic-research-agent/economic_research/tools/macro_foundation_skill.py",
+   "line": 23,
+   "comment": "Is there a reason this requires `BEA_API_KEY` when nothing below calls BEA?",
+   "window": "  18: def get_state_macro_health(state_names: list[str]) -> str:\n  19:     \"\"\"\n  20:     Fetches GDP and Personal Income (BEA) along with Demographic shifts (Census) for states.\n  21:     This provides the 'Top-Line' economic context for site selection.\n  22:     \"\"\"\n  23:     bea_key = os.getenv(\"BEA_API_KEY\")\n  24:     if not bea_key:\n  25:         return \"ERROR: BEA_API_KEY is missing.\"\n  26: \n  27:     results = []\n  28: ",
+   "verdict": "keep",
+   "rationale": "anchors on something visible at the line"
+  },
+  {
+   "n": 20,
+   "path": "contrib/python/economic-research-agent/tests/integration/test_golden_questions.py",
+   "line": 65,
+   "comment": "Should this `chdir` be restored afterwards?",
+   "window": "  60:\n  61:\n  62: @pytest.fixture(scope=\"function\")\n  63: def engine():\n  64:     # Loophole to run project tests from inside scratch workspace\n  65:     os.chdir(PROJECT_ROOT)\n  66:     from dotenv import load_dotenv\n  67:\n  68:     load_dotenv()\n  69:\n  70:     from economic_research.agent import export_agent",
+   "verdict": "cut",
+   "rationale": "pure consequence reasoning; nothing visible remains if you delete the question"
+  }
+ ]
+}

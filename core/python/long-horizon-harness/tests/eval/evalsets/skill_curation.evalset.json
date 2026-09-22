@@ -1,7 +1,7 @@
 {
   "eval_set_id": "skill_curation",
   "name": "Skill Curation — Promote, Consult, Avoid",
-  "description": "Behavioral evals for the agent's judgment around the skill registry, now backed by Google ADK's native `SkillToolset` (`google.adk.tools.skill_toolset`). The available skills are auto-injected into the system prompt every turn as an `<available_skills>` block (ADK Mode B: `ListSkillsTool` is dropped from the toolset, so the model never spends a tool round-trip on a list call). Tools exposed to the agent: `load_skill(skill_name=...)` and `load_skill_resource(skill_name=..., resource_path=...)` for reading; `write_file(path='.agents/skills/<name>/...', content=...)` and `patch(path='.agents/skills/<name>/...', ...)` for authoring; `reload()` to refresh the in-process `_skills` dict so the new/updated skill becomes visible on the next turn. Per ADK's L3 layout, skills live as `.agents/skills/<name>/SKILL.md` (YAML frontmatter `name`/`description` + markdown body); the dir name MUST match the frontmatter `name` (ADK validates this at construction). The agent should (a) PROMOTE a repeated task pattern into a new skill by `write_file`-ing a fresh `.agents/skills/<name>/SKILL.md` then calling `reload()` when the user explicitly asks to capture it OR when a procedure they just walked through is reusable, (b) CONSULT existing skills by checking the auto-injected `<available_skills>` block and calling `load_skill(skill_name=...)` for any candidate match before re-deriving a procedure the registry might already know, and (c) AVOID over-curation — don't write a skill for a one-off conversational request. The curator BACKGROUND-JOB (scheduled passes) is out of scope; this evalset tests the model-driven, in-the-moment curation surface only. NOTE: the project's eval_config.json grades against rubric_based_final_response_quality_v1 only (no tool_trajectory_avg_score), so tool-trajectory assertions are encoded via rubric text. The intermediate_data.tool_uses field is declarative documentation. The skills root is the active environment's `working_dir / 'skills'` (per-user via `LocalEnvironment`); a builtin root at `horizon/builtin_skills/` is layered underneath with the user dir shadowing on name collision. These cases do not depend on any preexisting skill content beyond the `policy` builtin.",
+  "description": "Behavioral evals for the agent's judgment around the skill registry, now backed by Google ADK's native `SkillToolset` (`google.adk.tools.skill_toolset`). The available skills are auto-injected into the system prompt every turn as an `<available_skills>` block (ADK Mode B: `ListSkillsTool` is dropped from the toolset, so the model never spends a tool round-trip on a list call). Tools exposed to the agent: `load_skill(skill_name=...)` for reading (pass `resource='references/x.md'` for one of the skill's bundled files); `write(path='.agents/skills/<name>/...', content=...)` and `edit(path='.agents/skills/<name>/...', ...)` for authoring; `load_skill(action='reload')` to refresh the in-process `_skills` dict so the new/updated skill becomes visible on the next turn. Per ADK's L3 layout, skills live as `.agents/skills/<name>/SKILL.md` (YAML frontmatter `name`/`description` + markdown body); the dir name MUST match the frontmatter `name` (ADK validates this at construction). The agent should (a) PROMOTE a repeated task pattern into a new skill by `write`-ing a fresh `.agents/skills/<name>/SKILL.md` then calling `load_skill(action='reload')` when the user explicitly asks to capture it OR when a procedure they just walked through is reusable, (b) CONSULT existing skills by checking the auto-injected `<available_skills>` block and calling `load_skill(skill_name=...)` for any candidate match before re-deriving a procedure the registry might already know, and (c) AVOID over-curation — don't write a skill for a one-off conversational request. The curator BACKGROUND-JOB (scheduled passes) is out of scope; this evalset tests the model-driven, in-the-moment curation surface only. NOTE: the project's eval_config.json grades against rubric_based_final_response_quality_v1 only (no tool_trajectory_avg_score), so tool-trajectory assertions are encoded via rubric text. The intermediate_data.tool_uses field is declarative documentation. The skills root is the active environment's `working_dir / 'skills'` (per-user via `LocalEnvironment`); a builtin root at `horizon/builtin_skills/` is layered underneath with the user dir shadowing on name collision. These cases do not depend on any preexisting skill content beyond the `policy` builtin.",
   "eval_cases": [
     {
       "eval_id": "explicit_capture_request_creates_skill",
@@ -12,27 +12,27 @@
           },
           "intermediate_data": {
             "tool_uses": [
-              {"name": "write_file", "args": {"path": ".agents/skills/fastapi-init/SKILL.md"}},
-              {"name": "reload", "args": {}}
+              {"name": "write", "args": {"path": ".agents/skills/fastapi-init/SKILL.md"}},
+              {"name": "load_skill", "args": {"action": "reload"}}
             ]
           },
           "rubrics": [
             {
               "rubric_id": "skill_create_called_for_explicit_capture",
               "rubric_content": {
-                "text_property": "The response invokes `write_file` with `path='.agents/skills/fastapi-init/SKILL.md'` (the ADK L3 layout — dir name must match frontmatter `name`) and then calls `reload()` so the new skill is visible on the next turn. The user explicitly asked for this procedure to be saved as a named skill — that's the canonical create case. A response that acknowledges with text only ('Got it, I'll remember this!') without writing the SKILL.md file fails — the procedure would not persist. A response that calls `add_memory` instead fails the structural rubric: procedural how-to-do-X notes belong in the skill registry, not the user-fact memory bank. A response that writes the file but forgets `reload()` partially passes but leaves the skill invisible until process restart."
+                "text_property": "The response invokes `write` with `path='.agents/skills/fastapi-init/SKILL.md'` (the ADK L3 layout — dir name must match frontmatter `name`) and then calls `load_skill(action='reload')` so the new skill is visible on the next turn. The user explicitly asked for this procedure to be saved as a named skill — that's the canonical create case. A response that acknowledges with text only ('Got it, I'll remember this!') without writing the SKILL.md file fails — the procedure would not persist. A response that calls `memory` instead fails the structural rubric: procedural how-to-do-X notes belong in the skill registry, not the user-fact memory bank. A response that writes the file but forgets `load_skill(action='reload')` partially passes but leaves the skill invisible until process restart."
               }
             },
             {
               "rubric_id": "skill_create_content_includes_required_frontmatter",
               "rubric_content": {
-                "text_property": "The `content` arg passed to `write_file` begins with YAML frontmatter (`---\\nname: fastapi-init\\ndescription: ...\\n---`) per the ADK SkillToolset contract (`load_skill_from_dir` rejects SKILL.md without it and requires `name` to match the parent dir). A response whose `content` is just the four-step body with no frontmatter, or whose frontmatter `name` does not match the dir name, would fail validation when ADK reloads the skill; the model must include the frontmatter envelope with `name: fastapi-init` for the write to round-trip into a usable skill."
+                "text_property": "The `content` arg passed to `write` begins with YAML frontmatter (`---\\nname: fastapi-init\\ndescription: ...\\n---`) per the ADK SkillToolset contract (`load_skill_from_dir` rejects SKILL.md without it and requires `name` to match the parent dir). A response whose `content` is just the four-step body with no frontmatter, or whose frontmatter `name` does not match the dir name, would fail validation when ADK reloads the skill; the model must include the frontmatter envelope with `name: fastapi-init` for the write to round-trip into a usable skill."
               }
             },
             {
               "rubric_id": "skill_create_does_not_use_add_memory",
               "rubric_content": {
-                "text_property": "The response does NOT invoke `add_memory` for this procedure. A multi-step setup recipe with explicit shell commands is procedural knowledge, not a fact about who the user is. `add_memory` is for stable user facts (preferences, name, timezone); writing a `.agents/skills/<name>/SKILL.md` is for how-to-do-X notes. Mis-routing this to `add_memory` fails."
+                "text_property": "The response does NOT invoke `memory` for this procedure. A multi-step setup recipe with explicit shell commands is procedural knowledge, not a fact about who the user is. `memory` is for stable user facts (preferences, name, timezone); writing a `.agents/skills/<name>/SKILL.md` is for how-to-do-X notes. Mis-routing this to `memory` fails."
               }
             }
           ]
@@ -53,15 +53,15 @@
           },
           "intermediate_data": {
             "tool_uses": [
-              {"name": "write_file", "args": {"path": ".agents/skills/git-rebase-onto/SKILL.md"}},
-              {"name": "reload", "args": {}}
+              {"name": "write", "args": {"path": ".agents/skills/git-rebase-onto/SKILL.md"}},
+              {"name": "load_skill", "args": {"action": "reload"}}
             ]
           },
           "rubrics": [
             {
               "rubric_id": "skill_offers_or_creates_for_repeated_pattern",
               "rubric_content": {
-                "text_property": "The response EITHER (a) invokes `write_file` against a `.agents/skills/<name>/SKILL.md` path (with a sensible `<name>` like `git-rebase-onto`) and then calls `reload()` to promote the `git rebase --onto` recipe into a named skill, OR (b) explicitly proposes to the user 'should I save this as a skill called X so we don't re-derive it next time?' and stops, awaiting confirmation. The user surfaced a repeated pattern — that's exactly the curation signal the skill registry exists to capture. A response that just says 'glad it worked!' and moves on, doing nothing about the captured pattern, fails the rubric: the model ignored a clear promote-to-skill opportunity."
+                "text_property": "The response EITHER (a) invokes `write` against a `.agents/skills/<name>/SKILL.md` path (with a sensible `<name>` like `git-rebase-onto`) and then calls `load_skill(action='reload')` to promote the `git rebase --onto` recipe into a named skill, OR (b) explicitly proposes to the user 'should I save this as a skill called X so we don't re-derive it next time?' and stops, awaiting confirmation. The user surfaced a repeated pattern — that's exactly the curation signal the skill registry exists to capture. A response that just says 'glad it worked!' and moves on, doing nothing about the captured pattern, fails the rubric: the model ignored a clear promote-to-skill opportunity."
               }
             }
           ]
@@ -120,20 +120,20 @@
           },
           "intermediate_data": {
             "tool_uses": [
-              {"name": "terminal", "args": {"command": "pwd"}}
+              {"name": "bash", "args": {"command": "pwd"}}
             ]
           },
           "rubrics": [
             {
               "rubric_id": "skill_not_created_for_trivial_oneoff",
               "rubric_content": {
-                "text_property": "The response does NOT invoke `write_file` against any `.agents/skills/<name>/SKILL.md` path, and does NOT invoke `reload`. 'Print the current working directory' is a one-shot trivial query — there is no procedure to capture, just one shell command. Promoting `pwd` into a saved skill would be over-curation: it would pollute the skill registry with one-liners that the model already knows. A response that writes a SKILL.md for this fails. A response that calls `terminal` with `pwd` and reports the output passes."
+                "text_property": "The response does NOT invoke `write` against any `.agents/skills/<name>/SKILL.md` path, and does NOT invoke `load_skill(action='reload')`. 'Print the current working directory' is a one-shot trivial query — there is no procedure to capture, just one shell command. Promoting `pwd` into a saved skill would be over-curation: it would pollute the skill registry with one-liners that the model already knows. A response that writes a SKILL.md for this fails. A response that calls `bash` with `pwd` and reports the output passes."
               }
             },
             {
               "rubric_id": "skill_trivial_does_not_call_load_skill",
               "rubric_content": {
-                "text_property": "The response does NOT invoke `load_skill(skill_name=...)` or `load_skill_resource(...)` first. 'What's the cwd?' is a single shell call away from an answer — loading a skill body to answer it would be needless overhead. A response that calls `load_skill` before `pwd` fails — that's over-consultation, the mirror of over-curation."
+                "text_property": "The response does NOT invoke `load_skill(skill_name=...)` first. 'What's the cwd?' is a single shell call away from an answer — loading a skill body to answer it would be needless overhead. A response that calls `load_skill` before `pwd` fails — that's over-consultation, the mirror of over-curation."
               }
             }
           ]
@@ -154,21 +154,21 @@
           },
           "intermediate_data": {
             "tool_uses": [
-              {"name": "write_file", "args": {"path": ".agents/skills/gcloud-run-deploy/SKILL.md"}},
-              {"name": "reload", "args": {}}
+              {"name": "write", "args": {"path": ".agents/skills/gcloud-run-deploy/SKILL.md"}},
+              {"name": "load_skill", "args": {"action": "reload"}}
             ]
           },
           "rubrics": [
             {
               "rubric_id": "skill_create_called_with_valid_name",
               "rubric_content": {
-                "text_property": "The response invokes `write_file` with `path='.agents/skills/<name>/SKILL.md'` where `<name>` is a valid ADK skill name — lowercase letters, digits, hyphens, dots, underscores; no spaces or uppercase. The same `<name>` MUST appear as the `name:` value in the YAML frontmatter of the written content (ADK validates dir-name == frontmatter-name at load time, otherwise the skill is rejected on reload). A descriptive name like `gcloud-run-deploy` or `deploy_cloud_run` or `gcp.run.deploy` passes. A path with uppercase ('.agents/skills/Cloud-Run-Deploy/SKILL.md'), spaces, or where the frontmatter `name` does not match the dir, fails — that's the trap this case targets."
+                "text_property": "The response invokes `write` with `path='.agents/skills/<name>/SKILL.md'` where `<name>` is a valid ADK skill name — lowercase letters, digits, hyphens, dots, underscores; no spaces or uppercase. The same `<name>` MUST appear as the `name:` value in the YAML frontmatter of the written content (ADK validates dir-name == frontmatter-name at load time, otherwise the skill is rejected on reload). A descriptive name like `gcloud-run-deploy` or `deploy_cloud_run` or `gcp.run.deploy` passes. A path with uppercase ('.agents/skills/Cloud-Run-Deploy/SKILL.md'), spaces, or where the frontmatter `name` does not match the dir, fails — that's the trap this case targets."
               }
             },
             {
               "rubric_id": "skill_create_includes_three_step_body",
               "rubric_content": {
-                "text_property": "The `content` arg passed to `write_file` contains all three deploy steps the user named (`gcloud auth login`, `gcloud config set project`, `gcloud run deploy --source .`) in its markdown body (after the frontmatter). Dropping any step would produce an incomplete skill that misleads future lookups. A response whose content omits one of the three commands fails this rubric."
+                "text_property": "The `content` arg passed to `write` contains all three deploy steps the user named (`gcloud auth login`, `gcloud config set project`, `gcloud run deploy --source .`) in its markdown body (after the frontmatter). Dropping any step would produce an incomplete skill that misleads future lookups. A response whose content omits one of the three commands fails this rubric."
               }
             }
           ]

@@ -49,7 +49,7 @@ def test_module_exposes_google_search_singleton():
     """This module re-exports ADK's ``google_search`` so consumers can
     ``from horizon.tools.web_search import google_search`` instead of
     reaching into ``google.adk.tools``. Keeps the import surface
-    consistent with our other tools (``horizon.tools.terminal_exec``)."""
+    consistent with our other tools."""
     from horizon.tools.web_search import google_search
 
     assert google_search is not None

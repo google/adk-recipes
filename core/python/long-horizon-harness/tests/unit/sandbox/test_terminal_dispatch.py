@@ -12,9 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""``terminal`` extension wrapper dispatches to ``SandboxProcessHandle``
+"""``process(action='spawn')`` dispatches to ``SandboxProcessHandle``
 when the active env is ``SandboxEnvironment``. Mocks the runtime shim
 with ``respx`` — no real container or subprocess.
+
+Spawn used to be ``bash(command=..., background=True)``; it moved to
+``process(action='spawn')`` when the parameter space was minimized
+(bash keeps only ``command``/``timeout_s``). Both paths
+share the same ``open_handle`` under ``_spawn.py``, so the assertions
+below are unchanged, only the call site is.
 """
 
 from __future__ import annotations
@@ -77,7 +83,7 @@ def sandbox_env(tmp_path: Path):
 async def test_background_spawn_calls_runtime_processes_endpoint(
     sandbox_env,
 ) -> None:
-    from horizon.tools.processes.terminal import terminal
+    from horizon.tools.processes.process import process
 
     route = respx.post(f"{BASE_URL}/processes").mock(
         return_value=httpx.Response(
@@ -85,8 +91,8 @@ async def test_background_spawn_calls_runtime_processes_endpoint(
         )
     )
 
-    result = await terminal(
-        command="sleep 30", background=True, tool_context=_ctx()
+    result = await process(
+        action="spawn", command="sleep 30", tool_context=_ctx()
     )
 
     assert route.called
@@ -101,7 +107,6 @@ async def test_background_spawn_registers_handle_for_process_tool(
     sandbox_env,
 ) -> None:
     from horizon.tools.processes.process import process
-    from horizon.tools.processes.terminal import terminal
 
     respx.post(f"{BASE_URL}/processes").mock(
         return_value=httpx.Response(
@@ -110,7 +115,7 @@ async def test_background_spawn_registers_handle_for_process_tool(
     )
 
     ctx = _ctx()
-    await terminal(command="sleep 30", background=True, tool_context=ctx)
+    await process(action="spawn", command="sleep 30", tool_context=ctx)
     listing = await process(action="list", tool_context=ctx)
     running_ids = [s["session_id"] for s in listing["running"]]
     assert "proc_sand2" in running_ids
@@ -120,7 +125,6 @@ async def test_background_spawn_registers_handle_for_process_tool(
 @respx.mock
 async def test_process_tool_kill_routes_to_runtime(sandbox_env) -> None:
     from horizon.tools.processes.process import process
-    from horizon.tools.processes.terminal import terminal
 
     respx.post(f"{BASE_URL}/processes").mock(
         return_value=httpx.Response(
@@ -132,7 +136,7 @@ async def test_process_tool_kill_routes_to_runtime(sandbox_env) -> None:
     )
 
     ctx = _ctx()
-    await terminal(command="sleep 30", background=True, tool_context=ctx)
+    await process(action="spawn", command="sleep 30", tool_context=ctx)
     result = await process(
         action="kill", session_id="proc_sand3", tool_context=ctx
     )
@@ -146,7 +150,6 @@ async def test_process_tool_kill_routes_to_runtime(sandbox_env) -> None:
 @respx.mock
 async def test_process_tool_log_decodes_remote_output(sandbox_env) -> None:
     from horizon.tools.processes.process import process
-    from horizon.tools.processes.terminal import terminal
 
     respx.post(f"{BASE_URL}/processes").mock(
         return_value=httpx.Response(
@@ -162,8 +165,8 @@ async def test_process_tool_log_decodes_remote_output(sandbox_env) -> None:
     )
 
     ctx = _ctx()
-    await terminal(
-        command="echo line-from-sandbox", background=True, tool_context=ctx
+    await process(
+        action="spawn", command="echo line-from-sandbox", tool_context=ctx
     )
     log = await process(action="log", session_id="proc_sand4", tool_context=ctx)
 

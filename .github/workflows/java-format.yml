@@ -1,0 +1,294 @@
+name: ☕ Java Format PR Checks
+
+# Runs google-java-format on the Java files changed in a PR and posts
+# diff-style suggestion comments via reviewdog. The Java counterpart to
+# python-format.yml and go-format.yml.
+#
+# Unlike its two siblings, this workflow has NO repo-level style config to
+# point at. Ruff reads [tool.ruff] from the root pyproject.toml and
+# golangci-lint reads the root .golangci.yml, but google-java-format
+# implements the Google Java Style Guide and is deliberately
+# non-configurable — there is no rule set, no line length, and no config
+# file to discover. The formatter version in `env` below is therefore the
+# entire style contract, which is why bumping it is a style change.
+
+on:
+  pull_request:
+    paths:
+      - "core/**/*.java"
+      - "contrib/**/*.java"
+      - "skills/**/*.java"
+      - ".github/workflows/java-format.yml"
+      # NOTE: `java/agents/**` is deliberately absent, exactly as
+      # `go/agents/**` is absent from go-format.yml. Those are retired
+      # recipe roots (.github/policy.yml `frozen_paths`) that PRs may not
+      # add to or modify anyway, so formatting them would only produce
+      # findings the author is not allowed to act on.
+      #
+      # This list alone is NOT sufficient to exclude them: `paths:` decides
+      # whether the workflow RUNS, not which files the diff below returns.
+      # The job therefore also scopes `git diff` to `-- core contrib
+      # skills`. Keep the two in sync.
+      #
+      # Both Java files in the repo today live under java/agents, so this
+      # workflow is forward-looking: it goes green with nothing to do until
+      # the first core/java, contrib/java or Java vertical-skill recipe
+      # lands. That mirrors go-format.yml, which shipped the same way.
+
+# Declared per job rather than here. `pull-requests: write` at the workflow
+# level is inherited by EVERY job, including any added later that only need
+# to read — which is what zizmor's `excessive-permissions` audit flags. See
+# the same note in go-format.yml.
+permissions: {}
+
+# Cancel superseded runs on the same PR to save runner minutes and avoid
+# stale suggestion comments from an older commit lingering on the PR.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  # Pinned rather than `latest` so a google-java-format release cannot turn
+  # every open PR red without warning. Bump deliberately, and re-run the
+  # formatter over existing Java recipes when you do — a formatting change
+  # in a new release will otherwise surface as suggestion noise on the next
+  # unrelated PR.
+  #
+  # GOOGLE_JAVA_FORMAT_SHA256 is the checksum of the linux-x86-64 asset for
+  # this exact version and MUST be updated with it. It is the binary
+  # equivalent of the ratchet SHA pins on the actions below: a release asset
+  # can be re-uploaded under the same tag, and without this the job would
+  # silently execute whatever it was handed. Get it from the release page,
+  # or: curl -sSfL <asset-url> | sha256sum
+  GOOGLE_JAVA_FORMAT_VERSION: 1.36.1
+  GOOGLE_JAVA_FORMAT_SHA256: 8dc71663a6c9cb17b02ba9709bfab5c4de59de6f4ac133fd7a1d5a4394b1193b
+
+jobs:
+  java-format:
+    name: Java Format Suggestions
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read # Checkout
+      pull-requests: write # Post reviewdog suggestion comments
+    # Formatting is syntactic — no compilation, no dependency resolution, no
+    # JVM startup (see the native binary below) — so it is fast. 10 min is a
+    # generous ceiling that still protects against a stuck reviewdog HTTP
+    # call to the GitHub API. Matches python-format.yml and go-format.yml.
+    timeout-minutes: 10
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v4
+        with:
+          fetch-depth: 0 # Fetch complete history to locate the merge-base cleanly
+          # Nothing here writes to the repo through git. The only git
+          # operations are a read-only `git fetch origin <base>` and a
+          # `git diff` on a public repository, and reviewdog authenticates
+          # from REVIEWDOG_GITHUB_API_TOKEN in the step env rather than
+          # git's credential store. Leaving the credential on disk would
+          # serve no purpose while staying readable by any later step
+          # (zizmor `artipacked`).
+          persist-credentials: false
+
+      - name: Install google-java-format
+        env:
+          VERSION: ${{ env.GOOGLE_JAVA_FORMAT_VERSION }}
+          EXPECTED_SHA256: ${{ env.GOOGLE_JAVA_FORMAT_SHA256 }}
+        run: |
+          set -euo pipefail
+
+          # The prebuilt native binary, NOT the -all-deps.jar. Since 1.24
+          # google-java-format ships GraalVM-compiled executables, which
+          # means this step needs no actions/setup-java, no JDK, and none of
+          # the `--add-exports=jdk.compiler/...` flags that a JVM invocation
+          # requires from JDK 16 onward. One download, no wrapper script.
+          #
+          # linux-x86-64 is correct for `runs-on: ubuntu-latest`. Switching
+          # this job to ARM runners means switching to the linux-arm64 asset
+          # and its own checksum.
+          mkdir -p "$HOME/.local/bin"
+          BIN="$HOME/.local/bin/google-java-format"
+
+          curl -sSfL \
+            "https://github.com/google/google-java-format/releases/download/v${VERSION}/google-java-format_linux-x86-64" \
+            -o "$BIN"
+
+          echo "${EXPECTED_SHA256}  ${BIN}" | sha256sum --check --strict -
+
+          chmod +x "$BIN"
+          "$BIN" --version
+
+      - name: Install Reviewdog
+        uses: reviewdog/action-setup@d8a7baabd7f3e8544ee4dbde3ee41d0011c3a93f # ratchet:reviewdog/action-setup@v1
+        with:
+          # Pinned rather than `latest` so a reviewdog release cannot turn
+          # every open PR red without warning. Matches the pin in
+          # python-format.yml and go-format.yml.
+          reviewdog_version: v0.21.0
+
+      - name: Run google-java-format & Suggest Changes
+        env:
+          REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Pass the PR base ref through env instead of interpolating a
+          # GitHub expression directly into the shell script (security
+          # hardening — see the GitHub Actions security hardening guide).
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+
+          export PATH="$HOME/.local/bin:$PATH"
+
+          WORK="$(mktemp -d)"
+          trap 'rm -rf "$WORK"' EXIT
+
+          # Reported from two places below (a clean tree and a dirty one), so
+          # it is defined once here to keep the two wordings from drifting.
+          PARSE_FAIL_MSG="google-java-format could not parse at least one changed Java file and skipped it. The compiler-style errors above give the file, line and column. That is a syntax error in the source, not a formatting problem — fix it and push again. Files that did parse were checked normally."
+
+          # 1. Fetch the target branch reference commits.
+          git fetch origin "$BASE_REF"
+
+          # 2. Resolve the Java files this PR modified.
+          #
+          #    Redirect to a file rather than `< <(git … | grep … || true)`.
+          #    That idiom loses git's exit status twice over — `mapfile`
+          #    never inspects a process substitution's status, and the
+          #    `|| true` needed for grep's exit-1-on-no-match also swallows
+          #    git's 128 — so a failed diff (no merge base, unreachable base
+          #    tip) reads as "no Java files changed" and reports a GREEN job
+          #    having checked nothing. Here `set -e` sees the failure.
+          #
+          #    `-z` rather than a newline scan: git C-quotes any path with a
+          #    non-ASCII byte, a quote, a backslash or a tab
+          #    (core.quotePath), and the resulting trailing `"` makes such a
+          #    file invisible to a `grep '\.java$'` filter — silently never
+          #    formatted, never reported. NUL-delimited output is never
+          #    quoted.
+          #
+          #    `-- core contrib skills` is load-bearing: `on.paths` above
+          #    controls only whether this workflow RUNS. A run triggered by
+          #    an in-scope file would otherwise also collect any retired
+          #    `java/agents/**` file in the same PR and demand the author
+          #    reformat a frozen path they are not allowed to touch.
+          git diff -z --name-only --diff-filter=d "origin/$BASE_REF...HEAD" \
+            -- core contrib skills > "$WORK/changed"
+
+          ALL_CHANGED=()
+          mapfile -d '' -t ALL_CHANGED < "$WORK/changed"
+
+          CHANGED_FILES=()
+          for f in "${ALL_CHANGED[@]}"; do
+            if [[ "$f" == *.java ]]; then
+              CHANGED_FILES+=("$f")
+            fi
+          done
+
+          if [ ${#CHANGED_FILES[@]} -eq 0 ]; then
+            echo "No Java files were modified under core/, contrib/ or skills/. Skipping formatting."
+            exit 0
+          fi
+
+          echo "Formatting Java files: ${CHANGED_FILES[*]}"
+
+          # 3. Format ONLY the modified Java files, in place. google-java-format
+          #    is per-file and needs no project context, so unlike go-format.yml
+          #    there is no module grouping to do — the whole list goes in one
+          #    invocation.
+          #
+          #    The status is captured rather than left to `set -e`. A Java file
+          #    that does not PARSE (a genuine syntax error) makes the formatter
+          #    exit non-zero after writing the files it could handle, and
+          #    aborting here would skip every reporting stage below: the
+          #    contributor would get a red X carrying a bare javac error and no
+          #    formatting guidance at all — not even for the files that
+          #    formatted cleanly. Record it, finish reporting, and account for
+          #    it at the end. Same reasoning as go-format.yml's FMT_STATUS.
+          FMT_STATUS=0
+          google-java-format --replace "${CHANGED_FILES[@]}" || FMT_STATUS=$?
+
+          # 4. Decide the result from the working tree, BEFORE involving
+          #    reviewdog.
+          #
+          #    reviewdog cannot post review comments on a PR from a fork: the
+          #    GITHUB_TOKEN is read-only there, the API answers "403 Resource
+          #    not accessible by integration", and reviewdog degrades to
+          #    annotations. Letting its exit status decide the job therefore
+          #    made the verdict depend on token scope. `git diff` knows
+          #    definitively whether the formatter changed anything, so it is
+          #    the authority here and reviewdog is a pure enhancement —
+          #    a fork PR and a branch PR now fail identically.
+          #
+          #    --no-color is defensive: CI git doesn't colorize by default,
+          #    but a self-hosted runner or a global git config could break
+          #    the diff parser.
+          git diff --no-color -- "${CHANGED_FILES[@]}" > "$WORK/fmt.diff"
+
+          if [ ! -s "$WORK/fmt.diff" ]; then
+            # An unparseable file must never reach the PASS branch. Nothing
+            # changed on disk precisely BECAUSE the formatter could not read
+            # it, so "already formatted" would be a false green — the one
+            # outcome worse than a confusing failure.
+            if [ "$FMT_STATUS" -ne 0 ]; then
+              echo "::error::$PARSE_FAIL_MSG"
+              exit "$FMT_STATUS"
+            fi
+            echo "[PASS] All modified Java files are already formatted."
+            exit 0
+          fi
+
+          # `-z` here for the same reason as step 2, and it matters as much:
+          # git C-quotes a path containing a non-ASCII byte, a quote, a
+          # backslash or a tab, and a quoted path in the `::error file=`
+          # annotations below does not match any file GitHub knows about, so
+          # the annotation silently fails to attach to the diff.
+          git diff -z --name-only -- "${CHANGED_FILES[@]}" > "$WORK/unformatted"
+          UNFORMATTED=()
+          mapfile -d '' -t UNFORMATTED < "$WORK/unformatted"
+
+          # 5. Print the findings to the log. This is the one surface that
+          #    works on every PR, fork or not, so it comes first and is
+          #    self-sufficient.
+          echo "::group::Reformatting diff (what google-java-format would change)"
+          cat "$WORK/fmt.diff"
+          echo "::endgroup::"
+          echo ""
+          echo "[FAIL] ${#UNFORMATTED[@]} file(s) are not formatted:"
+          printf '  - %s\n' "${UNFORMATTED[@]}"
+          echo ""
+          echo "google-java-format applies the Google Java Style Guide and has"
+          echo "no configuration — the only thing to do is apply its output."
+          echo "Most IDEs ship a plugin; from the command line, download the"
+          echo "binary for your platform from"
+          echo "https://github.com/google/google-java-format/releases/tag/v${GOOGLE_JAVA_FORMAT_VERSION}"
+          echo "and run:"
+          echo ""
+          echo "  google-java-format --replace ${UNFORMATTED[*]}"
+          echo ""
+          echo "Then commit the result."
+
+          for f in "${UNFORMATTED[@]}"; do
+            echo "::error file=$f::This file is not formatted. Run 'google-java-format --replace $f' and commit the result."
+          done
+
+          # 6. Hand the same diff to reviewdog for inline suggestions.
+          #    Best-effort by construction: `-fail-level=none` because step 4
+          #    already decided the outcome, and `|| true` so a 403 on a fork
+          #    PR cannot turn a correct FAIL into an error about reviewdog.
+          #
+          #    -fail-level rather than python-format.yml's -fail-on-error:
+          #    the latter is DEPRECATED as of reviewdog v0.21.0.
+          reviewdog -f=diff \
+                    -name="google-java-format" \
+                    -reporter=github-pr-review \
+                    -filter-mode=added \
+                    -fail-level=none < "$WORK/fmt.diff" || true
+
+          # A file that could not be parsed was never formatted, so the
+          # suggestions above do not cover the whole PR. Say so explicitly
+          # rather than letting the generic formatting failure imply the
+          # diff is the complete story.
+          if [ "$FMT_STATUS" -ne 0 ]; then
+            echo ""
+            echo "::error::$PARSE_FAIL_MSG"
+          fi
+
+          exit 1

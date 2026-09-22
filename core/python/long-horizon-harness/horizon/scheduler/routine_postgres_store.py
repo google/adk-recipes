@@ -15,10 +15,12 @@
 """``PostgresRoutineStore`` — asyncpg-backed implementation of the
 :class:`~horizon.scheduler.routine_store.RoutineStore` protocol.
 
-Connection string is read from ``LHA_REMINDER_DB_URL`` (the same Cloud SQL
-instance as reminders). The schema bootstrap (``CREATE TABLE IF NOT EXISTS``)
-runs once per process on first pool use — idempotent and safe across Cloud Run
-replicas because Postgres serializes the DDL.
+Connection string is read from ``LHA_REMINDER_DB_URL``. The name is
+historical: it predates the reminder capability's removal and is now owned
+solely by routines, kept as-is to avoid a Terraform/env rename for no user
+benefit. The schema bootstrap (``CREATE TABLE IF NOT EXISTS``) runs once per
+process on first pool use — idempotent and safe across Cloud Run replicas
+because Postgres serializes the DDL.
 
 The ``secrets`` tuple is stored as JSON text; ``next_fire_at`` advances on claim
 via ``next_cron_fire`` (routines recur — they are never deleted on claim).
@@ -226,7 +228,8 @@ def _row_to_routine(row: Any) -> RoutineRow:
 
 
 def build_from_env() -> PostgresRoutineStore:
-    """Construct a store from ``LHA_REMINDER_DB_URL`` (shared with reminders).
+    """Construct a store from ``LHA_REMINDER_DB_URL`` (historical name, now
+    owned solely by routines; see the module docstring).
 
     Raises ``ValueError`` if the env var is unset — surfaces config gaps
     at process startup instead of at first routine write.

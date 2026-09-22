@@ -22,7 +22,7 @@ describe("useMessageQueue", () => {
     const { result } = renderHook(() => useMessageQueue({ busy: true, send }));
     act(() => result.current.enqueue("  hello  "));
     act(() => result.current.enqueue("   "));
-    expect(result.current.queue).toEqual(["hello"]);
+    expect(result.current.queue).toEqual([{ text: "hello", parts: [] }]);
   });
 
   it("removes a queued entry by index", () => {
@@ -31,7 +31,7 @@ describe("useMessageQueue", () => {
     act(() => result.current.enqueue("a"));
     act(() => result.current.enqueue("b"));
     act(() => result.current.removeQueued(0));
-    expect(result.current.queue).toEqual(["b"]);
+    expect(result.current.queue).toEqual([{ text: "b", parts: [] }]);
   });
 
   it("clears the queue", () => {
@@ -52,7 +52,7 @@ describe("useMessageQueue", () => {
     act(() => result.current.enqueue("b"));
     rerender({ busy: false });
     expect(send).toHaveBeenCalledTimes(1);
-    expect(send).toHaveBeenCalledWith("a\n\nb");
+    expect(send).toHaveBeenCalledWith("a\n\nb", undefined);
     expect(result.current.queue).toEqual([]);
   });
 

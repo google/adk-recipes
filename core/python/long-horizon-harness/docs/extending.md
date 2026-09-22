@@ -26,8 +26,8 @@ No plugin framework — two workspace surfaces, hot-reloaded with `/reload`:
 
 - **Skills** — drop `.agents/skills/<name>/SKILL.md` (markdown how-to). Auto-discovered, no
   registration. The background judge writes and patches these as the agent learns.
-- **Custom Python** — write `scripts/<name>.py`; the agent runs it via the `terminal`
-  tool. `terminal`/`process` are the integration surface (no extension discovery path).
+- **Custom Python** — write `scripts/<name>.py`; the agent runs it via the `bash`
+  tool. `bash`/`process` are the integration surface (no extension discovery path).
 
 Per-user config the agent must NOT self-edit lives in the `.lha/` overlay
 (`exfil.jsonl`, `policies.jsonl`, `permissions.jsonl`, `routines/<id>.yaml`).
@@ -36,13 +36,13 @@ Per-user config the agent must NOT self-edit lives in the `.lha/` overlay
 
 ## 2. Lift the harness — env + edit points
 
-This is a sample, not a framework: configure it with environment variables and adapt
+This is a recipe, not a framework: configure it with environment variables and adapt
 it by editing the code. There's no wrapper API to learn.
 
 | Change | How |
 |---|---|
 | Model / provider | `LHA_ROOT_MODEL` env (or `/model` per session); add a registry entry in `horizon/models/registry.py` |
-| System prompt | edit `ROOT_AGENT_INSTRUCTION` in `horizon/agent.py` |
+| System prompt | edit `build_static_instruction()` in `horizon/conversation/system_prompt.py`, wired via `_static_instruction_for()` in `horizon/agent.py` |
 | Add / remove a tool | edit the `tools` list in `horizon/agent.py` |
 | Add / remove a plugin | edit the `plugins` list in `horizon/agent.py` |
 | Sandbox backend | `LHA_ENVIRONMENT_BACKEND=local\|sandbox`, or `set_environment_provider(factory)` for a custom one |
@@ -109,7 +109,7 @@ The registry in `horizon/models/registry.py` maps a name → an ADK `BaseLlm`. A
 entry (e.g. `LiteLlm(...)` for a non-Vertex provider) and pass its key as `model=`.
 Per-session switching uses `/model <name>` (writes `selected_model`, read by
 `select_model_callback`). Pinned: the `web_research` sub-agent + compaction summarizer
-use `gemini-3.6-flash` — don't change without being asked.
+use `gemini-3.7-flash` — don't change without being asked.
 
 > **Minimal install:** backends build lazily and `DispatchingLlm` holds the registry
 > without materializing it (`backends` is `SkipValidation`), so a string `model=` only
@@ -184,7 +184,7 @@ set_sandbox_provider(GkeSandboxProvider())
 All routers mount by default (A2A + `/lha/*` + `/feedback` + OAuth + `/scheduler/*`).
 To ship a subset, delete the `attach_*` calls you don't want in
 `horizon/fast_api_app.py`. Removing a route that injects credentials (`secrets`,
-`oauth`) or runs unattended (reminders/routines) also removes that surface; the runtime
+`oauth`) or runs unattended (routines) also removes that surface; the runtime
 guards (exfil, permission, per-user isolation) are unaffected. See
 [`security-model.md`](security-model.md).
 
@@ -205,7 +205,8 @@ If you lift a subsystem, these are the session.state keys, ContextVars, and call
 slots it depends on. Sources: [`AGENTS.md`](../AGENTS.md) "State keys" + "ADK Callback Wiring".
 
 ### `memory/` — self-improvement loop on Memory Bank
-- **Tools:** `PreloadMemoryTool()`, `add_memory`, `recall_past_sessions` (root agent `tools`).
+- **Tools:** `PreloadMemoryTool()`, `memory` (add and search — the former standalone
+  `session_search` is now `memory(action='search', ...)`) (root agent `tools`).
 - **Callbacks:** `auto_capture_callback`, `skill_curator_callback`, `review_fork_callback` (after_agent).
 - **ContextVar:** `compaction_context` (memory-service handles, set in `on_session_start_callback`) — the summarizer's pre-compaction flush reads it.
 - **Service:** resolved from env — `InMemoryMemoryService` under `USE_IN_MEMORY_SESSION`, `VertexAiMemoryBankService` when an Agent Engine resource is configured. In-memory ⇒ cross-session memory + dream-review no-op.
@@ -237,13 +238,14 @@ slots it depends on. Sources: [`AGENTS.md`](../AGENTS.md) "State keys" + "ADK Ca
 - **ContextVar:** `compaction_context`. **Env:** `LHA_PRUNE_TOOL_OUTPUTS`, `LHA_COMPACTION_WINDOW_FRACTION`.
 
 ### `subagents/` — delegation
-- **Tools:** `delegate` (blocking, resumable child that resurfaces approvals), `agent` (`subagent_dispatch`, fire-and-forget headless).
+- **Tool:** `subagent` (`horizon/subagents/subagent.py`), a single dispatcher over two still-internal callables: blocking `delegate()` (resumable child that resurfaces approvals) by default, or fire-and-forget `agent()` (`horizon/subagents/spawn.py`, headless) when `background=True`.
 - **Plugin:** `SIBLING_AGENT_PLUGIN`. **Callback:** `subagent_description_callback` (before_model) rewrites the delegation menu.
-- **permission_guard:** `SUBAGENT_TOOLS` are exempt at spawn; the `delegate` child resurfaces risky-op approvals, background `agent`/routines stay headless (`ask_is_deny`).
+- **permission_guard:** `SUBAGENT_TOOLS` are exempt at spawn; a blocking `subagent` call resurfaces risky-op approvals, a background one stays headless (`ask_is_deny`).
 
-### 3-tier system prompt (`conversation/`)
-- **Callbacks (before_model):** `system_prompt_assembly_callback` (stable + context tiers on `system_instruction`), `reminder_injection_callback` (volatile tier on the message tail — keeps the cached prefix byte-stable).
-- **Override:** edit `ROOT_AGENT_INSTRUCTION` in `horizon/agent.py` (the base system prompt).
+### Static + volatile system prompt (`conversation/`)
+- **Construction:** `build_static_instruction()` assembles the process-wide-constant prefix once at App-build time, wired as `Agent(static_instruction=...)` via `_static_instruction_for()` in `horizon/agent.py` — ADK's own request processor places it ahead of every callback.
+- **Callbacks (before_model):** `system_prompt_assembly_callback` now only appends the per-cwd project-context tier (`.horizon.md`/`AGENTS.md`) to `system_instruction`, keeping it in the context cache; `reminder_injection_callback` appends the volatile tier (iteration/error/date + env hint + secrets) as a trailing `<system-reminder>` on the message tail, keeping the cached prefix byte-stable.
+- **Override:** edit `build_static_instruction()` in `horizon/conversation/system_prompt.py` (the base system prompt).
 
 ---
 

@@ -1,0 +1,422 @@
+name: Stale Sweep
+
+# Weekly housekeeping for pull requests and issues: nudge what has gone
+# quiet, close what stays quiet. Branches are swept separately by
+# stale-branch-sweep.yml, which runs an hour after this one.
+#
+# Every threshold comes from `stale_policy` in .github/policy.yml. Change the
+# numbers there, not here.
+#
+# WHY THE CLOSE WINDOW IS A SUBTRACTION
+# -------------------------------------
+# actions/stale measures both stages from the item's `updated_at`, and
+# posting the nudge (plus applying the `stale` label) IS an update. So the
+# second stage is effectively measured from the moment the label landed, and
+# `days-before-*-close` must be given the GAP between the two stages, not the
+# absolute deadline.
+#
+# Passing the absolute value is the easiest mistake available here and it
+# fails silently — PRs would close on day 150 rather than day 90. The
+# "Resolve thresholds" step below does the subtraction once and fails the run
+# if it is not positive.
+#
+# WHY THREE SEPARATE ACTION STEPS
+# -------------------------------
+# One invocation cannot say different things to different audiences, and
+# these three populations need different wording and wildly different
+# deadlines. Each step therefore silences the populations it does not own
+# (`-1` disables a stage entirely), and the three sets are disjoint by
+# construction:
+#
+#   1. human PRs        exempts `dependencies`, so step 2 owns those
+#   2. Dependabot PRs   `only-pr-labels: dependencies`
+#   3. issues           PR stages disabled outright
+#
+# They share one `stale` label, which is safe precisely because the sets do
+# not overlap.
+#
+# They also share the action's run-state cache, whose key is the constant
+# `_state`, and that one is worth knowing about. The action records every
+# item it visited so a run cut short by `operations-per-run` can resume next
+# time, and it DELETES that record once it finishes a full pass. So in the
+# normal case each step below starts clean. If a step ever does hit the cap,
+# the steps after it will skip everything it already visited and do nothing
+# that week — recovering by itself on the next tick. `operations-per-run` is
+# set to 200 against roughly 70 open pull requests to keep that far away.
+#
+# WHY THIS WORKFLOW DELETES NO BRANCHES
+# -------------------------------------
+# actions/stale offers `delete-branch: true`, which removes a
+# same-repository head branch the moment it closes the pull request. It is
+# deliberately NOT used here, for two reasons:
+#
+#   - It would pre-empt `stale_policy.branches.closed_pr_after_days`, which
+#     grants a closed pull request's branch 30 days precisely because a
+#     contributor asked to rework something usually comes back inside a
+#     month. Deleting on close would leave that grace applying only to
+#     MANUALLY closed pull requests, never to the auto-closed ones this
+#     workflow produces — the population most likely to be revived.
+#   - GitHub disables Reopen once the head ref is gone (the branch has to be
+#     restored first), which would falsify the close comments below telling
+#     the author that reopening is one click.
+#
+# The branches this job orphans are stale-branch-sweep.yml's to collect: it
+# owns all three clocks and records each deleted SHA as an undo trail. So
+# this job needs no `contents: write` scope at all.
+
+on:
+  schedule:
+    # Mondays 05:00 UTC. Ordering within the Monday maintenance window is
+    # deliberate: dependabot-housekeeping.yml at 04:00, this at 05:00, then
+    # stale-branch-sweep.yml at 06:00. An OPEN pull request is what protects
+    # its head and base branch from the branch sweep, so running that sweep
+    # afterwards means it sees a settled view of which pull requests are
+    # open, rather than protecting a branch whose pull request this job is
+    # about to close.
+    - cron: "0 5 * * 1"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Report what would happen without commenting or closing"
+        type: boolean
+        default: false
+
+# Declared per job rather than here, so a job added later cannot silently
+# inherit write scopes. Same shape as dependabot-housekeeping.yml and
+# go-format.yml, for zizmor's `excessive-permissions`.
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}
+  # A periodic sweep, not a per-item reaction: a newer tick does not
+  # obsolete an older one, and cancelling mid-run would leave part of a
+  # batch labelled and the rest not.
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  sweep:
+    name: Sweep stale pull requests and issues
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      # Creating labels, and commenting on / closing issues.
+      issues: write
+      # Commenting on and closing pull requests. PR comments technically go
+      # through the issues API, which is why `issues: write` is also needed.
+      pull-requests: write
+      # READ, not write. The checkout below needs it; nothing here writes a
+      # git ref, because branch deletion is stale-branch-sweep.yml's job for
+      # the reasons in the header. Anything that raises this back to `write`
+      # is re-enabling branch deletion by the back door.
+      contents: read
+      # The run-state cache actions/stale uses to resume where an
+      # operations-per-run cutoff left off. Listed in the action's own
+      # recommended permission set.
+      actions: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v4
+        with:
+          # Only .github/policy.yml is read. No history needed.
+          fetch-depth: 1
+          # Nothing in this job uses git; actions/stale talks to the API.
+          # Leaving a push-capable credential in .git/config would be attack
+          # surface for nothing.
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # ratchet:astral-sh/setup-uv@v10.0.1
+        with:
+          # Minimum supported Python version, as in tools-tests.yml.
+          python-version: "3.11"
+
+      # The exemption is a safety mechanism, so it must not fail open. If
+      # `keep-open` does not exist, `exempt-pr-labels: keep-open` matches
+      # nothing and this workflow closes the very PRs a maintainer meant to
+      # protect — silently, because a non-existent exempt label is not an
+      # error to actions/stale.
+      #
+      # Guarded with an explicit existence check rather than `|| true`, which
+      # would swallow genuine API failures too.
+      #
+      # NOTE: this only guarantees the label EXISTS. Recreating a deleted
+      # label does not restore its assignments, so deleting `keep-open` still
+      # loses every exemption that used it.
+      - name: Ensure the sweep's labels exist
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          existing="$(gh label list --limit 200 --json name --jq '.[].name')"
+          ensure() {
+            if ! grep -qxF "$1" <<<"${existing}"; then
+              echo "Creating label: $1"
+              gh label create "$1" --color "$2" --description "$3"
+            fi
+          }
+          # actions/stale would auto-create `stale` on first use; creating it
+          # here means its colour and description are deliberate.
+          ensure stale ededed \
+            "No activity for the period set in .github/policy.yml"
+          ensure keep-open 0e8a16 \
+            "Exempt from the stale sweep; never auto-closed"
+          ensure security d93f0b \
+            "Security report; exempt from the stale sweep"
+
+      - name: Resolve thresholds from .github/policy.yml
+        id: policy
+        run: |
+          set -euo pipefail
+          # `--no-project` matches dependabot-housekeeping.yml and
+          # stale-branch-sweep.yml: load_policy.py imports the standard
+          # library plus yaml, so there is nothing to sync. Without it uv
+          # resolves and builds the root `adk-recipes-tools` project, making
+          # a threshold lookup fail for reasons unrelated to the threshold.
+          p() {
+            uv run --no-project --with pyyaml python3 \
+              .github/scripts/load_policy.py "$1"
+          }
+
+          PR_NUDGE="$(p stale_policy.pull_requests.nudge_after_days)"
+          PR_CLOSE="$(p stale_policy.pull_requests.close_after_days)"
+          ISSUE_NUDGE="$(p stale_policy.issues.nudge_after_days)"
+          ISSUE_CLOSE="$(p stale_policy.issues.close_after_days)"
+          MENTION="$(p stale_policy.pull_requests.bot_escalation_mention)"
+          BOT_LABEL="$(p stale_policy.pull_requests.bot_label)"
+          KEEP="$(p stale_policy.keep_open_label)"
+          STALE="$(p stale_policy.stale_label)"
+
+          # load_policy.py prints a YAML boolean the Python way — `True` /
+          # `False` — but actions/stale compares the raw input against the
+          # lowercase string (`core.getInput(...) === 'true'` in its
+          # main.ts). Handing it `True` therefore reads as FALSE, silently
+          # switching an exemption OFF with nothing in the log to say so.
+          # Normalise here, and refuse anything that is not a boolean rather
+          # than defaulting it.
+          bool_p() {
+            local raw
+            raw="$(p "$1" | tr '[:upper:]' '[:lower:]')"
+            case "${raw}" in
+              true | false)
+                echo "${raw}"
+                ;;
+              *)
+                echo "::error::$1 must be true or false in" \
+                  ".github/policy.yml, got '${raw}'." >&2
+                return 1
+                ;;
+            esac
+          }
+
+          EXEMPT_ASSIGNED="$(bool_p stale_policy.issues.exempt_assigned)"
+          EXEMPT_MILESTONED="$(bool_p stale_policy.issues.exempt_milestoned)"
+
+          # See the header: actions/stale wants the GAP, not the deadline.
+          PR_GRACE=$(( PR_CLOSE - PR_NUDGE ))
+          ISSUE_GRACE=$(( ISSUE_CLOSE - ISSUE_NUDGE ))
+
+          if [ "${PR_GRACE}" -le 0 ] || [ "${ISSUE_GRACE}" -le 0 ]; then
+            echo "::error::close_after_days must be greater than" \
+              "nudge_after_days for both pull_requests and issues." \
+              "Got PRs ${PR_NUDGE}->${PR_CLOSE}," \
+              "issues ${ISSUE_NUDGE}->${ISSUE_CLOSE}."
+            exit 1
+          fi
+
+          # Comma-separated, and read from policy so the list stays in one
+          # place. `recipe-canary` in particular MUST survive this trip —
+          # see the note on stale_policy.issues.exempt_labels.
+          ISSUE_EXEMPT="$(
+            p stale_policy.issues.exempt_labels | paste -sd, -
+          )"
+
+          {
+            echo "pr_nudge=${PR_NUDGE}"
+            echo "pr_grace=${PR_GRACE}"
+            echo "pr_close=${PR_CLOSE}"
+            echo "issue_nudge=${ISSUE_NUDGE}"
+            echo "issue_grace=${ISSUE_GRACE}"
+            echo "issue_close=${ISSUE_CLOSE}"
+            echo "issue_exempt=${ISSUE_EXEMPT}"
+            echo "exempt_assigned=${EXEMPT_ASSIGNED}"
+            echo "exempt_milestoned=${EXEMPT_MILESTONED}"
+            echo "mention=${MENTION}"
+            echo "bot_label=${BOT_LABEL}"
+            echo "keep_label=${KEEP}"
+            echo "stale_label=${STALE}"
+          } >> "${GITHUB_OUTPUT}"
+
+          echo "PRs: nudge ${PR_NUDGE}d, close ${PR_CLOSE}d" \
+            "(grace ${PR_GRACE}d)"
+          echo "Issues: nudge ${ISSUE_NUDGE}d, close ${ISSUE_CLOSE}d" \
+            "(grace ${ISSUE_GRACE}d)"
+          echo "Issue exemptions: ${ISSUE_EXEMPT}"
+          echo "Issue exempt assigned: ${EXEMPT_ASSIGNED}," \
+            "milestoned: ${EXEMPT_MILESTONED}"
+
+      - name: Human pull requests
+        uses: actions/stale@4391f3da665fdf50b6810c1a66712fb9ba21aa93 # ratchet:actions/stale@v11
+        with:
+          debug-only: ${{ inputs.dry_run || false }}
+          days-before-pr-stale: ${{ steps.policy.outputs.pr_nudge }}
+          days-before-pr-close: ${{ steps.policy.outputs.pr_grace }}
+          # This step does not own issues. Without both of these it would
+          # also sweep them — including the tracking issues recipe-canary.yml
+          # files on purpose.
+          days-before-issue-stale: -1
+          days-before-issue-close: -1
+          stale-pr-label: ${{ steps.policy.outputs.stale_label }}
+          exempt-pr-labels: >-
+            ${{ steps.policy.outputs.keep_label }},${{
+            steps.policy.outputs.bot_label }}
+          # Drafts age out like everything else. A draft left open for over a
+          # year is the case this sweep exists for, not an exception to it.
+          exempt-draft-pr: false
+          # No `delete-branch` — see the header. The branch outlives the
+          # close by `stale_policy.branches.closed_pr_after_days`, which is
+          # what makes the "reopen it" advice below true.
+          remove-stale-when-updated: true
+          # Oldest activity first, so a truncated run still makes the most
+          # useful progress. `sort-by` defaults to `created`, which is not
+          # the axis staleness is measured on.
+          ascending: true
+          sort-by: updated
+          # The action defaults to 30 and then silently stops, which would
+          # look like a cap nobody asked for. Raised well clear of this
+          # repository's volume; the action resumes where it left off if it
+          # ever does trip.
+          operations-per-run: 200
+          stale-pr-message: >
+            This pull request has had no activity for
+            ${{ steps.policy.outputs.pr_nudge }} days, so it has been
+            labelled `stale`.
+
+
+            If it is still wanted, a comment or a push is enough to reset the
+            clock. Otherwise it will be closed automatically in
+            ${{ steps.policy.outputs.pr_grace }} days.
+
+
+            Nothing about this is final — a closed pull request reopens with
+            one click, and your commits are untouched on your own branch.
+
+
+            <sub>Maintainers: apply `${{ steps.policy.outputs.keep_label }}`
+            to exempt this permanently. Thresholds live in
+            `.github/policy.yml` under `stale_policy`.</sub>
+          close-pr-message: >
+            Closing after ${{ steps.policy.outputs.pr_close }} days without
+            activity, per `stale_policy.pull_requests` in
+            `.github/policy.yml`.
+
+
+            This is housekeeping, not a verdict on the change. If you want to
+            pick it up again, reopen the pull request — your commits are
+            unaffected and the discussion above is preserved.
+
+      - name: Dependabot pull requests
+        uses: actions/stale@4391f3da665fdf50b6810c1a66712fb9ba21aa93 # ratchet:actions/stale@v11
+        with:
+          debug-only: ${{ inputs.dry_run || false }}
+          # Same deadlines as human PRs; only the audience differs.
+          days-before-pr-stale: ${{ steps.policy.outputs.pr_nudge }}
+          days-before-pr-close: ${{ steps.policy.outputs.pr_grace }}
+          days-before-issue-stale: -1
+          days-before-issue-close: -1
+          # Exactly the complement of the previous step's exemption.
+          only-pr-labels: ${{ steps.policy.outputs.bot_label }}
+          stale-pr-label: ${{ steps.policy.outputs.stale_label }}
+          exempt-pr-labels: ${{ steps.policy.outputs.keep_label }}
+          exempt-draft-pr: false
+          # No `delete-branch` here either, for the same reason.
+          remove-stale-when-updated: true
+          ascending: true
+          sort-by: updated
+          operations-per-run: 200
+          # Addressed to a human, because asking a bot for a status update
+          # accomplishes nothing. Dependabot rebases its own PRs, so one that
+          # has gone this quiet is one Dependabot has stopped maintaining.
+          stale-pr-message: >
+            @${{ steps.policy.outputs.mention }} — this dependency pull
+            request has had no activity for
+            ${{ steps.policy.outputs.pr_nudge }} days and will be closed
+            automatically in ${{ steps.policy.outputs.pr_grace }} days.
+
+
+            Dependabot rebases its own pull requests, so one this quiet has
+            usually been abandoned upstream. Merge it, close it, or apply
+            `${{ steps.policy.outputs.keep_label }}` if it needs to stay.
+          close-pr-message: >
+            Closing after ${{ steps.policy.outputs.pr_close }} days without
+            activity, per `stale_policy.pull_requests` in
+            `.github/policy.yml`.
+
+
+            If the update is still wanted, Dependabot will reopen it on its
+            next run, or it can be reopened by hand.
+
+      - name: Issues
+        uses: actions/stale@4391f3da665fdf50b6810c1a66712fb9ba21aa93 # ratchet:actions/stale@v11
+        with:
+          debug-only: ${{ inputs.dry_run || false }}
+          # Disabled outright — the two steps above own every pull request.
+          days-before-pr-stale: -1
+          days-before-pr-close: -1
+          days-before-issue-stale: ${{ steps.policy.outputs.issue_nudge }}
+          days-before-issue-close: ${{ steps.policy.outputs.issue_grace }}
+          stale-issue-label: ${{ steps.policy.outputs.stale_label }}
+          # `not_planned`, never `completed`. Closing as completed would
+          # claim the issue was resolved; it was not, we simply did not get
+          # to it. The distinction is visible in the GitHub UI and in search.
+          close-issue-reason: not_planned
+          # Includes `recipe-canary`, which is load-bearing: canary_issues.py
+          # keeps its escalation ladder in an issue's LABELS and finds its
+          # own issues by the title of an OPEN one, so closing a canary issue
+          # erases the ladder rather than pausing it.
+          exempt-issue-labels: ${{ steps.policy.outputs.issue_exempt }}
+          # Stronger ownership signals than any age threshold. Read from
+          # `stale_policy.issues.exempt_assigned` / `exempt_milestoned`
+          # rather than hardcoded, so those keys are not decorative.
+          exempt-all-issue-assignees: >-
+            ${{ steps.policy.outputs.exempt_assigned }}
+          exempt-all-issue-milestones: >-
+            ${{ steps.policy.outputs.exempt_milestoned }}
+          remove-stale-when-updated: true
+          ascending: true
+          sort-by: updated
+          operations-per-run: 200
+          stale-issue-message: >
+            This issue has had no activity for
+            ${{ steps.policy.outputs.issue_nudge }} days.
+
+
+            Is it still relevant against current `main`? A single comment
+            saying so is enough to keep it open — no fix, patch or
+            investigation needed.
+
+
+            Without a reply it will be closed in
+            ${{ steps.policy.outputs.issue_grace }} days as `not planned`.
+            That records that nobody got to it, not that it was fixed, and
+            reopening takes one click.
+
+
+            <sub>Maintainers: apply `${{ steps.policy.outputs.keep_label }}`
+            to exempt this permanently. Thresholds live in
+            `.github/policy.yml` under `stale_policy`.</sub>
+          close-issue-message: >
+            Closing as `not planned` after
+            ${{ steps.policy.outputs.issue_close }} days without activity,
+            per `stale_policy.issues` in `.github/policy.yml`.
+
+
+            Nothing has been deleted — the report, the discussion and any
+            reproduction steps stay searchable, and reopening takes one
+            click. If you run into this again, reopening this issue is more
+            useful to us than a fresh one.

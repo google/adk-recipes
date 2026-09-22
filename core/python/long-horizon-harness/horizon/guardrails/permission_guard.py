@@ -43,6 +43,7 @@ from horizon.guardrails.permission_rules import (
     resolve_decision,
     write_session_grants,
 )
+from horizon.tools import names
 from horizon.tools._hitl import request_user_confirmation
 
 _HEADLESS: contextvars.ContextVar[bool] = contextvars.ContextVar(
@@ -54,7 +55,7 @@ def set_headless_mode(value: bool) -> contextvars.Token[bool]:
     """Enable/disable headless mode for the current context.
 
     In headless mode there is no user to approve, so an ``ask_user`` decision on a
-    **shell** command (terminal / process write) is allowed — it runs in the
+    **shell** command (bash / process write) is allowed — it runs in the
     routine's isolated sandbox — while a non-shell ``ask_user`` becomes a deny.
     Set by the routine fire path; returns a token for reset.
     """
@@ -67,30 +68,42 @@ def reset_headless_mode(token: contextvars.Token[bool]) -> None:
 
 READ_ONLY_TOOLS: frozenset[str] = frozenset(
     {
-        "read_file",
-        "search_files",
-        "repo_overview",
-        "view_file",
-        "recall_past_sessions",
-        "preload_memory",
-        # Skill loading injects instructions/resources into context — no side
-        # effects. `run_skill_script` executes code and is deliberately excluded.
-        "load_skill",
-        "load_skill_resource",
+        names.READ,
+        names.SEARCH_FILES,
+        names.PRELOAD_MEMORY,
+        # Skill loading (a skill's instructions, or a bundled reference/
+        # asset/script file via resource=) injects text into context, no
+        # side effects. action='reload' is also read-only from the model's
+        # perspective (it only refreshes the catalog it already sees).
+        names.LOAD_SKILL,
         # Read-only research: fetches web info, mutates nothing the user owns.
         # Outbound safety still applies — exfil_guard runs before this gate.
-        "web_research",
+        names.WEB_RESEARCH,
     }
 )
-SELF_CONFIRMING_TOOLS: frozenset[str] = frozenset(
-    {"clarify", "report_to_maintainers"}
-)
+SELF_CONFIRMING_TOOLS: frozenset[str] = frozenset({names.CLARIFY})
+
+
+def _is_memory_search(tool_name: str, args: Any) -> bool:
+    """memory(action='search') is the former session_search tool, and was
+    read-only (bypassed permission resolution unconditionally). memory's
+    default action='add' is a write and must NOT get that bypass — it stays
+    on the _BENIGN_SIDE_EFFECT_TOOLS default-allow rule, which an overlay or
+    session grant can still override. Deliberately action-aware rather than
+    inheriting READ_ONLY_TOOLS membership wholesale for the merged tool."""
+    return (
+        tool_name == names.MEMORY
+        and isinstance(args, dict)
+        and args.get("action") == "search"
+    )
+
+
 # Spawning a sub-agent is not itself a privileged op: the child runs its own
 # guard chain (child_guard.py) — exfil hard-block and risky ops are gated
-# per-op (delegate resurfaces them to the user; background `agent` is headless so
-# they hard-deny and surface in the child's reported result). The coarse
-# spawn-time prompt grants the child nothing, so it's pure friction — exempt both.
-SUBAGENT_TOOLS: frozenset[str] = frozenset({"delegate", "agent"})
+# per-op (a blocking call resurfaces them to the user; a background one is
+# headless so they hard-deny and surface in the child's reported result). The
+# coarse spawn-time prompt grants the child nothing, so it's pure friction.
+SUBAGENT_TOOLS: frozenset[str] = frozenset({names.SUBAGENT})
 
 
 def _active_env() -> Any | None:
@@ -103,12 +116,20 @@ def _active_env() -> Any | None:
 def _shell_command(tool_name: str, args: Any) -> str | None:
     if not isinstance(args, dict):
         return None
-    if tool_name == "terminal":
+    if tool_name == names.BASH:
         cmd = args.get("command")
         return cmd if isinstance(cmd, str) else None
-    if tool_name == "process" and args.get("action") == "write":
+    if tool_name == names.PROCESS and args.get("action") == "write":
         data = args.get("data")
         return data if isinstance(data, str) else None
+    # process(action='spawn') is a NEW shell execution path (bash's former
+    # background=True moved here) — it must run through the exact same
+    # command_safety classification and command-substitution demotion as
+    # every other shell entry point, or one argument bypasses the whole
+    # anti-obfuscation layer.
+    if tool_name == names.PROCESS and args.get("action") == "spawn":
+        command = args.get("command")
+        return command if isinstance(command, str) else None
     return None
 
 
@@ -220,6 +241,7 @@ async def permission_guard(
     if (
         not tool_name
         or tool_name in READ_ONLY_TOOLS
+        or _is_memory_search(tool_name, args)
         or tool_name in SELF_CONFIRMING_TOOLS
         or tool_name in SUBAGENT_TOOLS
     ):

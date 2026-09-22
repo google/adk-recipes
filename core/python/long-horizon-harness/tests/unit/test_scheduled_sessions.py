@@ -32,10 +32,10 @@ from horizon.scheduler.sessions import (
 
 
 def test_state_carries_source_job_and_title() -> None:
-    state = scheduled_session_state(job_type="reminder", title="Reminder: ping")
+    state = scheduled_session_state(job_type="routine", title="Routine: digest")
     assert state[SESSION_SOURCE_KEY] == SCHEDULER_SOURCE
-    assert state[SCHEDULER_JOB_KEY] == "reminder"
-    assert state[TITLE_KEY] == "Reminder: ping"
+    assert state[SCHEDULER_JOB_KEY] == "routine"
+    assert state[TITLE_KEY] == "Routine: digest"
 
 
 @pytest.mark.asyncio

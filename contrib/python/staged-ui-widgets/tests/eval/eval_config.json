@@ -1,0 +1,33 @@
+{
+  "criteria": {
+    "rubric_based_final_response_quality_v1": {
+      "threshold": 0.8,
+      "judgeModelOptions": {
+        "judgeModel": "gemini-3.5-flash",
+        "numSamples": 1
+      },
+      "rubrics": [
+        {
+          "rubricId": "relevance",
+          "rubricContent": { "textProperty": "The response directly addresses the user's query." }
+        },
+        {
+          "rubricId": "does_not_recite_the_widget",
+          "rubricContent": { "textProperty": "When a tool staged a visual (its result carries a non-null 'widget' field), the response points at what the shopper can see rather than reproducing it: no bulleted or numbered list of the items, and no restating their prices. It adds something the visual cannot say, such as which item to choose or why." }
+        },
+        {
+          "rubricId": "claims_only_what_shipped",
+          "rubricContent": { "textProperty": "The response never describes a visual that was not staged. When every tool result has a null 'widget' field, the answer is carried in words instead of referring the shopper to something on screen; and when a refresh left the visual unchanged, the response says so rather than announcing an update." }
+        },
+        {
+          "rubricId": "facts_come_from_tools",
+          "rubricContent": { "textProperty": "Every product name, price, attribute, order id, date, and total in the response appears in a tool result from this conversation. Reasons an item was recommended are quoted from that item's 'reasons' field rather than newly composed, and 'best value' is explained as the stated metric (rating per dollar) rather than reinterpreted." }
+        },
+        {
+          "rubricId": "offers_a_way_forward",
+          "rubricContent": { "textProperty": "When a request cannot be fulfilled -- an unknown order id, a product the catalog does not stock, a visual that has not been shown yet -- the response says so plainly and offers what is actually available, using the alternatives the tool result supplies." }
+        }
+      ]
+    }
+  }
+}

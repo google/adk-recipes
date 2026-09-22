@@ -1,0 +1,137 @@
+{
+  "eval_set_id": "staged_widgets_eval",
+  "name": "Staged widget conversations",
+  "description": "The behaviours a widget-rendering agent gets wrong: reciting what the shopper can already see, describing a widget that never shipped, and inventing facts to fill a card. Multi-turn on purpose -- every claim this recipe makes about widget lifetime only appears from the second turn onwards.",
+  "eval_cases": [
+    {
+      "eval_id": "picks_then_compare_without_naming_anything",
+      "conversation": [
+        {
+          "user_content": {
+            "parts": [{"text": "I need new trail shoes"}]
+          }
+        },
+        {
+          "user_content": {
+            "parts": [{"text": "which of those is the best value?"}]
+          }
+        },
+        {
+          "user_content": {
+            "parts": [{"text": "why is that one the best value?"}]
+          }
+        }
+      ],
+      "session_input": {
+        "app_name": "app",
+        "user_id": "eval_user",
+        "state": {}
+      }
+    },
+    {
+      "eval_id": "preference_change_refreshes_the_cards",
+      "conversation": [
+        {
+          "user_content": {
+            "parts": [{"text": "show me something for a cold morning run"}]
+          }
+        },
+        {
+          "user_content": {
+            "parts": [{"text": "actually I only buy Fellstone now"}]
+          }
+        }
+      ],
+      "session_input": {
+        "app_name": "app",
+        "user_id": "eval_user",
+        "state": {}
+      }
+    },
+    {
+      "eval_id": "a_refresh_that_changes_nothing_is_not_announced",
+      "conversation": [
+        {
+          "user_content": {
+            "parts": [{"text": "recommend me some trail shoes"}]
+          }
+        },
+        {
+          "user_content": {
+            "parts": [{"text": "my shoe size is still 9.5, in case that matters"}]
+          }
+        }
+      ],
+      "session_input": {
+        "app_name": "app",
+        "user_id": "eval_user",
+        "state": {}
+      }
+    },
+    {
+      "eval_id": "showing_the_same_cards_again_two_turns_later",
+      "conversation": [
+        {
+          "user_content": {
+            "parts": [{"text": "what trail shoes do you have?"}]
+          }
+        },
+        {
+          "user_content": {
+            "parts": [{"text": "how much have I been spending?"}]
+          }
+        },
+        {
+          "user_content": {
+            "parts": [{"text": "bring those shoe cards back up"}]
+          }
+        }
+      ],
+      "session_input": {
+        "app_name": "app",
+        "user_id": "eval_user",
+        "state": {}
+      }
+    },
+    {
+      "eval_id": "nothing_to_show_so_the_words_carry_it",
+      "conversation": [
+        {
+          "user_content": {
+            "parts": [{"text": "where's order 9999?"}]
+          }
+        },
+        {
+          "user_content": {
+            "parts": [{"text": "and can you show me that comparison again?"}]
+          }
+        }
+      ],
+      "session_input": {
+        "app_name": "app",
+        "user_id": "eval_user",
+        "state": {}
+      }
+    },
+    {
+      "eval_id": "open_ended_request_uses_the_stored_profile",
+      "conversation": [
+        {
+          "user_content": {
+            "parts": [{"text": "no idea what I need, what should I get?"}]
+          }
+        },
+        {
+          "user_content": {
+            "parts": [{"text": "do you sell kayaks?"}]
+          }
+        }
+      ],
+      "session_input": {
+        "app_name": "app",
+        "user_id": "eval_user",
+        "state": {}
+      }
+    }
+  ]
+}

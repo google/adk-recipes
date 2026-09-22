@@ -2,18 +2,23 @@
   "criteria": {
     "rubric_based_final_response_quality_v1": {
       "threshold": 0.8,
+      "includeIntermediateResponsesInFinal": true,
       "judgeModelOptions": {
-        "judgeModel": "gemini-3.6-flash",
+        "judgeModel": "gemini-3.7-flash",
         "numSamples": 1
       },
       "rubrics": [
         {
           "rubricId": "relevance",
-          "rubricContent": { "textProperty": "The response addresses what the user is asking, OR — if a guardrail halt has fired — the response surfaces the halt cause legibly. The agent has a hard guard that returns a synthetic `[halted: <reason>]` envelope when a tool fails repeatedly or no progress is being made; in that case the envelope IS the relevant response (it explains why the agent stopped) and passes this rubric even though it does not answer the original query. IMPORTANT for memory-recall turns: this agent retrieves user facts through PreloadMemoryTool, which injects relevant past memories into the model's context BEFORE the model runs. The grading transcript does NOT show preloaded memories. So if the user previously stated a personal fact (name, timezone, preference, etc.) earlier in the conversation OR in a past session, and on a later turn the agent answers with that fact WITHOUT calling a tool, treat that as a legitimate preload-served answer — NOT fabrication. Do not penalize the absence of a visible tool call when the response simply repeats a fact the user themselves stated earlier. A response that fabricates a tool result, retries a failing tool, or invents a fact the user never stated fails. PER-TURN SCOPE: judge each turn's tool calls against only the context that was available AT THAT TURN. Do not evaluate a turn's tool-call legitimacy against information that only appears in later turns (e.g., a fact added to `<PAST_CONVERSATIONS>` in turn N cannot make turn N-1's `add_memory` call 'redundant'). Each turn stands on its own context window." }
+          "rubricContent": {
+            "textProperty": "The response addresses what the user is asking and does not fabricate. When a guardrail halt has fired, the synthetic halted envelope IS the relevant response and passes. Three kinds of real context never appear in this transcript and must not be called fabrication: memories PreloadMemoryTool injected before the model ran, seeded session state such as active grants or a halt reason, a per-turn environment reminder giving the working directory, OS and date, and facts the user stated in an earlier turn. Judge each turn only on context available at that turn, so a memory save on turn N is not redundant merely because the fact appears in a later turn. Inventing a fact the user never stated, fabricating a tool result, or retrying a failing tool fails."
+          }
         },
         {
           "rubricId": "helpfulness",
-          "rubricContent": { "textProperty": "The response is useful given the actual constraints of the turn. A `[halted: <reason>]` envelope that names the failing tool / cause is helpful — it tells the user what went wrong so they can redirect. IMPORTANT for memory-recall turns: PreloadMemoryTool injects past user statements into the model's context before each turn; this happens silently and does NOT appear as a tool call in the transcript. If the user stated a personal fact earlier (in the same conversation or a past session) and the agent now answers using that fact, it is using preloaded memory — not fabricating — and is helpful. The absence of a tool call on a recall turn is the EXPECTED behavior, not a failure. A bare 'I cannot help', a fabricated fact the user never stated, or a redundant re-save of an already-preloaded fact fails. PER-TURN SCOPE: judge each turn's tool calls against only the context that was available AT THAT TURN. Do not evaluate a turn's tool-call legitimacy against information that only appears in later turns. Specifically, an `add_memory` call on turn N is NEVER 'redundant' just because the fact appears in `<PAST_CONVERSATIONS>` on turn N+1 — preload only populates from prior turns, so the fact only got into preload BECAUSE of the turn-N save. A redundant save means: this turn's `<PAST_CONVERSATIONS>` already contained the fact BEFORE the user re-stated it this turn." }
+          "rubricContent": {
+            "textProperty": "The response is useful given the real constraints of the turn. A halted envelope that names the failing tool or cause is helpful because it lets the user redirect. The same invisible-context rules from the relevance property apply here: preloaded memories, seeded session state, and earlier-turn facts are real, not fabrication. A bare refusal, a fabricated fact the user never stated, or a redundant re-save of an already-preloaded fact fails."
+          }
         }
       ]
     }

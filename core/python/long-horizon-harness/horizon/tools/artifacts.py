@@ -24,7 +24,7 @@ A single ``artifact(action='save'|'load')`` dispatch:
   a follow-up turn can edit it.
 
 Without this, the only way to get a file out of the sandbox is to
-``terminal cat`` it and copy from stdout — fine for ASCII, useless for
+``bash cat`` it and copy from stdout — fine for ASCII, useless for
 anything binary.
 """
 
@@ -129,23 +129,19 @@ async def artifact(
     inline: bool = True,
     tool_context: Any,
 ) -> dict[str, Any]:
-    """Save a workspace file out to the artifact service, or load one back
-    in. ``action`` picks the operation:
+    """Save a workspace file to the artifact service, or load one back.
+    `action` picks the operation:
 
-    - ``save``: show a generated file to the user. Copies a workspace file
-      into the artifact service, which surfaces it back in the chat (rendered
-      inline where the client supports it, otherwise as a link). Requires
-      ``path`` (workspace-relative or absolute under working_dir). The artifact
-      is stored under just the basename so callers refer to it without leaking
-      workspace structure. The saved file is shown to the user automatically
-      with an openable link — refer to it by name; do not write your own link,
-      URL, or a 'here's your file' line in your reply.
-      ``inline`` (default True) renders static content in the tab;
-      pass ``inline=False`` for HTML that needs JavaScript so the link downloads
-      it for the user to open locally (scripts don't run in the inline viewer).
-    - ``load``: write a previously-saved artifact back into the workspace
-      at ``dest_path``. Requires ``name`` (the artifact filename
-      returned by ``save``) and ``dest_path`` (where in the workspace to
+    - `save`: shows the file to the user (rendered inline where supported,
+      else a link). Requires `path`. Stored under its basename only. The
+      link appears automatically — do NOT write your own link, URL, or a
+      "here's your file" line. For rich/visual output (charts, dashboards,
+      tables), write a self-contained HTML file first: inline CSS, prefer
+      static SVG over JS, no external requests. `inline=False` for
+      JS-dependent HTML (downloads instead of inline-rendering; scripts
+      don't run in the viewer).
+    - `load`: writes a previously-saved artifact back into the workspace.
+      Requires `name` (from `save`) and `dest_path` (where in the workspace to
       drop it).
     """
     if action == "save":

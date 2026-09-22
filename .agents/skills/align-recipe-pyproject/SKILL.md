@@ -24,6 +24,8 @@ Use this skill to bring a Python recipe's `pyproject.toml` (and, when it disagre
 
 Scope: **`pyproject.toml` only**. Standalone `ruff.toml` / `.ruff.toml` files are also forbidden in recipes but are enforced by the CI workflow (Check 7 in `python-validate-recipe.yml`) — outside this skill's concern.
 
+**Not in scope: `adk-major-current`.** The CI validator also emits a warn-only notice when a `core/` recipe resolves to an older `google-adk` major. This skill deliberately does not implement it, and you should not add it. The mechanical fix — widening `<2.0.0` to `<3.0.0` and re-locking — produces a recipe importing a major it was never ported to, and that break surfaces at runtime rather than in any check. Crossing an ADK major is a code migration; this skill only rewrites metadata. If you are asked to "fix the ADK notice", port the recipe by hand.
+
 ---
 
 ## What This Skill Checks

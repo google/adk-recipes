@@ -30,7 +30,18 @@ from pathlib import Path
 import pytest
 import yaml
 
+from horizon.tools import names
+
 pytestmark = pytest.mark.asyncio
+
+
+# Child tools mix plain functions and BaseTool instances, so identity checks
+# break the moment one becomes the other. Compare registered names instead.
+def _tool_names(child) -> list[str]:
+    return [
+        getattr(t, "name", None) or getattr(t, "__name__", "")
+        for t in child.tools
+    ]
 
 
 def _write_skill(
@@ -87,22 +98,21 @@ async def test_build_child_agent_default_toolsets_used_when_empty(
 ):
     """``toolsets=[]`` triggers DEFAULT_TOOLSETS (file + shell)."""
     from horizon.subagents.delegate_builder import build_child_agent
-    from horizon.tools.file_ops import read_file
-    from horizon.tools.processes.terminal import terminal
+    from horizon.tools.processes.terminal import bash
 
     child = await build_child_agent(
         goal="x", context="", toolsets=[], skills=[]
     )
     tools = set(child.tools)
-    assert read_file in tools
-    assert terminal in tools
+    assert names.READ in _tool_names(child)
+    assert bash in tools
 
 
 async def test_build_child_agent_blocklist_enforced(skills_home: Path):
-    """``add_memory``, ``clarify``, the delegate tool itself, and the
+    """``memory``, ``clarify``, the subagent tool itself, and the
     skill-registry tools must NOT appear on the child even if a future
     toolset accidentally includes them."""
-    from horizon.memory import add_memory
+    from horizon.memory import memory
     from horizon.subagents.delegate_builder import (
         _BLOCKED_TOOL_NAMES,
         build_child_agent,
@@ -113,9 +123,11 @@ async def test_build_child_agent_blocklist_enforced(skills_home: Path):
         goal="x", context="", toolsets=["file", "shell"], skills=[]
     )
     tools = set(child.tools)
-    assert add_memory not in tools
+    assert memory not in tools
     assert clarify not in tools
-    for blocked in ("delegate", "add_memory", "clarify", "reload"):
+    # load_skill covers both reading a skill and action='reload' (the
+    # former standalone reload tool, folded into it).
+    for blocked in ("subagent", "memory", "clarify", "load_skill"):
         assert blocked in _BLOCKED_TOOL_NAMES
 
 
@@ -181,11 +193,11 @@ async def test_build_child_agent_skips_missing_skill_silently(
     assert child.tools
 
 
-async def test_build_child_agent_no_memory_no_clarify_no_delegate_recursion(
+async def test_build_child_agent_no_memory_no_clarify_no_subagent_recursion(
     skills_home: Path,
 ):
     """Three properties together: (a) child has no PreloadMemoryTool,
-    (b) child has no clarify tool, (c) child has no delegate tool."""
+    (b) child has no clarify tool, (c) child has no subagent tool."""
     from google.adk.tools.preload_memory_tool import PreloadMemoryTool
 
     from horizon.subagents.delegate_builder import build_child_agent
@@ -195,9 +207,9 @@ async def test_build_child_agent_no_memory_no_clarify_no_delegate_recursion(
     )
     for tool in child.tools:
         assert not isinstance(tool, PreloadMemoryTool)
-        # Recursion guard: no callable named "delegate" on the child.
+        # Recursion guard: no callable named "subagent" on the child.
         name = getattr(tool, "__name__", None) or getattr(tool, "name", None)
-        assert name != "delegate"
+        assert name != "subagent"
 
 
 async def test_build_child_agent_uses_isolated_name(skills_home: Path):
@@ -269,40 +281,38 @@ async def test_build_child_agent_tools_param_merges_with_toolsets(
     Both populate the child; the union is deduplicated; blocklist still
     applies."""
     from horizon.subagents.delegate_builder import build_child_agent
-    from horizon.tools.file_ops import read_file
-    from horizon.tools.processes.terminal import terminal
+    from horizon.tools.processes.terminal import bash
 
     child = await build_child_agent(
         goal="x",
         context="",
         toolsets=["file"],
         skills=[],
-        tools=["terminal", "read_file"],
+        tools=["bash", "read"],
     )
     tool_set = set(child.tools)
-    assert read_file in tool_set
-    assert terminal in tool_set
-    # No duplicates from the read_file overlap between toolset and tools list.
-    assert sum(1 for t in child.tools if t is read_file) == 1
+    assert names.READ in _tool_names(child)
+    assert bash in tool_set
+    # No duplicates from the read overlap between toolset and tools list.
+    assert sum(1 for t in _tool_names(child) if t == names.READ) == 1
 
 
 async def test_build_child_agent_tools_only_no_toolsets(skills_home: Path):
     """`tools=[...]` with no `toolsets` skips DEFAULT_TOOLSETS — caller
     gets exactly what they asked for."""
     from horizon.subagents.delegate_builder import build_child_agent
-    from horizon.tools.file_ops import read_file
-    from horizon.tools.processes.terminal import terminal
+    from horizon.tools.processes.terminal import bash
 
     child = await build_child_agent(
         goal="x",
         context="",
         toolsets=None,
         skills=[],
-        tools=["read_file"],
+        tools=["read"],
     )
     tool_set = set(child.tools)
-    assert read_file in tool_set
-    assert terminal not in tool_set
+    assert names.READ in _tool_names(child)
+    assert bash not in tool_set
 
 
 async def test_build_child_agent_unknown_tool_name_raises(skills_home: Path):
@@ -487,8 +497,8 @@ async def test_build_child_agent_explore_profile_restricts_tools(
     """An ``explore`` child gets file-read + search only, even when the
     caller asked for the shell toolset."""
     from horizon.subagents.delegate_builder import build_child_agent
-    from horizon.tools.file_ops import read_file, search_files, write_file
-    from horizon.tools.processes.terminal import terminal
+    from horizon.tools.file_ops import search_files, write
+    from horizon.tools.processes.terminal import bash
 
     child = await build_child_agent(
         goal="scan the repo",
@@ -498,10 +508,10 @@ async def test_build_child_agent_explore_profile_restricts_tools(
         profile="explore",
     )
     tool_set = set(child.tools)
-    assert read_file in tool_set
+    assert names.READ in _tool_names(child)
     assert search_files in tool_set
-    assert terminal not in tool_set
-    assert write_file not in tool_set
+    assert bash not in tool_set
+    assert write not in tool_set
 
 
 async def test_build_child_agent_unknown_profile_raises(skills_home: Path):
@@ -531,12 +541,12 @@ async def test_build_child_agent_profile_none_keeps_full_toolset(
 ):
     """No profile = no allowlist restriction; the shell toolset survives."""
     from horizon.subagents.delegate_builder import build_child_agent
-    from horizon.tools.processes.terminal import terminal
+    from horizon.tools.processes.terminal import bash
 
     child = await build_child_agent(
         goal="x", context="", toolsets=["file", "shell"], skills=[]
     )
-    assert terminal in set(child.tools)
+    assert bash in set(child.tools)
 
 
 # =============================================================================

@@ -1,137 +1,268 @@
 name: '✨ AI Scheduled Issue Triage'
 
-# Hourly scheduled sweep that re-triages open issues with the Gemini
-# CLI — a safety net for anything that slipped past the on-open
-# automated-triage workflow (e.g. issues opened during CI downtime).
+# Hourly sweep that hands untriaged open issues to
+# `_ai-issue-triage-core.yml` — a safety net for anything the on-open
+# automated-triage workflow missed (an issue opened during CI downtime, a
+# failed run, a label stripped later).
+#
+# Everything about how the triage is performed lives in that core; this
+# workflow only decides WHICH issues to triage.
 
 on:
   schedule:
-    - cron: '0 * * * *' # Runs every hour
+    # Every 4 hours. This is a safety net behind the on-open automated
+    # triage, not the primary path, and since the sweep now converges (see
+    # the TRIAGED_LABEL marker below) a steady state finds nothing to do.
+    # Hourly bought no extra responsiveness for 6x the run records.
+    - cron: '0 */4 * * *'
   workflow_dispatch:
 
 concurrency:
   group: '${{ github.workflow }}'
-  cancel-in-progress: true
+  # Deliberately false. This is a periodic sweep, not a per-issue reaction:
+  # a newer tick does not obsolete an older one. With `true`, an overrunning
+  # sweep (or a manual dispatch landing near the hour) was killed by the next
+  # cron tick, potentially after labelling only part of its batch.
+  cancel-in-progress: false
 
 defaults:
   run:
     shell: 'bash'
 
-permissions:
-  contents: 'read'
-  id-token: 'write'
-  issues: 'write'
-  statuses: 'write'
+env:
+  # The convergence marker. Stamped by the `mark` job on every issue this
+  # sweep hands to the model, and the sole thing the `find` job uses to
+  # decide what is still untriaged. Changing this string re-opens the whole
+  # backlog for one sweep, which is recoverable but noisy.
+  TRIAGED_LABEL: 'status/ai-triaged'
+
+# Declared per job rather than here. At workflow level every job inherits
+# these — including any added later that only needs to read — which is what
+# zizmor's `excessive-permissions` audit flags. Same shape as go-format.yml
+# and recipe-canary.yml.
+permissions: {}
 
 jobs:
-  triage-issues:
+  # Split from the triage job so the "is there anything to do?" check is
+  # expressed ONCE, as that job's `if`. It also keeps this workflow cheap:
+  # an ordinary hourly run with nothing to triage makes one API call and
+  # stops — no auth, no agy install, no model call.
+  find:
     timeout-minutes: 5
     runs-on: 'ubuntu-latest'
-
+    permissions:
+      issues: 'read'
+    outputs:
+      issues: '${{ steps.find_issues.outputs.issues_to_triage }}'
+      numbers: '${{ steps.find_issues.outputs.issue_numbers }}'
     steps:
-      - name: 'Checkout repository'
-        uses: 'actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8' # ratchet:actions/checkout@v4
-
-      - name: 'Generate GitHub App Token'
-        id: 'generate_token'
-        if: |-
-          ${{ vars.APP_ID }}
-        uses: 'actions/create-github-app-token@67018539274d69449ef7c02e8e71183d1719ab42' # ratchet:actions/create-github-app-token@v2
-        with:
-          app-id: '${{ vars.APP_ID }}'
-          private-key: '${{ secrets.APP_PRIVATE_KEY }}'
-
       - name: 'Find untriaged issues'
         id: 'find_issues'
         env:
           # GITHUB_REPOSITORY and GITHUB_OUTPUT are auto-supplied by the
-          # runner — do NOT redeclare them here. The previous incarnation
-          # of this step set `GITHUB_OUTPUT: '${{ github.output }}'`, but
-          # `github.output` is not a valid Actions context and resolves to
-          # an empty string, so the step-level env overrode the real
-          # output-file path with "" and every `>> "${GITHUB_OUTPUT}"`
-          # write failed under `set -euo pipefail`.
-          GITHUB_TOKEN: '${{ steps.generate_token.outputs.token || secrets.GITHUB_TOKEN }}'
+          # runner — do NOT redeclare them here. A previous incarnation of
+          # this step set `GITHUB_OUTPUT: '${{ github.output }}'`, which is
+          # not a valid Actions context, resolves to an empty string, and
+          # silently broke every `>> "${GITHUB_OUTPUT}"` write.
+          GH_TOKEN: '${{ secrets.GITHUB_TOKEN }}'
+          GH_REPO: '${{ github.repository }}'
         run: |-
           set -euo pipefail
 
-          echo '🔍 Finding issues without labels...'
-          NO_LABEL_ISSUES="$(gh issue list --repo "${GITHUB_REPOSITORY}" \
-            --search 'is:open is:issue no:label' --json number,title,body)"
+          # Every issue is inlined into the prompt WITH ITS BODY, so an
+          # unbounded batch produces an enormous prompt and invites the 429s
+          # we have already seen from the model provider. The hourly cadence
+          # drains any remainder, and a small batch also limits how much is
+          # lost when one run fails partway.
+          MAX_BATCH=15
+          MAX_BODY_CHARS=4000
 
-          echo '🏷️ Finding issues that need triage...'
-          NEED_TRIAGE_ISSUES="$(gh issue list --repo "${GITHUB_REPOSITORY}" \
-            --search 'is:open is:issue label:"status/needs-triage"' --json number,title,body)"
+          # Give the on-open workflow first refusal. Without a floor, an
+          # issue opened moments before the hour is still unlabelled when
+          # this sweep queries, so both workflows triage it at once and can
+          # land two different labels on it.
+          CUTOFF="$(date -u -d '20 minutes ago' +%Y-%m-%dT%H:%M:%SZ)"
 
-          echo '🔄 Merging and deduplicating issues...'
-          ISSUES="$(echo "${NO_LABEL_ISSUES}" "${NEED_TRIAGE_ISSUES}" | jq -c -s 'add | unique_by(.number)')"
+          echo "🔍 Finding issues untriaged as of ${CUTOFF}..."
 
-          echo '📝 Setting output for GitHub Actions...'
+          # "Untriaged" means the issue does not carry the TRIAGED_LABEL
+          # marker that the `mark` job below stamps on everything this sweep
+          # has already handed to the model.
+          #
+          # Two earlier definitions both failed, in opposite directions:
+          #
+          #  - "no kind/* and no priority/* label" copied the taxonomy the
+          #    original prompt assumed. This repo's scheme is flat (`bug`,
+          #    `enhancement`, `python`, ...), so it matched every open issue
+          #    and re-triaged all of them every hour, never converging.
+          #
+          #  - "no labels at all" was the correction, and it converged by
+          #    matching NOTHING. `blank_issues_enabled: false`
+          #    (ISSUE_TEMPLATE/config.yml) plus `labels: bug` in
+          #    bug_report.md and `labels: contribute` in
+          #    propose-a-new-recipe.md mean every issue this repo can accept
+          #    is born with a label. The sweep ran 1366 times in the 90 days
+          #    to 2026-09-16 and could not, by construction, have selected a
+          #    single issue.
+          #
+          # An explicit marker fixes both: it is independent of whatever
+          # labels the templates or the model apply, and it is stamped
+          # whether or not the model classified the issue — so an issue the
+          # model legitimately declines is not re-fed to it every tick
+          # forever, which is what drove the `none_applied_min_batch`
+          # failures.
+          # The marker is excluded SERVER-SIDE. Filtering it client-side out
+          # of `--limit 200` would starve the backlog: the 200 window is the
+          # newest 200 open issues, so once those are all marked the filter
+          # returns empty on every run and any older unmarked issue becomes
+          # permanently unreachable. Under the previous (unsatisfiable)
+          # definition the window never mattered; now that the filter
+          # actually selects, it decides what the sweep can ever see.
+          #
+          # With the exclusion pushed into the query, the 200 window always
+          # contains up-to-200 genuinely untriaged issues and MAX_BATCH
+          # drains them a batch at a time.
+          ALL_ISSUES="$(gh issue list --state open --limit 200 \
+            --search "-label:\"${TRIAGED_LABEL}\"" \
+            --json number,title,body,labels,createdAt)"
+
+          # The label predicate is repeated here as a belt-and-braces check.
+          # It is cheap, and it keeps the job correct if the search syntax
+          # ever silently stops filtering — a failure that would otherwise
+          # re-triage the entire backlog on every sweep.
+          CANDIDATES="$(echo "${ALL_ISSUES}" | jq -c \
+            --arg cutoff "${CUTOFF}" \
+            --arg triaged "${TRIAGED_LABEL}" \
+            --argjson maxbody "${MAX_BODY_CHARS}" '
+              [ .[]
+                | select(.createdAt < $cutoff)
+                | select([.labels[].name] | index($triaged) | not)
+                # Recipe proposals are reviewed by hand and must never
+                # reach the model. Filtered on the title, not a label: one
+                # filed via the REST API has no labels until intake runs,
+                # and this sweep may look before that.
+                | select((.title | ascii_upcase)
+                         | contains("[RECIPE PROPOSAL]") | not)
+                | {number, title, body: ((.body // "")[0:$maxbody])}
+              ]')"
+
+          TOTAL="$(echo "${CANDIDATES}" | jq 'length')"
+          ISSUES="$(echo "${CANDIDATES}" | jq -c --argjson n "${MAX_BATCH}" '.[0:$n]')"
+          COUNT="$(echo "${ISSUES}" | jq 'length')"
+
           echo "issues_to_triage=${ISSUES}" >> "${GITHUB_OUTPUT}"
 
-          ISSUE_COUNT="$(echo "${ISSUES}" | jq 'length')"
-          echo "✅ Found ${ISSUE_COUNT} issues to triage! 🎯"
+          # Space-separated numbers for the `mark` job. Derived from the same
+          # trimmed batch, so the set marked is exactly the set triaged.
+          echo "issue_numbers=$(echo "${ISSUES}" | jq -r '[.[].number] | join(" ")')" \
+            >> "${GITHUB_OUTPUT}"
 
-      - name: 'Run AI Issue Triage'
-        if: |-
-          ${{ steps.find_issues.outputs.issues_to_triage != '[]' }}
-        uses: 'google-github-actions/run-gemini-cli@v0'
-        id: 'gemini_issue_triage'
+          if [[ "${TOTAL}" -gt "${COUNT}" ]]; then
+            echo "::notice::${TOTAL} issues need triage; taking ${COUNT} this run, the rest follow next sweep."
+          fi
+          echo "✅ Triaging ${COUNT} of ${TOTAL} issues. 🎯"
+
+  triage:
+    needs: 'find'
+    if: |-
+      ${{ needs.find.outputs.issues != '[]' && needs.find.outputs.issues != '' }}
+    permissions:
+      contents: 'read'
+      id-token: 'write'
+      issues: 'write'
+    uses: './.github/workflows/_ai-issue-triage-core.yml'
+    with:
+      issues: '${{ needs.find.outputs.issues }}'
+      print_timeout: '8m'
+      # Deliberately false, and it is what lets `mark` below use the job's
+      # own result as its gate.
+      #
+      # This used to be true so that a wholly unclassifiable batch would fail
+      # loudly. But the core only reaches that check after the model has run
+      # and returned a well-formed decision — its comment says so directly:
+      # a non-zero agy exit, a status other than SUCCESS, or an unparseable
+      # response all fail the Decide step upstream. So the exit it produced
+      # did not mean "broken run"; it meant "the model ran and declined",
+      # which is an ordinary outcome the prompt explicitly asks for.
+      #
+      # Conflating those two into one `failure` result is what made a safe
+      # `mark` gate impossible: there was no way to tell "the model saw these
+      # issues and passed" from "the model never ran". With this false, the
+      # core emits a ::warning:: instead, `success` means the model ran, and
+      # `failure` means infrastructure — which is exactly the distinction
+      # `mark` needs. The red-every-hour problem this input was fighting is
+      # solved at the root by TRIAGED_LABEL, not by the alarm.
+      fail_when_none_applied: false
+      none_applied_min_batch: 3
+      app_id: '${{ vars.APP_ID }}'
+    secrets:
+      APP_PRIVATE_KEY: '${{ secrets.APP_PRIVATE_KEY }}'
+
+  # Stamps TRIAGED_LABEL on everything the batch contained, which is what
+  # makes the sweep converge.
+  #
+  # The marker records "the model has seen this issue", not "the model
+  # labelled it" — an issue the model declines must still be marked, or it is
+  # re-selected and re-paid for every tick forever, which is the loop this
+  # job exists to close. With fail_when_none_applied now false, a declined
+  # batch is a SUCCESSFUL triage job, so the ordinary `needs` semantics say
+  # exactly that.
+  #
+  # Note there is deliberately no `always()` here. An earlier draft had one,
+  # which marked the batch even when `triage` failed before the model ran at
+  # all (auth, agy install, the Decide step). Those issues would then be
+  # excluded from every future sweep despite never having been triaged —
+  # permanently, because the on-open workflow fires only at issue creation
+  # and cannot revisit an existing issue. One transient infrastructure blip
+  # would have silently orphaned up to MAX_BATCH issues. Letting the job be
+  # skipped on failure leaves them unmarked, so the next sweep retries them.
+  mark:
+    needs: ['find', 'triage']
+    # `needs` already requires both to have succeeded; this only adds "and
+    # the batch was non-empty".
+    if: |-
+      ${{ needs.find.outputs.numbers != '' }}
+    timeout-minutes: 5
+    runs-on: 'ubuntu-latest'
+    permissions:
+      issues: 'write'
+    steps:
+      - name: 'Mark batch as AI-triaged'
         env:
-          GITHUB_TOKEN: '${{ steps.generate_token.outputs.token || secrets.GITHUB_TOKEN }}'
-          ISSUES_TO_TRIAGE: '${{ steps.find_issues.outputs.issues_to_triage }}'
-          REPOSITORY: '${{ github.repository }}'
-          # Required for Gemini CLI 0.51.0+ to execute tool calls (untrusted
-          # workspaces block tool execution entirely). Safe here because this
-          # workflow only ever checks out `main` — never PR-author code — so
-          # there is no fork-supplied .gemini/ config to worry about.
-          GEMINI_CLI_TRUST_WORKSPACE: 'true'
-        with:
-          gemini_cli_version: '${{ vars.GEMINI_CLI_VERSION }}'
-          gcp_workload_identity_provider: '${{ vars.GCP_WIF_PROVIDER }}'
-          gcp_project_id: '${{ vars.GOOGLE_CLOUD_PROJECT }}'
-          gcp_location: '${{ vars.GOOGLE_CLOUD_LOCATION }}'
-          gcp_service_account: '${{ vars.SERVICE_ACCOUNT_EMAIL }}'
-          gemini_api_key: '${{ secrets.GEMINI_API_KEY }}'
-          use_vertex_ai: '${{ vars.GOOGLE_GENAI_USE_VERTEXAI }}'
-          use_gemini_code_assist: '${{ vars.GOOGLE_GENAI_USE_GCA }}'
-          settings: |-
-            {
-              "maxSessionTurns": 25,
-              "coreTools": [
-                "run_shell_command(echo)",
-                "run_shell_command(gh label list)",
-                "run_shell_command(gh issue edit)",
-                "run_shell_command(gh issue list)"
-              ],
-              "telemetry": {
-                "enabled": false,
-                "target": "gcp"
-              }
-            }
-          prompt: |-
-            ## Role
+          GH_TOKEN: '${{ secrets.GITHUB_TOKEN }}'
+          GH_REPO: '${{ github.repository }}'
+          ISSUE_NUMBERS: '${{ needs.find.outputs.numbers }}'
+        run: |-
+          set -euo pipefail
 
-            You are an issue triage assistant. Analyze issues and apply
-            appropriate labels. Use the available tools to gather information;
-            do not ask for information to be provided.
+          # Idempotent: succeeds whether or not the label already exists, so
+          # the first run after this workflow lands does not need anyone to
+          # have created it by hand.
+          #
+          # The failure is NOT swallowed, because everything below depends on
+          # this label existing. If it cannot be created and does not already
+          # exist, every `gh issue edit --add-label` fails, nothing is marked,
+          # and the sweep silently reverts to re-triaging the same issues
+          # forever — the exact bug this job was added to fix, back again but
+          # now invisible. Better to go red once and be told.
+          if ! gh label create "${TRIAGED_LABEL}" \
+            --description 'Handled by AI scheduled triage; excluded from future sweeps' \
+            --color 'ededed' 2>/dev/null; then
+            if ! gh label list --search "${TRIAGED_LABEL}" --limit 100 \
+              --json name --jq '.[].name' | grep -qxF "${TRIAGED_LABEL}"; then
+              echo "::error::label '${TRIAGED_LABEL}' does not exist and could not be created; the sweep cannot converge without it"
+              exit 1
+            fi
+          fi
 
-            ## Steps
-
-            1. Run: `gh label list`
-            2. Check environment variable: "${ISSUES_TO_TRIAGE}" (JSON array
-               of issues)
-            3. For each issue, apply labels:
-               `gh issue edit "${ISSUE_NUMBER}" --add-label "label1,label2"`.
-               If available, set labels that follow the `kind/*`, `area/*`,
-               and `priority/*` patterns.
-            4. For each issue, if the `status/needs-triage` label is present,
-               remove it using:
-               `gh issue edit "${ISSUE_NUMBER}" --remove-label "status/needs-triage"`
-
-            ## Guidelines
-
-            - Only use existing repository labels
-            - Do not add comments
-            - Triage each issue independently
-            - Reference all shell variables as "${VAR}" (with quotes and braces)
+          for number in ${ISSUE_NUMBERS}; do
+            # Best-effort per issue. One failure (issue closed or deleted
+            # mid-sweep, transient 5xx) must not abort the rest of the batch
+            # and leave part of it unmarked — an unmarked issue is re-triaged
+            # next sweep, which is the loop this job exists to close.
+            if gh issue edit "${number}" --add-label "${TRIAGED_LABEL}"; then
+              echo "  marked #${number}"
+            else
+              echo "::warning::could not mark #${number}; it will be re-triaged next sweep"
+            fi
+          done

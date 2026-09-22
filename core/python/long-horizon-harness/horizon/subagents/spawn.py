@@ -18,8 +18,8 @@ Single ``agent(action=...)`` dispatch lets the root agent fan out
 parallel work without blocking. ``delegate()`` stays as the synchronous-
 feeling wrapper; this module exposes the underlying async lifecycle.
 
-The ``spawn`` action mirrors ``delegate()``'s parameter surface — same
-model/tools/instructions/output_format knobs — so the LLM can pick
+The ``spawn`` action mirrors ``delegate()``'s parameter surface, same
+model/tools/instructions/output_format knobs, so the LLM can pick
 between blocking and background execution without losing expressiveness.
 """
 
@@ -188,7 +188,7 @@ async def agent(
       immediately (it does NOT wait for the child). Use it to run several
       children at once or to keep working while one runs. If you need the
       result before continuing, use ``delegate`` instead of spawn followed
-      by an immediate ``result`` (wait=True) — that just blocks like a
+      by an immediate ``result`` (wait=True): that just blocks like a
       slower delegate. Required: ``goal`` (what the child should achieve).
       Optional knobs match ``delegate()`` exactly: ``context``,
       ``toolsets``, ``skills``, ``timeout_s`` (default 300), ``model``
@@ -207,7 +207,7 @@ async def agent(
     - ``wait``: block until the NEXT spawned agent finishes, then return it
       (``task_id``, ``status``, ``result``) plus ``still_running``. This is the
       fleet primitive: ``spawn`` several, ``wait`` for the next to finish, react,
-      spawn a replacement, ``wait`` again — far cheaper than polling ``status`` in
+      spawn a replacement, ``wait`` again: far cheaper than polling ``status`` in
       a loop. Optional ``task_ids`` (scope the wait to specific tasks; default all
       active) and ``timeout_s`` (max seconds to block, default 120). A finished
       task is not re-returned by a later ``wait``. No active tasks →

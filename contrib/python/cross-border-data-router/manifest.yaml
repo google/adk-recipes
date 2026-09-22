@@ -1,0 +1,68 @@
+# ADK Recipe Manifest — manifest.yaml
+# Fields marked REQUIRED must be present. All others are optional.
+# ============================================================
+
+# REQUIRED — Recipe type.
+#   standalone : complete, runnable recipe with its own entry point
+#   module     : importable sub-agent meant to be orchestrated by another workflow
+type: "standalone"
+
+# OPTIONAL — Set to true only if the recipe can be fully deployed with a single command and no manual configuration steps (e.g. has Terraform config or a deploy script).
+# deployable: false
+
+# REQUIRED — Maintenance status.
+#   active | inactive
+status: "active"
+
+# REQUIRED — Primary programming language.
+#   python | java | go | kotlin | typescript
+language: "python"
+
+# REQUIRED — Short description of what this recipe does and the value it provides.
+description: "A multi-agent recipe that evaluates cross-border data-residency policy against regional agents' A2A AgentCard metadata (jurisdiction, data residency, compliance) and routes to a compliant processor, refusing rather than falling back when none qualifies."
+
+# OPTIONAL — Agent architecture details. Omit the whole block if unknown.
+architecture:
+  # Whether the recipe uses a single agent or multiple agents coordinating together.
+  #   single | multi
+  agent: "multi"
+  # Whether the agent writes persistently to an external system (DB, file store, etc.) during normal operation; read-only recipes are false.
+  #   true | false
+  stateful: false
+  # The source(s) of data the agent uses at runtime — list all that apply.
+  #   hardcoded : data literals embedded in source code
+  #   local     : files bundled with the recipe
+  #   external  : live system queried at runtime (DB, API, etc.)
+  datasources:
+    - "hardcoded"
+
+# OPTIONAL — Library and service dependencies.
+dependencies:
+  libraries:
+    - "ADK"
+    - "a2a-sdk"
+    - "pydantic"
+  services:
+    - "Vertex AI"
+
+# REQUIRED — Ownership. Both sub-fields are required.
+ownership:
+  team: "OpenEAGO"
+  poc: "janrockdev"
+  # OPTIONAL — Additional contributors other than the poc.
+  # contributors:
+  #   - "github-id"
+
+# OPTIONAL — Classification tags (technology names, patterns, use-case keywords).
+tags:
+  - "a2a"
+  - "agent-card"
+  - "policy-routing"
+  - "data-residency"
+  - "cross-border"
+  - "compliance"
+  - "multi-agent"
+
+# OPTIONAL — SPDX license identifier (e.g. "Apache-2.0", "MIT", "BSD-3-Clause").
+# Only set if explicitly declared in a LICENSE file or by the author.
+license: "Apache-2.0"

@@ -102,7 +102,9 @@ describe("MessageBubble — existing segment kinds", () => {
               kind: "tool",
               callId: "c1",
               name: "load_skill",
-              args: { name: "plotting" },
+              // skill_name is the tool's real arg name, not name
+              // (final-review Fix 9).
+              args: { skill_name: "plotting" },
             },
           ],
         })}

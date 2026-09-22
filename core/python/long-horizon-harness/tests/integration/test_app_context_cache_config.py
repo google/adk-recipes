@@ -31,7 +31,11 @@ def test_app_has_context_cache_config():
 
 
 def test_app_context_cache_min_tokens():
-    assert app.context_cache_config.min_tokens == 2048
+    # 4096, not 2048: Gemini's own per-model floor
+    # (gemini_context_cache_manager.py's _minimum_cache_tokens) is hardcoded
+    # to 4096 for any gemini-3* model, so 2048 was dead config that never
+    # bound for horizon's default model.
+    assert app.context_cache_config.min_tokens == 4096
 
 
 def test_app_context_cache_ttl_seconds():

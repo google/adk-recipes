@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from datetime import UTC, datetime
 from types import SimpleNamespace
 
 import pytest
@@ -185,3 +186,90 @@ async def test_list_and_cancel():
     assert (await routine_tools.routine(action="list", tool_context=_Ctx()))[
         "routines"
     ] == []
+
+
+async def test_cancel_deletes_manifest_file(tmp_path):
+    body = {
+        "name": "Digest",
+        "schedule": "0 8 * * *",
+        "task": "summarize",
+        "secrets": [],
+        "delivery": "report_back",
+    }
+    ctx = _Ctx(
+        user_id="alice@x",
+        tool_confirmation=_TC(
+            confirmed=True, payload={"manifest": body, "routine_id": "digest"}
+        ),
+    )
+    res = await routine_tools.routine(
+        action="create",
+        name="Digest",
+        schedule="0 8 * * *",
+        task="summarize",
+        tool_context=ctx,
+    )
+    assert res["success"] is True
+    manifest_path = tmp_path / ".lha/routines/digest.yaml"
+    assert manifest_path.is_file()
+
+    cancelled = await routine_tools.routine(
+        action="cancel", id="digest", tool_context=_Ctx(user_id="alice@x")
+    )
+    assert cancelled["success"] is True
+    assert not manifest_path.exists()
+
+
+async def test_cancel_wrong_user_leaves_manifest_file(tmp_path):
+    body = {
+        "name": "Digest",
+        "schedule": "0 8 * * *",
+        "task": "summarize",
+        "secrets": [],
+        "delivery": "report_back",
+    }
+    ctx = _Ctx(
+        user_id="alice@x",
+        tool_confirmation=_TC(
+            confirmed=True, payload={"manifest": body, "routine_id": "digest"}
+        ),
+    )
+    res = await routine_tools.routine(
+        action="create",
+        name="Digest",
+        schedule="0 8 * * *",
+        task="summarize",
+        tool_context=ctx,
+    )
+    assert res["success"] is True
+    manifest_path = tmp_path / ".lha/routines/digest.yaml"
+    assert manifest_path.is_file()
+
+    # Bob tries to cancel Alice's routine
+    cancelled = await routine_tools.routine(
+        action="cancel", id="digest", tool_context=_Ctx(user_id="bob@x")
+    )
+    assert cancelled["success"] is False
+    assert manifest_path.is_file()
+
+
+async def test_cancel_missing_manifest_still_succeeds():
+    store = store_mod.get_routine_store()
+    now = datetime.now(UTC)
+    await store.add(
+        store_mod.RoutineRow(
+            id="orphan",
+            user_id="alice@x",
+            app_name="app",
+            schedule="0 8 * * *",
+            task="t",
+            secrets=(),
+            delivery="report_back",
+            created_at=now,
+            next_fire_at=now,
+        )
+    )
+    cancelled = await routine_tools.routine(
+        action="cancel", id="orphan", tool_context=_Ctx(user_id="alice@x")
+    )
+    assert cancelled["success"] is True

@@ -177,7 +177,8 @@ async def generate_custom_prompt(
 
 @router.post("/generate-animation-prompt")
 async def generate_animation_prompt_endpoint(
-    text: str = Form(...), model_image: UploadFile | None = File(None)  # noqa: B008
+    text: str = Form(...),
+    model_image: UploadFile | None = File(None),  # noqa: B008
 ):
     """Generate an enhanced animation prompt from user's text and model image."""
     try:
@@ -266,7 +267,8 @@ async def regenerate_video(req: RegenerationRequest):
 
 @router.post("/merge-videos")
 async def merge_videos(
-    videos: list[UploadFile] = File(...), speeds: str = Form(...)  # noqa: B008
+    videos: list[UploadFile] = File(...),  # noqa: B008
+    speeds: str = Form(...),
 ):
     """Merge multiple video files into one."""
     if not videos:

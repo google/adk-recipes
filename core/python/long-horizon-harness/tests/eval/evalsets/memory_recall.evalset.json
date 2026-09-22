@@ -1,7 +1,7 @@
 {
   "eval_set_id": "memory_recall",
   "name": "Memory Recall",
-  "description": "Behavioral evals proving the agent remembers facts the user stated earlier and uses them to personalize follow-up responses. Recall is served by PreloadMemoryTool injecting relevant memories into the model's context at the start of each turn — the agent does NOT need to call any tool on the recall turn to satisfy these rubrics. Rubrics grade what the user sees, not the trajectory. Per-invocation: only the recall turn is graded. NOTE on cross-session recall: ADK's local_eval_service runs eval_cases in parallel against a fresh InMemoryMemoryService per case, so cross-session continuity cannot be tested here against the in-memory fake. Each case below tests recall WITHIN one session (turn 1 stores via add_memory, turn N recalls via preload). True cross-session recall against VertexAiMemoryBankService is validated by the integration harness.",
+  "description": "Behavioral evals proving the agent remembers facts the user stated earlier and uses them to personalize follow-up responses. Recall is served by PreloadMemoryTool injecting relevant memories into the model's context at the start of each turn — the agent does NOT need to call any tool on the recall turn to satisfy these rubrics. Rubrics grade what the user sees, not the trajectory. Per-invocation: only the recall turn is graded. NOTE on cross-session recall: ADK's local_eval_service runs eval_cases in parallel against a fresh InMemoryMemoryService per case, so cross-session continuity cannot be tested here against the in-memory fake. Each case below tests recall WITHIN one session (turn 1 stores via memory, turn N recalls via preload). True cross-session recall against VertexAiMemoryBankService is validated by the integration harness.",
   "eval_cases": [
     {
       "eval_id": "recall_timezone",
@@ -224,7 +224,7 @@
             {
               "rubric_id": "mem_recall_no_redundant_add_memory",
               "rubric_content": {
-                "text_property": "The response correctly recalls the user's preferred timezone as Pacific Time (PT, PST, or PDT acceptable). Recall is served via PreloadMemoryTool — the agent satisfies this rubric by stating the timezone from preloaded context with NO tool call on this turn. It must NOT call add_memory again and must NOT claim to have just saved, stored, or recorded the fact (re-saving would create a duplicate). Phrases like 'I've saved this' or 'I've stored this' on this recall turn fail the rubric. Absence of any save language is the expected and passing behavior."
+                "text_property": "The response correctly recalls the user's preferred timezone as Pacific Time (PT, PST, or PDT acceptable). Recall is served via PreloadMemoryTool — the agent satisfies this rubric by stating the timezone from preloaded context with NO tool call on this turn. It must NOT call memory again and must NOT claim to have just saved, stored, or recorded the fact (re-saving would create a duplicate). Phrases like 'I've saved this' or 'I've stored this' on this recall turn fail the rubric. Absence of any save language is the expected and passing behavior."
               }
             }
           ]

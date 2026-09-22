@@ -13,7 +13,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-
 import {
   useCallback,
   useEffect,
@@ -32,6 +31,8 @@ import {
   Trash2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useViewerOptional } from "./artifact-viewer/viewer-context";
+import { FILEREF_DRAG_MIME } from "./workspace-href";
 import { formatBytes } from "./input-box";
 import {
   AlertDialog,
@@ -150,7 +151,10 @@ function loadShowHidden(): boolean {
 
 function filterHidden(state: DirState): DirState {
   if (!state.entries) return state;
-  return { ...state, entries: state.entries.filter((e) => !isHiddenName(e.name)) };
+  return {
+    ...state,
+    entries: state.entries.filter((e) => !isHiddenName(e.name)),
+  };
 }
 
 export function SidebarWorkspaceTree({
@@ -496,6 +500,7 @@ function TreeRow({
   const path = `${parentPath}/${entry.name}`;
   const padding = { paddingLeft: `${0.5 + depth * 0.75}rem` };
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const viewer = useViewerOptional();
 
   if (entry.kind === "dir") {
     const isOpen = openDirs.has(path);
@@ -567,6 +572,8 @@ function TreeRow({
   }
 
   const Icon = entry.kind === "symlink" ? LinkIcon : FileIcon;
+  const openable =
+    entry.kind === "file" && !entry.optimistic && viewer !== null;
   return (
     <li
       className={cn(
@@ -583,7 +590,44 @@ function TreeRow({
       }
     >
       <Icon className="h-3 w-3 shrink-0" />
-      <span className="min-w-0 flex-1 truncate">{entry.name}</span>
+      {openable ? (
+        <button
+          type="button"
+          // Dragged into the composer, a row becomes an attachment chip.
+          // Deliberately not text/plain: that would make the textarea insert
+          // the name as well as showing the chip.
+          draggable
+          onDragStart={(e) => {
+            e.dataTransfer.setData(
+              FILEREF_DRAG_MIME,
+              JSON.stringify({
+                path,
+                name: entry.name,
+                size: entry.size,
+              }),
+            );
+            e.dataTransfer.effectAllowed = "copy";
+          }}
+          onClick={() =>
+            viewer?.openArtifact({
+              name: entry.name,
+              // Left blank on purpose: pickRenderer falls back to the
+              // filename extension, which is all the tree knows.
+              mimeType: "",
+              path,
+              // Lets image/audio render straight from the endpoint; text
+              // kinds are fetched into `bytes` by the viewer.
+              url: buildOpenHref(path),
+            })
+          }
+          className="min-w-0 flex-1 truncate text-left hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          title={`Open ${entry.name}`}
+        >
+          {entry.name}
+        </button>
+      ) : (
+        <span className="min-w-0 flex-1 truncate">{entry.name}</span>
+      )}
       <span className="shrink-0 text-[10px] text-muted-foreground/60">
         {formatBytes(entry.size)}
       </span>
@@ -783,7 +827,10 @@ function SkeletonRows({ compact = false }: { compact?: boolean }) {
       )}
     >
       {Array.from({ length: compact ? 2 : 3 }).map((_, i) => (
-        <div key={i} className="h-3.5 motion-safe:animate-pulse rounded bg-muted/40" />
+        <div
+          key={i}
+          className="h-3.5 motion-safe:animate-pulse rounded bg-muted/40"
+        />
       ))}
     </div>
   );

@@ -1,0 +1,193 @@
+name: '🧽 AI PR Review — Hygiene'
+
+# Delegates to `_ai-pr-review-core.yml` to run an AI hygiene review on
+# every PR — typos, unused imports, tests that assert nothing, leftover
+# debug prints, placeholder values left in — and posts findings as inline
+# review comments.
+#
+# WHY A FOURTH LANE. The other three are each organised around a kind of
+# risk: does it break, is it exploitable, will it hurt to change later.
+# That leaves out a whole class of defect which is none of those and is
+# still worth a comment — a test named for one thing that exercises
+# another, a variable assigned and never read, "ADK Samples Team" left in
+# a manifest as an owning team. Measured against the checklist the
+# interactive `github-pr-review` skill works from, ten of its twenty-one
+# defect classes belonged to no lane at all, and one (a stale year that
+# disagrees with its neighbours) was explicitly banned in all three.
+#
+# Those items could have been distributed across the existing three
+# instead, but each would have had to stretch its own definition to take
+# them, and the three are accurate as they stand. A lane whose entire
+# remit is proofreading is a cleaner fit and cheaper to tune on its own.
+
+# SECURITY: `pull_request_target` runs in the BASE repo context, with the
+# base branch's workflow file, full secrets and a write-scoped token. It is
+# only safe because nothing in this workflow or its callee ever executes the
+# pull request's code: the checkout is the base repo, the diff is fetched
+# through `gh` as data, and the agent runs in an empty scratch directory.
+# Reassess if a step is ever added that runs anything out of the checkout.
+#
+# It is what lets fork PRs be reviewed at all. A fork `pull_request` gets no
+# secrets, a read-only token and no OIDC token, so Workload Identity auth and
+# comment posting cannot work there — and ~90% of contributions are forks.
+#
+# The directive has to sit ON this line, not above it: zizmor only honours an
+# ignore comment that falls inside the span the finding covers, and this
+# finding spans the whole `on:` block.
+on: # zizmor: ignore[dangerous-triggers]
+  pull_request_target:
+    types:
+      - 'opened'
+      - 'reopened'
+      - 'synchronize'
+  issue_comment:
+    types:
+      - 'created'
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'PR number to review'
+        required: true
+        type: 'number'
+      # Defaults to true, so a manual run can never post by accident. This is
+      # how a change to the reviewer gets tested: `pull_request_target` always
+      # runs the BASE branch's copy of these files, so a test PR would be
+      # reviewed by main's reviewer rather than the one under test. Dispatching
+      # from a branch with `--ref` is the only way to exercise the version you
+      # are changing, and a dry run makes doing that against a real PR safe.
+      dry_run:
+        description: 'Build the review and upload it as an artifact instead of posting it'
+        required: false
+        default: true
+        type: 'boolean'
+
+# The trailing segment exists because `issue_comment` and
+# `pull_request_target` resolve the PR number to the SAME value, and so
+# without it produce the SAME group — which means ANY comment on a PR
+# cancels the review that the PR's own opening started. GitHub applies
+# `cancel-in-progress` when a run is CREATED, before the job-level `if:`
+# below is evaluated, so a comment run that goes on to skip has already
+# evicted the real one by then.
+#
+# That is not a rare race. `google-cla[bot]` comments on a first-time
+# contributor's PR within ~10 seconds of it opening, well inside the
+# ~90 seconds a review takes: on #2596 all four lanes were cancelled 13
+# seconds in, and three of them stayed that way until someone re-ran
+# them by hand. Same shape on #2577 twice and on #2582.
+#
+# So a comment run that will NOT start a review gets a group of its own,
+# keyed on its run id, where it can cancel nothing. A real invoke keeps
+# the shared group on purpose: re-invoking should supersede a review
+# that is already running, as should a synchronize.
+#
+# The condition below MUST stay the exact negation of the `issue_comment`
+# branch of the job's `if:`, all three operands of it. Testing only for
+# `@ai-review` is not a near-enough approximation: the association check
+# is what makes an invoke a maintainer's call, so without it ANY user can
+# put a comment run into the shared group — and cancel all four reviews
+# on any open PR, repeatably, by typing `@ai-review`. That hands an
+# outsider a switch for the Security lane, which is strictly worse than
+# the CLA-bot collision this segment was added to fix.
+#
+# `test_ai_workflow_hardening.py` pins the two conditions together, in
+# all four lanes. Between the `if:` and the group there are eight copies
+# of this gate in the repo, and nothing else would notice them drifting
+# apart.
+concurrency:
+  group: >-
+    ${{ github.workflow }}-${{ github.event.pull_request.number || github.event.issue.number || github.event.inputs.pr_number || github.ref }}-${{ (github.event_name == 'issue_comment' && !(github.event.issue.pull_request && contains(github.event.comment.body, '@ai-review') && contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association))) && github.run_id || '' }}
+  cancel-in-progress: true
+
+permissions:
+  contents: 'read'
+  id-token: 'write'
+  issues: 'write'
+  pull-requests: 'write'
+
+jobs:
+  trigger:
+    # No fork check and no author allowlist on the automatic path: the whole
+    # point is that an outside contributor's PR gets reviewed. A PR opening
+    # is not a privileged act, and the reviewer only ever reads the diff and
+    # writes comments.
+    #
+    # The comment re-invoke path DOES keep an OWNER/MEMBER/COLLABORATOR
+    # check, so an unlimited number of re-runs stays a maintainer's call.
+    if: |-
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'pull_request_target' ||
+      (
+        github.event_name == 'issue_comment' &&
+        github.event.issue.pull_request &&
+        contains(github.event.comment.body, '@ai-review') &&
+        contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association)
+      )
+    uses: './.github/workflows/_ai-pr-review-core.yml'
+    with:
+      review_label: 'Hygiene'
+      event_name: '${{ github.event_name }}'
+      pr_number_pull_request: '${{ github.event.pull_request.number }}'
+      pr_number_issue: '${{ github.event.issue.number }}'
+      pr_number_dispatch: '${{ github.event.inputs.pr_number }}'
+      comment_body: '${{ github.event.comment.body }}'
+      app_id: '${{ vars.APP_ID }}'
+      dry_run: '${{ github.event.inputs.dry_run }}'
+      role: |-
+        You are an expert code reviewer doing a careful proofread. Your sole focus is
+        the small, concrete defects a reader spots by looking at a line — the ones that
+        are nobody's idea of a serious bug and that ship anyway because no reviewer was
+        looking for them.
+      criteria: |-
+        ## Review Criteria — Hygiene Only
+
+        You MUST ONLY comment on defects that are visible in the text of a changed
+        line. Do not comment on logic bugs, security, or design and naming quality —
+        three other reviewers own those, and a finding of theirs reported here is a
+        duplicate, not a bonus. Focus exclusively on:
+
+        * Dead weight — imports, variables, parameters and assignments that are never
+          used, and code left after a `return` or `raise`
+        * Tests that do not test — an assertion that cannot fail, a test body with no
+          assertion, a test whose name describes something its body does not do, a
+          parametrised case duplicated with the same values
+        * Copy-paste that was not finished — a block repeated with one instance left
+          pointing at the original
+        * Leftovers — TODO and FIXME notes, debug prints, commented-out code, files
+          that look like they were committed by accident
+        * Placeholders — values that pass every schema and are still not real values
+        * Text defects — typos in strings, identifiers, comments and docstrings, and a
+          comment that says something different from the code beneath it
+
+        Do NOT comment on formatting or indentation; the linter handles that.
+
+        Most of these are small. That is the point — they are cheap for the author to
+        check and cheap to fix, and nothing else in CI is looking for them. Report them
+        at the same even tone you would use for anything else.
+      hunt_list: |-
+        * a MISSPELLED word in a string, identifier, comment or docstring — a word
+          that is not a word. Not grammar, not phrasing, not word choice: "recieve"
+          and `get_confg` yes, "this that requires" no. Prose style in a README is
+          not a defect and a comment about it is pure noise.
+        * a comment or docstring that contradicts the code directly beneath it
+        * an unused import, variable or parameter
+        * a value assigned and never read
+        * an assertion that cannot fail — `assertTrue(True)`, `assert x == x`, a mock
+          asserted against itself, an assertion on a value the test just set
+        * a test function with no assertion at all
+        * a test whose name says one thing and whose body exercises another
+        * a parametrised case repeated with identical values
+        * a copy-pasted block where one instance was not updated
+        * a leftover `TODO`, `FIXME`, `XXX`, debug `print`, `console.log`, or
+          commented-out block of code
+        * a file that probably should not be committed — editor or build detritus, a
+          stray local config, a generated file, a committed `.env`, a `.orig` or
+          `.rej` left by a merge
+        * a value that is syntactically valid but semantically a stand-in —
+          "ADK Samples Team", "your-company", "example.com", "Team Name", "admin@",
+          "changeme", "TODO", "foo"
+        * a licence header that is truncated mid-sentence, malformed, or missing on
+          one file where its siblings in the same diff have one
+        * a version, year or model id that disagrees with another value visible in
+          this diff
+    secrets:
+      APP_PRIVATE_KEY: '${{ secrets.APP_PRIVATE_KEY }}'

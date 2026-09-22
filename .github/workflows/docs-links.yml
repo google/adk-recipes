@@ -1,19 +1,32 @@
 name: Validate Docs Links
 
-# Runs on every PR that touches docs/. Verifies that every internal and
-# external link in the docs resolves, so a renamed file or a moved
-# heading fails CI instead of silently breaking navigation.
+# Runs on every PR that touches docs/ or one of the entry-point READMEs.
+# Verifies that every internal and external link in them resolves, so a
+# renamed file or a moved heading fails CI instead of silently breaking
+# navigation.
+#
+# The entry-point READMEs are in scope because they are the first thing a
+# new contributor reads, and they link into docs/. A docs/-only scope let
+# a dead link in contrib/README.md sit undetected.
 
 on:
   pull_request:
     paths:
       - 'docs/**'
+      - 'README.md'
+      - 'CONTRIBUTING.md'
+      - 'contrib/README.md'
+      - 'core/README.md'
       - '.github/workflows/docs-links.yml'
   push:
     branches:
       - main
     paths:
       - 'docs/**'
+      - 'README.md'
+      - 'CONTRIBUTING.md'
+      - 'contrib/README.md'
+      - 'core/README.md'
       - '.github/workflows/docs-links.yml'
   workflow_dispatch:
 
@@ -32,19 +45,19 @@ jobs:
     name: Check every link in docs/ resolves
     runs-on: ubuntu-latest
     # lychee's default retry/backoff plus the whole external-link universe
-    # can drag a scan out; 10 minutes is a safe ceiling for docs/ today
-    # and prevents a stuck job from riding the default 6-hour timeout.
+    # can drag a scan out; 10 minutes is a safe ceiling for the current
+    # scope and prevents a stuck job from riding the default 6-hour timeout.
     timeout-minutes: 10
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # ratchet:actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v4
 
       - name: Check links
         id: lychee
         # Lychee: covers relative filesystem links, anchor links, and
         # external HTTP(S) URLs. --no-progress keeps CI logs clean.
-        # --exclude on '^https?://github.com/google/adk-samples/(issues|pulls)'
+        # --exclude on '^https?://github.com/google/(adk-samples|adk-recipes)/(issues|pulls)'
         # avoids rate-limiting on unauthenticated GitHub API calls when
         # docs link to the repo's own issues page.
         #
@@ -65,8 +78,12 @@ jobs:
         with:
           args: >-
             --no-progress
-            --exclude '^https?://github\.com/google/adk-samples/(issues|pulls)'
+            --exclude '^https?://github\.com/google/(adk-samples|adk-recipes)/(issues|pulls)'
             'docs/**/*.md'
+            'README.md'
+            'CONTRIBUTING.md'
+            'contrib/README.md'
+            'core/README.md'
           output: lychee-report.md
           format: markdown
           fail: false
@@ -78,7 +95,7 @@ jobs:
           set -euo pipefail
 
           if [ "$EXIT_CODE" = "0" ]; then
-            echo "[PASS] Every link under docs/ resolves."
+            echo "[PASS] Every documentation link resolves."
             exit 0
           fi
 
@@ -94,7 +111,7 @@ jobs:
 
           echo ""
           echo "========================================"
-          echo "  ACTION REQUIRED: broken link(s) in docs/"
+          echo "  ACTION REQUIRED: broken documentation link(s)"
           echo "========================================"
           echo ""
           echo "The report above lists each failing link with the file it"
@@ -110,5 +127,5 @@ jobs:
           echo "    permanently rate-limiting us, add it to --exclude in"
           echo "    .github/workflows/docs-links.yml."
           echo ""
-          echo "::error::Broken link(s) found in docs/ — see the lychee report in this job's log and summary."
+          echo "::error::Broken documentation link(s) found — see the lychee report in this job's log and summary."
           exit 1

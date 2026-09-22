@@ -23,9 +23,9 @@ def test_explore_profile_is_read_only() -> None:
     from horizon.subagents.profiles import get_profile
 
     explore = get_profile("explore")
-    assert explore.allowed_tool_names == frozenset(
-        {"read_file", "search_files", "view_file"}
-    )
+    # view_file was merged into read (Task 3); the merged read tool's media
+    # path (as_media=True) absorbs what view_file used to cover.
+    assert explore.allowed_tool_names == frozenset({"read", "search_files"})
     # Read-only means no writes, no shell, no network in the allowlist.
     for forbidden in (
         "write_file",

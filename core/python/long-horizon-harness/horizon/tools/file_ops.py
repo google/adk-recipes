@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""File operations: read, write, patch, search.
+"""File operations: read, write, edit, search.
 
 active ``BaseEnvironment`` (``LocalEnvironment`` on the host,
 ``SandboxEnvironment`` for Agent Runtime sandboxes). Multi-hunk patch
@@ -21,14 +21,22 @@ parsing, file-locking, and in-memory checkpoint snapshots are out of scope.
 
 from __future__ import annotations
 
+import itertools
 import mimetypes
 import os
 import shlex
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from horizon.environment_context import active_environment
 from horizon.models.media import sniff_image_or_pdf_mime
+from horizon.tools._output_overflow import (
+    TERMINAL_OUTPUT_LIMIT,
+    TERMINAL_OUTPUT_MAX_LINES,
+    make_preview,
+    overflow_to_file,
+)
 from horizon.tools._paths import path_under_root
 from horizon.tools._replacers import find_replacement
 from horizon.workspace_window import (
@@ -37,7 +45,9 @@ from horizon.workspace_window import (
     window_dirs,
 )
 
-_MAX_READ_CHARS = 200_000
+# Aliased to bash's cap, not an independent value: one uniform "no tool
+# result exceeds 50KB, the rest is spilled" contract across read and bash.
+_MAX_READ_CHARS = TERMINAL_OUTPUT_LIMIT
 MAX_LINE_LENGTH = 2000
 _LINE_TRUNC_SUFFIX = "... (line truncated)"
 _MAX_DIAGNOSTICS = 20
@@ -234,10 +244,31 @@ def _is_write_denied(path: str) -> bool:
 
 _SEARCH_DELIMITER = "###__LHA_SEARCH_RESULT__###"
 _SEARCH_ERROR_KEY = "__lha_search_error__"
+_SEARCH_MAX_FILE_SIZE = 10 * 1024 * 1024
+_SEARCH_SNIPPET_MAX_CHARS = 300
+_SEARCH_IGNORED_DIRS = frozenset(
+    {
+        "node_modules",
+        "__pycache__",
+        "build",
+        "dist",
+        "coverage",
+        "target",
+        ".next",
+        ".terraform",
+        "vendor",
+        "site-packages",
+    }
+)
 
 
 def _build_search_script(
-    root: str, pattern: str, file_glob: str | None, limit: int
+    root: str,
+    pattern: str,
+    file_glob: str | None,
+    limit: int,
+    ignore_case: bool = False,
+    no_ignore: bool = False,
 ) -> str:
     return (
         "import fnmatch, json, os, re, sys\n"
@@ -245,12 +276,16 @@ def _build_search_script(
         f"_pattern = {pattern!r}\n"
         f"_file_glob = {file_glob!r}\n"
         f"_limit = {limit!r}\n"
+        f"_ignore_case = {ignore_case!r}\n"
+        f"_no_ignore = {no_ignore!r}\n"
         f"_error_key = {_SEARCH_ERROR_KEY!r}\n"
         f"_delim = {_SEARCH_DELIMITER!r}\n"
-        f"_binary = {list(_BINARY_EXTENSIONS)!r}\n"
-        "_binary = frozenset(_binary)\n"
+        f"_binary = {set(_BINARY_EXTENSIONS)!r}\n"
+        f"_ignored = {set(_SEARCH_IGNORED_DIRS)!r}\n"
+        f"_max_size = {_SEARCH_MAX_FILE_SIZE!r}\n"
+        f"_snip_max = {_SEARCH_SNIPPET_MAX_CHARS!r}\n"
         "try:\n"
-        "    _re = re.compile(_pattern)\n"
+        "    _re = re.compile(_pattern, re.IGNORECASE if _ignore_case else 0)\n"
         "except re.error as _exc:\n"
         "    print(_delim + json.dumps({_error_key: str(_exc)}) + _delim)\n"
         "    sys.exit(0)\n"
@@ -259,7 +294,7 @@ def _build_search_script(
         "    sys.exit(2)\n"
         "_matches = []\n"
         "for _dp, _dns, _fns in os.walk(_root):\n"
-        "    _dns[:] = [d for d in _dns if not d.startswith('.')]\n"
+        "    _dns[:] = [d for d in _dns if not d.startswith('.') and (_no_ignore or d not in _ignored)]\n"
         "    for _fn in _fns:\n"
         "        if _fn.startswith('.'):\n"
         "            continue\n"
@@ -270,15 +305,25 @@ def _build_search_script(
         "            continue\n"
         "        _full = os.path.join(_dp, _fn)\n"
         "        try:\n"
-        "            _mtime = os.stat(_full).st_mtime\n"
+        "            _st = os.stat(_full)\n"
+        "            if _st.st_size > _max_size:\n"
+        "                continue\n"
+        "            _mtime = _st.st_mtime\n"
         "        except OSError:\n"
         "            continue\n"
         "        try:\n"
         "            with open(_full, 'r', encoding='utf-8', errors='replace') as _fh:\n"
         "                for _ln, _line in enumerate(_fh, start=1):\n"
         "                    _line = _line.rstrip('\\n')\n"
-        "                    if _re.search(_line):\n"
-        "                        _matches.append({'path': _full, 'line': _ln, 'text': _line, 'mtime': _mtime})\n"
+        "                    _m = _re.search(_line)\n"
+        "                    if _m:\n"
+        "                        _left = max(0, _m.start() - 100)\n"
+        "                        _snip = _line[_left:_left + _snip_max]\n"
+        "                        if _left > 0:\n"
+        "                            _snip = '...' + _snip\n"
+        "                        if _left + _snip_max < len(_line):\n"
+        "                            _snip = _snip + '...'\n"
+        "                        _matches.append({'path': _full, 'line': _ln, 'text': _snip, 'mtime': _mtime})\n"
         "                        if len(_matches) >= _limit:\n"
         "                            break\n"
         "        except OSError:\n"
@@ -385,22 +430,36 @@ async def read_file(
     window = lines[start:end]
 
     body = _format_numbered_lines(window, start + 1, total_lines)
-    if len(body) > _MAX_READ_CHARS:
-        return {
-            "success": True,
-            "content": body[:_MAX_READ_CHARS],
-            "truncated": True,
-        }
-    return {"success": True, "content": body}
+    _, would_overflow = make_preview(
+        body, max_bytes=_MAX_READ_CHARS, max_lines=TERMINAL_OUTPUT_MAX_LINES
+    )
+    if not would_overflow:
+        return {"success": True, "content": body}
+
+    # Same contract as bash: spill the text, return a preview plus a
+    # pointer, instead of a bare slice that silently drops the tail. Only
+    # the requested page is spilled here (offset/limit already scope the
+    # file), so the pointer says "this page", not "full output".
+    overflow = await overflow_to_file(
+        body,
+        stream="read",
+        max_bytes=_MAX_READ_CHARS,
+        max_lines=TERMINAL_OUTPUT_MAX_LINES,
+        label="This page of output",
+    )
+    return {
+        "success": True,
+        "content": f"{overflow.preview}\n\n{overflow.pointer}",
+        "truncated": True,
+        "overflow_path": overflow.path,
+    }
 
 
-async def write_file(
+async def write(
     path: str, content: str, *, tool_context: Any | None = None
 ) -> dict[str, Any]:
     """Write content to path, creating parent directories as needed.
-
-    Relative paths resolve under your current workspace focus (see
-    `/workspace`); prefix with `/` to reach the whole workspace.
+    Paths: see routing.
     """
     target, err = _resolve_in_session_window(path, tool_context)
     if err is not None:
@@ -410,15 +469,17 @@ async def write_file(
     if _is_write_denied(str(target)):
         return _error(f"Write denied: {path} is on the protected paths list.")
 
+    env = active_environment()
     try:
-        await active_environment().write_file(target, content)
+        await env.write_file(target, content)
     except OSError as exc:
         return _error(f"Failed to write {path}: {exc}")
 
     maybe_seed_window(
         _state_of(tool_context),
         target,
-        active_environment().working_dir.resolve(),
+        env.working_dir.resolve(),
+        check_host_fs=env.on_host_fs,
     )
 
     result: dict[str, Any] = {"success": True, "path": str(target)}
@@ -480,20 +541,80 @@ async def _post_edit_diagnostics(path: str) -> str | None:
     return "ruff diagnostics (informational — the edit was applied):\n" + body
 
 
-async def patch(
+@dataclass(frozen=True)
+class _ResolvedEdit:
+    """One edits[] item, resolved to its exact span in the ORIGINAL content
+    (matches are computed against the file as read, never against a
+    progressively-updated copy — that is what makes "non-overlapping"
+    checkable before anything is applied)."""
+
+    start: int
+    end: int
+    new_text: str
+    index: int
+
+
+def _resolve_edits(
+    original: str, edits: list[Any]
+) -> tuple[list[_ResolvedEdit] | None, str | None]:
+    resolved: list[_ResolvedEdit] = []
+    for i, item in enumerate(edits):
+        if not isinstance(item, dict):
+            return (
+                None,
+                f"edits[{i}] must be an object with oldText and newText",
+            )
+        old_text = item.get("oldText")
+        new_text = item.get("newText")
+        if not isinstance(old_text, str) or not isinstance(new_text, str):
+            return None, f"edits[{i}] must have string oldText and newText"
+
+        resolution = find_replacement(original, old_text)
+        if resolution.error is not None:
+            return None, f"edits[{i}]: {resolution.error}"
+        assert resolution.search is not None
+
+        match_start = original.find(resolution.search)
+        resolved.append(
+            _ResolvedEdit(
+                start=match_start,
+                end=match_start + len(resolution.search),
+                new_text=new_text,
+                index=i,
+            )
+        )
+
+    resolved.sort(key=lambda r: r.start)
+    for a, b in itertools.pairwise(resolved):
+        if b.start < a.end:
+            return None, (
+                f"edits[{a.index}] and edits[{b.index}] target overlapping or "
+                "adjacent regions: merge them into one edit"
+            )
+    return resolved, None
+
+
+def _apply_resolved_edits(original: str, resolved: list[_ResolvedEdit]) -> str:
+    pieces: list[str] = []
+    cursor = 0
+    for r in resolved:
+        pieces.append(original[cursor : r.start])
+        pieces.append(r.new_text)
+        cursor = r.end
+    pieces.append(original[cursor:])
+    return "".join(pieces)
+
+
+async def edit(
     path: str,
-    old_string: str,
-    new_string: str,
+    edits: list[dict[str, str]],
     *,
-    replace_all: bool = False,
     tool_context: Any | None = None,
 ) -> dict[str, Any]:
-    """Replace old_string with new_string in path.
-
-    By default old_string must occur exactly once; pass replace_all=True to
-    swap every occurrence. The file is left untouched on any error. Relative
-    paths resolve under your current workspace focus (see `/workspace`);
-    prefix with `/` to reach the whole workspace.
+    """Apply one or more {oldText, newText} edits to path atomically —
+    untouched if any oldText isn't a unique match or two edits overlap.
+    Merge nearby changes into one edit rather than two overlapping ones.
+    Paths: see routing.
     """
     target, err = _resolve_in_session_window(path, tool_context)
     if err is not None:
@@ -502,6 +623,9 @@ async def patch(
 
     if _is_write_denied(str(target)):
         return _error(f"Write denied: {path} is on the protected paths list.")
+
+    if not edits:
+        return _error("edits must be a non-empty list of {oldText, newText}.")
 
     env = active_environment()
     try:
@@ -514,27 +638,30 @@ async def patch(
         return _error(f"Failed to read {path}: {exc}")
 
     original = raw.decode("utf-8", errors="replace")
-    resolution = find_replacement(original, old_string, replace_all=replace_all)
-    if resolution.error is not None:
-        return _error(f"{resolution.error} (file: {path})")
-    assert resolution.search is not None
 
-    search = resolution.search
-    updated = (
-        original.replace(search, new_string)
-        if replace_all
-        else original.replace(search, new_string, 1)
-    )
+    resolved, resolve_err = _resolve_edits(original, edits)
+    if resolve_err is not None:
+        return _error(f"{resolve_err} (file: {path})")
+    assert resolved is not None
+
+    updated = _apply_resolved_edits(original, resolved)
 
     try:
         await env.write_file(target, updated)
     except OSError as exc:
         return _error(f"Failed to write {path}: {exc}")
 
+    maybe_seed_window(
+        _state_of(tool_context),
+        target,
+        env.working_dir.resolve(),
+        check_host_fs=env.on_host_fs,
+    )
+
     result: dict[str, Any] = {
         "success": True,
         "path": str(target),
-        "replacements": resolution.count,
+        "replacements": len(resolved),
     }
     if str(target).endswith(".py"):
         diagnostics = await _post_edit_diagnostics(str(target))
@@ -550,18 +677,18 @@ async def search_files(
     file_glob: str | None = None,
     limit: int = 50,
     scope: str = "window",
+    ignore_case: bool = False,
+    no_ignore: bool = False,
     tool_context: Any | None = None,
 ) -> dict[str, Any]:
-    """Search text files under your current workspace focus for `pattern`
-    (Python regex). Pass `scope="workspace"` (or `path="/"`) to search the
-    entire workspace across all projects.
+    """Search text files for `pattern` (regex); scope="workspace" searches
+    everywhere. Paths: see routing.
 
-    The first ``limit`` matches found (directory-walk order) are returned,
-    ordered by source-file mtime (most recent first) — on a large tree the
-    set is whichever matches the walk reached first, not a global top-N by
-    mtime. Implemented as a single ``env.execute`` call that runs an embedded
-    Python walker — same code path against ``LocalEnvironment`` and
-    ``SandboxEnvironment``."""
+    Returns the first `limit` matches in directory-walk order, sorted by
+    mtime (most recent first): on a large tree this is a prefix of the
+    walk, not a global top-N.
+    """
+    import asyncio
     import json
 
     env_root = active_environment().working_dir.resolve()
@@ -573,9 +700,26 @@ async def search_files(
         return _error(err)
     assert root is not None
 
-    script = _build_search_script(str(root), pattern, file_glob, limit)
+    script = _build_search_script(
+        str(root),
+        pattern,
+        file_glob,
+        limit,
+        ignore_case=ignore_case,
+        no_ignore=no_ignore,
+    )
     command = f"python3 -c {shlex.quote(script)}"
-    result = await active_environment().execute(command)
+    try:
+        result = await active_environment().execute(command, timeout=30.0)
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        raise
+    except TimeoutError:
+        return _error(
+            f"Search timed out after 30s for {path}. Narrow the path or pattern."
+        )
+    except Exception as exc:
+        return _error(f"Search failed for {path}: {exc}")
+
     if result.exit_code != 0:
         msg = result.stderr.strip() or "search failed"
         if "not a directory" in msg.lower() or "No such file" in msg:
@@ -595,5 +739,16 @@ async def search_files(
     if isinstance(parsed, dict) and _SEARCH_ERROR_KEY in parsed:
         return _error(f"Invalid regex pattern: {parsed[_SEARCH_ERROR_KEY]}")
 
-    matches = sorted(parsed, key=lambda m: m.get("mtime", 0), reverse=True)
-    return {"success": True, "matches": matches}
+    is_truncated = len(parsed) >= limit
+    sorted_matches = sorted(
+        parsed, key=lambda m: m.get("mtime", 0), reverse=True
+    )
+    matches = [
+        {"path": m["path"], "line": m["line"], "text": m["text"]}
+        for m in sorted_matches
+    ]
+    return {
+        "success": True,
+        "matches": matches,
+        "truncated": is_truncated,
+    }

@@ -1,0 +1,25 @@
+steps:
+  # Build the container image
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-t', 'gcr.io/$PROJECT_ID/vto-retail-app:$COMMIT_SHA', '.']
+
+  # Push the image to Artifact Registry / GCR
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'gcr.io/$PROJECT_ID/vto-retail-app:$COMMIT_SHA']
+
+  # Deploy to Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'gcloud'
+    args:
+      - 'run'
+      - 'deploy'
+      - 'vto-retail-app'
+      - '--image'
+      - 'gcr.io/$PROJECT_ID/vto-retail-app:$COMMIT_SHA'
+      - '--region'
+      - '{{REGION}}'
+      - '--platform'
+      - 'managed'
+      - '--allow-unauthenticated'
+images:
+  - 'gcr.io/$PROJECT_ID/vto-retail-app:$COMMIT_SHA'

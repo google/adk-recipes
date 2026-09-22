@@ -1,0 +1,64 @@
+[project]
+name = "brand-search-optimization"
+version = "0.1.0"
+description = "Optimizes retail product titles for brand search performance using Gemini Computer Use and multi-agent workflow"
+authors = [{ name = "Nikhil Kulkarni", email = "nikhilkul@google.com" }]
+license = "Apache-2.0"
+readme = "README.md"
+requires-python = ">=3.11,<3.13"
+
+dependencies = [
+    "google-adk[gcp,otel-gcp]<3.0.0,>=2.6.0",
+    "google-cloud-bigquery>=3.25.0",
+    "google-genai>=1.9.0",
+    "pillow>=11.0.0",
+    "playwright>=1.40.0",
+    "pydantic>=2.10.0",
+    "python-dotenv>=1.0.0",
+    "a2a-sdk[http-server]>=1.0,<2",
+    "aiohttp>=3.13.4",
+    "gcsfs>=2024.11.0",
+    "opentelemetry-resourcedetector-gcp<=1.12.0a0",
+    "joserfc>=1.6.8",
+]
+
+[dependency-groups]
+dev = [
+    "agent-starter-pack>=0.32.0",
+    "google-adk[eval]>=2.6.0",
+    "mypy>=1.17.0",
+    "pytest>=8.3.5",
+    "pytest-asyncio>=0.26.0",
+    "ruff>=0.12.2",
+]
+
+deployment = [
+    "absl-py>=2.2.2,<3.0.0",
+]
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+files = ["brand_search_optimization", "tests", "eval"]
+exclude = ["^deployment/", "^\\.venv/", "__pycache__"]
+
+
+[tool.pytest.ini_options]
+pythonpath = "."
+
+[tool.hatch.build.targets.wheel]
+packages = ["brand_search_optimization"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.agent-starter-pack]
+example_question = "Can you help optimize my brand product title for search?"
+
+[tool.agent-starter-pack.settings]
+agent_directory = "brand_search_optimization"
+
+[[tool.uv.index]]
+url = "https://pypi.org/simple"
+default = true

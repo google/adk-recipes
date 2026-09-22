@@ -131,14 +131,20 @@ def render_window(window: list[str]) -> str | None:
         return None
     joined = ", ".join(f"`{d}/`" for d in window)
     return (
-        f"Workspace focus: {joined}. Relative paths and `repo_overview`/"
-        "`search_files` default to this scope. To reach the whole workspace, "
+        f"Workspace focus: {joined}. Relative paths and `search_files` "
+        "default to this scope. To reach the whole workspace, "
         "prefix a path with `/` (e.g. `/other-project/x.md`) or pass "
         '`scope="workspace"`. The user can clear the focus with `/workspace /`.'
     )
 
 
-def maybe_seed_window(state: Any, resolved: Path, env_root: Path) -> None:
+def maybe_seed_window(
+    state: Any,
+    resolved: Path,
+    env_root: Path,
+    *,
+    check_host_fs: bool = True,
+) -> None:
     """Seed an empty window to the top-level subdir a first write landed in.
 
     No-op when a window already exists, when ``state`` can't be written, or when
@@ -149,14 +155,14 @@ def maybe_seed_window(state: Any, resolved: Path, env_root: Path) -> None:
     if window_dirs(state):
         return
     try:
-        rel = resolved.resolve().relative_to(env_root)
+        rel = resolved.resolve().relative_to(env_root.resolve())
     except ValueError:
         return
     parts = rel.parts
     if len(parts) < 2:
         return
     top = parts[0]
-    if not (env_root / top).is_dir():
+    if check_host_fs and not (env_root.resolve() / top).is_dir():
         return
     try:
         state[WORKSPACE_WINDOW_STATE_KEY] = [top]

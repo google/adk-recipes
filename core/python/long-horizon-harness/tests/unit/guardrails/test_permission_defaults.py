@@ -37,12 +37,12 @@ def _decide(tool_name, command=None, args=None):
 
 
 def test_sandbox_writes_allowed():
-    assert _decide("write_file", args={"path": "x"}) == "allow"
-    assert _decide("patch", args={"path": "x"}) == "allow"
+    assert _decide("write", args={"path": "x"}) == "allow"
+    assert _decide("edit", args={"path": "x"}) == "allow"
 
 
 def test_shell_allowed_at_rule_layer():
-    # terminal/process resolve to allow; scary gating is in _shell_decision.
+    # bash/process resolve to allow; scary gating is in _shell_decision.
     for cmd in (
         "ls -la",
         "git status -s",
@@ -54,7 +54,7 @@ def test_shell_allowed_at_rule_layer():
         "bq rm -t x.y",
         "chmod -R 755 ./build",
     ):
-        assert _decide("terminal", command=cmd) == "allow", cmd
+        assert _decide("bash", command=cmd) == "allow", cmd
 
 
 def test_process_all_actions_allowed():
@@ -63,12 +63,15 @@ def test_process_all_actions_allowed():
 
 
 def test_opened_benign_tools_allowed():
-    for tool in ("add_memory", "reminder", "reload"):
+    # load_skill (covers load and action='reload') is not in this list —
+    # it's in permission_guard.READ_ONLY_TOOLS and bypasses resolve_decision
+    # entirely, never reaching the default-rule layer this test exercises.
+    for tool in ("memory",):
         assert _decide(tool, args={}) == "allow"
 
 
 def test_other_nonshell_tools_still_ask():
-    for tool in ("routine", "run_skill_script", "send_email"):
+    for tool in ("routine", "send_email"):
         assert _decide(tool, args={}) == "ask_user"
 
 
@@ -76,10 +79,10 @@ def test_overlay_deny_overrides_default_allow():
     rules = [
         *DEFAULT_RULES,
         parse_rule(
-            {"toolName": "terminal", "commandPrefix": "rm", "decision": "deny"}
+            {"toolName": "bash", "commandPrefix": "rm", "decision": "deny"}
         ),
     ]
     decision, _ = resolve_decision(
-        rules, tool_name="terminal", args={"command": "rm x"}, command="rm x"
+        rules, tool_name="bash", args={"command": "rm x"}, command="rm x"
     )
     assert decision == "deny"

@@ -36,7 +36,7 @@ from horizon.guardrails.permission_rules import (
 def _default_decision(command: str) -> str:
     decision, _ = resolve_decision(
         list(DEFAULT_RULES),
-        tool_name="terminal",
+        tool_name="bash",
         args={"command": command},
         command=command,
     )
@@ -64,7 +64,7 @@ def test_parse_rejects_bad_decision():
 def test_tool_wildcard_and_name_match():
     rules = [parse_rule({"toolName": "*", "decision": "ask_user"})]
     decision, _ = resolve_decision(
-        rules, tool_name="write_file", args={}, command=None
+        rules, tool_name="write", args={}, command=None
     )
     assert decision == "ask_user"
 
@@ -72,17 +72,17 @@ def test_tool_wildcard_and_name_match():
 def test_command_prefix_is_token_boundary_aware():
     rules = [
         parse_rule(
-            {"toolName": "terminal", "commandPrefix": "ls", "decision": "allow"}
+            {"toolName": "bash", "commandPrefix": "ls", "decision": "allow"}
         )
     ]
     allow, _ = resolve_decision(
         rules,
-        tool_name="terminal",
+        tool_name="bash",
         args={"command": "ls -la"},
         command="ls -la",
     )
     none_match, _ = resolve_decision(
-        rules, tool_name="terminal", args={"command": "lshw"}, command="lshw"
+        rules, tool_name="bash", args={"command": "lshw"}, command="lshw"
     )
     assert allow == "allow"
     assert none_match == "ask_user"  # no rule matched → default ask_user
@@ -109,7 +109,7 @@ def test_flagless_prefix_matches_flag_tolerantly(command, expected):
     rules = [
         parse_rule(
             {
-                "toolName": "terminal",
+                "toolName": "bash",
                 "commandPrefix": "bq query",
                 "decision": "allow",
             }
@@ -117,7 +117,7 @@ def test_flagless_prefix_matches_flag_tolerantly(command, expected):
     ]
     decision, _ = resolve_decision(
         rules,
-        tool_name="terminal",
+        tool_name="bash",
         args={"command": command},
         command=command,
     )
@@ -142,10 +142,10 @@ def test_args_pattern_match():
 
 def test_last_match_wins():
     rules = [
-        parse_rule({"toolName": "terminal", "decision": "ask_user"}),
+        parse_rule({"toolName": "bash", "decision": "ask_user"}),
         parse_rule(
             {
-                "toolName": "terminal",
+                "toolName": "bash",
                 "commandPrefix": "git",
                 "decision": "allow",
             }
@@ -153,7 +153,7 @@ def test_last_match_wins():
     ]
     decision, _ = resolve_decision(
         rules,
-        tool_name="terminal",
+        tool_name="bash",
         args={"command": "git log"},
         command="git log",
     )
@@ -164,16 +164,16 @@ def test_deny_wins_over_later_allow():
     rules = [
         parse_rule(
             {
-                "toolName": "terminal",
+                "toolName": "bash",
                 "commandPrefix": "rm",
                 "decision": "deny",
                 "denyMessage": "no",
             }
         ),
-        parse_rule({"toolName": "terminal", "decision": "allow"}),
+        parse_rule({"toolName": "bash", "decision": "allow"}),
     ]
     decision, rule = resolve_decision(
-        rules, tool_name="terminal", args={"command": "rm x"}, command="rm x"
+        rules, tool_name="bash", args={"command": "rm x"}, command="rm x"
     )
     assert decision == "deny"
     assert rule.deny_message == "no"
@@ -182,20 +182,20 @@ def test_deny_wins_over_later_allow():
 def test_subagent_constraint(monkeypatch):
     rules = [
         parse_rule(
-            {"toolName": "terminal", "subagent": "worker", "decision": "allow"}
+            {"toolName": "bash", "subagent": "worker", "decision": "allow"}
         )
     ]
     # Matches only when the caller agent is "worker".
     match, _ = resolve_decision(
         rules,
-        tool_name="terminal",
+        tool_name="bash",
         args={"command": "x"},
         command="x",
         agent_name="worker",
     )
     no_match, _ = resolve_decision(
         rules,
-        tool_name="terminal",
+        tool_name="bash",
         args={"command": "x"},
         command="x",
         agent_name="root",
@@ -214,7 +214,7 @@ def test_default_posture_shell_allow_nonshell_ask():
         "gcloud config list",
     ):
         assert _default_decision(cmd) == "allow", cmd
-    for tool in ("routine", "run_skill_script"):
+    for tool in ("routine", "send_email"):
         decision, _ = resolve_decision(
             list(DEFAULT_RULES), tool_name=tool, args={}, command=None
         )
@@ -222,14 +222,15 @@ def test_default_posture_shell_allow_nonshell_ask():
 
 
 def test_default_rules_open_shell_and_benign_tools():
+    # load_skill (covers load and action='reload') is not among the default
+    # rules — it's in permission_guard.READ_ONLY_TOOLS and bypasses rule
+    # resolution entirely.
     names = {tn for r in DEFAULT_RULES for tn in r.tool_names}
     assert {
         "*",
-        "terminal",
+        "bash",
         "process",
-        "add_memory",
-        "reminder",
-        "reload",
+        "memory",
     } <= names
     star = [r for r in DEFAULT_RULES if r.tool_names == ("*",)]
     assert star and star[0].decision == "ask_user"
@@ -242,7 +243,7 @@ async def test_append_persisted_rule_writes_jsonl(tmp_path: Path):
     env = LocalEnvironment(working_dir=tmp_path)
     await append_persisted_rule(
         env,
-        {"toolName": "terminal", "commandPrefix": "bq rm", "decision": "allow"},
+        {"toolName": "bash", "commandPrefix": "bq rm", "decision": "allow"},
     )
     text = (tmp_path / PERMISSION_OVERLAY_FILENAME).read_text()
     assert '"commandPrefix": "bq rm"' in text
@@ -347,7 +348,7 @@ def test_parse_rule_trusted_skips_regex_safety():
     complex_regex = r"(a+)+"
     trusted_rule = parse_rule(
         {
-            "toolName": "terminal",
+            "toolName": "bash",
             "commandRegex": complex_regex,
             "decision": "allow",
         },
@@ -359,7 +360,7 @@ def test_parse_rule_trusted_skips_regex_safety():
     # The same call without trusted=True (default) should reject the unsafe regex.
     untrusted_rule = parse_rule(
         {
-            "toolName": "terminal",
+            "toolName": "bash",
             "commandRegex": complex_regex,
             "decision": "allow",
         }
@@ -371,7 +372,7 @@ def test_parse_rule_trusted_skips_regex_safety():
 async def test_blanket_allow_for_terminal_is_dropped_from_overlay(monkeypatch):
     # An overlay rule that allows ALL terminal commands (no narrowing) must be dropped.
     async def fake_persisted(env):
-        return [parse_rule({"toolName": "terminal", "decision": "allow"})]
+        return [parse_rule({"toolName": "bash", "decision": "allow"})]
 
     monkeypatch.setattr(
         "horizon.guardrails.permission_rules.load_persisted_rules",
@@ -382,7 +383,7 @@ async def test_blanket_allow_for_terminal_is_dropped_from_overlay(monkeypatch):
     rules = await effective_rules(env=object(), session_grants=None)
     assert not any(
         r.decision == "allow"
-        and "terminal" in r.tool_names
+        and "bash" in r.tool_names
         and not r.command_prefixes
         and not r.command_regex
         and not r.args_pattern
@@ -397,7 +398,7 @@ async def test_narrowed_terminal_allow_survives(monkeypatch):
         return [
             parse_rule(
                 {
-                    "toolName": "terminal",
+                    "toolName": "bash",
                     "commandPrefix": "npm test",
                     "decision": "allow",
                 }

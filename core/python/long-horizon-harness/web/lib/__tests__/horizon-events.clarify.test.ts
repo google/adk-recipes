@@ -49,7 +49,9 @@ describe("mapPart — load_skill special case", () => {
         kind: "tool",
         callId: "adk-call-load-skill-1",
         name: "load_skill",
-        args: { name: "plotting" },
+        // skill_name is the tool's real arg name, not name
+        // (final-review Fix 9).
+        args: { skill_name: "plotting" },
         ok: null,
       },
     ]);
@@ -80,7 +82,7 @@ describe("mapPart — adk_request_confirmation special case", () => {
         callId: "adk-conf-2",
         hint: "Run shell command: ls /tmp ?",
         originalCall: {
-          name: "terminal",
+          name: "bash",
           args: { command: "ls /tmp" },
         },
         payload: null,

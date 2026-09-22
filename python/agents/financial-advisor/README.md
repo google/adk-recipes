@@ -48,7 +48,7 @@ to implement this workflow.
 
 1.  **Prerequisites**
 
-    *   Python 3.10+
+    *   Python 3.11+
     *   uv
         *   For dependency management and packaging. Please follow the
             instructions on the official
@@ -67,8 +67,8 @@ to implement this workflow.
 
     ```bash
     # Clone this repository.
-    git clone https://github.com/google/adk-samples.git
-    cd adk-samples/python/agents/financial-advisor
+    git clone https://github.com/google/adk-recipes.git
+    cd adk-recipes/contrib/python/financial-advisor
     # Install the package and dependencies.
     uv sync
     ```
@@ -783,7 +783,7 @@ You can also use the [Google Agents CLI](https://github.com/google/agents-cli) t
 uvx google-agents-cli setup
 ```
 
-**Create the project from this sample** (replace `my-financial-advisor` with your project name):
+**Create the project from this recipe** (replace `my-financial-advisor` with your project name):
 
 ```bash
 agents-cli create my-financial-advisor -a adk@financial-advisor

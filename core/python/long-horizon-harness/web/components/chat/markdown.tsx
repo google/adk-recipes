@@ -21,6 +21,13 @@ import { cn } from "@/lib/utils";
 import { useResolvedTheme } from "@/lib/use-appearance";
 import { CopyButton } from "./copy-button";
 import { useImageLightbox } from "./image-lightbox";
+import { useViewerOptional } from "./artifact-viewer/viewer-context";
+import { useBusy } from "./busy-context";
+import { useWorkspaceFiles } from "@/lib/workspace-files";
+import {
+  workspacePathFromHref,
+  workspacePathFromMention,
+} from "./workspace-href";
 import { CodeBlock, prismLanguageFromInfo } from "./tool-views";
 
 // Module-level so React doesn't see a new array reference every render and
@@ -36,7 +43,9 @@ function resolveHref(href?: string): string | undefined {
   if (!href) return href;
   const scheme = /^([a-z][a-z0-9+.-]*):/i.exec(href)?.[1]?.toLowerCase();
   if (scheme) {
-    return ["http", "https", "mailto", "tel"].includes(scheme) ? href : undefined;
+    return ["http", "https", "mailto", "tel"].includes(scheme)
+      ? href
+      : undefined;
   }
   if (href.startsWith("/") || href.startsWith("#") || href.startsWith("?"))
     return href;
@@ -51,18 +60,35 @@ const ANCHOR_COMPONENT = ({
 }: {
   href?: string;
   children?: React.ReactNode;
-}) => (
-  // overflow-wrap:anywhere lets long bare URLs break mid-string instead of
-  // forcing the bubble wider than a phone viewport.
-  <a
-    href={resolveHref(href)}
-    target="_blank"
-    rel="noreferrer noopener"
-    className="[overflow-wrap:anywhere]"
-  >
-    {children}
-  </a>
-);
+}) => {
+  const viewer = useViewerOptional();
+  // A bare relative link is the model pointing at a workspace file it just
+  // wrote. Open those in the side panel rather than punting to a new tab —
+  // same destination, but it stays in the conversation.
+  const wsPath = workspacePathFromHref(href);
+  if (wsPath && viewer) {
+    return (
+      <OpenInPanelButton
+        path={wsPath}
+        className="underline [overflow-wrap:anywhere] hover:no-underline"
+      >
+        {children}
+      </OpenInPanelButton>
+    );
+  }
+  return (
+    // overflow-wrap:anywhere lets long bare URLs break mid-string instead of
+    // forcing the bubble wider than a phone viewport.
+    <a
+      href={resolveHref(href)}
+      target="_blank"
+      rel="noreferrer noopener"
+      className="[overflow-wrap:anywhere]"
+    >
+      {children}
+    </a>
+  );
+};
 
 // Markdown images open full-screen in the lightbox instead of a new tab.
 function MarkdownImage({ src, alt }: { src?: string; alt?: string }) {
@@ -80,6 +106,72 @@ function MarkdownImage({ src, alt }: { src?: string; alt?: string }) {
     </button>
   );
 }
+
+/** Shared by the anchor and inline-code handlers. */
+function OpenInPanelButton({
+  path,
+  className,
+  children,
+}: {
+  path: string;
+  className?: string;
+  children?: React.ReactNode;
+}) {
+  const viewer = useViewerOptional();
+  return (
+    <button
+      type="button"
+      onClick={() =>
+        viewer?.openArtifact({
+          name: path.split("/").pop() || path,
+          // pickRenderer falls back to the extension, which is all a
+          // filename mention tells us.
+          mimeType: "",
+          path,
+          url: `/lha/workspace/download?path=${encodeURIComponent(path)}&inline=1`,
+        })
+      }
+      className={className}
+      title={`Open ${path} in the side panel`}
+    >
+      {children}
+    </button>
+  );
+}
+
+// Models habitually write a filename as `cats.md` rather than a markdown
+// link, so inline code is where most workspace-file mentions actually land.
+// Only names that match a real file are linkified — a link opening an empty
+// panel is worse than plain text.
+const INLINE_CODE_COMPONENT = ({
+  className,
+  children,
+  ...props
+}: React.HTMLAttributes<HTMLElement>) => {
+  const busy = useBusy();
+  const files = useWorkspaceFiles(busy);
+  const viewer = useViewerOptional();
+  const plain = (
+    <code className={className} {...props}>
+      {children}
+    </code>
+  );
+  // A fenced block arrives with `language-xxx`; those render through `pre`.
+  if (className?.includes("language-")) return plain;
+  if (!viewer || !files) return plain;
+  const text = typeof children === "string" ? children : null;
+  if (!text) return plain;
+  const path = workspacePathFromMention(text);
+  if (!path || !files.has(path)) return plain;
+  return (
+    <OpenInPanelButton
+      path={path}
+      className="underline decoration-dotted underline-offset-2 hover:decoration-solid"
+    >
+      {plain}
+    </OpenInPanelButton>
+  );
+};
 
 // Wide tables would otherwise burst the bubble and push the layout past a
 // phone viewport. Wrap in an overflow container so they scroll horizontally.
@@ -115,6 +207,7 @@ export const Markdown = memo(function Markdown({
   const components = useMemo(
     () => ({
       a: ANCHOR_COMPONENT,
+      code: INLINE_CODE_COMPONENT,
       img: MarkdownImage,
       table: TABLE_COMPONENT,
       pre: ({ children }: React.HTMLAttributes<HTMLPreElement>) => {

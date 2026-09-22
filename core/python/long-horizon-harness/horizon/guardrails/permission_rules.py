@@ -35,6 +35,8 @@ from horizon.guardrails._overlay import (
 )
 from horizon.guardrails._regex_safety import safe_regex
 from horizon.guardrails.command_classify import significant_tokens
+from horizon.tools import names
+from horizon.tools.names import apply_tool_aliases
 
 _logger = logging.getLogger(__name__)
 
@@ -64,6 +66,14 @@ def _as_tuple(value: Any) -> tuple[str, ...]:
     return ()
 
 
+def _as_aliased_tuple(value: Any) -> tuple[str, ...]:
+    # A rule's toolName can be a since-renamed legacy name (a persisted
+    # .lha/permissions.jsonl file, or a session grant recorded before a
+    # rename). Aliasing here, ahead of every downstream match/narrowing
+    # check, is what keeps a rule pointed at the live tool.
+    return tuple(apply_tool_aliases(v) for v in _as_tuple(value))
+
+
 def parse_rule(obj: Any, *, trusted: bool = False) -> PermissionRule | None:
     """Normalize one gemini-shaped rule dict → PermissionRule, or None if invalid."""
     if not isinstance(obj, dict):
@@ -71,7 +81,7 @@ def parse_rule(obj: Any, *, trusted: bool = False) -> PermissionRule | None:
     decision = obj.get("decision")
     if decision not in _VALID_DECISIONS:
         return None
-    tool_names = _as_tuple(obj.get("toolName"))
+    tool_names = _as_aliased_tuple(obj.get("toolName"))
     if not tool_names:
         return None
     command_regex = (
@@ -302,20 +312,15 @@ async def append_persisted_rule(env: Any, rule: dict[str, Any]) -> None:
 
 
 _SANDBOX_WRITE_TOOLS: tuple[str, ...] = (
-    "write_file",
-    "patch",
-    "write_todos",
-    "artifact",
-    "set_workspace_window",
+    names.WRITE,
+    names.EDIT,
+    names.ARTIFACT,
 )
-# Benign non-shell tools that mutate only the user's own data — opened to cut
-# everyday friction. `routine` (unattended runs) + `run_skill_script` (code-exec)
-# deliberately stay on the `*: ask_user` fallback.
-_BENIGN_SIDE_EFFECT_TOOLS: tuple[str, ...] = (
-    "add_memory",
-    "reminder",
-    "reload",
-)
+# Benign non-shell tools that mutate only the user's own data, opened to cut
+# everyday friction. `routine` (unattended runs) deliberately stays on the
+# `*: ask_user` fallback. `load_skill` needs no entry: it's in
+# permission_guard.READ_ONLY_TOOLS and bypasses rule resolution entirely.
+_BENIGN_SIDE_EFFECT_TOOLS: tuple[str, ...] = (names.MEMORY,)
 
 _DEFAULT_RULE_DICTS: tuple[dict[str, Any], ...] = (
     {"toolName": "*", "decision": "ask_user"},
@@ -323,8 +328,8 @@ _DEFAULT_RULE_DICTS: tuple[dict[str, Any], ...] = (
     *({"toolName": t, "decision": "allow"} for t in _BENIGN_SIDE_EFFECT_TOOLS),
     # Shell tools run by default; the scary-op gating lives in _shell_decision
     # (command_safety + command-substitution), not in this seed.
-    {"toolName": "terminal", "decision": "allow"},
-    {"toolName": "process", "decision": "allow"},
+    {"toolName": names.BASH, "decision": "allow"},
+    {"toolName": names.PROCESS, "decision": "allow"},
 )
 
 DEFAULT_RULES: tuple[PermissionRule, ...] = tuple(
@@ -333,7 +338,9 @@ DEFAULT_RULES: tuple[PermissionRule, ...] = tuple(
     if r is not None
 )
 
-_TOOLS_REQUIRING_NARROWING: frozenset[str] = frozenset({"terminal", "process"})
+_TOOLS_REQUIRING_NARROWING: frozenset[str] = frozenset(
+    {names.BASH, names.PROCESS}
+)
 
 
 def _is_blanket_allow(rule: PermissionRule) -> bool:

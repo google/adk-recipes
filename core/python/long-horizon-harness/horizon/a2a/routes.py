@@ -69,7 +69,7 @@ async def attach_a2a_routes(
     task_store: TaskStore,
 ) -> DefaultRequestHandler:
     """Build the agent card + request handler, mount the A2A routes, and return
-    the handler (the scheduler drives it directly for reminder/routine turns)."""
+    the handler (the scheduler drives it directly for routine turns)."""
     agent_card = await AgentCardBuilder(
         agent=agent,
         capabilities=AgentCapabilities(streaming=True),

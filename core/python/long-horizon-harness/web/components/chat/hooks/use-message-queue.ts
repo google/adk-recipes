@@ -13,20 +13,31 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { Part } from "@a2a-js/sdk";
+
+/**
+ * A message typed during a turn, held until the turn ends. Carries its parts
+ * as well as its text: a highlighted span or a dragged file is part of the
+ * message, and flushing the text alone would send the instruction without the
+ * thing it refers to.
+ */
+export interface QueuedMessage {
+  text: string;
+  parts: Part[];
+}
 
 export interface UseMessageQueueArgs {
   busy: boolean;
   // Sends the combined queued text as a single new turn when the current
   // turn ends. Pass the raw `send` from useChatStream — NOT the enqueueing
   // wrapper — so flushing never re-enters the queue.
-  send: (text: string) => void;
+  send: (text: string, opts?: { extraParts?: Part[] }) => void;
 }
 
 export interface UseMessageQueueResult {
-  queue: string[];
-  enqueue: (text: string) => void;
+  queue: QueuedMessage[];
+  enqueue: (text: string, parts?: Part[]) => void;
   removeQueued: (index: number) => void;
   clearQueue: () => void;
 }
@@ -35,7 +46,7 @@ export function useMessageQueue({
   busy,
   send,
 }: UseMessageQueueArgs): UseMessageQueueResult {
-  const [queue, setQueue] = useState<string[]>([]);
+  const [queue, setQueue] = useState<QueuedMessage[]>([]);
   const prevBusyRef = useRef(busy);
   // The flush effect depends only on `busy`; read the live queue/send through
   // refs so an enqueue mid-turn doesn't re-run it and a stale closure doesn't
@@ -49,10 +60,12 @@ export function useMessageQueue({
     sendRef.current = send;
   }, [send]);
 
-  const enqueue = useCallback((text: string) => {
+  const enqueue = useCallback((text: string, parts?: Part[]) => {
     const trimmed = text.trim();
-    if (!trimmed) return;
-    setQueue((q) => [...q, trimmed]);
+    // Parts alone are still a message: a highlighted span or a dragged file
+    // carries the intent even when the user typed nothing alongside it.
+    if (!trimmed && !parts?.length) return;
+    setQueue((q) => [...q, { text: trimmed, parts: parts ?? [] }]);
   }, []);
 
   const removeQueued = useCallback((index: number) => {
@@ -68,9 +81,19 @@ export function useMessageQueue({
     const wasBusy = prevBusyRef.current;
     prevBusyRef.current = busy;
     if (wasBusy && !busy && queueRef.current.length > 0) {
-      const text = queueRef.current.join("\n\n");
+      const entries = queueRef.current;
+      const text = entries
+        .map((e) => e.text)
+        .filter(Boolean)
+        .join("\n\n");
+      // Carried through, or a queued "shorten this" would reach the model with
+      // no idea which span "this" is.
+      const parts = entries.flatMap((e) => e.parts);
       setQueue([]);
-      sendRef.current(text);
+      sendRef.current(
+        text,
+        parts.length > 0 ? { extraParts: parts } : undefined,
+      );
     }
   }, [busy]);
 

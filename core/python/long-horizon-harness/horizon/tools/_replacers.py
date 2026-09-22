@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Fuzzy-match replacer ladder for the ``patch`` tool.
+"""Fuzzy-match replacer ladder for the ``edit`` tool.
 
 Each replacer is a generator yielding candidate *search strings* that occur
 verbatim in ``content`` — never edited output. ``find_replacement`` walks
@@ -165,9 +165,10 @@ class Replacement:
     error: str | None
 
 
-def find_replacement(
-    content: str, old_string: str, *, replace_all: bool
-) -> Replacement:
+def find_replacement(content: str, old_string: str) -> Replacement:
+    # The only caller (file_ops._resolve_edits) resolves one edits[] item at
+    # a time and always wants exactly one match, so there is no replace_all
+    # mode here — batching N occurrences means passing N edits.
     for replacer in REPLACERS:
         seen: list[str] = []
         for candidate in replacer(content, old_string):
@@ -176,25 +177,14 @@ def find_replacement(
         if not seen:
             continue
 
-        if replace_all:
-            if len(seen) > 1:
-                return Replacement(
-                    None,
-                    0,
-                    f"old_string fuzzy-matched several distinct blocks via "
-                    f"{replacer.__name__}; replace_all cannot pick among them. "
-                    "Make old_string more specific.",
-                )
-            search = seen[0]
-            return Replacement(search, content.count(search), None)
-
         if len(seen) > 1:
             return Replacement(
                 None,
                 0,
-                f"old_string matched multiple distinct blocks via "
+                f"oldText matched multiple distinct blocks via "
                 f"{replacer.__name__}; the anchor must be unique. Add "
-                "surrounding context or pass replace_all=True.",
+                "surrounding context, or split the change into more "
+                "specific anchors.",
             )
         search = seen[0]
         occurrences = content.count(search)
@@ -202,16 +192,16 @@ def find_replacement(
             return Replacement(
                 None,
                 0,
-                f"old_string matched {occurrences} times in the file; the "
-                "anchor must be unique. Add surrounding context or pass "
-                "replace_all=True.",
+                f"oldText matched {occurrences} times in the file; the "
+                "anchor must be unique. Add surrounding context, or split "
+                "the change into more specific anchors.",
             )
         return Replacement(search, 1, None)
 
     return Replacement(
         None,
         0,
-        "old_string not found. Tried, in order: "
+        "oldText not found. Tried, in order: "
         f"{_STRATEGY_NAMES}. It must match the file's text — check "
         "whitespace, indentation, and that the lines still exist.",
     )

@@ -1,42 +1,50 @@
 {
   "eval_set_id": "daily_news_bot_journey",
   "name": "Daily News Bot — End-to-End Journey",
-  "description": "Multi-turn behavioral eval for the workspace-vs-sandbox split. The user walks the agent through building another ADK agent (a Daily News Bot) using agents-cli — install, clarify, design-spec, scaffold, implement, evaluate. Rubrics grade only OBSERVABLE tool selection and persistence reasoning — no live sandbox or scaffold output is required. Specifically, this evalset checks that the model: (1) reaches for `terminal` to install tooling and run CLI commands on the agent host, never `code_execution` (which runs in an isolated sandbox VM that cannot reach the agent host); (2) persists artifacts (DESIGN_SPEC.md, agent code, eval JSON) via `write_file` / `patch` into the workspace, instead of narrating them inline or generating them inside `code_execution` where they would land in the sandbox FS (separate from the workspace) and be invisible to file_ops/terminal; (3) does NOT fabricate command output (install success, scaffold layout, eval pass) without actually invoking the tool. Grading is rubric-only via `rubric_based_final_response_quality_v1` — see `tests/eval/eval_config.json`. The user prompts hand the agent specific CLI commands so the case grades tool CHOICE, not command discovery. Companion to `tool_selection_core` — that suite grades tool picking on isolated turns; this one grades it across a realistic project-build arc where the sandbox-vs-workspace distinction matters cumulatively.",
+  "description": "Multi-turn behavioral eval for the workspace-vs-sandbox split. The user walks the agent through building another ADK agent (a Daily News Bot) using agents-cli — install, clarify, design-spec, scaffold, implement, evaluate. Rubrics grade only OBSERVABLE tool selection and persistence reasoning — no live sandbox or scaffold output is required. Specifically, this evalset checks that the model: (1) reaches for `bash` to install tooling and run CLI commands on the agent host, never `code_execution` (which runs in an isolated sandbox VM that cannot reach the agent host); (2) persists artifacts (DESIGN_SPEC.md, agent code, eval JSON) via `write` / `edit` into the workspace, instead of narrating them inline or generating them inside `code_execution` where they would land in the sandbox FS (separate from the workspace) and be invisible to file_ops/bash; (3) does NOT fabricate command output (install success, scaffold layout, eval pass) without actually invoking the tool. Grading is rubric-only via `rubric_based_final_response_quality_v1` — see `tests/eval/eval_config.json`. The user prompts hand the agent specific CLI commands so the case grades tool CHOICE, not command discovery. Companion to `tool_selection_core` — that suite grades tool picking on isolated turns; this one grades it across a realistic project-build arc where the sandbox-vs-workspace distinction matters cumulatively.",
   "eval_cases": [
     {
       "eval_id": "build_daily_news_bot_with_agents_cli",
       "conversation": [
         {
           "user_content": {
-            "parts": [{"text": "I'd like to use the Google agents-cli toolchain to build an agent. First, install it for me: run `uvx google-agents-cli setup` so the CLI and skills are available."}]
+            "parts": [
+              {
+                "text": "I'd like to use the Google agents-cli toolchain to build an agent. First, install it for me: run `uvx google-agents-cli setup` so the CLI and skills are available."
+              }
+            ]
           },
           "rubrics": [
             {
               "rubric_id": "install_via_terminal",
               "type": "FINAL_RESPONSE_QUALITY",
               "rubric_content": {
-                "text_property": "The response invokes the `terminal` tool with a command that installs google-agents-cli on the agent host (e.g. `uvx google-agents-cli setup`, `uv tool install google-agents-cli`, or an equivalent uvx/uv invocation). The user specified the install path explicitly; the model must run it. A response that only narrates 'I will install agents-cli' without a `terminal` FunctionCall fails."
+                "text_property": "The response invokes the `bash` tool with a command that installs google-agents-cli on the agent host (e.g. `uvx google-agents-cli setup`, `uv tool install google-agents-cli`, or an equivalent uvx/uv invocation). The user specified the install path explicitly; the model must run it. A response that only narrates 'I will install agents-cli' without a `bash` FunctionCall fails."
               }
             },
             {
               "rubric_id": "install_does_not_use_code_execution",
               "type": "FINAL_RESPONSE_QUALITY",
               "rubric_content": {
-                "text_property": "The response does NOT invoke `code_execution` to install agents-cli. `code_execution` runs in an isolated sandbox VM separate from the agent host — anything `pip`-installed or `uvx`-run inside it stays in the sandbox and never affects the agent host where `terminal` and future tool calls run. The system prompt's `Workspace and execution` section spells this out. Any FunctionCall to `code_execution` containing `pip install`, `uvx`, `uv tool install`, or `subprocess` for installing agents-cli fails this rubric."
+                "text_property": "The response does NOT invoke `code_execution` to install agents-cli. `code_execution` runs in an isolated sandbox VM separate from the agent host — anything `pip`-installed or `uvx`-run inside it stays in the sandbox and never affects the agent host where `bash` and future tool calls run. The system prompt's `Workspace and execution` section spells this out. Any FunctionCall to `code_execution` containing `pip install`, `uvx`, `uv tool install`, or `subprocess` for installing agents-cli fails this rubric."
               }
             },
             {
               "rubric_id": "install_does_not_fabricate_success",
               "type": "FINAL_RESPONSE_QUALITY",
               "rubric_content": {
-                "text_property": "The response does NOT claim agents-cli is installed (or report a version, success message, or skill list) without an actual `terminal` FunctionCall that ran the install. Confidently asserting 'agents-cli is now installed and ready' with no tool invocation fails — the model must consult the shell, not guess."
+                "text_property": "The response does NOT claim agents-cli is installed (or report a version, success message, or skill list) without an actual `bash` FunctionCall that ran the install. Confidently asserting 'agents-cli is now installed and ready' with no tool invocation fails — the model must consult the shell, not guess."
               }
             }
           ]
         },
         {
           "user_content": {
-            "parts": [{"text": "Great. I want to build a Daily News Bot — an agent that summarizes today's top tech news from a few RSS feeds into a ranked digest. Before scaffolding anything, what do you need to know from me?"}]
+            "parts": [
+              {
+                "text": "Great. I want to build a Daily News Bot — an agent that summarizes today's top tech news from a few RSS feeds into a ranked digest. Before scaffolding anything, what do you need to know from me?"
+              }
+            ]
           },
           "rubrics": [
             {
@@ -50,56 +58,64 @@
               "rubric_id": "does_not_scaffold_or_write_files_yet",
               "type": "FINAL_RESPONSE_QUALITY",
               "rubric_content": {
-                "text_property": "The response does NOT invoke `terminal` to run `agents-cli scaffold` and does NOT call `write_file` / `patch` to create DESIGN_SPEC.md or agent source on this turn. The user explicitly asked what the agent needs to know BEFORE scaffolding — committing artifacts prematurely fails. Tool-free clarification questions are the correct behavior here."
+                "text_property": "The response does NOT invoke `bash` to run `agents-cli scaffold` and does NOT call `write` / `edit` to create DESIGN_SPEC.md or agent source on this turn. The user explicitly asked what the agent needs to know BEFORE scaffolding — committing artifacts prematurely fails. Tool-free clarification questions are the correct behavior here."
               }
             }
           ]
         },
         {
           "user_content": {
-            "parts": [{"text": "Good questions. Use these feeds: https://news.ycombinator.com/rss and https://techcrunch.com/feed/. Rank by recency + source authority (HN first, TechCrunch second). Output: markdown digest with the top 5 headlines. Prototype only, no deployment. Now write DESIGN_SPEC.md so we have it on disk."}]
+            "parts": [
+              {
+                "text": "Good questions. Use these feeds: https://news.ycombinator.com/rss and https://techcrunch.com/feed/. Rank by recency + source authority (HN first, TechCrunch second). Output: markdown digest with the top 5 headlines. Prototype only, no deployment. Now write DESIGN_SPEC.md so we have it on disk."
+              }
+            ]
           },
           "rubrics": [
             {
               "rubric_id": "writes_design_spec_via_write_file",
               "type": "FINAL_RESPONSE_QUALITY",
               "rubric_content": {
-                "text_property": "The response invokes `write_file` (or `patch` if the file already exists) with path `DESIGN_SPEC.md` (or `./DESIGN_SPEC.md`) and content covering the spec sections — Overview, Tools Required (fetch_rss, summarize_headlines), Constraints, Success Criteria — populated from the user's answers above (HN + TechCrunch feeds, recency + authority ranking, top-5 markdown digest, prototype only). The user said 'so we have it on disk' — narrating the spec inline without a `write_file` FunctionCall fails."
+                "text_property": "The response invokes `write` (or `edit` if the file already exists) with path `DESIGN_SPEC.md` (or `./DESIGN_SPEC.md`) and content covering the spec sections — Overview, Tools Required (fetch_rss, summarize_headlines), Constraints, Success Criteria — populated from the user's answers above (HN + TechCrunch feeds, recency + authority ranking, top-5 markdown digest, prototype only). The user said 'so we have it on disk' — narrating the spec inline without a `write` FunctionCall fails."
               }
             },
             {
               "rubric_id": "design_spec_not_in_code_execution",
               "type": "FINAL_RESPONSE_QUALITY",
               "rubric_content": {
-                "text_property": "The response does NOT produce DESIGN_SPEC.md by writing it inside a `code_execution` block (e.g. `open('DESIGN_SPEC.md', 'w').write(...)`). Files created in `code_execution` live in the sandbox FS, which is separate from the workspace and NOT visible to `file_ops` / `terminal`. Using `write_file` directly is the only path that persists the spec into the workspace. A `code_execution` FunctionCall whose body writes DESIGN_SPEC.md fails this rubric."
+                "text_property": "The response does NOT produce DESIGN_SPEC.md by writing it inside a `code_execution` block (e.g. `open('DESIGN_SPEC.md', 'w').write(...)`). Files created in `code_execution` live in the sandbox FS, which is separate from the workspace and NOT visible to `file_ops` / `bash`. Using `write` directly is the only path that persists the spec into the workspace. A `code_execution` FunctionCall whose body writes DESIGN_SPEC.md fails this rubric."
               }
             },
             {
               "rubric_id": "design_spec_uses_workspace_relative_path",
               "type": "FINAL_RESPONSE_QUALITY",
               "rubric_content": {
-                "text_property": "The `write_file` call uses a workspace-relative path like `DESIGN_SPEC.md` or `./DESIGN_SPEC.md`, NOT an absolute system path like `/tmp/DESIGN_SPEC.md` or `/Users/.../DESIGN_SPEC.md`. The system prompt instructs the model that paths are relative to the workspace root and absolute system paths should not be constructed. A `write_file` call with an absolute path that escapes the workspace fails."
+                "text_property": "The `write` call uses a workspace-relative path like `DESIGN_SPEC.md` or `./DESIGN_SPEC.md`, NOT an absolute system path like `/tmp/DESIGN_SPEC.md` or `/Users/.../DESIGN_SPEC.md`. The system prompt instructs the model that paths are relative to the workspace root and absolute system paths should not be constructed. A `write` call with an absolute path that escapes the workspace fails."
               }
             }
           ]
         },
         {
           "user_content": {
-            "parts": [{"text": "OK, scaffold the project: run `agents-cli scaffold create daily-news-bot --agent adk --prototype`."}]
+            "parts": [
+              {
+                "text": "OK, scaffold the project: run `agents-cli scaffold create daily-news-bot --agent adk --prototype`."
+              }
+            ]
           },
           "rubrics": [
             {
               "rubric_id": "scaffold_via_terminal",
               "type": "FINAL_RESPONSE_QUALITY",
               "rubric_content": {
-                "text_property": "The response invokes `terminal` with the command `agents-cli scaffold create daily-news-bot --agent adk --prototype` (or a trivially equivalent form — minor flag reordering is fine). The user supplied the exact command; the model must run it via `terminal`."
+                "text_property": "The response invokes `bash` with the command `agents-cli scaffold create daily-news-bot --agent adk --prototype` (or a trivially equivalent form — minor flag reordering is fine). The user supplied the exact command; the model must run it via `bash`."
               }
             },
             {
               "rubric_id": "scaffold_does_not_handwrite_files",
               "type": "FINAL_RESPONSE_QUALITY",
               "rubric_content": {
-                "text_property": "The response does NOT attempt to scaffold the project by hand-writing files via `write_file` / `patch` (creating `daily-news-bot/pyproject.toml`, `daily-news-bot/app/agent.py`, etc. itself). `agents-cli scaffold create` exists precisely to generate the canonical project structure; reimplementing it inline both diverges from the official template and skips the CLI step the user asked for. A response that issues multiple `write_file` calls to recreate the scaffold contents instead of (or in addition to) the `terminal` call fails."
+                "text_property": "The response does NOT attempt to scaffold the project by hand-writing files via `write` / `edit` (creating `daily-news-bot/pyproject.toml`, `daily-news-bot/app/agent.py`, etc. itself). `agents-cli scaffold create` exists precisely to generate the canonical project structure; reimplementing it inline both diverges from the official template and skips the CLI step the user asked for. A response that issues multiple `write` calls to recreate the scaffold contents instead of (or in addition to) the `bash` call fails."
               }
             },
             {
@@ -113,49 +129,57 @@
         },
         {
           "user_content": {
-            "parts": [{"text": "Now implement the two tools in `daily-news-bot/app/agent.py`: `fetch_rss(urls: list[str])` returns parsed headlines, and `summarize_headlines(headlines: list[dict])` returns the top-5 ranked markdown digest. Patch them into the scaffolded agent.py."}]
+            "parts": [
+              {
+                "text": "Now implement the two tools in `daily-news-bot/app/agent.py`: `fetch_rss(urls: list[str])` returns parsed headlines, and `summarize_headlines(headlines: list[dict])` returns the top-5 ranked markdown digest. Patch them into the scaffolded agent.py."
+              }
+            ]
           },
           "rubrics": [
             {
               "rubric_id": "implements_tools_via_file_ops",
               "type": "FINAL_RESPONSE_QUALITY",
               "rubric_content": {
-                "text_property": "The response modifies `daily-news-bot/app/agent.py` by invoking `read_file` first (to see the scaffolded contents) and then `patch` or `write_file` to add the two tool functions. Both tools — `fetch_rss` and `summarize_headlines` — must appear in the resulting file content. A response that emits the code inline in chat without a `patch` / `write_file` FunctionCall fails (the file on disk would be unchanged)."
+                "text_property": "The response modifies `daily-news-bot/app/agent.py` by invoking `read` first (to see the scaffolded contents) and then `edit` or `write` to add the two tool functions. Both tools — `fetch_rss` and `summarize_headlines` — must appear in the resulting file content. A response that emits the code inline in chat without a `edit` / `write` FunctionCall fails (the file on disk would be unchanged)."
               }
             },
             {
               "rubric_id": "tool_code_not_in_code_execution",
               "type": "FINAL_RESPONSE_QUALITY",
               "rubric_content": {
-                "text_property": "The response does NOT add the tool implementations by writing them inside a `code_execution` block (e.g. `open('daily-news-bot/app/agent.py', 'w').write(...)`). The sandbox FS is separate from the workspace — files written there never reach the workspace `agent.py`. The only correct path is `patch` / `write_file` directly. A `code_execution` FunctionCall whose body edits `agent.py` fails this rubric."
+                "text_property": "The response does NOT add the tool implementations by writing them inside a `code_execution` block (e.g. `open('daily-news-bot/app/agent.py', 'w').write(...)`). The sandbox FS is separate from the workspace — files written there never reach the workspace `agent.py`. The only correct path is `edit` / `write` directly. A `code_execution` FunctionCall whose body edits `agent.py` fails this rubric."
               }
             }
           ]
         },
         {
           "user_content": {
-            "parts": [{"text": "Add 3 eval cases under `daily-news-bot/tests/eval/evalsets/` covering summarization quality, ranking correctness, and empty-feed handling, then run `agents-cli eval run` from the project root."}]
+            "parts": [
+              {
+                "text": "Add 3 eval cases under `daily-news-bot/tests/eval/evalsets/` covering summarization quality, ranking correctness, and empty-feed handling, then run `agents-cli eval run` from the project root."
+              }
+            ]
           },
           "rubrics": [
             {
               "rubric_id": "eval_cases_persisted_via_write_file",
               "type": "FINAL_RESPONSE_QUALITY",
               "rubric_content": {
-                "text_property": "The response invokes `write_file` to create one or more evalset JSON file(s) under `daily-news-bot/tests/eval/evalsets/` containing 3 distinct cases — summarization quality, ranking correctness, empty-feed handling — each as an `eval_cases` entry with a `conversation` array and either rubrics or expected behavior. The cases may be in one combined evalset file or three separate files; either is fine. A response that narrates the cases inline without a `write_file` FunctionCall fails."
+                "text_property": "The response invokes `write` to create one or more evalset JSON file(s) under `daily-news-bot/tests/eval/evalsets/` containing 3 distinct cases — summarization quality, ranking correctness, empty-feed handling — each as an `eval_cases` entry with a `conversation` array and either rubrics or expected behavior. The cases may be in one combined evalset file or three separate files; either is fine. A response that narrates the cases inline without a `write` FunctionCall fails."
               }
             },
             {
               "rubric_id": "runs_eval_via_terminal",
               "type": "FINAL_RESPONSE_QUALITY",
               "rubric_content": {
-                "text_property": "The response invokes `terminal` with the command `agents-cli eval run` (or `agents-cli eval run --evalset <name>`), with `cwd` set to `daily-news-bot` or a workspace-relative path that lands inside the scaffolded project. A response that omits the `terminal` FunctionCall for the eval run fails — the user explicitly asked for the run to happen."
+                "text_property": "The response invokes `bash` with the command `agents-cli eval run` (or `agents-cli eval run --evalset <name>`), with `cwd` set to `daily-news-bot` or a workspace-relative path that lands inside the scaffolded project. A response that omits the `bash` FunctionCall for the eval run fails — the user explicitly asked for the run to happen."
               }
             },
             {
               "rubric_id": "does_not_fabricate_eval_results",
               "type": "FINAL_RESPONSE_QUALITY",
               "rubric_content": {
-                "text_property": "The response does NOT claim eval results (pass/fail counts, threshold numbers, per-case scores) without an actual `terminal` FunctionCall to `agents-cli eval run` whose output was observed. Asserting 'all 3 cases passed at 0.92' with no tool invocation, or before the FunctionResponse from the eval run is visible, fails — the model must consult the runner, not guess."
+                "text_property": "The response does NOT claim eval results (pass/fail counts, threshold numbers, per-case scores) without an actual `bash` FunctionCall to `agents-cli eval run` whose output was observed. Asserting 'all 3 cases passed at 0.92' with no tool invocation, or before the FunctionResponse from the eval run is visible, fails — the model must consult the runner, not guess."
               }
             }
           ]

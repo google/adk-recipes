@@ -19,8 +19,9 @@ Layers restrictions on top of the global ``policies_guard``:
 * A deny-by-default profile allowlist — when a ``ChildProfile`` with a
   non-None ``allowed_tool_names`` is active, only those tools may run.
 * Inherited parent grants — the child sees exactly the policy exemptions
-  the parent earned, and no more. Children never write new grants (no
-  ``policy_grant`` tool reaches them).
+  the parent earned, and no more. Children never write new grants: granting
+  is `/grant`, a user-only slash command, not a tool any agent (parent or
+  child) can call.
 
 It also runs the same ``exfil_guard`` → ``policies_guard`` chain the root
 agent runs (see ``horizon/agent.py``).

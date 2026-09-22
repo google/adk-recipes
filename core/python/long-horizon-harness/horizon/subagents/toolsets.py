@@ -12,9 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Static toolset registry — the catalogue the dynamic delegate dispatches against.
+"""Static toolset registry — the catalogue the ``subagent`` tool dispatches against.
 
-The dynamic ``delegate`` tool materializes a child agent's tool list from this
+The ``subagent`` tool materializes a child agent's tool list from this
 registry. The LLM names
 toolsets (``["file", "shell"]``); the delegate runner expands those to
 the concrete tool callables and hands them to the child.
@@ -27,13 +27,14 @@ from typing import Any
 from google.adk.tools.agent_tool import AgentTool
 
 from horizon.subagents.web_research import web_research_agent
-from horizon.tools.file_ops import patch, read_file, search_files, write_file
+from horizon.tools.file_ops import edit, search_files, write
 from horizon.tools.processes.process import process
-from horizon.tools.processes.terminal import terminal
+from horizon.tools.processes.terminal import bash
+from horizon.tools.read import ReadTool
 
 TOOLSETS: dict[str, list[Any]] = {
-    "file": [read_file, write_file, patch, search_files],
-    "shell": [terminal, process],
+    "file": [ReadTool(), write, edit, search_files],
+    "shell": [bash, process],
     # google_search can't co-exist with function tools on the same agent;
     # the web-research sub-agent is the carve-out that holds it.
     "web": [AgentTool(agent=web_research_agent)],

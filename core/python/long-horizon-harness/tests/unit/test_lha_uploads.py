@@ -603,3 +603,107 @@ def test_delete_missing_user_id_is_401(env_at_tmp: LocalEnvironment) -> None:
     finally:
         os.environ.pop("LHA_AUTH_MODE", None)
         os.environ.pop("LHA_IAP_AUDIENCE", None)
+
+
+# ---------------------------------------------------------------------------
+# PUT /lha/workspace/file — browser-side editing of an existing text file.
+# ---------------------------------------------------------------------------
+
+
+def test_write_overwrites_existing_file(env_at_tmp: LocalEnvironment) -> None:
+    target = env_at_tmp.working_dir / "report.md"
+    target.write_text("# old\n", encoding="utf-8")
+
+    client = TestClient(_build_app())
+    resp = client.put(
+        "/lha/workspace/file",
+        params={"path": "/workspace/report.md"},
+        json={"content": "# new\n\nedited\n"},
+    )
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == {"path": "/workspace/report.md", "size": 14}
+    assert target.read_text(encoding="utf-8") == "# new\n\nedited\n"
+
+
+def test_write_missing_file_is_404(env_at_tmp: LocalEnvironment) -> None:
+    """Edit-only: creation stays on POST /lha/uploads so this route can't
+    be used to drop new files anywhere under the workspace."""
+    client = TestClient(_build_app())
+    resp = client.put(
+        "/lha/workspace/file",
+        params={"path": "/workspace/nope.md"},
+        json={"content": "x"},
+    )
+    assert resp.status_code == 404
+    assert not (env_at_tmp.working_dir / "nope.md").exists()
+
+
+def test_write_directory_is_400(env_at_tmp: LocalEnvironment) -> None:
+    (env_at_tmp.working_dir / "docs").mkdir()
+    client = TestClient(_build_app())
+    resp = client.put(
+        "/lha/workspace/file",
+        params={"path": "/workspace/docs"},
+        json={"content": "x"},
+    )
+    assert resp.status_code == 400
+
+
+def test_write_outside_workspace_is_400(env_at_tmp: LocalEnvironment) -> None:
+    client = TestClient(_build_app())
+    resp = client.put(
+        "/lha/workspace/file",
+        params={"path": "/workspace/../../etc/passwd"},
+        json={"content": "pwned"},
+    )
+    assert resp.status_code == 400
+
+
+def test_write_binary_extension_is_415(env_at_tmp: LocalEnvironment) -> None:
+    target = env_at_tmp.working_dir / "logo.png"
+    target.write_bytes(b"\x89PNG\r\n")
+
+    client = TestClient(_build_app())
+    resp = client.put(
+        "/lha/workspace/file",
+        params={"path": "/workspace/logo.png"},
+        json={"content": "not a png"},
+    )
+    assert resp.status_code == 415
+    assert target.read_bytes() == b"\x89PNG\r\n"
+
+
+def test_write_protected_path_is_403(
+    env_at_tmp: LocalEnvironment, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The browser route honours the same protected-paths list as the
+    agent's own write tool — the UI must not be a way around it."""
+    target = env_at_tmp.working_dir / "secrets.txt"
+    target.write_text("keep", encoding="utf-8")
+    monkeypatch.setattr("horizon.api.uploads._is_write_denied", lambda _p: True)
+
+    client = TestClient(_build_app())
+    resp = client.put(
+        "/lha/workspace/file",
+        params={"path": "/workspace/secrets.txt"},
+        json={"content": "clobbered"},
+    )
+    assert resp.status_code == 403
+    assert target.read_text(encoding="utf-8") == "keep"
+
+
+def test_write_oversized_content_is_413(env_at_tmp: LocalEnvironment) -> None:
+    from horizon.api.uploads import MAX_EDIT_BYTES
+
+    target = env_at_tmp.working_dir / "big.md"
+    target.write_text("small", encoding="utf-8")
+
+    client = TestClient(_build_app())
+    resp = client.put(
+        "/lha/workspace/file",
+        params={"path": "/workspace/big.md"},
+        json={"content": "x" * (MAX_EDIT_BYTES + 1)},
+    )
+    assert resp.status_code == 413
+    assert target.read_text(encoding="utf-8") == "small"

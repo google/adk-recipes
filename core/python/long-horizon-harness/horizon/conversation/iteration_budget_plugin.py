@@ -164,14 +164,11 @@ class IterationBudgetPlugin(BasePlugin):
     async def on_event_callback(
         self, *, invocation_context: InvocationContext, event: Event
     ) -> Event | None:
-        # Halt the budget on overflow but never REPLACE the event. Returning
-        # a synthetic halt event in place of the model's function_call event
-        # leaves ADK with orphan function_response events (the calls were
-        # already dispatched upstream of this hook); the contents preprocessor
-        # then raises "No function call event found for function responses
-        # ids: {...}" on the next turn. The user-visible halt envelope is
-        # surfaced on the next turn by before_model_callback, which short-
-        # circuits the model when budget.halted is True.
+        # Never replace the event with a synthetic halt: the calls are
+        # already dispatched upstream of this hook, so swapping the event
+        # orphans their function_response events and ADK raises "No function
+        # call event found" next turn. before_model_callback surfaces the
+        # halt envelope instead, once budget.halted is True.
         state = invocation_context.session.state
         budget = self._hydrate_budget(state)
         for _ in event.get_function_calls():

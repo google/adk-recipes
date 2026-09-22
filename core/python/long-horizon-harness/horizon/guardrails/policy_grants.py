@@ -186,7 +186,7 @@ def policy_grant(
     ``action`` picks the operation:
 
     - ``grant``: record a per-session exemption. Requires ``tool_name``
-      (the blocked tool, e.g. ``"terminal"``) and ``signature`` (a
+      (the blocked tool, e.g. ``"bash"``) and ``signature`` (a
       non-empty ``{arg_name: value}`` dict that must match the call
       verbatim). ONLY call after the user has explicitly approved the
       blocked action in the conversation.

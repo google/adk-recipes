@@ -12,14 +12,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Per-turn rewrite of the delegate/agent tool descriptions.
+"""Per-turn rewrite of the ``subagent`` tool's description.
 
 ADK derives a ``FunctionDeclaration`` from each tool's docstring once, at
-import — so the model never sees session-scoped facts (which skills are
-loaded, which child archetypes exist). This ``before_model_callback``
-rewrites the live declaration's ``description`` every turn, splicing in
-the current skill catalog and the profile registry. The Python docstrings
-stay static; only the model's runtime view changes.
+import — so the model never sees session-scoped facts (which child
+archetypes exist). This ``before_model_callback`` rewrites the live
+declaration's ``description`` every turn, splicing in the profile registry.
+The Python docstrings stay static; only the model's runtime view changes.
+
+The skill catalog used to be spliced in here too, a second copy of the same
+``<available_skills>`` XML block already sitting in the system prompt (cut A
+of the prompt-minimalism plan's skills-surface work — the ``delegate``+
+``agent`` merge into ``subagent`` had already removed the other copy). The
+model already has the real catalog; this suffix just points at it.
 """
 
 from __future__ import annotations
@@ -29,26 +34,15 @@ from collections.abc import Awaitable, Callable
 from google.adk.agents.callback_context import CallbackContext
 from google.adk.models import LlmRequest, LlmResponse
 
-from horizon.subagents.delegate_builder import load_session_skill_catalog
 from horizon.subagents.profiles import render_profiles_block
+from horizon.tools import names
 
-_SUBAGENT_TOOL_NAMES = frozenset({"delegate", "agent"})
+_SUBAGENT_TOOL_NAMES = frozenset({names.SUBAGENT})
 _DYNAMIC_MARKER = "\n\n<!-- lha:dynamic -->\n\n"
 
-
-def render_skills_block() -> str:
-    catalog = load_session_skill_catalog()
-    header = "## Skills you can pass to a child (skills=[...])"
-    if not catalog:
-        return f"{header}\n_No skills are currently loaded._"
-    lines = []
-    for name in sorted(catalog):
-        skill = catalog[name]
-        description = getattr(
-            getattr(skill, "frontmatter", None), "description", ""
-        )
-        lines.append(f"- {name}: {description}")
-    return "\n".join([header, *lines])
+_SKILLS_POINTER = (
+    "Pass skill names from your `<available_skills>` block (skills=[...])."
+)
 
 
 def _base_description(current: str | None) -> str:
@@ -58,7 +52,7 @@ def _base_description(current: str | None) -> str:
 
 
 def _build_suffix() -> str:
-    return f"{render_skills_block()}\n\n{render_profiles_block()}"
+    return f"{_SKILLS_POINTER}\n\n{render_profiles_block()}"
 
 
 def make_subagent_description_callback() -> Callable[
@@ -91,6 +85,5 @@ subagent_description_callback = make_subagent_description_callback()
 
 __all__ = [
     "make_subagent_description_callback",
-    "render_skills_block",
     "subagent_description_callback",
 ]

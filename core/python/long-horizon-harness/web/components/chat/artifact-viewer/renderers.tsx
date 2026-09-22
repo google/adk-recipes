@@ -28,6 +28,7 @@ export type RendererKind =
   | "audio"
   | "html"
   | "json"
+  | "pdf"
   | "download";
 
 export type ViewMode = "preview" | "raw";
@@ -43,6 +44,7 @@ export function pickRenderer(mimeType: string, name: string): RendererKind {
   if (mime === "text/markdown" || n.endsWith(".md") || n.endsWith(".markdown"))
     return "markdown";
   if (mime.startsWith("image/") || IMG_EXT.test(n)) return "image";
+  if (mime === "application/pdf" || n.endsWith(".pdf")) return "pdf";
   if (mime.startsWith("audio/")) return "audio";
   if (mime === "text/html" || n.endsWith(".html") || n.endsWith(".htm"))
     return "html";
@@ -56,11 +58,43 @@ export function supportsPreview(kind: RendererKind): boolean {
   return kind === "markdown" || kind === "html";
 }
 
+// Kinds whose bytes are UTF-8 text, so they can be fetched into an editor.
+export function isTextKind(kind: RendererKind): boolean {
+  return (
+    kind === "markdown" || kind === "html" || kind === "json" || kind === "code"
+  );
+}
+
+export function encodeText(text: string): string {
+  const bytes = new TextEncoder().encode(text);
+  let bin = "";
+  for (const b of bytes) bin += String.fromCharCode(b);
+  return btoa(bin);
+}
+
 function bytesToUint8(b64: string): Uint8Array {
   const bin = atob(b64);
   const out = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
   return out;
+}
+
+/**
+ * Whether the tab's bytes are valid UTF-8, i.e. whether decoding them is
+ * lossless. `decodeText` replaces invalid sequences with U+FFFD, so a latin-1
+ * `.csv` decodes "successfully" — and saving that decode back would destroy
+ * the original bytes.
+ */
+export function isLosslessText(tab: ArtifactTab): boolean {
+  if (tab.bytes == null) return false;
+  try {
+    new TextDecoder("utf-8", { fatal: true }).decode(
+      bytesToUint8(tab.bytes) as BufferSource,
+    );
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export function decodeText(tab: ArtifactTab): string | null {
@@ -96,8 +130,8 @@ function DownloadView({ tab }: { tab: ArtifactTab }) {
   return (
     <div className="flex flex-col items-center gap-3 px-3 py-10 text-center">
       <p className="text-sm text-muted-foreground">
-        <span className="font-mono text-foreground">{tab.name}</span> can&rsquo;t
-        be previewed.
+        <span className="font-mono text-foreground">{tab.name}</span>{" "}
+        can&rsquo;t be previewed.
       </p>
       {href && (
         <a
@@ -136,6 +170,17 @@ function AudioView({ tab }: { tab: ArtifactTab }) {
     <div className="flex items-center justify-center p-4">
       <audio controls src={src} className="w-full max-w-md" />
     </div>
+  );
+}
+
+function PdfView({ tab }: { tab: ArtifactTab }) {
+  // Needs a URL the browser can navigate to: the viewer is the platform's own
+  // PDF plugin, and a base64 data: URL is blocked for it in Chrome. The
+  // workspace route serves PDFs inline under `Content-Security-Policy:
+  // sandbox`, which is exactly what this needs.
+  if (!tab.url) return <DownloadView tab={tab} />;
+  return (
+    <iframe title={tab.name} src={tab.url} className="h-full w-full border-0" />
   );
 }
 
@@ -220,6 +265,8 @@ export function ArtifactBody({
       return <HtmlView tab={tab} mode={mode} />;
     case "image":
       return <ImageView tab={tab} />;
+    case "pdf":
+      return <PdfView tab={tab} />;
     case "audio":
       return <AudioView tab={tab} />;
     case "json":

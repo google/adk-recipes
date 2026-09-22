@@ -15,7 +15,7 @@
 """The packaged default-policy seed must block the substrings we care about.
 
 The seed lives at ``horizon/guardrails/default_policies.jsonl`` and is the
-authoritative denylist for the ``terminal`` tool. We assert behavior at the
+authoritative denylist for the ``bash`` tool. We assert behavior at the
 ``policies_guard`` boundary (block / allow) so the seed file and the
 evaluator stay coupled in code, not just in prose.
 
@@ -52,12 +52,12 @@ def policies_env(tmp_path: Path) -> Iterator[Path]:
 
 
 async def _is_blocked(command: str) -> bool:
-    """Run ``policies_guard`` against a terminal command and return whether
+    """Run ``policies_guard`` against a bash command and return whether
     it produced a block dict. Never executes the command."""
     from horizon.guardrails.policies import policies_guard
 
     result = await policies_guard(
-        tool=SimpleNamespace(name="terminal"),
+        tool=SimpleNamespace(name="bash"),
         args={"command": command},
         tool_context=SimpleNamespace(),
     )
@@ -242,13 +242,13 @@ class TestSecretDirectoryWrites:
     @pytest.mark.parametrize(
         "tool_name,arg_name,path",
         [
-            ("write_file", "path", "/Users/alice/.ssh/authorized_keys"),
-            ("write_file", "path", "/home/bob/.ssh/config"),
-            ("write_file", "path", "/Users/alice/.aws/credentials"),
-            ("write_file", "path", "/home/bob/.config/gcloud/x"),
-            ("write_file", "path", "/Users/alice/.kube/config"),
-            ("write_file", "path", "/etc/sudoers"),
-            ("patch", "file_path", "/Users/alice/.ssh/id_rsa"),
+            ("write", "path", "/Users/alice/.ssh/authorized_keys"),
+            ("write", "path", "/home/bob/.ssh/config"),
+            ("write", "path", "/Users/alice/.aws/credentials"),
+            ("write", "path", "/home/bob/.config/gcloud/x"),
+            ("write", "path", "/Users/alice/.kube/config"),
+            ("write", "path", "/etc/sudoers"),
+            ("edit", "file_path", "/Users/alice/.ssh/id_rsa"),
         ],
     )
     async def test_blocks_writes_to_secret_dirs(
@@ -297,7 +297,7 @@ class TestBlockMessageSurfacesGrantCommand:
         from horizon.guardrails.policies import policies_guard
 
         result = await policies_guard(
-            tool=SimpleNamespace(name="terminal"),
+            tool=SimpleNamespace(name="bash"),
             args={"command": "rm -rf /"},
             tool_context=SimpleNamespace(),
         )

@@ -19,8 +19,8 @@ How Horizon runs a recurring task **unattended** on a cron schedule, in a fresh
 sandbox isolated from the user's workspace and holding only the secrets the task
 declares. A routine is for work that should happen without the user present —
 "every morning, pull the metrics and post a digest", "weekly, bump deps and open
-a draft PR" — as distinct from a `reminder`, which just delivers a time-based
-ping into a chat.
+a draft PR". There is no separate one-off reminder tool: a routine cannot
+prompt the user mid-run, so it is the wrong fit for a plain time-based ping.
 
 Verified against `horizon/routines/` (`manifest.py`, `store.py`, `tools.py`,
 `run_context.py`, `isolation.py`, `run_once.py`), `horizon/scheduler/`
@@ -196,8 +196,8 @@ singleton selected by **`LHA_ROUTINE_STORE`**:
   dev. Not durable across restarts.
 - **`postgres`** — `PostgresRoutineStore`
   (`horizon/scheduler/routine_postgres_store.py`), asyncpg-backed. It reuses
-  **`LHA_REMINDER_DB_URL`** (the same Cloud SQL instance as reminders); unset
-  under `postgres` raises at startup. The `routines` table is bootstrapped
+  **`LHA_REMINDER_DB_URL`** (a historical name, now owned solely by routines);
+  unset under `postgres` raises at startup. The `routines` table is bootstrapped
   idempotently on first use, `claim_due` uses `FOR UPDATE SKIP LOCKED` so
   concurrent ticks claim disjoint rows, and every op is wrapped in
   `retry_on_disconnect` for Cloud SQL failover resilience. `secrets` is stored as
@@ -210,7 +210,8 @@ next fire strictly after a given time, raising on an invalid expression.
 ## Environment variables
 
 - **`LHA_ROUTINE_STORE`** — `memory` (default) or `postgres`. Under `postgres` it
-  reuses **`LHA_REMINDER_DB_URL`** (shared Cloud SQL instance with reminders).
+  reuses **`LHA_REMINDER_DB_URL`** (a historical name, now owned solely by
+  routines).
 - The routine sandbox path (`_build_routine_sandbox_environment`) uses the same
   `LHA_RUNTIME_IMAGE` / `LHA_SANDBOX_CALLER_SA` / `LHA_ENVIRONMENT_BACKEND` as
   the user sandbox; `croniter` is a pinned runtime dependency.
@@ -227,7 +228,7 @@ Debug by symptom. Each row points at the code that owns the behavior.
 | Routine command fails on a missing env var / secret | `set_routine_secret_scope(routine.secrets)` + `secret_env()` (`secrets/inject.py`) | A routine only holds the secrets it **declares**; add the name to the manifest `secrets` list (its blast-radius boundary). |
 | Routine turn blocked on an approval it can't answer | `set_headless_mode(True)` → `permission_guard` (`headless_denied`) | A non-shell `ask_user` fails closed with no user present; design the task to avoid non-shell approvals (shell commands run in the `lhart-` sandbox). |
 | Schedule rejected / row silently dropped | `is_valid_cron` (`cron.py`, 5-field croniter); `claim_due` deletes a row whose schedule no longer parses | An invalid cron expression is rejected at `create` and an unparseable stored schedule is dropped rather than looped. |
-| `LHA_ROUTINE_STORE=postgres` crashes at startup | `get_routine_store` → `routine_postgres_store.build_from_env` (`LHA_REMINDER_DB_URL`) | The postgres backend reuses the reminder DB URL; unset under `postgres` raises at startup. |
+| `LHA_ROUTINE_STORE=postgres` crashes at startup | `get_routine_store` → `routine_postgres_store.build_from_env` (`LHA_REMINDER_DB_URL`) | Unset `LHA_REMINDER_DB_URL` under `postgres` raises at startup. |
 
 ---
 
@@ -235,6 +236,6 @@ Debug by symptom. Each row points at the code that owns the behavior.
 
 - [`docs/sandbox-lifecycle.md`](sandbox-lifecycle.md) — the user-sandbox model the `lhart-` routine sandbox is deliberately disjoint from.
 - [`docs/permission-model.md`](permission-model.md) — headless mode: how the ask-layer behaves with no user present.
-- [`docs/memory.md`](memory.md) — the scheduler + Memory Bank plumbing routines share with reminders/dream-review.
+- [`docs/memory.md`](memory.md) — the scheduler + Memory Bank plumbing routines share with dream-review.
 - [`docs/architecture.md`](architecture.md) — the scheduler + isolation ContextVars in the big picture.
 - [`../AGENTS.md`](../AGENTS.md) — the Scheduler section + `LHA_ROUTINE_STORE` / the routine-run ContextVars.

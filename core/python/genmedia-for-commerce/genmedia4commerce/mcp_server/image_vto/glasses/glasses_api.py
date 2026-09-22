@@ -79,7 +79,8 @@ async def get_gallery_images():
 
 @router.post("/enhance-image")
 async def enhance_image_endpoint(
-    image: UploadFile = File(...), view_type: str = Form("front")  # noqa: B008
+    image: UploadFile = File(...),  # noqa: B008
+    view_type: str = Form("front"),
 ):
     """Generate 4 enhanced variations of the uploaded image using AI."""
     try:
@@ -165,7 +166,8 @@ async def generate_vto_endpoint(
 
 @router.post("/edit-frame")
 async def edit_frame_endpoint(
-    prompt: str = Form(...), generated_image: UploadFile = File(...)  # noqa: B008
+    prompt: str = Form(...),
+    generated_image: UploadFile = File(...),  # noqa: B008
 ):
     """Edits an existing generated frame image based on user prompt."""
     try:

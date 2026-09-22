@@ -13,7 +13,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-
 import React, { useEffect, useId, useMemo, useState } from "react";
 import {
   BookOpen,
@@ -26,6 +25,7 @@ import {
   Music,
   Pencil,
   RotateCcw,
+  Scissors,
   Wrench,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -37,6 +37,12 @@ import { useConfirmationSender } from "./confirmation-context";
 import { CopyButton } from "./copy-button";
 import { Markdown } from "./markdown";
 import { useViewerOptional } from "./artifact-viewer/viewer-context";
+import { useWorkspaceFiles, workspacePathForName } from "@/lib/workspace-files";
+import {
+  isFileRefPayload,
+  isSelectionPayload,
+  type SelectionPayload,
+} from "./workspace-href";
 import {
   PatchView,
   ReadFileView,
@@ -86,13 +92,20 @@ function MessageBubbleInner({
   const grouped = groupSegments(message.segments);
 
   return (
-    <div className={cn("flex flex-col gap-1.5", isUser ? "items-end" : "items-start")}>
+    <div
+      className={cn(
+        "flex flex-col gap-1.5",
+        isUser ? "items-end" : "items-start",
+      )}
+    >
       {grouped.map((group, gi) => {
         if (group.kind === "toolGroup") {
           return <ToolGroup key={`tg-${gi}`} tools={group.tools} />;
         }
         if (group.kind === "confirmGroup") {
-          return <CombinedPermissionCard key={`cg-${gi}`} items={group.items} />;
+          return (
+            <CombinedPermissionCard key={`cg-${gi}`} items={group.items} />
+          );
         }
         const seg = group.segment;
         const i = group.index;
@@ -108,6 +121,18 @@ function MessageBubbleInner({
           );
         }
         if (seg.kind === "data") {
+          if (isFileRefPayload(seg.data)) {
+            return (
+              <div key={`refs-${i}`} className="flex flex-wrap gap-1.5">
+                {seg.data.paths.map((p) => (
+                  <WorkspaceFileChip key={p} path={p} />
+                ))}
+              </div>
+            );
+          }
+          if (isSelectionPayload(seg.data)) {
+            return <SelectionQuote key={`sel-${i}`} selection={seg.data} />;
+          }
           return (
             <pre
               key={`data-${i}`}
@@ -402,7 +427,9 @@ const selectPendingSlice = (d: HorizonStateResponse) => ({
 });
 
 function PendingIndicator({ contextId }: { contextId: string | null }) {
-  const { data: slice } = useLhaState(contextId, { select: selectPendingSlice });
+  const { data: slice } = useLhaState(contextId, {
+    select: selectPendingSlice,
+  });
   const provisioning = slice?.provisioning ?? false;
   const inFlight = slice?.inFlight ?? null;
   const [mountedAt] = useState(() => Date.now());
@@ -415,7 +442,9 @@ function PendingIndicator({ contextId }: { contextId: string | null }) {
   const startMs = inFlight?.started_ms ?? mountedAt;
   const elapsedS = Math.max(0, Math.floor((now - startMs) / 1000));
   const elapsedLabel =
-    elapsedS < 60 ? `${elapsedS}s` : `${Math.floor(elapsedS / 60)}m${elapsedS % 60}s`;
+    elapsedS < 60
+      ? `${elapsedS}s`
+      : `${Math.floor(elapsedS / 60)}m${elapsedS % 60}s`;
 
   let label: string;
   if (provisioning) {
@@ -459,6 +488,79 @@ function formatRelative(deltaMs: number): string {
   return `${days}d ago`;
 }
 
+/** A workspace file the user attached by dragging it in. */
+function WorkspaceFileChip({ path }: { path: string }) {
+  const name = path.split("/").pop() || path;
+  const viewer = useViewerOptional();
+  const full = path;
+  return (
+    <button
+      type="button"
+      onClick={() =>
+        viewer?.openArtifact({
+          name,
+          mimeType: "",
+          path: full,
+          url: `/lha/workspace/download?path=${encodeURIComponent(full)}&inline=1`,
+        })
+      }
+      title={`Open ${full} in the side panel`}
+      className="inline-flex items-center gap-1.5 rounded-md border bg-muted/50 px-2 py-1 text-xs hover:bg-muted"
+    >
+      <FileIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+      <span className="max-w-[220px] truncate font-medium">{name}</span>
+    </button>
+  );
+}
+
+/**
+ * A highlighted span, shown above the user's own words.
+ *
+ * The model-facing framing of the same selection is built server-side from
+ * the DataPart, so none of that markup reaches the transcript — the bubble
+ * shows what was pointed at, not how the agent was told about it.
+ */
+function SelectionQuote({ selection }: { selection: SelectionPayload }) {
+  const name = selection.path.split("/").pop() || selection.path;
+  const full = selection.path;
+  const lines =
+    selection.start_line === selection.end_line
+      ? `line ${selection.start_line}`
+      : `lines ${selection.start_line}–${selection.end_line}`;
+  const viewer = useViewerOptional();
+  return (
+    <div className="mb-1.5 max-w-full rounded-md border border-border/60 bg-background/40 text-[11px]">
+      <div className="flex items-center gap-1.5 border-b border-border/50 px-2 py-1 text-muted-foreground">
+        <Scissors className="h-3 w-3 shrink-0" />
+        {viewer ? (
+          <button
+            type="button"
+            onClick={() =>
+              viewer.openArtifact({
+                name,
+                mimeType: "",
+                path: full,
+                url: `/lha/workspace/download?path=${encodeURIComponent(full)}&inline=1`,
+              })
+            }
+            className="truncate font-mono underline-offset-2 hover:underline"
+            title={`Open ${full} in the side panel`}
+          >
+            {name}
+          </button>
+        ) : (
+          <span className="truncate font-mono">{name}</span>
+        )}
+        <span className="shrink-0">· {lines}</span>
+      </div>
+      {/* Whitespace preserved: this is a verbatim excerpt of the file. */}
+      <pre className="max-h-32 overflow-auto whitespace-pre-wrap break-words px-2 py-1.5 font-mono text-muted-foreground">
+        {selection.snippet}
+      </pre>
+    </div>
+  );
+}
+
 function FilePart({
   file,
 }: {
@@ -472,16 +574,27 @@ function FilePart({
   const mime = file.mimeType ?? "application/octet-stream";
   const name = file.name ?? defaultFileName(mime);
   const viewer = useViewerOptional();
+  const busy = useBusy();
+  const files = useWorkspaceFiles(busy);
   const hasContent = Boolean(file.bytes || file.uri);
+  // An attachment carries bytes and a name, never a location — the artifact
+  // service doesn't record one. Recover the path when the name identifies a
+  // workspace file, so opening the attachment lands on the same editable tab
+  // as opening it from the tree, rather than a read-only twin.
+  const path = workspacePathForName(files, name) ?? undefined;
   const onOpen =
     hasContent && viewer
       ? () =>
-          viewer.openArtifact({
-            name,
-            mimeType: mime,
-            bytes: file.bytes,
-            url: file.uri,
-          })
+          viewer.openArtifact(
+            path
+              ? // The attachment's bytes are frozen at the turn that produced
+                // them. Handing them over would show a stale copy of a file
+                // still being edited, and the first keystroke would autosave
+                // that copy back over the agent's work — so let the viewer
+                // read the file itself.
+                { name, mimeType: mime, path }
+              : { name, mimeType: mime, bytes: file.bytes, url: file.uri },
+          )
       : undefined;
   return (
     <AttachmentChip
@@ -723,7 +836,9 @@ function CommandPreview({ id, text }: { id?: string; text: string }) {
         className="flex cursor-pointer list-none items-center gap-1 text-muted-foreground hover:text-foreground [&::-webkit-details-marker]:hidden"
       >
         <ChevronRight className="h-3 w-3 shrink-0 transition-transform group-open:rotate-90" />
-        <span className="truncate font-mono text-xs text-foreground/90">{text}</span>
+        <span className="truncate font-mono text-xs text-foreground/90">
+          {text}
+        </span>
       </summary>
       <pre className="mt-1.5 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted/40 p-2 font-mono text-xs leading-snug text-foreground/90">
         {text}
@@ -791,7 +906,11 @@ function PermissionCard({
               key={label}
               type="button"
               onClick={() =>
-                send({ callId, confirmed: !isDecline, payload: { choice: label } })
+                send({
+                  callId,
+                  confirmed: !isDecline,
+                  payload: { choice: label },
+                })
               }
               className={cn(
                 "rounded-md border px-3 py-1 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
@@ -815,7 +934,13 @@ function CombinedPermissionCard({ items }: { items: ConfirmItem[] }) {
   // outcome KEY (not the single card's per-label `choice`) because labels differ
   // per command while the outcome order is identical for every permission card.
   const batch = (confirmed: boolean, outcome: string) =>
-    send(items.map((it) => ({ callId: it.callId, confirmed, payload: { outcome } })));
+    send(
+      items.map((it) => ({
+        callId: it.callId,
+        confirmed,
+        payload: { outcome },
+      })),
+    );
   return (
     <div
       role="group"
@@ -826,7 +951,10 @@ function CombinedPermissionCard({ items }: { items: ConfirmItem[] }) {
       </div>
       <ul className="flex flex-col gap-1">
         {items.map((it, k) => (
-          <li key={it.callId ?? k} className="font-mono text-xs text-muted-foreground">
+          <li
+            key={it.callId ?? k}
+            className="font-mono text-xs text-muted-foreground"
+          >
             {it.payload.summary}
           </li>
         ))}
@@ -911,7 +1039,10 @@ function groupSegments(segments: MessageSegment[]): SegmentGroup[] {
       while (j < segments.length) {
         const s = segments[j];
         if (!isPendingPermission(s)) break;
-        items.push({ callId: s.callId, payload: s.payload as unknown as PermissionPayload });
+        items.push({
+          callId: s.callId,
+          payload: s.payload as unknown as PermissionPayload,
+        });
         j++;
       }
       if (items.length >= 2) {
@@ -993,13 +1124,18 @@ function ToolRow({
 }) {
   const [open, setOpen] = useState(false);
   const isLoadSkill = name === "load_skill";
-  const skillName = isLoadSkill && typeof args?.name === "string" ? args.name : null;
+  // The tool's real arg is skill_name, not name (final-review Fix 9) — see
+  // horizon/tools/skill_toolset.py's declared schema.
+  const skillName =
+    isLoadSkill && typeof args?.skill_name === "string"
+      ? args.skill_name
+      : null;
   const richPreview = pickRichPreview(name, args);
   const preview = isLoadSkill
-    ? skillName ?? "skill"
-    : richPreview ?? formatArgsPreview(args);
-  const Icon = isLoadSkill ? BookOpen : TOOL_ICONS[name] ?? Wrench;
-  const displayName = isLoadSkill ? "load_skill" : name;
+    ? (skillName ?? "skill")
+    : (richPreview ?? formatArgsPreview(args));
+  const Icon = isLoadSkill ? BookOpen : (TOOL_ICONS[name] ?? Wrench);
+
   return (
     <div className="flex w-full max-w-full flex-col gap-1">
       <button
@@ -1009,7 +1145,7 @@ function ToolRow({
         aria-expanded={open}
       >
         <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />
-        <span className="font-medium text-foreground/75">{displayName}</span>
+        <span className="font-medium text-foreground/75">{name}</span>
         {preview && (
           <span className="truncate font-mono text-muted-foreground/70">
             {preview}
@@ -1044,13 +1180,13 @@ function pickRichPreview(
   args: Record<string, unknown> | null,
 ): string | null {
   switch (name) {
-    case "patch":
+    case "edit":
       return patchPreview(args);
-    case "write_file":
+    case "write":
       return writeFilePreview(args);
-    case "read_file":
+    case "read":
       return readFilePreview(args);
-    case "terminal":
+    case "bash":
       return terminalPreview(args);
     default:
       return null;
@@ -1068,16 +1204,14 @@ function RichToolBody({
   result: unknown;
   hasResult: boolean;
 }) {
-  if (name === "patch") return <PatchView args={args} result={result} />;
-  if (name === "write_file") {
+  if (name === "edit") return <PatchView args={args} result={result} />;
+  if (name === "write") {
     return <WriteFileView args={args} result={result} />;
   }
-  if (name === "read_file") {
-    return (
-      <ReadFileView args={args} result={result} hasResult={hasResult} />
-    );
+  if (name === "read") {
+    return <ReadFileView args={args} result={result} hasResult={hasResult} />;
   }
-  if (name === "terminal") {
+  if (name === "bash") {
     return <TerminalView args={args} result={result} hasResult={hasResult} />;
   }
   return (

@@ -14,7 +14,7 @@
 
 """Cross-session listing of a user's memories for the chat UI.
 
-Surfaces both marker-tagged ``add_memory`` writes and Memory Bank's
+Surfaces both marker-tagged ``memory`` writes and Memory Bank's
 distilled (unmarked) facts, and pins the structured profile to the top of
 the first page.
 """

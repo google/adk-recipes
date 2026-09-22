@@ -33,7 +33,7 @@ from horizon.a2a.routes import A2A_RPC_PATH, attach_a2a_routes
 def _make_agent() -> LlmAgent:
     return LlmAgent(
         name="test_agent",
-        model="gemini-3.6-flash",
+        model="gemini-3.7-flash",
         description="A test agent",
         instruction="Test.",
     )

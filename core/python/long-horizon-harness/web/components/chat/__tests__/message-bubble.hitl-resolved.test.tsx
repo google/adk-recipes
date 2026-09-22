@@ -114,7 +114,7 @@ describe("MessageBubble — resolved HITL segments", () => {
               kind: "confirmation",
               callId: "conf-1",
               hint: "Run shell command: ls /tmp ?",
-              originalCall: { name: "terminal", args: { command: "ls /tmp" } },
+              originalCall: { name: "bash", args: { command: "ls /tmp" } },
               payload: null,
               answer: { confirmed: true, text: null },
             },
@@ -136,7 +136,7 @@ describe("MessageBubble — resolved HITL segments", () => {
               kind: "confirmation",
               callId: "conf-2",
               hint: "Run shell command: ls /tmp ?",
-              originalCall: { name: "terminal", args: { command: "ls /tmp" } },
+              originalCall: { name: "bash", args: { command: "ls /tmp" } },
               payload: null,
               answer: { confirmed: false, text: null },
             },
@@ -145,7 +145,7 @@ describe("MessageBubble — resolved HITL segments", () => {
       />,
     );
     expect(screen.getByText(/Declined/)).toBeInTheDocument();
-    expect(screen.getByText("terminal")).toBeInTheDocument();
+    expect(screen.getByText("bash")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /approve/i })).toBeNull();
     expect(screen.queryByRole("button", { name: /decline/i })).toBeNull();
   });

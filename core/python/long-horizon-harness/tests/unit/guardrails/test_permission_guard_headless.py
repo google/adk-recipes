@@ -53,7 +53,7 @@ async def test_headless_shell_ask_now_allowed():
     try:
         ctx = _Ctx()
         res = await permission_guard(
-            tool=_Tool("terminal"),
+            tool=_Tool("bash"),
             args={"command": "git clone https://example.com/repo"},
             tool_context=ctx,
         )
@@ -97,7 +97,7 @@ async def test_headless_allow_still_allowed():
     try:
         ctx = _Ctx()
         res = await permission_guard(
-            tool=_Tool("terminal"), args={"command": "ls -la"}, tool_context=ctx
+            tool=_Tool("bash"), args={"command": "ls -la"}, tool_context=ctx
         )
         assert res is None
     finally:
@@ -106,7 +106,7 @@ async def test_headless_allow_still_allowed():
 
 async def test_headless_hard_deny_rule_still_denies_not_headless(_env):
     rule = {
-        "toolName": "terminal",
+        "toolName": "bash",
         "commandPrefix": "bq rm",
         "decision": "deny",
         "denyMessage": "blocked by policy",
@@ -121,7 +121,7 @@ async def test_headless_hard_deny_rule_still_denies_not_headless(_env):
     try:
         ctx = _Ctx()
         res = await permission_guard(
-            tool=_Tool("terminal"),
+            tool=_Tool("bash"),
             args={"command": "bq rm ds"},
             tool_context=ctx,
         )
@@ -138,7 +138,7 @@ async def test_headless_hard_deny_rule_still_denies_not_headless(_env):
 async def test_non_headless_ask_still_dispatches_confirmation():
     ctx = _Ctx()
     res = await permission_guard(
-        tool=_Tool("terminal"), args={"command": "bq rm ds"}, tool_context=ctx
+        tool=_Tool("bash"), args={"command": "bq rm ds"}, tool_context=ctx
     )
     assert res is not None
     assert res.get("confirmation_required") is True
@@ -153,14 +153,14 @@ async def test_headless_does_not_reach_destructive_blocked_shell():
 
     args = {"command": "rm -rf /"}
     blocked_plain = await policies_guard(
-        tool=_Tool("terminal"), args=args, tool_context=_Ctx()
+        tool=_Tool("bash"), args=args, tool_context=_Ctx()
     )
     assert blocked_plain is not None
 
     token = set_headless_mode(True)
     try:
         blocked_headless = await policies_guard(
-            tool=_Tool("terminal"), args=args, tool_context=_Ctx()
+            tool=_Tool("bash"), args=args, tool_context=_Ctx()
         )
         assert blocked_headless is not None
     finally:

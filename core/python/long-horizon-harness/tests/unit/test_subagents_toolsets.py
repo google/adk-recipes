@@ -45,26 +45,25 @@ def test_toolsets_registry_is_a_dict_of_lists():
 
 
 def test_file_toolset_has_file_ops():
+    # read_file/view_file were merged into ReadTool (Task 3); the file
+    # bundle carries the merged tool, not the bare function, so children
+    # keep media reads.
     from horizon.subagents.toolsets import TOOLSETS
-    from horizon.tools.file_ops import (
-        patch,
-        read_file,
-        search_files,
-        write_file,
-    )
+    from horizon.tools.file_ops import edit, search_files, write
+    from horizon.tools.read import ReadTool
 
-    file_tools = set(TOOLSETS["file"])
-    assert read_file in file_tools
-    assert write_file in file_tools
-    assert patch in file_tools
+    file_tools = TOOLSETS["file"]
+    assert any(isinstance(t, ReadTool) for t in file_tools)
+    assert write in file_tools
+    assert edit in file_tools
     assert search_files in file_tools
 
 
-def test_shell_toolset_has_terminal():
+def test_shell_toolset_has_bash():
     from horizon.subagents.toolsets import TOOLSETS
-    from horizon.tools.processes.terminal import terminal
+    from horizon.tools.processes.terminal import bash
 
-    assert terminal in TOOLSETS["shell"]
+    assert bash in TOOLSETS["shell"]
 
 
 def test_web_toolset_wraps_web_research_agent_in_agent_tool():
@@ -138,19 +137,19 @@ def test_resolve_tools_by_name_returns_concrete_tools():
     """Caller can pick individual tools by name (not just whole bundles).
     Matches against the union of every tool in every toolset."""
     from horizon.subagents.toolsets import resolve_tools_by_name
-    from horizon.tools.file_ops import read_file
-    from horizon.tools.processes.terminal import terminal
+    from horizon.tools.processes.terminal import bash
+    from horizon.tools.read import ReadTool
 
-    resolved = resolve_tools_by_name(["read_file", "terminal"])
-    assert read_file in resolved
-    assert terminal in resolved
+    resolved = resolve_tools_by_name(["read", "bash"])
+    assert any(isinstance(t, ReadTool) for t in resolved)
+    assert bash in resolved
     assert len(resolved) == 2
 
 
 def test_resolve_tools_by_name_dedups():
     from horizon.subagents.toolsets import resolve_tools_by_name
 
-    resolved = resolve_tools_by_name(["read_file", "read_file"])
+    resolved = resolve_tools_by_name(["read", "read"])
     assert len(resolved) == 1
 
 

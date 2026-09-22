@@ -13,7 +13,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-
 import {
   type ChangeEvent,
   type ClipboardEvent,
@@ -27,9 +26,21 @@ import {
 } from "react";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
-import { ArrowUp, FileIcon, Paperclip, Square, X } from "lucide-react";
+import {
+  ArrowUp,
+  FileIcon,
+  Paperclip,
+  Scissors,
+  Square,
+  X,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { onFocusComposer } from "@/lib/composer-focus";
+import {
+  FILEREF_DRAG_MIME,
+  parseFileRefDrag,
+  type FileRef,
+} from "./workspace-href";
 
 export interface InputAttachment {
   /** Stable per-attachment id used as React key + remove handle. */
@@ -59,6 +70,16 @@ export interface InputBoxProps {
   // — e.g. the sidebar dropzone has queued an upload that will be prepended
   // as `[Uploaded to /workspace: …]` on the next submit.
   hasPendingPrefix?: boolean;
+  // Text highlighted in the artifact panel's Source view. Rendered as a chip
+  // because the browser stops painting the native highlight once focus moves
+  // here, leaving no other cue that a span is held.
+  selectionChip?: { label: string } | null;
+  onClearSelection?: () => void;
+  // Files dragged in from the workspace tree. References, not uploads: the
+  // bytes are already on disk, so only the path travels.
+  fileRefs?: FileRef[];
+  onAddFileRef?: (ref: FileRef) => void;
+  onRemoveFileRef?: (path: string) => void;
   // Messages typed while the agent was busy, awaiting flush. Rendered as a
   // removable stack above the composer.
   queued: string[];
@@ -77,6 +98,11 @@ function InputBoxInner({
   onRemoveAttachment,
   attachmentError,
   hasPendingPrefix,
+  selectionChip,
+  onClearSelection,
+  fileRefs,
+  onAddFileRef,
+  onRemoveFileRef,
   queued,
   onRemoveQueued,
 }: InputBoxProps) {
@@ -121,7 +147,8 @@ function InputBoxInner({
   useEffect(() => {
     const el = textareaRef.current;
     if (!el) return;
-    if (autosizeRafRef.current != null) cancelAnimationFrame(autosizeRafRef.current);
+    if (autosizeRafRef.current != null)
+      cancelAnimationFrame(autosizeRafRef.current);
     autosizeRafRef.current = requestAnimationFrame(() => {
       autosizeRafRef.current = null;
       el.style.height = "auto";
@@ -133,7 +160,13 @@ function InputBoxInner({
     e?.preventDefault();
     if (disabled) return;
     const text = value.trim();
-    if (!text && attachments.length === 0 && !hasPendingPrefix) return;
+    if (
+      !text &&
+      attachments.length === 0 &&
+      (fileRefs?.length ?? 0) === 0 &&
+      !hasPendingPrefix
+    )
+      return;
     onSend(text);
     onValueChange("");
     if (textareaRef.current) {
@@ -150,11 +183,7 @@ function InputBoxInner({
     }
     // Backspace at an empty composer pops the most-recent attachment chip —
     // matches Slack / GitHub behavior so power users can clear by feel.
-    if (
-      e.key === "Backspace" &&
-      value.length === 0 &&
-      attachments.length > 0
-    ) {
+    if (e.key === "Backspace" && value.length === 0 && attachments.length > 0) {
       e.preventDefault();
       onRemoveAttachment(attachments[attachments.length - 1].id);
     }
@@ -186,12 +215,23 @@ function InputBoxInner({
 
   const canSend =
     !disabled &&
-    (value.trim().length > 0 || attachments.length > 0 || !!hasPendingPrefix);
+    (value.trim().length > 0 ||
+      attachments.length > 0 ||
+      (fileRefs?.length ?? 0) > 0 ||
+      !!hasPendingPrefix);
 
   const [isDraggingFiles, setIsDraggingFiles] = useState(false);
   const dragHasFiles = (e: DragEvent<HTMLFormElement>) =>
     Array.from(e.dataTransfer?.types ?? []).includes("Files");
+  const dragHasWorkspaceFile = (e: DragEvent<HTMLFormElement>) =>
+    Array.from(e.dataTransfer?.types ?? []).includes(FILEREF_DRAG_MIME);
   const onDragOver = (e: DragEvent<HTMLFormElement>) => {
+    if (dragHasWorkspaceFile(e)) {
+      e.preventDefault();
+      e.stopPropagation();
+      setIsDraggingFiles(true);
+      return;
+    }
     if (!dragHasFiles(e)) return;
     e.preventDefault();
     e.stopPropagation(); // don't let the shell-level workspace dropzone also fire
@@ -202,6 +242,14 @@ function InputBoxInner({
     setIsDraggingFiles(false);
   };
   const onDrop = (e: DragEvent<HTMLFormElement>) => {
+    if (dragHasWorkspaceFile(e)) {
+      e.preventDefault();
+      e.stopPropagation();
+      setIsDraggingFiles(false);
+      const ref = parseFileRefDrag(e.dataTransfer.getData(FILEREF_DRAG_MIME));
+      if (ref) onAddFileRef?.(ref);
+      return;
+    }
     if (!dragHasFiles(e)) return;
     e.preventDefault();
     e.stopPropagation();
@@ -232,7 +280,9 @@ function InputBoxInner({
                   key={`${i}:${q}`}
                   className="flex items-center gap-1.5 rounded-md border bg-muted/40 py-1 pl-2 pr-1 text-xs text-muted-foreground"
                 >
-                  <span className="flex-1 truncate whitespace-pre-wrap">{q}</span>
+                  <span className="flex-1 truncate whitespace-pre-wrap">
+                    {q}
+                  </span>
                   <button
                     type="button"
                     onClick={() => onRemoveQueued(i)}
@@ -242,6 +292,35 @@ function InputBoxInner({
                     <X className="h-3 w-3" />
                   </button>
                 </div>
+              ))}
+            </div>
+          )}
+
+          {selectionChip && (
+            <div className="px-1.5 pt-1">
+              <span className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-border/60 px-2 py-0.5 text-[11px] text-muted-foreground">
+                <Scissors className="h-3 w-3 shrink-0" />
+                <span className="truncate">{selectionChip.label}</span>
+                <button
+                  type="button"
+                  aria-label="Clear selection"
+                  onClick={onClearSelection}
+                  className="rounded p-0.5 hover:bg-muted"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </span>
+            </div>
+          )}
+
+          {(fileRefs?.length ?? 0) > 0 && (
+            <div className="flex flex-wrap gap-1.5 px-1.5 pt-1">
+              {fileRefs?.map((r) => (
+                <FileRefChip
+                  key={r.path}
+                  fileRef={r}
+                  onRemove={() => onRemoveFileRef?.(r.path)}
+                />
               ))}
             </div>
           )}
@@ -300,10 +379,10 @@ function InputBoxInner({
                 disabled
                   ? "Connecting…"
                   : busy
-                  ? "Reply will be queued…"
-                  : attachments.length > 0
-                  ? "Add a message (optional)"
-                  : "Ask anything…"
+                    ? "Reply will be queued…"
+                    : attachments.length > 0
+                      ? "Add a message (optional)"
+                      : "Ask anything…"
               }
               disabled={disabled}
               rows={1}
@@ -342,6 +421,37 @@ function InputBoxInner({
 
 export const InputBox = memo(InputBoxInner);
 
+/** Same shape as an upload chip; it is a pointer, not a copy. */
+function FileRefChip({
+  fileRef,
+  onRemove,
+}: {
+  fileRef: FileRef;
+  onRemove: () => void;
+}) {
+  return (
+    <div className="group/chip relative flex items-center gap-1.5 rounded-md border bg-muted/50 py-1 pl-1.5 pr-6 text-xs text-foreground">
+      <FileIcon className="h-3.5 w-3.5 text-muted-foreground" />
+      <div className="flex flex-col leading-tight">
+        <span className="max-w-[200px] truncate font-medium">
+          {fileRef.name}
+        </span>
+        <span className="text-[10px] text-muted-foreground">
+          {fileRef.size !== undefined ? formatBytes(fileRef.size) : "workspace"}
+        </span>
+      </div>
+      <button
+        type="button"
+        onClick={onRemove}
+        className="absolute right-0.5 top-0.5 inline-flex h-5 w-5 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-destructive/20 hover:text-destructive"
+        aria-label={`Remove ${fileRef.name}`}
+      >
+        <X className="h-3 w-3" />
+      </button>
+    </div>
+  );
+}
+
 function AttachmentChip({
   attachment,
   onRemove,
@@ -367,7 +477,9 @@ function AttachmentChip({
         <FileIcon className="h-3.5 w-3.5 text-muted-foreground" />
       )}
       <div className="flex flex-col leading-tight">
-        <span className="max-w-[200px] truncate font-medium">{attachment.name}</span>
+        <span className="max-w-[200px] truncate font-medium">
+          {attachment.name}
+        </span>
         <span className="text-[10px] text-muted-foreground">
           {formatBytes(attachment.file.size)}
         </span>

@@ -1,0 +1,8 @@
+__pycache__/
+.pytest_cache/
+.catalog_cache/
+catalog_images/
+tmp/
+.git/
+.gitignore
+deploy_cloudrun.sh

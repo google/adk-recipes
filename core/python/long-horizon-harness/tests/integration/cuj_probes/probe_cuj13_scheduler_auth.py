@@ -45,25 +45,25 @@ _SCHEDULER_SA = "lha-scheduler@example.iam.gserviceaccount.com"
 
 
 def _build_app() -> FastAPI:
-    from horizon.scheduler import tick_endpoint
+    from horizon.scheduler import routine_tick_endpoint
 
     app = FastAPI()
-    app.include_router(tick_endpoint.router)
+    app.include_router(routine_tick_endpoint.router)
     return app
 
 
 @pytest.fixture(autouse=True)
 def _reset(monkeypatch):
     from horizon.scheduler import auth as auth_mod
-    from horizon.scheduler import store as store_mod
+    from horizon.scheduler import routine_store
 
-    store_mod.reset_reminder_store()
+    routine_store.reset_routine_store()
     auth_mod._reset_bypass_warning_for_tests()
     monkeypatch.delenv("LHA_SCHEDULER_AUTH_DISABLED", raising=False)
     monkeypatch.setenv("LHA_SCHEDULER_AUDIENCE", _AUDIENCE)
     monkeypatch.setenv("LHA_SCHEDULER_SA", _SCHEDULER_SA)
     yield
-    store_mod.reset_reminder_store()
+    routine_store.reset_routine_store()
     auth_mod._reset_bypass_warning_for_tests()
 
 
@@ -74,7 +74,7 @@ async def _post(
     async with httpx.AsyncClient(
         transport=transport, base_url="http://t"
     ) as ac:
-        return await ac.post("/scheduler/tick", headers=headers or {})
+        return await ac.post("/scheduler/routine-tick", headers=headers or {})
 
 
 async def test_missing_header_returns_401():

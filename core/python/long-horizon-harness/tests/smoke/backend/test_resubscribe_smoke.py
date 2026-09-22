@@ -62,7 +62,7 @@ async def smoke_client() -> TestClient:
     # sandbox).
     app = FastAPI()
     agent = Agent(
-        name="smoke_agent", model="gemini-3.6-flash", description="smoke"
+        name="smoke_agent", model="gemini-3.7-flash", description="smoke"
     )
     await attach_a2a_routes(
         app,

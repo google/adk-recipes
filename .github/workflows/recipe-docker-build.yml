@@ -1,0 +1,166 @@
+name: Validate Recipe Docker Build
+
+# Builds and tests container accessibility for every recipe affected by a PR
+# that contains a Dockerfile at its root. Also runs on push to main or manual
+# workflow_dispatch across all recipes with root Dockerfiles.
+
+on:
+  pull_request:
+    paths:
+      - 'core/**'
+      - 'contrib/**'
+      - 'skills/**'
+      - '.github/workflows/recipe-docker-build.yml'
+      - '.github/scripts/check_recipe_docker.py'
+      - 'tools/affected_recipes.py'
+      - 'tools/validate_manifest.py'
+      - 'pyproject.toml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'core/**'
+      - 'contrib/**'
+      - 'skills/**'
+      - '.github/workflows/recipe-docker-build.yml'
+      - '.github/scripts/check_recipe_docker.py'
+      - 'tools/affected_recipes.py'
+      - 'tools/validate_manifest.py'
+      - 'pyproject.toml'
+  workflow_dispatch:
+    inputs:
+      recipe:
+        description: "Limit to one recipe path (e.g. core/python/ambient-expense-agent) or leave empty for all"
+        type: string
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate-docker-build:
+    name: Check recipe Docker builds
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # ratchet:astral-sh/setup-uv@v10.0.1
+        with:
+          python-version: "3.11"
+          enable-cache: false
+
+      - name: Install validation dependencies
+        run: uv sync
+
+      - name: Detect affected recipes with root Dockerfiles
+        id: affected
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          ONLY_RECIPE: ${{ github.event.inputs.recipe }}
+        run: |
+          set -euo pipefail
+
+          find_all_docker_recipes() {
+            find core contrib skills -name "Dockerfile" 2>/dev/null | while IFS= read -r df; do
+              dir=$(dirname "$df")
+              if [ -f "$dir/manifest.yaml" ]; then
+                echo "$dir"
+              fi
+            done | sort -u || true
+          }
+
+          if [ -n "${ONLY_RECIPE:-}" ]; then
+            echo "Manual workflow_dispatch with recipe input: $ONLY_RECIPE"
+            if [ -f "$ONLY_RECIPE/Dockerfile" ]; then
+              echo "docker_recipes=$ONLY_RECIPE" >> "$GITHUB_OUTPUT"
+            else
+              echo "::warning::$ONLY_RECIPE has no root Dockerfile."
+              echo "docker_recipes=" >> "$GITHUB_OUTPUT"
+            fi
+            exit 0
+          fi
+
+          if [ "$EVENT_NAME" = "workflow_dispatch" ] || [ "$EVENT_NAME" = "push" ]; then
+            echo "Full scan — discovering all recipes with root Dockerfiles."
+            ALL_DOCKER_RECIPES=$(find_all_docker_recipes)
+
+            echo "Recipes with root Dockerfiles:"
+            echo "$ALL_DOCKER_RECIPES"
+
+            {
+              echo "docker_recipes<<RECIPES_EOF"
+              echo "$ALL_DOCKER_RECIPES"
+              echo "RECIPES_EOF"
+            } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # PR mode: diff against base branch
+          git fetch origin "$BASE_REF"
+          CHANGED_FILES=$(git diff --name-only "origin/$BASE_REF"...HEAD)
+
+          echo "Changed files:"
+          echo "$CHANGED_FILES"
+
+          # If workflow or validation tool changed, validate all recipes with root Dockerfiles
+          INFRA_CHANGED=$(echo "$CHANGED_FILES" | grep -E "^(\.github/workflows/recipe-docker-build\.yml|\.github/scripts/check_recipe_docker\.py|tools/affected_recipes\.py|tools/validate_manifest\.py|pyproject\.toml)$" || true)
+          if [ -n "$INFRA_CHANGED" ]; then
+            echo "Workflow or validation tooling changed — validating all recipes with root Dockerfiles."
+            ALL_DOCKER_RECIPES=$(find_all_docker_recipes)
+
+            {
+              echo "docker_recipes<<RECIPES_EOF"
+              echo "$ALL_DOCKER_RECIPES"
+              echo "RECIPES_EOF"
+            } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Otherwise, map changed files to affected recipes and keep those with a root Dockerfile
+          CHANGED_RECIPES=$(echo "$CHANGED_FILES" | uv run python tools/affected_recipes.py)
+          DOCKER_RECIPES=""
+          while IFS= read -r recipe; do
+            [ -z "$recipe" ] && continue
+            if [ -f "$recipe/Dockerfile" ]; then
+              DOCKER_RECIPES="${DOCKER_RECIPES}${recipe}"$'\n'
+            fi
+          done <<< "$CHANGED_RECIPES"
+
+          DOCKER_RECIPES=$(echo "$DOCKER_RECIPES" | sort -u | sed '/^[[:space:]]*$/d')
+
+          echo "Affected recipes with root Dockerfiles:"
+          echo "$DOCKER_RECIPES"
+
+          {
+            echo "docker_recipes<<RECIPES_EOF"
+            echo "$DOCKER_RECIPES"
+            echo "RECIPES_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Validate Docker image build and container accessibility
+        env:
+          DOCKER_RECIPES: ${{ steps.affected.outputs.docker_recipes }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "$DOCKER_RECIPES" ]; then
+            echo "[INFO] No affected recipes with root Dockerfiles to validate."
+            exit 0
+          fi
+
+          echo "Validating Docker container builds for:"
+          echo "$DOCKER_RECIPES"
+
+          # Pass list of recipe directories to check_recipe_docker.py
+          echo "$DOCKER_RECIPES" | uv run python .github/scripts/check_recipe_docker.py

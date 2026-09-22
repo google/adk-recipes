@@ -1,0 +1,31 @@
+type: standalone
+status: active
+language: python
+description: Semantic product search agent using Vertex AI Vector Search and BigQuery, with ADK agent scaffolding and Cloud Run deployment.
+license: Apache-2.0
+architecture:
+  agent: single
+  stateful: false
+  datasources:
+    - external
+dependencies:
+  libraries:
+    - google-adk
+    - google-cloud-aiplatform
+    - google-cloud-bigquery
+    - google-cloud-storage
+    - google-cloud-vectorsearch
+    - google-genai
+  services:
+    - vertex-ai
+    - vector-search
+    - bigquery
+    - cloud-storage
+ownership:
+  team: FDE/Blackbelt
+  poc: tanvisinghal-0105
+tags:
+  - retail
+  - search
+  - rag
+  - vector-search

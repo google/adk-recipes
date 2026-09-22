@@ -1,0 +1,31 @@
+[project]
+name = "attenu-guard-customer-service"
+version = "0.1.0"
+description = "A customer-service coordinator whose billing sub-agent holds a strict subset of the coordinator's permissions: the refund it was not delegated is refused before the tool body runs, and the run leaves a hash-chained ledger that verifies offline."
+license = {text = "Apache License 2.0"}
+readme = "README.md"
+requires-python = ">=3.11"
+
+dependencies = [
+    "google-adk>=2.7",
+    "google-genai>=1.9.0",
+    "attenu-guard[google-adk,crypto]>=0.10,<0.11",
+    "pydantic>=2",
+    "python-dotenv>=1.0.1",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3.5",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[[tool.uv.index]]
+url = "https://pypi.org/simple/"
+default = true

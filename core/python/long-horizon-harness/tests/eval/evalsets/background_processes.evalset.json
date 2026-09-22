@@ -1,7 +1,7 @@
 {
   "eval_set_id": "background_processes",
-  "name": "Background Processes — terminal(background=) + process()",
-  "description": "Behavioral evals for the agent's use of the background-process surface. The two tools under test (both in horizon/tools/processes/): (a) `terminal` with `background=True` spawns a long-running command into a session-scoped registry and returns `{session_id, pid, status: 'running'}` immediately; with the default `on_timeout='background'` a foreground command that exceeds `timeout_s` auto-promotes into the same registry rather than getting killed. (b) `process(action=...)` drives the lifecycle — `list`, `poll`, `log`, `wait`, `kill`, `write`. The behaviors these evals pin: (1) the model picks background= for commands it knows will outlive a single turn (dev servers, long builds, watching for an event); (2) when a command times out it follows up with `process(action='wait')` or `process(action='kill')` instead of giving up; (3) when a foreground command hangs on an interactive prompt, the model recovers via either re-running with non-interactive flags (-y, --yes) OR writing to stdin via `process(action='write')`. NOTE: project eval_config.json grades against rubric_based_final_response_quality_v1 only — tool selection is encoded in rubric text, not via a trajectory grader.",
+  "name": "Background Processes — process(spawn) + bash",
+  "description": "Behavioral evals for the agent's use of the background-process surface. The two tools under test (both in horizon/tools/processes/): (a) `process(action='spawn', command=...)` spawns a long-running command into a session-scoped registry and returns `{session_id, pid, status: 'running'}` immediately (this is where `bash`'s former `background=True` moved); a foreground `bash` command that exceeds `timeout_s` auto-promotes into the same registry rather than getting killed — this is now fixed internal behavior, not a model-facing `on_timeout` choice. (b) `process(action=...)` drives the lifecycle — `list`, `poll`, `log`, `wait`, `kill`, `write`. The behaviors these evals pin: (1) the model picks `process(action='spawn')` for commands it knows will outlive a single turn (dev servers, long builds, watching for an event); (2) when a command times out it follows up with `process(action='wait')` or `process(action='kill')` instead of giving up; (3) when a foreground command hangs on an interactive prompt, the model recovers via either re-running with non-interactive flags (-y, --yes) OR writing to stdin via `process(action='write')`. NOTE: project eval_config.json grades against rubric_based_final_response_quality_v1 only — tool selection is encoded in rubric text, not via a trajectory grader.",
   "eval_cases": [
     {
       "eval_id": "long_running_command_uses_background",
@@ -12,7 +12,7 @@
           },
           "intermediate_data": {
             "tool_uses": [
-              {"name": "terminal", "args": {"command": "npm run dev", "background": true}},
+              {"name": "process", "args": {"action": "spawn", "command": "npm run dev"}},
               {"name": "process", "args": {"action": "poll"}}
             ]
           },
@@ -20,7 +20,7 @@
             {
               "rubric_id": "background_true_for_dev_server",
               "rubric_content": {
-                "text_property": "The response invokes `terminal` with `background=True` (NOT a default foreground call) for `npm run dev`. A dev server is the textbook background case — it runs forever, blocking the turn would never return. A response that calls `terminal` foreground and waits for it to exit fails this rubric."
+                "text_property": "The response invokes `process(action='spawn', command='npm run dev')` (NOT a default foreground `bash` call) for `npm run dev`. A dev server is the textbook background case — it runs forever, blocking the turn would never return. A response that calls `bash` foreground and waits for it to exit fails this rubric."
               }
             },
             {
@@ -47,7 +47,7 @@
           },
           "intermediate_data": {
             "tool_uses": [
-              {"name": "terminal", "args": {"command": "pytest tests/"}},
+              {"name": "bash", "args": {"command": "pytest tests/"}},
               {"name": "process", "args": {"action": "wait"}}
             ]
           },
@@ -55,7 +55,7 @@
             {
               "rubric_id": "follows_up_on_timeout_with_wait_or_poll",
               "rubric_content": {
-                "text_property": "When `terminal` returns `{timed_out: true, status: 'running', session_id: ...}` (auto-promotion), the response follows up by calling `process(action='wait', session_id=...)` (or repeated `process(action='poll', ...)`) on the returned session_id rather than giving up, reporting failure, or re-running the command from scratch. The whole point of `on_timeout='background'` is that the agent can keep watching — not following up wastes the partial progress."
+                "text_property": "When `bash` returns `{timed_out: true, status: 'running', session_id: ...}` (auto-promotion), the response follows up by calling `process(action='wait', session_id=...)` (or repeated `process(action='poll', ...)`) on the returned session_id rather than giving up, reporting failure, or re-running the command from scratch. The whole point of auto-promotion is that the agent can keep watching — not following up wastes the partial progress."
               }
             },
             {
@@ -82,7 +82,7 @@
           },
           "intermediate_data": {
             "tool_uses": [
-              {"name": "terminal", "args": {"command": "apt-get install -y ripgrep"}}
+              {"name": "bash", "args": {"command": "apt-get install -y ripgrep"}}
             ]
           },
           "rubrics": [
@@ -116,14 +116,14 @@
           },
           "intermediate_data": {
             "tool_uses": [
-              {"name": "terminal", "args": {"command": "git branch --show-current"}}
+              {"name": "bash", "args": {"command": "git branch --show-current"}}
             ]
           },
           "rubrics": [
             {
               "rubric_id": "no_background_for_trivial_command",
               "rubric_content": {
-                "text_property": "The response calls `terminal` foreground (no `background=True`, no `process` follow-up) for `git branch --show-current`. The command exits in milliseconds — using `background=True` is overkill and forces a needless second tool call to retrieve the result. This rubric catches over-eager use of the new surface."
+                "text_property": "The response calls `bash` foreground (no `process(action='spawn')` call) for `git branch --show-current`. The command exits in milliseconds — spawning it into the background registry is overkill and forces a needless second tool call to retrieve the result. This rubric catches over-eager use of the background surface."
               }
             }
           ]

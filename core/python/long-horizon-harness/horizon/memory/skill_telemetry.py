@@ -16,10 +16,10 @@
 
 Tracks two signals keyed by skill name:
 
-* ``views`` — bumped when the agent loads a skill via ADK's ``load_skill``
-  or ``load_skill_resource`` tools.
+* ``views`` — bumped when the agent loads a skill's instructions or one of
+  its bundled resource files via ``load_skill``.
 * ``manages`` — bumped when the agent writes to a skill file via the
-  generic ``write_file`` or ``patch`` tools, recognised by a
+  generic ``write`` or ``edit`` tools, recognised by a
   ``.agents/skills/<name>/...`` path prefix (the layout ``skill_loader`` walks).
 
 Cross-session lifecycle facts live in Memory Bank via
@@ -32,10 +32,12 @@ from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Any
 
+from horizon.tools import names
+
 SKILL_TELEMETRY_STATE_KEY = "skill_telemetry"
 
-_VIEW_TOOLS = frozenset({"load_skill", "load_skill_resource"})
-_MUTATE_TOOLS = frozenset({"write_file", "patch"})
+_VIEW_TOOLS = frozenset({names.LOAD_SKILL})
+_MUTATE_TOOLS = frozenset({names.WRITE, names.EDIT})
 _SKILLS_PREFIX = ".agents/skills/"
 
 

@@ -1,6 +1,6 @@
 ---
 name: find-skills
-description: Helps users discover and install NEW agent skills from external sources (skills.sh, the Skills CLI). Use only when the user wants capabilities they don't already have — "find a skill for X", "is there a skill that can...", "how do I do X" for a task not covered by an installed skill. Do NOT use this to list skills you ALREADY have — those are in your `<available_skills>` block; answer from there directly.
+description: Discover/install NEW agent skills from external sources (skills.sh). Use for capabilities you lack, e.g. "find a skill for X". Do NOT use to list skills you already have; see `<available_skills>`.
 ---
 # Find skills
 
@@ -24,7 +24,7 @@ total installs, surfacing the most popular and battle-tested options.
 If the leaderboard doesn't cover the user's need, search via the Skills CLI:
 
 ```
-terminal(command="npx --yes skills find <query>")
+bash(command="npx --yes skills find <query>")
 ```
 
 Examples:
@@ -67,26 +67,27 @@ If you have the skill content (pasted by the user, retrieved from skills.sh,
 or constructed from the search result):
 
 ```
-write_file(".agents/skills/<name>/SKILL.md", content)
-reload()
+write(".agents/skills/<name>/SKILL.md", content)
+load_skill(action="reload")
 ```
 
-`write_file` creates the directory if it does not exist. `reload` refreshes
-the `<available_skills>` catalog (plus extensions and manifest) on the next turn.
+`write` creates the directory if it does not exist. `load_skill(action="reload")`
+refreshes the `<available_skills>` catalog (plus extensions and manifest) on
+the next turn.
 
 ### Option B — install via npx (requires Node.js)
 
 First check whether npx is available:
 
 ```
-terminal(command="which npx")
+bash(command="which npx")
 ```
 
 If it is, install the skill. Select a single skill from a multi-skill repo with
 the `@<skill>` suffix (omit it to take the whole repo):
 
 ```
-terminal(command="npx --yes skills add <owner/repo>@<skill-name> -y")
+bash(command="npx --yes skills add <owner/repo>@<skill-name> -y")
 ```
 
 The Skills CLI stages the skill (with its `references/`, `assets/`, and
@@ -94,7 +95,7 @@ The Skills CLI stages the skill (with its `references/`, `assets/`, and
 loads skills from — so no move is needed. Just refresh:
 
 ```
-reload()
+load_skill(action="reload")
 ```
 
 The staged directory name MUST match the `name:` field in the SKILL.md
@@ -103,7 +104,8 @@ skills.
 
 ## Step 6 — confirm activation
 
-After `reload()` returns (look for the new skill in `skills_loaded`), tell the user:
+After `load_skill(action="reload")` returns (look for the new skill in
+`loaded`), tell the user:
 
 ```
 The "<name>" skill is now installed. It will appear in your
@@ -117,7 +119,7 @@ The "<name>" skill is now installed. It will appear in your
 3. Offer to write a custom skill for them:
 
 ```
-terminal(command="npx --yes skills init my-skill-name")
+bash(command="npx --yes skills init my-skill-name")
 ```
 
 Or skip the CLI and author one manually — write a SKILL.md following the

@@ -13,7 +13,7 @@
 # limitations under the License.
 
 """End-to-end lifecycle of the background-process surface, exercising
-the real ``terminal`` and ``process`` tools against ``LocalEnvironment``
+the real ``bash`` and ``process`` tools against ``LocalEnvironment``
 (no LLM in the loop).
 
 Covers the three flows the model is taught to drive:
@@ -33,7 +33,7 @@ import pytest
 
 from horizon.environment.registry import ProcessRegistry
 from horizon.tools.processes.process import process
-from horizon.tools.processes.terminal import terminal
+from horizon.tools.processes.terminal import bash
 
 pytestmark = pytest.mark.asyncio
 
@@ -46,9 +46,9 @@ def _ctx() -> SimpleNamespace:
 
 async def test_background_spawn_poll_kill_round_trip() -> None:
     ctx = _ctx()
-    spawn = await terminal(
+    spawn = await process(
+        action="spawn",
         command="sleep 30",
-        background=True,
         tool_context=ctx,
     )
     assert spawn["status"] == "running"
@@ -71,7 +71,7 @@ async def test_background_spawn_poll_kill_round_trip() -> None:
 
 async def test_auto_promote_on_timeout_preserves_session() -> None:
     ctx = _ctx()
-    result = await terminal(
+    result = await bash(
         command="sleep 3 && echo done",
         timeout_s=1,
         tool_context=ctx,
@@ -93,9 +93,9 @@ async def test_auto_promote_on_timeout_preserves_session() -> None:
 
 async def test_write_unblocks_interactive_session() -> None:
     ctx = _ctx()
-    spawn = await terminal(
+    spawn = await process(
+        action="spawn",
         command="bash -c 'read line; echo got=$line'",
-        background=True,
         tool_context=ctx,
     )
     sid = spawn["session_id"]
@@ -116,11 +116,11 @@ async def test_registry_isolated_per_session() -> None:
     ctx_a = _ctx()
     ctx_b = _ctx()
 
-    spawn_a = await terminal(
-        command="sleep 30", background=True, tool_context=ctx_a
+    spawn_a = await process(
+        action="spawn", command="sleep 30", tool_context=ctx_a
     )
-    spawn_b = await terminal(
-        command="sleep 30", background=True, tool_context=ctx_b
+    spawn_b = await process(
+        action="spawn", command="sleep 30", tool_context=ctx_b
     )
 
     sids_a = {

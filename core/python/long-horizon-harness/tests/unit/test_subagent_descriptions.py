@@ -12,47 +12,22 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""before_model_callback rewrites delegate/agent tool descriptions live."""
+"""before_model_callback rewrites the subagent tool's description live.
+
+The skill catalog used to be spliced into this description too (cut A of
+the prompt-minimalism plan's skills-surface work) — a second copy of the
+same ``<available_skills>`` content the model already has in its system
+prompt. The suffix now carries only a one-line pointer at that block plus
+the child-profile registry.
+"""
 
 from __future__ import annotations
 
-import shutil
-from pathlib import Path
 from typing import Any, ClassVar
 
 import pytest
-import yaml
 
 pytestmark = pytest.mark.asyncio
-
-
-def _write_skill(root: Path, name: str, description: str) -> None:
-    from horizon.tools.skill_reload import host_mirror_dir
-
-    frontmatter = yaml.safe_dump(
-        {"name": name, "description": description}, sort_keys=True
-    )
-    content = f"---\n{frontmatter}---\n\nBody for {name}.\n"
-    mirror_dir = host_mirror_dir(root) / name
-    mirror_dir.mkdir(parents=True, exist_ok=True)
-    (mirror_dir / "SKILL.md").write_text(content, encoding="utf-8")
-
-
-@pytest.fixture()
-def skills_home(tmp_path: Path):
-    from horizon.environment import LocalEnvironment
-    from horizon.environment_context import (
-        clear_active_environment,
-        set_active_environment,
-    )
-    from horizon.tools.skill_reload import host_mirror_dir
-
-    set_active_environment(LocalEnvironment(working_dir=tmp_path))
-    try:
-        yield tmp_path
-    finally:
-        clear_active_environment()
-        shutil.rmtree(host_mirror_dir(tmp_path), ignore_errors=True)
 
 
 def _make_request(*tool_names: str):
@@ -86,72 +61,46 @@ def _desc(req: Any, name: str) -> str:
     raise AssertionError(name)
 
 
-async def test_rewrites_delegate_and_agent_with_skills(
-    skills_home: Path,
-) -> None:
-    _write_skill(skills_home, "gws-drive", "Drive enumeration helper.")
+async def test_rewrites_subagent_with_pointer_and_profiles() -> None:
     from horizon.subagents.descriptions import (
         make_subagent_description_callback,
     )
 
     cb = make_subagent_description_callback()
-    req = _make_request("delegate", "agent", "read_file")
+    req = _make_request("subagent", "read_file")
     await cb(_Cb(), req)
 
-    delegate_desc = _desc(req, "delegate")
-    assert delegate_desc.startswith("BASE delegate description.")
-    assert "## Skills you can pass to a child" in delegate_desc
-    assert "- gws-drive: Drive enumeration helper." in delegate_desc
-    assert "## Child profiles" in delegate_desc
-    # agent gets the same treatment.
-    assert "## Child profiles" in _desc(req, "agent")
+    subagent_desc = _desc(req, "subagent")
+    assert subagent_desc.startswith("BASE subagent description.")
+    assert "<available_skills>" in subagent_desc
+    assert "## Child profiles" in subagent_desc
     # other tools are untouched.
     assert _desc(req, "read_file") == "BASE read_file description."
 
 
-async def test_empty_catalog_shows_placeholder(monkeypatch) -> None:
-    """When the catalog is genuinely empty, a placeholder line is shown
-    instead of an empty block."""
-    from horizon.subagents import descriptions as descriptions_mod
+async def test_suffix_carries_no_skill_catalog() -> None:
+    """The catalog is in <available_skills> once, not spliced in a second
+    time here (cut A) — regardless of what skills happen to be loaded."""
+    from horizon.subagents.descriptions import _build_suffix
 
-    monkeypatch.setattr(
-        descriptions_mod, "load_session_skill_catalog", lambda: {}
-    )
-    block = descriptions_mod.render_skills_block()
-    assert "_No skills are currently loaded._" in block
+    suffix = _build_suffix()
+    assert "## Skills you can pass to a child" not in suffix
 
 
-async def test_block_lists_loaded_skills(skills_home: Path) -> None:
-    """The block lists the skills actually resolvable this session
-    (built-ins are always loaded; user-mirror skills add to them)."""
-    _write_skill(skills_home, "gws-drive", "Drive enumeration helper.")
-    from horizon.subagents.descriptions import (
-        make_subagent_description_callback,
-    )
-
-    cb = make_subagent_description_callback()
-    req = _make_request("delegate")
-    await cb(_Cb(), req)
-    desc = _desc(req, "delegate")
-    assert "- gws-drive: Drive enumeration helper." in desc
-    assert "_No skills are currently loaded._" not in desc
-
-
-async def test_idempotent_across_turns(skills_home: Path) -> None:
+async def test_idempotent_across_turns() -> None:
     """Calling the callback twice must not double-append the dynamic block."""
-    _write_skill(skills_home, "s1", "First skill.")
     from horizon.subagents.descriptions import (
         make_subagent_description_callback,
     )
 
     cb = make_subagent_description_callback()
-    req = _make_request("delegate")
+    req = _make_request("subagent")
     await cb(_Cb(), req)
-    first = _desc(req, "delegate")
+    first = _desc(req, "subagent")
     await cb(_Cb(), req)
-    second = _desc(req, "delegate")
+    second = _desc(req, "subagent")
     assert first == second
-    assert second.count("## Skills you can pass to a child") == 1
+    assert second.count("## Child profiles") == 1
 
 
 async def test_handles_request_with_no_tools() -> None:

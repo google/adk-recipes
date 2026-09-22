@@ -172,8 +172,7 @@ class InMemoryMemoryAdapter(NoopMemoryAdapter):
     ) -> list[MemoryWriteEntry]:
         # Private attribute: ADK's BaseMemoryService exposes no list-all API and
         # search_memory keyword-matches. Revisit when ADK adds one.
-        user_key = f"{app_name}/{user_id}"
-        sessions = self._service._session_events.get(user_key, {})
+        sessions = self._service._session_events.get((app_name, user_id), {})
         out: list[MemoryWriteEntry] = []
         for session_id, events in sessions.items():
             for event in events:

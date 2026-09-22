@@ -12,12 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Unit tests for the ``cancel()`` override on ``_TaskTrackingExecutor``.
+"""Unit tests for ``cancel()`` on ``_TaskTrackingExecutor``.
 
-ADK's ``A2aAgentExecutor.cancel`` raises ``NotImplementedError``, which aborts
-a2a's ``on_cancel_task`` before it can cancel the running producer task. We
-override ``cancel`` to emit a terminal ``canceled`` status so ``on_cancel_task``
-proceeds. These tests pin that contract; no LLM is exercised.
+``cancel`` must emit a terminal ``canceled`` status rather than raise, or a2a's
+``on_cancel_task`` aborts before it cancels the running producer task. ADK
+provides that behavior; these tests pin that we still get it. No LLM is
+exercised.
 """
 
 from __future__ import annotations
@@ -26,7 +26,6 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from a2a.types import TaskState
-from google.adk.a2a.executor.a2a_agent_executor import A2aAgentExecutor
 
 from horizon.a2a.executor import build_executor
 from horizon.auth.identity import _user_id_var
@@ -72,21 +71,4 @@ async def test_cancel_does_not_raise() -> None:
     event_queue = MagicMock()
     event_queue.enqueue_event = AsyncMock()
 
-    # The whole point of the override: it must NOT raise (the parent does).
     await executor.cancel(context, event_queue)
-
-
-@pytest.mark.asyncio
-async def test_base_executor_cancel_raises_not_implemented() -> None:
-    """Regression guard documenting why the override exists: the ADK base
-    ``cancel`` raises ``NotImplementedError`` when no executor impl is set,
-    which would abort a2a's ``on_cancel_task`` before the producer is cancelled.
-    """
-    executor = build_executor(runner=MagicMock())
-    executor._executor_impl = None
-    context = _make_context(task_id="task-y")
-    event_queue = MagicMock()
-    event_queue.enqueue_event = AsyncMock()
-
-    with pytest.raises(NotImplementedError):
-        await A2aAgentExecutor.cancel(executor, context, event_queue)

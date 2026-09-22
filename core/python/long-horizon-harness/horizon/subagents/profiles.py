@@ -25,6 +25,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from horizon.tools import names
+
 
 @dataclass(frozen=True)
 class ChildProfile:
@@ -40,9 +42,7 @@ PROFILES: dict[str, ChildProfile] = {
             "Read-only researcher: file reads and search only, no writes, "
             "no shell, no network."
         ),
-        allowed_tool_names=frozenset(
-            {"read_file", "search_files", "view_file"}
-        ),
+        allowed_tool_names=frozenset({names.READ, names.SEARCH_FILES}),
     ),
 }
 

@@ -333,6 +333,11 @@ def test_tool_context_is_keyword_only():
 
 def test_clarify_registered_on_root_agent():
     from horizon.agent import root_agent
-    from horizon.tools.clarify import clarify
 
-    assert clarify in root_agent.tools
+    # By name, not identity: the tool list holds the FunctionTool wrappers
+    # that carry the compact declaration, not the bare functions.
+    names = {
+        getattr(t, "name", None) or getattr(t, "__name__", "")
+        for t in root_agent.tools
+    }
+    assert "clarify" in names

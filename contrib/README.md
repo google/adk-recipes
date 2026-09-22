@@ -18,4 +18,5 @@ with setup and run instructions.
 ## Contributing to `contrib/`
 
 For the requirements and shipping checklist, see the
-[Recipe Handbook — `contrib/` page](../docs/recipe-handbook/folders/contrib.md).
+[recipe checklist](../docs/recipe-checklist.md). For deeper
+detail, see the [recipe handbook](../docs/recipe-handbook/README.md).

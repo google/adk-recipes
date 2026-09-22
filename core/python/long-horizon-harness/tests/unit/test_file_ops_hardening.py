@@ -16,7 +16,7 @@
 
 Pins safety gaps in ``horizon/tools/file_ops.py`` not covered by the base
 test file (``test_file_ops.py``), which covers happy-path
-read/write/patch/search, the write-side deny list, and a few
+read/write/edit/search, the write-side deny list, and a few
 binary/encoding fallbacks. This pack adds the safety edges that path
 doesn't reach.
 
@@ -92,7 +92,7 @@ from pathlib import Path
 
 import pytest
 
-from horizon.tools.file_ops import read_file, search_files, write_file
+from horizon.tools.file_ops import read_file, search_files, write
 
 pytestmark = [
     pytest.mark.filterwarnings("ignore::DeprecationWarning"),
@@ -101,6 +101,16 @@ pytestmark = [
 # =============================================================================
 # A. Character-device / FIFO / socket: read_file must not hang
 # =============================================================================
+
+
+def _tmp_is_writable() -> bool:
+    # AF_UNIX sun_path caps at 104 chars, so this needs /tmp rather than
+    # pytest's long tmp_path. A restricted sandbox can make /tmp unwritable.
+    try:
+        with tempfile.TemporaryDirectory(dir="/tmp", prefix="hsprobe"):
+            return True
+    except OSError:
+        return False
 
 
 class TestReadFileBlocksNonRegularFiles:
@@ -144,6 +154,9 @@ class TestReadFileBlocksNonRegularFiles:
         sys.platform == "win32",
         reason="POSIX domain sockets via socket.AF_UNIX are not on Windows",
     )
+    @pytest.mark.skipif(
+        not _tmp_is_writable(), reason="/tmp is not writable in this sandbox"
+    )
     async def test_read_unix_socket_returns_error_not_hang(self) -> None:
         """Reading a UNIX domain socket file via the filesystem path raises
         (or hangs depending on platform). Either way, read_file must reject
@@ -175,13 +188,19 @@ class TestReadFileCapsContentLength:
         self, tmp_path: Path
     ) -> None:
         """A 500KB file selected entirely by offset/limit must be capped
-        at _MAX_READ_CHARS (=200_000). Without the cap, one tool call
+        at _MAX_READ_CHARS, now aligned with bash's TERMINAL_OUTPUT_LIMIT
+        (50KB) instead of the old 200_000. Without the cap, one tool call
         can flood the model's context window.
 
-        Pinned values: _MAX_READ_CHARS=200_000."""
+        The cap now uses the same spill-to-file contract as bash
+        (overflow_to_file): content is a preview plus a pointer sentence,
+        so total content length can exceed _MAX_READ_CHARS by the pointer's
+        overhead (a few hundred chars) — bounded generously here rather
+        than with a strict <=, since bash's own overflow contract makes
+        the same tradeoff and has no stricter test either."""
         from horizon.tools.file_ops import _MAX_READ_CHARS
 
-        # Write ~500KB of content, well over the 200K cap.
+        # Write ~500KB of content, well over the 50KB cap.
         target = tmp_path / "big.txt"
         line = "a" * 999 + "\n"  # 1000 chars per line
         target.write_text(line * 500)  # 500_000 chars total
@@ -190,10 +209,11 @@ class TestReadFileCapsContentLength:
         result = await read_file(str(target), offset=1, limit=10_000)
 
         assert result["success"] is True
-        # Content must NOT exceed the cap.
-        assert len(result["content"]) <= _MAX_READ_CHARS, (
+        # Content must stay bounded — original was 500_000 chars, so even
+        # with pointer overhead this must be nowhere close to that.
+        assert len(result["content"]) <= _MAX_READ_CHARS + 500, (
             f"read_file returned {len(result['content'])} chars, "
-            f"exceeds cap of {_MAX_READ_CHARS}."
+            f"exceeds cap of {_MAX_READ_CHARS} plus pointer overhead."
         )
         # The result must surface that truncation happened — otherwise the
         # model has no way to know it's looking at a partial file and may
@@ -203,6 +223,34 @@ class TestReadFileCapsContentLength:
             "the model knows to paginate. Got: "
             f"{ {k: v for k, v in result.items() if k != 'content'} }"
         )
+
+    async def test_huge_file_spills_full_content_with_pointer(
+        self, tmp_path: Path
+    ) -> None:
+        """Same spill-to-lha/tool-output/ mechanism as bash's overflow
+        contract, but the label differs on purpose: read spills only the
+        requested offset/limit page, not the whole file, so the pointer
+        says "This page of output", not "Full output" (which would
+        overclaim a 502-line page of a much longer file as everything)."""
+        target = tmp_path / "big.txt"
+        lines = [f"line-{i}".ljust(999) + "\n" for i in range(500)]
+        target.write_text("".join(lines))
+
+        result = await read_file(str(target), offset=1, limit=10_000)
+
+        assert result["success"] is True
+        assert result["truncated"] is True
+        assert "This page of output saved to" in result["content"]
+        assert "Full output" not in result["content"]
+        assert "read with offset/limit" in result["content"]
+        assert "overflow_path" in result, (
+            "Spill path must be surfaced so the caller (or a test) can "
+            "verify the full content landed on disk. Got: " + repr(result)
+        )
+
+        saved = Path(result["overflow_path"]).read_text(encoding="utf-8")
+        assert "line-0" in saved
+        assert "line-499" in saved
 
     async def test_small_file_is_not_marked_truncated(
         self, tmp_path: Path
@@ -230,9 +278,9 @@ class TestReadFileCapsContentLength:
 class TestReadFileDenyList:
     async def test_read_etc_passwd_is_denied(self) -> None:
         """Currently read_file does NOT consult the deny list — only
-        write_file does. So the model can read /etc/passwd and exfiltrate
+        write does. So the model can read /etc/passwd and exfiltrate
         it via the response. This test pins that read_file rejects the
-        same protected paths write_file does.
+        same protected paths write does.
 
         On Linux /etc/passwd exists; on macOS it also exists. If it's
         absent on the test host (uncommon), the test skips rather than
@@ -339,7 +387,7 @@ class TestSymlinkResolution:
         link = tmp_path / "innocent.txt"
         link.symlink_to("/etc/passwd")
 
-        result = await write_file(str(link), "x")
+        result = await write(str(link), "x")
 
         assert result["success"] is False, (
             "Symlink to /etc/passwd must be blocked. Got: " + repr(result)

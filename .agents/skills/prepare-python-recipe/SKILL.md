@@ -82,6 +82,8 @@ At the end, print a summary table and remind the user to `git diff` and commit �
 
 **Why Phase 8 exists.** The pipeline used to end at Phase 7 and report a clean run while `uv run validate structure` failed — the recipe passed every phase the skill modelled and was still rejected by CI. Reimplementing policy checks inside this skill would guarantee drift, so the pipeline defers to the repo's own validators as the last word.
 
+**Deployability is deliberately NOT a phase here.** The serving files a container needs (`Dockerfile`, `fast_api_app.py`, `app_utils/`, the serving dependencies) are the job of a separate opt-in skill, `make-python-recipe-deployable`. Most recipes neither need nor want them, and adding them can require an ADK major migration the owner must do by hand — so it must never run unasked as part of "prepare". If the user wants a deployable recipe, finish this pipeline first, then invoke that skill.
+
 ---
 
 ## Rules for the Agent

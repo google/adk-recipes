@@ -13,6 +13,6 @@
 # limitations under the License.
 
 from horizon.tools.processes.process import process
-from horizon.tools.processes.terminal import terminal
+from horizon.tools.processes.terminal import bash
 
-__all__ = ["process", "terminal"]
+__all__ = ["bash", "process"]

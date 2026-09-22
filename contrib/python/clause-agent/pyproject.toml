@@ -1,0 +1,35 @@
+[project]
+name = "clause-agent"
+version = "0.1.0"
+description = "ClauseIQ: an ADK agent that resolves contract hierarchy/precedence conflicts, extracts billing-relevant clauses, and remembers Legal/Billing corrections as durable, scoped memory."
+readme = "README.md"
+requires-python = ">=3.11"
+
+dependencies = [
+    "google-adk>=1.31.0",
+    "google-genai>=1.9.0",
+    "pydantic>=2.10.6",
+    "python-dotenv>=1.0.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3.5",
+    "pytest-asyncio>=0.26.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["clause_agent"]
+
+[tool.pytest.ini_options]
+pythonpath = "."
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[[tool.uv.index]]
+url = "https://pypi.org/simple/"
+default = true

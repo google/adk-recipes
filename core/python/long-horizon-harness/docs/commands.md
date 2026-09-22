@@ -10,7 +10,7 @@ _Auto-generated from `horizon/commands/__init__.py`. Regenerate with `make comma
 | Command | Description |
 | --- | --- |
 | `/dream-review` | Force an immediate dream-review pass, consolidating your Structured Profile from recent sessions. |
-| `/grant` | Grant a per-session HITL bypass for a terminal command (no args lists active grants). |
+| `/grant` | Grant a per-session HITL bypass for a shell command — covers bash, process spawn, and process write shapes (no args lists active grants). |
 | `/model` | Show or switch the root agent model for this session (no args lists available models). |
 | `/permissions` | List session and persisted permission grants; `clear` drops the session grants. |
 | `/reload` | Reload the skill catalog and invalidate cached secrets for this session. |

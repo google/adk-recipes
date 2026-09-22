@@ -16,7 +16,7 @@
 
 Fires once when ``HorizonSummarizer`` is about to compact events (ADK's
 ``EventsCompactionConfig`` summarizer hook). A narrowly-scoped sibling
-agent (``add_memory`` only) walks the soon-to-be-compacted events and
+agent (``memory`` only) walks the soon-to-be-compacted events and
 saves anything worth keeping. Mirrors the structure of
 ``horizon/memory/review_fork.py`` but with a sharper toolset and a flush-
 focused prompt.
@@ -26,7 +26,7 @@ harnesses where the extra LLM cost would distort baselines.
 
 Recursion guard is structural — the fork's ``Agent`` has no
 ``after_agent_callback`` chain, and the whitelist blocks every tool except
-``add_memory``.
+``memory``.
 """
 
 from __future__ import annotations
@@ -42,20 +42,21 @@ from horizon.memory._fork import (
     format_conversation_snapshot,
     make_whitelist_callback,
 )
-from horizon.memory.add_memory_tool import add_memory
+from horizon.memory.add_memory_tool import memory
 from horizon.models.registry import ROBUST_RETRY_OPTIONS
+from horizon.tools import names
 
 FLUSH_FORK_ENABLED_ENV = "LHA_PRE_COMPRESS_FLUSH"
 
-_FLUSH_TOOL_NAMES: frozenset[str] = frozenset({"add_memory"})
+_FLUSH_TOOL_NAMES: frozenset[str] = frozenset({names.MEMORY})
 
 _FLUSH_AGENT_NAME = "flush_fork"
-_FLUSH_AGENT_MODEL = "gemini-3.6-flash"
+_FLUSH_AGENT_MODEL = "gemini-3.7-flash"
 _FLUSH_INSTRUCTION = (
     "You are a memory flush curator. The conversation provided in the "
     "<CONVERSATION>...</CONVERSATION> block is about to be discarded by "
     "context compression. Your only job: surface durable user facts that "
-    "would be lost. Save them via add_memory — nothing else is available "
+    "would be lost. Save them via memory — nothing else is available "
     "to you. When you have saved what's worth saving (or determined "
     "nothing qualifies), stop."
 )
@@ -64,7 +65,7 @@ _FLUSH_PROMPT = (
     "Review the conversation above. The next step will compress it into a "
     "short summary and discard the original events, so any durable user "
     "fact you don't save now is lost.\n\n"
-    "Save with add_memory ONLY if the fact is:\n"
+    "Save with memory ONLY if the fact is:\n"
     "  - About the user (preference, role, environment, recurring "
     "constraint) — scope='user'.\n"
     "  - Stable: still true a week from now.\n"
@@ -90,7 +91,7 @@ def _build_flush_agent() -> Agent:
             retry_options=ROBUST_RETRY_OPTIONS,
         ),
         instruction=_FLUSH_INSTRUCTION,
-        tools=[add_memory],
+        tools=[memory],
         before_tool_callback=_whitelist_tools_callback,
     )
 

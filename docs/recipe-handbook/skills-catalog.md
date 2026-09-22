@@ -1,9 +1,10 @@
-<!-- word count: 714 (target 800, cap 1200) -->
+<!-- word count: 1112 (target 800, cap 1200) -->
 
 # Repo Skills Catalog
 
-**Repo skills** your AI coding assistant invokes to help you prepare a
-recipe. Source lives at
+**Repo skills** your AI coding assistant invokes while working in this
+repo — preparing a recipe, answering questions about how the repo
+works, authoring more skills. Source lives at
 [`.agents/skills/`](../../.agents/skills/); each has a `SKILL.md`
 with a full description. This catalog summarises them and maps
 them to the [checklist](../recipe-checklist.md).
@@ -27,6 +28,28 @@ Say the skill's name or its trigger phrase to your assistant:
 ```
 
 The assistant loads the skill on demand and runs it.
+
+## Ask the repo oracle
+
+### `repo-oracle`
+
+Answers questions about how this repo works — CI and workflow behavior,
+the limits in [`.github/policy.yml`](../../.github/policy.yml) and why
+they are set that way, who reviews which paths, what the bots do, and
+how a recipe is prepared and validated. It reads the repo and cites the
+file it answered from.
+
+**Read-only.** It never edits, commits, comments, or does the work
+itself. Ask it to prepare your recipe and you get the steps plus the
+name of the skill that does it — never the work.
+
+- **When to use:** you have a question about the repo rather than a
+  task to run — including "which skill do I need?"
+- **Not for:** your failing check, your working tree, or your branch.
+  It cannot see your machine.
+- **Trigger:** "oracle, what's the file limit for a contrib recipe?",
+  "oracle, who reviews core/go?", "ask the oracle how to add a
+  language".
 
 ## Universal skills
 
@@ -128,6 +151,46 @@ without credentials.
 - **Modes:** dry-run (preview) and apply.
 - **When to use:** adding the required runnability test.
 - **Trigger:** "generate runnability test for contrib/python/my-recipe".
+
+### `make-python-recipe-deployable`
+
+Turns a working recipe into a **deployable** one — packageable into
+a container and runnable as a service. Generates the serving files
+(`Dockerfile`, `.dockerignore`, `fast_api_app.py`,
+`app_utils/{a2a,services,reasoning_engine_adapter}.py`,
+`agents-cli-manifest.yaml`) and configures the recipe to match.
+
+Opt-in, and deliberately not part of `prepare-python-recipe`: most
+recipes do not need to be deployable.
+
+- **Input:** recipe path. Optional `--data-dirs`, `--region`,
+  `--overwrite`, `--verify-container`.
+- **Writes:** the serving files, plus `pyproject.toml` (serving
+  deps, hatch wheel package), `agent.py` (the `App` object), and
+  `manifest.yaml` (`deployable: true`).
+- **Modes:** dry-run reports; `--apply` writes.
+- **Stops rather than guessing** when the recipe needs an ADK major
+  migration, or carries the old `app_utils` generation
+  (`telemetry.py` / `typing.py` / `deploy.py`).
+- **Verifies its own output** when docker is available: builds the
+  generated Dockerfile, runs it, and probes `/list-apps` and the A2A
+  agent card. A container that will not come up **blocks**
+  `manifest.deployable`. The skill asks before doing this, and skips
+  cleanly when there is no container runtime — the common case, and
+  not a failure.
+- **Six outcomes,** crossing whether the recipe needs provisioned
+  infrastructure with whether a container actually proved it:
+  `deployable-verified`, `deployable-unverified`,
+  `containerized-verified`, `containerized-unverified`,
+  `verification-failed`, `blocked`. Both `containerized-*` and
+  `verification-failed` leave `manifest.deployable` unset on purpose,
+  so a reader can always tell a proven result from an assumed one.
+- **Does not** deploy or write terraform. It builds an image only to
+  check its own work and then deletes it; publishing belongs to Cloud
+  Build and Artifact Registry.
+- **Standard lives in** [`.github/policy.yml`](../../.github/policy.yml)
+  under `deployability:`, not in the skill's code.
+- **Trigger:** "make contrib/python/my-recipe deployable".
 
 ## Java / Go / TypeScript / Kotlin skills
 

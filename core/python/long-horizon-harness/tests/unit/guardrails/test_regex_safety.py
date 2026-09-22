@@ -41,7 +41,7 @@ def test_empty_and_none_safe_handling():
 
 def test_permission_rule_with_unsafe_command_regex_is_dropped():
     rule = parse_rule(
-        {"toolName": "terminal", "commandRegex": r"(a+)+", "decision": "allow"}
+        {"toolName": "bash", "commandRegex": r"(a+)+", "decision": "allow"}
     )
     assert rule is None
 
@@ -60,7 +60,7 @@ def test_policies_skips_unsafe_destructive_regex(tmp_path):
     overlay_path = tmp_path / ".lha" / "policies.jsonl"
     overlay_path.parent.mkdir(parents=True)
     overlay_path.write_text(
-        '{"canonical_tool_name": "terminal", "destructive_commands_regex": {"command": ["(a+)+", "safe_pattern"]}}\n'
+        '{"canonical_tool_name": "bash", "destructive_commands_regex": {"command": ["(a+)+", "safe_pattern"]}}\n'
     )
 
     # Load policies - the unsafe pattern should be filtered out
@@ -70,7 +70,7 @@ def test_policies_skips_unsafe_destructive_regex(tmp_path):
     overlay_rule = None
     for r in reversed(rules):  # Overlay rules come last
         if (
-            r.get("canonical_tool_name") == "terminal"
+            r.get("canonical_tool_name") == "bash"
             and "destructive_commands_regex" in r
         ):
             patterns = r.get("destructive_commands_regex", {}).get(
@@ -83,8 +83,7 @@ def test_policies_skips_unsafe_destructive_regex(tmp_path):
     assert overlay_rule is not None, (
         "Overlay rule should exist with unsafe pattern filtered"
     )
-    assert _evaluate(overlay_rule, "terminal", {"command": "aaaa"}) is None
+    assert _evaluate(overlay_rule, "bash", {"command": "aaaa"}) is None
     assert (
-        _evaluate(overlay_rule, "terminal", {"command": "safe_pattern"})
-        is not None
+        _evaluate(overlay_rule, "bash", {"command": "safe_pattern"}) is not None
     )

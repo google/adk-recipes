@@ -1,0 +1,45 @@
+{
+  "eval_set_id": "basic_eval",
+  "name": "Basic Agent Evaluation",
+  "description": "Sample evaluation set for the cross-border data-policy router. Customize these cases for your own scenarios.",
+  "eval_cases": [
+    {
+      "eval_id": "eu_pii_routes_within_eu",
+      "conversation": [
+        {
+          "user_content": {
+            "parts": [
+              {
+                "text": "A customer in Germany wants their PII record processed. Which regional agent should handle it, and why?"
+              }
+            ]
+          }
+        }
+      ],
+      "session_input": {
+        "app_name": "app",
+        "user_id": "eval_user",
+        "state": {}
+      }
+    },
+    {
+      "eval_id": "cross_border_conflict_is_rejected",
+      "conversation": [
+        {
+          "user_content": {
+            "parts": [
+              {
+                "text": "A US customer's financial record needs processing, but their contract excludes US-based processors entirely, and it must stay in the US. Route it."
+              }
+            ]
+          }
+        }
+      ],
+      "session_input": {
+        "app_name": "app",
+        "user_id": "eval_user",
+        "state": {}
+      }
+    }
+  ]
+}

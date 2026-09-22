@@ -68,7 +68,8 @@ async def test_search_files_ranks_recent_first(
     ordered_paths = [m["path"] for m in result["matches"]]
     assert ordered_paths[0].endswith("new.py")
     assert ordered_paths[-1].endswith("old.py")
-    assert all("mtime" in m for m in result["matches"])
+    assert all("mtime" not in m for m in result["matches"])
+    assert "truncated" in result
 
 
 async def test_search_invalid_regex_returns_error(

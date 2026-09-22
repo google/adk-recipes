@@ -42,8 +42,8 @@ HEADLESS_PREAMBLE = (
     "shell commands (git clone, install, build, commit) run normally in it. "
     "Anything else that would need interactive approval can't be granted, and "
     "secret-exfiltration and known-destructive commands are still refused — design "
-    "around those. Deliver results with artifact(save) / report_back; they surface "
-    "in this session. Task follows.\n\n"
+    "around those. Save files you want to keep with artifact(save); your final "
+    "text response is what gets reported back after the run. Task follows.\n\n"
 )
 
 

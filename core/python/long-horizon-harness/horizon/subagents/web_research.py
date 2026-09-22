@@ -19,7 +19,7 @@ non-search function tools::
 
     "Multiple tools are supported only when they are all search tools."
 
-The root agent ships ~10 function tools (file_ops, terminal,
+The root agent ships ~10 function tools (file_ops, bash,
 memory, ...), so ``google_search`` cannot live alongside them. The
 documented escape hatch is the sub-agent split: a dedicated agent whose
 ``tools=[]`` is JUST the search tool, surfaced to the root agent through
@@ -27,7 +27,7 @@ documented escape hatch is the sub-agent split: a dedicated agent whose
 the sub-agent makes a search-only API call internally.
 
 The surfaced tool name is ``web_research`` — naming it ``search_agent``
-made the model reach for ``terminal``-based scraping instead, because
+made the model reach for ``bash``-based scraping instead, because
 "search" reads as filesystem/memory search.
 """
 
@@ -42,8 +42,16 @@ from horizon.tools.web_search import google_search
 web_research_agent = Agent(
     name="web_research",
     model=Gemini(
-        model="gemini-3.6-flash",
+        model="gemini-3.7-flash",
         retry_options=ROBUST_RETRY_OPTIONS,
+    ),
+    # AgentTool surfaces THIS to the root model, not `instruction` (which
+    # only the sub-agent itself reads) -- left unset this tool description
+    # was empty and the root model chose blind.
+    description=(
+        "Search the live web for current information: news, docs, prices, "
+        "anything outside the workspace or your training data. Returns a "
+        "concise, sourced summary. To fetch one known URL, use bash curl."
     ),
     instruction=(
         "You perform web searches and return concise, sourced results. "

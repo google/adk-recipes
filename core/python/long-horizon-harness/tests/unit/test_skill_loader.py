@@ -222,15 +222,24 @@ class TestBuildSkillToolset:
 
         assert not any(isinstance(t, ListSkillsTool) for t in toolset._tools)
 
-    def test_keeps_load_and_resource_tools(
-        self, skill_roots: tuple[Path, Path]
-    ):
+    def test_keeps_merged_load_skill_tool(self, skill_roots: tuple[Path, Path]):
+        """ADK's own LoadSkillTool / LoadSkillResourceTool / RunSkillScriptTool
+        trio is replaced with horizon's merged load_skill (Task 9 cut E):
+        load_skill(skill_name) for instructions, load_skill(skill_name,
+        resource=...) for a bundled file. run_skill_script has no successor.
+        """
         from google.adk.tools.skill_toolset import (
             LoadSkillResourceTool,
-            LoadSkillTool,
+            RunSkillScriptTool,
+        )
+        from google.adk.tools.skill_toolset import (
+            LoadSkillTool as AdkLoadSkillTool,
         )
 
         from horizon.tools.skill_loader import build_skill_toolset
+        from horizon.tools.skill_toolset import (
+            LoadSkillTool as HorizonLoadSkillTool,
+        )
 
         user, builtin = skill_roots
         _write_skill(user, "alpha", _USER_SKILL_MD)
@@ -238,15 +247,24 @@ class TestBuildSkillToolset:
         toolset = build_skill_toolset(user_dir=user, builtin_dir=builtin)
 
         types_present = {type(t) for t in toolset._tools}
-        assert LoadSkillTool in types_present
-        assert LoadSkillResourceTool in types_present
+        assert HorizonLoadSkillTool in types_present
+        assert AdkLoadSkillTool not in types_present
+        assert LoadSkillResourceTool not in types_present
+        assert RunSkillScriptTool not in types_present
+        assert {t.name for t in toolset._tools} == {"load_skill"}
 
     @pytest.mark.asyncio
     async def test_process_llm_request_injects_catalog(
         self, skill_roots: tuple[Path, Path]
     ):
         """With ListSkillsTool removed, ADK injects ``<available_skills>``
-        into the system prompt every turn — the in-prompt index for free."""
+        into the system prompt every turn — the in-prompt index for free.
+        HorizonSkillToolset.process_llm_request reads llm_request.config
+        directly (the delta-safety mechanism from Task 8), so this needs a
+        real LlmRequest rather than a hand-rolled append_instructions-only
+        stub."""
+        from google.adk.models import LlmRequest
+
         from horizon.tools.skill_loader import build_skill_toolset
 
         user, builtin = skill_roots
@@ -254,17 +272,10 @@ class TestBuildSkillToolset:
 
         toolset = build_skill_toolset(user_dir=user, builtin_dir=builtin)
 
-        instructions: list[str] = []
+        req = LlmRequest()
+        await toolset.process_llm_request(tool_context=None, llm_request=req)
 
-        class _StubReq:
-            def append_instructions(self, items):
-                instructions.extend(items)
-
-        await toolset.process_llm_request(
-            tool_context=None, llm_request=_StubReq()
-        )
-
-        merged = "\n".join(instructions)
+        merged = req.config.system_instruction or ""
         assert "<available_skills>" in merged
         assert "alpha" in merged
 

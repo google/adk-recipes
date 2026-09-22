@@ -33,7 +33,7 @@ def test_gemini_entry_is_on_demand_by_default():
 
     from horizon.models.registry import MODEL_REGISTRY, _PriorityGemini
 
-    entry = MODEL_REGISTRY["gemini-3.6-flash"]
+    entry = MODEL_REGISTRY["gemini-3.7-flash"]
     assert isinstance(entry, Gemini)
     assert not isinstance(entry, _PriorityGemini)
 
@@ -63,8 +63,8 @@ async def test_priority_gemini_sets_service_tier(monkeypatch):
     # Patch the parent so super() delegation is captured without hitting Vertex.
     monkeypatch.setattr(Gemini, "generate_content_async", fake_super)
 
-    g = _PriorityGemini(model="gemini-3.6-flash")
-    req = LlmRequest(model="gemini-3.6-flash")
+    g = _PriorityGemini(model="gemini-3.7-flash")
+    req = LlmRequest(model="gemini-3.7-flash")
     _ = [r async for r in g.generate_content_async(req)]
 
     assert seen["tier"] is not None

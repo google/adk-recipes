@@ -12,18 +12,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""FastAPI endpoints: ``POST /scheduler/tick`` + ``POST /scheduler/dream-review``.
+"""FastAPI endpoints: ``POST /scheduler/dream-review`` + ``/snapshot``.
 
 Both endpoints are mounted under the ``/scheduler`` prefix via APIRouters
 so they slot into the lazy ``_build_app()`` factory without forcing
 construction at import time. Tests construct a tiny FastAPI app, mount
 the routers, and exercise them via ``TestClient`` while monkeypatching
-the store / push / dream-review helpers.
+the dream-review / snapshot helpers.
 """
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any
 
@@ -36,45 +36,12 @@ from horizon.sandbox import provider
 pytestmark = pytest.mark.asyncio
 
 
-def _at(year: int, month: int, day: int, hour: int = 0) -> datetime:
-    return datetime(year, month, day, hour, tzinfo=UTC)
-
-
-def _reminder(
-    *,
-    user_id: str = "u1",
-    fire_at: datetime | None = None,
-    message: str = "ping",
-    channel: str = "cli",
-    recipient_id: str = "u1",
-    recurrence: str | None = None,
-):
-    from horizon.scheduler.store import Reminder
-
-    return Reminder(
-        id="",
-        user_id=user_id,
-        app_name="lha",
-        channel=channel,
-        recipient_id=recipient_id,
-        message=message,
-        fire_at=fire_at or _at(2026, 5, 19, 12),
-        recurrence=recurrence,
-        created_at=_at(2026, 5, 19, 12),
-    )
-
-
 @pytest.fixture(autouse=True)
 def _isolate_store(monkeypatch):
-    from horizon.scheduler import store as store_mod
-
-    store_mod.reset_reminder_store()
-    monkeypatch.delenv("LHA_REMINDER_STORE", raising=False)
     # Dev-bypass the OIDC verifier so the existing endpoint tests don't
     # need to mock token verification.
     monkeypatch.setenv("LHA_SCHEDULER_AUTH_DISABLED", "1")
     yield
-    store_mod.reset_reminder_store()
 
 
 class _FakeSessionService:
@@ -111,14 +78,9 @@ def _build_test_app(
     app_name: str = "app",
     memory_service: Any = _NO_MEMORY,
 ) -> FastAPI:
-    from horizon.scheduler import (
-        dream_review_endpoint,
-        snapshot_endpoint,
-        tick_endpoint,
-    )
+    from horizon.scheduler import dream_review_endpoint, snapshot_endpoint
 
     app = FastAPI()
-    app.include_router(tick_endpoint.router)
     app.include_router(dream_review_endpoint.router)
     app.include_router(snapshot_endpoint.router)
     app.state.runner = SimpleNamespace(
@@ -131,89 +93,6 @@ def _build_test_app(
         app_name=app_name,
     )
     return app
-
-
-# =============================================================================
-# /scheduler/tick
-# =============================================================================
-
-
-class TestTickEndpoint:
-    async def test_no_due_returns_zero(self):
-        client = TestClient(_build_test_app())
-        response = client.post("/scheduler/tick")
-        assert response.status_code == 200
-        assert response.json() == {"fired": 0}
-
-    async def test_due_reminder_pushed_and_removed(self, monkeypatch):
-        from horizon.scheduler import tick_endpoint
-        from horizon.scheduler.store import get_reminder_store
-
-        pushes: list[dict[str, Any]] = []
-
-        async def fake_push(**kwargs):
-            pushes.append(kwargs)
-            return {"delivered": True}
-
-        monkeypatch.setattr(tick_endpoint, "push_to_user", fake_push)
-
-        store = get_reminder_store()
-        await store.add(_reminder(fire_at=_at(2026, 1, 1, 0)))  # long past
-
-        client = TestClient(_build_test_app())
-        response = client.post("/scheduler/tick")
-        assert response.status_code == 200
-        assert response.json()["fired"] == 1
-        assert len(pushes) == 1
-        assert pushes[0]["text"] == "ping"
-        # One-shot removed
-        assert await store.list_for_user("u1") == []
-
-    async def test_recurring_reminder_advances(self, monkeypatch):
-        from horizon.scheduler import tick_endpoint
-        from horizon.scheduler.store import get_reminder_store
-
-        async def fake_push(**kwargs):
-            return {"delivered": True}
-
-        monkeypatch.setattr(tick_endpoint, "push_to_user", fake_push)
-
-        store = get_reminder_store()
-        original_fire = _at(2026, 1, 1, 9)
-        await store.add(_reminder(fire_at=original_fire, recurrence="daily"))
-
-        client = TestClient(_build_test_app())
-        response = client.post("/scheduler/tick")
-        assert response.status_code == 200
-        items = await store.list_for_user("u1")
-        assert len(items) == 1
-        assert items[0].fire_at == original_fire + timedelta(days=1)
-
-    async def test_push_failure_still_counts_as_fired(self, monkeypatch):
-        from horizon.scheduler import tick_endpoint
-        from horizon.scheduler.store import get_reminder_store
-
-        async def fake_push(**kwargs):
-            return {"delivered": False, "error": "boom"}
-
-        monkeypatch.setattr(tick_endpoint, "push_to_user", fake_push)
-
-        store = get_reminder_store()
-        await store.add(_reminder(fire_at=_at(2026, 1, 1, 0)))
-
-        client = TestClient(_build_test_app())
-        response = client.post("/scheduler/tick")
-        body = response.json()
-        assert body["fired"] == 1
-        assert body.get("failed", 0) == 1
-
-    async def test_endpoint_rejects_unauth_when_oidc_enabled(self, monkeypatch):
-        """With auth enabled and no token, /scheduler/tick returns 401."""
-        monkeypatch.delenv("LHA_SCHEDULER_AUTH_DISABLED", raising=False)
-        monkeypatch.setenv("LHA_SCHEDULER_AUDIENCE", "https://svc/")
-        client = TestClient(_build_test_app())
-        response = client.post("/scheduler/tick")
-        assert response.status_code == 401
 
 
 # =============================================================================

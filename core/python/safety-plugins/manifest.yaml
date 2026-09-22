@@ -22,7 +22,7 @@ architecture:          # (optional) omit the whole block if nothing below can be
 
 ownership:
   team: "Developer Evangelism & Engineering (DevRel) - Cloud AI"
-  poc: "eliasecchi"
+  poc: "eliasecchig"
   # contributors: (optional) uncomment and add GitHub IDs of additional contributors
   #   - "github-id-1"
 

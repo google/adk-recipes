@@ -1,112 +1,139 @@
 {
-  "eval_set_id": "workspace_window",
-  "name": "Workspace Window — Per-Session Project Focus",
-  "description": "Behavioral evals for the per-session workspace window (horizon/workspace_window.py, /workspace, set_workspace_window). The shared per-user workspace can hold many unrelated projects; the window lets a session anchor to the project this conversation is about so file/discovery tools default-scope to it, while always allowing explicit break-out to the whole workspace via a leading-`/` path or scope=\"workspace\". The contract (mirrored from the system prompt's Workspace-focus paragraph and set_workspace_window's docstring): (a) when the conversation is clearly about one project, the agent focuses (announces) or scopes its file ops and does NOT conflate other projects; (b) the window is a lens, not a cage — an explicit 'what else is here?' must reach the whole workspace; (c) when the project is ambiguous, the agent does NOT silently pick the wrong one — it asks or stays unfocused. NOTE: eval_config.json grades against rubric_based_final_response_quality_v1 only (no tool_trajectory_avg_score), so 'focuses' / 'breaks out' / 'does not guess' is encoded via rubric text. The intermediate_data.tool_uses field is declarative documentation of the expected trajectory. session_input.state seeds the workspace_window key where a focus is pre-set.",
-  "eval_cases": [
+ "eval_set_id": "workspace_window",
+ "name": "Workspace Window \u2014 Per-Session Project Focus",
+ "description": "Behavioral evals for the per-session workspace window (horizon/workspace_window.py, /workspace). The shared per-user workspace can hold many unrelated projects; the window lets a session anchor to the project this conversation is about so file/discovery tools default-scope to it, while always allowing explicit break-out to the whole workspace via a leading-`/` path or scope=\"workspace\". There is no agent-callable tool to set the focus (set_workspace_window was dropped as agent-facing ceremony with no UI consumer) \u2014 the only mechanism left is auto-seed on first write into a top-level subdir, plus the user's own /workspace command. The contract (mirrored from the system prompt's Workspace-focus paragraph): (a) when the conversation is clearly about one project, the agent scopes its file ops into that project's directory and does NOT conflate other projects; (b) the window is a lens, not a cage \u2014 an explicit 'what else is here?' must reach the whole workspace; (c) when the project is ambiguous, the agent does NOT silently pick the wrong one \u2014 it asks or stays unfocused. NOTE: eval_config.json grades against rubric_based_final_response_quality_v1 only (no tool_trajectory_avg_score), so 'focuses' / 'breaks out' / 'does not guess' is encoded via rubric text. The intermediate_data.tool_uses field is declarative documentation of the expected trajectory. session_input.state seeds the workspace_window key where a focus is pre-set.",
+ "eval_cases": [
+  {
+   "eval_id": "no_cross_project_bleed_when_focused",
+   "conversation": [
     {
-      "eval_id": "no_cross_project_bleed_when_focused",
-      "conversation": [
-        {
-          "user_content": {
-            "parts": [{"text": "Let's work on agent-finder. Research the leading agent-finder frameworks and write your notes into the project."}]
-          },
-          "intermediate_data": {
-            "tool_uses": [
-              {"name": "set_workspace_window", "args": {"dirs": ["agent-finder"]}},
-              {"name": "write_file", "args": {"path": "notes.md"}}
-            ]
-          },
-          "rubrics": [
-            {
-              "rubric_id": "window_focuses_on_named_project",
-              "rubric_content": {
-                "text_property": "The response anchors the session to the agent-finder project — either by calling `set_workspace_window([\"agent-finder\"])` and telling the user it has focused on agent-finder, or by scoping its file operations to the `agent-finder/` directory (e.g. writing to `agent-finder/notes.md`). The user named exactly one project; the agent should commit to it rather than treating the whole shared workspace as the target."
-              }
-            },
-            {
-              "rubric_id": "window_no_audiobook_bleed",
-              "rubric_content": {
-                "text_property": "The response references ONLY the agent-finder task. It does NOT mention, read, write into, or otherwise conflate any unrelated project that may also live in the shared workspace (e.g. an 'audiobook' project). Surfacing or acting on another project's files when the user clearly scoped the work to agent-finder fails this rubric — that cross-project confusion is exactly what the workspace window exists to prevent."
-              }
-            }
-          ]
+     "user_content": {
+      "parts": [
+       {
+        "text": "Let's work on agent-finder. Research the leading agent-finder frameworks and write your notes into the project."
+       }
+      ]
+     },
+     "intermediate_data": {
+      "tool_uses": [
+       {
+        "name": "write",
+        "args": {
+         "path": "agent-finder/notes.md"
         }
-      ],
-      "session_input": {
-        "app_name": "app",
-        "user_id": "eval_shared",
-        "state": {}
+       }
+      ]
+     },
+     "rubrics": [
+      {
+       "rubric_id": "window_focuses_on_named_project",
+       "rubric_content": {
+        "text_property": "The response anchors the session to the agent-finder project by scoping its file operations to the `agent-finder/` directory (e.g. writing to `agent-finder/notes.md`), which auto-focuses the session on first write into that subdir. The user named exactly one project; the agent should commit to it rather than treating the whole shared workspace as the target or writing to a root-level file."
+       }
+      },
+      {
+       "rubric_id": "window_no_audiobook_bleed",
+       "rubric_content": {
+        "text_property": "The response references ONLY the agent-finder task. It does NOT mention, read, write into, or otherwise conflate any unrelated project that may also live in the shared workspace (e.g. an 'audiobook' project). Surfacing or acting on another project's files when the user clearly scoped the work to agent-finder fails this rubric \u2014 that cross-project confusion is exactly what the workspace window exists to prevent."
+       }
       }
-    },
-    {
-      "eval_id": "explicit_breakout_reaches_whole_workspace",
-      "conversation": [
-        {
-          "user_content": {
-            "parts": [{"text": "While we're focused on agent-finder — what other projects do I have in my workspace?"}]
-          },
-          "intermediate_data": {
-            "tool_uses": [
-              {"name": "repo_overview", "args": {"scope": "workspace"}}
-            ]
-          },
-          "rubrics": [
-            {
-              "rubric_id": "window_breaks_out_for_whole_workspace_question",
-              "rubric_content": {
-                "text_property": "Even though the session is focused on agent-finder (state pre-sets the focus), the response surveys the WHOLE workspace to answer 'what other projects do I have' — e.g. by calling `repo_overview` with `scope=\"workspace\"` (or `path=\"/\"`), or `search_files`/listing with a `/`-prefixed root path. The agent must NOT answer only about agent-finder; the window is a default, not a cage, and an explicit workspace-wide question must break out of it."
-              }
-            },
-            {
-              "rubric_id": "window_lists_other_projects",
-              "rubric_content": {
-                "text_property": "The response actually enumerates the other projects present in the workspace (not just agent-finder). A response that says it can only see agent-finder, or that refuses to look beyond the focus, fails — that would mean the window trapped the agent, the opposite of the intended behavior."
-              }
-            }
-          ]
-        }
-      ],
-      "session_input": {
-        "app_name": "app",
-        "user_id": "eval_shared",
-        "state": {
-          "workspace_window": ["agent-finder"]
-        }
-      }
-    },
-    {
-      "eval_id": "ambiguous_project_does_not_guess",
-      "conversation": [
-        {
-          "user_content": {
-            "parts": [{"text": "Can you update the README and fix the failing test?"}]
-          },
-          "intermediate_data": {
-            "tool_uses": [
-              {"name": "clarify", "args": {}}
-            ]
-          },
-          "rubrics": [
-            {
-              "rubric_id": "window_does_not_silently_pick_wrong_project",
-              "rubric_content": {
-                "text_property": "The request names no project, yet the shared workspace contains several. The response does NOT silently pick one project and start editing its README / test — it either asks the user which project they mean (via `clarify` or a plain question and stops), or surveys the workspace first and asks the user to confirm before acting. Committing edits to a guessed project's files without confirmation fails — guessing wrong is precisely the cross-project confusion the window guards against."
-              }
-            },
-            {
-              "rubric_id": "window_does_not_set_focus_on_a_guess",
-              "rubric_content": {
-                "text_property": "The response does NOT call `set_workspace_window` with a project the agent merely guessed from an ambiguous request. The guidance is explicit that the agent should not guess a focus when the project is ambiguous — it should ask or stay unfocused. Setting a focus to a project the user never named (and then acting on it) fails this rubric."
-              }
-            }
-          ]
-        }
-      ],
-      "session_input": {
-        "app_name": "app",
-        "user_id": "eval_shared",
-        "state": {}
-      }
+     ]
     }
-  ]
+   ],
+   "session_input": {
+    "app_name": "app",
+    "user_id": "eval_shared",
+    "state": {}
+   }
+  },
+  {
+   "eval_id": "explicit_breakout_reaches_whole_workspace",
+   "conversation": [
+    {
+     "user_content": {
+      "parts": [
+       {
+        "text": "While we're focused on agent-finder \u2014 what other projects do I have in my workspace?"
+       }
+      ]
+     },
+     "intermediate_data": {
+      "tool_uses": [
+       {
+        "name": "bash",
+        "args": {
+         "command": "ls /",
+         "cwd": "/"
+        }
+       }
+      ]
+     },
+     "rubrics": [
+      {
+       "rubric_id": "window_breaks_out_for_whole_workspace_question",
+       "rubric_content": {
+        "text_property": "Even though the session is focused on agent-finder (state pre-sets the focus), the response surveys the WHOLE workspace to answer 'what other projects do I have' \u2014 e.g. by calling `bash` with a `/`-prefixed `ls` (or `search_files` with `scope=\"workspace\"`). The agent must NOT answer only about agent-finder; the window is a default, not a cage, and an explicit workspace-wide question must break out of it."
+       }
+      },
+      {
+       "rubric_id": "window_lists_other_projects",
+       "rubric_content": {
+        "text_property": "The response actually enumerates the other projects present in the workspace (not just agent-finder). A response that says it can only see agent-finder, or that refuses to look beyond the focus, fails \u2014 that would mean the window trapped the agent, the opposite of the intended behavior."
+       }
+      }
+     ]
+    }
+   ],
+   "session_input": {
+    "app_name": "app",
+    "user_id": "eval_shared",
+    "state": {
+     "workspace_window": [
+      "agent-finder"
+     ]
+    }
+   }
+  },
+  {
+   "eval_id": "ambiguous_project_does_not_guess",
+   "conversation": [
+    {
+     "user_content": {
+      "parts": [
+       {
+        "text": "Can you update the README and fix the failing test?"
+       }
+      ]
+     },
+     "intermediate_data": {
+      "tool_uses": [
+       {
+        "name": "clarify",
+        "args": {}
+       }
+      ]
+     },
+     "rubrics": [
+      {
+       "rubric_id": "window_does_not_silently_pick_wrong_project",
+       "rubric_content": {
+        "text_property": "The request names no project, yet the shared workspace contains several. The response does NOT silently pick one project and start editing its README / test \u2014 it either asks the user which project they mean (via `clarify` or a plain question and stops), or surveys the workspace first and asks the user to confirm before acting. Committing edits to a guessed project's files without confirmation fails \u2014 guessing wrong is precisely the cross-project confusion the window guards against."
+       }
+      },
+      {
+       "rubric_id": "window_does_not_set_focus_on_a_guess",
+       "rubric_content": {
+        "text_property": "The response does NOT write into or otherwise act on a project directory the agent merely guessed from an ambiguous request (there is no agent-callable focus tool \u2014 writing into a guessed project's subdir would auto-seed the session's focus to it, which compounds the mistake for the rest of the conversation). The guidance is explicit that the agent should not guess a focus when the project is ambiguous \u2014 it should ask or stay unfocused. Acting on a project the user never named fails this rubric."
+       }
+      }
+     ]
+    }
+   ],
+   "session_input": {
+    "app_name": "app",
+    "user_id": "eval_shared",
+    "state": {}
+   }
+  }
+ ]
 }

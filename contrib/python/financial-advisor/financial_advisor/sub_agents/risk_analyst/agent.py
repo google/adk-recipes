@@ -20,7 +20,7 @@ from google.adk import Agent
 
 from . import prompt
 
-MODEL = os.getenv("MODEL_NAME", "gemini-3.6-flash")
+MODEL = os.getenv("MODEL_NAME")
 
 risk_analyst_agent = Agent(
     model=MODEL,

@@ -14,7 +14,7 @@
 
 """Shared HITL (human-in-the-loop) confirmation helper for tools.
 
-Every tool that gates on a user prompt — ``terminal``, ``clarify``, future
+Every tool that gates on a user prompt — ``bash``, ``clarify``, future
 confirm-tier tools — needs the same plumbing: check ``tool_confirmation``;
 if missing, dispatch ``request_confirmation(...)`` and mark
 ``actions.skip_summarization`` so the kickoff response isn't paraphrased.

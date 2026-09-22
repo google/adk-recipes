@@ -12,9 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""recall_past_sessions: surface the current user's other chat sessions.
+"""recall_past_sessions_entries: surface the current user's other chat
+sessions. The model-facing surface is memory(action='search',...) in the
+memory tool module — this module keeps only the pure, Runner-independent
+helper it calls.
 
-Two modes on one tool:
+Two modes on one call:
 - session_id=None  -> index: recent sessions with derived titles.
 - session_id=<id>  -> drill: events (user + assistant text) for that session.
 
@@ -27,9 +30,6 @@ from __future__ import annotations
 from typing import Any
 
 from google.adk.sessions import BaseSessionService
-from google.adk.tools.tool_context import ToolContext
-
-from horizon.infrastructure.constants import APP_NAME
 
 DEFAULT_INDEX_LIMIT = 20
 MAX_INDEX_LIMIT = 50
@@ -179,52 +179,3 @@ async def recall_past_sessions_entries(
         "event_count": len(events),
         "truncated": truncated,
     }
-
-
-async def recall_past_sessions(
-    session_id: str | None = None,
-    limit: int | None = None,
-    tool_context: ToolContext | None = None,
-) -> dict[str, Any]:
-    """Read the user's other chat sessions when memory comes up dry.
-
-    Use this only as a fallback for prior-conversation questions ("what did I
-    ask you last time?", "did we already discuss X?") when preloaded memory
-    does not contain the answer. Prefer the memory you already have over a
-    fresh lookup.
-
-    Two modes:
-        - Omit ``session_id`` to get a list of recent sessions (title +
-          session_id + started_at). Use this first to find the right one.
-        - Pass ``session_id`` to read that session's user + assistant turns.
-
-    The current session is never returned — you already have its events.
-
-    Args:
-        session_id: Optional. Pass a session_id from a prior index call to
-            read its events. Omit to list recent sessions.
-        limit: Optional cap. Index mode default 20 (max 50); drill mode
-            default 100 events (max 200).
-    """
-    if tool_context is None:
-        return {
-            "success": False,
-            "error": "recall_past_sessions must be called via the agent runtime.",
-        }
-
-    invocation_context = tool_context._invocation_context
-    session_service = invocation_context.session_service
-    if session_service is None:
-        return {
-            "success": False,
-            "error": "Session service is not configured for this runtime.",
-        }
-
-    return await recall_past_sessions_entries(
-        session_service=session_service,
-        app_name=invocation_context.app_name or APP_NAME,
-        user_id=invocation_context.user_id,
-        current_session_id=invocation_context.session.id,
-        session_id=session_id,
-        limit=limit,
-    )

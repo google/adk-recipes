@@ -45,12 +45,12 @@ const permSegment = {
   kind: "confirmation" as const,
   callId: "c1",
   hint: "Run: bq rm -t x.y",
-  originalCall: { name: "terminal", args: { command: "bq rm -t x.y" } },
+  originalCall: { name: "bash", args: { command: "bq rm -t x.y" } },
   payload: {
     kind: "permission",
-    toolName: "terminal",
+    toolName: "bash",
     summary: "Run: bq rm -t x.y",
-    proposedRule: { toolName: "terminal", commandPrefix: ["bq rm"], decision: "allow" },
+    proposedRule: { toolName: "bash", commandPrefix: ["bq rm"], decision: "allow" },
     choices: [
       "Yes, once",
       "Yes — allow `bq rm` this session",

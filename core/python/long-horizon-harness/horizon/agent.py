@@ -31,12 +31,15 @@ from google.adk.code_executors.agent_engine_sandbox_code_executor import (
 )
 from google.adk.models import BaseLlm, Gemini
 from google.adk.tools.agent_tool import AgentTool
-from google.adk.tools.preload_memory_tool import PreloadMemoryTool
+from horizon.memory.preload import HorizonPreloadMemoryTool
 
-from horizon.commands import reload as reload_tool
 from horizon.commands.dispatcher import make_slash_command_dispatcher
 from horizon.context.summarizer import HorizonSummarizer
 from horizon.context.artifact_url_redaction import redact_artifact_urls_callback
+from horizon.context.declaration_compaction import compact_tool_declarations
+from horizon.context.schema_normalization import (
+    normalize_tool_schemas_callback,
+)
 from horizon.context.tool_output_pruning import prune_tool_outputs_callback
 from horizon.conversation.iteration_budget_plugin import IterationBudgetPlugin
 from horizon.conversation.session_start import (
@@ -44,7 +47,7 @@ from horizon.conversation.session_start import (
 )
 from horizon.conversation.reminders import reminder_injection_callback
 from horizon.conversation.system_prompt import (
-    ROOT_AGENT_INSTRUCTION,
+    build_static_instruction,
     system_prompt_assembly_callback,
 )
 from horizon.guardrails import (
@@ -57,7 +60,7 @@ from horizon.telemetry.ui import (
     before_tool_log_callback,
     tool_call_log_callback,
 )
-from horizon.memory import add_memory, auto_capture_callback
+from horizon.memory import auto_capture_callback, memory
 from horizon.memory.review_fork import review_fork_callback
 from horizon.memory.sibling_agent_plugin import SiblingAgentPlugin
 from horizon.memory.skill_curator import skill_curator_callback
@@ -68,33 +71,26 @@ from horizon.models import (
     build_root_llm,
     select_model_callback,
 )
+from horizon.models.selector import resolve_model_name
 from horizon.routines.tools import routine
-from horizon.scheduler.tools import reminder
-from horizon.subagents.delegate import delegate
 from horizon.subagents.descriptions import subagent_description_callback
-from horizon.subagents.spawn import agent as subagent_dispatch
+from horizon.subagents.subagent import subagent
 from horizon.subagents.web_research import web_research_agent
 from horizon.tools import (
-    patch,
-    read_file,
-    repo_overview,
+    edit,
     search_files,
-    write_file,
-    write_todos,
+    write,
 )
 from horizon.tools.artifacts import artifact
-from horizon.tools.view_file import ViewFileTool
+from horizon.tools.read import ReadTool
 from horizon.tools.clarify import clarify
 from horizon.tools.skill_loader import build_skill_toolset, builtin_skills_root
 from horizon.tools.skill_reload import (
     bind_session_skills_callback,
     bind_toolset,
 )
-from horizon.tools.past_sessions import recall_past_sessions
-from horizon.tools.report_feedback import report_to_maintainers
-from horizon.tools.workspace_window_tool import set_workspace_window
 from horizon.tools.processes.process import process
-from horizon.tools.processes.terminal import terminal
+from horizon.tools.processes.terminal import bash
 
 _logger = logging.getLogger(__name__)
 
@@ -112,7 +108,7 @@ if not os.environ.get("GOOGLE_CLOUD_PROJECT"):
                 "project %r. Set it explicitly to choose a different project.",
                 project_id,
             )
-    except Exception:  # no ADC (e.g. forked sample imported offline) — leave project to env/explicit config
+    except Exception:  # no ADC (e.g. forked recipe imported offline) — leave project to env/explicit config
         _logger.debug(
             "google.auth.default() found no credentials; GOOGLE_CLOUD_PROJECT left as-is"
         )
@@ -165,39 +161,75 @@ def _resolve_root_model(model: str | BaseLlm | None) -> BaseLlm:
     return model
 
 
+def _static_instruction_for(tools: list, has_code_executor: bool) -> str:
+    # Built once here, at App-build time: the tool list and code executor are
+    # both fixed by then (see build_static_instruction's docstring). A
+    # BaseToolset (e.g. _SKILL_TOOLSET) has no .name of its own, so its
+    # already-built ._tools (same private attribute skill_loader.py reaches
+    # into) must be read for a name-keyed gate like SKILLS_GUIDANCE to fire.
+    tool_names: list[str] = []
+    for tool in tools:
+        name = getattr(tool, "name", None) or getattr(tool, "__name__", "")
+        if name:
+            tool_names.append(name)
+            continue
+        for inner in getattr(tool, "_tools", ()):
+            inner_name = getattr(inner, "name", None)
+            if inner_name:
+                tool_names.append(inner_name)
+    return build_static_instruction(
+        tool_names=tool_names,
+        # state=None: no session exists yet at import time, so this can't
+        # honor a per-session /model override; matches select_model_callback's
+        # own fallback, so the gate matches what a fresh session runs on.
+        model_name=resolve_model_name(None),
+        has_code_executor=has_code_executor,
+    )
+
+
 def _build_app_object() -> App:
     tools = [
-        add_memory,
-        PreloadMemoryTool(),
-        recall_past_sessions,
-        read_file,
-        write_file,
-        patch,
+        # memory covers both add (default) and search (former session_search)
+        # actions.
+        memory,
+        # Stock PreloadMemoryTool appends <PAST_CONVERSATIONS> to
+        # system_instruction, which the Gemini cache fingerprints; the block
+        # changes every turn, so the cache never validates. This subclass
+        # puts it in the cache-excluded contents tail instead.
+        HorizonPreloadMemoryTool(),
+        ReadTool(),
+        write,
+        edit,
         search_files,
-        repo_overview,
         artifact,
-        ViewFileTool(),
-        terminal,
+        bash,
         process,
-        delegate,
-        subagent_dispatch,
+        subagent,
+        # load_skill covers load/reload (reload_tool folded into it); the
+        # /reload slash command still calls horizon.commands.reload directly.
         _SKILL_TOOLSET,
-        reload_tool,
-        reminder,
         routine,
         clarify,
-        write_todos,
-        set_workspace_window,
-        report_to_maintainers,
         AgentTool(agent=web_research_agent),
     ]
+
+    code_executor = _build_code_executor()
 
     root_agent = Agent(
         name="root_agent",
         model=_resolve_root_model(None),
-        instruction=ROOT_AGENT_INSTRUCTION,
-        tools=tools,
-        code_executor=_build_code_executor(),
+        # Empty, not None: LlmAgent.instruction has no None in its type union
+        # and rejects it; "" is falsy so ADK's instructions processor skips it
+        # rather than demoting it into the uncached trailing-user-content tail.
+        instruction="",
+        static_instruction=_static_instruction_for(
+            tools, has_code_executor=code_executor is not None
+        ),
+        # Compact declarations, scoped to our own tools: the env var that
+        # selects them is process-wide and would re-render the tool surface
+        # of any other ADK agent sharing this process.
+        tools=compact_tool_declarations(tools),
+        code_executor=code_executor,
         # Order in each list matters — callbacks run top-to-bottom; later entries
         # can read state mutated by earlier ones.
         before_agent_callback=[
@@ -215,6 +247,9 @@ def _build_app_object() -> App:
             # Reclaim context for free by zeroing old, large tool-result bodies
             # before the model (and ADK's token-threshold check) reads them.
             prune_tool_outputs_callback,
+            # ADK's non-pydantic declaration path ships raw docstrings, source
+            # indentation included. Strip it before the tools are serialized.
+            normalize_tool_schemas_callback,
             # Strip the signed artifact URL from the model's view of the
             # `artifact` tool result (the client already got the link), so the
             # model can't paste the credentialed blob into its reply. Runs after
@@ -230,7 +265,7 @@ def _build_app_object() -> App:
             # (volatile state + near-budget warning + last-error nudge) instead
             # of the cached system prefix, so the prefix stays cache-stable.
             reminder_injection_callback,
-            # Rewrite delegate/agent tool descriptions with the live skill
+            # Rewrite the subagent tool's description with the live skill
             # catalog + child profiles so the model's delegation menu stays
             # accurate per turn. Runs last so it sees the final tool set.
             subagent_description_callback,
@@ -251,7 +286,7 @@ def _build_app_object() -> App:
             permission_guard,
         ],
         after_tool_callback=[
-            # Bumps view/patch/error counters used by skill_curator_callback.
+            # Bumps view/edit/error counters used by skill_curator_callback.
             skill_telemetry_callback,
             # Emits structured tool-call event for the web UI live log.
             tool_call_log_callback,
@@ -278,7 +313,12 @@ def _build_app_object() -> App:
         plugins=plugins,
         resumability_config=ResumabilityConfig(is_resumable=True),
         context_cache_config=ContextCacheConfig(
-            min_tokens=2048,
+            # Gemini's own per-model floor (gemini_context_cache_manager.py's
+            # _minimum_cache_tokens) is hardcoded to 4096 for any gemini-3*
+            # model, so 2048 here was dead config for horizon's default
+            # model; 4096 documents the real floor instead of a smaller,
+            # never-binding number.
+            min_tokens=4096,
             ttl_seconds=1800,
             cache_intervals=10,
         ),
@@ -293,7 +333,7 @@ def _build_app_object() -> App:
             # get rolling summaries.
             compaction_interval=8,
             overlap_size=2,
-            summarizer=HorizonSummarizer(llm=Gemini(model="gemini-3.6-flash")),
+            summarizer=HorizonSummarizer(llm=Gemini(model="gemini-3.7-flash")),
         ),
     )
 

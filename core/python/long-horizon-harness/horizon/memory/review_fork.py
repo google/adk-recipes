@@ -44,7 +44,7 @@ from horizon.memory._fork import (
     make_whitelist_callback,
 )
 from horizon.memory._throttle import try_claim
-from horizon.memory.add_memory_tool import add_memory
+from horizon.memory.add_memory_tool import memory
 from horizon.memory.review_prompts import (
     COMBINED_REVIEW_PROMPT,
     MEMORY_REVIEW_PROMPT,
@@ -54,37 +54,38 @@ from horizon.memory.skill_telemetry import (
     skill_name_from_path,
 )
 from horizon.models.registry import ROBUST_RETRY_OPTIONS
-from horizon.tools.file_ops import patch, write_file
+from horizon.tools import names
+from horizon.tools.file_ops import edit, write
 
 REVIEW_FORK_ENABLED_ENV = "LHA_REVIEW_FORK"
 
 # The review fork is restricted to memory curation + skill curation. File
 # ops are allowed only for writes under ``.agents/skills/`` so the fork cannot
-# touch arbitrary workspace files.
-_SKILL_READ_TOOL_NAMES: frozenset[str] = frozenset(
-    {"load_skill", "load_skill_resource"}
-)
-_SKILL_MUTATE_TOOL_NAMES: frozenset[str] = frozenset({"write_file", "patch"})
+# touch arbitrary workspace files. load_skill covers both reading a skill
+# and action='reload' (the former standalone reload tool folded into it).
+_SKILL_READ_TOOL_NAMES: frozenset[str] = frozenset({names.LOAD_SKILL})
+_SKILL_MUTATE_TOOL_NAMES: frozenset[str] = frozenset({names.WRITE, names.EDIT})
 _REVIEW_TOOL_NAMES: frozenset[str] = (
-    frozenset({"add_memory", "reload"})
+    frozenset({names.MEMORY})
     | _SKILL_READ_TOOL_NAMES
     | _SKILL_MUTATE_TOOL_NAMES
 )
 
 _REVIEW_AGENT_NAME = "review_fork"
-_REVIEW_AGENT_MODEL = "gemini-3.6-flash"
+_REVIEW_AGENT_MODEL = "gemini-3.7-flash"
 _FORK_INSTRUCTION = (
     "You are a self-improvement curator. The parent agent has just "
     "finished a turn with the user; the conversation is provided to "
     "you as a <CONVERSATION>...</CONVERSATION> block in the user "
     "message, followed by a review prompt. Follow the review prompt's "
-    "instructions exactly. Your only tools are: add_memory; load_skill "
-    "and load_skill_resource (read the current skill catalog from the "
-    "auto-injected <available_skills> block); write_file and patch "
-    "(restricted to paths under '.agents/skills/<name>/...'); and reload "
-    "(call after any write so the parent picks up the change on its "
-    "next turn). When you have either saved what's worth saving or "
-    "determined nothing needs saving, stop."
+    "instructions exactly. Your only tools are: memory; load_skill "
+    "(read a skill's instructions, or pass resource='references/...' for "
+    "a bundled file — the catalog is auto-injected as <available_skills>); "
+    "write and edit "
+    "(restricted to paths under '.agents/skills/<name>/...'); and "
+    "load_skill(action='reload') (call after any write so the parent picks "
+    "up the change on its next turn). When you have either saved what's "
+    "worth saving or determined nothing needs saving, stop."
 )
 
 
@@ -132,7 +133,6 @@ _log_action = partial(log_successful_writes, log_prefix="review_fork")
 
 def _build_review_agent() -> Agent:
     from horizon.agent import _SKILL_TOOLSET
-    from horizon.commands import reload as reload_tool
 
     return Agent(
         name=_REVIEW_AGENT_NAME,
@@ -141,7 +141,7 @@ def _build_review_agent() -> Agent:
             retry_options=ROBUST_RETRY_OPTIONS,
         ),
         instruction=_FORK_INSTRUCTION,
-        tools=[add_memory, _SKILL_TOOLSET, write_file, patch, reload_tool],
+        tools=[memory, _SKILL_TOOLSET, write, edit],
         before_tool_callback=_whitelist_tools_callback,
     )
 

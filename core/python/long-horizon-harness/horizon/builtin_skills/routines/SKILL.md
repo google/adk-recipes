@@ -1,6 +1,6 @@
 ---
 name: routines
-description: Use when the user wants a recurring task done automatically on a schedule (daily/weekly/cron) that DOES WORK unattended — pull data and summarize, open a PR, post a digest — rather than just a time-based reminder ping, OR when the user wants to test/dry-run/"run now" a routine before scheduling it. Explains how to author a routine, test it once on demand, and schedule it to run in an isolated sandbox with only declared credentials, via the routine tool.
+description: Use for a recurring unattended task (cron; pull data, open a PR, post a digest), or to test/dry-run a routine first. Explains authoring and testing via the routine tool.
 ---
 
 # Scheduling routines
@@ -9,7 +9,8 @@ A **routine** is a recurring task that runs **unattended** on a cron schedule, i
 a **fresh sandbox isolated from the user's workspace**, holding **only the secrets
 the routine declares**. Use it for "every morning, summarize X and report" /
 "weekly, bump deps and open a PR" — work that should happen without the user
-present. For a plain "remind me at 9pm" message, use `reminder` instead.
+present. There is no one-off reminder tool: it cannot ask the user anything
+mid-run, so it is the wrong fit for a plain "remind me at 9pm" ping.
 
 ## The isolation model (why this is safe)
 

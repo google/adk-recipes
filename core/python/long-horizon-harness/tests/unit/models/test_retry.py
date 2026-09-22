@@ -47,7 +47,7 @@ def test_robust_retry_options_retry_429_with_backoff():
 def test_gemini_root_backend_uses_robust_retry():
     from horizon.models.registry import MODEL_REGISTRY, ROBUST_RETRY_OPTIONS
 
-    entry = MODEL_REGISTRY["gemini-3.6-flash"]
+    entry = MODEL_REGISTRY["gemini-3.7-flash"]
     assert isinstance(entry, Gemini)
     assert entry.retry_options == ROBUST_RETRY_OPTIONS
 

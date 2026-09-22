@@ -106,7 +106,7 @@ async def test_overflow_writes_full_text_and_returns_pointer(
     assert written == big  # FULL text preserved, nothing dropped
     assert result.truncated is True
     assert "Full output saved to" in result.pointer
-    assert "view_file with offset/limit" in result.pointer
+    assert "read with offset/limit" in result.pointer
     assert "delegate a subagent" in result.pointer
     assert result.preview.startswith("row-00000")
 

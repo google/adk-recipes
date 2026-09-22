@@ -12,22 +12,24 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Core tools for the Horizon agent."""
+"""Core tools for the Horizon agent.
 
-from horizon.tools.file_ops import patch, read_file, search_files, write_file
-from horizon.tools.repo_overview import repo_overview
-from horizon.tools.todos import render_todos, write_todos
+Docstring policy for every tool registered on the root agent (enforced by
+tests/unit/test_prompt_budget.py): line 1 states what the tool does; document
+an arg only when its name and type don't already carry the meaning. No
+"Use when" essays, no worked examples, no comparisons to other tools — a
+cross-tool choice belongs in TOOL_ROUTING_GUIDANCE
+(horizon/conversation/system_prompt.py), not in either tool's description.
+"""
 
-# `terminal` / `process` (the registered tools) live in `horizon.tools.processes`;
-# the foreground executor they wrap is `horizon.tools.terminal_exec`. Neither is
-# re-exported here — import from those modules directly.
+from horizon.tools.file_ops import edit, search_files, write
+
+# bash/process live in horizon.tools.processes; import from there directly.
+# read_file is a module-level helper for ReadTool's text branch, not a
+# registered tool; import it from horizon.tools.file_ops.
 
 __all__ = [
-    "patch",
-    "read_file",
-    "render_todos",
-    "repo_overview",
+    "edit",
     "search_files",
-    "write_file",
-    "write_todos",
+    "write",
 ]

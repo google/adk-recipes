@@ -34,9 +34,10 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from horizon.tools.names import ARTIFACT
+
 logger = logging.getLogger(__name__)
 
-_ARTIFACT_TOOL = "artifact"
 REDACTED_URL = "[link delivered to the user automatically — do not repeat it]"
 
 
@@ -49,7 +50,7 @@ def redact_artifact_urls(contents: list[Any]) -> int:
             continue
         for part in parts:
             fr = getattr(part, "function_response", None)
-            if fr is None or fr.name != _ARTIFACT_TOOL:
+            if fr is None or fr.name != ARTIFACT:
                 continue
             resp = fr.response
             if (

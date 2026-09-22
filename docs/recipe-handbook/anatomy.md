@@ -1,4 +1,4 @@
-<!-- word count: 530 (target 700, cap 1000) -->
+<!-- word count: 650 (target 700, cap 1000) -->
 
 # Anatomy of a Recipe
 
@@ -59,6 +59,17 @@ Generate with the `generate-manifest` AI skill.
 | `description` | Prose, minimum 10 characters |
 | `ownership.team` | Team name |
 | `ownership.poc` (Point of Contact) | GitHub user ID of the accountable owner |
+
+Two of those are not just metadata — CI acts on them:
+
+- **`ownership.poc` is the person we contact.** We reach out to them if the
+  recipe needs maintenance work.
+- **`status` tracks the health of the recipe.** It is `active` by default.
+  The recipe's health is checked and evaluated on a schedule, and if issues
+  go unresolved for long enough the status is eventually set to `inactive`.
+  If the situation remains unresolved, the recipe is deprecated and removed
+  from the repository. See
+  [Recipe is marked inactive](troubleshooting.md#recipe-is-marked-inactive).
 
 **Common optional fields:**
 

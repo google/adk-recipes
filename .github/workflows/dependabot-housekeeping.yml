@@ -8,12 +8,20 @@ name: Dependabot Housekeeping
 #
 # Replaces the old "Sync Dependabot Config" workflow, which regenerated
 # .github/dependabot.yml and opened a PR with the result. That file is now
-# static and glob-based — nothing to regenerate — but the orphan cleanup it
-# also performed is still needed, so it survives here on its own schedule.
+# static — nothing to regenerate — but the orphan cleanup it also performed
+# is still needed, so it survives here on its own schedule.
+#
+# Still needed even though dependabot.yml now suppresses both version and
+# security updates for every recipe ecosystem. Suppression stops NEW PRs; it
+# does not close the ones already open, and those are exactly the PRs a
+# recipe removal or rename strands. The backlog still has to drain somehow.
 #
 # The cleanup derives the set of live directories by scanning the recipe tree
-# (.github/scripts/recipe_manifests.py), not by parsing dependabot.yml, which
-# no longer enumerates directories.
+# (.github/scripts/recipe_manifests.py), not by parsing dependabot.yml. That
+# indirection is load-bearing rather than incidental: the config names every
+# recipe ecosystem but locates them with a `["/", "**/*"]` glob, so a cleanup
+# that trusted it would recover no concrete directory, classify every open
+# recipe PR as an orphan, and close the lot with --delete-branch.
 #
 # Because closing is destructive (`--delete-branch`), the script refuses to
 # act when the scan comes back empty, and refuses to close a batch larger than
@@ -25,11 +33,11 @@ name: Dependabot Housekeeping
 
 on:
   schedule:
-    # Mondays at 04:00 UTC, a couple of hours after the 02:00 Dependabot
-    # schedule in .github/dependabot.yml. Ordering barely matters — an orphan
-    # is by definition an old PR for a directory that is gone, so it cannot be
-    # something Dependabot opened minutes earlier — but running after the
-    # weekly wave keeps the log for a given week in one place.
+    # Mondays at 04:00 UTC, an independent cadence. It used to trail the
+    # 02:00 github-actions run by two hours, but that entry is monthly now
+    # (first of the month) so there is no weekly wave left to follow.
+    # Ordering never mattered: an orphan is by definition an old PR for a
+    # directory that is gone, not something Dependabot opened minutes ago.
     - cron: "0 4 * * 1"
   workflow_dispatch:
     inputs:
@@ -71,7 +79,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # ratchet:actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v4
         with:
           # The whole tree at one commit: the script decides what to close by
           # scanning for recipe manifests, so a sparse checkout would
@@ -89,7 +97,7 @@ jobs:
       # script imports only the standard library plus its sibling
       # recipe_manifests, so there is nothing to sync and no lockfile to read.
       - name: Install uv
-        uses: astral-sh/setup-uv@445689ea25e0de0a23313031f5fe577c74ae45a1 # ratchet:astral-sh/setup-uv@v6.3.0
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # ratchet:astral-sh/setup-uv@v10.0.1
         with:
           # Minimum supported Python version, as in tools-tests.yml.
           python-version: "3.11"

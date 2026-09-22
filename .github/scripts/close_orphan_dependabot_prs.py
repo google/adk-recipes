@@ -13,14 +13,17 @@ Where the live set comes from
 The tree, via recipe_manifests.scan() — NOT .github/dependabot.yml.
 
 This script used to recover the set by regex-scanning enumerated `directory:`
-keys out of dependabot.yml. That file now uses glob patterns (`directories:`)
-so that adding a recipe requires no config change, which leaves nothing to
-parse: the old parser would have found zero pairs, judged every open
-Dependabot PR an orphan, and closed them all with --delete-branch.
+keys out of dependabot.yml. Reading that file is now actively worse than it
+sounds. It does list every recipe ecosystem, so a glance suggests the data is
+right there — but those entries exist only to suppress updates and carry
+`directories: ["/", "**/*"]`. A parser would recover a glob and no concrete
+recipe pair, judge every open Dependabot PR an orphan, and close them all
+with --delete-branch.
 
-Scanning the tree is also the more accurate source. The globs in
-dependabot.yml are resolved by Dependabot against the tree, so the tree is
-what actually determines which directories are live.
+The tree is also the more accurate source. Which recipe directories exist is
+a property of the tree, not of a config file that never enumerated them —
+and the 98 PRs open when the policy changed are precisely the ones that
+would be swept up if this ever started reading dependabot.yml again.
 
 Uses `gh pr close <n> --delete-branch` with no explanatory comment: the GitHub
 GraphQL `addComment` mutation has an anti-abuse throttle that trips on large
@@ -79,11 +82,22 @@ BRANCH_PREFIX = {
 #   github_actions  owner/repo          actions/checkout
 # See head_ref_matches for why the usual single-segment rule is dropped here.
 #
-# Every entry in dependabot.yml uses a `groups: patterns: ["*"]` block, so
-# routine version updates arrive pre-grouped with a single-segment tail
-# (`all-dependencies-<hash>`) and never hit this path. Dependabot SECURITY
-# updates are not grouped, though — they open one PR per package, which is
-# where a slash-bearing identifier actually shows up.
+# The github-actions entry in dependabot.yml uses a `groups: patterns: ["*"]`
+# block, so its version updates arrive pre-grouped with a single-segment tail
+# (`all-actions-<hash>`) and never hit this path.
+#
+# Security updates are grouped as well. GitHub's "grouped security updates"
+# setting batches them per ecosystem across directories, which is why the
+# branches this repo saw in August 2026 looked like
+# `dependabot/uv/<dir>/uv-<hash>` rather than one branch per package. An
+# earlier version of this comment asserted the opposite — that security
+# updates open one PR per package. That was true when written and is not
+# now, so do not restore it.
+#
+# The single-segment rule is still dropped here, because grouping is a
+# repository setting rather than a guarantee: with it off, or for an
+# ecosystem it does not cover, an ungrouped security PR names one package,
+# and that is where a slash-bearing identifier shows up.
 MULTI_SEGMENT_PACKAGE_ECOSYSTEMS = {
     "go_modules",
     "npm_and_yarn",
@@ -92,12 +106,20 @@ MULTI_SEGMENT_PACKAGE_ECOSYSTEMS = {
 
 # The GitHub repo to operate on. Set by Actions automatically; fall back to
 # the known upstream when running locally.
-REPO = os.environ.get("GITHUB_REPOSITORY", "google/adk-samples")
+REPO = os.environ.get("GITHUB_REPOSITORY", "google/adk-recipes")
 
 # Upper bound on how many PRs one run may close. See the circuit breaker in
 # main() for the rationale. Sized well above routine cleanup (a recipe removal
-# strands a handful) and well below "something is badly wrong": the repo
-# carries ~115 open Dependabot PRs at any time.
+# strands a handful) and well below "something is badly wrong".
+#
+# It was sized against a repo carrying ~115 open Dependabot PRs at any time.
+# That number is now falling towards zero: dependabot.yml suppresses every
+# recipe ecosystem, so nothing new arrives and the backlog only drains. The
+# limit is deliberately NOT retuned downwards to match — a smaller ceiling
+# would trip on the one case that still matters, a bulk recipe removal
+# stranding many PRs at once, and the cost of it being generous is only that
+# a genuinely wrong scan closes more before someone notices. Revisit if the
+# steady state stays near zero for a few months.
 DEFAULT_MAX_CLOSE = 30
 
 

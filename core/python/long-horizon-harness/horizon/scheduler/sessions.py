@@ -14,7 +14,7 @@
 
 """Tagging convention for sessions created by scheduled jobs.
 
-Every cron/scheduled job (reminder firings, dream-review) routes its
+Every cron/scheduled job (routine firings, dream-review) routes its
 session through ``create_scheduled_session`` so the web UI can group and
 search them. The tag lives in ``session.state`` under the keys defined in
 ``horizon/infrastructure/constants.py``; ``horizon/api/sessions.py`` reads them
@@ -32,7 +32,7 @@ from horizon.infrastructure.constants import (
     SESSION_SOURCE_KEY,
 )
 
-ScheduledJob = Literal["reminder", "dream_review", "routine"]
+ScheduledJob = Literal["dream_review", "routine"]
 
 
 def scheduled_session_state(

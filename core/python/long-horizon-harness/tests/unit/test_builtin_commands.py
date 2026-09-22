@@ -136,9 +136,11 @@ async def test_reload_reports_skill_diff(monkeypatch):
 # =============================================================================
 
 
-async def test_grant_records_terminal_grant_for_command():
+async def test_grant_records_bash_grant_for_command():
+    """/grant uses names.BASH, not a hardcoded pre-rename literal (Task 11)."""
     from horizon.commands import BUILTIN_COMMAND_REGISTRY
     from horizon.guardrails.policy_grants import POLICY_GRANTS_STATE_KEY
+    from horizon.tools import names
 
     state: dict = {}
     ctx = _callback_ctx(state=state)
@@ -146,10 +148,40 @@ async def test_grant_records_terminal_grant_for_command():
     out = await handler("ls /tmp", ctx)
 
     grants = state.get(POLICY_GRANTS_STATE_KEY) or []
-    assert len(grants) == 1
-    assert grants[0]["tool_name"] == "terminal"
+    assert grants[0]["tool_name"] == names.BASH
     assert grants[0]["signature"] == {"command": "ls /tmp"}
     assert "grant" in out.lower() or "ls /tmp" in out
+
+
+async def test_grant_also_clears_process_spawn_and_write_shapes():
+    """A shell command can reach the guard chain as bash(command=...),
+    process(action='spawn', command=...), or process(action='write',
+    data=...) (Task 4's bash->process split). One /grant must clear all
+    three, or the documented recovery path silently no-ops for two of
+    them.
+    """
+    from horizon.commands import BUILTIN_COMMAND_REGISTRY
+    from horizon.guardrails.policy_grants import find_matching_grant
+    from horizon.tools import names
+
+    state: dict = {}
+    ctx = _callback_ctx(state=state)
+    handler = BUILTIN_COMMAND_REGISTRY["grant"]
+    await handler("git push --force", ctx)
+
+    assert find_matching_grant(
+        state, names.BASH, {"command": "git push --force"}
+    )
+    assert find_matching_grant(
+        state,
+        names.PROCESS,
+        {"action": "spawn", "command": "git push --force"},
+    )
+    assert find_matching_grant(
+        state,
+        names.PROCESS,
+        {"action": "write", "data": "git push --force"},
+    )
 
 
 async def test_grant_no_args_lists_active_grants():

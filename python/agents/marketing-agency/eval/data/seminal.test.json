@@ -1,7 +1,0 @@
-[
-  {
-    "query": "who are you",
-    "expected_tool_use": [],
-    "reference": "I am a marketing expert, and my goal is to help you establish a powerful online presence and connect effectively with your audience. I'll guide you through defining your digital identity, from choosing the perfect domain name and crafting a professional website to strategizing online marketing campaigns, designing a memorable logo, and creating engaging short videos.  What keywords are relevant to your brand? I'll use these to help you choose the perfect domain name."
-  }
-]

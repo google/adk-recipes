@@ -1,0 +1,33 @@
+type: "standalone"     # Options: [standalone | module]
+status: "active"        # Options: [active | inactive]
+language: "python"      # Options: [python | java | go | kotlin | typescript]
+description: "ClauseIQ: an ADK agent that resolves contract hierarchy/precedence conflicts, extracts billing-relevant clauses, and remembers Legal/Billing corrections as durable, scoped memory."
+
+# deployable: true      # (optional) one-command deploy, no manual steps; omit if false (default)
+# large: true           # (optional) opt into the relaxed size tier; see .github/policy.yml (recipe_size_limits) for the exact numbers; omit if false (default)
+
+architecture:           # (optional) omit the whole block if nothing below can be inferred from code
+  agent: "multi"        # Options: [single | multi]
+  stateful: true        # Options: [true | false]
+  datasources:          # Options: [hardcoded | local | external]
+    - "local"
+
+# dependencies: (optional) uncomment and fill in with canonical names
+#   libraries:
+#     - "ADK"
+#     - "pandas"        # example — replace with actual libraries used
+#   services:
+#     - "GCP Project"
+#     - "Cloud Run"     # example — replace with actual GCP/external services used
+
+ownership:
+  team: "google"
+  poc: "xiaomai-c"
+  # contributors: (optional) uncomment and add GitHub IDs of additional contributors
+  #   - "github-id-1"
+
+# tags: (optional) uncomment and replace with meaningful labels
+#   - "rag"              # example — use technology names, patterns, and use-case keywords
+#   - "gemini"
+
+# license: "Apache-2.0" # (optional) SPDX identifier; only set if explicitly declared — see https://spdx.org/licenses/

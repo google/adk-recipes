@@ -1,0 +1,39 @@
+I have completed a thorough maintainability review of the provided pull request. I scanned each changed file to find objective issues such as code duplication, hardcoded paths, and magic numbers. Here is a summary of the findings:
+
+1. **`core/python/long-horizon-harness/tests/unit/routines/test_routine_tool.py`**:
+   - Identified a large block of setup code (24 lines) duplicated verbatim between `test_cancel_deletes_manifest_file` and `test_cancel_wrong_user_leaves_manifest_file`.
+   - Identified the path segment `".lha/routines"` hardcoded in the tests, which should instead use the imported `ROUTINE_OVERLAY_DIR` constant to remain robust.
+
+2. **`core/python/long-horizon-harness/tests/unit/tools/processes/test_process_tool.py`**:
+   - Identified a magic numeric error code `5` used in `OSError` instead of using the standard `errno.EIO` constant.
+
+3. **Other files (`tools.py`, `file_ops.py`, `process.py`, `read.py`, `workspace_window.py`)**:
+   - The implementation changes in these files are clean and maintainable. Refactorings like passing `check_host_fs` and handling fallback labels are implemented cleanly with minimal overhead.
+
+Here are the concrete maintainability findings:
+
+```json
+[
+  {
+    "path": "core/python/long-horizon-harness/tests/unit/routines/test_routine_tool.py",
+    "line": 222,
+    "body": "The test setup logic for creating a routine manifest is duplicated verbatim from test_cancel_deletes_manifest_file. Extract this setup into a shared helper function.",
+    "window": "  221: \n  222: async def test_cancel_wrong_user_leaves_manifest_file(tmp_path):\n  223:     body = {",
+    "verify_steps": "read lines 190-213 and compare with lines 222-245; the entire block of setup code is identical"
+  },
+  {
+    "path": "core/python/long-horizon-harness/tests/unit/routines/test_routine_tool.py",
+    "line": 212,
+    "body": "The manifest storage path segment \".lha/routines\" is hardcoded. Use the ROUTINE_OVERLAY_DIR constant instead to prevent failures if the path structure changes.",
+    "window": "  211:     assert res["success"] is True\n  212:     manifest_path = tmp_path / \".lha/routines/digest.yaml\"\n  213:     assert manifest_path.is_file()",
+    "verify_steps": "compare lines 212 and 244 with ROUTINE_OVERLAY_DIR import in production tools.py"
+  },
+  {
+    "path": "core/python/long-horizon-harness/tests/unit/tools/processes/test_process_tool.py",
+    "line": 263,
+    "body": "The numeric literal 5 is used to simulate an EIO errno. Use errno.EIO instead to make the code more readable and self-documenting.",
+    "window": "  262:             async def write(self, data: bytes) -> None:\n  263:                 raise OSError(5, \"Input/output error\")",
+    "verify_steps": "read line 263; the numeric literal 5 is used directly as an errno"
+  }
+]
+```

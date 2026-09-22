@@ -1,33 +1,3 @@
-resource "google_cloud_scheduler_job" "tick" {
-  name        = "${var.service_name}-tick"
-  description = "Fires every minute to flush due reminders."
-  schedule    = "* * * * *"
-  region      = var.region
-  project     = var.project_id
-  time_zone   = "Etc/UTC"
-
-  attempt_deadline = "60s"
-
-  retry_config {
-    retry_count = 0
-  }
-
-  http_target {
-    http_method = "POST"
-    uri         = "${google_cloud_run_v2_service.app.uri}/scheduler/tick"
-
-    oidc_token {
-      service_account_email = google_service_account.scheduler.email
-      audience              = local.scheduler_audience
-    }
-  }
-
-  depends_on = [
-    google_project_service.enabled,
-    google_cloud_run_v2_service_iam_member.scheduler_invoker,
-  ]
-}
-
 resource "google_cloud_scheduler_job" "routine_tick" {
   name        = "${var.service_name}-routine-tick"
   description = "Fires every minute to run due routines."
@@ -37,8 +7,8 @@ resource "google_cloud_scheduler_job" "routine_tick" {
   time_zone   = "Etc/UTC"
 
   # A routine turn provisions a fresh isolated sandbox and runs a full agent
-  # turn, so it needs far longer than the reminder tick's 60s. Overlapping ticks
-  # are safe: claim_due advances next_fire_at atomically, so no double-fire.
+  # turn, so it needs far longer than a simple flush. Overlapping ticks are
+  # safe: claim_due advances next_fire_at atomically, so no double-fire.
   attempt_deadline = "1800s"
 
   retry_config {

@@ -8,7 +8,11 @@
       "conversation": [
         {
           "user_content": {
-            "parts": [{"text": "/dream-review"}]
+            "parts": [
+              {
+                "text": "/dream-review"
+              }
+            ]
           },
           "intermediate_data": {
             "tool_uses": [],
@@ -41,7 +45,11 @@
       "conversation": [
         {
           "user_content": {
-            "parts": [{"text": "/reload"}]
+            "parts": [
+              {
+                "text": "/reload"
+              }
+            ]
           },
           "intermediate_data": {
             "tool_uses": [],
@@ -74,7 +82,11 @@
       "conversation": [
         {
           "user_content": {
-            "parts": [{"text": "/grant ls /tmp"}]
+            "parts": [
+              {
+                "text": "/grant ls /tmp"
+              }
+            ]
           },
           "intermediate_data": {
             "tool_uses": [],
@@ -84,19 +96,19 @@
             {
               "rubric_id": "grant_dispatched_not_model_turn",
               "rubric_content": {
-                "text_property": "The response confirms a session-scoped HITL grant was recorded for the `terminal` tool with the argument `ls /tmp` — e.g., 'granted terminal command=\\'ls /tmp\\' for this session' (or an equivalent confirmation that mentions BOTH the tool name `terminal` AND the command pattern `ls /tmp`). A response that engages conversationally ('I can't grant arbitrary commands without more context...') fails — that would mean the dispatcher didn't intercept."
+                "text_property": "The response confirms a session-scoped HITL grant was recorded for the command `ls /tmp` — e.g., 'granted command=\\'ls /tmp\\' for this session' (or an equivalent confirmation that mentions the command pattern `ls /tmp`). A single `/grant` now records one grant per shape a shell command can reach the guard chain through (`bash`, and `process(action='spawn'/'write')`), so the confirmation is not required to name a specific tool. A response that engages conversationally ('I can't grant arbitrary commands without more context...') fails — that would mean the dispatcher didn't intercept."
               }
             },
             {
               "rubric_id": "grant_no_tool_calls",
               "rubric_content": {
-                "text_property": "The response contains NO tool calls. The `/grant` handler calls `policy_grant` directly against the session state — it does NOT route through the terminal tool itself (which would defeat the purpose of pre-granting). Any FunctionCall in the response fails."
+                "text_property": "The response contains NO tool calls. The `/grant` handler calls `policy_grant` directly against the session state — it does NOT route through the bash tool itself (which would defeat the purpose of pre-granting). Any FunctionCall in the response fails."
               }
             },
             {
               "rubric_id": "grant_does_not_execute_command",
               "rubric_content": {
-                "text_property": "The response does NOT contain the OUTPUT of running `ls /tmp` (a directory listing). `/grant` only records a pre-authorisation; it never executes the command. A response that includes file listings, paths, or any indication that `ls` was actually run fails — that would mean the dispatcher mis-routed to the terminal tool instead of to `policy_grant`."
+                "text_property": "The response does NOT contain the OUTPUT of running `ls /tmp` (a directory listing). `/grant` only records a pre-authorisation; it never executes the command. A response that includes file listings, paths, or any indication that `ls` was actually run fails — that would mean the dispatcher mis-routed to the bash tool instead of to `policy_grant`."
               }
             }
           ]
@@ -113,7 +125,11 @@
       "conversation": [
         {
           "user_content": {
-            "parts": [{"text": "/grant"}]
+            "parts": [
+              {
+                "text": "/grant"
+              }
+            ]
           },
           "intermediate_data": {
             "tool_uses": [],
@@ -123,7 +139,7 @@
             {
               "rubric_id": "grant_list_shows_seeded_grants",
               "rubric_content": {
-                "text_property": "The response lists the active session grants from state. The seed contains one grant for the `terminal` tool with command `ls /tmp` and another for command `pwd`; the response MUST reference both — by mentioning `terminal` and the two commands `ls /tmp` and `pwd`. A response that says 'no active grants' fails (the state seed has two). A response that engages conversationally fails (the dispatcher would not have intercepted)."
+                "text_property": "The response lists the active session grants from state. The seed contains one grant for the `bash` tool with command `ls /tmp` and another for command `pwd`; the response MUST reference both commands `ls /tmp` and `pwd` (the listing echoes the seed's `tool_name` verbatim, so mentioning `bash` is also correct, but the two commands are the load-bearing check). A response that says 'no active grants' fails (the state seed has two). A response that engages conversationally fails (the dispatcher would not have intercepted)."
               }
             },
             {
@@ -140,8 +156,18 @@
         "user_id": "eval_shared",
         "state": {
           "_policy_grants": [
-            {"tool_name": "terminal", "signature": {"command": "ls /tmp"}},
-            {"tool_name": "terminal", "signature": {"command": "pwd"}}
+            {
+              "tool_name": "bash",
+              "signature": {
+                "command": "ls /tmp"
+              }
+            },
+            {
+              "tool_name": "bash",
+              "signature": {
+                "command": "pwd"
+              }
+            }
           ]
         }
       }
@@ -151,7 +177,11 @@
       "conversation": [
         {
           "user_content": {
-            "parts": [{"text": "Reply with the single word: pong"}]
+            "parts": [
+              {
+                "text": "Reply with the single word: pong"
+              }
+            ]
           },
           "intermediate_data": {
             "tool_uses": [],
@@ -167,7 +197,7 @@
             {
               "rubric_id": "auto_reload_does_not_invoke_reload_tool_visibly",
               "rubric_content": {
-                "text_property": "The response contains NO `reload` tool call — the auto-reload consumer runs inside the callback machinery, not through the model's tool surface, so in this scenario the model has no reason to invoke `reload` itself. (`reload` IS registered as a model-facing tool after the simplification, but the consumer firing it before the model turn means the model sees fresh state without needing to call it.) Any FunctionCall for `reload` here fails this rubric — that would be evidence that the consumer didn't run and the model is compensating, when it should just answer 'pong'."
+                "text_property": "The response contains NO `load_skill(action='reload')` tool call — the auto-reload consumer runs inside the callback machinery, not through the model's tool surface, so in this scenario the model has no reason to invoke it. (`load_skill(action='reload')` is available to the model, but the consumer fires before the model turn, so it already sees fresh state.) Any FunctionCall for `reload` here fails this rubric — that would be evidence that the consumer didn't run and the model is compensating, when it should just answer 'pong'."
               }
             }
           ]
@@ -186,7 +216,11 @@
       "conversation": [
         {
           "user_content": {
-            "parts": [{"text": "/this-is-not-a-real-command-xyz tell me a one-sentence joke"}]
+            "parts": [
+              {
+                "text": "/this-is-not-a-real-command-xyz tell me a one-sentence joke"
+              }
+            ]
           },
           "intermediate_data": {
             "tool_uses": [],

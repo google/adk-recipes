@@ -88,13 +88,11 @@ _DEFAULT_SECRET_PATTERNS: tuple[tuple[str, str], ...] = (
 )
 
 # Shell-command shape detectors (app-wide; not tenant-extensible by design).
-# This is a best-effort argument guard — it intentionally won't catch every
-# egress path (e.g. a raw python socket, git push). It raises the bar
-# against the common shapes.
-#
-# HTTP tools are gated only on an *upload* shape so plain GET/downloads pass.
-# Transfer/tunnel tools move data to a host bidirectionally and are hard to
-# direction-parse, so any remote host they name is gated.
+# Best-effort argument guard, not exhaustive (misses a raw python socket,
+# git push, etc.), raising the bar against the common shapes. HTTP tools
+# gate only on an *upload* shape so plain GET/downloads pass; transfer/tunnel
+# tools move data bidirectionally and are hard to direction-parse, so any
+# remote host they name is gated.
 HTTP_TOOLS_RE = re.compile(r"\b(curl|wget)\b")
 TRANSFER_TOOLS_RE = re.compile(
     r"\b(scp|sftp|ftp|rsync|ssh|nc|ncat|netcat|telnet|socat)\b"

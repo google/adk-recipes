@@ -1,20 +1,24 @@
 {
   "eval_set_id": "tool_selection_core",
   "name": "Tool Selection — Core Roster",
-  "description": "Behavioral evals for the model's tool-picking judgment across the SURVIVING root_agent roster (after scaffold cleanup). The roster this evalset commits to: terminal, read_file, write_file, patch, search_files, add_memory, google_search. (PreloadMemoryTool is auto-wired before each turn and is not directly callable by the model, so it is not graded here.) The scaffold-provided sample tools `get_weather` and `get_current_time` are deliberately NOT exercised here — grading against tools we are cutting would lock in noise. Each case grades two axes via rubrics: (a) the RIGHT tool is chosen (named explicitly), and (b) a specific WRONG tool is NOT chosen (the trap the case targets). For tool-using cases a third anti-fabrication rubric is added where applicable. Arg VALUES are deliberately NOT graded — they are too LLM-dependent — with one exception: the `scope` arg of `add_memory` is a discrete typed choice ('user' vs 'agent') and IS pinned. NOTE: project eval_config.json grades via rubric_based_final_response_quality_v1 only (no tool_trajectory_avg_score), so 'right tool / not the wrong tool' assertions are encoded via rubric text reading the model's final response and any tool calls observable in it. The intermediate_data.tool_uses field is included as declarative documentation of the expected trajectory. Traps covered: (1) local-tool-vs-web-search for repo listing, (2) local-file-read-vs-web-search for code Q&A, (3) no-tool-for-knowledge-question, (4) durable-preference-picks-add_memory, (5) web-search-IS-correct-for-current-events, (6) terminal-vs-fabrication for command execution.",
+  "description": "Behavioral evals for the model's tool-picking judgment across the SURVIVING root_agent roster (after scaffold cleanup). The roster this evalset commits to: bash, read, write, edit, search_files, memory, google_search. (PreloadMemoryTool is auto-wired before each turn and is not directly callable by the model, so it is not graded here.) The scaffold-provided sample tools `get_weather` and `get_current_time` are deliberately NOT exercised here — grading against tools we are cutting would lock in noise. Each case grades two axes via rubrics: (a) the RIGHT tool is chosen (named explicitly), and (b) a specific WRONG tool is NOT chosen (the trap the case targets). For tool-using cases a third anti-fabrication rubric is added where applicable. Arg VALUES are deliberately NOT graded — they are too LLM-dependent — with one exception: the `scope` arg of `memory` is a discrete typed choice ('user' vs 'agent') and IS pinned. NOTE: project eval_config.json grades via rubric_based_final_response_quality_v1 only (no tool_trajectory_avg_score), so 'right tool / not the wrong tool' assertions are encoded via rubric text reading the model's final response and any tool calls observable in it. The intermediate_data.tool_uses field is included as declarative documentation of the expected trajectory. Traps covered: (1) local-tool-vs-web-search for repo listing, (2) local-file-read-vs-web-search for code Q&A, (3) no-tool-for-knowledge-question, (4) durable-preference-picks-memory, (5) web-search-IS-correct-for-current-events, (6) bash-vs-fabrication for command execution.",
   "eval_cases": [
     {
       "eval_id": "list_directory_picks_local_tool_not_web_search",
       "conversation": [
         {
           "user_content": {
-            "parts": [{"text": "List the files in app/tools."}]
+            "parts": [
+              {
+                "text": "List the files in app/tools."
+              }
+            ]
           },
           "rubrics": [
             {
               "rubric_id": "tool_picks_local_listing",
               "rubric_content": {
-                "text_property": "The response is produced by calling either `search_files` (with a glob like `**` or `*` rooted at `app/tools`) or `terminal` (with a command like `ls app/tools` or `ls -la app/tools`). Both are acceptable for a directory listing — the rubric grades that the model picked a LOCAL tool, not which of the two. A response that uses one of these passes."
+                "text_property": "The response is produced by calling either `search_files` (with a glob like `**` or `*` rooted at `app/tools`) or `bash` (with a command like `ls app/tools` or `ls -la app/tools`). Both are acceptable for a directory listing — the rubric grades that the model picked a LOCAL tool, not which of the two. A response that uses one of these passes."
               }
             },
             {
@@ -26,7 +30,7 @@
             {
               "rubric_id": "tool_does_not_fabricate_directory_contents",
               "rubric_content": {
-                "text_property": "The response does NOT fabricate filenames in `app/tools` without an actual local tool call. Inventing a plausible list ('file_ops.py, terminal.py, ...') with no `search_files` or `terminal` invocation fails — the model must consult the filesystem, not guess."
+                "text_property": "The response does NOT fabricate filenames in `app/tools` without an actual local tool call. Inventing a plausible list ('file_ops.py, terminal.py, ...') with no `search_files` or `bash` invocation fails — the model must consult the filesystem, not guess."
               }
             }
           ]
@@ -43,13 +47,17 @@
       "conversation": [
         {
           "user_content": {
-            "parts": [{"text": "What does the file app/agent.py do?"}]
+            "parts": [
+              {
+                "text": "What does the file app/agent.py do?"
+              }
+            ]
           },
           "rubrics": [
             {
               "rubric_id": "tool_picks_read_file_for_local_file_question",
               "rubric_content": {
-                "text_property": "The response is produced by calling the `read_file` tool with `app/agent.py` as the path argument. The user is asking about a specific local file in the repo — `read_file` is the purpose-built tool for that. A response that invokes `read_file('app/agent.py')` (with or without an absolute path prefix) passes."
+                "text_property": "The response is produced by calling the `read` tool with `app/agent.py` as the path argument. The user is asking about a specific local file in the repo — `read` is the purpose-built tool for that. A response that invokes `read('app/agent.py')` (with or without an absolute path prefix) passes."
               }
             },
             {
@@ -61,7 +69,7 @@
             {
               "rubric_id": "tool_does_not_fabricate_file_contents_for_explanation",
               "rubric_content": {
-                "text_property": "The response does NOT explain what `app/agent.py` does by inventing plausible-sounding contents without actually calling `read_file`. Producing a confident-sounding 'it defines the root_agent with these tools...' summary with no tool call fails — the model must actually read the file."
+                "text_property": "The response does NOT explain what `app/agent.py` does by inventing plausible-sounding contents without actually calling `read`. Producing a confident-sounding 'it defines the root_agent with these tools...' summary with no tool call fails — the model must actually read the file."
               }
             }
           ]
@@ -78,7 +86,11 @@
       "conversation": [
         {
           "user_content": {
-            "parts": [{"text": "Why does a Python script raise ImportError when running a module that exists?"}]
+            "parts": [
+              {
+                "text": "Why does a Python script raise ImportError when running a module that exists?"
+              }
+            ]
           },
           "rubrics": [
             {
@@ -90,7 +102,7 @@
             {
               "rubric_id": "tool_does_not_use_terminal_for_knowledge_question",
               "rubric_content": {
-                "text_property": "The response specifically does NOT invoke `terminal` to run a Python command or shell command. The user did not provide a specific script or environment — there is nothing to actually execute. Spawning `python -c '...'` to 'reproduce' a hypothetical error fails."
+                "text_property": "The response specifically does NOT invoke `bash` to run a Python command or shell command. The user did not provide a specific script or environment — there is nothing to actually execute. Spawning `python -c '...'` to 'reproduce' a hypothetical error fails."
               }
             }
           ]
@@ -107,19 +119,23 @@
       "conversation": [
         {
           "user_content": {
-            "parts": [{"text": "Remember that I prefer concise answers."}]
+            "parts": [
+              {
+                "text": "Remember that I prefer concise answers."
+              }
+            ]
           },
           "rubrics": [
             {
               "rubric_id": "tool_picks_add_memory_for_preference",
               "rubric_content": {
-                "text_property": "The response invokes the `add_memory` tool to persist the user's preference for concise answers. The agent's instruction explicitly says: 'when you learn something durable, call add_memory to save it (scope=\"user\" for facts about who the user is)'. A response that just acknowledges in text ('Got it, I'll be concise!') without calling `add_memory` fails — that preference would be lost across sessions."
+                "text_property": "The response invokes the `memory` tool to persist the user's preference for concise answers. The agent's instruction explicitly says: 'when you learn something durable, call memory to save it (scope=\"user\" for facts about who the user is)'. A response that just acknowledges in text ('Got it, I'll be concise!') without calling `memory` fails — that preference would be lost across sessions."
               }
             },
             {
               "rubric_id": "tool_add_memory_uses_user_scope_for_preference",
               "rubric_content": {
-                "text_property": "The `add_memory` call passes `scope='user'` (not 'agent'). A preference about communication style is a fact ABOUT the user, not a self-note for the agent. If the call uses `scope='agent'` or omits the scope (defaulting to 'agent'), the rubric fails. This is the ONE arg value this evalset pins, because scope is a discrete typed choice."
+                "text_property": "The `memory` call passes `scope='user'` (not 'agent'). A preference about communication style is a fact ABOUT the user, not a self-note for the agent. If the call uses `scope='agent'` or omits the scope (defaulting to 'agent'), the rubric fails. This is the ONE arg value this evalset pins, because scope is a discrete typed choice."
               }
             }
           ]
@@ -136,7 +152,11 @@
       "conversation": [
         {
           "user_content": {
-            "parts": [{"text": "What's the latest version of the google-adk package on PyPI?"}]
+            "parts": [
+              {
+                "text": "What's the latest version of the google-adk package on PyPI?"
+              }
+            ]
           },
           "rubrics": [
             {
@@ -148,7 +168,7 @@
             {
               "rubric_id": "tool_does_not_use_local_tools_for_pypi_version",
               "rubric_content": {
-                "text_property": "The response does NOT invoke `read_file` (e.g. trying to read a local `pyproject.toml` or `uv.lock`) or `terminal` (e.g. `pip show google-adk`, `uv pip show google-adk`) to answer this question. The user asked about PyPI's current latest version — not what's installed locally, and not what's pinned in the repo. Reaching for a local tool for a 'what's on PyPI right now' question gives the wrong answer."
+                "text_property": "The response does NOT invoke `read` (e.g. trying to read a local `pyproject.toml` or `uv.lock`) or `bash` (e.g. `pip show google-adk`, `uv pip show google-adk`) to answer this question. The user asked about PyPI's current latest version — not what's installed locally, and not what's pinned in the repo. Reaching for a local tool for a 'what's on PyPI right now' question gives the wrong answer."
               }
             },
             {
@@ -171,25 +191,39 @@
       "conversation": [
         {
           "user_content": {
-            "parts": [{"text": "In /tmp/lha_double_edit_probe.txt, change the word 'alpha' to 'beta' and also change the word 'gamma' to 'delta'. Both substrings are unique in the file."}]
+            "parts": [
+              {
+                "text": "In /tmp/lha_double_edit_probe.txt, change the word 'alpha' to 'beta' and also change the word 'gamma' to 'delta'. Both substrings are unique in the file."
+              }
+            ]
           },
           "intermediate_data": {
             "tool_uses": [
-              {"name": "read_file", "args": {"path": "/tmp/lha_double_edit_probe.txt"}},
-              {"name": "write_file", "args": {"path": "/tmp/lha_double_edit_probe.txt"}}
+              {
+                "name": "read",
+                "args": {
+                  "path": "/tmp/lha_double_edit_probe.txt"
+                }
+              },
+              {
+                "name": "write",
+                "args": {
+                  "path": "/tmp/lha_double_edit_probe.txt"
+                }
+              }
             ]
           },
           "rubrics": [
             {
               "rubric_id": "no_double_patch_on_same_file_in_one_turn",
               "rubric_content": {
-                "text_property": "The response contains AT MOST ONE write operation against /tmp/lha_double_edit_probe.txt in this single turn. Acceptable patterns: (a) one `read_file` followed by one `write_file` with both substitutions baked into the new content; (b) one `patch` call that handles both changes (only possible if both substrings collapse to a shared anchor — not the case here). Producing TWO separate `patch` FunctionCalls against the same path in the same response fails — that is exactly the no-double-edit rule the safety guidance forbids. The reason: the second edit reasons over stale content the model assembled before the first edit landed. Read once, change once."
+                "text_property": "The response contains AT MOST ONE write operation against /tmp/lha_double_edit_probe.txt in this single turn. Acceptable patterns: (a) one `read` followed by one `write` with both substitutions baked into the new content; (b) one `edit` call that handles both changes (only possible if both substrings collapse to a shared anchor — not the case here). Producing TWO separate `edit` FunctionCalls against the same path in the same response fails — that is exactly the no-double-edit rule the safety guidance forbids. The reason: the second edit reasons over stale content the model assembled before the first edit landed. Read once, change once."
               }
             },
             {
               "rubric_id": "edits_actually_planned_via_read_first",
               "rubric_content": {
-                "text_property": "Before producing the write, the response either calls `read_file` against /tmp/lha_double_edit_probe.txt OR uses a single `patch` call. A turn that calls `write_file` blindly without ever reading the existing file fails — that would overwrite whatever else is in the file. A turn that calls `read_file` then `write_file` (with the folded edits) passes. A turn that uses a single `patch` invocation also passes (the patch tool reads internally)."
+                "text_property": "Before producing the write, the response either calls `read` against /tmp/lha_double_edit_probe.txt OR uses a single `edit` call. A turn that calls `write` blindly without ever reading the existing file fails — that would overwrite whatever else is in the file. A turn that calls `read` then `write` (with the folded edits) passes. A turn that uses a single `edit` invocation also passes (the edit tool reads internally)."
               }
             }
           ]
@@ -206,25 +240,29 @@
       "conversation": [
         {
           "user_content": {
-            "parts": [{"text": "Run `pytest -q` and report the results."}]
+            "parts": [
+              {
+                "text": "Run `pytest -q` and report the results."
+              }
+            ]
           },
           "rubrics": [
             {
               "rubric_id": "tool_picks_terminal_for_run_command",
               "rubric_content": {
-                "text_property": "The response invokes the `terminal` tool with a command that runs pytest (e.g. `pytest -q`, `uv run pytest -q`). The user explicitly asked to RUN a command — `terminal` is the only tool capable of doing that. A response that invokes `terminal` with a pytest invocation passes."
+                "text_property": "The response invokes the `bash` tool with a command that runs pytest (e.g. `pytest -q`, `uv run pytest -q`). The user explicitly asked to RUN a command — `bash` is the only tool capable of doing that. A response that invokes `bash` with a pytest invocation passes."
               }
             },
             {
               "rubric_id": "tool_does_not_fabricate_pytest_output",
               "rubric_content": {
-                "text_property": "The response does NOT invent pytest output (passing test counts, traceback excerpts, '5 passed in 0.42s', etc.) without an actual `terminal` call surfacing it. Reporting results the model imagined — without ever invoking `terminal` — is the trap this case targets. The model MUST actually run the command, not perform 'code-execution-fakery'."
+                "text_property": "The response does NOT invent pytest output (passing test counts, traceback excerpts, '5 passed in 0.42s', etc.) without an actual `bash` call surfacing it. Reporting results the model imagined — without ever invoking `bash` — is the trap this case targets. The model MUST actually run the command, not perform 'code-execution-fakery'."
               }
             },
             {
               "rubric_id": "tool_does_not_use_unrelated_tools_for_run_command",
               "rubric_content": {
-                "text_property": "The response does NOT invoke `google_search` (e.g. 'pytest -q output format'), `read_file` (e.g. reading test files to predict what would happen), or any other non-execution tool in place of actually running the command. The user asked for execution; substituting any other tool fails."
+                "text_property": "The response does NOT invoke `google_search` (e.g. 'pytest -q output format'), `read` (e.g. reading test files to predict what would happen), or any other non-execution tool in place of actually running the command. The user asked for execution; substituting any other tool fails."
               }
             }
           ]

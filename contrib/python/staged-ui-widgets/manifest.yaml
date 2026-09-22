@@ -1,0 +1,44 @@
+# ADK Recipe Manifest — manifest.yaml
+type: "standalone"
+
+status: "active"
+
+language: "python"
+
+description: >-
+  A shopping agent that renders A2UI widgets — product cards, comparison
+  tables, delivery timelines, spend charts — through a staging layer instead
+  of inline. Tools stage payloads into session state; one after-agent flush
+  converts and emits them. That split buys deterministic emission order,
+  duplicate-id safety across parallel tool calls, and a widget lifecycle
+  independent of tool calls: re-showing or re-ranking a widget in a turn where
+  the model never calls the tool that built it.
+
+architecture:
+  agent: "single"
+  # Preferences persist to session state under the ``user:`` scope, so a
+  # profile edit survives into later sessions.
+  stateful: true
+  # Catalog, orders, and spend history are JSON files under app/data/.
+  datasources:
+    - "local"
+
+dependencies:
+  libraries:
+    - "ADK"
+    - "a2ui-agent-sdk"
+
+ownership:
+  team: "Verizon"
+  poc: "lwangverizon"
+
+tags:
+  - "a2ui"
+  - "generative-ui"
+  - "widgets"
+  - "session-state"
+  - "callbacks"
+  - "tool-design"
+  - "shopping"
+
+license: "Apache-2.0"

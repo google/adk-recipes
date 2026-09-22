@@ -15,7 +15,7 @@
 """Pre-compression memory flush — pins the module contract.
 
 The flush fork mirrors ``review_fork``'s structure but with a narrower
-toolset (``add_memory`` only) and a different trigger (right before
+toolset (``memory`` only) and a different trigger (right before
 ``HorizonSummarizer.maybe_summarize_events`` calls ``spawn_flush_fork`` before
 delegating to ADK's compaction).
 
@@ -84,10 +84,10 @@ async def test_module_exposes_entrypoints():
 
 
 class TestToolWhitelist:
-    async def test_allows_add_memory(self):
+    async def test_allows_memory(self):
         from horizon.memory.flush_fork import _whitelist_tools_callback
 
-        tool = SimpleNamespace(name="add_memory")
+        tool = SimpleNamespace(name="memory")
         result = await _whitelist_tools_callback(
             tool=tool, args={}, tool_context=SimpleNamespace()
         )

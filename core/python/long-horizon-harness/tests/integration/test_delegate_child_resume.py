@@ -120,6 +120,10 @@ async def test_drive_child_pauses_then_resumes_without_repeating_side_effect() -
     assert first.pending is not None and first.pending.confirmation_id
     assert first.pending.hint == "run X?"
     assert EFFECTS == ["A", "B:req"]
+    # A paused child has NOT done the work. An eval caught the parent
+    # reporting "the subagent created the tests" off a run that stopped for
+    # approval, so the summary has to say it paused, not just `status`.
+    assert "PAUSED" in first.summary, first.summary
 
     resumed = await drive_child(
         runner,

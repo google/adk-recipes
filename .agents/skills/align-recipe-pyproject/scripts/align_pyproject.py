@@ -63,6 +63,21 @@ mirror it there (and vice versa).
         Report-only when a default entry exists but points elsewhere (private
         mirror, TestPyPI) — the divergence may be intentional.
 
+DELIBERATELY NOT IMPLEMENTED HERE — adk-major-current
+    check_recipe_pyproject.py carries one further rule: a core/ recipe should
+    resolve to the current google-adk major. It is WARN-ONLY there, and has
+    no counterpart here on purpose.
+
+    Do not add one. The mechanical fix is obvious and wrong: rewriting
+    `google-adk>=1.15.0,<2.0.0` to `>=2.0.0,<3.0.0` and re-locking yields a
+    recipe importing a major it was never ported to. That failure shows up
+    neither here, nor in the validator, nor in CI — it shows up when someone
+    runs the recipe. Crossing an ADK major is a code migration; this script
+    only ever rewrites metadata.
+
+    Listed so that "the validator has a rule the aligner lacks" reads as a
+    decision rather than as drift the next person should close.
+
 Usage:
 
     python align_pyproject.py --recipe-dir <RECIPE_DIR> --dry-run

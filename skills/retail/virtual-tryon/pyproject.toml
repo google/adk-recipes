@@ -1,0 +1,56 @@
+[project]
+name = "retail-virtual-tryon"
+version = "0.2.0"
+requires-python = ">=3.11"
+license = {text = "Apache-2.0"}
+
+dependencies = [
+    "google-adk>=2.2.0",
+    "google-genai>=1.0",
+    "google-cloud-storage>=2.0",
+    "pillow>=9.0",
+    "python-dotenv>=1.0",
+    "pyyaml>=6.0",
+]
+
+# Dependencies of the standalone Cloud Run app that scripts/export_app.py
+# generates. Deliberately not the same set as `dependencies` above: the
+# exported server is plain FastAPI and never imports google-adk, but it does
+# need fastapi, uvicorn, python-multipart and httpx spelled out -- the recipe
+# itself only gets those transitively via google-adk.
+[project.optional-dependencies]
+serving = [
+    "fastapi>=0.100.0",
+    "uvicorn>=0.20.0",
+    "python-multipart>=0.0.6",
+    "google-genai>=1.0.0",
+    "google-cloud-storage>=2.0.0",
+    "pillow>=9.0.0",
+    "pyyaml>=6.0",
+    "httpx>=0.23.0",
+    "python-dotenv>=1.0.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[[tool.uv.index]]
+url = "https://pypi.org/simple/"
+default = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["scripts"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-mock>=3.14",
+    "pytest-cov>=4.1",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-s -v"
+log_cli = true
+log_cli_level = "INFO"

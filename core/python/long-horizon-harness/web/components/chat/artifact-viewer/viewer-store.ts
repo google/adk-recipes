@@ -19,10 +19,22 @@ export interface ArtifactInput {
   bytes?: string;
   /** signed/download URL, when the artifact is fetched. */
   url?: string;
+  /**
+   * ``/workspace/...`` path when the tab points at a live workspace file
+   * (opened from the sidebar tree) rather than a frozen artifact snapshot.
+   * Only these tabs are editable.
+   */
+  path?: string;
 }
 
 export interface ArtifactTab extends ArtifactInput {
   id: string;
+  /**
+   * Bumped whenever the tab's contents may be stale (re-opened, or a turn
+   * just ended). The viewer refetches a workspace file when this changes —
+   * bytes alone can't tell us the agent rewrote the file underneath us.
+   */
+  revision: number;
 }
 
 export interface ViewerState {
@@ -35,11 +47,16 @@ export const initialViewerState: ViewerState = { tabs: [], activeId: null };
 // Identity is content-shaped so re-opening the same artifact activates the
 // existing tab instead of stacking duplicates.
 export function tabId(a: ArtifactInput): string {
+  // A workspace file is identified by path alone: its bytes change on every
+  // save, and a content-shaped id would stack a new tab per edit.
+  if (a.path) return `ws:${a.path}`;
   return `${a.name}|${a.mimeType}|${a.bytes?.length ?? 0}|${a.url ?? ""}`;
 }
 
 export type ViewerAction =
   | { type: "open"; artifact: ArtifactInput }
+  | { type: "reload"; id: string }
+  | { type: "setBytes"; id: string; bytes: string }
   | { type: "close"; id: string }
   | { type: "activate"; id: string }
   | { type: "clear" };
@@ -52,10 +69,26 @@ export function viewerReducer(
     case "open": {
       const id = tabId(action.artifact);
       const exists = state.tabs.some((t) => t.id === id);
+      // Re-opening an already-open file is the user asking for it again —
+      // usually because they expect it to have changed.
       const tabs = exists
-        ? state.tabs
-        : [...state.tabs, { id, ...action.artifact }];
+        ? state.tabs.map((t) =>
+            t.id === id ? { ...t, revision: t.revision + 1 } : t,
+          )
+        : [...state.tabs, { id, revision: 0, ...action.artifact }];
       return { tabs, activeId: id };
+    }
+    case "reload": {
+      const tabs = state.tabs.map((t) =>
+        t.id === action.id ? { ...t, revision: t.revision + 1 } : t,
+      );
+      return { ...state, tabs };
+    }
+    case "setBytes": {
+      const tabs = state.tabs.map((t) =>
+        t.id === action.id ? { ...t, bytes: action.bytes } : t,
+      );
+      return { ...state, tabs };
     }
     case "close": {
       const idx = state.tabs.findIndex((t) => t.id === action.id);

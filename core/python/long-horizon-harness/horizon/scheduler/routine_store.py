@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Routine schedule rows + store (mirrors scheduler/store.py for reminders).
+"""Routine schedule rows + store.
 
 The row carries the manifest fields (task/secrets/delivery/schedule) so the fire
 path is self-contained — it never reads the user's `.lha/routines/` at fire time

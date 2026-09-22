@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Unit tests for recall_past_sessions.
+"""Unit tests for session_search.
 
 Cover user scoping, current-session exclusion, title derivation, event
 extraction, drill-mode refusal of the current session, and missing-session

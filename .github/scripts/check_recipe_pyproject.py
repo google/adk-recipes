@@ -24,11 +24,20 @@ Rules enforced (see .github/workflows/python-validate-recipe.yml):
     Airlock auth (see the block comment in the root pyproject.toml for
     the full rationale).
 
+Reported as a WARNING, never as a failure:
+
+  - adk-major-current: a recipe under core/ should resolve to the current
+    google-adk major. Read from the LOCK as well as the specifier, because
+    `google-adk>=1.8.0` permits 2.x while still installing 1.28.0. Warn-only
+    because crossing an ADK major is a code migration, so a blocking check
+    would wedge unrelated contributors behind that work. Advisories do not
+    affect the exit code.
+
 Note: no-local-ruff-config (forbid [tool.ruff*] blocks in recipe
 pyproject.toml) is enforced by a grep in the workflow itself, not here.
 
-MAINTENANCE NOTE — keep in sync with the align skill. These four rules are
-also implemented (as auto-fixes) by
+MAINTENANCE NOTE — keep in sync with the align skill. The four BLOCKING
+rules above are also implemented (as auto-fixes) by
 .agents/skills/align-recipe-pyproject/scripts/align_pyproject.py. This script
 only READS/validates (stdlib tomllib + pyyaml); that one REWRITES
 (comment-preserving tomlkit + ruamel.yaml). They are intentionally separate
@@ -38,7 +47,8 @@ mirror it there (and vice versa).
 Usage: python check_recipe_pyproject.py <recipe-dir>
 
 Exit codes:
-  0  every rule passed
+  0  every blocking rule passed. A warn-only advisory may still have been
+     printed — those never affect the exit code.
   1  contributor-fixable problems found; every one has been reported with
      a fix, both as a human block and as a ::error annotation
   2  CI fault — the checker crashed, or its own environment is missing a
@@ -48,25 +58,50 @@ A missing pyproject.toml is not this script's failure to report (a separate
 required-files check owns it), so that case exits 0 with a note.
 """
 
+import re
 import sys
 from pathlib import Path
 
 import tomllib
+from packaging.requirements import InvalidRequirement, Requirement
 from packaging.specifiers import InvalidSpecifier, SpecifierSet
-from packaging.version import Version
+from packaging.version import InvalidVersion, Version
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools"))
 from ci_message import (
     EXIT_OK,
     Diagnostic,
     Doc,
+    Severity,
     guard,
     infra_fault,
     report,
+    report_advisories,
     report_infra_fault,
 )
 
 CHECKER = "check_recipe_pyproject.py"
+
+# The google-adk major version that curated recipes are expected to teach.
+#
+# This is a FRESHNESS rule, not a correctness one, which is why it is
+# warn-only (see check_adk_major). A recipe pinned to an older major still
+# runs; it just demonstrates an API surface that no longer reflects how you
+# would write the agent today. That is worse than a broken recipe in one
+# specific way — broken is loud, out-of-date is silent.
+#
+# Scope is core/ only. contrib/ is community-contributed and its authors set
+# their own pace; skills/ likewise.
+#
+# TO BUMP THIS: set the number, then expect the notice to fire on every core
+# recipe still on the previous major. Moving a recipe across an ADK major is
+# a code migration, not a version bump, so do not treat a green run as the
+# goal — the goal is a deliberate migration per recipe.
+CURRENT_ADK_MAJOR = 2
+
+# Distribution name to look for, normalised per PEP 503. Extras
+# (`google-adk[gcp]`) are stripped before comparison.
+ADK_DIST = "google-adk"
 
 MIN_PYTHON = (3, 11)
 MIN_PYTHON_STR = f"{MIN_PYTHON[0]}.{MIN_PYTHON[1]}"
@@ -645,6 +680,245 @@ def check_default_pypi_index(
     ]
 
 
+def _normalise_dist(name: str) -> str:
+    """PEP 503 normalisation, so `Google_ADK` and `google-adk` compare equal."""
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+
+def _adk_requirement(project: dict) -> Requirement | None:
+    """The `google-adk` entry from `[project].dependencies`, if declared.
+
+    Malformed entries are skipped rather than reported: the resolver fails
+    loudly on those already (`uv lock --check`, in the dependency-policy
+    workflow), and a freshness notice is the wrong place to first learn your
+    dependency list does not parse.
+    """
+    for raw in project.get("dependencies") or []:
+        if not isinstance(raw, str):
+            continue
+        try:
+            req = Requirement(raw)
+        except InvalidRequirement:
+            continue
+        if _normalise_dist(req.name) == ADK_DIST:
+            return req
+    return None
+
+
+def _locked_adk_version(recipe_dir: Path) -> Version | None:
+    """The google-adk version pinned in the sibling uv.lock, if resolvable.
+
+    Read because the DECLARED specifier does not tell you what the recipe
+    teaches. `google-adk>=1.0.0` admits 2.x, yet several recipes carrying that
+    exact specifier resolve to 1.28.0 — the constraint is satisfied and the
+    recipe still demonstrates the previous major. The lock is what `uv sync`
+    installs, so the lock is what a reader ends up running.
+
+    Every failure path returns None (no notice) rather than guessing. A
+    missing or unparseable lock is reported by the dependency-policy workflow,
+    which owns that question.
+    """
+    lock_path = recipe_dir / "uv.lock"
+    if not lock_path.is_file():
+        return None
+    try:
+        with open(lock_path, "rb") as f:
+            lock = tomllib.load(f)
+    except (tomllib.TOMLDecodeError, OSError):
+        return None
+
+    for package in lock.get("package") or []:
+        if not isinstance(package, dict):
+            continue
+        if _normalise_dist(str(package.get("name", ""))) != ADK_DIST:
+            continue
+        try:
+            return Version(str(package.get("version", "")))
+        except InvalidVersion:
+            return None
+    return None
+
+
+def _specifier_admits_major(specifier: SpecifierSet, major: int) -> bool:
+    """Does `specifier` allow ANY release in the given major series?
+
+    The obvious implementation — `specifier.contains(Version(f"{major}.0.0"))`
+    — is wrong, and wrong in the direction that produces false accusations:
+    `>=2.5.0,<3.0.0` sits squarely on major 2 but excludes 2.0.0 exactly. Two
+    recipes were wrongly flagged by that during development.
+
+    So probe instead, the same technique (and the same class of caveat) as
+    BELOW_MIN above:
+
+      * `major.0.0` catches caps inside the series, e.g. `<2.1`;
+      * `major.9999.9999` catches floors inside it, e.g. `>=2.5.0`;
+      * each clause version that is itself in the series catches exact pins
+        such as `==2.3.0`, which no fixed probe set can hit.
+
+    Prereleases are admitted deliberately: `>=2.0.0a0` is a real way to sit on
+    the current major, and the prerelease itself gets its own better-targeted
+    notice rather than being conflated with being a major behind.
+    """
+    probes = [Version(f"{major}.0.0"), Version(f"{major}.9999.9999")]
+    for clause in specifier:
+        try:
+            candidate = Version(clause.version.rstrip(".*"))
+        except InvalidVersion:
+            continue
+        if candidate.major == major:
+            probes.append(candidate)
+    return any(specifier.contains(p, prereleases=True) for p in probes)
+
+
+def check_adk_major(
+    project: dict, pyproject_path: Path, recipe_dir: Path
+) -> list[Diagnostic]:
+    """WARN-ONLY: is a core/ recipe still teaching an older google-adk major?
+
+    Deliberately not an error. Six of the nine core/python recipes were on the
+    previous major when this rule landed, and each one needs a real migration
+    rather than a specifier edit — making it blocking would have wedged every
+    unrelated PR behind that work.
+
+    Two distinct problems, reported separately because the fixes differ:
+
+      * the specifier EXCLUDES the current major (`<2.0.0`, `==1.31.0`) —
+        pyproject.toml has to change before a relock can do anything;
+      * the specifier admits it but the LOCK is behind — the declaration is
+        already fine and only the lock needs regenerating.
+
+    A prerelease lock (`2.0.0a3`) is on the current major and so passes the
+    version test, but is called out on its own: an alpha in a curated recipe
+    is a different kind of "do not copy this" than being a major behind.
+    """
+    parts = _repo_relative_parts(recipe_dir)
+    if not parts or parts[0] != "core":
+        return []
+
+    req = _adk_requirement(project)
+    if req is None:
+        # Not every core recipe depends on the ADK directly (a nested
+        # sub-project such as data_ingestion/ does not), and inventing a
+        # notice for those would train people to ignore the channel.
+        return []
+
+    advisories: list[Diagnostic] = []
+    locked = _locked_adk_version(recipe_dir)
+
+    # The lock is consulted FIRST and settles the question when it is already
+    # on the current major: whatever the specifier looks like, it demonstrably
+    # admits the version that is installed. Reasoning from the specifier alone
+    # produced false accusations against two recipes on `>=2.5.0,<3.0.0`.
+    if locked is not None and locked.major >= CURRENT_ADK_MAJOR:
+        if locked.is_prerelease:
+            advisories.append(
+                _adk_prerelease_notice(recipe_dir, pyproject_path, locked)
+            )
+        return advisories
+
+    excludes_current = bool(req.specifier) and not _specifier_admits_major(
+        req.specifier, CURRENT_ADK_MAJOR
+    )
+
+    if excludes_current:
+        advisories.append(
+            Diagnostic(
+                check="adk-major-current",
+                severity=Severity.WARNING,
+                what=(
+                    f"{pyproject_path} declares `{req}`, which cannot resolve "
+                    f"to google-adk {CURRENT_ADK_MAJOR}.x."
+                ),
+                why=(
+                    f"A curated recipe is read as the current way to write an "
+                    f"agent. Pinned below {CURRENT_ADK_MAJOR}.x it keeps "
+                    f"demonstrating an API surface that has moved on — and "
+                    f"unlike a broken recipe, nothing about running it says "
+                    f"so."
+                ),
+                how=(
+                    f"Migrate the recipe to google-adk "
+                    f"{CURRENT_ADK_MAJOR}.x, then widen the specifier:\n"
+                    f'  "google-adk>={CURRENT_ADK_MAJOR}.0.0,'
+                    f'<{CURRENT_ADK_MAJOR + 1}.0.0"\n'
+                    f"and re-lock with: uv lock --project {recipe_dir}\n"
+                    f"This is a code migration, not a version bump — widening "
+                    f"the specifier without porting the code will fail at "
+                    f"runtime, not here."
+                ),
+                doc=Doc.ADK_MAJOR,
+                file=str(pyproject_path),
+            )
+        )
+        return advisories
+
+    if locked is None:
+        return advisories
+
+    # Only one case is left. The `>=` lock returned at the top and an
+    # excluding specifier returned just above, so `locked.major` is
+    # necessarily below the current one while the declaration already permits
+    # it — the pyproject is fine and only the lock is behind.
+    advisories.append(
+        Diagnostic(
+            check="adk-major-current",
+            severity=Severity.WARNING,
+            what=(
+                f"{recipe_dir}/uv.lock pins google-adk {locked}, but "
+                f"{pyproject_path} declares `{req.specifier or 'no bound'}`"
+                f" which already permits {CURRENT_ADK_MAJOR}.x."
+            ),
+            why=(
+                f"The specifier is not what a reader installs — the lock "
+                f"is. `uv sync` resolves this recipe to {locked}, so the "
+                f"recipe demonstrates google-adk {locked.major}.x however "
+                f"permissive the declaration looks."
+            ),
+            how=(
+                f"Port the recipe to {CURRENT_ADK_MAJOR}.x if it is not "
+                f"already, then:\n"
+                f"  uv lock --upgrade-package google-adk "
+                f"--project {recipe_dir}\n"
+                f"Check the recipe still runs afterwards; crossing a "
+                f"major is not expected to be a no-op."
+            ),
+            doc=Doc.ADK_MAJOR,
+            file=str(pyproject_path),
+        )
+    )
+
+    return advisories
+
+
+def _adk_prerelease_notice(
+    recipe_dir: Path, pyproject_path: Path, locked: Version
+) -> Diagnostic:
+    """A core recipe locked to a prerelease of the current major.
+
+    Separate from the behind-a-major notice because the reader's problem is
+    different: the API is current, but it is not stable, so the recipe can
+    stop working without a deprecation cycle.
+    """
+    return Diagnostic(
+        check="adk-major-current",
+        severity=Severity.WARNING,
+        what=f"{recipe_dir}/uv.lock pins google-adk {locked}, a prerelease.",
+        why=(
+            "A curated recipe is copied as a starting point. Shipping it "
+            "against an alpha hands everyone who clones it a dependency that "
+            "can change under them with no deprecation path."
+        ),
+        how=(
+            f"Move to a stable release once one is available:\n"
+            f"  uv lock --upgrade-package google-adk --project {recipe_dir}\n"
+            f"If the recipe genuinely needs prerelease-only behaviour, say so "
+            f"in its README so a reader knows it is deliberate."
+        ),
+        doc=Doc.ADK_MAJOR,
+        file=str(pyproject_path),
+    )
+
+
 def _project_table(
     pyproject: dict, pyproject_path: Path, recipe_dir: Path
 ) -> tuple[dict, list[Diagnostic]]:
@@ -722,11 +996,19 @@ def _run(recipe_dir: Path) -> int:
         )
 
     project, diagnostics = _project_table(pyproject, pyproject_path, recipe_dir)
+    advisories: list[Diagnostic] = []
     if not diagnostics:
         diagnostics += check_name(project, pyproject_path, recipe_dir)
         diagnostics += check_requires_python(project, pyproject_path)
         diagnostics += check_description(project, pyproject_path, manifest_path)
+        advisories += check_adk_major(project, pyproject_path, recipe_dir)
     diagnostics += check_default_pypi_index(pyproject, pyproject_path)
+
+    # Printed before the verdict so a passing run still surfaces them, and so
+    # they never read as part of the failure when the verdict is FAIL.
+    report_advisories(
+        advisories, header=f"{recipe_dir}: pyproject.toml freshness"
+    )
     return _report(diagnostics, recipe_dir)
 
 

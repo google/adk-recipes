@@ -1,5 +1,5 @@
 {
-  "description": "Synthesized adk_request_confirmation for a non-clarify tool (terminal). UI should render a yes/no confirmation card (hint + Approve/Decline) since there are no choices in the payload.",
+  "description": "Synthesized adk_request_confirmation for a non-clarify tool (bash). UI should render a yes/no confirmation card (hint + Approve/Decline) since there are no choices in the payload.",
   "event": {
     "payload": {
       "$case": "statusUpdate",
@@ -22,8 +22,8 @@
                     "name": "adk_request_confirmation",
                     "args": {
                       "originalFunctionCall": {
-                        "id": "adk-call-terminal-1",
-                        "name": "terminal",
+                        "id": "adk-call-bash-1",
+                        "name": "bash",
                         "args": { "command": "ls /tmp" }
                       },
                       "toolConfirmation": {

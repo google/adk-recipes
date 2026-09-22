@@ -14,12 +14,14 @@
 
 """data_analyst_agent for finding information using google search"""
 
+import os
+
 from google.adk import Agent
 from google.adk.tools import google_search
 
 from . import prompt
 
-MODEL = "gemini-2.5-pro"
+MODEL = os.getenv("MODEL_NAME")
 
 data_analyst_agent = Agent(
     model=MODEL,

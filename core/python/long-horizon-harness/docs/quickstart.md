@@ -31,13 +31,13 @@ gcloud auth application-default login   # ADC for Vertex
 gcloud config set project <your-project-id>
 ```
 
-Enable the **Vertex AI API**. The default `gemini-3.6-flash` needs nothing more.
+Enable the **Vertex AI API**. The default `gemini-3.7-flash` needs nothing more.
 
 ## 3. Run it
 
 ```bash
-git clone https://github.com/google/adk-samples.git
-cd adk-samples/core/python/long-horizon-harness
+git clone https://github.com/google/adk-recipes.git
+cd adk-recipes/core/python/long-horizon-harness
 make dev-local          # backend (:8001, tools on host) + web UI (:3000)
 ```
 
@@ -47,7 +47,7 @@ Open <http://localhost:3000>. One-shot from the terminal: `agents-cli run "your 
 
 The defaults in `.env.example` already select the local-first combo
 (`LHA_ENVIRONMENT_BACKEND=local`, `USE_IN_MEMORY_SESSION=true`,
-`LHA_ROOT_MODEL=gemini-3.6-flash`); `make dev` honors `.env`, `make dev-local`
+`LHA_ROOT_MODEL=gemini-3.7-flash`); `make dev` honors `.env`, `make dev-local`
 ignores the backend choice in it.
 
 **Trade-off:** no cross-session memory (sessions are in-memory, lost on restart)
@@ -116,7 +116,7 @@ import os
 
 os.environ.setdefault("USE_IN_MEMORY_SESSION", "true")    # no Cloud SQL / Agent Engine
 os.environ.setdefault("LHA_ENVIRONMENT_BACKEND", "local")  # tools run on this host
-os.environ.setdefault("LHA_ROOT_MODEL", "gemini-3.6-flash")
+os.environ.setdefault("LHA_ROOT_MODEL", "gemini-3.7-flash")
 
 from horizon.fast_api_app import app  # every router mounts; edit fast_api_app.py to trim
 ```

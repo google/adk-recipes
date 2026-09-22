@@ -68,15 +68,15 @@ async def _seed_scheduled(
 def test_default_list_includes_source_and_jobtype_fields() -> None:
     runner = _StubRunner()
     asyncio.run(_seed_user_chat(runner, "hello chat"))
-    asyncio.run(_seed_scheduled(runner, "reminder", "Reminder: standup"))
+    asyncio.run(_seed_scheduled(runner, "routine", "Routine: standup"))
 
     client = TestClient(_build_app(runner))
     rows = client.get("/lha/sessions").json()
     by_title = {r["title"]: r for r in rows}
     assert by_title["hello chat"]["source"] == "user"
     assert by_title["hello chat"]["jobType"] is None
-    assert by_title["Reminder: standup"]["source"] == "scheduler"
-    assert by_title["Reminder: standup"]["jobType"] == "reminder"
+    assert by_title["Routine: standup"]["source"] == "scheduler"
+    assert by_title["Routine: standup"]["jobType"] == "routine"
 
 
 def test_source_user_excludes_scheduler() -> None:
@@ -94,20 +94,20 @@ def test_source_user_excludes_scheduler() -> None:
 def test_source_scheduler_only_returns_scheduled() -> None:
     runner = _StubRunner()
     asyncio.run(_seed_user_chat(runner, "hello chat"))
-    asyncio.run(_seed_scheduled(runner, "reminder", "Reminder: standup"))
+    asyncio.run(_seed_scheduled(runner, "routine", "Routine: standup"))
     asyncio.run(_seed_scheduled(runner, "dream_review", "Dream review — x"))
 
     client = TestClient(_build_app(runner))
     rows = client.get("/lha/sessions?source=scheduler").json()
     titles = {r["title"] for r in rows}
-    assert titles == {"Reminder: standup", "Dream review — x"}
+    assert titles == {"Routine: standup", "Dream review — x"}
 
 
 def test_q_filters_by_title_case_insensitive() -> None:
     runner = _StubRunner()
-    asyncio.run(_seed_scheduled(runner, "reminder", "Reminder: Standup"))
-    asyncio.run(_seed_scheduled(runner, "reminder", "Reminder: lunch"))
+    asyncio.run(_seed_scheduled(runner, "routine", "Routine: Standup"))
+    asyncio.run(_seed_scheduled(runner, "routine", "Routine: lunch"))
 
     client = TestClient(_build_app(runner))
     rows = client.get("/lha/sessions?source=scheduler&q=stand").json()
-    assert [r["title"] for r in rows] == ["Reminder: Standup"]
+    assert [r["title"] for r in rows] == ["Routine: Standup"]

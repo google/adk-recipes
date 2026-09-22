@@ -47,7 +47,7 @@ APP_NAME = "test_cross_session"
 
 
 # =============================================================================
-# Explicit add_memory cross-session persistence
+# Explicit memory cross-session persistence
 # =============================================================================
 
 

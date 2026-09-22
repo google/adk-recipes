@@ -1,8 +1,9 @@
 name: '✨ AI Automated Issue Triage'
 
-# Automatically triages newly opened or reopened issues (plus manual
-# dispatch) with the Gemini CLI: applies labels and posts a short
-# triage summary comment on the issue.
+# Triages a newly opened or reopened issue (plus manual dispatch) by handing
+# it to `_ai-issue-triage-core.yml` as a batch of one. Everything about how
+# the triage is performed lives in that core; this workflow only decides
+# WHICH issue to triage, and reports failure back on the issue itself.
 
 on:
   issues:
@@ -31,115 +32,156 @@ defaults:
   run:
     shell: 'bash'
 
-permissions:
-  contents: 'read'
-  id-token: 'write'
-  issues: 'write'
-  statuses: 'write'
+# Declared per job rather than here. At workflow level every job inherits
+# these — including any added later that only needs to read — which is what
+# zizmor's `excessive-permissions` audit flags. Same shape as go-format.yml
+# and recipe-canary.yml.
+permissions: {}
 
 jobs:
-  triage-issue:
+  resolve:
+    # `issue_comment` is emitted for comments on pull requests as well as
+    # issues, and `github.event.issue.number` is then the PR number — without
+    # the `pull_request` guard, `@gemini-cli /triage` on a PR would apply
+    # issue labels to that PR. The AI PR review workflows guard this the
+    # same way.
     if: |-
       github.event_name == 'issues' ||
       github.event_name == 'workflow_dispatch' ||
       (
         github.event_name == 'issue_comment' &&
+        !github.event.issue.pull_request &&
         contains(github.event.comment.body, '@gemini-cli /triage') &&
         contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association)
       )
     timeout-minutes: 5
     runs-on: 'ubuntu-latest'
-
+    permissions:
+      issues: 'read'
+    outputs:
+      issues: '${{ steps.resolve_issue.outputs.issues }}'
+      skip: '${{ steps.resolve_issue.outputs.skip }}'
     steps:
-      - name: 'Checkout repository'
-        uses: 'actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8' # ratchet:actions/checkout@v4
-
-      - name: 'Generate GitHub App Token'
-        id: 'generate_token'
-        if: |-
-          ${{ vars.APP_ID }}
-        uses: 'actions/create-github-app-token@67018539274d69449ef7c02e8e71183d1719ab42' # ratchet:actions/create-github-app-token@v2
-        with:
-          app-id: '${{ vars.APP_ID }}'
-          private-key: '${{ secrets.APP_PRIVATE_KEY }}'
-
-      - name: 'Run AI Issue Triage'
-        uses: 'google-github-actions/run-gemini-cli@v0'
-        id: 'gemini_issue_triage'
+      - name: 'Resolve the issue to triage'
+        id: 'resolve_issue'
         env:
-          GITHUB_TOKEN: '${{ steps.generate_token.outputs.token || secrets.GITHUB_TOKEN }}'
-          ISSUE_TITLE: '${{ github.event.issue.title }}'
-          ISSUE_BODY: '${{ github.event.issue.body }}'
-          ISSUE_NUMBER: '${{ github.event.issue.number }}'
-          REPOSITORY: '${{ github.repository }}'
-          # Required for Gemini CLI 0.51.0+ to execute tool calls (untrusted
-          # workspaces block tool execution entirely). Safe here because this
-          # workflow only ever checks out `main` — never PR-author code — so
-          # there is no fork-supplied .gemini/ config to worry about.
-          GEMINI_CLI_TRUST_WORKSPACE: 'true'
-        with:
-          gemini_cli_version: '${{ vars.GEMINI_CLI_VERSION }}'
-          gcp_workload_identity_provider: '${{ vars.GCP_WIF_PROVIDER }}'
-          gcp_project_id: '${{ vars.GOOGLE_CLOUD_PROJECT }}'
-          gcp_location: '${{ vars.GOOGLE_CLOUD_LOCATION }}'
-          gcp_service_account: '${{ vars.SERVICE_ACCOUNT_EMAIL }}'
-          gemini_api_key: '${{ secrets.GEMINI_API_KEY }}'
-          use_vertex_ai: '${{ vars.GOOGLE_GENAI_USE_VERTEXAI }}'
-          use_gemini_code_assist: '${{ vars.GOOGLE_GENAI_USE_GCA }}'
-          settings: |-
-            {
-              "maxSessionTurns": 25,
-              "coreTools": [
-                "run_shell_command(echo)",
-                "run_shell_command(gh label list)",
-                "run_shell_command(gh issue edit)"
-              ],
-              "telemetry": {
-                "enabled": false,
-                "target": "gcp"
-              }
-            }
-          prompt: |-
-            ## Role
+          GH_TOKEN: '${{ secrets.GITHUB_TOKEN }}'
+          GH_REPO: '${{ github.repository }}'
+          ISSUE_NUMBER: '${{ github.event.issue.number || github.event.inputs.issue_number }}'
+        run: |-
+          set -euo pipefail
 
-            You are an issue triage assistant. Analyze the current GitHub issue
-            and apply the most appropriate existing labels. Use the available
-            tools to gather information; do not ask for information to be
-            provided.
+          if [[ -z "${ISSUE_NUMBER}" ]]; then
+            echo "::error::No issue number resolved from the event or the dispatch input."
+            exit 1
+          fi
 
-            ## Steps
+          # Fetch through `gh` rather than reading the event payload, so the
+          # workflow_dispatch path (which carries no issue payload at all)
+          # and the event paths take exactly the same code path.
+          #
+          # Emitted as a one-element array so the core sees the same shape it
+          # gets from the scheduled sweep. The body is truncated for the same
+          # reason the sweep truncates it: it goes straight into the prompt.
+          ISSUE_DATA="$(gh issue view "${ISSUE_NUMBER}" --json number,title,body)"
+          ISSUES="$(echo "${ISSUE_DATA}" \
+            | jq -c '[{number, title, body: ((.body // "")[0:4000])}]')"
 
-            1. Run: `gh label list` to get all available labels.
-            2. Review the issue title and body provided in the environment
-               variables: "${ISSUE_TITLE}" and "${ISSUE_BODY}".
-            3. Classify issues by their kind (bug, enhancement, documentation,
-               cleanup, etc) and their priority (p0, p1, p2, p3). Set the
-               labels accoridng to the format `kind/*` and `priority/*` patterns.
-            4. Apply the selected labels to this issue using:
-               `gh issue edit "${ISSUE_NUMBER}" --add-label "label1,label2"`
-            5. If the "status/needs-triage" label is present, remove it using:
-               `gh issue edit "${ISSUE_NUMBER}" --remove-label "status/needs-triage"`
+          echo "issues=${ISSUES}" >> "${GITHUB_OUTPUT}"
 
-            ## Guidelines
+          # Recipe proposals are reviewed by hand — no AI labelling, and no
+          # failure comment either, since skipping `triage` skips
+          # `notify-failure` with it (a skipped job is not a failure).
+          # Upper-cased before comparing, so `[Recipe Proposal]` matches
+          # too. The other three gates fold case the same way; one that did
+          # not would let a mixed-case title through here while every other
+          # workflow still treated it as a proposal.
+          TITLE="$(echo "${ISSUE_DATA}" | jq -r '.title')"
+          SKIP='false'
+          if [[ "${TITLE^^}" == *"[RECIPE PROPOSAL]"* ]]; then
+            SKIP='true'
+            echo "::notice::#${ISSUE_NUMBER} is a recipe proposal — skipping triage."
+          fi
+          echo "skip=${SKIP}" >> "${GITHUB_OUTPUT}"
 
-            - Only use labels that already exist in the repository
-            - Do not add comments or modify the issue content
-            - Triage only the current issue
-            - Assign all applicable labels based on the issue content
-            - Reference all shell variables as "${VAR}" (with quotes and braces)
+          echo "Triaging: ${ISSUES}"
 
+  triage:
+    needs: 'resolve'
+    if: |-
+      ${{ needs.resolve.outputs.skip != 'true' }}
+    permissions:
+      contents: 'read'
+      id-token: 'write'
+      issues: 'write'
+    uses: './.github/workflows/_ai-issue-triage-core.yml'
+    with:
+      issues: '${{ needs.resolve.outputs.issues }}'
+      # Shorter than the sweep's: this is a single issue, not a batch.
+      print_timeout: '4m'
+      # A single issue the model cannot confidently classify is a legitimate
+      # outcome, not a failure — it keeps no labels and a human picks it up.
+      # Failing here would post an alarming comment on a real contributor's
+      # issue simply because their report was terse.
+      fail_when_none_applied: false
+      app_id: '${{ vars.APP_ID }}'
+    secrets:
+      APP_PRIVATE_KEY: '${{ secrets.APP_PRIVATE_KEY }}'
+
+  # Only fires for genuine breakage — a failed model call, an unparseable
+  # decision, or a rejected API write. "Could not classify" is not a failure
+  # (see `fail_when_none_applied` above) and never reaches this job.
+  notify-failure:
+    needs:
+      - 'resolve'
+      - 'triage'
+    if: |-
+      ${{ always() && contains(needs.*.result, 'failure') }}
+    timeout-minutes: 5
+    runs-on: 'ubuntu-latest'
+    permissions:
+      issues: 'write'
+    steps:
       - name: 'Post Issue Triage Failure Comment'
-        if: |-
-          ${{ failure() && steps.gemini_issue_triage.outcome == 'failure' }}
-        uses: 'actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd'
+        uses: 'actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3'
         with:
-          github-token: '${{ steps.generate_token.outputs.token || secrets.GITHUB_TOKEN }}'
+          github-token: '${{ secrets.GITHUB_TOKEN }}'
           script: |-
             // Use the github-script `context` helpers rather than splitting
             // an interpolated ${{ github.repository }} string — cleaner and
             // avoids leaking a template expression into the JS source.
             // github.event.issue.number is null on workflow_dispatch, so
             // fall back to the dispatched input in that case.
+            // Recipe proposals are a human-only lane, so no bot comments
+            // on them — not even this one. `resolve` can fail before any
+            // skip decision exists (an API blip), and without this guard
+            // that failure lands a comment on a proposal, which is the
+            // symptom the lane was built to stop. Read from the event
+            // payload so it needs no checkout and cannot itself fail.
+            const number = context.payload.issue?.number
+              ?? Number(context.payload.inputs?.issue_number);
+            let title = context.payload.issue?.title;
+            if (title === undefined && number) {
+              // workflow_dispatch carries no issue payload, so the title has
+              // to be fetched. Failing closed on a read error is deliberate:
+              // staying silent costs a failure notice, commenting on a
+              // proposal breaks the one rule this lane has.
+              try {
+                const { data } = await github.rest.issues.get({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: number,
+                });
+                title = data.title;
+              } catch (err) {
+                core.warning(`Could not read #${number} to check whether it is a recipe proposal (${err.message}); not commenting.`);
+                return;
+              }
+            }
+            if ((title ?? '').toUpperCase().includes('[RECIPE PROPOSAL]')) {
+              core.notice('Recipe proposal — not posting a failure comment.');
+              return;
+            }
             const issueNumber = context.payload.issue?.number
               ?? Number(context.payload.inputs?.issue_number);
             if (!issueNumber) {
@@ -151,5 +193,5 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: issueNumber,
-              body: `There is a problem with the Gemini CLI issue triaging. Please check the [action logs](${runUrl}) for details.`
+              body: `There is a problem with the Antigravity CLI issue triaging. Please check the [action logs](${runUrl}) for details.`
             });

@@ -12,14 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""``patch`` fuzzy replacer + post-edit ruff diagnostics through the env interface.
+"""``edit`` fuzzy replacer + post-edit ruff diagnostics through the env interface.
 
 Direct tool-call rather than LLM-driven — same pattern as
 ``test_terminal_tool.py`` / ``test_search_and_read_smoke.py``. The smoke
 contract is twofold:
 
 1. The fuzzy replacer ladder (``horizon/tools/_replacers.py``) resolves an
-   ``old_string`` that differs from the file only by whitespace/indentation
+   ``oldText`` that differs from the file only by whitespace/indentation
    and applies the edit end-to-end through ``env.read_file`` /
    ``env.write_file`` — proving the ladder runs against the real backend.
 2. Post-edit ruff diagnostics degrade cleanly: ``_post_edit_diagnostics``
@@ -41,25 +41,26 @@ from google.adk.environment import BaseEnvironment
 pytestmark = pytest.mark.asyncio(loop_scope="session")
 
 
-async def test_fuzzy_patch_applies_whitespace_drifted_old_string(
+async def test_fuzzy_patch_applies_whitespace_drifted_old_text(
     active_env: BaseEnvironment, unique_name: str
 ) -> None:
-    from horizon.tools.file_ops import patch, read_file, write_file
+    from horizon.tools.file_ops import edit, read_file, write
 
     target = f"{unique_name}.py"
     # Original uses 4-space indentation inside the function body.
     original = "def greet(name):\n    return 'hi ' + name\n"
-    write_result = await write_file(path=target, content=original)
+    write_result = await write(path=target, content=original)
     assert write_result["success"] is True
 
-    # old_string drifts: leading/trailing whitespace + collapsed spacing.
+    # oldText drifts: leading/trailing whitespace + collapsed spacing.
     # The simple replacer misses; the fuzzy ladder (line_trimmed /
     # whitespace_normalized / indentation_flexible) must still resolve it.
     drifted_old = "  return 'hi '   + name  "
-    patch_result = await patch(
+    patch_result = await edit(
         path=target,
-        old_string=drifted_old,
-        new_string="    return 'hello ' + name",
+        edits=[
+            {"oldText": drifted_old, "newText": "    return 'hello ' + name"}
+        ],
     )
 
     assert patch_result["success"] is True, patch_result
@@ -77,7 +78,7 @@ async def test_fuzzy_patch_applies_whitespace_drifted_old_string(
 async def test_post_edit_ruff_never_raises_and_degrades_cleanly(
     active_env: BaseEnvironment, unique_name: str
 ) -> None:
-    from horizon.tools.file_ops import write_file
+    from horizon.tools.file_ops import write
 
     target = f"{unique_name}_lint.py"
     # An unused import — a classic ruff F401 finding. Whether ruff is present
@@ -85,7 +86,7 @@ async def test_post_edit_ruff_never_raises_and_degrades_cleanly(
     # diagnostics path is best-effort and must never raise or fail the edit.
     content = "import os\n\n\ndef f():\n    return 1\n"
 
-    result = await write_file(path=target, content=content)
+    result = await write(path=target, content=content)
 
     # No-raise contract: a successful, lint-clean-or-not write.
     assert result["success"] is True

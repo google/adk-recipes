@@ -1,0 +1,363 @@
+name: '📐 AI PR Review — House Rules'
+
+# The fifth review lane, and the only one with no model in it.
+#
+# WHY. The other four lanes are handed `.github/review-rules.md` as prose and
+# asked to apply it with no tools and no checkout. Most of those rules are not
+# judgement calls: a `[tool.ruff]` table either is in the file or is not, a
+# folder name either matches the pattern or does not, `ownership.team` either
+# names a team or names a company. A model asked to decide those from a diff
+# window gets some of them wrong, and the specific way it gets them wrong —
+# a confident, precise, false "this will fail CI" — is the most expensive
+# comment this system can produce.
+#
+# `check_house_rules.py` decides 30 of them by reading the files. It cannot
+# hallucinate a violation, it costs no tokens, and it frees the Hygiene lane's
+# whole comment budget for the things that do need a reader.
+#
+# WHAT IT DOES NOT DO. Three rules (H11, H16, H25) need an AST or a judgement
+# call and stay with the model lanes; the script declares them in MODEL_JUDGED
+# and a drift test fails if that list and the rules doc ever disagree.
+#
+# SECURITY. This is the ONLY AI-review workflow that checks out the pull
+# request's own code, so the reasoning is worth stating in full:
+#
+#   1. The checking job holds NO secrets and NO write token. It cannot post,
+#      cannot authenticate to Google Cloud, and has `contents: read`. That is
+#      the opposite trade from the model lanes, which hold a credential and
+#      therefore must never see PR code.
+#   2. Nothing from the PR is executed. The checker parses: it reads text,
+#      walks directories, calls `tomllib` and `ast.parse`, and runs
+#      `git ls-files`. No import, no exec, no `uv sync`, no dependency install
+#      out of the tree under review. A hostile recipe gets what a hostile text
+#      file gets.
+#   3. The checker itself comes from the BASE checkout, never the PR's copy —
+#      the same reason the rules are injected from the base branch. A PR
+#      cannot edit the script that reviews it.
+#   4. Posting happens in a separate job that holds the write token, takes no
+#      checkout, and reads only a findings artifact.
+#
+# Those four are also the entire justification for the
+# `allow-unsafe-pr-checkout: true` on the PR-head checkout, without which a
+# fork's pull request -- most contrib PRs -- cannot be checked at all.
+#
+# Reassess ALL of that if a step is ever added that runs, imports or installs
+# anything out of `pr-head/`. `test_house_rules_workflow.py` pins 1-4 and
+# fails if the opt-in is ever present without them.
+on: # zizmor: ignore[dangerous-triggers]
+  pull_request_target:
+    types:
+      - 'opened'
+      - 'reopened'
+      - 'synchronize'
+  issue_comment:
+    types:
+      - 'created'
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'PR number to review'
+        required: true
+        type: 'number'
+      dry_run:
+        description: 'Build the review and upload it as an artifact instead of posting it'
+        required: false
+        default: true
+        type: 'boolean'
+
+# Same shape as the four model lanes, and for the same reason: a comment run
+# that will not start a review gets a group of its own so it cannot cancel a
+# review that is already going. See ai-pr-review-hygiene.yml for the full
+# account of the CLA-bot collision this prevents.
+concurrency:
+  group: >-
+    ${{ github.workflow }}-${{ github.event.pull_request.number || github.event.issue.number || github.event.inputs.pr_number || github.ref }}-${{ (github.event_name == 'issue_comment' && !(github.event.issue.pull_request && contains(github.event.comment.body, '@ai-review') && contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association))) && github.run_id || '' }}
+  cancel-in-progress: true
+
+# Nothing at the top level. Each job asks for what it needs, so the job that
+# reads untrusted code cannot post and the job that posts cannot read it.
+permissions: {}
+
+jobs:
+  check:
+    name: 'Check the house rules'
+    if: |-
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'pull_request_target' ||
+      (
+        github.event_name == 'issue_comment' &&
+        github.event.issue.pull_request &&
+        contains(github.event.comment.body, '@ai-review') &&
+        contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association)
+      )
+    runs-on: 'ubuntu-latest'
+    timeout-minutes: 10
+
+    permissions:
+      contents: 'read'
+      pull-requests: 'read'
+
+    outputs:
+      pr_number: '${{ steps.pr.outputs.number }}'
+      has_payload: '${{ steps.payload.outputs.has_payload }}'
+
+    steps:
+      - name: 'Resolve the PR number and head commit'
+        id: 'pr'
+        env:
+          GH_TOKEN: '${{ github.token }}'
+          GH_REPO: '${{ github.repository }}'
+          EVENT_NAME: '${{ github.event_name }}'
+          FROM_PR: '${{ github.event.pull_request.number }}'
+          FROM_ISSUE: '${{ github.event.issue.number }}'
+          FROM_DISPATCH: '${{ github.event.inputs.pr_number }}'
+        run: |-
+          set -euo pipefail
+          case "${EVENT_NAME}" in
+            pull_request_target) NUMBER="${FROM_PR}" ;;
+            issue_comment)       NUMBER="${FROM_ISSUE}" ;;
+            *)                   NUMBER="${FROM_DISPATCH}" ;;
+          esac
+          if [[ -z "${NUMBER}" || ! "${NUMBER}" =~ ^[0-9]+$ ]]; then
+            echo "::error::Could not resolve a PR number from ${EVENT_NAME}."
+            exit 1
+          fi
+          echo "number=${NUMBER}" >> "${GITHUB_OUTPUT}"
+
+          # Resolved for every trigger: github.event.pull_request is null on
+          # issue_comment and workflow_dispatch, and the review has to record
+          # the commit it actually reviewed.
+          HEAD_SHA="$(gh api "repos/${GH_REPO}/pulls/${NUMBER}" --jq '.head.sha' || true)"
+          echo "head_sha=${HEAD_SHA}" >> "${GITHUB_OUTPUT}"
+
+      # The base branch: the checker, the rules and the schema all come from
+      # here. persist-credentials: false because nothing in this job pushes,
+      # and a token left in .git/config is reachable by anything that runs.
+      - name: 'Checkout the base branch (the checker lives here)'
+        uses: 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1' # ratchet:actions/checkout@v4
+        with:
+          path: 'base'
+          persist-credentials: false
+
+      # The PR head: READ AS DATA. Nothing in this job runs anything from it.
+      - name: 'Checkout the PR head (data only, never executed)'
+        uses: 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1' # ratchet:actions/checkout@v4
+        with:
+          # No `repository:` override. refs/pull/N/head lives in the BASE
+          # repository and resolves to the PR head commit whatever fork it
+          # came from; pointing this at the fork asks it for a ref it does
+          # not have, and would silently check out an unrelated tree if that
+          # fork happened to have its own PR with the same number.
+          ref: 'refs/pull/${{ steps.pr.outputs.number }}/head'
+          path: 'pr-head'
+          persist-credentials: false
+          # H43 asks git which files are tracked, and the answer has to be the
+          # PR's answer. A shallow clone still knows its own index, so depth 1
+          # is enough and keeps a large repo cheap.
+          fetch-depth: 1
+          # Required for a FORK pull request, which is most contrib PRs -- org
+          # policy blocks a fork checkout under `pull_request_target` without
+          # it, and PR #2612 failed here on exactly that. The usual shape of
+          # that combination is a job holding secrets and a write token that
+          # then builds the fork's code; this job is the other shape, and the
+          # four invariants at the top of this file are what make it so:
+          # read-only token, no secrets, the checker taken from `base/`,
+          # PyYAML from PyPI, and posting split into a job that takes no
+          # checkout. `pr-head/` is data this job reads, never code it runs.
+          # Break any one of those and this line turns into a live pwn
+          # request, so test_house_rules_workflow.py asserts the opt-in only
+          # ever appears next to all four.
+          allow-unsafe-pr-checkout: true
+
+      - name: 'Set up Python'
+        uses: 'actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065' # ratchet:actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # From PyPI, never from the PR. Without it the checker falls back to a
+      # top-level-key scan and says so, which is honest but checks less.
+      - name: 'Install PyYAML'
+        run: 'python3 -m pip install --quiet "pyyaml==6.0.2"'
+
+      - name: 'List the changed files'
+        env:
+          GH_TOKEN: '${{ github.token }}'
+          GH_REPO: '${{ github.repository }}'
+          PR_NUMBER: '${{ steps.pr.outputs.number }}'
+        run: |-
+          set -euo pipefail
+          # Paged: `gh pr view --json files` silently caps at 100, and on a
+          # 787-file PR that truncation dropped pyproject.toml from the list,
+          # which made every finding in it look pre-existing.
+          gh api --paginate \
+            "repos/${GH_REPO}/pulls/${PR_NUMBER}/files" \
+            --jq '.[].filename' > changed_files.txt
+          echo "$(wc -l < changed_files.txt) changed file(s)."
+
+      - name: 'Fetch the diff'
+        env:
+          GH_TOKEN: '${{ github.token }}'
+          GH_REPO: '${{ github.repository }}'
+          PR_NUMBER: '${{ steps.pr.outputs.number }}'
+        run: |-
+          set -euo pipefail
+          # The combined diff, not the .patch series: only the combined diff
+          # carries the hunk headers a comment anchor is computed from.
+          gh pr diff "${PR_NUMBER}" > pr_diff.txt
+          echo "$(wc -c < pr_diff.txt) bytes of diff."
+
+      - name: 'Run the deterministic checks'
+        run: |-
+          set -euo pipefail
+          python3 base/.github/scripts/house_rules_lane.py \
+            --checker base/.agents/skills/github-pr-review/scripts/check_house_rules.py \
+            --repo-root pr-head \
+            --changed-files changed_files.txt \
+            --out findings.json
+
+      - name: 'Build the review payload'
+        id: 'payload'
+        env:
+          GH_TOKEN: '${{ github.token }}'
+          PR_NUMBER: '${{ steps.pr.outputs.number }}'
+          HEAD_SHA: '${{ steps.pr.outputs.head_sha }}'
+        run: |-
+          set -euo pipefail
+          # --repo/--pr let it drop anything already said on this PR, by an
+          # earlier run of this lane or by one of the four model lanes.
+          python3 base/.github/scripts/post_review_comments.py \
+            --findings findings.json \
+            --diff pr_diff.txt \
+            --label 'House Rules' \
+            --repo "${GITHUB_REPOSITORY}" \
+            --pr "${PR_NUMBER}" \
+            --commit-id "${HEAD_SHA}" \
+            --out review_payload.json
+
+          if [[ -f review_payload.json ]]; then
+            echo 'has_payload=true' >> "${GITHUB_OUTPUT}"
+          else
+            echo 'has_payload=false' >> "${GITHUB_OUTPUT}"
+            echo 'No house-rule findings worth posting.'
+          fi
+
+      - name: 'Upload the payload'
+        if: |-
+          steps.payload.outputs.has_payload == 'true'
+        uses: 'actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a' # ratchet:actions/upload-artifact@v7.0.1
+        with:
+          name: 'house-rules-payload'
+          path: 'review_payload.json'
+          retention-days: 1
+
+      # Only on a dry run, and kept longer: a dry run that FAILED is the one
+      # whose inputs are most worth reading.
+      - name: 'Upload the dry-run inputs'
+        if: |-
+          always() && github.event.inputs.dry_run == 'true'
+        uses: 'actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a' # ratchet:actions/upload-artifact@v7.0.1
+        with:
+          name: 'house-rules-dryrun'
+          path: |-
+            findings.json
+            changed_files.txt
+            pr_diff.txt
+            review_payload.json
+          retention-days: 7
+          if-no-files-found: 'ignore'
+
+  # Split from `check` for the same reason the model lanes split posting from
+  # reviewing: the job that has seen the pull request's code must not be the
+  # job holding a token that can write to the repository.
+  post:
+    name: 'Post the findings'
+    needs:
+      - 'check'
+    if: |-
+      needs.check.outputs.has_payload == 'true'
+    runs-on: 'ubuntu-latest'
+    timeout-minutes: 10
+
+    permissions:
+      pull-requests: 'write'
+
+    steps:
+      - name: 'Generate GitHub App Token (write-scoped)'
+        id: 'generate_token'
+        if: |-
+          ${{ vars.APP_ID != '' }}
+        uses: 'actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1' # ratchet:actions/create-github-app-token@v2
+        with:
+          app-id: '${{ vars.APP_ID }}'
+          private-key: '${{ secrets.APP_PRIVATE_KEY }}'
+          permission-contents: 'read'
+          permission-pull-requests: 'write'
+
+      - name: 'Download the payload'
+        uses: 'actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c' # ratchet:actions/download-artifact@v8.0.1
+        with:
+          name: 'house-rules-payload'
+
+      - name: 'Post the review'
+        env:
+          GH_TOKEN: '${{ steps.generate_token.outputs.token || github.token }}'
+          PR_NUMBER: '${{ needs.check.outputs.pr_number }}'
+          DRY_RUN: '${{ github.event.inputs.dry_run }}'
+        run: |-
+          set -euo pipefail
+
+          if [[ "${DRY_RUN}" == 'true' ]]; then
+            {
+              printf '### Dry run — House Rules\n\n'
+              printf 'Would post **%s** inline comment(s) to PR #%s.\n\n' \
+                "$(jq '.comments | length' review_payload.json)" "${PR_NUMBER}"
+              printf '%s\n\n' "$(jq -r '.body' review_payload.json)"
+              jq -r '.comments[] | "- `\(.path):\(.line)`\n  \(.body)\n"' \
+                review_payload.json
+            } >> "${GITHUB_STEP_SUMMARY}"
+            echo 'Dry run: nothing posted.'
+            exit 0
+          fi
+
+          REVIEWS_ENDPOINT="repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/reviews"
+
+          if gh api --method POST "${REVIEWS_ENDPOINT}" --input review_payload.json > /dev/null; then
+            exit 0
+          fi
+
+          if [[ "$(jq '.comments | length' review_payload.json)" -eq 0 ]]; then
+            echo '::error::The review body could not be posted.'
+            exit 1
+          fi
+
+          # The batch POST is all-or-nothing. Anchors were validated against
+          # the diff in the previous job, so the realistic cause left is a push
+          # between fetching the diff and posting, which shifts every position.
+          echo '::warning::Batch review POST failed; retrying one at a time.'
+
+          # The summary body FIRST, on its own. It carries the notes --
+          # findings on lines the PR does not change, the class that held all
+          # three hard CI failures on PR #2373 -- and the per-comment payloads
+          # below replace it with a stub, so without this they were dropped
+          # silently whenever a batch failed.
+          jq '{event: "COMMENT", body: .body, commit_id: .commit_id}
+              | with_entries(select(.value != null))' review_payload.json \
+            | gh api --method POST "${REVIEWS_ENDPOINT}" --input - > /dev/null \
+            || echo "::warning::the review summary could not be posted either"
+          POSTED=0
+          while IFS= read -r single; do
+            if printf '%s' "${single}" \
+              | gh api --method POST "${REVIEWS_ENDPOINT}" --input - > /dev/null; then
+              POSTED=$((POSTED + 1))
+            fi
+          # A short body, not `.body`: the summary carries the marker, the
+          # progress line and up to fifteen unreviewed paths, and repeating
+          # all of it once per comment is how a failed batch becomes twelve
+          # copies of the same wall of text.
+          done < <(jq -c '.comments[] as $c | {event: "COMMENT", body: "Automated **House Rules** review (posted individually after a batch failure).", commit_id: .commit_id, comments: [$c]} | with_entries(select(.value != null))' review_payload.json)
+
+          echo "Posted ${POSTED} comment(s)."
+          if [[ "${POSTED}" -eq 0 ]]; then
+            echo '::error::Every review comment was rejected by the GitHub API.'
+            exit 1
+          fi

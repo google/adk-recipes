@@ -1,0 +1,273 @@
+name: 🟦 TypeScript Format PR Checks
+
+# Runs Biome format and lint on TypeScript and JavaScript files changed in a
+# PR and posts diff-style suggestion comments via reviewdog. The TypeScript
+# counterpart to python-format.yml and go-format.yml.
+#
+# Style configuration lives in the root `biome.json` and is the repo's single
+# source of truth for TypeScript/JavaScript style. This workflow deliberately
+# does NOT pass formatting flags on the CLI, so Biome discovers configuration
+# by walking up from each target file. Update `biome.json` (not this file) to
+# change the standard.
+
+on:
+  pull_request:
+    paths:
+      - "core/**/*.ts"
+      - "core/**/*.tsx"
+      - "core/**/*.js"
+      - "core/**/*.jsx"
+      - "core/**/*.mjs"
+      - "core/**/*.cjs"
+      - "core/**/*.mts"
+      - "core/**/*.cts"
+      - "contrib/**/*.ts"
+      - "contrib/**/*.tsx"
+      - "contrib/**/*.js"
+      - "contrib/**/*.jsx"
+      - "contrib/**/*.mjs"
+      - "contrib/**/*.cjs"
+      - "contrib/**/*.mts"
+      - "contrib/**/*.cts"
+      - "skills/**/*.ts"
+      - "skills/**/*.tsx"
+      - "skills/**/*.js"
+      - "skills/**/*.jsx"
+      - "skills/**/*.mjs"
+      - "skills/**/*.cjs"
+      - "skills/**/*.mts"
+      - "skills/**/*.cts"
+      - "core/**/package.json"
+      - "contrib/**/package.json"
+      - "skills/**/package.json"
+      - "core/**/biome.json"
+      - "core/**/biome.jsonc"
+      - "contrib/**/biome.json"
+      - "contrib/**/biome.jsonc"
+      - "skills/**/biome.json"
+      - "skills/**/biome.jsonc"
+      - "biome.json"
+      - "biome.jsonc"
+      - ".github/workflows/typescript-format.yml"
+
+# Declared per job rather than here. `pull-requests: write` at the workflow
+# level is inherited by EVERY job, including any added later that only need
+# to read — keeping permissions job-local enforces least privilege.
+permissions: {}
+
+# Cancel superseded runs on the same PR to save runner minutes and avoid
+# stale suggestion comments from an older commit lingering on the PR.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  # Pinned rather than `latest` so a Biome release cannot turn every
+  # open PR red without warning. Bump deliberately.
+  BIOME_VERSION: "2.5.10"
+
+jobs:
+  biome-format:
+    name: Biome Format Suggestions
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read # Checkout
+      pull-requests: write # Post reviewdog suggestion comments
+    timeout-minutes: 10
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v4
+        with:
+          fetch-depth: 0 # Fetch complete history to locate the merge-base cleanly
+          persist-credentials: false
+
+      - name: Setup Biome
+        uses: biomejs/setup-biome@4c91541eaada48f67d7dbd7833600ce162b68f51 # ratchet:biomejs/setup-biome@v2.7.1
+        with:
+          version: ${{ env.BIOME_VERSION }}
+
+      - name: Install Reviewdog
+        uses: reviewdog/action-setup@d8a7baabd7f3e8544ee4dbde3ee41d0011c3a93f # ratchet:reviewdog/action-setup@v1
+        with:
+          reviewdog_version: v0.21.0
+
+      - name: Run Biome Format & Suggest Changes
+        env:
+          REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+
+          WORK="$(mktemp -d)"
+          trap 'rm -rf "$WORK"' EXIT
+
+          # 1. Fetch the target branch reference commits
+          git fetch origin "$BASE_REF"
+
+          # 2. Resolve TypeScript/JavaScript files modified in this PR diff
+          git diff -z --name-only --diff-filter=d "origin/$BASE_REF...HEAD" \
+            -- core contrib skills > "$WORK/changed"
+
+          ALL_CHANGED=()
+          mapfile -d '' -t ALL_CHANGED < "$WORK/changed"
+
+          CHANGED_FILES=()
+          for f in "${ALL_CHANGED[@]}"; do
+            case "$f" in
+              *.ts|*.tsx|*.js|*.jsx|*.mjs|*.cjs|*.mts|*.cts|*.json|*.jsonc)
+                CHANGED_FILES+=("$f")
+                ;;
+            esac
+          done
+
+          if [ ${#CHANGED_FILES[@]} -eq 0 ]; then
+            echo "No TypeScript/JavaScript files were modified under core/, contrib/ or skills/. Skipping formatting."
+            exit 0
+          fi
+
+          echo "Formatting files: ${CHANGED_FILES[*]}"
+
+          # 3. Format modified files
+          biome format --write "${CHANGED_FILES[@]}"
+
+          # 4. Check formatting diff
+          git diff --no-color -- "${CHANGED_FILES[@]}" > "$WORK/fmt.diff"
+
+          if [ ! -s "$WORK/fmt.diff" ]; then
+            echo "[PASS] All modified TypeScript/JavaScript files are already formatted."
+            exit 0
+          fi
+
+          mapfile -t UNFORMATTED < <(git diff --name-only -- "${CHANGED_FILES[@]}")
+
+          echo "::group::Reformatting diff (what Biome would change)"
+          cat "$WORK/fmt.diff"
+          echo "::endgroup::"
+          echo ""
+          echo "[FAIL] ${#UNFORMATTED[@]} file(s) are not formatted:"
+          printf '  - %s\n' "${UNFORMATTED[@]}"
+          echo ""
+          echo "Fix locally by running:"
+          echo ""
+          echo "  npx @biomejs/biome format --write ${UNFORMATTED[*]}"
+          echo ""
+          echo "Then commit the result."
+
+          for f in "${UNFORMATTED[@]}"; do
+            echo "::error file=$f::This file is not formatted. Run 'npx @biomejs/biome format --write $f' and commit the result."
+          done
+
+          # 5. Post inline suggestions via reviewdog
+          reviewdog -f=diff \
+                    -name="biome-formatter" \
+                    -reporter=github-pr-review \
+                    -filter-mode=added \
+                    -fail-level=none < "$WORK/fmt.diff" || true
+
+          exit 1
+
+  biome-lint:
+    name: Biome Lint Suggestions
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read # Checkout
+      pull-requests: write # Post reviewdog suggestion comments
+    timeout-minutes: 10
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v4
+        with:
+          fetch-depth: 0 # Fetch complete history to locate the merge-base cleanly
+          persist-credentials: false
+
+      - name: Setup Biome
+        uses: biomejs/setup-biome@4c91541eaada48f67d7dbd7833600ce162b68f51 # ratchet:biomejs/setup-biome@v2.7.1
+        with:
+          version: ${{ env.BIOME_VERSION }}
+
+      - name: Install Reviewdog
+        uses: reviewdog/action-setup@d8a7baabd7f3e8544ee4dbde3ee41d0011c3a93f # ratchet:reviewdog/action-setup@v1
+        with:
+          reviewdog_version: v0.21.0
+
+      - name: Run Biome Lint Suggestions & Fail on Violations
+        env:
+          REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+
+          WORK="$(mktemp -d)"
+          trap 'rm -rf "$WORK"' EXIT
+
+          # 1. Fetch the target branch reference commits
+          git fetch origin "$BASE_REF"
+
+          # 2. Resolve TypeScript/JavaScript files modified in this PR diff
+          git diff -z --name-only --diff-filter=d "origin/$BASE_REF...HEAD" \
+            -- core contrib skills > "$WORK/changed"
+
+          ALL_CHANGED=()
+          mapfile -d '' -t ALL_CHANGED < "$WORK/changed"
+
+          CHANGED_FILES=()
+          for f in "${ALL_CHANGED[@]}"; do
+            case "$f" in
+              *.ts|*.tsx|*.js|*.jsx|*.mjs|*.cjs|*.mts|*.cts|*.json|*.jsonc)
+                CHANGED_FILES+=("$f")
+                ;;
+            esac
+          done
+
+          if [ ${#CHANGED_FILES[@]} -eq 0 ]; then
+            echo "No TypeScript/JavaScript files were modified under core/, contrib/ or skills/. Skipping lint."
+            exit 0
+          fi
+
+          echo "Applying auto-fixes to: ${CHANGED_FILES[*]}"
+
+          # 3. Apply safe auto-fixes ONLY to the modified files
+          biome lint --write "${CHANGED_FILES[@]}" || true
+
+          # 4. Post auto-fix suggestion comments strictly targeting modified files
+          git diff --no-color -- "${CHANGED_FILES[@]}" > "$WORK/fix.diff"
+          if [ -s "$WORK/fix.diff" ]; then
+            reviewdog -f=diff \
+                      -name="biome-lint-suggestions" \
+                      -reporter=github-pr-review \
+                      -filter-mode=added \
+                      -fail-level=none < "$WORK/fix.diff" || true
+          fi
+
+          # 5. Restore files so diagnostic pass runs against original commits
+          git checkout -- .
+
+          # 6. Run diagnostic lint and print human-readable output to log first
+          LINT_STATUS=0
+          biome lint --error-on-warnings "${CHANGED_FILES[@]}" || LINT_STATUS=$?
+
+          # 7. Post inline annotations via reviewdog using rdjson format
+          biome lint --reporter=rdjson "${CHANGED_FILES[@]}" > "$WORK/lint.rdjson" || true
+
+          if [ -s "$WORK/lint.rdjson" ]; then
+            reviewdog -f=rdjson \
+                      -name="biome-linter" \
+                      -reporter=github-pr-review \
+                      -filter-mode=added \
+                      -fail-level=none < "$WORK/lint.rdjson" || true
+          fi
+
+          if [ "$LINT_STATUS" -ne 0 ]; then
+            echo ""
+            echo "========================================"
+            echo "  ACTION REQUIRED: Biome lint findings"
+            echo "========================================"
+            echo ""
+            echo "Fix auto-fixable issues locally by running:"
+            echo ""
+            echo "  npx @biomejs/biome lint --write ${CHANGED_FILES[*]}"
+            echo ""
+            exit 1
+          fi
+
+          echo "[PASS] No Biome lint violations in the modified files."

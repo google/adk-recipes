@@ -1,6 +1,6 @@
 ---
 name: google-workspace
-description: How to read and write Google Drive, Docs, Sheets, Gmail, Calendar, Chat, Tasks, Slides, Keep, Forms, Apps Script, and Meet via the `gws` CLI (a community Google Workspace CLI, not an official Google product). `gws` wraps the Workspace REST APIs (pagination, retries, JSON parsing) and the agent shells out via `terminal`. Note that `gws` does NOT ship an OAuth client — an OAuth client or service account must be configured before interactive login will work (unless a pre-injected token is present). Use whenever the user asks for anything involving a Google Workspace surface.
+description: Read/write Google Drive, Docs, Sheets, Gmail, Calendar, Chat, Tasks, Slides via the `gws` CLI. Needs an OAuth client or service account configured first. Use for any Google Workspace task.
 ---
 # Google Workspace via `gws`
 
@@ -31,12 +31,12 @@ already wraps them and handles pagination, retries, and JSON parsing.
 Before any OAuth client, service account, or login dance, check for
 a **pre-injected access token**. When the user has used **"Connect Workspace"**
 in the web UI, the `GOOGLE_WORKSPACE_CLI_TOKEN` secret is auto-injected into
-every `terminal` command and is `gws`'s **highest-priority** auth source — no
+every `bash` command and is `gws`'s **highest-priority** auth source — no
 OAuth client, no login, no loopback bridge. **Don't ask, don't inspect the
 environment, just probe with a cheap read against the surface you need:**
 
 ```
-terminal(command="export GOOGLE_WORKSPACE_CLI_CONFIG_DIR=/workspace/lha/config/gws GOOGLE_WORKSPACE_CLI_KEYRING_BACKEND=file && gws gmail messages list --params '{\"maxResults\": 1}'")
+bash(command="export GOOGLE_WORKSPACE_CLI_CONFIG_DIR=/workspace/lha/config/gws GOOGLE_WORKSPACE_CLI_KEYRING_BACKEND=file && gws gmail messages list --params '{\"maxResults\": 1}'")
 ```
 
 - If it returns data, you're done — the token works. Proceed with the task.
@@ -71,7 +71,7 @@ these is in place:
    directly with the key (use for fully unattended automation, no user present).
 4. **`gws auth setup`** — provisions a GCP project + OAuth client for you, but
    renders a **full-screen interactive TUI** that can't be driven from
-   `terminal` (no keyboard input). Don't use it headless — create the
+   `bash` (no keyboard input). Don't use it headless — create the
    `client_secret.json` by hand (option 1) instead.
 
 ### Creating the OAuth client (one-time)
@@ -90,7 +90,7 @@ When building the OAuth client yourself (via `gcloud` or the Cloud console):
 
 ### Config dir + keyring (sandbox gotchas)
 
-Set both on **every** `gws` command — each `terminal` call is a fresh non-login
+Set both on **every** `gws` command — each `bash` call is a fresh non-login
 shell, so exports don't carry over between calls:
 
 ```
@@ -111,10 +111,10 @@ export GOOGLE_WORKSPACE_CLI_KEYRING_BACKEND=file
 With an OAuth client configured, authenticate with:
 
 ```
-terminal(command="gws auth login --readonly")  # read-only scopes (start here)
-terminal(command="gws auth login")             # all default scopes
-terminal(command="gws auth login -s drive,gmail,sheets")  # limit the picker
-terminal(command="gws auth login --scopes <comma,separated,scopes>")
+bash(command="gws auth login --readonly")  # read-only scopes (start here)
+bash(command="gws auth login")             # all default scopes
+bash(command="gws auth login -s drive,gmail,sheets")  # limit the picker
+bash(command="gws auth login --scopes <comma,separated,scopes>")
 ```
 
 **Start with read-only scopes** (`--readonly`) — least privilege. Add write
@@ -131,12 +131,12 @@ paste-a-code flag.
 bridge the redirect by hand. The browser opens on the *user's* machine, but the
 listener is inside the container, so you relay the redirect URL across. The URL
 appears in one turn and the user pastes back in a later turn, so use the
-cross-turn process pipeline (`terminal(background=True)` + `process`):
+cross-turn process pipeline (`process(action='spawn', ...)` + `process`):
 
 ```
-terminal(command="export GOOGLE_WORKSPACE_CLI_CONFIG_DIR=/workspace/lha/config/gws GOOGLE_WORKSPACE_CLI_KEYRING_BACKEND=file && gws auth login", background=True)
+process(action='spawn', command="export GOOGLE_WORKSPACE_CLI_CONFIG_DIR=/workspace/lha/config/gws GOOGLE_WORKSPACE_CLI_KEYRING_BACKEND=file && gws auth login")
 # read the printed auth URL, surface it VERBATIM to the user, then wait
-process(action='read', session_id=<id>)
+process(action='poll', session_id=<id>)
 ```
 
 1. The user opens the auth URL, consents, and their browser lands on a
@@ -146,7 +146,7 @@ process(action='read', session_id=<id>)
 2. `curl` that exact URL from inside the sandbox to hand the code to the waiting
    listener, which completes the exchange and writes the token:
    ```
-   terminal(command="curl -s 'http://localhost:<port>/?code=...&scope=...'")
+   bash(command="curl -s 'http://localhost:<port>/?code=...&scope=...'")
    ```
    The backgrounded `gws auth login` then finishes.
 
@@ -154,7 +154,7 @@ process(action='read', session_id=<id>)
 **fully unattended** jobs where no user is present to paste the redirect, use a
 service account instead — the loopback bridge needs a live user.
 
-Check state any time with `terminal(command="gws auth status")`.
+Check state any time with `bash(command="gws auth status")`.
 
 ## Command form
 
@@ -183,8 +183,8 @@ to NDJSON), `-o/--output <path>` (save binary responses),
 ### Discovery — don't guess params
 
 ```
-terminal(command="gws drive --help")                 # resources + methods
-terminal(command="gws schema drive.files.list")      # params, types, defaults
+bash(command="gws drive --help")                 # resources + methods
+bash(command="gws schema drive.files.list")      # params, types, defaults
 ```
 
 `gws schema <service>.<resource>.<method>` prints the exact param shape for a
@@ -201,7 +201,7 @@ doesn't. For anything beyond the common operations, install the relevant skill
 into the workspace and read it (note the path the command prints):
 
 ```
-terminal(command="npx -y skills add https://github.com/googleworkspace/cli/tree/main/skills/gws-drive")
+bash(command="npx -y skills add https://github.com/googleworkspace/cli/tree/main/skills/gws-drive")
 ```
 
 Swap `gws-drive` for the surface you need. These are version-pinned docs, so when

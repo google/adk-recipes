@@ -1,0 +1,48 @@
+[project]
+name = "staged-ui-widgets"
+version = "0.1.0"
+requires-python = ">=3.11,<3.14"
+dependencies = [
+    # Floor at 2.6 for Context.render_ui_widget and the unified Context that
+    # makes it reachable from tool code. Developed and verified against 2.7.1
+    # -- that is the version every source citation in this recipe was read
+    # from, including the base_agent event-emission behaviour the staging layer
+    # depends on (see app/agent.py).
+    "google-adk[gcp]>=2.6.0,<3.0.0",
+    # A2UI component catalog and schema validator; verified against 0.2.4.
+    # Pre-1.0: the SDK ships 0.8, 0.9, and 0.9.1 specs and the component
+    # vocabulary differs between them, so keep the floor tight.
+    "a2ui-agent-sdk>=0.2.1,<0.3.0",
+    "python-dotenv>=1.0.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3.4",
+]
+
+# Kept out of the runtime dependencies deliberately: the eval extra pulls the
+# judge-model stack, which nothing in `adk run` or the unit suite touches. It
+# is an extra rather than a dev group because `adk eval` is a user-facing
+# command -- without it declared somewhere installable, the CLI refuses with
+# "Eval module is not installed" and tests/eval cannot be run at all.
+[project.optional-dependencies]
+eval = ["google-adk[eval]>=2.6.0,<3.0.0"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+# Use public PyPI as the default index for this recipe.
+[[tool.uv.index]]
+url = "https://pypi.org/simple/"
+default = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+[tool.pytest.ini_options]
+pythonpath = "."
+# Integration tests require live credentials and are excluded from CI.
+# Run them locally with: uv run pytest tests/integration
+addopts = "--ignore=tests/integration"

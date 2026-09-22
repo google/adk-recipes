@@ -1,19 +1,25 @@
 # Evaluation Sets
 
-This directory contains evaluation sets for testing agent behavior using `adk eval`.
+This directory contains evaluation sets for testing agent behavior, in ADK's own
+evaluation format. `agents-cli eval run` reads a different `EvalCase` shape
+(`prompt` or `agent_data.turns`, see `google.agents.cli.eval.cmd_generate`), so
+evalsets here are converted to that shape before running.
 
 ## Running Evaluations
 
 ```bash
-# Run default evalset
-agents-cli eval run
+uv sync --extra eval        # one-time: installs google-adk[eval]
 
-# Run specific evalset
-agents-cli eval run --evalset tests/eval/evalsets/custom.evalset.json
-
-# Run all evalsets
-agents-cli eval run --all
+uv run adk eval tests/eval/horizon_eval \
+  tests/eval/evalsets/<name>.evalset.json \
+  --config_file_path tests/eval/eval_config.json
 ```
+
+Run these against a real Vertex project; they cost money per case.
+
+**Do not use `agents-cli eval run`.** Its inference step rejects any agent
+event without `content`, and horizon emits actions-only events from callbacks,
+so every case errors before it is graded.
 
 ## Evalset Format
 
@@ -58,17 +64,18 @@ Each `.evalset.json` follows the ADK evaluation format:
 
 ## Evaluation Metrics
 
-ADK eval measures:
-
-- **tool_trajectory_avg_score**: Are the correct tools called in the right order?
-- **response_match_score**: How similar is the response to expected output?
+This repo's `../eval_config.json` declares one metric,
+`rubric_based_final_response_quality_v1` (an LLM judge scored against
+per-metric rubrics, threshold 0.8). There is no trajectory grader --
+`intermediate_data.tool_uses` below is declarative documentation of the
+expected trajectory, not something the grader checks.
 
 ## Creating Custom Evalsets
 
 1. Copy `basic.evalset.json` as a template
 2. Add cases based on your agent's scenarios
-3. Include expected tool calls for capability tests
-4. Run `agents-cli eval run --evalset your_evalset.json`
+3. Include expected tool calls as documentation (see Evaluation Metrics above)
+4. Run it with the `adk eval` command above
 
 ## Tips
 

@@ -13,7 +13,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-
 import {
   type DragEvent,
   useCallback,
@@ -38,7 +37,23 @@ import {
   ResizableHandle,
 } from "@/components/ui/resizable";
 import { ArtifactViewer } from "./artifact-viewer/artifact-viewer";
-import { ViewerProvider } from "./artifact-viewer/viewer-context";
+import { AutoOpenNewFile } from "./artifact-viewer/auto-open-new-file";
+import {
+  ViewerProvider,
+  type PendingSelection,
+} from "./artifact-viewer/viewer-context";
+import { anchorLabel } from "@/lib/selection-anchor";
+import type { Part } from "@a2a-js/sdk";
+import { dataPartDict, makeDataPart } from "@/lib/a2a-part";
+import {
+  FILEREF_DATA_KIND,
+  SELECTION_DATA_KIND,
+  isFileRefPayload,
+  isSelectionPayload,
+  type FileRef,
+  type FileRefPayload,
+  type SelectionPayload,
+} from "./workspace-href";
 import { useMediaQuery } from "@/lib/use-media-query";
 import type { ImperativePanelHandle } from "react-resizable-panels";
 import type { UploadResult } from "./sidebar-dropzone";
@@ -55,7 +70,13 @@ import { SandboxWarmupBanner } from "./sandbox-warmup-banner";
 import { SessionLostBanner } from "./session-lost-banner";
 import { isTransportError } from "@/lib/is-transport-error";
 import { Button } from "@/components/ui/button";
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet";
 import {
   Brain,
   CalendarClock,
@@ -137,7 +158,10 @@ export type MessageSegment =
       kind: "confirmation";
       callId: string | null;
       hint: string;
-      originalCall: { name: string; args: Record<string, unknown> | null } | null;
+      originalCall: {
+        name: string;
+        args: Record<string, unknown> | null;
+      } | null;
       payload: Record<string, unknown> | null;
       answer?: { confirmed: boolean; text: string | null };
     }
@@ -215,6 +239,25 @@ export function ChatShell({ contextId: contextIdProp }: ChatShellProps = {}) {
   // message as a `[Uploaded to /workspace: ...]` prefix so the agent sees the
   // new files on its next turn.
   const [pendingUploadNames, setPendingUploadNames] = useState<string[]>([]);
+  // Text highlighted in the artifact panel, prepended to the next message as
+  // an `[Editing …]` block so the agent can resolve it with `patch`. Owned
+  // here because this component renders ViewerProvider and so can't read its
+  // context; the viewer reports upward via onSelectionChange.
+  const [pendingSelection, setPendingSelection] =
+    useState<PendingSelection | null>(null);
+  // Set when the panel's Export starts a turn, so its result claims the panel
+  // rather than waiting for an empty slot. Cleared once that turn is over.
+  // Workspace files dragged onto the composer. Paths only — the bytes are
+  // already on disk, so an upload would duplicate them.
+  const [fileRefs, setFileRefs] = useState<FileRef[]>([]);
+  const addFileRef = useCallback((ref: FileRef) => {
+    setFileRefs((prev) =>
+      prev.some((r) => r.path === ref.path) ? prev : [...prev, ref],
+    );
+  }, []);
+  const removeFileRef = useCallback((path: string) => {
+    setFileRefs((prev) => prev.filter((r) => r.path !== path));
+  }, []);
   const [recentUploads, setRecentUploads] = useState<RecentUpload[]>([]);
   const [workspaceVersion, setWorkspaceVersion] = useState(0);
   const [optimisticRows, setOptimisticRows] = useState<OptimisticRow[]>([]);
@@ -225,7 +268,11 @@ export function ChatShell({ contextId: contextIdProp }: ChatShellProps = {}) {
   const dragDepthRef = useRef(0);
 
   const navigate = useNavigate();
-  const { data: sessions, isLoading: sessionsLoading, refresh: refreshSessions } = useLhaSessions();
+  const {
+    data: sessions,
+    isLoading: sessionsLoading,
+    refresh: refreshSessions,
+  } = useLhaSessions();
   const { data: sandboxStatus } = useSandboxStatus();
 
   const {
@@ -339,8 +386,16 @@ export function ChatShell({ contextId: contextIdProp }: ChatShellProps = {}) {
   const confirmationSender = useCallback(
     (
       req:
-        | { callId: string | null; confirmed: boolean; payload: Record<string, unknown> | null }
-        | { callId: string | null; confirmed: boolean; payload: Record<string, unknown> | null }[],
+        | {
+            callId: string | null;
+            confirmed: boolean;
+            payload: Record<string, unknown> | null;
+          }
+        | {
+            callId: string | null;
+            confirmed: boolean;
+            payload: Record<string, unknown> | null;
+          }[],
     ) => {
       void confirm(req);
     },
@@ -475,7 +530,8 @@ export function ChatShell({ contextId: contextIdProp }: ChatShellProps = {}) {
       // the Escape first — otherwise one keystroke would close the dialog and
       // clear find together.
       if (e.key === "Escape" && findOpenRef.current) {
-        if (document.querySelector('[role="dialog"][data-state="open"]')) return;
+        if (document.querySelector('[role="dialog"][data-state="open"]'))
+          return;
         e.preventDefault();
         setFindOpen(false);
         setFindHighlightId(null);
@@ -587,8 +643,38 @@ export function ChatShell({ contextId: contextIdProp }: ChatShellProps = {}) {
 
   const handleSend = useCallback(
     (text: string) => {
+      // Built before the busy check so a message queued mid-turn keeps its
+      // selection and file references; flushing text alone would send the
+      // instruction without the span it refers to.
+      const queuedParts: Part[] = [];
+      if (fileRefs.length > 0) {
+        queuedParts.push(
+          makeDataPart({
+            lha_kind: FILEREF_DATA_KIND,
+            paths: fileRefs.map((r) => r.path),
+          } satisfies FileRefPayload),
+        );
+      }
+      if (pendingSelection) {
+        const a = pendingSelection.anchor;
+        queuedParts.push(
+          makeDataPart({
+            lha_kind: SELECTION_DATA_KIND,
+            path: pendingSelection.path,
+            start: a.start,
+            end: a.end,
+            start_line: a.startLine,
+            end_line: a.endLine,
+            snippet: a.snippet,
+          } satisfies SelectionPayload),
+        );
+      }
       if (turnActive) {
-        enqueue(text);
+        enqueue(text, queuedParts);
+        if (queuedParts.length > 0) {
+          setFileRefs([]);
+          setPendingSelection(null);
+        }
         return;
       }
       const sending = attachments;
@@ -600,6 +686,9 @@ export function ChatShell({ contextId: contextIdProp }: ChatShellProps = {}) {
         outgoing = text.trim() ? `${prefix}\n\n${text}` : prefix;
         setPendingUploadNames([]);
       }
+      if (fileRefs.length > 0) setFileRefs([]);
+      if (pendingSelection) setPendingSelection(null);
+      const outgoingParts = queuedParts;
       // A project-chat seeds its workspace_window before the first turn so the
       // agent's file ops default into /workspace/<project>. Best-effort: a seed
       // failure must never swallow the user's message.
@@ -608,10 +697,16 @@ export function ChatShell({ contextId: contextIdProp }: ChatShellProps = {}) {
         cid && messages.length === 0 ? takePendingWindow(cid) : undefined;
       if (cid && dirs && dirs.length > 0) {
         void setChatWindow(cid, dirs).finally(() =>
-          send(outgoing, { attachments: sending }),
+          send(outgoing, {
+            attachments: sending,
+            extraParts: outgoingParts.length > 0 ? outgoingParts : undefined,
+          }),
         );
       } else {
-        void send(outgoing, { attachments: sending });
+        void send(outgoing, {
+          attachments: sending,
+          extraParts: outgoingParts.length > 0 ? outgoingParts : undefined,
+        });
       }
     },
     [
@@ -619,6 +714,8 @@ export function ChatShell({ contextId: contextIdProp }: ChatShellProps = {}) {
       enqueue,
       attachments,
       pendingUploadNames,
+      pendingSelection,
+      fileRefs,
       send,
       client,
       messages.length,
@@ -627,8 +724,42 @@ export function ChatShell({ contextId: contextIdProp }: ChatShellProps = {}) {
 
   const handleStop = useCallback(() => {
     setDraft((d) =>
-      [d, ...queue].map((s) => s.trim()).filter(Boolean).join("\n\n"),
+      [d, ...queue.map((q) => q.text)]
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .join("\n\n"),
     );
+    // The chips were cleared when these were queued, so without this the text
+    // comes back to the composer and its selection or file references are
+    // gone — the next send would carry the instruction and nothing to apply
+    // it to.
+    const queuedPayloads = queue
+      .flatMap((q) => q.parts)
+      .map((p): unknown => dataPartDict(p))
+      .filter((d) => d !== null);
+    const restoredRefs = queuedPayloads
+      .filter(isFileRefPayload)
+      .flatMap((d) => d.paths)
+      .map((path) => ({ path, name: path.split("/").pop() || path }));
+    if (restoredRefs.length > 0) {
+      setFileRefs((prev) => {
+        const seen = new Set(prev.map((r) => r.path));
+        return [...prev, ...restoredRefs.filter((r) => !seen.has(r.path))];
+      });
+    }
+    const restoredSelection = queuedPayloads.filter(isSelectionPayload).pop();
+    if (restoredSelection) {
+      setPendingSelection({
+        path: restoredSelection.path,
+        anchor: {
+          start: restoredSelection.start,
+          end: restoredSelection.end,
+          startLine: restoredSelection.start_line,
+          endLine: restoredSelection.end_line,
+          snippet: restoredSelection.snippet,
+        },
+      });
+    }
     clearQueue();
     // onStop cancels via the live send's own task id, which a reattached turn
     // doesn't have — cancel that one by id instead.
@@ -732,7 +863,10 @@ export function ChatShell({ contextId: contextIdProp }: ChatShellProps = {}) {
     if (bootError || sessionLost)
       return { dot: "destructive" as const, label: "disconnected" };
     if (!client || historyLoading)
-      return { dot: "muted" as const, label: historyLoading ? "loading" : "connecting" };
+      return {
+        dot: "muted" as const,
+        label: historyLoading ? "loading" : "connecting",
+      };
     if (busy) return { dot: "primary" as const, label: "thinking" };
     // A turn reattached after a reopen is still running even though this tab
     // never sent it, so `busy` is false. Lags a completing turn by one poll.
@@ -754,8 +888,14 @@ export function ChatShell({ contextId: contextIdProp }: ChatShellProps = {}) {
   const handleExport = useCallback(
     (format: "markdown" | "json") => {
       if (messages.length === 0) return;
-      downloadConversation(messages, activeSession?.title ?? "conversation", format);
-      notify.success(`Exported as ${format === "markdown" ? "Markdown" : "JSON"}`);
+      downloadConversation(
+        messages,
+        activeSession?.title ?? "conversation",
+        format,
+      );
+      notify.success(
+        `Exported as ${format === "markdown" ? "Markdown" : "JSON"}`,
+      );
     },
     [messages, activeSession],
   );
@@ -769,6 +909,12 @@ export function ChatShell({ contextId: contextIdProp }: ChatShellProps = {}) {
       navigate({ to: "/" });
     },
   });
+
+  // The panel's Export action. A short text keeps the bubble readable; the
+  // DataPart carries the instruction, so none of it lands in the transcript.
+  const selectionChip = pendingSelection
+    ? { label: anchorLabel(pendingSelection.anchor.snippet) }
+    : null;
 
   const rightPaneHeader = (
     // Clears the Sheet's own absolute close button on mobile.
@@ -826,358 +972,419 @@ export function ChatShell({ contextId: contextIdProp }: ChatShellProps = {}) {
 
   return (
     <NowProvider>
-    <ImageLightboxProvider>
-    <ViewerProvider resetKey={contextId} onOpen={handleArtifactOpen}>
-    <div className="flex h-dvh flex-row overflow-hidden bg-background">
-      <ResizablePanelGroup
-        direction="horizontal"
-        autoSaveId="lha.layout"
-        className="flex-1"
-      >
-        {isDesktop && (
-          <>
-            <ResizablePanel
-              id="left"
-              order={1}
-              defaultSize={18}
-              minSize={14}
-              maxSize={30}
-              className="flex flex-col border-r bg-card/30"
-            >
-        <ChatListSidebar
-          activeContextId={activeContextId}
-          sessions={sessions}
-          sessionsLoading={sessionsLoading}
-          refreshSessions={refreshSessions}
-          onNewChat={onNewChat}
-          onPrefetch={handlePrefetchChat}
-          recentUploads={recentUploads}
-          optimisticRows={optimisticRows}
-          workspaceVersion={workspaceVersion}
-          onUploadComplete={handleUploadComplete}
-          onWorkspaceChanged={handleWorkspaceChanged}
-          onReconciled={handleReconciled}
-          onClearRecent={handleClearRecent}
-          onDeleteWorkspaceFile={handleDeleteWorkspaceFile}
-        />
-            </ResizablePanel>
-            <ResizableHandle withHandle />
-          </>
-        )}
-
-        <ResizablePanel
-          id="center"
-          order={2}
-          minSize={30}
-          className="flex min-h-0 min-w-0 flex-col"
+      <ImageLightboxProvider>
+        <ViewerProvider
+          resetKey={contextId}
+          onOpen={handleArtifactOpen}
+          onSelectionChange={setPendingSelection}
         >
-          {/* min-h-0 all the way down so the message list (not the column) is
+          {/* Hoisted above the layout so the artifact viewer can disable editing
+        mid-turn, not just the message list's resend/edit buttons. */}
+          <BusyProvider value={turnActive}>
+            <AutoOpenNewFile />
+            <div className="flex h-dvh flex-row overflow-hidden bg-background">
+              <ResizablePanelGroup
+                direction="horizontal"
+                autoSaveId="lha.layout"
+                className="flex-1"
+              >
+                {isDesktop && (
+                  <>
+                    <ResizablePanel
+                      id="left"
+                      order={1}
+                      defaultSize={18}
+                      minSize={14}
+                      maxSize={30}
+                      className="flex flex-col border-r bg-card/30"
+                    >
+                      <ChatListSidebar
+                        activeContextId={activeContextId}
+                        sessions={sessions}
+                        sessionsLoading={sessionsLoading}
+                        refreshSessions={refreshSessions}
+                        onNewChat={onNewChat}
+                        onPrefetch={handlePrefetchChat}
+                        recentUploads={recentUploads}
+                        optimisticRows={optimisticRows}
+                        workspaceVersion={workspaceVersion}
+                        onUploadComplete={handleUploadComplete}
+                        onWorkspaceChanged={handleWorkspaceChanged}
+                        onReconciled={handleReconciled}
+                        onClearRecent={handleClearRecent}
+                        onDeleteWorkspaceFile={handleDeleteWorkspaceFile}
+                      />
+                    </ResizablePanel>
+                    <ResizableHandle withHandle />
+                  </>
+                )}
+
+                <ResizablePanel
+                  id="center"
+                  order={2}
+                  minSize={30}
+                  className="flex min-h-0 min-w-0 flex-col"
+                >
+                  {/* min-h-0 all the way down so the message list (not the column) is
               the thing that scrolls, keeping the composer anchored. */}
-          <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <header className="group/header flex h-12 shrink-0 items-center justify-between gap-2 border-b px-4">
-          <div className="flex min-w-0 flex-1 items-center gap-2">
-            <Sheet open={sidebarOpen} onOpenChange={setSidebarOpen}>
-              <SheetTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-10 w-10 md:hidden"
-                >
-                  <PanelLeft className="h-4 w-4" />
-                  <span className="sr-only">Chat history</span>
-                </Button>
-              </SheetTrigger>
-              <SheetContent side="left" className="w-72 p-0">
-                <SheetHeader className="sr-only">
-                  <SheetTitle>Chats</SheetTitle>
-                </SheetHeader>
-                {sidebarOpen && (
-                  <ChatListSidebar
-                    activeContextId={activeContextId}
-                    sessions={sessions}
-                    sessionsLoading={sessionsLoading}
-                    refreshSessions={refreshSessions}
-                    onNewChat={onNewChat}
-                    onNavigate={() => setSidebarOpen(false)}
-                    onPrefetch={handlePrefetchChat}
-                    reserveHeaderRight
-                    recentUploads={recentUploads}
-                    optimisticRows={optimisticRows}
-                    workspaceVersion={workspaceVersion}
-                    onUploadComplete={handleUploadComplete}
-                    onWorkspaceChanged={handleWorkspaceChanged}
-                    onReconciled={handleReconciled}
-                    onClearRecent={handleClearRecent}
-                    onDeleteWorkspaceFile={handleDeleteWorkspaceFile}
-                  />
-                )}
-              </SheetContent>
-            </Sheet>
-            <Wordmark label="Long Horizon Harness" className="min-w-0 truncate text-base font-semibold tracking-tight" />
-            {activeSession && (
-              <>
-                <span aria-hidden className="shrink-0 text-muted-foreground/40">
-                  ·
-                </span>
-                {headerControls.editing ? (
-                  <ChatTitleInput
-                    controls={headerControls}
-                    className="h-7 max-w-[40ch] px-1.5 py-0 text-sm"
-                  />
-                ) : (
-                  <span
-                    className="min-w-0 truncate text-sm text-foreground/90"
-                    title={activeSession.title}
-                  >
-                    {activeSession.title}
-                  </span>
-                )}
-                <div className="pointer-events-none flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover/header:pointer-events-auto group-hover/header:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100 max-md:pointer-events-auto max-md:opacity-100">
-                  <ChatActionButtons
-                    title={activeSession.title}
-                    controls={headerControls}
-                  />
-                </div>
-              </>
-            )}
-          </div>
-          <div className="flex shrink-0 items-center gap-2">
-            {sandboxStatus?.user_id && (
-              <span
-                title={`signed in as ${sandboxStatus.user_id}`}
-                className="hidden max-w-[24ch] truncate rounded-full border border-border/40 bg-muted/40 px-2 py-0.5 font-mono text-[10px] text-muted-foreground sm:inline-block"
-              >
-                {sandboxStatus.user_id}
-              </span>
-            )}
-            <span
-              role="status"
-              aria-live="polite"
-              aria-label={`agent ${status.label}`}
-              className="flex items-center gap-1.5 text-[11px] text-muted-foreground"
-            >
-              <span
-                aria-hidden="true"
-                className={cn(
-                  "h-1.5 w-1.5 rounded-full",
-                  status.dot === "destructive" && "bg-destructive",
-                  status.dot === "muted" &&
-                    "bg-muted-foreground/60 motion-safe:animate-pulse",
-                  status.dot === "primary" && "bg-primary motion-safe:animate-pulse",
-                  status.dot === "ready" && "bg-emerald-500",
-                )}
-              />
-              {status.label}
-            </span>
-            {isDesktop && (
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-10 w-10"
-                onClick={toggleRightPanel}
-                aria-label={rightCollapsed ? "Show panel" : "Hide panel"}
-                title={rightCollapsed ? "Show panel" : "Hide panel"}
-              >
-                {rightCollapsed ? (
-                  <PanelRightOpen className="h-4 w-4" />
-                ) : (
-                  <PanelRightClose className="h-4 w-4" />
-                )}
-              </Button>
-            )}
-            <Sheet
-              open={!isDesktop && panelsOpen}
-              onOpenChange={setPanelsOpen}
-            >
-              <SheetTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-10 w-10 md:hidden"
-                >
-                  <PanelRight className="h-4 w-4" />
-                  <span className="sr-only">Session panels</span>
-                </Button>
-              </SheetTrigger>
-              <SheetContent side="right" className="flex max-w-sm flex-col p-0">
-                <SheetHeader className="sr-only">
-                  <SheetTitle>Session</SheetTitle>
-                </SheetHeader>
-                {panelsOpen && rightPane}
-              </SheetContent>
-            </Sheet>
-          </div>
-        </header>
+                  <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+                    <header className="group/header flex h-12 shrink-0 items-center justify-between gap-2 border-b px-4">
+                      <div className="flex min-w-0 flex-1 items-center gap-2">
+                        <Sheet open={sidebarOpen} onOpenChange={setSidebarOpen}>
+                          <SheetTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-10 w-10 md:hidden"
+                            >
+                              <PanelLeft className="h-4 w-4" />
+                              <span className="sr-only">Chat history</span>
+                            </Button>
+                          </SheetTrigger>
+                          <SheetContent side="left" className="w-72 p-0">
+                            <SheetHeader className="sr-only">
+                              <SheetTitle>Chats</SheetTitle>
+                            </SheetHeader>
+                            {sidebarOpen && (
+                              <ChatListSidebar
+                                activeContextId={activeContextId}
+                                sessions={sessions}
+                                sessionsLoading={sessionsLoading}
+                                refreshSessions={refreshSessions}
+                                onNewChat={onNewChat}
+                                onNavigate={() => setSidebarOpen(false)}
+                                onPrefetch={handlePrefetchChat}
+                                reserveHeaderRight
+                                recentUploads={recentUploads}
+                                optimisticRows={optimisticRows}
+                                workspaceVersion={workspaceVersion}
+                                onUploadComplete={handleUploadComplete}
+                                onWorkspaceChanged={handleWorkspaceChanged}
+                                onReconciled={handleReconciled}
+                                onClearRecent={handleClearRecent}
+                                onDeleteWorkspaceFile={
+                                  handleDeleteWorkspaceFile
+                                }
+                              />
+                            )}
+                          </SheetContent>
+                        </Sheet>
+                        <Wordmark
+                          label="Long Horizon Harness"
+                          className="min-w-0 truncate text-base font-semibold tracking-tight"
+                        />
+                        {activeSession && (
+                          <>
+                            <span
+                              aria-hidden
+                              className="shrink-0 text-muted-foreground/40"
+                            >
+                              ·
+                            </span>
+                            {headerControls.editing ? (
+                              <ChatTitleInput
+                                controls={headerControls}
+                                className="h-7 max-w-[40ch] px-1.5 py-0 text-sm"
+                              />
+                            ) : (
+                              <span
+                                className="min-w-0 truncate text-sm text-foreground/90"
+                                title={activeSession.title}
+                              >
+                                {activeSession.title}
+                              </span>
+                            )}
+                            <div className="pointer-events-none flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover/header:pointer-events-auto group-hover/header:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100 max-md:pointer-events-auto max-md:opacity-100">
+                              <ChatActionButtons
+                                title={activeSession.title}
+                                controls={headerControls}
+                              />
+                            </div>
+                          </>
+                        )}
+                      </div>
+                      <div className="flex shrink-0 items-center gap-2">
+                        {sandboxStatus?.user_id && (
+                          <span
+                            title={`signed in as ${sandboxStatus.user_id}`}
+                            className="hidden max-w-[24ch] truncate rounded-full border border-border/40 bg-muted/40 px-2 py-0.5 font-mono text-[10px] text-muted-foreground sm:inline-block"
+                          >
+                            {sandboxStatus.user_id}
+                          </span>
+                        )}
+                        <span
+                          role="status"
+                          aria-live="polite"
+                          aria-label={`agent ${status.label}`}
+                          className="flex items-center gap-1.5 text-[11px] text-muted-foreground"
+                        >
+                          <span
+                            aria-hidden="true"
+                            className={cn(
+                              "h-1.5 w-1.5 rounded-full",
+                              status.dot === "destructive" && "bg-destructive",
+                              status.dot === "muted" &&
+                                "bg-muted-foreground/60 motion-safe:animate-pulse",
+                              status.dot === "primary" &&
+                                "bg-primary motion-safe:animate-pulse",
+                              status.dot === "ready" && "bg-emerald-500",
+                            )}
+                          />
+                          {status.label}
+                        </span>
+                        {isDesktop && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-10 w-10"
+                            onClick={toggleRightPanel}
+                            aria-label={
+                              rightCollapsed ? "Show panel" : "Hide panel"
+                            }
+                            title={rightCollapsed ? "Show panel" : "Hide panel"}
+                          >
+                            {rightCollapsed ? (
+                              <PanelRightOpen className="h-4 w-4" />
+                            ) : (
+                              <PanelRightClose className="h-4 w-4" />
+                            )}
+                          </Button>
+                        )}
+                        <Sheet
+                          open={!isDesktop && panelsOpen}
+                          onOpenChange={setPanelsOpen}
+                        >
+                          <SheetTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-10 w-10 md:hidden"
+                            >
+                              <PanelRight className="h-4 w-4" />
+                              <span className="sr-only">Session panels</span>
+                            </Button>
+                          </SheetTrigger>
+                          <SheetContent
+                            side="right"
+                            className="flex max-w-sm flex-col p-0"
+                          >
+                            <SheetHeader className="sr-only">
+                              <SheetTitle>Session</SheetTitle>
+                            </SheetHeader>
+                            {panelsOpen && rightPane}
+                          </SheetContent>
+                        </Sheet>
+                      </div>
+                    </header>
 
-        <ChatDeleteError error={headerControls.deleteError} className="mx-4 mt-1" />
-
-        {sessionLost && <SessionLostBanner />}
-        <GuardrailBanner contextId={contextId} bootError={bootError} />
-
-        <main
-          onDragEnter={onDragEnter}
-          onDragLeave={onDragLeave}
-          onDragOver={onDragOver}
-          onDrop={onDrop}
-          className="relative flex min-h-0 flex-1 flex-col"
-        >
-          {dragOver && (
-            <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-primary/10 text-sm font-medium text-primary ring-2 ring-inset ring-primary">
-              Drop files to attach
-            </div>
-          )}
-          {showWelcome ? (
-            <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4">
-              <div className="flex flex-1 flex-col items-center justify-start pt-6 md:pt-24">
-                <div className="w-full max-w-2xl">
-                  <div className="text-center">
-                    {sandboxStatus?.user_id && (
-                      <p className="mb-3 text-lg text-muted-foreground md:text-xl">
-                        Hi, <span className="font-medium text-foreground">{sandboxStatus.user_id.split("@")[0]}</span>
-                      </p>
-                    )}
-                    <h1 className="text-4xl font-semibold tracking-tight md:text-5xl">
-                      <Wordmark label="Long Horizon Harness" />
-                    </h1>
-                    <p className="mx-auto mt-4 max-w-xl text-base text-muted-foreground md:text-lg">
-                      A long-horizon agent that runs in a sandbox and gets better
-                      at its work over time.
-                    </p>
-                  </div>
-                  <div className="mt-6">
-                    <StatusStrip contextId={contextId} />
-                    <AuthCard contextId={contextId} className="mb-2" />
-                    <SandboxWarmupBanner
-                      status={sandboxStatus}
-                      className="mb-2"
+                    <ChatDeleteError
+                      error={headerControls.deleteError}
+                      className="mx-4 mt-1"
                     />
-                    <InputBox
-                      onSend={handleSend}
-                      onStop={handleStop}
-                      value={draft}
-                      onValueChange={onDraftChange}
-                      queued={queue}
-                      onRemoveQueued={removeQueued}
-                      disabled={!client}
-                      busy={turnActive}
-                      attachments={attachments}
-                      onAddFiles={addFiles}
-                      onRemoveAttachment={removeAttachment}
-                      attachmentError={attachmentError}
-                      hasPendingPrefix={pendingUploadNames.length > 0}
-                    />
-                  </div>
-                  <PromptChips
-                    onSend={handleSend}
-                    disabled={!client || busy}
-                  />
-                  <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
-                    <div className="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-card/40 px-3 py-1 text-xs text-muted-foreground">
-                      <Sparkles className="h-3.5 w-3.5 text-primary/70" />
-                      Built with <span className="font-mono text-foreground/80">agents-cli</span>
-                    </div>
-                    <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground/70">
-                      Press{" "}
-                      <kbd className="rounded border bg-muted/40 px-1 font-mono text-[10px] text-muted-foreground">
-                        ⌘K
-                      </kbd>{" "}
-                      for shortcuts
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          ) : (
-            <>
-              {findOpen && (
-                <FindBar
-                  messages={messages}
-                  onClose={handleFindClose}
-                  onActiveMatchChange={handleFindActiveMatch}
-                  focusSignal={findFocusSignal}
-                />
-              )}
-              <BusyProvider value={turnActive}>
-                <ConfirmationProvider sender={confirmationSender}>
-                  <MessageList
-                    messages={messages}
-                    contextId={contextId}
-                    onResend={resend}
-                    onEdit={editAndResend}
-                    highlightId={findHighlightId}
-                  />
-                </ConfirmationProvider>
-              </BusyProvider>
-              <StatusStrip contextId={contextId} />
-              <AuthCard contextId={contextId} className="mx-4 mb-2" />
-              <SandboxWarmupBanner
-                status={sandboxStatus}
-                warmError={warmError}
-                className="mx-4 mb-2"
-              />
-              <DormantActionsGate
-                lastUpdated={activeSession?.lastUpdated ?? null}
-                show={messages.length > 0 && !busy && !dormantActionsDismissed}
-                disabled={!client || busy}
-                onAction={(prompt) => {
-                  handleSend(prompt);
-                  setDormantActionsDismissed(true);
-                }}
-              />
-              <InputBox
-                onSend={handleSend}
-                onStop={handleStop}
-                value={draft}
-                onValueChange={onDraftChange}
-                queued={queue}
-                onRemoveQueued={removeQueued}
-                disabled={!client}
-                busy={turnActive}
-                attachments={attachments}
-                onAddFiles={addFiles}
-                onRemoveAttachment={removeAttachment}
-                attachmentError={attachmentError}
-                hasPendingPrefix={pendingUploadNames.length > 0}
-              />
-            </>
-          )}
-        </main>
-          </div>
-        </ResizablePanel>
 
-        {isDesktop && (
-          <>
-            <ResizableHandle withHandle />
-            <ResizablePanel
-              id="right"
-              order={3}
-              ref={rightPanelRef}
-              defaultSize={26}
-              minSize={18}
-              maxSize={50}
-              collapsible
-              collapsedSize={0}
-              onCollapse={() => setRightCollapsed(true)}
-              onExpand={() => setRightCollapsed(false)}
-              className="flex flex-col border-l bg-card/30"
-            >
-              {rightPane}
-            </ResizablePanel>
-          </>
-        )}
-      </ResizablePanelGroup>
-      <CommandPalette
-        open={paletteOpen}
-        onOpenChange={setPaletteOpen}
-        sessions={sessions}
-        activeContextId={contextId}
-        onNewChat={onNewChat}
-        canExport={messages.length > 0}
-        onExport={handleExport}
-      />
-    </div>
-    </ViewerProvider>
-    </ImageLightboxProvider>
+                    {sessionLost && <SessionLostBanner />}
+                    <GuardrailBanner
+                      contextId={contextId}
+                      bootError={bootError}
+                    />
+
+                    <main
+                      onDragEnter={onDragEnter}
+                      onDragLeave={onDragLeave}
+                      onDragOver={onDragOver}
+                      onDrop={onDrop}
+                      className="relative flex min-h-0 flex-1 flex-col"
+                    >
+                      {dragOver && (
+                        <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-primary/10 text-sm font-medium text-primary ring-2 ring-inset ring-primary">
+                          Drop files to attach
+                        </div>
+                      )}
+                      {showWelcome ? (
+                        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4">
+                          <div className="flex flex-1 flex-col items-center justify-start pt-6 md:pt-24">
+                            <div className="w-full max-w-2xl">
+                              <div className="text-center">
+                                {sandboxStatus?.user_id && (
+                                  <p className="mb-3 text-lg text-muted-foreground md:text-xl">
+                                    Hi,{" "}
+                                    <span className="font-medium text-foreground">
+                                      {sandboxStatus.user_id.split("@")[0]}
+                                    </span>
+                                  </p>
+                                )}
+                                <h1 className="text-4xl font-semibold tracking-tight md:text-5xl">
+                                  <Wordmark label="Long Horizon Harness" />
+                                </h1>
+                                <p className="mx-auto mt-4 max-w-xl text-base text-muted-foreground md:text-lg">
+                                  A long-horizon agent that runs in a sandbox
+                                  and gets better at its work over time.
+                                </p>
+                              </div>
+                              <div className="mt-6">
+                                <StatusStrip contextId={contextId} />
+                                <AuthCard
+                                  contextId={contextId}
+                                  className="mb-2"
+                                />
+                                <SandboxWarmupBanner
+                                  status={sandboxStatus}
+                                  className="mb-2"
+                                />
+                                <InputBox
+                                  onSend={handleSend}
+                                  onStop={handleStop}
+                                  value={draft}
+                                  onValueChange={onDraftChange}
+                                  queued={queue.map((q) => q.text)}
+                                  onRemoveQueued={removeQueued}
+                                  disabled={!client}
+                                  busy={turnActive}
+                                  attachments={attachments}
+                                  onAddFiles={addFiles}
+                                  onRemoveAttachment={removeAttachment}
+                                  attachmentError={attachmentError}
+                                  hasPendingPrefix={
+                                    pendingUploadNames.length > 0 ||
+                                    Boolean(pendingSelection)
+                                  }
+                                  selectionChip={selectionChip}
+                                  fileRefs={fileRefs}
+                                  onAddFileRef={addFileRef}
+                                  onRemoveFileRef={removeFileRef}
+                                  onClearSelection={() =>
+                                    setPendingSelection(null)
+                                  }
+                                />
+                              </div>
+                              <PromptChips
+                                onSend={handleSend}
+                                disabled={!client || busy}
+                              />
+                              <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
+                                <div className="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-card/40 px-3 py-1 text-xs text-muted-foreground">
+                                  <Sparkles className="h-3.5 w-3.5 text-primary/70" />
+                                  Built with{" "}
+                                  <span className="font-mono text-foreground/80">
+                                    agents-cli
+                                  </span>
+                                </div>
+                                <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground/70">
+                                  Press{" "}
+                                  <kbd className="rounded border bg-muted/40 px-1 font-mono text-[10px] text-muted-foreground">
+                                    ⌘K
+                                  </kbd>{" "}
+                                  for shortcuts
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                        <>
+                          {findOpen && (
+                            <FindBar
+                              messages={messages}
+                              onClose={handleFindClose}
+                              onActiveMatchChange={handleFindActiveMatch}
+                              focusSignal={findFocusSignal}
+                            />
+                          )}
+                          <ConfirmationProvider sender={confirmationSender}>
+                            <MessageList
+                              messages={messages}
+                              contextId={contextId}
+                              onResend={resend}
+                              onEdit={editAndResend}
+                              highlightId={findHighlightId}
+                            />
+                          </ConfirmationProvider>
+                          <StatusStrip contextId={contextId} />
+                          <AuthCard
+                            contextId={contextId}
+                            className="mx-4 mb-2"
+                          />
+                          <SandboxWarmupBanner
+                            status={sandboxStatus}
+                            warmError={warmError}
+                            className="mx-4 mb-2"
+                          />
+                          <DormantActionsGate
+                            lastUpdated={activeSession?.lastUpdated ?? null}
+                            show={
+                              messages.length > 0 &&
+                              !busy &&
+                              !dormantActionsDismissed
+                            }
+                            disabled={!client || busy}
+                            onAction={(prompt) => {
+                              handleSend(prompt);
+                              setDormantActionsDismissed(true);
+                            }}
+                          />
+                          <InputBox
+                            onSend={handleSend}
+                            onStop={handleStop}
+                            value={draft}
+                            onValueChange={onDraftChange}
+                            queued={queue.map((q) => q.text)}
+                            onRemoveQueued={removeQueued}
+                            disabled={!client}
+                            busy={turnActive}
+                            attachments={attachments}
+                            onAddFiles={addFiles}
+                            onRemoveAttachment={removeAttachment}
+                            attachmentError={attachmentError}
+                            hasPendingPrefix={
+                              pendingUploadNames.length > 0 ||
+                              Boolean(pendingSelection)
+                            }
+                            selectionChip={selectionChip}
+                            fileRefs={fileRefs}
+                            onAddFileRef={addFileRef}
+                            onRemoveFileRef={removeFileRef}
+                            onClearSelection={() => setPendingSelection(null)}
+                          />
+                        </>
+                      )}
+                    </main>
+                  </div>
+                </ResizablePanel>
+
+                {isDesktop && (
+                  <>
+                    <ResizableHandle withHandle />
+                    <ResizablePanel
+                      id="right"
+                      order={3}
+                      ref={rightPanelRef}
+                      defaultSize={26}
+                      minSize={18}
+                      maxSize={50}
+                      collapsible
+                      collapsedSize={0}
+                      onCollapse={() => setRightCollapsed(true)}
+                      onExpand={() => setRightCollapsed(false)}
+                      className="flex flex-col border-l bg-card/30"
+                    >
+                      {rightPane}
+                    </ResizablePanel>
+                  </>
+                )}
+              </ResizablePanelGroup>
+              <CommandPalette
+                open={paletteOpen}
+                onOpenChange={setPaletteOpen}
+                sessions={sessions}
+                activeContextId={contextId}
+                onNewChat={onNewChat}
+                canExport={messages.length > 0}
+                onExport={handleExport}
+              />
+            </div>
+          </BusyProvider>
+        </ViewerProvider>
+      </ImageLightboxProvider>
     </NowProvider>
   );
 }
@@ -1191,11 +1398,14 @@ function hasFileDrag(e: DragEvent<HTMLElement>): boolean {
   return false;
 }
 
-const selectIteration = (d: import("@/lib/horizon-state").HorizonStateResponse) =>
-  d.state.iteration;
+const selectIteration = (
+  d: import("@/lib/horizon-state").HorizonStateResponse,
+) => d.state.iteration;
 
 function StatusStrip({ contextId }: { contextId: string | null }) {
-  const { data: iteration } = useLhaState(contextId, { select: selectIteration });
+  const { data: iteration } = useLhaState(contextId, {
+    select: selectIteration,
+  });
   if (!contextId) return null;
   if (!iteration) return null;
   return (
@@ -1213,8 +1423,15 @@ interface PromptChip {
 const PROMPT_CHIPS: PromptChip[] = [
   { label: "Recap what you remember about me", Icon: Brain },
   { label: "Fetch a public dataset, plot it, save the PNG", Icon: LineChart },
-  { label: "Summarize today's top 3 AI research papers and create an HTML report", Icon: Newspaper },
-  { label: "Every day, analyze new activity in google/adk-python", Icon: CalendarClock },
+  {
+    label:
+      "Summarize today's top 3 AI research papers and create an HTML report",
+    Icon: Newspaper,
+  },
+  {
+    label: "Every day, analyze new activity in google/adk-python",
+    Icon: CalendarClock,
+  },
 ];
 
 function PromptChips({

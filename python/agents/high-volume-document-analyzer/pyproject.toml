@@ -20,11 +20,11 @@ dependencies = [
     "opentelemetry-instrumentation-google-genai==0.4b0",
     "python-dotenv>=1.0.1",
     "reportlab==4.2.0",
-    "pypdf==6.9.2",
+    "pypdf==6.15.0",
     "requests==2.32.4",
     "pandas==2.3.3",
     "beautifulsoup4==4.14.3",
-    "aiohttp==3.13.4",
+    "aiohttp==3.14.3",
 ]
 
 [dependency-groups]

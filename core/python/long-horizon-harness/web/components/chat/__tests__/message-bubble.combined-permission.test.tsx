@@ -32,8 +32,8 @@ function perm(callId: string, summary: string) {
     kind: "confirmation" as const,
     callId,
     hint: summary,
-    originalCall: { name: "terminal", args: { command: summary } },
-    payload: { kind: "permission", toolName: "terminal", summary, proposedRule: {}, choices: ["Yes, once", "x", "y", "Decline"] },
+    originalCall: { name: "bash", args: { command: summary } },
+    payload: { kind: "permission", toolName: "bash", summary, proposedRule: {}, choices: ["Yes, once", "x", "y", "Decline"] },
   };
 }
 

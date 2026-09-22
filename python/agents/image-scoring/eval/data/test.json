@@ -1,7 +1,0 @@
-[
-  {
-    "query": "A shepherd along with sheeps on a grassland",
-    "expected_tool_use": ["get_policy","generate_images","get_image", "set_score","check_condition_and_escalate_tool"],
-    "reference": "I will revise the prompts based on the rules provided and come up with positive and negative image generation prompts."
-  }
-]

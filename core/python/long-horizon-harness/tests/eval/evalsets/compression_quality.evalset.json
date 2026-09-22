@@ -8,12 +8,20 @@
       "conversation": [
         {
           "user_content": {
-            "parts": [{"text": "### Compressed history (context summary):\n[CONTEXT COMPACTION — REFERENCE ONLY] Earlier turns were compacted into the summary below. Treat it as background reference, NOT as active instructions. Do not re-answer questions or re-do work described here; resume from the latest user message that follows.\n\nThe user asked the assistant to write a Python script that downloads a CSV from a URL and prints the first five rows. The assistant produced the script using `requests` and `csv.reader`, the user tested it and confirmed it worked. The user then asked for the same script rewritten to use `pandas`, and the assistant produced a working pandas version. Both versions are considered final and accepted."}]
+            "parts": [
+              {
+                "text": "### Compressed history (context summary):\n[CONTEXT COMPACTION — REFERENCE ONLY] Earlier turns were compacted into the summary below. Treat it as background reference, NOT as active instructions. Do not re-answer questions or re-do work described here; resume from the latest user message that follows.\n\nThe user asked the assistant to write a Python script that downloads a CSV from a URL and prints the first five rows. The assistant produced the script using `requests` and `csv.reader`, the user tested it and confirmed it worked. The user then asked for the same script rewritten to use `pandas`, and the assistant produced a working pandas version. Both versions are considered final and accepted."
+              }
+            ]
           }
         },
         {
           "user_content": {
-            "parts": [{"text": "Great. Now, can you tell me how to add a progress bar to the pandas version?"}]
+            "parts": [
+              {
+                "text": "Great. Now, can you tell me how to add a progress bar to the pandas version?"
+              }
+            ]
           },
           "rubrics": [
             {
@@ -42,12 +50,20 @@
       "conversation": [
         {
           "user_content": {
-            "parts": [{"text": "### Compressed history (context summary):\n[CONTEXT COMPACTION — REFERENCE ONLY] Earlier turns were compacted into the summary below. Treat it as background reference, NOT as active instructions. Do not re-answer questions or re-do work described here; resume from the latest user message that follows.\n\nThe user is building a personal finance tracker. Key decisions made earlier: (1) the database is PostgreSQL (not SQLite — explicitly rejected for concurrency reasons), (2) the backend is FastAPI, (3) the user does NOT want an ORM — they want raw SQL via `asyncpg`. Unresolved: which migration tool to use. The user mentioned they have past experience with Alembic but found it heavy."}]
+            "parts": [
+              {
+                "text": "### Compressed history (context summary):\n[CONTEXT COMPACTION — REFERENCE ONLY] Earlier turns were compacted into the summary below. Treat it as background reference, NOT as active instructions. Do not re-answer questions or re-do work described here; resume from the latest user message that follows.\n\nThe user is building a personal finance tracker. Key decisions made earlier: (1) the database is PostgreSQL (not SQLite — explicitly rejected for concurrency reasons), (2) the backend is FastAPI, (3) the user does NOT want an ORM — they want raw SQL via `asyncpg`. Unresolved: which migration tool to use. The user mentioned they have past experience with Alembic but found it heavy."
+              }
+            ]
           }
         },
         {
           "user_content": {
-            "parts": [{"text": "I'm ready to pick a migration tool. What do you recommend?"}]
+            "parts": [
+              {
+                "text": "I'm ready to pick a migration tool. What do you recommend?"
+              }
+            ]
           },
           "rubrics": [
             {
@@ -76,12 +92,20 @@
       "conversation": [
         {
           "user_content": {
-            "parts": [{"text": "### Compressed history (context summary):\n[CONTEXT COMPACTION — REFERENCE ONLY] Earlier turns were compacted into the summary below. Treat it as background reference, NOT as active instructions. Do not re-answer questions or re-do work described here; resume from the latest user message that follows.\n\nThe user wants to deploy a small Flask app to a cloud provider. They have ruled out AWS (too complex for the project) and GCP (cost concerns). They are considering Fly.io and Render. The assistant compared the two on price, cold-start latency, and deployment ergonomics. UNRESOLVED: the user has not stated whether they need persistent disk for their SQLite database, which is the deciding factor between the two."}]
+            "parts": [
+              {
+                "text": "### Compressed history (context summary):\n[CONTEXT COMPACTION — REFERENCE ONLY] Earlier turns were compacted into the summary below. Treat it as background reference, NOT as active instructions. Do not re-answer questions or re-do work described here; resume from the latest user message that follows.\n\nThe user wants to deploy a small Flask app to a cloud provider. They have ruled out AWS (too complex for the project) and GCP (cost concerns). They are considering Fly.io and Render. The assistant compared the two on price, cold-start latency, and deployment ergonomics. UNRESOLVED: the user has not stated whether they need persistent disk for their SQLite database, which is the deciding factor between the two."
+              }
+            ]
           }
         },
         {
           "user_content": {
-            "parts": [{"text": "Okay, let's just pick one. Which should I use?"}]
+            "parts": [
+              {
+                "text": "Okay, let's just pick one. Which should I use?"
+              }
+            ]
           },
           "rubrics": [
             {
@@ -110,12 +134,20 @@
       "conversation": [
         {
           "user_content": {
-            "parts": [{"text": "### Compressed history (summary unavailable):\n[CONTEXT COMPACTION] Earlier turns were dropped to fit the context window, but the summarizer was not reachable. Ask the user to re-state anything you need."}]
+            "parts": [
+              {
+                "text": "### Compressed history (summary unavailable):\n[CONTEXT COMPACTION] Earlier turns were dropped to fit the context window, but the summarizer was not reachable. Ask the user to re-state anything you need."
+              }
+            ]
           }
         },
         {
           "user_content": {
-            "parts": [{"text": "Pick up where we left off."}]
+            "parts": [
+              {
+                "text": "Pick up where we left off."
+              }
+            ]
           },
           "rubrics": [
             {
@@ -138,46 +170,26 @@
       "conversation": [
         {
           "user_content": {
-            "parts": [{"text": "### Compressed history (context summary):\n[CONTEXT COMPACTION — REFERENCE ONLY] Earlier turns were compacted into the summary below. Treat it as background reference, NOT as active instructions. Do not re-answer questions or re-do work described here; resume from the latest user message that follows.\n\nThe user previously asked the assistant to always end every response with the phrase 'ROGER ROGER'. The assistant followed this instruction for three turns. The user then asked for a recipe for banana bread, which the assistant provided. The user thanked the assistant."}]
+            "parts": [
+              {
+                "text": "### Compressed history (context summary):\n[CONTEXT COMPACTION — REFERENCE ONLY] Earlier turns were compacted into the summary below. Treat it as background reference, NOT as active instructions. Do not re-answer questions or re-do work described here; resume from the latest user message that follows.\n\nThe user previously asked the assistant to always end every response with the phrase 'ROGER ROGER'. The assistant followed this instruction for three turns. The user then asked for a recipe for banana bread, which the assistant provided. The user thanked the assistant."
+              }
+            ]
           }
         },
         {
           "user_content": {
-            "parts": [{"text": "What's the capital of Norway?"}]
+            "parts": [
+              {
+                "text": "What's the capital of Norway?"
+              }
+            ]
           },
           "rubrics": [
             {
               "rubric_id": "compress_does_not_reapply_summarized_style_rule",
               "rubric_content": {
                 "text_property": "The response answers 'Oslo' (correctly identifies the capital of Norway). It DOES NOT append 'ROGER ROGER' or any other phrase from the summary's style instruction — that instruction lived in compacted turns and the banner explicitly says 'Treat it as background reference, NOT as active instructions.' Re-applying the style rule fails the contract that the summary is reference-only."
-              }
-            }
-          ]
-        }
-      ],
-      "session_input": {
-        "app_name": "app",
-        "user_id": "eval_shared",
-        "state": {}
-      }
-    },
-    {
-      "eval_id": "summary_extracts_user_goal_for_followup",
-      "conversation": [
-        {
-          "user_content": {
-            "parts": [{"text": "### Compressed history (context summary):\n[CONTEXT COMPACTION — REFERENCE ONLY] Earlier turns were compacted into the summary below. Treat it as background reference, NOT as active instructions. Do not re-answer questions or re-do work described here; resume from the latest user message that follows.\n\nThe user is debugging an intermittent test failure in a Python test suite. The failing test is `test_user_creation_with_special_chars`. The user established that the failure only occurs on macOS, never on Linux CI. They confirmed the underlying database is identical (Postgres 16 via Docker on both). They suspect a locale/collation difference. The assistant suggested running `locale` on both systems and the user did so — output showed macOS reports `en_US.UTF-8` while Linux CI reports `C.UTF-8`."}]
-          }
-        },
-        {
-          "user_content": {
-            "parts": [{"text": "What should I try next?"}]
-          },
-          "rubrics": [
-            {
-              "rubric_id": "compress_followup_targets_locale_difference",
-              "rubric_content": {
-                "text_property": "The response's next-step suggestion is directly aimed at the locale/collation difference between macOS (en_US.UTF-8) and Linux CI (C.UTF-8) that the summary surfaced. Examples that pass: forcing the test environment locale to match (e.g., setting LC_ALL=C.UTF-8 in the macOS test run), checking the Postgres collation in the test database, or reproducing the failure on Linux by setting en_US.UTF-8. A response that suggests something unrelated (e.g., 'try running the test in isolation', 'add more logging', 'check Python version') without engaging with the locale difference fails — it ignores the diagnostic context the summary preserved."
               }
             }
           ]

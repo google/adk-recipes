@@ -97,7 +97,7 @@ class TestGrantRecording:
         state: dict = {}
         result = policy_grant(
             action="grant",
-            tool_name="terminal",
+            tool_name="bash",
             signature={"command": "rm -rf build/"},
             tool_context=_tool_ctx(state),
         )
@@ -105,7 +105,7 @@ class TestGrantRecording:
         grants = state[POLICY_GRANTS_STATE_KEY]
         assert isinstance(grants, list)
         assert len(grants) == 1
-        assert grants[0]["tool_name"] == "terminal"
+        assert grants[0]["tool_name"] == "bash"
         assert grants[0]["signature"] == {"command": "rm -rf build/"}
 
     async def test_grant_with_empty_signature_is_rejected(self):
@@ -117,7 +117,7 @@ class TestGrantRecording:
         state: dict = {}
         result = policy_grant(
             action="grant",
-            tool_name="terminal",
+            tool_name="bash",
             signature={},
             tool_context=_tool_ctx(state),
         )
@@ -131,7 +131,7 @@ class TestGrantRecording:
         state: dict = {}
         result = policy_grant(
             action="grant",
-            tool_name="terminal",
+            tool_name="bash",
             signature={"timeout": 30},  # type: ignore[dict-item]
             tool_context=_tool_ctx(state),
         )
@@ -159,13 +159,13 @@ class TestGrantRecording:
         sig = {"command": "rm -rf build/"}
         policy_grant(
             action="grant",
-            tool_name="terminal",
+            tool_name="bash",
             signature=sig,
             tool_context=_tool_ctx(state),
         )
         policy_grant(
             action="grant",
-            tool_name="terminal",
+            tool_name="bash",
             signature=sig,
             tool_context=_tool_ctx(state),
         )
@@ -186,7 +186,7 @@ class TestGrantBypassesBlock:
             policies_env,
             [
                 {
-                    "canonical_tool_name": "terminal",
+                    "canonical_tool_name": "bash",
                     "destructive_commands": {"command": ["rm -rf"]},
                 }
             ],
@@ -194,12 +194,12 @@ class TestGrantBypassesBlock:
         state: dict = {}
         policy_grant(
             action="grant",
-            tool_name="terminal",
+            tool_name="bash",
             signature={"command": "rm -rf build/"},
             tool_context=_tool_ctx(state),
         )
         result = await policies_guard(
-            tool=SimpleNamespace(name="terminal"),
+            tool=SimpleNamespace(name="bash"),
             args={"command": "rm -rf build/"},
             tool_context=_tool_ctx(state),
         )
@@ -213,7 +213,7 @@ class TestGrantBypassesBlock:
             policies_env,
             [
                 {
-                    "canonical_tool_name": "terminal",
+                    "canonical_tool_name": "bash",
                     "destructive_commands": {"command": ["rm -rf"]},
                 }
             ],
@@ -221,12 +221,12 @@ class TestGrantBypassesBlock:
         state: dict = {}
         policy_grant(
             action="grant",
-            tool_name="terminal",
+            tool_name="bash",
             signature={"command": "rm -rf build/"},
             tool_context=_tool_ctx(state),
         )
         result = await policies_guard(
-            tool=SimpleNamespace(name="terminal"),
+            tool=SimpleNamespace(name="bash"),
             args={"command": "rm -rf /"},
             tool_context=_tool_ctx(state),
         )
@@ -241,7 +241,7 @@ class TestGrantBypassesBlock:
             policies_env,
             [
                 {
-                    "canonical_tool_name": "write_file",
+                    "canonical_tool_name": "write",
                     "destructive_paths": ["/etc/"],
                 }
             ],
@@ -249,12 +249,12 @@ class TestGrantBypassesBlock:
         state: dict = {}
         policy_grant(
             action="grant",
-            tool_name="terminal",
+            tool_name="bash",
             signature={"command": "rm -rf build/"},
             tool_context=_tool_ctx(state),
         )
         result = await policies_guard(
-            tool=SimpleNamespace(name="write_file"),
+            tool=SimpleNamespace(name="write"),
             args={"path": "/etc/passwd", "content": "x"},
             tool_context=_tool_ctx(state),
         )
@@ -270,7 +270,7 @@ class TestGrantBypassesBlock:
             policies_env,
             [
                 {
-                    "canonical_tool_name": "terminal",
+                    "canonical_tool_name": "bash",
                     "destructive_commands": {"command": ["nuke"]},
                 }
             ],
@@ -278,12 +278,12 @@ class TestGrantBypassesBlock:
         state: dict = {}
         policy_grant(
             action="grant",
-            tool_name="terminal",
+            tool_name="bash",
             signature={"command": "nuke the cache"},
             tool_context=_tool_ctx(state),
         )
         result = await policies_guard(
-            tool=SimpleNamespace(name="terminal"),
+            tool=SimpleNamespace(name="bash"),
             args={"command": "nuke the cache", "cwd": "/tmp"},
             tool_context=_tool_ctx(state),
         )
@@ -299,7 +299,7 @@ class TestGrantBypassesBlock:
             policies_env,
             [
                 {
-                    "canonical_tool_name": "terminal",
+                    "canonical_tool_name": "bash",
                     "destructive_commands": {"command": ["nuke"]},
                 }
             ],
@@ -308,13 +308,13 @@ class TestGrantBypassesBlock:
         state_b: dict = {}
         policy_grant(
             action="grant",
-            tool_name="terminal",
+            tool_name="bash",
             signature={"command": "nuke me"},
             tool_context=_tool_ctx(state_a),
         )
         # Session B has no grant; same call still blocked.
         result = await policies_guard(
-            tool=SimpleNamespace(name="terminal"),
+            tool=SimpleNamespace(name="bash"),
             args={"command": "nuke me"},
             tool_context=_tool_ctx(state_b),
         )
@@ -333,20 +333,20 @@ class TestGrantListAndRevoke:
         state: dict = {}
         policy_grant(
             action="grant",
-            tool_name="terminal",
+            tool_name="bash",
             signature={"command": "rm -rf build/"},
             tool_context=_tool_ctx(state),
         )
         policy_grant(
             action="grant",
-            tool_name="write_file",
+            tool_name="write",
             signature={"path": "/etc/myapp.conf"},
             tool_context=_tool_ctx(state),
         )
         result = policy_grant(action="list", tool_context=_tool_ctx(state))
         assert result["count"] == 2
         names = sorted(g["tool_name"] for g in result["grants"])
-        assert names == ["terminal", "write_file"]
+        assert names == ["bash", "write"]
 
     async def test_list_when_no_grants(self):
         from horizon.guardrails.policy_grants import policy_grant
@@ -365,13 +365,13 @@ class TestGrantListAndRevoke:
         state: dict = {}
         policy_grant(
             action="grant",
-            tool_name="terminal",
+            tool_name="bash",
             signature={"command": "a"},
             tool_context=_tool_ctx(state),
         )
         policy_grant(
             action="grant",
-            tool_name="terminal",
+            tool_name="bash",
             signature={"command": "b"},
             tool_context=_tool_ctx(state),
         )
@@ -417,7 +417,7 @@ class TestDispatchErrors:
         state: dict = {}
         result = policy_grant(
             action="grant",
-            tool_name="terminal",
+            tool_name="bash",
             tool_context=_tool_ctx(state),
         )
         assert result["granted"] is False

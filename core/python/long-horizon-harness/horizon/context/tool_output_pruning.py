@@ -35,17 +35,27 @@ from typing import Any
 
 from google.adk.events.event import Event
 
+from horizon.tools import names
+
 logger = logging.getLogger(__name__)
 
 PRUNE_MARKER = "[output pruned to reclaim context — re-run the tool if needed]"
 PRUNE_ENABLED_ENV = "LHA_PRUNE_TOOL_OUTPUTS"
 
 # Tool names whose outputs are never pruned (substring match, case-insensitive).
-PROTECTED_TOOL_SUBSTRINGS = ("skill",)
+# "skill" matches names.LOAD_SKILL. subagent/clarify are exact names.py
+# constants: lowering DEFAULT_MIN_PART_TOKENS to 500 newly exposes subagent
+# reports (2-6 KB) and clarify results, and "re-run the tool if needed" means
+# re-running a multi-minute, multi-dollar agent, or re-interrupting the user.
+PROTECTED_TOOL_SUBSTRINGS = ("skill", names.SUBAGENT, names.CLARIFY)
 
 DEFAULT_PROTECT_RECENT_TURNS = 3
 DEFAULT_PROTECT_TOKEN_BUDGET = 40_000
-DEFAULT_MIN_PART_TOKENS = 2_000
+# 2,000 meant a part had to exceed ~8,000 chars to even be a candidate, so an
+# ordinary session accumulating 240,000 chars across 60 calls of ~4KB each
+# reclaimed exactly zero. 500 makes ordinary tool results visible to the
+# pruner; min_reclaim_tokens below is still the anti-thrash floor.
+DEFAULT_MIN_PART_TOKENS = 500
 DEFAULT_MIN_RECLAIM_TOKENS = 20_000
 
 
@@ -77,6 +87,18 @@ def _is_user_turn(event: Event) -> bool:
 
 def _already_pruned(response: object) -> bool:
     return isinstance(response, dict) and response.get("pruned") == PRUNE_MARKER
+
+
+def _overflow_paths(response: object) -> dict[str, Any]:
+    """Keep any ``*_overflow_path`` key so a spilled read/bash result is
+    still recoverable on disk after pruning zeroes the rest of the body."""
+    if not isinstance(response, dict):
+        return {}
+    return {
+        key: value
+        for key, value in response.items()
+        if key.endswith("overflow_path") and isinstance(value, str)
+    }
 
 
 def prune_tool_outputs(
@@ -128,7 +150,10 @@ def prune_tool_outputs(
     for event, idx, _ in candidates:
         part = event.content.parts[idx]
         fr = part.function_response
-        fr.response = {"pruned": PRUNE_MARKER}
+        fr.response = {
+            "pruned": PRUNE_MARKER,
+            **_overflow_paths(fr.response),
+        }
 
     return PruneResult(
         pruned_count=len(candidates), reclaimed_tokens=reclaimable

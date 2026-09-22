@@ -1,0 +1,365 @@
+{
+  "_comment": "Fictional catalog for the demo. Brands, products, and prices are invented; nothing here refers to a real company or item. Attribute keys are deliberately shared across categories so the comparison tool has columns to line up.",
+  "products": [
+    {
+      "id": "cirrus-trail-3",
+      "name": "Cirrus Trail 3",
+      "brand": "Aera",
+      "category": "trail-shoes",
+      "price": 148.0,
+      "rating": 4.6,
+      "sizes": ["8", "8.5", "9", "9.5", "10", "10.5", "11"],
+      "colors": ["slate", "moss"],
+      "tags": ["lightweight", "breathable", "long-distance"],
+      "attributes": {
+        "Weight": "9.8 oz",
+        "Waterproof": false,
+        "Material": "recycled mesh",
+        "Warranty": "1 year",
+        "Best for": "dry singletrack"
+      }
+    },
+    {
+      "id": "cirrus-trail-3-gtx",
+      "name": "Cirrus Trail 3 Shield",
+      "brand": "Aera",
+      "category": "trail-shoes",
+      "price": 189.0,
+      "rating": 4.4,
+      "sizes": ["8.5", "9", "9.5", "10", "11"],
+      "colors": ["slate", "clay"],
+      "tags": ["waterproof", "long-distance"],
+      "attributes": {
+        "Weight": "11.2 oz",
+        "Waterproof": true,
+        "Material": "recycled mesh, membrane",
+        "Warranty": "1 year",
+        "Best for": "wet and mud"
+      }
+    },
+    {
+      "id": "fell-runner-lite",
+      "name": "Fell Runner Lite",
+      "brand": "Fellstone",
+      "category": "trail-shoes",
+      "price": 132.0,
+      "rating": 4.2,
+      "sizes": ["8", "9", "9.5", "10", "11", "12"],
+      "colors": ["moss", "ember"],
+      "tags": ["lightweight", "aggressive-grip"],
+      "attributes": {
+        "Weight": "8.9 oz",
+        "Waterproof": false,
+        "Material": "ripstop nylon",
+        "Warranty": "6 months",
+        "Best for": "steep and loose"
+      }
+    },
+    {
+      "id": "ridgeline-gt",
+      "name": "Ridgeline GT",
+      "brand": "Fellstone",
+      "category": "trail-shoes",
+      "price": 205.0,
+      "rating": 4.7,
+      "sizes": ["9", "9.5", "10", "10.5", "11"],
+      "colors": ["graphite"],
+      "tags": ["waterproof", "durable", "backpacking"],
+      "attributes": {
+        "Weight": "13.4 oz",
+        "Waterproof": true,
+        "Material": "full-grain leather",
+        "Warranty": "3 years",
+        "Best for": "loaded multi-day"
+      }
+    },
+    {
+      "id": "quickstep-road-2",
+      "name": "Quickstep Road 2",
+      "brand": "Aera",
+      "category": "road-shoes",
+      "price": 124.0,
+      "rating": 4.3,
+      "sizes": ["8", "8.5", "9", "9.5", "10"],
+      "colors": ["bone", "slate"],
+      "tags": ["lightweight", "daily-trainer"],
+      "attributes": {
+        "Weight": "8.2 oz",
+        "Waterproof": false,
+        "Material": "engineered knit",
+        "Warranty": "1 year",
+        "Best for": "pavement miles"
+      }
+    },
+    {
+      "id": "loft-merino-crew",
+      "name": "Loft Merino Crew",
+      "brand": "Northbank",
+      "category": "mid-layer",
+      "price": 89.5,
+      "rating": 4.5,
+      "sizes": ["XS", "S", "M", "L", "XL"],
+      "colors": ["oat", "moss", "navy"],
+      "tags": ["merino", "odor-resistant", "travel"],
+      "attributes": {
+        "Weight": "10.5 oz",
+        "Waterproof": false,
+        "Material": "merino wool",
+        "Warranty": "2 years",
+        "Best for": "cool mornings"
+      }
+    },
+    {
+      "id": "loft-grid-half-zip",
+      "name": "Loft Grid Half-Zip",
+      "brand": "Northbank",
+      "category": "mid-layer",
+      "price": 78.0,
+      "rating": 4.4,
+      "sizes": ["S", "M", "L", "XL"],
+      "colors": ["slate", "oat"],
+      "tags": ["fleece", "quick-dry", "layering"],
+      "attributes": {
+        "Weight": "9.1 oz",
+        "Waterproof": false,
+        "Material": "recycled grid fleece",
+        "Warranty": "2 years",
+        "Best for": "layering under a shell"
+      }
+    },
+    {
+      "id": "haldenshell-ultra",
+      "name": "Halden Ultra Shell",
+      "brand": "Halden",
+      "category": "shell",
+      "price": 268.0,
+      "rating": 4.8,
+      "sizes": ["S", "M", "L", "XL"],
+      "colors": ["ember", "graphite"],
+      "tags": ["waterproof", "packable", "seam-sealed"],
+      "attributes": {
+        "Weight": "7.4 oz",
+        "Waterproof": true,
+        "Material": "3-layer laminate",
+        "Warranty": "lifetime",
+        "Best for": "sustained rain"
+      }
+    },
+    {
+      "id": "halden-mist-jacket",
+      "name": "Halden Mist Jacket",
+      "brand": "Halden",
+      "category": "shell",
+      "price": 165.0,
+      "rating": 4.1,
+      "sizes": ["XS", "S", "M", "L"],
+      "colors": ["oat", "slate"],
+      "tags": ["water-resistant", "packable", "breathable"],
+      "attributes": {
+        "Weight": "6.1 oz",
+        "Waterproof": false,
+        "Material": "2-layer ripstop",
+        "Warranty": "2 years",
+        "Best for": "showers and wind"
+      }
+    },
+    {
+      "id": "traverse-daypack-18",
+      "name": "Traverse Daypack 18L",
+      "brand": "Fellstone",
+      "category": "pack",
+      "price": 120.0,
+      "rating": 4.5,
+      "sizes": ["one size"],
+      "colors": ["moss", "graphite"],
+      "tags": ["daypack", "hydration-ready"],
+      "attributes": {
+        "Weight": "1 lb 4 oz",
+        "Waterproof": false,
+        "Material": "recycled ripstop",
+        "Warranty": "3 years",
+        "Best for": "day hikes"
+      }
+    },
+    {
+      "id": "traverse-summit-32",
+      "name": "Traverse Summit 32L",
+      "brand": "Fellstone",
+      "category": "pack",
+      "price": 189.0,
+      "rating": 4.6,
+      "sizes": ["S/M", "L/XL"],
+      "colors": ["graphite"],
+      "tags": ["overnight", "framed"],
+      "attributes": {
+        "Weight": "2 lb 6 oz",
+        "Waterproof": false,
+        "Material": "recycled ripstop",
+        "Warranty": "3 years",
+        "Best for": "fast overnights"
+      }
+    },
+    {
+      "id": "meridian-sling-4",
+      "name": "Meridian Sling 4L",
+      "brand": "Meridian Supply",
+      "category": "pack",
+      "price": 62.0,
+      "rating": 4.2,
+      "sizes": ["one size"],
+      "colors": ["bone", "navy", "moss"],
+      "tags": ["everyday", "commute"],
+      "attributes": {
+        "Weight": "9 oz",
+        "Waterproof": false,
+        "Material": "waxed canvas",
+        "Warranty": "1 year",
+        "Best for": "city days"
+      }
+    },
+    {
+      "id": "baseline-sun-hoody",
+      "name": "Baseline Sun Hoody",
+      "brand": "Northbank",
+      "category": "base-layer",
+      "price": 74.0,
+      "rating": 4.4,
+      "sizes": ["XS", "S", "M", "L", "XL"],
+      "colors": ["bone", "sage"],
+      "tags": ["sun-protection", "quick-dry"],
+      "attributes": {
+        "Weight": "6.8 oz",
+        "Waterproof": false,
+        "Material": "recycled polyester",
+        "Warranty": "2 years",
+        "Best for": "exposed ridgelines"
+      }
+    },
+    {
+      "id": "baseline-merino-tee",
+      "name": "Baseline Merino Tee",
+      "brand": "Northbank",
+      "category": "base-layer",
+      "price": 68.0,
+      "rating": 4.3,
+      "sizes": ["S", "M", "L", "XL"],
+      "colors": ["oat", "navy"],
+      "tags": ["merino", "odor-resistant"],
+      "attributes": {
+        "Weight": "5.2 oz",
+        "Waterproof": false,
+        "Material": "merino wool",
+        "Warranty": "2 years",
+        "Best for": "multi-day trips"
+      }
+    },
+    {
+      "id": "coteau-down-vest",
+      "name": "Coteau Down Vest",
+      "brand": "Coteau",
+      "category": "mid-layer",
+      "price": 232.0,
+      "rating": 4.7,
+      "sizes": ["S", "M", "L"],
+      "colors": ["ember", "bone"],
+      "tags": ["insulated", "packable"],
+      "attributes": {
+        "Weight": "8.3 oz",
+        "Waterproof": false,
+        "Material": "responsible down",
+        "Warranty": "lifetime",
+        "Best for": "cold camp evenings"
+      }
+    },
+    {
+      "id": "coteau-alpine-parka",
+      "name": "Coteau Alpine Parka",
+      "brand": "Coteau",
+      "category": "shell",
+      "price": 445.0,
+      "rating": 4.9,
+      "sizes": ["S", "M", "L", "XL"],
+      "colors": ["graphite"],
+      "tags": ["insulated", "waterproof", "expedition"],
+      "attributes": {
+        "Weight": "1 lb 9 oz",
+        "Waterproof": true,
+        "Material": "3-layer laminate, down",
+        "Warranty": "lifetime",
+        "Best for": "deep winter"
+      }
+    },
+    {
+      "id": "meridian-wool-socks",
+      "name": "Meridian Trail Socks",
+      "brand": "Meridian Supply",
+      "category": "accessory",
+      "price": 24.0,
+      "rating": 4.6,
+      "sizes": ["M", "L"],
+      "colors": ["oat", "moss"],
+      "tags": ["merino", "cushioned"],
+      "attributes": {
+        "Weight": "2.4 oz",
+        "Waterproof": false,
+        "Material": "merino blend",
+        "Warranty": "1 year",
+        "Best for": "long days on foot"
+      }
+    },
+    {
+      "id": "meridian-cap",
+      "name": "Meridian Field Cap",
+      "brand": "Meridian Supply",
+      "category": "accessory",
+      "price": 32.0,
+      "rating": 4.1,
+      "sizes": ["one size"],
+      "colors": ["bone", "navy", "moss"],
+      "tags": ["sun-protection", "packable"],
+      "attributes": {
+        "Weight": "2.1 oz",
+        "Waterproof": false,
+        "Material": "organic cotton",
+        "Warranty": "1 year",
+        "Best for": "bright afternoons"
+      }
+    },
+    {
+      "id": "fellstone-gaiters",
+      "name": "Fellstone Low Gaiters",
+      "brand": "Fellstone",
+      "category": "accessory",
+      "price": 38.0,
+      "rating": 4.0,
+      "sizes": ["S/M", "L/XL"],
+      "colors": ["graphite", "moss"],
+      "tags": ["debris-guard", "trail"],
+      "attributes": {
+        "Weight": "3.2 oz",
+        "Waterproof": false,
+        "Material": "ripstop nylon",
+        "Warranty": "1 year",
+        "Best for": "loose scree"
+      }
+    },
+    {
+      "id": "aera-recovery-slide",
+      "name": "Aera Recovery Slide",
+      "brand": "Aera",
+      "category": "accessory",
+      "price": 55.0,
+      "rating": 4.5,
+      "sizes": ["8", "9", "10", "11"],
+      "colors": ["slate", "ember"],
+      "tags": ["recovery", "cushioned"],
+      "attributes": {
+        "Weight": "6.4 oz",
+        "Waterproof": true,
+        "Material": "molded foam",
+        "Warranty": "6 months",
+        "Best for": "after a long day"
+      }
+    }
+  ]
+}

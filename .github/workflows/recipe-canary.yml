@@ -1,0 +1,437 @@
+name: 🐤 Recipe Canary
+
+# Monthly check that every Python recipe STILL WORKS — installs from its
+# committed lockfile and passes its tests — and files an issue against the
+# recipe's owner when it does not.
+#
+# Why this exists
+# ---------------
+# .github/dependabot.yml no longer opens version-update PRs for recipes (see
+# its header). A recipe's uv.lock is treated as a verified snapshot rather
+# than a living artifact, so the question worth asking monthly is not "are
+# these versions current?" but "does this still work for someone who clones
+# it today?".
+#
+# A frozen lockfile does not decay on its own. What decays around it:
+#   * a pinned release is yanked or pulled from the index;
+#   * the interpreter moves and a pinned wheel has no build for it;
+#   * a transitive pin turns out to be broken on a Python the recipe claims
+#     to support.
+# The third is not hypothetical — core/python/rag-agent-search declares
+# `requires-python = ">=3.11,<3.14"` and cannot be imported on 3.13 at all,
+# while passing on 3.11.
+#
+# `uv sync --frozen`, not `uv sync`
+# ---------------------------------
+# python-tests.yml uses plain `uv sync`, which silently RE-LOCKS when the
+# lockfile has drifted from pyproject.toml. That is the right behaviour for a
+# PR check and the wrong one here: it would quietly repair the exact condition
+# this workflow exists to detect.
+#
+# Two Python versions per recipe
+# ------------------------------
+# The floor everyone uses, plus the ceiling each recipe claims in
+# `requires-python`. See .github/scripts/recipe_canary_matrix.py.
+
+on:
+  schedule:
+    # Monthly, per the policy decision: the canary reports genuine breakage,
+    # which is rare, and a weekly cadence would spend CI re-confirming the
+    # same green result.
+    #
+    # The 5th at :17 rather than the 1st at :00 on purpose. Scheduled
+    # workflows are best-effort and GitHub drops or delays them under
+    # scheduler load, and the 1st of the month on the hour is the single most
+    # contended slot there is. That matters more than it looks: escalation
+    # advances one rung per run, so a dropped run is a rung not advanced.
+    - cron: "17 6 5 * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Run the checks but do not create or update any issue"
+        type: boolean
+        default: false
+      recipe:
+        description: "Limit to one recipe path (e.g. core/python/deep-search)"
+        type: string
+        required: false
+
+# Declared per job. At workflow level `check` would inherit `issues: write`
+# purely because `report` needs it (zizmor `excessive-permissions`).
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  matrix:
+    name: Build canary matrix
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      matrix: ${{ steps.build.outputs.matrix }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # ratchet:astral-sh/setup-uv@v10.0.1
+        with:
+          python-version: "3.11"
+
+      - name: Build matrix
+        id: build
+        env:
+          ONLY_RECIPE: ${{ github.event.inputs.recipe }}
+        run: |
+          set -euo pipefail
+          # The script exits non-zero on an empty scan rather than emitting
+          # []. An empty matrix would skip every check job and let the gate
+          # report success having tested nothing.
+          if [ -n "${ONLY_RECIPE:-}" ]; then
+            MATRIX=$(uv run --no-project python \
+              .github/scripts/recipe_canary_matrix.py --recipe "$ONLY_RECIPE")
+          else
+            MATRIX=$(uv run --no-project python \
+              .github/scripts/recipe_canary_matrix.py)
+          fi
+          echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
+          echo "$MATRIX" | python3 -m json.tool
+
+  check:
+    name: "${{ matrix.entry.recipe }} @ py${{ matrix.entry.python }}"
+    needs: matrix
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    strategy:
+      # One broken recipe must not hide the state of the others — the whole
+      # output of this workflow is the per-recipe verdict.
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        entry: ${{ fromJson(needs.matrix.outputs.matrix) }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # ratchet:astral-sh/setup-uv@v10.0.1
+        with:
+          python-version: ${{ matrix.entry.python }}
+
+      - name: Install from the committed lockfile
+        id: sync
+        working-directory: ${{ matrix.entry.recipe }}
+        continue-on-error: true
+        env:
+          PYVER: ${{ matrix.entry.python }}
+        run: |
+          # `set +e` is load-bearing — do not drop it. GitHub invokes `run:`
+          # as `bash -e {0}`, so errexit is ALREADY on and `set -uo pipefail`
+          # does not clear it; only `set +e` does. Without it the failing
+          # `uv sync` below kills the step where it stands and the three
+          # lines after it never run, losing the log tail exactly when there
+          # is something worth reading in it.
+          set -uo pipefail
+          set +e
+          # --frozen: install exactly what uv.lock says, and fail rather than
+          # re-resolve. --python: honour the matrix version instead of
+          # whatever uv would pick.
+          uv sync --dev --frozen --python "$PYVER" > sync.log 2>&1
+          rc=$?
+          tail -40 sync.log
+          # Propagate the real status. `continue-on-error` keeps the job
+          # going while still recording outcome=failure; an `echo` here
+          # instead of `exit` would make every step report success and the
+          # classifier would call every recipe healthy.
+          exit $rc
+
+      - name: Set up .env
+        if: steps.sync.outcome == 'success'
+        working-directory: ${{ matrix.entry.recipe }}
+        run: |
+          set -euo pipefail
+          if [ ! -f .env ] && [ -f .env.example ]; then
+            cp .env.example .env
+          fi
+
+      - name: Run tests
+        id: tests
+        if: steps.sync.outcome == 'success'
+        working-directory: ${{ matrix.entry.recipe }}
+        continue-on-error: true
+        env:
+          PYVER: ${{ matrix.entry.python }}
+        run: |
+          # `set +e` for the same reason as the sync step above: errexit is
+          # already on, and without clearing it a failing pytest run skips
+          # the log tail that makes the failure diagnosable.
+          set -uo pipefail
+          set +e
+          # `--frozen` here too, for the same reason the sync step uses it:
+          # `uv run` will re-lock a drifted lockfile on its way to running
+          # the command, quietly repairing the condition this workflow
+          # exists to detect. Sync has already installed from the lock, so
+          # this only stops uv changing its mind.
+          uv run --frozen --python "$PYVER" pytest \
+            --ignore=tests/integration \
+            --ignore-glob='**/test_integration.py' \
+            -q > pytest.log 2>&1
+          rc=$?
+          tail -60 pytest.log
+          exit $rc
+
+      # Classification happens here, in the job that has the logs, and is the
+      # only thing the report job reads. Distinguishing "the recipe is broken"
+      # from "CI had a bad day" is what keeps the canary from filing an issue
+      # against an owner for a registry timeout.
+      - name: Classify outcome
+        id: classify
+        if: always()
+        # Deliberately NOT `working-directory: <recipe>`. This step must run
+        # even when checkout is what failed, and then the recipe directory
+        # does not exist — the step could not start, no result.json would be
+        # written, and the recipe would vanish from the report. Which is the
+        # opposite of the point: it is exactly the run where the classifier
+        # needs to say "infra". It cd's below only if the directory is there.
+        env:
+          RECIPE_DIR: ${{ matrix.entry.recipe }}
+          RECIPE: ${{ matrix.entry.recipe }}
+          PYVER: ${{ matrix.entry.python }}
+          SYNC_OUTCOME: ${{ steps.sync.outcome }}
+          TESTS_OUTCOME: ${{ steps.tests.outcome }}
+        run: |
+          # `set +e` matters MOST here. Errexit is on by default (`bash -e
+          # {0}`), and every DETAIL assignment below is a pipeline that
+          # legitimately exits non-zero: `grep` returns 1 when a log has no
+          # matching line, and `tail` returns 1 when the log is absent
+          # because an earlier step died. With errexit live, either case
+          # kills this step, `result.json` is never written, and the recipe
+          # drops out of the collated report entirely — so a genuinely
+          # broken recipe gets no issue filed. That is the opposite of what
+          # a canary is for.
+          set -uo pipefail
+          set +e
+          # The logs live in the recipe directory when there is one. If
+          # checkout failed there is not, and the log reads below simply find
+          # nothing — which the evidence rule turns into `infra`, correctly.
+          cd "$RECIPE_DIR" 2>/dev/null || true
+          OUTCOME=pass
+          STEP=""
+          DETAIL=""
+
+          # Blame the recipe only on EVIDENCE. Every path that reaches a
+          # verdict without a log to read classifies as infra, because the
+          # cost of the two mistakes is not symmetric: a missed month of rot
+          # is caught next month, while one issue filed against an owner for
+          # a runner problem teaches everyone to ignore the channel.
+          if [ "$SYNC_OUTCOME" = "skipped" ] || [ -z "$SYNC_OUTCOME" ]; then
+            # The sync step never ran, so nothing was learned about the
+            # recipe. Checkout or the uv install failed ahead of it — both
+            # transient, and both exactly the class this must not misfile.
+            # `skipped` reaches here because this step is `if: always()`.
+            OUTCOME=infra
+            STEP="setup"
+            DETAIL="sync never ran (outcome: ${SYNC_OUTCOME:-unset}); checkout or uv install failed first"
+          elif [ "$SYNC_OUTCOME" != "success" ]; then
+            STEP="uv sync --frozen"
+            DETAIL=$(tail -5 sync.log 2>/dev/null | tr '\n' ' ')
+            # A lockfile that will not install is a genuine recipe problem
+            # (yanked release, no wheel for this interpreter). A network or
+            # registry failure is not — and uv says which in its own words.
+            if [ -z "$DETAIL" ]; then
+              # `uv sync > sync.log` creates the file before uv runs, so an
+              # empty or absent log means uv never got far enough to say
+              # anything. No evidence against the recipe.
+              OUTCOME=infra
+              DETAIL="sync failed with no log output"
+            elif echo "$DETAIL" | grep -qiE 'network|timed out|temporary failure|503|502|connection reset|resolve|handshake|SSL|proxy|rate limit'; then
+              OUTCOME=infra
+            else
+              OUTCOME=fail
+            fi
+          elif [ "$TESTS_OUTCOME" = "skipped" ] || [ -z "$TESTS_OUTCOME" ]; then
+            # Sync worked but pytest never ran — the .env step failed, or the
+            # job was cancelled. Same rule: no log, no evidence, not the
+            # recipe's fault.
+            OUTCOME=infra
+            STEP="pytest"
+            DETAIL="tests never ran (outcome: ${TESTS_OUTCOME:-unset})"
+          elif [ "$TESTS_OUTCOME" != "success" ]; then
+            OUTCOME=fail
+            STEP="pytest"
+            # `sed -n '1,3p'` rather than `head -3`: head closes the pipe
+            # after three lines, and on a large pytest.log grep is killed by
+            # SIGPIPE (141) before it finishes writing. sed drains its input.
+            DETAIL=$(grep -E '^(FAILED|ERROR|E  )' pytest.log 2>/dev/null | sed -n '1,3p' | tr '\n' ' ')
+            [ -z "$DETAIL" ] && DETAIL=$(tail -5 pytest.log 2>/dev/null | tr '\n' ' ')
+            if [ -z "$DETAIL" ]; then
+              OUTCOME=infra
+              DETAIL="pytest failed with no log output"
+            fi
+          fi
+
+          # Exported, not passed through `env:` — these are computed in this
+          # shell, and a workflow-level `env:` entry would resolve before the
+          # script ran and hand the classifier empty strings.
+          export OUTCOME STEP DETAIL
+          python3 - <<'PY' > "$RUNNER_TEMP/result.json"
+          import json, os, sys
+          json.dump({
+              "recipe": os.environ["RECIPE"],
+              "python": os.environ["PYVER"],
+              "outcome": os.environ["OUTCOME"],
+              "step": os.environ["STEP"],
+              "detail": os.environ["DETAIL"][:400],
+          }, sys.stdout)
+          PY
+          cat "$RUNNER_TEMP/result.json"
+
+      - name: Upload result
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # ratchet:actions/upload-artifact@v7.0.1
+        with:
+          name: canary-${{ strategy.job-index }}
+          path: ${{ runner.temp }}/result.json
+          retention-days: 7
+
+  report:
+    name: File and update canary issues
+    needs: [matrix, check]
+    # `!cancelled()` rather than `always()`: a cancelled run has no verdict to
+    # report, and acting on its partial results is how a recipe gets a false
+    # recovery. A FAILED check job is different — that is the signal — so this
+    # still runs when checks fail.
+    if: '!cancelled() && needs.matrix.result == ''success'''
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Download results
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # ratchet:actions/download-artifact@v8.0.1
+        with:
+          pattern: canary-*
+          path: ${{ runner.temp }}/results
+          merge-multiple: false
+
+      - name: Collate
+        id: collate
+        env:
+          MATRIX_JSON: ${{ needs.matrix.outputs.matrix }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, pathlib, os
+          root = pathlib.Path(os.environ["RUNNER_TEMP"]) / "results"
+          entries = [
+              json.loads(p.read_text())
+              for p in sorted(root.rglob("result.json"))
+          ]
+
+          # Reconcile against the matrix. A check job that dies before
+          # writing result.json leaves no trace otherwise, and the gap is
+          # dangerous in one specific way: a recipe whose passing job
+          # reported and whose failing job vanished reads as RECOVERED, so
+          # the reporter would close its tracking issue and throw away the
+          # escalation history. Recipes with incomplete evidence are dropped
+          # here unless they already have a failure, because a recipe absent
+          # from results.json is left untouched while one wrongly present is
+          # acted on.
+          expected = {
+              (e["recipe"], e["python"])
+              for e in json.loads(os.environ["MATRIX_JSON"])
+          }
+          seen = {(e["recipe"], e["python"]) for e in entries}
+          missing = expected - seen
+          incomplete = {r for r, _ in missing}
+          failing = {e["recipe"] for e in entries if e["outcome"] == "fail"}
+
+          if missing:
+              for recipe, python in sorted(missing):
+                  print(
+                      f"::warning::no result from {recipe} @ py{python} — "
+                      f"the check job did not report"
+                  )
+
+          dropped = incomplete - failing
+          if dropped:
+              print(
+                  f"::warning::{len(dropped)} recipe(s) have incomplete "
+                  f"results and no observed failure; leaving their issues "
+                  f"untouched: {sorted(dropped)}"
+              )
+              entries = [e for e in entries if e["recipe"] not in dropped]
+
+          out = pathlib.Path(os.environ["RUNNER_TEMP"]) / "results.json"
+          out.write_text(json.dumps(entries, indent=1))
+          fails = [e for e in entries if e["outcome"] == "fail"]
+          infra = [e for e in entries if e["outcome"] == "infra"]
+          print(
+              f"{len(entries)}/{len(expected)} jobs reported, "
+              f"{len(fails)} failing, {len(infra)} infra"
+          )
+          for e in entries:
+              print(f"  {e['outcome']:5}  {e['recipe']} @ py{e['python']}")
+          PY
+
+      - name: Update issues
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          DRY: ${{ github.event.inputs.dry_run }}
+          EVENT_NAME: ${{ github.event_name }}
+          # Through `env:` rather than interpolated into the script below.
+          # These particular values are controlled, but the rule that no
+          # `${{ }}` reaches a `run:` block is worth keeping unconditional —
+          # see the comment in python-tests.yml.
+          RUN_URL: >-
+            ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{
+            github.run_id }}
+        run: |
+          set -euo pipefail
+          ARGS=(--results "$RUNNER_TEMP/results.json" --run-url "$RUN_URL")
+          [ "${DRY:-false}" = "true" ] && ARGS+=(--dry-run)
+          # Only the scheduled run advances the ladder. A manual re-run — to
+          # check something, or scoped to one recipe with the `recipe` input
+          # — still opens and closes issues, but must never move a recipe
+          # closer to a deletion proposal.
+          [ "$EVENT_NAME" != "schedule" ] && ARGS+=(--no-escalate)
+          python3 .github/scripts/canary_issues.py "${ARGS[@]}"
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## Recipe canary"
+            echo ""
+            python3 -c "
+          import json, os
+          e = json.load(open(os.environ['RUNNER_TEMP'] + '/results.json'))
+          bad = sorted({x['recipe'] for x in e if x['outcome'] == 'fail'})
+          print(f\"{len({x['recipe'] for x in e})} recipes checked across {len(e)} jobs.\")
+          print('')
+          if bad:
+              print('Failing:')
+              for r in bad:
+                  vers = ', '.join(sorted(x['python'] for x in e if x['recipe'] == r and x['outcome'] == 'fail'))
+                  print(f'- \`{r}\` (py {vers})')
+          else:
+              print('All recipes install from their lockfiles and pass.')
+          "
+          } >> "$GITHUB_STEP_SUMMARY"

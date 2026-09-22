@@ -17,10 +17,25 @@
 import os
 
 import google.auth
+from dotenv import load_dotenv
 
-from . import agent
+# Load variables from .env if present. In production the environment is
+# already populated by the platform (Cloud Run, GKE, etc.), so a missing
+# .env is expected and not an error.
+load_dotenv()
+load_dotenv(
+    os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env.example")
+)
+for _k, _v in list(os.environ.items()):
+    if _v.startswith(("<TODO", "<YOUR_")):
+        del os.environ[_k]
 
-_, project_id = google.auth.default()
-os.environ.setdefault("GOOGLE_CLOUD_PROJECT", project_id)
-os.environ["GOOGLE_CLOUD_LOCATION"] = "global"
-os.environ.setdefault("GOOGLE_GENAI_USE_VERTEXAI", "True")
+from . import agent  # noqa: E402 -- must come after load_dotenv()
+
+try:
+    _, project_id = google.auth.default()
+except Exception:
+    project_id = os.environ.get("GOOGLE_CLOUD_PROJECT")
+
+if project_id and "GOOGLE_CLOUD_PROJECT" not in os.environ:
+    os.environ["GOOGLE_CLOUD_PROJECT"] = project_id

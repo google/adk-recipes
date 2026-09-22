@@ -21,6 +21,7 @@ Routes mounted under ``/lha``:
   POST   /lha/workspace/folder    — create a top-level workspace folder (project)
   GET    /lha/workspace/tree      — list a directory within the workspace
   GET    /lha/workspace/download  — stream a file back, or a zip if path is a dir
+  PUT    /lha/workspace/file      — overwrite an existing text file's contents
   DELETE /lha/workspace/file      — unlink a file, or ``rmtree`` if ``recursive=true``
 
 All routes run outside an agent turn, so they resolve the user's
@@ -58,10 +59,14 @@ from pydantic import BaseModel
 from horizon.auth import current_user_id
 from horizon.conversation import session_start
 from horizon.environment import Environment
+from horizon.tools.file_ops import _has_binary_extension, _is_write_denied
 
 logger = logging.getLogger(__name__)
 
 MAX_UPLOAD_BYTES = 50 * 1024 * 1024
+# Browser-side editing is for prose/code, not blobs. Anything larger is a
+# download-and-edit-locally case, not a textarea case.
+MAX_EDIT_BYTES = 2 * 1024 * 1024
 MAX_FILENAME_LEN = 255
 MAX_TREE_ENTRIES = 500
 WORKSPACE_ROOT = "/workspace"
@@ -313,6 +318,10 @@ class NewFolderBody(BaseModel):
     name: str
 
 
+class WriteFileBody(BaseModel):
+    content: str
+
+
 def attach_uploads_routes(app: FastAPI) -> None:
     """Mount ``POST /lha/uploads``, ``POST /lha/workspace/folder``, and
     ``GET /lha/workspace/tree``.
@@ -481,6 +490,66 @@ def attach_uploads_routes(app: FastAPI) -> None:
             media_type="application/octet-stream",
             headers={"Content-Disposition": _disposition(target.name)},
         )
+
+    @router.put("/workspace/file")
+    async def workspace_write(
+        body: WriteFileBody,
+        path: Annotated[str, Query(...)],
+        user_id: Annotated[str, Depends(current_user_id)],
+    ) -> dict[str, Any]:
+        """Overwrite an existing workspace text file from the browser editor.
+
+        Edit-only by design: creation stays on ``POST /lha/uploads`` so this
+        route can't be used to drop new files anywhere under the workspace.
+        Mirrors the agent's own write guards (``_is_write_denied`` protected
+        paths, binary-extension reject) so the UI can't route around them.
+        """
+        data = body.content.encode("utf-8")
+        if len(data) > MAX_EDIT_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=f"content exceeds {MAX_EDIT_BYTES} bytes",
+            )
+
+        env = await session_start._ensure_environment(user_id)
+        target = _resolve_workspace_path(env, path)
+
+        if _is_write_denied(str(target)):
+            raise HTTPException(
+                status_code=403,
+                detail=f"{path} is on the protected paths list",
+            )
+        if _has_binary_extension(str(target)):
+            raise HTTPException(
+                status_code=415, detail=f"{path} is not a text file"
+            )
+
+        # Existence probe doubles as the is-a-directory guard: env.read_file
+        # raises IsADirectoryError before we clobber anything.
+        try:
+            await env.read_file(target)
+        except FileNotFoundError as err:
+            raise HTTPException(
+                status_code=404, detail=f"{path} not found"
+            ) from err
+        except IsADirectoryError as err:
+            raise HTTPException(
+                status_code=400, detail=f"{path} is a directory"
+            ) from err
+        except OSError as err:
+            raise HTTPException(
+                status_code=500, detail=f"failed to read {path}: {err}"
+            ) from err
+
+        try:
+            await env.write_file(target, data)
+        except OSError as err:
+            logger.warning("workspace write failed for %s: %s", target, err)
+            raise HTTPException(
+                status_code=500, detail=f"write failed: {err}"
+            ) from err
+
+        return {"path": _to_workspace_path(env, target), "size": len(data)}
 
     @router.delete("/workspace/file", status_code=204)
     async def workspace_delete(

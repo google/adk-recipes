@@ -43,12 +43,12 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # ratchet:actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v4
         with:
           fetch-depth: 0 # Fetch complete history to locate the merge-base cleanly
 
       - name: Install uv
-        uses: astral-sh/setup-uv@445689ea25e0de0a23313031f5fe577c74ae45a1 # ratchet:astral-sh/setup-uv@v6.3.0
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # ratchet:astral-sh/setup-uv@v10.0.1
         with:
           python-version: "3.11"
           enable-cache: false
@@ -147,12 +147,12 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # ratchet:actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v4
         with:
           fetch-depth: 0 # Fetch complete history to locate the merge-base cleanly
 
       - name: Install uv
-        uses: astral-sh/setup-uv@445689ea25e0de0a23313031f5fe577c74ae45a1 # ratchet:astral-sh/setup-uv@v6.3.0
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # ratchet:astral-sh/setup-uv@v10.0.1
         with:
           python-version: "3.11"
           enable-cache: false
@@ -208,12 +208,32 @@ jobs:
           #    a red X with no rule, no file and no line — the violation was
           #    real but invisible. `--output-format=concise` costs one extra
           #    ruff invocation and makes the log self-sufficient.
+          #
+          #    `--quiet` is load-bearing. Without it ruff writes its summary
+          #    line to STDOUT — "All checks passed!" when clean, "Found N
+          #    errors." otherwise — so a capture of stdout is never empty and
+          #    an emptiness test fails every PR, including clean ones. With
+          #    --quiet, stdout carries diagnostics and nothing else.
+          #
+          #    The exit STATUS decides, not the output: 0 clean, 1 violations,
+          #    >=2 ruff itself failed to run (bad file, unreadable config) —
+          #    which must be surfaced, never mistaken for "clean".
+          LINT_STATUS=0
           LINT_OUTPUT=$(uvx ruff check \
             --force-exclude \
+            --quiet \
             --output-format=concise \
-            --exit-zero "${CHANGED_FILES[@]}")
+            "${CHANGED_FILES[@]}") || LINT_STATUS=$?
 
-          if [ -n "$LINT_OUTPUT" ]; then
+          if [ "$LINT_STATUS" -ge 2 ]; then
+            echo "[ERROR] ruff exited with status $LINT_STATUS — it failed to"
+            echo "run at all. This is a CI or configuration problem, not a"
+            echo "lint violation in your code. See the ruff output above."
+            echo "$LINT_OUTPUT"
+            exit "$LINT_STATUS"
+          fi
+
+          if [ "$LINT_STATUS" -ne 0 ]; then
             echo "::group::Ruff lint violations"
             echo "$LINT_OUTPUT"
             echo "::endgroup::"
@@ -249,6 +269,6 @@ jobs:
           # The log above is authoritative, so decide the job here rather than
           # letting reviewdog's exit status (which depends on token scope) do
           # it. A fork PR and a branch PR now fail identically.
-          if [ -n "$LINT_OUTPUT" ]; then
+          if [ "$LINT_STATUS" -ne 0 ]; then
             exit 1
           fi

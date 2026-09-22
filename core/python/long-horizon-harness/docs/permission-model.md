@@ -53,10 +53,11 @@ parsing), `horizon/commands/__init__.py` (`/permissions`).
 
 Two tool classes short-circuit before any rule is consulted:
 
-- **Read-only tools** — `read_file`, `search_files`, `repo_overview`,
-  `view_file`, `recall_past_sessions`, `preload_memory`. No side effects, no
-  prompt.
-- **Self-confirming tools** — `clarify`, `report_to_maintainers`. These run their
+- **Read-only tools** — `read`, `search_files`, `load_skill`, `preload_memory`. No side
+  effects, no prompt. `memory(action='search', ...)` (the former standalone
+  `session_search`) gets the same bypass — action-aware, since `memory`'s default
+  `action='add'` is a write and stays on the normal rule path.
+- **Self-confirming tools** — `clarify`. These run their
   own human-in-the-loop flow, so a second prompt would be redundant.
 
 Everything else is resolved against the rule set below.
@@ -105,8 +106,8 @@ The schema borrows gemini-cli's field names. Each line is one JSON object:
 | Field | Type | Meaning |
 |---|---|---|
 | `toolName` | string \| array | Tool(s) the rule matches. `*` = any tool. **Required.** |
-| `commandPrefix` | string \| array | For `terminal`/`process`: matches when the command **starts with** this value at a token boundary (so `"bq"` matches `bq rm …` and `bq ls`, while `"bq rm"` matches only the `rm` subcommand). This is how subcommand granularity works. A flagless prefix also matches **flag-tolerantly** — `"bq query"` covers `bq --project_id=X query …`, so a grant doesn't hinge on where the flags sit. Only self-contained `--flag=value` tokens are skipped; a **bare** flag stops the scan, since it may consume the next token as its value and nothing here knows which CLI does that (so a namespace named `get` in `kubectl -n get delete …` can't impersonate the subcommand). `sudo` is never unwrapped, so a plain `"npm install"` allow does not cover `sudo npm install …`. A prefix that names a flag (`"git push --force"`) matches literally only, so it can't widen onto the plain command it was written to single out. |
-| `commandRegex` | string | Regex searched against the command string (terminal/process). |
+| `commandPrefix` | string \| array | For `bash`/`process`: matches when the command **starts with** this value at a token boundary (so `"bq"` matches `bq rm …` and `bq ls`, while `"bq rm"` matches only the `rm` subcommand). This is how subcommand granularity works. A flagless prefix also matches **flag-tolerantly** — `"bq query"` covers `bq --project_id=X query …`, so a grant doesn't hinge on where the flags sit. Only self-contained `--flag=value` tokens are skipped; a **bare** flag stops the scan, since it may consume the next token as its value and nothing here knows which CLI does that (so a namespace named `get` in `kubectl -n get delete …` can't impersonate the subcommand). `sudo` is never unwrapped, so a plain `"npm install"` allow does not cover `sudo npm install …`. A prefix that names a flag (`"git push --force"`) matches literally only, so it can't widen onto the plain command it was written to single out. |
+| `commandRegex` | string | Regex searched against the command string (bash/process). |
 | `argsPattern` | string | Regex searched against the JSON-serialized tool args. |
 | `decision` | `allow` \| `deny` \| `ask_user` | What to do on a match. **Required.** |
 | `denyMessage` | string | Message shown when a `deny` rule blocks the call. |
@@ -119,8 +120,8 @@ skipped with a warning.
 
 ```jsonl
 {"toolName": "web_research", "decision": "allow"}
-{"toolName": "terminal", "commandPrefix": "bq ls", "decision": "allow"}
-{"toolName": "terminal", "commandPrefix": "bq rm", "decision": "deny", "denyMessage": "Deleting BigQuery resources is off-limits in this workspace."}
+{"toolName": "bash", "commandPrefix": "bq ls", "decision": "allow"}
+{"toolName": "bash", "commandPrefix": "bq rm", "decision": "deny", "denyMessage": "Deleting BigQuery resources is off-limits in this workspace."}
 {"toolName": "*", "argsPattern": "prod", "decision": "ask_user"}
 ```
 
@@ -142,11 +143,11 @@ defaults do before any overlay or grant:
 
 | Tool group | Tools | Default |
 |---|---|---|
-| Sandbox-FS writes | `write_file`, `patch`, `write_todos`, `artifact`, `set_workspace_window` | **allow** |
-| Shell | `terminal` / `process` | **allow** — scary ops gated in `_shell_decision` (below) |
-| Opened benign tools | `add_memory`, `reminder`, `reload` | **allow** |
-| Read-only / self-confirming / subagent | `read_file`, `view_file`, `search_files`, `repo_overview`, `web_research`, `clarify`, `report_to_maintainers`, `delegate`, `agent` | pass (no prompt) |
-| Everything else | incl. `routine` (schedules unattended runs), `run_skill_script` (code-exec) | **ask** (via the `*` catch-all) |
+| Sandbox-FS writes | `write`, `edit`, `artifact` | **allow** |
+| Shell | `bash` / `process` | **allow** — scary ops gated in `_shell_decision` (below) |
+| Opened benign tools | `memory` | **allow** |
+| Read-only / self-confirming / subagent | `read`, `search_files`, `web_research`, `clarify`, `subagent` | pass (no prompt) |
+| Everything else | incl. `routine` (schedules unattended runs) | **ask** (via the `*` catch-all) |
 
 A shell command **prompts** only when a segment is a genuinely-scary op
 (`command_safety.classify()` returns `ask`) or contains **command substitution**
@@ -275,8 +276,8 @@ block, a specific command, add an `ask_user` or `deny` rule to
 `.lha/permissions.jsonl`:
 
 ```jsonl
-{"toolName": "terminal", "commandPrefix": "git push --force", "decision": "ask_user"}
-{"toolName": "terminal", "commandPrefix": "gcloud projects delete", "decision": "deny"}
+{"toolName": "bash", "commandPrefix": "git push --force", "decision": "ask_user"}
+{"toolName": "bash", "commandPrefix": "gcloud projects delete", "decision": "deny"}
 ```
 
 `.lha/policies.jsonl` keeps only its hard-block (`destructive_*`) rules.
@@ -290,14 +291,14 @@ there is nobody to click a button, so an `ask_user` cannot pause for input.
 
 **Routine runs** resolve this via `set_headless_mode(True)`
 (`horizon/guardrails/permission_guard.py`): an `ask_user` on a **shell** command
-(terminal / process write) is **allowed** — it runs in the routine's own isolated
+(bash / process write) is **allowed** — it runs in the routine's own isolated
 `lhart-` sandbox, which is the blast radius — while a **non-shell** `ask_user`
 becomes a deny (`headless_denied`). The earlier guards in the chain still apply
 unconditionally (exfil, egress, destructive-`policies_guard`, explicit `deny`
 rules), so this only collapses the interactive prompt. See
 [`docs/routines.md`](routines.md).
 
-Other unattended paths (scheduler-fired reminders, the dream-review pass, A2A
+Other unattended paths (scheduler-fired routines, the dream-review pass, A2A
 turns initiated by another agent) do **not** set headless mode and still share the
 uniform ask posture. A broader per-mode auto path (default `ask`) is planned but
 not yet wired.
@@ -313,7 +314,7 @@ Debug by symptom. Each row points at the code that owns the behavior.
 | A tool keeps prompting every time | `.lha/permissions.jsonl` (`append_persisted_rule`) / session grants (`permission_grants`, `write_session_grants`) | "Yes, once" (`proceed_once`) records nothing; pick "allow this session" (`proceed_always`) or "Always allow" (`proceed_always_and_save`) to persist a rule. |
 | A persisted "always allow" still prompts | `resolve_decision` (deny-wins, then last-match-wins); `has_command_substitution` + `command_safety` in `_shell_decision` | A later `ask_user`/`deny` rule (or a `*` `argsPattern`) overrides. Genuine command substitution (`$(...)`) always forces a prompt, even under a grant — but only when the shell would really expand it (quoted-literal backticks don't count); a `command_safety` "ask" op (force-push, `bq rm`, …) is demoted unless the matching allow is a grant/overlay (those override it). |
 | Nothing ever asks — everything runs silently | `read_approval_mode` (`approval_mode == "yolo"`, set by `/yolo`) | YOLO auto-approves the ask-layer; it does **not** bypass the exfil/egress/policies hard-deny floor. |
-| A tool you expected to gate runs without asking | `READ_ONLY_TOOLS` / `SELF_CONFIRMING_TOOLS` / `SUBAGENT_TOOLS` short-circuits in `permission_guard` | Read-only tools, `clarify`/`report_to_maintainers`, and `delegate`/`agent` are exempt by design (the child runs its own guard chain). |
+| A tool you expected to gate runs without asking | `READ_ONLY_TOOLS` / `SELF_CONFIRMING_TOOLS` / `SUBAGENT_TOOLS` short-circuits in `permission_guard` | Read-only tools, `clarify`, and `subagent` are exempt by design (the child runs its own guard chain). |
 | A chained command's benign half runs but the gated half is blocked | `_shell_decision` → `split_segments` / `strip_wrapper` (splits `&&`/`||`/`\|`/`;`, unwraps `bash -c`) | Each segment resolves its own rule so a benign segment can't smuggle a gated one. |
 | A `deny` rule shows a generic message | `permission_guard` deny branch reads `deny_rule.deny_message` | Set `denyMessage` on the rule to customize the block text. |
 | A routine call is auto-denied with `headless_denied` | `is_headless()` / `set_headless_mode` (routine fire path) | With no user to prompt, only a **shell** `ask_user` is allowed (it runs in the isolated `lhart-` sandbox); a non-shell `ask_user` fails closed. |

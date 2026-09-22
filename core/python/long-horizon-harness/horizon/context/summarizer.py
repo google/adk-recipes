@@ -94,6 +94,21 @@ _MERGE_INSTRUCTIONS = (
     "Preserve still-true details, remove stale details, and merge in new facts."
 )
 
+# Tool results and call args are typically the largest contributors to
+# context size, which is why they are capped at 2,000 chars here.
+# Uncapped, the summarization prompt inlines the full text
+# of exactly the content that made compaction necessary, so it can itself
+# approach or exceed the window right when compaction is needed most.
+_MAX_HISTORY_ITEM_CHARS = 2_000
+
+
+def _capped(value: object, *, max_chars: int = _MAX_HISTORY_ITEM_CHARS) -> str:
+    text = str(value)
+    if len(text) <= max_chars:
+        return text
+    omitted = len(text) - max_chars
+    return f"{text[:max_chars]}... [{omitted} chars omitted]"
+
 
 def _is_prior_summary_seed(event: Event) -> bool:
     content = event.content
@@ -109,6 +124,78 @@ def _strip_banner(text: str) -> str:
     return text
 
 
+# Deterministic file tracking (6c): the LLM's own freeform "Relevant Files"
+# section can drop a still-relevant path on a lossy merge pass. Walking
+# function_call args directly, and re-parsing the previous summary's own
+# section, means tracking survives regardless of summarization quality:
+# file operations are extracted from both the messages being summarized
+# and the previous summary on every pass.
+_READ_FILE_TOOLS = frozenset({"read", "search_files"})
+_WRITE_FILE_TOOLS = frozenset({"write", "edit"})
+_RELEVANT_FILES_HEADER = "## Relevant Files"
+
+
+def _extract_touched_files(events: list[Event]) -> tuple[set[str], set[str]]:
+    """Return (read_paths, modified_paths) from function_call args."""
+    read: set[str] = set()
+    modified: set[str] = set()
+    for event in events:
+        content = event.content
+        if not content or not content.parts:
+            continue
+        for part in content.parts:
+            fc = part.function_call
+            if fc is None or not fc.args:
+                continue
+            path = fc.args.get("path")
+            if not isinstance(path, str) or not path:
+                continue
+            if fc.name in _WRITE_FILE_TOOLS:
+                modified.add(path)
+            elif fc.name in _READ_FILE_TOOLS:
+                read.add(path)
+    return read, modified
+
+
+def _extract_previous_files(previous_summary: str) -> set[str]:
+    """Pull paths back out of a prior summary's Relevant Files section."""
+    paths: set[str] = set()
+    in_section = False
+    for line in previous_summary.splitlines():
+        if line.strip() == _RELEVANT_FILES_HEADER:
+            in_section = True
+            continue
+        if not in_section:
+            continue
+        if line.startswith("## "):
+            break
+        stripped = line.strip().lstrip("-").strip().strip("`")
+        path = stripped.split(":", 1)[0].strip().strip("`")
+        if path and path != "(none)":
+            paths.add(path)
+    return paths
+
+
+def _build_touched_files_section(
+    history_events: list[Event], previous_summary: str | None
+) -> str | None:
+    read, modified = _extract_touched_files(history_events)
+    if previous_summary:
+        read |= _extract_previous_files(previous_summary) - modified
+    all_paths = sorted(read | modified)
+    if not all_paths:
+        return None
+    lines = [
+        f"- {p} (modified)" if p in modified else f"- {p}" for p in all_paths
+    ]
+    return (
+        "Files touched across this session (tracked deterministically across "
+        "compactions, independent of the merge above). Include the ones "
+        "still relevant in ## Relevant Files, drop ones no longer relevant:\n"
+        + "\n".join(lines)
+    )
+
+
 def _format_history(events: list[Event]) -> str:
     lines: list[str] = []
     for event in events:
@@ -118,12 +205,12 @@ def _format_history(events: list[Event]) -> str:
                     lines.append(f"{event.author}: {part.text}")
                 elif part.function_response is not None:
                     fr = part.function_response
-                    lines.append(
-                        f"{event.author}: [tool {fr.name}] {fr.response}"
-                    )
+                    body = _capped(fr.response)
+                    lines.append(f"{event.author}: [tool {fr.name}] {body}")
                 elif part.function_call is not None:
                     fc = part.function_call
-                    lines.append(f"{event.author}: [call {fc.name}] {fc.args}")
+                    args = _capped(fc.args)
+                    lines.append(f"{event.author}: [call {fc.name}] {args}")
     return "\n".join(lines)
 
 
@@ -152,6 +239,11 @@ def build_compaction_prompt(events: list[Event]) -> str:
                 ]
             )
         )
+    touched_files_section = _build_touched_files_section(
+        history_events, previous_summary
+    )
+    if touched_files_section:
+        sections.append(touched_files_section)
     sections.append("Conversation history:\n" + history)
     return "\n\n".join(sections)
 

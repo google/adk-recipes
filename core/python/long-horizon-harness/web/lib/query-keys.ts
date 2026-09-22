@@ -19,7 +19,6 @@ export const qk = {
   tasks: (contextId: string) => ["lha", "contexts", contextId, "tasks"] as const,
   memories: (limit: number) => ["lha", "memories", limit] as const,
   secrets: () => ["lha", "secrets"] as const,
-  reminders: () => ["lha", "reminders"] as const,
   routines: () => ["lha", "routines"] as const,
   processes: () => ["lha", "processes"] as const,
   gcpConnection: () => ["lha", "gcp", "status"] as const,

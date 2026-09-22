@@ -22,7 +22,7 @@ Terraform). See the root `README.md` `## Deploy` section for the full flow.
 | `cloud_sql.tf` | Postgres instance, database, user, password secret |
 | `cloud_run.tf` / `cloud_run_web.tf` | the `lha` backend and `lha-web` proxy |
 | `iam.tf` / `secrets.tf` | service accounts, custom roles, per-user secret role |
-| `cloud_scheduler.tf` | reminder / dream-review / snapshot / routine ticks |
+| `cloud_scheduler.tf` | dream-review / snapshot / routine ticks |
 | `agent_engine.tf` · `artifact_bucket.tf` · `gcp_oauth.tf` | Memory Bank engine, artifact bucket, OAuth wiring |
 | `skills_bucket.tf` | orphan; see "Skills bucket" below |
 

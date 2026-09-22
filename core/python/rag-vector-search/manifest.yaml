@@ -20,7 +20,7 @@ architecture:
 
 ownership:
   team: "Cloud AI Developer Engineering & Evangelism"
-  poc: "eliasecchi"
+  poc: "eliasecchig"
 
 # tags: (optional) uncomment and replace with meaningful labels
 #   - "rag"               # example — use technology names, patterns, and use-case keywords

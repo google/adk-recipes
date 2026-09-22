@@ -1,14 +1,18 @@
 {
   "eval_set_id": "output_style",
   "name": "Output Style — Brevity, No Chitchat, Tools-for-Actions",
-  "description": "Behavioral evals for the OUTPUT_STYLE_GUIDANCE block (`horizon/conversation/system_prompt.py`) that lha adapts from gemini-cli's output-style guidance. The rules: (a) trivial answers should fit in <3 lines, (b) skip preambles like 'Sure!' / 'I'd be happy to help' and trailing offers like 'Let me know if you have any questions', (c) use tools for actions and text only for communication — don't narrate, do. Graded under rubric_based_final_response_quality_v1 only (no trajectory grader per eval_config.json). These cases exist to verify the prompt change actually moves Gemini behavior; pytest only proves the rules reach the model. Cases run against the default toolset for `app`, so `terminal`, `file_ops`, `view_file`, etc. are all available.",
+  "description": "Behavioral evals for the OUTPUT_STYLE_GUIDANCE block (`horizon/conversation/system_prompt.py`) that lha adapts from gemini-cli's output-style guidance. The rules: (a) trivial answers should fit in <3 lines, (b) skip preambles like 'Sure!' / 'I'd be happy to help' and trailing offers like 'Let me know if you have any questions', (c) use tools for actions and text only for communication — don't narrate, do. Graded under rubric_based_final_response_quality_v1 only (no trajectory grader per eval_config.json). These cases exist to verify the prompt change actually moves Gemini behavior; pytest only proves the rules reach the model. Cases run against the default toolset for `app`, so `bash`, `file_ops`, `read`, etc. are all available.",
   "eval_cases": [
     {
       "eval_id": "trivial_question_short_reply_no_preamble",
       "conversation": [
         {
           "user_content": {
-            "parts": [{"text": "What's 2 + 2?"}]
+            "parts": [
+              {
+                "text": "What's 2 + 2?"
+              }
+            ]
           },
           "intermediate_data": {
             "tool_uses": [],
@@ -41,7 +45,11 @@
       "conversation": [
         {
           "user_content": {
-            "parts": [{"text": "What is the current working directory? Use the terminal tool to find out."}]
+            "parts": [
+              {
+                "text": "What is the current working directory? Use the bash tool to find out."
+              }
+            ]
           },
           "intermediate_data": {
             "tool_uses": [],
@@ -51,13 +59,13 @@
             {
               "rubric_id": "result_only_no_wrapping_chitchat",
               "rubric_content": {
-                "text_property": "After running the `terminal` tool, the model reports the cwd path with minimal wrapping — at most one short sentence introducing the result, no signoff. Responses that wrap the path in 'Sure, I'll check that for you...' followed by the path and then 'Let me know if you need anything else!' fail. Responses that say 'The current working directory is: /path/here' pass. Responses that report just the bare path pass. The OUTPUT_STYLE_GUIDANCE rule is 'use text only to communicate results' — the result IS the message, not a setup for it."
+                "text_property": "After running the `bash` tool, the model reports the cwd path with minimal wrapping — at most one short sentence introducing the result, no signoff. Responses that wrap the path in 'Sure, I'll check that for you...' followed by the path and then 'Let me know if you need anything else!' fail. Responses that say 'The current working directory is: /path/here' pass. Responses that report just the bare path pass. The OUTPUT_STYLE_GUIDANCE rule is 'use text only to communicate results' — the result IS the message, not a setup for it."
               }
             },
             {
               "rubric_id": "result_uses_terminal_tool",
               "rubric_content": {
-                "text_property": "The response contains at least one FunctionCall to the `terminal` tool (with a command like `pwd`). The user explicitly asked for the tool to be used; a text-only answer that hardcodes a guess at the path fails this rubric (it would also fail the tools-for-actions principle)."
+                "text_property": "The response contains at least one FunctionCall to the `bash` tool (with a command like `pwd`). The user explicitly asked for the tool to be used; a text-only answer that hardcodes a guess at the path fails this rubric (it would also fail the tools-for-actions principle)."
               }
             }
           ]
@@ -74,7 +82,11 @@
       "conversation": [
         {
           "user_content": {
-            "parts": [{"text": "Create a file at /tmp/lha_eval_note.txt containing the word 'hello'."}]
+            "parts": [
+              {
+                "text": "Create a file at /tmp/lha_eval_note.txt containing the word 'hello'."
+              }
+            ]
           },
           "intermediate_data": {
             "tool_uses": [],
@@ -84,7 +96,7 @@
             {
               "rubric_id": "action_invokes_file_writing_tool",
               "rubric_content": {
-                "text_property": "The response invokes a tool that actually writes the file — `write_file` (path + content), `patch` (creating the file via a swap is not applicable here, but if the model finds another path, fine), or `terminal` (with an echo/redirect or `cat <<EOF` command). A response that ONLY describes how to create the file ('You can run `echo hello > /tmp/...`'), or claims to have done it without any FunctionCall, fails. The rule is: use tools for actions; text is for communicating results, not for substituting them."
+                "text_property": "The response invokes a tool that actually writes the file — `write` (path + content), `edit` (creating the file via a swap is not applicable here, but if the model finds another path, fine), or `bash` (with an echo/redirect or `cat <<EOF` command). A response that ONLY describes how to create the file ('You can run `echo hello > /tmp/...`'), or claims to have done it without any FunctionCall, fails. The rule is: use tools for actions; text is for communicating results, not for substituting them."
               }
             },
             {
@@ -107,7 +119,11 @@
       "conversation": [
         {
           "user_content": {
-            "parts": [{"text": "Create /tmp/lha_eval_a.txt containing 'alpha' and /tmp/lha_eval_b.txt containing 'beta'."}]
+            "parts": [
+              {
+                "text": "Create /tmp/lha_eval_a.txt containing 'alpha' and /tmp/lha_eval_b.txt containing 'beta'."
+              }
+            ]
           },
           "intermediate_data": {
             "tool_uses": [],
@@ -123,7 +139,7 @@
             {
               "rubric_id": "both_files_written",
               "rubric_content": {
-                "text_property": "The response invokes a file-writing tool (`write_file`, `patch`, or `terminal` redirect) for BOTH files — one containing 'alpha', one containing 'beta'. A turn that writes only one of them, or none, fails."
+                "text_property": "The response invokes a file-writing tool (`write`, `edit`, or `bash` redirect) for BOTH files — one containing 'alpha', one containing 'beta'. A turn that writes only one of them, or none, fails."
               }
             }
           ]

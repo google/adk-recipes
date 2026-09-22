@@ -13,11 +13,7 @@
 // limitations under the License.
 
 import { describe, expect, it } from "vitest";
-import {
-  decodeText,
-  pickRenderer,
-  supportsPreview,
-} from "../renderers";
+import { decodeText, pickRenderer, supportsPreview } from "../renderers";
 
 describe("pickRenderer", () => {
   it("resolves by mime type", () => {
@@ -31,7 +27,9 @@ describe("pickRenderer", () => {
   });
 
   it("falls back to the filename extension when mime is generic", () => {
-    expect(pickRenderer("application/octet-stream", "readme.md")).toBe("markdown");
+    expect(pickRenderer("application/octet-stream", "readme.md")).toBe(
+      "markdown",
+    );
     expect(pickRenderer("application/octet-stream", "main.py")).toBe("code");
     expect(pickRenderer("application/octet-stream", "page.html")).toBe("html");
     expect(pickRenderer("application/octet-stream", "data.json")).toBe("json");
@@ -52,14 +50,38 @@ describe("pickRenderer", () => {
 describe("decodeText", () => {
   it("decodes base64 bytes to utf-8 text", () => {
     const b64 = btoa("# hello");
-    expect(decodeText({ id: "a", name: "a.md", mimeType: "text/markdown", bytes: b64 })).toBe(
-      "# hello",
-    );
+    expect(
+      decodeText({
+        id: "a",
+        revision: 0,
+        name: "a.md",
+        mimeType: "text/markdown",
+        bytes: b64,
+      }),
+    ).toBe("# hello");
   });
 
   it("returns null when there are no bytes", () => {
     expect(
-      decodeText({ id: "a", name: "a.md", mimeType: "text/markdown", url: "http://x" }),
+      decodeText({
+        id: "a",
+        revision: 0,
+        name: "a.md",
+        mimeType: "text/markdown",
+        url: "http://x",
+      }),
     ).toBeNull();
+  });
+});
+
+describe("pdf", () => {
+  it("routes a pdf to its own renderer, by mime or extension", () => {
+    expect(pickRenderer("application/pdf", "report.pdf")).toBe("pdf");
+    // Opened from the tree, where only the filename is known.
+    expect(pickRenderer("", "report.pdf")).toBe("pdf");
+  });
+
+  it("has no source toggle", () => {
+    expect(supportsPreview("pdf")).toBe(false);
   });
 });

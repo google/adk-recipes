@@ -24,7 +24,7 @@
             {
               "rubric_id": "greeting_no_tool_calls",
               "rubric_content": {
-                "text_property": "The response does NOT invoke any tool. A greeting or open-ended 'what can you help with' is small talk — the agent should reply conversationally instead of reaching for `terminal`, `read_file`, `web_search`, or any other tool to inspect the environment. Any FunctionCall in the response fails this rubric (this pins the system-prompt gate that tells the agent not to run tools unprompted)."
+                "text_property": "The response does NOT invoke any tool. A greeting or open-ended 'what can you help with' is small talk — the agent should reply conversationally instead of reaching for `bash`, `read`, `web_search`, or any other tool to inspect the environment. Any FunctionCall in the response fails this rubric (this pins the system-prompt gate that tells the agent not to run tools unprompted)."
               }
             }
           ]

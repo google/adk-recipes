@@ -1,0 +1,91 @@
+{
+  "_comment": "Fictional order history. Stages carry facts (a date, whether the parcel reached them) and never a display state -- the tool derives done/current/upcoming from position, so the timeline cannot disagree with itself. A stage may pin an explicit `state` for the two cases position cannot express: a problem and a cancellation.",
+  "today": "2026-08-18",
+  "orders": [
+    {
+      "id": "ORD-4417",
+      "placed_on": "2026-08-11",
+      "total": 172.0,
+      "item_ids": ["cirrus-trail-3", "meridian-wool-socks"],
+      "carrier": "Northline",
+      "eta": "2026-08-19",
+      "stages": [
+        { "label": "Ordered", "on": "2026-08-11", "reached": true },
+        {
+          "label": "Packed",
+          "on": "2026-08-12",
+          "reached": true,
+          "note": "Reno, NV"
+        },
+        {
+          "label": "In transit",
+          "on": "2026-08-15",
+          "reached": true,
+          "note": "Sacramento, CA"
+        },
+        { "label": "Out for delivery", "reached": false },
+        { "label": "Delivered", "reached": false }
+      ]
+    },
+    {
+      "id": "ORD-4402",
+      "placed_on": "2026-07-28",
+      "total": 268.0,
+      "item_ids": ["haldenshell-ultra"],
+      "carrier": "Northline",
+      "eta": "2026-08-20",
+      "stages": [
+        { "label": "Ordered", "on": "2026-07-28", "reached": true },
+        { "label": "Packed", "on": "2026-07-29", "reached": true },
+        {
+          "label": "Address needs attention",
+          "on": "2026-07-31",
+          "reached": true,
+          "state": "problem",
+          "note": "Apartment number missing"
+        },
+        { "label": "Out for delivery", "reached": false },
+        { "label": "Delivered", "reached": false }
+      ]
+    },
+    {
+      "id": "ORD-4388",
+      "placed_on": "2026-06-14",
+      "total": 152.0,
+      "item_ids": ["loft-merino-crew", "meridian-cap", "fellstone-gaiters"],
+      "carrier": "Northline",
+      "eta": "2026-06-19",
+      "stages": [
+        { "label": "Ordered", "on": "2026-06-14", "reached": true },
+        { "label": "Packed", "on": "2026-06-15", "reached": true },
+        { "label": "In transit", "on": "2026-06-16", "reached": true },
+        { "label": "Out for delivery", "on": "2026-06-18", "reached": true },
+        {
+          "label": "Delivered",
+          "on": "2026-06-18",
+          "reached": true,
+          "note": "Left at front desk"
+        }
+      ]
+    },
+    {
+      "id": "ORD-4351",
+      "placed_on": "2026-05-02",
+      "total": 445.0,
+      "item_ids": ["coteau-alpine-parka"],
+      "carrier": "Northline",
+      "eta": null,
+      "stages": [
+        { "label": "Ordered", "on": "2026-05-02", "reached": true },
+        { "label": "Packed", "on": "2026-05-03", "reached": true },
+        {
+          "label": "Cancelled",
+          "on": "2026-05-04",
+          "reached": true,
+          "state": "cancelled",
+          "note": "Refunded to original payment method"
+        }
+      ]
+    }
+  ]
+}

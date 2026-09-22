@@ -41,10 +41,10 @@ async def test_profile_blocks_tool_not_in_allowlist() -> None:
     guard = make_child_policy_guard(
         parent_grants=None, profile=get_profile("explore")
     )
-    result = await guard(tool=_Tool("terminal"), args={}, tool_context=_Ctx())
+    result = await guard(tool=_Tool("bash"), args={}, tool_context=_Ctx())
     assert result is not None
     assert result.get("denied_by_profile") is True
-    assert "terminal" in result["error"]
+    assert "bash" in result["error"]
 
 
 async def test_profile_allows_tool_in_allowlist() -> None:
@@ -54,9 +54,9 @@ async def test_profile_allows_tool_in_allowlist() -> None:
     guard = make_child_policy_guard(
         parent_grants=None, profile=get_profile("explore")
     )
-    # read_file is in the allowlist; with no policy match it passes (None).
+    # read is in the allowlist; with no policy match it passes (None).
     result = await guard(
-        tool=_Tool("read_file"), args={"path": "x.txt"}, tool_context=_Ctx()
+        tool=_Tool("read"), args={"path": "x.txt"}, tool_context=_Ctx()
     )
     assert result is None
 
@@ -67,7 +67,7 @@ async def test_no_profile_falls_through_to_policy_guard() -> None:
     guard = make_child_policy_guard(parent_grants=None, profile=None)
     # A benign tool with no policy rule passes.
     result = await guard(
-        tool=_Tool("read_file"), args={"path": "x.txt"}, tool_context=_Ctx()
+        tool=_Tool("read"), args={"path": "x.txt"}, tool_context=_Ctx()
     )
     assert result is None
 
@@ -76,12 +76,10 @@ async def test_inherited_grant_seeded_onto_child_state() -> None:
     from horizon.guardrails.policy_grants import POLICY_GRANTS_STATE_KEY
     from horizon.subagents.child_guard import make_child_policy_guard
 
-    grant = {"tool_name": "terminal", "signature": {"command": "rm -rf build/"}}
+    grant = {"tool_name": "bash", "signature": {"command": "rm -rf build/"}}
     guard = make_child_policy_guard(parent_grants=[grant], profile=None)
     ctx = _Ctx()
-    await guard(
-        tool=_Tool("read_file"), args={"path": "x.txt"}, tool_context=ctx
-    )
+    await guard(tool=_Tool("read"), args={"path": "x.txt"}, tool_context=ctx)
     # The inherited grant is now visible on the child's state for policy eval.
     assert ctx.state[POLICY_GRANTS_STATE_KEY] == [grant]
 
@@ -91,7 +89,7 @@ async def test_malformed_parent_grants_treated_as_empty() -> None:
 
     guard = make_child_policy_guard(parent_grants="not-a-list", profile=None)
     result = await guard(
-        tool=_Tool("read_file"), args={"path": "x.txt"}, tool_context=_Ctx()
+        tool=_Tool("read"), args={"path": "x.txt"}, tool_context=_Ctx()
     )
     assert result is None
 
@@ -101,7 +99,7 @@ async def test_child_still_blocks_risky_commands() -> None:
 
     guard = make_child_policy_guard(parent_grants=None, profile=None)
     result = await guard(
-        tool=_Tool("terminal"),
+        tool=_Tool("bash"),
         args={"command": "sudo apt-get update"},
         tool_context=_Ctx(),
     )
@@ -133,11 +131,11 @@ async def test_resurface_asks_when_bubble_available() -> None:
     ctx = _ConfirmCtx()
     with child_drain(1):
         result = await guard(
-            tool=_Tool("write_file"),
+            tool=_Tool("write"),
             args={"path": "x.txt", "content": "y"},
             tool_context=ctx,
         )
-    # write_file is a sandbox-write tool -> allowed by default rules, no prompt.
+    # write is a sandbox-write tool -> allowed by default rules, no prompt.
     assert result is None
     assert ctx.requested == []
 
@@ -150,7 +148,7 @@ async def test_resurface_asks_for_terminal_when_bubble_available() -> None:
     ctx = _ConfirmCtx()
     with child_drain(1):
         result = await guard(
-            tool=_Tool("terminal"),
+            tool=_Tool("bash"),
             args={"command": "git push --force"},
             tool_context=ctx,
         )
@@ -167,7 +165,7 @@ async def test_resurface_denies_terminal_when_bubble_exhausted() -> None:
     ctx = _ConfirmCtx()
     with child_drain(0):
         result = await guard(
-            tool=_Tool("terminal"),
+            tool=_Tool("bash"),
             args={"command": "git push --force"},
             tool_context=ctx,
         )
@@ -184,14 +182,14 @@ async def test_resurface_confirmed_allows_and_writes_grant() -> None:
     ctx = _ConfirmCtx(tool_confirmation=SimpleNamespace(confirmed=True))
     with child_drain(0):
         result = await guard(
-            tool=_Tool("terminal"),
+            tool=_Tool("bash"),
             args={"command": "git push --force"},
             tool_context=ctx,
         )
     assert result is None  # confirmed -> allowed
     grants = read_session_grants(ctx.state)
     assert any(
-        g.get("toolName") == "terminal"
+        g.get("toolName") == "bash"
         and any("git push" in p for p in (g.get("commandPrefix") or []))
         for g in grants
     ), grants
@@ -205,14 +203,14 @@ async def test_resurface_grant_lets_later_same_prefix_op_through() -> None:
     ctx = _ConfirmCtx(tool_confirmation=SimpleNamespace(confirmed=True))
     with child_drain(0):
         await guard(
-            tool=_Tool("terminal"),
+            tool=_Tool("bash"),
             args={"command": "git push --force"},
             tool_context=ctx,
         )
         # later, same prefix, no confirmation, no bubble -> rides the grant.
         ctx.tool_confirmation = None
         result = await guard(
-            tool=_Tool("terminal"),
+            tool=_Tool("bash"),
             args={"command": "git push --force --tags"},
             tool_context=ctx,
         )
@@ -227,7 +225,7 @@ async def test_resurface_declined_denies() -> None:
     ctx = _ConfirmCtx(tool_confirmation=SimpleNamespace(confirmed=False))
     with child_drain(0):
         result = await guard(
-            tool=_Tool("terminal"),
+            tool=_Tool("bash"),
             args={"command": "git push --force"},
             tool_context=ctx,
         )

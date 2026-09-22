@@ -146,13 +146,18 @@ async def overflow_to_file(
     id_factory: Callable[[], str] = _default_id,
     max_bytes: int = TERMINAL_OUTPUT_LIMIT,
     max_lines: int = TERMINAL_OUTPUT_MAX_LINES,
+    label: str = "Full output",
 ) -> OverflowResult:
     """Spill ``text`` to a snapshot-persistent file and build a pointer.
 
     Writes the FULL text via the active environment so the file rides the
     sandbox snapshot, then returns a head+tail preview plus a pointer telling
     the model how to read the rest. ``id_factory`` is injectable so tests pin
-    the filename deterministically.
+    the filename deterministically. ``label`` prefixes the pointer: bash's
+    ``text`` really is the complete captured stream ("Full output"), but
+    read spills only the requested offset/limit page, not the whole file, so
+    it passes "This page of output" instead — "full" would overclaim a
+    502-line page of a 5,000-line file as the entire thing.
     """
     preview, truncated = make_preview(
         text, max_bytes=max_bytes, max_lines=max_lines
@@ -163,11 +168,22 @@ async def overflow_to_file(
     n_lines = text.count("\n") + 1
     n_bytes = len(text.encode("utf-8"))
     pointer = (
-        f"Full output saved to {path} ({n_lines} lines / {n_bytes} bytes). "
-        "Use view_file with offset/limit to read it, grep it via terminal, "
+        f"{label} saved to {path} ({n_lines} lines / {n_bytes} bytes). "
+        "Use read with offset/limit to read it, grep it via bash, "
         "or delegate a subagent to process it (don't read the whole thing "
         "yourself)."
     )
     return OverflowResult(
         preview=preview, pointer=pointer, path=str(path), truncated=truncated
     )
+
+
+async def emit_stream(
+    text: str, *, stream: str
+) -> tuple[str, bool, str | None]:
+    """Return ``(payload, truncated, overflow_path)`` for one output stream."""
+    _, truncated = make_preview(text)
+    if not truncated:
+        return text, False, None
+    result = await overflow_to_file(text, stream=stream)
+    return f"{result.preview}\n\n{result.pointer}", True, result.path

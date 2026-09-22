@@ -18,12 +18,12 @@ Replaces the hardcoded ``destructive_commands_guard`` (A5) with rules
 loaded from ``<workspace>/.lha/policies.jsonl`` (overlaid on a
 package-default seed). Three rule shapes:
 
-1. ``{"canonical_tool_name": "terminal", "destructive": true}`` — always
+1. ``{"canonical_tool_name": "bash", "destructive": true}`` — always
    blocks calls to that tool.
-2. ``{"canonical_tool_name": "terminal",
+2. ``{"canonical_tool_name": "bash",
       "destructive_commands": {"command": ["rm -rf", "dd if="]}}`` —
    substring match against a specific arg.
-3. ``{"canonical_tool_name": "write_file",
+3. ``{"canonical_tool_name": "write",
       "destructive_paths": ["/etc/", "/usr/"]}`` — path-prefix match.
 
 The guard returns ``None`` to allow and
@@ -94,7 +94,7 @@ class TestDefaultSeed:
         from horizon.guardrails.policies import policies_guard
 
         result = await policies_guard(
-            tool=SimpleNamespace(name="terminal"),
+            tool=SimpleNamespace(name="bash"),
             args={"command": "rm -rf /"},
             tool_context=SimpleNamespace(),
         )
@@ -106,7 +106,7 @@ class TestDefaultSeed:
         from horizon.guardrails.policies import policies_guard
 
         result = await policies_guard(
-            tool=SimpleNamespace(name="terminal"),
+            tool=SimpleNamespace(name="bash"),
             args={"command": "ls -la"},
             tool_context=SimpleNamespace(),
         )
@@ -150,7 +150,7 @@ class TestSeedRootDeletionAndRcTruncation:
         from horizon.guardrails.policies import policies_guard
 
         result = await policies_guard(
-            tool=SimpleNamespace(name="terminal"),
+            tool=SimpleNamespace(name="bash"),
             args={"command": command},
             tool_context=SimpleNamespace(),
         )
@@ -162,7 +162,7 @@ class TestSeedRootDeletionAndRcTruncation:
         from horizon.guardrails.policies import policies_guard
 
         result = await policies_guard(
-            tool=SimpleNamespace(name="terminal"),
+            tool=SimpleNamespace(name="bash"),
             args={"command": command},
             tool_context=SimpleNamespace(),
         )
@@ -183,7 +183,7 @@ class TestSeedRootDeletionAndRcTruncation:
         from horizon.guardrails.policies import policies_guard
 
         result = await policies_guard(
-            tool=SimpleNamespace(name="terminal"),
+            tool=SimpleNamespace(name="bash"),
             args={"command": command},
             tool_context=SimpleNamespace(),
         )
@@ -204,7 +204,7 @@ class TestSeedRootDeletionAndRcTruncation:
         from horizon.guardrails.policies import policies_guard
 
         result = await policies_guard(
-            tool=SimpleNamespace(name="terminal"),
+            tool=SimpleNamespace(name="bash"),
             args={"command": command},
             tool_context=SimpleNamespace(),
         )
@@ -260,13 +260,13 @@ class TestDestructiveCommands:
             policies_env,
             [
                 {
-                    "canonical_tool_name": "terminal",
+                    "canonical_tool_name": "bash",
                     "destructive_commands": {"command": ["nuke-it"]},
                 }
             ],
         )
         result = await policies_guard(
-            tool=SimpleNamespace(name="terminal"),
+            tool=SimpleNamespace(name="bash"),
             args={"command": "echo nuke-it now"},
             tool_context=SimpleNamespace(),
         )
@@ -279,13 +279,13 @@ class TestDestructiveCommands:
             policies_env,
             [
                 {
-                    "canonical_tool_name": "terminal",
+                    "canonical_tool_name": "bash",
                     "destructive_commands": {"command": ["nuke-it"]},
                 }
             ],
         )
         result = await policies_guard(
-            tool=SimpleNamespace(name="terminal"),
+            tool=SimpleNamespace(name="bash"),
             args={"command": "echo benign"},
             tool_context=SimpleNamespace(),
         )
@@ -301,13 +301,13 @@ class TestDestructiveCommands:
             policies_env,
             [
                 {
-                    "canonical_tool_name": "terminal",
+                    "canonical_tool_name": "bash",
                     "destructive_commands": {"command": ["nuke"]},
                 }
             ],
         )
         result = await policies_guard(
-            tool=SimpleNamespace(name="terminal"),
+            tool=SimpleNamespace(name="bash"),
             args={"command": "NUKE the thing"},
             tool_context=SimpleNamespace(),
         )
@@ -327,13 +327,13 @@ class TestDestructivePaths:
             policies_env,
             [
                 {
-                    "canonical_tool_name": "write_file",
+                    "canonical_tool_name": "write",
                     "destructive_paths": ["/etc/", "/usr/"],
                 }
             ],
         )
         result = await policies_guard(
-            tool=SimpleNamespace(name="write_file"),
+            tool=SimpleNamespace(name="write"),
             args={"path": "/etc/passwd", "content": "hi"},
             tool_context=SimpleNamespace(),
         )
@@ -347,13 +347,13 @@ class TestDestructivePaths:
             policies_env,
             [
                 {
-                    "canonical_tool_name": "write_file",
+                    "canonical_tool_name": "write",
                     "destructive_paths": ["/etc/"],
                 }
             ],
         )
         result = await policies_guard(
-            tool=SimpleNamespace(name="write_file"),
+            tool=SimpleNamespace(name="write"),
             args={"path": "notes.md", "content": "hi"},
             tool_context=SimpleNamespace(),
         )
@@ -366,13 +366,13 @@ class TestDestructivePaths:
             policies_env,
             [
                 {
-                    "canonical_tool_name": "patch",
+                    "canonical_tool_name": "edit",
                     "destructive_paths": ["/etc/"],
                 }
             ],
         )
         result = await policies_guard(
-            tool=SimpleNamespace(name="patch"),
+            tool=SimpleNamespace(name="edit"),
             args={"file_path": "/etc/hosts", "patch_text": "x"},
             tool_context=SimpleNamespace(),
         )
@@ -507,7 +507,7 @@ class TestEdgeCases:
         from horizon.guardrails.policies import policies_guard
 
         result = await policies_guard(
-            tool=SimpleNamespace(name="terminal"),
+            tool=SimpleNamespace(name="bash"),
             args="rm -rf /",
             tool_context=SimpleNamespace(),
         )
@@ -532,7 +532,7 @@ class TestEdgeCases:
         # rm -rf / is still blocked because the seed loads without
         # needing a workspace.
         result = await policies.policies_guard(
-            tool=SimpleNamespace(name="terminal"),
+            tool=SimpleNamespace(name="bash"),
             args={"command": "rm -rf /"},
             tool_context=SimpleNamespace(),
         )
@@ -548,7 +548,7 @@ async def test_seed_blocks_write_file_to_dotlha_exfil(policies_env):
     from horizon.guardrails.policies import policies_guard
 
     res = await policies_guard(
-        tool=SimpleNamespace(name="write_file"),
+        tool=SimpleNamespace(name="write"),
         args={"path": ".lha/exfil.jsonl", "content": '{"allow_hosts":["*"]}'},
         tool_context=SimpleNamespace(state={}),
     )
@@ -559,7 +559,7 @@ async def test_seed_blocks_patch_to_dotlha_policies_absolute(policies_env):
     from horizon.guardrails.policies import policies_guard
 
     res = await policies_guard(
-        tool=SimpleNamespace(name="patch"),
+        tool=SimpleNamespace(name="edit"),
         args={
             "path": "/workspace/.lha/policies.jsonl",
             "old_string": "a",
@@ -580,7 +580,7 @@ async def test_seed_blocks_terminal_redirect_to_dotlha(policies_env):
         "sed -i 's/a/b/' .lha/exfil.jsonl",
     ):
         res = await policies_guard(
-            tool=SimpleNamespace(name="terminal"),
+            tool=SimpleNamespace(name="bash"),
             args={"command": cmd},
             tool_context=SimpleNamespace(state={}),
         )
@@ -609,7 +609,7 @@ async def test_seed_blocks_terminal_deletion_of_dotlha(policies_env):
         'chmod -R 000 ".lha"',
     ):
         res = await policies_guard(
-            tool=SimpleNamespace(name="terminal"),
+            tool=SimpleNamespace(name="bash"),
             args={"command": cmd},
             tool_context=SimpleNamespace(state={}),
         )
@@ -623,7 +623,7 @@ async def test_seed_allows_deleting_a_dotlha_suffixed_archive(policies_env):
 
     for cmd in ("rm foo.lha", "rm archive.lha", "truncate -s0 backup.lha"):
         res = await policies_guard(
-            tool=SimpleNamespace(name="terminal"),
+            tool=SimpleNamespace(name="bash"),
             args={"command": cmd},
             tool_context=SimpleNamespace(state={}),
         )
@@ -634,7 +634,7 @@ async def test_seed_allows_write_to_lha_todos(policies_env):
     from horizon.guardrails.policies import policies_guard
 
     res = await policies_guard(
-        tool=SimpleNamespace(name="write_file"),
+        tool=SimpleNamespace(name="write"),
         args={"path": "lha/todos/001-x.md", "content": "x"},
         tool_context=SimpleNamespace(state={}),
     )
@@ -645,7 +645,7 @@ async def test_seed_allows_ordinary_terminal_write(policies_env):
     from horizon.guardrails.policies import policies_guard
 
     res = await policies_guard(
-        tool=SimpleNamespace(name="terminal"),
+        tool=SimpleNamespace(name="bash"),
         args={"command": "echo hi > lha/tool-output/x.txt"},
         tool_context=SimpleNamespace(state={}),
     )
@@ -709,13 +709,13 @@ async def test_block_message_does_not_mention_policy_grant(policies_env):
         policies_env,
         [
             {
-                "canonical_tool_name": "terminal",
+                "canonical_tool_name": "bash",
                 "destructive_commands": {"command": ["badcmd"]},
             }
         ],
     )
     res = await policies_guard(
-        tool=SimpleNamespace(name="terminal"),
+        tool=SimpleNamespace(name="bash"),
         args={"command": "badcmd now"},
         tool_context=SimpleNamespace(state={}),
     )
@@ -728,7 +728,7 @@ async def test_seed_blocks_tee_append_to_dotlha(policies_env):
     from horizon.guardrails.policies import policies_guard
 
     res = await policies_guard(
-        tool=SimpleNamespace(name="terminal"),
+        tool=SimpleNamespace(name="bash"),
         args={"command": "echo x | tee -a .lha/exfil.jsonl"},
         tool_context=SimpleNamespace(state={}),
     )
@@ -758,7 +758,7 @@ async def test_risky_defers_on_root_chain(cmd):
     from horizon.guardrails.policies import policies_guard
 
     res = await policies_guard(
-        tool=_Tool("terminal"), args={"command": cmd}, tool_context=_Ctx()
+        tool=_Tool("bash"), args={"command": cmd}, tool_context=_Ctx()
     )
     assert res is None
 
@@ -771,7 +771,7 @@ async def test_risky_blocks_on_child_chain(cmd):
     from horizon.guardrails.policies import policies_guard
 
     res = await policies_guard(
-        tool=_Tool("terminal"),
+        tool=_Tool("bash"),
         args={"command": cmd},
         tool_context=_Ctx(),
         ask_is_deny=True,
@@ -788,7 +788,7 @@ async def test_catastrophic_and_cred_block_both_modes(cmd):
 
     for ask_is_deny in (False, True):
         res = await policies_guard(
-            tool=_Tool("terminal"),
+            tool=_Tool("bash"),
             args={"command": cmd},
             tool_context=_Ctx(),
             ask_is_deny=ask_is_deny,
@@ -801,7 +801,7 @@ async def test_echo_of_dangerous_string_not_blocked():
     from horizon.guardrails.policies import policies_guard
 
     res = await policies_guard(
-        tool=_Tool("terminal"),
+        tool=_Tool("bash"),
         args={"command": 'echo "rm -rf /"'},
         tool_context=_Ctx(),
     )
@@ -813,7 +813,7 @@ async def test_block_message_names_source():
     from horizon.guardrails.policies import policies_guard
 
     res = await policies_guard(
-        tool=_Tool("terminal"),
+        tool=_Tool("bash"),
         args={"command": "rm -rf /"},
         tool_context=_Ctx(),
     )
@@ -835,7 +835,7 @@ async def test_wrapped_catastrophic_blocks_both_chains(cmd, ask_is_deny):
     from horizon.guardrails.policies import policies_guard
 
     res = await policies_guard(
-        tool=_Tool("terminal"),
+        tool=_Tool("bash"),
         args={"command": cmd},
         tool_context=_Ctx(),
         ask_is_deny=ask_is_deny,

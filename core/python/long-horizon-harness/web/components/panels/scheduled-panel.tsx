@@ -13,32 +13,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { memo, type ReactNode } from "react";
-import { RemindersPanel } from "@/components/panels/reminders-panel";
+import { memo } from "react";
 import { RoutinesPanel } from "@/components/panels/routines-panel";
 
-function Sub({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <div className="flex flex-col gap-0.5">
-      <p className="px-2 pt-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground/70">
-        {label}
-      </p>
-      {children}
-    </div>
-  );
-}
-
+// Thin wrapper kept as the Scheduled section's single entry point: this used
+// to also render RemindersPanel before the reminder capability was removed.
 function ScheduledPanelImpl() {
-  return (
-    <div className="flex flex-col gap-1">
-      <Sub label="Reminders">
-        <RemindersPanel />
-      </Sub>
-      <Sub label="Routines">
-        <RoutinesPanel />
-      </Sub>
-    </div>
-  );
+  return <RoutinesPanel />;
 }
 
 export const ScheduledPanel = memo(ScheduledPanelImpl);

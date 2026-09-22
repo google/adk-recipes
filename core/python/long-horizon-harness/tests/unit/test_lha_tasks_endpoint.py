@@ -45,7 +45,7 @@ def _make_runner() -> Runner:
         app_name=APP_NAME,
         agent=LlmAgent(
             name="test_agent",
-            model="gemini-3.6-flash",
+            model="gemini-3.7-flash",
             description="A test agent",
             instruction="Test.",
         ),

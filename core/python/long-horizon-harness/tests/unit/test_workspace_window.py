@@ -15,9 +15,11 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from horizon.workspace_window import (
     WORKSPACE_WINDOW_STATE_KEY,
+    maybe_seed_window,
     render_window,
     resolve_in_window,
     window_dirs,
@@ -100,3 +102,61 @@ def test_render_window_empty_is_none():
 
 def test_render_window_lists_dirs():
     assert "projA" in (render_window(["projA"]) or "")
+
+
+def test_maybe_seed_window_sandbox_off_host_root():
+    """When check_host_fs=False (sandbox), non-host root paths seed correctly."""
+    state: dict[str, Any] = {}
+    maybe_seed_window(
+        state,
+        Path("/workspace/project_a/main.py"),
+        Path("/workspace"),
+        check_host_fs=False,
+    )
+    assert state.get(WORKSPACE_WINDOW_STATE_KEY) == ["project_a"]
+
+
+def test_maybe_seed_window_default_requires_host_dir():
+    """Default check_host_fs=True does not seed if directory is absent on host."""
+    state: dict[str, Any] = {}
+    maybe_seed_window(
+        state,
+        Path("/nonexistent_sandbox_root/proj/app.py"),
+        Path("/nonexistent_sandbox_root"),
+    )
+    assert WORKSPACE_WINDOW_STATE_KEY not in state
+
+
+def test_maybe_seed_window_root_level_file_does_not_seed(tmp_path: Path):
+    """Root-level files with no subdirectory component must not seed window."""
+    root = tmp_path.resolve()
+    state_host: dict[str, Any] = {}
+    maybe_seed_window(
+        state_host,
+        root / "README.md",
+        root,
+        check_host_fs=True,
+    )
+    assert WORKSPACE_WINDOW_STATE_KEY not in state_host
+
+    state_sandbox: dict[str, Any] = {}
+    maybe_seed_window(
+        state_sandbox,
+        Path("/workspace/README.md"),
+        Path("/workspace"),
+        check_host_fs=False,
+    )
+    assert WORKSPACE_WINDOW_STATE_KEY not in state_sandbox
+
+
+def test_maybe_seed_window_existing_window_not_overwritten(tmp_path: Path):
+    """An existing window is never overwritten."""
+    root = tmp_path.resolve()
+    (root / "new_proj").mkdir()
+    state: dict[str, Any] = {WORKSPACE_WINDOW_STATE_KEY: ["existing_proj"]}
+    maybe_seed_window(
+        state,
+        root / "new_proj" / "app.py",
+        root,
+    )
+    assert state[WORKSPACE_WINDOW_STATE_KEY] == ["existing_proj"]

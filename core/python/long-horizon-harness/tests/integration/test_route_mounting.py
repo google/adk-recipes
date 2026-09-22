@@ -35,9 +35,8 @@ _EXPECTED_PREFIXES = (
     "/feedback",
     "/lha/secrets",
     "/lha/gcp",
-    "/lha/reminders",
     "/lha/routines",
-    "/scheduler/tick",
+    "/scheduler/routine-tick",
     "/scheduler/dream-review",
     "/scheduler/snapshot",
 )

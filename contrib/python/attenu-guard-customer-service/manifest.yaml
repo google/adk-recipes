@@ -1,0 +1,30 @@
+type: "standalone"    # Options: [standalone | module]
+status: "active"      # Options: [active | inactive]
+language: "python"    # Options: [python | java | go | kotlin | typescript]
+description: "A customer-service coordinator whose billing sub-agent holds a strict subset of the coordinator's permissions: the refund it was not delegated is refused before the tool body runs, and the run leaves a hash-chained ledger that verifies offline."
+
+architecture:
+  agent: "multi"       # Options: [single | multi]
+  stateful: false      # Options: [true | false]
+  datasources:         # Options: [hardcoded | local | external]
+    - "hardcoded"
+
+dependencies:
+  libraries:
+    - "ADK"
+    - "attenu-guard"
+    - "cryptography"
+  services: []
+
+ownership:
+  team: "attenu-io"
+  poc: "rafaelasor"
+
+tags:
+  - "multi-agent"
+  - "permissions"
+  - "least-privilege"
+  - "audit-log"
+  - "plugin"
+
+license: "Apache-2.0"

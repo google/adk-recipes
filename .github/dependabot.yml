@@ -1,121 +1,193 @@
 # Dependabot configuration.
 #
-# This file is STATIC and hand-maintained. Adding, removing, or renaming a
-# recipe requires NO change here — Dependabot resolves the glob patterns
-# below against the tree on every run and discovers manifests itself.
+# Recipe dependency VERSION updates are deliberately not configured here.
+# That is a policy decision, not an oversight — read on before adding an
+# entry back.
 #
-# It did not always work that way. This file used to enumerate one entry per
-# directory and was produced by a generator that contributors had to remember
-# to re-run, with a CI gate failing their PR when they forgot. The requirement
-# appeared in no contributor-facing doc and `uv run validate` could not catch
-# it, so the first anyone heard of it was a red X on their PR. All 20
-# generated RECIPE entries were byte-identical apart from the path, so the
-# globs below lose no configurability. The static github-actions entry at the
-# bottom was never generated from the tree — it has always carried its own
-# extra label, group name and cooldown — and is unchanged.
+# Why recipes do not get version updates
+# --------------------------------------
+# A recipe is a clone-and-study artifact, and its committed uv.lock is a
+# verified snapshot: "this exact set of versions was tested and worked."
+# A version-update PR replaces that verified set with an unverified one and
+# asks a reviewer to bless it. The invariant this repo actually cares about
+# is "the recipe still installs from its lock and still passes its tests",
+# NOT "the recipe uses current versions".
 #
-# What to change here, and when:
-#   - A new recipe, anywhere under core/, contrib/, or skills/  -> nothing.
-#   - A new top-level recipe root                               -> add it to
-#     every `directories` list below, and to SCAN_ROOTS in
-#     .github/scripts/recipe_manifests.py.
-#   - A new language whose ecosystem is not listed below        -> add an
-#     entry for it.
+# It also did not work in practice. With one entry per recipe ecosystem the
+# repo accumulated 98 open Dependabot PRs, none of which could merge: `main`
+# requires a code-owner review, and an approval from GITHUB_TOKEN does not
+# satisfy that (see dependabot-auto-merge.yml, which approves as
+# github-actions[bot] and therefore never unblocks anything). The review load
+# landed on two people by way of the CODEOWNERS catch-all, regardless of who
+# actually owned the recipe. That does not scale past the recipe count the
+# repo already has, let alone the one it is heading for.
 #
-# Ecosystem/manifest mapping (mirrored by the detectors in
-# .github/scripts/recipe_manifests.py, which the orphan-PR cleanup uses):
-#   uv      Python  uv.lock
-#   npm     TS/JS   package.json with dependencies or devDependencies
-#   gomod   Go      go.mod
-#   maven   Java    pom.xml
-#   gradle  Kotlin  build.gradle.kts + settings.gradle.kts
+# What replaces it
+# ----------------
+#   - Freshness is the recipe owner's call. Every manifest.yaml declares
+#     `ownership.poc`, and an owner who has a reason to move versions is free
+#     to do so.
+#   - Rot is detected rather than prevented, by the monthly canary in
+#     .github/workflows/recipe-canary.yml (added in #2502). It verifies
+#     that each recipe still installs from its committed lockfile
+#     (`uv sync --frozen`) and still passes its tests, and files an issue
+#     against the recipe's poc when it does not. That catches the failure
+#     modes a frozen lock really has — a yanked release, a package pulled
+#     from the index, wheels with no build for a newer interpreter — without
+#     asking anyone to review a bump that changes nothing they need.
 #
-# `**/*` is globstar: the directory layer below the root and everything
-# beneath it, recursively. Recursion is required, not cosmetic — manifests sit
-# at four different depths today, from `core/rag-vector-search` (a legacy flat
-# path) down to `core/python/long-horizon-harness/web/server`.
+# Security updates need suppressing too, and `ignore` is the only way
+# --------------------------------------------------------------------
+# Removing the recipe entries stopped the version-update flood but not the
+# PR flood. Dependabot security updates are switched on by a repository
+# setting rather than by this file, so with no entry for an ecosystem there
+# was nothing here to constrain them and they kept opening PRs against every
+# recipe lockfile. (Read that as the "before" state — the entries below are
+# exactly what now constrains them. An entry is required to say anything at
+# all about an ecosystem, which is the crux of this whole section.)
 #
-# Retired roots (`frozen_paths` in .github/policy.yml: python/agents,
-# java/agents, ...) are deliberately not globbed. They are closed to new work.
+# On 2026-08-13 a single advisory wave — 40 nltk alerts
+# arriving between 22:30 and 22:48 — was followed by 13 PRs in 34 minutes
+# (#2513 to #2525), each a near-copy of the last over a slightly larger set
+# of directories. Dependabot closed nine itself as superseded, and left
+# four open.
+#
+# Why a burst does that is not documented, and what follows is inference
+# from those timings rather than anything GitHub states: security-update
+# jobs appear to run per alert, so a wave has many of them recomputing the
+# same grouped update concurrently, each landing on its own branch, and the
+# supersede-the-previous-PR logic cannot collapse a fork it did not create.
+# Treat the inference as replaceable. The observation — one advisory wave,
+# 13 PRs, none of them mergeable — is what actually motivates this file.
+#
+# There is no frequency knob for this. GitHub's options reference is
+# explicit that the obvious three are version-updates-only:
+#
+#   cooldown                  "only available for version updates, not
+#                             security updates" — and the default 3-day
+#                             cooldown "does not apply to security updates"
+#   schedule.interval         version updates only
+#   open-pull-requests-limit  version updates only; it is documented as the
+#                             way to keep security updates while disabling
+#                             version ones
+#
+# Grouping is already on and already working — it is what collapses 40
+# alerts into one PR's worth of content. It cannot help here, because the
+# duplicates are copies of that one grouped PR, not separate updates.
+#
+# That leaves `ignore`, which is the one option that does reach security
+# updates. Each recipe ecosystem below is therefore configured purely to
+# suppress: `open-pull-requests-limit: 0` for the version half, and an
+# `ignore` of "*" for the security half. Between them, no ecosystem listed
+# below can open a pull request of either kind.
+#
+# "Listed below" is the important qualifier — an ecosystem with a manifest
+# in this repo and no entry here is not suppressed by anything. See "Which
+# ecosystems need an entry" further down.
+#
+# Alerts are unaffected. Every advisory still fires and stays visible in the
+# repository's Security tab; what stops is Dependabot opening a pull request
+# nobody can merge. This is the same bargain as the canary above — detect,
+# do not auto-remediate — extended from rot to advisories.
+#
+# Two details in the suppression entries are load-bearing:
+#
+#   - `directories: ["/", "**/*"]` is required, not stylistic. GitHub: "In
+#     order for Dependabot to use this configuration for security updates,
+#     the `directory` must be the path to the manifest files (or
+#     `directories` must contain paths or glob patterns matching the
+#     manifest file locations), and you should not specify a
+#     `target-branch`." A fixed directory would suppress one recipe and
+#     leave every other one live. For the same reason, never add
+#     `target-branch` to these entries.
+#
+#     BOTH list members are load-bearing. `**/*` requires at least one path
+#     segment, so it does not match the repository root — and the root is a
+#     real manifest location here: /uv.lock and /pyproject.toml pin this
+#     repo's own tooling (pyyaml, jsonschema, pytest, ruff). Without the
+#     explicit "/" those two files are the single hole left in the
+#     suppression, and an advisory against pyyaml would open a PR that
+#     nothing in this file would stop.
+#
+#     Listing both is also safe under GitHub's rule that blocks for one
+#     ecosystem "must ensure that all values are unique and there is no
+#     overlap in directories defined": "/" and "**/*" are disjoint by
+#     construction, which is precisely why both are needed.
+#
+#   - `schedule` is a required key even though nothing is scheduled. With
+#     `open-pull-requests-limit: 0` there are no version updates for an
+#     interval to govern, so it is set to monthly and means nothing.
+#
+# Which ecosystems need an entry, and why it is not DETECTORS
+# ------------------------------------------------------------
+# The obvious source for this list is recipe_manifests.DETECTORS, and it is
+# the wrong one. DETECTORS answers "which recipe directories do the canary
+# and the orphan cleanup track", and it is scoped to
+# SCAN_ROOTS = core/, contrib/, skills/. Dependabot's `**/*` glob is scoped
+# to the repository. The two disagree in both directions:
+#
+#   - The legacy python/, java/ and kotlin/ trees are closed to new work and
+#     excluded from SCAN_ROOTS, but their manifests are very much still
+#     here and Dependabot still sees them. `java/agents/*/pom.xml` and
+#     `kotlin/agents/llm-auditor/build.gradle.kts` are real, and maven has
+#     already opened a PR against one of them (#2163). The maven and gradle
+#     entries below are load-bearing today, not placeholders for a future
+#     Java recipe.
+#
+#   - pip and docker are not in DETECTORS at all, because no detector looks
+#     for requirements.txt or a Dockerfile. Both exist in the tree: six
+#     tracked requirements.txt under python/agents/, and Dockerfiles across
+#     core/ and java/. Neither has ever opened a PR here — the
+#     requirements.txt files pin loosely (`>=`, `~=`), which is probably why
+#     pip has never alerted — but that is luck rather than design, and it is
+#     one tightened pin away from changing.
+#
+# So the list below is every ecosystem Dependabot can find a manifest for in
+# this repository, which is a superset of DETECTORS. The test enforces
+# DETECTORS as a floor rather than an exact match, so adding a detector
+# still fails loudly while these extra entries stay legal.
+#
+# Why github-actions stays
+# ------------------------
+# It is not a recipe ecosystem. Action pins are this repository's own CI
+# supply chain — owned by the repo maintainers rather than by any recipe
+# owner, so "the recipe owner decides" does not apply. It is the one entry
+# here still allowed to open a PR, and at monthly with a limit of 1 that is
+# the entire Dependabot budget for this repository.
+#
+# If you re-enable updates for a recipe ecosystem
+# -----------------------------------------------
+# .github/scripts/tests/test_dependabot_config.py pins the suppression shape
+# on purpose: a recipe ecosystem may appear here only with
+# `open-pull-requests-limit: 0` AND an `ignore` of "*". Relaxing either half
+# fails the test, so restarting the PR flood is a deliberate act with a
+# reviewer attached rather than a quiet one-line edit. Update that test in
+# the same change, and say why in the PR.
+#
+# Note that .github/scripts/recipe_manifests.py still detects every ecosystem
+# in the tree, and the orphan cleanup in dependabot-housekeeping.yml still
+# derives liveness from the tree rather than from this file — so nothing here
+# affects which open PRs are treated as orphans.
 
 version: 2
 updates:
-  - package-ecosystem: "uv"
-    directories:
-      - "/core/**/*"
-      - "/contrib/**/*"
-      - "/skills/**/*"
-    schedule:
-      interval: weekly
-      day: monday
-      time: "02:00"
-    commit-message:
-      prefix: chore
-      include: scope
-    labels:
-      - dependencies
-    # Was 1 per directory across 16 enumerated entries. A single entry now
-    # covers every directory, so the cap is raised to keep throughput
-    # comparable.
-    open-pull-requests-limit: 25
-    # Wait a few days after a release before opening a PR, so the community
-    # catches broken releases before we auto-merge them. Security updates
-    # bypass this cooldown and fire immediately.
-    cooldown:
-      default-days: 7
-      semver-major-days: 14
-    # No `group-by` — without it Dependabot opens one PR per directory, which
-    # preserves the previous one-PR-per-recipe behaviour. Adding
-    # `group-by: dependency-name` would collapse a bump across every recipe
-    # into a single repo-wide PR.
-    groups:
-      all-dependencies:
-        patterns:
-          - "*"
-
-  - package-ecosystem: "npm"
-    directories:
-      - "/core/**/*"
-      - "/contrib/**/*"
-      - "/skills/**/*"
-    schedule:
-      interval: weekly
-      day: monday
-      time: "02:00"
-    commit-message:
-      prefix: chore
-      include: scope
-    labels:
-      - dependencies
-    open-pull-requests-limit: 10
-    cooldown:
-      default-days: 7
-      semver-major-days: 14
-    groups:
-      all-dependencies:
-        patterns:
-          - "*"
-
-  # gomod / maven / gradle are deliberately NOT declared. No Go, Java, or
-  # Kotlin recipe exists yet, and a glob matching zero directories is the
-  # likeliest way to get this whole file rejected — which would silently stop
-  # every dependency update, security ones included. That is not a risk worth
-  # taking for languages the repo does not yet host.
-  #
-  # This is not a silent gap. recipe_manifests.py still detects all five
-  # ecosystems, and test_dependabot_config.py asserts that every ecosystem
-  # found in the tree has an entry here — so the first Go/Java/Kotlin recipe
-  # fails CI with a message telling you to add its block, rather than merging
-  # green and quietly receiving no updates.
-
   # Not a recipe ecosystem: Dependabot reads /.github/workflows and any
   # action.yml at the repo root. `directory: "/"` is what GitHub documents for
   # github-actions; it is not a glob.
   - package-ecosystem: "github-actions"
     directory: "/"
+    # Monthly, not weekly. At weekly this one entry could account for four
+    # PRs a month on its own, which is the whole budget before any recipe
+    # contributes. Action pins are not urgent; a month of drift on a pinned
+    # SHA costs nothing that the next run does not fix.
+    #
+    # No `day` key. GitHub documents it as "run WEEKLY updates for a package
+    # manager on a specific day of the week", and `monthly` always runs on
+    # the first of the month, so `day: monday` — which is what this said
+    # while it was weekly — is meaningless here. `time` is not
+    # interval-specific and stays.
     schedule:
-      interval: weekly
-      day: monday
+      interval: monthly
       time: "02:00"
     commit-message:
       prefix: chore
@@ -133,3 +205,153 @@ updates:
       all-actions:
         patterns:
           - "*"
+
+  # ------------------------------------------------------------------------
+  # Suppression entries — one per ecosystem with a manifest anywhere in this
+  # repository. That is a superset of recipe_manifests.DETECTORS; see "Which
+  # ecosystems need an entry" in the header for why the two differ.
+  #
+  # These do not configure updates. They exist to switch updates OFF, which
+  # is why every one of them is identical and why none carries a group,
+  # label, or commit-message block: nothing they could style will ever be
+  # opened. See "Security updates need suppressing too" in the header for
+  # why `ignore` is the only option that reaches security updates, and why
+  # the glob is mandatory.
+  #
+  # Adding an ecosystem to DETECTORS without adding it here leaves that
+  # ecosystem's recipes open to the PR flood. test_dependabot_config.py
+  # enforces DETECTORS as a floor so that cannot happen quietly. It cannot
+  # check the converse — no test knows what manifest types GitHub will learn
+  # to parse next — so adding a recipe in a new language means adding an
+  # entry here by hand.
+  #
+  # WHY EACH ENTRY IGNORES `dependabot-cooldown`
+  # --------------------------------------------
+  # zizmor's dependabot-cooldown audit wants every update entry to declare a
+  # `cooldown`, and fails CI at Medium severity when one does not. The risk
+  # it guards is real: without a cooldown Dependabot will propose a release
+  # the moment it is published, which is the window in which a compromised
+  # version is most likely to be live.
+  #
+  # That risk cannot exist for these entries. They open no pull request of
+  # either kind, so there is no adoption to delay — they are strictly safer
+  # than any cooldown the audit would have accepted. Adding `cooldown` here
+  # to satisfy the scanner would mean a third inert key on every entry, and
+  # would make them read like live update streams, which is the exact
+  # misreading the header above exists to prevent.
+  #
+  # The directive sits on the `- package-ecosystem:` line because that is
+  # the line zizmor anchors the finding to. dependabot-cooldown is not in
+  # the org's MANDATORY_CHECKS list, so it is ignorable; a mandatory finding
+  # would have to be fixed rather than silenced. If these entries ever stop
+  # being suppression entries, delete the directives with them — the audit
+  # becomes correct again the moment an entry can open a PR.
+  # ------------------------------------------------------------------------
+
+  - package-ecosystem: "uv" # zizmor: ignore[dependabot-cooldown]
+    directories:
+      - "/"
+      - "**/*"
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 0
+    ignore:
+      - dependency-name: "*"
+
+  - package-ecosystem: "gomod" # zizmor: ignore[dependabot-cooldown]
+    directories:
+      - "/"
+      - "**/*"
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 0
+    ignore:
+      - dependency-name: "*"
+
+  # maven and gradle cover the legacy java/ and kotlin/ trees, which are
+  # outside recipe_manifests.SCAN_ROOTS but well inside Dependabot's `**/*`.
+  # Not placeholders: maven opened #2163 against
+  # java/agents/software-bug-assistant before this entry existed.
+  - package-ecosystem: "maven" # zizmor: ignore[dependabot-cooldown]
+    directories:
+      - "/"
+      - "**/*"
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 0
+    ignore:
+      - dependency-name: "*"
+
+  - package-ecosystem: "gradle" # zizmor: ignore[dependabot-cooldown]
+    directories:
+      - "/"
+      - "**/*"
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 0
+    ignore:
+      - dependency-name: "*"
+
+  - package-ecosystem: "npm" # zizmor: ignore[dependabot-cooldown]
+    directories:
+      - "/"
+      - "**/*"
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 0
+    ignore:
+      - dependency-name: "*"
+
+  # pip and docker have no detector in recipe_manifests, so neither is in
+  # DETECTORS — but both have manifests here: six requirements.txt under
+  # python/agents/, and Dockerfiles across core/ and java/. Suppressed for
+  # the same reason as the rest, before they get a chance to fire.
+  - package-ecosystem: "pip" # zizmor: ignore[dependabot-cooldown]
+    directories:
+      - "/"
+      - "**/*"
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 0
+    ignore:
+      - dependency-name: "*"
+
+  - package-ecosystem: "docker" # zizmor: ignore[dependabot-cooldown]
+    directories:
+      - "/"
+      - "**/*"
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 0
+    ignore:
+      - dependency-name: "*"
+
+  # terraform (89 .tf files, including this repo's own .github/terraform/)
+  # and pre-commit (one recipe config) are a weaker case than the rest:
+  # neither appears in GitHub's dependency-graph supported-ecosystems table,
+  # so neither can raise an alert, so neither can open a SECURITY PR today.
+  # Version updates already need an entry they did not have.
+  #
+  # They are here anyway, because "which ecosystems support alerts" is a
+  # GitHub-side list that grows without notice, and the alternative is
+  # re-deriving that reasoning every time someone adds a manifest. Uniform
+  # suppression costs eight lines and removes the question.
+  - package-ecosystem: "terraform" # zizmor: ignore[dependabot-cooldown]
+    directories:
+      - "/"
+      - "**/*"
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 0
+    ignore:
+      - dependency-name: "*"
+
+  - package-ecosystem: "pre-commit" # zizmor: ignore[dependabot-cooldown]
+    directories:
+      - "/"
+      - "**/*"
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 0
+    ignore:
+      - dependency-name: "*"

@@ -1,5 +1,5 @@
 [project]
-name = "adk-samples-tools"
+name = "adk-recipes-tools"
 version = "0.1.0"
 requires-python = ">=3.11"
 authors = [
@@ -26,11 +26,19 @@ validate = "validate:main"
 # packaging is also imported by .github/scripts/check_recipe_pyproject.py,
 # but that gate injects its own deps via `uv run --with` and does not read
 # this group -- so it is declared here for the test run, not for that gate.
+#
+# ruff is here so that the remedy CI prints actually runs. python-format.yml
+# tells a contributor whose PR just failed to run `uv run ruff format`, and
+# three docs pages repeat that command, but ruff was in no dependency group
+# and absent from uv.lock -- so it died with "Failed to spawn: ruff", leaving
+# a red check and no way forward. CI itself invokes `uvx ruff`, which is why
+# the gap survived this long.
 dev = [
   "pytest>=8",
   "tomlkit>=0.13",
   "ruamel.yaml>=0.18",
   "packaging>=24",
+  "ruff>=0.14",
 ]
 
 [build-system]
@@ -55,6 +63,12 @@ packages = ["tools"]
 
 [tool.ruff]
 line-length = 80
+# NOTE: disagrees with requires-python = ">=3.11" above and with the 3.11
+# floor in AGENTS.md, and should eventually become "py311". The bump is not
+# free: it enables UP017/UP041/I001 on code that is clean today, adding 5 new
+# failures inside the CI-scanned roots (genmedia-for-commerce x4,
+# virtual-tryon x1) and 18 repo-wide. All autofixable, but they land in
+# recipes unrelated to whatever PR bumps this, so it needs its own change.
 target-version = "py310"
 # Resolve first-party imports per recipe, so a package not named `app` is
 # still first-party to its own recipe.
@@ -101,7 +115,19 @@ ignore = [
 # treat it as first-party across the whole repo. Hoisted here so recipe
 # pyproject.toml files no longer need their own [tool.ruff*] block (see the
 # A1 check in .github/workflows/python-validate-recipe.yml).
-known-first-party = ["app"]
+#
+# `__AGENT_PACKAGE__` is the placeholder the make-python-recipe-deployable
+# skill substitutes for a recipe's agent package (`app`, `horizon`,
+# `expense_agent`, ...) when copying a serving template into a recipe. It is a
+# valid Python identifier on purpose, so the template files parse and stay
+# lint-checked in place rather than only after substitution.
+#
+# Without this entry isort reads it as third-party and demands the agent
+# imports be merged into the third-party block — the OPPOSITE of the shape
+# they need once substituted, since `src` (above) makes the real package
+# first-party inside its own recipe. Listing it keeps a template's import
+# order identical to its rendered output's.
+known-first-party = ["app", "__AGENT_PACKAGE__"]
 
 [tool.ruff.format]
 quote-style = "double"
@@ -111,12 +137,16 @@ indent-style = "space"
 # importlib mode avoids sys.path pollution and lets same-named test files
 # coexist across skills without collection collisions.
 addopts = "--import-mode=importlib"
-# Only the repo tooling and skill scripts are tested here. Recipe tests under
-# core/ and contrib/ have their own per-recipe suites (see python-tests.yml).
-# .github/scripts has no tests yet; it is listed so that any added later are
-# collected without a config change. Those scripts gate real PRs (e.g.
-# check_env_vars.py and check_recipe_pyproject.py run in
-# python-validate-recipe.yml) and are currently uncovered.
+# Only the repo tooling, skill scripts and CI helper scripts are tested here.
+# Recipe tests under core/ and contrib/ have their own per-recipe suites (see
+# python-tests.yml).
+#
+# .github/scripts carries its own suite in .github/scripts/tests/, and those
+# scripts earn it: they gate real PRs (check_env_vars.py and
+# check_recipe_pyproject.py run in python-validate-recipe.yml) or act on the
+# repository unattended (close_orphan_dependabot_prs.py,
+# sweep_stale_branches.py, canary_issues.py). Everything there is covered
+# except load_policy.py.
 testpaths = [
   "tools/tests",
   ".agents/skills",

@@ -42,6 +42,7 @@ from horizon.models import (
     SELECTED_MODEL_STATE_KEY,
 )
 from horizon.models.selector import _resolve as _resolve_model
+from horizon.tools import names
 from horizon.tools.skill_reload import (
     BOUND_SKILLS_STATE_KEY,
     bound_skill_catalog,
@@ -217,17 +218,34 @@ async def _grant(args: str, callback_context: Any) -> str:
             lines.append(f"  [{i}] {g.get('tool_name', '?')} {sig}")
         return "\n".join(lines)
 
+    # A shell command reaches the guard chain as bash(command=...),
+    # process(action='spawn', command=...), or process(action='write',
+    # data=...). grant_matches requires an exact (tool_name, signature)
+    # match, so a grant against names.BASH alone leaves the other two
+    # shapes blocked; record one grant per shape.
     result = policy_grant(
         action="grant",
-        tool_name="terminal",
+        tool_name=names.BASH,
         signature={"command": command},
         tool_context=callback_context,
     )
     if not result.get("granted"):
         return f"/grant failed: {result.get('error', 'unknown')}"
+    policy_grant(
+        action="grant",
+        tool_name=names.PROCESS,
+        signature={"command": command},
+        tool_context=callback_context,
+    )
+    policy_grant(
+        action="grant",
+        tool_name=names.PROCESS,
+        signature={"data": command},
+        tool_context=callback_context,
+    )
     if result.get("duplicate"):
-        return f"grant for terminal command={command!r} already active"
-    return f"granted terminal command={command!r} for this session"
+        return f"grant for command={command!r} already active"
+    return f"granted command={command!r} for this session"
 
 
 @register("permissions")

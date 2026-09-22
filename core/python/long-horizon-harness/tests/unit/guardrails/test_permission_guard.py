@@ -112,7 +112,7 @@ async def test_read_only_tool_allowed():
     ctx = _Ctx()
     assert (
         await permission_guard(
-            tool=_Tool("read_file"), args={"path": "x"}, tool_context=ctx
+            tool=_Tool("read"), args={"path": "x"}, tool_context=ctx
         )
         is None
     )
@@ -132,28 +132,22 @@ async def test_load_skill_allowed():
     ctx = _Ctx()
     assert (
         await permission_guard(
-            tool=_Tool("load_skill"), args={"name": "policy"}, tool_context=ctx
-        )
-        is None
-    )
-    assert (
-        await permission_guard(
-            tool=_Tool("load_skill_resource"),
-            args={"name": "policy", "path": "x"},
+            tool=_Tool("load_skill"),
+            args={"skill_name": "policy"},
             tool_context=ctx,
         )
         is None
     )
-
-
-async def test_run_skill_script_still_asks():
-    ctx = _Ctx()
-    result = await permission_guard(
-        tool=_Tool("run_skill_script"),
-        args={"name": "policy"},
-        tool_context=ctx,
+    # The merged tool also covers what used to be a separate
+    # load_skill_resource tool — same name, an extra arg.
+    assert (
+        await permission_guard(
+            tool=_Tool("load_skill"),
+            args={"skill_name": "policy", "resource": "references/x.md"},
+            tool_context=ctx,
+        )
+        is None
     )
-    assert result is not None and result.get("confirmation_required") is True
 
 
 async def test_gws_read_with_fd_dup_and_pipe_allowed():
@@ -166,7 +160,7 @@ async def test_gws_read_with_fd_dup_and_pipe_allowed():
     )
     assert (
         await permission_guard(
-            tool=_Tool("terminal"), args={"command": cmd}, tool_context=ctx
+            tool=_Tool("bash"), args={"command": cmd}, tool_context=ctx
         )
         is None
     )
@@ -178,7 +172,7 @@ async def test_gws_delete_in_chain_still_asks():
     ctx = _Ctx()
     cmd = "gws gmail messages list --params '{}' && gws drive files delete --params '{}'"
     result = await permission_guard(
-        tool=_Tool("terminal"), args={"command": cmd}, tool_context=ctx
+        tool=_Tool("bash"), args={"command": cmd}, tool_context=ctx
     )
     assert result is not None and result.get("confirmation_required") is True
 
@@ -195,7 +189,7 @@ async def test_readonly_diagnostic_with_cd_and_devnull_allowed():
     )
     assert (
         await permission_guard(
-            tool=_Tool("terminal"), args={"command": cmd}, tool_context=ctx
+            tool=_Tool("bash"), args={"command": cmd}, tool_context=ctx
         )
         is None
     )
@@ -206,7 +200,7 @@ async def test_cd_then_destructive_still_asks():
     # segment is gated independently.
     ctx = _Ctx()
     result = await permission_guard(
-        tool=_Tool("terminal"),
+        tool=_Tool("bash"),
         args={"command": "cd /tmp && rm -rf ."},
         tool_context=ctx,
     )
@@ -228,7 +222,7 @@ async def test_sandbox_write_allowed():
     ctx = _Ctx()
     assert (
         await permission_guard(
-            tool=_Tool("write_file"), args={"path": "x"}, tool_context=ctx
+            tool=_Tool("write"), args={"path": "x"}, tool_context=ctx
         )
         is None
     )
@@ -237,7 +231,7 @@ async def test_sandbox_write_allowed():
 async def test_ask_dispatches_confirmation_first_pass():
     ctx = _Ctx()
     result = await permission_guard(
-        tool=_Tool("terminal"),
+        tool=_Tool("bash"),
         args={"command": "bq rm -t x.y"},
         tool_context=ctx,
     )
@@ -252,7 +246,7 @@ async def test_ask_dispatches_confirmation_first_pass():
 async def test_resume_once_runs_without_grant():
     ctx = _Ctx(tool_confirmation=_TC(True, {"outcome": "proceed_once"}))
     result = await permission_guard(
-        tool=_Tool("terminal"), args={"command": "bq rm x"}, tool_context=ctx
+        tool=_Tool("bash"), args={"command": "bq rm x"}, tool_context=ctx
     )
     assert result is None
     assert ctx.state.get(PERMISSION_GRANTS_STATE_KEY) in (None, [])
@@ -261,7 +255,7 @@ async def test_resume_once_runs_without_grant():
 async def test_resume_session_records_grant():
     ctx = _Ctx(tool_confirmation=_TC(True, {"outcome": "proceed_always"}))
     result = await permission_guard(
-        tool=_Tool("terminal"), args={"command": "bq rm x"}, tool_context=ctx
+        tool=_Tool("bash"), args={"command": "bq rm x"}, tool_context=ctx
     )
     assert result is None
     grants = ctx.state[PERMISSION_GRANTS_STATE_KEY]
@@ -274,7 +268,7 @@ async def test_resume_without_outcome_defaults_to_session_grant():
     # so the user isn't re-prompted for the same tool every turn.
     ctx = _Ctx(tool_confirmation=_TC(True, {}))
     result = await permission_guard(
-        tool=_Tool("terminal"), args={"command": "bq rm x"}, tool_context=ctx
+        tool=_Tool("bash"), args={"command": "bq rm x"}, tool_context=ctx
     )
     assert result is None
     grants = ctx.state[PERMISSION_GRANTS_STATE_KEY]
@@ -284,7 +278,7 @@ async def test_resume_without_outcome_defaults_to_session_grant():
 async def test_resume_none_payload_defaults_to_session_grant():
     ctx = _Ctx(tool_confirmation=_TC(True, None))
     result = await permission_guard(
-        tool=_Tool("terminal"), args={"command": "bq rm x"}, tool_context=ctx
+        tool=_Tool("bash"), args={"command": "bq rm x"}, tool_context=ctx
     )
     assert result is None
     assert ctx.state[PERMISSION_GRANTS_STATE_KEY][0]["commandPrefix"] == [
@@ -297,7 +291,7 @@ async def test_resume_always_persists_rule(_env):
         tool_confirmation=_TC(True, {"outcome": "proceed_always_and_save"})
     )
     result = await permission_guard(
-        tool=_Tool("terminal"), args={"command": "bq rm x"}, tool_context=ctx
+        tool=_Tool("bash"), args={"command": "bq rm x"}, tool_context=ctx
     )
     assert result is None
     text = (_env / PERMISSION_OVERLAY_FILENAME).read_text()
@@ -307,7 +301,7 @@ async def test_resume_always_persists_rule(_env):
 async def test_resume_cancel_declines():
     ctx = _Ctx(tool_confirmation=_TC(False, None))
     result = await permission_guard(
-        tool=_Tool("terminal"), args={"command": "bq rm x"}, tool_context=ctx
+        tool=_Tool("bash"), args={"command": "bq rm x"}, tool_context=ctx
     )
     assert result is not None and result.get("permission_denied") is True
 
@@ -315,7 +309,7 @@ async def test_resume_cancel_declines():
 async def test_chained_command_with_unsafe_segment_asks():
     ctx = _Ctx()
     result = await permission_guard(
-        tool=_Tool("terminal"),
+        tool=_Tool("bash"),
         args={"command": "ls && bq rm x"},
         tool_context=ctx,
     )
@@ -335,7 +329,7 @@ async def test_quoted_interpreter_body_not_shredded():
         'sudo python3 -c "import json\nfor r in ranked:\n    print(r); x | y\n"'
     )
     result = await permission_guard(
-        tool=_Tool("terminal"), args={"command": cmd}, tool_context=ctx
+        tool=_Tool("bash"), args={"command": cmd}, tool_context=ctx
     )
     assert result is not None and result.get("confirmation_required") is True
     payload = ctx._requested["payload"]
@@ -351,7 +345,7 @@ async def test_quoted_interpreter_body_not_shredded():
 async def test_chained_duplicate_prefixes_deduped():
     ctx = _Ctx()
     result = await permission_guard(
-        tool=_Tool("terminal"),
+        tool=_Tool("bash"),
         args={"command": "bq rm a && bq rm b"},
         tool_context=ctx,
     )
@@ -366,7 +360,7 @@ async def test_unbalanced_quote_still_asks():
     # shlex-based safety classifier can't parse it and forces an ask — fail-closed.
     ctx = _Ctx()
     result = await permission_guard(
-        tool=_Tool("terminal"),
+        tool=_Tool("bash"),
         args={"command": 'echo " && bq rm secret'},
         tool_context=ctx,
     )
@@ -376,7 +370,7 @@ async def test_unbalanced_quote_still_asks():
 async def test_command_substitution_forces_ask():
     ctx = _Ctx()
     result = await permission_guard(
-        tool=_Tool("terminal"),
+        tool=_Tool("bash"),
         args={"command": "ls $(bq rm x)"},
         tool_context=ctx,
     )
@@ -396,7 +390,7 @@ async def test_bq_query_with_backticks_does_not_prompt():
     # matched them literally and prompted on every read-only query.
     ctx = _Ctx()
     result = await permission_guard(
-        tool=_Tool("terminal"),
+        tool=_Tool("bash"),
         args={"command": _BQ_BACKTICK_QUERY},
         tool_context=ctx,
     )
@@ -410,13 +404,13 @@ async def test_grant_honored_regardless_of_flag_position():
     ctx = _Ctx()
     ctx.state[PERMISSION_GRANTS_STATE_KEY] = [
         {
-            "toolName": "terminal",
+            "toolName": "bash",
             "decision": "allow",
             "commandPrefix": ["bq query"],
         }
     ]
     result = await permission_guard(
-        tool=_Tool("terminal"),
+        tool=_Tool("bash"),
         args={"command": _BQ_BACKTICK_QUERY},
         tool_context=ctx,
     )
@@ -431,7 +425,7 @@ async def test_grant_scope_is_not_widened_by_leading_flags():
     save = _Ctx(tool_confirmation=_TC(True, {"outcome": "proceed_always"}))
     assert (
         await permission_guard(
-            tool=_Tool("terminal"),
+            tool=_Tool("bash"),
             args={
                 "command": "gcloud --project=p compute instances delete vm-1"
             },
@@ -446,7 +440,7 @@ async def test_grant_scope_is_not_widened_by_leading_flags():
     later = _Ctx()
     later.state = save.state
     result = await permission_guard(
-        tool=_Tool("terminal"),
+        tool=_Tool("bash"),
         args={"command": "gcloud --project=p storage rm gs://bucket/obj"},
         tool_context=later,
     )
@@ -460,7 +454,7 @@ async def test_bare_flag_value_is_never_mistaken_for_a_subcommand():
     save = _Ctx(tool_confirmation=_TC(True, {"outcome": "proceed_always"}))
     assert (
         await permission_guard(
-            tool=_Tool("terminal"),
+            tool=_Tool("bash"),
             args={
                 "command": "kubectl --context=prod -n default delete pod web-1"
             },
@@ -479,13 +473,13 @@ async def test_flag_value_cannot_impersonate_a_granted_subcommand():
     ctx = _Ctx()
     ctx.state[PERMISSION_GRANTS_STATE_KEY] = [
         {
-            "toolName": "terminal",
+            "toolName": "bash",
             "decision": "allow",
             "commandPrefix": ["kubectl get"],
         }
     ]
     result = await permission_guard(
-        tool=_Tool("terminal"),
+        tool=_Tool("bash"),
         args={"command": "kubectl -n get delete pod web-1"},
         tool_context=ctx,
     )
@@ -497,10 +491,10 @@ async def test_real_substitution_still_asks_despite_grant():
     # gated command ride along in argument position.
     ctx = _Ctx()
     ctx.state[PERMISSION_GRANTS_STATE_KEY] = [
-        {"toolName": "terminal", "decision": "allow", "commandPrefix": ["ls"]}
+        {"toolName": "bash", "decision": "allow", "commandPrefix": ["ls"]}
     ]
     result = await permission_guard(
-        tool=_Tool("terminal"),
+        tool=_Tool("bash"),
         args={"command": "ls $(bq rm x)"},
         tool_context=ctx,
     )
@@ -514,13 +508,13 @@ async def test_grant_does_not_cover_sudo_escalation():
     ctx = _Ctx()
     ctx.state[PERMISSION_GRANTS_STATE_KEY] = [
         {
-            "toolName": "terminal",
+            "toolName": "bash",
             "decision": "allow",
             "commandPrefix": ["npm install"],
         }
     ]
     result = await permission_guard(
-        tool=_Tool("terminal"),
+        tool=_Tool("bash"),
         args={"command": "sudo npm install evil-pkg"},
         tool_context=ctx,
     )
@@ -534,13 +528,13 @@ async def test_ansi_c_quoting_cannot_hide_substitution_under_a_grant():
     ctx = _Ctx()
     ctx.state[PERMISSION_GRANTS_STATE_KEY] = [
         {
-            "toolName": "terminal",
+            "toolName": "bash",
             "decision": "allow",
             "commandPrefix": ["bq query"],
         }
     ]
     result = await permission_guard(
-        tool=_Tool("terminal"),
+        tool=_Tool("bash"),
         args={"command": r"""bq query $'\'' $(cat /etc/passwd)"""},
         tool_context=ctx,
     )
@@ -559,7 +553,7 @@ async def test_flagged_rule_prefix_still_matches_literally():
 async def test_ask_payload_includes_choices_for_ge():
     ctx = _Ctx()
     await permission_guard(
-        tool=_Tool("terminal"),
+        tool=_Tool("bash"),
         args={"command": "bq rm -t x.y"},
         tool_context=ctx,
     )
@@ -582,7 +576,7 @@ async def test_resume_ge_choice_label_records_session_grant():
         )
     )
     result = await permission_guard(
-        tool=_Tool("terminal"), args={"command": "bq rm x"}, tool_context=ctx
+        tool=_Tool("bash"), args={"command": "bq rm x"}, tool_context=ctx
     )
     assert result is None
     assert ctx.state[PERMISSION_GRANTS_STATE_KEY][0]["commandPrefix"] == [
@@ -596,7 +590,7 @@ async def test_resume_ge_choice_index_maps_to_outcome():
         tool_confirmation=_TC(True, {"choice": "2"})
     )  # index 2 = "Always allow"
     result = await permission_guard(
-        tool=_Tool("terminal"), args={"command": "bq rm x"}, tool_context=ctx
+        tool=_Tool("bash"), args={"command": "bq rm x"}, tool_context=ctx
     )
     assert (
         result is None
@@ -606,7 +600,7 @@ async def test_resume_ge_choice_index_maps_to_outcome():
 async def test_resume_ge_decline_choice_denies():
     ctx = _Ctx(tool_confirmation=_TC(True, {"choice": "Decline"}))
     result = await permission_guard(
-        tool=_Tool("terminal"), args={"command": "bq rm x"}, tool_context=ctx
+        tool=_Tool("bash"), args={"command": "bq rm x"}, tool_context=ctx
     )
     assert result is not None and result.get("permission_denied") is True
 
@@ -616,7 +610,7 @@ async def test_resume_legacy_outcome_key_still_tolerated():
     # deploy) is still mapped, so in-flight confirmations survive a rollout.
     ctx = _Ctx(tool_confirmation=_TC(True, {"outcome": "proceed_once"}))
     result = await permission_guard(
-        tool=_Tool("terminal"), args={"command": "bq rm x"}, tool_context=ctx
+        tool=_Tool("bash"), args={"command": "bq rm x"}, tool_context=ctx
     )
     assert result is None
     assert ctx.state.get(PERMISSION_GRANTS_STATE_KEY) in (None, [])
@@ -630,7 +624,7 @@ async def test_session_grant_recorded_and_reapplied_on_non_dict_state():
     ctx = _Ctx(tool_confirmation=_TC(True, {"outcome": "proceed_always"}))
     ctx.state = state
     first = await permission_guard(
-        tool=_Tool("terminal"), args={"command": "bq rm x"}, tool_context=ctx
+        tool=_Tool("bash"), args={"command": "bq rm x"}, tool_context=ctx
     )
     assert first is None
     assert read_session_grants(state)[0]["commandPrefix"] == ["bq rm"]
@@ -638,7 +632,7 @@ async def test_session_grant_recorded_and_reapplied_on_non_dict_state():
     follow = _Ctx()  # no confirmation supplied
     follow.state = state
     result = await permission_guard(
-        tool=_Tool("terminal"), args={"command": "bq rm x"}, tool_context=follow
+        tool=_Tool("bash"), args={"command": "bq rm x"}, tool_context=follow
     )
     assert result is None  # honored without re-prompting
     assert follow._requested is None
@@ -673,7 +667,7 @@ async def test_find_delete_downgrades_to_ask():
     from horizon.guardrails.permission_rules import DEFAULT_RULES
 
     decision, _deny, _prefixes = _shell_decision(
-        list(DEFAULT_RULES), "terminal", "find / -delete", None
+        list(DEFAULT_RULES), "bash", "find / -delete", None
     )
     assert decision == "ask_user"
 
@@ -683,7 +677,7 @@ async def test_plain_find_still_allows():
     from horizon.guardrails.permission_rules import DEFAULT_RULES
 
     decision, _deny, _ = _shell_decision(
-        list(DEFAULT_RULES), "terminal", "find . -name '*.py'", None
+        list(DEFAULT_RULES), "bash", "find . -name '*.py'", None
     )
     assert decision == "allow"
 
@@ -692,7 +686,7 @@ async def test_redirection_alone_no_longer_asks():
     ctx = _Ctx()
     assert (
         await permission_guard(
-            tool=_Tool("terminal"),
+            tool=_Tool("bash"),
             args={"command": "echo hi > out.txt"},
             tool_context=ctx,
         )
@@ -709,7 +703,7 @@ async def test_grant_overrides_command_safety_ask_next_turn():
     ctx.state = state
     assert (
         await permission_guard(
-            tool=_Tool("terminal"),
+            tool=_Tool("bash"),
             args={"command": "bq rm x"},
             tool_context=ctx,
         )
@@ -719,7 +713,7 @@ async def test_grant_overrides_command_safety_ask_next_turn():
     follow = _Ctx()
     follow.state = state
     result = await permission_guard(
-        tool=_Tool("terminal"), args={"command": "bq rm y"}, tool_context=follow
+        tool=_Tool("bash"), args={"command": "bq rm y"}, tool_context=follow
     )
     assert result is None  # grant covers it — no re-prompt
     assert follow._requested is None
@@ -730,7 +724,7 @@ async def test_yolo_auto_approves_ask():
     ctx = _Ctx()
     ctx.state["approval_mode"] = "yolo"
     result = await permission_guard(
-        tool=_Tool("terminal"),
+        tool=_Tool("bash"),
         args={"command": "sudo apt-get update"},
         tool_context=ctx,
     )
@@ -745,13 +739,13 @@ async def test_yolo_does_not_bypass_deny():
     ctx.state["approval_mode"] = "yolo"
     ctx.state[PERMISSION_GRANTS_STATE_KEY] = [
         {
-            "toolName": "terminal",
+            "toolName": "bash",
             "commandPrefix": ["rm -rf"],
             "decision": "deny",
         }
     ]
     result = await permission_guard(
-        tool=_Tool("terminal"),
+        tool=_Tool("bash"),
         args={"command": "rm -rf /tmp/x"},
         tool_context=ctx,
     )
@@ -786,7 +780,7 @@ async def test_default_approval_mode_still_asks():
     ctx = _Ctx()
     ctx.state["approval_mode"] = "default"
     result = await permission_guard(
-        tool=_Tool("terminal"),
+        tool=_Tool("bash"),
         args={"command": "sudo apt-get update"},
         tool_context=ctx,
     )
@@ -794,27 +788,27 @@ async def test_default_approval_mode_still_asks():
     assert result.get("confirmation_required") is True
 
 
-async def test_delegate_exempt_from_spawn_prompt():
-    # delegate's child self-gates each risky op via resurfacing, so the coarse
-    # spawn-time prompt is dropped.
+async def test_subagent_blocking_call_exempt_from_spawn_prompt():
+    # A blocking call's child self-gates each risky op via resurfacing, so
+    # the coarse spawn-time prompt is dropped.
     ctx = _Ctx()
     assert (
         await permission_guard(
-            tool=_Tool("delegate"), args={"goal": "x"}, tool_context=ctx
+            tool=_Tool("subagent"), args={"goal": "x"}, tool_context=ctx
         )
         is None
     )
     assert ctx._requested is None
 
 
-async def test_agent_exempt_from_spawn_prompt():
+async def test_subagent_background_call_exempt_from_spawn_prompt():
     # Spawning grants the child nothing (its headless guard hard-denies risky ops
     # and surfaces them in the reported result), so the spawn prompt is friction.
     ctx = _Ctx()
     assert (
         await permission_guard(
-            tool=_Tool("agent"),
-            args={"action": "spawn", "goal": "x"},
+            tool=_Tool("subagent"),
+            args={"background": True, "goal": "x"},
             tool_context=ctx,
         )
         is None

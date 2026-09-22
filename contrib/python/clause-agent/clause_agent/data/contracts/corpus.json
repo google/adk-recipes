@@ -1,0 +1,106 @@
+{
+  "documents": [
+    {
+      "doc": "2018_MSA_AcmeCorp.pdf",
+      "customer": "Acme Corp",
+      "effective_date": "2018-03-01",
+      "sections": [
+        {
+          "section": "\u00a77",
+          "doc_type": "body",
+          "tags": ["payment_term"],
+          "text": "Payment terms: Customer shall pay each invoice within 30 days of the invoice date (Net 30)."
+        },
+        {
+          "section": "Exhibit A",
+          "doc_type": "exhibit",
+          "tags": ["customer_id", "billing_entity"],
+          "text": "Customer ID: 100234. Billing Entity: Acme Corporation, 500 Market St, San Francisco, CA."
+        }
+      ]
+    },
+    {
+      "doc": "2025_Renewal_AcmeCorp_ProductX.pdf",
+      "customer": "Acme Corp",
+      "effective_date": "2025-01-15",
+      "sections": [
+        {
+          "section": "\u00a74.2",
+          "doc_type": "renewal",
+          "tags": ["payment_term"],
+          "text": "For Product X, Customer shall have 60 days from the invoice date to pay (Net 60)."
+        },
+        {
+          "section": "\u00a79",
+          "doc_type": "renewal",
+          "tags": ["payment_term", "supersession"],
+          "text": "This Renewal supersedes and overrides all prior payment terms applicable to Product X, including any conflicting terms in the original Master Service Agreement."
+        }
+      ]
+    },
+    {
+      "doc": "2022_MSA_Globex.pdf",
+      "customer": "Globex Inc.",
+      "effective_date": "2022-06-01",
+      "sections": [
+        {
+          "section": "\u00a75",
+          "doc_type": "body",
+          "tags": ["payment_term"],
+          "text": "Payment terms: Customer shall pay each invoice within 45 days of the invoice date (Net 45)."
+        },
+        {
+          "section": "Exhibit B",
+          "doc_type": "exhibit",
+          "tags": ["customer_id", "billing_entity"],
+          "text": "Customer ID: 220987. Billing Entity: Globex Incorporated, 1 Industrial Way, Austin, TX."
+        }
+      ]
+    },
+    {
+      "doc": "2019_MSA_Initech.pdf",
+      "customer": "Initech LLC",
+      "effective_date": "2019-05-10",
+      "sections": [
+        {
+          "section": "\u00a76",
+          "doc_type": "body",
+          "tags": ["payment_term"],
+          "text": "Payment terms: Customer shall pay each invoice within 30 days of the invoice date (Net 30)."
+        },
+        {
+          "section": "Exhibit C",
+          "doc_type": "exhibit",
+          "tags": ["customer_id"],
+          "text": "Customer ID: 331122."
+        }
+      ]
+    },
+    {
+      "doc": "2021_Amendment1_Initech.pdf",
+      "customer": "Initech LLC",
+      "effective_date": "2021-02-01",
+      "sections": [
+        {
+          "section": "\u00a71",
+          "doc_type": "amendment",
+          "tags": ["scope_of_services"],
+          "text": "This Amendment No. 1 expands the scope of services to include quarterly on-site support. It is silent as to payment terms, which are not addressed by this Amendment."
+        }
+      ]
+    },
+    {
+      "doc": "2023_Amendment2_Initech.pdf",
+      "customer": "Initech LLC",
+      "effective_date": "2023-09-12",
+      "sections": [
+        {
+          "section": "\u00a72",
+          "doc_type": "amendment",
+          "tags": ["payment_term", "supersession"],
+          "text": "This Amendment No. 2 reinstates the original 30-day payment term (Net 30) for all products and services, notwithstanding any interim silence in Amendment No. 1, and supersedes any inconsistent interpretation arising therefrom."
+        }
+      ]
+    }
+  ]
+}

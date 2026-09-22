@@ -58,8 +58,8 @@ _FALLBACK_DESCRIPTIONS: dict[str, str] = {
         "Profile from recent sessions."
     ),
     "grant": (
-        "Grant a per-session HITL bypass for a terminal command (no args lists "
-        "active grants)."
+        "Grant a per-session HITL bypass for a shell command — covers bash, "
+        "process spawn, and process write shapes (no args lists active grants)."
     ),
     "model": (
         "Show or switch the root agent model for this session (no args lists "

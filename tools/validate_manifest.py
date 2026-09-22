@@ -31,12 +31,20 @@ Exit codes:
 import argparse
 import difflib
 import json
+import re
 import sys
 from pathlib import Path
 
 import jsonschema
 import yaml
-from ci_message import EXIT_VIOLATIONS, Diagnostic, Doc, guard, report
+from ci_message import (
+    EXIT_VIOLATIONS,
+    Diagnostic,
+    Doc,
+    Severity,
+    guard,
+    report,
+)
 
 REPO_ROOT = Path(__file__).parent.parent
 SCHEMA_PATH = REPO_ROOT / ".github" / "schemas" / "manifest-schema.json"
@@ -664,6 +672,102 @@ def missing_manifest_diagnostic(manifest_path: Path) -> Diagnostic:
     )
 
 
+def inactive_recipes(recipe_dirs: list[Path]) -> list[str]:
+    """Recipes declaring `status: inactive`, as repo-relative paths.
+
+    Read with a regex rather than the YAML parser because this runs after
+    validation and must not raise on a manifest that failed it — a recipe
+    with a broken manifest already has a diagnostic and does not need a
+    traceback on top.
+    """
+    found = []
+    for recipe_dir in recipe_dirs:
+        manifest_path = recipe_dir / MANIFEST_FILENAME
+        try:
+            text = manifest_path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        # No `\r` in the trailing class, and none is needed: read_text()
+        # opens in text mode, so universal-newline translation has already
+        # turned any CRLF into LF before the regex sees it. A test pins that,
+        # because it looks like a bug and invites the same "fix" twice.
+        #
+        # IGNORECASE is deliberate even though the schema enum is lowercase-
+        # only. `status: INACTIVE` fails validation on its own, and matching
+        # it here too tells the author both things at once rather than only
+        # the schema complaint.
+        if re.search(
+            r"""^[ \t]*status:[ \t]*["']?inactive["']?[ \t]*(?:\#.*)?$""",
+            text,
+            re.IGNORECASE | re.MULTILINE,
+        ):
+            found.append(repo_relative(manifest_path.parent))
+    return sorted(found)
+
+
+def report_inactive(recipe_dirs: list[Path]) -> None:
+    """Surface `status: inactive` recipes. Never affects the exit code.
+
+    `status` was a field nothing read: validated for presence and enum, and
+    then ignored by every workflow and generator. That made "retired" a
+    cosmetic edit, and made a recipe that was fixed but never flipped back to
+    `active` indistinguishable from one nobody touched.
+
+    It matters now because inactive is a waypoint to deletion — the recipe
+    canary asks for it on the third consecutive monthly run a recipe fails,
+    and proposes removing the recipe two runs after that. A recipe sitting
+    inactive is on a clock, so anyone running the validator should be told,
+    and a PR touching one gets an annotation asking whether it is being
+    revived.
+
+    Nothing clears the field automatically. The canary has no write access —
+    it asks on the issue and a human applies it, or nobody does — so this
+    notice is the only thing that will ever point out a recipe that was
+    fixed but never flipped back.
+    """
+    inactive = inactive_recipes(recipe_dirs)
+    if not inactive:
+        return
+
+    print("")
+    print(f"[NOTICE] {len(inactive)} recipe(s) marked status: inactive")
+    for rel in inactive:
+        # Routed through Diagnostic rather than printing a `::warning` by
+        # hand: the type is what forces a why, a fix and a doc link to exist,
+        # and tools/tests/test_ci_message.py enforces that nothing bypasses
+        # it. Severity.WARNING keeps it out of the exit code.
+        #
+        # WARNING under a `[NOTICE]` header is not a mismatch: `[NOTICE]` is
+        # the name of the non-blocking channel — see report_advisories() in
+        # ci_message.py, which prints the same header for WARNING-severity
+        # advisories — while the severity picks the annotation colour. A
+        # `::notice` annotation is easy to miss, and a recipe sliding toward
+        # deletion should not be.
+        notice = Diagnostic(
+            check="recipe-inactive",
+            severity=Severity.WARNING,
+            what=f"{rel} is marked `status: inactive`.",
+            why=(
+                "Inactive is a waypoint to deletion, not a parking space. "
+                "The recipe canary asks for it on the third consecutive "
+                "monthly run a recipe fails and proposes removal two runs "
+                "later. Nothing resets the field on its own, so a recipe "
+                "left inactive after it has been fixed still reads as "
+                "abandoned to everyone who looks."
+            ),
+            how=(
+                f"If you are reviving this recipe, set `status: active` in "
+                f"{rel}/{MANIFEST_FILENAME} in the same PR. If you are not, "
+                f"no action is needed — this does not fail the check."
+            ),
+            doc=Doc.RECIPE_INACTIVE,
+            file=f"{rel}/{MANIFEST_FILENAME}",
+        )
+        print(notice.render_human(indent="    "))
+        print(notice.render_annotation())
+    print("")
+
+
 def main(scope: str | None = None) -> int:
     schema = load_schema()
     recipe_dirs = collect_recipe_dirs(scope)
@@ -677,6 +781,8 @@ def main(scope: str | None = None) -> int:
             diagnostics.append(missing_manifest_diagnostic(manifest_path))
         else:
             diagnostics.extend(validate_manifest(manifest_path, schema))
+
+    report_inactive(recipe_dirs)
 
     return report(
         diagnostics,

@@ -91,7 +91,7 @@ def bound_workspace(tmp_path: Path):
 def _agent_with_bind_callback() -> Agent:
     return Agent(
         name="root_agent",
-        model="gemini-3.6-flash",
+        model="gemini-3.7-flash",
         before_agent_callback=[
             skill_reload.bind_session_skills_callback,
             _short_circuit,

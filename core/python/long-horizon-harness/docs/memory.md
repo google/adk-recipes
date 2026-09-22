@@ -7,7 +7,7 @@ debugging memory behavior or lifting the self-improvement loop into another agen
 ## In this doc
 
 - **§1 The managed core** — the ADK-owned `memory_service` + how `PreloadMemoryTool` surfaces hits each turn.
-- **§2 Writing to memory** — the `add_memory` tool, the throttled `auto_capture` flush, content-safety scanning.
+- **§2 Writing to memory** — the `memory` tool, the throttled `auto_capture` flush, content-safety scanning.
 - **§3 The self-improvement loop** — the fire-and-forget review + flush forks via `SiblingAgentPlugin`.
 - **§4 The nightly "dream" pass** — `memories.generate` consolidating the Structured Profile + general memories.
 - **§5 Pre-compaction flush wiring** — `HorizonSummarizer` rescuing facts before old events are summarized away.
@@ -29,7 +29,7 @@ and `horizon/context/summarizer.py`.
 
 > **Where the custom code is.** The store and its consolidation are
 > managed by ADK + Vertex; Horizon owns (a) the **write surface** (the
-> `add_memory` tool + a throttled after-turn flush), (b) a **per-turn
+> `memory` tool + a throttled after-turn flush), (b) a **per-turn
 > background judge fork** that decides what's worth saving without blocking
 > the user's response, (c) a **pre-compaction flush** so facts aren't lost
 > when old turns are summarized away, and (d) the **nightly dream pass**
@@ -68,7 +68,7 @@ search; user profile = once-per-session load, re-rendered each turn.
 
 ## 2. Writing to memory
 
-**`add_memory(content, scope)` tool** (`horizon/memory/add_memory_tool.py`) —
+**`memory(content, scope)` tool** (`horizon/memory/add_memory_tool.py`) —
 the LLM-callable write surface, also in the root agent's `tools`. Two
 scopes: `"user"` (who the user is — name, role, preferences;
 `USER_CHAR_LIMIT = 1375`) and `"agent"` (the agent's own notes — env,
@@ -105,18 +105,18 @@ these.
 
 - **Review fork** (`horizon/memory/review_fork.py`, `after_agent_callback`,
   gated by `LHA_REVIEW_FORK`, throttled). After each turn it hands a
-  restricted Gemini agent (`gemini-3.6-flash`) the conversation as a
+  restricted Gemini agent (`gemini-3.7-flash`) the conversation as a
   `<CONVERSATION>…</CONVERSATION>` snapshot plus a review prompt
   (`horizon/memory/review_prompts.py` — memory-only or combined memory+skill,
   picked by whether the session touched skills). Toolset is whitelisted to
-  `add_memory` + skill read/write (`write_file`/`patch` restricted to
-  `.agents/skills/<name>/…`) + `reload`. Recursion guard is structural: the fork's
+  `memory` + skill read/write (`write`/`edit` restricted to
+  `.agents/skills/<name>/…`) + `load_skill`. Recursion guard is structural: the fork's
   agent has no `after_agent_callback` chain.
 
 - **Flush fork** (`horizon/memory/flush_fork.py`, gated by
   `LHA_PRE_COMPRESS_FLUSH`). Fired by `HorizonSummarizer` (see §5) **right
   before** ADK compacts old events — a sharper sibling whose only tool is
-  `add_memory`, asked to rescue durable user facts before they're discarded
+  `memory`, asked to rescue durable user facts before they're discarded
   into a summary. Not throttled (fires at most once per compaction).
 
 - **Throttling** lives in `horizon/memory/_throttle.py`; `auto_capture` and
@@ -198,7 +198,7 @@ the Structured Profile to the top.
 | Piece | ADK hook / entry point | File |
 |---|---|---|
 | Memory surfaced each turn | `tools=[PreloadMemoryTool()]` → `search_memory` | `horizon/agent.py` |
-| `add_memory` tool | `tools=[add_memory]` | `horizon/memory/add_memory_tool.py` |
+| `memory` tool | `tools=[memory]` | `horizon/memory/add_memory_tool.py` |
 | Post-turn flush | `after_agent_callback` (throttled) | `horizon/memory/auto_capture.py` |
 | Review fork (judge) | `after_agent_callback` (throttled, fire-and-forget) | `horizon/memory/review_fork.py` |
 | Pre-compaction flush | fired by `HorizonSummarizer` (compaction hook) | `horizon/memory/flush_fork.py` |
@@ -225,7 +225,7 @@ the Structured Profile to the top.
   and drained only ~4 s at shutdown; a hard kill (SIGKILL/OOM) before the
   sibling finishes loses that turn's flush. Same caveat as the sandbox
   snapshot path.
-- **Dedup is exact-text only.** `add_memory` / `skill_curator` dedup via an
+- **Dedup is exact-text only.** `memory` / `skill_curator` dedup via an
   exact `search_memory` text match; near-duplicates still write. Real
   dedup/contradiction-handling only happens in the nightly consolidation
   pass.
@@ -251,10 +251,10 @@ Debug by symptom. Each row points at the code that owns the behavior.
 |---|---|---|
 | `## User Profile` block empty / never updates | `dream_review._run_dream_review_for_user`, `LHA_DREAM_REVIEW`; read-back `user_profile.load_user_profile` | The profile is written only by the nightly `memories.generate` pass; `LHA_DREAM_REVIEW=0` makes every path return `{success:false}`, and a non-Vertex service returns `{reason:"structured profiles require Vertex Memory Bank"}`. |
 | Profile still empty on a real Vertex engine | §8 honesty callout (dev engine) | The dev engine (`lha-agent-engine`) 404s on `generate`/`ingest`; only `retrieve` works, so dream writes can't be exercised there. |
-| `add_memory` succeeds but next session surfaces nothing | `auto_capture_callback` + `_throttle.try_claim` (120 s cooldown, 50/session cap, `LHA_FORK_COOLDOWN`) | Surfacing depends on the post-turn flush, which is throttled; `PreloadMemoryTool` only surfaces what was flushed. |
-| Duplicate / near-duplicate memories pile up | `add_memory` exact-text dedup via `search_memory`; nightly consolidation `LHA_MEMORY_CONSOLIDATION` | Dedup is exact-text only; real dedup + contradiction reconciliation happen only in the dream pass. |
+| `memory` succeeds but next session surfaces nothing | `auto_capture_callback` + `_throttle.try_claim` (120 s cooldown, 50/session cap, `LHA_FORK_COOLDOWN`) | Surfacing depends on the post-turn flush, which is throttled; `PreloadMemoryTool` only surfaces what was flushed. |
+| Duplicate / near-duplicate memories pile up | `memory` exact-text dedup via `search_memory`; nightly consolidation `LHA_MEMORY_CONSOLIDATION` | Dedup is exact-text only; real dedup + contradiction reconciliation happen only in the dream pass. |
 | Review / flush fork never runs | `LHA_REVIEW_FORK`, `LHA_PRE_COMPRESS_FLUSH`; `sibling_agent_plugin` (fire-and-forget, ~4 s drain at shutdown) | Both are gated and best-effort; a hard kill (SIGKILL/OOM) before the sibling finishes loses that turn's write. |
-| `add_memory` rejects content | `_content_safety.scan_memory_content` | Memory is replayed into future turns, so invisible-unicode / prompt-injection / exfil patterns are refused at this untrusted-input boundary. |
+| `memory` rejects content | `_content_safety.scan_memory_content` | Memory is replayed into future turns, so invisible-unicode / prompt-injection / exfil patterns are refused at this untrusted-input boundary. |
 | No memory at all in tests/local | `fast_api_app.build_runner` service resolve; `InMemoryMemoryService` vs `VertexAiMemoryBankService` | The whole layer no-ops cleanly when `memory_service is None` or non-Vertex; §4 never runs locally. |
 
 ## Pointers

@@ -25,7 +25,7 @@ export interface HorizonSessionSummary {
   createdAt: number;
   lastUpdated: number;
   source: "user" | "scheduler";
-  jobType: "reminder" | "dream_review" | "routine" | null;
+  jobType: "dream_review" | "routine" | null;
   // The chat's project anchor(s); empty => General. See docs projects design.
   workspaceWindow: string[];
 }

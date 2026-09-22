@@ -27,7 +27,7 @@ from typing import Any
 from uuid import uuid4
 
 from a2a.server.context import ServerCallContext
-from a2a.types import SendMessageRequest
+from a2a.types import Message, Part, SendMessageRequest, Task
 from fastapi import APIRouter, Depends, Request
 from google.adk.a2a import _compat as a2a_compat
 
@@ -36,7 +36,6 @@ from horizon.routines.isolation import HEADLESS_PREAMBLE, routine_isolation
 from horizon.scheduler.auth import verify_cloud_scheduler_token
 from horizon.scheduler.routine_store import RoutineRow, get_routine_store
 from horizon.scheduler.sessions import create_scheduled_session
-from horizon.scheduler.tick_endpoint import _final_text_from_result
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +43,41 @@ router = APIRouter(
     prefix="/scheduler",
     dependencies=[Depends(verify_cloud_scheduler_token)],
 )
+
+
+def _text_from_parts(parts: list[Part] | None) -> str:
+    out: list[str] = []
+    for part in parts or []:
+        if a2a_compat.is_text_part(part):
+            text = a2a_compat.part_text(part).strip()
+            if text:
+                out.append(text)
+    return "\n".join(out)
+
+
+def _final_text_from_result(result: Message | Task) -> str:
+    """Pull the agent's final reply text out of a Message or Task result.
+
+    Inlined here (formerly shared with tick_endpoint.py, deleted with the
+    reminder capability) since this is now the only caller.
+    """
+    if isinstance(result, Message):
+        return _text_from_parts(result.parts)
+    status_message = getattr(result.status, "message", None)
+    if status_message is not None:
+        text = _text_from_parts(status_message.parts)
+        if text:
+            return text
+    for message in reversed(result.history or []):
+        if message.role == a2a_compat.ROLE_AGENT:
+            text = _text_from_parts(message.parts)
+            if text:
+                return text
+    for artifact in result.artifacts or []:
+        text = _text_from_parts(artifact.parts)
+        if text:
+            return text
+    return ""
 
 
 async def _run_routine_turn(

@@ -1,0 +1,6 @@
+product_id,name,price,description,category,brand,image_url,rating,stock
+prod-001,Wireless Headphones,199.99,Premium noise-cancelling over-ear headphones with 30-hour battery,Audio,Sony,,4.5,50
+prod-002,Laptop Stand,49.99,Aluminum adjustable laptop stand with cable management,Accessories,Generic,,4.2,100
+prod-003,USB-C Cable,19.99,6ft braided USB-C to USB-C cable with 100W charging,Cables,Anker,,4.7,200
+prod-004,Mechanical Keyboard,129.99,Compact 75% mechanical keyboard with hot-swappable switches,Peripherals,Keychron,,4.6,30
+prod-005,Monitor Light Bar,59.99,Screen-mounted LED light bar with adjustable color temperature,Lighting,BenQ,,4.4,75

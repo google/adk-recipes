@@ -22,7 +22,7 @@ Adding a model is one entry in ``_MODELS``. Backends build lazily on first
 access, so ``import horizon`` needs no GCP credentials and the ADC project probe
 only runs when a backend that needs it is built. A model with unusual media
 limits or content quirks sets its own ``ModelCapabilities`` — the dispatcher and
-``view_file`` stay backend-agnostic.
+the ``read`` tool's media path stay backend-agnostic.
 """
 
 from __future__ import annotations
@@ -51,13 +51,10 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-# Transient Vertex 429 RESOURCE_EXHAUSTED (and 408/5xx) are retried by the
-# google-genai client when retry_options is set; http_status_codes left unset
-# inherits the SDK's default transient set (408, 429, 500, 502, 503, 504).
-# attempts=6 (5 retries, ~30s of exponential backoff) rides out a transient
-# per-minute quota spike — far more robust than the SDK default of 5 with the
-# ADK docs' attempts=2 example. Sustained exhaustion still needs a quota bump.
-# Reused by the Gemini subagents so robust retry is uniform across every call.
+# http_status_codes left unset inherits the SDK's default transient set
+# (408, 429, 500, 502, 503, 504). attempts=6 (~30s of exponential backoff)
+# rides out a transient per-minute quota spike; sustained exhaustion still
+# needs a quota bump. Reused by the Gemini subagents so retry is uniform.
 ROBUST_RETRY_OPTIONS = types.HttpRetryOptions(
     attempts=6,
     initial_delay=1.0,
@@ -106,7 +103,7 @@ def _priority_tier_enabled() -> bool:
     )
 
 
-def _build_gemini(model_id: str = "gemini-3.6-flash") -> Gemini:
+def _build_gemini(model_id: str = "gemini-3.7-flash") -> Gemini:
     cls = _PriorityGemini if _priority_tier_enabled() else Gemini
     return cls(
         model=model_id,
@@ -114,7 +111,7 @@ def _build_gemini(model_id: str = "gemini-3.6-flash") -> Gemini:
     )
 
 
-DEFAULT_MODEL_NAME: str = "gemini-3.6-flash"
+DEFAULT_MODEL_NAME: str = "gemini-3.7-flash"
 DEFAULT_INPUT_TOKEN_LIMIT: int = 200_000
 
 
@@ -129,12 +126,12 @@ class ModelDescriptor:
 
 # Single source of truth per model. Add a backend = add one entry; capabilities
 # carry the media limits + optional sanitize hook, so neither the dispatcher nor
-# view_file names a concrete backend class. Input-token limits are conservative
-# published context windows (under-estimating only fires compaction slightly
-# earlier, which is safe).
+# the read tool's media path names a concrete backend class. Input-token limits
+# are conservative published context windows (under-estimating only fires
+# compaction slightly earlier, which is safe).
 _MODELS: dict[str, ModelDescriptor] = {
-    "gemini-3.6-flash": ModelDescriptor(
-        build=lambda: _build_gemini("gemini-3.6-flash"),
+    "gemini-3.7-flash": ModelDescriptor(
+        build=lambda: _build_gemini("gemini-3.7-flash"),
         input_token_limit=1_000_000,
         capabilities=GEMINI_CAPABILITIES,
     ),

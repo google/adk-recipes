@@ -1,0 +1,49 @@
+type: "standalone"    # Options: [standalone | module]
+status: "active"      # Options: [active | inactive]
+language: "python"    # Options: [python | java | go | kotlin | typescript]
+description: "Production RAG system with multi-format ingestion, contextual chunking, and hybrid search on GCP"
+
+# large: true — 99 countable files, over the 70-file contrib cap.
+# This is a full-stack reference, not a snippet: 16 Terraform files, a
+# three-service ingestion pipeline (preprocess, chunk-index, KFP orchestrator)
+# and 20 unit-test modules are all required to reproduce the hybrid-search
+# architecture end to end. Splitting it would break the one-command deployable
+# path the recipe exists to demonstrate.
+# 1.8 MB total, well inside the 10 MB large-tier ceiling.
+large: true
+
+architecture:
+  agent: "single"      # Options: [single | multi]
+  stateful: true       # Options: [true | false]
+  datasources:         # Options: [hardcoded | local | external]
+    - "external"
+
+dependencies:
+  libraries:
+    - "ADK"
+    - "FastAPI"
+    - "MCP"
+    - "LangChain text splitters"
+    - "PyMuPDF"
+  services:
+    - "Vertex AI"
+    - "Vertex AI Vector Search"
+    - "BigQuery"
+    - "Cloud Storage"
+    - "Cloud Run"
+    - "Vertex AI Pipelines"
+
+ownership:
+  team: "lspataroG"
+  poc: "lspataroG"
+
+tags:
+  - "rag"
+  - "hybrid-search"
+  - "vector-search"
+  - "document-ingestion"
+  - "multi-format"
+  - "mcp"
+  - "gemini"
+
+license: "Apache-2.0"

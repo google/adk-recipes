@@ -1,0 +1,37 @@
+type: "standalone"
+status: "active"
+language: "python"
+description: "Generates and evaluates images based on text descriptions while ensuring compliance with predefined policies."
+
+deployable: true
+
+architecture:
+  agent: "multi"
+  stateful: true
+  datasources:
+    - "local"
+    - "external"
+
+dependencies:
+  libraries:
+    - "google-generativeai"
+    - "google-adk"
+
+
+ownership:
+  team: "Global AI FDE"
+  poc: "asabbineni"
+  contributors: 
+    - "anushasabbineni1"
+    - "codified-chris"
+
+tags:
+   - "genmedia"
+   - "image-generation"
+   - "llm-auditor"
+   - "multimodal"
+   - "gemini"
+   - "adk"
+   - "veo" 
+
+license: "Apache-2.0" 

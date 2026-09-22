@@ -83,7 +83,7 @@ def _trivial_agent() -> Agent:
     # returns Content before the LLM is reached. Use a placeholder model
     # name to satisfy Agent construction; the model is never invoked
     # because the plugin halts pre-call.
-    return Agent(name="root_agent", model="gemini-3.6-flash")
+    return Agent(name="root_agent", model="gemini-3.7-flash")
 
 
 async def _drive(

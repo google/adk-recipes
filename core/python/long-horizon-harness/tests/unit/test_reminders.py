@@ -26,7 +26,9 @@ from horizon.conversation.reminders import (
     REMINDER_CLOSE,
     REMINDER_OPEN,
     build_budget_reminder,
+    build_environment_reminder,
     build_error_reminder,
+    build_secrets_reminder,
     build_volatile_reminder,
     make_reminder_injection_callback,
 )
@@ -104,6 +106,78 @@ class TestVolatileReminder:
         text = build_volatile_reminder(state={}, always_include_date=True)
         assert text is not None
         assert "today" in text.lower()
+
+
+class TestEnvironmentReminder:
+    def test_wraps_environment_hint_when_present(self, tmp_path):
+        text = build_environment_reminder(tmp_path)
+        assert text is not None
+        assert text.startswith(REMINDER_OPEN) and text.endswith(REMINDER_CLOSE)
+        assert str(tmp_path) in text
+
+
+class TestSecretsReminder:
+    @pytest.mark.asyncio
+    async def test_none_when_no_user_id(self):
+        assert await build_secrets_reminder(None) is None
+
+    @pytest.mark.asyncio
+    async def test_none_when_no_secrets(self):
+        from horizon.secrets import set_secret_store
+        from horizon.secrets.store import SecretManagerStore
+        from tests.unit.test_secret_store import FakeSecretClient
+
+        store = SecretManagerStore(client=FakeSecretClient(), project_id="proj")
+        set_secret_store(store)
+        try:
+            assert await build_secrets_reminder("alice@x") is None
+        finally:
+            set_secret_store(None)
+
+    @pytest.mark.asyncio
+    async def test_wraps_the_secrets_line_when_present(self):
+        from horizon.secrets import set_secret_store
+        from horizon.secrets.store import SecretManagerStore
+        from tests.unit.test_secret_store import FakeSecretClient
+
+        store = SecretManagerStore(client=FakeSecretClient(), project_id="proj")
+        set_secret_store(store)
+        try:
+            await store.set_secret("alice@x", "OPENAI_API_KEY", "sk-secret")
+            text = await build_secrets_reminder("alice@x")
+            assert text is not None
+            assert text.startswith(REMINDER_OPEN) and text.endswith(
+                REMINDER_CLOSE
+            )
+            assert "OPENAI_API_KEY" in text
+            assert "sk-secret" not in text
+        finally:
+            set_secret_store(None)
+
+
+class TestReminderInjectionCallbackIncludesEnvAndSecrets:
+    @pytest.mark.asyncio
+    async def test_env_hint_rides_the_reminder_tail(self):
+        cb = make_reminder_injection_callback(max_iterations=50)
+        req = _request()
+
+        await cb(_ctx({"iteration": 1}), req)
+
+        joined = "\n".join(_reminder_texts(req))
+        assert "Working directory:" in joined
+
+    @pytest.mark.asyncio
+    async def test_static_instruction_still_untouched_by_env_and_secrets(self):
+        # Moving the env hint and secrets line to the tail must not leak
+        # them into system_instruction — that would defeat the whole point
+        # of excluding volatile content from the context-cache fingerprint.
+        cb = make_reminder_injection_callback(max_iterations=50)
+        req = _request()
+        req.config.system_instruction = "STABLE PREFIX"
+
+        await cb(_ctx({"iteration": 1}), req)
+
+        assert req.config.system_instruction == "STABLE PREFIX"
 
 
 class TestFocusReminder:
@@ -235,38 +309,3 @@ class TestReminderInjectionCallback:
             req,
         )
         assert len(req.contents) == before
-
-
-class TestTodosReminder:
-    @pytest.mark.asyncio
-    async def test_todos_render_into_tail_when_folder_non_empty(self, tmp_path):
-        from horizon.environment_context import set_active_environment
-        from horizon.tools.todos import write_todos
-        from tests.unit.test_todos_store import _FsEnv
-
-        set_active_environment(_FsEnv(tmp_path))
-        await write_todos(
-            todos=[{"content": "ship it", "status": "in_progress"}]
-        )
-
-        cb = make_reminder_injection_callback(max_iterations=50)
-        req = _request()
-        await cb(_ctx({"iteration": 1}), req)
-
-        joined = "\n".join(_reminder_texts(req))
-        assert "# Todos" in joined
-        assert "ship it" in joined
-
-    @pytest.mark.asyncio
-    async def test_no_todos_reminder_when_folder_empty(self, tmp_path):
-        from horizon.environment_context import set_active_environment
-        from tests.unit.test_todos_store import _FsEnv
-
-        set_active_environment(_FsEnv(tmp_path))
-
-        cb = make_reminder_injection_callback(max_iterations=50)
-        req = _request()
-        await cb(_ctx({"iteration": 1}), req)
-
-        joined = "\n".join(_reminder_texts(req))
-        assert "# Todos" not in joined

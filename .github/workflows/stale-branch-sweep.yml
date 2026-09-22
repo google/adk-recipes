@@ -1,0 +1,139 @@
+name: Stale Branch Sweep
+
+# Weekly deletion of dead branches on the remote, driven by
+# .github/scripts/sweep_stale_branches.py. Thresholds live in
+# .github/policy.yml under `stale_policy.branches`.
+#
+# Three independent clocks, because "how long since anyone touched it" means
+# very different things depending on how the branch ended:
+#
+#   merged        7d   the work is on main; the branch is a leftover
+#   closed-PR    30d   measured from the CLOSE, since a PR closed last week
+#                      may still be revived however old its commits are
+#   orphan       90d   unmerged with no PR — the only clock that can destroy
+#                      work existing nowhere else, hence the longest
+#
+# Why this is a script and not another actions/stale step
+# -------------------------------------------------------
+# actions/stale's `delete-branch` only removes branches belonging to pull
+# requests IT closes. Nothing off-the-shelf handles a branch with no pull
+# request at all, which is most of what accumulates here.
+#
+# stale-sweep.yml deliberately leaves `delete-branch` off, so every branch
+# it orphans lands here rather than disappearing on close: a pull request
+# auto-closed at 05:00 starts the 30-day closed-PR clock below, which is what
+# makes that workflow's "reopen it, your commits are unaffected" advice true.
+#
+# (dependabot-housekeeping.yml also deletes branches, via `gh pr close
+# --delete-branch`, but only for Dependabot PRs whose target directory is
+# gone. Those are already-dead branches for recipes that no longer exist, so
+# the two never contend for the same branch.)
+#
+# Relationship to the "Automatically delete head branches" repo setting
+# ---------------------------------------------------------------------
+# That setting is enabled, and it makes the 7-day merged clock mostly dead
+# code GOING FORWARD. The clock stays because the setting is not
+# retroactive — branches merged before it was turned on are still present —
+# and because merges performed through the API can bypass it.
+#
+# Recovering a branch deleted in error
+# ------------------------------------
+# The run log and the job summary both record each deleted branch's SHA:
+#
+#   gh api -X POST repos/google/adk-recipes/git/refs \
+#     -f ref="refs/heads/<name>" -f sha="<sha>"
+
+on:
+  schedule:
+    # Mondays 06:00 UTC, an hour after stale-sweep.yml. Ordering matters
+    # because an OPEN pull request is what protects its head and base
+    # branches from this sweep: running afterwards means a PR that workflow
+    # has just closed is already recorded as closed, so its branch starts
+    # the 30-day closed-PR clock this week instead of looking protected for
+    # another seven days.
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "List what would be deleted without deleting it"
+        type: boolean
+        default: false
+      max_delete:
+        description: >-
+          Max branches to delete in one run. Blank uses the policy.yml
+          default. Raise it only after reviewing a dry run.
+        type: string
+        required: false
+        default: ""
+
+# Declared per job. With one job the effective scope is identical, but a job
+# added later would silently inherit `contents: write`. Same shape as
+# dependabot-housekeeping.yml, for zizmor's `excessive-permissions`.
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  sweep-branches:
+    name: Delete stale branches
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      # Deleting a branch is a git-ref write, so this is required by the
+      # DELETE call itself rather than by the checkout below.
+      contents: write
+      # The script reads pull request state to decide what is protected and
+      # how each branch was resolved. Read-only: it never closes anything.
+      pull-requests: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v4
+        with:
+          # The script needs .github/policy.yml and itself, nothing more. It
+          # never shells out to git — every branch fact comes from the API,
+          # so no history is required and a shallow checkout is enough.
+          fetch-depth: 1
+          # This job holds `contents: write` but performs no git operations.
+          # Leaving a push-capable credential in .git/config would be attack
+          # surface for nothing.
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # ratchet:astral-sh/setup-uv@v10.0.1
+        with:
+          # Minimum supported Python version, as in tools-tests.yml.
+          python-version: "3.11"
+
+      - name: Sweep stale branches
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # No GH_REPO: the script derives the repository from
+          # GITHUB_REPOSITORY (always set by Actions) and passes it
+          # explicitly to every `gh` call, so a second spelling of the same
+          # fact would only be another place to get it wrong.
+          #
+          # Both are empty on a scheduled run, hence defaulted below rather
+          # than interpolated straight into the command line.
+          DRY_RUN: ${{ inputs.dry_run }}
+          MAX_DELETE: ${{ inputs.max_delete }}
+        run: |
+          set -euo pipefail
+          args=()
+          if [ "${DRY_RUN:-false}" = "true" ]; then
+            args+=(--dry-run)
+          fi
+          if [ -n "${MAX_DELETE:-}" ]; then
+            args+=(--max-delete "${MAX_DELETE}")
+          fi
+          # `--with pyyaml` rather than a project sync: the script imports
+          # only the standard library plus yaml, so there is nothing to
+          # resolve and no lockfile to read.
+          uv run --no-project --with pyyaml python3 \
+            .github/scripts/sweep_stale_branches.py "${args[@]}"

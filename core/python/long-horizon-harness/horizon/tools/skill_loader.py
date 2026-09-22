@@ -21,10 +21,15 @@ where the agent also authors and curates; built-ins ship with the package at
 ``SkillToolset`` only loads from a single dict, so we walk both roots
 ourselves and let the user side shadow the built-in on name collision.
 
-The returned toolset has ``ListSkillsTool`` dropped — that flips
-``SkillToolset.process_llm_request`` into auto-injecting the
-``<available_skills>`` XML catalog every turn, which is the in-prompt
-skill index we want.
+The returned toolset is a ``HorizonSkillToolset`` (short preamble instead of
+ADK's ~2 KB tutorial) with its ``_tools`` list adjusted: ``ListSkillsTool``
+is dropped — that flips ``process_llm_request`` into auto-injecting the
+``<available_skills>`` XML catalog every turn, which is the in-prompt skill
+index we want — and ADK's ``LoadSkillTool`` / ``LoadSkillResourceTool`` /
+``RunSkillScriptTool`` trio is replaced with horizon's merged
+``LoadSkillTool`` (``load_skill(skill_name)`` for instructions,
+``load_skill(skill_name, resource=...)`` for a bundled file; no successor
+for running a script — use ``bash``).
 """
 
 from __future__ import annotations
@@ -37,7 +42,17 @@ from pathlib import Path
 from typing import Any
 
 from google.adk.skills import load_skill_from_dir, models
-from google.adk.tools.skill_toolset import ListSkillsTool, SkillToolset
+from google.adk.tools.skill_toolset import (
+    ListSkillsTool,
+    LoadSkillResourceTool,
+    RunSkillScriptTool,
+    SkillToolset,
+)
+from google.adk.tools.skill_toolset import (
+    LoadSkillTool as _AdkLoadSkillTool,
+)
+
+from horizon.tools.skill_toolset import HorizonSkillToolset, LoadSkillTool
 
 logger = logging.getLogger(__name__)
 
@@ -183,11 +198,14 @@ def walk_skill_dirs(
 def build_skill_toolset(
     *, user_dir: Path, builtin_dir: Path | None = None
 ) -> SkillToolset:
-    """Construct a ``SkillToolset`` ready to plug into ``Agent(tools=[...])``.
+    """Construct a ``HorizonSkillToolset`` ready to plug into ``Agent(tools=[...])``.
 
     ``ListSkillsTool`` is removed so ADK auto-injects the
     ``<available_skills>`` catalog into the system prompt on every turn —
-    the model never has to spend a round trip on ``list_skills``.
+    the model never has to spend a round trip on ``list_skills``. ADK's
+    ``LoadSkillTool`` / ``LoadSkillResourceTool`` / ``RunSkillScriptTool``
+    are replaced with horizon's merged ``LoadSkillTool`` (see
+    ``horizon.tools.skill_toolset``).
     """
     resolved_builtin = (
         builtin_dir if builtin_dir is not None else builtin_skills_root()
@@ -195,8 +213,19 @@ def build_skill_toolset(
     skills_dict = walk_skill_dirs(
         user_dir=user_dir, builtin_dir=resolved_builtin
     )
-    toolset = SkillToolset(skills=list(skills_dict.values()))
+    toolset = HorizonSkillToolset(skills=list(skills_dict.values()))
     toolset._tools = [
-        t for t in toolset._tools if not isinstance(t, ListSkillsTool)
+        t
+        for t in toolset._tools
+        if not isinstance(
+            t,
+            (
+                ListSkillsTool,
+                _AdkLoadSkillTool,
+                LoadSkillResourceTool,
+                RunSkillScriptTool,
+            ),
+        )
     ]
+    toolset._tools.append(LoadSkillTool(toolset))
     return toolset

@@ -114,8 +114,8 @@ async def test_delegate_defaults_when_optional_args_omitted(
     """``context``, ``toolsets``, ``skills``, ``timeout_s`` all optional;
     omitting them must produce a working child built with defaults."""
     from horizon.subagents import delegate as delegate_mod
-    from horizon.tools.file_ops import read_file
-    from horizon.tools.processes.terminal import terminal
+    from horizon.tools.processes.terminal import bash
+    from horizon.tools.read import ReadTool
 
     captured: dict[str, Any] = {}
 
@@ -137,9 +137,9 @@ async def test_delegate_defaults_when_optional_args_omitted(
     result = await delegate_mod.delegate(goal="do X")
 
     assert result["status"] == "completed"
-    # Default toolsets = file + shell.
-    assert read_file in captured["tools"]
-    assert terminal in captured["tools"]
+    # Default toolsets = file + shell. read_file/view_file were merged into ReadTool.
+    assert any(isinstance(t, ReadTool) for t in captured["tools"])
+    assert bash in captured["tools"]
     # Default timeout is 120s.
     assert captured["timeout_s"] == 120
 
@@ -280,8 +280,8 @@ async def test_delegate_tools_list_merges_with_toolsets(
     """``tools=[...]`` adds to the resolved tool list alongside toolsets,
     deduplicated."""
     from horizon.subagents import delegate as delegate_mod
-    from horizon.tools.file_ops import read_file
-    from horizon.tools.processes.terminal import terminal
+    from horizon.tools.processes.terminal import bash
+    from horizon.tools.read import ReadTool
 
     captured: dict[str, Any] = {}
 
@@ -299,11 +299,14 @@ async def test_delegate_tools_list_merges_with_toolsets(
 
     monkeypatch.setattr(delegate_mod, "run_delegate", fake_run_delegate)
     await delegate_mod.delegate(
-        goal="x", toolsets=["file"], tools=["terminal", "read_file"]
+        goal="x", toolsets=["file"], tools=["bash", "read"]
     )
-    assert terminal in captured["tools"]
-    assert read_file in captured["tools"]
-    assert sum(1 for t in captured["tools"] if t is read_file) == 1
+    assert bash in captured["tools"]
+    # read_file/view_file were merged into ReadTool; requesting it by its
+    # current tool name ("read") resolves to the same ReadTool instance
+    # the "file" toolset already carries, so it must not be duplicated.
+    read_tools = [t for t in captured["tools"] if isinstance(t, ReadTool)]
+    assert len(read_tools) == 1
 
 
 async def test_delegate_unknown_tool_returns_structured_error(

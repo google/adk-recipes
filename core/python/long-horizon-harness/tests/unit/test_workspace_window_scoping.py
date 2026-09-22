@@ -26,7 +26,7 @@ from horizon.workspace_window import WORKSPACE_WINDOW_STATE_KEY
 
 
 class _Ctx:
-    """Minimal tool_context exposing .state, mirroring how terminal reads it."""
+    """Minimal tool_context exposing .state, mirroring how bash reads it."""
 
     def __init__(self, state: dict[str, Any]) -> None:
         self.state = state
@@ -44,35 +44,6 @@ def workspace(tmp_path: Path) -> Path:
 
 def _run(coro):
     return asyncio.run(coro)
-
-
-def test_repo_overview_windowed_excludes_other_project(workspace):
-    from horizon.tools.repo_overview import repo_overview
-
-    ctx = _Ctx({WORKSPACE_WINDOW_STATE_KEY: ["projA"]})
-    result = _run(repo_overview(tool_context=ctx))
-    assert result["success"]
-    overview = result["overview"]
-    assert "a.py" in overview
-    assert "b.py" not in overview
-
-
-def test_repo_overview_scope_workspace_sees_both(workspace):
-    from horizon.tools.repo_overview import repo_overview
-
-    ctx = _Ctx({WORKSPACE_WINDOW_STATE_KEY: ["projA"]})
-    result = _run(repo_overview(scope="workspace", tool_context=ctx))
-    assert result["success"]
-    assert "projA" in result["overview"]
-    assert "projB" in result["overview"]
-
-
-def test_repo_overview_no_window_unchanged(workspace):
-    from horizon.tools.repo_overview import repo_overview
-
-    result = _run(repo_overview(tool_context=_Ctx({})))
-    assert result["success"]
-    assert "projA" in result["overview"] and "projB" in result["overview"]
 
 
 def test_search_files_windowed_only_matches_window(workspace):
@@ -97,10 +68,10 @@ def test_search_files_scope_workspace_matches_all(workspace):
 
 
 def test_write_then_read_relative_lands_in_window(workspace):
-    from horizon.tools.file_ops import read_file, write_file
+    from horizon.tools.file_ops import read_file, write
 
     ctx = _Ctx({WORKSPACE_WINDOW_STATE_KEY: ["projA"]})
-    res = _run(write_file("note.md", "hello", tool_context=ctx))
+    res = _run(write("note.md", "hello", tool_context=ctx))
     assert res["success"]
     assert (workspace / "projA" / "note.md").read_text() == "hello"
     back = _run(read_file("note.md", tool_context=ctx))
@@ -117,19 +88,25 @@ def test_read_slash_path_escapes_window(workspace):
 
 
 def test_no_window_relative_unchanged(workspace):
-    from horizon.tools.file_ops import read_file, write_file
+    from horizon.tools.file_ops import read_file, write
 
-    res = _run(write_file("top.md", "x", tool_context=_Ctx({})))
+    res = _run(write("top.md", "x", tool_context=_Ctx({})))
     assert res["success"]
     assert (workspace / "top.md").read_text() == "x"
     assert _run(read_file("top.md", tool_context=_Ctx({})))["success"]
 
 
-def test_view_file_relative_lands_in_window(workspace):
-    from horizon.tools.view_file import ViewFileTool
+def test_media_read_relative_lands_in_window(workspace):
+    # view_file was merged into ReadTool. as_media was later dropped when
+    # the parameter space was minimized, so the
+    # media branch is now reached only by auto-detection on MIME type, so
+    # this uses a real PNG rather than forcing the path with a kwarg that
+    # no longer exists. Same resolve_in_window scoping either way.
+    from horizon.tools.read import ReadTool
 
-    (workspace / "projA" / "doc.txt").write_text("alpha-doc")
-    (workspace / "projB" / "doc.txt").write_text("beta-doc")
+    png_bytes = b"\x89PNG\r\n\x1a\n" + b"\x00" * 16
+    (workspace / "projA" / "doc.png").write_bytes(png_bytes)
+    (workspace / "projB" / "doc.png").write_bytes(png_bytes * 2)
 
     class _ToolCtx:
         def __init__(self, state):
@@ -140,35 +117,33 @@ def test_view_file_relative_lands_in_window(workspace):
             return 0
 
     ctx = _ToolCtx({WORKSPACE_WINDOW_STATE_KEY: ["projA"]})
-    res = _run(
-        ViewFileTool().run_async(args={"path": "doc.txt"}, tool_context=ctx)
-    )
+    res = _run(ReadTool().run_async(args={"path": "doc.png"}, tool_context=ctx))
     assert res["success"]
-    # Resolved to projA/doc.txt, not projB/doc.txt.
-    assert res["size_bytes"] == len("alpha-doc")
+    # Resolved to projA/doc.png, not projB/doc.png.
+    assert res["size_bytes"] == len(png_bytes)
 
 
 def test_first_write_into_subdir_seeds_window(workspace):
-    from horizon.tools.file_ops import write_file
+    from horizon.tools.file_ops import write
 
     ctx = _Ctx({})
-    _run(write_file("projA/out.md", "x", tool_context=ctx))
+    _run(write("projA/out.md", "x", tool_context=ctx))
     assert ctx.state[WORKSPACE_WINDOW_STATE_KEY] == ["projA"]
 
 
 def test_root_level_write_does_not_seed(workspace):
-    from horizon.tools.file_ops import write_file
+    from horizon.tools.file_ops import write
 
     ctx = _Ctx({})
-    _run(write_file("top.md", "x", tool_context=ctx))
+    _run(write("top.md", "x", tool_context=ctx))
     assert ctx.state.get(WORKSPACE_WINDOW_STATE_KEY) in (None, [])
 
 
 def test_existing_window_not_overridden_by_write(workspace):
-    from horizon.tools.file_ops import write_file
+    from horizon.tools.file_ops import write
 
     ctx = _Ctx({WORKSPACE_WINDOW_STATE_KEY: ["projA"]})
     # With window projA, "projB/out.md" resolves UNDER projA (relative join),
     # so it lands at projA/projB/out.md — the window is not overridden.
-    _run(write_file("projB/out.md", "x", tool_context=ctx))
+    _run(write("projB/out.md", "x", tool_context=ctx))
     assert ctx.state[WORKSPACE_WINDOW_STATE_KEY] == ["projA"]

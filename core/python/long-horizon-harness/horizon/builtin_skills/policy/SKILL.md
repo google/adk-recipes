@@ -1,8 +1,8 @@
 ---
 name: policy
-description: Inspect and edit the per-workspace tool-policy overlay (.lha/policies.jsonl) that gates destructive or sensitive tool calls.
+description: Inspect the per-workspace tool-policy overlay (.lha/policies.jsonl) that gates destructive or sensitive tool calls, and tell the user what to change if they want a rule added or removed.
 ---
-# Manage per-workspace tool policies
+# Inspect per-workspace tool policies
 
 The `policies_guard` callback consults a JSONL policy file on every tool
 call. Policies live in two layers:
@@ -15,21 +15,27 @@ call. Policies live in two layers:
   `chmod -R` — those are now classified by an **argv-structural parser**
   (`horizon/guardrails/command_safety.py`) that lexes the command into tokens and
   inspects structure instead of pattern-matching raw strings.
-- **User overlay** at `.lha/policies.jsonl` under the workspace
-  root. This is the file you edit. The overlay is **appended** to
-  the seed — new rules add restrictions on top of the defaults.
-  Mtime-cached, so edits take effect on the next tool call.
+- **User overlay** at `.lha/policies.jsonl` under the workspace root. The
+  overlay is **appended** to the seed — new rules add restrictions on top of
+  the defaults. Mtime-cached, so edits take effect on the next tool call. You
+  can read this file, but **you cannot write it**: `.lha/*` and `*/.lha/*`
+  are themselves hard-denied destructive-path patterns for `write` and
+  `edit`, and the same paths are hard-denied for `bash` (append, `sed -i`,
+  `cp`/`mv`, `rm`, `chmod` into `.lha/` all match a seed
+  `destructive_commands_regex` rule). This is by design — see
+  `docs/security-model.md` — the agent cannot self-edit its own guard config.
 
 ## When to use this skill
 
-- The user asks you to block a specific command or path pattern.
 - The user asks what policies are currently in force.
-- The user asks you to relax (remove) an overlay rule they added
-  earlier — you cannot remove seed rules; only the overlay can be
-  edited.
+- The user asks you to block a specific command or path pattern, or to
+  relax (remove) an overlay rule — in both cases you inspect the current
+  file and hand the user the exact change to make; you do not make it
+  yourself.
 
-If the user is asking about a *one-time* approval for a blocked
-call, they want `policy_grant`, not this skill.
+If the user is asking about a *one-time* approval for a call that was just
+blocked, tell them to type `/grant <command>` themselves — that slash command
+is a user-only surface, not something you can invoke.
 
 ## File format
 
@@ -82,68 +88,57 @@ per-session state, not persisted.
 Permission rules in `.lha/permissions.jsonl` or granted via the interactive
 approval card may include a `commandPrefix`, `commandRegex`, or `argsPattern`
 to narrow blanket `allow` rules. **Overlay and grant rules** (source =
-`"overlay"` or `"grant"`) that target `terminal` or `process` but carry no
+`"overlay"` or `"grant"`) that target `bash` or `process` but carry no
 such narrowing field are **rejected** at load time — you cannot grant a blanket
-"always allow terminal" from the overlay or a session approval; only the
+"always allow bash" from the overlay or a session approval; only the
 default seed may carry that. This prevents accidental over-granting.
 
 ## Integration with the permission layer
 
-A policy block returns `{"error": ..., "confirmation_required": True}`. The
-agent should either narrow the call, ask the user, or — if the user explicitly
-approves — record a session grant via `policy_grant`.
-
-To force a *prompt* (not a hard block) or block a specific command for the
-user, use the permission layer instead: add an `ask_user` or `deny` rule to
-`.lha/permissions.jsonl` (see `docs/permission-model.md`). This overlay is
-hard-block only.
+A policy block returns `{"error": ..., "confirmation_required": True}`. Tell
+the user why the call was blocked; if they want a one-time approval, they
+type `/grant <command>` themselves. To force a *prompt* (not a hard block) or
+block a specific command for the user, use the permission layer instead: add
+an `ask_user` or `deny` rule to `.lha/permissions.jsonl` (see
+`docs/permission-model.md`). This overlay is hard-block only, and it lives
+under the same `.lha/` write restriction as the policy overlay — the user
+edits it directly, not you.
 
 ## Workflow
 
-### 1. List active rules
+### List active rules
 
 ```
-read_file(".lha/policies.jsonl")
+read(".lha/policies.jsonl")
 ```
 
-If the file does not exist, the user has no overlay rules yet — only
-the seed is active. To see the seed too:
+If the file does not exist, the user has no overlay rules yet — only the
+seed is active. The seed itself lives outside the workspace and is not
+readable through your tools; describe its coverage from this skill's own
+"Default seed" section above instead of trying to read it.
+
+### The user wants a rule added
+
+Read the current overlay so your suggestion appends correctly, then give the
+user the exact line to add themselves — you cannot write `.lha/policies.jsonl`.
 
 ```
-read_file("horizon/guardrails/default_policies.jsonl")
-```
-
-### 2. Add a rule
-
-Read the existing overlay, append the new JSON object as one line,
-write the whole file back. Always end the file with a trailing
-newline.
-
-```
-existing = read_file(".lha/policies.jsonl")   # may be missing → treat as ""
-new_rule = {"canonical_tool_name": "terminal",
+existing = read(".lha/policies.jsonl")   # may be missing → treat as ""
+new_rule = {"canonical_tool_name": "bash",
             "destructive_commands": {"command": ["rm -rf node_modules"]}}
-body = (existing.rstrip("\n") + "\n" if existing else "") + json.dumps(new_rule) + "\n"
-write_file(".lha/policies.jsonl", body)
 ```
 
-If the parent `.lha/` directory does not exist, `write_file` will
-create it.
+Tell the user: "Add this line to `.lha/policies.jsonl` (create the file if it
+doesn't exist yet, one JSON object per line):" followed by
+`json.dumps(new_rule)`.
 
-### 3. Remove a rule
+### The user wants a rule removed
 
-Read the overlay, drop the targeted line (0-based index into the
-overlay, ignoring blank/comment lines), write back. Confirm the
-target with the user before removing — overlay rules typically exist
-because the user (or you on the user's behalf) added them to plug a
-gap.
-
-```
-lines = [l for l in read_file(".lha/policies.jsonl").splitlines()
-         if l.strip() and not l.lstrip().startswith("#")]
-removed = lines.pop(target_index)
-write_file(".lha/policies.jsonl", "\n".join(lines) + ("\n" if lines else ""))
-```
+Read the overlay, identify the line to drop (0-based index into the overlay,
+ignoring blank/comment lines), and tell the user which line number and
+content to delete from `.lha/policies.jsonl`. Confirm the target with them
+first — overlay rules typically exist because they (or you on their behalf)
+added them to plug a gap.
 
 ## Worked example
 
@@ -152,17 +147,17 @@ User: "Block `npm publish` from the terminal."
 1. Read `.lha/policies.jsonl` (returns "" if missing).
 2. Build:
    ```json
-   {"canonical_tool_name": "terminal", "destructive_commands": {"command": ["npm publish"]}}
+   {"canonical_tool_name": "bash", "destructive_commands": {"command": ["npm publish"]}}
    ```
-3. Append it as a new line and write the file back.
-4. Confirm with the user: "Added a rule blocking `npm publish` from
-   `terminal`. The next attempt will be blocked until the rule is
-   removed."
+3. Tell the user: "I can't edit `.lha/policies.jsonl` myself — add this line
+   to it (create the file if needed):" followed by the JSON above. "Once
+   saved, the next `npm publish` attempt will be blocked."
 
 ## Notes
 
-- Do not edit `horizon/guardrails/default_policies.jsonl` — it's the
-  shipped seed and is read-only from the agent's perspective.
-- Malformed JSONL fails closed at parse time (the bad line is
-  skipped with a warning) — but always double-check your rule
-  parses by reading the file back after writing.
+- The default seed is read-only and out of your reach either way — you
+  cannot edit it, and it lives outside the workspace root so you cannot
+  read it through your tools.
+- Malformed JSONL fails closed at parse time (the bad line is skipped with
+  a warning) — tell the user to double-check a new rule parses by reading
+  the file back after they save it.

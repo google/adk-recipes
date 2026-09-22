@@ -23,7 +23,6 @@ import uuid
 from collections import defaultdict
 
 from a2a.server.agent_execution import RequestContext
-from a2a.server.tasks.task_updater import TaskUpdater
 from google.adk.a2a import _compat as a2a_compat
 from google.adk.a2a.converters import part_converter
 from google.adk.a2a.executor.a2a_agent_executor import (
@@ -39,6 +38,7 @@ from google.adk.events.event_actions import EventActions
 from google.adk.runners import Runner
 
 from horizon.a2a.user_converter import request_converter
+from horizon.tools.names import ARTIFACT, CLARIFY
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +64,8 @@ _GE_LABEL_KEY = "lha_ge_label"
 # parts are interaction prompts (not chips) the web matches by exact name, so
 # they keep their flat names. Mirrored in web/lib/horizon-events.ts.
 _GE_TOOL_NAME_PREFIX = "horizon__"
-_FRAMEWORK_TOOL_NAMES = {"clarify", "adk_request_confirmation"}
+# "adk_request_confirmation" is an ADK framework literal, not a horizon tool.
+_FRAMEWORK_TOOL_NAMES = {CLARIFY, "adk_request_confirmation"}
 
 # The model invents [text](attachment://name) / [text](sandbox:/name) links for
 # saved artifacts (the real signed URL is redacted from its view). No client
@@ -168,7 +169,7 @@ def _surface_artifact_links(a2a_events: list, task_id, context_id) -> list:
             continue
         for p in art.parts or []:
             data = _tool_data(p)
-            if not data or data.get("name") != "artifact":
+            if not data or data.get("name") != ARTIFACT:
                 continue
             resp = data.get("response") or {}
             url = resp.get("url")
@@ -352,15 +353,6 @@ class _TaskTrackingExecutor(A2aAgentExecutor):
         self._session_locks: dict[tuple[str, str, str], asyncio.Lock] = (
             defaultdict(asyncio.Lock)
         )
-
-    async def cancel(self, context: RequestContext, event_queue) -> None:
-        # ADK's A2aAgentExecutor.cancel raises NotImplementedError, which aborts
-        # a2a's on_cancel_task before it cancels the producer task. Emit a
-        # terminal `canceled` status so on_cancel_task proceeds; it then cancels
-        # the producer, raising CancelledError into our running execute() —
-        # already handled, and the shielded _mark_task_done clears the flag.
-        updater = TaskUpdater(event_queue, context.task_id, context.context_id)
-        await updater.cancel()
 
     async def execute(self, context: RequestContext, event_queue):
         runner = await self._resolve_runner()

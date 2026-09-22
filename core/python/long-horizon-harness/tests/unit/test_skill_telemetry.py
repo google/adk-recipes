@@ -23,9 +23,9 @@ Shape (per skill name):
 
 The callback dispatches on the tool name:
 
-* ``load_skill`` / ``load_skill_resource`` (ADK's SkillToolset) → bumps
-  ``views`` keyed on ``args['skill_name']``.
-* ``write_file`` / ``patch`` with a ``.agents/skills/<name>/...`` path → bumps
+* ``load_skill`` (a skill's instructions, or one of its bundled resource
+  files via ``resource=``) → bumps ``views`` keyed on ``args['skill_name']``.
+* ``write`` / ``edit`` with a ``.agents/skills/<name>/...`` path → bumps
   ``manages`` keyed on ``<name>``.
 
 Cross-session lifecycle facts go through Memory Bank via the curator pass.
@@ -70,7 +70,7 @@ def test_module_exposes_callback_and_state_key():
 
 
 # =============================================================================
-# View counter — load_skill / load_skill_resource
+# View counter — load_skill (instructions, and with resource=)
 # =============================================================================
 
 
@@ -96,7 +96,9 @@ class TestSkillView:
         assert _is_iso_timestamp(telem["git-rebase"]["last_used"])
 
     @pytest.mark.asyncio
-    async def test_load_skill_resource_also_counts_as_view(self):
+    async def test_load_skill_with_resource_also_counts_as_view(self):
+        """load_skill also covers what used to be a separate
+        load_skill_resource tool — same tool name, an extra arg."""
         from horizon.memory.skill_telemetry import (
             SKILL_TELEMETRY_STATE_KEY,
             skill_telemetry_callback,
@@ -104,10 +106,10 @@ class TestSkillView:
 
         ctx = _fake_context()
         await skill_telemetry_callback(
-            tool=SimpleNamespace(name="load_skill_resource"),
+            tool=SimpleNamespace(name="load_skill"),
             args={
                 "skill_name": "git-rebase",
-                "file_path": "references/notes.md",
+                "resource": "references/notes.md",
             },
             tool_response={"skill_name": "git-rebase", "content": "..."},
             tool_context=ctx,
@@ -156,7 +158,7 @@ class TestSkillView:
 
 
 # =============================================================================
-# Manage counter — write_file / patch on .agents/skills/<name>/...
+# Manage counter — write / edit on .agents/skills/<name>/...
 # =============================================================================
 
 
@@ -170,7 +172,7 @@ class TestSkillManage:
 
         ctx = _fake_context()
         await skill_telemetry_callback(
-            tool=SimpleNamespace(name="write_file"),
+            tool=SimpleNamespace(name="write"),
             args={
                 "path": ".agents/skills/git-rebase/SKILL.md",
                 "content": "...",
@@ -196,7 +198,7 @@ class TestSkillManage:
 
         ctx = _fake_context()
         await skill_telemetry_callback(
-            tool=SimpleNamespace(name="patch"),
+            tool=SimpleNamespace(name="edit"),
             args={
                 "path": ".agents/skills/git-rebase/SKILL.md",
                 "old_string": "a",
@@ -221,7 +223,7 @@ class TestSkillManage:
 
         ctx = _fake_context()
         await skill_telemetry_callback(
-            tool=SimpleNamespace(name="write_file"),
+            tool=SimpleNamespace(name="write"),
             args={
                 "path": ".agents/skills/git-rebase/references/cheatsheet.md",
                 "content": "...",
@@ -243,13 +245,12 @@ class TestSkillManage:
 
         ctx = _fake_context()
         await skill_telemetry_callback(
-            tool=SimpleNamespace(name="patch"),
+            tool=SimpleNamespace(name="edit"),
             args={
                 "path": ".agents/skills/git-rebase/SKILL.md",
-                "old_string": "x",
-                "new_string": "y",
+                "edits": [{"oldText": "x", "newText": "y"}],
             },
-            tool_response={"success": False, "error": "old_string not found."},
+            tool_response={"success": False, "error": "oldText not found."},
             tool_context=ctx,
         )
 
@@ -267,7 +268,7 @@ class TestSkillManage:
 
         ctx = _fake_context()
         await skill_telemetry_callback(
-            tool=SimpleNamespace(name="write_file"),
+            tool=SimpleNamespace(name="write"),
             args={"path": "reports/q3.md", "content": "..."},
             tool_response={"success": True},
             tool_context=ctx,
@@ -280,7 +281,7 @@ class TestSkillManage:
 
     @pytest.mark.asyncio
     async def test_write_to_skills_root_with_no_skill_name_is_ignored(self):
-        """``write_file('.agents/skills/README.md', ...)`` has no ``<name>/`` after
+        """``write('.agents/skills/README.md', ...)`` has no ``<name>/`` after
         the prefix — there's no skill to attribute it to."""
         from horizon.memory.skill_telemetry import (
             SKILL_TELEMETRY_STATE_KEY,
@@ -289,7 +290,7 @@ class TestSkillManage:
 
         ctx = _fake_context()
         await skill_telemetry_callback(
-            tool=SimpleNamespace(name="write_file"),
+            tool=SimpleNamespace(name="write"),
             args={"path": ".agents/skills/README.md", "content": "..."},
             tool_response={"success": True},
             tool_context=ctx,
@@ -322,7 +323,7 @@ class TestMultipleSkills:
             tool_context=ctx,
         )
         await skill_telemetry_callback(
-            tool=SimpleNamespace(name="write_file"),
+            tool=SimpleNamespace(name="write"),
             args={"path": ".agents/skills/skill-b/SKILL.md", "content": "..."},
             tool_response={"success": True},
             tool_context=ctx,
@@ -350,7 +351,7 @@ class TestMultipleSkills:
                 tool_context=ctx,
             )
         await skill_telemetry_callback(
-            tool=SimpleNamespace(name="patch"),
+            tool=SimpleNamespace(name="edit"),
             args={
                 "path": ".agents/skills/git-rebase/SKILL.md",
                 "old_string": "a",
@@ -386,7 +387,7 @@ class TestNonSkillTools:
             tool_context=ctx,
         )
         await skill_telemetry_callback(
-            tool=SimpleNamespace(name="terminal"),
+            tool=SimpleNamespace(name="bash"),
             args={"command": "ls"},
             tool_response={"exit_code": 0, "stdout": "foo"},
             tool_context=ctx,

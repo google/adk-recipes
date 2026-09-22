@@ -14,7 +14,7 @@
 
 """Shared path-under-root resolver for tools that operate on the env root.
 
-``file_ops``, ``terminal``, and ``processes.terminal`` all need the same
+``file_ops``, ``bash``, and ``processes.terminal`` all need the same
 trust-boundary check: resolve a possibly-relative path against the
 active environment's ``working_dir`` and reject anything that escapes
 via ``..`` or absolute paths outside the root. Each caller wraps the

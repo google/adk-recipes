@@ -1,6 +1,6 @@
 ---
 name: bootstrap-google-tools
-description: Install and authenticate, on demand, the CLIs the sandbox does not prebake — Node/npm, `gws` (Google Workspace), `gcloud`, `agents-cli` (call remote A2A/ADK agents), and `mcp-cli` (use MCP-server tools). Use this whenever one of those tools is needed but missing (a `node`/`npm`/`gws`/`gcloud`/`agents-cli`/`mcp-cli` command returns "command not found"), or before starting any task that requires one — Google Workspace work (Drive, Gmail, Sheets, Calendar, Chat), GCP via `gcloud`, calling another agent deployed remotely over HTTP (Cloud Run or Vertex Agent Runtime), or using tools exposed by an MCP server. Setup only (install + config + headless auth); each tool's own usage lives in its own skill(s).
+description: Install/auth CLIs the sandbox lacks - `gws` (Drive, Gmail, Sheets, Calendar), `gcloud`, `agents-cli`, `mcp-cli` (MCP servers). Use on "command not found" or before GCP/Workspace/MCP work.
 ---
 # Install & authenticate CLIs in the sandbox
 
@@ -32,7 +32,7 @@ So: install binaries the normal way, but point each tool's **config dir** at
 part — the OAuth client + tokens — survives upgrades. Don't put binaries on
 `/workspace`: they can't migrate anyway, and bloating the migration zip risks
 the credentials that *can*. `~/.local/bin` is already on `PATH` (runtime image),
-and the `terminal` shell is non-login (no `~/.profile`), so that image `PATH` is
+and the `bash` shell is non-login (no `~/.profile`), so that image `PATH` is
 what makes installs resolve.
 
 ## Pick what you need
@@ -54,7 +54,7 @@ Within a session (and across sessions without an upgrade) a tool may already be
 present — check before installing, and install only what's missing:
 
 ```
-terminal(command="command -v gws")   # or gcloud / agents-cli / mcp-cli / node
+bash(command="command -v gws")   # or gcloud / agents-cli / mcp-cli / node
 ```
 
 ## Node + npm  *(prerequisite for `gws`)*
@@ -63,7 +63,7 @@ The sandbox is Debian x86_64 with `curl` and `tar` but **no `xz`**. So you must
 download the `.tar.gz` build, **not** the `.tar.xz`. Pick a current LTS version:
 
 ```
-terminal(command='mkdir -p ~/.local/bin && cd ~ && V=v22.x.x && \
+bash(command='mkdir -p ~/.local/bin && cd ~ && V=v22.x.x && \
   curl -fsSLo node.tgz "https://nodejs.org/dist/$V/node-$V-linux-x64.tar.gz" && \
   tar -xzf node.tgz -C ~/.local && rm node.tgz && \
   ln -sf ~/.local/node-$V-linux-x64/bin/node ~/.local/node-$V-linux-x64/bin/npm ~/.local/node-$V-linux-x64/bin/npx ~/.local/bin/')
@@ -73,7 +73,7 @@ Replace `v22.x.x` with the real current LTS. The `ln -sf … ~/.local/bin/` step
 puts `node`/`npm`/`npx` on `PATH`. Then verify:
 
 ```
-terminal(command="node --version && npm --version")
+bash(command="node --version && npm --version")
 ```
 
 - Use `.tar.gz` — `.tar.xz` will fail to extract (`xz` is absent).
@@ -84,7 +84,7 @@ Install the npm global into `~/.local` (needs Node on `PATH` — see above) with
 `--prefix`, so the binary lands at `~/.local/bin/gws`:
 
 ```
-terminal(command='npm install -g --prefix ~/.local @googleworkspace/cli && gws --version')
+bash(command='npm install -g --prefix ~/.local @googleworkspace/cli && gws --version')
 ```
 
 Expect `0.22.x`. `gws` self-identifies as "not an officially supported Google
@@ -102,12 +102,12 @@ export GOOGLE_WORKSPACE_CLI_KEYRING_BACKEND=file
 
 **First, always: probe the pre-injected token.** When the user has used
 **"Connect Workspace"** in the web UI, the `GOOGLE_WORKSPACE_CLI_TOKEN` secret is
-auto-injected into every `terminal` command — `gws`'s **highest-priority** auth
+auto-injected into every `bash` command — `gws`'s **highest-priority** auth
 source. Don't inspect the environment or ask; just run a cheap read against the
 surface you need and see if it works:
 
 ```
-terminal(command="export GOOGLE_WORKSPACE_CLI_CONFIG_DIR=/workspace/lha/config/gws GOOGLE_WORKSPACE_CLI_KEYRING_BACKEND=file && gws gmail messages list --params '{\"maxResults\": 1}'")
+bash(command="export GOOGLE_WORKSPACE_CLI_CONFIG_DIR=/workspace/lha/config/gws GOOGLE_WORKSPACE_CLI_KEYRING_BACKEND=file && gws gmail messages list --params '{\"maxResults\": 1}'")
 ```
 
 If it returns data, you're done — **no OAuth client, no `gws auth login`, no
@@ -149,16 +149,16 @@ builtin `google-workspace` skill — one per surface. Install the ones the user
 needs (`gws-shared` is the common base the others build on):
 
 ```
-terminal(command="npx --yes skills add googleworkspace/cli@gws-shared -y")
-terminal(command="npx --yes skills add googleworkspace/cli@gws-gmail -y")
+bash(command="npx --yes skills add googleworkspace/cli@gws-shared -y")
+bash(command="npx --yes skills add googleworkspace/cli@gws-gmail -y")
 # also: gws-drive, gws-docs, gws-docs-write, gws-sheets, gws-calendar,
 #       gws-events, gws-chat-send
 ```
 
 The Skills CLI stages each under `.agents/skills/<skill>/`, which Horizon
-auto-discovers — just `reload()`, no move needed (see the `find-skills` skill
-for details). (`npx --yes skills find gws` lists the current set with install
-counts.)
+auto-discovers — just `load_skill(action="reload")`, no move needed (see the
+`find-skills` skill for details). (`npx --yes skills find gws` lists the
+current set with install counts.)
 
 ## `gcloud`
 
@@ -166,7 +166,7 @@ Install under `~/.local` (slim — don't add extra components) and symlink the
 entrypoints onto `PATH`:
 
 ```
-terminal(command='mkdir -p ~/.local/bin && cd ~/.local && \
+bash(command='mkdir -p ~/.local/bin && cd ~/.local && \
   curl -fsSLo gcloud.tgz "https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-cli-linux-x86_64.tar.gz" && \
   tar -xzf gcloud.tgz && rm gcloud.tgz && \
   ./google-cloud-sdk/install.sh --quiet --usage-reporting=false --path-update=false && \
@@ -181,7 +181,7 @@ as a scratch config dir, but there is no login state to persist across upgrades.
 Verify:
 
 ```
-terminal(command="gcloud --version")
+bash(command="gcloud --version")
 ```
 
 ### Security: GCP creds is a high-trust combination
@@ -216,11 +216,11 @@ sandbox, and the token self-expires in ~1 hour.
    ```
 2. The user saves it as a secret **named `CLOUDSDK_AUTH_ACCESS_TOKEN`** in the
    `/lha/secrets` UI — never pasted into chat (it's a live credential).
-3. Secrets are **auto-injected as env vars into every `terminal` command**, and
+3. Secrets are **auto-injected as env vars into every `bash` command**, and
    gcloud reads `CLOUDSDK_AUTH_ACCESS_TOKEN` from the environment — so the agent
    just runs commands, no login / ADC / OAuth client at all:
    ```
-   terminal(command="export CLOUDSDK_CONFIG=/workspace/lha/config/gcloud && gcloud projects list")
+   bash(command="export CLOUDSDK_CONFIG=/workspace/lha/config/gcloud && gcloud projects list")
    ```
    `gsutil` and `bq` read the same env token. **Don't name the token in a
    `curl`/`wget`** (`-H "Authorization: Bearer $CLOUDSDK_AUTH_ACCESS_TOKEN"`): the
@@ -244,14 +244,14 @@ Why this is the default:
 
 To hand a task to **another agent deployed remotely** (Cloud Run, Vertex Agent
 Runtime, or any A2A endpoint), shell out to `agents-cli` — no in-process wiring
-needed. This is the outbound counterpart to in-process `delegate()`: the remote
+needed. This is the outbound counterpart to in-process `subagent()`: the remote
 agent is its own service with its own state; you just send a prompt over HTTP.
 
 Install (one-time; `uv` is already in the sandbox — it installs to `~/.local/bin`):
 
 ```
-terminal(command="command -v agents-cli || uv tool install google-agents-cli")
-terminal(command="agents-cli --version")
+bash(command="command -v agents-cli || uv tool install google-agents-cli")
+bash(command="agents-cli --version")
 ```
 
 (Install pulls from wherever `google-agents-cli` is published — if the sandbox
@@ -261,7 +261,7 @@ downloads.)
 Invoke:
 
 ```
-terminal(command='agents-cli run "summarize this repo" --url https://my-agent-xxxx.run.app --mode a2a')
+bash(command='agents-cli run "summarize this repo" --url https://my-agent-xxxx.run.app --mode a2a')
 ```
 
 - `--mode a2a` for the A2A protocol; `--mode adk` for ADK SSE (`/run_sse`, or
@@ -269,8 +269,8 @@ terminal(command='agents-cli run "summarize this repo" --url https://my-agent-xx
 - `--app-name <name>` to target a specific agent at that endpoint.
 - `--session-id <id>` to continue a conversation; `-v` for full JSON events.
 - stdout is the remote agent's final response — that *is* your result (blocking).
-  For a long-running remote task, run it with `terminal(background=True)` and poll
-  via the `process` tool (fire-and-forget).
+  For a long-running remote task, run it with `process(action='spawn', command=...)`
+  and poll via the `process` tool (fire-and-forget).
 
 **Auth — usually automatic.** `agents-cli` auto-detects Google credentials from
 the sandbox identity: an **ID token** (audience = service URL) for Cloud Run, an
@@ -283,7 +283,7 @@ is almost always missing IAM, not a CLI problem.
 overrides auto-detect:
 
 ```
-terminal(command='agents-cli run "..." --url https://... --mode a2a -H "Authorization: Bearer $USER_TOKEN"')
+bash(command='agents-cli run "..." --url https://... --mode a2a -H "Authorization: Bearer $USER_TOKEN"')
 ```
 
 Source the token from the secrets / headless-auth subsystem (never inline a raw
@@ -298,7 +298,7 @@ via the **`find-skills`** skill.
 
 To call tools served by an **MCP server** (GitHub, filesystem, databases,
 third-party APIs) from the sandbox. This is the *client* side — using external
-MCP servers via `terminal`, not running one. (Auth is **static token only** —
+MCP servers via `bash`, not running one. (Auth is **static token only** —
 inject the server's bearer via `${VAR}` headers, below; there is no OAuth/consent
 flow. For GCP, use the token-as-secret path in the `gcloud` section, not MCP.)
 
@@ -310,11 +310,11 @@ with Bun but needs **no Bun/Node** at install or runtime — it's standalone.
 remote content to a shell). Download the script, then run it from a file:
 
 ```
-terminal(command="command -v mcp-cli || (curl -fsSLo /tmp/mcp_install.sh https://raw.githubusercontent.com/philschmid/mcp-cli/main/install.sh && bash /tmp/mcp_install.sh)")
-terminal(command="mcp-cli --version")
+bash(command="command -v mcp-cli || (curl -fsSLo /tmp/mcp_install.sh https://raw.githubusercontent.com/philschmid/mcp-cli/main/install.sh && bash /tmp/mcp_install.sh)")
+bash(command="mcp-cli --version")
 ```
 
-(Optionally `read_file('/tmp/mcp_install.sh')` first — it just fetches the latest
+(Optionally `read('/tmp/mcp_install.sh')` first — it just fetches the latest
 release binary and verifies its SHA256.) It installs to `~/.local/bin`.
 
 **Configure servers — this is the real onboarding work.** `mcp-cli` is
@@ -354,9 +354,9 @@ Use (or install mcp-cli's **own usage skill** via `find-skills` for the full
 reference):
 
 ```
-terminal(command="mcp-cli")                                              # list servers + tools
-terminal(command="mcp-cli info filesystem read_file")                    # tool schema
-terminal(command="mcp-cli call filesystem read_file '{\"path\": \"./README.md\"}'")
+bash(command="mcp-cli")                                              # list servers + tools
+bash(command="mcp-cli info filesystem read_file")                    # tool schema
+bash(command="mcp-cli call filesystem read_file '{\"path\": \"./README.md\"}'")
 ```
 
 Use `call` to invoke and `info` to inspect — `mcp-cli <server> <tool>` directly
