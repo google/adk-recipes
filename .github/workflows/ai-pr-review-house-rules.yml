@@ -215,43 +215,64 @@ jobs:
           MAX_DIFF_FILES=300
           MAX_DIFF_LINES=20000
 
-          # The deterministic checks below do NOT need the diff; they read the
-          # `pr-head` checkout. Only the anchors do. So an over-limit PR still
-          # gets checked and the findings still reach the log — they just
-          # cannot be posted inline, and the four model lanes report the skip
-          # on the PR itself.
+          # Over either limit the diff is rebuilt from the per-file `patch`
+          # fields on THIS endpoint, which paginates and so has no such
+          # ceiling. The deterministic checks do not need a diff at all — they
+          # read the `pr-head` checkout — but the anchors do, so without the
+          # rebuild an over-limit PR got checked and then had nowhere to put
+          # what it found.
           if (( TOTAL_FILES > MAX_DIFF_FILES || TOTAL_LINES > MAX_DIFF_LINES )); then
-            echo 'skip=true' >> "${GITHUB_OUTPUT}"
-            echo "::notice::Diff too large to fetch (${TOTAL_FILES} files, ${TOTAL_LINES} lines); findings cannot be anchored, so none will be posted."
+            echo 'rebuild=true' >> "${GITHUB_OUTPUT}"
+            echo "::notice::Diff too large to fetch (${TOTAL_FILES} files, ${TOTAL_LINES} lines); rebuilding it from the files endpoint."
           else
-            echo 'skip=false' >> "${GITHUB_OUTPUT}"
+            echo 'rebuild=false' >> "${GITHUB_OUTPUT}"
           fi
 
       - name: 'Fetch the diff'
-        if: |-
-          steps.files.outputs.skip != 'true'
         env:
           GH_TOKEN: '${{ github.token }}'
           GH_REPO: '${{ github.repository }}'
           PR_NUMBER: '${{ steps.pr.outputs.number }}'
+          REBUILD: '${{ steps.files.outputs.rebuild }}'
         run: |-
           set -euo pipefail
           # The combined diff, not the .patch series: only the combined diff
           # carries the hunk headers a comment anchor is computed from.
           #
           # Retried, like every other `gh` call in these lanes: a transient 5xx
-          # on an unretried fetch fails the whole lane. A 406 is not transient
-          # and the guard above has already ruled it out, so three attempts is
-          # the right ceiling.
-          for attempt in 1 2 3; do
-            gh pr diff "${PR_NUMBER}" > pr_diff.txt && break
-            if (( attempt == 3 )); then
-              echo "::error::gh pr diff failed for PR #${PR_NUMBER} after 3 attempts."
-              exit 1
-            fi
-            echo "::warning::gh pr diff failed (attempt ${attempt}/3); retrying in 5s..."
-            sleep 5
-          done
+          # on an unretried fetch fails the whole lane. A 406 is not transient,
+          # so a refusal breaks out and takes the rebuild path below instead of
+          # spending two more attempts on a decided answer.
+          if [[ "${REBUILD}" != 'true' ]]; then
+            for attempt in 1 2 3; do
+              gh pr diff "${PR_NUMBER}" > pr_diff.txt 2> fetch_err.txt && break
+              cat fetch_err.txt
+              if grep -q 'too_large' fetch_err.txt; then
+                echo '::notice::Diff refused as too large; rebuilding it from the files endpoint.'
+                REBUILD='true'
+                break
+              fi
+              if (( attempt == 3 )); then
+                echo "::error::gh pr diff failed for PR #${PR_NUMBER} after 3 attempts."
+                exit 1
+              fi
+              echo "::warning::gh pr diff failed (attempt ${attempt}/3); retrying in 5s..."
+              sleep 5
+            done
+          fi
+
+          if [[ "${REBUILD}" == 'true' ]]; then
+            # `--jq '.[]'` makes this one record per line: `gh api --paginate`
+            # concatenates one JSON ARRAY per page, which is not a document.
+            gh api --paginate \
+              "repos/${GH_REPO}/pulls/${PR_NUMBER}/files" \
+              --jq '.[] | {filename,previous_filename,status,patch,changes} | @json' \
+              > pr_files.jsonl
+            python3 base/.github/scripts/build_diff_from_files_api.py \
+              --files pr_files.jsonl \
+              --out pr_diff.txt
+          fi
+
           echo "$(wc -c < pr_diff.txt) bytes of diff."
 
       - name: 'Run the deterministic checks'
@@ -265,8 +286,6 @@ jobs:
 
       - name: 'Build the review payload'
         id: 'payload'
-        if: |-
-          steps.files.outputs.skip != 'true'
         env:
           GH_TOKEN: '${{ github.token }}'
           PR_NUMBER: '${{ steps.pr.outputs.number }}'
