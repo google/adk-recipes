@@ -1,8 +1,8 @@
 name: 🐍 Python Format PR Checks
 
-# Runs Ruff format on changed Python files and posts diff-style
-# suggestion comments via reviewdog. Ruff config lives in the root
-# `pyproject.toml` — never overridden on the CLI here.
+# Runs Ruff format and lint, and Mypy static type checking on changed Python
+# files and posts suggestion comments / annotations via reviewdog. Ruff config
+# lives in the root `pyproject.toml` — never overridden on the CLI here.
 
 on:
   pull_request:
@@ -270,5 +270,94 @@ jobs:
           # letting reviewdog's exit status (which depends on token scope) do
           # it. A fork PR and a branch PR now fail identically.
           if [ "$LINT_STATUS" -ne 0 ]; then
+            exit 1
+          fi
+
+  mypy-typecheck:
+    name: Mypy Type Check
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write # Essential for posting reviewdog suggestion comments
+    # Scoped to PR diff; 10 min is a generous ceiling.
+    timeout-minutes: 10
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v4
+        with:
+          fetch-depth: 0 # Fetch complete history to locate the merge-base cleanly
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # ratchet:astral-sh/setup-uv@v10.0.1
+        with:
+          python-version: "3.11"
+          enable-cache: false
+
+      - name: Install Reviewdog
+        uses: reviewdog/action-setup@d8a7baabd7f3e8544ee4dbde3ee41d0011c3a93f # ratchet:reviewdog/action-setup@v1
+        with:
+          # Pinned rather than `latest` — see ruff-format job for rationale.
+          reviewdog_version: v0.21.0
+
+      - name: Run Mypy Type Check on Modified Files
+        env:
+          REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+
+          # 1. Fetch the target branch reference commits
+          git fetch origin "$BASE_REF"
+
+          # 2. Resolve Python files modified in this PR diff
+          mapfile -t CHANGED_FILES < <(git diff --name-only --diff-filter=d "origin/$BASE_REF...HEAD" | grep '\.py$' || true)
+
+          if [ ${#CHANGED_FILES[@]} -eq 0 ]; then
+            echo "No Python files were modified in this pull request. Skipping type check."
+            exit 0
+          fi
+
+          echo "Type-checking modified Python files: ${CHANGED_FILES[*]}"
+
+          # 3. Run mypy on changed .py files only with --ignore-missing-imports and --follow-imports=silent
+          MYPY_STATUS=0
+          MYPY_OUTPUT=$(uvx mypy --ignore-missing-imports --follow-imports=silent "${CHANGED_FILES[@]}") || MYPY_STATUS=$?
+
+          if [ "$MYPY_STATUS" -ge 2 ]; then
+            echo "[ERROR] mypy exited with status $MYPY_STATUS — it failed to"
+            echo "run at all. This is a CI or configuration problem, not a"
+            echo "type error in your code. See the mypy output above."
+            echo "$MYPY_OUTPUT"
+            exit "$MYPY_STATUS"
+          fi
+
+          if [ "$MYPY_STATUS" -ne 0 ]; then
+            echo "::group::Mypy type check errors"
+            echo "$MYPY_OUTPUT"
+            echo "::endgroup::"
+            echo ""
+            echo "[FAIL] Mypy reported type errors in modified Python files:"
+            echo "$MYPY_OUTPUT"
+            echo ""
+            echo "Fix locally by running:"
+            echo ""
+            echo "  uvx mypy --ignore-missing-imports --follow-imports=silent ${CHANGED_FILES[*]}"
+            echo ""
+            echo "Docs: docs/recipe-handbook/troubleshooting.md"
+          else
+            echo "[PASS] No Mypy type errors in the modified Python files."
+            echo "$MYPY_OUTPUT"
+          fi
+
+          # 4. Hand the findings to reviewdog for inline annotations
+          if [ -n "$MYPY_OUTPUT" ]; then
+            echo "$MYPY_OUTPUT" | reviewdog -f=mypy \
+                                            -name="mypy-typecheck" \
+                                            -reporter=github-pr-review \
+                                            -filter-mode=added \
+                                            -fail-on-error=false || true
+          fi
+
+          if [ "$MYPY_STATUS" -ne 0 ]; then
             exit 1
           fi
