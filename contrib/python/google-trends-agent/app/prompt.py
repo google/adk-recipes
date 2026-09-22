@@ -53,18 +53,21 @@ def load_table_structure_prompt() -> str:
         raise
 
 
-def load_agent_instructions():
-    """Dynamically loads agent instructions and few-shot examples."""
-    try:
-        # Load prompts
-        table_structure_prompt = load_table_structure_prompt()
-        few_shot_examples = load_few_shot_examples()
+def load_agent_instructions() -> str:
+    """Dynamically loads agent instructions and few-shot examples.
 
-        # Combine prompts to form the full instruction
-        full_instruction = f"{table_structure_prompt}\n\n{few_shot_examples}"
-        return full_instruction
+    Deliberately does not catch template errors. The rendered templates carry
+    the table schema and the mandatory query rules, so an agent built without
+    them would still start and still emit SQL -- just SQL written against a
+    table whose shape and partitioning it no longer knows. Failing at import
+    is far cheaper to diagnose than that.
 
-    except Exception as e:
-        print(f"FATAL: Could not load agent instructions: {e}")
-        # Fallback to a basic instruction if dynamic loading fails
-        return "You are an agent that can query Google Trends data."
+    Returns:
+        str: The table structure prompt followed by the few-shot examples.
+
+    Raises:
+        jinja2.TemplateError: If either template is missing or fails to render.
+    """
+    table_structure_prompt = load_table_structure_prompt()
+    few_shot_examples = load_few_shot_examples()
+    return f"{table_structure_prompt}\n\n{few_shot_examples}"
