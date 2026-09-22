@@ -763,19 +763,25 @@ def test_review_job_holds_no_write_scope_other_than_id_token():
 # the first one already was and that did not save #2666.
 
 
+def _find_step(job: str, *, id: str | None = None, name: str | None = None):
+    """(index, step) for the one step matching an id or a name.
+
+    Raises rather than returning None: every caller is asserting something
+    ABOUT that step, and a silent None would turn "the step was renamed" into
+    an AttributeError several lines away from the cause.
+    """
+    for index, step in enumerate(_steps(PR_REVIEW, job)):
+        if (id is not None and step.get("id") == id) or (
+            name is not None and step.get("name") == name
+        ):
+            return index, step
+    wanted = f"id={id!r}" if id is not None else f"name={name!r}"
+    raise AssertionError(f"no step with {wanted} in job {job!r}")
+
+
 def _guard_step() -> dict:
-    """The step that forecasts an unservable diff, by id."""
-    for step in _steps(PR_REVIEW, "review"):
-        if step.get("id") == "diff_size_guard":
-            return step
-    raise AssertionError("no diff_size_guard step in the review job")
-
-
-def _step_index(job: str, step_id: str) -> int:
-    for i, step in enumerate(_steps(PR_REVIEW, job)):
-        if step.get("id") == step_id:
-            return i
-    raise AssertionError(f"no step with id {step_id!r} in job {job!r}")
+    """The step that forecasts an unservable diff."""
+    return _find_step("review", id="diff_size_guard")[1]
 
 
 def test_the_guard_forecasts_both_diff_api_limits():
@@ -808,9 +814,9 @@ def test_the_guard_aggregates_line_counts_per_file_not_per_page():
 
 def test_the_guard_runs_before_the_diff_is_fetched():
     """Forecasting a 406 after provoking it saves nothing."""
-    assert _step_index("review", "diff_size_guard") < _step_index(
-        "review", "fetch_diff"
-    ), "the guard must precede the fetch it protects"
+    guard, _ = _find_step("review", id="diff_size_guard")
+    fetch, _ = _find_step("review", id="fetch_diff")
+    assert guard < fetch, "the guard must precede the fetch it protects"
 
 
 def test_every_skip_path_records_why():
@@ -839,12 +845,7 @@ def test_a_refused_diff_is_a_skip_and_not_a_failed_lane():
     that must degrade the way the guard would have rather than failing the
     lane with a red check the author cannot act on.
     """
-    for step in _steps(PR_REVIEW, "review"):
-        if step.get("id") == "fetch_diff":
-            code = _code(step["run"])
-            break
-    else:
-        raise AssertionError("no fetch_diff step in the review job")
+    code = _code(_find_step("review", id="fetch_diff")[1]["run"])
 
     assert "too_large" in code, (
         "the fetch no longer distinguishes a refused diff from a broken one"
@@ -854,9 +855,7 @@ def test_a_refused_diff_is_a_skip_and_not_a_failed_lane():
     )
     # The generic path must still be able to fail: a genuine transport
     # failure is a CI fault and swallowing it would hide a broken pipeline.
-    assert "exit 1" in code, (
-        "a non-406 fetch failure must still fail the lane"
-    )
+    assert "exit 1" in code, "a non-406 fetch failure must still fail the lane"
 
 
 def test_the_too_large_comment_is_posted_by_exactly_one_lane():
@@ -872,13 +871,8 @@ def test_the_too_large_comment_is_posted_by_exactly_one_lane():
         "over-limit PR gets one comment per lane"
     )
 
-    for step in doc["jobs"]["post"]["steps"]:
-        if step.get("name") == "Report a PR too large to diff":
-            step_cond = " ".join(step["if"].split())
-            break
-    else:
-        raise AssertionError("no too-large report step in the post job")
-
+    _, step = _find_step("post", name="Report a PR too large to diff")
+    step_cond = " ".join(step["if"].split())
     assert "inputs.review_label == 'Correctness'" in step_cond, (
         "the job gate and the step gate must agree on the elected lane"
     )
@@ -899,12 +893,8 @@ def test_the_empty_pr_is_still_told_nothing():
 
 def test_the_too_large_comment_names_the_limit_it_actually_hit():
     """#2666 would otherwise be told it is 'above 300 files' at 216 files."""
-    for step in _load(PR_REVIEW)["jobs"]["post"]["steps"]:
-        if step.get("name") == "Report a PR too large to diff":
-            code = _code(step["run"])
-            break
-    else:
-        raise AssertionError("no too-large report step in the post job")
+    _, step = _find_step("post", name="Report a PR too large to diff")
+    code = _code(step["run"])
 
     assert "SKIP_REASON" in code, "the message does not depend on the reason"
     assert "MAX_DIFF_LINES" in code, (

@@ -204,18 +204,23 @@ jobs:
           echo "${TOTAL_FILES} changed file(s), ${TOTAL_LINES} changed line(s)."
 
           # `gh pr diff` reads the pull request with the diff media type, which
-          # answers HTTP 406 "PullRequest.diff too_large" above EITHER 300 files
-          # or 20000 diff lines. 406 is deterministic, so retrying cannot
-          # recover it — #2666 (216 files, 561225 lines) failed this lane on the
-          # line limit. Forecast here because THIS endpoint paginates and that
-          # one does not.
+          # answers HTTP 406 "PullRequest.diff too_large" above EITHER of these
+          # two limits. 406 is deterministic, so retrying cannot recover it —
+          # #2666 (216 files, 561225 lines) failed this lane on the line limit
+          # while passing the file check. Forecast here because THIS endpoint
+          # paginates and that one does not.
           #
+          # Same two numbers as `diff_size_guard` in _ai-pr-review-core.yml,
+          # because they are the same API's limits, not this lane's policy.
+          MAX_DIFF_FILES=300
+          MAX_DIFF_LINES=20000
+
           # The deterministic checks below do NOT need the diff; they read the
           # `pr-head` checkout. Only the anchors do. So an over-limit PR still
           # gets checked and the findings still reach the log — they just
           # cannot be posted inline, and the four model lanes report the skip
           # on the PR itself.
-          if (( TOTAL_FILES > 300 || TOTAL_LINES > 20000 )); then
+          if (( TOTAL_FILES > MAX_DIFF_FILES || TOTAL_LINES > MAX_DIFF_LINES )); then
             echo 'skip=true' >> "${GITHUB_OUTPUT}"
             echo "::notice::Diff too large to fetch (${TOTAL_FILES} files, ${TOTAL_LINES} lines); findings cannot be anchored, so none will be posted."
           else
