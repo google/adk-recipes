@@ -25,8 +25,9 @@ failure modes are quiet in the way that matters most here:
     clean review of a file nobody read is indistinguishable from a clean file.
 
 So the tests below pin the header shape against the readers that consume it
-(post_review_comments.walk_right_side is imported and run, not imitated),
-and pin every path that loses a file to saying so.
+— post_review_comments.added_line_anchors, which is the real anchor walk
+(a thin wrapper over walk_right_side), imported and run rather than imitated
+— and pin every path that loses a file to saying so.
 """
 
 import json
@@ -340,6 +341,47 @@ def test_counts_go_to_github_output_when_given(tmp_path):
     written = target.read_text(encoding="utf-8")
     assert "files_total=1" in written
     assert "files_patched=1" in written
+
+
+def test_github_output_is_appended_never_truncated(tmp_path):
+    """Every step in the job shares that file.
+
+    Opening it with "w" would discard whatever earlier steps had written,
+    and the loss is silent — the job simply stops seeing outputs it set.
+    """
+    target = tmp_path / "gh_out"
+    target.write_text("set_by_an_earlier_step=1\n", encoding="utf-8")
+    proc, _ = _run(tmp_path, [_record()], "--github-output", str(target))
+    assert proc.returncode == 0, proc.stderr
+    written = target.read_text(encoding="utf-8")
+    assert "set_by_an_earlier_step=1" in written
+    assert "files_total=1" in written
+
+
+def test_an_unwritable_output_is_a_named_ci_fault(tmp_path):
+    """`guard` catches the OSError regardless; the point is that it says
+    WHICH file, in a script that writes three of them."""
+    proc, _ = _run(
+        tmp_path,
+        [_record()],
+        "--github-output",
+        str(tmp_path / "no_such_dir" / "gh_out"),
+    )
+    assert proc.returncode == 2, proc.stdout
+    assert "gh_out" in proc.stdout, (
+        "the fault does not name the file that could not be written"
+    )
+
+
+def test_an_unwritable_omitted_list_is_a_named_ci_fault(tmp_path):
+    proc, _ = _run(
+        tmp_path,
+        [_record(patch=None)],
+        "--omitted-out",
+        str(tmp_path / "no_such_dir" / "omitted.txt"),
+    )
+    assert proc.returncode == 2, proc.stdout
+    assert "omitted.txt" in proc.stdout
 
 
 # -------------------------------------------- the pipeline's own consumers

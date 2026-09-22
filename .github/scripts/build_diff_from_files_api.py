@@ -247,6 +247,22 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _write(path: Path, text: str, *, append: bool = False) -> None:
+    """Write a file, or raise OSError naming the path that failed.
+
+    `guard` would turn a bare OSError into a CI fault anyway, but it can only
+    report what the exception says — and "Permission denied: '/x/y'" in a job
+    that writes three different files does not say which write was the one
+    that mattered. Naming the path here is the difference between a fault
+    someone can act on and one they have to reproduce.
+    """
+    try:
+        with path.open("a" if append else "w", encoding="utf-8") as handle:
+            handle.write(text)
+    except OSError as exc:
+        raise OSError(f"cannot write {path}: {exc}") from exc
+
+
 def run() -> int:
     args = build_parser().parse_args()
 
@@ -264,21 +280,13 @@ def run() -> int:
     diff, omitted = build(records)
 
     try:
-        args.out.write_text(diff, encoding="utf-8")
+        _write(args.out, diff)
+        if args.omitted_out:
+            _write(
+                args.omitted_out, "".join(f"{path}\n" for path in omitted)
+            )
     except OSError as exc:
-        return report_infra_fault(
-            infra_fault(CHECKER, f"cannot write {args.out}: {exc}")
-        )
-
-    if args.omitted_out:
-        try:
-            args.omitted_out.write_text(
-                "".join(f"{path}\n" for path in omitted), encoding="utf-8"
-            )
-        except OSError as exc:
-            return report_infra_fault(
-                infra_fault(CHECKER, f"cannot write {args.omitted_out}: {exc}")
-            )
+        return report_infra_fault(infra_fault(CHECKER, str(exc)))
 
     patched = len(records) - len(omitted)
     print(
@@ -303,9 +311,18 @@ def run() -> int:
         f"files_patched={patched}",
         f"files_omitted={len(omitted)}",
     ]
+    # Appended, never truncated: $GITHUB_OUTPUT is shared with every other
+    # step in the job, and opening it with "w" would silently discard
+    # everything written before this ran.
     if args.github_output:
-        with args.github_output.open("a", encoding="utf-8") as handle:
-            handle.write("".join(f"{line}\n" for line in lines))
+        try:
+            _write(
+                args.github_output,
+                "".join(f"{line}\n" for line in lines),
+                append=True,
+            )
+        except OSError as exc:
+            return report_infra_fault(infra_fault(CHECKER, str(exc)))
     else:
         print("\n".join(lines))
 
