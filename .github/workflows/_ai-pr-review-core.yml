@@ -146,9 +146,16 @@ jobs:
 
     outputs:
       pr_number: '${{ steps.get_pr.outputs.pr_number || steps.get_pr_comment.outputs.pr_number }}'
-      skip: '${{ steps.diff_size_guard.outputs.skip }}'
+      # Two steps can decide a PR is unreviewable. `diff_size_guard` forecasts
+      # it from the file counts; `fetch_diff` discovers it when the API refuses
+      # a diff the guard thought was servable. Either one means `post` has
+      # something to say, so the output is the OR of the two.
+      skip: '${{ (steps.diff_size_guard.outputs.skip == ''true'' || steps.fetch_diff.outputs.skip == ''true'') && ''true'' || ''false'' }}'
+      skip_reason: '${{ steps.diff_size_guard.outputs.skip_reason || steps.fetch_diff.outputs.skip_reason }}'
       total_files: '${{ steps.diff_size_guard.outputs.total_files }}'
       max_diff_files: '${{ steps.diff_size_guard.outputs.max_diff_files }}'
+      total_lines: '${{ steps.diff_size_guard.outputs.total_lines }}'
+      max_diff_lines: '${{ steps.diff_size_guard.outputs.max_diff_lines }}'
       # Empty rather than 'false' when the build step never ran — a PR that was
       # skipped or had nothing reviewable. `post` tests for 'true', so all
       # three of those cases correctly mean "do not start that job".
@@ -303,24 +310,33 @@ jobs:
 
           # IMPORTANT: `gh api --paginate --jq EXPR` applies EXPR to EACH page's
           # response separately and concatenates the results, so an aggregating
-          # filter like `| length` emits one integer PER PAGE and breaks any
-          # numeric comparison on the result. Emit one line per file and count
-          # the lines instead.
+          # filter like `| length` or `add` emits one value PER PAGE and breaks
+          # any numeric comparison on the result. Emit one line per file and
+          # aggregate here instead.
           #
+          # One pass answers both size questions below: `.changes` is that
+          # file's additions plus deletions, and this endpoint carries it
+          # already, so the line total costs no extra request.
+          gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/files" \
+            --paginate --jq '.[] | .changes' > pr_file_changes.txt
+
           # `tr -d` because `wc -l < file` right-pads the count on BSD wc, and
-          # TOTAL_COUNT reaches the reader in a PR comment. Arithmetic would
+          # both totals reach the reader in a PR comment. Arithmetic would
           # tolerate the padding; the reader would not.
-          TOTAL_COUNT="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/files" \
-            --paginate --jq '.[] | .filename' | wc -l | tr -d '[:space:]')"
+          TOTAL_COUNT="$(wc -l < pr_file_changes.txt | tr -d '[:space:]')"
+          TOTAL_LINES="$(awk '{ n += $1 } END { print n + 0 }' pr_file_changes.txt)"
 
           # `gh pr diff` reads GET /repos/{owner}/{repo}/pulls/{n} with the diff
-          # media type, which answers HTTP 406 "PullRequest.diff too_large" above
-          # 300 files. 406 is deterministic, so the fetch step's three retries
-          # cannot recover it and its exhausted-loop path is fatal: #2535 (804
-          # files) failed all three reviews that way. Caught here because THIS
-          # endpoint paginates and that one does not, so the count is already in
-          # hand one step before the failure.
+          # media type, which answers HTTP 406 "PullRequest.diff too_large" on
+          # EITHER of two independent limits — above 300 files, or above 20000
+          # diff lines. 406 is deterministic, so the fetch step's three retries
+          # cannot recover it and its exhausted-loop path was fatal: #2535 (804
+          # files) failed all three reviews on the file limit, and #2666 (216
+          # files, 561225 lines) failed all four on the line limit while passing
+          # the file check. Caught here because THIS endpoint paginates and that
+          # one does not, so both counts are in hand one step before the failure.
           MAX_DIFF_FILES=300
+          MAX_DIFF_LINES=20000
 
           # The counts go out as outputs and the COMMENT is left to `post`.
           # This job holds a read-only token by design, so it cannot say this
@@ -328,6 +344,8 @@ jobs:
           {
             echo "total_files=${TOTAL_COUNT}"
             echo "max_diff_files=${MAX_DIFF_FILES}"
+            echo "total_lines=${TOTAL_LINES}"
+            echo "max_diff_lines=${MAX_DIFF_LINES}"
           } >> "${GITHUB_OUTPUT}"
 
           # A PR that changes nothing is a legitimate state, not a fault. It
@@ -338,13 +356,29 @@ jobs:
           # all four lanes that way, mailing the author four times per push.
           if (( TOTAL_COUNT == 0 )); then
             echo "skip=true" >> "${GITHUB_OUTPUT}"
+            echo "skip_reason=empty" >> "${GITHUB_OUTPUT}"
             echo "PR has no changed files; nothing to review."
             exit 0
           fi
 
           if (( TOTAL_COUNT > MAX_DIFF_FILES )); then
             echo "skip=true" >> "${GITHUB_OUTPUT}"
+            echo "skip_reason=files" >> "${GITHUB_OUTPUT}"
             echo "${TOTAL_COUNT} files changed, above the ${MAX_DIFF_FILES}-file diff API limit; skipping."
+            exit 0
+          fi
+
+          # `.changes` counts added and removed lines only, while the limit the
+          # API enforces counts the whole diff text — context rows and hunk
+          # headers included. So this total is a LOWER bound and a PR just
+          # under it can still 406. Deliberately not padded with a guessed
+          # margin: the fetch step below turns that residual into the same
+          # graceful skip, which is honest, where a made-up threshold would
+          # skip reviewable PRs to hide a case already handled.
+          if (( TOTAL_LINES > MAX_DIFF_LINES )); then
+            echo "skip=true" >> "${GITHUB_OUTPUT}"
+            echo "skip_reason=lines" >> "${GITHUB_OUTPUT}"
+            echo "${TOTAL_LINES} lines changed, above the ${MAX_DIFF_LINES}-line diff API limit; skipping."
             exit 0
           fi
 
@@ -523,21 +557,47 @@ jobs:
               if gh api \
                    -H 'Accept: application/vnd.github.v3.diff' \
                    "repos/${GITHUB_REPOSITORY}/compare/${LAST_REVIEWED_SHA}...${HEAD_SHA}" \
-                   > pr_diff.txt; then
+                   > pr_diff.txt 2> fetch_err.txt; then
                 FETCHED='true'
                 break
               fi
+              cat fetch_err.txt
               echo "::warning::compare diff failed (attempt ${attempt}/3); retrying in 5s..."
-            elif gh pr diff "${PR_NUMBER}" > pr_diff.txt; then
+            elif gh pr diff "${PR_NUMBER}" > pr_diff.txt 2> fetch_err.txt; then
               FETCHED='true'
               break
             else
+              cat fetch_err.txt
               echo "::warning::gh pr diff failed (attempt ${attempt}/3); retrying in 5s..."
             fi
+
+            # HTTP 406 "too_large" is a verdict, not a hiccup: the same request
+            # returns it every time, so the remaining attempts are dead time
+            # before a failure that is already decided.
+            if grep -q 'too_large' fetch_err.txt; then
+              break
+            fi
+
             sleep 5
           done
 
           if [[ "${FETCHED}" != 'true' ]]; then
+            # A refused diff and a broken one are different outcomes. The guard
+            # forecasts the refusal from the file counts and usually catches it
+            # first, but `.changes` undercounts the diff text (see the guard),
+            # so a PR just under the line limit reaches here and 406s anyway.
+            # That is still "too big to review", not a CI fault — skip it the
+            # way the guard would have, and let `post` say so once.
+            if grep -q 'too_large' fetch_err.txt; then
+              {
+                echo "skip=true"
+                echo "skip_reason=api"
+                echo "empty=true"
+              } >> "${GITHUB_OUTPUT}"
+              echo "GitHub refused to serve a diff for PR #${PR_NUMBER} (HTTP 406, too large); skipping."
+              exit 0
+            fi
+
             echo "::error::gh pr diff failed for PR #${PR_NUMBER} after 3 attempts; refusing to review without a diff."
             exit 1
           fi
@@ -1561,12 +1621,16 @@ jobs:
     # Both reasons this job exists, and nothing else. A clean PR that produced
     # no findings is the common case, and spinning a runner up to discover
     # that every step is skipped costs four runners per push across the lanes.
-    # The `total_files != 0` guard keeps an empty PR from spinning four
-    # runners up to say nothing: a 0-file PR also sets `skip`, but it has no
-    # comment to post (see the report step below).
+    #
+    # A skip only earns a runner when it has something to say, which is the
+    # `Correctness` test: the too-large note is posted by ONE elected lane
+    # (see the report step below), so the other three would spin up only to
+    # skip every step. `skip_reason != 'empty'` drops the 0-file PR, which is
+    # a legitimate state with no comment to make.
     if: |-
       (needs.review.outputs.skip == 'true' &&
-       needs.review.outputs.total_files != '0') ||
+       needs.review.outputs.skip_reason != 'empty' &&
+       inputs.review_label == 'Correctness') ||
       needs.review.outputs.has_payload == 'true'
     timeout-minutes: 10
     runs-on: 'ubuntu-latest'
@@ -1591,12 +1655,20 @@ jobs:
       # Worked out in `review`, said here, because that job holds no token
       # that can say anything.
       - name: 'Report a PR too large to diff'
-        # `skip` covers two cases and only one of them has anything to say
+        # `skip` covers several cases and not all of them have something to say
         # here. A 0-file PR would otherwise be told it is "above the 300 files
         # the diff API will serve", which is both false and confusing.
+        #
+        # ONE lane posts this. All four run the same workflow against the same
+        # pull request and reach the same verdict, so before the `Correctness`
+        # test every over-limit PR collected four identical comments — the same
+        # pile-up the failure mode produced, only politely worded. Electing a
+        # lane by label beats scanning for an existing comment, which four jobs
+        # racing each other can interleave past.
         if: |-
           needs.review.outputs.skip == 'true' &&
-          needs.review.outputs.total_files != '0'
+          needs.review.outputs.skip_reason != 'empty' &&
+          inputs.review_label == 'Correctness'
         env:
           GH_TOKEN: '${{ steps.generate_token.outputs.token || github.token }}'
           # REQUIRED, not tidiness. This job takes no checkout, so there is no
@@ -1605,13 +1677,31 @@ jobs:
           # host". Every other `gh` call here names the repo in its API path.
           GH_REPO: '${{ github.repository }}'
           PR_NUMBER: '${{ needs.review.outputs.pr_number }}'
+          SKIP_REASON: '${{ needs.review.outputs.skip_reason }}'
           TOTAL_FILES: '${{ needs.review.outputs.total_files }}'
           MAX_DIFF_FILES: '${{ needs.review.outputs.max_diff_files }}'
+          TOTAL_LINES: '${{ needs.review.outputs.total_lines }}'
+          MAX_DIFF_LINES: '${{ needs.review.outputs.max_diff_lines }}'
         run: |-
           set -euo pipefail
 
-          gh pr comment "${PR_NUMBER}" \
-            --body "This PR changes ${TOTAL_FILES} files, above the ${MAX_DIFF_FILES} GitHub's diff API will serve, so automated AI review was skipped. Splitting it up would get each part reviewed."
+          # The reason decides the sentence. A PR stopped by the line limit
+          # told "above the 300 files the diff API will serve" is being given a
+          # number that is not why it was skipped, and #2666 (216 files) would
+          # have read that as the checks being broken rather than as a limit.
+          case "${SKIP_REASON}" in
+            files)
+              BODY="This PR changes ${TOTAL_FILES} files, above the ${MAX_DIFF_FILES} GitHub's diff API will serve, so automated AI review was skipped. Splitting it up would get each part reviewed."
+              ;;
+            lines)
+              BODY="This PR changes ${TOTAL_LINES} lines across ${TOTAL_FILES} files. GitHub's diff API will not serve a diff above ${MAX_DIFF_LINES} lines, so automated AI review was skipped. Splitting it up would get each part reviewed."
+              ;;
+            *)
+              BODY="GitHub's diff API refused to serve a diff for this PR (HTTP 406, too large), so automated AI review was skipped. Splitting it up would get each part reviewed."
+              ;;
+          esac
+
+          gh pr comment "${PR_NUMBER}" --body "${BODY}"
 
       - name: 'Download the review payload'
         if: |-

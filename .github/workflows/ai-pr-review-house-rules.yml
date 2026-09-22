@@ -179,7 +179,8 @@ jobs:
       - name: 'Install PyYAML'
         run: 'python3 -m pip install --quiet "pyyaml==6.0.2"'
 
-      - name: 'List the changed files'
+      - name: 'List the changed files and size the diff'
+        id: 'files'
         env:
           GH_TOKEN: '${{ github.token }}'
           GH_REPO: '${{ github.repository }}'
@@ -189,12 +190,41 @@ jobs:
           # Paged: `gh pr view --json files` silently caps at 100, and on a
           # 787-file PR that truncation dropped pyproject.toml from the list,
           # which made every finding in it look pre-existing.
+          #
+          # `.changes` (additions plus deletions) comes back on the same
+          # records, so the sizes the guard below needs cost no extra request.
           gh api --paginate \
             "repos/${GH_REPO}/pulls/${PR_NUMBER}/files" \
-            --jq '.[].filename' > changed_files.txt
-          echo "$(wc -l < changed_files.txt) changed file(s)."
+            --jq '.[] | [.filename, .changes] | @tsv' > changed_files.tsv
+          cut -f1 changed_files.tsv > changed_files.txt
+
+          # `tr -d` because `wc -l < file` right-pads the count on BSD wc.
+          TOTAL_FILES="$(wc -l < changed_files.txt | tr -d '[:space:]')"
+          TOTAL_LINES="$(awk -F'\t' '{ n += $2 } END { print n + 0 }' changed_files.tsv)"
+          echo "${TOTAL_FILES} changed file(s), ${TOTAL_LINES} changed line(s)."
+
+          # `gh pr diff` reads the pull request with the diff media type, which
+          # answers HTTP 406 "PullRequest.diff too_large" above EITHER 300 files
+          # or 20000 diff lines. 406 is deterministic, so retrying cannot
+          # recover it — #2666 (216 files, 561225 lines) failed this lane on the
+          # line limit. Forecast here because THIS endpoint paginates and that
+          # one does not.
+          #
+          # The deterministic checks below do NOT need the diff; they read the
+          # `pr-head` checkout. Only the anchors do. So an over-limit PR still
+          # gets checked and the findings still reach the log — they just
+          # cannot be posted inline, and the four model lanes report the skip
+          # on the PR itself.
+          if (( TOTAL_FILES > 300 || TOTAL_LINES > 20000 )); then
+            echo 'skip=true' >> "${GITHUB_OUTPUT}"
+            echo "::notice::Diff too large to fetch (${TOTAL_FILES} files, ${TOTAL_LINES} lines); findings cannot be anchored, so none will be posted."
+          else
+            echo 'skip=false' >> "${GITHUB_OUTPUT}"
+          fi
 
       - name: 'Fetch the diff'
+        if: |-
+          steps.files.outputs.skip != 'true'
         env:
           GH_TOKEN: '${{ github.token }}'
           GH_REPO: '${{ github.repository }}'
@@ -203,7 +233,20 @@ jobs:
           set -euo pipefail
           # The combined diff, not the .patch series: only the combined diff
           # carries the hunk headers a comment anchor is computed from.
-          gh pr diff "${PR_NUMBER}" > pr_diff.txt
+          #
+          # Retried, like every other `gh` call in these lanes: a transient 5xx
+          # on an unretried fetch fails the whole lane. A 406 is not transient
+          # and the guard above has already ruled it out, so three attempts is
+          # the right ceiling.
+          for attempt in 1 2 3; do
+            gh pr diff "${PR_NUMBER}" > pr_diff.txt && break
+            if (( attempt == 3 )); then
+              echo "::error::gh pr diff failed for PR #${PR_NUMBER} after 3 attempts."
+              exit 1
+            fi
+            echo "::warning::gh pr diff failed (attempt ${attempt}/3); retrying in 5s..."
+            sleep 5
+          done
           echo "$(wc -c < pr_diff.txt) bytes of diff."
 
       - name: 'Run the deterministic checks'
@@ -217,6 +260,8 @@ jobs:
 
       - name: 'Build the review payload'
         id: 'payload'
+        if: |-
+          steps.files.outputs.skip != 'true'
         env:
           GH_TOKEN: '${{ github.token }}'
           PR_NUMBER: '${{ steps.pr.outputs.number }}'

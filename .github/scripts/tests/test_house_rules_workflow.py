@@ -377,3 +377,78 @@ def test_secret_reference_catches_every_spelling(node):
 )
 def test_secret_reference_does_not_fire_on_innocent_yaml(node):
     assert _secret_reference(node) is None, f"false positive on {node}"
+
+
+# This lane fetched the diff with a bare, unguarded, unretried `gh pr diff`.
+# On #2666 (216 files, 561225 lines) that returned HTTP 406 and failed the
+# whole lane, alongside the four model lanes.
+
+
+def _step_named(job: dict, name: str) -> dict:
+    for step in _steps(job):
+        if step.get("name") == name:
+            return step
+    raise AssertionError(f"no step named {name!r}")
+
+
+def test_the_diff_size_is_checked_before_the_diff_is_fetched(workflow):
+    """The 406 is deterministic, so it has to be forecast, not retried."""
+    job = workflow["jobs"]["check"]
+    names = [s.get("name") for s in _steps(job)]
+    sizing = "List the changed files and size the diff"
+    assert names.index(sizing) < names.index("Fetch the diff"), (
+        "the size check must run before the fetch it protects"
+    )
+
+    code = _step_named(job, sizing)["run"]
+    assert "TOTAL_FILES > 300" in code, "the 300-file limit is unguarded"
+    assert "TOTAL_LINES > 20000" in code, (
+        "the 20000-line limit is unguarded; #2666 failed this lane on it "
+        "while passing the file check"
+    )
+
+
+def test_the_steps_that_need_a_diff_are_gated_on_the_guard(workflow):
+    """Ungated, they run without `pr_diff.txt` and fail the lane anyway."""
+    job = workflow["jobs"]["check"]
+    for name in ("Fetch the diff", "Build the review payload"):
+        cond = " ".join(str(_step_named(job, name).get("if", "")).split())
+        assert "steps.files.outputs.skip != 'true'" in cond, (
+            f"{name!r} is not gated on the diff-size guard"
+        )
+
+
+def test_the_checks_still_run_when_the_diff_is_too_large(workflow):
+    """The findings do not come from the diff, only the anchors do.
+
+    `house_rules_lane.py` reads the `pr-head` checkout, so an over-limit PR
+    can still be checked and its findings still reach the job log. Gating
+    this step on the guard would throw that away for no reason.
+    """
+    job = workflow["jobs"]["check"]
+    step = _step_named(job, "Run the deterministic checks")
+    assert "skip" not in str(step.get("if", "")), (
+        "the deterministic checks were gated on the diff guard, but they "
+        "read the checkout and need no diff"
+    )
+
+
+def test_the_diff_fetch_is_retried(workflow):
+    """Every other `gh` call in these lanes retries; this one did not."""
+    code = _step_named(workflow["jobs"]["check"], "Fetch the diff")["run"]
+    assert "for attempt in 1 2 3" in code, (
+        "a transient 5xx on an unretried fetch fails the whole lane"
+    )
+
+
+def test_this_lane_does_not_post_its_own_too_large_comment(workflow):
+    """The elected model lane says it once, for all five lanes.
+
+    Five workflows reaching the same verdict about the same pull request must
+    not produce five comments saying so.
+    """
+    raw = WORKFLOW.read_text(encoding="utf-8")
+    assert "diff API will serve" not in raw, (
+        "this lane posts its own size complaint; the Correctness lane in "
+        "_ai-pr-review-core.yml is the elected one"
+    )
