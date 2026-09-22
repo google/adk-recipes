@@ -95,7 +95,7 @@ def save_debug_image(img_bytes, step_name, prefix=""):
         img = Image.open(io.BytesIO(img_bytes))
         try:
             img = ImageOps.exif_transpose(img)
-        except Exception:
+        except Exception:  # noqa: S110
             pass  # Ignore EXIF errors
         img.save(filepath, format="PNG")
 

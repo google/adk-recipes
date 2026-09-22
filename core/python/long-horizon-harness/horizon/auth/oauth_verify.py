@@ -48,7 +48,7 @@ class OAuthVerifyError(Exception):
 
 
 def _default_get(url: str) -> dict:
-    with urllib.request.urlopen(url, timeout=10) as resp:
+    with urllib.request.urlopen(url, timeout=10) as resp:  # noqa: S310
         return json.loads(resp.read())
 
 

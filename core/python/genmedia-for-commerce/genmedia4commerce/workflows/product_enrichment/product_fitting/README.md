@@ -100,14 +100,18 @@ def classify_garments(client, garment_images_bytes_list) -> dict:
     """Classify garment category and view for each image.
     Returns: {category, description, views: [{index, view}]}"""
 
+
 def get_framing(category: str) -> str:
     """Map category to framing: full_body, upper_body, lower_body, head, footwear"""
+
 
 def select_best_front(client, garment_images) -> dict:
     """Select up to 2 best front-view images by angle quality"""
 
+
 def select_best_back(client, garment_images) -> dict:
     """Select up to 2 best back-view images by angle quality"""
+
 
 def describe_garment_detailed(client, front_images, back_images) -> dict:
     """Generate detailed description with exterior/interior details.

@@ -65,7 +65,7 @@ class LocalProcessHandle:
 
         self._master_fd, slave_fd = pty.openpty()
         try:
-            self._proc = subprocess.Popen(
+            self._proc = subprocess.Popen(  # noqa: S603
                 ["/bin/sh", "-c", command],
                 stdin=slave_fd,
                 stdout=slave_fd,

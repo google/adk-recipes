@@ -46,7 +46,7 @@ def gh_api(path, method="GET", payload=None):
     cmd = ["gh", "api", path]
     if method != "GET":
         cmd += ["--method", method, "--input", "-"]
-    proc = subprocess.run(  # noqa: PLW1510 -- returncode is inspected below
+    proc = subprocess.run(  # noqa: PLW1510 -- returncode inspected below
         cmd,
         input=json.dumps(payload) if payload is not None else None,
         capture_output=True,
@@ -270,7 +270,7 @@ def main():
         )
 
         if i < len(pending) - 1:
-            gap = random.randint(args.min_gap, args.max_gap)
+            gap = random.randint(args.min_gap, args.max_gap)  # noqa: S311
             print(f"      waiting {gap}s...")
             time.sleep(gap)
 

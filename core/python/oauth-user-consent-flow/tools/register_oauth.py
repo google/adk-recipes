@@ -128,6 +128,7 @@ def register_oauth():
             f"{base_url}?authorizationId={auth_id}",
             headers=headers,
             json=payload,
+            timeout=30,
         )
 
         if response.status_code == 200:
@@ -140,7 +141,7 @@ def register_oauth():
             )
 
             del_response = requests.delete(
-                f"{base_url}/{auth_id}", headers=headers
+                f"{base_url}/{auth_id}", headers=headers, timeout=30
             )
             if del_response.status_code in [200, 204]:
                 print("🗑️  Old resource deleted. Re-creating...")
@@ -149,6 +150,7 @@ def register_oauth():
                     f"{base_url}?authorizationId={auth_id}",
                     headers=headers,
                     json=payload,
+                    timeout=30,
                 )
                 if retry_response.status_code == 200:
                     print(

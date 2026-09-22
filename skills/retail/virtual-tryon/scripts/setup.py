@@ -40,7 +40,7 @@ except ImportError:
             parts = re.split(r"^---\s*$", content, flags=re.MULTILINE)
             if len(parts) >= 3:
                 return yaml.safe_load(parts[1]) or {}
-        except Exception:
+        except Exception:  # noqa: S110
             pass
         return {}
 

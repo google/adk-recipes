@@ -1448,7 +1448,7 @@ def _case_insensitive_files(root):
                 names = (yaml.safe_load(handle) or {}).get(
                     "case_insensitive_files"
                 )
-        except Exception:
+        except Exception:  # noqa: S112
             continue
         if isinstance(names, list):
             return {str(n).lower() for n in names}
@@ -1525,7 +1525,7 @@ def _load_policy_required_files(root):
 
             with open(path, "rb") as handle:
                 section = (yaml.safe_load(handle) or {}).get("required_files")
-        except Exception:
+        except Exception:  # noqa: S112
             continue
         if not isinstance(section, dict):
             continue
