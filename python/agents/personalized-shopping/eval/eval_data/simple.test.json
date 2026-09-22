@@ -1,7 +1,0 @@
-[
-    {
-      "query": "Hello, who are you?",
-      "expected_tool_use": [],
-      "reference": "I am a webshop agent. I can help you find products, explore their details, and guide you through the purchase process. What are you looking for today?"
-    }
-]
