@@ -17,6 +17,14 @@ import os
 from jinja2 import Environment, FileSystemLoader
 
 
+def _render_template(template_name: str) -> str:
+    """Renders a template from the prompt-template directory."""
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    template_dir = os.path.join(current_dir, "prompt-template")
+    env = Environment(loader=FileSystemLoader(template_dir))
+    return env.get_template(template_name).render()
+
+
 def load_few_shot_examples() -> str:
     """Loads and renders the Google Trends few-shot examples template.
 
@@ -24,15 +32,7 @@ def load_few_shot_examples() -> str:
         str: The rendered template with populated values.
     """
     try:
-        # Set up Jinja environment
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        template_dir = os.path.join(current_dir, "prompt-template")
-        env = Environment(loader=FileSystemLoader(template_dir))
-        template = env.get_template("google_trends_few_shots.j2")
-
-        # Render the template
-        rendered_template = template.render()
-        return rendered_template
+        return _render_template("google_trends_few_shots.j2")
 
     except Exception as e:
         print(f"Error loading few-shot examples template: {e!s}")
@@ -46,14 +46,7 @@ def load_table_structure_prompt() -> str:
         str: The rendered template content.
     """
     try:
-        # Set up Jinja environment
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        template_dir = os.path.join(current_dir, "prompt-template")
-        env = Environment(loader=FileSystemLoader(template_dir))
-        template = env.get_template("google_trends_table_structure.j2")
-
-        # Render the template
-        return template.render()
+        return _render_template("google_trends_table_structure.j2")
 
     except Exception as e:
         print(f"Error loading table structure template: {e!s}")

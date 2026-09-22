@@ -40,8 +40,8 @@ STAGING_BUCKET = os.getenv("GOOGLE_CLOUD_STORAGE_BUCKET")
 # Agent Engine is hosted in a real region (NOT the model-serving "global"
 # endpoint). The agent's model calls still go to global — that is forced in
 # app/__init__.py — but the reasoning engine itself must live in a region
-# such as us-central1.
-AGENT_ENGINE_LOCATION = os.getenv("AGENT_ENGINE_LOCATION", "us-central1")
+# such as us-central1. Set AGENT_ENGINE_LOCATION in .env (see .env.example).
+AGENT_ENGINE_LOCATION = os.getenv("AGENT_ENGINE_LOCATION")
 
 ENV_FILE_PATH = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "..", ".env")

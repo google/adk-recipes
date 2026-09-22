@@ -27,9 +27,12 @@ load_dotenv()
 from . import agent  # noqa: E402 -- must come after load_dotenv()
 
 _, project_id = google.auth.default()
-os.environ.setdefault("GOOGLE_CLOUD_PROJECT", project_id)
+# google.auth.default() returns no project when it cannot infer one (for
+# example ADC with no associated project). Guard it: os.environ.setdefault
+# requires a str and would otherwise raise TypeError at import time.
+if project_id:
+    os.environ.setdefault("GOOGLE_CLOUD_PROJECT", project_id)
 # gemini-3.x models are served on the "global" endpoint, so force it here.
 # This governs MODEL calls only; Agent Engine hosting region is set separately
 # in deployment/deploy.py via AGENT_ENGINE_LOCATION.
 os.environ["GOOGLE_CLOUD_LOCATION"] = "global"
-os.environ.setdefault("GOOGLE_GENAI_USE_VERTEXAI", "True")
