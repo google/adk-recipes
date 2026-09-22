@@ -147,10 +147,16 @@ jobs:
     outputs:
       pr_number: '${{ steps.get_pr.outputs.pr_number || steps.get_pr_comment.outputs.pr_number }}'
       # Two steps can decide a PR is unreviewable. `diff_size_guard` forecasts
-      # it from the file counts; `fetch_diff` discovers it when the API refuses
-      # a diff the guard thought was servable. Either one means `post` has
-      # something to say, so the output is the OR of the two.
+      # it from the file AND line counts; `fetch_diff` discovers it when the
+      # API refuses a diff the guard thought was servable. Either one means
+      # `post` has something to say, so the output is the OR of the two.
+      #
+      # `&& 'true' || 'false'` here and the bare `||` below both rely on these
+      # operators yielding the OPERAND rather than a boolean — the same rule
+      # `pr_number` above has always used to fall back between two steps.
       skip: '${{ (steps.diff_size_guard.outputs.skip == ''true'' || steps.fetch_diff.outputs.skip == ''true'') && ''true'' || ''false'' }}'
+      # At most one of these is ever set: the guard names a reason only when
+      # it skips, and `fetch_diff` does not run when it did.
       skip_reason: '${{ steps.diff_size_guard.outputs.skip_reason || steps.fetch_diff.outputs.skip_reason }}'
       total_files: '${{ steps.diff_size_guard.outputs.total_files }}'
       total_lines: '${{ steps.diff_size_guard.outputs.total_lines }}'
@@ -617,11 +623,17 @@ jobs:
           done
 
           # A refused diff and a broken one are different outcomes. The guard
-          # forecasts the refusal and usually gets there first, but `.changes`
-          # undercounts the diff text (see the guard), so a PR just under the
-          # line limit reaches here and 406s anyway. Both roads lead to the
-          # same rebuild.
-          if [[ "${FETCHED}" != 'true' ]] && grep -q 'too_large' fetch_err.txt; then
+          # forecasts the refusal from the file AND line counts and usually
+          # gets there first, but `.changes` undercounts the diff text (see the
+          # guard), so a PR just under the line limit reaches here and 406s
+          # anyway. Both roads lead to the same rebuild.
+          #
+          # `-f` first: when the guard already set REBUILD the loop above broke
+          # before running any command, so fetch_err.txt does not exist and a
+          # bare `grep` would print "No such file or directory" into the log of
+          # a lane that is working exactly as intended.
+          if [[ "${FETCHED}" != 'true' && -f fetch_err.txt ]] \
+             && grep -q 'too_large' fetch_err.txt; then
             echo "GitHub refused to serve a diff for PR #${PR_NUMBER} (HTTP 406, too large); rebuilding it from the files endpoint."
             REBUILD='true'
           fi

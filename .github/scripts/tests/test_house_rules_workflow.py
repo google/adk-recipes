@@ -401,11 +401,17 @@ def test_the_diff_size_is_checked_before_the_diff_is_fetched(workflow):
     )
 
     code = _step_named(job, sizing)["run"]
-    assert "TOTAL_FILES > 300" in code, "the 300-file limit is unguarded"
-    assert "TOTAL_LINES > 20000" in code, (
+    # The values as well as the comparison: these are the diff API's limits,
+    # not this lane's policy, so they have to match `diff_size_guard` in
+    # _ai-pr-review-core.yml. A lane that guessed its own would either skip
+    # PRs the API would have served or fail on ones it would not.
+    assert "MAX_DIFF_FILES=300" in code, "the 300-file limit is unguarded"
+    assert "MAX_DIFF_LINES=20000" in code, (
         "the 20000-line limit is unguarded; #2666 failed this lane on it "
         "while passing the file check"
     )
+    assert "TOTAL_FILES > MAX_DIFF_FILES" in code
+    assert "TOTAL_LINES > MAX_DIFF_LINES" in code
 
 
 def test_an_over_limit_diff_is_rebuilt_rather_than_given_up_on(workflow):
@@ -464,13 +470,12 @@ def test_the_diff_fetch_is_retried(workflow):
     )
 
 
-def test_this_lane_does_not_post_its_own_too_large_comment(workflow):
+def test_this_lane_does_not_post_its_own_too_large_comment(raw):
     """The elected model lane says it once, for all five lanes.
 
     Five workflows reaching the same verdict about the same pull request must
     not produce five comments saying so.
     """
-    raw = WORKFLOW.read_text(encoding="utf-8")
     assert "diff API will serve" not in raw, (
         "this lane posts its own size complaint; the Correctness lane in "
         "_ai-pr-review-core.yml is the elected one"
