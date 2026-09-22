@@ -408,29 +408,52 @@ def test_the_diff_size_is_checked_before_the_diff_is_fetched(workflow):
     )
 
 
-def test_the_steps_that_need_a_diff_are_gated_on_the_guard(workflow):
-    """Ungated, they run without `pr_diff.txt` and fail the lane anyway."""
+def test_an_over_limit_diff_is_rebuilt_rather_than_given_up_on(workflow):
+    """Findings without anchors cannot be posted, so the diff has to exist.
+
+    The deterministic checks read the `pr-head` checkout and would happily
+    run on a PR of any size; it is the anchoring that needs a diff. Before
+    the rebuild this lane checked an over-limit PR and then had nowhere to
+    put what it found.
+    """
     job = workflow["jobs"]["check"]
-    for name in ("Fetch the diff", "Build the review payload"):
-        cond = " ".join(str(_step_named(job, name).get("if", "")).split())
-        assert "steps.files.outputs.skip != 'true'" in cond, (
-            f"{name!r} is not gated on the diff-size guard"
+    sizing = _step_named(job, "List the changed files and size the diff")
+    assert "rebuild=true" in sizing["run"], (
+        "an over-limit PR no longer routes to the rebuild"
+    )
+
+    fetch = _step_named(job, "Fetch the diff")["run"]
+    assert "build_diff_from_files_api.py" in fetch, (
+        "the lane does not rebuild the diff it cannot fetch"
+    )
+    assert "too_large" in fetch, (
+        "a refusal the size check failed to forecast is not caught"
+    )
+
+
+def test_no_step_is_left_gated_on_a_skip_that_no_longer_happens(workflow):
+    """A leftover gate would silently disable posting on every large PR."""
+    job = workflow["jobs"]["check"]
+    for step in _steps(job):
+        cond = str(step.get("if", ""))
+        assert "steps.files.outputs.skip" not in cond, (
+            f"{step.get('name')!r} still gates on a removed output, so it "
+            "never runs"
         )
 
 
-def test_the_checks_still_run_when_the_diff_is_too_large(workflow):
-    """The findings do not come from the diff, only the anchors do.
+def test_the_rebuild_script_comes_from_the_base_checkout(workflow):
+    """Same invariant as the checker: never run code from the PR.
 
-    `house_rules_lane.py` reads the `pr-head` checkout, so an over-limit PR
-    can still be checked and its findings still reach the job log. Gating
-    this step on the guard would throw that away for no reason.
+    This job checks out the pull request's tree as DATA. A script path that
+    resolves into `pr-head/` would let a fork author run their own code on a
+    runner, which the four invariants at the top of the workflow forbid.
     """
-    job = workflow["jobs"]["check"]
-    step = _step_named(job, "Run the deterministic checks")
-    assert "skip" not in str(step.get("if", "")), (
-        "the deterministic checks were gated on the diff guard, but they "
-        "read the checkout and need no diff"
+    fetch = _step_named(workflow["jobs"]["check"], "Fetch the diff")["run"]
+    assert "base/.github/scripts/build_diff_from_files_api.py" in fetch, (
+        "the rebuild script must be taken from the base checkout"
     )
+    assert "pr-head/.github" not in fetch
 
 
 def test_the_diff_fetch_is_retried(workflow):

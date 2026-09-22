@@ -153,9 +153,11 @@ jobs:
       skip: '${{ (steps.diff_size_guard.outputs.skip == ''true'' || steps.fetch_diff.outputs.skip == ''true'') && ''true'' || ''false'' }}'
       skip_reason: '${{ steps.diff_size_guard.outputs.skip_reason || steps.fetch_diff.outputs.skip_reason }}'
       total_files: '${{ steps.diff_size_guard.outputs.total_files }}'
-      max_diff_files: '${{ steps.diff_size_guard.outputs.max_diff_files }}'
       total_lines: '${{ steps.diff_size_guard.outputs.total_lines }}'
-      max_diff_lines: '${{ steps.diff_size_guard.outputs.max_diff_lines }}'
+      # The only limit `post` still quotes. A PR past the diff API's own two
+      # limits is rebuilt rather than skipped, so those two numbers never
+      # reach a comment any more.
+      max_api_files: '${{ steps.diff_size_guard.outputs.max_api_files }}'
       # Empty rather than 'false' when the build step never ran — a PR that was
       # skipped or had nothing reviewable. `post` tests for 'true', so all
       # three of those cases correctly mean "do not start that job".
@@ -330,13 +332,29 @@ jobs:
           # media type, which answers HTTP 406 "PullRequest.diff too_large" on
           # EITHER of two independent limits — above 300 files, or above 20000
           # diff lines. 406 is deterministic, so the fetch step's three retries
-          # cannot recover it and its exhausted-loop path was fatal: #2535 (804
-          # files) failed all three reviews on the file limit, and #2666 (216
-          # files, 561225 lines) failed all four on the line limit while passing
-          # the file check. Caught here because THIS endpoint paginates and that
-          # one does not, so both counts are in hand one step before the failure.
+          # cannot recover it: #2535 (804 files) failed all three reviews on the
+          # file limit, and #2666 (216 files, 561225 lines) failed all four on
+          # the line limit while passing the file check. Forecast here because
+          # THIS endpoint paginates and that one does not, so both counts are in
+          # hand one step before the fetch.
           MAX_DIFF_FILES=300
           MAX_DIFF_LINES=20000
+
+          # Over either limit the lane no longer gives up. THIS endpoint
+          # carries each file's own `patch`, and it paginates, so
+          # build_diff_from_files_api.py can reassemble a diff the other
+          # endpoint refuses to serve whole. What the API declines to send a
+          # patch for — binaries, lockfiles, bulk data — is very nearly what
+          # prepare_review_diff.py discards anyway: on #2666 that was 18 of
+          # 216 records, all of them .webp, uv.lock, or a huge CSV. So the
+          # rebuilt diff is the reviewable part of the pull request, and a PR
+          # that deletes three giant fixtures alongside 200 source files now
+          # gets the 200 source files reviewed.
+          #
+          # The files endpoint has a ceiling of its own at 3000 files. Past it
+          # no diff can be assembled at all, so that is where the lane still
+          # declines.
+          MAX_API_FILES=3000
 
           # The counts go out as outputs and the COMMENT is left to `post`.
           # This job holds a read-only token by design, so it cannot say this
@@ -346,6 +364,7 @@ jobs:
             echo "max_diff_files=${MAX_DIFF_FILES}"
             echo "total_lines=${TOTAL_LINES}"
             echo "max_diff_lines=${MAX_DIFF_LINES}"
+            echo "max_api_files=${MAX_API_FILES}"
           } >> "${GITHUB_OUTPUT}"
 
           # A PR that changes nothing is a legitimate state, not a fault. It
@@ -361,10 +380,12 @@ jobs:
             exit 0
           fi
 
-          if (( TOTAL_COUNT > MAX_DIFF_FILES )); then
+          # Past the files endpoint's own ceiling there is no way left to
+          # assemble a diff, so this is the one size that still declines.
+          if (( TOTAL_COUNT > MAX_API_FILES )); then
             echo "skip=true" >> "${GITHUB_OUTPUT}"
             echo "skip_reason=files" >> "${GITHUB_OUTPUT}"
-            echo "${TOTAL_COUNT} files changed, above the ${MAX_DIFF_FILES}-file diff API limit; skipping."
+            echo "${TOTAL_COUNT} files changed, above the ${MAX_API_FILES} the files API will list; skipping."
             exit 0
           fi
 
@@ -372,17 +393,18 @@ jobs:
           # API enforces counts the whole diff text — context rows and hunk
           # headers included. So this total is a LOWER bound and a PR just
           # under it can still 406. Deliberately not padded with a guessed
-          # margin: the fetch step below turns that residual into the same
-          # graceful skip, which is honest, where a made-up threshold would
-          # skip reviewable PRs to hide a case already handled.
-          if (( TOTAL_LINES > MAX_DIFF_LINES )); then
-            echo "skip=true" >> "${GITHUB_OUTPUT}"
-            echo "skip_reason=lines" >> "${GITHUB_OUTPUT}"
-            echo "${TOTAL_LINES} lines changed, above the ${MAX_DIFF_LINES}-line diff API limit; skipping."
+          # margin: the fetch step below falls back to the same rebuild when
+          # the refusal arrives unforecast, so the residual costs one wasted
+          # request rather than a missed review.
+          if (( TOTAL_COUNT > MAX_DIFF_FILES || TOTAL_LINES > MAX_DIFF_LINES )); then
+            echo "skip=false" >> "${GITHUB_OUTPUT}"
+            echo "rebuild=true" >> "${GITHUB_OUTPUT}"
+            echo "${TOTAL_COUNT} files / ${TOTAL_LINES} lines is past what the diff API will serve; rebuilding from the files endpoint."
             exit 0
           fi
 
           echo "skip=false" >> "${GITHUB_OUTPUT}"
+          echo "rebuild=false" >> "${GITHUB_OUTPUT}"
 
       # Fetch the diff HERE rather than letting the reviewer shell out for it.
       # agy runs the agent in an empty scratch directory, not in the checked-out
@@ -479,6 +501,7 @@ jobs:
           PR_NUMBER: '${{ steps.get_pr.outputs.pr_number || steps.get_pr_comment.outputs.pr_number }}'
           LAST_REVIEWED_SHA: '${{ steps.budget.outputs.last_reviewed_sha }}'
           HEAD_SHA: '${{ steps.budget.outputs.head_sha }}'
+          REBUILD: '${{ steps.diff_size_guard.outputs.rebuild }}'
         run: |-
           set -euo pipefail
 
@@ -548,9 +571,21 @@ jobs:
             fi
           fi
 
+          # Forecast by the guard as unservable, so do not spend a request
+          # proving it. `rebuild` only ever covers the whole PR: an
+          # incremental round asks the compare endpoint for a delta, and the
+          # files endpoint has no equivalent of that — it describes the pull
+          # request, not a range within it. A PR big enough to need rebuilding
+          # is reviewed whole, which is the safe direction to be wrong in.
+          if [[ "${REBUILD}" == 'true' ]]; then
+            SCOPE='full'
+          fi
+
           FETCHED='false'
           for attempt in 1 2 3; do
-            if [[ "${SCOPE}" == 'incremental' ]]; then
+            if [[ "${REBUILD}" == 'true' ]]; then
+              break
+            elif [[ "${SCOPE}" == 'incremental' ]]; then
               # The compare endpoint's diff media type returns a normal
               # unified diff, with NEW-file line numbers identical to the
               # ones base...head would give — so anchors need no translation.
@@ -581,23 +616,62 @@ jobs:
             sleep 5
           done
 
-          if [[ "${FETCHED}" != 'true' ]]; then
-            # A refused diff and a broken one are different outcomes. The guard
-            # forecasts the refusal from the file counts and usually catches it
-            # first, but `.changes` undercounts the diff text (see the guard),
-            # so a PR just under the line limit reaches here and 406s anyway.
-            # That is still "too big to review", not a CI fault — skip it the
-            # way the guard would have, and let `post` say so once.
-            if grep -q 'too_large' fetch_err.txt; then
+          # A refused diff and a broken one are different outcomes. The guard
+          # forecasts the refusal and usually gets there first, but `.changes`
+          # undercounts the diff text (see the guard), so a PR just under the
+          # line limit reaches here and 406s anyway. Both roads lead to the
+          # same rebuild.
+          if [[ "${FETCHED}" != 'true' ]] && grep -q 'too_large' fetch_err.txt; then
+            echo "GitHub refused to serve a diff for PR #${PR_NUMBER} (HTTP 406, too large); rebuilding it from the files endpoint."
+            REBUILD='true'
+          fi
+
+          if [[ "${REBUILD}" == 'true' ]]; then
+            # `--jq '.[]'` is what makes this one record per line. `gh api
+            # --paginate` concatenates one JSON ARRAY per page, and those
+            # cannot be parsed as a single document.
+            REBUILT='false'
+            for attempt in 1 2 3; do
+              if gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/files" \
+                   --paginate \
+                   --jq '.[] | {filename,previous_filename,status,patch,changes} | @json' \
+                   > pr_files.jsonl 2> fetch_err.txt; then
+                REBUILT='true'
+                break
+              fi
+              cat fetch_err.txt
+              echo "::warning::files endpoint failed (attempt ${attempt}/3); retrying in 5s..."
+              sleep 5
+            done
+
+            if [[ "${REBUILT}" != 'true' ]]; then
+              echo "::error::cannot list files for PR #${PR_NUMBER}; refusing to review without a diff."
+              exit 1
+            fi
+
+            python3 .github/scripts/build_diff_from_files_api.py \
+              --files pr_files.jsonl \
+              --out pr_diff.txt \
+              --omitted-out api_omitted_files.txt \
+              --github-output "${GITHUB_OUTPUT}"
+
+            # Nothing survived the rebuild: every file was binary, unchanged,
+            # or too large for the API to patch. There is genuinely nothing to
+            # review, and that is a skip rather than a fault.
+            if [[ ! -s pr_diff.txt ]]; then
               {
                 echo "skip=true"
                 echo "skip_reason=api"
                 echo "empty=true"
               } >> "${GITHUB_OUTPUT}"
-              echo "GitHub refused to serve a diff for PR #${PR_NUMBER} (HTTP 406, too large); skipping."
+              echo "No file in PR #${PR_NUMBER} carried a reviewable patch; skipping."
               exit 0
             fi
 
+            FETCHED='true'
+          fi
+
+          if [[ "${FETCHED}" != 'true' ]]; then
             echo "::error::gh pr diff failed for PR #${PR_NUMBER} after 3 attempts; refusing to review without a diff."
             exit 1
           fi
@@ -1294,6 +1368,15 @@ jobs:
             --max-bytes "${DIFF_BUDGET}" \
             --unreviewed-out unreviewed_files.txt
 
+          # A file the API sent no patch for was never in the diff to begin
+          # with, so the packer above cannot know it exists. It is unreviewed
+          # all the same, and for the same reason it has to be named: silence
+          # on a file reads as approval of it. Merged in here so both kinds of
+          # omission reach the author through one list.
+          if [[ -s api_omitted_files.txt ]]; then
+            cat api_omitted_files.txt >> unreviewed_files.txt
+          fi
+
           # Silence on a file reads as approval of it, so a file that did not
           # fit has to be named. The author is told in the review body too.
           UNREVIEWED="$(wc -l < unreviewed_files.txt | tr -d ' ')"
@@ -1679,25 +1762,22 @@ jobs:
           PR_NUMBER: '${{ needs.review.outputs.pr_number }}'
           SKIP_REASON: '${{ needs.review.outputs.skip_reason }}'
           TOTAL_FILES: '${{ needs.review.outputs.total_files }}'
-          MAX_DIFF_FILES: '${{ needs.review.outputs.max_diff_files }}'
           TOTAL_LINES: '${{ needs.review.outputs.total_lines }}'
-          MAX_DIFF_LINES: '${{ needs.review.outputs.max_diff_lines }}'
+          MAX_API_FILES: '${{ needs.review.outputs.max_api_files }}'
         run: |-
           set -euo pipefail
 
-          # The reason decides the sentence. A PR stopped by the line limit
-          # told "above the 300 files the diff API will serve" is being given a
-          # number that is not why it was skipped, and #2666 (216 files) would
-          # have read that as the checks being broken rather than as a limit.
+          # The reason decides the sentence. Reaching here at all is now rare:
+          # a PR merely past the diff API's limits gets its diff rebuilt from
+          # the files endpoint and reviewed, so the only skips left are the
+          # ones no rebuild can help with. Quoting a limit that is not the one
+          # that stopped the PR reads as the checks being broken.
           case "${SKIP_REASON}" in
             files)
-              BODY="This PR changes ${TOTAL_FILES} files, above the ${MAX_DIFF_FILES} GitHub's diff API will serve, so automated AI review was skipped. Splitting it up would get each part reviewed."
-              ;;
-            lines)
-              BODY="This PR changes ${TOTAL_LINES} lines across ${TOTAL_FILES} files. GitHub's diff API will not serve a diff above ${MAX_DIFF_LINES} lines, so automated AI review was skipped. Splitting it up would get each part reviewed."
+              BODY="This PR changes ${TOTAL_FILES} files, above the ${MAX_API_FILES} GitHub's API will list for one pull request, so automated AI review was skipped. Splitting it up would get each part reviewed."
               ;;
             *)
-              BODY="GitHub's diff API refused to serve a diff for this PR (HTTP 406, too large), so automated AI review was skipped. Splitting it up would get each part reviewed."
+              BODY="No file in this PR carried a diff GitHub would serve — every one is binary, unchanged, or too large to patch — so there was nothing for automated AI review to read. (${TOTAL_FILES} files, ${TOTAL_LINES} changed lines.)"
               ;;
           esac
 

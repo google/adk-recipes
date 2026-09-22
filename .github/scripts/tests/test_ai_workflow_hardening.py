@@ -821,41 +821,99 @@ def test_every_skip_path_records_why():
     anything — which is why it is asserted here.
     """
     code = _code(_guard_step()["run"])
-    skips = code.count("echo \"skip=true\"") + code.count("echo 'skip=true'")
+    skips = code.count('echo "skip=true"') + code.count("echo 'skip=true'")
     reasons = code.count("skip_reason=")
-    assert skips >= 3, (
-        f"expected the empty/files/lines skip paths, found {skips}"
-    )
+    assert skips >= 2, f"expected the empty/files skip paths, found {skips}"
     assert reasons >= skips, (
         f"{skips} skip paths but only {reasons} set a reason"
     )
 
 
-def test_a_refused_diff_is_a_skip_and_not_a_failed_lane():
+def test_being_over_the_diff_api_limit_rebuilds_rather_than_skips():
+    """The whole point of the files-endpoint rebuild.
+
+    If this flips back to `skip=true`, #2666 stops being reviewed again while
+    every other test here still passes: the rest pin that the limit is
+    NOTICED, not what happens once it is.
+    """
+    code = _code(_guard_step()["run"])
+    assert "rebuild=true" in code, (
+        "over-limit PRs no longer route to the rebuild; they are skipped again"
+    )
+
+    over_limit = "TOTAL_COUNT > MAX_DIFF_FILES || TOTAL_LINES > MAX_DIFF_LINES"
+    assert over_limit in code, "the two API limits stopped sharing a branch"
+
+    branch = code.split(over_limit, 1)[1].split("fi", 1)[0]
+    assert "skip=true" not in branch, (
+        "the over-limit branch still skips, so the rebuild never runs"
+    )
+
+
+def test_the_only_remaining_size_skip_is_one_no_rebuild_can_fix():
+    """Above the files endpoint's own ceiling, no diff can be assembled."""
+    code = _code(_guard_step()["run"])
+    assert "MAX_API_FILES=3000" in code, (
+        "the files endpoint's own 3000-file ceiling is unguarded, so a PR "
+        "past it would be rebuilt from a truncated list and reviewed as if "
+        "the missing files were unchanged"
+    )
+    assert "TOTAL_COUNT > MAX_API_FILES" in code
+
+
+def _fetch_code() -> str:
+    for step in _steps(PR_REVIEW, "review"):
+        if step.get("id") == "fetch_diff":
+            return _code(step["run"])
+    raise AssertionError("no fetch_diff step in the review job")
+
+
+def test_a_refused_diff_falls_back_to_the_rebuild():
     """`.changes` undercounts the diff text, so the guard can be wrong.
 
     It sums added and removed lines; the API counts context rows and hunk
     headers too. A PR just under 20000 therefore still 406s at the fetch, and
-    that must degrade the way the guard would have rather than failing the
-    lane with a red check the author cannot act on.
+    that must reach the same rebuild the guard would have chosen rather than
+    failing the lane with a red check the author cannot act on.
     """
-    for step in _steps(PR_REVIEW, "review"):
-        if step.get("id") == "fetch_diff":
-            code = _code(step["run"])
-            break
-    else:
-        raise AssertionError("no fetch_diff step in the review job")
-
+    code = _fetch_code()
     assert "too_large" in code, (
         "the fetch no longer distinguishes a refused diff from a broken one"
     )
-    assert "skip_reason=api" in code, (
-        "a fetch-time refusal must reach `post` as a skip with a reason"
+    assert "REBUILD='true'" in code, (
+        "an unforecast 406 no longer routes to the rebuild"
     )
-    # The generic path must still be able to fail: a genuine transport
-    # failure is a CI fault and swallowing it would hide a broken pipeline.
-    assert "exit 1" in code, (
-        "a non-406 fetch failure must still fail the lane"
+    # A genuine transport failure is a CI fault; swallowing it would hide a
+    # broken pipeline behind a green check.
+    assert "exit 1" in code, "a non-406 fetch failure must still fail the lane"
+
+
+def test_the_rebuild_runs_the_script_from_the_repo_not_inline_shell():
+    """The reconstruction is tested code, and has to stay tested code."""
+    code = _fetch_code()
+    assert ".github/scripts/build_diff_from_files_api.py" in code, (
+        "the diff rebuild is not going through the tested script"
+    )
+
+
+def test_the_rebuild_asks_for_one_json_record_per_line():
+    """`gh api --paginate` concatenates one ARRAY per page.
+
+    Without `--jq '.[]'` the output is several JSON documents end to end,
+    which the reader rejects — and the lane then has no diff at all on
+    exactly the PRs this path exists for.
+    """
+    code = _fetch_code()
+    assert "--jq '.[] | {filename,previous_filename,status,patch,changes}" in (
+        code
+    ), "the rebuild's jq projection changed shape"
+
+
+def test_a_rebuild_that_finds_nothing_reviewable_skips_rather_than_fails():
+    """Every file binary, unchanged, or too large to patch is a real state."""
+    code = _fetch_code()
+    assert "skip_reason=api" in code, (
+        "an empty rebuild must reach `post` as a skip with a reason"
     )
 
 
@@ -907,7 +965,15 @@ def test_the_too_large_comment_names_the_limit_it_actually_hit():
         raise AssertionError("no too-large report step in the post job")
 
     assert "SKIP_REASON" in code, "the message does not depend on the reason"
-    assert "MAX_DIFF_LINES" in code, (
-        "no branch of the message can state the line limit, so a line-limit "
-        "skip is reported with a file count that is not why it was skipped"
+    assert "MAX_API_FILES" in code, (
+        "the only size that still skips is the files endpoint's own ceiling, "
+        "and no branch of the message states it"
+    )
+    # The diff API's two limits no longer skip anything — they rebuild — so
+    # quoting them here would describe a decision the workflow did not make.
+    assert "MAX_DIFF_LINES" not in code, (
+        "the message quotes a limit that no longer causes a skip"
+    )
+    assert "MAX_DIFF_FILES" not in code, (
+        "the message quotes a limit that no longer causes a skip"
     )
