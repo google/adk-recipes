@@ -57,9 +57,24 @@ if not os.environ.get("GOOGLE_CLOUD_LOCATION"):
     os.environ["GOOGLE_CLOUD_LOCATION"] = "global"
 if not os.environ.get("GOOGLE_GENAI_USE_VERTEXAI"):
     os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "True"
-if not os.environ.get("MODEL_NAME"):
-    os.environ["MODEL_NAME"] = "gemini-3.8-flash"
+# MODEL_NAME deliberately has no in-code fallback: it is declared in
+# .env.example and loaded by load_dotenv() above, so the model is chosen
+# without a hardcoded literal in the source.
+#
+# Fail fast and say why. Without this guard a missing MODEL_NAME travels as
+# None into GeminiPreview(model=None) and surfaces as a pydantic
+# "Input should be a valid string" deep inside a sub-agent import, which says
+# nothing about the actual problem (no .env file).
+_model_name = os.environ.get("MODEL_NAME")
+if not _model_name:
+    raise RuntimeError(
+        "MODEL_NAME is not set. Copy .env.example to .env in the recipe root "
+        "(cp .env.example .env) and set MODEL_NAME, or export it in your "
+        "environment."
+    )
+
+# The judge mirrors the main model unless the operator overrides it separately.
 if not os.environ.get("JUDGE_MODEL"):
-    os.environ["JUDGE_MODEL"] = os.environ["MODEL_NAME"]
+    os.environ["JUDGE_MODEL"] = _model_name
 
 from small_business_loan_agent import agent  # noqa: E402

@@ -116,13 +116,15 @@ def finalize_loan_decision(tool_context: ToolContext) -> dict:
             else "N/A"
         )
         loan_term = (
-            application_data.get("loan_term_months", "N/A")
+            application_data.get("loan_term_months")
             if isinstance(application_data, dict)
-            else "N/A"
+            else None
         )
         # Single source of truth for the term string, so the prose message and
         # the structured field can never disagree (avoids "for N/A months").
-        approved_term = "N/A" if loan_term == "N/A" else f"{loan_term} months"
+        # A truthiness check, not `== "N/A"`: the key can be present but null or
+        # empty, which an equality guard lets through as "None months".
+        approved_term = f"{loan_term} months" if loan_term else "N/A"
 
         if decision == "APPROVED":
             conditions = [
