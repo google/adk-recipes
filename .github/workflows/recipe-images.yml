@@ -201,7 +201,11 @@ jobs:
           # so a bare `:<sha>` would be rewritten every Tuesday and would not
           # mean what a commit-shaped tag implies. Dating it keeps every
           # published image immutable and still traceable to its source.
-          push: ${{ !inputs.dry_run }}
+          #
+          # Docker v2 media types, not OCI: Agent Engine fails to start an
+          # OCI-manifest image deployed through container_spec, while the same
+          # image as Docker v2 deploys. `outputs` replaces `push` to set this.
+          outputs: type=image,push=${{ !inputs.dry_run }},oci-mediatypes=false
           tags: |
             ${{ matrix.image }}:latest
             ${{ matrix.image }}:${{ needs.matrix.outputs.build_tag }}
