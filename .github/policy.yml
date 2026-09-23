@@ -349,6 +349,23 @@ required_dirs:
 # days of slack (60 becomes "60-67"). With a 30-day gap between the two
 # stages and a 7-day tick, nothing can skip a stage.
 # --------------------------------------------------------------------------
+
+# --------------------------------------------------------------------------
+# Recipe proposals — issues titled `[RECIPE PROPOSAL]`, reviewed by hand.
+# The AI issue workflows are gated off them, and recipe-proposal-intake.yml
+# applies what the issue template would have.
+#
+# ISSUE_TEMPLATE/propose-a-new-recipe.md names the same assignees and label,
+# but GitHub applies template front matter only to issues filed THROUGH the
+# template — one created via the REST API gets neither (issue #2660). Keep
+# the two in step; a test asserts they match.
+# --------------------------------------------------------------------------
+recipe_proposals:
+  assignees:
+    - pierpaolo28
+    - kgu-here
+  label: contribute
+
 stale_policy:
   # Applied to both pull requests and issues. Only users with write access
   # can apply labels, so `keep_open_label` is a maintainer override rather

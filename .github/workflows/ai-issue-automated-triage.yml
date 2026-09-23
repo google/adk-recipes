@@ -60,6 +60,7 @@ jobs:
       issues: 'read'
     outputs:
       issues: '${{ steps.resolve_issue.outputs.issues }}'
+      skip: '${{ steps.resolve_issue.outputs.skip }}'
     steps:
       - name: 'Resolve the issue to triage'
         id: 'resolve_issue'
@@ -82,14 +83,33 @@ jobs:
           # Emitted as a one-element array so the core sees the same shape it
           # gets from the scheduled sweep. The body is truncated for the same
           # reason the sweep truncates it: it goes straight into the prompt.
-          ISSUES="$(gh issue view "${ISSUE_NUMBER}" --json number,title,body \
+          ISSUE_DATA="$(gh issue view "${ISSUE_NUMBER}" --json number,title,body)"
+          ISSUES="$(echo "${ISSUE_DATA}" \
             | jq -c '[{number, title, body: ((.body // "")[0:4000])}]')"
 
           echo "issues=${ISSUES}" >> "${GITHUB_OUTPUT}"
+
+          # Recipe proposals are reviewed by hand — no AI labelling, and no
+          # failure comment either, since skipping `triage` skips
+          # `notify-failure` with it (a skipped job is not a failure).
+          # Upper-cased before comparing, so `[Recipe Proposal]` matches
+          # too. The other three gates fold case the same way; one that did
+          # not would let a mixed-case title through here while every other
+          # workflow still treated it as a proposal.
+          TITLE="$(echo "${ISSUE_DATA}" | jq -r '.title')"
+          SKIP='false'
+          if [[ "${TITLE^^}" == *"[RECIPE PROPOSAL]"* ]]; then
+            SKIP='true'
+            echo "::notice::#${ISSUE_NUMBER} is a recipe proposal — skipping triage."
+          fi
+          echo "skip=${SKIP}" >> "${GITHUB_OUTPUT}"
+
           echo "Triaging: ${ISSUES}"
 
   triage:
     needs: 'resolve'
+    if: |-
+      ${{ needs.resolve.outputs.skip != 'true' }}
     permissions:
       contents: 'read'
       id-token: 'write'
@@ -132,6 +152,36 @@ jobs:
             // avoids leaking a template expression into the JS source.
             // github.event.issue.number is null on workflow_dispatch, so
             // fall back to the dispatched input in that case.
+            // Recipe proposals are a human-only lane, so no bot comments
+            // on them — not even this one. `resolve` can fail before any
+            // skip decision exists (an API blip), and without this guard
+            // that failure lands a comment on a proposal, which is the
+            // symptom the lane was built to stop. Read from the event
+            // payload so it needs no checkout and cannot itself fail.
+            const number = context.payload.issue?.number
+              ?? Number(context.payload.inputs?.issue_number);
+            let title = context.payload.issue?.title;
+            if (title === undefined && number) {
+              // workflow_dispatch carries no issue payload, so the title has
+              // to be fetched. Failing closed on a read error is deliberate:
+              // staying silent costs a failure notice, commenting on a
+              // proposal breaks the one rule this lane has.
+              try {
+                const { data } = await github.rest.issues.get({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: number,
+                });
+                title = data.title;
+              } catch (err) {
+                core.warning(`Could not read #${number} to check whether it is a recipe proposal (${err.message}); not commenting.`);
+                return;
+              }
+            }
+            if ((title ?? '').toUpperCase().includes('[RECIPE PROPOSAL]')) {
+              core.notice('Recipe proposal — not posting a failure comment.');
+              return;
+            }
             const issueNumber = context.payload.issue?.number
               ?? Number(context.payload.inputs?.issue_number);
             if (!issueNumber) {
