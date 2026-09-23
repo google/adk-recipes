@@ -20,10 +20,41 @@ from small_business_loan_agent.shared_libraries.logging_config import get_logger
 
 logger = get_logger(__name__)
 
+# Maps the UnderwritingAgent's eligibility_status onto a final decision.
+# REVIEW (or a missing/unknown status) is referred to a human rather than
+# being auto-approved.
+_ELIGIBILITY_TO_DECISION = {
+    "ELIGIBLE": "APPROVED",
+    "INELIGIBLE": "DENIED",
+    "REVIEW": "CONDITIONAL",
+}
+_DEFAULT_DECISION = "CONDITIONAL"
+
+
+def _resolve_decision(underwriting_data: object) -> tuple[str, str]:
+    """Map the underwriting eligibility onto a final decision.
+
+    Returns:
+        Tuple of (decision, eligibility_status).
+    """
+    eligibility = "UNKNOWN"
+    if isinstance(underwriting_data, dict):
+        eligibility = str(
+            underwriting_data.get("eligibility_status") or "UNKNOWN"
+        ).upper()
+    return (
+        _ELIGIBILITY_TO_DECISION.get(eligibility, _DEFAULT_DECISION),
+        eligibility,
+    )
+
 
 def finalize_loan_decision(tool_context: ToolContext) -> dict:
     """
     Finalize the loan decision and generate a decision letter reference.
+
+    The decision is derived from the UnderwritingAgent's `eligibility_status`:
+    ELIGIBLE -> APPROVED, INELIGIBLE -> DENIED, and REVIEW (or anything
+    unrecognised) -> CONDITIONAL, i.e. referred for manual review.
 
     In production, this would record the decision in the bank's loan origination
     system and trigger generation of official decision letters.
@@ -39,6 +70,7 @@ def finalize_loan_decision(tool_context: ToolContext) -> dict:
         application_data = tool_context.state.get(
             "DocumentExtractionAgent_output"
         )
+        underwriting_data = tool_context.state.get("UnderwritingAgent_output")
         pricing_data = tool_context.state.get("PricingAgent_output")
 
         if not loan_request_id:
@@ -53,6 +85,12 @@ def finalize_loan_decision(tool_context: ToolContext) -> dict:
                 "message": "Application data not found in session state",
             }
 
+        if not underwriting_data:
+            return {
+                "status": "error",
+                "message": "Underwriting data not found in session state",
+            }
+
         if not pricing_data:
             return {
                 "status": "error",
@@ -60,6 +98,8 @@ def finalize_loan_decision(tool_context: ToolContext) -> dict:
             }
 
         logger.info(f"Finalizing loan decision for: {loan_request_id}")
+
+        decision, eligibility_status = _resolve_decision(underwriting_data)
 
         # Generate decision letter ID
         decision_letter_id = f"DL-{loan_request_id.replace('SBL-', '')}-001"
@@ -80,25 +120,45 @@ def finalize_loan_decision(tool_context: ToolContext) -> dict:
             if isinstance(application_data, dict)
             else "N/A"
         )
+        # Single source of truth for the term string, so the prose message and
+        # the structured field can never disagree (avoids "for N/A months").
+        approved_term = "N/A" if loan_term == "N/A" else f"{loan_term} months"
+
+        if decision == "APPROVED":
+            conditions = [
+                "Business insurance verification required within 30 days",
+                "Collateral documentation to be submitted before disbursement",
+            ]
+            message = (
+                f"Loan {loan_request_id} has been approved. "
+                f"Decision letter {decision_letter_id} has been generated. "
+                f"Approved for {loan_amount} at {approved_rate} "
+                f"for {approved_term}."
+            )
+        elif decision == "DENIED":
+            conditions = []
+            message = (
+                f"Loan {loan_request_id} has been denied "
+                f"(underwriting eligibility: {eligibility_status}). "
+                f"Decision letter {decision_letter_id} has been generated."
+            )
+        else:
+            conditions = ["Manual credit review required before disbursement"]
+            message = (
+                f"Loan {loan_request_id} has been referred for manual review "
+                f"(underwriting eligibility: {eligibility_status}). "
+                f"Decision letter {decision_letter_id} has been generated."
+            )
 
         return {
             "status": "success",
-            "decision": "APPROVED",
+            "decision": decision,
             "decision_letter_id": decision_letter_id,
-            "approved_amount": loan_amount,
-            "approved_rate": approved_rate,
-            "approved_term": f"{loan_term} months"
-            if loan_term != "N/A"
-            else "N/A",
-            "conditions": [
-                "Business insurance verification required within 30 days",
-                "Collateral documentation to be submitted before disbursement",
-            ],
-            "message": (
-                f"Loan {loan_request_id} has been approved. "
-                f"Decision letter {decision_letter_id} has been generated. "
-                f"Approved for {loan_amount} at {approved_rate} for {loan_term} months."
-            ),
+            "approved_amount": loan_amount if decision == "APPROVED" else "N/A",
+            "approved_rate": approved_rate if decision == "APPROVED" else "N/A",
+            "approved_term": approved_term if decision == "APPROVED" else "N/A",
+            "conditions": conditions,
+            "message": message,
         }
 
     except Exception as e:

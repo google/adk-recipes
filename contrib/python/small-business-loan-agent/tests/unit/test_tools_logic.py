@@ -80,7 +80,9 @@ class TestDetermineRiskTier:
         assert tier == "Tier 4 - High Risk"
         assert rate == 11.00
 
-    def test_missing_status_defaults_high_risk(self):
+    def test_missing_status_defaults_to_review_tier(self):
+        # A missing eligibility_status falls back to REVIEW, which is the
+        # Tier 3 elevated-risk band -- not the Tier 4 high-risk band.
         tier, rate = _determine_risk_tier({})
         assert tier == "Tier 3 - Elevated Risk"
         assert rate == 9.25

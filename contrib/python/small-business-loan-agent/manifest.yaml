@@ -11,7 +11,7 @@ architecture:
     - "external"
 
 ownership:
-  team: "Financial Services"
+  team: "AI FDE Financial Services"
   poc: "norarfilali"
   contributors:
     - "nmdesai"

@@ -29,11 +29,18 @@ logger = get_logger(__name__)
 
 
 def get_gcs_data_bucket() -> str:
-    """Get the GCS data bucket name from environment or fallback to default."""
+    """Return the GCS data bucket name, or an empty string if unconfigured.
+
+    Falls back to a conventional `<project>-small-business-loan-data` bucket
+    when `GCS_DATA_BUCKET` is unset but a project is known. Returns "" when
+    neither is configured so callers can detect the unconfigured case.
+    """
     bucket = os.getenv("GCS_DATA_BUCKET")
     if bucket:
         return bucket
     project = os.getenv("GOOGLE_CLOUD_PROJECT")
+    if not project:
+        return ""
     return f"{project}-small-business-loan-data"
 
 

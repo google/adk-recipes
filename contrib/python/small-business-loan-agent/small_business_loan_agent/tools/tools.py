@@ -16,19 +16,15 @@
 
 from google.adk.tools.tool_context import ToolContext
 
+from small_business_loan_agent.shared_libraries.constants import (
+    AGENT_OUTPUT_KEY_MAP,
+)
 from small_business_loan_agent.shared_libraries.firestore_utils.state_service import (
     ProcessStateService,
 )
 from small_business_loan_agent.shared_libraries.logging_config import get_logger
 
 logger = get_logger(__name__)
-
-OUTPUT_KEY_MAP = {
-    "DocumentExtractionAgent": "DocumentExtractionAgent_output",
-    "UnderwritingAgent": "UnderwritingAgent_output",
-    "PricingAgent": "PricingAgent_output",
-    "LoanDecisionAgent": "LoanDecisionAgent_output",
-}
 
 
 def determine_process_action(process_state: dict) -> dict:
@@ -110,7 +106,7 @@ def check_process_status(tool_context: ToolContext) -> dict:
 
             _, completed_steps_data = find_resume_point(process_state)
             for step_name, step_output in completed_steps_data.items():
-                output_key = OUTPUT_KEY_MAP.get(step_name)
+                output_key = AGENT_OUTPUT_KEY_MAP.get(step_name)
                 if output_key:
                     tool_context.state[output_key] = step_output
                     logger.info(

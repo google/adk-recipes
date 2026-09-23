@@ -24,7 +24,8 @@ TASK:
 Use the finalize_loan_decision tool to complete the loan processing.
 
 The tool will:
-1. Record the final decision based on all prior agent outputs
+1. Derive the final decision from the UnderwritingAgent's eligibility status
+   (ELIGIBLE -> APPROVED, INELIGIBLE -> DENIED, REVIEW -> CONDITIONAL)
 2. Generate a decision letter reference ID
 3. Return the finalized loan terms
 

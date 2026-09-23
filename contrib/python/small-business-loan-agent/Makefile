@@ -36,7 +36,7 @@ setup-env:
 		echo "GOOGLE_CLOUD_PROJECT=$$PROJECT_ID" >> .env; \
 	fi
 	@if ! grep -q "^GOOGLE_CLOUD_LOCATION=" .env; then \
-		echo "GOOGLE_CLOUD_LOCATION=us-east1" >> .env; \
+		echo "GOOGLE_CLOUD_LOCATION=global" >> .env; \
 	fi
 
 enable-services:

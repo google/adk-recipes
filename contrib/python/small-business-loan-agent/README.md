@@ -30,18 +30,18 @@ A multi-agent system built with the [Google Agent Development Kit (ADK)](https:/
 
 ### Example Interaction
 
-**Complete loan application example** (using `data/sample_application_complete.pdf`):
+**Complete loan application example** (using `data/sample_applications/sample_application_complete.pdf`):
 
 If testing from Agent Runtime Playground UI ask:
 
 ```
-Process sample_application_complete.pdf from GCS for loan SBL-2025-02142
+Process sample_application_complete.pdf from GCS for loan SBL-2025-00142
 ```
 
 The complete loan application example interaction is as follows (if you are running locally, you can upload your file through the UI instead of using GCS). The rest of the flow applies to both local and Agent Runtime Playground.
 
 ```
-User: Process this loan application for SBL-2025-02142
+User: Process this loan application for SBL-2025-00142
       [uploads sample_application_complete.pdf]
 
 Agent: [Calls check_process_status -> initializes new process]
@@ -66,11 +66,11 @@ User: yes
 
 Agent: [Calls LoanDecisionAgent -> finalizes decision]
 
-       Loan SBL-2025-02142 has been approved.
+       Loan SBL-2025-00142 has been approved.
        Decision letter DL-2025-02142-001 has been generated.
 ```
 
-**Pause, Repair & Resume example** (using `data/sample_application_incomplete.pdf` which has missing fields):
+**Pause, Repair & Resume example** (using `data/sample_applications/sample_application_incomplete.pdf` which has missing fields):
 
 A. submit the incomplete application
 
@@ -296,11 +296,18 @@ cp .env.example .env
 
 ### Environment Variables
 
+These mirror [`.env.example`](.env.example) — copy that file to `.env` and replace the placeholders.
+
 ```bash
 # Required
 GOOGLE_GENAI_USE_VERTEXAI=TRUE
-GOOGLE_CLOUD_PROJECT=your-project-id
+GOOGLE_CLOUD_PROJECT=your-gcp-project-id
 GOOGLE_CLOUD_LOCATION=global
+MODEL_NAME=gemini-3.8-flash
+
+# Optional
+GCS_DATA_BUCKET=your-bucket-name   # defaults to <project>-small-business-loan-data
+JUDGE_MODEL=gemini-3.8-flash       # defaults to MODEL_NAME
 ```
 
 ### Sample Documents
@@ -328,13 +335,13 @@ uv run adk web
 Then open `http://localhost:8000`, select `small_business_loan_agent`, upload a sample PDF, and send:
 
 ```
-Process this loan application for SBL-2025-02142
+Process this loan application for SBL-2025-00142
 ```
 
 OR (if file is in GCS)
 
 ```
-Process sample_application_complete.pdf from GCS for loan SBL-2025-02142
+Process sample_application_complete.pdf from GCS for loan SBL-2025-00142
 ```
 
 ## D. Customization & Extension
@@ -495,7 +502,7 @@ Use the [Google Agents CLI](https://github.com/google/agents-cli) to create a pr
 uvx google-agents-cli setup
 ```
 
-**Create the project from this sample** (run from the root of the `adk-recipes` repository, replace `my-loan-agent` with your project name):
+**Create the project from this recipe** (run from the root of the `adk-recipes` repository, replace `my-loan-agent` with your project name):
 
 ```bash
 agents-cli create my-loan-agent -a local@contrib/python/small-business-loan-agent --auto-approve -o target

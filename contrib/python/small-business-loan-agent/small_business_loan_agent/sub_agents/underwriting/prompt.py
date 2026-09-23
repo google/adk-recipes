@@ -26,7 +26,7 @@ YOUR ROLE:
 
 AVAILABLE TOOLS:
 - get_internal_business_data: Retrieves the bank's internal records for this business
-  - Input: loan_request_id (string)
+  - Input: none — the tool reads `loan_request_id` from session state
   - Output: JSON with business data from internal systems
 
 WORKFLOW:
