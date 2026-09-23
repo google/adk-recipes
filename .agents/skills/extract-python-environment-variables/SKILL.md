@@ -160,7 +160,7 @@ Runs `scripts/extract_env_vars.py` against a recipe directory. The script:
      ```python
      IMAGE_MODELS = {
          "flash": "gemini-2.5-flash-image",
-         "pro": "gemini-2.5-pro-image",
+         "pro":   "gemini-2.5-pro-image",
      }
      ```
 

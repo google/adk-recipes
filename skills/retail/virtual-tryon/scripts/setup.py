@@ -49,7 +49,10 @@ except ImportError:
         if dry_run:
             logger.info(f"[DRY-RUN] Would run: {' '.join(cmd)}")
             return True
-        res = subprocess.run(cmd, check=False)
+        res = subprocess.run(  # noqa: S603 -- setup script runs known command list
+            cmd,
+            check=False,
+        )
         return res.returncode == 0
 
 

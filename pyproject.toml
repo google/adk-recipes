@@ -64,8 +64,9 @@ packages = ["tools"]
 [tool.ruff]
 line-length = 80
 target-version = "py311"
-exclude = [
+extend-exclude = [
     "python/agents",
+    ".agents",
 ]
 # Resolve first-party imports per recipe, so a package not named `app` is
 # still first-party to its own recipe.
@@ -107,9 +108,6 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 # Global rule: ADK agents use __init__.py to expose their logic
 "**/__init__.py" = ["F401"]
-# Recipe serving templates and entrypoints bind to 0.0.0.0 for container hosting
-"**/fast_api_app.py" = ["S104"]
-"**/resources/templates/**" = ["S104"]
 # Tests legitimately use assert statements, mock credentials, temp paths, and test subprocesses
 "**/tests/**" = [
     "S101",
@@ -146,8 +144,6 @@ ignore = [
 # CI scripts and repository tooling legitimately invoke CLI commands and fetch URLs
 ".github/scripts/**" = ["S603", "S607", "S310"]
 "tools/**" = ["S603", "S607", "S310"]
-".agents/skills/**/scripts/**" = ["S603", "S607", "S310"]
-"skills/**/scripts/**" = ["S603", "S607"]
 
 [tool.ruff.lint.isort]
 # Every Python recipe's package is named `app` by convention, so isort should

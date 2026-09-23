@@ -79,7 +79,7 @@ if __name__ == "__main__":
 
     uvicorn.run(
         "scripts.server:app",
-        host="0.0.0.0",  # noqa: S104
+        host="127.0.0.1",
         port=config.PORT,
         reload=True,
     )

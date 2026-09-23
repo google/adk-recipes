@@ -75,7 +75,7 @@ import tempfile
 from pathlib import Path
 from typing import NamedTuple
 
-if sys.version_info < (3, 11):  # noqa: UP036
+if sys.version_info < (3, 11):
     sys.exit(
         "extract_env_vars.py requires Python 3.11+ (it uses the stdlib "
         "`tomllib`, added in 3.11). Re-run it with a newer interpreter, "
@@ -563,7 +563,7 @@ def format_env_entry(
             f"  # {EXTRACTED_MARKER}; no default in source"
         )
 
-    assert resolved.winner is not None  # noqa: S101 -- narrow for type-checkers
+    assert resolved.winner is not None  # narrow for type-checkers
     where = _relpath_or_name(resolved.winner.file, recipe_dir)
     provenance = f"from {resolved.winner.kind} in {where}"
     if resolved.conflict_count:
@@ -2357,7 +2357,7 @@ def run_step_env_vars(
                 suffix = ""
             else:
                 reason = looks_like_placeholder(resolved.value)
-                assert resolved.winner is not None  # noqa: S101
+                assert resolved.winner is not None
                 where = _relpath_or_name(resolved.winner.file, recipe_dir)
                 if reason is None:
                     suffix = (
@@ -2400,7 +2400,7 @@ def run_step_env_vars(
         ]
         for var in upgraded:
             resolved = resolve_default(env_vars[var])
-            assert resolved.winner is not None  # noqa: S101 -- planner guarantees this
+            assert resolved.winner is not None  # planner guarantees this
             where = _relpath_or_name(resolved.winner.file, recipe_dir)
             lines_out.append(
                 f"       {var} -> {resolved.value!r}"

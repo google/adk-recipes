@@ -219,7 +219,6 @@ import shutil
 import subprocess
 import sys
 import time
-import tomllib
 import urllib.error
 import urllib.request
 from dataclasses import asdict, dataclass, field
@@ -227,6 +226,7 @@ from pathlib import Path
 from typing import Any
 
 import tomlkit
+import tomllib
 from packaging.requirements import InvalidRequirement, Requirement
 from packaging.version import InvalidVersion, Version
 from ruamel.yaml import YAML
