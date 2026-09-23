@@ -321,7 +321,7 @@ jobs:
 
           # 3. Run mypy on changed .py files only with --ignore-missing-imports and --follow-imports=silent
           MYPY_STATUS=0
-          MYPY_OUTPUT=$(uvx mypy --ignore-missing-imports --follow-imports=silent "${CHANGED_FILES[@]}") || MYPY_STATUS=$?
+          MYPY_OUTPUT=$(uvx mypy --ignore-missing-imports --follow-imports=silent --no-error-summary "${CHANGED_FILES[@]}" 2>&1) || MYPY_STATUS=$?
 
           if [ "$MYPY_STATUS" -ge 2 ]; then
             echo "[ERROR] mypy exited with status $MYPY_STATUS — it failed to"
@@ -336,8 +336,7 @@ jobs:
             echo "$MYPY_OUTPUT"
             echo "::endgroup::"
             echo ""
-            echo "[FAIL] Mypy reported type errors in modified Python files:"
-            echo "$MYPY_OUTPUT"
+            echo "[FAIL] Mypy reported type errors in modified Python files."
             echo ""
             echo "Fix locally by running:"
             echo ""
@@ -346,7 +345,6 @@ jobs:
             echo "Docs: docs/recipe-handbook/troubleshooting.md"
           else
             echo "[PASS] No Mypy type errors in the modified Python files."
-            echo "$MYPY_OUTPUT"
           fi
 
           # 4. Hand the findings to reviewdog for inline annotations

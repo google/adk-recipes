@@ -1,10 +1,10 @@
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { v4 as uuidv4 } from "uuid";
-import { WelcomeScreen } from "@/components/WelcomeScreen";
 import { ChatMessagesView } from "@/components/ChatMessagesView";
+import { WelcomeScreen } from "@/components/WelcomeScreen";
 
-// Update DisplayData to be a string type
 type DisplayData = string | null;
+
 interface MessageWithAgent {
   type: "human" | "ai";
   content: string;
@@ -15,7 +15,21 @@ interface MessageWithAgent {
 
 interface ProcessedEvent {
   title: string;
-  data: any;
+  data: Record<string, unknown>;
+}
+
+interface StreamPart {
+  text?: string;
+  functionCall?: {
+    name: string;
+    args: Record<string, unknown>;
+    id?: string;
+  };
+  functionResponse?: {
+    name: string;
+    response: Record<string, unknown>;
+    id?: string;
+  };
 }
 
 export default function App() {
@@ -35,36 +49,35 @@ export default function App() {
   const accumulatedTextRef = useRef("");
   const scrollAreaRef = useRef<HTMLDivElement>(null);
 
-  const retryWithBackoff = async (
-    fn: () => Promise<any>,
-    maxRetries: number = 10,
-    maxDuration: number = 120000, // 2 minutes
-  ): Promise<any> => {
-    const startTime = Date.now();
-    let lastError: Error;
+  const retryWithBackoff = useCallback(
+    async <T,>(
+      fn: () => Promise<T>,
+      maxRetries = 10,
+      maxDuration = 120000,
+    ): Promise<T> => {
+      const startTime = Date.now();
+      let lastError: Error | undefined;
 
-    for (let attempt = 0; attempt < maxRetries; attempt++) {
-      if (Date.now() - startTime > maxDuration) {
-        throw new Error(`Retry timeout after ${maxDuration}ms`);
+      for (let attempt = 0; attempt < maxRetries; attempt++) {
+        if (Date.now() - startTime > maxDuration) {
+          throw new Error(`Retry timeout after ${maxDuration}ms`);
+        }
+
+        try {
+          return await fn();
+        } catch (error) {
+          lastError = error as Error;
+          const delay = Math.min(1000 * 2 ** attempt, 5000);
+          await new Promise((resolve) => setTimeout(resolve, delay));
+        }
       }
 
-      try {
-        return await fn();
-      } catch (error) {
-        lastError = error as Error;
-        const delay = Math.min(1000 * Math.pow(2, attempt), 5000); // Exponential backoff, max 5s
-        console.log(
-          `Attempt ${attempt + 1} failed, retrying in ${delay}ms...`,
-          error,
-        );
-        await new Promise((resolve) => setTimeout(resolve, delay));
-      }
-    }
+      throw lastError ?? new Error("Retry failed");
+    },
+    [],
+  );
 
-    throw lastError!;
-  };
-
-  const createSession = async (): Promise<{
+  const createSession = useCallback(async (): Promise<{
     userId: string;
     sessionId: string;
     appName: string;
@@ -92,11 +105,10 @@ export default function App() {
       sessionId: data.id,
       appName: data.appName,
     };
-  };
+  }, []);
 
-  const checkBackendHealth = async (): Promise<boolean> => {
+  const checkBackendHealth = useCallback(async (): Promise<boolean> => {
     try {
-      // Use the docs endpoint or root endpoint to check if backend is ready
       const response = await fetch("/api/docs", {
         method: "GET",
         headers: {
@@ -104,94 +116,66 @@ export default function App() {
         },
       });
       return response.ok;
-    } catch (error) {
-      console.log("Backend not ready yet:", error);
+    } catch {
       return false;
     }
-  };
+  }, []);
 
-  // Function to extract text and metadata from SSE data
-  const extractDataFromSSE = (data: string) => {
+  const extractDataFromSSE = useCallback((data: string) => {
     try {
       const parsed = JSON.parse(data);
-      console.log("[SSE PARSED EVENT]:", JSON.stringify(parsed, null, 2)); // DEBUG: Log parsed event
 
       let textParts: string[] = [];
       let agent = "";
-      let finalReportWithCitations = undefined;
-      let functionCall = null;
-      let functionResponse = null;
-      let sources = null;
+      let finalReportWithCitations: string | undefined;
+      let functionCall: StreamPart["functionCall"];
+      let functionResponse: StreamPart["functionResponse"];
+      let sources: unknown = null;
 
-      // Check if content.parts exists and has text
-      if (parsed.content && parsed.content.parts) {
-        textParts = parsed.content.parts
-          .filter((part: any) => part.text)
-          .map((part: any) => part.text);
+      if (parsed.content && Array.isArray(parsed.content.parts)) {
+        const parts = parsed.content.parts as StreamPart[];
+        textParts = parts
+          .filter((part): part is StreamPart & { text: string } =>
+            Boolean(part.text),
+          )
+          .map((part) => part.text);
 
-        // Check for function calls
-        const functionCallPart = parsed.content.parts.find(
-          (part: any) => part.functionCall,
-        );
-        if (functionCallPart) {
+        const functionCallPart = parts.find((part) => part.functionCall);
+        if (functionCallPart?.functionCall) {
           functionCall = functionCallPart.functionCall;
         }
 
-        // Check for function responses
-        const functionResponsePart = parsed.content.parts.find(
-          (part: any) => part.functionResponse,
+        const functionResponsePart = parts.find(
+          (part) => part.functionResponse,
         );
-        if (functionResponsePart) {
+        if (functionResponsePart?.functionResponse) {
           functionResponse = functionResponsePart.functionResponse;
         }
       }
 
-      // Extract agent information
       if (parsed.author) {
         agent = parsed.author;
-        console.log("[SSE EXTRACT] Agent:", agent); // DEBUG: Log agent
       }
 
-      if (
-        parsed.actions &&
-        parsed.actions.stateDelta &&
-        parsed.actions.stateDelta.final_report_with_citations
-      ) {
+      if (parsed.actions?.stateDelta?.final_report_with_citations) {
         finalReportWithCitations =
           parsed.actions.stateDelta.final_report_with_citations;
       }
 
-      // Extract website count from research agents
       let sourceCount = 0;
       if (
         parsed.author === "section_researcher" ||
         parsed.author === "enhanced_search_executor"
       ) {
-        console.log(
-          "[SSE EXTRACT] Relevant agent for source count:",
-          parsed.author,
-        ); // DEBUG
         if (parsed.actions?.stateDelta?.url_to_short_id) {
-          console.log(
-            "[SSE EXTRACT] url_to_short_id found:",
-            parsed.actions.stateDelta.url_to_short_id,
-          ); // DEBUG
           sourceCount = Object.keys(
             parsed.actions.stateDelta.url_to_short_id,
           ).length;
-          console.log("[SSE EXTRACT] Calculated sourceCount:", sourceCount); // DEBUG
-        } else {
-          console.log(
-            "[SSE EXTRACT] url_to_short_id NOT found for agent:",
-            parsed.author,
-          ); // DEBUG
         }
       }
 
-      // Extract sources if available
       if (parsed.actions?.stateDelta?.sources) {
         sources = parsed.actions.stateDelta.sources;
-        console.log("[SSE EXTRACT] Sources found:", sources); // DEBUG
       }
 
       return {
@@ -204,29 +188,25 @@ export default function App() {
         sources,
       };
     } catch (error) {
-      // Log the error and a truncated version of the problematic data for easier debugging.
       const truncatedData =
-        data.length > 200 ? data.substring(0, 200) + "..." : data;
+        data.length > 200 ? `${data.substring(0, 200)}...` : data;
       console.error(
-        'Error parsing SSE data. Raw data (truncated): "',
-        truncatedData,
-        '". Error details:',
+        `Error parsing SSE data. Raw data (truncated): "${truncatedData}". Error details:`,
         error,
       );
       return {
         textParts: [],
         agent: "",
         finalReportWithCitations: undefined,
-        functionCall: null,
-        functionResponse: null,
+        functionCall: undefined,
+        functionResponse: undefined,
         sourceCount: 0,
         sources: null,
       };
     }
-  };
+  }, []);
 
-  // Define getEventTitle here or ensure it's in scope from where it's used
-  const getEventTitle = (agentName: string): string => {
+  const getEventTitle = useCallback((agentName: string): string => {
     switch (agentName) {
       case "plan_generator":
         return "Planning Research Strategy";
@@ -250,149 +230,127 @@ export default function App() {
       default:
         return `Processing (${agentName || "Unknown Agent"})`;
     }
-  };
+  }, []);
 
-  const processSseEventData = (jsonData: string, aiMessageId: string) => {
-    const {
-      textParts,
-      agent,
-      finalReportWithCitations,
-      functionCall,
-      functionResponse,
-      sourceCount,
-      sources,
-    } = extractDataFromSSE(jsonData);
-
-    if (sourceCount > 0) {
-      console.log(
-        "[SSE HANDLER] Updating websiteCount. Current sourceCount:",
+  const processSseEventData = useCallback(
+    (jsonData: string, aiMessageId: string) => {
+      const {
+        textParts,
+        agent,
+        finalReportWithCitations,
+        functionCall,
+        functionResponse,
         sourceCount,
-      );
-      setWebsiteCount((prev) => Math.max(prev, sourceCount));
-    }
+        sources,
+      } = extractDataFromSSE(jsonData);
 
-    if (agent && agent !== currentAgentRef.current) {
-      currentAgentRef.current = agent;
-    }
+      if (sourceCount > 0) {
+        setWebsiteCount((prev) => Math.max(prev, sourceCount));
+      }
 
-    if (functionCall) {
-      const functionCallTitle = `Function Call: ${functionCall.name}`;
-      console.log(
-        "[SSE HANDLER] Adding Function Call timeline event:",
-        functionCallTitle,
-      );
-      setMessageEvents((prev) =>
-        new Map(prev).set(aiMessageId, [
-          ...(prev.get(aiMessageId) || []),
-          {
-            title: functionCallTitle,
-            data: {
-              type: "functionCall",
-              name: functionCall.name,
-              args: functionCall.args,
-              id: functionCall.id,
-            },
-          },
-        ]),
-      );
-    }
+      if (agent && agent !== currentAgentRef.current) {
+        currentAgentRef.current = agent;
+      }
 
-    if (functionResponse) {
-      const functionResponseTitle = `Function Response: ${functionResponse.name}`;
-      console.log(
-        "[SSE HANDLER] Adding Function Response timeline event:",
-        functionResponseTitle,
-      );
-      setMessageEvents((prev) =>
-        new Map(prev).set(aiMessageId, [
-          ...(prev.get(aiMessageId) || []),
-          {
-            title: functionResponseTitle,
-            data: {
-              type: "functionResponse",
-              name: functionResponse.name,
-              response: functionResponse.response,
-              id: functionResponse.id,
-            },
-          },
-        ]),
-      );
-    }
-
-    if (textParts.length > 0 && agent !== "report_composer_with_citations") {
-      if (agent !== "interactive_planner_agent") {
-        const eventTitle = getEventTitle(agent);
-        console.log(
-          "[SSE HANDLER] Adding Text timeline event for agent:",
-          agent,
-          "Title:",
-          eventTitle,
-          "Data:",
-          textParts.join(" "),
-        );
+      if (functionCall) {
+        const functionCallTitle = `Function Call: ${functionCall.name}`;
         setMessageEvents((prev) =>
           new Map(prev).set(aiMessageId, [
             ...(prev.get(aiMessageId) || []),
             {
-              title: eventTitle,
-              data: { type: "text", content: textParts.join(" ") },
+              title: functionCallTitle,
+              data: {
+                type: "functionCall",
+                name: functionCall.name,
+                args: functionCall.args,
+                id: functionCall.id,
+              },
             },
           ]),
         );
-      } else {
-        // interactive_planner_agent text updates the main AI message
-        for (const text of textParts) {
-          accumulatedTextRef.current += text + " ";
-          setMessages((prev) =>
-            prev.map((msg) =>
-              msg.id === aiMessageId
-                ? {
-                    ...msg,
-                    content: accumulatedTextRef.current.trim(),
-                    agent: currentAgentRef.current || msg.agent,
-                  }
-                : msg,
-            ),
+      }
+
+      if (functionResponse) {
+        const functionResponseTitle = `Function Response: ${functionResponse.name}`;
+        setMessageEvents((prev) =>
+          new Map(prev).set(aiMessageId, [
+            ...(prev.get(aiMessageId) || []),
+            {
+              title: functionResponseTitle,
+              data: {
+                type: "functionResponse",
+                name: functionResponse.name,
+                response: functionResponse.response,
+                id: functionResponse.id,
+              },
+            },
+          ]),
+        );
+      }
+
+      if (textParts.length > 0 && agent !== "report_composer_with_citations") {
+        if (agent !== "interactive_planner_agent") {
+          const eventTitle = getEventTitle(agent);
+          setMessageEvents((prev) =>
+            new Map(prev).set(aiMessageId, [
+              ...(prev.get(aiMessageId) || []),
+              {
+                title: eventTitle,
+                data: { type: "text", content: textParts.join(" ") },
+              },
+            ]),
           );
-          setDisplayData(accumulatedTextRef.current.trim());
+        } else {
+          for (const text of textParts) {
+            accumulatedTextRef.current += `${text} `;
+            setMessages((prev) =>
+              prev.map((msg) =>
+                msg.id === aiMessageId
+                  ? {
+                      ...msg,
+                      content: accumulatedTextRef.current.trim(),
+                      agent: currentAgentRef.current || msg.agent,
+                    }
+                  : msg,
+              ),
+            );
+            setDisplayData(accumulatedTextRef.current.trim());
+          }
         }
       }
-    }
 
-    if (sources) {
-      console.log(
-        "[SSE HANDLER] Adding Retrieved Sources timeline event:",
-        sources,
-      );
-      setMessageEvents((prev) =>
-        new Map(prev).set(aiMessageId, [
-          ...(prev.get(aiMessageId) || []),
+      if (sources) {
+        setMessageEvents((prev) =>
+          new Map(prev).set(aiMessageId, [
+            ...(prev.get(aiMessageId) || []),
+            {
+              title: "Retrieved Sources",
+              data: { type: "sources", content: sources },
+            },
+          ]),
+        );
+      }
+
+      if (
+        agent === "report_composer_with_citations" &&
+        finalReportWithCitations
+      ) {
+        const finalReportMessageId = `${Date.now().toString()}_final`;
+        setMessages((prev) => [
+          ...prev,
           {
-            title: "Retrieved Sources",
-            data: { type: "sources", content: sources },
+            type: "ai",
+            content: finalReportWithCitations,
+            id: finalReportMessageId,
+            agent: currentAgentRef.current,
+            finalReportWithCitations: true,
           },
-        ]),
-      );
-    }
-
-    if (
-      agent === "report_composer_with_citations" &&
-      finalReportWithCitations
-    ) {
-      const finalReportMessageId = Date.now().toString() + "_final";
-      setMessages((prev) => [
-        ...prev,
-        {
-          type: "ai",
-          content: finalReportWithCitations as string,
-          id: finalReportMessageId,
-          agent: currentAgentRef.current,
-          finalReportWithCitations: true,
-        },
-      ]);
-      setDisplayData(finalReportWithCitations as string);
-    }
-  };
+        ]);
+        setDisplayData(finalReportWithCitations);
+      }
+    },
+    [extractDataFromSSE, getEventTitle],
+  );
 
   const handleSubmit = useCallback(
     async (query: string) => {
@@ -400,13 +358,11 @@ export default function App() {
 
       setIsLoading(true);
       try {
-        // Create session if it doesn't exist
         let currentUserId = userId;
         let currentSessionId = sessionId;
         let currentAppName = appName;
 
         if (!currentSessionId || !currentUserId || !currentAppName) {
-          console.log("Creating new session...");
           const sessionData = await retryWithBackoff(createSession);
           currentUserId = sessionData.userId;
           currentSessionId = sessionData.sessionId;
@@ -415,24 +371,17 @@ export default function App() {
           setUserId(currentUserId);
           setSessionId(currentSessionId);
           setAppName(currentAppName);
-          console.log("Session created successfully:", {
-            currentUserId,
-            currentSessionId,
-            currentAppName,
-          });
         }
 
-        // Add user message to chat
         const userMessageId = Date.now().toString();
         setMessages((prev) => [
           ...prev,
           { type: "human", content: query, id: userMessageId },
         ]);
 
-        // Create AI message placeholder
-        const aiMessageId = Date.now().toString() + "_ai";
-        currentAgentRef.current = ""; // Reset current agent
-        accumulatedTextRef.current = ""; // Reset accumulated text
+        const aiMessageId = `${Date.now().toString()}_ai`;
+        currentAgentRef.current = "";
+        accumulatedTextRef.current = "";
 
         setMessages((prev) => [
           ...prev,
@@ -444,7 +393,6 @@ export default function App() {
           },
         ]);
 
-        // Send the message with retry logic
         const sendMessage = async () => {
           const response = await fetch("/api/run_sse", {
             method: "POST",
@@ -474,14 +422,12 @@ export default function App() {
 
         const response = await retryWithBackoff(sendMessage);
 
-        // Handle SSE streaming
         const reader = response.body?.getReader();
         const decoder = new TextDecoder();
         let lineBuffer = "";
         let eventDataBuffer = "";
 
         if (reader) {
-          // eslint-disable-next-line no-constant-condition
           while (true) {
             const { done, value } = await reader.read();
 
@@ -489,58 +435,43 @@ export default function App() {
               lineBuffer += decoder.decode(value, { stream: true });
             }
 
-            let eolIndex;
-            // Process all complete lines in the buffer, or the remaining buffer if 'done'
-            while (
-              (eolIndex = lineBuffer.indexOf("\n")) >= 0 ||
-              (done && lineBuffer.length > 0)
-            ) {
+            while (true) {
+              const eolIndex = lineBuffer.indexOf("\n");
+              if (eolIndex < 0 && !(done && lineBuffer.length > 0)) {
+                break;
+              }
+
               let line: string;
               if (eolIndex >= 0) {
                 line = lineBuffer.substring(0, eolIndex);
                 lineBuffer = lineBuffer.substring(eolIndex + 1);
               } else {
-                // Only if done and lineBuffer has content without a trailing newline
                 line = lineBuffer;
                 lineBuffer = "";
               }
 
               if (line.trim() === "") {
-                // Empty line: dispatch event
                 if (eventDataBuffer.length > 0) {
-                  // Remove trailing newline before parsing
                   const jsonDataToParse = eventDataBuffer.endsWith("\n")
                     ? eventDataBuffer.slice(0, -1)
                     : eventDataBuffer;
-                  console.log(
-                    "[SSE DISPATCH EVENT]:",
-                    jsonDataToParse.substring(0, 200) + "...",
-                  ); // DEBUG
                   processSseEventData(jsonDataToParse, aiMessageId);
-                  eventDataBuffer = ""; // Reset for next event
+                  eventDataBuffer = "";
                 }
               } else if (line.startsWith("data:")) {
-                eventDataBuffer += line.substring(5).trimStart() + "\n"; // Add newline as per spec for multi-line data
-              } else if (line.startsWith(":")) {
-                // Comment line, ignore
-              } // Other SSE fields (event, id, retry) can be handled here if needed
+                eventDataBuffer += `${line.substring(5).trimStart()}\n`;
+              }
             }
 
             if (done) {
-              // If the loop exited due to 'done', and there's still data in eventDataBuffer
-              // (e.g., stream ended after data lines but before an empty line delimiter)
               if (eventDataBuffer.length > 0) {
                 const jsonDataToParse = eventDataBuffer.endsWith("\n")
                   ? eventDataBuffer.slice(0, -1)
                   : eventDataBuffer;
-                console.log(
-                  "[SSE DISPATCH FINAL EVENT]:",
-                  jsonDataToParse.substring(0, 200) + "...",
-                ); // DEBUG
                 processSseEventData(jsonDataToParse, aiMessageId);
-                eventDataBuffer = ""; // Clear buffer
+                eventDataBuffer = "";
               }
-              break; // Exit the while(true) loop
+              break;
             }
           }
         }
@@ -548,8 +479,7 @@ export default function App() {
         setIsLoading(false);
       } catch (error) {
         console.error("Error:", error);
-        // Update the AI message placeholder with an error message
-        const aiMessageId = Date.now().toString() + "_ai_error";
+        const aiMessageId = `${Date.now().toString()}_ai_error`;
         setMessages((prev) => [
           ...prev,
           {
@@ -561,7 +491,14 @@ export default function App() {
         setIsLoading(false);
       }
     },
-    [processSseEventData],
+    [
+      appName,
+      createSession,
+      processSseEventData,
+      retryWithBackoff,
+      sessionId,
+      userId,
+    ],
   );
 
   useEffect(() => {
@@ -573,14 +510,13 @@ export default function App() {
         scrollViewport.scrollTop = scrollViewport.scrollHeight;
       }
     }
-  }, [messages]);
+  }, []);
 
   useEffect(() => {
     const checkBackend = async () => {
       setIsCheckingBackend(true);
 
-      // Check if backend is ready with retry logic
-      const maxAttempts = 60; // 2 minutes with 2-second intervals
+      const maxAttempts = 60;
       let attempts = 0;
 
       while (attempts < maxAttempts) {
@@ -592,16 +528,15 @@ export default function App() {
         }
 
         attempts++;
-        await new Promise((resolve) => setTimeout(resolve, 2000)); // Wait 2 seconds between checks
+        await new Promise((resolve) => setTimeout(resolve, 2000));
       }
 
-      // If we get here, backend didn't come up in time
       setIsCheckingBackend(false);
       console.error("Backend failed to start within 2 minutes");
     };
 
     checkBackend();
-  }, []);
+  }, [checkBackendHealth]);
 
   const handleCancel = useCallback(() => {
     setMessages([]);
@@ -625,7 +560,6 @@ export default function App() {
           </h1>
 
           <div className="flex flex-col items-center space-y-4">
-            {/* Spinning animation */}
             <div className="relative">
               <div className="w-16 h-16 border-4 border-neutral-600 border-t-blue-500 rounded-full animate-spin"></div>
               <div
@@ -646,7 +580,6 @@ export default function App() {
               </p>
             </div>
 
-            {/* Animated dots */}
             <div className="flex space-x-1">
               <div
                 className="w-2 h-2 bg-blue-500 rounded-full animate-bounce"
@@ -685,6 +618,7 @@ export default function App() {
                   Unable to connect to backend services at localhost:8000
                 </p>
                 <button
+                  type="button"
                   onClick={() => window.location.reload()}
                   className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
                 >
