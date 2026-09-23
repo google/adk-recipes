@@ -340,7 +340,7 @@ jobs:
             echo ""
             echo "Fix locally by running:"
             echo ""
-            echo "  uvx mypy --ignore-missing-imports --follow-imports=silent ${CHANGED_FILES[*]}"
+            echo "  uv run mypy --ignore-missing-imports --follow-imports=silent ${CHANGED_FILES[*]}"
             echo ""
             echo "Docs: docs/recipe-handbook/troubleshooting.md"
           else

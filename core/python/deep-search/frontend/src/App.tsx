@@ -5,6 +5,9 @@ import { WelcomeScreen } from "@/components/WelcomeScreen";
 
 type DisplayData = string | null;
 
+const BACKEND_HEALTH_CHECK_MAX_ATTEMPTS = 60;
+const BACKEND_HEALTH_CHECK_INTERVAL_MS = 2000;
+
 interface MessageWithAgent {
   type: "human" | "ai";
   content: string;
@@ -37,7 +40,7 @@ export default function App() {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [appName, setAppName] = useState<string | null>(null);
   const [messages, setMessages] = useState<MessageWithAgent[]>([]);
-  const [displayData, setDisplayData] = useState<DisplayData | null>(null);
+  const [displayData, setDisplayData] = useState<DisplayData>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [messageEvents, setMessageEvents] = useState<
     Map<string, ProcessedEvent[]>
@@ -501,6 +504,7 @@ export default function App() {
     ],
   );
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: scroll to bottom on new messages
   useEffect(() => {
     if (scrollAreaRef.current) {
       const scrollViewport = scrollAreaRef.current.querySelector(
@@ -510,16 +514,15 @@ export default function App() {
         scrollViewport.scrollTop = scrollViewport.scrollHeight;
       }
     }
-  }, []);
+  }, [messages]);
 
   useEffect(() => {
     const checkBackend = async () => {
       setIsCheckingBackend(true);
 
-      const maxAttempts = 60;
       let attempts = 0;
 
-      while (attempts < maxAttempts) {
+      while (attempts < BACKEND_HEALTH_CHECK_MAX_ATTEMPTS) {
         const isReady = await checkBackendHealth();
         if (isReady) {
           setIsBackendReady(true);
@@ -528,7 +531,9 @@ export default function App() {
         }
 
         attempts++;
-        await new Promise((resolve) => setTimeout(resolve, 2000));
+        await new Promise((resolve) =>
+          setTimeout(resolve, BACKEND_HEALTH_CHECK_INTERVAL_MS),
+        );
       }
 
       setIsCheckingBackend(false);
