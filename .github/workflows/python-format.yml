@@ -336,6 +336,17 @@ jobs:
             local dir name
             dir=$(dirname "$1")
             name=$(basename "$1" .py)
+            # mypy names pkg/__init__.py after the PACKAGE ("pkg"), not
+            # "pkg.__init__". Without this the walk below starts at the file's
+            # own __init__.py and produces a name one component too long, so a
+            # pkg/__init__.py and a pkg.py elsewhere look distinct here and
+            # then collide inside mypy — the exact failure the batching exists
+            # to prevent, and reachable today (app/tools/__init__.py in one
+            # recipe against app/tools.py in another).
+            if [ "$name" = "__init__" ] && [ "$dir" != "." ] && [ "$dir" != "/" ]; then
+              name=$(basename "$dir")
+              dir=$(dirname "$dir")
+            fi
             while [ "$dir" != "." ] && [ "$dir" != "/" ] && [ -f "$dir/__init__.py" ]; do
               name="$(basename "$dir").$name"
               dir=$(dirname "$dir")
@@ -344,6 +355,7 @@ jobs:
           }
 
           BATCH_DIR=$(mktemp -d)
+          trap 'rm -rf "$BATCH_DIR"' EXIT
           declare -A MODULE_TAKEN
           BATCH_COUNT=0
           for f in "${CHANGED_FILES[@]}"; do
@@ -400,10 +412,31 @@ jobs:
           #    (-filter-mode=added); this makes the pass/fail decision agree
           #    with what it shows, so the gate holds new code to mypy without
           #    billing a contributor for the file's history.
-          git diff --unified=0 "origin/$BASE_REF...HEAD" |
+          #    --src-prefix/--dst-prefix pin the a//b/ prefixes the parser
+          #    below keys on, so a runner with diff.noprefix set in global git
+          #    config cannot quietly empty the added-line set and pass every
+          #    PR. Same defensiveness as --no-color in the ruff-format job.
+          git diff --unified=0 --src-prefix=a/ --dst-prefix=b/ "origin/$BASE_REF...HEAD" |
             awk '
-              /^\+\+\+ b\// { path = substr($0, 7); next }
+              # Only the +++ immediately following a "diff --git" record is a
+              # file header. Matching /^\+\+\+ b\// anywhere would also match
+              # DIFF CONTENT: an added source line reading "++ b/other.py" is
+              # rendered "+++ b/other.py", which would retarget every later
+              # hunk at a file the author chooses and silently exclude the
+              # rest of this one from the gate. Resetting at each record also
+              # stops a header this parser cannot read (a C-quoted non-ASCII
+              # path) from leaving the PREVIOUS file in `path` and fabricating
+              # added lines for it.
+              /^diff --git / { path = ""; inhdr = 1; next }
+              /^\+\+\+ / {
+                if (inhdr) {
+                  path = ($0 ~ /^\+\+\+ b\//) ? substr($0, 7) : ""
+                  inhdr = 0
+                }
+                next
+              }
               /^@@ / {
+                inhdr = 0
                 if (path == "") next
                 match($0, /\+[0-9]+(,[0-9]+)?/)
                 spec = substr($0, RSTART + 1, RLENGTH - 1)
@@ -414,9 +447,14 @@ jobs:
               }
             ' > "$BATCH_DIR/added_lines"
 
-          MYPY_OUTPUT=$(printf '%s\n' "$MYPY_RAW" | awk -F: '
+          # Split each diagnostic on its ":<line>: " separator rather than on
+          # the first colon: a colon is legal in a POSIX path, and splitting on
+          # -F: turns "my:mod.py:1: error" into the key "my:mod", which matches
+          # nothing and reports a brand-new file's error as pre-existing.
+          MYPY_OUTPUT=$(printf '%s\n' "$MYPY_RAW" | awk '
             NR == FNR { added[$0] = 1; next }
-            NF >= 2 && ($1 ":" $2) in added { print }
+            match($0, /:[0-9]+: /) &&
+              (substr($0, 1, RSTART + RLENGTH - 3) in added) { print }
           ' "$BATCH_DIR/added_lines" - || true)
 
           SUPPRESSED=$(printf '%s\n' "$MYPY_RAW" | grep -c ": error:" || true)
@@ -460,8 +498,12 @@ jobs:
             echo "[PASS] No Mypy type errors on the lines this PR changed."
           fi
 
-          # 6. Hand the findings to reviewdog for inline annotations
-          if [ -n "$MYPY_OUTPUT" ]; then
+          # 6. Hand the findings to reviewdog for inline annotations.
+          #    Gated on REPORTED, not on MYPY_OUTPUT being non-empty: a mypy
+          #    `note:` can survive the filter while its parent `error:` does
+          #    not, and annotating a green PR with a bare note attached to no
+          #    error is just confusing.
+          if [ "$REPORTED" -gt 0 ]; then
             echo "$MYPY_OUTPUT" | reviewdog -f=mypy \
                                             -name="mypy-typecheck" \
                                             -reporter=github-pr-review \
