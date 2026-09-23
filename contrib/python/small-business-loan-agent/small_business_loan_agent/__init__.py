@@ -33,12 +33,17 @@ try:
 
         _, project_id = google.auth.default()
         if project_id:
-            os.environ.setdefault("GOOGLE_CLOUD_PROJECT", project_id)
+            os.environ["GOOGLE_CLOUD_PROJECT"] = project_id
 except Exception:
     pass
 
-os.environ.setdefault("GOOGLE_CLOUD_LOCATION", "global")
-os.environ.setdefault("GOOGLE_GENAI_USE_VERTEXAI", "True")
-os.environ.setdefault("MODEL_NAME", "gemini-3.8-flash")
+if not os.environ.get("GOOGLE_CLOUD_LOCATION"):
+    os.environ["GOOGLE_CLOUD_LOCATION"] = "global"
+if not os.environ.get("GOOGLE_GENAI_USE_VERTEXAI"):
+    os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "True"
+if not os.environ.get("MODEL_NAME"):
+    os.environ["MODEL_NAME"] = "gemini-3.8-flash"
+if not os.environ.get("JUDGE_MODEL"):
+    os.environ["JUDGE_MODEL"] = os.environ["MODEL_NAME"]
 
 from small_business_loan_agent import agent  # noqa: E402

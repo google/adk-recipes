@@ -22,6 +22,8 @@ from small_business_loan_agent.shared_libraries.logging_config import get_logger
 
 logger = get_logger(__name__)
 
+DEFAULT_LOAN_TERM_MONTHS = 60
+
 
 def _parse_dollar_amount(value: str) -> float:
     """Parse a dollar string like '$150,000' into a float."""
@@ -92,15 +94,17 @@ def calculate_loan_pricing(tool_context: ToolContext) -> dict:
         loan_amount = _parse_dollar_amount(
             application_data.get("loan_amount_requested", "0")
         )
-        term_months_str = application_data.get("loan_term_months", "60")
+        term_months_str = application_data.get(
+            "loan_term_months", str(DEFAULT_LOAN_TERM_MONTHS)
+        )
         try:
             term_months = (
                 int(re.sub(r"[^\d]", "", term_months_str))
                 if term_months_str
-                else 60
+                else DEFAULT_LOAN_TERM_MONTHS
             )
         except ValueError:
-            term_months = 60
+            term_months = DEFAULT_LOAN_TERM_MONTHS
 
         if loan_amount <= 0:
             return {"status": "error", "message": "Invalid loan amount"}

@@ -23,10 +23,10 @@ class GeminiPreview(Gemini):
     @cached_property
     def api_client(self) -> Client:
         project = os.getenv("GOOGLE_CLOUD_PROJECT")
-        location = os.getenv("GOOGLE_CLOUD_LOCATION", "global")
+        location = os.getenv("GOOGLE_CLOUD_LOCATION")
         return Client(
             project=project,
-            location=location,
+            location=location if location is not None else "global",
             http_options=types.HttpOptions(
                 headers=self._tracking_headers(),
                 retry_options=self.retry_options,

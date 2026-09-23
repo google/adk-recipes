@@ -53,7 +53,7 @@ from small_business_loan_agent.sub_agents.underwriting import underwriting_agent
 from small_business_loan_agent.tools.tools import check_process_status
 
 # --- Constants ---
-MODEL_NAME = os.getenv("MODEL_NAME", "gemini-3.8-flash")
+MODEL_NAME = os.getenv("MODEL_NAME")
 
 # --- Root Orchestrator Agent ---
 root_agent = LlmAgent(

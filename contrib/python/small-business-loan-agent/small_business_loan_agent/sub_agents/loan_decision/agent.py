@@ -38,7 +38,7 @@ from small_business_loan_agent.sub_agents.loan_decision.tools import (
     finalize_loan_decision,
 )
 
-MODEL_NAME = os.getenv("MODEL_NAME", "gemini-3.8-flash")
+MODEL_NAME = os.getenv("MODEL_NAME")
 
 loan_decision_agent = LlmAgent(
     name="LoanDecisionAgent",

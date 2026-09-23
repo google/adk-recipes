@@ -176,12 +176,12 @@ async def extract_request_id_from_request(
             )
 
     except Exception as e:
-        logger.error(f"Error in extract_request_id_from_request: {e}")
+        logger.exception(f"Error in extract_request_id_from_request: {e}")
         return types.Content(
             role="model",
             parts=[
                 types.Part(
-                    text=f"An error occurred while processing your request: {e!s}"
+                    text="An unexpected error occurred while processing your request. Please try again later."
                 )
             ],
         )

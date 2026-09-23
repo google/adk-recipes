@@ -38,7 +38,7 @@ from small_business_loan_agent.sub_agents.document_extraction.tools import (
     inject_document_into_request,
 )
 
-MODEL_NAME = os.getenv("MODEL_NAME", "gemini-3.8-flash")
+MODEL_NAME = os.getenv("MODEL_NAME")
 
 document_extraction_agent = LlmAgent(
     name="DocumentExtractionAgent",

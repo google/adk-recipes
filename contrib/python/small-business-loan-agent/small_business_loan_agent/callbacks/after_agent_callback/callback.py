@@ -40,9 +40,9 @@ from small_business_loan_agent.shared_libraries.logging_config import get_logger
 
 logger = get_logger(__name__)
 
-JUDGE_MODEL = os.getenv(
-    "JUDGE_MODEL", os.getenv("MODEL_NAME", "gemini-3.8-flash")
-)
+JUDGE_MODEL = os.getenv("JUDGE_MODEL")
+if not JUDGE_MODEL:
+    JUDGE_MODEL = os.getenv("MODEL_NAME")
 
 AGENT_OUTPUT_KEYS = [
     "DocumentExtractionAgent_output",
@@ -159,8 +159,10 @@ async def llm_judge_gate(
             final_response=final_response or "No response",
         )
 
+        location = os.getenv("GOOGLE_CLOUD_LOCATION")
         client = Client(
-            project=os.getenv("GOOGLE_CLOUD_PROJECT"), location="global"
+            project=os.getenv("GOOGLE_CLOUD_PROJECT"),
+            location=location if location is not None else "global",
         )
         judge_response = await client.aio.models.generate_content(
             model=JUDGE_MODEL,

@@ -38,7 +38,7 @@ from small_business_loan_agent.sub_agents.underwriting.tools import (
     get_internal_business_data,
 )
 
-MODEL_NAME = os.getenv("MODEL_NAME", "gemini-3.8-flash")
+MODEL_NAME = os.getenv("MODEL_NAME")
 
 underwriting_agent = LlmAgent(
     name="UnderwritingAgent",

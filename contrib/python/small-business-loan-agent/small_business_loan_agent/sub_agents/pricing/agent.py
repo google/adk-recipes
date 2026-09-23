@@ -34,7 +34,7 @@ from small_business_loan_agent.sub_agents.pricing.tools import (
     calculate_loan_pricing,
 )
 
-MODEL_NAME = os.getenv("MODEL_NAME", "gemini-3.8-flash")
+MODEL_NAME = os.getenv("MODEL_NAME")
 
 pricing_agent = LlmAgent(
     name="PricingAgent",
