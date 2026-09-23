@@ -39,6 +39,7 @@ dev = [
   "ruamel.yaml>=0.18",
   "packaging>=24",
   "ruff>=0.14",
+  "mypy>=1.10",
 ]
 
 [build-system]
