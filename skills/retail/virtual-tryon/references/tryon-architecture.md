@@ -39,13 +39,13 @@ response = client.models.generate_content(
     contents=[
         types.Part.from_bytes(data=person_bytes, mime_type="image/jpeg"),
         types.Part.from_bytes(data=product_bytes, mime_type="image/jpeg"),
-        user_task
+        user_task,
     ],
     config=types.GenerateContentConfig(
         response_modalities=["IMAGE"],
         system_instruction=system_prompt,
-        temperature=0.1
-    )
+        temperature=0.1,
+    ),
 )
 ```
 
@@ -57,7 +57,7 @@ ref_images_list = []
 for img_bytes in [lower_body_png, upper_body_png, face_png]:
     ref_image = VideoGenerationReferenceImage(
         image=Image(imageBytes=img_bytes, mime_type="image/png"),
-        reference_type="asset"
+        reference_type="asset",
     )
     ref_images_list.append(ref_image)
 
@@ -69,7 +69,7 @@ operation = client.models.generate_videos(
         number_of_videos=1,
         duration_seconds=5,
         reference_images=ref_images_list,
-        person_generation="allow_adult"
-    )
+        person_generation="allow_adult",
+    ),
 )
 ```

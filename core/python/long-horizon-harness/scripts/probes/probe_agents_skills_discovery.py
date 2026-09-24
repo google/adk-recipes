@@ -37,7 +37,7 @@ from pathlib import Path
 from google.genai import types
 
 _SKILL_NAME = "probe-weather-oracle"
-_UNIQUE_TOKEN = "MANGO-42-FORECAST"
+_UNIQUE_TOKEN = "MANGO-42-FORECAST"  # noqa: S105
 _SKILL_MD = (
     f"---\nname: {_SKILL_NAME}\n"
     f"description: Predicts weather using the {_UNIQUE_TOKEN} protocol.\n---\n"

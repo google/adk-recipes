@@ -59,7 +59,7 @@ from __future__ import annotations
 import shutil
 from collections.abc import Callable
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 
 # ---------------------------------------------------------------------------
 # Documentation anchors
@@ -73,7 +73,7 @@ from enum import Enum
 _TROUBLESHOOTING = "docs/recipe-handbook/troubleshooting.md"
 
 
-class Doc(str, Enum):
+class Doc(StrEnum):
     """Anchors into the troubleshooting handbook."""
 
     MANIFEST = "manifestyaml-missing-or-invalid"
@@ -124,7 +124,7 @@ class Doc(str, Enum):
         return f"{_TROUBLESHOOTING}#{self.value}"
 
 
-class Severity(str, Enum):
+class Severity(StrEnum):
     ERROR = "error"
     WARNING = "warning"
     NOTICE = "notice"

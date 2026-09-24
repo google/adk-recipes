@@ -123,7 +123,7 @@ import base64
 # Step 1: Preprocess images
 preprocess_response = requests.post(
     "/api/spinning/interpolation/other/interpolation-preprocess",
-    files=[("images", open(f"frame_{i}.jpg", "rb")) for i in range(4)]
+    files=[("images", open(f"frame_{i}.jpg", "rb")) for i in range(4)],
 )
 processed = preprocess_response.json()["images"]
 
@@ -134,9 +134,13 @@ for i in range(len(processed) - 1):
         "/api/spinning/interpolation/other/interpolation-generate",
         files={
             "img1": base64.b64decode(processed[i]["data"]),
-            "img2": base64.b64decode(processed[i+1]["data"])
+            "img2": base64.b64decode(processed[i + 1]["data"]),
         },
-        data={"index": i, "prompt": "Smooth transition", "backgroundColor": "#FFFFFF"}
+        data={
+            "index": i,
+            "prompt": "Smooth transition",
+            "backgroundColor": "#FFFFFF",
+        },
     )
     videos.append(response.content)
 
@@ -144,7 +148,7 @@ for i in range(len(processed) - 1):
 merge_response = requests.post(
     "/api/spinning/interpolation/other/interpolation-merge",
     files=[("videos", v) for v in videos],
-    data={"speeds": json.dumps([1.0] * len(videos))}
+    data={"speeds": json.dumps([1.0] * len(videos))},
 )
 
 with open("final_video.mp4", "wb") as f:
@@ -227,7 +231,7 @@ Full end-to-end R2V pipeline.
 # Simple: Use the pipeline endpoint
 response = requests.post(
     "/api/spinning/r2v/other/r2v-pipeline",
-    files=[("images", open(f"product_{i}.jpg", "rb")) for i in range(4)]
+    files=[("images", open(f"product_{i}.jpg", "rb")) for i in range(4)],
 )
 
 with open("spinning_video.mp4", "wb") as f:
@@ -295,8 +299,11 @@ import base64
 response = requests.post(
     "/api/other/change-background",
     files={"person_image": open("person.jpg", "rb")},
-    data={"background_description": "tropical beach at sunset", "num_variations": 4},
-    stream=True
+    data={
+        "background_description": "tropical beach at sunset",
+        "num_variations": 4,
+    },
+    stream=True,
 )
 
 # Process SSE events as they arrive
@@ -306,7 +313,9 @@ for line in response.iter_lines():
         data = json.loads(line[6:])
         if data.get("status") == "ready":
             results.append(data)
-            print(f"Variation {data['index']}: {data['evaluation']['similarity_percentage']:.1f}%")
+            print(
+                f"Variation {data['index']}: {data['evaluation']['similarity_percentage']:.1f}%"
+            )
         elif data.get("status") == "complete":
             print(f"All {data['total']} variations complete")
 
@@ -320,10 +329,10 @@ response = requests.post(
     "/api/other/change-background",
     files={
         "person_image": open("person.jpg", "rb"),
-        "background_image": open("beach.jpg", "rb")
+        "background_image": open("beach.jpg", "rb"),
     },
     data={"num_variations": 4},
-    stream=True
+    stream=True,
 )
 ```
 
@@ -382,6 +391,7 @@ def process_single_video(client, start_image, end_image, prompt, ...) -> bytes:
 
 ```python
 VEO_R2V_PROMPT_TEMPLATE = "..."  # Jinja template for spinning prompts
+
 
 def generate_product_description(client, gemini_model, all_images_bytes) -> str:
     """Generate product description from images using Gemini"""

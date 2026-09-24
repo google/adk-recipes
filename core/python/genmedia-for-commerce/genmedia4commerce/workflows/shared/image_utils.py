@@ -306,7 +306,7 @@ def upscale_image_bytes(client, image_bytes, upscale_factor="x4"):
     # Debug: save before upscaling
     import hashlib
 
-    img_hash = hashlib.md5(image_bytes).hexdigest()[:6]
+    img_hash = hashlib.md5(image_bytes).hexdigest()[:6]  # noqa: S324
     save_debug_image(image_bytes, f"upscale_input_{img_hash}", prefix="upscale")
 
     input_image = types.Image(image_bytes=image_bytes)

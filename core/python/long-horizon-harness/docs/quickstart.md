@@ -114,11 +114,17 @@ still calls Vertex per request (there is no local model):
 # my_app.py
 import os
 
-os.environ.setdefault("USE_IN_MEMORY_SESSION", "true")    # no Cloud SQL / Agent Engine
-os.environ.setdefault("LHA_ENVIRONMENT_BACKEND", "local")  # tools run on this host
+os.environ.setdefault(
+    "USE_IN_MEMORY_SESSION", "true"
+)  # no Cloud SQL / Agent Engine
+os.environ.setdefault(
+    "LHA_ENVIRONMENT_BACKEND", "local"
+)  # tools run on this host
 os.environ.setdefault("LHA_ROOT_MODEL", "gemini-3.7-flash")
 
-from horizon.fast_api_app import app  # every router mounts; edit fast_api_app.py to trim
+from horizon.fast_api_app import (
+    app,
+)  # every router mounts; edit fast_api_app.py to trim
 ```
 
 ```bash
