@@ -17,10 +17,10 @@ on:
       - "contrib/**/pyproject.toml"
       - "contrib/**/uv.lock"
       - "contrib/**/manifest.yaml"
-      - "skills/**/*.py"
-      - "skills/**/pyproject.toml"
-      - "skills/**/uv.lock"
-      - "skills/**/manifest.yaml"
+      - "plugins/**/*.py"
+      - "plugins/**/pyproject.toml"
+      - "plugins/**/uv.lock"
+      - "plugins/**/manifest.yaml"
       - ".github/workflows/python-tests.yml"
   workflow_dispatch:
     inputs:
@@ -78,11 +78,11 @@ jobs:
             grep -qiE "^[[:space:]]*language:[[:space:]]*[\"']?python[\"']?[[:space:]]*(#.*)?$" "$1"
           }
 
-          # Helper: collect all Python recipe dirs under core/, contrib/, and skills/.
+          # Helper: collect all Python recipe dirs under core/, contrib/, and plugins/.
           # A recipe dir is any directory that contains a manifest.yaml
           # declaring language: python.
           all_python_recipes() {
-            for root in core contrib skills; do
+            for root in core contrib plugins; do
               [ -d "$root" ] || continue
               while IFS= read -r manifest; do
                 if is_python_recipe "$manifest"; then
@@ -143,7 +143,7 @@ jobs:
             while IFS= read -r file; do
               [ -z "$file" ] && continue
               case "$file" in
-                core/*|contrib/*|skills/*) ;;
+                core/*|contrib/*|plugins/*) ;;
                 *) continue ;;
               esac
               recipe_dir="$(find_recipe_dir "$file")"

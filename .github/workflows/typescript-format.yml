@@ -29,23 +29,23 @@ on:
       - "contrib/**/*.cjs"
       - "contrib/**/*.mts"
       - "contrib/**/*.cts"
-      - "skills/**/*.ts"
-      - "skills/**/*.tsx"
-      - "skills/**/*.js"
-      - "skills/**/*.jsx"
-      - "skills/**/*.mjs"
-      - "skills/**/*.cjs"
-      - "skills/**/*.mts"
-      - "skills/**/*.cts"
+      - "plugins/**/*.ts"
+      - "plugins/**/*.tsx"
+      - "plugins/**/*.js"
+      - "plugins/**/*.jsx"
+      - "plugins/**/*.mjs"
+      - "plugins/**/*.cjs"
+      - "plugins/**/*.mts"
+      - "plugins/**/*.cts"
       - "core/**/package.json"
       - "contrib/**/package.json"
-      - "skills/**/package.json"
+      - "plugins/**/package.json"
       - "core/**/biome.json"
       - "core/**/biome.jsonc"
       - "contrib/**/biome.json"
       - "contrib/**/biome.jsonc"
-      - "skills/**/biome.json"
-      - "skills/**/biome.jsonc"
+      - "plugins/**/biome.json"
+      - "plugins/**/biome.jsonc"
       - "biome.json"
       - "biome.jsonc"
       - ".github/workflows/typescript-format.yml"
@@ -106,7 +106,7 @@ jobs:
 
           # 2. Resolve TypeScript/JavaScript files modified in this PR diff
           git diff -z --name-only --diff-filter=d "origin/$BASE_REF...HEAD" \
-            -- core contrib skills > "$WORK/changed"
+            -- core contrib plugins > "$WORK/changed"
 
           ALL_CHANGED=()
           mapfile -d '' -t ALL_CHANGED < "$WORK/changed"
@@ -121,7 +121,7 @@ jobs:
           done
 
           if [ ${#CHANGED_FILES[@]} -eq 0 ]; then
-            echo "No TypeScript/JavaScript files were modified under core/, contrib/ or skills/. Skipping formatting."
+            echo "No TypeScript/JavaScript files were modified under core/, contrib/ or plugins/. Skipping formatting."
             exit 0
           fi
 
@@ -205,7 +205,7 @@ jobs:
 
           # 2. Resolve TypeScript/JavaScript files modified in this PR diff
           git diff -z --name-only --diff-filter=d "origin/$BASE_REF...HEAD" \
-            -- core contrib skills > "$WORK/changed"
+            -- core contrib plugins > "$WORK/changed"
 
           ALL_CHANGED=()
           mapfile -d '' -t ALL_CHANGED < "$WORK/changed"
@@ -220,7 +220,7 @@ jobs:
           done
 
           if [ ${#CHANGED_FILES[@]} -eq 0 ]; then
-            echo "No TypeScript/JavaScript files were modified under core/, contrib/ or skills/. Skipping lint."
+            echo "No TypeScript/JavaScript files were modified under core/, contrib/ or plugins/. Skipping lint."
             exit 0
           fi
 

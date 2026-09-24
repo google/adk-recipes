@@ -78,10 +78,10 @@ def is_safe_output_dir(output_dir: str) -> bool:
 # because recipes already live there, but `contrib/python` is the documented
 # home for new Python recipes.
 #
-# Vertical skills (skills/<vertical>/<solution>) are deliberately absent:
+# Vertical plugins (plugins/<vertical>/<solution>) are deliberately absent:
 # they need a different template — SKILL.md, EVAL.yaml, scripts/, assets/,
 # references/, tests/unit/ — which this skill does not ship. Refusing is
-# better than scaffolding a recipe-shaped tree into a skills path.
+# better than scaffolding a recipe-shaped tree into a plugins path.
 ALLOWED_OUTPUT_DIRS = ("contrib", "contrib/python", "core/python")
 
 

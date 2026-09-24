@@ -17,13 +17,13 @@ on:
     paths:
       - "core/**/*.go"
       - "contrib/**/*.go"
-      - "skills/**/*.go"
+      - "plugins/**/*.go"
       - "core/**/go.mod"
       - "core/**/go.sum"
       - "contrib/**/go.mod"
       - "contrib/**/go.sum"
-      - "skills/**/go.mod"
-      - "skills/**/go.sum"
+      - "plugins/**/go.mod"
+      - "plugins/**/go.sum"
       - ".golangci.yml"
       - ".github/workflows/go-format.yml"
       # NOTE: `go/agents/**` is deliberately absent. Those are retired
@@ -34,7 +34,7 @@ on:
       # This list alone is NOT sufficient to exclude them: `paths:` decides
       # whether the workflow RUNS, not which files the diff below returns.
       # Both jobs therefore also scope `git diff` to `-- core contrib
-      # skills`. Keep the two in sync.
+      # plugins`. Keep the two in sync.
 
 # Declared per job rather than here. `pull-requests: write` at the workflow
 # level is inherited by EVERY job, including any added later that only need
@@ -175,7 +175,7 @@ jobs:
           done
 
           if [ ${#CHANGED_FILES[@]} -eq 0 ]; then
-            echo "No Go files were modified under core/, contrib/ or skills/. Skipping formatting."
+            echo "No Go files were modified under core/, contrib/ or plugins/. Skipping formatting."
             exit 0
           fi
 
@@ -198,7 +198,7 @@ jobs:
           #    fatal, and the two cases are not the same:
           #
           #      a) The file lives in a Go recipe root (<root>/go/…, or
-          #         skills/ — see below). A Go recipe is required to ship a
+          #         plugins/ — see below). A Go recipe is required to ship a
           #         go.mod (.github/policy.yml `required_files.by_language.go`),
           #         so the recipe is malformed. Fatal, as before.
           #
@@ -223,11 +223,11 @@ jobs:
           #    echo of that verdict for the common namespaced layout, not a
           #    replacement for it.
           #
-          #    skills/ counts as (a) deliberately: a vertical skill's
+          #    plugins/ counts as (a) deliberately: a vertical plugin's
           #    language comes from its manifest, not its path
           #    (validate_manifest.py `NAMESPACE_REQUIRED_ROOTS`), so the
-          #    path cannot tell us whether skills/retail/foo/main.go belongs
-          #    to a Go skill. Fail closed. skills/ is empty today, so this
+          #    path cannot tell us whether plugins/retail/foo/main.go belongs
+          #    to a Go plugin. Fail closed. plugins/ has no Go plugin today, so this
           #    costs nothing now and errs toward reporting over silence.
           UNMAPPED=0
           UNMAPPED_MSG="One or more changed Go files sit in a Go recipe but could not be attributed to a Go module, and were skipped. Add a go.mod to the recipe."
@@ -254,7 +254,7 @@ jobs:
               # load-bearing: without it `contrib/gold-recipe/x.go` would
               # match a `contrib/go*` prefix and be misfiled as a Go recipe.
               case "$file" in
-                core/go/*|contrib/go/*|skills/*)
+                core/go/*|contrib/go/*|plugins/*)
                   echo "::warning file=$file::No go.mod found in any parent directory — skipping. A Go recipe must ship a go.mod."
                   UNMAPPED=1
                   ;;
@@ -465,7 +465,7 @@ jobs:
           done
 
           if [ ${#CHANGED_FILES[@]} -eq 0 ]; then
-            echo "No Go files were modified under core/, contrib/ or skills/. Skipping lint."
+            echo "No Go files were modified under core/, contrib/ or plugins/. Skipping lint."
             exit 0
           fi
 

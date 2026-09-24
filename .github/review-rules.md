@@ -55,7 +55,7 @@ branch, so a PR cannot weaken the rules that judge it.
 
 This repository hosts **recipes** — self-contained agent examples under
 `core/<language>/<name>`, `contrib/<language>/<name>`, and
-`skills/<vertical>/<solution>`. Its conventions differ from common practice and
+`plugins/<vertical>/<solution>`. Its conventions differ from common practice and
 override your priors. Say "recipe", never "sample" or "project".
 
 A rule marked **CI-FAIL** blocks the build; saying so is accurate. A rule marked
@@ -162,10 +162,10 @@ section, to be left alone.
 10. **H40** · **advisory** — A `manifest.language` that disagrees with the
     recipe's path. The two consumers resolve it differently, and Python
     validation is skipped entirely. — `tools/validate_structure.py`
-11. **H47** · **advisory** — A vertical skill whose middle folder names a
-    LANGUAGE, e.g. `skills/python/foo`. The depth is right so CI passes it, but
+11. **H47** · **advisory** — A vertical plugin whose middle folder names a
+    LANGUAGE, e.g. `plugins/python/foo`. The depth is right so CI passes it, but
     that folder must be a vertical. — `tools/validate_placement.py:67`
-12. **H41** · **advisory** — A solution directly under `skills/` receives no
+12. **H41** · **advisory** — A solution directly under `plugins/` receives no
     per-recipe Python validation at all.
     — `.github/scripts/recipe_manifests.py`
 13. **H42** · **advisory** — A PR mixing `.agents/skills/` changes with recipe
@@ -206,7 +206,7 @@ comment repeating one lands on an author already looking at a red check.
 | H17 | A `manifest.yaml` ownership placeholder | `validate_manifest.py:59-60` |
 | H18 | A `manifest.description` under 10 chars or starting `TODO` | `validate_manifest.py:447` |
 | H19 | A `manifest.yaml` key outside the schema, or a bad enum value | `manifest-schema.json` |
-| H23 | A solution directly under `skills/`, or nested one level too deep | `validate_placement.py:67` |
+| H23 | A solution directly under `plugins/`, or nested one level too deep | `validate_placement.py:67` |
 | H24 | A file added or modified under a frozen `<language>/agents/` path | `.github/policy.yml:95` |
 | H45 | A `.go` file with no owning `go.mod` | `go-format.yml:162` |
 | H9 | `uv.lock` out of sync, VCS deps, local deps, missing hashes | `python-dependency-policy.yml` |

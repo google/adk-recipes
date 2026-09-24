@@ -215,8 +215,8 @@ jobs:
             - /contrib/typescript/** -> happyhuman
             - /contrib/kotlin/** -> happyhuman
 
-            Skills Directory Assignments:
-            - /skills/** -> happyhuman
+            Plugins Directory Assignments:
+            - /plugins/** -> happyhuman
 
             ## Repository Context & Knowledge
 
@@ -224,7 +224,7 @@ jobs:
             - Directory layout:
               - `core/<language>/<recipe-name>`: Curated reference recipes maintained by the core team.
               - `contrib/<language>/<recipe-name>`: Community-contributed recipes (default destination for new user contributions).
-              - `skills/<vertical>/<solution>`: Vertical recipes/skills shipped to users (e.g. `skills/retail/store-ops/`).
+              - `plugins/<vertical>/<solution>`: Vertical recipes/plugins shipped to users (e.g. `plugins/retail/store-ops/`).
 
             - Assistant Skills (Repo Skills in `.agents/skills/`):
               Contributors using an AI assistant (e.g. CloudCode) can invoke repo skills directly:

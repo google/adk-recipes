@@ -249,7 +249,7 @@ def module_path_from_file(agent_file: Path, recipe_dir: Path) -> str:
 # it there.
 #
 # Historical gap: this was assumed rather than checked, so a recipe without a
-# [build-system] — common for vertical skills under skills/, where code lives
+# [build-system] — common for vertical plugins under plugins/, where code lives
 # in a plain scripts/ directory — got a test that always died with
 # ModuleNotFoundError, while the pipeline's py_compile check still reported
 # success.

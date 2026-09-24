@@ -5,13 +5,13 @@ Validate that every recipe sits at the path its root requires.
 Recipes are located by their manifest.yaml, and the manifest's depth below
 the recipe root tells you whether the recipe is in the right place:
 
-    skills/<vertical>/<solution>/manifest.yaml     valid
-    skills/<solution>/manifest.yaml                too shallow — no vertical
-    skills/<vertical>/<solution>/x/manifest.yaml   too deep
+    plugins/<vertical>/<solution>/manifest.yaml     valid
+    plugins/<solution>/manifest.yaml                too shallow — no vertical
+    plugins/<vertical>/<solution>/x/manifest.yaml   too deep
 
-The vertical (retail/, hr/, finance/) is mandatory under skills/: it
+The vertical (retail/, hr/, finance/) is mandatory under plugins/: it
 surfaces ownership and lets a team reason about its whole surface at a
-glance. A solution dropped directly under skills/ has no owning vertical,
+glance. A solution dropped directly under plugins/ has no owning vertical,
 so it is rejected.
 
 Scope: only roots listed in validate_manifest.NAMESPACE_REQUIRED_ROOTS are
@@ -21,7 +21,7 @@ retired.
 
 This is a whole-tree scan rather than a diff, so it also catches a
 misplacement that arrives some other way (a rename, a bad merge). A missing
-root is not an error: skills/ need not exist yet.
+root is not an error: plugins/ need not exist yet.
 
 Usage:
     uv run python tools/validate_placement.py
@@ -68,7 +68,7 @@ def describe_violation(rel_parts: list[str]) -> Diagnostic | None:
     """Return a diagnostic for a manifest path, or None if it is valid.
 
     `rel_parts` are the manifest's path components relative to the repo
-    root, e.g. ["skills", "retail", "store-ops", "manifest.yaml"].
+    root, e.g. ["plugins", "retail", "store-ops", "manifest.yaml"].
     """
     if len(rel_parts) == EXPECTED_PARTS:
         return None

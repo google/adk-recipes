@@ -45,7 +45,7 @@ def test_only_the_recipes_the_pr_touches_are_checked():
             "contrib/python/my-recipe/agent.py",
             "contrib/python/my-recipe/pyproject.toml",
             "core/go/other/main.go",
-            "skills/retail/store-ops/manifest.yaml",
+            "plugins/retail/store-ops/manifest.yaml",
             "README.md",
             ".github/workflows/thing.yml",
             "tools/validate_structure.py",
@@ -54,7 +54,7 @@ def test_only_the_recipes_the_pr_touches_are_checked():
     assert roots == [
         "contrib/python/my-recipe",
         "core/go/other",
-        "skills/retail/store-ops",
+        "plugins/retail/store-ops",
     ]
 
 
@@ -65,7 +65,7 @@ def test_a_pr_touching_no_recipe_yields_nothing():
 def test_a_recipe_root_is_three_segments_not_a_prefix():
     """`contrib/python` alone is not a recipe, and neither is the repo root."""
     assert lane.recipe_roots(["contrib/python/README.md"]) == []
-    assert lane.recipe_roots(["skills/retail"]) == []
+    assert lane.recipe_roots(["plugins/retail"]) == []
 
 
 # ------------------------------------------------------------- translation
@@ -415,31 +415,31 @@ def test_a_file_beside_the_recipes_is_still_not_a_recipe(tmp_path):
 def test_a_misplaced_solution_resolves_to_itself_not_its_subdirectories(
     tmp_path,
 ):
-    """A solution directly under skills/ is H41's entire subject. With no
+    """A solution directly under plugins/ is H41's entire subject. With no
     manifest, the four-segment rule resolved its scripts/ and tests/ as two
     separate recipes and the real root as none — so the rule could never fire
     on the thing it exists to report, and the lane printed "0 findings across
     2 recipes"."""
-    (tmp_path / "skills/store-ops/scripts").mkdir(parents=True)
-    (tmp_path / "skills/store-ops/tests").mkdir()
+    (tmp_path / "plugins/store-ops/scripts").mkdir(parents=True)
+    (tmp_path / "plugins/store-ops/tests").mkdir()
     for marker in ("SKILL.md", "EVAL.yaml", "README.md"):
-        (tmp_path / "skills/store-ops" / marker).write_text("x\n")
+        (tmp_path / "plugins/store-ops" / marker).write_text("x\n")
     roots = lane.recipe_roots(
         [
-            "skills/store-ops/SKILL.md",
-            "skills/store-ops/scripts/run.sh",
-            "skills/store-ops/tests/test_x.py",
+            "plugins/store-ops/SKILL.md",
+            "plugins/store-ops/scripts/run.sh",
+            "plugins/store-ops/tests/test_x.py",
         ],
         tmp_path,
     )
-    assert roots == ["skills/store-ops"]
+    assert roots == ["plugins/store-ops"]
 
 
 def test_a_correctly_placed_solution_is_unaffected(tmp_path):
-    (tmp_path / "skills/retail/ops/src").mkdir(parents=True)
-    (tmp_path / "skills/retail/ops/SKILL.md").write_text("x\n")
-    assert lane.recipe_roots(["skills/retail/ops/src/a.ts"], tmp_path) == [
-        "skills/retail/ops"
+    (tmp_path / "plugins/retail/ops/src").mkdir(parents=True)
+    (tmp_path / "plugins/retail/ops/SKILL.md").write_text("x\n")
+    assert lane.recipe_roots(["plugins/retail/ops/src/a.ts"], tmp_path) == [
+        "plugins/retail/ops"
     ]
 
 

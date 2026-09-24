@@ -11,7 +11,7 @@ on:
     paths:
       - 'core/**'
       - 'contrib/**'
-      - 'skills/**'
+      - 'plugins/**'
       - '.github/workflows/python-validate-recipe.yml'
       - '.github/scripts/check_env_vars.py'
       - '.github/scripts/check_recipe_pyproject.py'
@@ -115,18 +115,18 @@ jobs:
           set -euo pipefail
 
           # Full-repo enumeration: list every path under core/, contrib/,
-          # and skills/ (any depth), then feed it through the same helper
+          # and plugins/ (any depth), then feed it through the same helper
           # the diff step uses — with --language python. This keeps one
           # source of truth for the layout matrix (path → recipe →
-          # language) instead of re-implementing it in shell. `skills/`
-          # is included so that a Python skill at
-          # skills/<vertical>/<solution>/ is picked up by the full scan.
+          # language) instead of re-implementing it in shell. `plugins/`
+          # is included so that a Python plugin at
+          # plugins/<vertical>/<solution>/ is picked up by the full scan.
           # Its language comes from manifest.language rather than the path:
-          # the middle component under skills/ is a vertical (retail/, hr/),
+          # the middle component under plugins/ is a vertical (retail/, hr/),
           # not a language. Missing roots are tolerated via 2>/dev/null.
           # NOT `--no-project`: see the notes on the sibling invocation
           # above.
-          ALL=$(find core contrib skills -type f 2>/dev/null | uv run python tools/affected_recipes.py --language python)
+          ALL=$(find core contrib plugins -type f 2>/dev/null | uv run python tools/affected_recipes.py --language python)
 
           echo "All Python recipes:"
           echo "$ALL"

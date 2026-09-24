@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Validates the structural shell of every recipe under core/ and contrib/
-(and, once it lands, skills/) — the checks that are determined by folder
+(and plugins/) — the checks that are determined by folder
 location and the recipe's declared language, NOT by anything language-
 specific.
 
@@ -18,7 +18,7 @@ Checks performed, in order, for each recipe:
      manifest.yaml itself is NOT listed in policy.required_files; check 1
      is authoritative for it, and duplicating the rule would double-report.
   6. Required directories present — the same three-way union over
-     policy.required_dirs. Vertical skills use this for scripts/.
+     policy.required_dirs. Vertical plugins use this for scripts/.
      An empty directory passes.
 
 Name matching for checks 5 and 6 is done in Python rather than by asking
@@ -70,7 +70,7 @@ POLICY_PATH = REPO_ROOT / ".github" / "policy.yml"
 
 # Every folder that may hold recipes at the top level. Kept aligned with
 # validate_manifest.RECIPE_ROOTS but extensible: adding a new root here
-# (e.g. "skills") plus a matching `by_root:` entry in policy.yml is all
+# (e.g. "plugins") plus a matching `by_root:` entry in policy.yml is all
 # it takes to bring the new root under structural validation.
 RECIPE_ROOTS: list[str] = list(vm.RECIPE_ROOTS)
 
@@ -457,7 +457,7 @@ def check_size_and_count(
     """Enforce the size (MB) and file-count tiers from policy.yml.
     Tier is chosen by `root` (core vs contrib) then by manifest.large.
     Recipes under roots not covered by recipe_size_limits (e.g. a
-    future 'skills' root without limits) skip these checks."""
+    future 'plugins' root without limits) skip these checks."""
     rel = vm.repo_relative(recipe_dir, REPO_ROOT)
     manifest_rel = vm.repo_relative(manifest_path, REPO_ROOT)
     limits_by_root = policy.get("recipe_size_limits") or {}
@@ -782,7 +782,7 @@ def validate_recipe(
                 how=(
                     "Move it under one of them: core/ for curated recipes, "
                     "contrib/ for community ones, "
-                    "skills/<vertical>/<solution> for a vertical skill."
+                    "plugins/<vertical>/<solution> for a vertical plugin."
                 ),
                 doc=Doc.PLACEMENT,
                 file=rel,

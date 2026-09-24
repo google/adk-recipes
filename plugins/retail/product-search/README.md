@@ -22,7 +22,7 @@ consuming it):
 
 ```bash
 git clone https://github.com/google/adk-recipes.git
-cd adk-recipes/skills/retail/product-search
+cd adk-recipes/plugins/retail/product-search
 uv sync
 ```
 

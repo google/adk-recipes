@@ -4,19 +4,19 @@ All agents must follow the guidelines below without being reminded.
 ## General
 - Use the term **recipe** instead of **sample** everywhere — responses,
   code comments, commit messages, PR descriptions, docs.
-- Two different things are called "skills"; keep the terms straight:
-  - **Vertical skills** — recipes under `skills/<vertical>/<solution>/`
-    (e.g. `skills/retail/store-ops/`). Shipped to users.
+- Keep the terms straight:
+  - **Plugins** — recipes under `plugins/<vertical>/<solution>/`
+    (e.g. `plugins/retail/store-ops/`). Shipped to users.
   - **Repo skills** — AI coding-assistant helpers under `.agents/skills/`
     (e.g. `prepare-python-recipe`). Used to build this repo.
 - Recipes live under `core/` (curated), `contrib/` (community), or
-  `skills/` (vertical skills). Repo skills are a completely separate
-  concept. Do NOT mix `.agents/skills/` changes and recipe/vertical-skill
+  `plugins/` (plugins). Repo skills are a completely separate
+  concept. Do NOT mix `.agents/skills/` changes and recipe/plugin
   changes in the same PR. If a tool run modifies files outside your task's
   scope (e.g. a repo-wide ruff sweep touching an unrelated recipe), revert
   those and mention them so the user can decide.
-- When your task is scoped to a specific recipe or skill, stay inside its
-  directory. If you notice similar issues elsewhere, flag them in your
+- When your task is scoped to a specific recipe, plugin or skill, stay inside
+  its directory. If you notice similar issues elsewhere, flag them in your
   response instead of opportunistically fixing them.
 
 ## Git
@@ -40,10 +40,10 @@ All agents must follow the guidelines below without being reminded.
 - Do NOT use `gemini-2.0-flash` or `gemini-2.5-flash` — both are deprecated. Use `gemini-3.5-flash` instead.
 
 ## Python
-- Python recipes go under `contrib/python/` or `core/python/`. Vertical
-  skills go under `skills/<vertical>/<solution>/` (e.g.
-  `skills/retail/store-ops/`) — that middle folder is a **vertical**, not a
-  language, and it is mandatory. A skill's language comes from
+- Python recipes go under `contrib/python/` or `core/python/`. Plugins
+  go under `plugins/<vertical>/<solution>/` (e.g.
+  `plugins/retail/store-ops/`) — that middle folder is a **vertical**, not a
+  language, and it is mandatory. A plugin's language comes from
   `manifest.language`.
 - Minimum python version: 3.11
 - Package manager: Use `uv`, not `pip`

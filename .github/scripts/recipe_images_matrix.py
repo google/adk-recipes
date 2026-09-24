@@ -25,8 +25,8 @@ first Dockerfile it finds down each path.
 
 A Dockerfile is not by itself evidence of a recipe
 --------------------------------------------------
-skills/retail/virtual-tryon/assets/export-template carries one, and it is a
-build asset shipped by a skill rather than an agent anybody deploys. The
+plugins/retail/virtual-tryon/assets/export-template carries one, and it is a
+build asset shipped by a plugin rather than an agent anybody deploys. The
 manifest is what makes a directory a recipe — the schema at
 .github/schemas/manifest-schema.json is the same thing `deployable` is
 declared in — so a root Dockerfile earns an image only when a manifest.yaml
@@ -87,7 +87,7 @@ def _category_and_name(recipe: Path) -> tuple[str, str]:
     """Split a recipe path into (category, name).
 
     Recipes live at <root>/<category>/<name>. The segment is a language under
-    core/ and contrib/ (python, kotlin) but a vertical under skills/ (retail),
+    core/ and contrib/ (python, kotlin) but a vertical under plugins/ (retail),
     so it is named for what it is positionally rather than for what it usually
     holds. Anything shallower has no such segment, and the root stands in.
     """

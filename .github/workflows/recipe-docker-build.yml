@@ -9,7 +9,7 @@ on:
     paths:
       - 'core/**'
       - 'contrib/**'
-      - 'skills/**'
+      - 'plugins/**'
       - '.github/workflows/recipe-docker-build.yml'
       - '.github/scripts/check_recipe_docker.py'
       - 'tools/affected_recipes.py'
@@ -21,7 +21,7 @@ on:
     paths:
       - 'core/**'
       - 'contrib/**'
-      - 'skills/**'
+      - 'plugins/**'
       - '.github/workflows/recipe-docker-build.yml'
       - '.github/scripts/check_recipe_docker.py'
       - 'tools/affected_recipes.py'
@@ -72,7 +72,7 @@ jobs:
           set -euo pipefail
 
           find_all_docker_recipes() {
-            find core contrib skills -name "Dockerfile" 2>/dev/null | while IFS= read -r df; do
+            find core contrib plugins -name "Dockerfile" 2>/dev/null | while IFS= read -r df; do
               dir=$(dirname "$df")
               if [ -f "$dir/manifest.yaml" ]; then
                 echo "$dir"

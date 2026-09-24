@@ -13,8 +13,8 @@ on:
       - 'core/**/pyproject.toml'
       - 'contrib/**/uv.lock'
       - 'contrib/**/pyproject.toml'
-      - 'skills/**/uv.lock'
-      - 'skills/**/pyproject.toml'
+      - 'plugins/**/uv.lock'
+      - 'plugins/**/pyproject.toml'
       - '.github/workflows/python-dependency-policy.yml'
       - '.github/scripts/check_lockfile_hashes.py'
   push:
@@ -27,8 +27,8 @@ on:
       - 'core/**/pyproject.toml'
       - 'contrib/**/uv.lock'
       - 'contrib/**/pyproject.toml'
-      - 'skills/**/uv.lock'
-      - 'skills/**/pyproject.toml'
+      - 'plugins/**/uv.lock'
+      - 'plugins/**/pyproject.toml'
       - '.github/workflows/python-dependency-policy.yml'
       - '.github/scripts/check_lockfile_hashes.py'
   workflow_dispatch:
@@ -55,12 +55,12 @@ jobs:
     # list) are derived from this one value.
     #
     # Deriving rather than duplicating is deliberate: this list was
-    # previously hardcoded at six separate sites, and when skills/ was
+    # previously hardcoded at six separate sites, and when plugins/ was
     # added to `on.paths` above, those six were missed. The result was a
-    # workflow that triggered on skills/ lockfiles and then validated
+    # workflow that triggered on plugins/ lockfiles and then validated
     # nothing while still reporting success.
     env:
-      RECIPE_ROOTS: "core contrib skills"
+      RECIPE_ROOTS: "core contrib plugins"
 
     steps:
       - name: Checkout repository
@@ -109,7 +109,7 @@ jobs:
           LOCKFILES_FILE="${RUNNER_TEMP}/lockfiles.txt"
 
           # Derive both matcher forms from the single RECIPE_ROOTS value.
-          ROOTS_RE="${RECIPE_ROOTS// /|}"      # core|contrib|skills
+          ROOTS_RE="${RECIPE_ROOTS// /|}"      # core|contrib|plugins
           read -ra ROOTS <<< "$RECIPE_ROOTS"
 
           # Only hand `find` roots that actually exist. find errors on a
