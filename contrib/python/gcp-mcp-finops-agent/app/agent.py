@@ -13,7 +13,6 @@
 # limitations under the License.
 """FinOps agent on the Google-hosted BigQuery MCP server."""
 
-import os
 from datetime import datetime, timezone
 
 from google.adk.agents import Agent
@@ -39,7 +38,7 @@ def create_agent() -> Agent:
     return Agent(
         name="root_agent",
         model=Gemini(
-            model=os.getenv("MODEL_NAME"),
+            model=config.MODEL_NAME,
             retry_options=types.HttpRetryOptions(attempts=3),
         ),
         description=(

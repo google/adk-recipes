@@ -33,6 +33,9 @@ GCP_SCOPES = ["https://www.googleapis.com/auth/cloud-platform"]
 MCP_TIMEOUT_SECONDS = 30.0
 MCP_SSE_READ_TIMEOUT_SECONDS = 120.0
 
+# The deployed container has no .env file, so this needs a default.
+MODEL_NAME = os.getenv("MODEL_NAME", "gemini-3.5-flash")
+
 # Sent as x-goog-user-project. Unset: the credentials' default project.
 QUOTA_PROJECT = os.getenv("GOOGLE_CLOUD_PROJECT")
 
