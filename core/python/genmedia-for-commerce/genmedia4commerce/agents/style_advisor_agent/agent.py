@@ -123,7 +123,7 @@ async def inject_uploaded_images(
                 if isinstance(data, bytes):
                     return base64.b64encode(data).decode("utf-8")
                 return data
-        except Exception:
+        except Exception:  # noqa: S110
             pass
         return None
 
@@ -298,7 +298,7 @@ async def process_text_for_gcs_urls(
         if not final_url:
             data, mime = await _fetch_image_data(url)
             if data:
-                fname = f"item_{hashlib.md5(url.encode()).hexdigest()[:8]}.png"
+                fname = f"item_{hashlib.md5(url.encode()).hexdigest()[:8]}.png"  # noqa: S324
                 # Handle both Runner and ToolContext
                 if hasattr(runner_or_context, "save_artifact"):
                     await runner_or_context.save_artifact(
@@ -349,7 +349,7 @@ async def handle_tool_response(
                     f"Media saved as artifacts: {list(artifacts.keys())}"
                 )
                 return clean
-        except Exception:
+        except Exception:  # noqa: S110
             pass
 
     return tool_response

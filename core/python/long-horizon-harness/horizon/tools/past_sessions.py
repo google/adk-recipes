@@ -116,7 +116,7 @@ async def recall_past_sessions_entries(
                 full = await session_service.get_session(
                     app_name=app_name, user_id=user_id, session_id=stub.id
                 )
-            except Exception:
+            except Exception:  # noqa: S112
                 continue
             if full is None:
                 continue

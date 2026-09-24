@@ -57,7 +57,11 @@ def run_step(description: str, cmd: list, dry_run: bool = False) -> bool:
         logger.info(f"    [dry-run] {' '.join(cmd)}")
         return True
     logger.info(f"    Running: {' '.join(cmd)}")
-    result = subprocess.run(cmd, capture_output=False, check=False)
+    result = subprocess.run(  # noqa: S603 -- setup script runs known command list
+        cmd,
+        capture_output=False,
+        check=False,
+    )
     if result.returncode != 0:
         logger.error(f"    FAILED (exit code {result.returncode})")
         return False

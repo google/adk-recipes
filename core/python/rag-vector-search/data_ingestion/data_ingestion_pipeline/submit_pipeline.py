@@ -18,9 +18,8 @@ import os
 import sys
 
 import backoff
-from kfp import compiler
-
 from data_ingestion_pipeline.pipeline import pipeline
+from kfp import compiler
 
 PIPELINE_FILE_NAME = "data_processing_pipeline.json"
 

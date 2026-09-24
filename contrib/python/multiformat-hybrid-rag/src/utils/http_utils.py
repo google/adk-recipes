@@ -79,7 +79,9 @@ def post_with_retry(
             # the base wait (0.5x-1.5x) so 200 simultaneously-rate-limited
             # threads don't wake at the same instant and re-burst the
             # service. Same average delay, no thundering herd.
-            wait = min(30.0, 0.5 * (2**attempt)) * (0.5 + random.random())
+            wait = min(30.0, 0.5 * (2**attempt)) * (
+                0.5 + random.random()  # noqa: S311
+            )
             if status == 429:
                 # Don't burn an attempt on platform rate-limit; Cloud Run
                 # will admit us once the autoscaler catches up. Capped

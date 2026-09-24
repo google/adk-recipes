@@ -12,10 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from kfp import dsl
-
 from data_ingestion_pipeline.components.ingest_data import ingest_data
 from data_ingestion_pipeline.components.process_data import process_data
+from kfp import dsl
 
 
 @dsl.pipeline(

@@ -119,7 +119,7 @@ async def chat_streamer(request: ChatRequest):
                                             )
                                             + "\n"
                                         )
-                                except Exception:
+                                except Exception:  # noqa: S110
                                     # DO NOT yield raw text from tools to the user
                                     pass
 

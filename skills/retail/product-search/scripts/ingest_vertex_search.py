@@ -95,7 +95,7 @@ def fetch_products(
         List of product dicts (one per BQ row).
     """
     client = bigquery.Client(project=project_id)
-    query = f"SELECT * FROM `{project_id}.{dataset_id}.{table_id}`"
+    query = f"SELECT * FROM `{project_id}.{dataset_id}.{table_id}`"  # noqa: S608
 
     logger.info(
         "Fetching products from %s.%s.%s", project_id, dataset_id, table_id
