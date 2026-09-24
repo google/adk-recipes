@@ -9,7 +9,7 @@ on:
     paths:
       - "core/**/*.py"
       - "contrib/**/*.py"
-      - "skills/**/*.py"
+      - "plugins/**/*.py"
       - "**/pyproject.toml"
 
 # Read-only by default. `pull-requests: write` is granted per job below

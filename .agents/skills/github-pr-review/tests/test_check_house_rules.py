@@ -822,10 +822,10 @@ def test_h40_stays_quiet_when_the_path_has_no_language_segment(tmp_path):
 def test_h41_and_h23_and_h47_never_double_report(tmp_path):
     """One misplaced skill, one comment -- not three saying the same thing."""
     cases = {
-        "skills/store-ops": "H41",  # too shallow
-        "skills/a/b/c": "H23",  # too deep
-        "skills/python/store-ops": "H47",  # right depth, language folder
-        "skills/retail/store-ops": None,  # correct
+        "plugins/store-ops": "H41",  # too shallow
+        "plugins/a/b/c": "H23",  # too deep
+        "plugins/python/store-ops": "H47",  # right depth, language folder
+        "plugins/retail/store-ops": None,  # correct
     }
     for rel, expected in cases.items():
         root = tmp_path / rel.replace("/", "_")
@@ -1153,7 +1153,7 @@ def test_a_mistyped_pyproject_does_not_crash_the_rule_that_catches_it(
             set(),
         ),
         (
-            "skills/retail/store-ops",
+            "plugins/retail/store-ops",
             "typescript",
             {"README.md", "SKILL.md", "EVAL.yaml"},
             {"pyproject.toml", "uv.lock"},
@@ -1245,11 +1245,11 @@ def test_an_unquoted_requires_python_is_reported_not_swallowed(tmp_path):
 
 
 def test_h3_expects_the_namespaced_name_for_a_vertical_skill(tmp_path):
-    """check_recipe_pyproject namespaces skills/ as <vertical>-<solution>, so
+    """check_recipe_pyproject namespaces plugins/ as <vertical>-<solution>, so
     comparing against the bare basename told the author of every vertical
-    skill to set the one value CI would then reject. It fired on both shipped
-    skills in this repo."""
-    rel = "skills/retail/store-ops"
+    plugin to set the one value CI would then reject. It fired on both shipped
+    plugins in this repo."""
+    rel = "plugins/retail/store-ops"
     root = tmp_path
     (root / rel).mkdir(parents=True)
     (root / rel / "pyproject.toml").write_text(
@@ -1308,7 +1308,7 @@ def test_h21_accepts_a_lowercase_eval_yaml(tmp_path, monkeypatch):
     """policy.case_insensitive_files lists EVAL.yaml and validate_structure
     honours it, so `eval.yaml` passes CI. A bare os.path.exists on a
     case-sensitive runner reported it missing — a file that is right there."""
-    rel = "skills/retail/store-ops"
+    rel = "plugins/retail/store-ops"
     (tmp_path / rel).mkdir(parents=True)
     for name in ("README.md", "SKILL.md", "eval.yaml"):
         (tmp_path / rel / name).write_text("x\n")
@@ -1323,7 +1323,7 @@ def test_h21_accepts_a_lowercase_eval_yaml(tmp_path, monkeypatch):
 
 
 def test_h21_still_reports_a_genuinely_absent_eval_yaml(tmp_path, monkeypatch):
-    rel = "skills/retail/no-eval"
+    rel = "plugins/retail/no-eval"
     (tmp_path / rel).mkdir(parents=True)
     for name in ("README.md", "SKILL.md"):
         (tmp_path / rel / name).write_text("x\n")
@@ -1576,7 +1576,7 @@ def test_h10_anchors_on_a_changed_file_when_only_one_changed(
 )
 def test_h10_does_not_flag_a_current_model_by_prefix(tmp_path, model):
     """`gemini-2.5-flash-image` is a CURRENT model and the pattern had no
-    right-hand boundary, so it matched the prefix: skills/retail/virtual-tryon
+    right-hand boundary, so it matched the prefix: plugins/retail/virtual-tryon
     carries 21 occurrences and not one deprecated id, and any PR touching it
     was told to replace a correct image model with a text one."""
     root, rel = recipe(tmp_path / model, **{"agent.py": f'MODEL = "{model}"\n'})

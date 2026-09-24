@@ -14,7 +14,7 @@
 """Unit tests for check_recipe_pyproject.py.
 
 This script gates real PRs. The naming tests pin the
-`skills/<vertical>/<solution>` behaviour so a future refactor cannot
+`plugins/<vertical>/<solution>` behaviour so a future refactor cannot
 silently reintroduce the basename-only rule, which would force two verticals
 that ship a same-named solution to declare the same distribution name.
 
@@ -76,15 +76,15 @@ def _run(tmp_path: Path, monkeypatch, pyproject: str, manifest=None) -> int:
         # Legacy flat layout still present under core/.
         ("core/rag-vector-search", "rag-vector-search"),
         # Vertical-namespaced root — the vertical is joined in.
-        ("skills/retail/product-search", "retail-product-search"),
-        ("skills/hr/onboarding", "hr-onboarding"),
-        ("skills/finance/month-end-close", "finance-month-end-close"),
+        ("plugins/retail/product-search", "retail-product-search"),
+        ("plugins/hr/onboarding", "hr-onboarding"),
+        ("plugins/finance/month-end-close", "finance-month-end-close"),
         # A bare directory name has no root to inspect.
         ("product-search", "product-search"),
         # Deeper than <root>/<namespace>/<solution>. Not three segments from
         # the root, so it is not the namespaced shape.
         # tools/validate_placement.py rejects this layout anyway.
-        ("skills/retail/deep/nested", "nested"),
+        ("plugins/retail/deep/nested", "nested"),
     ],
 )
 def test_expected_project_name_for_repo_relative_paths(path, expected):
@@ -96,7 +96,7 @@ def test_expected_project_name_for_repo_relative_paths(path, expected):
     ("path", "expected"),
     [
         (
-            f"{CI_CHECKOUT}/skills/retail/product-search",
+            f"{CI_CHECKOUT}/plugins/retail/product-search",
             "retail-product-search",
         ),
         (f"{CI_CHECKOUT}/core/python/deep-search", "deep-search"),
@@ -114,13 +114,16 @@ def test_absolute_paths_inside_the_repo_resolve_the_same(path, expected):
     ("path", "expected"),
     [
         # The bug this guards: a checkout directory that merely happens to be
-        # NAMED "skills". Matching the third-from-last segment made this
+        # NAMED "plugins". Matching the third-from-last segment made this
         # "core-rag-vector-search". The root has to be at position 0 of the
         # repo-relative path, not just present somewhere in it.
-        ("/home/me/skills/core/rag-vector-search", "rag-vector-search"),
-        ("/var/tmp/skills/retail/product-search", "product-search"),
+        ("/home/me/plugins/core/rag-vector-search", "rag-vector-search"),
+        ("/var/tmp/plugins/retail/product-search", "product-search"),
         # Correctly shaped, but not under the repo root we were given.
-        (f"{CI_CHECKOUT}-other/skills/retail/product-search", "product-search"),
+        (
+            f"{CI_CHECKOUT}-other/plugins/retail/product-search",
+            "product-search",
+        ),
     ],
 )
 def test_paths_outside_the_repo_fall_back_to_basename(path, expected):
@@ -134,9 +137,9 @@ def test_paths_outside_the_repo_fall_back_to_basename(path, expected):
 
 
 def test_two_verticals_sharing_a_solution_name_do_not_collide():
-    """The reason the rule exists: basenames are not unique under skills/."""
-    retail = m.expected_project_name(Path("skills/retail/product-search"))
-    grocery = m.expected_project_name(Path("skills/grocery/product-search"))
+    """The reason the rule exists: basenames are not unique under plugins/."""
+    retail = m.expected_project_name(Path("plugins/retail/product-search"))
+    grocery = m.expected_project_name(Path("plugins/grocery/product-search"))
     assert retail != grocery
 
 
@@ -149,8 +152,8 @@ def test_skill_with_vertical_prefixed_name_passes():
     assert (
         m.check_name(
             {"name": "retail-product-search"},
-            Path("skills/retail/product-search/pyproject.toml"),
-            Path("skills/retail/product-search"),
+            Path("plugins/retail/product-search/pyproject.toml"),
+            Path("plugins/retail/product-search"),
         )
         == []
     )
@@ -159,8 +162,8 @@ def test_skill_with_vertical_prefixed_name_passes():
 def test_skill_with_bare_basename_fails_and_explains_why():
     (diag,) = m.check_name(
         {"name": "product-search"},
-        Path("skills/retail/product-search/pyproject.toml"),
-        Path("skills/retail/product-search"),
+        Path("plugins/retail/product-search/pyproject.toml"),
+        Path("plugins/retail/product-search"),
     )
     text = _text(diag)
     assert "retail-product-search" in text
@@ -196,8 +199,8 @@ def test_core_recipe_with_matching_basename_passes():
 def test_missing_name_reports_the_expected_value():
     (diag,) = m.check_name(
         {},
-        Path("skills/retail/product-search/pyproject.toml"),
-        Path("skills/retail/product-search"),
+        Path("plugins/retail/product-search/pyproject.toml"),
+        Path("plugins/retail/product-search"),
     )
     assert "is missing" in diag.what
     assert "retail-product-search" in _text(diag)
@@ -453,10 +456,10 @@ def test_invalid_toml_is_reported_against_the_file(
         "core/python/deep-search",
         "contrib/python/financial-advisor",
         "core/rag-vector-search",
-        "skills/retail/product-search",
-        "skills/hr/onboarding",
+        "plugins/retail/product-search",
+        "plugins/hr/onboarding",
         "product-search",
-        "skills/retail/deep/nested",
+        "plugins/retail/deep/nested",
     ],
 )
 def test_validator_and_autofixer_agree(align_pyproject, path):
@@ -616,9 +619,9 @@ def test_prerelease_on_the_current_major_gets_its_own_notice(
     assert "cannot resolve" not in advisory.what
 
 
-@pytest.mark.parametrize("root", ["contrib/python/demo", "skills/retail/demo"])
+@pytest.mark.parametrize("root", ["contrib/python/demo", "plugins/retail/demo"])
 def test_rule_is_scoped_to_core(tmp_path, monkeypatch, root):
-    """contrib/ and skills/ set their own pace. Paired with the stale-lock
+    """contrib/ and plugins/ set their own pace. Paired with the stale-lock
     test above, which uses identical inputs under core/ and DOES fire — so
     this proves scoping, not merely that the inputs were inert."""
     assert (

@@ -53,7 +53,7 @@ on:
       # be worse than publishing nothing.
       - "core/**"
       - "contrib/**"
-      - "skills/**"
+      - "plugins/**"
       - ".github/workflows/recipe-images.yml"
       - ".github/scripts/recipe_images_matrix.py"
   schedule:

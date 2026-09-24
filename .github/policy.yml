@@ -19,15 +19,15 @@
 # Recipes live under core/<language>/<recipe> or contrib/<language>/<recipe>
 # (e.g. core/python/rag-agent-search, contrib/java/hello-agent).
 #
-# skills/ uses a VERTICAL rather than a language for its middle component:
-# skills/<vertical>/<solution> (e.g. skills/retail/store-ops). The vertical
+# plugins/ uses a VERTICAL rather than a language for its middle component:
+# plugins/<vertical>/<solution> (e.g. plugins/retail/store-ops). The vertical
 # surfaces ownership, so a team can see its whole surface at a glance, and
 # it is mandatory — tools/validate_placement.py rejects a solution placed
-# directly under skills/.
+# directly under plugins/.
 #
 # The applicable tier is chosen by:
 #   1. Top-level ancestor: core → `core` limits;  contrib → `contrib`
-#      limits;  skills → `skills` limits.
+#      limits;  plugins → `plugins` limits.
 #   2. `large:` field in the recipe's manifest.yaml (default: false):
 #        false / omitted → `default` limits;  true → `large` limits.
 #
@@ -52,10 +52,10 @@ recipe_size_limits:
     large:
       max_files: 200
       max_size_mb: 10
-  # skills/ deliberately mirrors contrib: a vertical skill is a focused
+  # plugins/ deliberately mirrors contrib: a vertical plugin is a focused
   # solution (SKILL.md + scripts + design spec + eval), not a full
   # application, so the tighter tier is the right default.
-  skills:
+  plugins:
     default:
       max_files: 70
       max_size_mb: 2
@@ -194,11 +194,11 @@ excluded_paths:
 # The required-file list applied to a recipe is the UNION of three sources,
 # resolved from the recipe's on-disk location and its manifest.language:
 #   1. `always`               — every recipe, regardless of anything
-#   2. `by_root[<root>]`      — where <root> is core / contrib / skills
+#   2. `by_root[<root>]`      — where <root> is core / contrib / plugins
 #                               (the top-level directory the recipe lives in)
 #   3. `by_language[<lang>]`  — where <lang> is the value of manifest.language
 #
-# Adding a new language, or a new folder-based rule (e.g. skills/*), is a
+# Adding a new language, or a new folder-based rule (e.g. plugins/*), is a
 # YAML edit here — no code change is required. Paths are recipe-relative
 # and may include subdirectories (e.g. tests/test_runnability.py).
 #
@@ -223,20 +223,20 @@ required_files:
     core:
       - AGENTS.md
     contrib: []
-    # Vertical skills live at skills/<vertical>/<solution>.
+    # Vertical plugins live at plugins/<vertical>/<solution>.
     #   SKILL.md  — the conversational installer: runs the interview,
     #               writes the design spec, performs setup.
     #   EVAL.yaml — self-verifying proof of performance (eval rubrics).
-    # The one directory a vertical skill must also ship (scripts/) is
+    # The one directory a vertical plugin must also ship (scripts/) is
     # listed under `required_dirs` below — this section can only express
     # files.
     #
-    # A Python vertical skill additionally picks up
+    # A Python vertical plugin additionally picks up
     # required_files.by_language.python (pyproject.toml, uv.lock,
     # .env.example, tests/test_runnability.py) via manifest.language. The
     # path does not encode the language for this root — the middle folder
     # is a vertical — so the manifest is what resolves it.
-    skills:
+    plugins:
       - SKILL.md
       - EVAL.yaml
 
@@ -311,9 +311,9 @@ required_dirs:
     core: []
     contrib: []
     # scripts/ — functional code: ADK agents, model implementations,
-    #            one-shot GCP setup scripts. A vertical skill with no
+    #            one-shot GCP setup scripts. A vertical plugin with no
     #            scripts/ has nothing to run, so this one is load-bearing.
-    skills:
+    plugins:
       - scripts
 
   by_language:
@@ -760,8 +760,8 @@ deployability:
     # cloud resources nobody asked for. Add a recipe here only after
     # reading its agent package for import-time side effects.
     #
-    # Deployable recipes live under core/ or contrib/; vertical skills
-    # under skills/ are out of scope for deployability.
+    # Deployable recipes live under core/ or contrib/; plugins
+    # under plugins/ are out of scope for deployability.
     run_allowlist:
       - contrib/python/financial-advisor
       - core/python/rag-agent-search

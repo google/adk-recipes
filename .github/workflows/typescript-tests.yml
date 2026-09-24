@@ -41,22 +41,22 @@ on:
       - "contrib/**/bun.lock"
       - "contrib/**/manifest.yaml"
       - "contrib/**/tsconfig*.json"
-      - "skills/**/*.ts"
-      - "skills/**/*.tsx"
-      - "skills/**/*.js"
-      - "skills/**/*.jsx"
-      - "skills/**/*.mjs"
-      - "skills/**/*.cjs"
-      - "skills/**/*.mts"
-      - "skills/**/*.cts"
-      - "skills/**/package.json"
-      - "skills/**/package-lock.json"
-      - "skills/**/yarn.lock"
-      - "skills/**/pnpm-lock.yaml"
-      - "skills/**/bun.lockb"
-      - "skills/**/bun.lock"
-      - "skills/**/manifest.yaml"
-      - "skills/**/tsconfig*.json"
+      - "plugins/**/*.ts"
+      - "plugins/**/*.tsx"
+      - "plugins/**/*.js"
+      - "plugins/**/*.jsx"
+      - "plugins/**/*.mjs"
+      - "plugins/**/*.cjs"
+      - "plugins/**/*.mts"
+      - "plugins/**/*.cts"
+      - "plugins/**/package.json"
+      - "plugins/**/package-lock.json"
+      - "plugins/**/yarn.lock"
+      - "plugins/**/pnpm-lock.yaml"
+      - "plugins/**/bun.lockb"
+      - "plugins/**/bun.lock"
+      - "plugins/**/manifest.yaml"
+      - "plugins/**/tsconfig*.json"
       - "typescript/**/*.ts"
       - "typescript/**/*.tsx"
       - "typescript/**/*.js"
@@ -132,11 +132,11 @@ jobs:
             grep -qiE "^[[:space:]]*language:[[:space:]]*[\"']?typescript[\"']?[[:space:]]*(#.*)?$" "$1"
           }
 
-          # Helper: collect all TypeScript recipe dirs under core/, contrib/, and skills/.
+          # Helper: collect all TypeScript recipe dirs under core/, contrib/, and plugins/.
           # A recipe dir is any directory that contains a manifest.yaml
           # declaring language: typescript.
           all_typescript_recipes() {
-            for root in core contrib skills; do
+            for root in core contrib plugins; do
               [ -d "$root" ] || continue
               while IFS= read -r manifest; do
                 if is_typescript_recipe "$manifest"; then
@@ -197,7 +197,7 @@ jobs:
             while IFS= read -r file; do
               [ -z "$file" ] && continue
               case "$file" in
-                core/*|contrib/*|skills/*) ;;
+                core/*|contrib/*|plugins/*) ;;
                 *) continue ;;
               esac
               recipe_dir="$(find_recipe_dir "$file")"
@@ -343,7 +343,7 @@ jobs:
               fi
               npx tsc --noEmit
             ) || FAILED=1
-          done < <(find core contrib skills typescript -name "tsconfig.json" -not -path "*/node_modules/*" 2>/dev/null)
+          done < <(find core contrib plugins typescript -name "tsconfig.json" -not -path "*/node_modules/*" 2>/dev/null)
 
           if [ "$COUNT" -eq 0 ]; then
             echo "[INFO] No TypeScript projects with tsconfig.json found."

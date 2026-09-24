@@ -95,7 +95,7 @@ are asked. Pointers to *where* a thing lives are the index and are fine; the *co
 never are.
 
 > The cautionary example is in this repo. `.agents/skills/generate-manifest/SKILL.md`
-> inlined the size limits and now tells readers `skills/` has none, while
+> inlined the size limits and now tells readers `plugins/` has none, while
 > `.github/policy.yml` defines them. Do not become that file.
 
 ## Answer shape
@@ -274,8 +274,8 @@ Answer these by following the procedure, not by guessing. The values come from
 
 1. **Required files and dirs** are the UNION of `always` + `by_root[<root>]` +
    `by_language[<manifest.language>]`. The root is the top-level folder (`core`,
-   `contrib`, `skills`). The language comes from `manifest.language`, **not** from the
-   path — under `skills/` the middle folder is a *vertical*, not a language.
+   `contrib`, `plugins`). The language comes from `manifest.language`, **not** from the
+   path — under `plugins/` the middle folder is a *vertical*, not a language.
 2. **Size tier** resolves in two steps: top-level root picks the limit block, then
    `large:` in the recipe's `manifest.yaml` (default false) picks `default` or `large`
    within it.
@@ -296,7 +296,7 @@ Answer these by following the procedure, not by guessing. The values come from
 This is the answer to "oracle, what can I ask you?" — give the menu, then offer to
 drill into any line.
 
-- **How the repo is organised** — `core` vs `contrib` vs `skills/<vertical>`, what a
+- **How the repo is organised** — `core` vs `contrib` vs `plugins/<vertical>`, what a
   recipe is, repo skills vs vertical skills, the retired `<lang>/agents/` roots
 - **What a rule is** — size limits, required files, naming, formatting and lint, what a
   manifest must declare
@@ -374,7 +374,7 @@ Use the repo's own terms, and correct a caller who does not.
 
 - **Recipe**, never "sample".
 - **Repo skill** — an assistant helper under `.agents/skills/`, used to build this repo.
-- **Vertical skill** — a recipe shipped to users under `skills/<vertical>/<solution>/`.
+- **Plugin** — a recipe shipped to users under `plugins/<vertical>/<solution>/`.
   The middle folder is a vertical, not a language.
 
 ## Reference files

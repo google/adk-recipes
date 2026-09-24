@@ -7,8 +7,8 @@ Rules enforced (see .github/workflows/python-validate-recipe.yml):
     expected name, which depends on the root the recipe lives under:
       * core/ and contrib/ — the folder basename (e.g. core/python/
         deep-search -> "deep-search").
-      * skills/ — "<vertical>-<solution>", because skills/ interposes a
-        mandatory vertical namespace (skills/<vertical>/<solution>) and the
+      * plugins/ — "<vertical>-<solution>", because plugins/ interposes a
+        mandatory vertical namespace (plugins/<vertical>/<solution>) and the
         basename alone is not unique across verticals. See
         expected_project_name() for the full rationale.
   - python-version-floor: [project].requires-python must ACCEPT Python
@@ -91,7 +91,7 @@ CHECKER = "check_recipe_pyproject.py"
 # specific way — broken is loud, out-of-date is silent.
 #
 # Scope is core/ only. contrib/ is community-contributed and its authors set
-# their own pace; skills/ likewise.
+# their own pace; plugins/ likewise.
 #
 # TO BUMP THIS: set the number, then expect the notice to fire on every core
 # recipe still on the previous major. Moving a recipe across an ADK major is
@@ -140,10 +140,10 @@ PYPI_URLS = frozenset(
 # Recipe roots whose layout interposes a mandatory NAMESPACE between the root
 # and the solution folder: <root>/<namespace>/<solution>.
 #
-# Only `skills/` does this today. Its middle segment is a VERTICAL, not a
+# Only `plugins/` does this today. Its middle segment is a VERTICAL, not a
 # language (see AGENTS.md and the `recipe_size_limits` comment in
 # .github/policy.yml), and tools/validate_placement.py rejects a solution
-# dropped directly under skills/.
+# dropped directly under plugins/.
 #
 # core/ and contrib/ look superficially similar (core/<language>/<recipe>)
 # but are NOT listed here: their middle segment is a language, and their
@@ -151,10 +151,10 @@ PYPI_URLS = frozenset(
 #
 # Maps the root name to what its namespace segment is CALLED, purely so error
 # messages can say "<vertical>-<solution>" rather than mechanically
-# depluralising "skills" into something meaningless.
+# depluralising "plugins" into something meaningless.
 # NOTE: mirrored in .agents/skills/align-recipe-pyproject/scripts/
 # align_pyproject.py — keep in sync.
-NAMESPACED_ROOTS = {"skills": "vertical"}
+NAMESPACED_ROOTS = {"plugins": "vertical"}
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
@@ -187,12 +187,12 @@ def expected_project_name(
     For most recipes this is just the folder basename. For a recipe under a
     namespaced root it is "<namespace>-<solution>", for two reasons:
 
-    1. The basename is not unique. `skills/retail/product-search` and a future
-       `skills/grocery/product-search` would both be forced to declare
+    1. The basename is not unique. `plugins/retail/product-search` and a future
+       `plugins/grocery/product-search` would both be forced to declare
        [project].name = "product-search" — two distribution packages with the
        same name. The vertical exists precisely to namespace solutions, so the
        project name has to carry it.
-    2. It matches the skill's own identity. A vertical skill's SKILL.md
+    2. It matches the plugin's own identity. A vertical plugin's SKILL.md
        frontmatter `name:`, its slash command, and its installed directory all
        use "<vertical>-<solution>"; the Python distribution name should not be
        the odd one out.
@@ -200,8 +200,8 @@ def expected_project_name(
     The namespaced form requires the root to sit at the START of the
     repo-relative path with exactly two segments after it — a position test,
     not a name test. Matching on the third-from-last segment alone would fire
-    on any path that merely happens to contain a directory called "skills":
-    a hand-run `/home/me/skills/core/rag-vector-search` would yield
+    on any path that merely happens to contain a directory called "plugins":
+    a hand-run `/home/me/plugins/core/rag-vector-search` would yield
     "core-rag-vector-search". CI only ever passes repo-relative paths, but
     the auto-fixer mirror of this rule WRITES the value, so a human running
     it by hand on an absolute path must not get a corrupted name.

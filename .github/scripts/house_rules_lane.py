@@ -77,10 +77,10 @@ SCHEMA_PATH = (
 MAX_RECIPES = 40
 
 # The areas a recipe can live in. Everything else in the repo is tooling.
-RECIPE_AREAS = ("core/", "contrib/", "skills/")
+RECIPE_AREAS = ("core/", "contrib/", "plugins/")
 
-# Files that mark a directory as a vertical skill's root when no manifest has
-# been written yet. From policy.yml required_files.by_root.skills.
+# Files that mark a directory as a vertical plugin's root when no manifest has
+# been written yet. From policy.yml required_files.by_root.plugins.
 SOLUTION_MARKERS = ("SKILL.md", "EVAL.yaml")
 
 
@@ -96,8 +96,8 @@ def recipe_roots(
       core/rag-agent-search/app/agent.py  ->  "core/rag-agent-search/app"
           a real recipe's subdirectory, reported as a recipe of its own, which
           then collects CI-FAIL comments for every required file it lacks
-      skills/store-ops/manifest.yaml      ->  nothing
-          a solution placed directly under skills/ -- which is H41's exact
+      plugins/store-ops/manifest.yaml     ->  nothing
+          a solution placed directly under plugins/ -- which is H41's exact
           target, so the rule could never see the thing it exists to report
 
     Both are real paths in this repository today. Walking up to the manifest
@@ -141,13 +141,13 @@ def recipe_roots(
         # Requires four segments, so a file sitting BESIDE the recipes
         # (contrib/python/README.md) still resolves to nothing.
         parts = path.split("/")
-        # Under skills/ a solution may sit at depth 2 (misplaced -- which is
+        # Under plugins/ a solution may sit at depth 2 (misplaced -- which is
         # H41's entire subject) or depth 3 (correct). With no manifest to
-        # settle it, a marker file does: skills/store-ops/SKILL.md means the
-        # root is skills/store-ops, and the four-segment rule would otherwise
+        # settle it, a marker file does: plugins/store-ops/SKILL.md means the
+        # root is plugins/store-ops, and the four-segment rule would otherwise
         # resolve its scripts/ and tests/ as two separate recipes while
         # missing the real one.
-        if parts[0] == "skills" and len(parts) >= 3 and repo_root is not None:
+        if parts[0] == "plugins" and len(parts) >= 3 and repo_root is not None:
             shallow = "/".join(parts[:2])
             if any(
                 (repo_root / shallow / marker).is_file()

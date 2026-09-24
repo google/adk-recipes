@@ -1,7 +1,7 @@
 name: Validate Recipe Structure
 
 # Language-agnostic structural validation for every recipe under `core/`,
-# `contrib/`, and `skills/`: manifest presence + schema, folder name,
+# `contrib/`, and `plugins/`: manifest presence + schema, folder name,
 # size, file count, and required files (matrix from `.github/policy.yml`).
 
 on:
@@ -14,7 +14,7 @@ on:
     paths:
       - 'core/**'
       - 'contrib/**'
-      - 'skills/**'
+      - 'plugins/**'
       # Retired recipe roots (policy.yml `frozen_paths`). Without these the
       # workflow never fires for a PR that only touches a retired folder,
       # and the check below could never see it.
@@ -40,7 +40,7 @@ on:
     paths:
       - 'core/**'
       - 'contrib/**'
-      - 'skills/**'
+      - 'plugins/**'
       - '.github/schemas/manifest-schema.json'
       - '.github/policy.yml'
       - '.github/workflows/validate-recipe-structure.yml'
@@ -184,7 +184,7 @@ jobs:
           CI_FAULT=0
 
           if [ "$VALIDATE_ALL" = "true" ]; then
-            # Both validators walk core/, contrib/, and skills/ in one pass.
+            # Both validators walk core/, contrib/, and plugins/ in one pass.
             run_validator structure
             run_validator readme
 
@@ -318,7 +318,7 @@ jobs:
     #
     # It cannot ride on the validate-structure job above: that runs the
     # validators per AFFECTED recipe, and affected_recipes.py maps a
-    # misplaced skill (skills/<solution> with no vertical) to None, so it
+    # misplaced plugin (plugins/<solution> with no vertical) to None, so it
     # would never appear in changed_recipes.
 
     steps:

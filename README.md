@@ -50,8 +50,8 @@ detail.
 **Repo skills** — the AI coding-assistant helpers used to build this
 repo (recipe scaffolding, manifest generation, pyproject alignment,
 and more) — live in [`.agents/skills/`](./.agents/skills/). Not to be
-confused with **vertical skills**, which are recipes shipped to users
-under `skills/<vertical>/<solution>/`.
+confused with **plugins**, which are recipes shipped to users
+under `plugins/<vertical>/<solution>/`.
 
 ## Getting help
 

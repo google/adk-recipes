@@ -25,7 +25,7 @@ its own — the interpreter moves underneath it.
 
 Scope
 -----
-Python recipes under core/, contrib/ and skills/, discovered by manifest.yaml
+Python recipes under core/, contrib/ and plugins/, discovered by manifest.yaml
 declaring `language: python`. Recipes marked `status: inactive` are INCLUDED:
 a recipe on the retirement path still needs to be noticed if it starts
 passing again, and skipping it would make "fixed but never reactivated"
@@ -48,7 +48,7 @@ import tomllib
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
-SCAN_ROOTS = ["core", "contrib", "skills"]
+SCAN_ROOTS = ["core", "contrib", "plugins"]
 
 SKIP_DIRS = {
     ".venv",

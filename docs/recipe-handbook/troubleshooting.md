@@ -8,7 +8,7 @@ section to confirm the fix worked before you push again.
 
 Each command below says which directory to run it from. Replace
 `<recipe-path>` with the path to your recipe — `core/python/my-recipe`,
-`contrib/python/my-recipe`, or `skills/retail/my-skill`.
+`contrib/python/my-recipe`, or `plugins/retail/my-plugin`.
 
 ## Contents
 
@@ -146,14 +146,14 @@ and 2 MB.
 
 **Cause** — the required set is the union of every rule that applies to your
 recipe. Language rules key off `manifest.language`, not the folder path: a
-vertical skill at `skills/retail/product-search` picks up the Python list
+vertical plugin at `plugins/retail/product-search` picks up the Python list
 because its manifest says `language: python`.
 
 | Rule | Applies to | Entries |
 | --- | --- | --- |
 | `always` | every recipe | `README.md` |
 | `by_root.core` | anything under `core/` | `AGENTS.md` |
-| `by_root.skills` | anything under `skills/` | `SKILL.md`, `EVAL.yaml`, `scripts/` |
+| `by_root.plugins` | anything under `plugins/` | `SKILL.md`, `EVAL.yaml`, `scripts/` |
 | `by_language.python` | `manifest.language: python` | `pyproject.toml`, `uv.lock`, `.env.example`, `tests/test_runnability.py` |
 
 **Fix** — most missing entries have a generator:
@@ -182,20 +182,20 @@ git add <recipe-path>/scripts/.gitkeep
 
 **Symptom** — `sits directly under` or `is nested too deeply`
 
-**Cause** — every recipe under `skills/` must sit at
-`skills/<vertical>/<solution>/`. The vertical (`retail/`, `hr/`, `finance/`)
+**Cause** — every recipe under `plugins/` must sit at
+`plugins/<vertical>/<solution>/`. The vertical (`retail/`, `hr/`, `finance/`)
 is mandatory.
 
 ```
-skills/retail/product-search/manifest.yaml    valid
-skills/product-search/manifest.yaml           too shallow — no vertical
-skills/retail/product-search/x/manifest.yaml  too deep
+plugins/retail/product-search/manifest.yaml    valid
+plugins/product-search/manifest.yaml           too shallow — no vertical
+plugins/retail/product-search/x/manifest.yaml  too deep
 ```
 
 **Fix**
 
 1. Move the directory to the path named in the error.
-2. Update `[project].name` in `pyproject.toml` — a vertical skill needs
+2. Update `[project].name` in `pyproject.toml` — a vertical plugin needs
    `<vertical>-<solution>`, not the folder basename. See
    [Project name doesn't match the required name](#project-name-doesnt-match-the-required-name).
 
@@ -346,7 +346,7 @@ no such file.
 yours does not match.
 
 - `core/` and `contrib/` — the recipe folder basename.
-- `skills/` — `<vertical>-<solution>`, because `skills/` interposes a
+- `plugins/` — `<vertical>-<solution>`, because `plugins/` interposes a
   mandatory vertical.
 
 **Fix** — set the name the error reports as required:
@@ -355,7 +355,7 @@ yours does not match.
 # contrib/python/my-recipe
 name = "my-recipe"
 
-# skills/retail/product-search
+# plugins/retail/product-search
 name = "retail-product-search"
 ```
 

@@ -82,7 +82,7 @@ on:
       - ".github/review-voice.md"
       - "core/**/manifest.yaml"
       - "contrib/**/manifest.yaml"
-      - "skills/**/manifest.yaml"
+      - "plugins/**/manifest.yaml"
       - "pyproject.toml"
       - "uv.lock"
   push:
@@ -103,7 +103,7 @@ on:
       - ".github/dependabot.yml"
       - "core/**/manifest.yaml"
       - "contrib/**/manifest.yaml"
-      - "skills/**/manifest.yaml"
+      - "plugins/**/manifest.yaml"
       - "pyproject.toml"
       - "uv.lock"
   workflow_dispatch:

@@ -49,12 +49,12 @@ from ci_message import (
 REPO_ROOT = Path(__file__).parent.parent
 SCHEMA_PATH = REPO_ROOT / ".github" / "schemas" / "manifest-schema.json"
 MANIFEST_FILENAME = "manifest.yaml"
-# Top-level directories that may hold recipes. `skills/` is scaffolded ahead
+# Top-level directories that may hold recipes. `plugins/` is scaffolded ahead
 # of that folder actually existing on disk — _collect_root() prints a
 # harmless [SKIP] line when the directory is missing, so listing it here is
-# safe today and lets the validation tooling pick up skills the moment they
+# safe today and lets the validation tooling pick up plugins the moment they
 # land without another code change.
-RECIPE_ROOTS = ["core", "contrib", "skills"]
+RECIPE_ROOTS = ["core", "contrib", "plugins"]
 
 OWNERSHIP_TEAM_PLACEHOLDER = "TODO: Replace with your team name"
 OWNERSHIP_POC_PLACEHOLDER = "TODO: Replace with your GitHub user ID"
@@ -74,16 +74,16 @@ AUTHORING_DOCS = (
 
 # Roots whose second path component is ALWAYS a namespace, whatever it is
 # called. core/ and contrib/ take an OPTIONAL language namespace, matched by
-# name against LANGUAGE_NAMESPACE_DIRS. skills/ takes a MANDATORY vertical
+# name against LANGUAGE_NAMESPACE_DIRS. plugins/ takes a MANDATORY vertical
 # (retail/, hr/, finance/ …) whose name is free-form, so it can only be
 # recognised by position:
 #
 #     core/<language>/<recipe>   or   core/<recipe>
-#     skills/<vertical>/<solution>
+#     plugins/<vertical>/<solution>
 #
 # The vertical surfaces ownership — it lets a team see its whole surface at
 # a glance — so it is part of the layout rather than a value we enumerate.
-NAMESPACE_REQUIRED_ROOTS = {"skills"}
+NAMESPACE_REQUIRED_ROOTS = {"plugins"}
 
 
 def is_namespace_path(parts: list[str]) -> bool:
@@ -91,8 +91,8 @@ def is_namespace_path(parts: list[str]) -> bool:
     directory — a container of recipes — rather than a recipe itself.
 
     Depth matters: only the component directly under a recipe root can be a
-    namespace, which is what keeps `skills/retail` (a vertical) distinct
-    from `skills/retail/store-ops` (a solution).
+    namespace, which is what keeps `plugins/retail` (a vertical) distinct
+    from `plugins/retail/store-ops` (a solution).
     """
     if len(parts) != 2:
         return False
@@ -489,10 +489,10 @@ def _collect_scoped_path(scope: str) -> list[Path]:
     target = REPO_ROOT / scope
     if not target.exists():
         return []
-    # Namespace directory (e.g. core/python, skills/retail) — recurse one
+    # Namespace directory (e.g. core/python, plugins/retail) — recurse one
     # level. Matched on the scope's own components rather than just the
-    # basename, so `skills/retail` is a namespace while the solution beneath
-    # it, `skills/retail/store-ops`, is not.
+    # basename, so `plugins/retail` is a namespace while the solution beneath
+    # it, `plugins/retail/store-ops`, is not.
     if is_namespace_path(scope.strip("/").split("/")):
         return sorted(c for c in target.iterdir() if is_recipe_dir(c))
     if not is_recipe_dir(target):
@@ -506,10 +506,10 @@ def _collect_root(root_name: str) -> list[Path]:
     Recognised layouts:
         <root>/<recipe>              — flat (core/, contrib/)
         <root>/<language>/<recipe>   — language-namespaced (core/, contrib/)
-        skills/<vertical>/<solution> — vertical-namespaced (skills/)
+        plugins/<vertical>/<solution> — vertical-namespaced (plugins/)
 
     Under a NAMESPACE_REQUIRED_ROOTS root every child is a namespace, so a
-    solution placed directly at `skills/<solution>` is not collected here.
+    solution placed directly at `plugins/<solution>` is not collected here.
     That misplacement is reported by tools/validate_placement.py rather
     than silently validated at the wrong depth.
     """
@@ -523,7 +523,7 @@ def _collect_root(root_name: str) -> list[Path]:
         if not p.is_dir():
             continue
         if is_namespace_path([root_name, p.name]):
-            # <root>/<language>/<recipe> or skills/<vertical>/<solution>
+            # <root>/<language>/<recipe> or plugins/<vertical>/<solution>
             recipe_dirs.extend(
                 sorted(c for c in p.iterdir() if is_recipe_dir(c))
             )
@@ -564,7 +564,7 @@ def empty_scope_diagnostic(
 ) -> Diagnostic | None:
     """Diagnostic for an EXPLICIT scope that matched no recipes, else None.
 
-    Without this, `uv run validate structure skills` prints
+    Without this, `uv run validate structure plugins` prints
     "[PASS] All 0 recipe(s) passed structural checks." and exits 0 — a
     green check for a run that validated nothing. A typo'd scope does the
     same. Both are far likelier to be a mistake than a deliberate request
@@ -572,7 +572,7 @@ def empty_scope_diagnostic(
     either.
 
     An unscoped (or "all") run is exempt: scanning a root that is
-    legitimately empty — `skills/` before the first vertical skill lands —
+    legitimately empty — `plugins/` before the first vertical plugin lands —
     is normal, and `_collect_root` already prints an [INFO] for it.
     """
     if recipe_dirs or scope is None or scope == "all":
@@ -582,7 +582,7 @@ def empty_scope_diagnostic(
     target = REPO_ROOT / rel
     shape = (
         f"A scope names a root ({', '.join(RECIPE_ROOTS)}), a namespace "
-        f"inside one (core/python, skills/retail), or one recipe directory."
+        f"inside one (core/python, plugins/retail), or one recipe directory."
     )
     drop_the_scope = (
         "Check the path for a typo, or drop the scope to run against the "

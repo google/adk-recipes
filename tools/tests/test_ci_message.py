@@ -54,7 +54,7 @@ def _valid_diagnostic(**overrides) -> m.Diagnostic:
         "why": "Required because manifest.language is 'python'.",
         "how": "Run the extract-python-environment-variables skill.",
         "doc": m.Doc.REQUIRED_FILES,
-        "file": "skills/retail/product-search/.env.example",
+        "file": "plugins/retail/product-search/.env.example",
     }
     kwargs.update(overrides)
     return m.Diagnostic(**kwargs)

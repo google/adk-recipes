@@ -22,8 +22,8 @@ on:
       - "core/**/*.kts"
       - "contrib/**/*.kt"
       - "contrib/**/*.kts"
-      - "skills/**/*.kt"
-      - "skills/**/*.kts"
+      - "plugins/**/*.kt"
+      - "plugins/**/*.kts"
       # ktlint reads its style from .editorconfig, so a change to one is a
       # change to what this job enforces and should re-run it — the same
       # reason go-format.yml lists `.golangci.yml`. Note this only makes
@@ -42,12 +42,12 @@ on:
       # This list alone is NOT sufficient to exclude them: `paths:` decides
       # whether the workflow RUNS, not which files the diff below returns.
       # The job therefore also scopes `git diff` to `-- core contrib
-      # skills`. Keep the two in sync.
+      # plugins`. Keep the two in sync.
       #
       # Every Kotlin file in the repo today lives under kotlin/agents, so
       # this workflow is forward-looking: it goes green with nothing to do
       # until the first core/kotlin, contrib/kotlin or Kotlin
-      # vertical-skill recipe lands. That mirrors java-format.yml and
+      # plugin recipe lands. That mirrors java-format.yml and
       # go-format.yml, both of which shipped the same way.
 
 # Declared per job rather than here. `pull-requests: write` at the workflow
@@ -186,7 +186,7 @@ jobs:
           #    file invisible to a suffix filter — silently never formatted,
           #    never reported. NUL-delimited output is never quoted.
           #
-          #    `-- core contrib skills` is load-bearing: `on.paths` above
+          #    `-- core contrib plugins` is load-bearing: `on.paths` above
           #    controls only whether this workflow RUNS. A run triggered by
           #    an in-scope file would otherwise also collect any retired
           #    `kotlin/agents/**` file in the same PR and demand the author
@@ -198,7 +198,7 @@ jobs:
           #    matched" warning when none resolve, which would be a false
           #    green.
           git diff -z --name-only --diff-filter=d "origin/$BASE_REF...HEAD" \
-            -- core contrib skills > "$WORK/changed"
+            -- core contrib plugins > "$WORK/changed"
 
           ALL_CHANGED=()
           mapfile -d '' -t ALL_CHANGED < "$WORK/changed"
@@ -214,7 +214,7 @@ jobs:
           done
 
           if [ ${#CHANGED_FILES[@]} -eq 0 ]; then
-            echo "No Kotlin files were modified under core/, contrib/ or skills/. Skipping formatting."
+            echo "No Kotlin files were modified under core/, contrib/ or plugins/. Skipping formatting."
             exit 0
           fi
 

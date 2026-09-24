@@ -35,7 +35,7 @@ in `testpaths`, and `tools-tests.yml` fires on any `.agents/**` change, so
 `tests/` here is collected by `uv run pytest` alongside the repo's own tooling
 suite. A broken test in this skill turns a PR red. Run it before pushing.
 
-`python-format.yml` scopes ruff to `core/`, `contrib/` and `skills/`, so nothing
+`python-format.yml` scopes ruff to `core/`, `contrib/` and `plugins/`, so nothing
 here is linted — the skill's own style is its own business.
 
 **It is deliberately absent from `docs/recipe-handbook/skills-catalog.md`.** That
@@ -222,7 +222,7 @@ python3 "$SKILL_DIR/scripts/plan_review.py" \
 Use the re-planned lane assignments, not the first run's.
 
 **House rules — `google/adk-samples` only.** If the PR is in that repo and touches
-`core/`, `contrib/` or `skills/`, `.github/review-rules.md` is in force. Say so in
+`core/`, `contrib/` or `plugins/`, `.github/review-rules.md` is in force. Say so in
 the checkpoint. For every other repo, ignore it — the rules are repo-specific and
 applying them elsewhere produces confident nonsense.
 

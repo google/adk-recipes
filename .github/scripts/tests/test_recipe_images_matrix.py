@@ -47,11 +47,11 @@ def test_finds_recipe_with_dockerfile_and_manifest(tmp_path: Path) -> None:
 def test_skips_dockerfile_without_manifest(tmp_path: Path) -> None:
     """A Dockerfile alone is a build asset, not a recipe.
 
-    skills/retail/virtual-tryon/assets/export-template is the real instance:
+    plugins/retail/virtual-tryon/assets/export-template is the real instance:
     containerized, but nothing anybody deploys as an agent.
     """
     _recipe(
-        tmp_path, "skills/retail/thing/assets/export-template", manifest=False
+        tmp_path, "plugins/retail/thing/assets/export-template", manifest=False
     )
     assert m.discover(tmp_path) == []
 

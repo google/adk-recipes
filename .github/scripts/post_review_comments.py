@@ -1359,7 +1359,7 @@ GROUP_SIMILARITY = SIMILARITY
 # Where a path's recipe begins. Two findings in different recipes are never
 # "the same thing in another place" — they are two recipes each needing a fix,
 # and collapsing them tells one author and silences the rest.
-_RECIPE_KEY = re.compile(r"^((?:core|contrib|skills)/[^/]+(?:/[^/]+)?)")
+_RECIPE_KEY = re.compile(r"^((?:core|contrib|plugins)/[^/]+(?:/[^/]+)?)")
 
 
 def _group_scope(path: str, trusted: bool = False) -> str:

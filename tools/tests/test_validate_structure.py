@@ -93,7 +93,7 @@ def _base_policy() -> dict:
             "by_root": {
                 "core": ["AGENTS.md"],
                 "contrib": [],
-                "skills": ["SKILL.md", "EVAL.yaml"],
+                "plugins": ["SKILL.md", "EVAL.yaml"],
             },
             "by_language": {
                 "python": ["pyproject.toml", "uv.lock"],
@@ -105,7 +105,7 @@ def _base_policy() -> dict:
             "by_root": {
                 "core": [],
                 "contrib": [],
-                "skills": ["scripts", "assets", "references", "tests/unit"],
+                "plugins": ["scripts", "assets", "references", "tests/unit"],
             },
             "by_language": {"python": [], "java": []},
         },
@@ -134,11 +134,11 @@ def test_required_files_for_contrib_python():
     ]
 
 
-def test_required_files_for_skills_no_language():
-    assert m.required_files_for(_base_policy(), "skills", None) == [
+def test_required_files_for_plugins_no_language():
+    assert m.required_files_for(_base_policy(), "plugins", None) == [
         ("README.md", "always"),
-        ("SKILL.md", "by_root.skills"),
-        ("EVAL.yaml", "by_root.skills"),
+        ("SKILL.md", "by_root.plugins"),
+        ("EVAL.yaml", "by_root.plugins"),
     ]
 
 
@@ -298,7 +298,7 @@ def test_committed_policy_pairs_every_entry_with_a_rule():
     blank source would report "Required for every recipe" for a rule that
     is nothing of the kind."""
     policy = m.load_policy()
-    for root in ("core", "contrib", "skills"):
+    for root in ("core", "contrib", "plugins"):
         entries = m.required_files_for(policy, root, "python")
         entries += m.required_dirs_for(policy, root, "python")
         for name, source in entries:
@@ -525,7 +525,7 @@ def test_check_size_and_count_large_tier_relaxes(tmp_path):
 
 def test_check_size_and_count_root_without_limits_skips(tmp_path):
     # A root with no section in recipe_size_limits → nothing to enforce.
-    # Uses a fictional root because core, contrib and skills all have real
+    # Uses a fictional root because core, contrib and plugins all have real
     # limits in .github/policy.yml now, so none of them demonstrates this.
     recipe = _make_python_recipe(
         tmp_path, "playground/foo", include_agents=False
@@ -683,7 +683,7 @@ def test_validate_recipe_outside_known_roots(isolated_repo):
     errs = m.validate_recipe(recipe, _full_policy(), schema)
     assert len(errs) == 1
     assert errs[0].check == "placement"
-    assert "core/" in errs[0].how and "skills/" in errs[0].how
+    assert "core/" in errs[0].how and "plugins/" in errs[0].how
 
 
 def test_every_diagnostic_carries_a_working_doc_anchor(isolated_repo):
@@ -772,12 +772,12 @@ def test_main_single_recipe_scope(fake_repo):
 # ---------------------------------------------------------------------------
 
 
-def test_required_dirs_for_skills():
-    assert m.required_dirs_for(_base_policy(), "skills", "python") == [
-        ("scripts", "by_root.skills"),
-        ("assets", "by_root.skills"),
-        ("references", "by_root.skills"),
-        ("tests/unit", "by_root.skills"),
+def test_required_dirs_for_plugins():
+    assert m.required_dirs_for(_base_policy(), "plugins", "python") == [
+        ("scripts", "by_root.plugins"),
+        ("assets", "by_root.plugins"),
+        ("references", "by_root.plugins"),
+        ("tests/unit", "by_root.plugins"),
     ]
 
 
@@ -786,32 +786,32 @@ def test_required_dirs_for_core_is_empty():
 
 
 def test_required_dirs_for_missing_section_degrades():
-    assert m.required_dirs_for({}, "skills", "python") == []
+    assert m.required_dirs_for({}, "plugins", "python") == []
 
 
 def test_required_dirs_for_dedupes():
     policy = {
         "required_dirs": {
             "always": ["scripts"],
-            "by_root": {"skills": ["scripts", "assets"]},
+            "by_root": {"plugins": ["scripts", "assets"]},
             "by_language": {"python": ["assets"]},
         }
     }
-    assert m.required_dirs_for(policy, "skills", "python") == [
+    assert m.required_dirs_for(policy, "plugins", "python") == [
         ("scripts", "always"),
-        ("assets", "by_root.skills"),
+        ("assets", "by_root.plugins"),
     ]
 
 
 # ---------------------------------------------------------------------------
-# Vertical skills — the full file + directory contract
+# Vertical plugins — the full file + directory contract
 # ---------------------------------------------------------------------------
 
 SKILL_MANIFEST = VALID_MANIFEST
 
 
-def _make_skill(root: Path, rel: str = "skills/retail/store-ops") -> Path:
-    """A complete, valid Python vertical skill: every required file and
+def _make_skill(root: Path, rel: str = "plugins/retail/store-ops") -> Path:
+    """A complete, valid Python vertical plugin: every required file and
     every required directory."""
     skill = root / rel
     skill.mkdir(parents=True, exist_ok=True)
@@ -844,17 +844,17 @@ def test_skill_missing_a_required_dir_fails(isolated_repo):
     # so the fix has to lead with git's inability to commit an empty one.
     assert "git cannot commit an empty directory" in diag.how
     assert (
-        "touch skills/retail/store-ops/assets/.gitkeep && "
-        "git add skills/retail/store-ops/assets/.gitkeep" in diag.how
+        "touch plugins/retail/store-ops/assets/.gitkeep && "
+        "git add plugins/retail/store-ops/assets/.gitkeep" in diag.how
     )
 
 
 def test_missing_dir_says_which_rule_required_it(isolated_repo):
     skill = _make_skill(isolated_repo)
     (skill / "scripts").rmdir()
-    (diag,) = m.check_required_dirs(skill, "skills", "python", _full_policy())
-    assert "under skills/" in diag.why
-    assert "policy.required_dirs.by_root.skills" in diag.why
+    (diag,) = m.check_required_dirs(skill, "plugins", "python", _full_policy())
+    assert "under plugins/" in diag.why
+    assert "policy.required_dirs.by_root.plugins" in diag.why
 
 
 def test_skill_missing_eval_yaml_fails(isolated_repo):
@@ -865,11 +865,11 @@ def test_skill_missing_eval_yaml_fails(isolated_repo):
 
 
 def test_empty_required_dirs_pass(isolated_repo):
-    """assets/ and references/ are legitimately empty for some skills."""
+    """assets/ and references/ are legitimately empty for some plugins."""
     skill = _make_skill(isolated_repo)
     assert list((skill / "assets").iterdir()) == []
     assert (
-        m.check_required_dirs(skill, "skills", "python", _full_policy()) == []
+        m.check_required_dirs(skill, "plugins", "python", _full_policy()) == []
     )
 
 
@@ -881,7 +881,7 @@ def test_required_dir_that_is_actually_a_file_is_reported_precisely(
     skill = _make_skill(isolated_repo)
     (skill / "scripts").rmdir()
     _write(skill / "scripts", "oops\n")
-    errors = m.check_required_dirs(skill, "skills", "python", _full_policy())
+    errors = m.check_required_dirs(skill, "plugins", "python", _full_policy())
     assert len(errors) == 1
     assert "exists but is a file" in errors[0].what
 
@@ -898,7 +898,7 @@ def test_wrong_case_fails_for_a_strict_entry(isolated_repo):
     skill = _make_skill(isolated_repo)
     (skill / "pyproject.toml").unlink()
     _write(skill / "PyProject.toml", "[project]\nname='x'\n")
-    errors = m.check_required_files(skill, "skills", "python", _full_policy())
+    errors = m.check_required_files(skill, "plugins", "python", _full_policy())
     assert any(
         "pyproject.toml" in e.what and "missing" in e.what for e in errors
     )
@@ -909,7 +909,7 @@ def test_wrong_case_passes_for_eval_yaml_with_a_note(isolated_repo, capsys):
     (skill / "EVAL.yaml").unlink()
     _write(skill / "eval.yaml", "rubrics: []\n")
     assert (
-        m.check_required_files(skill, "skills", "python", _full_policy()) == []
+        m.check_required_files(skill, "plugins", "python", _full_policy()) == []
     )
     out = capsys.readouterr().out
     assert "[NOTE]" in out
@@ -920,7 +920,7 @@ def test_wrong_case_passes_for_eval_yaml_with_a_note(isolated_repo, capsys):
 def test_exact_case_produces_no_note(isolated_repo, capsys):
     skill = _make_skill(isolated_repo)
     assert (
-        m.check_required_files(skill, "skills", "python", _full_policy()) == []
+        m.check_required_files(skill, "plugins", "python", _full_policy()) == []
     )
     assert "[NOTE]" not in capsys.readouterr().out
 
@@ -962,8 +962,8 @@ def test_case_insensitive_entries_reads_policy():
 def test_committed_policy_declares_the_skill_contract():
     """A future edit must not silently drop part of the contract."""
     policy = m.load_policy()
-    files = _names(m.required_files_for(policy, "skills", "python"))
-    dirs = _names(m.required_dirs_for(policy, "skills", "python"))
+    files = _names(m.required_files_for(policy, "plugins", "python"))
+    dirs = _names(m.required_dirs_for(policy, "plugins", "python"))
     for f in (
         "README.md",
         "SKILL.md",

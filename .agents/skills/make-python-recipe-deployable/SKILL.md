@@ -453,7 +453,7 @@ single recipe.
 ### Against real containers
 
 Both taken through the full pipeline including Step 6.5, then reverted.
-Deployable recipes live under `core/` or `contrib/`; `skills/` is out of scope.
+Deployable recipes live under `core/` or `contrib/`; `plugins/` is out of scope.
 
 | Recipe | Outcome | What it proves |
 |---|---|---|
@@ -494,7 +494,7 @@ the reason this step exists:
 
 ### Against a live interpreter
 
-`skills/retail/product-search` was taken through the pipeline before `skills/`
+`plugins/retail/product-search` was taken through the pipeline before `plugins/`
 was ruled out of scope for deployability. Kept as the record of what the Step 6
 boot check looks like when it works:
 
@@ -513,7 +513,7 @@ boot check looks like when it works:
 
 Measured by running the dry-run against every Python recipe under `core/` and
 `contrib/` — not predicted. Deployable recipes live in those two trees;
-vertical skills under `skills/` are out of scope.
+plugins under `plugins/` are out of scope.
 
 Outcomes below are the dry-run's, so they all end `-unverified`: a dry run
 builds nothing. Running with `--apply --verify-container` on a machine with

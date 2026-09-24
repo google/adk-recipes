@@ -75,11 +75,11 @@ target-version = "py310"
 # still first-party to its own recipe.
 #
 # All three recipe roots sit two levels deep, but the middle segment differs:
-# it is a LANGUAGE under core/ and contrib/, and a VERTICAL under skills/
-# (skills/<vertical>/<solution>). Omitting skills/*/* made ruff treat a
-# vertical skill's own sibling modules as third-party and sort its imports
+# it is a LANGUAGE under core/ and contrib/, and a VERTICAL under plugins/
+# (plugins/<vertical>/<solution>). Omitting plugins/*/* made ruff treat a
+# vertical plugin's own sibling modules as third-party and sort its imports
 # into the wrong block.
-src = [".", "core/*/*", "contrib/*/*", "skills/*/*"]
+src = [".", "core/*/*", "contrib/*/*", "plugins/*/*"]
 
 [tool.ruff.lint]
 select = [

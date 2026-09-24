@@ -84,13 +84,13 @@ recipe lives:
 | --- | --- | --- |
 | `core/<language>/<recipe>` | the folder name | `deep-search` |
 | `contrib/<language>/<recipe>` | the folder name | `financial-advisor` |
-| `skills/<vertical>/<solution>` | `<vertical>-<solution>` | `retail-product-search` |
+| `plugins/<vertical>/<solution>` | `<vertical>-<solution>` | `retail-product-search` |
 
-Vertical skills join the vertical in because the folder name
-alone is not unique across verticals — `skills/retail/product-search`
-and `skills/grocery/product-search` would otherwise both claim the
+Plugins join the vertical in because the folder name
+alone is not unique across verticals — `plugins/retail/product-search`
+and `plugins/grocery/product-search` would otherwise both claim the
 distribution name `product-search`. It also keeps the package name
-aligned with the skill's `SKILL.md` `name:` field.
+aligned with the plugin's `SKILL.md` `name:` field.
 
 Optional: add `description` if you want it in your `pyproject.toml`
 — it must match `manifest.description` exactly. Do NOT add

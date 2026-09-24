@@ -17,10 +17,10 @@ on:
       - "contrib/**/go.mod"
       - "contrib/**/go.sum"
       - "contrib/**/manifest.yaml"
-      - "skills/**/*.go"
-      - "skills/**/go.mod"
-      - "skills/**/go.sum"
-      - "skills/**/manifest.yaml"
+      - "plugins/**/*.go"
+      - "plugins/**/go.mod"
+      - "plugins/**/go.sum"
+      - "plugins/**/manifest.yaml"
       - ".github/workflows/go-tests.yml"
   workflow_dispatch:
     inputs:
@@ -78,11 +78,11 @@ jobs:
             grep -qiE "^[[:space:]]*language:[[:space:]]*[\"']?go[\"']?[[:space:]]*(#.*)?$" "$1"
           }
 
-          # Helper: collect all Go recipe dirs under core/, contrib/, and skills/.
+          # Helper: collect all Go recipe dirs under core/, contrib/, and plugins/.
           # A recipe dir is any directory that contains a manifest.yaml
           # declaring language: go.
           all_go_recipes() {
-            for root in core contrib skills; do
+            for root in core contrib plugins; do
               [ -d "$root" ] || continue
               while IFS= read -r manifest; do
                 if is_go_recipe "$manifest"; then
@@ -143,7 +143,7 @@ jobs:
             while IFS= read -r file; do
               [ -z "$file" ] && continue
               case "$file" in
-                core/*|contrib/*|skills/*) ;;
+                core/*|contrib/*|plugins/*) ;;
                 *) continue ;;
               esac
               recipe_dir="$(find_recipe_dir "$file")"

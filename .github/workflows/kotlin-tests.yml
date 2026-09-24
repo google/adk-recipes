@@ -25,14 +25,14 @@ on:
       - "contrib/**/settings.gradle"
       - "contrib/**/settings.gradle.kts"
       - "contrib/**/manifest.yaml"
-      - "skills/**/*.kt"
-      - "skills/**/*.kts"
-      - "skills/**/pom.xml"
-      - "skills/**/build.gradle"
-      - "skills/**/build.gradle.kts"
-      - "skills/**/settings.gradle"
-      - "skills/**/settings.gradle.kts"
-      - "skills/**/manifest.yaml"
+      - "plugins/**/*.kt"
+      - "plugins/**/*.kts"
+      - "plugins/**/pom.xml"
+      - "plugins/**/build.gradle"
+      - "plugins/**/build.gradle.kts"
+      - "plugins/**/settings.gradle"
+      - "plugins/**/settings.gradle.kts"
+      - "plugins/**/manifest.yaml"
       - ".github/workflows/kotlin-tests.yml"
   workflow_dispatch:
     inputs:
@@ -90,11 +90,11 @@ jobs:
             grep -qiE "^[[:space:]]*language:[[:space:]]*[\"']?kotlin[\"']?[[:space:]]*(#.*)?$" "$1"
           }
 
-          # Helper: collect all Kotlin recipe dirs under core/, contrib/, and skills/.
+          # Helper: collect all Kotlin recipe dirs under core/, contrib/, and plugins/.
           # A recipe dir is any directory that contains a manifest.yaml
           # declaring language: kotlin.
           all_kotlin_recipes() {
-            for root in core contrib skills; do
+            for root in core contrib plugins; do
               [ -d "$root" ] || continue
               while IFS= read -r manifest; do
                 if is_kotlin_recipe "$manifest"; then
@@ -155,7 +155,7 @@ jobs:
             while IFS= read -r file; do
               [ -z "$file" ] && continue
               case "$file" in
-                core/*|contrib/*|skills/*) ;;
+                core/*|contrib/*|plugins/*) ;;
                 *) continue ;;
               esac
               recipe_dir="$(find_recipe_dir "$file")"

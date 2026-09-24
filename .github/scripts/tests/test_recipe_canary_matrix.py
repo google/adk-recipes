@@ -106,11 +106,11 @@ def test_missing_or_broken_pyproject_still_yields_the_floor(tmp_path):
 def test_discovers_python_recipes_across_all_three_roots(tmp_path):
     _recipe(tmp_path, "core/python/a")
     _recipe(tmp_path, "contrib/python/b")
-    _recipe(tmp_path, "skills/retail/c")
+    _recipe(tmp_path, "plugins/retail/c")
     assert m.discover_recipes(tmp_path) == [
         "contrib/python/b",
         "core/python/a",
-        "skills/retail/c",
+        "plugins/retail/c",
     ]
 
 
