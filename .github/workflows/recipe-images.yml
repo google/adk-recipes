@@ -219,8 +219,12 @@ jobs:
           cache-from: type=gha,scope=${{ matrix.path }}
           cache-to: type=gha,mode=max,scope=${{ matrix.path }}
 
+      # Only on a run that pushed. The build exports straight to the registry
+      # (`outputs: type=image`), so nothing is loaded into the local daemon
+      # and a dry run leaves Trivy with no image to resolve.
       - name: Scan image with Trivy
-        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # ratchet:aquasecurity/trivy-action@v0.36.0
+        if: ${{ !inputs.dry_run }}
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # ratchet:aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ${{ matrix.image }}:${{ needs.matrix.outputs.build_tag }}
           format: table
