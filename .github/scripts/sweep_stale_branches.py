@@ -56,7 +56,7 @@ import subprocess
 import sys
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import quote
 
@@ -722,7 +722,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     default_branch = fetch_default_branch()
     branches = fetch_branches()
     open_prs = fetch_open_pull_requests()

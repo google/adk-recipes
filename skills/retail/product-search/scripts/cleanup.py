@@ -287,8 +287,8 @@ def delete_cloudrun(
         False if the delete call raised an unexpected error.
     """
     try:
-        result = subprocess.run(
-            [
+        result = subprocess.run(  # noqa: S603 -- cleanup script invokes gcloud CLI
+            [  # noqa: S607
                 "gcloud",
                 "run",
                 "services",
@@ -332,8 +332,8 @@ def delete_cloudrun(
         return True
 
     try:
-        subprocess.run(
-            [
+        subprocess.run(  # noqa: S603 -- cleanup script invokes gcloud CLI
+            [  # noqa: S607
                 "gcloud",
                 "run",
                 "services",

@@ -148,8 +148,8 @@ def enable_required_apis(project_id: str) -> None:
     ]
     logger.info(f"Enabling required GCP APIs: {', '.join(apis)} ...")
     try:
-        subprocess.run(
-            [
+        subprocess.run(  # noqa: S603 -- setup script invokes gcloud CLI
+            [  # noqa: S607
                 "gcloud",
                 "services",
                 "enable",
@@ -169,8 +169,8 @@ def enable_required_apis(project_id: str) -> None:
 def setup_service_account_permissions(project_id: str) -> None:
     """Ensure Default Compute Service Account has required Vertex AI and Storage permissions."""
     try:
-        res = subprocess.run(
-            [
+        res = subprocess.run(  # noqa: S603 -- setup script invokes gcloud CLI
+            [  # noqa: S607
                 "gcloud",
                 "projects",
                 "describe",
@@ -188,8 +188,8 @@ def setup_service_account_permissions(project_id: str) -> None:
             logger.info(
                 f"Granting IAM role '{role}' to default compute service account {sa_email} ..."
             )
-            subprocess.run(
-                [
+            subprocess.run(  # noqa: S603 -- setup script invokes gcloud CLI
+                [  # noqa: S607
                     "gcloud",
                     "projects",
                     "add-iam-policy-binding",

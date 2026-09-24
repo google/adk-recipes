@@ -439,7 +439,7 @@ def _probe_cli_version(name: str, args: tuple[str, ...]) -> str | None:
     if shutil.which(name) is None:
         return None
     try:
-        result = subprocess.run(
+        result = subprocess.run(  # noqa: S603
             (name, *args),
             capture_output=True,
             text=True,
