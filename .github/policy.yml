@@ -612,9 +612,6 @@ deployability:
     - "gcsfs>=2024.11.0"
     - "google-adk[gcp,otel-gcp]>=2.6.0,<3.0.0"
     - "opentelemetry-resourcedetector-gcp<=1.12.0a0"
-    # Provides `agentplatform`, which app_utils/reasoning_engine_adapter.py
-    # imports. Same floor agents-cli uses for its agent_runtime target.
-    - "google-cloud-aiplatform[agent-engines]>=1.156.0,<2.0.0"
 
   # Files a deployable recipe must have. `<pkg>` is the recipe's agent
   # package directory (e.g. `app`, `horizon`, `expense_agent`).

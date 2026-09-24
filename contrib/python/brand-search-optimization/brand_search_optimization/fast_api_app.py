@@ -48,12 +48,8 @@ except Exception:
     project_id = None
 
 allow_origins = (
-    [
-        origin.strip()
-        for origin in os.getenv("ALLOW_ORIGINS", "").split(",")
-        if origin.strip()
-    ]
-    if os.getenv("ALLOW_ORIGINS")
+    [origin.strip() for origin in origins.split(",") if origin.strip()]
+    if (origins := os.getenv("ALLOW_ORIGINS"))
     else None
 )
 

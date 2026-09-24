@@ -30,7 +30,7 @@ operations (including register_feedback) as a source deployment.
 import inspect
 import json
 
-from fastapi import FastAPI, HTTPException, Request, encoders, responses
+from fastapi import FastAPI, HTTPException, Request, encoders, responses, status
 
 
 def attach_reasoning_engine_routes(app: FastAPI) -> None:
@@ -46,7 +46,7 @@ def attach_reasoning_engine_routes(app: FastAPI) -> None:
 
             if agent_engine is None:
                 raise HTTPException(
-                    status_code=503,
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                     detail="AgentEngineApp failed to initialize; see startup logs.",
                 )
             runtime = agent_engine
@@ -65,7 +65,7 @@ def attach_reasoning_engine_routes(app: FastAPI) -> None:
         allowed = streaming_methods if streaming else sync_methods
         if class_method not in allowed:
             raise HTTPException(
-                status_code=404,
+                status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Unsupported reasoning_engine method: {class_method!r}",
             )
         return getattr(rt, class_method)
