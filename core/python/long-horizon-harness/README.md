@@ -114,8 +114,13 @@ Deterministic tests need no GCP; evals hit Agent Platform and are billed like an
 
 ```bash
 uv run pytest tests/unit tests/integration   # deterministic — no GCP needed
-agents-cli eval run                          # grades behavior against tests/eval/evalsets/*.json
+agents-cli eval run --dataset tests/eval/datasets/smoke-dataset.json \
+  --config tests/eval/eval_config.yaml       # grades behavior, one suite at a time
+uv run python scripts/eval_gate.py           # applies the 0.8 pass threshold
 ```
+
+Three replay suites still run on `adk eval`; see
+[`tests/eval/datasets/README.md`](tests/eval/datasets/README.md) for the split.
 
 Full config reference: [`docs/configuration.md`](docs/configuration.md).
 
