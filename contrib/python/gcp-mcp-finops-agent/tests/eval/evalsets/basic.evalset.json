@@ -1,0 +1,52 @@
+{
+  "eval_set_id": "basic_eval",
+  "name": "FinOps agent evaluation",
+  "description": "Checks that the agent grounds cost answers in the billing export. Needs credentials and a configured BILLING_TABLE, so it is not part of CI.",
+  "eval_cases": [
+    {
+      "eval_id": "capabilities",
+      "conversation": [
+        {
+          "user_content": {
+            "parts": [{"text": "What can you help me with?"}]
+          }
+        }
+      ],
+      "session_input": {
+        "app_name": "app",
+        "user_id": "eval_user",
+        "state": {}
+      }
+    },
+    {
+      "eval_id": "data_window",
+      "conversation": [
+        {
+          "user_content": {
+            "parts": [{"text": "What date range does the billing data cover?"}]
+          }
+        }
+      ],
+      "session_input": {
+        "app_name": "app",
+        "user_id": "eval_user",
+        "state": {}
+      }
+    },
+    {
+      "eval_id": "top_services",
+      "conversation": [
+        {
+          "user_content": {
+            "parts": [{"text": "Which five services cost the most in the latest full month of data? Show the SQL."}]
+          }
+        }
+      ],
+      "session_input": {
+        "app_name": "app",
+        "user_id": "eval_user",
+        "state": {}
+      }
+    }
+  ]
+}
