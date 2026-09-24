@@ -24,6 +24,11 @@ COPY ./app ./app
 
 RUN uv sync --frozen
 
+RUN useradd --create-home --uid 1000 appuser && \
+    chown -R appuser:appuser /code /home/appuser
+
+USER appuser
+
 ARG AGENT_VERSION=0.0.0
 ENV AGENT_VERSION=${AGENT_VERSION}
 
