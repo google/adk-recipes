@@ -297,7 +297,7 @@ This is the answer to "oracle, what can I ask you?" — give the menu, then offe
 drill into any line.
 
 - **How the repo is organised** — `core` vs `contrib` vs `plugins/<vertical>`, what a
-  recipe is, repo skills vs vertical skills, the retired `<lang>/agents/` roots
+  recipe is, repo skills vs plugins, the retired `<lang>/agents/` roots
 - **What a rule is** — size limits, required files, naming, formatting and lint, what a
   manifest must declare
 - **Why a rule is what it is** — the reasoning recorded in `policy.yml`'s comments

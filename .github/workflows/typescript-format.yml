@@ -114,7 +114,7 @@ jobs:
           CHANGED_FILES=()
           for f in "${ALL_CHANGED[@]}"; do
             case "$f" in
-              *.ts|*.tsx|*.js|*.jsx|*.mjs|*.cjs|*.mts|*.cts|*.json|*.jsonc)
+              *.ts|*.tsx|*.js|*.jsx|*.mjs|*.cjs|*.mts|*.cts|*/package.json|*/biome.json|*/biome.jsonc|*/tsconfig*.json|biome.json|biome.jsonc)
                 CHANGED_FILES+=("$f")
                 ;;
             esac
@@ -213,7 +213,7 @@ jobs:
           CHANGED_FILES=()
           for f in "${ALL_CHANGED[@]}"; do
             case "$f" in
-              *.ts|*.tsx|*.js|*.jsx|*.mjs|*.cjs|*.mts|*.cts|*.json|*.jsonc)
+              *.ts|*.tsx|*.js|*.jsx|*.mjs|*.cjs|*.mts|*.cts|*/package.json|*/biome.json|*/biome.jsonc|*/tsconfig*.json|biome.json|biome.jsonc)
                 CHANGED_FILES+=("$f")
                 ;;
             esac

@@ -196,11 +196,11 @@ _FILE_REMEDIATION: dict[str, str] = {
     ),
     "SKILL.md": (
         "Add a SKILL.md — the conversational installer for a vertical "
-        "skill: it runs the interview, writes the design spec, and "
+        "plugin: it runs the interview, writes the design spec, and "
         "performs setup."
     ),
     "EVAL.yaml": (
-        "Add an EVAL.yaml holding the eval rubrics that prove the skill "
+        "Add an EVAL.yaml holding the eval rubrics that prove the plugin "
         "performs — see docs/recipe-handbook/anatomy.md."
     ),
     "go.mod": (
@@ -455,9 +455,8 @@ def check_size_and_count(
     recipe_dir: Path, root: str, policy: dict, manifest_path: Path
 ) -> list[Diagnostic]:
     """Enforce the size (MB) and file-count tiers from policy.yml.
-    Tier is chosen by `root` (core vs contrib) then by manifest.large.
-    Recipes under roots not covered by recipe_size_limits (e.g. a
-    future 'plugins' root without limits) skip these checks."""
+    Tier is chosen by `root` (core vs contrib vs plugins) then by manifest.large.
+    Recipes under roots not covered by recipe_size_limits skip these checks."""
     rel = vm.repo_relative(recipe_dir, REPO_ROOT)
     manifest_rel = vm.repo_relative(manifest_path, REPO_ROOT)
     limits_by_root = policy.get("recipe_size_limits") or {}

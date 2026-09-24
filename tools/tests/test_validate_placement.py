@@ -41,7 +41,7 @@ def test_correctly_placed_returns_none(rel_parts):
     assert m.describe_violation(rel_parts) is None
 
 
-def test_flat_skill_is_rejected():
+def test_flat_plugin_is_rejected():
     """The case that matters: a solution dropped straight under plugins/."""
     diag = m.describe_violation(["plugins", "foo", MANIFEST])
     assert diag is not None
@@ -53,7 +53,7 @@ def test_flat_skill_is_rejected():
     assert diag.file == f"plugins/foo/{MANIFEST}"
 
 
-def test_flat_skill_message_names_the_offending_dir():
+def test_flat_plugin_message_names_the_offending_dir():
     diag = m.describe_violation(["plugins", "store-ops", MANIFEST])
     assert "'plugins/store-ops'" in diag.what
     assert "plugins/retail/store-ops" in diag.how
@@ -123,7 +123,7 @@ def test_check_root_accepts_valid_tree(tmp_path, capsys):
     assert "::error" not in capsys.readouterr().out
 
 
-def test_check_root_flags_flat_skill(tmp_path):
+def test_check_root_flags_flat_plugin(tmp_path):
     _make_manifest(tmp_path, "plugins/retail/store-ops")
     _make_manifest(tmp_path, "plugins/oops")
     (diag,) = m.check_root("plugins", repo_root=tmp_path)

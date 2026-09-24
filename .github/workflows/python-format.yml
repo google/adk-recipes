@@ -75,7 +75,7 @@ jobs:
 
           # 2. Resolve Python files modified in this PR diff. Use an array so
           #    filenames with spaces or globs stay intact when passed to ruff.
-          mapfile -t CHANGED_FILES < <(git diff --name-only --diff-filter=d "origin/$BASE_REF...HEAD" | grep '\.py$' || true)
+          mapfile -t CHANGED_FILES < <(git diff --name-only --diff-filter=d "origin/$BASE_REF...HEAD" -- core contrib plugins | grep '\.py$' || true)
 
           if [ ${#CHANGED_FILES[@]} -eq 0 ]; then
             echo "No Python files were modified in this pull request. Skipping formatting."
@@ -174,7 +174,7 @@ jobs:
           git fetch origin "$BASE_REF"
 
           # 2. Resolve Python files modified in this PR diff
-          mapfile -t CHANGED_FILES < <(git diff --name-only --diff-filter=d "origin/$BASE_REF...HEAD" | grep '\.py$' || true)
+          mapfile -t CHANGED_FILES < <(git diff --name-only --diff-filter=d "origin/$BASE_REF...HEAD" -- core contrib plugins | grep '\.py$' || true)
 
           if [ ${#CHANGED_FILES[@]} -eq 0 ]; then
             echo "No Python files were modified in this pull request. Skipping lint."
@@ -310,7 +310,7 @@ jobs:
           git fetch origin "$BASE_REF"
 
           # 2. Resolve Python files modified in this PR diff
-          mapfile -t CHANGED_FILES < <(git diff --name-only --diff-filter=d "origin/$BASE_REF...HEAD" | grep '\.py$' || true)
+          mapfile -t CHANGED_FILES < <(git diff --name-only --diff-filter=d "origin/$BASE_REF...HEAD" -- core contrib plugins | grep '\.py$' || true)
 
           if [ ${#CHANGED_FILES[@]} -eq 0 ]; then
             echo "No Python files were modified in this pull request. Skipping type check."
@@ -319,9 +319,25 @@ jobs:
 
           echo "Type-checking modified Python files: ${CHANGED_FILES[*]}"
 
-          # 3. Run mypy on changed .py files only with --ignore-missing-imports and --follow-imports=silent
+          # 3. Run mypy on changed .py files with --ignore-missing-imports and --follow-imports=silent
           MYPY_STATUS=0
-          MYPY_OUTPUT=$(uvx mypy --ignore-missing-imports --follow-imports=silent --no-error-summary "${CHANGED_FILES[@]}" 2>&1) || MYPY_STATUS=$?
+          MYPY_OUTPUT=""
+          for f in "${CHANGED_FILES[@]}"; do
+            FILE_OUT=""
+            FILE_STATUS=0
+            FILE_OUT=$(uvx mypy --ignore-missing-imports --follow-imports=silent --no-error-summary "$f" 2>&1) || FILE_STATUS=$?
+            if [ "$FILE_STATUS" -ge 2 ]; then
+              echo "[ERROR] mypy exited with status $FILE_STATUS on $f — it failed to"
+              echo "run at all. This is a CI or configuration problem, not a"
+              echo "type error in your code. See the mypy output above."
+              echo "$FILE_OUT"
+              exit "$FILE_STATUS"
+            fi
+            if [ "$FILE_STATUS" -ne 0 ]; then
+              MYPY_STATUS=1
+              MYPY_OUTPUT+="$FILE_OUT"$'\n'
+            fi
+          done
 
           if [ "$MYPY_STATUS" -ge 2 ]; then
             echo "[ERROR] mypy exited with status $MYPY_STATUS — it failed to"

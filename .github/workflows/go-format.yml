@@ -156,13 +156,13 @@ jobs:
           #    `grep '\.go$'` filter — silently never formatted, never
           #    reported. NUL-delimited output is never quoted.
           #
-          #    `-- core contrib skills` is load-bearing: `on.paths` above
+          #    `-- core contrib plugins` is load-bearing: `on.paths` above
           #    controls only whether this workflow RUNS. Without this scope a
           #    triggered run also collects the retired `go/agents/**` roots,
           #    and llm-auditor (5 .go files, no go.mod) would hard-fail the
           #    job demanding a go.mod in a frozen path.
           git diff -z --name-only --diff-filter=d "origin/$BASE_REF...HEAD" \
-            -- core contrib skills > "$WORK/changed"
+            -- core contrib plugins > "$WORK/changed"
 
           ALL_CHANGED=()
           mapfile -d '' -t ALL_CHANGED < "$WORK/changed"
@@ -450,9 +450,9 @@ jobs:
 
           # 2. Resolve Go files modified in this PR diff. Identical to the
           #    go-format job — see there for why this is `-z` into a file
-          #    scoped to `-- core contrib skills` rather than a piped grep.
+          #    scoped to `-- core contrib plugins` rather than a piped grep.
           git diff -z --name-only --diff-filter=d "origin/$BASE_REF...HEAD" \
-            -- core contrib skills > "$WORK/changed"
+            -- core contrib plugins > "$WORK/changed"
 
           ALL_CHANGED=()
           mapfile -d '' -t ALL_CHANGED < "$WORK/changed"

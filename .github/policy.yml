@@ -295,12 +295,12 @@ required_files:
 #
 # So the bar for listing a directory here is: the recipe is BROKEN without
 # it, not merely unconventional. assets/, references/ and tests/unit/ were
-# removed under that bar — plenty of vertical skills legitimately ship no
+# removed under that bar — plenty of plugins legitimately ship no
 # demo data and no deep-dive docs, and tests/unit/ implied a testing
 # discipline it could not enforce (an empty folder passed) while
 # tests/test_runnability.py already covers the real requirement as a FILE.
 #
-# They remain the convention, and the skills scaffold template still
+# They remain the convention, and the plugin scaffold template still
 # creates them — prompting an author to fill a folder is the scaffold's
 # job, not CI's. See docs/recipe-handbook/anatomy.md.
 # --------------------------------------------------------------------------

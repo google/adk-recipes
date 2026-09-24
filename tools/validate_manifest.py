@@ -49,11 +49,7 @@ from ci_message import (
 REPO_ROOT = Path(__file__).parent.parent
 SCHEMA_PATH = REPO_ROOT / ".github" / "schemas" / "manifest-schema.json"
 MANIFEST_FILENAME = "manifest.yaml"
-# Top-level directories that may hold recipes. `plugins/` is scaffolded ahead
-# of that folder actually existing on disk — _collect_root() prints a
-# harmless [SKIP] line when the directory is missing, so listing it here is
-# safe today and lets the validation tooling pick up plugins the moment they
-# land without another code change.
+# Top-level directories that may hold recipes.
 RECIPE_ROOTS = ["core", "contrib", "plugins"]
 
 OWNERSHIP_TEAM_PLACEHOLDER = "TODO: Replace with your team name"

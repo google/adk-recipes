@@ -10,7 +10,7 @@ All agents must follow the guidelines below without being reminded.
   - **Repo skills** — AI coding-assistant helpers under `.agents/skills/`
     (e.g. `prepare-python-recipe`). Used to build this repo.
 - Recipes live under `core/` (curated), `contrib/` (community), or
-  `plugins/` (plugins). Repo skills are a completely separate
+  `plugins/` (vertical solutions). Repo skills are a completely separate
   concept. Do NOT mix `.agents/skills/` changes and recipe/plugin
   changes in the same PR. If a tool run modifies files outside your task's
   scope (e.g. a repo-wide ruff sweep touching an unrelated recipe), revert

@@ -807,37 +807,37 @@ def test_required_dirs_for_dedupes():
 # Vertical plugins — the full file + directory contract
 # ---------------------------------------------------------------------------
 
-SKILL_MANIFEST = VALID_MANIFEST
+PLUGIN_MANIFEST = VALID_MANIFEST
 
 
-def _make_skill(root: Path, rel: str = "plugins/retail/store-ops") -> Path:
+def _make_plugin(root: Path, rel: str = "plugins/retail/store-ops") -> Path:
     """A complete, valid Python vertical plugin: every required file and
     every required directory."""
-    skill = root / rel
-    skill.mkdir(parents=True, exist_ok=True)
-    _write(skill / "manifest.yaml", SKILL_MANIFEST)
-    _write(skill / "README.md", "# skill\n")
-    _write(skill / "SKILL.md", "# installer\n")
-    _write(skill / "EVAL.yaml", "rubrics: []\n")
-    _write(skill / "pyproject.toml", "[project]\nname='x'\n")
-    _write(skill / "uv.lock", "# lockfile\n")
-    _write(skill / ".env.example", "FOO=1\n")
-    _write(skill / "tests" / "test_runnability.py", "def test(): pass\n")
+    plugin = root / rel
+    plugin.mkdir(parents=True, exist_ok=True)
+    _write(plugin / "manifest.yaml", PLUGIN_MANIFEST)
+    _write(plugin / "README.md", "# plugin\n")
+    _write(plugin / "SKILL.md", "# installer\n")
+    _write(plugin / "EVAL.yaml", "rubrics: []\n")
+    _write(plugin / "pyproject.toml", "[project]\nname='x'\n")
+    _write(plugin / "uv.lock", "# lockfile\n")
+    _write(plugin / ".env.example", "FOO=1\n")
+    _write(plugin / "tests" / "test_runnability.py", "def test(): pass\n")
     for d in ("scripts", "assets", "references", "tests/unit"):
-        (skill / d).mkdir(parents=True, exist_ok=True)
-    return skill
+        (plugin / d).mkdir(parents=True, exist_ok=True)
+    return plugin
 
 
-def test_complete_skill_passes(isolated_repo):
-    skill = _make_skill(isolated_repo)
+def test_complete_plugin_passes(isolated_repo):
+    plugin = _make_plugin(isolated_repo)
     schema = vm.load_schema()
-    assert m.validate_recipe(skill, _full_policy(), schema) == []
+    assert m.validate_recipe(plugin, _full_policy(), schema) == []
 
 
-def test_skill_missing_a_required_dir_fails(isolated_repo):
-    skill = _make_skill(isolated_repo)
-    (skill / "assets").rmdir()
-    errors = m.validate_recipe(skill, _full_policy(), vm.load_schema())
+def test_plugin_missing_a_required_dir_fails(isolated_repo):
+    plugin = _make_plugin(isolated_repo)
+    (plugin / "assets").rmdir()
+    errors = m.validate_recipe(plugin, _full_policy(), vm.load_schema())
     (diag,) = [d for d in errors if d.check == "required-dirs"]
     assert "assets/" in diag.what
     # The overwhelmingly common report is "the folder is right there" —
@@ -850,26 +850,26 @@ def test_skill_missing_a_required_dir_fails(isolated_repo):
 
 
 def test_missing_dir_says_which_rule_required_it(isolated_repo):
-    skill = _make_skill(isolated_repo)
-    (skill / "scripts").rmdir()
-    (diag,) = m.check_required_dirs(skill, "plugins", "python", _full_policy())
+    plugin = _make_plugin(isolated_repo)
+    (plugin / "scripts").rmdir()
+    (diag,) = m.check_required_dirs(plugin, "plugins", "python", _full_policy())
     assert "under plugins/" in diag.why
     assert "policy.required_dirs.by_root.plugins" in diag.why
 
 
-def test_skill_missing_eval_yaml_fails(isolated_repo):
-    skill = _make_skill(isolated_repo)
-    (skill / "EVAL.yaml").unlink()
-    errors = m.validate_recipe(skill, _full_policy(), vm.load_schema())
+def test_plugin_missing_eval_yaml_fails(isolated_repo):
+    plugin = _make_plugin(isolated_repo)
+    (plugin / "EVAL.yaml").unlink()
+    errors = m.validate_recipe(plugin, _full_policy(), vm.load_schema())
     assert "EVAL.yaml" in _blob(errors)
 
 
 def test_empty_required_dirs_pass(isolated_repo):
     """assets/ and references/ are legitimately empty for some plugins."""
-    skill = _make_skill(isolated_repo)
-    assert list((skill / "assets").iterdir()) == []
+    plugin = _make_plugin(isolated_repo)
+    assert list((plugin / "assets").iterdir()) == []
     assert (
-        m.check_required_dirs(skill, "plugins", "python", _full_policy()) == []
+        m.check_required_dirs(plugin, "plugins", "python", _full_policy()) == []
     )
 
 
@@ -878,10 +878,10 @@ def test_required_dir_that_is_actually_a_file_is_reported_precisely(
 ):
     """'missing' would send the author hunting for something that is
     right there under the wrong kind."""
-    skill = _make_skill(isolated_repo)
-    (skill / "scripts").rmdir()
-    _write(skill / "scripts", "oops\n")
-    errors = m.check_required_dirs(skill, "plugins", "python", _full_policy())
+    plugin = _make_plugin(isolated_repo)
+    (plugin / "scripts").rmdir()
+    _write(plugin / "scripts", "oops\n")
+    errors = m.check_required_dirs(plugin, "plugins", "python", _full_policy())
     assert len(errors) == 1
     assert "exists but is a file" in errors[0].what
 
@@ -895,21 +895,22 @@ def test_wrong_case_fails_for_a_strict_entry(isolated_repo):
     """pyproject.toml is read by uv, which resolves it by exact name.
     Accepting PyProject.toml would pass here and then break uv. This must
     fail on macOS too, where the filesystem alone would accept it."""
-    skill = _make_skill(isolated_repo)
-    (skill / "pyproject.toml").unlink()
-    _write(skill / "PyProject.toml", "[project]\nname='x'\n")
-    errors = m.check_required_files(skill, "plugins", "python", _full_policy())
+    plugin = _make_plugin(isolated_repo)
+    (plugin / "pyproject.toml").unlink()
+    _write(plugin / "PyProject.toml", "[project]\nname='x'\n")
+    errors = m.check_required_files(plugin, "plugins", "python", _full_policy())
     assert any(
         "pyproject.toml" in e.what and "missing" in e.what for e in errors
     )
 
 
 def test_wrong_case_passes_for_eval_yaml_with_a_note(isolated_repo, capsys):
-    skill = _make_skill(isolated_repo)
-    (skill / "EVAL.yaml").unlink()
-    _write(skill / "eval.yaml", "rubrics: []\n")
+    plugin = _make_plugin(isolated_repo)
+    (plugin / "EVAL.yaml").unlink()
+    _write(plugin / "eval.yaml", "rubrics: []\n")
     assert (
-        m.check_required_files(skill, "plugins", "python", _full_policy()) == []
+        m.check_required_files(plugin, "plugins", "python", _full_policy())
+        == []
     )
     out = capsys.readouterr().out
     assert "[NOTE]" in out
@@ -918,9 +919,10 @@ def test_wrong_case_passes_for_eval_yaml_with_a_note(isolated_repo, capsys):
 
 
 def test_exact_case_produces_no_note(isolated_repo, capsys):
-    skill = _make_skill(isolated_repo)
+    plugin = _make_plugin(isolated_repo)
     assert (
-        m.check_required_files(skill, "plugins", "python", _full_policy()) == []
+        m.check_required_files(plugin, "plugins", "python", _full_policy())
+        == []
     )
     assert "[NOTE]" not in capsys.readouterr().out
 
@@ -959,7 +961,7 @@ def test_case_insensitive_entries_reads_policy():
 # ---------------------------------------------------------------------------
 
 
-def test_committed_policy_declares_the_skill_contract():
+def test_committed_policy_declares_the_plugin_contract():
     """A future edit must not silently drop part of the contract."""
     policy = m.load_policy()
     files = _names(m.required_files_for(policy, "plugins", "python"))

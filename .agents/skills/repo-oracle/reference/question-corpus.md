@@ -28,7 +28,7 @@ response and carries the marker.
 | 9 | "what does the recipe canary do?" | `.github/workflows/recipe-canary.yml` header | 1–2 |
 | 10 | "can I close a canary issue?" | `.github/policy.yml`, `exempt_labels` comment | 1 |
 | 11 | "will an abandoned branch get deleted?" | `.github/policy.yml`, `stale_policy.branches` | 1 |
-| 12 | "what's a vertical skill versus a repo skill?" | `README.md` or `AGENTS.md` | 1 |
+| 12 | "what's a plugin versus a repo skill?" | `README.md` or `AGENTS.md` | 1 |
 | 13 | "how do I run the validators locally?" | `tools/README.md` | 1 |
 | 14 | "what does `type: module` mean in a manifest?" | `.github/schemas/manifest-schema.json` | 1 |
 | 15 | "who owns `deep-search`?" | `core/python/deep-search/manifest.yaml` | 1 |

@@ -76,7 +76,7 @@ Runs eight ordered phases against a target recipe. Each phase either invokes an 
 5. **Recipe `uv lock`** — regenerate `uv.lock` so it reflects the post-align `pyproject.toml`. Does NOT install into `.venv/` — that's a heavier step the user runs after they've reviewed the diff. `uv lock` just resolves and records; `uv sync` would download and install every wheel, which is scope-creep for a "prepare" pipeline.
 6. **Runnability test** — generate `tests/test_runnability.py` if missing (or ask before overwriting), plus a `tests/conftest.py` path shim when the recipe isn't installable.
 7. **Verify (compile + run)** — `py_compile` the runnability test, then run it with pytest. The compile step is a syntax check; running it is what proves the test's `import` can actually resolve (`--collect-only` would not — the guarded test shape puts the import inside the test function). The test is side-effect-free by construction.
-8. **Validate (repo validators)** — run `uv run validate manifest` and `uv run validate structure` on the recipe. This is the phase that catches everything the seven build phases don't model: required files, required directories (`tests/unit/` for vertical skills), size limits, naming.
+8. **Validate (repo validators)** — run `uv run validate manifest` and `uv run validate structure` on the recipe. This is the phase that catches everything the seven build phases don't model: required files, required directories (`tests/unit/` for plugins), size limits, naming.
 
 At the end, print a summary table and remind the user to `git diff` and commit — the skill never commits.
 
@@ -210,7 +210,7 @@ Then flag the assumptions the pipeline is making and show the user the plan. Do 
 
 If Step 0c found missing required directories, add one line before "Nothing gets committed":
 
-> `<RECIPE_DIR>` is a vertical skill and is missing `tests/unit/`, which
+> `<RECIPE_DIR>` is a plugin and is missing `tests/unit/`, which
 > `.github/policy.yml` requires. Want me to create it with a `.gitkeep`?
 
 Get a yes-or-no. If no, stop.
