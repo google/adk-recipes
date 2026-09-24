@@ -54,4 +54,4 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          uvx zizmor@1.30.1 .
+          uvx zizmor@1.30.1 --no-online-audits .

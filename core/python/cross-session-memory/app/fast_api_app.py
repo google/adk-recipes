@@ -25,6 +25,9 @@ from vertexai._genai.types import (
 )
 
 from app.app_utils.memory_config import memory_bank_config
+from app.app_utils.reasoning_engine_adapter import (
+    attach_reasoning_engine_routes,
+)
 from app.app_utils.telemetry import setup_telemetry
 from app.app_utils.typing import Feedback
 
@@ -38,7 +41,7 @@ if os.environ.get("INTEGRATION_TEST"):
     import logging as _std_logging
 
     _cloud_logger = None
-    _std_logger = _std_logging.getLogger(__name__)
+    _std_logger: _std_logging.Logger | None = _std_logging.getLogger(__name__)
 else:
     try:
         logging_client = google_cloud_logging.Client()
@@ -79,7 +82,11 @@ use_in_memory_session = os.environ.get("USE_IN_MEMORY_SESSION", "").lower() in (
     "yes",
 )
 
-if use_in_memory_session:
+# On Agent Engine the reasoning_engine routes already use the hosting engine;
+# creating another one here would duplicate it.
+running_on_agent_engine = bool(os.environ.get("GOOGLE_CLOUD_AGENT_ENGINE_ID"))
+
+if use_in_memory_session or running_on_agent_engine:
     # Use in-memory session/memory for local development
     session_service_uri = None
     memory_service_uri = None
@@ -143,6 +150,10 @@ app: FastAPI = get_fast_api_app(
 )
 app.title = "memory-bank-sample"
 app.description = "API for interacting with the Memory Bank recipe agent"
+
+# Agent Engine forwards :query and :streamQuery to these routes; without them
+# a container deployed through container_spec starts but 404s every call.
+attach_reasoning_engine_routes(app)
 
 
 @app.post("/feedback")

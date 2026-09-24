@@ -20,41 +20,36 @@ contract. Agent Engine forwards calls to ``/api/reasoning_engine`` (sync) and
 ``/api/stream_reasoning_engine`` (streaming); dispatch is limited to the
 :class:`AdkApp` ``register_operations()`` methods so the wire output matches a
 packaged Agent Engine.
+
+Derived from the make-python-recipe-deployable template. The one
+difference: the runtime is this recipe's own AgentEngineApp from
+agent_engine_app.py, so a container deployment exposes the same
+operations (including register_feedback) as a source deployment.
 """
 
 import inspect
 import json
 
-from agentplatform.agent_engines.templates.adk import AdkApp
 from fastapi import FastAPI, HTTPException, Request, encoders, responses, status
-
-from __AGENT_PACKAGE__.app_utils import services
-
-
-def _no_op_instrumentor_builder(project_id: str) -> None:
-    """No-op so set_up() keeps the startup instrumentor and generate_content spans."""
-    return None
 
 
 def attach_reasoning_engine_routes(app: FastAPI) -> None:
-    """Register reasoning_engine routes that dispatch to an AdkApp."""
-    runtime: AdkApp | None = None
+    """Register reasoning_engine routes that dispatch to AgentEngineApp."""
+    runtime = None
     streaming_methods: set[str] = set()
     sync_methods: set[str] = set()
 
-    def get_runtime() -> AdkApp:
+    def get_runtime():
         nonlocal runtime, streaming_methods, sync_methods
         if runtime is None:
-            from __AGENT_PACKAGE__.agent import app as adk_app
+            from genmedia4commerce.agent_engine_app import agent_engine
 
-            # Reuse the process-wide services so sessions created here are
-            # visible to the adk_api and A2A paths, and vice versa (see services.py).
-            candidate = AdkApp(
-                app=adk_app,
-                session_service_builder=services.get_session_service,
-                artifact_service_builder=services.get_artifact_service,
-                instrumentor_builder=_no_op_instrumentor_builder,
-            )
+            if agent_engine is None:
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="AgentEngineApp failed to initialize; see startup logs.",
+                )
+            candidate = agent_engine
             candidate.set_up()
             operations = candidate.register_operations()
             streaming_methods = set(operations.get("stream", [])) | set(

@@ -75,7 +75,9 @@ async def generate_memories_callback(callback_context: CallbackContext):
 root_agent = Agent(
     name="root_agent",
     model=Gemini(
-        model=os.getenv("MODEL_NAME"),
+        # Defaulted to .env.example's value: the image ships no .env, so a
+        # container deployed without MODEL_NAME otherwise fails at import.
+        model=os.getenv("MODEL_NAME", "gemini-3.5-flash"),
         retry_options=types.HttpRetryOptions(attempts=3),
     ),
     instruction=(

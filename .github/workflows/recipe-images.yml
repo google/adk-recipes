@@ -192,6 +192,10 @@ jobs:
         with:
           context: ${{ matrix.path }}
           file: ${{ matrix.path }}/Dockerfile
+          # Docker v2 media types, not OCI: Agent Engine fails to start an
+          # OCI-manifest image deployed through container_spec, while the same
+          # image as Docker v2 deploys. `outputs` replaces `push` to set this.
+          outputs: type=image,push=${{ !inputs.dry_run }},oci-mediatypes=false
           # `latest` for humans and for docs that cannot chase a digest.
           #
           # The pinnable tag is date-and-commit, not commit alone. The weekly
@@ -201,14 +205,14 @@ jobs:
           # so a bare `:<sha>` would be rewritten every Tuesday and would not
           # mean what a commit-shaped tag implies. Dating it keeps every
           # published image immutable and still traceable to its source.
-          push: ${{ !inputs.dry_run }}
-          load: ${{ inputs.dry_run }}
           tags: |
             ${{ matrix.image }}:latest
             ${{ matrix.image }}:${{ needs.matrix.outputs.build_tag }}
           build-args: |
             AGENT_VERSION=${{ github.sha }}
-          provenance: ${{ !inputs.dry_run }}
+          # Must stay false with oci-mediatypes=false: BuildKit fails the build
+          # with "cannot export attestations with oci-mediatypes=false".
+          provenance: false
           # Shared across runs of the same recipe, not across recipes: these
           # images share a base layer but nothing above it, and a common
           # scope would have them evicting each other's dependency layers.
