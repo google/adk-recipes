@@ -123,6 +123,36 @@ jobs:
         with:
           github-token: '${{ secrets.GITHUB_TOKEN }}'
           script: |-
+            // Recipe proposals are a human-only lane, so no bot comments
+            // on them — not even this one. `resolve` can fail before any
+            // skip decision exists (an API blip), and without this guard
+            // that failure lands a comment on a proposal, which is the
+            // symptom the lane was built to stop. Read from the event
+            // payload so it needs no checkout and cannot itself fail.
+            const number = context.payload.issue?.number
+              ?? Number(context.payload.inputs?.issue_number);
+            let title = context.payload.issue?.title;
+            if (title === undefined && number) {
+              // workflow_dispatch carries no issue payload, so the title has
+              // to be fetched. Failing closed on a read error is deliberate:
+              // staying silent costs a failure notice, commenting on a
+              // proposal breaks the one rule this lane has.
+              try {
+                const { data } = await github.rest.issues.get({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: number,
+                });
+                title = data.title;
+              } catch (err) {
+                core.warning(`Could not read #${number} to check whether it is a recipe proposal (${err.message}); not commenting.`);
+                return;
+              }
+            }
+            if ((title ?? '').toUpperCase().includes('[RECIPE PROPOSAL]')) {
+              core.notice('Recipe proposal — not posting a failure comment.');
+              return;
+            }
             const issueNumber = context.payload.issue?.number
               ?? Number(context.payload.inputs?.issue_number);
             if (!issueNumber) {

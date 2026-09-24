@@ -1,0 +1,113 @@
+name: '📥 Recipe Proposal Intake'
+
+# Assigns `recipe_proposals.assignees` to a new recipe proposal and applies
+# `recipe_proposals.label`, both from .github/policy.yml.
+#
+# The issue template already names the same assignees, but GitHub applies
+# template front matter only to issues filed through the template — one
+# created via the REST API gets neither the assignees nor the label (issue
+# #2660). The title is the only signal present on every path.
+#
+# This workflow posts no comment: recipe proposals are reviewed by humans
+# and the AI issue workflows are gated off them.
+
+on:
+  issues:
+    types:
+      - 'opened'
+      - 'reopened'
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: 'issue number to route'
+        required: true
+        type: 'number'
+
+concurrency:
+  group: '${{ github.workflow }}-${{ github.event.issue.number || github.event.inputs.issue_number }}'
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: 'bash'
+
+permissions: {}
+
+jobs:
+  route:
+    timeout-minutes: 5
+    runs-on: 'ubuntu-latest'
+    permissions:
+      contents: 'read'
+      issues: 'write'
+    steps:
+      - uses: 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1' # ratchet:actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - uses: 'astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d' # ratchet:astral-sh/setup-uv@v10.0.1
+        with:
+          python-version: '3.11'
+
+      - name: 'Assign the reviewers and label the issue'
+        env:
+          GH_TOKEN: '${{ secrets.GITHUB_TOKEN }}'
+          GH_REPO: '${{ github.repository }}'
+          ISSUE_NUMBER: '${{ github.event.issue.number || github.event.inputs.issue_number }}'
+        run: |-
+          set -euo pipefail
+
+          p() {
+            uv run --no-project --with pyyaml python3 \
+              .github/scripts/load_policy.py "$1"
+          }
+
+          TITLE="$(gh issue view "${ISSUE_NUMBER}" --json title --jq '.title')"
+          if [[ "${TITLE^^}" != *'[RECIPE PROPOSAL]'* ]]; then
+            echo "#${ISSUE_NUMBER} is not a recipe proposal — nothing to do."
+            exit 0
+          fi
+
+          mapfile -t ASSIGNEES < <(p recipe_proposals.assignees)
+          LABEL="$(p recipe_proposals.label)"
+
+          # `mapfile` succeeds even when the command feeding it fails, so an
+          # empty list here would otherwise sail through: no assignees, a
+          # label applied, exit 0 — the silent failure this workflow exists
+          # to prevent.
+          if [[ ${#ASSIGNEES[@]} -eq 0 || -z "${LABEL}" ]]; then
+            echo "::error::recipe_proposals.assignees or .label is empty in .github/policy.yml."
+            exit 1
+          fi
+
+          ARGS=()
+          for assignee in "${ASSIGNEES[@]}"; do
+            ARGS+=(--add-assignee "${assignee}")
+          done
+
+          # Two calls, not one: a label that has been deleted or renamed
+          # makes `gh issue edit` exit non-zero, and bundling it with the
+          # assignment would mean losing the assignees — the whole point of
+          # the workflow — over a bookkeeping label.
+          gh issue edit "${ISSUE_NUMBER}" "${ARGS[@]}"
+
+          if ! gh issue edit "${ISSUE_NUMBER}" --add-label "${LABEL}"; then
+            echo "::warning::Could not apply '${LABEL}' to #${ISSUE_NUMBER}; check the label exists."
+          fi
+
+          # GitHub ignores an assignee it cannot assign — someone without
+          # write access, or a renamed account — and still returns success,
+          # which is the silent failure this workflow exists to prevent.
+          ACTUAL="$(gh issue view "${ISSUE_NUMBER}" --json assignees --jq '[.assignees[].login] | join(" ")')"
+
+          # Compared lower-cased: GitHub logins are case-insensitive and the
+          # API returns canonical casing, so `PierPaolo28` in policy.yml
+          # would otherwise fail this check on an assignment that worked.
+          for assignee in "${ASSIGNEES[@]}"; do
+            if [[ " ${ACTUAL,,} " != *" ${assignee,,} "* ]]; then
+              echo "::error::GitHub did not assign ${assignee} (no write access, or the name in recipe_proposals.assignees is stale)."
+              exit 1
+            fi
+          done
+          echo "Assigned #${ISSUE_NUMBER} to ${ACTUAL}."

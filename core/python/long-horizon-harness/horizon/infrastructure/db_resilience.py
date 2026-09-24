@@ -182,5 +182,5 @@ async def retry_on_disconnect(
                 exc,
             )
             await asyncio.sleep(delay)
-    assert last_exc is not None
+    assert last_exc is not None  # noqa: S101 -- narrow type after retry loop
     raise last_exc

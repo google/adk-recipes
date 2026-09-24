@@ -39,6 +39,7 @@ dev = [
   "ruamel.yaml>=0.18",
   "packaging>=24",
   "ruff>=0.14",
+  "mypy>=1.10",
 ]
 
 [build-system]
@@ -63,13 +64,26 @@ packages = ["tools"]
 
 [tool.ruff]
 line-length = 80
-# NOTE: disagrees with requires-python = ">=3.11" above and with the 3.11
-# floor in AGENTS.md, and should eventually become "py311". The bump is not
-# free: it enables UP017/UP041/I001 on code that is clean today, adding 5 new
-# failures inside the CI-scanned roots (genmedia-for-commerce x4,
-# virtual-tryon x1) and 18 repo-wide. All autofixable, but they land in
-# recipes unrelated to whatever PR bumps this, so it needs its own change.
-target-version = "py310"
+target-version = "py311"
+# Both entries drop their whole tree out of EVERY ruff rule, not just the `S`
+# rules added below, and CI passes --force-exclude so they bite there too.
+# Spelled out because that is a lot of coverage to lose silently:
+#
+#   python/agents — a retired recipe root (see `retired_roots` in
+#     .github/policy.yml). The code is frozen and "Check for work in retired
+#     folders" already blocks new work there, so linting it can only produce
+#     findings nobody is allowed to fix in place.
+#
+#   .agents — the repo-skills tree. NOT frozen, so this one is a deferral
+#     rather than a judgement: it carries 28 findings today, mostly S603/S607
+#     on skill scripts that shell out to gcloud plus S101 in their tests.
+#     They are not fixed here because AGENTS.md forbids mixing .agents/
+#     changes with recipe changes in one PR. Drop this entry in a follow-up
+#     scoped to .agents alone.
+extend-exclude = [
+    "python/agents",
+    ".agents",
+]
 # Resolve first-party imports per recipe, so a package not named `app` is
 # still first-party to its own recipe.
 #
@@ -89,7 +103,8 @@ select = [
     "PL", # Pylint rules
     "B", # flake8-bugbear
     "UP", # pyupgrade
-    "RUF" # ruff specific rules
+    "RUF", # ruff specific rules
+    "S", # flake8-bandit (security)
 ]
 ignore = [
     "E501",    # Long LLM prompts and log messages need long strings
@@ -109,6 +124,42 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 # Global rule: ADK agents use __init__.py to expose their logic
 "**/__init__.py" = ["F401"]
+# Tests legitimately use assert statements, mock credentials, temp paths, and test subprocesses
+"**/tests/**" = [
+    "S101",
+    "S104",
+    "S105",
+    "S106",
+    "S107",
+    "S108",
+    "S110",
+    "S113",
+    "S310",
+    "S311",
+    "S324",
+    "S603",
+    "S607",
+]
+"**/test_*.py" = [
+    "S101",
+    "S104",
+    "S105",
+    "S106",
+    "S107",
+    "S108",
+    "S110",
+    "S113",
+    "S310",
+    "S311",
+    "S324",
+    "S603",
+    "S607",
+]
+# Interactive walkthrough notebooks
+"**/*.ipynb" = ["S101", "S104", "S105", "S324", "S608"]
+# CI scripts and repository tooling legitimately invoke CLI commands and fetch URLs
+".github/scripts/**" = ["S603", "S607", "S310"]
+"tools/**" = ["S603", "S607", "S310"]
 
 [tool.ruff.lint.isort]
 # Every Python recipe's package is named `app` by convention, so isort should

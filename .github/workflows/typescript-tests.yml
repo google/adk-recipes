@@ -24,6 +24,7 @@ on:
       - "core/**/bun.lockb"
       - "core/**/bun.lock"
       - "core/**/manifest.yaml"
+      - "core/**/tsconfig*.json"
       - "contrib/**/*.ts"
       - "contrib/**/*.tsx"
       - "contrib/**/*.js"
@@ -39,6 +40,7 @@ on:
       - "contrib/**/bun.lockb"
       - "contrib/**/bun.lock"
       - "contrib/**/manifest.yaml"
+      - "contrib/**/tsconfig*.json"
       - "skills/**/*.ts"
       - "skills/**/*.tsx"
       - "skills/**/*.js"
@@ -54,6 +56,23 @@ on:
       - "skills/**/bun.lockb"
       - "skills/**/bun.lock"
       - "skills/**/manifest.yaml"
+      - "skills/**/tsconfig*.json"
+      - "typescript/**/*.ts"
+      - "typescript/**/*.tsx"
+      - "typescript/**/*.js"
+      - "typescript/**/*.jsx"
+      - "typescript/**/*.mjs"
+      - "typescript/**/*.cjs"
+      - "typescript/**/*.mts"
+      - "typescript/**/*.cts"
+      - "typescript/**/package.json"
+      - "typescript/**/package-lock.json"
+      - "typescript/**/yarn.lock"
+      - "typescript/**/pnpm-lock.yaml"
+      - "typescript/**/bun.lockb"
+      - "typescript/**/bun.lock"
+      - "typescript/**/manifest.yaml"
+      - "typescript/**/tsconfig*.json"
       - ".github/workflows/typescript-tests.yml"
   workflow_dispatch:
     inputs:
@@ -258,8 +277,13 @@ jobs:
             yarn install --frozen-lockfile || yarn install
             yarn test
           elif [ -f "bun.lockb" ] || [ -f "bun.lock" ]; then
-            npx bun install --frozen-lockfile || npx bun install
-            npx bun test
+            if command -v bun >/dev/null 2>&1; then
+              bun install --frozen-lockfile || bun install
+              bun test
+            else
+              npm install
+              npm test
+            fi
           elif [ -f "package.json" ]; then
             npm install
             npm test
@@ -268,19 +292,89 @@ jobs:
             exit 1
           fi
 
+  type-check:
+    name: Type check (tsc --noEmit)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # ratchet:actions/setup-node@v7.0.0
+        with:
+          node-version: "22"
+
+      - name: Run tsc --noEmit
+        run: |
+          set -euo pipefail
+
+          FAILED=0
+          COUNT=0
+
+          while IFS= read -r tsconfig; do
+            [ -z "$tsconfig" ] && continue
+            dir="$(dirname "$tsconfig")"
+            echo "========================================"
+            echo "Type-checking $dir..."
+            echo "========================================"
+            COUNT=$((COUNT + 1))
+            (
+              cd "$dir"
+              if [ ! -f .env ] && [ -f .env.example ]; then
+                cp .env.example .env
+              fi
+              if [ -f "package-lock.json" ]; then
+                npm ci || npm install
+              elif [ -f "pnpm-lock.yaml" ]; then
+                corepack enable
+                pnpm install --frozen-lockfile || pnpm install
+              elif [ -f "yarn.lock" ]; then
+                yarn install --frozen-lockfile || yarn install
+              elif [ -f "bun.lockb" ] || [ -f "bun.lock" ]; then
+                if command -v bun >/dev/null 2>&1; then
+                  bun install --frozen-lockfile || bun install
+                else
+                  npm install
+                fi
+              elif [ -f "package.json" ]; then
+                npm install
+              fi
+              npx tsc --noEmit
+            ) || FAILED=1
+          done < <(find core contrib skills typescript -name "tsconfig.json" -not -path "*/node_modules/*" 2>/dev/null)
+
+          if [ "$COUNT" -eq 0 ]; then
+            echo "[INFO] No TypeScript projects with tsconfig.json found."
+            exit 0
+          fi
+
+          if [ "$FAILED" -ne 0 ]; then
+            echo ""
+            echo "========================================"
+            echo "  ACTION REQUIRED: TypeScript type check failed"
+            echo "========================================"
+            echo "One or more TypeScript projects failed type checking. See compiler errors above."
+            exit 1
+          fi
+
+          echo "[PASS] All $COUNT TypeScript project(s) passed type checking."
+
   # Final gate. `if: always()` so the required check always reports even when
   # detect-recipes or run-tests were cancelled/skipped/failed — a skipped
   # required check is often treated as passing by branch protection, which is
   # the silent-green failure mode we're guarding against.
   #
   # Fails if:
+  #   - type-check did not succeed
   #   - detect-recipes did not succeed (crash, cancellation, ...)
   #   - run-tests ended in any state other than success or skipped
   # `skipped` on run-tests is OK because it means detect-recipes legitimately
   # found zero TypeScript recipes to test.
   test-results:
     name: TypeScript test results
-    needs: [detect-recipes, run-tests]
+    needs: [detect-recipes, run-tests, type-check]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -290,8 +384,14 @@ jobs:
         env:
           DETECT_RESULT: ${{ needs.detect-recipes.result }}
           RUN_RESULT: ${{ needs.run-tests.result }}
+          TYPE_CHECK_RESULT: ${{ needs.type-check.result }}
         run: |
           set -euo pipefail
+
+          if [ "$TYPE_CHECK_RESULT" != "success" ]; then
+            echo "::error::TypeScript type checking (tsc --noEmit) failed (type-check: $TYPE_CHECK_RESULT). Open the 'Type check (tsc --noEmit)' job to see compiler errors."
+            exit 1
+          fi
 
           # This job is a branch-protection gate: it reports the aggregate of
           # a matrix, so it can never name the specific recipe that failed.
