@@ -78,11 +78,14 @@ def attach_reasoning_engine_routes(app: FastAPI) -> None:
             runtime = candidate
         return runtime
 
-    def resolve_method(class_method: str | None, *, streaming: bool):
+    def resolve_method(body: object, *, streaming: bool):
+        class_method = (
+            body.get("class_method") if isinstance(body, dict) else None
+        )
         if not class_method:
             raise HTTPException(
                 status_code=http.HTTPStatus.BAD_REQUEST,
-                detail="Request body must include class_method.",
+                detail="Request body must be a JSON object with class_method.",
             )
         rt = get_runtime()
         allowed = streaming_methods if streaming else sync_methods
@@ -96,7 +99,7 @@ def attach_reasoning_engine_routes(app: FastAPI) -> None:
     @app.post("/api/stream_reasoning_engine")
     async def stream_query(request: Request) -> responses.StreamingResponse:
         body = await request.json()
-        method = resolve_method(body.get("class_method"), streaming=True)
+        method = resolve_method(body, streaming=True)
 
         async def generator():
             # `streaming_methods` merges the registry's SYNC `stream` bucket
@@ -122,7 +125,7 @@ def attach_reasoning_engine_routes(app: FastAPI) -> None:
     @app.post("/api/reasoning_engine")
     async def query(request: Request) -> responses.JSONResponse:
         body = await request.json()
-        method = resolve_method(body.get("class_method"), streaming=False)
+        method = resolve_method(body, streaming=False)
         output = await _invoke_method(method, body)
         return responses.JSONResponse(
             content=encoders.jsonable_encoder({"output": output})
