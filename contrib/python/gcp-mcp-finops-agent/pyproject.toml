@@ -3,8 +3,12 @@ name = "gcp-mcp-finops-agent"
 version = "0.1.0"
 requires-python = ">=3.11,<3.14"
 dependencies = [
-    "google-adk[mcp]>=2.0.0,<3.0.0",
+    "google-adk[gcp,mcp,otel-gcp]<3.0.0,>=2.0.0",
     "python-dotenv>=1.0.0",
+    "a2a-sdk[http-server]>=1.0,<2",
+    "aiohttp>=3.13.4",
+    "gcsfs>=2024.11.0",
+    "opentelemetry-resourcedetector-gcp<=1.12.0a0",
 ]
 
 [dependency-groups]
