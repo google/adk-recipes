@@ -26,7 +26,7 @@ import inspect
 import json
 
 from agentplatform.agent_engines.templates.adk import AdkApp
-from fastapi import FastAPI, HTTPException, Request, encoders, responses
+from fastapi import FastAPI, HTTPException, Request, encoders, responses, status
 
 from financial_advisor.app_utils import services
 
@@ -49,28 +49,38 @@ def attach_reasoning_engine_routes(app: FastAPI) -> None:
 
             # Reuse the process-wide services so sessions created here are
             # visible to the adk_api and A2A paths, and vice versa (see services.py).
-            runtime = AdkApp(
+            candidate = AdkApp(
                 app=adk_app,
                 session_service_builder=services.get_session_service,
                 artifact_service_builder=services.get_artifact_service,
                 instrumentor_builder=_no_op_instrumentor_builder,
             )
-            runtime.set_up()
-            operations = runtime.register_operations()
+            candidate.set_up()
+            operations = candidate.register_operations()
             streaming_methods = set(operations.get("stream", [])) | set(
                 operations.get("async_stream", [])
             )
             sync_methods = set(operations.get("", [])) | set(
                 operations.get("async", [])
             )
+            # Published only after set_up() succeeds, so a failed one is retried.
+            runtime = candidate
         return runtime
 
-    def resolve_method(class_method: str, *, streaming: bool):
+    def resolve_method(body: object, *, streaming: bool):
+        class_method = (
+            body.get("class_method") if isinstance(body, dict) else None
+        )
+        if not class_method:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Request body must be a JSON object with class_method.",
+            )
         rt = get_runtime()
         allowed = streaming_methods if streaming else sync_methods
         if class_method not in allowed:
             raise HTTPException(
-                status_code=404,
+                status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Unsupported reasoning_engine method: {class_method!r}",
             )
         return getattr(rt, class_method)
@@ -78,7 +88,7 @@ def attach_reasoning_engine_routes(app: FastAPI) -> None:
     @app.post("/api/stream_reasoning_engine")
     async def stream_query(request: Request) -> responses.StreamingResponse:
         body = await request.json()
-        method = resolve_method(body["class_method"], streaming=True)
+        method = resolve_method(body, streaming=True)
 
         async def generator():
             # `streaming_methods` merges the registry's SYNC `stream` bucket
@@ -104,7 +114,7 @@ def attach_reasoning_engine_routes(app: FastAPI) -> None:
     @app.post("/api/reasoning_engine")
     async def query(request: Request) -> responses.JSONResponse:
         body = await request.json()
-        method = resolve_method(body["class_method"], streaming=False)
+        method = resolve_method(body, streaming=False)
         kwargs = body.get("input") or {}
         output = (
             await method(**kwargs)

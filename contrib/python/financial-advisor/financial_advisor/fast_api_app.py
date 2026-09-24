@@ -25,6 +25,9 @@ from google.adk.runners import Runner
 
 from financial_advisor.app_utils import services
 from financial_advisor.app_utils.a2a import attach_a2a_routes
+from financial_advisor.app_utils.reasoning_engine_adapter import (
+    attach_reasoning_engine_routes,
+)
 
 load_dotenv()
 for _k, _v in list(os.environ.items()):
@@ -41,8 +44,8 @@ except Exception:
     project_id = None
 
 allow_origins = (
-    os.getenv("ALLOW_ORIGINS").split(",")
-    if os.getenv("ALLOW_ORIGINS")
+    [origin.strip() for origin in origins.split(",") if origin.strip()]
+    if (origins := os.getenv("ALLOW_ORIGINS"))
     else None
 )
 
@@ -85,6 +88,10 @@ app: FastAPI = get_fast_api_app(
 )
 app.title = "financial-advisor"
 app.description = "API for interacting with the Agent financial-advisor"
+
+# Agent Engine forwards :query and :streamQuery to these routes; without them
+# a container deployed through container_spec starts but 404s every call.
+attach_reasoning_engine_routes(app)
 
 
 # Main execution

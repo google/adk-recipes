@@ -24,6 +24,19 @@ from google.adk.runners import Runner
 
 from brand_search_optimization.app_utils import services
 from brand_search_optimization.app_utils.a2a import attach_a2a_routes
+from brand_search_optimization.app_utils.reasoning_engine_adapter import (
+    attach_reasoning_engine_routes,
+)
+
+# .env.example declares these Agent Engine-injected variables empty. Loaded
+# as-is, their mere presence makes AdkApp build an Agent Engine memory service
+# with no engine id and fail every reasoning_engine call off Agent Engine.
+for _key in (
+    "GOOGLE_CLOUD_AGENT_ENGINE_ID",
+    "GOOGLE_CLOUD_AGENT_ENGINE_LOCATION",
+):
+    if not os.environ.get(_key):
+        os.environ.pop(_key, None)
 
 # Cloud telemetry needs Application Default Credentials. Resolve them here
 # rather than letting get_fast_api_app raise DefaultCredentialsError at import
@@ -35,12 +48,8 @@ except Exception:
     project_id = None
 
 allow_origins = (
-    [
-        origin.strip()
-        for origin in os.getenv("ALLOW_ORIGINS").split(",")
-        if origin.strip()
-    ]
-    if os.getenv("ALLOW_ORIGINS")
+    [origin.strip() for origin in origins.split(",") if origin.strip()]
+    if (origins := os.getenv("ALLOW_ORIGINS"))
     else None
 )
 
@@ -85,6 +94,10 @@ app: FastAPI = get_fast_api_app(
 )
 app.title = "brand-search-optimization"
 app.description = "API for interacting with the Agent brand-search-optimization"
+
+# Agent Engine forwards :query and :streamQuery to these routes; without them
+# a container deployed through container_spec starts but 404s every call.
+attach_reasoning_engine_routes(app)
 
 
 # Main execution

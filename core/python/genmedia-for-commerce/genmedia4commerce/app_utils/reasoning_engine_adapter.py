@@ -20,52 +20,36 @@ contract. Agent Engine forwards calls to ``/api/reasoning_engine`` (sync) and
 ``/api/stream_reasoning_engine`` (streaming); dispatch is limited to the
 :class:`AdkApp` ``register_operations()`` methods so the wire output matches a
 packaged Agent Engine.
+
+Derived from the make-python-recipe-deployable template. The one
+difference: the runtime is this recipe's own AgentEngineApp from
+agent_engine_app.py, so a container deployment exposes the same
+operations (including register_feedback) as a source deployment.
 """
 
-import http
 import inspect
 import json
 
-from agentplatform.agent_engines.templates.adk import AdkApp
-from fastapi import FastAPI, HTTPException, Request, encoders, responses
-
-from brand_search_optimization.app_utils import services
-
-
-def _no_op_instrumentor_builder(_project_id: str) -> None:
-    """No-op so set_up() keeps the startup instrumentor and generate_content spans."""
-    return None
-
-
-async def _invoke_method(method, body: dict):
-    """Dispatches a dynamic reasoning engine method handling sync/async callables."""
-    kwargs = body.get("input") or {}
-    return (
-        await method(**kwargs)
-        if inspect.iscoroutinefunction(method)
-        else method(**kwargs)
-    )
+from fastapi import FastAPI, HTTPException, Request, encoders, responses, status
 
 
 def attach_reasoning_engine_routes(app: FastAPI) -> None:
-    """Register reasoning_engine routes that dispatch to an AdkApp."""
-    runtime: AdkApp | None = None
+    """Register reasoning_engine routes that dispatch to AgentEngineApp."""
+    runtime = None
     streaming_methods: set[str] = set()
     sync_methods: set[str] = set()
 
-    def get_runtime() -> AdkApp:
+    def get_runtime():
         nonlocal runtime, streaming_methods, sync_methods
         if runtime is None:
-            from brand_search_optimization.agent import app as adk_app
+            from genmedia4commerce.agent_engine_app import agent_engine
 
-            # Reuse the process-wide services so sessions created here are
-            # visible to the adk_api and A2A paths, and vice versa (see services.py).
-            candidate = AdkApp(
-                app=adk_app,
-                session_service_builder=services.get_session_service,
-                artifact_service_builder=services.get_artifact_service,
-                instrumentor_builder=_no_op_instrumentor_builder,
-            )
+            if agent_engine is None:
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="AgentEngineApp failed to initialize; see startup logs.",
+                )
+            candidate = agent_engine
             candidate.set_up()
             operations = candidate.register_operations()
             streaming_methods = set(operations.get("stream", [])) | set(
@@ -84,14 +68,14 @@ def attach_reasoning_engine_routes(app: FastAPI) -> None:
         )
         if not class_method:
             raise HTTPException(
-                status_code=http.HTTPStatus.BAD_REQUEST,
+                status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Request body must be a JSON object with class_method.",
             )
         rt = get_runtime()
         allowed = streaming_methods if streaming else sync_methods
         if class_method not in allowed:
             raise HTTPException(
-                status_code=http.HTTPStatus.NOT_FOUND,
+                status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Unsupported reasoning_engine method: {class_method!r}",
             )
         return getattr(rt, class_method)
@@ -110,7 +94,7 @@ def attach_reasoning_engine_routes(app: FastAPI) -> None:
             # the callable, so a sync method returning an async iterable also
             # works. The sync route below draws the same distinction for the
             # `""` and `async` buckets via iscoroutinefunction.
-            stream = await _invoke_method(method, body)
+            stream = method(**(body.get("input") or {}))
             if hasattr(stream, "__aiter__"):
                 async for event in stream:
                     yield json.dumps(event) + "\n"
@@ -126,7 +110,12 @@ def attach_reasoning_engine_routes(app: FastAPI) -> None:
     async def query(request: Request) -> responses.JSONResponse:
         body = await request.json()
         method = resolve_method(body, streaming=False)
-        output = await _invoke_method(method, body)
+        kwargs = body.get("input") or {}
+        output = (
+            await method(**kwargs)
+            if inspect.iscoroutinefunction(method)
+            else method(**kwargs)
+        )
         return responses.JSONResponse(
             content=encoders.jsonable_encoder({"output": output})
         )
