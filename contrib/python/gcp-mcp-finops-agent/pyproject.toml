@@ -17,6 +17,11 @@ dev = [
     "pytest-asyncio>=0.24.0",
 ]
 
+# `adk eval` needs the eval module, which the runtime does not use, so it is an
+# extra: `uv sync --extra eval`.
+[project.optional-dependencies]
+eval = ["google-adk[eval]<3.0.0,>=2.0.0"]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

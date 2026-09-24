@@ -13,7 +13,7 @@
 # limitations under the License.
 """FinOps agent on the Google-hosted BigQuery MCP server."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from google.adk.agents import Agent
 from google.adk.agents.callback_context import CallbackContext
@@ -28,9 +28,9 @@ from app.prompt import build_instruction
 
 def set_current_date(callback_context: CallbackContext) -> None:
     """Puts today's date in session state for the instruction."""
-    callback_context.state["current_date_utc"] = datetime.now(
-        timezone.utc
-    ).strftime("%Y-%m-%d")
+    callback_context.state["current_date_utc"] = datetime.now(UTC).strftime(
+        "%Y-%m-%d"
+    )
 
 
 def create_agent() -> Agent:

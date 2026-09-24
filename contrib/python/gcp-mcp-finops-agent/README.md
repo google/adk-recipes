@@ -77,10 +77,16 @@ to configure. It never makes up a cost figure.
 
    | Variable | Required | Meaning |
    | --- | --- | --- |
-   | `MODEL_NAME` | yes | Gemini model, for example `gemini-3.5-flash` |
    | `GOOGLE_CLOUD_PROJECT` | yes | Project for Gemini calls. MCP requests are also billed to it. |
    | `BILLING_TABLE` | yes | Billing export table, `project.dataset.table` |
    | `BILLING_PROJECT` | no | Project to run the cost queries in. Defaults to the project in `BILLING_TABLE`. |
+   | `MODEL_NAME` | no | Gemini model. Defaults to `gemini-3.5-flash`. |
+   | `GOOGLE_CLOUD_LOCATION` | no | Region for Gemini calls. Defaults to `global` in `.env.example`. |
+   | `GOOGLE_GENAI_USE_VERTEXAI` | no | Keep `True` to call Gemini through Agent Platform (formerly Vertex AI). |
+
+   The rest of `.env.example` configures the FastAPI server used for Cloud
+   Run (CORS, the A2A agent card, session and artifact storage). `adk web` and
+   `adk run` ignore it, and the shipped values match the code's defaults.
 
 3. Run the agent in the ADK web UI:
    ```bash
@@ -106,6 +112,17 @@ the setup above:
 
 ```bash
 uv run pytest tests/integration
+```
+
+The evals in `tests/eval/` score the final answer with a rubric judged by
+Gemini, so they also need the setup above. They run through ADK's eval
+module, which is an extra, and the config file has to be named because it is
+not beside the evalset:
+
+```bash
+uv sync --extra eval
+uv run adk eval app tests/eval/evalsets/basic.evalset.json \
+  --config_file_path tests/eval/eval_config.json
 ```
 
 ## Troubleshooting
