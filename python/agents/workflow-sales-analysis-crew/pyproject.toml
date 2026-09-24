@@ -1,0 +1,37 @@
+[project]
+name = "workflow-sales-analysis-crew"
+version = "0.1.0"
+description = "Sequential analyst-critic-reporter crew built with ADK Workflow."
+authors = [
+    { name = "Adrian Hartanto", email = "adrianhartanto16@yahoo.com" }
+]
+license = { text = "Apache License 2.0" }
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "google-adk>=1.5.0,<2.0.0",
+    "google-cloud-aiplatform[adk,agent-engines]>=1.100.0,<2.0.0",
+    "python-dotenv>=1.1.1,<2.0.0",
+]
+
+[dependency-groups]
+dev = [
+    "google-adk>=1.5.0,<2.0.0",
+]
+deployment = [
+    "absl-py>=2.2.2",
+    "google-cloud-aiplatform[adk,agent-engines]>=1.100.0",
+]
+
+[tool.ruff]
+extend = "../../../pyproject.toml"
+
+[tool.ruff.lint.isort]
+known-first-party = ["workflow-sales-analysis-crew"]
+
+[tool.agent-starter-pack.settings]
+agent_directory = "workflow-sales-analysis-crew"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
