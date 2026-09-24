@@ -12,32 +12,9 @@
 #
 # Add new sections here rather than hardcoding constants in workflow files.
 
-# --------------------------------------------------------------------------
-# Repo admin — the GitHub login of the person accountable for repository
-# maintenance, and the default human any automation escalates to when it
-# needs one.
-#
-# This is the single place to change that name. The value carries a YAML
-# anchor (`&repo_admin`), so any key below can alias it with `*repo_admin`
-# instead of repeating the login. PyYAML resolves the alias before
-# load_policy.py ever sees it, so callers read a plain string and need no
-# special handling — `load_policy.py repo_admin` and
-# `load_policy.py stale_policy.pull_requests.bot_escalation_mention` both
-# print the same login.
-#
-# Aliasing rather than collapsing the consuming keys is deliberate: a key
-# keeps its own name and can be pointed at someone else later without
-# touching the workflow that reads it.
-#
-# THIS IS A LOGIN, NOT A NAME, AND IT NEEDS WRITE ACCESS — the same rule
-# CODEOWNERS documents. A guessed handle can belong to an unrelated
-# account, and automation that @-mentions or assigns a login without write
-# access fails silently.
-#
-# Related but separate: .github/CODEOWNERS decides who REVIEWS a path, and
-# its catch-all currently names the same person. Changing this key does not
-# change CODEOWNERS; keep the two in step by hand.
-# --------------------------------------------------------------------------
+# Default human for repository maintenance: the login automation assigns
+# or @-mentions when it needs one. Aliased below as `*repo_admin`. Must be
+# a GitHub login with write access.
 repo_admin: &repo_admin happyhuman
 
 # --------------------------------------------------------------------------
@@ -414,10 +391,6 @@ stale_policy:
     # rebases its own PRs, which counts as activity. The ones that do go
     # quiet are the ones Dependabot itself has abandoned, which is exactly
     # the set worth escalating.
-    #
-    # The escalation target is the repo admin, aliased from `repo_admin` at
-    # the top of this file. Replace the alias with a literal login to send
-    # dependency escalations somewhere else.
     bot_label: dependencies
     bot_escalation_mention: *repo_admin
 
