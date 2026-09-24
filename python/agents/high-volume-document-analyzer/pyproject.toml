@@ -15,9 +15,8 @@ readme = "README.md"
 requires-python = ">=3.11,<3.14"
 
 dependencies = [
-    "google-adk>=1.28.0",
-    "google-cloud-aiplatform[adk,agent-engines]>=1.93.0",
-    "opentelemetry-instrumentation-google-genai==0.4b0",
+    "google-adk[gcp,otel-gcp]>=2.6.0,<3.0.0",
+    "google-cloud-aiplatform[agent-engines]>=1.93.0",
     "python-dotenv>=1.0.1",
     "reportlab==4.2.0",
     "pypdf==6.15.0",
@@ -25,11 +24,14 @@ dependencies = [
     "pandas==2.3.3",
     "beautifulsoup4==4.14.3",
     "aiohttp==3.14.3",
+    "a2a-sdk[http-server]>=1.0,<2",
+    "gcsfs>=2024.11.0",
+    "opentelemetry-resourcedetector-gcp<=1.12.0a0",
 ]
 
 [dependency-groups]
 dev = [
-    "google-adk[eval]>=1.28.0",
+    "google-adk[eval]>=2.6.0,<3.0.0",
     "pytest>=8.3.5",
     "pytest-asyncio>=0.26.0",
     "agent-starter-pack>=0.15.4",

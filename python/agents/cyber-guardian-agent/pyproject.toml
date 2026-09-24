@@ -9,23 +9,26 @@ authors = [
 license = "Apache-2.0"
 readme = "README.md"
 dependencies = [
-    "google-cloud-aiplatform[adk,agent-engines]>=1.93.0",
+    "google-adk[gcp,otel-gcp]<3.0.0,>=2.6.0",
     "google-genai>=1.9.0",
     "pydantic>=2.10.6",
     "python-dotenv>=1.0.1",
-    "google-adk>=1.31.0",
     "google-cloud-bigquery>=3.29.0",
     "pandas",
     "pandas-gbq",
+    "a2a-sdk[http-server]>=1.0,<2",
+    "aiohttp>=3.13.4",
+    "gcsfs>=2024.11.0",
+    "opentelemetry-resourcedetector-gcp<=1.12.0a0",
 ]
 
-requires-python = ">=3.10,<3.13"
+requires-python = ">=3.11,<3.13"
 
 [dependency-groups]
 dev = [
     "pytest>=8.3.2",
     "pytest-asyncio>=0.23.7",
-    "google-adk[eval]>=1.31.0",
+    "google-adk[eval]>=2.6.0,<3.0.0",
     "nest-asyncio>=1.6.0",
     "agent-starter-pack>=0.14.1",
 ]
@@ -108,6 +111,5 @@ agent_directory = "cyber_guardian"
 
 [tool.agents-cli.create_params]
 deployment_target = "cloud_run"
-
 
 

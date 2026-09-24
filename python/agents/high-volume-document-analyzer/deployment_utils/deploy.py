@@ -64,9 +64,8 @@ common_args = {
         "high_volume_document_analyzer/tools/process_toolset.py",
     ],
     "requirements": [
-        "google-adk>=1.28.0",
-        "google-cloud-aiplatform[adk,agent-engines]>=1.93.0",
-        "opentelemetry-instrumentation-google-genai==0.4b0",
+        "google-adk[gcp,otel-gcp]>=2.6.0,<3.0.0",
+        "google-cloud-aiplatform[agent-engines]>=1.93.0",
         "python-dotenv>=1.0.1",
         "reportlab==4.2.0",
         "pypdf",

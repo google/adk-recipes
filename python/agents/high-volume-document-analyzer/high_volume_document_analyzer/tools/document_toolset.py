@@ -16,14 +16,15 @@
 
 import logging
 import os
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import google.auth
-import vertexai
 from google.adk.tools import ToolContext
-from vertexai.generative_models import GenerationConfig, GenerativeModel, Part
 
 from .process_toolset import download_batch_async, fetch_document_urls_async
+
+if TYPE_CHECKING:
+    from vertexai.generative_models import GenerativeModel
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
@@ -33,13 +34,16 @@ CHUNK_SIZE = int(os.getenv("BATCH_SIZE", "10"))
 MODEL_NAME = os.getenv("MODEL_NAME_DOC_PROCESSING", "gemini-2.5-flash")
 LOCATION = os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1")
 
-_MODEL_INSTANCE: GenerativeModel | None = None
+_MODEL_INSTANCE: "GenerativeModel | None" = None
 
 
-def get_model_instance() -> GenerativeModel:
+def get_model_instance() -> "GenerativeModel":
     global _MODEL_INSTANCE
     if _MODEL_INSTANCE is None:
         try:
+            import vertexai
+            from vertexai.generative_models import GenerativeModel
+
             credentials, project_id = google.auth.default()
             if not project_id:
                 logging.warning(
@@ -182,6 +186,8 @@ async def analyze_document_next_chunk(
 
             try:
                 if file_data.get("is_binary"):
+                    from vertexai.generative_models import Part
+
                     prompt_parts.append(
                         Part.from_data(
                             data=file_data["data"],
@@ -204,6 +210,8 @@ async def analyze_document_next_chunk(
             }
 
         model = get_model_instance()
+        from vertexai.generative_models import GenerationConfig
+
         response = await model.generate_content_async(
             prompt_parts,
             generation_config=GenerationConfig(

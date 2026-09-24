@@ -313,5 +313,7 @@ def init_bq_tables() -> None:
                     logger.error(f"Failed to load data into {table_name}: {e}")
 
 
-# Run initialization on import
-init_bq_tables()
+# Importing the agent must not perform network writes. Set this explicitly for
+# local dataset seeding or a controlled deployment initialization step.
+if os.getenv("CYBER_GUARDIAN_INIT_BQ_TABLES", "").lower() == "true":
+    init_bq_tables()

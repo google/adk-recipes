@@ -1,7 +1,7 @@
 import logging
 import os
 
-from google.adk.agents import Agent
+from google.adk.agents import LlmAgent
 from google.adk.planners import BuiltInPlanner
 from google.genai import types
 
@@ -15,7 +15,7 @@ from .sub_agents.triage.agent import triage_agent
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-root_agent = Agent(
+root_agent = LlmAgent(
     model=os.getenv("MODEL_ID", "gemini-2.5-flash"),
     name="cyber_guardian_orchestrator",
     description="Orchestrates a multi-agent cybersecurity incident response workflow",
