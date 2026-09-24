@@ -1,0 +1,32 @@
+{
+  "rubric_name": "Circuit Board Quality Assurance",
+  "version": "1.0",
+  "criteria": [
+    {
+      "grade": "Pass",
+      "conditions": [
+        "All soldering joints are clean and shiny.",
+        "No visible scorch marks or discoloration on the board.",
+        "All components are properly aligned and seated."
+      ]
+    },
+    {
+      "grade": "Marginal",
+      "conditions": [
+        "Minor dullness in soldering joints, but connections are solid.",
+        "Slight misalignment of components (less than 10 degrees).",
+        "No scorch marks."
+      ]
+    },
+    {
+      "grade": "Fail - Critical",
+      "conditions": [
+        "Visible scorch marks or burning.",
+        "Missing components.",
+        "Bridged solder joints (short circuits).",
+        "Severely misaligned components."
+      ]
+    }
+  ],
+  "instructions": "Evaluate the highest severity defect found. If any 'Fail - Critical' conditions are met, the grade must be 'Fail - Critical'."
+}
