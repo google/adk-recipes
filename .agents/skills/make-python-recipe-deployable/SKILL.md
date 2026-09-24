@@ -431,16 +431,16 @@ output needs them.
   **This is a fix to the vendored source, so re-rendering from a newer
   agents-cli will silently revert it** — re-check the streaming route after any
   re-render.
-- `reasoning_engine_adapter.py` is included even for cloud_run because the
-  Recipe Deployability doc lists it unconditionally, while agents-cli ships it
-  only under `agent_runtime`. **Settled by verification: in a cloud_run recipe
-  it is dead code.** Nothing imports it — `fast_api_app.py` pulls in only
-  `app_utils.services` and `app_utils.a2a` — and its own
-  `from agentplatform... import AdkApp` would raise `ModuleNotFoundError` if
-  anything did, because `agentplatform` is not a required dependency and does
-  not appear in a resolved `uv.lock`. Verified containers build and serve
-  without it. Whether the published doc should stop listing it is a standards
-  decision, not a code one.
+- `fast_api_app.py` wires `reasoning_engine_adapter.py` in, which agents-cli
+  does only under `agent_runtime`. Published recipe images are deployed to
+  Agent Engine through `container_spec`, and Agent Engine forwards `:query`
+  and `:streamQuery` to `/api/reasoning_engine` and
+  `/api/stream_reasoning_engine`. Without the adapter the container starts
+  and 404s every call — the cloud_run render passes this skill's own
+  verification (which probes `/list-apps`) while being unusable on Agent
+  Engine. The adapter imports `agentplatform`, supplied by
+  `google-cloud-aiplatform[agent-engines]`, hence that entry in
+  `required_dependencies`.
 
 Since these are vendored, they drift as agents-cli moves. Re-render from a
 newer agents-cli when the standard changes; do not hand-edit them to fix a
