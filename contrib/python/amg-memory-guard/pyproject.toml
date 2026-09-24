@@ -1,0 +1,31 @@
+[project]
+name = "amg-memory-guard"
+version = "0.1.0"
+description = "Guard Google ADK durable session-state writes with OWASP Agent Memory Guard."
+readme = "README.md"
+requires-python = ">=3.11,<3.13"
+dependencies = [
+    "agent-memory-guard>=0.3.0",
+    "google-adk>=1.0.0",
+    "python-dotenv>=1.0.1",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3.2",
+    "ruff>=0.8.0",
+]
+
+[tool.pytest.ini_options]
+pythonpath = "."
+
+[tool.hatch.build.targets.wheel]
+packages = ["amg_memory_guard_adk"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[[tool.uv.index]]
+url = "https://pypi.org/simple/"
+default = true
