@@ -91,7 +91,7 @@ def compute_file_id(gcs_uri: str) -> str:
     Python (hashlib) and in BigQuery (TO_HEX(MD5(uri))) to join across
     systems.
     """
-    return hashlib.md5(gcs_uri.encode()).hexdigest()
+    return hashlib.md5(gcs_uri.encode()).hexdigest()  # noqa: S324
 
 
 def _resolve_service_url(project_id: str, region: str) -> str:
@@ -245,7 +245,7 @@ def find_changed_with_dedup(
       )
 
     SELECT * FROM with_dedup_info
-    """
+    """  # noqa: S608
     rows = list(bq_client.query(query).result())
     to_extract: list[dict] = []
     dup_stubs: list[dict] = []

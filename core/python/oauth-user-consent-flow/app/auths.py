@@ -41,7 +41,7 @@ from google.adk.auth.auth_tool import AuthConfig
 
 # --- OAuth 2.0 Endpoints ---
 AUTHORIZATION_URL = "https://accounts.google.com/o/oauth2/auth"
-TOKEN_URL = "https://oauth2.googleapis.com/token"
+TOKEN_URL = "https://oauth2.googleapis.com/token"  # noqa: S105
 
 # --- Scopes ---
 # drive.readonly: read file content from Google Drive

@@ -145,7 +145,7 @@ def _flush_chunks_staging(
         CURRENT_TIMESTAMP() AS chunked_at,
         CURRENT_TIMESTAMP() AS indexed_at
     FROM `{staging_table}`
-    """
+    """  # noqa: S608
     bq_client.query(insert_sql).result()
     bq_client.delete_table(staging_table, not_found_ok=True)
 
@@ -181,7 +181,7 @@ def _build_rechunk_query(
             WHERE relevant IS NOT FALSE
         )
         SELECT * FROM relevant_files
-        """
+        """  # noqa: S608
 
     # Two-phase plan to avoid scanning the heavy `content` column for files
     # we won't actually re-chunk:
@@ -223,7 +223,7 @@ def _build_rechunk_query(
     SELECT p.file_id, p.gcs_uri, p.content
     FROM candidates AS c
     JOIN `{fq_preprocessed_table}` AS p USING (file_id)
-    """
+    """  # noqa: S608
 
 
 def _resolve_service_url(project_id: str, region: str) -> str:

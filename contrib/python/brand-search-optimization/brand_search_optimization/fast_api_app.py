@@ -47,7 +47,7 @@ allow_origins = (
 AGENT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # Fallbacks for local execution; deployments set PORT (see .env.example).
-DEFAULT_HOST = "0.0.0.0"
+DEFAULT_HOST = "0.0.0.0"  # noqa: S104 -- container entrypoint default host
 DEFAULT_PORT = 8080
 
 
