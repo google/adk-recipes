@@ -16,14 +16,12 @@ on:
     paths:
       - '.github/workflows/**'
       - '.github/dependabot.yml'
-      - '.github/workflows/workflow-security-lint.yml'
   push:
     branches:
       - main
     paths:
       - '.github/workflows/**'
       - '.github/dependabot.yml'
-      - '.github/workflows/workflow-security-lint.yml'
   workflow_dispatch:
 
 permissions:
@@ -56,4 +54,4 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          uvx zizmor --gh-token="${GH_TOKEN}" .
+          uvx zizmor@1.30.1 .
