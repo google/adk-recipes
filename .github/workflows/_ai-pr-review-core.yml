@@ -169,6 +169,7 @@ jobs:
         uses: 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1' # ratchet:actions/checkout@v4
         with:
           fetch-depth: 1 # PR diff and metadata come from the gh API; git history is not needed.
+          persist-credentials: false
 
       # SECURITY: strip the workspace config agy reads, so the only
       # configuration it sees is the global config written to $HOME below —

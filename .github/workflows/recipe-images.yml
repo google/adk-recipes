@@ -187,6 +187,28 @@ jobs:
       - name: Set up Buildx
         uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # ratchet:docker/setup-buildx-action@v4.3.0
 
+      - name: Build image for scanning
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # ratchet:docker/build-push-action@v7.3.0
+        with:
+          context: ${{ matrix.path }}
+          file: ${{ matrix.path }}/Dockerfile
+          load: true
+          tags: ${{ matrix.image }}:scan
+          build-args: |
+            AGENT_VERSION=${{ github.sha }}
+          cache-from: type=gha,scope=${{ matrix.path }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.path }}
+
+      - name: Scan image with Trivy
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # ratchet:aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ${{ matrix.image }}:scan
+          format: table
+          exit-code: 1
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: CRITICAL,HIGH
+
       - name: Build and push
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # ratchet:docker/build-push-action@v7.3.0
         with:
@@ -207,7 +229,7 @@ jobs:
             ${{ matrix.image }}:${{ needs.matrix.outputs.build_tag }}
           build-args: |
             AGENT_VERSION=${{ github.sha }}
-          provenance: false
+          provenance: true
           # Shared across runs of the same recipe, not across recipes: these
           # images share a base layer but nothing above it, and a common
           # scope would have them evicting each other's dependency layers.
