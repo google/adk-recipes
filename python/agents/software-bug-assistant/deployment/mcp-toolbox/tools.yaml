@@ -2,7 +2,7 @@ sources:
   postgresql: # GCP -  CLOUD SQL
     kind: cloud-sql-postgres
     project: ${PROJECT_ID}
-    region: us-central1
+    region: us-east1
     instance: software-assistant
     database: tickets-db
     user: ${DB_USER}

@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from typing import Any
+
 from google.adk.agents import Agent
 
 from .prompt import agent_instruction
@@ -24,15 +26,15 @@ from .tools.tools import (
 )
 
 # Build tools list, filtering out empty/None values
-tools = [get_current_date, search_tool, langchain_tool]
+tools: list[Any] = [get_current_date, search_tool, langchain_tool]
 if toolbox_tools:  # Only add if not empty list
     tools.extend(toolbox_tools)
 if mcp_tools is not None:  # Only add if not None
     tools.append(mcp_tools)
 
 root_agent = Agent(
-    model="gemini-2.5-flash",
-    name="software_assistant",
+    model="gemini-3.5-flash",
+    name="software_bug_assistant",
     instruction=agent_instruction,
     tools=tools,
 )

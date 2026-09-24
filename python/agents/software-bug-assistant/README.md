@@ -152,7 +152,7 @@ Create a `.env` file by running the following (replace `<your_project_id>` with 
 ```sh
 echo "GOOGLE_GENAI_USE_VERTEXAI=TRUE" >> .env \
 && echo "GOOGLE_CLOUD_PROJECT=<your_project_id>" >> .env \
-&& echo "GOOGLE_CLOUD_LOCATION=us-central1" >> .env \
+&& echo "GOOGLE_CLOUD_LOCATION=us-east1" >> .env \
 && echo "GITHUB_PERSONAL_ACCESS_TOKEN=<your_github_pat_here>" >> .env
 ```
 
@@ -386,7 +386,7 @@ gcloud services enable sqladmin.googleapis.com \
 gcloud sql instances create software-assistant \
    --database-version=POSTGRES_16 \
    --tier=db-custom-1-3840 \
-   --region=us-central1 \
+   --region=us-east1 \
    --edition=ENTERPRISE \
    --enable-google-ml-integration \
    --database-flags cloudsql.enable_google_ml_integration=on \
@@ -518,7 +518,7 @@ First, update `deployment/mcp-toolbox/tools.yaml` for your Cloud SQL instance:
   postgresql:
     kind: cloud-sql-postgres
     project: ${PROJECT_ID}
-    region: us-central1
+    region: us-east1
     instance: software-assistant
     database: tickets-db
     user: ${DB_USER}
@@ -553,9 +553,9 @@ Now we can deploy Toolbox to Cloud Run. We'll use the latest [release version](h
 
 ```bash
 gcloud run deploy toolbox \
-    --image us-central1-docker.pkg.dev/database-toolbox/toolbox/toolbox:latest \
+    --image us-east1-docker.pkg.dev/database-toolbox/toolbox/toolbox:latest \
     --service-account toolbox-identity \
-    --region us-central1 \
+    --region us-east1 \
     --set-secrets "/app/tools.yaml=tools:latest" \
     --set-env-vars="PROJECT_ID=$PROJECT_ID,DB_USER=postgres,DB_PASS=admin" \
     --args="--tools-file=/app/tools.yaml","--address=0.0.0.0","--port=8080" \
@@ -565,7 +565,7 @@ gcloud run deploy toolbox \
 Verify that the Toolbox is running by getting the Cloud Run logs: 
 
 ```bash 
-gcloud run services logs read toolbox --region us-central1
+gcloud run services logs read toolbox --region us-east1
 ```
 
 You should see: 
@@ -581,7 +581,7 @@ You should see:
 Save the Cloud Run URL for the Toolbox service as an environment variable.
 
 ```bash
-export MCP_TOOLBOX_URL=$(gcloud run services describe toolbox --region us-central1 --format "value(status.url)")
+export MCP_TOOLBOX_URL=$(gcloud run services describe toolbox --region us-east1 --format "value(status.url)")
 ```
 
 Now we are ready to deploy the ADK Python agent to Cloud Run! :rocket:
@@ -593,7 +593,7 @@ This is where we'll store the agent container image.
 ```bash
 gcloud artifacts repositories create adk-samples \
   --repository-format=docker \
-  --location=us-central1 \
+  --location=us-east1 \
   --description="Repository for ADK Python sample agents" \
   --project=$PROJECT_ID
 ```
@@ -603,7 +603,7 @@ gcloud artifacts repositories create adk-samples \
 Build the container image and push it to Artifact Registry with Cloud Build.
 
 ```bash
-gcloud builds submit --region=us-central1 --tag us-central1-docker.pkg.dev/$PROJECT_ID/adk-samples/software-bug-assistant:latest
+gcloud builds submit --region=us-east1 --tag us-east1-docker.pkg.dev/$PROJECT_ID/adk-samples/software-bug-assistant:latest
 ```
 
 ### 12 - Deploy the agent to Cloud Run 
@@ -614,13 +614,13 @@ gcloud builds submit --region=us-central1 --tag us-central1-docker.pkg.dev/$PROJ
 > If you are using Vertex AI instead of AI Studio for Gemini calls, you will need to replace `GOOGLE_API_KEY` with `GOOGLE_CLOUD_PROJECT`, `GOOGLE_CLOUD_LOCATION`, and `GOOGLE_GENAI_USE_VERTEXAI=TRUE` in the last line of the below `gcloud run deploy` command.
 > 
 > ```bash
-> --set-env-vars=GOOGLE_CLOUD_PROJECT=$PROJECT_ID,GOOGLE_CLOUD_LOCATION=us-central1,GOOGLE_GENAI_USE_VERTEXAI=TRUE,MCP_TOOLBOX_URL=$MCP_TOOLBOX_URL,GITHUB_PERSONAL_ACCESS_TOKEN=$GITHUB_PERSONAL_ACCESS_TOKEN
+> --set-env-vars=GOOGLE_CLOUD_PROJECT=$PROJECT_ID,GOOGLE_CLOUD_LOCATION=us-east1,GOOGLE_GENAI_USE_VERTEXAI=TRUE,MCP_TOOLBOX_URL=$MCP_TOOLBOX_URL,GITHUB_PERSONAL_ACCESS_TOKEN=$GITHUB_PERSONAL_ACCESS_TOKEN
 > ```
 
 ```bash
 gcloud run deploy software-bug-assistant \
-  --image=us-central1-docker.pkg.dev/$PROJECT_ID/adk-samples/software-bug-assistant:latest \
-  --region=us-central1 \
+  --image=us-east1-docker.pkg.dev/$PROJECT_ID/adk-samples/software-bug-assistant:latest \
+  --region=us-east1 \
   --allow-unauthenticated \
   --set-env-vars=GOOGLE_API_KEY=$GOOGLE_API_KEY,MCP_TOOLBOX_URL=$MCP_TOOLBOX_URL,GITHUB_PERSONAL_ACCESS_TOKEN=$GITHUB_PERSONAL_ACCESS_TOKEN 
 ```

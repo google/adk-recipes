@@ -3,7 +3,7 @@
     <path fill="#333537" d="M0 962V0h406.02v962H0z"/>
     <g class="node" transform="translate(4 958)">
       <ellipse cx="93.91" cy="-477" fill="#0f5223" stroke="#0f5223" rx="93.91" ry="18"/>
-      <text xml:space="preserve" x="93.91" y="-472.8" fill="#ccc" font-family="Times,serif" font-size="14" text-anchor="middle">🤖 software_assistant</text>
+      <text xml:space="preserve" x="93.91" y="-472.8" fill="#ccc" font-family="Times,serif" font-size="14" text-anchor="middle">🤖 software_bug_assistant</text>
     </g>
     <g class="node" transform="translate(4 958)">
       <path fill="none" stroke="#ccc" d="M362.7-954H259.14c-6 0-12 6-12 12v12c0 6 6 12 12 12H362.7c6 0 12-6 12-12v-12c0-6-6-12-12-12"/>

@@ -40,7 +40,7 @@ def get_current_date() -> dict:
 
 # ----- Example of a Built-in Tool -----
 search_agent = Agent(
-    model="gemini-2.5-flash",
+    model="gemini-3.5-flash",
     name="search_agent",
     instruction="""
     You're a specialist in Google Search.
@@ -70,13 +70,17 @@ except Exception:
 
 # ----- Example of an MCP Tool (streamable-http) -----
 # If GitHub token is not available (e.g., in CI), set to None
+mcp_tools: MCPToolset | None = None
 try:
+    token = os.getenv("GITHUB_PERSONAL_ACCESS_TOKEN")
+    if not token:
+        raise ValueError("GITHUB_PERSONAL_ACCESS_TOKEN is not set")
+
     mcp_tools = MCPToolset(
         connection_params=StreamableHTTPConnectionParams(
             url="https://api.githubcopilot.com/mcp/",
             headers={
-                "Authorization": "Bearer "
-                + os.getenv("GITHUB_PERSONAL_ACCESS_TOKEN"),
+                "Authorization": f"Bearer {token}",
             },
         ),
         # Read only tools
