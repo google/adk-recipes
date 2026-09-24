@@ -3136,17 +3136,10 @@ def run(
         "support."
     )
     report.note(
-        "reasoning_engine_adapter.py is generated but is DEAD CODE in a "
-        "cloud_run recipe — settled by verification, not speculation. "
-        "Nothing imports it: fast_api_app.py pulls in only app_utils.services "
-        "and app_utils.a2a, and its own "
-        "`from agentplatform...import AdkApp` would raise ModuleNotFoundError "
-        "if anything did, because `agentplatform` is not among the required "
-        "dependencies and does not appear in a resolved uv.lock. A verified "
-        "container builds and serves without it. It is emitted because the "
-        "Recipe Deployability doc lists it unconditionally while agents-cli "
-        "ships it only under agent_runtime; whether the doc should change is "
-        "a standards decision, not a code one."
+        "Container verification probes GET routes only. It does not exercise "
+        "POST /api/reasoning_engine, which is what Agent Engine calls when "
+        "the image is deployed through container_spec, so a pass here does "
+        "not prove the image works on Agent Engine."
     )
     # Recomputed: the manifest patch above can itself record an ERROR, and it
     # runs after the first computation. Leaving the earlier value would report
