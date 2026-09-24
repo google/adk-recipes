@@ -115,4 +115,10 @@ app.mount("/mcp", mcp_server.sse_app())
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", "8080")))
+    port_env = os.getenv("PORT")
+    port = int(port_env) if port_env else 8080
+    uvicorn.run(
+        app,
+        host="0.0.0.0",  # noqa: S104 -- container entrypoint
+        port=port,
+    )

@@ -388,7 +388,7 @@ async def read_file(
     target, err = _resolve_in_session_window(path, tool_context)
     if err is not None:
         return _error(err)
-    assert target is not None
+    assert target is not None  # noqa: S101 -- narrow type after error check
 
     if _is_write_denied(str(target)):
         return _error(f"Read denied: {path} is on the protected paths list.")
@@ -456,7 +456,10 @@ async def read_file(
 
 
 async def write(
-    path: str, content: str, *, tool_context: Any | None = None
+    path: str,
+    content: str,
+    *,
+    tool_context: Any | None = None,
 ) -> dict[str, Any]:
     """Write content to path, creating parent directories as needed.
     Paths: see routing.
@@ -464,7 +467,7 @@ async def write(
     target, err = _resolve_in_session_window(path, tool_context)
     if err is not None:
         return _error(err)
-    assert target is not None
+    assert target is not None  # noqa: S101 -- narrow type after error check
 
     if _is_write_denied(str(target)):
         return _error(f"Write denied: {path} is on the protected paths list.")
@@ -572,7 +575,7 @@ def _resolve_edits(
         resolution = find_replacement(original, old_text)
         if resolution.error is not None:
             return None, f"edits[{i}]: {resolution.error}"
-        assert resolution.search is not None
+        assert resolution.search is not None  # noqa: S101 -- narrow type after error check
 
         match_start = original.find(resolution.search)
         resolved.append(
@@ -619,7 +622,7 @@ async def edit(
     target, err = _resolve_in_session_window(path, tool_context)
     if err is not None:
         return _error(err)
-    assert target is not None
+    assert target is not None  # noqa: S101 -- narrow type after error check
 
     if _is_write_denied(str(target)):
         return _error(f"Write denied: {path} is on the protected paths list.")
@@ -642,7 +645,7 @@ async def edit(
     resolved, resolve_err = _resolve_edits(original, edits)
     if resolve_err is not None:
         return _error(f"{resolve_err} (file: {path})")
-    assert resolved is not None
+    assert resolved is not None  # noqa: S101 -- narrow type after error check
 
     updated = _apply_resolved_edits(original, resolved)
 
@@ -698,7 +701,7 @@ async def search_files(
     root, err = resolve_in_window(path, env_root, window)
     if err is not None:
         return _error(err)
-    assert root is not None
+    assert root is not None  # noqa: S101 -- narrow type after error check
 
     script = _build_search_script(
         str(root),

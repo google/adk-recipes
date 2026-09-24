@@ -421,4 +421,10 @@ async def handle_request(request: Request):
 
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", "8080")))
+    port_env = os.getenv("PORT")
+    port = int(port_env) if port_env else 8080
+    uvicorn.run(
+        app,
+        host="0.0.0.0",  # noqa: S104 -- container entrypoint
+        port=port,
+    )

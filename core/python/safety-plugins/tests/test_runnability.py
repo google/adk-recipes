@@ -23,7 +23,9 @@ def test_agent_runnability() -> None:
     # credential lookups don't need ADC — the setup must happen before the import.
     os.environ.setdefault("GOOGLE_CLOUD_PROJECT", "test-project")
 
-    with patch("google.auth.default", return_value=(MagicMock(), "test-project")):
+    with patch(
+        "google.auth.default", return_value=(MagicMock(), "test-project")
+    ):
         import safety_plugins.agent
 
     assert safety_plugins.agent.root_agent is not None

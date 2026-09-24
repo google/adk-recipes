@@ -169,7 +169,7 @@ class ReadTool(BaseTool):
         )
         if err is not None:
             return {"success": False, "error": err}
-        assert target is not None
+        assert target is not None  # noqa: S101 -- narrow type after error check
 
         # Credential deny-list — both branches. The old media-only tool
         # never had this at all, so a denied path routed to the media

@@ -274,7 +274,7 @@ def _ensure_dataset_and_table(
         if if_exists == "skip":
             try:
                 client.get_table(table_ref)
-                count_query = f"SELECT COUNT(*) AS n FROM `{table_ref}`"
+                count_query = f"SELECT COUNT(*) AS n FROM `{table_ref}`"  # noqa: S608
                 row_count = next(iter(client.query(count_query).result())).n
                 if row_count > 0:
                     logger.info(
@@ -370,7 +370,7 @@ def ingest(
                 dataset_ref,
             )
             sys.exit(1)
-        except Exception:  # pylint: disable=broad-exception-caught
+        except Exception:  # pylint: disable=broad-exception-caught  # noqa: S110
             pass
         should_continue = _ensure_dataset_and_table(
             client, dataset_ref, table_ref, table_id, "error"
