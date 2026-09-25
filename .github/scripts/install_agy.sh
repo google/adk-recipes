@@ -10,7 +10,10 @@
 set -euo pipefail
 
 installer="${RUNNER_TEMP:-$(mktemp -d)}/agy-install.sh"
+# --max-time bounds each attempt, so a stalled connection is retried rather
+# than hanging the job.
 curl -fsSL --compressed --retry 3 --retry-all-errors \
+  --connect-timeout 10 --max-time 60 \
   -o "${installer}" https://antigravity.google/cli/install.sh
 if gzip -t "${installer}" 2>/dev/null; then
   mv "${installer}" "${installer}.gz"
