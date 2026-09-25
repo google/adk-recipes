@@ -566,6 +566,28 @@ jobs:
             echo "reviewing only what changed since ${LAST_REVIEWED_SHA}"
           fi
 
+          # The PR's whole base...head diff, which is what GitHub anchors
+          # review comments to. An incremental diff taken across a merge of
+          # the base branch shows that branch's new lines as added too, and a
+          # comment on one is rejected with HTTP 422 (#2677 lost a whole
+          # review that way). post_review_comments.py intersects its anchors
+          # with this file. If it cannot be fetched, the poster runs without
+          # it, which is how every run behaved before this existed.
+          if [[ "${SCOPE}" == 'incremental' ]]; then
+            rm -f pr_diff_full.txt
+            for attempt in 1 2 3; do
+              if gh pr diff "${PR_NUMBER}" > pr_diff_full.txt.tmp; then
+                mv pr_diff_full.txt.tmp pr_diff_full.txt
+                break
+              fi
+              echo "::warning::gh pr diff for anchors failed (attempt ${attempt}/3); retrying in 5s..."
+              sleep 5
+            done
+            rm -f pr_diff_full.txt.tmp
+          else
+            cp pr_diff.txt pr_diff_full.txt
+          fi
+
       # Drop what nobody reviews, and size the review from what is left.
       #
       # The prompt has a hard byte budget (see the argv note below), and until
@@ -1496,9 +1518,14 @@ jobs:
           # suppression against a sibling still in flight is best-effort;
           # against earlier runs of any lane it is exact. Reading comments is
           # all this needs, which is why a read-only token still suffices here.
+          PR_DIFF_ARGS=()
+          if [[ -s pr_diff_full.txt ]]; then
+            PR_DIFF_ARGS=(--pr-diff pr_diff_full.txt)
+          fi
           python3 .github/scripts/post_review_comments.py \
             --result agy_result.json \
             --diff pr_diff_used.txt \
+            "${PR_DIFF_ARGS[@]}" \
             --label "${REVIEW_LABEL}" \
             --repo "${GITHUB_REPOSITORY}" \
             --pr "${PR_NUMBER}" \
