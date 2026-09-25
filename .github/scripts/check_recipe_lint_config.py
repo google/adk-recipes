@@ -103,7 +103,11 @@ def _collect_violations(
     violations: list[Diagnostic] = []
 
     for file_path in sorted(recipe_dir.rglob("*")):
-        if any(part in _EXCLUDED_DIRS for part in file_path.parts):
+        try:
+            rel_to_recipe = file_path.relative_to(recipe_dir)
+        except ValueError:
+            rel_to_recipe = file_path
+        if any(part in _EXCLUDED_DIRS for part in rel_to_recipe.parts):
             continue
         if not file_path.is_file():
             continue
@@ -141,7 +145,7 @@ def _collect_violations(
                         f"Delete {name} from the recipe. If repository-wide "
                         f"style changes are needed, update the root biome.json."
                     ),
-                    doc=Doc.RUFF_STANDALONE,
+                    doc=Doc.LINT_CONFIG,
                     file=str(rel_path),
                 )
             )
@@ -166,7 +170,7 @@ def _collect_violations(
                         f"lint rules need updating, update the root "
                         f".golangci.yml."
                     ),
-                    doc=Doc.RUFF_STANDALONE,
+                    doc=Doc.LINT_CONFIG,
                     file=str(rel_path),
                 )
             )
@@ -196,7 +200,7 @@ def _collect_violations(
                             f"Remove the [{section}] section from {rel_path}, "
                             f"or delete {name} if it only configures Kotlin."
                         ),
-                        doc=Doc.RUFF_STANDALONE,
+                        doc=Doc.LINT_CONFIG,
                         file=str(rel_path),
                     )
                 )
