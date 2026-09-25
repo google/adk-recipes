@@ -1,4 +1,4 @@
-<!-- word count: 102 (target 100, cap 200) -->
+<!-- word count: 118 (target 100, cap 200) -->
 
 # Java Recipes
 
@@ -14,7 +14,8 @@ mirror the shape of the [Python page](./python.md).
 
 Structural checks (folder name, size limits, `manifest.yaml`) apply
 to Java recipes today — you can submit a working `contrib/java/`
-recipe against those alone.
+recipe against those alone. No lockfile is required (Maven has no
+lockfile concept, and Gradle dependency locking is not used).
 
 ---
 

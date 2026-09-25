@@ -1,4 +1,4 @@
-<!-- word count: 101 (target 100, cap 200) -->
+<!-- word count: 111 (target 100, cap 200) -->
 
 # Kotlin Recipes
 
@@ -13,7 +13,8 @@ this page will mirror the shape of the [Python page](./python.md).
 
 Structural checks (folder name, size limits, `manifest.yaml`)
 apply to Kotlin recipes today — you can submit a working
-`contrib/kotlin/` recipe against those alone.
+`contrib/kotlin/` recipe against those alone. No lockfile is
+required (Gradle dependency locking is not used).
 
 ---
 

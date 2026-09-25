@@ -273,9 +273,18 @@ required_files:
       #
       # go.sum is deliberately NOT required: a recipe with no third-party
       # dependencies legitimately has none.
+      #
+      # Go gets no registry-pinning rule. Python pins [[tool.uv.index]] to
+      # public PyPI; Go's equivalent is GOPROXY, an environment variable
+      # with nothing in go.mod to inspect.
       - go.mod
     # Placeholders for languages that don't have recipes yet. Filling these
     # in later requires no workflow change.
+    #
+    # Java and Kotlin recipes carry NO lockfile or supply-chain requirement.
+    # Maven has no lockfile concept; Gradle dependency locking is opt-in and
+    # unused anywhere in this repo. Requiring it would mean every contributor
+    # runs --write-locks and commits gradle.lockfile.
     java: []
     kotlin: []
     typescript: []
