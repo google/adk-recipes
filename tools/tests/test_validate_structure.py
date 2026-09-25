@@ -48,7 +48,9 @@ def _blob(diagnostics: list[Diagnostic]) -> str:
     )
 
 
-def _names(entries: list[tuple[str, str]]) -> list[str]:
+def _names(
+    entries: list[tuple[str | tuple[str, ...], str]],
+) -> list[str | tuple[str, ...]]:
     return [name for name, _ in entries]
 
 
@@ -153,6 +155,59 @@ def test_required_files_for_unknown_root_and_language():
 def test_required_files_for_missing_config():
     # An empty policy shouldn't crash — it should return an empty list.
     assert m.required_files_for({}, "core", "python") == []
+
+
+def test_required_files_for_all_five_languages_from_policy():
+    policy = m.load_policy()
+    # Python
+    py_files = m.required_files_for(policy, "contrib", "python")
+    assert ("README.md", "always") in py_files
+    assert (".env.example", "always") in py_files
+    assert ("pyproject.toml", "by_language.python") in py_files
+    assert ("uv.lock", "by_language.python") in py_files
+    assert ("tests/test_runnability.py", "by_language.python") in py_files
+
+    # Go: only go.mod in by_language
+    go_files = m.required_files_for(policy, "contrib", "go")
+    assert go_files == [
+        ("README.md", "always"),
+        (".env.example", "always"),
+        ("go.mod", "by_language.go"),
+    ]
+
+    # Java: build file alternatives
+    java_files = m.required_files_for(policy, "contrib", "java")
+    assert java_files == [
+        ("README.md", "always"),
+        (".env.example", "always"),
+        (("pom.xml", "build.gradle", "build.gradle.kts"), "by_language.java"),
+    ]
+
+    # Kotlin: build.gradle.kts
+    kotlin_files = m.required_files_for(policy, "contrib", "kotlin")
+    assert kotlin_files == [
+        ("README.md", "always"),
+        (".env.example", "always"),
+        ("build.gradle.kts", "by_language.kotlin"),
+    ]
+
+    # TypeScript: package.json + lockfile alternatives
+    ts_files = m.required_files_for(policy, "contrib", "typescript")
+    assert ts_files == [
+        ("README.md", "always"),
+        (".env.example", "always"),
+        ("package.json", "by_language.typescript"),
+        (
+            (
+                "package-lock.json",
+                "pnpm-lock.yaml",
+                "yarn.lock",
+                "bun.lockb",
+                "bun.lock",
+            ),
+            "by_language.typescript",
+        ),
+    ]
 
 
 def test_required_files_for_deduplicates():
@@ -378,6 +433,113 @@ def test_check_required_files_nested_path(tmp_path):
     )
     errs = m.check_required_files(recipe, "core", "python", policy)
     assert any("tests/test_runnability.py" in e.what for e in errs)
+
+
+def test_check_required_files_java_alternatives(tmp_path):
+    policy = m.load_policy()
+    # 1. pom.xml satisfies
+    r1 = tmp_path / "contrib" / "java-pom"
+    _write(r1 / "README.md", "# x\n")
+    _write(r1 / ".env.example", "# env\n")
+    _write(r1 / "pom.xml", "<project/>\n")
+    assert m.check_required_files(r1, "contrib", "java", policy) == []
+
+    # 2. build.gradle satisfies
+    r2 = tmp_path / "contrib" / "java-gradle"
+    _write(r2 / "README.md", "# x\n")
+    _write(r2 / ".env.example", "# env\n")
+    _write(r2 / "build.gradle", "// gradle\n")
+    assert m.check_required_files(r2, "contrib", "java", policy) == []
+
+    # 3. build.gradle.kts satisfies
+    r3 = tmp_path / "contrib" / "java-kts"
+    _write(r3 / "README.md", "# x\n")
+    _write(r3 / ".env.example", "# env\n")
+    _write(r3 / "build.gradle.kts", "// kts\n")
+    assert m.check_required_files(r3, "contrib", "java", policy) == []
+
+    # 4. Missing build file fails
+    r4 = tmp_path / "contrib" / "java-none"
+    _write(r4 / "README.md", "# x\n")
+    _write(r4 / ".env.example", "# env\n")
+    errs = m.check_required_files(r4, "contrib", "java", policy)
+    assert len(errs) == 1
+    assert "pom.xml OR build.gradle OR build.gradle.kts" in errs[0].what
+    assert "by_language.java" in errs[0].why
+
+
+def test_check_required_files_kotlin(tmp_path):
+    policy = m.load_policy()
+    r1 = tmp_path / "contrib" / "kt-good"
+    _write(r1 / "README.md", "# x\n")
+    _write(r1 / ".env.example", "# env\n")
+    _write(r1 / "build.gradle.kts", "// kts\n")
+    assert m.check_required_files(r1, "contrib", "kotlin", policy) == []
+
+    # Missing build.gradle.kts fails
+    r2 = tmp_path / "contrib" / "kt-bad"
+    _write(r2 / "README.md", "# x\n")
+    _write(r2 / ".env.example", "# env\n")
+    errs = m.check_required_files(r2, "contrib", "kotlin", policy)
+    assert any("build.gradle.kts" in e.what for e in errs)
+
+    # Missing .env.example fails
+    r3 = tmp_path / "contrib" / "kt-no-env"
+    _write(r3 / "README.md", "# x\n")
+    _write(r3 / "build.gradle.kts", "// kts\n")
+    errs = m.check_required_files(r3, "contrib", "kotlin", policy)
+    assert any(".env.example" in e.what for e in errs)
+
+
+def test_check_required_files_typescript(tmp_path):
+    policy = m.load_policy()
+    lockfiles = [
+        "package-lock.json",
+        "pnpm-lock.yaml",
+        "yarn.lock",
+        "bun.lockb",
+        "bun.lock",
+    ]
+    for lock in lockfiles:
+        r = tmp_path / "contrib" / f"ts-{lock}"
+        _write(r / "README.md", "# x\n")
+        _write(r / ".env.example", "# env\n")
+        _write(r / "package.json", "{}\n")
+        _write(r / lock, "# lock\n")
+        assert m.check_required_files(r, "contrib", "typescript", policy) == []
+
+    # Missing lockfile fails
+    r_no_lock = tmp_path / "contrib" / "ts-no-lock"
+    _write(r_no_lock / "README.md", "# x\n")
+    _write(r_no_lock / ".env.example", "# env\n")
+    _write(r_no_lock / "package.json", "{}\n")
+    errs = m.check_required_files(r_no_lock, "contrib", "typescript", policy)
+    assert any("package-lock.json" in e.what for e in errs)
+
+    # Missing package.json fails
+    r_no_pkg = tmp_path / "contrib" / "ts-no-pkg"
+    _write(r_no_pkg / "README.md", "# x\n")
+    _write(r_no_pkg / ".env.example", "# env\n")
+    _write(r_no_pkg / "yarn.lock", "# lock\n")
+    errs = m.check_required_files(r_no_pkg, "contrib", "typescript", policy)
+    assert any("package.json" in e.what for e in errs)
+
+
+def test_check_required_files_go(tmp_path):
+    policy = m.load_policy()
+    r1 = tmp_path / "contrib" / "go-good"
+    _write(r1 / "README.md", "# x\n")
+    _write(r1 / ".env.example", "# env\n")
+    _write(r1 / "go.mod", "module example.com/foo\n")
+    # Note: no go.sum, must still pass
+    assert m.check_required_files(r1, "contrib", "go", policy) == []
+
+    # Missing go.mod fails
+    r2 = tmp_path / "contrib" / "go-bad"
+    _write(r2 / "README.md", "# x\n")
+    _write(r2 / ".env.example", "# env\n")
+    errs = m.check_required_files(r2, "contrib", "go", policy)
+    assert any("go.mod" in e.what for e in errs)
 
 
 def test_check_required_files_directory_does_not_satisfy(tmp_path):

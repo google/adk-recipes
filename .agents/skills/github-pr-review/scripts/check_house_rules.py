@@ -1494,8 +1494,15 @@ def _required_files(root, rel, recipe_abs):
         parts = rel.strip("/").split("/")
         if area in ("core", "contrib") and len(parts) >= 2:
             language = parts[1].lower()
-    required += list(by_language.get(language) or [])
-    return sorted(set(required))
+    for item in by_language.get(language) or []:
+        required.append(tuple(item) if isinstance(item, list) else item)
+    seen = set()
+    deduped = []
+    for item in required:
+        if item not in seen:
+            seen.add(item)
+            deduped.append(item)
+    return deduped
 
 
 # This file lives at <repo>/.agents/skills/github-pr-review/scripts/, so the
@@ -1594,7 +1601,19 @@ def check_layout(out, root, rel, recipe_name):
     # recipe. policy.yml has scoped these under `by_language` all along.
     lenient = _case_insensitive_files(root)
     for f in _required_files(root, rel, recipe_abs):
-        if _missing(recipe_abs, f, lenient):
+        if isinstance(f, tuple):
+            if all(_missing(recipe_abs, alt, lenient) for alt in f):
+                find(
+                    out,
+                    "H21",
+                    CI_FAIL,
+                    os.path.join(rel, f[0]),
+                    1,
+                    f"required file missing: any of {', '.join(f)}",
+                    ".github/policy.yml required_files",
+                    "check one of the files exists",
+                )
+        elif _missing(recipe_abs, f, lenient):
             find(
                 out,
                 "H21",
