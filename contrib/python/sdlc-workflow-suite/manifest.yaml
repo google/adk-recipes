@@ -1,0 +1,14 @@
+type: standalone
+status: active
+language: python
+description: End-to-end SDLC workflow suite combining user story refinement, technical design, and task planning with SequentialAgent.
+ownership:
+  team: Google
+  poc: gagata
+tags:
+  - sdlc
+  - sequential-agent
+  - multi-agent
+  - software-engineering
+architecture:
+  agent: multi
