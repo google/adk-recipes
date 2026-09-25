@@ -1,0 +1,14 @@
+{
+  "criteria": {
+    "tool_trajectory_avg_score": {
+      "threshold": 0.2
+    }
+  },
+  "custom_metrics": {
+    "tool_trajectory_avg_score": {
+      "code_config": {
+        "name": "eval.custom_metrics.name_only_trajectory_evaluator"
+      }
+    }
+  }
+}

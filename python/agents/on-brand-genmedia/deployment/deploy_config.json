@@ -1,0 +1,12 @@
+{
+  "operation": "create",
+  "project_id": "agentspace-demo-1145-b",
+  "location": "us-central1",
+  "bucket_name": "agentspace-demo-1145-b-staging",
+  "display_name": "on_brand_genmedia_agent",
+  "GCS_BUCKET_NAME": "agentspace-demo-1145-b-assets",
+  "SCORE_THRESHOLD": "45",
+  "MAX_ITERATIONS": "3",
+  "IMAGE_GEN_MODEL": "gemini-2.5-flash-image",
+  "GENAI_MODEL": "gemini-2.5-flash"
+}
