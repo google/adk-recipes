@@ -25,7 +25,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import check_recipe_lint_config as m
 
 EXIT_OK = 0
-EXIT_VIOLATIONS = 1
 EXIT_CI_FAULT = 2
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -48,80 +47,80 @@ def test_clean_recipe_passes(tmp_path, monkeypatch, capsys):
 
 def test_recipe_with_biome_json_fails(tmp_path, monkeypatch, capsys):
     (tmp_path / "biome.json").write_text("{}\n")
-    assert _run(tmp_path, monkeypatch) == EXIT_VIOLATIONS
+    assert _run(tmp_path, monkeypatch) == EXIT_OK
     out = capsys.readouterr().out
-    assert "[FAIL]" in out
+    assert "[NOTICE]" in out
     assert "Biome configuration" in out
     assert "biome.json" in out
-    assert f"::error file={tmp_path / 'biome.json'}::" in out
+    assert f"::warning file={tmp_path / 'biome.json'}::" in out
 
 
 def test_recipe_with_nested_biome_json_fails(tmp_path, monkeypatch, capsys):
     sub = tmp_path / "frontend" / "nested"
     sub.mkdir(parents=True)
     (sub / "biome.json").write_text("{}\n")
-    assert _run(tmp_path, monkeypatch) == EXIT_VIOLATIONS
+    assert _run(tmp_path, monkeypatch) == EXIT_OK
     out = capsys.readouterr().out
     assert "biome.json" in out
-    assert f"::error file={sub / 'biome.json'}::" in out
+    assert f"::warning file={sub / 'biome.json'}::" in out
 
 
 def test_recipe_with_biome_jsonc_fails(tmp_path, monkeypatch, capsys):
     (tmp_path / "biome.jsonc").write_text("// config\n{}\n")
-    assert _run(tmp_path, monkeypatch) == EXIT_VIOLATIONS
+    assert _run(tmp_path, monkeypatch) == EXIT_OK
     out = capsys.readouterr().out
     assert "biome.jsonc" in out
-    assert f"::error file={tmp_path / 'biome.jsonc'}::" in out
+    assert f"::warning file={tmp_path / 'biome.jsonc'}::" in out
 
 
 def test_recipe_with_biomerc_fails(tmp_path, monkeypatch, capsys):
     (tmp_path / ".biomerc").write_text("{}\n")
     (tmp_path / ".biomerc.json").write_text("{}\n")
-    assert _run(tmp_path, monkeypatch) == EXIT_VIOLATIONS
+    assert _run(tmp_path, monkeypatch) == EXIT_OK
     out = capsys.readouterr().out
     assert ".biomerc" in out
     assert ".biomerc.json" in out
-    assert out.count("::error file=") == 2
+    assert out.count("::warning file=") == 2
 
 
 def test_recipe_with_golangci_yml_fails(tmp_path, monkeypatch, capsys):
     (tmp_path / ".golangci.yml").write_text(
         "linters:\n  enable:\n    - errcheck\n"
     )
-    assert _run(tmp_path, monkeypatch) == EXIT_VIOLATIONS
+    assert _run(tmp_path, monkeypatch) == EXIT_OK
     out = capsys.readouterr().out
-    assert "[FAIL]" in out
+    assert "[NOTICE]" in out
     assert "golangci-lint configuration" in out
     assert ".golangci.yml" in out
-    assert f"::error file={tmp_path / '.golangci.yml'}::" in out
+    assert f"::warning file={tmp_path / '.golangci.yml'}::" in out
 
 
 def test_recipe_with_golangci_yaml_fails(tmp_path, monkeypatch, capsys):
     (tmp_path / ".golangci.yaml").write_text(
         "linters:\n  enable:\n    - gofmt\n"
     )
-    assert _run(tmp_path, monkeypatch) == EXIT_VIOLATIONS
+    assert _run(tmp_path, monkeypatch) == EXIT_OK
     out = capsys.readouterr().out
     assert ".golangci.yaml" in out
-    assert f"::error file={tmp_path / '.golangci.yaml'}::" in out
+    assert f"::warning file={tmp_path / '.golangci.yaml'}::" in out
 
 
 def test_recipe_with_golangci_toml_fails(tmp_path, monkeypatch, capsys):
     (tmp_path / ".golangci.toml").write_text("[linters]\nenable = ['govet']\n")
-    assert _run(tmp_path, monkeypatch) == EXIT_VIOLATIONS
+    assert _run(tmp_path, monkeypatch) == EXIT_OK
     out = capsys.readouterr().out
     assert ".golangci.toml" in out
-    assert f"::error file={tmp_path / '.golangci.toml'}::" in out
+    assert f"::warning file={tmp_path / '.golangci.toml'}::" in out
 
 
 def test_recipe_with_nested_golangci_fails(tmp_path, monkeypatch, capsys):
     pkg = tmp_path / "pkg" / "util"
     pkg.mkdir(parents=True)
     (pkg / ".golangci.yml").write_text("linters:\n  enable:\n    - govet\n")
-    assert _run(tmp_path, monkeypatch) == EXIT_VIOLATIONS
+    assert _run(tmp_path, monkeypatch) == EXIT_OK
     out = capsys.readouterr().out
     assert ".golangci.yml" in out
-    assert f"::error file={pkg / '.golangci.yml'}::" in out
+    assert f"::warning file={pkg / '.golangci.yml'}::" in out
 
 
 def test_recipe_with_editorconfig_kotlin_section_fails(
@@ -130,12 +129,12 @@ def test_recipe_with_editorconfig_kotlin_section_fails(
     (tmp_path / ".editorconfig").write_text(
         "root = true\n\n[*.{kt,kts}]\nindent_size = 4\n"
     )
-    assert _run(tmp_path, monkeypatch) == EXIT_VIOLATIONS
+    assert _run(tmp_path, monkeypatch) == EXIT_OK
     out = capsys.readouterr().out
-    assert "[FAIL]" in out
+    assert "[NOTICE]" in out
     assert ".editorconfig" in out
     assert "[*.{kt,kts}]" in out
-    assert f"::error file={tmp_path / '.editorconfig'}::" in out
+    assert f"::warning file={tmp_path / '.editorconfig'}::" in out
 
 
 def test_recipe_with_editorconfig_kt_single_extension_fails(
@@ -144,7 +143,7 @@ def test_recipe_with_editorconfig_kt_single_extension_fails(
     (tmp_path / ".editorconfig").write_text(
         "root = true\n\n[*.kt]\nindent_size = 4\n"
     )
-    assert _run(tmp_path, monkeypatch) == EXIT_VIOLATIONS
+    assert _run(tmp_path, monkeypatch) == EXIT_OK
     out = capsys.readouterr().out
     assert "[*.kt]" in out
 
@@ -155,7 +154,7 @@ def test_recipe_with_editorconfig_kts_single_extension_fails(
     (tmp_path / ".editorconfig").write_text(
         "root = true\n\n[*.kts]\nindent_size = 4\n"
     )
-    assert _run(tmp_path, monkeypatch) == EXIT_VIOLATIONS
+    assert _run(tmp_path, monkeypatch) == EXIT_OK
     out = capsys.readouterr().out
     assert "[*.kts]" in out
 
@@ -170,6 +169,56 @@ def test_recipe_with_editorconfig_non_kotlin_section_passes(
     out = capsys.readouterr().out
     assert "[PASS]" in out
     assert "::error" not in out
+
+
+def test_recipe_with_editorconfig_ktlint_property_in_generic_section_fails(
+    tmp_path, monkeypatch, capsys
+):
+    # ktlint applies [*] to Kotlin files, so a ktlint_* property there
+    # overrides the repo style even with no Kotlin-specific section.
+    (tmp_path / ".editorconfig").write_text(
+        "root = true\n\n[*]\nktlint_standard_no-wildcard-imports = disabled\n"
+    )
+    assert _run(tmp_path, monkeypatch) == EXIT_OK
+    out = capsys.readouterr().out
+    assert "[NOTICE]" in out
+    assert "ktlint property ktlint_standard_no-wildcard-imports" in out
+    assert "section [*]" in out
+    assert f"::warning file={tmp_path / '.editorconfig'}::" in out
+
+
+def test_recipe_with_editorconfig_ktlint_property_in_preamble_fails(
+    tmp_path, monkeypatch, capsys
+):
+    (tmp_path / ".editorconfig").write_text(
+        "ktlint_code_style = ktlint_official\n"
+    )
+    assert _run(tmp_path, monkeypatch) == EXIT_OK
+    out = capsys.readouterr().out
+    assert "ktlint property ktlint_code_style in the preamble" in out
+
+
+def test_recipe_with_editorconfig_generic_section_without_ktlint_passes(
+    tmp_path, monkeypatch, capsys
+):
+    (tmp_path / ".editorconfig").write_text(
+        "root = true\n\n[*]\nindent_style = space\n"
+    )
+    assert _run(tmp_path, monkeypatch) == EXIT_OK
+    out = capsys.readouterr().out
+    assert "[PASS]" in out
+    assert "::warning" not in out
+
+
+def test_findings_are_advisory_not_errors(tmp_path, monkeypatch, capsys):
+    # During the advisory rollout a finding must not render as a red
+    # annotation on a green run.
+    (tmp_path / "biome.json").write_text("{}\n")
+    assert _run(tmp_path, monkeypatch) == EXIT_OK
+    out = capsys.readouterr().out
+    assert "::warning file=" in out
+    assert "::error" not in out
+    assert "[FAIL]" not in out
 
 
 def test_root_level_configs_not_reported():
@@ -192,9 +241,9 @@ def test_multiple_violations_each_get_annotation(tmp_path, monkeypatch, capsys):
     sub.mkdir()
     (sub / ".editorconfig").write_text("[*.{kt,kts}]\nindent_size = 4\n")
 
-    assert _run(tmp_path, monkeypatch) == EXIT_VIOLATIONS
+    assert _run(tmp_path, monkeypatch) == EXIT_OK
     out = capsys.readouterr().out
-    assert out.count("::error file=") == 3
+    assert out.count("::warning file=") == 3
 
 
 def test_clean_kotlin_recipe_passes(tmp_path, monkeypatch, capsys):

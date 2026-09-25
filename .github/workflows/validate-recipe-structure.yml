@@ -171,10 +171,11 @@ jobs:
           }
 
           # ------------------------------------------------------------
-          # Check: recipe-local lint and style configuration (advisory).
+          # Check: recipe-local lint and style configuration.
           # Style & lint configs are centralized in the repo root.
-          # During advisory rollout: exit 1 logs findings as notices and
-          # does not fail the job. Exit 2 is treated as a CI fault.
+          # The rule is advisory during rollout: the checker reports its
+          # findings as warnings and exits 0 itself, so exit 1 only
+          # appears once the rule is made blocking in the script.
           # ------------------------------------------------------------
           run_lint_config_check() {
             local recipe="$1"
@@ -184,12 +185,8 @@ jobs:
             set -e
             case "$status" in
               0) ;;
-              1)
-                echo "::notice file=$recipe::Recipe '$recipe' contains forbidden recipe-local lint or style configuration (advisory)."
-                ;;
-              2)
-                CI_FAULT=1
-                ;;
+              1) FAILED=1 ;;
+              2) CI_FAULT=1 ;;
               *)
                 echo "::error::check_recipe_lint_config.py exited with an undefined status ($status). This is a CI tooling bug, not a problem with your recipe."
                 CI_FAULT=1

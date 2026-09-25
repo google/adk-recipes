@@ -18,16 +18,20 @@ Rules enforced:
   - TypeScript: forbid recipe-local biome.json, biome.jsonc, and .biomerc* files.
   - Go: forbid recipe-local .golangci.yml, .golangci.yaml, and .golangci.toml files.
   - Kotlin: forbid recipe-local .editorconfig files containing Kotlin sections
-    (e.g., [*.{kt,kts}], [*.kt], [*.kts]).
+    (e.g., [*.{kt,kts}], [*.kt], [*.kts]) or ktlint_* properties in any section.
 
 Style and lint configurations are centralized at the repository root. Recipe-local
 configuration files override the repo-wide standards and are forbidden.
 
 Usage: python3 check_recipe_lint_config.py <recipe-dir>
 
+The rule is advisory during rollout: findings are reported as warnings
+through report_advisories() and the checker still exits 0. To make it
+blocking, change _SEVERITY to ERROR and report through report() instead.
+
 Exit codes:
-  0  no forbidden recipe-local lint or style configurations found
-  1  contributor-fixable problems found; every one reported with a fix
+  0  checked; any findings were reported as non-blocking warnings
+  1  contributor-fixable problems found (only once the rule is blocking)
   2  CI fault — the checker crashed or was invoked wrongly
 """
 
@@ -40,16 +44,23 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT / "tools"))
 from ci_message import (  # noqa: E402
+    EXIT_OK,
     Diagnostic,
     Doc,
+    Severity,
     guard,
     infra_fault,
     report,
+    report_advisories,
     report_infra_fault,
 )
 
 CHECKER = "check_recipe_lint_config.py"
 CHECK = "recipe-lint-config"
+
+# Advisory until existing recipes are cleaned up. An ERROR diagnostic that
+# does not fail the job renders as a red annotation on a green run.
+_SEVERITY = Severity.WARNING
 
 _EXCLUDED_DIRS: frozenset[str] = frozenset(
     {
@@ -67,12 +78,16 @@ _EXCLUDED_DIRS: frozenset[str] = frozenset(
 )
 
 
-def _editorconfig_has_kotlin_section(
+def _editorconfig_kotlin_rule(
     path: Path,
 ) -> tuple[bool, int, str]:
-    """Check if an .editorconfig file declares a section targeting Kotlin files.
+    """Check if an .editorconfig file configures Kotlin style.
 
-    Returns (found, line_number, section_header).
+    That is either a section targeting Kotlin files, or a ktlint_* property
+    in any section. ktlint applies a generic section such as [*] to Kotlin
+    files too, so checking section headers alone misses those overrides.
+
+    Returns (found, line_number, description of what was found).
     """
     try:
         content = path.read_text(encoding="utf-8")
@@ -83,7 +98,9 @@ def _editorconfig_has_kotlin_section(
     kotlin_pattern_re = re.compile(
         r"(?:^|[^\w])(?:kt|kts)(?:$|[^\w])|\*\.kt|\*\.kts|\.kt\b|\.kts\b"
     )
+    ktlint_property_re = re.compile(r"^(ktlint_[\w-]*)\s*=", re.IGNORECASE)
 
+    section = ""
     for lineno, line in enumerate(content.splitlines(), start=1):
         stripped = line.strip()
         if not stripped or stripped.startswith(("#", ";")):
@@ -92,7 +109,12 @@ def _editorconfig_has_kotlin_section(
         if m:
             section = m.group(1).strip()
             if kotlin_pattern_re.search(section):
-                return True, lineno, section
+                return True, lineno, f"Kotlin style section [{section}]"
+            continue
+        m = ktlint_property_re.match(stripped)
+        if m:
+            where = f"section [{section}]" if section else "the preamble"
+            return True, lineno, f"ktlint property {m.group(1)} in {where}"
     return False, 0, ""
 
 
@@ -147,6 +169,7 @@ def _collect_violations(
                     ),
                     doc=Doc.LINT_CONFIG,
                     file=str(rel_path),
+                    severity=_SEVERITY,
                 )
             )
 
@@ -172,36 +195,36 @@ def _collect_violations(
                     ),
                     doc=Doc.LINT_CONFIG,
                     file=str(rel_path),
+                    severity=_SEVERITY,
                 )
             )
 
-        # Kotlin: .editorconfig containing a Kotlin section
+        # Kotlin: .editorconfig that configures Kotlin style
         elif name == ".editorconfig":
-            has_kt, lineno, section = _editorconfig_has_kotlin_section(
-                file_path
-            )
+            has_kt, lineno, found = _editorconfig_kotlin_rule(file_path)
             if has_kt:
                 violations.append(
                     Diagnostic(
                         check=CHECK,
                         what=(
                             f"Recipe contains a recipe-local .editorconfig "
-                            f"declaring Kotlin style section [{section}] at "
-                            f"line {lineno}: {rel_path}."
+                            f"declaring {found} at line {lineno}: "
+                            f"{rel_path}."
                         ),
                         why=(
-                            "Kotlin style is governed entirely by the pinned "
-                            "ktlint version in CI. There is no .editorconfig "
-                            "in the repository, and recipe-local editorconfig "
-                            "rules are forbidden because they override the "
-                            "style contract."
+                            "Kotlin style is governed by the ktlint version "
+                            "pinned in CI. Recipe-local editorconfig rules "
+                            "are forbidden because ktlint reads them and "
+                            "they override that style contract."
                         ),
                         how=(
-                            f"Remove the [{section}] section from {rel_path}, "
-                            f"or delete {name} if it only configures Kotlin."
+                            f"Remove the {found} (line {lineno}) from "
+                            f"{rel_path}, or delete {name} if it only "
+                            f"configures Kotlin."
                         ),
                         doc=Doc.LINT_CONFIG,
                         file=str(rel_path),
+                        severity=_SEVERITY,
                     )
                 )
 
@@ -210,6 +233,12 @@ def _collect_violations(
 
 def _run(recipe_dir: Path) -> int:
     violations = _collect_violations(recipe_dir)
+    if violations:
+        report_advisories(
+            violations,
+            header=f"{recipe_dir}: recipe-local lint configuration",
+        )
+        return EXIT_OK
     return report(
         violations,
         header=f"{recipe_dir}: recipe-local lint configuration",
