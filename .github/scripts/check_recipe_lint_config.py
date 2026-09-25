@@ -106,7 +106,7 @@ def _collect_violations(
         try:
             rel_to_recipe = file_path.relative_to(recipe_dir)
         except ValueError:
-            rel_to_recipe = file_path
+            rel_to_recipe = Path(file_path.name)
         if any(part in _EXCLUDED_DIRS for part in rel_to_recipe.parts):
             continue
         if not file_path.is_file():
