@@ -228,10 +228,38 @@ jobs:
         with:
           image-ref: ${{ matrix.image }}:${{ needs.matrix.outputs.build_tag }}
           format: table
+          output: ${{ runner.temp }}/trivy.txt
+          # Report, do not gate. These findings are overwhelmingly in the base
+          # image and not fixable by the recipe, and this job publishes to
+          # Artifact Registry — failing here would stop shipping a recipe over
+          # something its author cannot act on.
           exit-code: 0
           ignore-unfixed: true
           vuln-type: os,library
           severity: CRITICAL,HIGH
+
+      # Without this the scan reaches only the raw log of a scheduled run,
+      # which nobody opens. `exit-code: 0` means the table IS the whole output
+      # of the step, so it has to land somewhere a person will actually see.
+      - name: Publish Trivy findings to the run summary
+        if: ${{ !inputs.dry_run }}
+        env:
+          IMAGE: ${{ matrix.image }}
+          BUILD_TAG: ${{ needs.matrix.outputs.build_tag }}
+          TRIVY_REPORT: ${{ runner.temp }}/trivy.txt
+        run: |
+          set -euo pipefail
+          {
+            echo "### Trivy — ${IMAGE}:${BUILD_TAG}"
+            echo ""
+            if [ ! -s "${TRIVY_REPORT}" ]; then
+              echo "Trivy produced no report file."
+            else
+              echo '```'
+              cat "${TRIVY_REPORT}"
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Report
         env:
