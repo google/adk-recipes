@@ -27,7 +27,6 @@ import check_model_literals as m
 
 # Exit codes from contract
 EXIT_OK = 0
-EXIT_VIOLATIONS = 1
 EXIT_CI_FAULT = 2
 
 
@@ -227,6 +226,23 @@ def test_single_and_double_quotes(tmp_path: Path, monkeypatch, capsys) -> None:
     out = capsys.readouterr().out
     assert 'Possible hardcoded model name "gemini-1.5-flash"' in out
     assert "Possible hardcoded model name 'claude-3-5-sonnet'" in out
+
+
+def test_mismatched_quotes_do_not_match(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    _write_files(
+        tmp_path,
+        {
+            "models.py": (
+                "m1 = 'gemini-1.5-flash\"\nm2 = \"claude-3-5-sonnet'\n"
+            )
+        },
+    )
+    assert _run(tmp_path, monkeypatch) == EXIT_OK
+    out = capsys.readouterr().out
+    assert "::notice" not in out
+    assert "[NOTICE]" not in out
 
 
 def test_excluded_directories_are_skipped(

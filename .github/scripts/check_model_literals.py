@@ -22,7 +22,6 @@ Usage: python3 check_model_literals.py <recipe-dir>
 
 Exit codes:
   0  all scanned files checked; notices emitted if model literals found
-  1  violations found (recipe's fault)
   2  CI fault — the checker crashed or was invoked wrongly. Never blamed
      on the contributor's files.
 """
@@ -45,12 +44,12 @@ from ci_message import (
 CHECKER = "check_model_literals.py"
 
 MODEL_PREFIXES: str = (
-    "gemini-|gemini-exp-|imagen-|claude-|llama-|meta/llama-|mistral-|"
+    "gemini-|imagen-|claude-|llama-|meta/llama-|mistral-|"
     "codestral-|phi-|grok-|command-|jamba-"
 )
 
 MODEL_PATTERN: re.Pattern[str] = re.compile(
-    rf"""['"]({MODEL_PREFIXES})[^ '"]{{1,35}}['"]"""
+    rf"""(['"])({MODEL_PREFIXES})[^ '"]{{1,35}}\1"""
 )
 
 TARGET_EXTENSIONS: frozenset[str] = frozenset(
