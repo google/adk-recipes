@@ -1,4 +1,4 @@
-<!-- word count: 101 (target 100, cap 200) -->
+<!-- word count: 110 (target 100, cap 200) -->
 
 # Kotlin Recipes
 
@@ -11,9 +11,9 @@ first so we can align on build tool (Gradle / Maven), test
 runner, and JVM target before you invest the work. Once accepted,
 this page will mirror the shape of the [Python page](./python.md).
 
-Structural checks (folder name, size limits, `manifest.yaml`)
-apply to Kotlin recipes today — you can submit a working
-`contrib/kotlin/` recipe against those alone.
+Structural checks apply to Kotlin recipes today: every recipe must include
+`manifest.yaml`, `README.md`, `.env.example`, and `build.gradle.kts`.
+You can submit a working `contrib/kotlin/` recipe against those alone.
 
 ---
 

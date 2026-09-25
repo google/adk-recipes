@@ -152,10 +152,14 @@ because its manifest says `language: python`.
 
 | Rule | Applies to | Entries |
 | --- | --- | --- |
-| `always` | every recipe | `README.md` |
+| `always` | every recipe | `README.md`, `.env.example` |
 | `by_root.core` | anything under `core/` | `AGENTS.md` |
 | `by_root.skills` | anything under `skills/` | `SKILL.md`, `EVAL.yaml`, `scripts/` |
-| `by_language.python` | `manifest.language: python` | `pyproject.toml`, `uv.lock`, `.env.example`, `tests/test_runnability.py` |
+| `by_language.python` | `manifest.language: python` | `pyproject.toml`, `uv.lock`, `tests/test_runnability.py` |
+| `by_language.go` | `manifest.language: go` | `go.mod` |
+| `by_language.java` | `manifest.language: java` | `pom.xml` / `build.gradle` / `build.gradle.kts` |
+| `by_language.kotlin` | `manifest.language: kotlin` | `build.gradle.kts` |
+| `by_language.typescript` | `manifest.language: typescript` | `package.json`, lockfile (`package-lock.json` / `pnpm-lock.yaml` / `yarn.lock` / `bun.lockb` / `bun.lock`) |
 
 **Fix** — most missing entries have a generator:
 

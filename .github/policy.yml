@@ -216,6 +216,7 @@ excluded_paths:
 required_files:
   always:
     - README.md
+    - .env.example
 
   by_root:
     # AGENTS.md is required for EVERY recipe under core/, regardless of
@@ -238,7 +239,7 @@ required_files:
     #
     # A Python vertical skill additionally picks up
     # required_files.by_language.python (pyproject.toml, uv.lock,
-    # .env.example, tests/test_runnability.py) via manifest.language. The
+    # tests/test_runnability.py) via manifest.language. The
     # path does not encode the language for this root — the middle folder
     # is a vertical — so the manifest is what resolves it.
     skills:
@@ -249,7 +250,6 @@ required_files:
     python:
       - pyproject.toml
       - uv.lock
-      - .env.example
       - tests/test_runnability.py
     go:
       # Every Go recipe is its own module. go.mod is required for three
@@ -274,11 +274,15 @@ required_files:
       # go.sum is deliberately NOT required: a recipe with no third-party
       # dependencies legitimately has none.
       - go.mod
-    # Placeholders for languages that don't have recipes yet. Filling these
-    # in later requires no workflow change.
-    java: []
-    kotlin: []
-    typescript: []
+    java:
+      # Any ONE of Maven or Gradle build files (java-tests.yml supports both):
+      - [pom.xml, build.gradle, build.gradle.kts]
+    kotlin:
+      - build.gradle.kts
+    typescript:
+      - package.json
+      # Any ONE lockfile:
+      - [package-lock.json, pnpm-lock.yaml, yarn.lock, bun.lockb, bun.lock]
 
 # --------------------------------------------------------------------------
 # Required directories — enforced by

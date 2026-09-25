@@ -1,4 +1,4 @@
-<!-- word count: 102 (target 100, cap 200) -->
+<!-- word count: 119 (target 100, cap 200) -->
 
 # Java Recipes
 
@@ -12,8 +12,10 @@ first so we can align on package manager, test runner, and file
 layout before you invest the work. Once accepted, this page will
 mirror the shape of the [Python page](./python.md).
 
-Structural checks (folder name, size limits, `manifest.yaml`) apply
-to Java recipes today — you can submit a working `contrib/java/`
+Structural checks apply to Java recipes today: every recipe must include
+`manifest.yaml`, `README.md`, `.env.example`, and one build configuration
+file (`pom.xml`, `build.gradle`, or `build.gradle.kts` — both Maven
+and Gradle are supported). You can submit a working `contrib/java/`
 recipe against those alone.
 
 ---
