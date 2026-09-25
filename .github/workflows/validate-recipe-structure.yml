@@ -198,6 +198,27 @@ jobs:
             esac
           }
 
+          # ------------------------------------------------------------
+          # Notice: possible hardcoded model names in recipe source files.
+          # The checker emits ::notice lines and exits 0 whatever it finds;
+          # only exit 2 (the checker itself broke) affects the job.
+          # ------------------------------------------------------------
+          run_model_literal_check() {
+            local recipe="$1"
+            set +e
+            uv run --no-project python3 .github/scripts/check_model_literals.py "$recipe"
+            local status=$?
+            set -e
+            case "$status" in
+              0) ;;
+              2) CI_FAULT=1 ;;
+              *)
+                echo "::error::check_model_literals.py exited with an undefined status ($status). This is a CI tooling bug, not a problem with your recipe."
+                CI_FAULT=1
+                ;;
+            esac
+          }
+
           ci_fault_banner() {
             echo ""
             echo "========================================"
@@ -222,6 +243,7 @@ jobs:
             while IFS= read -r recipe; do
               [ -z "$recipe" ] && continue
               run_lint_config_check "$recipe"
+              run_model_literal_check "$recipe"
             done < <(find core contrib skills -mindepth 1 -maxdepth 3 -type f -name manifest.yaml -exec dirname {} \;)
 
             if [ "$CI_FAULT" -eq 1 ]; then
@@ -269,21 +291,7 @@ jobs:
             run_validator structure "$recipe"
             run_validator readme    "$recipe"
             run_lint_config_check   "$recipe"
-
-            # Notice: Possible hardcoded model names in recipe source files.
-            # Emits ::notice (never fails the build).
-            set +e
-            uv run --no-project python3 .github/scripts/check_model_literals.py "$recipe"
-            model_exit=$?
-            set -e
-            case "$model_exit" in
-              0) ;;
-              2) CI_FAULT=1 ;;
-              *)
-                echo "::error::check_model_literals.py exited with an undefined status ($model_exit). This is a CI tooling bug, not a problem with your recipe."
-                CI_FAULT=1
-                ;;
-            esac
+            run_model_literal_check "$recipe"
           done <<< "$CHANGED_RECIPES"
 
           if [ "$CI_FAULT" -eq 1 ]; then
