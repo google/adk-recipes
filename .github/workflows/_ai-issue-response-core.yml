@@ -120,17 +120,7 @@ jobs:
       - name: 'Install Antigravity CLI (agy)'
         run: |-
           set -euo pipefail
-          installer="${RUNNER_TEMP}/agy-install.sh"
-          curl -fsSL --compressed --retry 3 --retry-all-errors \
-            -o "${installer}" https://antigravity.google/cli/install.sh
-          # The CDN intermittently serves this script gzipped without a
-          # Content-Encoding header, so curl cannot decode it and bash fails
-          # on the binary with "syntax error near unexpected token".
-          if gzip -t "${installer}" 2>/dev/null; then
-            mv "${installer}" "${installer}.gz"
-            gunzip "${installer}.gz"
-          fi
-          bash "${installer}"
+          bash .github/scripts/install_agy.sh
           echo "${HOME}/.local/bin" >> "${GITHUB_PATH}"
 
       # SECURITY: the allowlist is EMPTY. The agent receives all context in
