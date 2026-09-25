@@ -26,6 +26,7 @@ on:
       - '.github/schemas/manifest-schema.json'
       - '.github/policy.yml'
       - '.github/workflows/validate-recipe-structure.yml'
+      - '.github/scripts/check_model_literals.py'
       - 'tools/validate.py'
       - 'tools/validate_manifest.py'
       - 'tools/validate_structure.py'
@@ -44,6 +45,7 @@ on:
       - '.github/schemas/manifest-schema.json'
       - '.github/policy.yml'
       - '.github/workflows/validate-recipe-structure.yml'
+      - '.github/scripts/check_model_literals.py'
       - 'tools/validate.py'
       - 'tools/validate_manifest.py'
       - 'tools/validate_structure.py'
@@ -117,7 +119,7 @@ jobs:
           # If any infra file that controls this workflow's behaviour
           # changed, validate ALL recipes so the new config applies across
           # the board.
-          INFRA_CHANGED=$(echo "$CHANGED_FILES" | grep -E "^(\.github/(schemas/manifest-schema\.json|policy\.yml|workflows/validate-recipe-structure\.yml)|tools/(validate|validate_manifest|validate_structure|validate_readme|affected_recipes)\.py|pyproject\.toml)$" || true)
+          INFRA_CHANGED=$(echo "$CHANGED_FILES" | grep -E "^(\.github/(schemas/manifest-schema\.json|policy\.yml|workflows/validate-recipe-structure\.yml|scripts/check_model_literals\.py)|tools/(validate|validate_manifest|validate_structure|validate_readme|affected_recipes)\.py|pyproject\.toml)$" || true)
           if [ -n "$INFRA_CHANGED" ]; then
             echo "Schema, policy, workflow, or tool changed — will validate all recipes."
             echo "validate_all=true" >> "$GITHUB_OUTPUT"
@@ -233,6 +235,22 @@ jobs:
             [ -z "$recipe" ] && continue
             run_validator structure "$recipe"
             run_validator readme    "$recipe"
+
+            # Notice: Possible hardcoded model names in recipe source files.
+            # Emits ::notice (never fails the build).
+            set +e
+            uv run --no-project python3 .github/scripts/check_model_literals.py "$recipe"
+            model_exit=$?
+            set -e
+            case "$model_exit" in
+              0) ;;
+              1) FAILED=1 ;;
+              2) CI_FAULT=1 ;;
+              *)
+                echo "::error::check_model_literals.py exited with an undefined status ($model_exit). This is a CI tooling bug, not a problem with your recipe."
+                CI_FAULT=1
+                ;;
+            esac
           done <<< "$CHANGED_RECIPES"
 
           if [ "$CI_FAULT" -eq 1 ]; then

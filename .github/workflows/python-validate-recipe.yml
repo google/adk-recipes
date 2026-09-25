@@ -2,9 +2,8 @@ name: Validate Python Recipe
 
 # Python-specific validation for each affected Python recipe:
 # `.env.example` env-key notice, AST-based env-var extraction check,
-# no-local-Ruff-config, `[project]` metadata rules, and a
-# hardcoded-model-name notice. Structural checks live in
-# `validate-recipe-structure.yml`.
+# no-local-Ruff-config, and `[project]` metadata rules. Structural checks
+# and model-literal notices live in `validate-recipe-structure.yml`.
 
 on:
   pull_request:
@@ -319,23 +318,6 @@ jobs:
                     ;;
                 esac
               fi
-
-              # ------------------------------------------------------------
-              # Notice: Possible hardcoded model names in Python files.
-              # Emits ::notice (never fail) when a string literal in a
-              # non-test .py file matches a well-known model prefix.
-              # ------------------------------------------------------------
-              MODEL_PREFIXES="gemini-|gemini-exp-|imagen-|claude-|llama-|meta/llama-|mistral-|codestral-|phi-|grok-|command-|jamba-"
-
-              while IFS= read -r pyfile; do
-                matches=$(grep -onE "['\"]($MODEL_PREFIXES)[^ '\"]{1,35}['\"]" "$pyfile" || true)
-                [ -z "$matches" ] && continue
-                while IFS=: read -r lineno match; do
-                  [ -z "$lineno" ] && continue
-                  echo "::notice file=$pyfile,line=$lineno::Possible hardcoded model name $match detected. If this is a model identifier, consider using an environment variable instead."
-                  echo "[NOTICE] $pyfile:$lineno — possible hardcoded model name: $match"
-                done <<< "$matches"
-              done < <(find "$recipe" -type f -name "*.py" ! -path "*/tests/*")
 
               # A CI fault outranks a recipe failure: if our own checker
               # could not run, we do not actually know whether the recipe
