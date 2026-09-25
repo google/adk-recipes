@@ -122,7 +122,7 @@ jobs:
         contains(github.event.comment.body, '@ai-review') &&
         contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association)
       )
-    uses: './.github/workflows/_ai-pr-review-core.yml'
+    uses: '$/.github/workflows/_ai-pr-review-core.yml'
     with:
       review_label: 'Hygiene'
       event_name: '${{ github.event_name }}'

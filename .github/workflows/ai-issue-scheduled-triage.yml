@@ -170,7 +170,7 @@ jobs:
       contents: 'read'
       id-token: 'write'
       issues: 'write'
-    uses: './.github/workflows/_ai-issue-triage-core.yml'
+    uses: '$/.github/workflows/_ai-issue-triage-core.yml'
     with:
       issues: '${{ needs.find.outputs.issues }}'
       print_timeout: '8m'

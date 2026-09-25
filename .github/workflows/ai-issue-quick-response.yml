@@ -97,7 +97,7 @@ jobs:
       contents: 'read'
       id-token: 'write'
       issues: 'write'
-    uses: './.github/workflows/_ai-issue-response-core.yml'
+    uses: '$/.github/workflows/_ai-issue-response-core.yml'
     with:
       issue_number: '${{ needs.resolve.outputs.issue_number }}'
       issue_title: '${{ needs.resolve.outputs.issue_title }}'
