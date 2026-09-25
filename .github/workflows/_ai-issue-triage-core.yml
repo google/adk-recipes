@@ -152,7 +152,7 @@ jobs:
       - name: 'Install Antigravity CLI (agy)'
         run: |-
           set -euo pipefail
-          curl -fsSL https://antigravity.google/cli/install.sh | bash
+          bash .github/scripts/install_agy.sh
           echo "${HOME}/.local/bin" >> "${GITHUB_PATH}"
 
       # SECURITY: the allowlist is EMPTY, and it stays that way. The agent

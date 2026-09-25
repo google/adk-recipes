@@ -700,7 +700,7 @@ jobs:
           steps.prepare_diff.outputs.reviewable == 'true'
         run: |-
           set -euo pipefail
-          curl -fsSL https://antigravity.google/cli/install.sh | bash
+          bash .github/scripts/install_agy.sh
           echo "${HOME}/.local/bin" >> "${GITHUB_PATH}"
 
       # No MCP server is configured, deliberately. The reviewer used to post
