@@ -99,12 +99,17 @@ R2V video generation and framing utilities.
 
 ```python
 def run_r2v_pipeline(
-    veo_client, model_image_bytes, prompt,
-    number_of_videos=4, upscale_client=None,
-    original_model_image_bytes=None, first_clip_check=None,
+    veo_client,
+    model_image_bytes,
+    prompt,
+    number_of_videos=4,
+    upscale_client=None,
+    original_model_image_bytes=None,
+    first_clip_check=None,
 ) -> dict:
     """Run R2V pipeline with Veo 3.1 reference images.
     Returns: {videos, first_frame, last_frame, aborted}"""
+
 
 DEFAULT_VEO_PROMPT = """
 Subject: The exactly same person from the reference image...

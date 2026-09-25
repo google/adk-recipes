@@ -146,7 +146,7 @@ def get_deleted_files(
     LEFT JOIN live_gcs_uris AS live
         ON prep.gcs_uri = live.uri
     WHERE live.uri IS NULL
-    """
+    """  # noqa: S608
     rows = client.query(query).result()
     results = [dict(row) for row in rows]
     logger.info("Found %d deleted files", len(results))
@@ -249,7 +249,7 @@ def merge_preprocessed_staging(
         VALUES (source.file_id, source.gcs_uri, source.content_hash, source.content,
                 source.content_length, source.file_name, source.file_type,
                 source.relevant, source.error, CURRENT_TIMESTAMP())
-    """
+    """  # noqa: S608
     client.query(merge_sql).result()
     client.delete_table(staging_table, not_found_ok=True)
     logger.info("Merged staging into %s", fq_table)
@@ -269,7 +269,7 @@ def delete_by_file_ids(
     sql = f"""
     DELETE FROM `{fq_table}`
     WHERE file_id IN UNNEST(@file_ids)
-    """
+    """  # noqa: S608
     job_config = bigquery.QueryJobConfig(
         query_parameters=[
             bigquery.ArrayQueryParameter("file_ids", "STRING", list(file_ids)),

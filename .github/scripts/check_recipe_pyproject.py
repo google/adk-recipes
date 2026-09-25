@@ -60,9 +60,9 @@ required-files check owns it), so that case exits 0 with a note.
 
 import re
 import sys
+import tomllib
 from pathlib import Path
 
-import tomllib
 from packaging.requirements import InvalidRequirement, Requirement
 from packaging.specifiers import InvalidSpecifier, SpecifierSet
 from packaging.version import InvalidVersion, Version

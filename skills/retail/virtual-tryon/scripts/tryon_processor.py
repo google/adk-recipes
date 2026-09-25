@@ -77,7 +77,7 @@ def _load_image_bytes(
     if len(image_path_or_uri) > 100 and not os.path.exists(image_path_or_uri):
         try:
             return base64.b64decode(image_path_or_uri)
-        except Exception:
+        except Exception:  # noqa: S110
             pass
 
     # Read local file

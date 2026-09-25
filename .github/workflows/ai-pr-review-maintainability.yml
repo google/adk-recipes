@@ -106,7 +106,11 @@ jobs:
         contains(github.event.comment.body, '@ai-review') &&
         contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association)
       )
-    uses: './.github/workflows/_ai-pr-review-core.yml'
+    # The `$/` self-repository form zizmor prefers here is unusable: the
+    # org-level `github_actions_scan.yml` runs zizmor v1.25.2, which predates
+    # `$/` support and hard-errors parsing it ("malformed `uses` ref"). Revisit
+    # once that scanner is on v1.30.0 or later.
+    uses: './.github/workflows/_ai-pr-review-core.yml' # zizmor: ignore[self-repository]
     with:
       review_label: 'Maintainability'
       event_name: '${{ github.event_name }}'

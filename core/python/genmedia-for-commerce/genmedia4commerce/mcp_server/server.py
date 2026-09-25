@@ -90,7 +90,7 @@ except (ValueError, TypeError):
 
 server = FastMCP(
     "genmedia-retail",
-    host="0.0.0.0",
+    host="0.0.0.0",  # noqa: S104
     port=_mcp_port,
 )
 
@@ -128,7 +128,7 @@ async def product_fitting(
     """
     import random
 
-    ethnicity = random.choice(["african", "asian", "european"])
+    ethnicity = random.choice(["african", "asian", "european"])  # noqa: S311
     logger.info(
         f"[product_fitting] Called with {len(garment_images_base64)} images, ethnicity={ethnicity}"
     )

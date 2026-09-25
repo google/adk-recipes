@@ -119,6 +119,10 @@ from mcp_server.video_vto.glasses.glasses_api import (  # noqa: E402
     router as glasses_video_router,
 )
 
+from genmedia4commerce.app_utils.reasoning_engine_adapter import (  # noqa: E402
+    attach_reasoning_engine_routes,
+)
+
 app.include_router(product_fitting_router)
 app.include_router(clothes_image_router)
 app.include_router(glasses_image_router)
@@ -130,6 +134,11 @@ app.include_router(r2v_other_router)
 app.include_router(interpolation_other_router)
 app.include_router(catalog_router)
 app.include_router(chat_router)
+
+# Agent Engine forwards :query and :streamQuery to these routes; without them
+# a container deployed through container_spec starts but 404s every call.
+# Registered before the frontend so the SPA catch-all cannot shadow them.
+attach_reasoning_engine_routes(app)
 
 
 # --- Feedback endpoint (ASP standard) ---
@@ -302,4 +311,4 @@ _mount_frontend()
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=8000)  # noqa: S104 -- container entrypoint

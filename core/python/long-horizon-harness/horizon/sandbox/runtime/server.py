@@ -169,7 +169,7 @@ async def exec_command(req: ExecRequest) -> ExecResponse:
         drain_task.cancel()
         try:
             await drain_task
-        except (asyncio.CancelledError, Exception):
+        except (asyncio.CancelledError, Exception):  # noqa: S110
             pass
         return ExecResponse(
             exit_code=-1,
@@ -392,7 +392,7 @@ class _ContainerProcess:
 
         self._master_fd, slave_fd = pty.openpty()
         try:
-            self._proc = subprocess.Popen(
+            self._proc = subprocess.Popen(  # noqa: S603
                 ["/bin/sh", "-c", command],
                 stdin=slave_fd,
                 stdout=slave_fd,
@@ -629,6 +629,6 @@ if __name__ == "__main__":
 
     uvicorn.run(
         "server:app",
-        host="0.0.0.0",
+        host="0.0.0.0",  # noqa: S104
         port=int(os.environ.get("PORT", RUNTIME_PORT)),
     )

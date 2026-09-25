@@ -1,8 +1,8 @@
 name: 🐍 Python Format PR Checks
 
-# Runs Ruff format on changed Python files and posts diff-style
-# suggestion comments via reviewdog. Ruff config lives in the root
-# `pyproject.toml` — never overridden on the CLI here.
+# Runs Ruff format and lint, and Mypy static type checking on changed Python
+# files and posts suggestion comments / annotations via reviewdog. Ruff config
+# lives in the root `pyproject.toml` — never overridden on the CLI here.
 
 on:
   pull_request:
@@ -46,6 +46,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v4
         with:
           fetch-depth: 0 # Fetch complete history to locate the merge-base cleanly
+          persist-credentials: false
 
       - name: Install uv
         uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # ratchet:astral-sh/setup-uv@v10.0.1
@@ -150,6 +151,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v4
         with:
           fetch-depth: 0 # Fetch complete history to locate the merge-base cleanly
+          persist-credentials: false
 
       - name: Install uv
         uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # ratchet:astral-sh/setup-uv@v10.0.1
@@ -270,5 +272,248 @@ jobs:
           # letting reviewdog's exit status (which depends on token scope) do
           # it. A fork PR and a branch PR now fail identically.
           if [ "$LINT_STATUS" -ne 0 ]; then
+            exit 1
+          fi
+
+  mypy-typecheck:
+    name: Mypy Type Check
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write # Essential for posting reviewdog suggestion comments
+    # Scoped to PR diff; 10 min is a generous ceiling.
+    timeout-minutes: 10
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v4
+        with:
+          fetch-depth: 0 # Fetch complete history to locate the merge-base cleanly
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # ratchet:astral-sh/setup-uv@v10.0.1
+        with:
+          python-version: "3.11"
+          enable-cache: false
+
+      - name: Install Reviewdog
+        uses: reviewdog/action-setup@d8a7baabd7f3e8544ee4dbde3ee41d0011c3a93f # ratchet:reviewdog/action-setup@v1
+        with:
+          # Pinned rather than `latest` — see ruff-format job for rationale.
+          reviewdog_version: v0.21.0
+
+      - name: Run Mypy Type Check on Modified Files
+        env:
+          REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+
+          # 1. Fetch the target branch reference commits
+          git fetch origin "$BASE_REF"
+
+          # 2. Resolve Python files modified in this PR diff
+          mapfile -t CHANGED_FILES < <(git diff --name-only --diff-filter=d "origin/$BASE_REF...HEAD" | grep '\.py$' || true)
+
+          if [ ${#CHANGED_FILES[@]} -eq 0 ]; then
+            echo "No Python files were modified in this pull request. Skipping type check."
+            exit 0
+          fi
+
+          echo "Type-checking modified Python files: ${CHANGED_FILES[*]}"
+
+          # 3. Split the files into batches that mypy can actually accept.
+          #
+          #    mypy derives a module name from each path (walking up while
+          #    __init__.py exists) and refuses to run at all — exit 2,
+          #    "Duplicate module named ..." — when two paths in ONE
+          #    invocation produce the same name. Across recipes that is
+          #    routine, not exotic: several have their own app/fast_api_app.py
+          #    or .../main.py, so any PR touching two of them turned the job
+          #    red with a CI error instead of type-checking anything.
+          #
+          #    Greedily assign each file to the lowest-numbered batch that
+          #    does not already hold its module name. A single-recipe PR —
+          #    the overwhelmingly common case — still runs as one batch.
+          mypy_module_name() {
+            local dir name
+            dir=$(dirname "$1")
+            name=$(basename "$1" .py)
+            # mypy names pkg/__init__.py after the PACKAGE ("pkg"), not
+            # "pkg.__init__". Without this the walk below starts at the file's
+            # own __init__.py and produces a name one component too long, so a
+            # pkg/__init__.py and a pkg.py elsewhere look distinct here and
+            # then collide inside mypy — the exact failure the batching exists
+            # to prevent, and reachable today (app/tools/__init__.py in one
+            # recipe against app/tools.py in another).
+            if [ "$name" = "__init__" ] && [ "$dir" != "." ] && [ "$dir" != "/" ]; then
+              name=$(basename "$dir")
+              dir=$(dirname "$dir")
+            fi
+            while [ "$dir" != "." ] && [ "$dir" != "/" ] && [ -f "$dir/__init__.py" ]; do
+              name="$(basename "$dir").$name"
+              dir=$(dirname "$dir")
+            done
+            printf '%s' "$name"
+          }
+
+          BATCH_DIR=$(mktemp -d)
+          trap 'rm -rf "$BATCH_DIR"' EXIT
+          declare -A MODULE_TAKEN
+          BATCH_COUNT=0
+          for f in "${CHANGED_FILES[@]}"; do
+            module=$(mypy_module_name "$f")
+            batch=0
+            while [ -n "${MODULE_TAKEN[$batch:$module]:-}" ]; do
+              batch=$((batch + 1))
+            done
+            MODULE_TAKEN[$batch:$module]=1
+            printf '%s\n' "$f" >> "$BATCH_DIR/batch_$batch"
+            if [ "$((batch + 1))" -gt "$BATCH_COUNT" ]; then
+              BATCH_COUNT=$((batch + 1))
+            fi
+          done
+
+          if [ "$BATCH_COUNT" -gt 1 ]; then
+            echo "Module-name collisions across recipes: running mypy in $BATCH_COUNT batches."
+          fi
+
+          # 4. Run mypy over each batch with --ignore-missing-imports and
+          #    --follow-imports=silent, keeping the worst status seen. Each
+          #    batch gets its own cache directory so a module name reused in
+          #    another batch cannot invalidate an earlier batch's cache.
+          MYPY_STATUS=0
+          MYPY_RAW=""
+          for batch in $(seq 0 $((BATCH_COUNT - 1))); do
+            mapfile -t BATCH_FILES < "$BATCH_DIR/batch_$batch"
+            BATCH_STATUS=0
+            BATCH_OUTPUT=$(uvx mypy --ignore-missing-imports --follow-imports=silent --no-error-summary --cache-dir="$BATCH_DIR/cache_$batch" "${BATCH_FILES[@]}" 2>&1) || BATCH_STATUS=$?
+            if [ -n "$BATCH_OUTPUT" ]; then
+              MYPY_RAW="${MYPY_RAW:+$MYPY_RAW$'\n'}$BATCH_OUTPUT"
+            fi
+            if [ "$BATCH_STATUS" -gt "$MYPY_STATUS" ]; then
+              MYPY_STATUS=$BATCH_STATUS
+            fi
+          done
+
+          if [ "$MYPY_STATUS" -ge 2 ]; then
+            echo "[ERROR] mypy exited with status $MYPY_STATUS — it failed to"
+            echo "run at all. This is a CI or configuration problem, not a"
+            echo "type error in your code. See the mypy output above."
+            echo "$MYPY_RAW"
+            exit "$MYPY_STATUS"
+          fi
+
+          # 5. Keep only the diagnostics that land on lines this PR added or
+          #    changed.
+          #
+          #    mypy type-checks a whole file, so touching one line of a recipe
+          #    that already had type debt reported every old error and failed
+          #    the PR for code it never edited — a formatting sweep across
+          #    several recipes could not go green without an unrelated typing
+          #    rewrite. reviewdog already annotates only added lines
+          #    (-filter-mode=added); this makes the pass/fail decision agree
+          #    with what it shows, so the gate holds new code to mypy without
+          #    billing a contributor for the file's history.
+          #    --src-prefix/--dst-prefix pin the a//b/ prefixes the parser
+          #    below keys on, so a runner with diff.noprefix set in global git
+          #    config cannot quietly empty the added-line set and pass every
+          #    PR. Same defensiveness as --no-color in the ruff-format job.
+          git diff --unified=0 --src-prefix=a/ --dst-prefix=b/ "origin/$BASE_REF...HEAD" |
+            awk '
+              # Only the +++ immediately following a "diff --git" record is a
+              # file header. Matching /^\+\+\+ b\// anywhere would also match
+              # DIFF CONTENT: an added source line reading "++ b/other.py" is
+              # rendered "+++ b/other.py", which would retarget every later
+              # hunk at a file the author chooses and silently exclude the
+              # rest of this one from the gate. Resetting at each record also
+              # stops a header this parser cannot read (a C-quoted non-ASCII
+              # path) from leaving the PREVIOUS file in `path` and fabricating
+              # added lines for it.
+              /^diff --git / { path = ""; inhdr = 1; next }
+              /^\+\+\+ / {
+                if (inhdr) {
+                  path = ($0 ~ /^\+\+\+ b\//) ? substr($0, 7) : ""
+                  inhdr = 0
+                }
+                next
+              }
+              /^@@ / {
+                inhdr = 0
+                if (path == "") next
+                match($0, /\+[0-9]+(,[0-9]+)?/)
+                spec = substr($0, RSTART + 1, RLENGTH - 1)
+                split(spec, parts, ",")
+                start = parts[1] + 0
+                count = (2 in parts) ? parts[2] + 0 : 1
+                for (i = 0; i < count; i++) print path ":" (start + i)
+              }
+            ' > "$BATCH_DIR/added_lines"
+
+          # Split each diagnostic on its ":<line>: " separator rather than on
+          # the first colon: a colon is legal in a POSIX path, and splitting on
+          # -F: turns "my:mod.py:1: error" into the key "my:mod", which matches
+          # nothing and reports a brand-new file's error as pre-existing.
+          MYPY_OUTPUT=$(printf '%s\n' "$MYPY_RAW" | awk '
+            NR == FNR { added[$0] = 1; next }
+            match($0, /:[0-9]+: /) &&
+              (substr($0, 1, RSTART + RLENGTH - 3) in added) { print }
+          ' "$BATCH_DIR/added_lines" - || true)
+
+          SUPPRESSED=$(printf '%s\n' "$MYPY_RAW" | grep -c ": error:" || true)
+          REPORTED=$(printf '%s\n' "$MYPY_OUTPUT" | grep -c ": error:" || true)
+          SUPPRESSED=$((SUPPRESSED - REPORTED))
+
+          if [ "$SUPPRESSED" -gt 0 ]; then
+            echo "Note: $SUPPRESSED pre-existing mypy error(s) on lines this PR"
+            echo "did not touch are reported below for information only; they do"
+            echo "not fail this check."
+            echo "::group::Pre-existing mypy errors (not gating)"
+            printf '%s\n' "$MYPY_RAW" | grep ": error:" || true
+            echo "::endgroup::"
+          fi
+
+          MYPY_STATUS=0
+          if [ "$REPORTED" -gt 0 ]; then
+            MYPY_STATUS=1
+          fi
+
+          if [ "$MYPY_STATUS" -ne 0 ]; then
+            echo "::group::Mypy type check errors"
+            echo "$MYPY_OUTPUT"
+            echo "::endgroup::"
+            echo ""
+            echo "[FAIL] Mypy reported type errors on lines this PR changed."
+            echo ""
+            echo "Fix locally by running:"
+            echo ""
+            # One command per batch: the batches exist precisely because mypy
+            # cannot take these files in a single invocation. These commands
+            # are unfiltered, so they also surface the file's pre-existing
+            # errors — only the ones listed above gate the check.
+            for batch in $(seq 0 $((BATCH_COUNT - 1))); do
+              mapfile -t BATCH_FILES < "$BATCH_DIR/batch_$batch"
+              echo "  uv run mypy --ignore-missing-imports --follow-imports=silent ${BATCH_FILES[*]}"
+            done
+            echo ""
+            echo "Docs: docs/recipe-handbook/troubleshooting.md"
+          else
+            echo "[PASS] No Mypy type errors on the lines this PR changed."
+          fi
+
+          # 6. Hand the findings to reviewdog for inline annotations.
+          #    Gated on REPORTED, not on MYPY_OUTPUT being non-empty: a mypy
+          #    `note:` can survive the filter while its parent `error:` does
+          #    not, and annotating a green PR with a bare note attached to no
+          #    error is just confusing.
+          if [ "$REPORTED" -gt 0 ]; then
+            echo "$MYPY_OUTPUT" | reviewdog -f=mypy \
+                                            -name="mypy-typecheck" \
+                                            -reporter=github-pr-review \
+                                            -filter-mode=added \
+                                            -fail-on-error=false || true
+          fi
+
+          if [ "$MYPY_STATUS" -ne 0 ]; then
             exit 1
           fi

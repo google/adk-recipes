@@ -97,7 +97,11 @@ jobs:
       contents: 'read'
       id-token: 'write'
       issues: 'write'
-    uses: './.github/workflows/_ai-issue-response-core.yml'
+    # The `$/` self-repository form zizmor prefers here is unusable: the
+    # org-level `github_actions_scan.yml` runs zizmor v1.25.2, which predates
+    # `$/` support and hard-errors parsing it ("malformed `uses` ref"). Revisit
+    # once that scanner is on v1.30.0 or later.
+    uses: './.github/workflows/_ai-issue-response-core.yml' # zizmor: ignore[self-repository]
     with:
       issue_number: '${{ needs.resolve.outputs.issue_number }}'
       issue_title: '${{ needs.resolve.outputs.issue_title }}'

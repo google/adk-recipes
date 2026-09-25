@@ -25,6 +25,9 @@ from google.adk.runners import Runner
 
 from __AGENT_PACKAGE__.app_utils import services
 from __AGENT_PACKAGE__.app_utils.a2a import attach_a2a_routes
+from __AGENT_PACKAGE__.app_utils.reasoning_engine_adapter import (
+    attach_reasoning_engine_routes,
+)
 
 load_dotenv()
 
@@ -80,6 +83,10 @@ app: FastAPI = get_fast_api_app(
 )
 app.title = "__PROJECT_NAME__"
 app.description = "API for interacting with the Agent __PROJECT_NAME__"
+
+# Agent Engine forwards :query and :streamQuery to these routes; without them
+# a container deployed through container_spec starts but 404s every call.
+attach_reasoning_engine_routes(app)
 
 
 # Main execution
