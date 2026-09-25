@@ -1,0 +1,8 @@
+{
+"criteria": {
+    "tool_trajectory_avg_score": {
+        "threshold": 0.2,
+        "match_type": "ANY_ORDER"
+    }
+}
+}

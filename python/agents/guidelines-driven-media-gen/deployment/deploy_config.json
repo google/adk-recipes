@@ -1,0 +1,8 @@
+{
+  "operation": "create",
+  "project_id": "YOUR-PROJECT-NAME",
+  "location": "us-central1",
+  "bucket_name": "STAGING-DIRECTORY-FOR-DEPLOYMENT",
+  "resource_id": "REPLACE_WITH_AGENT_ENGINE_ID_FOR_DELETION", 
+  "display_name": "guidelines_driven_media_gen_agent"
+}

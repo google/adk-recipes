@@ -1,0 +1,50 @@
+[
+  {
+    "id": 1,
+    "primary_subject_type": "t_shirt",
+    "primary_subject_color_name": "Cognitive White",
+    "primary_subject_color_hex_code": "#FFFFFF",
+    "name": "Cognitive White T-Shirt with full primary logo",
+    "has_person": "no",
+    "category": "apparel",
+    "allow_modifications": "no",
+    "description": "A Cognitive White T-Shirt featuring the full primary logo of 'NeuroVibe AI'.",
+    "image_path": "assets/Cognitive_White_T_Shirt_with_full_primary_logo.png"
+  },
+  {
+    "id": 2,
+    "primary_subject_type": "t_shirt",
+    "primary_subject_color_name": "Neuro Blue",
+    "primary_subject_color_hex_code": "#0A2540",
+    "name": "Neuro Blue T-Shirt with Pulse Arrow logo",
+    "has_person": "no",
+    "category": "apparel",
+    "allow_modifications": "no",
+    "description": "A Neuro Blue T-Shirt featuring the Pulse Arrow secondary logo of NeuroVibe AI.",
+    "image_path": "assets/NeuroBlue_T_shirt_with_pulse_arrow_logo.png"
+  },
+  {
+    "id": 3,
+    "primary_subject_type": "office_reception",
+    "primary_subject_color_name": "Neuro Blue",
+    "primary_subject_color_hex_code": "#0A2540",
+    "name": "NeuroVibe AI Office Reception",
+    "has_person": "no",
+    "category": "office_environment",
+    "allow_modifications": "no",
+    "description": "The office reception area for NeuroVibe AI.",
+    "image_path": "assets/NeuroVibe_AI_office_reception.png"
+  },
+  {
+    "id": 4,
+    "primary_subject_type": "associate_badge",
+    "primary_subject_color_name": "Neuro Blue",
+    "primary_subject_color_hex_code": "#0A2540",
+    "name": "Associate Badge",
+    "has_person": "no",
+    "category": "badge",
+    "allow_modifications": "no",
+    "description": "NeuroVibe AI associate badge.",
+    "image_path": "assets/associate_badge.png"
+  }
+]

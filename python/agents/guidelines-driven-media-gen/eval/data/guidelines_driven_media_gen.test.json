@@ -1,0 +1,157 @@
+{
+  "eval_set_id": "guidelines_media_evals",
+  "name": "Guidelines Driven Media Gen Evals",
+  "description": "Tests the media generation and scoring agent on brand guidelines",
+  "eval_cases": [
+    {
+      "eval_id": "shepherd_test",
+      "session_input": {
+        "app_name": "guidelines_driven_media_gen",
+        "user_id": "test_user_1",
+        "state": {}
+      },
+      "conversation": [
+        {
+          "invocation_id": "1",
+          "user_content": {
+            "parts": [
+              {
+                "text": "A shepherd along with sheeps on a grassland"
+              }
+            ]
+          },
+          "final_response": {
+            "role": "model",
+            "parts": [
+              {
+                "text": "I will revise the prompts based on the rules provided and come up with positive and negative image generation prompts."
+              }
+            ]
+          },
+          "intermediate_data": {
+            "tool_uses": [
+              {
+                "name": "get_policy"
+              },
+              {
+                "name": "search_asset_bank"
+              },
+              {
+                "name": "generate_images"
+              },
+              {
+                "name": "get_image"
+              },
+              {
+                "name": "set_score"
+              },
+              {
+                "name": "check_condition_and_escalate_tool"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "eval_id": "neurovibe_engineer",
+      "session_input": {
+        "app_name": "guidelines_driven_media_gen",
+        "user_id": "test_user_2",
+        "state": {}
+      },
+      "conversation": [
+        {
+          "invocation_id": "1",
+          "user_content": {
+            "parts": [
+              {
+                "text": "Create an image of an engineer in a server room wearing a Neuro Blue t-shirt with the Pulse Arrow."
+              }
+            ]
+          },
+          "final_response": {
+            "role": "model",
+            "parts": [
+              {
+                "text": "I will revise the prompts based on the rules provided and come up with positive and negative image generation prompts."
+              }
+            ]
+          },
+          "intermediate_data": {
+            "tool_uses": [
+              {
+                "name": "get_policy"
+              },
+              {
+                "name": "search_asset_bank"
+              },
+              {
+                "name": "generate_images"
+              },
+              {
+                "name": "get_image"
+              },
+              {
+                "name": "set_score"
+              },
+              {
+                "name": "check_condition_and_escalate_tool"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "eval_id": "neurovibe_reception",
+      "session_input": {
+        "app_name": "guidelines_driven_media_gen",
+        "user_id": "test_user_3",
+        "state": {}
+      },
+      "conversation": [
+        {
+          "invocation_id": "1",
+          "user_content": {
+            "parts": [
+              {
+                "text": "Generate a picture of a sleek office reception area with the NeuroVibe AI primary logo on the wall."
+              }
+            ]
+          },
+          "final_response": {
+            "role": "model",
+            "parts": [
+              {
+                "text": "I will revise the prompts based on the rules provided and come up with positive and negative image generation prompts."
+              }
+            ]
+          },
+          "intermediate_data": {
+            "tool_uses": [
+              {
+                "name": "get_policy"
+              },
+              {
+                "name": "search_asset_bank"
+              },
+              {
+                "name": "generate_images"
+              },
+              {
+                "name": "get_image"
+              },
+              {
+                "name": "set_score"
+              },
+              {
+                "name": "check_condition_and_escalate_tool"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

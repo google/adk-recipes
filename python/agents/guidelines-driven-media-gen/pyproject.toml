@@ -1,0 +1,114 @@
+[project]
+name = "guidelines-driven-media-gen"
+version = "0.1.0"
+description = "The guidelines driven media generation agent generates an image for a prompt, evaluates the image against a set of rules and regenerates the image if necessary."
+authors = [
+    {name = "Anusha Sabbineni", email = "asabbineni@google.com"}
+]
+license = "Apache-2.0"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "google-adk>=1.27.1",
+    "google-genai>=1.67.0",
+    "google-cloud-logging>=3.12.0",
+    "google-cloud-aiplatform[adk,agent-engines]>=1.93.0",
+    "pandas>=2.1.1",
+    "pillow>=10.3.0",
+    "scikit-learn>=1.5.2",
+    "tenacity>=9.1.2",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3.4",
+    "pytest-asyncio>=0.23.8",
+    "google-adk[eval]>=1.27.1",
+    "nest-asyncio>=1.6.0",
+    "agent-starter-pack>=0.14.1",
+]
+
+deployment = [
+    "absl-py>=2.2.1",
+]
+
+[project.optional-dependencies]
+
+jupyter = [
+    "jupyter~=1.1.1",
+]
+lint = [
+    "ruff>=0.4.6",
+    "mypy~=1.18.2",
+    "codespell~=2.4.1",
+    "types-pyyaml~=6.0.12.20240917",
+    "types-requests~=2.32.4.20250913",
+]
+
+[tool.ruff]
+line-length = 88
+target-version = "py313"
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle
+    "F",   # pyflakes
+    "W",   # pycodestyle warnings
+    "I",   # isort
+    "C",  # flake8-comprehensions
+    "B",   # flake8-bugbear
+    "UP", # pyupgrade
+    "RUF", # ruff specific rules
+]
+ignore = ["E501", "C901", "B006"] # ignore line too long, too complex
+
+[tool.ruff.lint.isort]
+known-first-party = ["app", "frontend"]
+
+[tool.mypy]
+disallow_untyped_calls = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+no_implicit_optional = true
+check_untyped_defs = true
+disallow_subclassing_any = true
+warn_incomplete_stub = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_unreachable = true
+follow_imports = "silent"
+ignore_missing_imports = true
+explicit_package_bases = true
+disable_error_code = ["misc", "no-untyped-call", "no-any-return"]
+
+exclude = [".venv"]
+
+[tool.codespell]
+ignore-words-list = "rouge"
+skip = "./locust_env/*,uv.lock,.venv,./frontend,**/*.ipynb"
+
+[build-system]
+requires = ["uv_build>=0.8.14,<0.9.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-root = ""
+
+[tool.pytest.ini_options]
+pythonpath = "."
+addopts = "-vv -s --ignore=tests/test_deployment.py"
+testpaths = ["tests/"]
+log_level = "DEBUG"
+log_cli = true
+log_auto_indent = true
+log_cli_date_format = "%Y-%m-%d %H:%M:%S"
+asyncio_default_fixture_loop_scope = "function"
+
+# This configuration file is used by goo.gle/agent-starter-pack to power remote templating.
+# It defines the template's properties and settings.
+[tool.agent-starter-pack]
+example_question = "Generate an image about a polar bear in the Sahara desert"
+
+[tool.agent-starter-pack.settings]
+agent_directory = "guidelines_driven_media_gen"
+
