@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "adk-governance-observatory"
+version = "0.1.0"
+description = "Runtime governance layer for Google Agent Development Kit"
+readme = "README.md"
+license = {text = "Apache-2.0"}
+authors = [
+    {name = "Akhilesh Warik", email = "warikakhilesh319@gmail.com"}
+]
+dependencies = [
+    "pydantic>=2.0.0",
+    "click>=8.0.0"
+]
+requires-python = ">=3.9"
+
+[project.scripts]
+adk-gov = "src.cli.commands:cli"
+
+[project.urls]
+Homepage = "https://github.com/a1k7/adk-governance-observatory"
+Repository = "https://github.com/a1k7/adk-governance-observatory"
