@@ -253,9 +253,9 @@ a token the check has in CI and you generally do not have locally:
 
 **Symptom** — `Recipe contains a recipe-local Biome/golangci-lint/.editorconfig configuration file`
 
-**Cause** — the recipe contains a recipe-local configuration file (`biome.json`, `biome.jsonc`, `.biomerc*`, `.golangci.yml`, `.golangci.yaml`, `.golangci.toml`, or `.editorconfig` declaring a Kotlin section). Style and lint configurations are centralized at the repository root.
+**Cause** — the recipe contains a recipe-local configuration file (`biome.json`, `biome.jsonc`, `.biomerc*`, `.golangci.yml`, `.golangci.yaml`, `.golangci.toml`, `.golangci.json`, or an `.editorconfig` that configures Kotlin style: a Kotlin section such as `[*.{kt,kts}]`, a `ktlint_*` or `ij_kotlin_*` property, or — in a Kotlin recipe — a property such as `max_line_length` in `[*]`). Style and lint configurations are centralized at the repository root. The check is advisory for now: it reports a warning and does not fail the PR.
 
-**Fix** — delete the file from the recipe (or remove the Kotlin section from `.editorconfig`). If repository-wide style or lint rules need updating, update the root configuration file.
+**Fix** — delete the file from the recipe, or remove the section or property the warning names from `.editorconfig`. If repository-wide style or lint rules need updating, update the root configuration file.
 
 **Confirm**, from the repo root —
 `python3 .github/scripts/check_recipe_lint_config.py <recipe-path>`

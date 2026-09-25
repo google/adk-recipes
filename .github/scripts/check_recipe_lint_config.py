@@ -16,9 +16,13 @@ Validates that a recipe does not contain recipe-local style or lint configuratio
 
 Rules enforced:
   - TypeScript: forbid recipe-local biome.json, biome.jsonc, and .biomerc* files.
-  - Go: forbid recipe-local .golangci.yml, .golangci.yaml, and .golangci.toml files.
-  - Kotlin: forbid recipe-local .editorconfig files containing Kotlin sections
-    (e.g., [*.{kt,kts}], [*.kt], [*.kts]) or ktlint_* properties in any section.
+  - Go: forbid recipe-local .golangci.yml, .golangci.yaml, .golangci.toml and
+    .golangci.json files.
+  - Kotlin: forbid recipe-local .editorconfig files that configure Kotlin
+    style: a Kotlin section (e.g. [*.{kt,kts}], [*.kt], [*.kts]), a ktlint_*
+    or ij_kotlin_* property in any section, or, in a recipe with Kotlin
+    sources, a property ktlint honours (indent_size, max_line_length, ...) in
+    a section that matches every file, such as [*].
 
 Style and lint configurations are centralized at the repository root. Recipe-local
 configuration files override the repo-wide standards and are forbidden.
@@ -78,14 +82,41 @@ _EXCLUDED_DIRS: frozenset[str] = frozenset(
 )
 
 
+_KOTLIN_SUFFIXES = (".kt", ".kts")
+
+_SECTION_RE = re.compile(r"^\[(.+)\]$")
+# A Kotlin extension in a glob: `*.kt`, `*.kts`, or `kt`/`kts` inside a
+# brace list such as `*.{kt,kts}` or `*.{java,kt}`.
+_KOTLIN_GLOB_RE = re.compile(r"\.kts?(?!\w)|[{,]\s*kts?\s*(?=[,}])")
+# A section whose last path component is `*` or `**` matches every file,
+# Kotlin sources included.
+_MATCH_ALL_RE = re.compile(r"(?:.*/)?\*{1,2}")
+_PROPERTY_RE = re.compile(r"^([\w.-]+)\s*[=:]")
+_KOTLIN_PROPERTY_PREFIXES = ("ktlint_", "ij_kotlin_")
+# Standard EditorConfig properties that ktlint applies to Kotlin files.
+_KTLINT_STANDARD_PROPERTIES = frozenset(
+    {
+        "indent_size",
+        "indent_style",
+        "tab_width",
+        "max_line_length",
+        "insert_final_newline",
+    }
+)
+
+
 def _editorconfig_kotlin_rule(
-    path: Path,
+    path: Path, *, has_kotlin_sources: bool
 ) -> tuple[bool, int, str]:
     """Check if an .editorconfig file configures Kotlin style.
 
-    That is either a section targeting Kotlin files, or a ktlint_* property
-    in any section. ktlint applies a generic section such as [*] to Kotlin
-    files too, so checking section headers alone misses those overrides.
+    Flags the first of: a section targeting Kotlin files; a ktlint_* or
+    ij_kotlin_* property in any section; or, when the recipe has Kotlin
+    sources, a standard property ktlint honours in a section that matches
+    every file. ktlint applies [*] to Kotlin files too, so checking section
+    headers alone misses those overrides. The last case is limited to Kotlin
+    recipes because [*] indent_size in, say, a Python recipe changes nothing
+    ktlint checks.
 
     Returns (found, line_number, description of what was found).
     """
@@ -94,28 +125,39 @@ def _editorconfig_kotlin_rule(
     except (UnicodeDecodeError, OSError):
         return False, 0, ""
 
-    section_re = re.compile(r"^\s*\[([^\]]+)\]")
-    kotlin_pattern_re = re.compile(
-        r"(?:^|[^\w])(?:kt|kts)(?:$|[^\w])|\*\.kt|\*\.kts|\.kt\b|\.kts\b"
-    )
-    ktlint_property_re = re.compile(r"^(ktlint_[\w-]*)\s*=", re.IGNORECASE)
-
     section = ""
     for lineno, line in enumerate(content.splitlines(), start=1):
         stripped = line.strip()
         if not stripped or stripped.startswith(("#", ";")):
             continue
-        m = section_re.match(stripped)
+        m = _SECTION_RE.match(stripped)
         if m:
             section = m.group(1).strip()
-            if kotlin_pattern_re.search(section):
+            if _KOTLIN_GLOB_RE.search(section):
                 return True, lineno, f"Kotlin style section [{section}]"
             continue
-        m = ktlint_property_re.match(stripped)
-        if m:
-            where = f"section [{section}]" if section else "the preamble"
-            return True, lineno, f"ktlint property {m.group(1)} in {where}"
+        m = _PROPERTY_RE.match(stripped)
+        if not m:
+            continue
+        key = m.group(1).lower()
+        where = f"section [{section}]" if section else "the preamble"
+        if key.startswith(_KOTLIN_PROPERTY_PREFIXES):
+            return True, lineno, f"Kotlin property {key} in {where}"
+        if (
+            has_kotlin_sources
+            and key in _KTLINT_STANDARD_PROPERTIES
+            and _MATCH_ALL_RE.fullmatch(section)
+        ):
+            return True, lineno, f"property {key} in {where}"
     return False, 0, ""
+
+
+def _is_excluded(file_path: Path, recipe_dir: Path) -> bool:
+    try:
+        rel_to_recipe = file_path.relative_to(recipe_dir)
+    except ValueError:
+        rel_to_recipe = Path(file_path.name)
+    return any(part in _EXCLUDED_DIRS for part in rel_to_recipe.parts)
 
 
 def _collect_violations(
@@ -124,16 +166,14 @@ def _collect_violations(
     root = REPO_ROOT if repo_root is None else repo_root
     violations: list[Diagnostic] = []
 
-    for file_path in sorted(recipe_dir.rglob("*")):
-        try:
-            rel_to_recipe = file_path.relative_to(recipe_dir)
-        except ValueError:
-            rel_to_recipe = Path(file_path.name)
-        if any(part in _EXCLUDED_DIRS for part in rel_to_recipe.parts):
-            continue
-        if not file_path.is_file():
-            continue
+    files = [
+        f
+        for f in sorted(recipe_dir.rglob("*"))
+        if not _is_excluded(f, recipe_dir) and f.is_file()
+    ]
+    has_kotlin_sources = any(f.suffix in _KOTLIN_SUFFIXES for f in files)
 
+    for file_path in files:
         # If the file is directly at the repo root, it is not recipe-local.
         try:
             if file_path.resolve() == (root / file_path.name).resolve():
@@ -173,8 +213,13 @@ def _collect_violations(
                 )
             )
 
-        # Go: .golangci.yml, .golangci.yaml, .golangci.toml
-        elif name in (".golangci.yml", ".golangci.yaml", ".golangci.toml"):
+        # Go: .golangci.yml, .golangci.yaml, .golangci.toml, .golangci.json
+        elif name in (
+            ".golangci.yml",
+            ".golangci.yaml",
+            ".golangci.toml",
+            ".golangci.json",
+        ):
             violations.append(
                 Diagnostic(
                     check=CHECK,
@@ -201,15 +246,17 @@ def _collect_violations(
 
         # Kotlin: .editorconfig that configures Kotlin style
         elif name == ".editorconfig":
-            has_kt, lineno, found = _editorconfig_kotlin_rule(file_path)
+            has_kt, lineno, found = _editorconfig_kotlin_rule(
+                file_path, has_kotlin_sources=has_kotlin_sources
+            )
             if has_kt:
                 violations.append(
                     Diagnostic(
                         check=CHECK,
                         what=(
                             f"Recipe contains a recipe-local .editorconfig "
-                            f"declaring {found} at line {lineno}: "
-                            f"{rel_path}."
+                            f"that configures Kotlin style ({found}, line "
+                            f"{lineno}): {rel_path}."
                         ),
                         why=(
                             "Kotlin style is governed by the ktlint version "
@@ -220,7 +267,8 @@ def _collect_violations(
                         how=(
                             f"Remove the {found} (line {lineno}) from "
                             f"{rel_path}, or delete {name} if it only "
-                            f"configures Kotlin."
+                            f"configures Kotlin. ktlint also applies a "
+                            f"section such as [*] to Kotlin files."
                         ),
                         doc=Doc.LINT_CONFIG,
                         file=str(rel_path),

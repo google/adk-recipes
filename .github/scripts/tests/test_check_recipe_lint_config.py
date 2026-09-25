@@ -182,7 +182,7 @@ def test_recipe_with_editorconfig_ktlint_property_in_generic_section_fails(
     assert _run(tmp_path, monkeypatch) == EXIT_OK
     out = capsys.readouterr().out
     assert "[NOTICE]" in out
-    assert "ktlint property ktlint_standard_no-wildcard-imports" in out
+    assert "Kotlin property ktlint_standard_no-wildcard-imports" in out
     assert "section [*]" in out
     assert f"::warning file={tmp_path / '.editorconfig'}::" in out
 
@@ -195,7 +195,7 @@ def test_recipe_with_editorconfig_ktlint_property_in_preamble_fails(
     )
     assert _run(tmp_path, monkeypatch) == EXIT_OK
     out = capsys.readouterr().out
-    assert "ktlint property ktlint_code_style in the preamble" in out
+    assert "Kotlin property ktlint_code_style in the preamble" in out
 
 
 def test_recipe_with_editorconfig_generic_section_without_ktlint_passes(
@@ -208,6 +208,80 @@ def test_recipe_with_editorconfig_generic_section_without_ktlint_passes(
     out = capsys.readouterr().out
     assert "[PASS]" in out
     assert "::warning" not in out
+
+
+def test_recipe_with_golangci_json_fails(tmp_path, monkeypatch, capsys):
+    (tmp_path / ".golangci.json").write_text('{"linters": {}}\n')
+    assert _run(tmp_path, monkeypatch) == EXIT_OK
+    out = capsys.readouterr().out
+    assert f"::warning file={tmp_path / '.golangci.json'}::" in out
+
+
+def test_recipe_with_editorconfig_ij_kotlin_property_fails(
+    tmp_path, monkeypatch, capsys
+):
+    (tmp_path / ".editorconfig").write_text(
+        "[*]\nij_kotlin_allow_trailing_comma = false\n"
+    )
+    assert _run(tmp_path, monkeypatch) == EXIT_OK
+    out = capsys.readouterr().out
+    assert (
+        "Kotlin property ij_kotlin_allow_trailing_comma in section [*]" in out
+    )
+
+
+@pytest.mark.parametrize("section", ["*", "**", "src/**"])
+def test_kotlin_recipe_with_generic_max_line_length_fails(
+    tmp_path, monkeypatch, capsys, section
+):
+    # ktlint honours max_line_length from any section matching a .kt file.
+    (tmp_path / "Main.kt").write_text("fun main() {}\n")
+    (tmp_path / ".editorconfig").write_text(
+        f"root = true\n\n[{section}]\nmax_line_length = 140\n"
+    )
+    assert _run(tmp_path, monkeypatch) == EXIT_OK
+    out = capsys.readouterr().out
+    assert f"property max_line_length in section [{section}]" in out
+    assert f"::warning file={tmp_path / '.editorconfig'}::" in out
+
+
+def test_non_kotlin_recipe_with_generic_max_line_length_passes(
+    tmp_path, monkeypatch, capsys
+):
+    (tmp_path / "main.py").write_text("print('hi')\n")
+    (tmp_path / ".editorconfig").write_text("[*]\nmax_line_length = 140\n")
+    assert _run(tmp_path, monkeypatch) == EXIT_OK
+    out = capsys.readouterr().out
+    assert "[PASS]" in out
+
+
+def test_kotlin_recipe_with_non_kotlin_section_property_passes(
+    tmp_path, monkeypatch, capsys
+):
+    (tmp_path / "Main.kt").write_text("fun main() {}\n")
+    (tmp_path / ".editorconfig").write_text("[*.md]\nmax_line_length = 140\n")
+    assert _run(tmp_path, monkeypatch) == EXIT_OK
+    out = capsys.readouterr().out
+    assert "[PASS]" in out
+
+
+def test_editorconfig_mixed_brace_list_with_kt_fails(
+    tmp_path, monkeypatch, capsys
+):
+    (tmp_path / ".editorconfig").write_text("[*.{java,kt}]\nindent_size = 4\n")
+    assert _run(tmp_path, monkeypatch) == EXIT_OK
+    out = capsys.readouterr().out
+    assert "Kotlin style section [*.{java,kt}]" in out
+
+
+@pytest.mark.parametrize("section", ["docs/kt-notes.md", "*.ktx", "kt/*.py"])
+def test_editorconfig_section_merely_mentioning_kt_passes(
+    tmp_path, monkeypatch, capsys, section
+):
+    (tmp_path / ".editorconfig").write_text(f"[{section}]\nindent_size = 4\n")
+    assert _run(tmp_path, monkeypatch) == EXIT_OK
+    out = capsys.readouterr().out
+    assert "[PASS]" in out
 
 
 def test_findings_are_advisory_not_errors(tmp_path, monkeypatch, capsys):
