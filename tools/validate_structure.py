@@ -98,6 +98,10 @@ def load_policy() -> dict:
         return yaml.safe_load(f) or {}
 
 
+def _as_key(name: str | list[str]) -> str | tuple[str, ...]:
+    return tuple(name) if isinstance(name, list) else name
+
+
 def _resolve_required(
     policy: dict, section: str, root: str, language: str | None
 ) -> list[tuple[str | tuple[str, ...], str]]:
@@ -117,15 +121,12 @@ def _resolve_required(
     config = policy.get(section) or {}
     entries: list[tuple[str | tuple[str, ...], str]] = []
     for name in config.get("always") or []:
-        key = tuple(name) if isinstance(name, list) else name
-        entries.append((key, "always"))
+        entries.append((_as_key(name), "always"))
     for name in (config.get("by_root") or {}).get(root) or []:
-        key = tuple(name) if isinstance(name, list) else name
-        entries.append((key, f"by_root.{root}"))
+        entries.append((_as_key(name), f"by_root.{root}"))
     if language:
         for name in (config.get("by_language") or {}).get(language) or []:
-            key = tuple(name) if isinstance(name, list) else name
-            entries.append((key, f"by_language.{language}"))
+            entries.append((_as_key(name), f"by_language.{language}"))
     # Preserve order but drop duplicates — an entry could be listed under
     # multiple sources without meaning it's required twice. The FIRST
     # source wins, which keeps the reported rule stable as policy grows.
@@ -242,7 +243,7 @@ def _file_remediation(rel: str | tuple[str, ...], recipe_rel: str) -> str:
     )
 
 
-def _dir_remediation(rel: str, recipe_rel: str) -> str:
+def _dir_remediation(rel: str | tuple[str, ...], recipe_rel: str) -> str:
     """The fix for a missing required directory.
 
     Always leads with the git detail: the overwhelmingly common report is
@@ -250,11 +251,12 @@ def _dir_remediation(rel: str, recipe_rel: str) -> str:
     never committed it, because git tracks files and an empty directory
     has none.
     """
+    target = rel[0] if isinstance(rel, tuple) else rel
     return (
         f"git cannot commit an empty directory, so a folder with nothing "
         f"in it never reaches CI. Add a placeholder and commit it:\n"
-        f"  touch {recipe_rel}/{rel}/.gitkeep && "
-        f"git add {recipe_rel}/{rel}/.gitkeep\n"
+        f"  touch {recipe_rel}/{target}/.gitkeep && "
+        f"git add {recipe_rel}/{target}/.gitkeep\n"
         f"If the directory should have content, add the content instead."
     )
 
@@ -779,7 +781,7 @@ def check_required_dirs(
                         check="required-dirs",
                         what=f"Required directory '{alt_str}' is missing.",
                         why=why,
-                        how=_dir_remediation(rel[0], recipe_rel),
+                        how=_dir_remediation(rel, recipe_rel),
                         doc=Doc.REQUIRED_FILES,
                         file=f"{recipe_rel}/{rel[0]}",
                     )
