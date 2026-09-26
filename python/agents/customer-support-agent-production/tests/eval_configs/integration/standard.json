@@ -1,0 +1,32 @@
+{
+  "criteria": {
+    "rubric_based_tool_use_quality_v1": {
+      "threshold": 0.5,
+      "judgeModelOptions": {
+        "judgeModel": "gemini-2.5-flash",
+        "numSamples": 3
+      },
+      "rubrics": [
+        {
+          "rubricId": "correct_agent_delegation",
+          "rubricContent": {
+            "textProperty": "The agent delegates the user query to the correct sub-agent (product_agent for product questions, order_agent for order questions, billing_agent for billing questions)."
+          }
+        },
+        {
+          "rubricId": "relevant_request",
+          "rubricContent": {
+            "textProperty": "The request passed to the sub-agent is semantically relevant to what the user asked."
+          }
+        },
+        {
+          "rubricId": "tool_called",
+          "rubricContent": {
+            "textProperty": "The agent makes at least one tool call or sub-agent delegation to handle the user query, rather than answering without using any tools."
+          }
+        }
+      ]
+    },
+    "response_match_score": 0.3
+  }
+}

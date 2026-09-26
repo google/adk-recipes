@@ -1,0 +1,390 @@
+{
+  "eval_set_id": "multi_agent_handoffs",
+  "name": "multi_agent_handoffs",
+  "eval_cases": [
+    {
+      "eval_id": "product_to_order",
+      "conversation": [
+        {
+          "invocation_id": "e-4efbe0a0-4955-43ba-819a-cfca91a86b81",
+          "user_content": {
+            "parts": [
+              {
+                "text": "I ordered the ProBook laptop, where is it? Order ORD-12345"
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "text": "Your order ORD-12345 (ProBook laptop) is currently **In Transit** with FastShip.\nTracking number: FS789456123.\nIt was last updated on 2025-01-18 as \"In transit\".\nThe estimated delivery date is 2025-01-20.",
+                "thought_signature": "CqoKAY89a1_m5e33ehCtG_7aWD55wUuMRizfvhFKfl0XbAXc6jijs7Cz11St5K9KJgbuE175aQWYr2U4ErUCswXcYIMZSWO6WqDvr9M347yFe_OPypq91bKV2IJRnulGunCZ7_zYdi5oZgqVTA1eS3XGk1NyxaYnUgWdUW7J_Ta85uNXdU4B7SCzyYI_hCT0iHVXEkfeVXOx6UzFgENYtn0HTzEBcDQKsqfu0SHINU56FGdszUp-I2SXP7KROZZec9dML2buFk72qZIG0Nf952k6MasbU7Pjzob0s7DOow5zQYL0gmO72U6dPsrrJ1yqBlyOiUwoiqcUFDUpRk0yUQyzuPuc1OeQtQCfCMNcNEiCuZYkIHoMVSnTgSxoPMIe-NO-5pgViR6ttpUMyF-NhPeTnCd6MOp2zIusmqvWhSY9u8afx4rMglZL5NYQlhP7WfvyJn-C-olllcR90VsvLYNbEH9kY_MFsjfQrWGur6mfaH3qSfSaBJVVrcHSS2oluIYU7Yss9yNB_RInxpvauWP4EPVoGESurEIlU7z6QStdEPNAFE1GEnIVmo86mzPqdnjbJ_fQiFHeYz_t9nb7hKye_2GterufDdI2IkqpFfELxvM3jeTjM_ZsBODNDk4Hqu47-lr7K4Z811uUAbgvXf9--xuL1ximUTL097j_Gee13bx_Kx69H-5saL2Mbp2SocFinFoOX-OFmcV-4jNqqWTAbcVcOCkXOtHZesUFFCOf0coQSOP5k4gcmFQ8_jQMmGizy16dA1CASGFLjOwUFtJfOXM9TIpIvdx2jmOBNb1IbOYYGzZDyPG-bqWrd968aHt41NlAwopCq70k7vajlQkaj0ZiVROjoS85HYhzkRlgInuFa2Vqzqo-heI6Pqftaau0b70PrZVOOZOWsfwZzZbWMOMBVveZS5kYuTsG-wa2YlDecvzHjj5cNM-BERkD2jwZSnnZliTnYUISCuueEsdPJazstKtwRChHwj1tKit5u491mZN6d5AWAy5AuV5SXE8ETJJ6VM3AGArUg8-6y2EhLpgQE59r1tU17dh3DVe-s1LLYKtL8lgQ4IMtLTcGJF7CtW5iczLx5x5ICgROAaRy_H9AHM5ybmZ9ly4jWxGluXi3sSj9T3qyr7rTSrKHGFhnxbQZivIQX0XPUyx4niwcCEdxN_u0YjVHV_ZVOl724ufxyuHDLsNOGlxQdaB7eyeiKvgCQDVdvi6fhqYMdK3pla3I0uBI4t5gT4DSU_FusSRu1AA17JyN15jB8c7L-4e5a0wTxryP9jvkbeBG_HGdu7KaYDCD1AahV9Pw-laXCOGMYS4LXSQr0umn0_RElBporhB6X_Q9qHiUzlMXsAnMsYFA1GefwJA9M9S2_Kp62Nsu8GbJdrJi_FR_c3yFxixN5-4O_RwwcpZwTyObzkx7CKl--6Ja36pfqoLBlgJSVUbkT3tzNCMlDlTPEmW-F7YjXigwXZh4--EqnCOv6PywvTFHhfPCPw0sVbT7OJkaonpJkF7FhH3BTKqmuqBNDvOZjGlNIdn9keRdqYzDSCkgHQlCCgjgg5PkU36tlG_Xo5fuHge4pTKrCnxnNFVL8VkOJaATjG43r9IT9tVN5V16vI04v_vha1hC1VeVqxySib6byUqleFMf8aW4JOAUEQthf6tyQ0vDHIYIT2URlmzlcoxnrGBovNaD-civJ_DsUInPgK5iseNxCYtoITnBX8eotTpGQslPNHD3wjUNf7yeB61BG9iyUpA-95A="
+              }
+            ],
+            "role": "model"
+          },
+          "intermediate_data": {
+            "invocation_events": [
+              {
+                "author": "customer_support",
+                "content": {
+                  "parts": [
+                    {
+                      "function_call": {
+                        "id": "adk-d8bcd7f2-2224-4d6f-8720-ea46e9ab538a",
+                        "args": {
+                          "request": "Track order ORD-12345 for ProBook laptop"
+                        },
+                        "name": "order_agent"
+                      },
+                      "thought_signature": "CvgDAY89a19UAOX0Z98htvSLpHTOgvor2YtxQnXkyv-yFKl05YyPVmo0HBd1RDNqfALu3SZMoFbNWj49PCkrvdYzDTuQtXXKSx7DntfLGAJOauqHmnKruACq3-HeLw2NJ5Ni-Og1sBinyua6MtY6MHg0ASRKeSKHLDo4WODetkPE4KXYGttxgdHBlYQa5cXN0M3aYByT0kP9A_hUkwTPVaKsClKpuPVFC9IoDM2nT1DURaUhxzellPsZoZiprigzYvVQxobLJ_7rac2vdjy_N0hUkP_kVZ066WQbHQQLXbUFopbPZX99-QP8WHz8-dEJ1bHoem0-3-EdoTBEB5-3Xv-4MUVMv1p0q19PURakQhF72ZrjNHHSsB0PPQwfaIh_Q7tgsMzHxarfDyDJ85r9vmJXVqRSu_ZOMXwHOuxvf5UC9o377USUahcuWfricg1Y4KgAGDVnES8OvTx0ijy3QU2qvlkS_AJ56mZKb0ey6qDbfvqIMFF07ZTz5ZQzs2nKKptI8OYIuYmV8Hnni5LriXfSfQZhtt1BIK4gnwzk425n5mvK2JORe6tPcaNLJZbPTJzRUimqDI5kYRLkT3h84cqgi3Y5Xca8K5jvyLmFyMFIGHcozKoYWnl9E_vTqYwBX5p3Js52nLwY14gSzNyFlo3CMVe4I_74O4LJ"
+                    }
+                  ],
+                  "role": "model"
+                }
+              },
+              {
+                "author": "customer_support",
+                "content": {
+                  "parts": [
+                    {
+                      "function_response": {
+                        "id": "adk-d8bcd7f2-2224-4d6f-8720-ea46e9ab538a",
+                        "name": "order_agent",
+                        "response": {
+                          "result": "Your order ORD-12345 (ProBook laptop) is currently **In Transit** with FastShip.\nTracking number: FS789456123.\nIt was last updated on 2025-01-18 as \"In transit\".\nThe estimated delivery date is 2025-01-20."
+                        }
+                      }
+                    }
+                  ],
+                  "role": "user"
+                }
+              }
+            ]
+          },
+          "creation_timestamp": 1770494568.212474
+        }
+      ],
+      "session_input": {
+        "app_name": "root_agent",
+        "user_id": "demo-user-001"
+      },
+      "creation_timestamp": 1770494568.2130651
+    },
+    {
+      "eval_id": "order_to_billing",
+      "conversation": [
+        {
+          "invocation_id": "e-2ab141b0-7de6-49cd-92d2-6aef5fee6fbc",
+          "user_content": {
+            "parts": [
+              {
+                "text": "Track order ORD-12345 and show me its invoice"
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "text": "Your order ORD-12345 is currently \"In Transit\" with FastShip, tracking number FS789456123. It was shipped on January 17, 2025, and is estimated to be delivered by January 20, 2025. Here is your invoice for order ORD-12345:\n\nInvoice ID: INV-2025-001\nDate: 2025-01-15\nDue Date: 2025-02-15\nStatus: Pending\n\nItems:\n- 1x ProBook Laptop 15: $999.99\n- 1x Wireless Headphones Pro: $199.99\n\nSubtotal: $1199.98\nTax: $96.00\nTotal: $1295.98",
+                "thought_signature": "CrsEAY89a1-P7pcsd1YKZ33ZX_mQ_Drk9y3aiheURa_EkhBqORpZ-ykdkCqqrg5XxMRXYXYb6UHIr9-dr4fcavMhT2PEn6gY7V2h2wsLhxrsq87Rfhmx6n2asWGSPTZbJ4WL_vpdUXpsHcQX3zeRbOo-mk3mldPVzWQeBv9QdKjbpYzH9569V72oxmNq5hdjAjqD22WanU9v6z5d7E57AgegJRgG2tq_5HvfEBuGFX4TNXBURbBw8Gotea_dCBpNK53x4A_HU_XbZKf_gLTGHvS0FArxWVv1ObPXyJ6bFo3LWqLkq9QISeJkUC7vai53Ob9sYiFd7ri_AdO7npq1VBojXA5cKaersPZpPJUDT-opipphQVuNpat8JGOh-i8jwBQ2605lgnHL3m0R7JktxJjuhSd7Pjaawp52WQvBGCJZ6G61MP1FyP4EvsYbw3RwIYyFIq9hmFCbHSn6AP6DbNFb_f3uxyiHiB3SZjf4PPX1XPgYmDWGVUwdL02Lgt28JJQHCX8YH9r5XJsa3twlTMlVzEMbqI49Tupr-HW3xq2HNEdVvDsMkrAuQe5jAVi8MvMbmDJLKIM2OcvF5ODmsHBjRTJn-lGg-l0E8VKzaoD-CBEC1KsakeZQn0_Axia-1AAeGpmKqqwqoWrwfhZDXIIO-ui406NCwSCRSS6btBUh1Wh94kgzA1SokzPPlSCGGj-2MaO-2oqVRDogWMcgTpNtxdBpAJxs3Fm_bvJOrV6vQ06s7PC6U0GuFdWHVw=="
+              }
+            ],
+            "role": "model"
+          },
+          "intermediate_data": {
+            "invocation_events": [
+              {
+                "author": "customer_support",
+                "content": {
+                  "parts": [
+                    {
+                      "function_call": {
+                        "id": "adk-683f5ecb-d754-4cdb-a4af-01b51d86988e",
+                        "args": {
+                          "request": "Track order ORD-12345"
+                        },
+                        "name": "order_agent"
+                      },
+                      "thought_signature": "CogGAY89a1_FFmhOI3OeSO61_DdmlnIOt4NzFrLXheJQIYxfqeNZgJ-briIaHxMkPHeiQTwsU8dhJyhKUSaTc-7EOix9YbCQYAsBtdwR58OGokBAlRSvWORo1pKIcf0kcgBa6ip6gO79tKLOQYj36i0bzINaK8hBWIKM3ua9nAK__f90_DOQZux82tuvNHH4OYyaieaXR8FrIP_xekpiTfLAt8syDnOxVII2x4oFYh-vf7kd9zOJ7ULb7a8sdtS0UE53diYBbzUTk8pbSuSZl0zBlmKwUodthL2YjaEopeLfRggvFv-2skpHysUG9kuoJcLJ7fYTllCoBTqK7lBFP3tbkX58BTs0L2R07_iNwuaetasXaVl-sEq1KFPWEJBlA0vE7Rw_hXfOOqgKP1pyoLQecAegvaBIz3_D-WoGS63HJL81LlA8uAUCBRVKyUNAdaPZC5mmzIaO35iEOQFZvoSMmO-4S0LDErL9UhRXhgOpJrL6mcFgBMAVZXYHKxdGtIf1LyqkEQKdyuSyyX6AKSoMHE58D5-86urAShD4rpKrWEb2CMTPZViSzuKnk79AlKTzGTby8rhUB0mDjLxqvOTJsLbpQsJkGgWJpzC4zXynUncWu3ooL1b7RrPQY2ph9TNnNuryKwUVACMUI7bSGkMhXOxBnmp4DSZiYFO5m69irp4klnj_orKYcfkEI9EgIEwaWQd9BIHVZ0J4XSxFxG0FC_DwoHqO8tPd6T0ok64-gJJ16Mjfb1qWcyYZQlIPtKTyKmox1clLgnoTJelLgoDy0KD--rfQDC4V86BZh9198zpAkvvdypGgzntEE53c0iHLa2O1b1SpDnlZWWKXjWVDamtEUUX8ytcRvBWBBNtLw0rtvePWPs-CLLnwFR6RfW4tN8ry6dRXK9CQmpBY_QqZ4NyWwBPxlivFVfD0h4x1ZyArWoMwgrmmKQRuxiVM3Fw1c6DHjp3X30zfojqyQ53-p0iuhY743T1ro61b5BzWboKX2kdNrTVO_Gr6uvTO8PB7nhrl7ajQlUM="
+                    }
+                  ],
+                  "role": "model"
+                }
+              },
+              {
+                "author": "customer_support",
+                "content": {
+                  "parts": [
+                    {
+                      "function_response": {
+                        "id": "adk-683f5ecb-d754-4cdb-a4af-01b51d86988e",
+                        "name": "order_agent",
+                        "response": {
+                          "result": "Your order ORD-12345 is currently \"In Transit\" with FastShip, tracking number FS789456123. It was shipped on January 17, 2025, and is estimated to be delivered by January 20, 2025."
+                        }
+                      }
+                    }
+                  ],
+                  "role": "user"
+                }
+              },
+              {
+                "author": "customer_support",
+                "content": {
+                  "parts": [
+                    {
+                      "function_call": {
+                        "id": "adk-23284c8f-b3b0-4dfe-b57d-244843b7d88f",
+                        "args": {
+                          "request": "Show me the invoice for order ORD-12345"
+                        },
+                        "name": "billing_agent"
+                      }
+                    }
+                  ],
+                  "role": "model"
+                }
+              },
+              {
+                "author": "customer_support",
+                "content": {
+                  "parts": [
+                    {
+                      "function_response": {
+                        "id": "adk-23284c8f-b3b0-4dfe-b57d-244843b7d88f",
+                        "name": "billing_agent",
+                        "response": {
+                          "result": "Here is your invoice for order ORD-12345:\n\nInvoice ID: INV-2025-001\nDate: 2025-01-15\nDue Date: 2025-02-15\nStatus: Pending\n\nItems:\n- 1x ProBook Laptop 15: $999.99\n- 1x Wireless Headphones Pro: $199.99\n\nSubtotal: $1199.98\nTax: $96.00\nTotal: $1295.98"
+                        }
+                      }
+                    }
+                  ],
+                  "role": "user"
+                }
+              }
+            ]
+          },
+          "creation_timestamp": 1770494623.0387108
+        }
+      ],
+      "session_input": {
+        "app_name": "root_agent",
+        "user_id": "demo-user-001"
+      },
+      "creation_timestamp": 1770494623.0390322
+    },
+    {
+      "eval_id": "order_payment",
+      "conversation": [
+        {
+          "invocation_id": "e-3fefe883-64b4-4c4d-b82e-5d995d6cb2b0",
+          "user_content": {
+            "parts": [
+              {
+                "text": "What's the status of ORD-12345 and has the payment gone through?"
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "text": "Your order ORD-12345 is currently **In Transit** with an estimated delivery of **2025-01-20**. The payment for the order is pending.",
+                "thought_signature": "Cv0HAY89a190WjcvR3GJ2hdoD6c536CxvjqNPB3467wLxNTqHiWKMMGkre-ep1sp_7t9t0ulLoyWV6GE6nMEnBuAdmKWXd2JK3lNqEJb4aEM7et3SG-35LugRWfKIpIWp3DCTOZrrI-sbiTm1xJ_NTBrTymXyysD-UuES41SU2fkpG-7ladSSGqUbajwBXFTfOUp80mvgl1WiRkN4Owgc4lUxhbR_nfnZllqCfSKN2dHjUcT4naL_aFMfKi7ZLBoGS-WGjRGUrevd3IQuLiqkuhjpbSdKT5PORqCRdg9lsDlJ18oL4nST0Y4qWCVmLAqby9wj0i83HixzDTcGvkux-noamabl1ylLVt38ecUbQJGRKpUwNwAARlyfTY603USgltP1xARTfs6BeeNYMxfPuFhSrjUhfO1obWO7FIby5LPyL6e8IJOM3WXdcEOdfNwNJEcJUJr9Z9r28VCxMR0k5Iz0DUm9yQpG0tM86IAAhv1wwGaDJZT5g6db79wuPQFaTQUn64cBA_ntwfcXbux-N_f9bwRRuAY9N7-itjgPmRM50ECWK7J426ZSaI3jyWAtSCJFa34PRoJhGqwEWMyNxfJV7S_V45a8Ilqa94RTR0AGweDiPDDIVX40YBE7qVUXY7fC1DrIFPilpKB93wxQoRwTnjog1bwmtUUyjxp6yb9owV7btX2-0x6n3aYFdJwXxgBHHBD_yQMvTAetce53hNPG1Qd2S4iGZ6TmOb6I8KUJRUgXeKdp-YPTdXIqZw46HCz3sDQ6cNm1vYNvLVmxG6cs7_Aed9Mn_62j8MnWea7X8jUmGn7lh42lehSM2euFGfw9-yGco18bTPRw01_i9CeHQVM23So4PgBPkeYvWpDM5MqxgYtcMYw1jyWsvfuNAgx53eJTP5GwfciXG-cNmZZaUNNElzJMnUfHj0Xi6FptbQ9vEKuqherYgQ820n5rUj2nNJwIHnO_FIvhFyPr2U_BgiCi83zA7-7gn4-Z_1bVHD-gTHy5DfEnp9lzSPVJjDjuewoiSR1IFto3TKMdESsDn_bN3BHh6UgFQcr_Pcfs63D6TIlrmG51f7TO-boYpMAhVZ3YVZP0Aml6HQ5M9LHuUAWU1-mtiVupYF3i6u4a1RLbopVZnEt5mkuFOaNYPYmUGh9UqzrtYzeUv874yjD4BuU5Ua8RJxdUTe9w2NAigLpD1pa9fEb_W5uf7czcU2ezRsDiD0wlTzRhRr_SoJOnvKGZS_8lFESabFSr5F-ABBYP-LXgf48NRSjlvTH1QlDwmBvJF54v96w9QMU3QzmxDzMnUWfaNsSqb6BcnbhKDnZ2E1pgufpUsE4TlKOeVVuZdrlD04L9SpO_TqW2g=="
+              }
+            ],
+            "role": "model"
+          },
+          "intermediate_data": {
+            "invocation_events": [
+              {
+                "author": "customer_support",
+                "content": {
+                  "parts": [
+                    {
+                      "function_call": {
+                        "id": "adk-2c398e8f-0f67-4cfa-bc3f-9554b57169f0",
+                        "args": {
+                          "request": "status of ORD-12345"
+                        },
+                        "name": "order_agent"
+                      },
+                      "thought_signature": "CpcMAY89a1-nvZmgfQSPGKH9nGbdBU3duquhxQmDFyMDvyiW0LIVSiWsBrezUWBO9EVQ_aJfeA_TMXeh1ckZoQHSziGVOQJXNooF8s_qdq3DMz4oQXYUVw4zjcBxPx0kYjyq-_tWOxsI-P1mKYXJAuDBuK8D37ulLP4dILtBwbnES4jVAIDRbqmGRwDgIZRaCnTE2HOrpHdHYoqlAGf8YNjsgRuipUAOl_bk_HgFxF-bamrC93k1gx2x3So2jWOVhemrobhEax_L6umT1Lm20-TDWnHgB1MNH-TAx5a3fnRtLkTbJL5BWokvB-4bKrHPe0IYvqC7HNzWAa3uu-c-dgJLUbR-a1PFqOwc4600UXIjcv9iQFZrBl6lR87PAJT9s1F_W5xUrxI2Vk-D1i5IBzaWA7CLd73IrsJYUoIdNW4btUxrq96hvFdDf4B_6PZpSLtfgaWUlK905xGYgzTVQqSCmiNgkYtBVnafj9zyc0f6reUnou5n0H072FBr1F2LmEK1X2UfabEXc6Mog2CWkp5amilWPDM84nL3dq5-4JjD2Vg6WmWuxG_MDrgo8gNBryvxO482hw74tXJBCnYS0MsFKhBC0o6SPfRQ5HvjBEG3D9-76EwAXeViqTt_WLlyDsbDPhPL5DAJPQHmpK02FjmZHanvNPDGsBv7VJEeTBky-YwHNjjfyG3sD2hOoREaalNn5N9J5DIXABH2PbXvR14RLNHHFf1Oyugwp-qaABmdDve9yDAgJEZpGjecTrd9eCS4OwhstCS3rYEpBWG1tommXSTM8jIBxVYKrIkUKa_X-2l0dWtDQDT4zTpVb8cETT0Fv5U4TOD4lOD2Ui-XILN6Sn2T_eDCXUe29F74u2eP9-zSsa_dPqI8d_JKfuKLJrWnvfEACeCzi7psH5-H4FMqJQq4PMjxf7145rDf5CfoJte_dfPBUehMTNttAecsYry6gLoBE9ZZD-Qtqzw9SFY9PZf4BKYwAL1UvBolQBFwgFcj2llDjqp2_zCmlyE4RIeYzwpJMI_m3iFN5F9cuZdJBRDBZaFxsSlZBvVAANConX7_dhyQqTtIBoH430bqBfFs_7vmKWFWFmx5ZaMAIYXI6AYFIT-3i7xhvENYsEOMBtws6ugvYndY3B_3_f-cP6PdyXgxjBNiPeKE_ibdu85Nm9Wkpt-o8cIJ3MU-j3NkxQCvBrCOvM8wb2NidGdhNtnrEtAsSUOA3Ki7Y__54MLZUZMR9TjrEsjufKMqEovx8ffaVQ_Oi8C7Yr6Zn3-CRmd3WCv7p0xPQr7_eUgfq-lXFROR59DkwnmKRblgtP33krjTZVKmUkfDmcInSwBJmnAlp8zQCvBViF2rc3cS-2jAjJndFKVpv6nVLLazjMaCwMmGSneoTnBTH4kzi58LcAAnK4dUCgoMRP-x6PVEd1t3DUizC030IgfXj793iTIGbJ72Zs6OC8A6Vzr9znz-NypeY3G0APyhW4uxGMXiLVdmYpJsnA0Zd5zrwLgyASJySyfVyIBgyhDmpu76TYR_AjCoMSM2tbcW3ohxVzR9G2e3d4mEETV_9Ry6pLoYcMkLnAczSP0JRoMsTGH3cRE5J7ttzDQrKm24S0Kxq2ud31U-R9PNVyxsZ9ekJMnChsnWLrYbb0wMG7IXy9-jitlf_s2uEcwnsM4cGdw25O1Xlpitam9LjJFLyCjtsCOLaqR7FQnalmQiTsj6idBcNTcq2Nm36dUqZeeFz7k-rVpxKJpDiunRQWBiexYwavUxMsiQzjZjHEb4_p5Qys4MT-Z5dtkMQQ82rh8V5Z2MHgRg-ixuB4z-RyFdfRmmqR9EZqFZUItPe_i-_9Vcgc8R1OnCMqtc3-a-nQZFbsnjf8DlP22OH8qXBwMgdmuKkPkL5KtEvYKgr2cM1EmggSGaVr7A9h47vAzll3nTq9f_kb4SM5NOksZBIWo24XrHH0qdCptrl7pIbmnP3H_y5NdbLfWsn75yi5y5hwnzJez4Gnm8_lvWwAUgn1QzfPqCGqXq72GFOA67CE3NukAZ4VPxnb8YNsRlzCTUauvr70GXRKDSzoN4Rm0BaF9qczs="
+                    }
+                  ],
+                  "role": "model"
+                }
+              },
+              {
+                "author": "customer_support",
+                "content": {
+                  "parts": [
+                    {
+                      "function_response": {
+                        "id": "adk-2c398e8f-0f67-4cfa-bc3f-9554b57169f0",
+                        "name": "order_agent",
+                        "response": {
+                          "result": "Your order ORD-12345 is currently **In Transit** with an estimated delivery date of **2025-01-20**. The carrier is FastShip and your tracking number is FS789456123.\n\nHere's a summary of its journey so far:\n*   **2025-01-15:** Order placed\n*   **2025-01-16:** Processing complete\n*   **2025-01-17:** Shipped\n*   **2025-01-18:** In transit"
+                        }
+                      }
+                    }
+                  ],
+                  "role": "user"
+                }
+              },
+              {
+                "author": "customer_support",
+                "content": {
+                  "parts": [
+                    {
+                      "function_call": {
+                        "id": "adk-02b76988-31e4-4949-9df2-7a2d3d12c371",
+                        "args": {
+                          "request": "has the payment for ORD-12345 gone through?"
+                        },
+                        "name": "billing_agent"
+                      }
+                    }
+                  ],
+                  "role": "model"
+                }
+              },
+              {
+                "author": "customer_support",
+                "content": {
+                  "parts": [
+                    {
+                      "function_response": {
+                        "id": "adk-02b76988-31e4-4949-9df2-7a2d3d12c371",
+                        "name": "billing_agent",
+                        "response": {
+                          "result": "The payment for order ORD-12345 is pending. The amount due is 1295.98 and the payment method is Credit Card (ending 4242)."
+                        }
+                      }
+                    }
+                  ],
+                  "role": "user"
+                }
+              }
+            ]
+          },
+          "creation_timestamp": 1770494658.1824505
+        }
+      ],
+      "session_input": {
+        "app_name": "root_agent",
+        "user_id": "demo-user-001"
+      },
+      "creation_timestamp": 1770494658.1828249
+    },
+    {
+      "eval_id": "three_agent_query",
+      "conversation": [
+        {
+          "invocation_id": "e-32ec4c03-d239-4bfa-857c-0c0675f6fa52",
+          "user_content": {
+            "parts": [
+              {
+                "text": "Tell me about the ProBook, track ORD-12345, and show the invoice"
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "text": "The ProBook Laptop 15 (PROD-001) is a high-performance laptop with an Intel Core i7 processor, 16GB of RAM, and a 512GB SSD. It is priced at $999.99 and has a 4.5-star rating. There are 45 units available in stock across our warehouses.\n\nYour order ORD-12345 is in transit and is expected to be delivered by January 20, 2025.\n\nI have also retrieved your invoice for this order. The total amount is $1295.98, and it is currently pending."
+              }
+            ],
+            "role": "model"
+          },
+          "intermediate_data": {
+            "invocation_events": [
+              {
+                "author": "customer_support",
+                "content": {
+                  "parts": [
+                    {
+                      "function_call": {
+                        "id": "adk-7cb093fb-3388-45f2-b942-19fd838627bd",
+                        "args": {
+                          "request": "ProBook"
+                        },
+                        "name": "product_agent"
+                      },
+                      "thought_signature": "CuARAY89a19bwc_Rcn2QTAFhsVcteL6bpRzs_jlq96V9pcJNRUGAvGFgNLOuQ45F3VC3LTpuxVVUWt-4LXy097H_170M-YIt6-1ZyfGeZ-DDQSBiD3ePMc7sjs1TBYK3RTK2v-Eh8VjjW2wZ0fNZIjunScLHcIm1OVDC_W2fik71gQM_TTDAgteF84Pza4S2c11UADqjRFtvAI97OkDqrZ2MKo0Akywzp8oEOZvGbM1jBc1t3XtQnwVXylWgI9WqLlfYckxG3thsWkkPOw-cGNWBgxMTXDHsf1B9lJomQM-31bKA6mmCYY1aCaGyCZUWp4csuGRIjVYOphp3hIss4kX4kj0CL_7wmc3gC1uP1Lkw1fP9Grx0t1AjIILBFJl8okiAokTDzVO0R4xbGYYdxk741ovNZ2PbYrgut9oS6jtdNX_cSTBpNjROwwb5Zq_9Mws3wnhGMucGrnZL2R7UsYCzZjesnEpwi1WWKnz12r2JilSL-R6YyQqrIFGCz9-EMr1BsYETBgRZFLRlHqvzYCYGwfwnNDKIb1aNe8_pJ3J2gzHOlhncIkJp6PRYZwedhcr6NrIDa9Wi0T2O-YftdRsKU4KJ22g7GisdkCrsK16VdhogVzAVIkPqzCEgyKa8LMc7q5Dc3F3TehVVII6I6s5TrkkW2c6tAvJFedVVWgV1kVlLxENnM0Yakecis4UUZiKjWJknEUXq6Rm1XV7k50k0dorEreE4hwCTgAvx4pbeGk9j2Gg8YlBKqPghEfhLl9mh14Z9RDPCuMebnaAkZS3Fad_KWkHH9aK-JLtLeV71c9wtSbShP4FwHUlqZkVC6gnQjs5oA-JNy6ObTEDnw4UQ1wuzad3UR4oWyP0-qgM618c1OXsraFYQFIkNdw5Rd68ApIYbXFeFqBH7mLReV9pD24Fa_GR6g2ImZlaDfxFr9KwmmGUSLrGIJovBGaOsNHykFUuTEfDfsV5sj2Zocdt-ZiZZlpppNoC64wjnCgwaWa8_g_giRlw5S4_Qg71ibMD-w7aLBzn4cvtla5sRNmP3oVTBodF6W43Kvbx1V2TI-PGpIMPGvS1bmoBpg_MncGg0VQBr5aJtn0QQPS-bNHiUKzL6lI5yghk0pL2lWCHkoADhuV3IhbEviYlzvXeVPiUTzZ0BSrK4yq9Q5_XZowVmFy__BKKRTBC00CMfu9spPQqrUamKQFDvxZqIV_9BOs-Zr_B81CQEiTW6tkAHTENTwtINmW5S6-xzVGSLAv5tucHGoR5D5AWGIq4qZ_PJI8Wn_G80yFP0wC_-GLD_rZ8ibYbmqlV0YvhIB0xYATCMIUUlh-pgZNyYuaDrvgFzNJoYVZsjJ5ljKHa-ipPUm-8J1XRmKvVORsEcu25ek2N0oKpr0YCqT43GYqbprfPDc9kcmEOkO2kO8H1gEnRLy37dLxaIZIWY8YFzZPoRVfUgpRbM9vbI3RXkcuwOkrP0T4MYX5Zkx4BIzXWiMPixiHh7fl4rMiZCVwaR_60wpYcVjKHOyz8DPmVfcJ3YIuZ6YIo72a5GqEzgG9LdK4dETJ2uGTh_Lqp-VDqEeCG5Q4PBPME8UsRz6Dp8oI1qSJHB-1wFrPG4KCFvY4wm3Ys0eaoERfP_DUrs4Tf35C5_YHu2WdPJRKtTFsHCR94zQMfTcjHUBtkY1OupDC-Cz87KI3feao0x5Rb0tYOiR8FM0saLPz0qqllobhLlqYtjGaQQjhEmjgL0UsrggjuPl2MWzliuAhzl51P5M_l2sE1NSAFONZMsx_Rf95NwLu5hY5HEHA9grdTVRE9CI9bgHoUhjbhof9qSKtSHHUXgNbojbpOut5-eANdwdtukDyO3RAD4oOm3-0Xdesqq1cNP6WibUC2cjY_fpEtP94vljboH85An1wrphD0o7yVMurulc-zJ_fMGc9-WJckei1ZIGPLzk6NMMI1uIF-GUhEGosmlYZ8bXeWFYMyCRybK3x9I6FaS-TV-_Bf0a8VZudjct5uKdVeG_NdGr4XXAdOg0Wl0Tc-_9snnzwwoJEvCKDkxfV-xp-0czB1QQUgVLrdPNXyDd6YM5yr2nfv_MF4DzFjpKCCds3wJQcjHqz7_H4Rp2EIruyKNcURYHoGt1qpAJgb6MTiLXZOYF_40fJzhXOUo7WjC6Rtqt4eVtKsNEFMtJyIJ-g4NSXXPucmsPqbkvc2o7DFdfbfuYknNB5Ciy7iJrCiAy_uLHNI49UrsO5cY9WmKOkIpQGTXOBeN6UY_gafDn_QmBd7bef1ptQJCzKQCizMvp5XXMLXKAXqiLCsX4-8nKO6FYFSGWkgtIslhq7h8FpnZKHUWEhbfuPTf8pjywlcsdHP-tiy00E9jBGr6eeSokWvUo669vXP0ljwJe-GuxIgMMYeVmMeCJFBSTbt_3YqrnmuwpI_8cySHPYZjKxyL8Qm2NK2jMEgWv2z-xsVyX-Kgpk_XjzN4XHPJlPZFd3CY17z2dGV5sHa3nMj4Y9JpMFkdwLF6fgFq_V0IT7oSxiaqrOe2G7anQXR3QkQDDC8Kr1oIiuWoRi_FIT0SQ_2HJMceflFMxklUODbg0GrA8BJf4lVg2lpMbqj_l_6BOoy1-cYMlWPVlv7f1KjD8FwEQWqTHtIVyF6kEpm6O0ZLiRn7G1OHnaGERLz5q3hvhfRdKQxtOdfAZIHCDiDFlox0y_5rSLyEc867IUbwf4o53jNWo48CMU-H2UDMuQu01FhdAsbJbtQHd5JScHNXIUg3wk_ETDmpeDw1XnwV2mH3JqU-cAvuDU0YOmrhzAwPyUCH8XHrio4uEDkMHB3RFJa3uZy0eqzygHN7o2z0FkgmlKakVT3UJMbM0alrNQ7Wk7nVB5hlnpNHeka1AGAEacbo7fNqfORzwt0q7PO7oiPPI9oOs5f48kY2vZu7QXi65ng0QkFWRdQGh3feF2NMxt-eBaCtUZIPowhOWhX0peC4y2-UgpyPc4KYKS4I2Pm2loqGf8i3SbI0laA-u1ITsGZ-rcPAg8hAJKOgDeG2A0pyfeTlNg=="
+                    },
+                    {
+                      "function_call": {
+                        "id": "adk-8d0ae329-7c71-4ec0-9f6c-00d1f095a97b",
+                        "args": {
+                          "request": "track ORD-12345"
+                        },
+                        "name": "order_agent"
+                      }
+                    },
+                    {
+                      "function_call": {
+                        "id": "adk-21a08780-4081-465e-bb0c-2fd68076ab7d",
+                        "args": {
+                          "request": "show the invoice for ORD-12345"
+                        },
+                        "name": "billing_agent"
+                      }
+                    }
+                  ],
+                  "role": "model"
+                }
+              },
+              {
+                "author": "customer_support",
+                "content": {
+                  "parts": [
+                    {
+                      "function_response": {
+                        "id": "adk-7cb093fb-3388-45f2-b942-19fd838627bd",
+                        "name": "product_agent",
+                        "response": {
+                          "result": "The ProBook Laptop 15 (PROD-001) is a high-performance electronics laptop with an Intel Core i7-12700H processor, 16GB DDR5 RAM, and a 512GB NVMe SSD. It costs $999.99, has a rating of 4.5 stars, and comes with a 2-year warranty.\n\nThere are 45 units in stock, with 10 in the EU, 15 in US-East, and 20 in US-West. Customers have given it an average rating of 4.5 stars across 234 reviews, with recent comments like \"Excellent performance!\" and \"Great for coding.\""
+                        }
+                      }
+                    },
+                    {
+                      "function_response": {
+                        "id": "adk-8d0ae329-7c71-4ec0-9f6c-00d1f095a97b",
+                        "name": "order_agent",
+                        "response": {
+                          "result": "Your order ORD-12345 is currently \"In Transit\" with FastShip, tracking number FS789456123. It was shipped on 2025-01-17 and is estimated to be delivered by 2025-01-20."
+                        }
+                      }
+                    },
+                    {
+                      "function_response": {
+                        "id": "adk-21a08780-4081-465e-bb0c-2fd68076ab7d",
+                        "name": "billing_agent",
+                        "response": {
+                          "result": "Here is your invoice for order ORD-12345:\n\nInvoice ID: INV-2025-001\nDate: 2025-01-15\nDue Date: 2025-02-15\nStatus: Pending\nSubtotal: $1199.98\nTax: $96.00\nTotal: $1295.98\n\nItems:\n* ProBook Laptop 15 (Qty: 1, Price: $999.99)\n* Wireless Headphones Pro (Qty: 1, Price: $199.99)"
+                        }
+                      }
+                    }
+                  ],
+                  "role": "user"
+                }
+              }
+            ]
+          },
+          "creation_timestamp": 1770494687.6395583
+        }
+      ],
+      "session_input": {
+        "app_name": "root_agent",
+        "user_id": "demo-user-001"
+      },
+      "creation_timestamp": 1770494687.6402218
+    }
+  ],
+  "creation_timestamp": 1770494687.6402447
+}

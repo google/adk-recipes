@@ -1,0 +1,62 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "customer_support_mas"
+version = "1.0.0"
+description = "Customer Support Multi-Agent System"
+requires-python = ">=3.11"
+dependencies = [
+    "google-adk>=1.19.0",
+    "google-cloud-aiplatform[adk,agent_engines,evaluation]>=1.112",
+    "google-cloud-firestore>=2.16.0",
+    "numpy>=1.24.0",
+    "vertexai>=1.38.0",
+    "requests>=2.31.0",
+    "python-dotenv>=1.0.0",
+    "bcrypt>=4.0.0",
+    "pandas>=2.0",
+    "ipython>=9.10.0",
+    "google-cloud-modelarmor>=0.4.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["customer_support_mas*"]
+
+# ==============================================================================
+# uv workspace — backend is a separate package sharing the same lockfile
+# ==============================================================================
+[tool.uv.workspace]
+members = ["backend"]
+
+# Dev/test dependencies (installed with: uv sync --group dev)
+[dependency-groups]
+dev = [
+    "ruff>=0.4.2",
+    "pytest>=7.0",
+    "pytest-asyncio>=0.23",
+    "pre-commit>=3.0",
+    "google-adk[eval]>=1.19.0",
+]
+
+# Load test dependencies (installed with: uv sync --group load-test)
+# Kept separate — locust pulls in gevent + web UI which aren't needed for unit/integration tests
+load-test = [
+    "locust>=2.20.0",
+]
+
+# ==============================================================================
+# Ruff configuration
+# ==============================================================================
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+ignore = ["E501"]
+
+[tool.ruff.format]
+quote-style = "double"

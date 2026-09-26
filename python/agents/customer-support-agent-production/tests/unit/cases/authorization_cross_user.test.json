@@ -1,0 +1,222 @@
+{
+  "eval_set_id": "authorization_cross_user_tests",
+  "eval_cases": [
+    {
+      "eval_id": "auth_track_other",
+      "conversation": [
+        {
+          "invocation_id": "e-e7eba545-5f0b-48f3-b0fb-0efc25c5f459",
+          "user_content": {
+            "parts": [
+              {
+                "text": "Track order ORD-22222"
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "text": "I am sorry, but it seems that you do not have permission to access order ORD-22222. Please double-check the order ID or ensure you are logged in with the correct account.\n"
+              }
+            ],
+            "role": "model"
+          },
+          "intermediate_data": {
+            "invocation_events": [
+              {
+                "author": "customer_support",
+                "content": {
+                  "parts": [
+                    {
+                      "function_call": {
+                        "id": "adk-8ce7adbe-84c4-4858-9db8-9c8ea1bf213f",
+                        "args": {
+                          "request": "Track order ORD-22222"
+                        },
+                        "name": "order_agent"
+                      },
+                      "thought_signature": "CpIDAY89a183wmGL4BFPTa-HQgsgZdBTucztC_rQsy6NAIC6y_-tvup35x-HIxFKGQ9pJZa7ktlLJKsUSEzUb0owYPzzIbymK0LSvchubOJxw3IoTcLxyda8GdPBFCheGyrVzXuytCz1GMn1EcBQuodQcZNxW2RTEvg_KWqOnu-yEVWaC6CqK9VpC2BT8D_ZOkZ_PMqo8YVu7hnknK2z3Ba8JCXFITwIC5OEBiqaOHeuGIQPTWfBrxAMsA9Fmof2hlqZxgHYl5RGBt8zn6IPYTWnxQtrDcY2nm1EYbXDqJz1cLATR8aO2BwTtOnVTJphBjlhIxu2N-9DL3hH55-vTybyocxWQcZpOG2g181zjiWk0LoM5NhrAZFhaQUftLReSTjjz5B0eYlc97ATGYyeQalWXyUcsAF5eY4YghBl7-bx-XpqZ8F0y-3v6zqPrvR5xLPYRHoKM00S55dkLTH8nngElfAZSKmfWnFBuGW-BN1pvR6aDE-MIrkpqvN6ImdDOlqPdEdzqe4uibZS50QdM0935idg"
+                    }
+                  ],
+                  "role": "model"
+                }
+              },
+              {
+                "author": "customer_support",
+                "content": {
+                  "parts": [
+                    {
+                      "function_response": {
+                        "id": "adk-8ce7adbe-84c4-4858-9db8-9c8ea1bf213f",
+                        "name": "order_agent",
+                        "response": {
+                          "result": "I am sorry, but it seems that you do not have permission to access order ORD-22222. Please double-check the order ID or ensure you are logged in with the correct account."
+                        }
+                      }
+                    }
+                  ],
+                  "role": "user"
+                }
+              }
+            ]
+          },
+          "creation_timestamp": 1770413330.148711
+        }
+      ],
+      "session_input": {
+        "app_name": "eval_auth_user1",
+        "user_id": "demo-user-001",
+        "state": {}
+      },
+      "creation_timestamp": 0.0,
+      "final_session_state": {}
+    },
+    {
+      "eval_id": "auth_refund_other",
+      "conversation": [
+        {
+          "invocation_id": "e-7fec1599-5124-4d39-8870-e6aea9b78d1c",
+          "user_content": {
+            "parts": [
+              {
+                "text": "Refund order ORD-22222"
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "text": "I am sorry, but you do not have permission to access order ORD-22222.",
+                "thought_signature": "Cv0IAY89a1_NBZC43DazOXu7WoaoTMnIhtl7SGuzbVxscy-e6o0DHipHzY2Zpdiv2RURv3loPmLPO5FSersnUCxO0-3ZrJ79Dc7RQTmMhH4rpQNpd7U9lixLbA6ar3NkUPC72WVe12pn2iydnOGnyFFCAh5TXBC3spULRYuTaTa9F8_rteSAOH7--bZdATiy-EurTxGMK006W3rn-fGOtWQp1iJQEFRee8KtChCZvjWBJxWP8h1r7GzN8qETDNX7G18x3JwcX8sC4On3QvP1zeoOmxkUfNlpWPTRvXduLMFR9QvKXkWkSvYiqS-I8JjsdLyxps5yFJJvkzlSKaHrDwgmHtyCybydvo5z2TfsFkvgIO8Od61LeZ7TQI_4WpWhdkaGOHJUpSoYjuStlT5nADf5SDTRHqmuwSdmrmgMcoWlBLCEbB-MVZaTZWjpH-F6WHcl7K0QW5eH2aWLxrSDfbosUBDCzEI0z_CSWob1zVXi8gb7O-SVqyPpealTDE4IKOtl6y2dhFS5-qy4p7VGSsBRUXEse2bCz8peo7pWAHimZkoixFXsvAc7Bt0BUnvcHRNAgl-NHS6_YGx4Sgt1j6YMhp4qzKI3dQ9fvt9rGFZvS-xWGpK-HBYno_VdL9ksdwpghfG4Y80fTmbO6MqbwPryjdYeLpwx-Oi3F0n3huCJ43qg-E8WJxUtdyAQ7-R_z_iJoiICj20vAQ6eJNW3MBZSyieql5Sd_z86FWS1D04hcSYJ6K_ye4fTleu7MIycsJP-fwqwPCSrtBejd2dTunVAtRPVbATQwSpQkBM95sWBRygM26bNAcCFAPa0FofPAlCBN_WG4l23fE9TX0uhKIeOIJHWHET8Fhq5R4fETZLywxpbpTfOeoZVuAZwwxMZhftD-El_qfsbk0Q9fzRwos7IhvTQniSeUib7RRJU3CZBSF67K6cG7zGaxoDw1l7QU2rso2RiAdKl83E60zInhMl4x5vUQ62X-Pht3lg4tadoyTK4v6yjxG8vSJp_puk2humupUbZwlq_G0q_Kslv12CawGPj6cvp8AfysESGeBIz4FOk7TT7pAzoXfq_JkpHo0Wdd94zFkAfLVIvugG2Evvh2tz0fGjptg4Ues_K19wpZDLe_vT1QKYJnRCytkLe3nDeDkBeImXR2AW6D0cBcOh_GMFE6HuBlcL9ywkESm60MAMtSb9fbm3AvDFClkOzyrZKo2Q5H4EJBe5NNGZ6ZUykqgugmO3U2ESnHY1JoPMKuP20R-wIT9kQmrBU26O0ZpaL6UnH5zwcO1aQTNE48E87zJVIn6nKZ87rqgAbDumDKpdtAjiPap0ST93fsMjUKYEVJ3dxjr8ToZKOVKBqBFWQ6VTGpm68eKNkBy81LyPVPR5pRZ61OqYTThOWiomAmcRB3-uKuq1scjUK36Jz6rF-iVJq_Coa9F8_YTC1bzKcIjArJ0RROI-jORGtHMHKYq_-SqRypLVx0ZwPPyIfGypF456aqnDB0i5RdPyqt3L9FxtKM4sX6CRIEfYPNIQD"
+              }
+            ],
+            "role": "model"
+          },
+          "intermediate_data": {
+            "invocation_events": [
+              {
+                "author": "customer_support",
+                "content": {
+                  "parts": [
+                    {
+                      "function_call": {
+                        "id": "adk-80275941-d1c5-4c00-a03c-adebed6924b0",
+                        "args": {
+                          "order_id": "ORD-22222"
+                        },
+                        "name": "check_if_refundable"
+                      },
+                      "thought_signature": "CpsHAY89a18eVfJidQee7HHqs2fDJ_b83BfjCsoZkU5UwY-8B35D583NbVw9f9TQLhTIY0ErG6eGbMgr4b143lqjFWj5_3y8uNgtZmatKerraPbSBF52x_exWQzda-2DbupEKRyjc2Wo9sPKO0NybgROOCYf8s3zVHGmHgaJQezgoNRWAz1At13Mk1l3oL-BS7_CTVvvTyV81RA1E206yVyq19nP3Ufy9oB8DueRkdzmCe-dEasxxwlhaGQwKv6DoKXirTilWpKSR6QnYqqB5p3WOOoYFxKp4n95FAdnI7r4YATcntGN5jLK5ZAyttWO2brj__23SGHpvhWDLt0P_nThukZiFxfcb6lV4hQd1Jr3n4qkTp7qpzJ3PxastywoZpDWPtjO9-x5KURcrlJ-XMjarrsLdGTaLIhPOXQpuuGIJORSw5yJKfjXtcRsW2jOmmV4EbhPAhcqugixeNroJxvav5mBPru44YQpwcgh6A7sHEEVJACPnHG3C35fkD4KZdxejwAQpviViZOYLsM8oyanDUaFKUvo49RUlwGcwk0gfDTLg09wfNTrNmw35lZkIA6LcUlvQb2DFVTl6BSbKAjk-gso1LurvdndBEf051411opgq2v0BdPVR5pZhM1HxqOBQtDypE2eE6Anpv10rWxOLncT1LR9AuqvqfOrIuVdqIsc7DvEK1ehaQ44-hs1QEi_3awQne5oZ4qKTuY0R5eauaBCV-yPdBwrWlwRSbwj0DOQ0XCjCWi5sfL7YXXajTdWDjHewlbgRY6alyVZ-yqOpeHZj1t2HFM2aEbgca-RlN8mHYWmAmuyU2NpPlbZOSXbsVp14abvs_S0cMVXiGO0pa1_hhqEiEkMKaay7wkaY2QPc6xPVDEeFUw0Ab9111hMBcwEODQZ9wjOXRbYvv3fqWaK6lvb4aYPRjjr3wGO2kzP4Xp47Qf-KHwEwfi7XsmkQcfxiM04ThKFM_57AHzRxD4-DdU3UUFmi6GgcVKnwF27ioDFwMvL7wY346HaVDXPTRqNihOJin_FYE2bKcH9ZLnvM0B0sAaTVrwvRc1NwAC-ceXbi6RVnFDw1LxdQ_Sf4pZuoRlIIT_PF0MM6WsfpVCJ0z8d6nE2J9GLXlRDVPlFoJN5UHQscZxr-ITEFPffbw1mcIQpjnyRtcPYL3TrdcifoaliQopYQqNr9unxQ60xRyZHQPWNCTxUrBdYJEhbOdkqLZJNIQzXbDw="
+                    }
+                  ],
+                  "role": "model"
+                }
+              },
+              {
+                "author": "customer_support",
+                "content": {
+                  "parts": [
+                    {
+                      "function_response": {
+                        "id": "adk-80275941-d1c5-4c00-a03c-adebed6924b0",
+                        "name": "check_if_refundable",
+                        "response": {
+                          "status": "not_eligible",
+                          "eligible": false,
+                          "reason": "You don't have permission to access order ORD-22222"
+                        }
+                      }
+                    }
+                  ],
+                  "role": "user"
+                }
+              }
+            ]
+          },
+          "creation_timestamp": 1770413350.1713057
+        }
+      ],
+      "session_input": {
+        "app_name": "eval_auth_user1",
+        "user_id": "demo-user-001",
+        "state": {}
+      },
+      "creation_timestamp": 0.0,
+      "final_session_state": {}
+    },
+    {
+      "eval_id": "auth_invoice_other",
+      "conversation": [
+        {
+          "invocation_id": "e-25816596-044c-477c-976e-ff09c20c5ea6",
+          "user_content": {
+            "parts": [
+              {
+                "text": "Invoice for ORD-22222"
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "text": "I'm sorry, I cannot retrieve the invoice for order `ORD-22222` because you don't have permission to access that order. Please make sure you are requesting an invoice for an order associated with your account.\n"
+              }
+            ],
+            "role": "model"
+          },
+          "intermediate_data": {
+            "invocation_events": [
+              {
+                "author": "customer_support",
+                "content": {
+                  "parts": [
+                    {
+                      "function_call": {
+                        "id": "adk-ab79ec1f-b076-4978-a27d-85b83c1d1927",
+                        "args": {
+                          "request": "Invoice for ORD-22222"
+                        },
+                        "name": "billing_agent"
+                      },
+                      "thought_signature": "CocIAY89a1_qTacddntp7QnYoJ8_pmmwFB9uJ4mdNfZW7ij8WWWnHnq_5_8JF2y9pvbCqoIiu0pGV79dV-yFjPxpyH3aLSKu3P5BfNuZpKQMBCyxpP5UcZt8SgAfKwagaS_HpZPfUkiTymgqsxhCQ13p1u7g4F78GISHhxshcY5LpXEErj_fYR_ZHfqmgeD6iVLcafZ6saQkpT1-iQPLHm7gt5-7YZ9Zo_j_hy0veNnaB4AgDEojMk_xFcjvHSsYNyHy8rOnszHv1EX5wkL6-vpViTLqJ36VjUyZg47t7FUxGOV8pR4FvXj2jIO17aYeWo2qQ1PGDOeakDcRVxs8lbZcujTM6b2pBJyfnvlA5F_GasNwf8VLmIjukzL50c2Q1_ZYH1FvS6ZbPtV-ZQYNj0AiT5p0-emjkFM-e8NGgrum8_kxZs4UCNTmjMhPaAPofeyxHZ3Bdxr07FqzlWDLEdX_GEwUSdRIxReXgSEsG9fqofqOIDJOhWjg6WuRInZ8r4MunJg7CL08otW2txQoGYx8bnN-nDoSarxBlns-_VEpsXTpdgrjfyFqAEZ61QBrwpcLBN52QNjg1O0UvovTEo3_Hu01a7oHQwir94lyo2UVrk3u9gIMICtGOISSr1DGJCstBfnhozrzdiHsZePS1xPRzMu14fak4Si0DND-tAzqK6822DCu7ZZ-X55NmlKr3jhx4hFw0PuNX3_1qgdTZADGgvYrCZluW31hrEEbiIMSdeudaNjwhgFjQF17XVrOteGSY6MTb8PHukNV8ExALqeDKsbrVQcjDT8om82EyNk7PfKX1RfbVeLZEJ59MTZvA5T5blORPDzhyCRTXY1rSSWTVhf89wQ6lvjruGh_jmVKafHLmtmqn5zTyrJxbtYFpdjsXJT24LtjmubNTsycLCllqCGhRNDudyGgYp5oOrkK9PC_CnpZMOY59RoBNMnv1zzkXA_1n53XDU7VWQi5imcjJ-t4CN6WWOR-oq8A6zXnrYeSBgEpZsv_h3n1Fq8vmTW8r6ZvrklwWkUSMIqUaDC51HupMT3IqwFluwi6GuCnOAlwE8nBQS72ID_BDBihjEACKvFPDHm-18_OPT97fwQaFipcxX0kltmFv-nRP039Wm6WaGkzAvYx3aYU-e45L8KbfKYZeIfMew2evua1VnjcZoP84CJCKDjKa4HrP0bUmemKK6yRQ3Ereh74M7_QqW8ZrY4N7-7JR0iTuefkC_2eLq3pv8G4bl_giRDKyfUdoijtOLw7fPwV4EUrX9M8fM7wmtKca4WvJZvUbsPCKpQkpUL8bQSPvC3RRTklOObsI5FUNwNOKQwEoYoncVQFR4DFDUuvzzwD0ITKW0Uns9Fs3AzRmoVUFTkKIgGPPWtf6rEKMTLdx7BYhR0bio-cJjok08pbEwiJ7LkPafsKKAGPPWtffJVBEnoapCydL4EAJOWkgt9kxFwqHZCF6swJtxDEgMq0oxoKLgGPPWtfp56laF_mOyPxBSnSS-SrWLoWR3HEXQag7R--G0Y_mOFLnJ3lmJzqiBk="
+                    }
+                  ],
+                  "role": "model"
+                }
+              },
+              {
+                "author": "customer_support",
+                "content": {
+                  "parts": [
+                    {
+                      "function_response": {
+                        "id": "adk-ab79ec1f-b076-4978-a27d-85b83c1d1927",
+                        "name": "billing_agent",
+                        "response": {
+                          "result": "I'm sorry, I cannot retrieve the invoice for order `ORD-22222` because you don't have permission to access that order. Please make sure you are requesting an invoice for an order associated with your account."
+                        }
+                      }
+                    }
+                  ],
+                  "role": "user"
+                }
+              }
+            ]
+          },
+          "creation_timestamp": 1770413380.6997201
+        }
+      ],
+      "session_input": {
+        "app_name": "eval_auth_user1",
+        "user_id": "demo-user-001",
+        "state": {}
+      },
+      "creation_timestamp": 0.0,
+      "final_session_state": {}
+    }
+  ],
+  "creation_timestamp": 1770413380.6997912
+}

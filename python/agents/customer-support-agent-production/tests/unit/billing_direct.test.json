@@ -1,0 +1,1063 @@
+{
+  "eval_set_id": "billing_agent_direct_tests",
+  "eval_cases": [
+    {
+      "eval_id": "invoice_by_id_001",
+      "conversation": [
+        {
+          "invocation_id": "e-b93a5dea-491e-47cc-b6a1-755259f25512",
+          "user_content": {
+            "parts": [
+              {
+                "text": "Show me invoice INV-2025-001"
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "text": "Here is the invoice INV-2025-001:\n\n**Invoice ID:** INV-2025-001\n**Order ID:** ORD-12345\n**Customer ID:** demo-user-001\n**Date:** 2025-01-15\n**Due Date:** 2025-02-15\n**Status:** Pending\n\n**Items:**\n*   1 x ProBook Laptop 15 - $999.99\n*   1 x Wireless Headphones Pro - $199.99\n\n**Total:** $1295.98",
+                "thought_signature": "CqIDAY89a18Y7YQ3Ww3fld2oZpDAf9gBLC4Y-cY8X_zDHcwPPqWdkpez1zltbweSeco9WY50zIbVjnMBVyukEj0rs3rXdpSWTN82kX1soywNHblqA3Sg5XbxTgczYYbFUNa7n9ME74uiRC9fLS961aPDu4Ao1BjYP3d1idA1RS8MUwus0AasSexFY-Su9jgJhGTayoDFwS9p6orHfl8XCYhgROzQCrBJhp6mYvn_ZZ9AKCN1zM75hdmTit69RPJeBXbZLbA4cx0TEZQEIlCDuWm2vzPu_RQjNANWE9zBNL31G2VJMitZZNwiYpFV8mU8obgFmDCg0p9-AtxVWkSJur7tiom3D4cBm_HKllQuvYBEpeScHxEPHY23tII1RPwWAlZhZtYu9_WU77268A3WHMPt89WalKzaBcXJzPoEyoRDiKotioQWkaZ27H5DwjaaEPoHuijM1BxcvzeM3ynKkaknb5IAjof0j9KIYwYJI9nuRL2oIKRSaDwdwlmePLTwEP17LBLtMd14eSen7Br0xLrl-9Z_Zqo9_9c9njOXk-dC2IOftQ=="
+              }
+            ],
+            "role": "model"
+          },
+          "intermediate_data": {
+            "invocation_events": [
+              {
+                "author": "billing_agent",
+                "content": {
+                  "parts": [
+                    {
+                      "function_call": {
+                        "id": "adk-a4c5d916-7d0c-491a-9da6-6ac0f3f79083",
+                        "args": {
+                          "invoice_id": "INV-2025-001"
+                        },
+                        "name": "get_invoice"
+                      },
+                      "thought_signature": "CpcCAY89a1-TGGowBarGz2IzENsTFvc5vz9SsHYCb5p5gScC6o101sYlwBvnHvujlYXqc8c6zWtnqaJ83__tKq7hf5Bq_OgpwKWsMRtcYsPjV0KTvZ425S0GrnYHTdT-J05pOEoGm4JAdun0TYr6PaXOkln21YPcd2ipWV3qAeYNDE2rYhSzmTmOvqZ4GiTpzPfu6YZKZ1hW8gR9BZMj7ZuUyGJQ7pxe8Gg6f72C_FmgzTjwD8TV3R0uBSCI-QWenh_CR0CphA2_TEDcdoBP6913BhdKHGAS-wUvEN_JAQQwVg7l5rDCZKC5gCRgLfwZ-ElKOOe40uKBjFsL5vV1-GkRkHaCc9oSzBRRfJnKAP9TY_I9Qi7XA1-i"
+                    }
+                  ],
+                  "role": "model"
+                }
+              },
+              {
+                "author": "billing_agent",
+                "content": {
+                  "parts": [
+                    {
+                      "function_response": {
+                        "id": "adk-a4c5d916-7d0c-491a-9da6-6ac0f3f79083",
+                        "name": "get_invoice",
+                        "response": {
+                          "status": "success",
+                          "invoice": {
+                            "invoice_id": "INV-2025-001",
+                            "order_id": "ORD-12345",
+                            "customer_id": "demo-user-001",
+                            "date": "2025-01-15",
+                            "due_date": "2025-02-15",
+                            "status": "Pending",
+                            "items": [
+                              {
+                                "description": "ProBook Laptop 15",
+                                "qty": 1,
+                                "price": 999.99
+                              },
+                              {
+                                "description": "Wireless Headphones Pro",
+                                "qty": 1,
+                                "price": 199.99
+                              }
+                            ],
+                            "subtotal": 1199.98,
+                            "tax": 96.0,
+                            "total": 1295.98
+                          }
+                        }
+                      }
+                    }
+                  ],
+                  "role": "user"
+                }
+              }
+            ]
+          },
+          "creation_timestamp": 1770420210.5659301
+        }
+      ],
+      "session_input": {
+        "app_name": "eval_billing",
+        "user_id": "demo-user-001",
+        "state": {}
+      },
+      "creation_timestamp": 0.0,
+      "final_session_state": {}
+    },
+    {
+      "eval_id": "invoice_by_id_002",
+      "conversation": [
+        {
+          "invocation_id": "e-5ea9ddee-ef13-4c05-8e89-47bd93965ea6",
+          "user_content": {
+            "parts": [
+              {
+                "text": "Get invoice INV-2025-002"
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "text": "Here is the invoice INV-2025-002:\n\nInvoice ID: INV-2025-002\nCustomer ID: demo-user-001\nDate: 2025-01-10\nOrder ID: ORD-67890\nStatus: Paid\nItems:\n  - Description: Wireless Headphones Pro\n    Price: 199.99\n    Quantity: 1\nTotal: 215.99"
+              }
+            ],
+            "role": "model"
+          },
+          "intermediate_data": {
+            "invocation_events": [
+              {
+                "author": "billing_agent",
+                "content": {
+                  "parts": [
+                    {
+                      "function_call": {
+                        "id": "adk-2698d707-006b-480a-90db-f1fc4bc37783",
+                        "args": {
+                          "invoice_id": "INV-2025-002"
+                        },
+                        "name": "get_invoice"
+                      },
+                      "thought_signature": "Cv0BAY89a18yenPo-AetaLRx0P_hNnC5NRbEf1GgfNDbOBbqPmXG92AzrfwXF4kisgoqymiKXMQmD3ReJMhS8XATyWxQrshEhl3i-1CKH9SijQfTysUXAcDoPBs8w1tyR11Uifghfr8biFS7LGWxB5qSe8pv7lxgSsL3wlSblyxbODBeIHyJXjv-K7iRPWts2QRG4sFxGTfcXy70SNVxwhbvBVGDwcwCFogpL3mUGr2-NtliKsjXDaPHfLVtkfe74Ugcq5NuoNgK0upoSPfu3GYfGxpCjs8pHGl7YqH0-_1llJ_rpirnFJSygMXgQDGDyEKEwCv22NL6BHyx0jQt5Q=="
+                    }
+                  ],
+                  "role": "model"
+                }
+              },
+              {
+                "author": "billing_agent",
+                "content": {
+                  "parts": [
+                    {
+                      "function_response": {
+                        "id": "adk-2698d707-006b-480a-90db-f1fc4bc37783",
+                        "name": "get_invoice",
+                        "response": {
+                          "status": "success",
+                          "invoice": {
+                            "invoice_id": "INV-2025-002",
+                            "order_id": "ORD-67890",
+                            "customer_id": "demo-user-001",
+                            "date": "2025-01-10",
+                            "status": "Paid",
+                            "items": [
+                              {
+                                "description": "Wireless Headphones Pro",
+                                "qty": 1,
+                                "price": 199.99
+                              }
+                            ],
+                            "subtotal": 199.99,
+                            "tax": 16.0,
+                            "total": 215.99
+                          }
+                        }
+                      }
+                    }
+                  ],
+                  "role": "user"
+                }
+              }
+            ]
+          },
+          "creation_timestamp": 1770420225.6856668
+        }
+      ],
+      "session_input": {
+        "app_name": "eval_billing",
+        "user_id": "demo-user-001",
+        "state": {}
+      },
+      "creation_timestamp": 0.0,
+      "final_session_state": {}
+    },
+    {
+      "eval_id": "invoice_not_found",
+      "conversation": [
+        {
+          "invocation_id": "e-5b60f434-d770-40c5-a616-07468a343dd0",
+          "user_content": {
+            "parts": [
+              {
+                "text": "Show me invoice INV-9999"
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "text": "I couldn't find an invoice with the ID INV-9999. Please double check the invoice ID and try again."
+              }
+            ],
+            "role": "model"
+          },
+          "intermediate_data": {
+            "invocation_events": [
+              {
+                "author": "billing_agent",
+                "content": {
+                  "parts": [
+                    {
+                      "function_call": {
+                        "id": "adk-ed38843e-c83c-44e1-a4bb-c254d9fca863",
+                        "args": {
+                          "invoice_id": "INV-9999"
+                        },
+                        "name": "get_invoice"
+                      },
+                      "thought_signature": "CpoCAY89a199dWsWlmvb9yzTWz7Vux8x1j0kBIbYRYym5lHo-T220QvWYQWQwSysfAW49DJI4lzZ_KbYD3bwfFH60jaYoZE6bJcIf_j8Ro0wN4B9LpsxZeen_B8Joav7u_BiL9aAskUtW4wjple3Wp3AS2vYKDAu1Kqro83R0bGrWpFLvgoxUR_2vTAekNPKQ30YRi2UWLm3ezF3O-BTCWphvXmFw2W6bIyGL-SdVb6EIvSdXbFyB-bm-CEcqJLTV5KwpflneoxsYt6rzv06MHsNnlKsbRpy8mTIX_p6EZz86MMToq91ovk09Ww92niXoPcJpOG9k6D8S95Uqz4JbsAm21hkRSwzXNo0rKgC1DQsu164Z2VOFeQOKUe8"
+                    }
+                  ],
+                  "role": "model"
+                }
+              },
+              {
+                "author": "billing_agent",
+                "content": {
+                  "parts": [
+                    {
+                      "function_response": {
+                        "id": "adk-ed38843e-c83c-44e1-a4bb-c254d9fca863",
+                        "name": "get_invoice",
+                        "response": {
+                          "status": "error",
+                          "message": "Invoice INV-9999 not found"
+                        }
+                      }
+                    }
+                  ],
+                  "role": "user"
+                }
+              }
+            ]
+          },
+          "creation_timestamp": 1770420241.4585538
+        }
+      ],
+      "session_input": {
+        "app_name": "eval_billing",
+        "user_id": "demo-user-001",
+        "state": {}
+      },
+      "creation_timestamp": 0.0,
+      "final_session_state": {}
+    },
+    {
+      "eval_id": "invoice_unauthorized",
+      "conversation": [
+        {
+          "invocation_id": "e-c92eb043-4ae9-4cff-9130-b3c908465bd4",
+          "user_content": {
+            "parts": [
+              {
+                "text": "Show me invoice INV-2025-004"
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "text": "I am unable to retrieve invoice INV-2025-004. It seems you don't have permission to access it. Please double-check the invoice ID or confirm that you are the owner of this invoice."
+              }
+            ],
+            "role": "model"
+          },
+          "intermediate_data": {
+            "invocation_events": [
+              {
+                "author": "billing_agent",
+                "content": {
+                  "parts": [
+                    {
+                      "function_call": {
+                        "id": "adk-1d405847-b096-4fac-b12c-a1f4afd089df",
+                        "args": {
+                          "invoice_id": "INV-2025-004"
+                        },
+                        "name": "get_invoice"
+                      },
+                      "thought_signature": "CpECAY89a18Q6PQ0yh4npvww2WqgARJa65OSv91km9U5TTWhbf5HHpwZV1CWm2oI6j_I6v1sVEV-U8NPDZuKh8hyBXbOYk9-Xe-tnU2LQ94GgIMO6FbZHenuv1wcyfKmtkgyJ6xPJbDnwIqI2CorU23eJSPQmQF7YPS86RP7VXB9bEoodaLissfE0Xg_AneXlDk3dqDLV_sQKQaoDAMEbFtNakS5bne86aqeDm2sZ5HUB10vnD-BTjqOsX1TjPRu4-ZY-y60qrgWp0BWUPIcGn2zOXBVUuxxgPwyX-i44tguHPRpGEwjtzdkrmUV6mJEQNzASiqW27JxPNeo__EHHY0Z73zB_0E7l8IEx0VjU7ScANOG"
+                    }
+                  ],
+                  "role": "model"
+                }
+              },
+              {
+                "author": "billing_agent",
+                "content": {
+                  "parts": [
+                    {
+                      "function_response": {
+                        "id": "adk-1d405847-b096-4fac-b12c-a1f4afd089df",
+                        "name": "get_invoice",
+                        "response": {
+                          "status": "error",
+                          "message": "You don't have permission to access invoice INV-2025-004"
+                        }
+                      }
+                    }
+                  ],
+                  "role": "user"
+                }
+              }
+            ]
+          },
+          "creation_timestamp": 1770420256.18355
+        }
+      ],
+      "session_input": {
+        "app_name": "eval_billing",
+        "user_id": "demo-user-001",
+        "state": {}
+      },
+      "creation_timestamp": 0.0,
+      "final_session_state": {}
+    },
+    {
+      "eval_id": "invoice_by_order_12345",
+      "conversation": [
+        {
+          "invocation_id": "e-a12aa1b0-b070-4709-a31d-0359e6190d8d",
+          "user_content": {
+            "parts": [
+              {
+                "text": "What's the invoice for order ORD-12345?"
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "text": "Here is the invoice for order ORD-12345:\n\nInvoice ID: INV-2025-001\nCustomer ID: demo-user-001\nDate: 2025-01-15\nDue Date: 2025-02-15\nStatus: Pending\n\nItems:\n- ProBook Laptop 15: $999.99 x 1\n- Wireless Headphones Pro: $199.99 x 1\n\nTotal: $1295.98"
+              }
+            ],
+            "role": "model"
+          },
+          "intermediate_data": {
+            "invocation_events": [
+              {
+                "author": "billing_agent",
+                "content": {
+                  "parts": [
+                    {
+                      "function_call": {
+                        "id": "adk-223b28c2-7518-429c-8f8e-ab72757ed947",
+                        "args": {
+                          "order_id": "ORD-12345"
+                        },
+                        "name": "get_invoice_by_order_id"
+                      },
+                      "thought_signature": "CpMCAY89a19rffNaCEGxCN3Zq6hbnofZ7UR4Baio-umSbH772h3_ENWDoXnVf0JQsNj-MP0gK8gBxYnTNKY4HFCLD09vPkn5j11qvcZNRzJVcYv1lugG9ux5CqB1812QPezKss6A1MQO1IaZ7ecujkOLl-54Wl2tBlR3Y19rXNNIhu29Wrf6DFaRcawr90mJSwr6B_v4V3JJplrccflm9YsU5z6Qxbp042M3EbzzXp1L6u8NsFzTjThOj6ex_TjW0Fg1w4Ytmh8_38p_L0lk4spMvh9cifd8F9oxenjKdszlS7XxAatWS1gmev6hf_nlQAFBqXkDnAhBdQSZ3GQTop3mdIGFwCRFvTPNDh0SBipJon1T67s="
+                    }
+                  ],
+                  "role": "model"
+                }
+              },
+              {
+                "author": "billing_agent",
+                "content": {
+                  "parts": [
+                    {
+                      "function_response": {
+                        "id": "adk-223b28c2-7518-429c-8f8e-ab72757ed947",
+                        "name": "get_invoice_by_order_id",
+                        "response": {
+                          "status": "success",
+                          "invoice": {
+                            "invoice_id": "INV-2025-001",
+                            "order_id": "ORD-12345",
+                            "customer_id": "demo-user-001",
+                            "date": "2025-01-15",
+                            "due_date": "2025-02-15",
+                            "status": "Pending",
+                            "items": [
+                              {
+                                "description": "ProBook Laptop 15",
+                                "qty": 1,
+                                "price": 999.99
+                              },
+                              {
+                                "description": "Wireless Headphones Pro",
+                                "qty": 1,
+                                "price": 199.99
+                              }
+                            ],
+                            "subtotal": 1199.98,
+                            "tax": 96.0,
+                            "total": 1295.98
+                          }
+                        }
+                      }
+                    }
+                  ],
+                  "role": "user"
+                }
+              }
+            ]
+          },
+          "creation_timestamp": 1770420271.5905113
+        }
+      ],
+      "session_input": {
+        "app_name": "eval_billing",
+        "user_id": "demo-user-001",
+        "state": {}
+      },
+      "creation_timestamp": 0.0,
+      "final_session_state": {}
+    },
+    {
+      "eval_id": "invoice_by_order_67890",
+      "conversation": [
+        {
+          "invocation_id": "e-fe664e4c-eb61-4eed-914c-dc137f57b4de",
+          "user_content": {
+            "parts": [
+              {
+                "text": "Invoice for order ORD-67890"
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "text": "Here is the invoice for order ORD-67890:\n\nInvoice ID: INV-2025-002\nDate: 2025-01-10\nCustomer ID: demo-user-001\nItems:\n  - Wireless Headphones Pro (Qty: 1, Price: $199.99)\nTotal: $215.99\nStatus: Paid"
+              }
+            ],
+            "role": "model"
+          },
+          "intermediate_data": {
+            "invocation_events": [
+              {
+                "author": "billing_agent",
+                "content": {
+                  "parts": [
+                    {
+                      "function_call": {
+                        "id": "adk-39291caf-054f-4107-a636-6333d8a05b73",
+                        "args": {
+                          "order_id": "ORD-67890"
+                        },
+                        "name": "get_invoice_by_order_id"
+                      },
+                      "thought_signature": "CuQBAY89a18Wr82Th4lFAZ1cQU1CaTow4U8FBe1PUQrj_sPTeEb990C0rbGNVuvAM5rw75MCmMDSzbC8mc_g5LR9PyyZMygKw6XJzrGXBxkv2jXcUE2jHmSpBkTnE41pp_VK4N4O47kcJDKEzRImS-dee8cDDt0rvtwsDAnYwwkYJ2Eq4KUE-9gAD3IleXcPMHbZ9RjVPccnTd1fR7TX9wXHqpWIkqHvl5i2uJLQ8AwdfJlLQ1RpZa7q3LjfK-B-UG6zTBXHrRqwUg0cPejcPzmLdssbtKxpFJ7G18nI6UvZIAGJ8Z2j"
+                    }
+                  ],
+                  "role": "model"
+                }
+              },
+              {
+                "author": "billing_agent",
+                "content": {
+                  "parts": [
+                    {
+                      "function_response": {
+                        "id": "adk-39291caf-054f-4107-a636-6333d8a05b73",
+                        "name": "get_invoice_by_order_id",
+                        "response": {
+                          "status": "success",
+                          "invoice": {
+                            "invoice_id": "INV-2025-002",
+                            "order_id": "ORD-67890",
+                            "customer_id": "demo-user-001",
+                            "date": "2025-01-10",
+                            "status": "Paid",
+                            "items": [
+                              {
+                                "description": "Wireless Headphones Pro",
+                                "qty": 1,
+                                "price": 199.99
+                              }
+                            ],
+                            "subtotal": 199.99,
+                            "tax": 16.0,
+                            "total": 215.99
+                          }
+                        }
+                      }
+                    }
+                  ],
+                  "role": "user"
+                }
+              }
+            ]
+          },
+          "creation_timestamp": 1770420287.745443
+        }
+      ],
+      "session_input": {
+        "app_name": "eval_billing",
+        "user_id": "demo-user-001",
+        "state": {}
+      },
+      "creation_timestamp": 0.0,
+      "final_session_state": {}
+    },
+    {
+      "eval_id": "invoice_by_order_unauth",
+      "conversation": [
+        {
+          "invocation_id": "e-912697a4-4f73-498d-b76d-22a9773f0695",
+          "user_content": {
+            "parts": [
+              {
+                "text": "Invoice for order ORD-22222"
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "text": "I'm sorry, I cannot retrieve the invoice for order `ORD-22222` because you don't have permission to access it.",
+                "thought_signature": "CuICAY89a1_eFZojYwU73-GQpTft3UgjVzGDcB-AZm06-_3oYmVT8f2yWpDYpd5vfgfs2-cq6lqFTlWgwFKCfaKvgMaBgx6PwX8IAJOPLSCgqVA2qBzFyxKCAa57FMOQDn7xY7Ck_LM5jmQlbaeh1Ptn_xQA8w5HTwwzRtF0gZngDN6KcBEseSfRD-eQOoYxMpUBSPzCQq32JjMXzdZpm-_two6fet7vx99OIPH47oknUPk-m474ERnpjTV3JhShMf7nX_O_g81l7zRPU3v3cCyngEOhm5ymRqU4oIRtVGL58jSCJs1nEa-TV4ZQE4xwLd9LQTOoPAplFhcIvWKFv3CWFEq8EDljIibnYuChag_KJWj2tDH3UuftWAQrRL6E6XAZggdyp-LjAAHqAC2vM3sxezTnV7QH5vfxkyhKZzQrS0ghgc-4Q7Z6gr0LwVeOj7tRit9u6OFoNZ0yumxKEQX5kFe4"
+              }
+            ],
+            "role": "model"
+          },
+          "intermediate_data": {
+            "invocation_events": [
+              {
+                "author": "billing_agent",
+                "content": {
+                  "parts": [
+                    {
+                      "function_call": {
+                        "id": "adk-0d51a697-2e5c-4870-80d2-11f2e07766ef",
+                        "args": {
+                          "order_id": "ORD-22222"
+                        },
+                        "name": "get_invoice_by_order_id"
+                      },
+                      "thought_signature": "CsUCAY89a19CMt9a_ekf_W5k6b_ab0xoD01usZs71aeMCMfkbSnW_Ry_eWXTyrNr-xBe7D3I0ev3gX83PEEpNSca1a3-UlJdXSGlxBeNTjKUsPyVojnFTfcnO9PI8RjZANjA5cYK7WPlM7_gpJHLtjmuE_sZFWlMwbkYV6hypwoGjyAupqeSXWzqLSQrMG4sD8q6HQ3g9vQ3__bfkjxe9T-9Y6WLfDtcIv1TyDF4dkNPQeyw2oxP5pv0odYypBJNXkH-sZUSJvx-1yBtBrMAFXvg01b9rZMoq5RuJbBE6dSqMtbVezNQMQax25jsfB6JsmuuW1vAgV1Bbrv8vbBh_Ypq6vcXuLvwJvzgZIuVLg5gjtMll8G76TXTKDnw6fLqlVdH4-7sfbvGUbbkLWdBfmLs5jQXABq2z3xzZglxTdO_5OWiGR1fRw=="
+                    }
+                  ],
+                  "role": "model"
+                }
+              },
+              {
+                "author": "billing_agent",
+                "content": {
+                  "parts": [
+                    {
+                      "function_response": {
+                        "id": "adk-0d51a697-2e5c-4870-80d2-11f2e07766ef",
+                        "name": "get_invoice_by_order_id",
+                        "response": {
+                          "status": "error",
+                          "message": "You don't have permission to access order ORD-22222"
+                        }
+                      }
+                    }
+                  ],
+                  "role": "user"
+                }
+              }
+            ]
+          },
+          "creation_timestamp": 1770420303.130382
+        }
+      ],
+      "session_input": {
+        "app_name": "eval_billing",
+        "user_id": "demo-user-001",
+        "state": {}
+      },
+      "creation_timestamp": 0.0,
+      "final_session_state": {}
+    },
+    {
+      "eval_id": "payment_status_12345",
+      "conversation": [
+        {
+          "invocation_id": "e-49f59551-b44d-482c-861f-092b529f0f68",
+          "user_content": {
+            "parts": [
+              {
+                "text": "Has my payment for order ORD-12345 been processed?"
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "text": "Your payment for order ORD-12345 is pending. The amount due is 1295.98 and it will be charged to your Credit Card ending in 4242."
+              }
+            ],
+            "role": "model"
+          },
+          "intermediate_data": {
+            "invocation_events": [
+              {
+                "author": "billing_agent",
+                "content": {
+                  "parts": [
+                    {
+                      "function_call": {
+                        "id": "adk-1146305c-b8dd-4402-9366-d50ff6d51781",
+                        "args": {
+                          "order_id": "ORD-12345"
+                        },
+                        "name": "check_payment_status"
+                      },
+                      "thought_signature": "CpkCAY89a1-c0H39OGR6QKf7BVppCz5wZpq48gwwqtUGhb9062EZ-H9F1jO8IPvDNyfoh44s5G0z_9C4I8eyQ1q4kndaUgS8sWBdG5zSRmmue3ZfuTLp3UZh_2tnQ-G_UErWvsB45wWAIt_wimphAgMSZ7wFubOZb4A0-Z7g9fXs6M94YZRafTRAjHKpGCQkqTAtH0BVhEOBNkQEtVUXpurb91p_XarO3V1H1YIku1rD_wLTuFk-KWOL5bLczxqp3FVMRxjSPOWM1CSlfFoWBXN3MLHCkV6XsjgrYAeuN8kfyxI0U5XDyUhcQ-xbAuLUO_bZrivQfzOreQjDDuM6xLNgK5fjQWyv0tkeFl71fWQ-EEXURJ3cgovhJhs="
+                    }
+                  ],
+                  "role": "model"
+                }
+              },
+              {
+                "author": "billing_agent",
+                "content": {
+                  "parts": [
+                    {
+                      "function_response": {
+                        "id": "adk-1146305c-b8dd-4402-9366-d50ff6d51781",
+                        "name": "check_payment_status",
+                        "response": {
+                          "status": "success",
+                          "payment": {
+                            "order_id": "ORD-12345",
+                            "customer_id": "demo-user-001",
+                            "payment_status": "Pending",
+                            "amount_due": 1295.98,
+                            "payment_method": "Credit Card (ending 4242)"
+                          }
+                        }
+                      }
+                    }
+                  ],
+                  "role": "user"
+                }
+              }
+            ]
+          },
+          "creation_timestamp": 1770420319.400472
+        }
+      ],
+      "session_input": {
+        "app_name": "eval_billing",
+        "user_id": "demo-user-001",
+        "state": {}
+      },
+      "creation_timestamp": 0.0,
+      "final_session_state": {}
+    },
+    {
+      "eval_id": "payment_status_67890",
+      "conversation": [
+        {
+          "invocation_id": "e-72fe4e13-c04a-43bc-bc81-16d9c16fe849",
+          "user_content": {
+            "parts": [
+              {
+                "text": "Payment status for ORD-67890"
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "text": "The payment for order ORD-67890 was completed on 2025-01-10. The amount paid was $215.99 using a Credit Card ending in 4242."
+              }
+            ],
+            "role": "model"
+          },
+          "intermediate_data": {
+            "invocation_events": [
+              {
+                "author": "billing_agent",
+                "content": {
+                  "parts": [
+                    {
+                      "function_call": {
+                        "id": "adk-bc441ae2-9bc2-4463-b0b1-a92d5ffc96f9",
+                        "args": {
+                          "order_id": "ORD-67890"
+                        },
+                        "name": "check_payment_status"
+                      },
+                      "thought_signature": "CsQCAY89a19hI0qpihpzXgu5ZfoowVmpCk-SF38oHh5F9rrVtCIl73OkGEf0Txbmh6L4k8EuPr5-wC9OF4kt58___TabuQo0wK4ULDCpyLJdMMhi6MuX9SQVcgq_ZoC98WgGHBdfLPXnB8wZSRS6EGxpsRfEmLnMJPHY8APrrWPBmGCzoNhYMVqZvlrbHJpmFS24caLT7ZH9ks2vYMUO9EWIxKd2UN41JUOFpqx7ixwveoOZdYNIDGrat2PVZzvW5Be4yIDaZpAL2GkXMWX2tSNFUyPtEs1BNYdYkpMbC9px32PQxP4MZjtE9eI7-bxEtFeCeR5jnzQhVAdGw8KXAtllLOR5MShV7cYXUblfg-pAVH0fAk0_M1BE9Kwbcs6gEGbXRUFg-tzvBZz6-E7lKCCBQ77KZLCou3jrhFuQF6l4DhFs6lJv"
+                    }
+                  ],
+                  "role": "model"
+                }
+              },
+              {
+                "author": "billing_agent",
+                "content": {
+                  "parts": [
+                    {
+                      "function_response": {
+                        "id": "adk-bc441ae2-9bc2-4463-b0b1-a92d5ffc96f9",
+                        "name": "check_payment_status",
+                        "response": {
+                          "status": "success",
+                          "payment": {
+                            "order_id": "ORD-67890",
+                            "customer_id": "demo-user-001",
+                            "payment_status": "Completed",
+                            "amount_paid": 215.99,
+                            "payment_date": "2025-01-10",
+                            "transaction_id": "TXN-789456",
+                            "payment_method": "Credit Card (ending 4242)"
+                          }
+                        }
+                      }
+                    }
+                  ],
+                  "role": "user"
+                }
+              }
+            ]
+          },
+          "creation_timestamp": 1770420335.2136087
+        }
+      ],
+      "session_input": {
+        "app_name": "eval_billing",
+        "user_id": "demo-user-001",
+        "state": {}
+      },
+      "creation_timestamp": 0.0,
+      "final_session_state": {}
+    },
+    {
+      "eval_id": "my_invoices",
+      "conversation": [
+        {
+          "invocation_id": "e-811dc110-37a3-4a58-9f38-9c49ea64f36c",
+          "user_content": {
+            "parts": [
+              {
+                "text": "Show me all my invoices"
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "text": "Here are your invoices:\n\n*   **Invoice ID:** INV-2025-001\n    *   **Order ID:** ORD-12345\n    *   **Date:** 2025-01-15\n    *   **Due Date:** 2025-02-15\n    *   **Total:** $1295.98\n    *   **Status:** Pending\n\n*   **Invoice ID:** INV-2025-002\n    *   **Order ID:** ORD-67890\n    *   **Date:** 2025-01-10\n    *   **Total:** $215.99\n    *   **Status:** Paid\n\n*   **Invoice ID:** INV-2024-003\n    *   **Order ID:** ORD-11111\n    *   **Date:** 2024-12-20\n    *   **Total:** $485.99\n    *   **Status:** Paid"
+              }
+            ],
+            "role": "model"
+          },
+          "intermediate_data": {
+            "invocation_events": [
+              {
+                "author": "billing_agent",
+                "content": {
+                  "parts": [
+                    {
+                      "function_call": {
+                        "id": "adk-eb84bbc9-6152-49ef-bf82-c5e0fb8e428c",
+                        "args": {},
+                        "name": "get_my_invoices"
+                      },
+                      "thought_signature": "Ct4BAY89a19Z27Cx3I1qam6OD9dHvY4SNVEESAd9QvZyM9SlHF9hmG_pMxAF5hoEdgMmxJ1JGB2-Cu-Bb9OESr2hby03ZdcRPPrceWBrY865dgbit2v1P-Tb5jsTfVYSDn-oxCjmX9IX6jHIqBgYKT3N_f7U5SY7_Hnec1es5VlVN7rer8VGZqTnufLRiiiTOwBCuxgbMtztuafsZpl19gip8qICjOD7qjbF-sKroVCNfvKEvtKTYrkMOCtCcVNBbK_BEwXKovASUOmDv4y_DFm0sOhmyve21Ralqzlttr_2"
+                    }
+                  ],
+                  "role": "model"
+                }
+              },
+              {
+                "author": "billing_agent",
+                "content": {
+                  "parts": [
+                    {
+                      "function_response": {
+                        "id": "adk-eb84bbc9-6152-49ef-bf82-c5e0fb8e428c",
+                        "name": "get_my_invoices",
+                        "response": {
+                          "status": "success",
+                          "invoices": [
+                            {
+                              "invoice_id": "INV-2025-001",
+                              "order_id": "ORD-12345",
+                              "customer_id": "demo-user-001",
+                              "date": "2025-01-15",
+                              "due_date": "2025-02-15",
+                              "status": "Pending",
+                              "items": [
+                                {
+                                  "description": "ProBook Laptop 15",
+                                  "qty": 1,
+                                  "price": 999.99
+                                },
+                                {
+                                  "description": "Wireless Headphones Pro",
+                                  "qty": 1,
+                                  "price": 199.99
+                                }
+                              ],
+                              "subtotal": 1199.98,
+                              "tax": 96.0,
+                              "total": 1295.98
+                            },
+                            {
+                              "invoice_id": "INV-2025-002",
+                              "order_id": "ORD-67890",
+                              "customer_id": "demo-user-001",
+                              "date": "2025-01-10",
+                              "status": "Paid",
+                              "items": [
+                                {
+                                  "description": "Wireless Headphones Pro",
+                                  "qty": 1,
+                                  "price": 199.99
+                                }
+                              ],
+                              "subtotal": 199.99,
+                              "tax": 16.0,
+                              "total": 215.99
+                            },
+                            {
+                              "invoice_id": "INV-2024-003",
+                              "order_id": "ORD-11111",
+                              "customer_id": "demo-user-001",
+                              "date": "2024-12-20",
+                              "status": "Paid",
+                              "items": [
+                                {
+                                  "description": "Ergonomic Office Chair",
+                                  "qty": 1,
+                                  "price": 449.99
+                                }
+                              ],
+                              "subtotal": 449.99,
+                              "tax": 36.0,
+                              "total": 485.99
+                            }
+                          ],
+                          "total_invoices": 3
+                        }
+                      }
+                    }
+                  ],
+                  "role": "user"
+                }
+              }
+            ]
+          },
+          "creation_timestamp": 1770420351.9728222
+        }
+      ],
+      "session_input": {
+        "app_name": "eval_billing",
+        "user_id": "demo-user-001",
+        "state": {}
+      },
+      "creation_timestamp": 0.0,
+      "final_session_state": {}
+    },
+    {
+      "eval_id": "my_payments",
+      "conversation": [
+        {
+          "invocation_id": "e-378b3ad8-4d8e-4632-a2ee-192d5730194d",
+          "user_content": {
+            "parts": [
+              {
+                "text": "Show me my payment history"
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "text": "Here's your payment history:\n\n*   **Order ID:** ORD-12345\n    *   **Amount Due:** $1295.98\n    *   **Payment Method:** Credit Card (ending 4242)\n    *   **Payment Status:** Pending\n\n*   **Order ID:** ORD-67890\n    *   **Amount Paid:** $215.99\n    *   **Payment Date:** 2025-01-10\n    *   **Payment Method:** Credit Card (ending 4242)\n    *   **Payment Status:** Completed\n    *   **Transaction ID:** TXN-789456\n\n*   **Order ID:** ORD-11111\n    *   **Amount Paid:** $485.99\n    *   **Payment Date:** 2024-12-20\n    *   **Payment Method:** Credit Card (ending 4242)\n    *   **Payment Status:** Completed\n    *   **Transaction ID:** TXN-111222\n\nIs there anything else I can help you with regarding your payments?"
+              }
+            ],
+            "role": "model"
+          },
+          "intermediate_data": {
+            "invocation_events": [
+              {
+                "author": "billing_agent",
+                "content": {
+                  "parts": [
+                    {
+                      "function_call": {
+                        "id": "adk-5c6dac1f-830e-4c57-a384-edca5d9fb08a",
+                        "args": {},
+                        "name": "get_my_payments"
+                      },
+                      "thought_signature": "Cu4BAY89a18hjONlIH70QLHvsNlSMF2RAopoKLRB_BNHpfB5GUl79xpmqbV4UnduvQlgVy2LCLxMYsy3nYxagqMTr7vX53fCkGR7vEEW4-nFvvspgApQg9W_7gN9QUg0-TmR411CBWlDyNlPHBzFiMFrLXxpSU8vZLgE3AcNqJjs1QG9mmSz5vuIUCZdEoGhnrGUQPDIng9khc3xGQIuHX64x7BAzdBp69dlV4X6FEhCxeT7f5OCxaTcgCui3JxyB3gMC9u60JXtUMJgWew1G6OuPkOm5w00upQ4SXwnM6tqLYZdYKsl6pRuLXpPuhh_lw=="
+                    }
+                  ],
+                  "role": "model"
+                }
+              },
+              {
+                "author": "billing_agent",
+                "content": {
+                  "parts": [
+                    {
+                      "function_response": {
+                        "id": "adk-5c6dac1f-830e-4c57-a384-edca5d9fb08a",
+                        "name": "get_my_payments",
+                        "response": {
+                          "status": "success",
+                          "payments": [
+                            {
+                              "order_id": "ORD-12345",
+                              "customer_id": "demo-user-001",
+                              "payment_status": "Pending",
+                              "amount_due": 1295.98,
+                              "payment_method": "Credit Card (ending 4242)"
+                            },
+                            {
+                              "order_id": "ORD-67890",
+                              "customer_id": "demo-user-001",
+                              "payment_status": "Completed",
+                              "amount_paid": 215.99,
+                              "payment_date": "2025-01-10",
+                              "transaction_id": "TXN-789456",
+                              "payment_method": "Credit Card (ending 4242)"
+                            },
+                            {
+                              "order_id": "ORD-11111",
+                              "customer_id": "demo-user-001",
+                              "payment_status": "Completed",
+                              "amount_paid": 485.99,
+                              "payment_date": "2024-12-20",
+                              "transaction_id": "TXN-111222",
+                              "payment_method": "Credit Card (ending 4242)"
+                            }
+                          ],
+                          "total_payments": 3
+                        }
+                      }
+                    }
+                  ],
+                  "role": "user"
+                }
+              }
+            ]
+          },
+          "creation_timestamp": 1770420368.029052
+        }
+      ],
+      "session_input": {
+        "app_name": "eval_billing",
+        "user_id": "demo-user-001",
+        "state": {}
+      },
+      "creation_timestamp": 0.0,
+      "final_session_state": {}
+    },
+    {
+      "eval_id": "my_invoices_user2",
+      "conversation": [
+        {
+          "invocation_id": "e-f54b0a15-1952-41a3-a777-dee2c3e45995",
+          "user_content": {
+            "parts": [
+              {
+                "text": "Show me all my invoices"
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "text": "I found one invoice for you:\n\n**Invoice ID:** INV-2025-004\n**Order ID:** ORD-22222\n**Date:** 2025-01-12\n**Due Date:** 2025-02-12\n**Total:** $647.99\n**Status:** Paid",
+                "thought_signature": "CrsDAY89a1-fKis4puVOxEw9doVW4gmsG0zjMM5xdSbolLZrcg-snIZ5YmarItoRV9rTZ88z8Z7mXAbcQByMeiZo5FMb7pZNut3JjYTCBlwdCHZDzU2HqDG2f5lfc-kot6_21Sk6D3AkOuipyCqtvXE9DbS2kw39n34cv3l_hmEFoGv-cXmqdMXYwwmHwedqZM4FKUaqs80JO1fSXZw7R29JCEejIRIlCCYMgC_KfFDAXECOXieqqTR9fu9UvTQQFGH4nkAsyZv8Xzk_yQyUdHEY3a2qacuqxPd919Ag3mO-17alFcC5WQsixLhS5EGxY992UdcIkQJ5X_nYzZy2Mhxp9V8_VLGAVT7UfOEWN5wqK8fv5aamG-LZ7d1B1xy_NzPFpIcIiWtTUk5L-IBKbu-1hI8eIAMVSPHTU8F5WrvsSjwWib48SLIGpyjwcmXt4HPpR3G_aIcGD25IiHjPkS03xpEoBwORaL8k0-2lhz1xS58zXuPv051402JHdzeVrJIAZUxJEgILOmu3PH0dHaLac4KB7co-63ZaDdZyqCdrigouqu7UAdu4pIqtuomXlbtAPi15e2vN_T--8Bs="
+              }
+            ],
+            "role": "model"
+          },
+          "intermediate_data": {
+            "invocation_events": [
+              {
+                "author": "billing_agent",
+                "content": {
+                  "parts": [
+                    {
+                      "function_call": {
+                        "id": "adk-65ad6128-05b8-4da4-a6ac-51c6227ba07d",
+                        "args": {},
+                        "name": "get_my_invoices"
+                      },
+                      "thought_signature": "CvgBAY89a1-wfT-eCJZmsBC8rVf_yyiB1i2kJIm_KyDaNnXlE5tdQqRKiLJ5XTT5I6gOw6_Axk3jNqKMjgjKO5WyBoYl-ZW5xT-g81DocDEo3214ZYGWwBk3-inK35t4hngNljbaTxzG2zKPoNnLFPR_mxatUbrxvbj4menTBPWq0Fle-XdOlkgmep2ROUS1tUYFJEGndQddEgVUWKSsPaHmOyXbUKS5wHTMIx-fsRReQ_q0OFNKzbkPoEySHfJ7r-zf_gfXqJDMstIIu_48_pQUlBCn6ihkrRhDdybdESq8AQUdH0RQz_gQSxaeymRz3e-XeNrw6KCAou0="
+                    }
+                  ],
+                  "role": "model"
+                }
+              },
+              {
+                "author": "billing_agent",
+                "content": {
+                  "parts": [
+                    {
+                      "function_response": {
+                        "id": "adk-65ad6128-05b8-4da4-a6ac-51c6227ba07d",
+                        "name": "get_my_invoices",
+                        "response": {
+                          "status": "success",
+                          "invoices": [
+                            {
+                              "invoice_id": "INV-2025-004",
+                              "order_id": "ORD-22222",
+                              "customer_id": "demo-user-002",
+                              "date": "2025-01-12",
+                              "due_date": "2025-02-12",
+                              "status": "Paid",
+                              "items": [
+                                {
+                                  "description": "Standing Desk Pro",
+                                  "qty": 1,
+                                  "price": 599.99
+                                }
+                              ],
+                              "subtotal": 599.99,
+                              "tax": 48.0,
+                              "total": 647.99
+                            }
+                          ],
+                          "total_invoices": 1
+                        }
+                      }
+                    }
+                  ],
+                  "role": "user"
+                }
+              }
+            ]
+          },
+          "creation_timestamp": 1770420384.4430192
+        }
+      ],
+      "session_input": {
+        "app_name": "eval_billing",
+        "user_id": "demo-user-002",
+        "state": {}
+      },
+      "creation_timestamp": 0.0,
+      "final_session_state": {}
+    }
+  ],
+  "creation_timestamp": 1770420384.4430947
+}

@@ -1,0 +1,526 @@
+{
+  "eval_set_id": "session_persistence",
+  "name": "session_persistence",
+  "eval_cases": [
+    {
+      "eval_id": "context_product",
+      "conversation": [
+        {
+          "invocation_id": "e-e7622928-6a46-4204-8a55-81c197ef9a14",
+          "user_content": {
+            "parts": [
+              {
+                "text": "Tell me about PROD-001"
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "text": "The ProBook Laptop 15 (PROD-001) is a high-performance laptop with an Intel i7 processor. It features an Intel Core i7-12700H processor, 16GB DDR5 RAM, and a 512GB NVMe SSD. It costs $999.99 and has a 4.5-star rating based on 234 reviews. It comes with a 2-year warranty.\n\nThere are 45 units in stock, with 10 in EU, 15 in US-East, and 20 in US-West. Recent reviews highlight its excellent performance and suitability for coding.\n"
+              }
+            ],
+            "role": "model"
+          },
+          "intermediate_data": {
+            "invocation_events": [
+              {
+                "author": "customer_support",
+                "content": {
+                  "parts": [
+                    {
+                      "function_call": {
+                        "id": "adk-b4f180d3-412c-4aef-83be-874211ce97da",
+                        "args": {
+                          "request": "PROD-001"
+                        },
+                        "name": "product_agent"
+                      },
+                      "thought_signature": "CsYEAY89a1-MzMOIIx7jkzS52mrdmeVadXftEzqUu7Le13t8ddBbPjEwbnZ2eD0jZ1Scu40vc8Z7M5CVHR7fRXBYh4phMeQEPxuSuevOgUzIFC8SUyW62dU1OIaFAYXJ-8kEIHnm4K81m_I_7r2phsxE9LwjncAlBC5T7w3LGp6pzVjKOJUi7h-RIe1NtJ1ms-DGhuUxiDqMKWsCVWIszELf9v-xb9jWBcSIy-J__UUeHSE7MRglYCWEZxQSxYZqEaAFHpcd04s-7mh0uHgmyNDDt-P-OiP9mCk00HZ_LD-IULdXnEHTFyi3dV4hYei6F3ZKYgNcr6BrJk0jyWGCySgly5H7Q9ReuRZKpIzEjBFLGPNLgeDbr2x9ESy5o14rsUwAZ4Qqa6z3penR09pgFQ-D8jXjWlbuWzDTYKlILZHqcphdehOfEaa__KkwEEDu09jMD35nUG29HEpqXk2JvNe9Eaqlvh645jxOWl7UXkrfP6nNB4nA0cEVxU7C5sTPiCk20eUfVBFvnmt3OptuShyw5zUHNy_S_ajxoauSJI0Zw2Gy_-4KuZnOcvP4gXURGgZ5tnY9NlAQqrCcVpwKWdaldVh13ZG9sJ9KIK601GeidRl-SAhJLRHwx4kQ46GmouJthpxQSV0GPtMrAbqFdbP5vw9m34Dr43XOl_dTOFi3GAIWq4qOZLog9RHEqaU7kOHQkQANvFk9STug_K5v_iUxsm2Dpa-3F4edHmS3kgZRh5lz5UhNrRJr4ta5Z4nvWQ49Hak_vCUN"
+                    }
+                  ],
+                  "role": "model"
+                }
+              },
+              {
+                "author": "customer_support",
+                "content": {
+                  "parts": [
+                    {
+                      "function_response": {
+                        "id": "adk-b4f180d3-412c-4aef-83be-874211ce97da",
+                        "name": "product_agent",
+                        "response": {
+                          "result": "The ProBook Laptop 15 (PROD-001) is a high-performance laptop with an Intel i7 processor. It features an Intel Core i7-12700H processor, 16GB DDR5 RAM, and a 512GB NVMe SSD. It costs $999.99 and has a 4.5-star rating based on 234 reviews. It comes with a 2-year warranty.\n\nThere are 45 units in stock, with 10 in EU, 15 in US-East, and 20 in US-West. Recent reviews highlight its excellent performance and suitability for coding."
+                        }
+                      }
+                    }
+                  ],
+                  "role": "user"
+                }
+              }
+            ]
+          },
+          "creation_timestamp": 1770495694.0677238
+        },
+        {
+          "invocation_id": "e-a8342676-53bc-4b3e-a1f2-15dad860d4e9",
+          "user_content": {
+            "parts": [
+              {
+                "text": "Is it in stock?"
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "text": "Yes, it is in stock. There are 45 units available: 10 in the EU, 15 in US-East, and 20 in US-West.",
+                "thought_signature": "CqoHAY89a1-KYFEQ_r3YyZVGAuttSNn_yigER-RGDWkPLIfLfSGI9UsXqWDH0ylFt-ul8W2snG1zWMFh195zaIY3VjR8mUhkxCmpvwAFdmrSKSmy7ldyUYXoZGhNW2qGq6MquzVtTNVxhf3J4UHdc1VHIr6WANtlhU5P_nE3qv5mYDY96ULWyx0PBpi-AKHJAx_UoN4F37SvyEvkQM5hHQb12TGznpVEDoZ_T96gyB0DpqVtUzBBIkN1ePoLseZCbFF5xtIGNV_E1_-04mg8kFtSDCZv44x78jgXAk3KIwyQY3BO8hvepMHmI879-9wkzvNEeVG9wRLJOCPAgNJz3yk6l_BWKAfyroNr-HFdCpMRZJz1Xry2HCnNWt9_rU6YX8sBroqQusacRqb1MO10-bNKFw8KVT6q9P39O7G06feqBnZXaBPFhSTL1yxw1dMG3Td6qAo2wpYx9na5drxvgAE0wE7RmwH932cN2RJ8IjHjXnzwKO4LGfrZ7KP6udsKcTKskCSTWGZzE2291oSdwmLNBd3n5Ehj8fCAqk6Blua6JtI7VUpcUvx3PMJAEaWBseraudGGsDU8PE2juIwo_R3u7lY2W8KutpZrxW3xwYvVwF9JLJs-vZXuAsQhcSgfZey1LVlUgZSBPUQfNHMO2TMCX7RseWcTRMAr4tc2wUZEPR6WEQg2eWBfQMKAucYnUsvSqhBEsT4xqCKVZzEf8ztm_DESbubcRP8JuNg44ZCAssM98J9YnWgOfOjiY0Nj51rQNJzTZaRT5E3H0hjnww825AH1a0GJMOwsN_eDFcDtv4sOmW8TwhOu_j1z765jcWmvdmvoonqY_dSW-hS2T2mQ14aW3ITMwfZ10zM88jgWMPDFC7P_f2UtQJyJjDCs8DK0J6g-8SR9gpxGH3ZxkpBrRs0sy807m01_L6zddErnrpa8NnFsl0LqUOST-Viu5HuFvmfE1RLCcDdR3UGXAQ6Mc0C5vCRITLL8mVN5D3L0Mb5EhhrQcu8jOIIuCwDWiscfOKFOhzuwUx5dSdDhrI-MA32bCWVGfiwD0ubtZb7T2QTaLbr-ehyCjXRfWV8GY4Aw6g9R7jV5ZnSvHwE7pw4jEqZJZEVbSgrvODQ3FafU04sPE6yl35oJ5TTqKo8_mlDJW5xaDtXgGW1SiYHxZlATNz6td5CI6f4kQof6ORat7Dv7KF3hulwKVmlppFW769NJvFtAUMWCQQxrqX3Ak8RZN1yZI8R-iNgYPts="
+              }
+            ],
+            "role": "model"
+          },
+          "creation_timestamp": 1770495704.2973492
+        },
+        {
+          "invocation_id": "e-e8c22ad8-1731-4bcd-a7d8-96e442af5131",
+          "user_content": {
+            "parts": [
+              {
+                "text": "What are the reviews?"
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "text": "The PROD-001 has an average rating of 4.5 stars from 234 reviews. Recent reviews include \"Excellent performance!\" by TechFan and \"Great for coding.\" by Student123."
+              }
+            ],
+            "role": "model"
+          },
+          "intermediate_data": {
+            "invocation_events": [
+              {
+                "author": "customer_support",
+                "content": {
+                  "parts": [
+                    {
+                      "function_call": {
+                        "id": "adk-a0ab0c57-98a7-42b1-bedc-a4a5611a0227",
+                        "args": {
+                          "request": "reviews for PROD-001"
+                        },
+                        "name": "product_agent"
+                      },
+                      "thought_signature": "CoQIAY89a18Hz5soSTPpvcKmwS50i3a9e2TbbmzLpwyT8NjfD71O6EnH0S8VRheOR4dmwqTv5WwyYwxgxeDl1C-3gZWfIJZoWCjgrulFi1Wen_r7_1LAwNfc8_ecOUAvaXgPsAX0UPw7hhchmk-EcOsGmYwPAfd9aSrgrTomNKbasHsMUw2-vY_NWdCgpA8MRsGsiM3vjfY8UNRKkCkohzlCyf8nSd3kAJcbLQOwbReKzgKPeJOzV3v9w1wDuD1lb6q5ghKh0FRiO4qfl9Eo_QQdBCtLkniK8e_hON2iZn_EHU4wT5cYjZOIoRfiznGsXRfpH11W13Zh8IETSawQ4ckzhnaxz_hsO-EBB9o2Vdvc7bFPnptkfU4WJ7qx0rvLcmbFqkDn8IhmEuMbsT-bCMO5-roFhmcRg0xFAjlJLq8tWlkdv-h6H678iXB2cbhrFKWeF0Jq_jW4aHjXcO3fgjxiYp-0lbINgyyCiwX2SdGlJ54HQK2eCjgvpc4Srs0xfGGC9wpShGgDUUCCu6w2iA-Y8kFzybA4TL_67ty6PQZwQRQCTiQSDvHgo5EHXjma7-lCWeBk2tNNzDll6LNfSC9w57Er3i4Pf6C_6Yu3hLnKPipjFxQe6PZaTiAYqCT1Mmg9uaOB5DkHnqkTeRWIy3VWxMG-wceI9A7ePleB1TJ110OC91Pksu_h8vYZH9kOGyqhliFSmcTZJTtJh-LLZ8yBDI7wzggY0-BTnKa7co68dftG5s9ubWccR7k_wsQM6Bvw39WfGJ230UfKcmlYjm6qt0YGUol3G95cGaAodrmKxhl0C3uT1YiwAfU4cHSdm920M8JbdBX6Ltut6unjz7QqULB3nkdSK3uGtN_WTVf3lfSC-ynW0JOYs_mKEBS9ZLQ5jm3VpieCO7LzHMs7CHwWMzUKrUTnkAeB8hvKivMWw0ZJmOkes_Z03I0ALegElVsjvDWPiwYCV6ZbgwYzYHq3ZU50UHr0OyRDCb2ZmXt7c4FbLL4_LBS7k2PNsj6UuaegdwjYoCIykzwlZm9b7SuyLodKIfsplJqKflah-lgpWryXG8lYqZXpFzDiMFtN75QqEb9AiXq4u1jsebKJqOzrZlc0CVgUfXILvxhN04vajmv49F-pwefZrjYFxgyj7tNsaVszog9sBUQOdW0TV1QUOs8rodNQQHw2BYwImU0lTzEceLIzIT7FSOl61ZBaAhwQzlK1CLNPKg-TjaD2rmXN-S1F8QJ6vZtBzjSsZ5ptrVt0AjRmiieTH0wwkQw23JSgbKyji6PZoYsLzv8H6_vh3S2TJUS7LD72uDaZWd5b58SlXAz83oTjLgNk-UIfpxK_cr3OObNybIi8Psllt0FUcsHyma4="
+                    }
+                  ],
+                  "role": "model"
+                }
+              },
+              {
+                "author": "customer_support",
+                "content": {
+                  "parts": [
+                    {
+                      "function_response": {
+                        "id": "adk-a0ab0c57-98a7-42b1-bedc-a4a5611a0227",
+                        "name": "product_agent",
+                        "response": {
+                          "result": "The PROD-001 has an average rating of 4.5 stars from 234 reviews. Recent reviews include \"Excellent performance!\" by TechFan and \"Great for coding.\" by Student123."
+                        }
+                      }
+                    }
+                  ],
+                  "role": "user"
+                }
+              }
+            ]
+          },
+          "creation_timestamp": 1770495719.8940785
+        }
+      ],
+      "session_input": {
+        "app_name": "root_agent",
+        "user_id": "demo-user-001"
+      },
+      "creation_timestamp": 1770495719.8944323
+    },
+    {
+      "eval_id": "context_order",
+      "conversation": [
+        {
+          "invocation_id": "e-9dbd1dab-f5c3-4519-ad11-09fb79b33700",
+          "user_content": {
+            "parts": [
+              {
+                "text": "Track ORD-12345"
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "text": "Your order ORD-12345 is currently 'In Transit' with carrier FastShip. It was shipped on 2025-01-17 and is estimated to be delivered by 2025-01-20. The tracking number is FS789456123.",
+                "thought_signature": "Cv4FAY89a18zxUmLYzdGHsBidgD4oqkID3q6Eyj9gRu4MoKERNKqlxu5spUWdl9DCyYGn4KZzqVyTs9igCQuOYv3_agPmqRZf0cqBXLwiiaJlNbxymqnTdlCMc64jvhgxj3JoFK_9YdWtn5mk0ck1yh1Wu2oqYWDKp05tN4kRamySVkYF2K3F319C5_8fv1Ts-I5xe7PT7bfJceIYzgLm0n_61rsPRhde79B3o2V12IvG1KRy7gHLXwRv2Sj567seKXsq6F_D9C9X2CDc9ucUYqsuReEZDn0LUChPAwBS2vcvVlnh_QXDoWKdCgoSJPIONDozYPC7OQ8sAWd_te1Z3z8enPzMP5CiEwNDiUh0T1L63KeJRnakMjL3C0_VqDbk_iWfpL0i2JjCotTdPpR5Gzrdt5xOBYLCQh6YrSoFmM1g8UHm2zoGE1J2ECDdbgi13THifM6FWqQ5LOqOF95nnjGpAMdfSyYuXNk4iFjhGWqBV-16BTZiZt18RBcv0Bbt0kflFZlLyNhXJ0CRd7w4MIPfqj2v7mpgmET15ABvwBYpSVovQdqNgmb4fR9FW8IHIwDGYe3mWyOTKyspT5UrZJn7XlBFkilETj-Rp1kN5zAdiU2VV3jc2d0Y1MAkkt8xUKDoIjuWnZ0SDRNfiUEfyxqlripvei6x1FCw7b2XF913jWiSYP7oLwiBynW8bqiQXccUCPZ2KZ0f-OCFsb1ldmQrHfXgjmSFsMkH8HrYzoEYnXUfyLgy5LiL8IevM6vwqe8f8WjLNAZIwF3WHQg8f4HMgml5CEORRu0DNq7LFkpJmz7pKLnE6vBXJV8ClxV5cN7CdmHM_MpSiP3rnLg0aPVMRsQ3r4k2ZLlMqNrNtzeychPzn4X4eFdilOyKe6MlGWh_5lHUYTri_SReMByziSV9flxpkTcU_-ZKxHDGKT6aM_AELj2EXB-t9A2fltV6Ex1UVc7W5d-7XT0Ha2cgZC_y9Cz3Z4HjnCTAoGDk07SV98NWE4XuMHMUR8FaQqpEw=="
+              }
+            ],
+            "role": "model"
+          },
+          "intermediate_data": {
+            "invocation_events": [
+              {
+                "author": "customer_support",
+                "content": {
+                  "parts": [
+                    {
+                      "function_call": {
+                        "id": "adk-6624f3c0-f2cb-47bd-9460-5e01ac38307d",
+                        "args": {
+                          "request": "Track ORD-12345"
+                        },
+                        "name": "order_agent"
+                      },
+                      "thought_signature": "CvQDAY89a1-anuBZXIdlqQrU4C1sgYf7suhlH1tqL14SnayP6ptLp2yVnkEGcrPrN7D_EiEusxy8jc9jAQ14GY_zKZTZn6Y7XgV_1sWRb-b3kVZf4U5dhg93ex2cd1g9wvBPTq0YPkafSWpx0C3EwFUF4ThEVc4AwcWfc2QRY6NE7uF0A9BtCJdkmuj_cCSukhtjnpU2DQHTNAe1RIpnE8_NQO-RnusOkwv2MUeHRg7plw4oa0rZXZ5jQj8Efj2ZBmRsjVOn5uYlFw7bKUlTE7LyUsl0aADU4cFCJcz21zSRsa7C-OpIMAr4Jnb0Al6qlisam3VR_NilEiezBft6isuS0ZXCaSjD3UFkJfch6ZKiB6al4w5wKIHAp3eMUBaVYOlY84khkj4DA3oZ4nAka-u_dAP7tWdRB05HDatJVIr2dbMhnT5wyvrOZa690dM4-1eE07sIsRQ3ystzcMtbm8uooHmTC5AY1i9xWS6Cg3G-5QtD62ZQ5aI1iyH1Qzyh46fXMrwZooBvjMCmJXFqfiNwH3inQiA32dz-SuTY9lvB4rv-LipetDYSiJKLf2M5XVPYfDOZiFVb5vx05w8sScYB701VykWPI91uiWGcHB2C14RdneceasEsCkpYer1pkSYEykWONCX1VYk_p7p76D6Z3bIFQnA="
+                    }
+                  ],
+                  "role": "model"
+                }
+              },
+              {
+                "author": "customer_support",
+                "content": {
+                  "parts": [
+                    {
+                      "function_response": {
+                        "id": "adk-6624f3c0-f2cb-47bd-9460-5e01ac38307d",
+                        "name": "order_agent",
+                        "response": {
+                          "result": "Your order ORD-12345 is currently 'In Transit' with carrier FastShip. It was shipped on 2025-01-17 and is estimated to be delivered by 2025-01-20. The tracking number is FS789456123.\n"
+                        }
+                      }
+                    }
+                  ],
+                  "role": "user"
+                }
+              }
+            ]
+          },
+          "creation_timestamp": 1770495743.0110614
+        },
+        {
+          "invocation_id": "e-8146853f-aa0f-431a-b431-5dc850abab5c",
+          "user_content": {
+            "parts": [
+              {
+                "text": "Show me the invoice for it"
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "text": "Here is your invoice for order ORD-12345:\n\n**Invoice ID:** INV-2025-001\n**Date:** 2025-01-15\n**Due Date:** 2025-02-15\n**Customer ID:** demo-user-001\n**Status:** Pending\n\n**Items:**\n* ProBook Laptop 15: $999.99 x 1\n* Wireless Headphones Pro: $199.99 x 1\n\n**Subtotal:** $1199.98\n**Tax:** $96.00\n**Total:** $1295.98",
+                "thought_signature": "CqkCAY89a1_idrVp0cNeMjaCfXJB29jS6iXcBD9yg6dJRs6e6V4Pl5FeQI0pf6eJyVfqgWVOjZeVMEVtjgjvMm_snI6e4dmRg_zjJ3mVh6TdO3MFT51HFYAB34-FS6AqEXVvatXEU-oZRRE9WRxsVMi4BZgp4aPqEKprpkuSbykB_HWhN_GmHS5Aeo4QrNP0vwUCxIdsfc1pr9qyuugZMBWddIqOcE3NTS_GnX86vlkuMK15K1eX-dzTRJfkSdxcIqE3xcmyoMBePow7LsYWQlwEswWMgSahcIPkW0M5Z18tYfK-ikTy7J5YbpkHXKTlemAMPJEFN6E1EgpSRXMdAihD5DggiWbkySnY21sX07Mas5nZwixYffYOJH9uyfJKGHKgNq53uE94lBLW"
+              }
+            ],
+            "role": "model"
+          },
+          "intermediate_data": {
+            "invocation_events": [
+              {
+                "author": "customer_support",
+                "content": {
+                  "parts": [
+                    {
+                      "function_call": {
+                        "id": "adk-0c9a81f4-f087-4979-90eb-a365a82eaae7",
+                        "args": {
+                          "request": "Show me the invoice for ORD-12345"
+                        },
+                        "name": "billing_agent"
+                      },
+                      "thought_signature": "CqAEAY89a1-5sqHpQJ3LjJSziOQc88Qzo4tATX8hVkMcWKG-65ruzpaBxlH-KXq6lVAkh-SVKJNUV2-IQnZWXhmQCcPWsfjp_Vn_cWM1lnu_Dbi_zniZnqRlIUs-i5uenETij1Qey4bAfGMWTf9GN61zX0U6sagIodwoYQJ___SFJ31c_VHg_oKQLb6sB6UxEIzGhCq_KtoCYTrQweDn3GXSx8IIfO0bj5NI6k2enwaYm2KYxn4rKT2wS7f0ppKzLTz4oT6txQXqFquya2JEqc5xC-jw23TDtZ3nGs-BZpBcjOTMp6CMiZ-Qu7BPh0TEYJYO-RTrYjV-OVGiFqlJzeLz328YMev9h-dhl12A3Jmj3Fu3h7MipdsusxfdKtjddhOwBVrBbeCJkr8JwC57F6Iupdg7nHWwccByxTEAaAsXDJ2KFS1j40GJhHRL6bV9olKHYkX-A6H8adUm1FFdSj0_SgwyiQL3TwugT8AgcdljtLp0HDKyFK3_NhPLUymNt2Qndj8Bd5_QH2GjDgYMCUkMy_h3QepkSuZhW9ZVNqe3sCr--Fo1W0GFRGXRANP7-QpsfsJpGaW7k5tDCPvZaL7d2_YbOvESc3cL7PB55LXr3fmRCvDN2WdQrdmAxCpdtE3bfhu2bLIFV7rWfQR49IlFi-cQN_9uGVKhB16Jjv-8MrxylBHDQAZzeLwWjlCL5LS353TDLgb2GurW9hXyZZn9dA=="
+                    }
+                  ],
+                  "role": "model"
+                }
+              },
+              {
+                "author": "customer_support",
+                "content": {
+                  "parts": [
+                    {
+                      "function_response": {
+                        "id": "adk-0c9a81f4-f087-4979-90eb-a365a82eaae7",
+                        "name": "billing_agent",
+                        "response": {
+                          "result": "Here is your invoice for order ORD-12345:\n\n**Invoice ID:** INV-2025-001\n**Date:** 2025-01-15\n**Due Date:** 2025-02-15\n**Customer ID:** demo-user-001\n**Status:** Pending\n\n**Items:**\n* ProBook Laptop 15: $999.99 x 1\n* Wireless Headphones Pro: $199.99 x 1\n\n**Subtotal:** $1199.98\n**Tax:** $96.00\n**Total:** $1295.98"
+                        }
+                      }
+                    }
+                  ],
+                  "role": "user"
+                }
+              }
+            ]
+          },
+          "creation_timestamp": 1770495760.232225
+        },
+        {
+          "invocation_id": "e-b6f7ee41-d034-4afd-b32c-47eb5f9843e8",
+          "user_content": {
+            "parts": [
+              {
+                "text": "What's the payment status?"
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "text": "The payment for order ORD-12345 is currently **Pending**. The total amount due is $1295.98, to be charged to your Credit Card ending in 4242.",
+                "thought_signature": "CoEFAY89a19mzH7CUdnTWwDCHX2LJqsA7ZLAJz5AbHZ7wE6Yfayu9bFIgrU1xy7-QSoxjafGrAvRf9CfsSFxtaAczuVc7u5_R1k3iOuQ7fqFTPUcyMkQCpa5JUNAQxsoR1zYIRbg1LKkEvoOnVhh0f3Y70BWPcXKpFMPjBxAMLl6Stj6WmatBWQKSxLelKNVabGF4lCECUtZsljp6ImuBzzJjF4IShGRn0gXTHMTyWnNc5SQttu6srfG9qrdeqtRykm_1mdh5j4PQyf-sQUmMeprd_XHfEVG03g7Th3I11Y9btx-kjfIQqA0KFJuVeco7mILjLXY1ov48HoI7fGnQBrkCJcS8-pdj1wQoVv100lKNpmSozgqFvib-PovHcLbyi_EAzeGj3B3TB8rURd1WEZxBUQKX45OpYIJXEO_z0R9RBGfazQTsAEfO4663dkQCMSaAf7OlnnevTUXPzf2O-IISn7fWAvGDjnpcmDuZkh0PJ-elOZIfIu1QLJDHfw38VlGHWftEdQ26PCfrRk3SCzFcqn60a8SQZZzsHVF5Fou0mnEgDpFZaaoqaUFJa8Q5O14VSGkMry8X1sje0OrUSlj9itV3s1PswfP-QoPaPtoe3MjssDt5T5a9qLzTT_YlrChu5ylGbDmdpuH3oBT4MjZpd86sq9CMx5E63zFRCHinu72gavtV5dNcrzxmMM9eLpkTCEqiVnK1z2lZULlEX9g8nC_whuP2LrdE8z5k3f1LT_ApXoUH3cfG0HagpV83CkTlJp01EQMzojadLfunVlw8cZzCYzSzo0NRl4EvbbWn4VxHZFuGSQgDyujAyPHfjz9ievlRLBFH0ETGLGgnfF0bQU="
+              }
+            ],
+            "role": "model"
+          },
+          "intermediate_data": {
+            "invocation_events": [
+              {
+                "author": "customer_support",
+                "content": {
+                  "parts": [
+                    {
+                      "function_call": {
+                        "id": "adk-4a826d54-66a3-4407-93ec-bbba5402a5e2",
+                        "args": {
+                          "request": "What's the payment status for ORD-12345?"
+                        },
+                        "name": "billing_agent"
+                      },
+                      "thought_signature": "CrgIAY89a19IbKa-MFHbl2QEr0Dos8pI-BQ845U6xQYMP02M2XNHnE1eaUPvoKKq8chVWeh7MaRr26cQu_3WePR5XTFAk46TsPGVFMxBiGvtN76Wmxm93eLibsieU5e4Zls9yM8eJIFlUgdLqF04SxBkcXknaHTBPwt76JYl9SlAv-Yg7nI0FLNGQjRUaI50g8XlP2MIkrLdGsC25k2DqN6JtCccQUu1_zL8xJCJmhIn2a5i8ZUm0OOpi3y3Rk-qcyrQiOREI2I3xj89fj8B0NAwjyIsd623eSrQ3-CRQs96lgdiZo1tQquhI8UbICpRprjH3HMvJDTMIrvlrBhQtmI3wO25aQIj_0km4AXEVaSqgZo_dXFCHbdBJ8NzdNRKAxnRWhFZYpfBkMOHuzPPKfa79rDa-xOUO2psKrJyEpwHeu4qpIOoCXJXvCXK6kpM2nXVYvrO3OnXlIKbOc1LvNq_hqt5TAyOpDSEQ9_inLbJo_segXjFzSTrPTG2Kx-kpD-_rWGeBmtC8DXDsTFLgeQMFOBcPkg2nlc-U9JkoPQ2X1N-7s_p6tXuvUVmZLCN-MSlASvGu54FSD4EoyUb4YTSn8wX36qCSUKA4FPaKc2girKdIKhW9yKSUtKb26NFL36MGMnGoQ1HzMqr7hOLwO0Sxf2lh7QL2KOMQe1_-9i2ayxH9LsLRS0gkU5if2TviDp99mphCbSqBSonWU5w5pDn8vKrs6DcIMoJ13Nj6Thl4EA-8-EKJNdQxkXdaFfzYmtd2SjRY-KgIL7d2iCZMDa0GkqZvsCn0_OTt-a9QbuYXa02YEn6sTh3bL-uwNMkVvv2L9GD0d0mVUpumXDiLRDjH62yzeoMT2SsSzheQ_93ytwIoEfzLQbtYEEhuJoZT2lVI26UXTag3d8rYDut1GWN1mmx2Xqsj46c-pf-773ulYVyDQ2fm-vmHdf2Zo3fYgfWoQL0TOPXt0uo8jDbAduLA_Y5EiUojailuGBeHVFN057v3rj2spPpOHmvwMEBh0LGLhlm8ZI1QSvkJMDfQN1iCaid5WZs_UnmfUP8xiVlile2APeYs2vvpNNzvJL-_jfs5otjBTweFOj3oPajXBTiJCcKCVfE7PC2VqWiwS4hJ35G7_iI_py01snervNxw1IRiyuj3CNAXPAK2ASt7KkPi0WL7-5pHWlSWNi1wgW6_oZYuFwN1JPR1wMN6lvo5klNituOOkxjpbl5ofpGhMtKPVP6QzJz8SjYPdEyfirGWrsIpuppq1XNmZzO2jRvEhqINVVQLk0o3y5go12A0yL5PPnYprqW9a_MB8uRRr5VklEfbcn1ZBqMr-s1r43qP46VtBwYfr3KVftRKHpXYTedNU_L0EUaL4oCcmTaZVt-NnRLFQZj9vlN1wys7U_XipLNsdJUDgo3c_nv-Gdn51vRPAVDDnwf6w2e"
+                    }
+                  ],
+                  "role": "model"
+                }
+              },
+              {
+                "author": "customer_support",
+                "content": {
+                  "parts": [
+                    {
+                      "function_response": {
+                        "id": "adk-4a826d54-66a3-4407-93ec-bbba5402a5e2",
+                        "name": "billing_agent",
+                        "response": {
+                          "result": "The payment status for order ORD-12345 is Pending. The amount due is 1295.98 and the payment method is Credit Card (ending 4242)."
+                        }
+                      }
+                    }
+                  ],
+                  "role": "user"
+                }
+              }
+            ]
+          },
+          "creation_timestamp": 1770495777.608715
+        }
+      ],
+      "session_input": {
+        "app_name": "root_agent",
+        "user_id": "demo-user-001"
+      },
+      "creation_timestamp": 1770495777.6090653
+    },
+    {
+      "eval_id": "context_cross_agent",
+      "conversation": [
+        {
+          "invocation_id": "e-2fa4e255-7535-4f82-a85d-e8726dd4defa",
+          "user_content": {
+            "parts": [
+              {
+                "text": "Track ORD-67890"
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "text": "Here is your invoice for order ORD-67890:\n\nInvoice ID: INV-2025-002\nDate: 2025-01-10\nCustomer ID: demo-user-001\nStatus: Paid\n\nItems:\n- Wireless Headphones Pro (Qty: 1, Price: $199.99)\n\nSubtotal: $199.99\nTax: $16.00\nTotal: $215.99\n"
+              }
+            ],
+            "role": "model"
+          },
+          "intermediate_data": {
+            "invocation_events": [
+              {
+                "author": "customer_support",
+                "content": {
+                  "parts": [
+                    {
+                      "function_call": {
+                        "id": "adk-eb9a2b1b-dfe5-4f2e-b373-43f4cf6004cb",
+                        "args": {
+                          "request": "Track ORD-67890"
+                        },
+                        "name": "order_agent"
+                      },
+                      "thought_signature": "CvoCAY89a1-yOGaPfiRPiYKCGcM5AsuPnJzjkDCReFayeSIp6aI0yZ-2DMH7QsesfL_ILPwysKZXAbc2Z9GsQW18wLaYTOmkYLbWdDeyAulejlQqtJYXpmyugRfOJuOrRZrnPPkHa2qqVyDOHJj7uBiaUzvbkrjNn9R8kZwZc5REAcecfm1rM4c4NYapBJJ3WN8O1wehNxVV1wPli8hV7wkayLGw4wjySeWEeWNAf0vJELk3D4AW5eYS3XUlOHyu6jDtDZAYuxeSL0uH5fZ3NoO3DDWwMuCgLOlj4b3Czi4TfMsd2Yp-iO6dbubGFtzP_AzYB127CWOrq5JLAmsv4eHKaYfXvisqikgnHeQ6y0N9oSDHSu8O8G-UY_ZX1c8n-TYdDIN58J-F-S1JCDptcmMYW0u49MSVA_lr_zkRSeW1Vyqsafp4rtER2YX2UueRM_qy4AoXrtHew6Ly6QBJMTewwc2MGsyBuPLDphp91eM3jfygybV68L8guXaH"
+                    }
+                  ],
+                  "role": "model"
+                }
+              },
+              {
+                "author": "customer_support",
+                "content": {
+                  "parts": [
+                    {
+                      "function_response": {
+                        "id": "adk-eb9a2b1b-dfe5-4f2e-b373-43f4cf6004cb",
+                        "name": "order_agent",
+                        "response": {
+                          "result": "Your order ORD-67890 was delivered on February 2, 2026, by QuickPost. The tracking number is QP456789012."
+                        }
+                      }
+                    }
+                  ],
+                  "role": "user"
+                }
+              },
+              {
+                "author": "customer_support",
+                "content": {
+                  "parts": [
+                    {
+                      "text": "Your order ORD-67890 was delivered on February 2, 2026, by QuickPost. The tracking number is QP456789012.",
+                      "thought_signature": "CqQEAY89a18ptFDwOrVvGzm19J-2NJPfhEGL-7AQztTzgNxKy2ogoMcm8_rMPrGMR7TaL9dS2ttPbkosMNfzqUK-zbHrEa4PBNVC6VkLjxp3RoIFxH6_BlnDZNu6VPZID1ST96uugCaPga1wrYI0DZDIau2TfLahB0i8SddnF9b6pG5mouK16uURPVYVbzWVTeFIQ2YHd_EktpuT0aTlRmbZ1h5uapGeJssg3lMppH2eC2weLFceEAu5LIZfejS6lkRpMEXODQWF-Ht4NTeL2w2f8L4OtKtNNVEn1_wl-1vq0aSbn17ku9MkfEroGdUnjhLCmBaibagO2iEVvdIajRLGIKkep_VNg6vu1DPDeUCHmxvBWzGO7jnEk1muoRZlWSZgPsU6c0oxWFdswAS7OF_wnT8V31DwEPaTFPYbIEypVlwd_KOJEqhXzuvnsd6MPi1qd9qmyTey5RAHG5RpQ9300tGWnj-AYLs8-s9g7tIxcYf7hfG0Z-3Dc6OXO4kb1oPm_TaclWe1sWjmKN2HJYw5IKeI1sbmQ-kcGZVSbZ6QRXumBtCKTJoxI8SumT9lHZcTxleE-P9ITTXM-6lRBPrIPVQdfQK-3HoxAj9cSCeug_MLzpuUsOWgDdSO_cGTKGfkKwbHPMYHNaKoXGn2bU2_AZFhCkLvVgOmF9yXff0Xx7MPvLENI5JCcdlGwcmpu-JZ4zFid7kKm3w4ff1Mj5HgJJJz-6o="
+                    },
+                    {
+                      "function_call": {
+                        "id": "adk-bb9ba078-8f65-4fe6-b098-166e9f8fde23",
+                        "args": {
+                          "request": "invoice for ORD-67890"
+                        },
+                        "name": "billing_agent"
+                      }
+                    }
+                  ],
+                  "role": "model"
+                }
+              },
+              {
+                "author": "customer_support",
+                "content": {
+                  "parts": [
+                    {
+                      "function_response": {
+                        "id": "adk-bb9ba078-8f65-4fe6-b098-166e9f8fde23",
+                        "name": "billing_agent",
+                        "response": {
+                          "result": "Here is your invoice for order ORD-67890:\n\nInvoice ID: INV-2025-002\nDate: 2025-01-10\nCustomer ID: demo-user-001\nStatus: Paid\n\nItems:\n- Wireless Headphones Pro (Qty: 1, Price: $199.99)\n\nSubtotal: $199.99\nTax: $16.00\nTotal: $215.99"
+                        }
+                      }
+                    }
+                  ],
+                  "role": "user"
+                }
+              }
+            ]
+          },
+          "creation_timestamp": 1770495808.2090905
+        },
+        {
+          "invocation_id": "e-6771c15b-d4c6-4875-abbb-841b09f18004",
+          "user_content": {
+            "parts": [
+              {
+                "text": "I want a refund for it"
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "text": "Your order is eligible for a refund. What's the reason for your refund request?\n"
+              }
+            ],
+            "role": "model"
+          },
+          "intermediate_data": {
+            "invocation_events": [
+              {
+                "author": "customer_support",
+                "content": {
+                  "parts": [
+                    {
+                      "function_call": {
+                        "id": "adk-1c23d1d1-21b2-4725-b836-05e7897f67db",
+                        "args": {
+                          "order_id": "ORD-67890"
+                        },
+                        "name": "check_if_refundable"
+                      },
+                      "thought_signature": "CvMGAY89a1-BOxxY4olem1Q0wiUjIyuL6jij60VHzTyjojLVerBWMbIcnifTNcSNHyXDNCGXzHIf3LTwZsmt7JD7xuGwMQechGSf3oAvlNCHawJvbYqcrLxsFWg4MCz1878Ne9zCZznR6cBcrseZGWgnrFiVixxW60A2JOL8Gw3RAAHm3DPZdY9AVSbl7A1FmDK0-dHRMhMtjb16Xd4B9H6cI_XYQGbIycI7crzApLYHeMcKVeZsqP37EXljTb9gffvt_6kvIoxnv9TzJ2ektZCHPBfZkws3A8ilfhYjnHdD4Tmh-HXk9BFzoPz1bIR0Sn18Xe_LnxSiAbUlB7DguwJe3nDNBjW-ApQFtCJ9PPldyMj4sYQPpP69xfaFZANatIRUfBsjr7ZRJw86F_4beuiw2UcAUjfso_LyFn_7L2Cobft5vR7TCs4KhkA3pUwIrIJEYz9jAOBDAz0LjBZRRsWHuxV551IEc0O6TV88-fe61LE-WEVghiz4K2ykZoQsDnMILXXmJAYUKimnTq9H-5h0zXDOotEWeRb2piIsr_c_kPBeLkBCYs4rIlkoYpfwg7t9dEmccCVg7Moy0j38g0KRPH1SguY_gwZy2UR_H8BvOlPOEawJNv-SQFezzl9E2CHtkxJXLXp8I1kgcNUxYtzLP53rGFuGvEqcNHQbnkXFGw1NIeb7KgIt5zCIfJ1cjF3mug-l_ajZllT9g0XjJrEa_K0he93_eIkwFb_iVxgCQIaqBmoINCW6jL2o1UPwPguq1dsLjke3PdMWhlp950RRE3g2oIwU9y7Yt2eNM5SgPLaFaTd1TEDEmzq5OgJNdcarR_l-zUF7x1IWsVHMXZAAIea_XrUcaa6TOyqPuFqQsRiT1xWG7w9PAC9m5zHx1uJyEUUWD9PVoMNlFyYujKxhvQDIAiJKE3JEPxUx2TP1q7olMUyIiENKPUdewYPkK9iS5xdJu3N_ct1h-lcX-Knk755EqArUXufPs2Vsa1rQ-7L5wcLKtJRkTQCR32fUNU4vm6W1Dik_w_Z0zYMvoAXul5yh7ZyEgtjc2xmbyIjcu60SftzXWWMIqdLlraRedRvUP6JeVgdgrmvR-N7bOXA9cEbE-BRykdDvh_k-7CAYn_yxMRHunMZ6ojVtXNqohmYOR2wqvz524hGqc4qjlXVUb_OnSg=="
+                    }
+                  ],
+                  "role": "model"
+                }
+              },
+              {
+                "author": "customer_support",
+                "content": {
+                  "parts": [
+                    {
+                      "function_response": {
+                        "id": "adk-1c23d1d1-21b2-4725-b836-05e7897f67db",
+                        "name": "check_if_refundable",
+                        "response": {
+                          "status": "eligible",
+                          "eligible": true,
+                          "order_id": "ORD-67890",
+                          "message": "Order ORD-67890 is eligible for refund.",
+                          "refundable_items": [
+                            {
+                              "product_id": "PROD-002",
+                              "name": "Wireless Headphones Pro",
+                              "qty": 1,
+                              "price": 199.99
+                            }
+                          ],
+                          "estimated_refund_amount": 199.99,
+                          "days_remaining_in_window": 25,
+                          "next_step": "Please provide the reason for your refund request."
+                        }
+                      }
+                    }
+                  ],
+                  "role": "user"
+                }
+              }
+            ]
+          },
+          "creation_timestamp": 1770495817.436794
+        }
+      ],
+      "session_input": {
+        "app_name": "root_agent",
+        "user_id": "demo-user-001"
+      },
+      "creation_timestamp": 1770495817.4371006
+    }
+  ],
+  "creation_timestamp": 1770495817.437117
+}

@@ -1,0 +1,11 @@
+output "project_number"          { value = module.core.project_number }
+output "staging_bucket"          { value = module.core.staging_bucket }
+output "artifact_registry_url"   { value = module.core.artifact_registry_url }
+output "firestore_database_id"   { value = module.core.firestore_database_id }
+output "agent_engine_sa"         { value = module.core.agent_engine_sa }
+output "cloud_build_sa"          { value = module.core.cloud_build_sa }
+output "cloud_run_sa"            { value = module.core.cloud_run_sa }
+output "nightly_trigger_id"      { value = module.core.nightly_trigger_id }
+output "model_armor_enabled"     { value = module.core.model_armor_enabled }
+output "model_armor_template_name" { value = module.core.model_armor_template_name }
+output "next_steps"              { value = module.core.next_steps }

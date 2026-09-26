@@ -1,0 +1,53 @@
+%% Product Agent Architecture
+%% Google Cloud Platform Style
+
+graph TB
+    subgraph "Product Agent"
+        Agent[🛍️ Product Agent<br/>Model: Gemini 2.5 Flash<br/>Callback: auto_save_to_memory_explicit]
+    end
+
+    subgraph "Tools"
+        T1[PreloadMemoryTool<br/>Load user memories]
+        T2[search_products<br/>RAG semantic search]
+        T3[get_product_info<br/>⭐ DEFAULT - Comprehensive<br/>details + inventory + reviews]
+        T4[get_all_saved_products_info<br/>Efficient multi-product batch]
+        T5[get_last_mentioned_product<br/>Context-aware retrieval]
+        T6[get_product_details<br/>Details only explicit]
+        T7[check_inventory<br/>Inventory only explicit]
+        T8[get_product_reviews<br/>Reviews only explicit]
+    end
+
+    subgraph "Data Sources"
+        Firestore[(Firestore<br/>Vector Search)]
+        Memory[(Memory Bank)]
+    end
+
+    Agent --> T1
+    Agent --> T2
+    Agent --> T3
+    Agent --> T4
+    Agent --> T5
+    Agent --> T6
+    Agent --> T7
+    Agent --> T8
+
+    T1 --> Memory
+    T2 --> Firestore
+    T3 --> Firestore
+    T4 --> Firestore
+    T5 --> Firestore
+    T6 --> Firestore
+    T7 --> Firestore
+    T8 --> Firestore
+
+    style Agent fill:#FBBC04,stroke:#F29900,color:#000,stroke-width:3px
+    style T1 fill:#9334E6,stroke:#7627BB,color:#fff
+    style T2 fill:#4285F4,stroke:#1967D2,color:#fff
+    style T3 fill:#4285F4,stroke:#1967D2,color:#fff
+    style T4 fill:#4285F4,stroke:#1967D2,color:#fff
+    style T5 fill:#4285F4,stroke:#1967D2,color:#fff
+    style T6 fill:#4285F4,stroke:#1967D2,color:#fff
+    style T7 fill:#4285F4,stroke:#1967D2,color:#fff
+    style T8 fill:#4285F4,stroke:#1967D2,color:#fff
+    style Firestore fill:#FF6F00,stroke:#E65100,color:#fff
+    style Memory fill:#9334E6,stroke:#7627BB,color:#fff

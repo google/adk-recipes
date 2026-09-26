@@ -1,0 +1,376 @@
+# CI + CD Pipeline — Used by the single push-to-main trigger (ci-cd-push-main)
+#
+# One trigger fires on ALL pushes to main. A detect-agent-changes step at the
+# start auto-detects whether customer_support_mas/** files changed and writes
+# the result to /workspace/deploy_agent_engine.txt.  The deploy-agent-engine
+# step respects both that file AND the explicit _DEPLOY_AGENT_ENGINE=true
+# substitution (set by manual / forced deploys via ci-manual trigger).
+#
+# Ordering:
+#   detect-agent-changes
+#     → CI (install → lint + tool-tests → unit-tests → integration-tests)
+#       → docker-build + push
+#         → deploy-agent-engine (if agent changed or forced)   ← agent first
+#           → deploy-cloud-run                                 ← cloud run second
+#             → smoke-test
+
+substitutions:
+  _EVAL_PROFILE: "standard"
+  _PYTHON_VERSION: "3.11"
+  _FIRESTORE_DATABASE: "customer-support-db"
+  _GOOGLE_CLOUD_LOCATION: "us-central1"
+  _REGION: "us-central1"
+  _SERVICE_NAME: "customer-support-app"
+  _AR_REPO: "customer-support"
+  _DEPLOY_AGENT_ENGINE: "false"
+  _STAGING_BUCKET: ""
+  _AGENT_ENGINE_RESOURCE_NAME: ""
+  _AGENT_ENGINE_DISPLAY_NAME: "customer-support-multiagent"
+  _MODEL_ARMOR_ENABLED: "false"
+  _MODEL_ARMOR_TEMPLATE_ID: ""
+  _RUN_LOAD_TESTS: "false"   # load tests run on staging rc tags only
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# CI STEPS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+steps:
+  # ===========================================================================
+  # Detect changes — writes two flags:
+  #   run_tests.txt          true if customer_support_mas/, tests/, or eval_wrappers/ changed
+  #   deploy_agent_engine.txt true if customer_support_mas/ changed (or forced)
+  # Overridden to "true" if _DEPLOY_AGENT_ENGINE=true is set explicitly.
+  # ===========================================================================
+  - id: "detect-agent-changes"
+    name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+    entrypoint: "bash"
+    args:
+      - "-c"
+      - |
+        git fetch --deepen=1 2>/dev/null || true
+        CHANGED=$(git diff --name-only HEAD~1 HEAD 2>/dev/null || echo "customer_support_mas/init")
+
+        # Flag 1: run tests if agent code, tests, or eval wrappers changed
+        if echo "$$CHANGED" | grep -qE '^(customer_support_mas|tests|eval_wrappers)/'; then
+          echo "Test-relevant files changed — will run tests"
+          echo "true" > /workspace/run_tests.txt
+        else
+          echo "No test-relevant files changed — skipping tests"
+          echo "false" > /workspace/run_tests.txt
+        fi
+
+        # Flag 2: deploy Agent Engine only if agent code changed (or forced)
+        if [ "${_DEPLOY_AGENT_ENGINE}" = "true" ]; then
+          echo "Agent Engine deploy forced via _DEPLOY_AGENT_ENGINE=true"
+          echo "true" > /workspace/deploy_agent_engine.txt
+        elif echo "$$CHANGED" | grep -q '^customer_support_mas/'; then
+          echo "Agent code changed — will deploy Agent Engine"
+          echo "true" > /workspace/deploy_agent_engine.txt
+        else
+          echo "No agent code changed — skipping Agent Engine deploy"
+          echo "false" > /workspace/deploy_agent_engine.txt
+        fi
+
+        # Flag 3: build and deploy Docker only if app code changed
+        if echo "$$CHANGED" | grep -qE '^(customer_support_mas|backend|frontend)/|^(pyproject\.toml|uv\.lock)'; then
+          echo "App code changed — will build and deploy"
+          echo "true" > /workspace/run_deploy.txt
+        else
+          echo "No app code changed — skipping Docker build and deploy"
+          echo "false" > /workspace/run_deploy.txt
+        fi
+    waitFor: ["-"]
+
+  # ===========================================================================
+  # Get project number — $PROJECT_NUMBER is not a Cloud Build built-in.
+  # Written to /workspace/project_number.txt for deploy-agent-engine.
+  # Runs in parallel from the start.
+  # ===========================================================================
+  - id: "get-project-number"
+    name: "gcr.io/google.com/cloudsdktool/cloud-sdk:slim"
+    entrypoint: "bash"
+    args:
+      - "-c"
+      - |
+        PROJECT_NUM=$(gcloud projects describe $PROJECT_ID --format='value(projectNumber)')
+        echo "Project number: $$PROJECT_NUM"
+        echo "$$PROJECT_NUM" > /workspace/project_number.txt
+    waitFor: ["-"]
+
+  # ===========================================================================
+  # Install dependencies into shared /workspace/.venv
+  # ===========================================================================
+  - id: "install-deps"
+    name: "python:${_PYTHON_VERSION}-slim"
+    entrypoint: "bash"
+    args:
+      - "-c"
+      - |
+        pip install uv --quiet &&
+        uv sync --frozen --group dev
+    waitFor: ["-"]
+
+  # ===========================================================================
+  # Lint (parallel with tool-tests)
+  # ===========================================================================
+  - id: "lint"
+    name: "python:${_PYTHON_VERSION}-slim"
+    entrypoint: "bash"
+    args:
+      - "-c"
+      - |
+        export PATH="/workspace/.venv/bin:$$PATH"
+        ruff check customer_support_mas/ --ignore=E501
+    waitFor: ["install-deps"]
+
+  # ===========================================================================
+  # Tool Tests (parallel with lint) — skipped if no test-relevant files changed
+  # ===========================================================================
+  - id: "tool-tests"
+    name: "python:${_PYTHON_VERSION}-slim"
+    entrypoint: "bash"
+    args:
+      - "-c"
+      - |
+        if [ "$(cat /workspace/run_tests.txt)" != "true" ]; then
+          echo "Skipping tool tests (no changes in customer_support_mas/, tests/, or eval_wrappers/)"
+          exit 0
+        fi
+        export PATH="/workspace/.venv/bin:$$PATH"
+        pytest tests/unit/test_tools.py tests/unit/test_mock_rag.py tests/unit/test_refund_standalone.py -v --tb=short
+    env:
+      - "GOOGLE_CLOUD_PROJECT=$PROJECT_ID"
+      - "GOOGLE_CLOUD_LOCATION=${_GOOGLE_CLOUD_LOCATION}"
+      - "FIRESTORE_DATABASE=${_FIRESTORE_DATABASE}"
+      - "GOOGLE_GENAI_USE_VERTEXAI=True"
+    waitFor: ["install-deps", "detect-agent-changes"]
+
+  # ===========================================================================
+  # Unit Agent Evaluation (after tool-tests) — skipped if no relevant changes
+  # ===========================================================================
+  - id: "unit-tests"
+    name: "python:${_PYTHON_VERSION}-slim"
+    entrypoint: "bash"
+    args:
+      - "-c"
+      - |
+        if [ "$(cat /workspace/run_tests.txt)" != "true" ]; then
+          echo "Skipping unit tests (no changes in customer_support_mas/, tests/, or eval_wrappers/)"
+          exit 0
+        fi
+        export PATH="/workspace/.venv/bin:$$PATH"
+        pytest tests/unit/test_agent_eval_ci.py -v --tb=short
+    env:
+      - "GOOGLE_CLOUD_PROJECT=$PROJECT_ID"
+      - "GOOGLE_CLOUD_LOCATION=${_GOOGLE_CLOUD_LOCATION}"
+      - "FIRESTORE_DATABASE=${_FIRESTORE_DATABASE}"
+      - "GOOGLE_GENAI_USE_VERTEXAI=True"
+      - "EVAL_PROFILE=${_EVAL_PROFILE}"
+    waitFor: ["tool-tests"]
+
+  # ===========================================================================
+  # Integration Evaluation (after unit-tests) — skipped if no relevant changes
+  # ===========================================================================
+  - id: "integration-tests"
+    name: "python:${_PYTHON_VERSION}-slim"
+    entrypoint: "bash"
+    args:
+      - "-c"
+      - |
+        if [ "$(cat /workspace/run_tests.txt)" != "true" ]; then
+          echo "Skipping integration tests (no changes in customer_support_mas/, tests/, or eval_wrappers/)"
+          exit 0
+        fi
+        export PATH="/workspace/.venv/bin:$$PATH"
+        pytest tests/integration/test_integration_eval_ci.py -v --tb=short
+    env:
+      - "GOOGLE_CLOUD_PROJECT=$PROJECT_ID"
+      - "GOOGLE_CLOUD_LOCATION=${_GOOGLE_CLOUD_LOCATION}"
+      - "FIRESTORE_DATABASE=${_FIRESTORE_DATABASE}"
+      - "GOOGLE_GENAI_USE_VERTEXAI=True"
+      - "EVAL_PROFILE=${_EVAL_PROFILE}"
+    waitFor: ["unit-tests"]
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # CD STEPS — Only run after all CI passes
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  # ===========================================================================
+  # Docker Build — skipped if no app code changed (customer_support_mas/,
+  # backend/, frontend/, pyproject.toml, uv.lock)
+  # ===========================================================================
+  - id: "docker-build"
+    name: "gcr.io/cloud-builders/docker"
+    entrypoint: "bash"
+    args:
+      - "-c"
+      - |
+        if [ "$(cat /workspace/run_deploy.txt)" != "true" ]; then
+          echo "Skipping Docker build (no app code changes)"
+          exit 0
+        fi
+        docker build \
+          -t "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_SERVICE_NAME}:$COMMIT_SHA" \
+          -t "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_SERVICE_NAME}:latest" \
+          -f backend/Dockerfile \
+          .
+    waitFor: ["integration-tests", "lint"]
+
+  # ===========================================================================
+  # Push to Artifact Registry — skipped if no app code changed
+  # ===========================================================================
+  - id: "docker-push"
+    name: "gcr.io/cloud-builders/docker"
+    entrypoint: "bash"
+    args:
+      - "-c"
+      - |
+        if [ "$(cat /workspace/run_deploy.txt)" != "true" ]; then
+          echo "Skipping Docker push (no app code changes)"
+          exit 0
+        fi
+        docker push --all-tags \
+          "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_SERVICE_NAME}"
+    waitFor: ["docker-build"]
+
+  # ===========================================================================
+  # Deploy Agent Engine (optional — enabled by Trigger 1 when agent code changes)
+  # Must run BEFORE Cloud Run so Cloud Run always talks to the updated agent.
+  # On update: same resource name — Cloud Run needs no change.
+  # On first create: resource name saved to Secret Manager for Cloud Run to read.
+  # ===========================================================================
+  - id: "deploy-agent-engine"
+    name: "python:${_PYTHON_VERSION}-slim"
+    entrypoint: "bash"
+    args:
+      - "-c"
+      - |
+        if [ "$(cat /workspace/deploy_agent_engine.txt)" != "true" ]; then
+          echo "Skipping Agent Engine deploy (no agent code changes)"
+          exit 0
+        fi
+        export PATH="/workspace/.venv/bin:$$PATH"
+        export PROJECT_NUMBER=$(cat /workspace/project_number.txt)
+        python deployment/deploy.py --action deploy
+    env:
+      - "GOOGLE_CLOUD_PROJECT=$PROJECT_ID"
+      - "GOOGLE_CLOUD_LOCATION=${_REGION}"
+      - "FIRESTORE_DATABASE=${_FIRESTORE_DATABASE}"
+      - "GOOGLE_CLOUD_STORAGE_BUCKET=${_STAGING_BUCKET}"
+      - "AGENT_ENGINE_DISPLAY_NAME=${_AGENT_ENGINE_DISPLAY_NAME}"
+    waitFor: ["docker-push", "get-project-number"]
+
+  # ===========================================================================
+  # Deploy to Cloud Run
+  # AGENT_ENGINE_RESOURCE_NAME passed as substitution _AGENT_ENGINE_RESOURCE_NAME
+  # (read from .env by make submit-build, or set in trigger substitutions).
+  # Runs after deploy-agent-engine so it always gets the latest resource name.
+  # ===========================================================================
+  - id: "deploy-cloud-run"
+    name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+    entrypoint: "bash"
+    args:
+      - "-c"
+      - |
+        if [ "$(cat /workspace/run_deploy.txt)" != "true" ]; then
+          echo "Skipping Cloud Run deploy (no app code changes)"
+          exit 0
+        fi
+        # Use resource name written by deploy-agent-engine (first create),
+        # or fall back to the substitution value from .env (updates).
+        if [ -f /workspace/agent_engine_resource_name.txt ]; then
+          RESOURCE_NAME=$(cat /workspace/agent_engine_resource_name.txt)
+          echo "Using resource name from deploy-agent-engine: $$RESOURCE_NAME"
+        else
+          RESOURCE_NAME="${_AGENT_ENGINE_RESOURCE_NAME}"
+          echo "Using resource name from substitution: $$RESOURCE_NAME"
+        fi
+        gcloud run deploy ${_SERVICE_NAME} \
+          --image="${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_SERVICE_NAME}:$COMMIT_SHA" \
+          --region="${_REGION}" \
+          --platform=managed \
+          --allow-unauthenticated \
+          --set-env-vars="GOOGLE_CLOUD_PROJECT=$PROJECT_ID,FIRESTORE_DATABASE=${_FIRESTORE_DATABASE},GOOGLE_CLOUD_LOCATION=${_REGION},GOOGLE_GENAI_USE_VERTEXAI=True,ENVIRONMENT=production,AGENT_ENGINE_RESOURCE_NAME=$$RESOURCE_NAME,MODEL_ARMOR_ENABLED=${_MODEL_ARMOR_ENABLED},MODEL_ARMOR_TEMPLATE_ID=${_MODEL_ARMOR_TEMPLATE_ID}" \
+          --memory=1Gi \
+          --cpu=1 \
+          --min-instances=0 \
+          --max-instances=10 \
+          --port=8080
+    waitFor: ["deploy-agent-engine"]
+
+  # ===========================================================================
+  # Get deployed Cloud Run URL — written to /workspace/service_url.txt
+  # Used by smoke and load test steps below.
+  # ===========================================================================
+  - id: "get-service-url"
+    name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+    entrypoint: "bash"
+    args:
+      - "-c"
+      - |
+        if [ "$(cat /workspace/run_deploy.txt)" != "true" ]; then
+          echo "Skipping (no deploy)"
+          exit 0
+        fi
+        gcloud run services describe ${_SERVICE_NAME} \
+          --region="${_REGION}" \
+          --project="$PROJECT_ID" \
+          --format="value(status.url)" > /workspace/service_url.txt
+        echo "Service URL: $(cat /workspace/service_url.txt)"
+    waitFor: ["deploy-cloud-run"]
+
+  # ===========================================================================
+  # Smoke Tests — run after every deploy (dev / staging / prod)
+  # Fails the build immediately if any critical path is broken.
+  # ===========================================================================
+  - id: "smoke-test"
+    name: "python:${_PYTHON_VERSION}-slim"
+    entrypoint: "bash"
+    args:
+      - "-c"
+      - |
+        if [ "$(cat /workspace/run_deploy.txt)" != "true" ]; then
+          echo "Skipping smoke test (no deploy)"
+          exit 0
+        fi
+        export PATH="/workspace/.venv/bin:$$PATH"
+        pip install requests --quiet
+        SERVICE_URL=$(cat /workspace/service_url.txt)
+        echo "Running smoke tests against: $$SERVICE_URL"
+        CLOUD_RUN_URL=$$SERVICE_URL pytest tests/smoke/ -v --tb=short
+    waitFor: ["get-service-url"]
+
+  # ===========================================================================
+  # Load Tests — staging only (_RUN_LOAD_TESTS=true)
+  # Runs Locust for 2 min with 5 concurrent users, then validates SLOs.
+  # A breach blocks promotion to prod.
+  # ===========================================================================
+  - id: "load-test"
+    name: "python:${_PYTHON_VERSION}-slim"
+    entrypoint: "bash"
+    args:
+      - "-c"
+      - |
+        if [ "$(cat /workspace/run_deploy.txt)" != "true" ] || [ "${_RUN_LOAD_TESTS}" != "true" ]; then
+          echo "Skipping load tests"
+          exit 0
+        fi
+        pip install uv --quiet && uv sync --frozen --group load-test --quiet
+        export PATH="/workspace/.venv/bin:$$PATH"
+        SERVICE_URL=$(cat /workspace/service_url.txt)
+        echo "Running load tests against: $$SERVICE_URL"
+        locust -f tests/load/locustfile.py \
+          --headless \
+          --users 5 \
+          --spawn-rate 1 \
+          --run-time 2m \
+          --host $$SERVICE_URL \
+          --csv /workspace/load-results \
+          --exit-code-on-error 1
+        python tests/load/check_slos.py /workspace/load-results_stats.csv
+    waitFor: ["smoke-test"]
+
+timeout: "3600s"

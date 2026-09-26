@@ -1,0 +1,433 @@
+{
+  "eval_set_id": "error_handling",
+  "name": "error_handling",
+  "eval_cases": [
+    {
+      "eval_id": "error_then_valid",
+      "conversation": [
+        {
+          "invocation_id": "e-36606532-4412-4541-a9b8-e12fb05c62e1",
+          "user_content": {
+            "parts": [
+              {
+                "text": "Track order ORD-99999"
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "text": "I am sorry, but I couldn't find any information for order ORD-99999. Please double-check the order ID and try again.\n"
+              }
+            ],
+            "role": "model"
+          },
+          "intermediate_data": {
+            "invocation_events": [
+              {
+                "author": "customer_support",
+                "content": {
+                  "parts": [
+                    {
+                      "function_call": {
+                        "id": "adk-da8cd958-68cf-4ffc-a64b-70b5d3558af7",
+                        "args": {
+                          "request": "Track order ORD-99999"
+                        },
+                        "name": "order_agent"
+                      },
+                      "thought_signature": "Cv8BAY89a1-JWB51anYXTFKzS5TC5XcclfiVh0iNOH8M7JmvjChyg0wjaRUJPDDQeeacUrsW6HlA-Gce1Oh3rPELsRg_PV9wOoR_ymDf0MRp_UZXuFVvfGLBdhhrQHIZdJGGVTPZeeWEySmjFZPyZTFSwUiE5Xqh8IY1J_X5Pp06XE3419ulhBd35WbNnZShs0ptlmtNroghewUx63OoYxnwN23GusZ-a2-5Jyh1D4g57b5ezl5-GpX-f-EgPHn3cIud6CkNMUMBaBkSDHl6ZF2Nfe04OZDhncxAgdWraCpeFnHJdzqhrckJABfD2ifXrsYvAPyU5vX403sc-avnPYGk"
+                    }
+                  ],
+                  "role": "model"
+                }
+              },
+              {
+                "author": "customer_support",
+                "content": {
+                  "parts": [
+                    {
+                      "function_response": {
+                        "id": "adk-da8cd958-68cf-4ffc-a64b-70b5d3558af7",
+                        "name": "order_agent",
+                        "response": {
+                          "result": "I am sorry, but I couldn't find any information for order ORD-99999. Please double-check the order ID and try again."
+                        }
+                      }
+                    }
+                  ],
+                  "role": "user"
+                }
+              }
+            ]
+          },
+          "creation_timestamp": 1770495254.3671827
+        },
+        {
+          "invocation_id": "e-9d7cb247-9ef4-4349-9e21-3d246b2fff16",
+          "user_content": {
+            "parts": [
+              {
+                "text": "Try ORD-12345 instead"
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "text": "Your order ORD-12345 is currently \"In Transit\" with FastShip. It was shipped on 2025-01-17 and is estimated to be delivered by 2025-01-20. The tracking number is FS789456123.\n"
+              }
+            ],
+            "role": "model"
+          },
+          "intermediate_data": {
+            "invocation_events": [
+              {
+                "author": "customer_support",
+                "content": {
+                  "parts": [
+                    {
+                      "function_call": {
+                        "id": "adk-0036d21b-6cc4-42b7-838e-5193b6083cf0",
+                        "args": {
+                          "request": "Track order ORD-12345"
+                        },
+                        "name": "order_agent"
+                      },
+                      "thought_signature": "CoYCAY89a1-q6UVHfFPQyX7A1wYowptyRc9F3d4VwbEyJHYfi2I6bT3SW1OoYTyL5fSyfeWuazaun-J29Jk4c8rA6fOHaMoSguebpmMYyj1wJFqKNCVUhYwbthhcB3jB3oES0ZabLRSowcTEw6gxhulvllUAxLv7861UD28ef7TIZDlQ4NWUjHRg0temArXJ9ZXc4IYaY-jTQhpRfrykkaVaFpu5gbLGeC7MEER4viNkjQekMpze18FEL6uBSJA5tyP0jpk5J0BurXenH4USieaBgEbjHCWRfG9B1C8_r2VajrBZpSeMo06nSb-ztUdmqYXyjtWKXy4-563iODR8irTVga4E1clJag=="
+                    }
+                  ],
+                  "role": "model"
+                }
+              },
+              {
+                "author": "customer_support",
+                "content": {
+                  "parts": [
+                    {
+                      "function_response": {
+                        "id": "adk-0036d21b-6cc4-42b7-838e-5193b6083cf0",
+                        "name": "order_agent",
+                        "response": {
+                          "result": "Your order ORD-12345 is currently \"In Transit\" with FastShip. It was shipped on 2025-01-17 and is estimated to be delivered by 2025-01-20. The tracking number is FS789456123."
+                        }
+                      }
+                    }
+                  ],
+                  "role": "user"
+                }
+              }
+            ]
+          },
+          "creation_timestamp": 1770495268.287554
+        }
+      ],
+      "session_input": {
+        "app_name": "root_agent",
+        "user_id": "demo-user-001"
+      },
+      "creation_timestamp": 1770495268.2879093
+    },
+    {
+      "eval_id": "unauthorized_then_own",
+      "conversation": [
+        {
+          "invocation_id": "e-dfebf47e-0ab2-4948-82f2-ec05accdc52a",
+          "user_content": {
+            "parts": [
+              {
+                "text": "Track order ORD-22222"
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "text": "I'm sorry, but it seems you don't have permission to access order ORD-22222. Please ensure you are trying to track an order associated with your account.\n"
+              }
+            ],
+            "role": "model"
+          },
+          "intermediate_data": {
+            "invocation_events": [
+              {
+                "author": "customer_support",
+                "content": {
+                  "parts": [
+                    {
+                      "function_call": {
+                        "id": "adk-3188c158-4870-4390-a543-242153305671",
+                        "args": {
+                          "request": "Track order ORD-22222"
+                        },
+                        "name": "order_agent"
+                      },
+                      "thought_signature": "CvsBAY89a1-rmSKY_PwTxM9Km72QAJVYhiO7odSWNAgESXJ4Veqka-_TcOKUK5qieO2sACIVr75BAIGRMPH7EVERi4l6hikodrNy3XQJeTdvtIeGJmTBkCabzmqAl4YzG2hrKCiBSISK5bmqNoxgHFEpJllDvXuGuPkIoCZZmLRtDzwtVMuaWJC5o04ekXZVAToclmuGQkQxrfSx6z5U6lVJmjEfEVrphvp9wA3YH9CYUgU24H-ccu4sGu1I1YJYN2-PEEZ3oWka2OXmYztJva3N6CDYpAJnlGQFXzwZNn-vpeulD87VZyB98WRXej__rBPdTANzcIg7gcXQK6w="
+                    }
+                  ],
+                  "role": "model"
+                }
+              },
+              {
+                "author": "customer_support",
+                "content": {
+                  "parts": [
+                    {
+                      "function_response": {
+                        "id": "adk-3188c158-4870-4390-a543-242153305671",
+                        "name": "order_agent",
+                        "response": {
+                          "result": "I'm sorry, but it seems you don't have permission to access order ORD-22222. Please ensure you are trying to track an order associated with your account."
+                        }
+                      }
+                    }
+                  ],
+                  "role": "user"
+                }
+              }
+            ]
+          },
+          "creation_timestamp": 1770495293.13592
+        },
+        {
+          "invocation_id": "e-bb04a021-142c-4910-a711-1c9cf5ed5921",
+          "user_content": {
+            "parts": [
+              {
+                "text": "Show me my orders"
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "text": "Here is a summary of your orders:\n\n*   **Order ID:** ORD-12345\n    *   **Date:** 2025-01-15\n    *   **Total:** $1295.98\n    *   **Status:** In Transit\n\n*   **Order ID:** ORD-67890\n    *   **Date:** 2026-01-28\n    *   **Total:** $215.99\n    *   **Status:** Delivered\n\n*   **Order ID:** ORD-11111\n    *   **Date:** 2025-12-19\n    *   **Total:** $485.99\n    *   **Status:** Delivered\n\nLet me know if you'd like more details on any specific order!\n"
+              }
+            ],
+            "role": "model"
+          },
+          "intermediate_data": {
+            "invocation_events": [
+              {
+                "author": "customer_support",
+                "content": {
+                  "parts": [
+                    {
+                      "function_call": {
+                        "id": "adk-395d17b9-3429-41fe-9d77-a88519c01cb6",
+                        "args": {
+                          "request": "Show me my orders"
+                        },
+                        "name": "order_agent"
+                      },
+                      "thought_signature": "CswBAY89a18b3Tos_AKDDDTrivrfix4FXxXMpe3srRYbUBczNVeQWoAwbTi_1THVd7yS-eBrEROV7wV_yjqrawVh6YBX8c2tfIgtH1hWDD_KH1vQ-6n4FgfzRANp7P99IlLIeNCGVnDUUmT9Mnc-i2UCxa1BT1s2M0DkjclHYCHaLEEDNNFl8Ks_zNOMpF-ic6us8-un9HXUH4VgzJrGhG7DgwnQSehq7pj-WAIDOIb5mufjcubPPvt9BRbibI2FC_zqtCYO_vLb6TiZOQ6y"
+                    }
+                  ],
+                  "role": "model"
+                }
+              },
+              {
+                "author": "customer_support",
+                "content": {
+                  "parts": [
+                    {
+                      "function_response": {
+                        "id": "adk-395d17b9-3429-41fe-9d77-a88519c01cb6",
+                        "name": "order_agent",
+                        "response": {
+                          "result": "Here is a summary of your orders:\n\n*   **Order ID:** ORD-12345\n    *   **Date:** 2025-01-15\n    *   **Total:** $1295.98\n    *   **Status:** In Transit\n\n*   **Order ID:** ORD-67890\n    *   **Date:** 2026-01-28\n    *   **Total:** $215.99\n    *   **Status:** Delivered\n\n*   **Order ID:** ORD-11111\n    *   **Date:** 2025-12-19\n    *   **Total:** $485.99\n    *   **Status:** Delivered\n\nLet me know if you'd like more details on any specific order!"
+                        }
+                      }
+                    }
+                  ],
+                  "role": "user"
+                }
+              }
+            ]
+          },
+          "creation_timestamp": 1770495308.437959
+        }
+      ],
+      "session_input": {
+        "app_name": "root_agent",
+        "user_id": "demo-user-001"
+      },
+      "creation_timestamp": 1770495308.4382553
+    },
+    {
+      "eval_id": "mixed_requests",
+      "conversation": [
+        {
+          "invocation_id": "e-fb41129e-857c-4e0b-84f1-b9f59eb3afea",
+          "user_content": {
+            "parts": [
+              {
+                "text": "What's the weather?"
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "text": "I'm sorry, I can't help with that. I can assist with products, orders, and billing.",
+                "thought_signature": "CuEEAY89a1_GF7vuLW1pZoyuir_FnFv_ayfjQU_NMxbvfygcOCWvl6wBHBLsqYi6-4U4u-_U2oULrbEXXivWKO51b9IGqRJghsRjC9sNOObqsfzx8drfWrxcADYCghDWj-3p0x-80vPwpItf5VhmGmpaNcaHAhuf8zxRTBQI-h3rPsxfutIWF4xVb9W_aCYpeAO7ge6hcrFmyQH5hbV-KfgJZ8DzsaShqspWxkIBYi1VtT5CzhwO-3aXc9wRtAVocoY3fMPUUdrt07jXt6QaTx8rdxBVCRRT_53Q5p6v1PLkb_PrGuQcHxpZhWWQ9e4PKIjxmwLTqsjaP4uY6Mft6ygtrvsmhJI3C2atFjE_S1kycF8qrwvBvzrlyr3zRyh0UFDy33rsDbJpebsa3sL-1gIctM8ZVQJHJya-s8Xx8MfrszOI0gOD5HmyDQx0hLEEKtpLOM3EZ2_o0bIImo1WgZG_IA_47mI8vSnrqcK6BZQ0vepiK3d6ECD1DITt4sjGxbysj1G31J6JSvTjuzVocJo3AQPswZQbVwjjkiHxGEo4jBM6dUZKUhHfFvJ71MQ3PZHm7_Cy6v9yCgRNbqABfZcXZy7guSacY5Fj1ubzhkFW4_WtVKl-iK3RN8Z6ShM5R7mwqG_BiM06CGZhywqPARk5GqyId0mdzdNwpGxgjlpz-5qzXvq2amZdwZhsoXKIRu58snIfIcU29ezT5NPb9CcllK0z5ZwB1jVVaZZOTC87zMiMeonPM9l2eQ9gwx2cHzwFbpECQT5Ies_YqL4OUju3ni3vQf0kOLVA9QySRt8BHxFC"
+              }
+            ],
+            "role": "model"
+          },
+          "creation_timestamp": 1770495322.0187848
+        },
+        {
+          "invocation_id": "e-c2c3a87b-dd31-436b-b2fa-c083ad752c97",
+          "user_content": {
+            "parts": [
+              {
+                "text": "Show me laptops"
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "text": "Here are a couple of laptops I found:\n\n*   **ProBook Laptop 15** (PROD-001) - High-performance laptop with Intel i7, priced at $999.99\n*   **ROG Gaming Laptop** (PROD-006) - High-performance gaming laptop with RTX 4060 graphics card, priced at $1499.99\n\nWould you like more details on any of these, or perhaps both?"
+              }
+            ],
+            "role": "model"
+          },
+          "intermediate_data": {
+            "invocation_events": [
+              {
+                "author": "customer_support",
+                "content": {
+                  "parts": [
+                    {
+                      "function_call": {
+                        "id": "adk-ee52afb3-97a0-463b-a274-6b06f960fcea",
+                        "args": {
+                          "request": "Show me laptops"
+                        },
+                        "name": "product_agent"
+                      },
+                      "thought_signature": "CrwHAY89a184L-ulUK5c43lMLO4GSU1YCSoDfokAetZkm62nCQeMd5aU3WBZQ0q4tMeVSPH-Gpug3qGc50kj2wxgC0zejU_dUMKobZkhtoxMRguySpWUsEmn0biMxnKZhqCOLMXSPKTadHZPtDYcftuW-VQ-Mt2fqklFsSK880I2vfqV9BL1CW9dibaUetBDkLZz3AnCMczcMJT0VEZjcCBDkRtXDCCGJ-J0ENE-3G2oITsv7owNJBNuV8rtVzdHg_Q6pcqqhditSM-Vt8qPKFtyrnsN4z7jkJXTcGEIcZusE6Rttl5qho98WQRu34y7nX6pGMWj-enCba_ebq94UbHsG2QkaEjm9q1Z0SWoAtRQ-s_rqv-hBlNuHvvRcAf5gN6rxJ8m8OwRw81y0SL44JGX31Z_f2pcev5FuEMuOKDcdm3ThW7AHXo6z_tMVY4JU3t8sWOSh8t3s6zipFNrSB9WFaVfgKIG4issrdjZKiCdmCHZaUQl1FdfSVajLMgrNuY8yHWRJ73V4NLVoOTxeB6nh2KVWD4KAY8yt62PSZ8sN_ambyKdsdRK-fa08ZEsDXqXvWFFp7O9Xz_mWrNdSKgV-YRrOl2Lhap4zBzefHi5sPJXkxCZxyPIWryHrRQ6AsrnaDeixrQbpoHy_JdUM7N6EhacBSdImqaCeCloaDu0ZSgCGogbcutAyUc3qmO1l2_Og6xYfNArkX4W-sUvGVimwX7BUp_JOSMzgNfD8V9msG3uyMCl9uw5D6iw7-kXWuFYQIxMUdMcLCapu2JO-JGPAVVcMwHolAalofJNRX0AtoXobz_qSha1NNMZiaLCBrUZ6_nGqGHA6ux_iIasKu4zO99RdiMC1eSe8tDLEZ_3vMIjGS4rk2xeH15-J1t8ybcwjw6X5CZ2ZUtX1eMzKE8FXirpMRi5dNH9XvuDHgAd4zmFTWAUEA7r40LV4CvBQG0ZkZS2KLlrVe50cNo-7IwZ9UOb24wYwPxKLNTgfHOu_Dtirayxap2KrrUOiGK_LtvIKB1pSzEeaHAuG9tGl-mIWDNVMiCjVJPi3sD32VDHMZ3XZUKNeQURKdVH-ruwv9ltg4qtIc6rA3IOXNCHL5OgKY4zgUyXBkmOv85RXDjkp7GD91tfCyIgm5IOYvDuVaRC8MW1iM_sT_9zDRNTFlf7u69SdHd5vianlYjv0TCujHjudW239fylcCtPCrlrFaPWupgx7l7MZHdJbVu1CvwAC_AU8TxIzBk_xNQeamC1XQCtqeAhx5o1Ty_x1HMKJAGPPWtf_LhYdR2ln6D0t-Ahk5_WK5rshvpJZpm8twHCo636Uw=="
+                    }
+                  ],
+                  "role": "model"
+                }
+              },
+              {
+                "author": "customer_support",
+                "content": {
+                  "parts": [
+                    {
+                      "function_response": {
+                        "id": "adk-ee52afb3-97a0-463b-a274-6b06f960fcea",
+                        "name": "product_agent",
+                        "response": {
+                          "result": "Here are a couple of laptops I found:\n\n*   **ProBook Laptop 15** (PROD-001) - High-performance laptop with Intel i7, priced at $999.99\n*   **ROG Gaming Laptop** (PROD-006) - High-performance gaming laptop with RTX 4060 graphics card, priced at $1499.99\n\nWould you like more details on any of these, or perhaps both?"
+                        }
+                      }
+                    }
+                  ],
+                  "role": "user"
+                }
+              }
+            ]
+          },
+          "creation_timestamp": 1770495337.4757097
+        },
+        {
+          "invocation_id": "e-f3f2495a-bb23-459c-a872-3727faf8d048",
+          "user_content": {
+            "parts": [
+              {
+                "text": "Tell me a joke"
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "text": "I'm sorry, I can't help with that. I can assist with products, orders, and billing.",
+                "thought_signature": "CuIDAY89a1-B2eQ1HsaH1XSHCaVQmsEyrm2ENSvVLPs-2DLjIdbTrMYOvuqvVrm__tBC9lVu_Nl5NUUB6qiYdH0V27rHA_tdSqJiUnRaFL065sXTzSfClM4e1rbyhFvCShSdNpQM3m91xxix4g5rTDQsjsmGJokFcol0fA9uDufyx3Umh8P18ghZKCed1bNxVRMijU6fFxYgmHD3NbkSYrpd1EnwCBuGwmSnvxkzyi-c8wR1RiY1og8R9zQma7wW0wRyqys6rgUNNyg19XrioDtmNhLgHq4I66MUfgGwLh26BSwGwRQAQGy9aN8fFMh4ZeQgtVx4bhxB2bnI_DVaj4rqDYgPl0NGGutNn4ATIIMWOL6JjntCa-1wE-bVRBMe5K9Df9TdifYgq6gwvMc2JJtBLBjuUISuzmnZsRKU9HuFewD4cl3qiJUnsLEH0GCtUOPmJMsNgsQblUduZ4mbTEGpySvOZKRhzL7xcY_15aCu-hvDcLGdbSO2yQ1FX6HcjDpAZ3lCn_GOixnEKc-uwk-jcEbiTq15v_tA3FYzubRmSZjUlxUn0obe0PftfbvB1tjoNkdjJi8f1NohVDukUOz2BHCqhoeMarnYGwHF2EFGeP95oSk_0gq_TjvE9KLZs63LYn4="
+              }
+            ],
+            "role": "model"
+          },
+          "creation_timestamp": 1770495343.7539375
+        },
+        {
+          "invocation_id": "e-65787a0c-3ab6-43f8-ba76-95bd68a5d107",
+          "user_content": {
+            "parts": [
+              {
+                "text": "Track ORD-12345"
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "text": "Your order ORD-12345 is currently \"In Transit\" with FastShip, tracking number FS789456123. It's estimated to be delivered by January 20, 2025.\n\nHere's a detailed timeline:\n* January 15, 2025: Order placed\n* January 16, 2025: Processing complete\n* January 17, 2025: Shipped\n* January 18, 2025: In transit"
+              }
+            ],
+            "role": "model"
+          },
+          "intermediate_data": {
+            "invocation_events": [
+              {
+                "author": "customer_support",
+                "content": {
+                  "parts": [
+                    {
+                      "function_call": {
+                        "id": "adk-aa9ae5a8-88c6-4fd9-8f99-9accc8170a05",
+                        "args": {
+                          "request": "Track ORD-12345"
+                        },
+                        "name": "order_agent"
+                      },
+                      "thought_signature": "Ct4EAY89a1_0M_O4sCHP_CGrmzCSgTGMTepf7xPsOkxj7nADl1j5xrZbBaFRCNX4H2EpUG3an3cd0mUATcQUv2SaItHqeD-XzbMg0fq6bykL66g7u9r_ekefE0kBOWMIduLJdidH9odzio-hHo8gCOEBji11y3QytSqJv5dAGS0Aoa4toILea0k0tDh6NFwvdwJ8EQRJcuqiBvZsdPeRWFrwEH6egNLs2lTU0XpHNN2C7EcgOhoVpXKcm1KFLHhHZQ6g4gfbi3w5nZJLMlIapqrHv6cf0FtccvUh1PwcceVVrs2OoFpxyERQMje1HbbWhMisOakMlZ99LdR5Ls0bIlUcljdcSy5LE13jTe8aSvgTk-FLHdXokgmxz-yLQnZj6albanDznyiw8isfUM9VrS0TKnZCG98w8NXkhdTx_iWhcycbfoTkR94Ts28Nhl4faJPmKnji0uoT86Gha2BkvHX9fH4C3ggftjrnuxIfRDitAkZvNpZHjg0ga14tsFzvlk7SyyvCxqbnLGEjhFUNMdsO5waMIim1Sn5gXYTqRL_kR4fRrFsKMclOa6E_lN8F7PGjUytxpvYLgEXf4tHJ36JjypAPtWzhDfiO1yYUXaB6jG85qq-nUDxGgips1dgP0qzeU29BjGHv9K36V19q6EJ5lrTDsfmi-ms7mR84EtGKdN6VnPXURv3TpeLRlJRiRPJp3LOWiFEu1A1GyI9BxVVKiOdpAhigbFLuLwvQiQrDO4i6rbJWzL97rQVb3Yrugny6wGYtwmYTYVU8VC1qyQerdbiEbvPM5c_JstsgBlor"
+                    }
+                  ],
+                  "role": "model"
+                }
+              },
+              {
+                "author": "customer_support",
+                "content": {
+                  "parts": [
+                    {
+                      "function_response": {
+                        "id": "adk-aa9ae5a8-88c6-4fd9-8f99-9accc8170a05",
+                        "name": "order_agent",
+                        "response": {
+                          "result": "Your order ORD-12345 is currently \"In Transit\" with FastShip, tracking number FS789456123. It's estimated to be delivered by January 20, 2025.\n\nHere's a detailed timeline:\n* January 15, 2025: Order placed\n* January 16, 2025: Processing complete\n* January 17, 2025: Shipped\n* January 18, 2025: In transit"
+                        }
+                      }
+                    }
+                  ],
+                  "role": "user"
+                }
+              }
+            ]
+          },
+          "creation_timestamp": 1770495358.1715205
+        }
+      ],
+      "session_input": {
+        "app_name": "root_agent",
+        "user_id": "demo-user-001"
+      },
+      "creation_timestamp": 1770495358.1718812
+    }
+  ],
+  "creation_timestamp": 1770495358.1718996
+}

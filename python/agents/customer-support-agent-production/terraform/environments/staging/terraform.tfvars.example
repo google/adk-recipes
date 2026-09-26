@@ -1,0 +1,26 @@
+# STAGING environment — copy to terraform.tfvars and fill in your values
+# terraform.tfvars is gitignored
+# Staging mirrors prod config: INSPECT_AND_BLOCK, delete protection enabled.
+# Deploy trigger: rc tag (v*.*.*-rc.*) on main
+
+project_id          = "your-staging-project-id"        # e.g. css-mas-staging
+staging_bucket_name = "your-staging-project-id-staging"
+github_owner        = "YOUR_GITHUB_USERNAME"
+
+# Uncomment after first Agent Engine deploy:
+# google_managed_sas_exist   = true
+# agent_engine_resource_name = "projects/PROJECT_NUMBER/locations/us-central1/reasoningEngines/ID"
+
+# Uncomment after creating 2nd gen Cloud Build connection:
+# github_connected           = true
+# cloudbuild_connection_name = "github-connection"
+# cloudbuild_repo_name       = "YOUR_GITHUB_USERNAME-adk-multiagent-production-template"
+
+# Defaults (override if needed):
+# region                 = "us-central1"
+# firestore_location     = "nam5"
+# firestore_database_id  = "customer-support-db"
+# ar_repo_name           = "customer-support"
+# cloud_run_service_name = "customer-support-app"
+# model_armor_enabled    = true
+# model_armor_floor_mode = "INSPECT_AND_BLOCK"  # staging mirrors prod — block, don't just log

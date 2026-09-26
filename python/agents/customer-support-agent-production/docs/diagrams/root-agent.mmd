@@ -1,0 +1,39 @@
+%% Root Agent Architecture
+%% Google Cloud Platform Style
+
+graph TB
+    subgraph "Root Agent"
+        Agent[🎯 Root Agent<br/>Model: Gemini 2.5 Pro<br/>Coordinator & Router<br/>Callback: auto_save_to_memory_explicit]
+        ErrorHandling[⚠️ ERROR HANDLING<br/>Always respond to user<br/>Graceful fallbacks<br/>Partial results on failures]
+    end
+
+    subgraph "Sub-Agents"
+        Product[🛍️ Product Agent]
+        Order[📦 Order Agent]
+        Billing[💳 Billing Agent]
+        Refund[🔄 Refund Workflow]
+    end
+
+    subgraph "Direct Tools"
+        PreloadMem[PreloadMemoryTool<br/>Load user memories]
+        CheckRefundable[check_if_refundable<br/>Pre-check eligibility<br/>before asking for reason]
+    end
+
+    User[👤 User Query] --> Agent
+
+    Agent -->|Products| Product
+    Agent -->|Orders| Order
+    Agent -->|Billing| Billing
+    Agent -->|Eligibility check| CheckRefundable
+    Agent -->|Refund + reason| Refund
+    Agent --> PreloadMem
+
+    style User fill:#4285F4,stroke:#1967D2,color:#fff
+    style Agent fill:#34A853,stroke:#0D652D,color:#fff,stroke-width:3px
+    style ErrorHandling fill:#EA4335,stroke:#C5221F,color:#fff,stroke-width:2px
+    style Product fill:#FBBC04,stroke:#F29900,color:#000
+    style Order fill:#FBBC04,stroke:#F29900,color:#000
+    style Billing fill:#FBBC04,stroke:#F29900,color:#000
+    style Refund fill:#EA4335,stroke:#C5221F,color:#fff
+    style PreloadMem fill:#9334E6,stroke:#7627BB,color:#fff
+    style CheckRefundable fill:#4285F4,stroke:#1967D2,color:#fff

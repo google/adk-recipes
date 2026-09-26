@@ -1,0 +1,126 @@
+# Terraform Apply — runs on every push to main to automatically apply infrastructure changes
+#
+# Triggered per environment — one trigger in each GCP project (dev/staging/prod).
+# Fires on push to main, in parallel with the app deploy trigger (cloudbuild-deploy.yaml).
+# Infrastructure is applied first and independently — app code doesn't need to wait for it.
+#
+# New GCP services, IAM changes, or Firestore indexes added to terraform/modules/core/
+# are automatically propagated to each environment on the next merge to main.
+#
+# tfvars are stored in GCS alongside state (uploaded once during bootstrap):
+#   gs://{_TF_STATE_BUCKET}/tfvars/terraform.tfvars
+#
+# Substitutions (set in Cloud Build trigger config per environment):
+#   _ENV_DIRECTORY   — path to environment dir, e.g. terraform/environments/dev
+#   _ENVIRONMENT     — environment name, e.g. dev
+#   _TF_STATE_BUCKET — GCS bucket for remote state + tfvars, e.g. your-project-tf-state
+#                      Defaults to $PROJECT_ID-tf-state if not set.
+
+substitutions:
+  _ENV_DIRECTORY: "terraform/environments/dev"
+  _ENVIRONMENT: "dev"
+  _TF_STATE_BUCKET: ""
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+
+steps:
+  # ===========================================================================
+  # Detect terraform changes — skips apply if no terraform/ files changed.
+  # Writes true/false to /workspace/run_terraform.txt.
+  # Belt-and-suspenders alongside the includedFiles filter on the trigger.
+  # ===========================================================================
+  - id: "detect-terraform-changes"
+    name: "gcr.io/google.com/cloudsdktool/cloud-sdk:slim"
+    entrypoint: "bash"
+    args:
+      - "-c"
+      - |
+        if git rev-parse HEAD~1 > /dev/null 2>&1; then
+          CHANGED=$(git diff --name-only HEAD~1 HEAD)
+        else
+          CHANGED="terraform/init"
+        fi
+        if echo "$$CHANGED" | grep -q '^terraform/'; then
+          echo "Terraform changes detected — proceeding with apply"
+          echo "true" > /workspace/run_terraform.txt
+        else
+          echo "No terraform/ changes — skipping apply"
+          echo "false" > /workspace/run_terraform.txt
+        fi
+    waitFor: ["-"]
+
+  # ===========================================================================
+  # Download tfvars from GCS (Cloud SDK image has gsutil; terraform image does not)
+  # ===========================================================================
+  - id: "download-tfvars"
+    name: "gcr.io/google.com/cloudsdktool/cloud-sdk:slim"
+    entrypoint: "sh"
+    args:
+      - "-c"
+      - |
+        if [ "$(cat /workspace/run_terraform.txt)" != "true" ]; then
+          echo "Skipping (no terraform/ changes)"
+          exit 0
+        fi
+        BUCKET="${_TF_STATE_BUCKET:-$PROJECT_ID-tf-state}"
+        echo "Downloading tfvars from gs://$$BUCKET/tfvars/terraform.tfvars"
+        gsutil cp gs://$$BUCKET/tfvars/terraform.tfvars ${_ENV_DIRECTORY}/terraform.tfvars
+    waitFor: ["detect-terraform-changes"]
+
+  # ===========================================================================
+  # Init — configure remote backend
+  # ===========================================================================
+  - id: "terraform-init"
+    name: "hashicorp/terraform:1.9"
+    entrypoint: "sh"
+    args:
+      - "-c"
+      - |
+        if [ "$(cat /workspace/run_terraform.txt)" != "true" ]; then
+          echo "Skipping (no terraform/ changes)"
+          exit 0
+        fi
+        BUCKET="${_TF_STATE_BUCKET:-$PROJECT_ID-tf-state}"
+        echo "State bucket: $$BUCKET"
+        echo "Environment:  ${_ENVIRONMENT}"
+        echo "Directory:    ${_ENV_DIRECTORY}"
+
+        cd ${_ENV_DIRECTORY}
+        terraform init \
+          -backend-config="bucket=$$BUCKET" \
+          -backend-config="prefix=customer-support-mas/${_ENVIRONMENT}" \
+          -input=false \
+          -no-color
+    waitFor: ["download-tfvars"]
+
+  # ===========================================================================
+  # Apply — auto-approve (plan was reviewed on the PR)
+  # ===========================================================================
+  - id: "terraform-apply"
+    name: "hashicorp/terraform:1.9"
+    entrypoint: "sh"
+    args:
+      - "-c"
+      - |
+        if [ "$(cat /workspace/run_terraform.txt)" != "true" ]; then
+          echo "Skipping (no terraform/ changes)"
+          exit 0
+        fi
+        cd ${_ENV_DIRECTORY}
+        echo "============================================================"
+        echo "  Terraform Apply — ${_ENVIRONMENT} (project: $PROJECT_ID)"
+        echo "============================================================"
+
+        terraform apply \
+          -var-file=terraform.tfvars \
+          -input=false \
+          -auto-approve \
+          -no-color
+
+        echo ""
+        echo "Apply complete."
+        terraform output -no-color || true
+    waitFor: ["terraform-init"]
+
+timeout: "1800s"

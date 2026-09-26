@@ -1,0 +1,13 @@
+{
+  "criteria": {
+    "tool_name_f1": 0.5,
+    "response_match_score": 0.15
+  },
+  "custom_metrics": {
+    "tool_name_f1": {
+      "code_config": {
+        "name": "tests.evaluation.tool_metrics.tool_name_f1"
+      }
+    }
+  }
+}

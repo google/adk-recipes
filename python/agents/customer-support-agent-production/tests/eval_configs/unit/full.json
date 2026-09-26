@@ -1,0 +1,20 @@
+{
+  "criteria": {
+    "tool_name_f1": 0.5,
+    "final_response_match_v2": {
+      "threshold": 0.5,
+      "judgeModelOptions": {
+        "judgeModel": "gemini-2.5-flash",
+        "numSamples": 3
+      }
+    },
+    "response_match_score": 0.15
+  },
+  "custom_metrics": {
+    "tool_name_f1": {
+      "code_config": {
+        "name": "tests.evaluation.tool_metrics.tool_name_f1"
+      }
+    }
+  }
+}

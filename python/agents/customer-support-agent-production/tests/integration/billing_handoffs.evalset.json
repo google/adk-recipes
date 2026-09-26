@@ -1,0 +1,197 @@
+{
+  "eval_set_id": "billing_handoffs",
+  "name": "billing_handoffs",
+  "eval_cases": [
+    {
+      "eval_id": "billing_overview",
+      "conversation": [
+        {
+          "invocation_id": "e-8027f577-688d-4fd6-a537-a82d31214a37",
+          "user_content": {
+            "parts": [
+              {
+                "text": "Show me all my invoices"
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "text": "Here are your invoices:\n\n*   **Invoice ID:** INV-2025-001\n    *   **Order ID:** ORD-12345\n    *   **Date:** 2025-01-15\n    *   **Due Date:** 2025-02-15\n    *   **Status:** Pending\n    *   **Total:** $1295.98\n    *   **Items:**\n        *   ProBook Laptop 15 (Qty: 1, Price: $999.99)\n        *   Wireless Headphones Pro (Qty: 1, Price: $199.99)\n\n*   **Invoice ID:** INV-2025-002\n    *   **Order ID:** ORD-67890\n    *   **Date:** 2025-01-10\n    *   **Status:** Paid\n    *   **Total:** $215.99\n    *   **Items:**\n        *   Wireless Headphones Pro (Qty: 1, Price: $199.99)\n\n*   **Invoice ID:** INV-2024-003\n    *   **Order ID:** ORD-11111\n    *   **Date:** 2024-12-20\n    *   **Status:** Paid\n    *   **Total:** $485.99\n    *   **Items:**\n        *   Ergonomic Office Chair (Qty: 1, Price: $449.99)",
+                "thought_signature": "CuIEAY89a191udZ4Ga2zpMOklr6uvu7CdDcL8LMaU0BqCYs8wP9hDJdGzV8YTsCE4wKbuOl1NmeKcLD0m_pOdjlpKahcqq_C6nB4N15X1th4tuh-meFgP858hH0u1Htyhk3YPP1GH5nEZcki5plNnHYfV3bRz-mmrFKnNuGjiNRU3qVuFY7HxuS_wX1XnOiGmeUa6nGvNC1dEHmVc29bpHG9NjJV7IVhJyXb-OELGEUFIwrHUeCsHVcgv7pN-gUsdY0ZCRmUOYR-CLiSRk9HqaoHJLxaXNMmCRv4jL5rZQK_GOqV3T-XCEeacLYfjprKVRcGAl_KYOwsrk7CgBrhAxD5Pl0A19kA4bNqOWSzsT3BgkWBlmCCeE5FQG10jokWk37qfajF3NZ_tSZu49LWdeNN7Qgxpc98ktQCEyTsZjdgOhmUckIdse2uevu_0QnRGTwQRszJC1ouMATt_r0odKJ3OG9crNq7jdYJiqm-SQWQUQAWFpPaWEeAzHSl67fb-RPuuKBuiIjr8nRT676JSP99JrHHGxCSyfdxXOBmm56IqDFrBlaVgSzb_5JimDLhQQrdk4lbBiw8iuxKjtQBR07w7QAnZ5X9vkrVt8pF5QfNPtIYX7nqwbhrpfEFm7xHpVFiKK1QsAe2B_vbHSqKcOiGAwU1rwdYiSJ3JeeWRmi49C0uBzCg3KHKxDKLdXJ7CyR8QBheBsTHnelu6Y02tY65USQPQUaLwPggM6HFycuWwsgItmwGHmjWGbbRaf5GLgEyeLMddHJ2zlRPuTJAYZq5oXKeKkdToYhBRiXy0z8vkyGE7g=="
+              }
+            ],
+            "role": "model"
+          },
+          "intermediate_data": {
+            "invocation_events": [
+              {
+                "author": "customer_support",
+                "content": {
+                  "parts": [
+                    {
+                      "function_call": {
+                        "id": "adk-00e8536d-ffa4-4e52-9aee-d6060d0d96de",
+                        "args": {
+                          "request": "Show me all my invoices"
+                        },
+                        "name": "billing_agent"
+                      },
+                      "thought_signature": "CoAEAY89a19y0qcgBUa6m1lQknbEhGfgnEQx4qP8Gu0zOGfx4VdjsPgB8EZG-U2pKXuKQNX4f0cJcCYjE_qcxroUYvVPzXf7HxDPzfEW4m8_pIyOfvFSNrtobNFh9XXJjWFpJdDWfOpBEYTTaO1ZLL-J39GKsNKJK0XndyScX2QWVNMNTJsyohFu-XD5gRvh7x07UdbomJjwtV7c-2Yhf_60koLdVGXQ6GBt2qIv51tpvBxefXGW6fPccxt0AOjkyhcrQgs5PBwUrAKilbUm8Bf-gj8uOjx5qgoogpkNSeexS_nHcq02L7Hkr6gRmSOCim61PXfUjCpiY7bJ7kMTZctmEsbb1PaS5uNwix6qSTne3yX27kU0lQvTOd5pruWwerdhfHPLAXetS0zOACMsf40fYf7oJLFceRUNCex0kCEqYkAXJ7PYhjocZRAEXuNGzr6iWhWEZIcpEDZPHg3p68aCkmu3q_pLFVohU6A-XKO-rC_fFl3wSqs4vhDjLZA4TbGFY0jjDG3YHZZphTdSixhsPi_40uAXkWyxaCSB4Yx_gS1_7-pA_Gtm3fSbbkSxMro78bPDkFlHtn9UW2y0bWVI9WsIvtB0beXPoI4ZdWd_2pyg3FV8Lf5dpj-hZ2hZO7Db_l_YvGot0EzERTWtcUk560sZ91qI3abJeszL36rEs5g="
+                    }
+                  ],
+                  "role": "model"
+                }
+              },
+              {
+                "author": "customer_support",
+                "content": {
+                  "parts": [
+                    {
+                      "function_response": {
+                        "id": "adk-00e8536d-ffa4-4e52-9aee-d6060d0d96de",
+                        "name": "billing_agent",
+                        "response": {
+                          "result": "Here are your invoices:\n\n*   **Invoice ID:** INV-2025-001\n    *   **Order ID:** ORD-12345\n    *   **Date:** 2025-01-15\n    *   **Due Date:** 2025-02-15\n    *   **Status:** Pending\n    *   **Total:** $1295.98\n    *   **Items:**\n        *   ProBook Laptop 15 (Qty: 1, Price: $999.99)\n        *   Wireless Headphones Pro (Qty: 1, Price: $199.99)\n\n*   **Invoice ID:** INV-2025-002\n    *   **Order ID:** ORD-67890\n    *   **Date:** 2025-01-10\n    *   **Status:** Paid\n    *   **Total:** $215.99\n    *   **Items:**\n        *   Wireless Headphones Pro (Qty: 1, Price: $199.99)\n\n*   **Invoice ID:** INV-2024-003\n    *   **Order ID:** ORD-11111\n    *   **Date:** 2024-12-20\n    *   **Status:** Paid\n    *   **Total:** $485.99\n    *   **Items:**\n        *   Ergonomic Office Chair (Qty: 1, Price: $449.99)"
+                        }
+                      }
+                    }
+                  ],
+                  "role": "user"
+                }
+              }
+            ]
+          },
+          "creation_timestamp": 1770493015.1393628
+        },
+        {
+          "invocation_id": "e-736b2f0f-b33a-48c7-a13a-34f2c4682829",
+          "user_content": {
+            "parts": [
+              {
+                "text": "What's the status of invoice INV-2025-001?"
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "text": "The invoice INV-2025-001 for order ORD-12345 was issued on 2025-01-15 and is due on 2025-02-15. The total amount is $1295.98 and its current status is Pending.",
+                "thought_signature": "CvcCAY89a18YrVtNfsStt3Yna7OnFCw-wJ5RQacW3471NmiGzeLaqgMUn9VYSsRQ1YF4VPjhPOaDsNiZmy23Ne3okvA0w7uL-XIbIcrkDM_Ceo4o9eEmjsZljYH-W39HLvF3GX8fyJ7zj0ZC55lzwzPjy1jL0apXgMS7uuv9wDjVJQtOlpKv7XzqFX0Etxk6ZOCGZxvYQTo27wMNoCyUQvmRgtxVYCDXmyxn_9FTF80MD1DPx7ET7LVKMMbIv6tda7fJuHaEITBG3Ufh9k38BatUWvrxepu_dggUdVfgWS5dhtnl5Ky1QbyOPWAFcg0CSBUGbJOjp2tYkUxYNegRBjPurUvDe-0IWRaaDhG53cpmH-zO7MhAygonbi60JiBc-IgpRwXphOQDA6lfu0fLX6i8x55LmaB0hVym648_Ot0zZ6aavga095mI9djjI1z8D9_ut_499gayWK9eaapJVWdsDohi3Nhx1-y_wlpPDdL7dnmKRFDBCDpj"
+              }
+            ],
+            "role": "model"
+          },
+          "intermediate_data": {
+            "invocation_events": [
+              {
+                "author": "customer_support",
+                "content": {
+                  "parts": [
+                    {
+                      "function_call": {
+                        "id": "adk-143311c6-c2ee-4843-912b-295e47ef38fe",
+                        "args": {
+                          "request": "What's the status of invoice INV-2025-001?"
+                        },
+                        "name": "billing_agent"
+                      },
+                      "thought_signature": "CvcCAY89a1-aji3c5k0ovwozpkbOBU43UXj-uh-N67PLa_JH6odtOJcQw8InVcS3R8ZuzMbHQGOwTPAICtyyJsAPlxtXSZ9AFZWkD8QbVt4PWtug5kXfapDnf5LT2nrVaChl7GbiErGkOEpdVAnlRvvLPZYY_VJYWFQaMa1y6KNIsZDA9_HhYP4ind8_iBUajYN4Tp__zzxeHrLO_ZYonKnt4FKmWPywdOZ_utCe0N1QWLvMAVUy0SwUVbQsugB2q43w3I258TSJ7cP1GnThnPjdH-ZprbZ_JzxCzKgxAFpzOvUxGIviooou_Rwo56MdzL95bJ4kPs1BeJPiiXBO-ffPbFqVCRdzDHzgfvkSMmTTrbA_nTB5EuXvpaGfkd_V1i2CUn7Pk88CuMHhVvbT_Hj9VsC5_qvEXyoq_ptcUErTS5RKABA6cWslUc2fnxz0UEOmmScXbOqtk0q1p5wyq-NfMQDDZUMgMEybGsx9LOv8VUhcFnxcN_g7"
+                    }
+                  ],
+                  "role": "model"
+                }
+              },
+              {
+                "author": "customer_support",
+                "content": {
+                  "parts": [
+                    {
+                      "function_response": {
+                        "id": "adk-143311c6-c2ee-4843-912b-295e47ef38fe",
+                        "name": "billing_agent",
+                        "response": {
+                          "result": "The invoice INV-2025-001 for order ORD-12345 was issued on 2025-01-15 and is due on 2025-02-15. The total amount is $1295.98 and its current status is Pending."
+                        }
+                      }
+                    }
+                  ],
+                  "role": "user"
+                }
+              }
+            ]
+          },
+          "creation_timestamp": 1770493034.1593833
+        },
+        {
+          "invocation_id": "e-fe30bbb0-c3c1-488b-9d4d-4258fa66585f",
+          "user_content": {
+            "parts": [
+              {
+                "text": "Has the payment gone through?"
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "text": "The payment for invoice INV-2025-001 (associated with order ORD-12345) is currently **Pending**. The amount due is 1295.98.",
+                "thought_signature": "CuYCAY89a1_Jic3Ui7PHPRWFpYg-RdN9pAQNqGv68O4jzT8vCwQd7ZS9-1feDPO7iuDObHymW4QnC5KB6Dl5cYF_ekjRk7Bb7CP4QxfkQbr203drO62qRmbt2tVMm-pFNzp8qhp6OwecguRLQrAvVJBd999z1frm9DyamZY8g9UAJjIhKFvSzmdmzy9XTMRpotQXVuCrHC1JGFHMfbhnQjQ6tNNU8rEAJuXdz570qOlr6Y_qhvhWXt71-OusG09QYu3KxAPebys-nakYAPSSYUHbKs27EepKVW6P7nxYmgVjOt6wvHyKMuQBqOpnoqDNjNx3eQjXYlcg2F3lfLlV5hJK7g-iZg5q9ZgXpTrxOpx0hbZTEoBfupCyAEL9QF5Jhx39HQBy9KzNT6CjbqD-zammirks0OCXEEaVYUAInAKIsXOTs08MukGOyegx7ypAQWx-AyKfmYezP-8C6frivMCT2gD3Tf8jbQ=="
+              }
+            ],
+            "role": "model"
+          },
+          "intermediate_data": {
+            "invocation_events": [
+              {
+                "author": "customer_support",
+                "content": {
+                  "parts": [
+                    {
+                      "function_call": {
+                        "id": "adk-af12e0f4-7aaa-4fa4-a3bf-46b733709419",
+                        "args": {
+                          "request": "Has the payment for invoice INV-2025-001 gone through?"
+                        },
+                        "name": "billing_agent"
+                      },
+                      "thought_signature": "CsoEAY89a1-tDbpHG8VQ6z5OLZPrCKD6Ldk8iwfTKI-mQUEjtWIyB2xXWHm6g56y18uM6UnOu17V0zhy5x-sQ61zAF8wwC4OOXBAlzOWUQgIdHnQVh_hSei6SGq-G3BYjiRiJjWo3wB3hKmXrd-IMpBWYAigyWwD7YyiCwRDYNUUvUkmgZBVcYVWfi7pj7rIrlBH4cSxTVpe5YfZcTnxsIaxCBP4Xfmc5RkzK_76D20wsSrqe2aDvj44we4bVAlqlP2aASmOunT4boo58faIUJfoahmfwkzWVKAPlhcoClroBKD2tCGSjn2DZIPgGHaVBMLDD1jJuG5x46o10Fr5oR_J_olIb6F-jTbri521HhI8-8vZ_5wveJiygOiGrBgXZQo7sJ6_852Xv7Ty2H_WfFSMWf8skwKmS5MARcvFj4Ks6e3y_x02K1q2hfbqJskTykR2s1txbH5YgrIhrVbXuviCcvOA6ZuJDzyq0CaqwB_nL78jQBX87vr6nXTcM-4O6bFYYlPqsjIsCXTVNLtMrprbTSNUZNMzEIH36j8nqd2fDL3eySBGEx3m4TomVcnqErcNu6cZyhOaG4b4BC8Qei2PTcSAhwc0sjErGJOmhpCLepwm8r6PL_Hlsb05RkdqJUOmuMwkv8RHiGBMWacD2muHZgh8LBghVNqueuLW_Xi9O0J_Btwy4_zloEw4keT5Q1TjfkAoVqW296YLZ3E9YYJETyF2PsvNUOTVNhwRTKvV7WJadhyoTcBvZgQkGjoRXQuayALcyvXzgBLw0Q=="
+                    }
+                  ],
+                  "role": "model"
+                }
+              },
+              {
+                "author": "customer_support",
+                "content": {
+                  "parts": [
+                    {
+                      "function_response": {
+                        "id": "adk-af12e0f4-7aaa-4fa4-a3bf-46b733709419",
+                        "name": "billing_agent",
+                        "response": {
+                          "result": "The payment for invoice INV-2025-001 (associated with order ORD-12345) is currently **Pending**. The amount due is 1295.98."
+                        }
+                      }
+                    }
+                  ],
+                  "role": "user"
+                }
+              }
+            ]
+          },
+          "creation_timestamp": 1770493057.2451942
+        }
+      ],
+      "session_input": {
+        "app_name": "root_agent",
+        "user_id": "demo-user-001"
+      },
+      "creation_timestamp": 1770493057.245537
+    }
+  ],
+  "creation_timestamp": 1770493057.245555
+}

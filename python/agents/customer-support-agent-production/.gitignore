@@ -1,0 +1,111 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment
+.venv/
+venv/
+ENV/
+env/
+
+# uv — commit uv.lock (do NOT add it here)
+# uv.lock is intentionally tracked in git for reproducible builds
+
+# Environment variables
+.env
+.env.local
+.env.dev
+.env.staging
+.env.prod
+
+# IDE / AI tools
+.vscode/
+.idea/
+.claude/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Logs
+*.log
+logs/
+
+# Google Cloud
+*.json
+!package.json
+!package-lock.json
+!tsconfig*.json
+!*evalset.json
+!test_config.json
+!*.test.json
+!tests/**/*.json
+
+# Node modules
+node_modules/
+
+# Build artifacts
+frontend/dist/
+frontend/build/
+backend/dist/
+backend/build/
+
+# Local reference material and generated reports
+refs/
+presentations/
+medium/
+eval_report.html
+ENTRY.md
+file.md
+docs/CICD_DESIGN_RATIONALE.md
+docs/EVAL_PROMOTION_STRATEGY.md
+docs/PYTHON_SETUP.md
+docs/EVAL_STRATEGY.md
+docs/EVALSET_DATA_QUALITY.md
+docs/MEMORY_BANK.md
+docs/PRODUCTION_READINESS.md
+docs/VERTEX_CREATE_EVALUATION_RUN.md
+docs/diagrams/DRAWIO_TASK.md
+
+# Terraform
+terraform/.terraform/
+terraform/.terraform.lock.hcl
+terraform/terraform.tfvars
+terraform/terraform.tfstate
+terraform/terraform.tfstate.backup
+terraform/environments/*/.terraform/
+terraform/environments/*/.terraform.lock.hcl
+terraform/environments/*/terraform.tfvars
+terraform/environments/*/terraform.tfstate
+terraform/environments/*/terraform.tfstate.backup
+terraform/environments/*/*.tfplan
+terraform/environments/*/backend.hcl
+ENTRY.md
+LINKEDIN.md
+CV_ENTRY.md

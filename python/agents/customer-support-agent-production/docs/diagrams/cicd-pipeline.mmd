@@ -1,0 +1,86 @@
+%% CI/CD Pipeline — Single main branch, git tag promotion
+%% Google Cloud Build triggers across dev / staging / prod
+
+flowchart TD
+    PR[📬 PR opened\nfeat/* → main]
+
+    subgraph pr_checks ["PR Checks — all environments"]
+        direction LR
+        CI_PR[ci-pull-request\npr-checks.yaml\nauto-detect customer_support_mas/\nfast: no agent changes\nstandard + integration: agent changed]
+        TF_PLAN[terraform-plan\nterraform-plan.yaml\ninfra diff]
+    end
+
+    MERGE[✅ Merge → main]
+
+    subgraph dev_push ["Push to main — dev"]
+        direction LR
+        CI_DEV[ci-cd-push-main\ncloudbuild-deploy.yaml\nCI if code changed\nDocker + deploy if app changed\nsmoke test]
+        TF_APPLY_DEV[terraform-apply\nterraform-apply.yaml\nauto-apply infra\nif terraform/ changed]
+    end
+
+    RC_TAG[🏷️ git tag v*.*.*-rc.*]
+
+    subgraph staging_pipe ["release-staging — staging"]
+        direction TB
+        S1[lint + unit + integration tests]
+        S2[docker build & push\ntagged rc + sha]
+        S3[deploy Agent Engine\nstaging display name]
+        S4[deploy Cloud Run\n100% traffic]
+        S5[load tests]
+        S6[post-deploy eval\nVertex AI Eval Service]
+        S1 --> S2 --> S3 --> S4 --> S5 --> S6
+    end
+
+    PROD_TAG[🏷️ git tag v*.*.*]
+
+    subgraph release_pipe ["release — prod"]
+        direction TB
+        R1[lint + unit + integration tests]
+        R2[docker build & push\ntagged v* + sha + latest]
+        R3[NEW Agent Engine\ndisplay name: v*\ncleanup old engines: keep 2]
+        R4[shadow Cloud Run deploy\n--no-traffic --tag sha-SHORT_SHA]
+        R5[smoke test\ntagged revision URL]
+        R6[post-deploy eval gate\nVertex AI Eval Service]
+        R7{eval passed?}
+        R8[enable canary\nCANARY=10% CHAMPION=90%]
+        R1 --> R2 --> R3 --> R4 --> R5 --> R6 --> R7
+        R7 -->|yes| R8
+        R7 -->|no| R_FAIL[❌ block release\nshadow stays at 0%]
+    end
+
+    NIGHTLY[⏰ Midnight UTC\nCloud Scheduler]
+
+    subgraph nightly_pipe ["ci-manual nightly — prod"]
+        direction TB
+        N1[resolve engine from Cloud Run revision\neval via Vertex AI Eval Service\nEVAL_PROFILE=full]
+        N2[compare composite score vs GCS baseline\ntool_use×0.4 + response×0.4 + halluc×0.1 + safety×0.1\nthreshold: 10% relative drop]
+        N3{regression?}
+        N4[increment pass counter\npromote canary if N passes]
+        N5[rollback champion\nreset counter\nfail build — alert team]
+        N1 --> N2 --> N3
+        N3 -->|no| N4
+        N3 -->|yes| N5
+    end
+
+    PR --> pr_checks
+    pr_checks --> MERGE
+    MERGE --> dev_push
+    MERGE --> RC_TAG
+    RC_TAG --> staging_pipe
+    staging_pipe --> PROD_TAG
+    PROD_TAG --> release_pipe
+
+    NIGHTLY --> nightly_pipe
+
+    style PR fill:#4285F4,stroke:#1967D2,color:#fff
+    style MERGE fill:#34A853,stroke:#0D652D,color:#fff
+    style RC_TAG fill:#9334E6,stroke:#7627BB,color:#fff
+    style PROD_TAG fill:#9334E6,stroke:#7627BB,color:#fff
+    style NIGHTLY fill:#FF6F00,stroke:#E65100,color:#fff
+    style R_FAIL fill:#EA4335,stroke:#C62828,color:#fff
+    style N5 fill:#EA4335,stroke:#C62828,color:#fff
+    style pr_checks fill:#E8F5E9,stroke:#34A853
+    style dev_push fill:#E3F2FD,stroke:#4285F4
+    style staging_pipe fill:#F3E5F5,stroke:#9334E6
+    style release_pipe fill:#F3E5F5,stroke:#9334E6
+    style nightly_pipe fill:#FFF3E0,stroke:#FF6F00

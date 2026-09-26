@@ -1,0 +1,47 @@
+%% Multi-Agent Hierarchy - Agent Structure
+%% Google Cloud Platform Style
+
+graph TD
+    subgraph "Root Layer"
+        Root[🎯 Root Agent<br/>Model: Gemini 2.5 Pro<br/>Role: Coordinator & Router<br/>Error Handling: Always respond to user]
+    end
+
+    subgraph "Domain Specialists"
+        Product[🛍️ Product Agent<br/>Model: Gemini 2.5 Flash<br/>Tools: 8<br/>• PreloadMemoryTool<br/>• search_products RAG<br/>• get_product_info default<br/>• get_all_saved_products_info multi]
+
+        Order[📦 Order Agent<br/>Model: Gemini 2.5 Flash<br/>Tools: 5<br/>• PreloadMemoryTool<br/>• track_order<br/>• get_my_order_history<br/>• get_order_history<br/>• get_order_details]
+
+        Billing[💳 Billing Agent<br/>Model: Gemini 2.5 Flash<br/>Tools: 8<br/>• PreloadMemoryTool<br/>• get_invoice<br/>• get_invoice_by_order_id<br/>• get_my_invoices<br/>• check_payment_status<br/>• get_my_payments<br/>• get_refundable_items<br/>• get_acceptable_refund_reasons<br/>Note: Refunds via refund_workflow only]
+    end
+
+    subgraph "Workflow Patterns"
+        Sequential[🔄 Sequential Workflow<br/>Model: Gemini 2.5 Pro<br/>Refund Process with Validation Gates<br/>ONLY way to process refunds]
+
+        subgraph "Sequential Steps"
+            S1[1️⃣ Order Validator<br/>Gemini 2.5 Flash]
+            S2[2️⃣ Eligibility Checker<br/>Gemini 2.5 Flash]
+            S3[3️⃣ Refund Processor<br/>Gemini 2.5 Flash]
+        end
+    end
+
+    Root -->|Products Query| Product
+    Root -->|Orders Query| Order
+    Root -->|Billing Query| Billing
+    Root -->|Refund Request| Sequential
+
+    Sequential --> S1
+    S1 -->|✅ Valid| S2
+    S2 -->|✅ Eligible| S3
+    S3 -->|✅ Success| Root
+
+    S1 -.->|❌ Invalid| Root
+    S2 -.->|❌ Not Eligible| Root
+
+    style Root fill:#34A853,stroke:#0D652D,color:#fff,stroke-width:3px
+    style Product fill:#FBBC04,stroke:#F29900,color:#000,stroke-width:2px
+    style Order fill:#FBBC04,stroke:#F29900,color:#000,stroke-width:2px
+    style Billing fill:#FBBC04,stroke:#F29900,color:#000,stroke-width:2px
+    style Sequential fill:#EA4335,stroke:#C5221F,color:#fff,stroke-width:2px
+    style S1 fill:#FFB6C1,stroke:#EA4335,color:#000
+    style S2 fill:#FFB6C1,stroke:#EA4335,color:#000
+    style S3 fill:#FFB6C1,stroke:#EA4335,color:#000

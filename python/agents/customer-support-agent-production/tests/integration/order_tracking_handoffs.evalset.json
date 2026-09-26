@@ -1,0 +1,194 @@
+{
+  "eval_set_id": "order_tracking_handoffs",
+  "name": "order_tracking_handoffs",
+  "eval_cases": [
+    {
+      "eval_id": "track_multiple_orders",
+      "conversation": [
+        {
+          "invocation_id": "e-0837b3df-2072-4f71-a8e9-738308294d3a",
+          "user_content": {
+            "parts": [
+              {
+                "text": "Where is order ORD-12345?"
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "text": "Here are the details for your order ORD-12345:\n\n**Status:** In Transit\n**Estimated Delivery:** January 20, 2025\n**Carrier:** FastShip\n**Tracking Number:** FS789456123\n\n**Items Ordered:**\n*   1 x ProBook Laptop 15 ($999.99)\n*   1 x Wireless Headphones Pro ($199.99)\n\n**Shipping Address:**\n123 Main St, San Francisco, CA 94102, USA\n\n**Order Timeline:**\n*   January 15, 2025: Order placed\n*   January 16, 2025: Processing complete\n*   January 17, 2025: Shipped\n*   January 18, 2025: In transit\n\nLet me know if you need any other information about this order!\n"
+              }
+            ],
+            "role": "model"
+          },
+          "intermediate_data": {
+            "invocation_events": [
+              {
+                "author": "customer_support",
+                "content": {
+                  "parts": [
+                    {
+                      "function_call": {
+                        "id": "adk-923be977-f3c7-4656-92f1-709e425f243e",
+                        "args": {
+                          "request": "order ORD-12345"
+                        },
+                        "name": "order_agent"
+                      },
+                      "thought_signature": "CuQCAY89a197B-PXaADdHEFaVZclZy9sqptVV-SaZE7gk7IMKjG_02XQS-uAslN68qdwcbaEWT2Jj-crktL--cr_GTKqRknTJIu7nyh6l7rQHocvf-fzrRNzVtGkBzzDhweUXGvuQw19EyS_5H28B1HiM7j3gYFG6DRy5nhgb6KbWXlDob4D7J1acybcj3TOY8GSmLCySnfcLumQmnzSEP8NGkclYvnHwiJ_qIJ508d8kVYOHbGR2Mj3mCaZptfppKGzNyhb_9-T3U3-Nm5YjNF4GzqRRRINGbRhnHf-UDBsWkeGLaSB8-sWiS9IRRnCgS3gyONMw17QDqsk83yc4_Rb0UeWwMz90iCTA3IQs0MEmV6lYwZGcSCVHsAswlkB_7OZMXUERNqme8jEER2s5dA9RTXvV1tInwmQrotdrP-lU_TcuHZHEfNKshdNTbbQSMFVW7Mhxi6xnkP5U9l0xW6vQA7m_-0="
+                    }
+                  ],
+                  "role": "model"
+                }
+              },
+              {
+                "author": "customer_support",
+                "content": {
+                  "parts": [
+                    {
+                      "function_response": {
+                        "id": "adk-923be977-f3c7-4656-92f1-709e425f243e",
+                        "name": "order_agent",
+                        "response": {
+                          "result": "Here are the details for your order ORD-12345:\n\n**Status:** In Transit\n**Estimated Delivery:** January 20, 2025\n**Carrier:** FastShip\n**Tracking Number:** FS789456123\n\n**Items Ordered:**\n*   1 x ProBook Laptop 15 ($999.99)\n*   1 x Wireless Headphones Pro ($199.99)\n\n**Shipping Address:**\n123 Main St, San Francisco, CA 94102, USA\n\n**Order Timeline:**\n*   January 15, 2025: Order placed\n*   January 16, 2025: Processing complete\n*   January 17, 2025: Shipped\n*   January 18, 2025: In transit\n\nLet me know if you need any other information about this order!"
+                        }
+                      }
+                    }
+                  ],
+                  "role": "user"
+                }
+              }
+            ]
+          },
+          "creation_timestamp": 1770491837.504169
+        },
+        {
+          "invocation_id": "e-eedec8ac-2c06-410e-b7c9-d3958ddb9217",
+          "user_content": {
+            "parts": [
+              {
+                "text": "What about ORD-67890?"
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "text": "This order (ORD-67890) was placed on January 5, 2026, and delivered on January 10, 2026.\n\nIt contained:\n*   1 x Wireless Headphones Pro ($199.99)\n\nThe total for the order was $215.99 (including $16 tax). It was shipped via QuickPost with tracking number QP456789012 to 123 Main St, San Francisco, CA, 94102, USA.\n"
+              }
+            ],
+            "role": "model"
+          },
+          "intermediate_data": {
+            "invocation_events": [
+              {
+                "author": "customer_support",
+                "content": {
+                  "parts": [
+                    {
+                      "function_call": {
+                        "id": "adk-8a16a929-b73c-474d-bf74-c1d0a28bfea0",
+                        "args": {
+                          "request": "order ORD-67890"
+                        },
+                        "name": "order_agent"
+                      },
+                      "thought_signature": "CvgCAY89a1-rrFmPhJdiJLA1j4TyHdUVtxU2REfFCnBjBbrgVqPwPdwD2-aE6cly4FDRW_KFrpUxqRTyBwnP8m-LE_O-aniL1VAtrY66A5z-Hfe8zbQ0qqtelpTjyqrpozOmM37JRnviyugESnfP96MMBbU4vC-SLLJpcnFLuQN8NDexTUaVl5DNtBHPQ3hUftAedgtwjXDNNu7GRzjNz8k1tFZBY8yQeH5w_LzeUC2hoJc2B699E_TdlNFAnY0sglK1nvZsLjb5udGjVAh6gO88iC-UGapy7vw2TbijhEZjQWHNIXxPSLapw77aleqGx4WsBZoeWKZsHf_6OJLg08FHj2W22phW0sYhWDjW5I0bLD3imZZB7HpFbdeZmRL2G6Wx_InKymeQvW5vJSdge9SwvZ2rLI_lX_4PQpXiCkMU0h7cbMtfH_3AFkBwxfjMHn8I2Ig2a4sND3GjVqKZvMBQN9jHaszjAWxflDYzbvs4Sdh4AqqmgIb2Zw=="
+                    }
+                  ],
+                  "role": "model"
+                }
+              },
+              {
+                "author": "customer_support",
+                "content": {
+                  "parts": [
+                    {
+                      "function_response": {
+                        "id": "adk-8a16a929-b73c-474d-bf74-c1d0a28bfea0",
+                        "name": "order_agent",
+                        "response": {
+                          "result": "This order (ORD-67890) was placed on January 5, 2026, and delivered on January 10, 2026.\n\nIt contained:\n*   1 x Wireless Headphones Pro ($199.99)\n\nThe total for the order was $215.99 (including $16 tax). It was shipped via QuickPost with tracking number QP456789012 to 123 Main St, San Francisco, CA, 94102, USA."
+                        }
+                      }
+                    }
+                  ],
+                  "role": "user"
+                }
+              }
+            ]
+          },
+          "creation_timestamp": 1770491856.553733
+        },
+        {
+          "invocation_id": "e-2761160f-10cf-4927-8001-9dfcc7b47a7c",
+          "user_content": {
+            "parts": [
+              {
+                "text": "Show me all my orders"
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "text": "Here's a summary of all your orders:\n\n*   **Order ID:** ORD-12345\n    *   **Date:** 2025-01-15\n    *   **Total:** $1295.98\n    *   **Status:** In Transit\n*   **Order ID:** ORD-67890\n    *   **Date:** 2026-01-05\n    *   **Total:** $215.99\n    *   **Status:** Delivered\n*   **Order ID:** ORD-11111\n    *   **Date:** 2025-11-26\n    *   **Total:** $485.99\n    *   **Status:** Delivered\n\nWould you like more details on any specific order, or perhaps full details of all your orders?\n"
+              }
+            ],
+            "role": "model"
+          },
+          "intermediate_data": {
+            "invocation_events": [
+              {
+                "author": "customer_support",
+                "content": {
+                  "parts": [
+                    {
+                      "function_call": {
+                        "id": "adk-a33a891e-3d3a-46a5-b5d7-478fc2959ce1",
+                        "args": {
+                          "request": "all my orders"
+                        },
+                        "name": "order_agent"
+                      },
+                      "thought_signature": "CqADAY89a1_MlM7uWI4rDNJgT3l8yATrUrw5RVknAXSR5vrEIOiZkSqRCNwhDxxxFaQleAvQcP7bIo2sNjKRNUc1_4VcISvgomqMKvqGOm_CPImz_e8qZp2bRbjA7B5w5aNMrEdtiC62-HR4eSBzumf_BR3vSIzDz0QwIyxt_mvlCJI3mGFZemiGnWHDh3iA1WuQwCeBW7jgtVigRip4ak31ChiliUHCjmnpj3Nncx9ZhHLrII-LT8fRQ7ynadsH1aQ-N3PaKE2peNWTePMbpO1JyT2l59xlzNyq8q8FUuZedw8gVbSiltKIsr473FRxZxbdKC05uRVTvpNaDhSSmEGud1KGmrETlXZqzKFwEcKJhN4yP_pz5qyivLn7-TOXh8zHIryMmFEOHwYaLosCHx9EngJEzzpoupPqFfFN4WsaMEtnxfOScuQYzTzAfWuPPj7LIkgOpNXfunX2wDvQsb4xTWymoI6Tr6yh_ZNQfyO6m0MUZ-S0rwHqm67jInS1abaGwpswCEnSkFWkhmDT-2ZzIW5Yadr46dxUxhIaAoC1Eb0="
+                    }
+                  ],
+                  "role": "model"
+                }
+              },
+              {
+                "author": "customer_support",
+                "content": {
+                  "parts": [
+                    {
+                      "function_response": {
+                        "id": "adk-a33a891e-3d3a-46a5-b5d7-478fc2959ce1",
+                        "name": "order_agent",
+                        "response": {
+                          "result": "Here's a summary of all your orders:\n\n*   **Order ID:** ORD-12345\n    *   **Date:** 2025-01-15\n    *   **Total:** $1295.98\n    *   **Status:** In Transit\n*   **Order ID:** ORD-67890\n    *   **Date:** 2026-01-05\n    *   **Total:** $215.99\n    *   **Status:** Delivered\n*   **Order ID:** ORD-11111\n    *   **Date:** 2025-11-26\n    *   **Total:** $485.99\n    *   **Status:** Delivered\n\nWould you like more details on any specific order, or perhaps full details of all your orders?"
+                        }
+                      }
+                    }
+                  ],
+                  "role": "user"
+                }
+              }
+            ]
+          },
+          "creation_timestamp": 1770491874.9945192
+        }
+      ],
+      "session_input": {
+        "app_name": "root_agent",
+        "user_id": "demo-user-001"
+      },
+      "creation_timestamp": 1770491874.9947646
+    }
+  ],
+  "creation_timestamp": 1770491874.9947796
+}

@@ -1,0 +1,15 @@
+{
+  "metrics": [
+    "TOOL_USE_QUALITY",
+    "FINAL_RESPONSE_QUALITY",
+    "HALLUCINATION",
+    "SAFETY"
+  ],
+  "thresholds": {
+    "TOOL_USE_QUALITY": 0.5,
+    "FINAL_RESPONSE_QUALITY": 0.5,
+    "HALLUCINATION": 0.5,
+    "SAFETY": 0.8
+  },
+  "description": "Full post-deploy eval: tool use + response quality + hallucination + safety"
+}

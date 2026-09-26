@@ -1,0 +1,213 @@
+# Nightly Decision Gate — Triggered by Cloud Scheduler or manual dispatch
+#
+# Regression monitoring: evaluates the live prod Agent Engine and compares
+# scores against the last stored baseline. If scores drop below the regression
+# threshold, the build fails and alerts the team via Cloud Build failure notification.
+#
+# Also drives the canary promotion decision:
+#   - If a canary is live (partial traffic): eval the canary Agent Engine,
+#     compare against the champion baseline, and promote or rollback.
+#   - If no canary: just eval prod and update the baseline.
+#
+# Traffic management commands (run manually or from enable-canary / rollback steps):
+#   Promote canary:
+#     gcloud run services update-traffic customer-support-app \
+#       --to-revisions=CANARY_REVISION=100 --region=us-central1 --project=PROJECT_ID
+#   Rollback:
+#     gcloud run services update-traffic customer-support-app \
+#       --to-revisions=CHAMPION_REVISION=100 --region=us-central1 --project=PROJECT_ID
+#     (no env var update needed — nightly reads the engine from the champion revision directly)
+#
+# Substitutions (set in Cloud Build trigger config):
+#   _AGENT_ENGINE_RESOURCE_NAME  — fallback engine resource name (used only if Cloud Run
+#                                  revision describe fails to return the env var)
+#   _STAGING_BUCKET              — GCS bucket for eval artifacts (gs://...)
+
+substitutions:
+  _PYTHON_VERSION: "3.11"
+  _FIRESTORE_DATABASE: "customer-support-db"
+  _GOOGLE_CLOUD_LOCATION: "us-central1"
+  _REGION: "us-central1"
+  _SERVICE_NAME: "customer-support-app"
+  _AGENT_ENGINE_RESOURCE_NAME: ""
+  _STAGING_BUCKET: ""
+  _EVAL_PROFILE: "full"
+  _REGRESSION_THRESHOLD: "0.10"    # max allowed relative score drop vs baseline (0.10 = 10%)
+  _CANARY_PROMOTE_THRESHOLD: "1"   # promote canary after this many consecutive passing nights
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+
+steps:
+  # ===========================================================================
+  # Install dependencies
+  # ===========================================================================
+  - id: "install-deps"
+    name: "python:${_PYTHON_VERSION}-slim"
+    entrypoint: "bash"
+    args:
+      - "-c"
+      - |
+        pip install uv --quiet &&
+        uv sync --frozen --group dev
+    waitFor: ["-"]
+
+  # ===========================================================================
+  # Resolve Agent Engine from the Cloud Run revision under evaluation.
+  #
+  # Reads AGENT_ENGINE_RESOURCE_NAME directly from the revision's env vars:
+  #   - Canary live (sha-* tag, partial traffic): read from the canary revision
+  #     so we evaluate the NEW engine being promoted.
+  #   - No canary (champion at 100%): read from the champion revision
+  #     so we monitor the actual prod engine.
+  #
+  # This is always accurate — the env var is the engine wired to that revision.
+  # After a rollback the champion is at 100%, so we automatically evaluate the
+  # correct (champion) engine without any cleanup or state management.
+  # ===========================================================================
+  - id: "resolve-engine-id"
+    name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+    entrypoint: "bash"
+    args:
+      - "-c"
+      - |
+        SERVICE_JSON=$(gcloud run services describe ${_SERVICE_NAME} \
+          --region="${_REGION}" --project="$PROJECT_ID" --format=json 2>/dev/null || echo "{}")
+
+        # Prefer canary revision (sha-* tag, partial traffic); fall back to champion.
+        TARGET_REVISION=$(echo "$$SERVICE_JSON" | python3 -c "import json,sys;d=json.load(sys.stdin);t=d.get('status',{}).get('traffic',[]);canary=[x for x in t if x.get('tag','').startswith('sha-') and 0<x.get('percent',0)<100];champion=sorted(t,key=lambda x:x.get('percent',0),reverse=True);print(canary[0].get('revisionName','') if canary else (champion[0].get('revisionName','') if champion else ''))" 2>/dev/null || echo "")
+
+        ENGINE_RESOURCE=""
+        if [ -n "$$TARGET_REVISION" ]; then
+          echo "Reading engine from revision: $$TARGET_REVISION"
+          ENGINE_RESOURCE=$(gcloud run revisions describe "$$TARGET_REVISION" \
+            --region="${_REGION}" --project="$PROJECT_ID" --format=json 2>/dev/null | \
+            python3 -c "import json,sys;d=json.load(sys.stdin);c=(d.get('containers') or d.get('spec',{}).get('containers',[{}]));e=c[0].get('env',[]) if c else [];r=[x.get('value','') for x in e if x.get('name')=='AGENT_ENGINE_RESOURCE_NAME'];print(r[0] if r else '')" 2>/dev/null || echo "")
+        fi
+
+        if [ -z "$$ENGINE_RESOURCE" ]; then
+          echo "Could not read engine from revision — falling back to substitution"
+          ENGINE_RESOURCE="${_AGENT_ENGINE_RESOURCE_NAME}"
+        fi
+
+        echo "Target revision: $$TARGET_REVISION"
+        echo "Agent Engine resource: $$ENGINE_RESOURCE"
+        echo "$$ENGINE_RESOURCE" > /workspace/agent_engine_resource_name.txt
+    waitFor: ["-"]
+
+  # ===========================================================================
+  # Post-deploy eval + baseline comparison
+  #
+  # --update-baseline: compares scores against the stored GCS baseline.
+  #   - If no baseline exists (first run): saves current scores and passes.
+  #   - If baseline exists and no regression: updates baseline and passes.
+  #   - If regression > _REGRESSION_THRESHOLD: exits 1 (build fails, team alerted).
+  # ===========================================================================
+  - id: "post-deploy-eval"
+    name: "python:${_PYTHON_VERSION}-slim"
+    entrypoint: "bash"
+    args:
+      - "-c"
+      - |
+        export PATH="/workspace/.venv/bin:$$PATH"
+
+        ENGINE_RESOURCE=$(cat /workspace/agent_engine_resource_name.txt)
+        ENGINE_ID=$(echo "$$ENGINE_RESOURCE" | awk -F'/' '{print $$NF}')
+
+        BASELINE_GCS="${_STAGING_BUCKET}/baselines/nightly-baseline.json"
+
+        # Capture exit code without failing the step so promote-or-rollback can run.
+        set +e
+        python tests/eval_vertex.py \
+          --agent-engine-id "$$ENGINE_ID" \
+          --profile "${_EVAL_PROFILE}" \
+          --custom-inference \
+          --output /workspace/eval_scores.json \
+          --update-baseline "$$BASELINE_GCS" \
+          --regression-threshold "${_REGRESSION_THRESHOLD}" \
+          --delay 5
+        echo $$? > /workspace/eval_exit_code.txt
+        set -e
+        exit 0
+    env:
+      - "GOOGLE_CLOUD_PROJECT=$PROJECT_ID"
+      - "GOOGLE_CLOUD_LOCATION=${_GOOGLE_CLOUD_LOCATION}"
+      - "FIRESTORE_DATABASE=${_FIRESTORE_DATABASE}"
+      - "GOOGLE_CLOUD_STORAGE_BUCKET=${_STAGING_BUCKET}"
+      - "GOOGLE_GENAI_USE_VERTEXAI=True"
+    waitFor: ["install-deps", "resolve-engine-id"]
+
+  # ===========================================================================
+  # Promote or rollback canary based on eval result.
+  #
+  # Tracks consecutive passing nights in GCS (_STAGING_BUCKET/baselines/canary-pass-count.json).
+  # After _CANARY_PROMOTE_THRESHOLD consecutive passes:
+  #   - promotes canary Cloud Run revision to 100% traffic
+  #   - resets pass counter
+  # On regression:
+  #   - rolls back Cloud Run to champion (highest-traffic revision)
+  #   - resets pass counter
+  #   - exits 1 so Cloud Build marks the nightly as failed (alerts the team)
+  # If no canary is live, only updates the counter and exits per eval result.
+  # ===========================================================================
+  - id: "promote-or-rollback"
+    name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+    entrypoint: "bash"
+    args:
+      - "-c"
+      - |
+        EVAL_EXIT=$(cat /workspace/eval_exit_code.txt)
+        PASS_COUNT_GCS="${_STAGING_BUCKET}/baselines/canary-pass-count.json"
+
+        # Read current consecutive pass count from GCS
+        PASS_COUNT=0
+        if gsutil -q stat "$$PASS_COUNT_GCS" 2>/dev/null; then
+          PASS_COUNT=$(gsutil cat "$$PASS_COUNT_GCS" | \
+            python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('count',0))")
+        fi
+
+        # Detect canary and champion revisions from current Cloud Run traffic split
+        SERVICE_JSON=$(gcloud run services describe ${_SERVICE_NAME} \
+          --region="${_REGION}" --project="$PROJECT_ID" --format=json 2>/dev/null || echo "{}")
+
+        # Champion = highest traffic revision (the stable prod revision).
+        # Canary = revision with a sha-* tag (set during release shadow deploy via --tag sha-SHORT_SHA).
+        # Using the deployment tag is explicit and correct regardless of traffic split percentages.
+        CHAMPION_REVISION=$(echo "$$SERVICE_JSON" | python3 -c "import json,sys;d=json.load(sys.stdin);t=sorted(d.get('status',{}).get('traffic',[]),key=lambda x:x.get('percent',0),reverse=True);print(t[0].get('revisionName','') if t else '')" 2>/dev/null || echo "")
+
+        CANARY_REVISION=$(echo "$$SERVICE_JSON" | python3 -c "import json,sys;d=json.load(sys.stdin);t=[x for x in d.get('status',{}).get('traffic',[]) if x.get('tag','').startswith('sha-') and 0<x.get('percent',0)<100];print(t[0].get('revisionName','') if t else '')" 2>/dev/null || echo "")
+
+        if [ "$$EVAL_EXIT" = "0" ]; then
+          NEW_COUNT=$$((PASS_COUNT + 1))
+          echo "Eval passed. Consecutive pass count: $$NEW_COUNT / ${_CANARY_PROMOTE_THRESHOLD}"
+
+          if [ -n "$$CANARY_REVISION" ] && [ "$$NEW_COUNT" -ge "${_CANARY_PROMOTE_THRESHOLD}" ]; then
+            echo "Promoting canary $$CANARY_REVISION to 100% after $$NEW_COUNT consecutive passes"
+            gcloud run services update-traffic ${_SERVICE_NAME} \
+              --region="${_REGION}" --project="$PROJECT_ID" \
+              --to-revisions="$$CANARY_REVISION=100"
+            NEW_COUNT=0
+            echo "Canary promoted. Pass counter reset."
+          fi
+
+          echo "{\"count\": $$NEW_COUNT}" | gsutil cp - "$$PASS_COUNT_GCS"
+          exit 0
+
+        else
+          echo "Regression detected."
+
+          if [ -n "$$CANARY_REVISION" ] && [ -n "$$CHAMPION_REVISION" ]; then
+            echo "Rolling back: restoring $$CHAMPION_REVISION to 100%"
+            gcloud run services update-traffic ${_SERVICE_NAME} \
+              --region="${_REGION}" --project="$PROJECT_ID" \
+              --to-revisions="$$CHAMPION_REVISION=100"
+          else
+            echo "No active canary found — no traffic change needed."
+          fi
+
+          echo '{"count": 0}' | gsutil cp - "$$PASS_COUNT_GCS"
+          exit 1
+        fi
+    waitFor: ["post-deploy-eval"]
+
+timeout: "3600s"

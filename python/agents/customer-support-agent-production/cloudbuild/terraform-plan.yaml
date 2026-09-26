@@ -1,0 +1,96 @@
+# Terraform Plan — runs on every PR to show infrastructure diff before merge
+#
+# Triggered per environment — one trigger in each GCP project (dev/staging/prod).
+# The plan output is visible in Cloud Build logs and surfaces the exact infra changes
+# a reviewer needs to approve before the PR is merged.
+#
+# tfvars are stored in GCS alongside state (uploaded once during bootstrap):
+#   gs://{_TF_STATE_BUCKET}/tfvars/terraform.tfvars
+# This keeps environment-specific config out of git.
+#
+# Substitutions (set in Cloud Build trigger config per environment):
+#   _ENV_DIRECTORY   — path to environment dir, e.g. terraform/environments/dev
+#   _ENVIRONMENT     — environment name, e.g. dev
+#   _TF_STATE_BUCKET — GCS bucket for remote state + tfvars, e.g. your-project-tf-state
+#                      Defaults to $PROJECT_ID-tf-state if not set.
+
+substitutions:
+  _ENV_DIRECTORY: "terraform/environments/dev"
+  _ENVIRONMENT: "dev"
+  _TF_STATE_BUCKET: ""
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+
+steps:
+  # ===========================================================================
+  # Download tfvars from GCS (Cloud SDK image has gsutil; terraform image does not)
+  # ===========================================================================
+  - id: "download-tfvars"
+    name: "gcr.io/google.com/cloudsdktool/cloud-sdk:slim"
+    entrypoint: "sh"
+    args:
+      - "-c"
+      - |
+        BUCKET="${_TF_STATE_BUCKET:-$PROJECT_ID-tf-state}"
+        echo "Downloading tfvars from gs://$$BUCKET/tfvars/terraform.tfvars"
+        gsutil cp gs://$$BUCKET/tfvars/terraform.tfvars ${_ENV_DIRECTORY}/terraform.tfvars
+    waitFor: ["-"]
+
+  # ===========================================================================
+  # Init — configure remote backend
+  # ===========================================================================
+  - id: "terraform-init"
+    name: "hashicorp/terraform:1.9"
+    entrypoint: "sh"
+    args:
+      - "-c"
+      - |
+        BUCKET="${_TF_STATE_BUCKET:-$PROJECT_ID-tf-state}"
+        echo "State bucket: $$BUCKET"
+        echo "Environment:  ${_ENVIRONMENT}"
+        echo "Directory:    ${_ENV_DIRECTORY}"
+
+        cd ${_ENV_DIRECTORY}
+        terraform init \
+          -backend-config="bucket=$$BUCKET" \
+          -backend-config="prefix=customer-support-mas/${_ENVIRONMENT}" \
+          -input=false \
+          -no-color
+    waitFor: ["download-tfvars"]
+
+  # ===========================================================================
+  # Plan — show what would change (exit 0=no-changes, 2=changes, 1=error)
+  # ===========================================================================
+  - id: "terraform-plan"
+    name: "hashicorp/terraform:1.9"
+    entrypoint: "sh"
+    args:
+      - "-c"
+      - |
+        cd ${_ENV_DIRECTORY}
+        echo "============================================================"
+        echo "  Terraform Plan — ${_ENVIRONMENT} (project: $PROJECT_ID)"
+        echo "============================================================"
+
+        terraform plan \
+          -var-file=terraform.tfvars \
+          -input=false \
+          -no-color \
+          -detailed-exitcode
+        EXIT_CODE=$?
+
+        # Exit codes: 0 = no changes, 1 = error, 2 = changes present
+        if [ "$$EXIT_CODE" = "1" ]; then
+          echo "ERROR: terraform plan failed"
+          exit 1
+        elif [ "$$EXIT_CODE" = "2" ]; then
+          echo ""
+          echo "Changes detected — review the plan above before merging."
+        else
+          echo ""
+          echo "No infrastructure changes."
+        fi
+    waitFor: ["terraform-init"]
+
+timeout: "1200s"

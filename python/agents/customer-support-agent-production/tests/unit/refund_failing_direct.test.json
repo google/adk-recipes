@@ -1,0 +1,97 @@
+{
+  "eval_set_id": "refund_failing_direct_tests",
+  "eval_cases": [
+    {
+      "eval_id": "refund_order_not_found",
+      "conversation": [
+        {
+          "user_content": {
+            "parts": [{"text": "I want a refund for order ORD-99999"}],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [{"text": "Order ORD-99999 not found"}],
+            "role": "model"
+          },
+          "intermediate_data": {
+            "tool_uses": [
+              {"name": "check_if_refundable", "args": {"order_id": "ORD-99999"}}
+            ]
+          }
+        }
+      ],
+      "session_input": {
+        "user_id": "demo-user-001"
+      }
+    },
+    {
+      "eval_id": "refund_past_return_window",
+      "conversation": [
+        {
+          "user_content": {
+            "parts": [{"text": "I want a refund for order ORD-11111"}],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [{"text": "Order ORD-11111 is past the 30-day return window and is not eligible for refund"}],
+            "role": "model"
+          },
+          "intermediate_data": {
+            "tool_uses": [
+              {"name": "check_if_refundable", "args": {"order_id": "ORD-11111"}}
+            ]
+          }
+        }
+      ],
+      "session_input": {
+        "user_id": "demo-user-001"
+      }
+    },
+    {
+      "eval_id": "refund_not_delivered",
+      "conversation": [
+        {
+          "user_content": {
+            "parts": [{"text": "I want a refund for order ORD-12345"}],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [{"text": "Order ORD-12345 is still in transit and cannot be refunded yet"}],
+            "role": "model"
+          },
+          "intermediate_data": {
+            "tool_uses": [
+              {"name": "check_if_refundable", "args": {"order_id": "ORD-12345"}}
+            ]
+          }
+        }
+      ],
+      "session_input": {
+        "user_id": "demo-user-001"
+      }
+    },
+    {
+      "eval_id": "refund_unauthorized_order",
+      "conversation": [
+        {
+          "user_content": {
+            "parts": [{"text": "I want a refund for order ORD-22222"}],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [{"text": "You don't have permission to access order ORD-22222"}],
+            "role": "model"
+          },
+          "intermediate_data": {
+            "tool_uses": [
+              {"name": "check_if_refundable", "args": {"order_id": "ORD-22222"}}
+            ]
+          }
+        }
+      ],
+      "session_input": {
+        "user_id": "demo-user-001"
+      }
+    }
+  ]
+}

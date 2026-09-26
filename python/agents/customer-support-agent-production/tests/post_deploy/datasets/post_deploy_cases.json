@@ -1,0 +1,65 @@
+[
+  {
+    "prompt": "Show me laptops",
+    "reference": "We have the ProBook Laptop 15 and ROG Gaming Laptop available.",
+    "expected_tool_use": [
+      {"tool_name": "product_agent", "tool_input": {"request": "laptops"}}
+    ]
+  },
+  {
+    "prompt": "Tell me about the ProBook Laptop 15",
+    "reference": "The ProBook Laptop 15 (PROD-001) is a high-performance laptop with Intel i7 processor, 16GB DDR5 RAM, 512GB NVMe SSD. It costs $999.99.",
+    "expected_tool_use": [
+      {"tool_name": "product_agent", "tool_input": {"request": "details about ProBook Laptop 15"}}
+    ]
+  },
+  {
+    "prompt": "Do you have any gaming accessories?",
+    "reference": "We have gaming accessories including the MechKeys Pro Keyboard and HyperX Gaming Headset.",
+    "expected_tool_use": [
+      {"tool_name": "product_agent", "tool_input": {"request": "gaming accessories"}}
+    ]
+  },
+  {
+    "prompt": "Where is my order ORD-12345?",
+    "reference": "Your order ORD-12345 is currently in transit. It was shipped via FastShip with tracking number FS789456123.",
+    "expected_tool_use": [
+      {"tool_name": "order_agent", "tool_input": {"request": "track order ORD-12345"}}
+    ]
+  },
+  {
+    "prompt": "Show me my order history",
+    "reference": "Here is your order history showing your recent orders with their statuses and totals.",
+    "expected_tool_use": [
+      {"tool_name": "order_agent", "tool_input": {"request": "order history"}}
+    ]
+  },
+  {
+    "prompt": "What is the status of order ORD-67890?",
+    "reference": "Order ORD-67890 has been delivered.",
+    "expected_tool_use": [
+      {"tool_name": "order_agent", "tool_input": {"request": "status of order ORD-67890"}}
+    ]
+  },
+  {
+    "prompt": "Show me my invoices",
+    "reference": "Here are your invoices with their amounts and payment statuses.",
+    "expected_tool_use": [
+      {"tool_name": "billing_agent", "tool_input": {"request": "my invoices"}}
+    ]
+  },
+  {
+    "prompt": "What is the payment status for invoice INV-2025-002?",
+    "reference": "Invoice INV-2025-002 for order ORD-67890 has been paid. The total was $215.99.",
+    "expected_tool_use": [
+      {"tool_name": "billing_agent", "tool_input": {"request": "payment status for invoice INV-2025-002"}}
+    ]
+  },
+  {
+    "prompt": "I want to return the Wireless Headphones Pro from order ORD-67890, they arrived damaged",
+    "reference": "I'll check if your item is eligible for a refund. Order ORD-67890 is within the 30-day return window and is eligible for a refund up to $215.99.",
+    "expected_tool_use": [
+      {"tool_name": "refund_agent", "tool_input": {"request": "refund Wireless Headphones Pro from order ORD-67890, reason: damaged"}}
+    ]
+  }
+]

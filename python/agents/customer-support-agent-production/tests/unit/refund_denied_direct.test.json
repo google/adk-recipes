@@ -1,0 +1,68 @@
+{
+  "eval_set_id": "refund_denied_direct_tests",
+  "eval_cases": [
+    {
+      "eval_id": "refund_past_return_window",
+      "conversation": [
+        {
+          "user_content": {
+            "parts": [{"text": "I want to request a refund for order ORD-11111"}],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [{"text": "Order ORD-11111 is not eligible for refund - past the 30-day return window"}],
+            "role": "model"
+          },
+          "intermediate_data": {
+            "tool_uses": [
+              {"name": "check_if_refundable", "args": {"order_id": "ORD-11111"}}
+            ]
+          }
+        }
+      ],
+      "session_input": {
+        "user_id": "demo-user-001"
+      }
+    },
+    {
+      "eval_id": "refund_invalid_reason",
+      "conversation": [
+        {
+          "user_content": {
+            "parts": [{"text": "I want a refund for order ORD-67890"}],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [{"text": "Your order is eligible for a refund. What's the reason?"}],
+            "role": "model"
+          },
+          "intermediate_data": {
+            "tool_uses": [
+              {"name": "check_if_refundable", "args": {"order_id": "ORD-67890"}}
+            ]
+          }
+        },
+        {
+          "user_content": {
+            "parts": [{"text": "I changed my mind, I don't want it anymore"}],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [{"text": "Sorry, 'changed my mind' is not an acceptable refund reason. Refunds are only granted for product-related issues."}],
+            "role": "model"
+          },
+          "intermediate_data": {
+            "tool_uses": [
+              {"name": "validate_refund_request", "args": {"order_id": "ORD-67890"}},
+              {"name": "check_refund_eligibility", "args": {"order_id": "ORD-67890"}},
+              {"name": "process_refund", "args": {"order_id": "ORD-67890", "reason": "changed my mind"}}
+            ]
+          }
+        }
+      ],
+      "session_input": {
+        "user_id": "demo-user-001"
+      }
+    }
+  ]
+}

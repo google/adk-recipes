@@ -1,0 +1,382 @@
+# Release Pipeline — Triggered by git tag push (v*.*.*)
+#
+# Strategy: shadow deploy + post-deploy eval gate + canary enable
+#
+# Every prod release:
+#   1. Lint + unit tests (standard profile) — gate before any deploy
+#   2. Build Docker image tagged with $TAG_NAME, $COMMIT_SHA, and latest
+#   3. Capture the currently live (champion) Cloud Run revision
+#   4. Deploy a NEW Agent Engine (display name: customer-support-multiagent-v1.2.0)
+#   5. Deploy Cloud Run as shadow revision (--no-traffic --tag sha-<SHORT_SHA>)
+#      Shadow revision already points to the new Agent Engine via env var
+#   6. Smoke tests against the shadow URL (zero prod users affected)
+#   7. Post-deploy eval against the new Agent Engine using eval_vertex.py
+#   8. If eval passes: split traffic (champion keeps (100-CANARY_PCT)%, canary gets CANARY_PCT%)
+#      If eval fails: build fails, shadow stays at 0% traffic, no promotion
+#
+# Rollback (if nightly fails after promotion):
+#   gcloud run services update-traffic customer-support-app \
+#     --to-revisions=CHAMPION_REVISION=100 --region=us-central1 --project=PROJECT_ID
+#   gcloud run services update customer-support-app \
+#     --update-env-vars=AGENT_ENGINE_RESOURCE_NAME=OLD_RESOURCE_NAME --region=us-central1
+#
+# Ordering:
+#   install-deps
+#     ├── lint
+#     └── unit-tests
+#         └── docker-build
+#             └── docker-push
+#                 ├── capture-champion  (parallel — read-only describe)
+#                 ├── get-project-number (parallel — gcloud projects describe)
+#                 └── deploy-agent-engine  (waits for get-project-number)
+#                     └── deploy-cloud-run  (shadow: --no-traffic --tag sha-SHORT_SHA)
+#                         └── get-shadow-url
+#                             └── smoke-test
+#                                 └── post-deploy-eval
+#                                     └── enable-canary
+
+substitutions:
+  _EVAL_PROFILE: "standard"
+  _PYTHON_VERSION: "3.11"
+  _FIRESTORE_DATABASE: "customer-support-db"
+  _GOOGLE_CLOUD_LOCATION: "us-central1"
+  _REGION: "us-central1"
+  _SERVICE_NAME: "customer-support-app"
+  _AR_REPO: "customer-support"
+  _STAGING_BUCKET: ""
+  _AGENT_ENGINE_RESOURCE_NAME: ""   # current champion engine — Cloud Run fallback only
+  _MODEL_ARMOR_ENABLED: "false"
+  _MODEL_ARMOR_TEMPLATE_ID: ""
+  _CANARY_TRAFFIC_PERCENT: "10"     # % of traffic to send to canary after eval passes
+  _EVAL_DATASET: "tests/post_deploy/datasets/post_deploy_cases.json"
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+
+steps:
+  # ===========================================================================
+  # Install dependencies
+  # ===========================================================================
+  - id: "install-deps"
+    name: "python:${_PYTHON_VERSION}-slim"
+    entrypoint: "bash"
+    args:
+      - "-c"
+      - |
+        pip install uv --quiet &&
+        uv sync --frozen --group dev
+    waitFor: ["-"]
+
+  # ===========================================================================
+  # Lint (parallel with unit-tests)
+  # ===========================================================================
+  - id: "lint"
+    name: "python:${_PYTHON_VERSION}-slim"
+    entrypoint: "bash"
+    args:
+      - "-c"
+      - |
+        export PATH="/workspace/.venv/bin:$$PATH"
+        ruff check customer_support_mas/ --ignore=E501
+    waitFor: ["install-deps"]
+
+  # ===========================================================================
+  # Unit tests at standard profile — stronger gate for a release
+  # (parallel with lint)
+  # ===========================================================================
+  - id: "unit-tests"
+    name: "python:${_PYTHON_VERSION}-slim"
+    entrypoint: "bash"
+    args:
+      - "-c"
+      - |
+        export PATH="/workspace/.venv/bin:$$PATH"
+        pytest tests/unit/test_tools.py tests/unit/test_mock_rag.py \
+               tests/unit/test_refund_standalone.py \
+               tests/unit/test_agent_eval_ci.py -v --tb=short
+    env:
+      - "GOOGLE_CLOUD_PROJECT=$PROJECT_ID"
+      - "GOOGLE_CLOUD_LOCATION=${_GOOGLE_CLOUD_LOCATION}"
+      - "FIRESTORE_DATABASE=${_FIRESTORE_DATABASE}"
+      - "GOOGLE_GENAI_USE_VERTEXAI=True"
+      - "EVAL_PROFILE=${_EVAL_PROFILE}"
+    waitFor: ["install-deps"]
+
+  # ===========================================================================
+  # Integration tests — multi-agent handoff eval (parallel with lint, after unit-tests)
+  # Added to release gate: staging already ran these but prod deserves its own pass.
+  # ===========================================================================
+  - id: "integration-tests"
+    name: "python:${_PYTHON_VERSION}-slim"
+    entrypoint: "bash"
+    args:
+      - "-c"
+      - |
+        export PATH="/workspace/.venv/bin:$$PATH"
+        pytest tests/integration/test_integration_eval_ci.py -v --tb=short
+    env:
+      - "GOOGLE_CLOUD_PROJECT=$PROJECT_ID"
+      - "GOOGLE_CLOUD_LOCATION=${_GOOGLE_CLOUD_LOCATION}"
+      - "FIRESTORE_DATABASE=${_FIRESTORE_DATABASE}"
+      - "GOOGLE_GENAI_USE_VERTEXAI=True"
+      - "EVAL_PROFILE=${_EVAL_PROFILE}"
+    waitFor: ["unit-tests"]
+
+  # ===========================================================================
+  # Build Docker image — tag with $TAG_NAME, $COMMIT_SHA, and latest
+  # ===========================================================================
+  - id: "docker-build"
+    name: "gcr.io/cloud-builders/docker"
+    args:
+      - "build"
+      - "-t"
+      - "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_SERVICE_NAME}:$TAG_NAME"
+      - "-t"
+      - "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_SERVICE_NAME}:$COMMIT_SHA"
+      - "-t"
+      - "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_SERVICE_NAME}:latest"
+      - "-f"
+      - "backend/Dockerfile"
+      - "."
+    waitFor: ["lint", "integration-tests"]
+
+  # ===========================================================================
+  # Push all tags to Artifact Registry
+  # ===========================================================================
+  - id: "docker-push"
+    name: "gcr.io/cloud-builders/docker"
+    args:
+      - "push"
+      - "--all-tags"
+      - "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_SERVICE_NAME}"
+    waitFor: ["docker-build"]
+
+  # ===========================================================================
+  # Capture champion revision — the currently live revision before shadow deploy
+  # Written to /workspace/champion_revision.txt for enable-canary step.
+  # Runs in parallel with deploy-agent-engine (read-only describe).
+  # ===========================================================================
+  - id: "capture-champion"
+    name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+    entrypoint: "bash"
+    args:
+      - "-c"
+      - |
+        CHAMPION=$(gcloud run services describe ${_SERVICE_NAME} \
+          --region="${_REGION}" \
+          --project="$PROJECT_ID" \
+          --format=json 2>/dev/null | python3 -c "import json,sys;d=json.load(sys.stdin);t=sorted(d.get('status',{}).get('traffic',[]),key=lambda x:x.get('percent',0),reverse=True);print(t[0].get('revisionName','') if t else '')" 2>/dev/null || echo "")
+        echo "Champion revision: $$CHAMPION"
+        echo "$$CHAMPION" > /workspace/champion_revision.txt
+    waitFor: ["docker-push"]
+
+  # ===========================================================================
+  # Get project number — $PROJECT_NUMBER is not a Cloud Build built-in.
+  # Written to /workspace/project_number.txt for deploy-agent-engine.
+  # Runs in parallel with capture-champion.
+  # ===========================================================================
+  - id: "get-project-number"
+    name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+    entrypoint: "bash"
+    args:
+      - "-c"
+      - |
+        PROJECT_NUM=$(gcloud projects describe $PROJECT_ID --format='value(projectNumber)')
+        echo "Project number: $$PROJECT_NUM"
+        echo "$$PROJECT_NUM" > /workspace/project_number.txt
+    waitFor: ["docker-push"]
+
+  # ===========================================================================
+  # Deploy Agent Engine — always creates a NEW resource for this release.
+  # Display name: customer-support-multiagent-v1.2.0 (traceability).
+  # Resource name written to /workspace/agent_engine_resource_name.txt.
+  # ===========================================================================
+  - id: "deploy-agent-engine"
+    name: "python:${_PYTHON_VERSION}-slim"
+    entrypoint: "bash"
+    args:
+      - "-c"
+      - |
+        export PATH="/workspace/.venv/bin:$$PATH"
+        export PROJECT_NUMBER=$(cat /workspace/project_number.txt)
+        python deployment/deploy.py --action deploy
+    env:
+      - "GOOGLE_CLOUD_PROJECT=$PROJECT_ID"
+      - "GOOGLE_CLOUD_LOCATION=${_REGION}"
+      - "FIRESTORE_DATABASE=${_FIRESTORE_DATABASE}"
+      - "GOOGLE_CLOUD_STORAGE_BUCKET=${_STAGING_BUCKET}"
+      - "AGENT_ENGINE_DISPLAY_NAME=customer-support-multiagent-$TAG_NAME"
+      - "MODEL_ARMOR_ENABLED=${_MODEL_ARMOR_ENABLED}"
+      - "MODEL_ARMOR_TEMPLATE_ID=${_MODEL_ARMOR_TEMPLATE_ID}"
+    waitFor: ["get-project-number"]
+
+  # ===========================================================================
+  # Deploy Cloud Run as shadow revision (0% traffic).
+  # --no-traffic: shadow gets no live traffic until eval passes.
+  # --tag sha-SHORT_SHA: enables a dedicated URL for smoke + eval testing.
+  # --revision-suffix sha-SHORT_SHA: gives a predictable revision name.
+  # Shadow revision points to the NEW Agent Engine via AGENT_ENGINE_RESOURCE_NAME.
+  # ===========================================================================
+  - id: "deploy-cloud-run"
+    name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+    entrypoint: "bash"
+    args:
+      - "-c"
+      - |
+        SHORT_SHA=$(echo $COMMIT_SHA | cut -c1-7)
+        # Use the new Agent Engine resource name written by deploy-agent-engine.
+        # Fall back to the substitution value (champion engine) only if file missing.
+        if [ -f /workspace/agent_engine_resource_name.txt ]; then
+          RESOURCE_NAME=$(cat /workspace/agent_engine_resource_name.txt)
+          echo "New Agent Engine resource: $$RESOURCE_NAME"
+        else
+          RESOURCE_NAME="${_AGENT_ENGINE_RESOURCE_NAME}"
+          echo "Warning: using fallback Agent Engine resource: $$RESOURCE_NAME"
+        fi
+        gcloud run deploy ${_SERVICE_NAME} \
+          --image="${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_SERVICE_NAME}:$TAG_NAME" \
+          --region="${_REGION}" \
+          --platform=managed \
+          --allow-unauthenticated \
+          --no-traffic \
+          --tag="sha-$$SHORT_SHA" \
+          --revision-suffix="sha-$$SHORT_SHA" \
+          --set-env-vars="GOOGLE_CLOUD_PROJECT=$PROJECT_ID,FIRESTORE_DATABASE=${_FIRESTORE_DATABASE},GOOGLE_CLOUD_LOCATION=${_REGION},GOOGLE_GENAI_USE_VERTEXAI=True,ENVIRONMENT=production,AGENT_ENGINE_RESOURCE_NAME=$$RESOURCE_NAME,MODEL_ARMOR_ENABLED=${_MODEL_ARMOR_ENABLED},MODEL_ARMOR_TEMPLATE_ID=${_MODEL_ARMOR_TEMPLATE_ID},RELEASE_VERSION=$TAG_NAME" \
+          --memory=1Gi \
+          --cpu=1 \
+          --min-instances=0 \
+          --max-instances=10 \
+          --port=8080
+    waitFor: ["capture-champion", "deploy-agent-engine"]
+
+  # ===========================================================================
+  # Get shadow URL — the tagged revision URL for smoke + eval testing.
+  # Written to /workspace/shadow_url.txt.
+  # ===========================================================================
+  - id: "get-shadow-url"
+    name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+    entrypoint: "bash"
+    args:
+      - "-c"
+      - |
+        SHORT_SHA=$(echo $COMMIT_SHA | cut -c1-7)
+        SHADOW_URL=$(gcloud run services describe ${_SERVICE_NAME} \
+          --region="${_REGION}" \
+          --project="$PROJECT_ID" \
+          --format=json | python3 -c "import json,sys;d=json.load(sys.stdin);tag='sha-'+sys.argv[1];u=[t.get('url','') for t in d.get('status',{}).get('traffic',[]) if t.get('tag')==tag and t.get('url')];s=d.get('status',{}).get('url','');print(u[0] if u else (s.replace('https://','https://'+tag+'---',1) if s.startswith('https://') else ''))" $$SHORT_SHA)
+        echo "Shadow URL: $$SHADOW_URL"
+        echo "$$SHADOW_URL" > /workspace/shadow_url.txt
+    waitFor: ["deploy-cloud-run"]
+
+  # ===========================================================================
+  # Smoke tests against shadow URL — zero prod users affected
+  # ===========================================================================
+  - id: "smoke-test"
+    name: "python:${_PYTHON_VERSION}-slim"
+    entrypoint: "bash"
+    args:
+      - "-c"
+      - |
+        export PATH="/workspace/.venv/bin:$$PATH"
+        SHADOW_URL=$(cat /workspace/shadow_url.txt)
+        if [ -z "$$SHADOW_URL" ]; then
+          echo "ERROR: shadow URL is empty — get-shadow-url step failed to resolve it"
+          exit 1
+        fi
+        echo "Smoke testing shadow revision: $$SHADOW_URL"
+        CLOUD_RUN_URL=$$SHADOW_URL pytest tests/smoke/ -v --tb=short
+    waitFor: ["get-shadow-url"]
+
+  # ===========================================================================
+  # Post-deploy eval — evaluate the NEW Agent Engine directly via eval_vertex.py.
+  # Uses async_stream_query() (--custom-inference) for multi-agent support.
+  # Writes scores to /workspace/eval_scores.json.
+  # Exits 0 if thresholds pass, 1 if they fail (blocks enable-canary).
+  # ===========================================================================
+  - id: "post-deploy-eval"
+    name: "python:${_PYTHON_VERSION}-slim"
+    entrypoint: "bash"
+    args:
+      - "-c"
+      - |
+        export PATH="/workspace/.venv/bin:$$PATH"
+        ENGINE_RESOURCE=$(cat /workspace/agent_engine_resource_name.txt)
+        ENGINE_ID=$(echo "$$ENGINE_RESOURCE" | awk -F'/' '{print $$NF}')
+        echo "Evaluating new Agent Engine ID: $$ENGINE_ID"
+        python tests/eval_vertex.py \
+          --agent-engine-id $$ENGINE_ID \
+          --profile ${_EVAL_PROFILE} \
+          --dataset "${_EVAL_DATASET}" \
+          --custom-inference \
+          --output /workspace/eval_scores.json \
+          --delay 5
+    env:
+      - "GOOGLE_CLOUD_PROJECT=$PROJECT_ID"
+      - "GOOGLE_CLOUD_LOCATION=${_GOOGLE_CLOUD_LOCATION}"
+      - "FIRESTORE_DATABASE=${_FIRESTORE_DATABASE}"
+      - "GOOGLE_CLOUD_STORAGE_BUCKET=${_STAGING_BUCKET}"
+      - "GOOGLE_GENAI_USE_VERTEXAI=True"
+    waitFor: ["smoke-test"]
+
+  # ===========================================================================
+  # Enable canary — only runs if post-deploy-eval exited 0 (passed).
+  # Splits Cloud Run traffic: champion keeps (100 - CANARY_PCT)%, canary gets CANARY_PCT%.
+  # If no champion exists (first deploy), promotes canary to 100%.
+  # ===========================================================================
+  - id: "enable-canary"
+    name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+    entrypoint: "bash"
+    args:
+      - "-c"
+      - |
+        SHORT_SHA=$(echo $COMMIT_SHA | cut -c1-7)
+        CANARY_REVISION="${_SERVICE_NAME}-sha-$$SHORT_SHA"
+        CHAMPION=$(cat /workspace/champion_revision.txt)
+        CANARY_PCT=${_CANARY_TRAFFIC_PERCENT}
+
+        if [ -z "$$CHAMPION" ]; then
+          echo "No champion revision found (first deploy) — promoting canary to 100%"
+          gcloud run services update-traffic ${_SERVICE_NAME} \
+            --region="${_REGION}" \
+            --project="$PROJECT_ID" \
+            --to-revisions="$$CANARY_REVISION=100"
+        else
+          CHAMPION_PCT=$((100 - $$CANARY_PCT))
+          echo "Enabling canary: $$CANARY_REVISION=$$CANARY_PCT%, $$CHAMPION=$$CHAMPION_PCT%"
+          gcloud run services update-traffic ${_SERVICE_NAME} \
+            --region="${_REGION}" \
+            --project="$PROJECT_ID" \
+            --to-revisions="$$CANARY_REVISION=$$CANARY_PCT,$$CHAMPION=$$CHAMPION_PCT"
+        fi
+        echo "Canary enabled. Nightly eval will promote to 100% or rollback."
+    waitFor: ["post-deploy-eval"]
+
+  # ===========================================================================
+  # Cleanup old Agent Engines — keep the 2 most recent versioned engines.
+  # Runs after canary is enabled so champion + canary are both safe to keep.
+  # Engines matching display name pattern customer-support-multiagent-v*.*.* are
+  # sorted by creation time; all beyond the 2 newest are deleted.
+  # ===========================================================================
+  - id: "cleanup-old-engines"
+    name: "python:${_PYTHON_VERSION}-slim"
+    entrypoint: "bash"
+    args:
+      - "-c"
+      - |
+        export PATH="/workspace/.venv/bin:$$PATH"
+        python deployment/cleanup_engines.py \
+          --project "$PROJECT_ID" \
+          --region "${_REGION}" \
+          --keep 2
+    env:
+      - "GOOGLE_CLOUD_PROJECT=$PROJECT_ID"
+      - "GOOGLE_CLOUD_LOCATION=${_REGION}"
+      - "GOOGLE_GENAI_USE_VERTEXAI=True"
+    waitFor: ["enable-canary"]
+
+images:
+  - "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_SERVICE_NAME}:$TAG_NAME"
+  - "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_SERVICE_NAME}:$COMMIT_SHA"
+  - "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_SERVICE_NAME}:latest"
+
+timeout: "5400s"  # 90 min: CI + docker + agent engine + shadow + eval

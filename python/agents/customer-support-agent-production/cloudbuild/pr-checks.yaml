@@ -1,0 +1,157 @@
+# PR Check Pipeline — Triggered on every pull request to main
+#
+# Automatically detects whether customer_support_mas/ files changed and
+# adjusts the test profile accordingly — no manual /gcbrun comment needed.
+#
+#   No agent changes (docs, terraform, scripts, etc.):
+#     Steps: lint + tool-tests + unit-tests (fast profile, Rouge-1 only)
+#     Cost: free (no LLM judge calls)
+#
+#   Agent files changed (customer_support_mas/**):
+#     Steps: lint + tool-tests + unit-tests + integration-tests (standard profile)
+#     Cost: low (LLM judge calls for rubric-based tool use)
+#     Broken agent logic is caught before merge, every time.
+#
+# Step execution:
+#   detect-agent-changes  (parallel, cloud-sdk)
+#   install-deps          (parallel, python)
+#     ├── lint
+#     └── tool-tests
+#         └── unit-tests        (waits for detect-agent-changes)
+#             └── integration-tests  (skipped if no agent changes)
+
+substitutions:
+  _PYTHON_VERSION: "3.11"
+  _FIRESTORE_DATABASE: "customer-support-db"
+  _GOOGLE_CLOUD_LOCATION: "us-central1"
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+
+steps:
+  # ===========================================================================
+  # Detect agent changes — runs in parallel with install-deps
+  #
+  # Diffs PR head against origin/main to find changed files.
+  # Writes fast/standard to /workspace/eval_profile.txt
+  # Writes true/false    to /workspace/run_agent_tests.txt
+  # ===========================================================================
+  - id: "detect-agent-changes"
+    name: "gcr.io/google.com/cloudsdktool/cloud-sdk:slim"
+    entrypoint: "bash"
+    args:
+      - "-c"
+      - |
+        git fetch origin main --depth=1 2>/dev/null || true
+        CHANGED=$(git diff --name-only origin/main...HEAD 2>/dev/null || \
+                  git diff --name-only HEAD~1 HEAD 2>/dev/null || \
+                  echo "customer_support_mas/init")
+
+        if echo "$$CHANGED" | grep -q '^customer_support_mas/'; then
+          echo "Agent files changed — standard profile + integration tests"
+          echo "standard" > /workspace/eval_profile.txt
+          echo "true"     > /workspace/run_agent_tests.txt
+        else
+          echo "No agent files changed — fast profile, skipping integration tests"
+          echo "fast"  > /workspace/eval_profile.txt
+          echo "false" > /workspace/run_agent_tests.txt
+        fi
+    waitFor: ["-"]
+
+  # ===========================================================================
+  # Install dependencies via uv (reproducible from uv.lock)
+  # ===========================================================================
+  - id: "install-deps"
+    name: "python:${_PYTHON_VERSION}-slim"
+    entrypoint: "bash"
+    args:
+      - "-c"
+      - |
+        pip install uv --quiet &&
+        uv sync --frozen --group dev
+    waitFor: ["-"]
+
+  # ===========================================================================
+  # Lint — ruff check + ruff format --check (mirrors .pre-commit-config.yaml)
+  # Runs in parallel with tool-tests
+  # ===========================================================================
+  - id: "lint"
+    name: "python:${_PYTHON_VERSION}-slim"
+    entrypoint: "bash"
+    args:
+      - "-c"
+      - |
+        export PATH="/workspace/.venv/bin:$$PATH"
+        ruff check customer_support_mas/ --ignore=E501 &&
+        ruff format customer_support_mas/ --check
+    waitFor: ["install-deps"]
+
+  # ===========================================================================
+  # Tool Tests — pure Python, mocked Firestore, no LLM calls
+  # Runs in parallel with lint
+  # ===========================================================================
+  - id: "tool-tests"
+    name: "python:${_PYTHON_VERSION}-slim"
+    entrypoint: "bash"
+    args:
+      - "-c"
+      - |
+        export PATH="/workspace/.venv/bin:$$PATH"
+        pytest tests/unit/test_tools.py tests/unit/test_mock_rag.py tests/unit/test_refund_standalone.py -v --tb=short
+    env:
+      - "GOOGLE_CLOUD_PROJECT=$PROJECT_ID"
+      - "GOOGLE_CLOUD_LOCATION=${_GOOGLE_CLOUD_LOCATION}"
+      - "FIRESTORE_DATABASE=${_FIRESTORE_DATABASE}"
+      - "GOOGLE_GENAI_USE_VERTEXAI=True"
+    waitFor: ["install-deps"]
+
+  # ===========================================================================
+  # Unit Agent Evaluation — profile auto-set by detect-agent-changes
+  # fast:     Rouge-1 only (no LLM calls, ~5 min)
+  # standard: + tool_name_f1 custom metric (~10 min)
+  # ===========================================================================
+  - id: "unit-tests"
+    name: "python:${_PYTHON_VERSION}-slim"
+    entrypoint: "bash"
+    args:
+      - "-c"
+      - |
+        export PATH="/workspace/.venv/bin:$$PATH"
+        PROFILE=$(cat /workspace/eval_profile.txt)
+        echo "Running unit tests with EVAL_PROFILE=$$PROFILE"
+        EVAL_PROFILE=$$PROFILE pytest tests/unit/test_agent_eval_ci.py -v --tb=short
+    env:
+      - "GOOGLE_CLOUD_PROJECT=$PROJECT_ID"
+      - "GOOGLE_CLOUD_LOCATION=${_GOOGLE_CLOUD_LOCATION}"
+      - "FIRESTORE_DATABASE=${_FIRESTORE_DATABASE}"
+      - "GOOGLE_GENAI_USE_VERTEXAI=True"
+    waitFor: ["tool-tests", "detect-agent-changes"]
+
+  # ===========================================================================
+  # Integration Evaluation — skipped automatically if no agent files changed
+  # Runs standard profile: rubric-based LLM judge for tool use quality
+  # ===========================================================================
+  - id: "integration-tests"
+    name: "python:${_PYTHON_VERSION}-slim"
+    entrypoint: "bash"
+    args:
+      - "-c"
+      - |
+        if [ "$(cat /workspace/run_agent_tests.txt)" != "true" ]; then
+          echo "Skipping integration tests (no customer_support_mas/ changes)"
+          exit 0
+        fi
+        export PATH="/workspace/.venv/bin:$$PATH"
+        PROFILE=$(cat /workspace/eval_profile.txt)
+        echo "Running integration tests with EVAL_PROFILE=$$PROFILE"
+        EVAL_PROFILE=$$PROFILE pytest tests/integration/test_integration_eval_ci.py -v --tb=short
+    env:
+      - "GOOGLE_CLOUD_PROJECT=$PROJECT_ID"
+      - "GOOGLE_CLOUD_LOCATION=${_GOOGLE_CLOUD_LOCATION}"
+      - "FIRESTORE_DATABASE=${_FIRESTORE_DATABASE}"
+      - "GOOGLE_GENAI_USE_VERTEXAI=True"
+    waitFor: ["unit-tests"]
+
+# Fast (no agent changes):    ~10 min
+# Standard (agent changes):   ~25 min
+timeout: "2400s"

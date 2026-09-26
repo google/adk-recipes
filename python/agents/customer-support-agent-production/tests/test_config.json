@@ -1,0 +1,12 @@
+{
+  "criteria": {
+    "tool_trajectory_avg_score": 0.8,
+    "response_match_score": 0.6,
+    "hallucinations_v1": {
+      "threshold": 0.8,
+      "judge_model_options": {
+        "judge_model": "gemini-2.5-flash"
+      }
+    }
+  }
+}

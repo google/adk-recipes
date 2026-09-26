@@ -1,0 +1,26 @@
+{
+  "eval_set_id": "out_of_scope_weather",
+  "eval_cases": [
+    {
+      "eval_id": "out_of_scope_weather",
+      "conversation": [
+        {
+          "user_content": {
+            "parts": [{"text": "What's the weather like today?"}],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [{"text": "I'm sorry, I can only help with products, orders, and billing. I can't provide weather information"}],
+            "role": "model"
+          },
+          "intermediate_data": {
+            "tool_uses": []
+          }
+        }
+      ],
+      "session_input": {
+        "user_id": "demo-user-001"
+      }
+    }
+  ]
+}

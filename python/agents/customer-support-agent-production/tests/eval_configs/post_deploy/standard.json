@@ -1,0 +1,11 @@
+{
+  "metrics": [
+    "TOOL_USE_QUALITY",
+    "FINAL_RESPONSE_QUALITY"
+  ],
+  "thresholds": {
+    "TOOL_USE_QUALITY": 0.5,
+    "FINAL_RESPONSE_QUALITY": 0.5
+  },
+  "description": "Standard post-deploy eval: tool use quality + response quality"
+}

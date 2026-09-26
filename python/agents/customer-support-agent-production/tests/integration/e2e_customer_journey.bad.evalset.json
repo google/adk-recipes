@@ -1,0 +1,496 @@
+{
+  "eval_set_id": "e2e_customer_journey",
+  "name": "e2e_customer_journey",
+  "eval_cases": [
+    {
+      "eval_id": "journey_support",
+      "conversation": [
+        {
+          "invocation_id": "e-c588e529-27d2-45f9-9b0f-b3dfb4fd5928",
+          "user_content": {
+            "parts": [
+              {
+                "text": "Track order ORD-67890"
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "text": "Your order ORD-67890 was delivered on February 2, 2026, by QuickPost. The tracking number is QP456789012.",
+                "thought_signature": "CrEEAY89a1--gU_5xV64HnOWGRSpCJ-y7YLmfISVSXB4fLd1gim7-9aPRh3vhXxuc8AZrY5RsGHnHMKph1BbocDjyE3b1Oksq9o0GzSHwWL8n2xkKTheqi1q8hobTWSCAL-yZUJOE8kskkH8YCegM_iF-_be2X3hKi5-B-4Igm-XxhtWhfqMxM_wgVz9RuXX95uIG9gpqLyyIVmnMRAECOHBu-3v9PxAp8vQoyrBUQJZW1eKs962-khpQ2ry2tkWQIa28KLS5TfFwfUjv34D0YyCdctDeRzcCdluXJAzTfMpnLsc-_GiwJ35nYn3zIMPjpxItJObUaP4ma1uT9bFMgl5ivw2gei5tjUVM8pXzSW4pTWsBm3-B7DNnUbF2ixLYjDW76OB7Hjipg_k9hd5ySVFpAbW3hg_-oWYBqJ-E4gqZcYZsPnHllrtmbZLlEy0Tma6mnUO8HbX45bMIoD9n88Db27LuU5m5V1CvpbWOzIztc9q1glYHRMvbXCmCMubo4d9M-BPF2rHxvRmVj09F5C6tgY5uYRHIFbOfErsunFygOyAvOCt4RfM_yRZG1x52HyYOpmQOxnByL3NeW2ud2xOIqHu30oaT_eo2pUVCCIegmTgLnKkYrAAr-VdcvQ5KY52rfPZeu9yvOZJXzDMkNmYuhzGihr9tvOB8H2hvUEEm_nk5pGsWqJqPiIpyzcWHtYmW09l4etT3e4o6TLNWZAGxU7TCk_cmkIrUnPMiNrVF1jX"
+              }
+            ],
+            "role": "model"
+          },
+          "intermediate_data": {
+            "invocation_events": [
+              {
+                "author": "customer_support",
+                "content": {
+                  "parts": [
+                    {
+                      "function_call": {
+                        "id": "adk-a825a9f7-8d29-4551-a34c-f2c74b7e1a4d",
+                        "args": {
+                          "request": "Track order ORD-67890"
+                        },
+                        "name": "order_agent"
+                      },
+                      "thought_signature": "CtsCAY89a1_H9LfnYkKsZTH-X0fCa6fJfi7Psp8PUMY7k_dSfrfec-DUzpqNy7K4UQkoBj3R4IuofDn70Mju83m6qvcgOpRFyqeDjwp2jJrOXmm1lWvlKSGkl3amEhT1p0mVHY2vMdHbBkaBgE5pFVrZE6QcB5G7M-KibV5Oz_czS--ruoiXmuIsRbr172cq3YVzMud_hJJCn_P22nksZHrx9LM02FRzuh8oTROVqmaIfsU-ncFAYp23SwGmFvylipvyCRS8nLGUsWiEMse2sUTM78fCbKHBPsb95iC4e-edyXhQC8kRtiANGcVMbY7d0m3m7mEBNA-2hOFYeWJe86wARNJ5J_EHTrqsaTETihTD8GD2SiSBTEL6EUjIGUCcNZZ8pt9TnFW1AsrHQUNfyIrwI6kWKbVi-MefTKE4fIS8P_evTPoVUNjoVrZ3uhmVpqEPka7ItRIurmdtp48="
+                    }
+                  ],
+                  "role": "model"
+                }
+              },
+              {
+                "author": "customer_support",
+                "content": {
+                  "parts": [
+                    {
+                      "function_response": {
+                        "id": "adk-a825a9f7-8d29-4551-a34c-f2c74b7e1a4d",
+                        "name": "order_agent",
+                        "response": {
+                          "result": "Your order ORD-67890 was delivered on 2026-02-02 by QuickPost. The tracking number is QP456789012."
+                        }
+                      }
+                    }
+                  ],
+                  "role": "user"
+                }
+              }
+            ]
+          },
+          "creation_timestamp": 1770495039.0394335
+        },
+        {
+          "invocation_id": "e-34e82a1c-a18d-4ba6-a4e4-ee813df2872e",
+          "user_content": {
+            "parts": [
+              {
+                "text": "Show me the invoice"
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "text": "Here is your invoice for order ORD-67890:\n\n**Invoice ID:** INV-2025-002\n**Date:** 2025-01-10\n**Customer ID:** demo-user-001\n**Status:** Paid\n\n**Items:**\n*   Wireless Headphones Pro (Qty: 1, Price: $199.99)\n\n**Subtotal:** $199.99\n**Tax:** $16.00\n**Total:** $215.99",
+                "thought_signature": "CpwDAY89a1-7GIZVXo8TfKpUzKFKXgqlJE-3XgjPpQkl3A41aTEhP_vKTEvbBstw-zW10XxUmJy7KXXMBat64XPB-i-t9G1pVXWpg4A5e8ZBwXoAON9ERNTNN_Os3ZmfQvGAsHBpHpMkopHvWcUnwmuy0jkWcj4bWgys4bD7CvRxmUkzBK5NBtQTQ8p4e_hEPYcJY31nROL0_KdGFUBSjFypzR6Qasaz_kpr-ORiwsDINFEMCHdJO9UDeBmRSiSleiYPxImqvMZ2MKM738u2iZ_FPjUDjmlWVgGAByIqber7OIUQYFEGffagVCrzNjDdzHhiC0EfhL3DE2zfXnZkz6aSVVglbOmlzFsJ-FZcvswKCM4wDD6abj94sbnvVpWsVZJ1-PQbL0W1WQTa6-eAunbimBBZZzFwA6KNc26hrSasWgLGzSd35KHfgb4wk8KRdCWNY1QLjUd8CGnLGCfTaa2ofA6gF0-2NNq3Ae0Powm-iQdMaCeMHdCzkL8VJ8fa31yxiP000CnImxcc5voGKhqG6XGdnWP2oqNmdvPNWQ=="
+              }
+            ],
+            "role": "model"
+          },
+          "intermediate_data": {
+            "invocation_events": [
+              {
+                "author": "customer_support",
+                "content": {
+                  "parts": [
+                    {
+                      "function_call": {
+                        "id": "adk-088d6618-935c-4c69-965a-e0291e2d82da",
+                        "args": {
+                          "request": "Show me the invoice for order ORD-67890"
+                        },
+                        "name": "billing_agent"
+                      },
+                      "thought_signature": "CqsEAY89a18Wumn8fjxooJTJe05pktfRrdiqaA0Cxv63CrhRa2qrktBkxW60NUasaWf_MIgpTklvrLhWV8TYc1neRqY5AWn18loMvIRmXQmWjnOCJGL1gjolsw_I0typQNbZBP2HlEPy2psmeGfKvoYOJBHFB7k1OcT5ZiRtEs24XgkPxZ3oJkxedJnCbD7f3_-SZ8PkD8hTtSFiYi7L2tBvzWBkYGRYYqGIbcC9RjVlSVxWb9UzIGS_1PxzM8vRdlrGG-SZzzduP6ekSyIdNUAh0Ur0MC-K5aDvYK7psfT5_wYIFedYj0zUs4t1tJlwXV8_KdmwiZVXwolx17vTGWHMV07HAko6NLC_Elu6tiKLyAmQSBnqAu9ixqCEgA0daUTM8m3QlnaDrXERf9U0bjN5jq-PnRcXI5cQ0E8TGNMrq8jaSqt56NuBqS5muhp7_LJwLOWvaot5uOwGZ4MNs8OtYS-2nIYgby-jWx4U7hhA7GOKdnoZmPzATbaoQu-vaw4E3X09xXDYBJ-VzO5C6izTC19gJbO8o0F-WWTSphRvA3HNWNWUwol0FhSsNlzyjJGwKjm4ibV-2R07_iSk27DAZK4zGco9bliaXPCaPChFq6hJV-i1guR28WMPtCLGcseOV3XDaf-Q4cefxUgOK583sYe5c0CQF65gvkJbha0EdXRzGTHLrB0B40AoWB-yfryd9l5ZOHhwfhGY9k6lG_9D94bqlnR4sVyD7Urp"
+                    }
+                  ],
+                  "role": "model"
+                }
+              },
+              {
+                "author": "customer_support",
+                "content": {
+                  "parts": [
+                    {
+                      "function_response": {
+                        "id": "adk-088d6618-935c-4c69-965a-e0291e2d82da",
+                        "name": "billing_agent",
+                        "response": {
+                          "result": "Here is your invoice for order ORD-67890:\n\n**Invoice ID:** INV-2025-002\n**Date:** 2025-01-10\n**Customer ID:** demo-user-001\n**Status:** Paid\n\n**Items:**\n* Wireless Headphones Pro (Qty: 1, Price: $199.99)\n\n**Subtotal:** $199.99\n**Tax:** $16.00\n**Total:** $215.99"
+                        }
+                      }
+                    }
+                  ],
+                  "role": "user"
+                }
+              }
+            ]
+          },
+          "creation_timestamp": 1770495064.2751434
+        },
+        {
+          "invocation_id": "e-23f1e0d6-2518-4ac1-9fb5-c300cde40f4a",
+          "user_content": {
+            "parts": [
+              {
+                "text": "I want a refund, the item is defective"
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "text": "A refund of $199.99 for order ORD-67890 has been submitted successfully. Your refund ID is REF-67890-01. Please allow 3-5 business days for processing.",
+                "thought_signature": "CrcDAY89a1_e1dy9H19Efvhy4epm5p9zntmt5pm3jz5WzcdE-eiRtgWzgaej9g8KtuEB8SpPScXTXpCPYUs779bo84ZNqZSQew63yCcMNydzVhF6Ee7-NBYlECHGI_mjkUGrImA_8Ew5dd5m7uC3jgu5T9NXzunjvFsTw97i2aK04CClaZUb6kkfz7VFukUF_BHWt6apyTR4v9X2QrCxZL8pv0uRaDQufzg6_58humcT4jTtFX5lYe6b7P36lydOnl2IHZ2vSq-V3XhkKW4cG5K63GlZZu5Bvw-2Ob5mKIlQsTxhmjss641dNDNg96xiIno64erVjSzl5qGNPYn9Z9K8yQSuteBeyzNKhBDW92sVPkxRVscj_vJs02x88xeVPdwh0z0QT3LNNqOXa3IBzBqMHEn8c147omUOQ7XtCtOQhkOlANT9fOBynHV8CvYh7vZPxgtFNnvBnJAxpgEqNEHkJ634O8JChEl4UqYjg4JkHyF-UlpJsK-maK8AxSDTFd5z42Wu9lXtTNBfNRHopeTa1fTIh_Vg-bfcSMPM6xYBH6_1MtA0B9MisnJwHmNjcnhcbbZ4V4ZmvQ=="
+              }
+            ],
+            "role": "model"
+          },
+          "intermediate_data": {
+            "invocation_events": [
+              {
+                "author": "customer_support",
+                "content": {
+                  "parts": [
+                    {
+                      "function_call": {
+                        "id": "adk-ae09a1e4-7451-4ea2-a2c1-e430855c9738",
+                        "args": {
+                          "order_id": "ORD-67890"
+                        },
+                        "name": "check_if_refundable"
+                      },
+                      "thought_signature": "CokIAY89a1_F9bZ8xeXQM-pa8PMi4BXYVJL38QfuNiZ6A1bTjvttN6xALSv_yBuqvcaToTVgDijTECRnqFBHaf0v-ouHYFfi-LQ1e_VBf_lAyDStD1zyrDTiXDBZ_UVkczHhfyPYXz3Av9SFyet1LkC38usJ_iqIDfyCyqq0MUj3rRsiI5Gl8QlwBsdMVHYN499NvhqQAnKzynxD6q0AjEcchRE0wibwiJmnryktGbp4opt26cyLWQbDmdlEKKYird2Z7Us4wR_5xNnKrtsRr2uZ3fN0YiIdJxA16lvbHh_Ac9cw-j7uasq4O6lqzVmU2Nxl9CpwvqoADcGW87-ghY9sxH-ECxGIFciy4-HTZ_UaHTZX4y8zXH2cDrTucBun5cTQ-Lx1wCqqzqjGSos1_-WP1EODMlh3t_PK4nbyUIqnY5g98uzDvk8wZXGfnvbjarxq0OWzkDnYYOwZreeMNZu9CVYB-Nz1aCLx8NLLSMf8pnt1t9pzw4Dcj8lmeFMnzNb-Z4RkBbScWrs5eK3Eq2EIe0kYXhsJPy-VEad6majdptDLucmGCMu2wql5DmFAEEBFjdgv10NivalVQY0ov2vE6C5UifEIyYLqzJlJ60pRmccX159U5l4DWKCo0x3l65PXsWL93aaJsuxN4coCAYpgFuVCEGygFctT7ijLLJ9DeEu5a7G6UjbwK0l7pYoKs88qe6Y5Zt3RdTEO4fI32IcHC2TsjmvTtVS2MkAyuQ0SRkvB1A8u_HBZxyE0InUut-7WWEX2ToCi-s7srDEQrRDeIPRiV7fnDlAylGZ3gLaAJUX3zGyj6PNauWnwcAj327gbzKTpcTuAxmeL9qfT7Mla659zXlhFHDClWk8CKDaygqFbP9Ki41zYj-oJ9yKSA4Fu_k5C16_vorOD78jtHTYkEU-218k8jg4oEXQ7mAw2WAQM-5Iz1UUljP05pQmrlOIrdOkl1FWuyr4bLx62dN3-FcnicUpmxrPRkQvbVxjynvk_2sKqPXa3fOK-zz6ghAU6GVi0r24ZtnZLAgpynO9UiG5vRY6RwkX-7axwFhpyeatg0R3NHbcmiandDHzVLvxlXeZrpstO2_VpB1wBiPbn878nRUPNMxWR39kNqVYXZd3InZ-FdHywwGwe09n99tl7dBh2buWLWFz3Zk38osCY47Yb_WMLkSB0NWllfO1d1oc3VrcFqxeicff5DD0upeZA56Kj6Iy5CYtuRYialfcBh7w4bKKqnAPyMKjpDk2gObGEiH7IuQCrAdHfe-mf6Ho9rI9QaHF7ZacnXGTV-IotuAayycpSMYjKLebc9F0gs0peqQCXMpoZAqseVcF6TSbbxm5AjBDlIwokuXwiE4wKuFsMQ1v06vYOJQoiAY89a1_mH4Hi2kALmAvibZy_-Tm65PyTcy3ZWA5MPE3NLg=="
+                    }
+                  ],
+                  "role": "model"
+                }
+              },
+              {
+                "author": "customer_support",
+                "content": {
+                  "parts": [
+                    {
+                      "function_response": {
+                        "id": "adk-ae09a1e4-7451-4ea2-a2c1-e430855c9738",
+                        "name": "check_if_refundable",
+                        "response": {
+                          "status": "eligible",
+                          "eligible": true,
+                          "order_id": "ORD-67890",
+                          "message": "Order ORD-67890 is eligible for refund.",
+                          "refundable_items": [
+                            {
+                              "product_id": "PROD-002",
+                              "name": "Wireless Headphones Pro",
+                              "qty": 1,
+                              "price": 199.99
+                            }
+                          ],
+                          "estimated_refund_amount": 199.99,
+                          "days_remaining_in_window": 25,
+                          "next_step": "Please provide the reason for your refund request."
+                        }
+                      }
+                    }
+                  ],
+                  "role": "user"
+                }
+              },
+              {
+                "author": "customer_support",
+                "content": {
+                  "parts": [
+                    {
+                      "function_call": {
+                        "id": "adk-d3202615-2006-416c-9bb8-ebae612d0317",
+                        "args": {
+                          "request": "I want a refund for order ORD-67890 because the item is defective"
+                        },
+                        "name": "refund_workflow"
+                      },
+                      "thought_signature": "CrgHAY89a1-nkgLMqRfWaSH538IEpOL7GRT9rjDYFwwfL2XicGdSEyozwT9ccFb5FVuDkmYXlOALUVdCsPIcD5pGLe3lZguFIPWSVzpk0zZUu3Q0_pFxm84Wz2nBiaUM0ZxXvqqNq8h2F0gL6MTZ4L_V6ly-W-cLGYgZEVnFEUzyFrcGBN4xouh50th7uFyb4c0EjbkG8y8Jl3wn244zi2S0pfV7nxEPPwlXHjMhLftunEKjrzA7uaRwrS-cCNQxwmEQ9w2ys3pyebfwlSN6RpdeOAgXm27BkQXzIJWr278bU1fkxD6tJ6e4q_R6ly5fgNOHy9Kg_ZAW1MfNvwv-vqnqfZ3ALS-wsXa2m1dkLrUkJfg35RLIvnKKhUZe7SR9GJxYhdJAC2zpr2KoX6C6f0ME9rGHJgQucgcEe_l7KJ4_DDV7OqgWunAU6nIEtwm0j7E3iW3TRx0XiVPZNQxB3_6IRdvJDQpXI33nwetGMbbVYC1AM8Iia2oNG0TKhgrQAxNjgbGvmdItfdtOCVttgEnGgwKi7yl4wZHcGVSfXcY9TBJ7J6tLtDmn7W3r5BDry0SlzlnuyTN85C_YvBzjwygiZMlbtGgQw2dLyRhP1kOTAxo4j9b3Tf8FcWIT0mGW5NZXnr_kSNGDKfSHdZJsG3kwTlrwK_oJGOXx377_ITHVC3xh3HpJV8B1qBc4eZdwrFzuQSZs5W1X2VIRA6G0fT6StgXThKBjzMlttmVfb9TSY6rN5ON8qKN92CBw6jbLMfOfCgJ0R5NjB3wmsnqKSrVmstxYEviL9wCPVoveJgQ96PA0ysxOv4G5H56WUfP5bJVtSViDaCWJwtIWx0afp8wGmvtrNd5qk_UX808no-OAfaI8mNRtzvXVf57NMxyKcFIg8w0Kd0Ig_IxM_zbM7oXCCc1YqCjOh36jeYLvbwLNSMLrwJpZJBGhFecjW9UiZ1TNl-l4MYseMCBOpbuGoNMdqBWILuOD_AL_DDMtlNTTB26O3xL0sdLMrtSQUz0yBIIuChRofD1QJo2nkoASL0FwRVsTtXHbiyVoG61cSf6Q-gToNPWtxFZA1umpqsOlqviZqdZYqA_zlP8TOeo8JT3VRF3VEr2cMKo-jKtqdpq-48HZfjuKv4FQgMKCq6rF_BKzfKJdlNTZjVUO6HPQjoz6ysRzABjEV8afLUPEzVNnejXD10zerenF-VRO0U9Gm3E-a9EAnuwdqmiKgklu28CPjQsCSPWkLkyVIkc3AdDB0HuasRMJzhaluw=="
+                    }
+                  ],
+                  "role": "model"
+                }
+              },
+              {
+                "author": "customer_support",
+                "content": {
+                  "parts": [
+                    {
+                      "function_response": {
+                        "id": "adk-d3202615-2006-416c-9bb8-ebae612d0317",
+                        "name": "refund_workflow",
+                        "response": {
+                          "result": "A refund of $199.99 for order ORD-67890 has been submitted successfully. Your refund ID is REF-67890-01. Please allow 3-5 business days for processing."
+                        }
+                      }
+                    }
+                  ],
+                  "role": "user"
+                }
+              }
+            ]
+          },
+          "creation_timestamp": 1770495096.457821
+        }
+      ],
+      "session_input": {
+        "app_name": "root_agent",
+        "user_id": "demo-user-001"
+      },
+      "creation_timestamp": 1770495096.4581022
+    },
+    {
+      "eval_id": "journey_multi_order",
+      "conversation": [
+        {
+          "invocation_id": "e-98a57cf8-1580-4ae4-a471-dd009ad6ae10",
+          "user_content": {
+            "parts": [
+              {
+                "text": "Where is order ORD-12345?"
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "text": "Your order ORD-12345 is in transit. It is being shipped with FastShip, and the tracking number is FS789456123. The estimated delivery date is January 20, 2025.",
+                "thought_signature": "CoQIAY89a1_rzXOKZy2TajRxCgun4FQ6lCh_vCV7OPoQ9shA6LnMsdwsoI2xDWaVbbFPnyZ-VoH_M4OCY9bygxpnqloZAVm3OMDYSt7pfl_0wg6QUix7yJ9V0dxnUq9fFSAAZV3IhM3bxjQvsrJrNg2a7AU58nou-ZU3jYXma8u8Del8X4E099kazzozDpGa8OJazKPB_qLzOnJbj2iE5lQmtUxKTkd_tYs0XloMu68LiIgDwupbNJokzDx1TyW-hAN7YkWPo2UK522Eey2zWXPSTu-dqBzHbYTPn323vChXrjZ7F18kTndXa1xQGwkQibmxcMJFUlcyhK3ERg8HsC3VpwqL78A-CzzS4eRvkMIMQTWtt-tcFohpWCYMXgja51E2q_Hp6rSZOLVxQUouNB_E_AzCqNIvOF-7zNoqIhmgSZI6QEUgwMlxQgqjZHSxs8v0JjR7G0rMjEbq9HkT9ZIaNam--ovMtI4DThJlrpZc_xDUwCgAjzHwhbddaVcNhLf3hQxMsvDwEKlczNvl8KdUCO9tzGp7S7i8Iga8xpqrTgW0foH8qxNM9wUQW23JB3cdm2DOAnyWaIOGkr6Ao805gHLSgtTIr8dOI9LMrJzeSXYhjPbZKyxJ4PD7vZMewViDVxTqPiOjt8UwoW11c-8DcmHCVFr5FYOGOQx4ZL5b7pYQFy-qy3Q7ndRXvLqLvthByJWHhZgLnsXeEbV7HJklKAQ3SmciHg-4yuMDgM6zhadbtmTodG9JickknnK-yNUso7lsqRn8dkpWUikkZ6EKo2MfeqYCQXBKdGYc85keh-zKHW_-GeI0EgsMdQv4y-wrU61yCKPAcOLdZ5bcpOSJd5aO2eItmpd--AGj7ojAFAOLQB0ajmw7MG27o6PFtWiLKpeU5GLDAoieVHAPylw-kTWxLpvqOxQSDbVsnVfBX-28G3qiM2RGprpcLaUZ3y-LjQJq9HARrPipY8FPIFNB2SJu93tnSeNNfMywGkk9Z1jFFlOOWS-Aj93-sBffQuh6LOWAm6uOaopBnKxqGmtUaSBUI-l09oNtDGzTf7zl9yiWMM-0EXaNxoPd3WnUaj8jMSk6_aS1CDRg7qtSkzIS69XkSk1A7qmG2bmbbZNo3fnFmmw1XW07xDJARc3sfP3cgvb3k-t5ioC0kmfZiyY7014FWu4w6_41WUDgl-LBzk3FWv7V4Izv9w-SMdb105d4wcEzXyDXiDQwsJw_HRfMiFWTm8C9RqACr1jjFU9TmAuOPN41Ns9sA9sGMQzuVgtnotbspZ8soPUH3kKH-zhGnARXZ7MGoJd-_RzC_d4Oj2Z13uYfujzOwhi9tLtopqdXX6beAhfKD2R-AUtB_nuGM4ddCVs="
+              }
+            ],
+            "role": "model"
+          },
+          "intermediate_data": {
+            "invocation_events": [
+              {
+                "author": "customer_support",
+                "content": {
+                  "parts": [
+                    {
+                      "function_call": {
+                        "id": "adk-be78e63f-05ef-4d57-adb5-eb1254a8dbaa",
+                        "args": {
+                          "request": "Where is order ORD-12345?"
+                        },
+                        "name": "order_agent"
+                      },
+                      "thought_signature": "CusCAY89a18OtL_5UG3LQiqZl0DBJky8z_TkkWH6ZXPBHcYylj0DKZGEahD88do1QpkQ-ar-C3a31W9iES9-25mtxMoa79wOChmL60llQ4r-3Ev0DAkgfEYpV7tHqzmZcRschN0NhuH1BNJs3CP30aNDQaaMY4Rt1cP-PVcYsLTv7pUlN93cawEftHKcPu_KP-ZQnxIrFn2Rm5YPhLqqdzf46vuvAG87A6tGjthxA9kgFJjTLkY_iF2lzDJ360kFGqhaziLThaZGe07y0tX0GKGLMHzsRLqAHiTCXo_T7tHB0ppP97QUbw8cgg67oTMoYvRTsreOiTTq7fQ7l5oUuG4yzm_85stJaqQ4BSVvBmV57JRfzvhGHVatRLucVIS3UuxMbPj2esFGh-yDzITMRSC3Klmq3WbKQPvKS5-RG7Mf9Ak1VnYUvN0v5nA8sFkKYK5QnRqKSmP2n-Mmc1PKVy6I2Uug0EIhA0_VT-dB"
+                    }
+                  ],
+                  "role": "model"
+                }
+              },
+              {
+                "author": "customer_support",
+                "content": {
+                  "parts": [
+                    {
+                      "function_response": {
+                        "id": "adk-be78e63f-05ef-4d57-adb5-eb1254a8dbaa",
+                        "name": "order_agent",
+                        "response": {
+                          "result": "Your order ORD-12345 is currently in transit with FastShip. The tracking number is FS789456123. It was shipped on 2025-01-17 and is estimated to be delivered by 2025-01-20."
+                        }
+                      }
+                    }
+                  ],
+                  "role": "user"
+                }
+              }
+            ]
+          },
+          "creation_timestamp": 1770495122.8138707
+        },
+        {
+          "invocation_id": "e-9748a2b3-fd30-4a04-a279-b015d8ada9ae",
+          "user_content": {
+            "parts": [
+              {
+                "text": "What about ORD-67890?"
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "text": "What would you like to do with order ORD-67890? Would you like to track it or view its details?",
+                "thought_signature": "CsIEAY89a1-OvMVJ285kuHgOU5ImM9O51K2SflFNmKtaPt2meP4YFzqdqFNrFBcZlVFnKU3TQ6n5i-9qoajZDlK09ghy5QC66HdrFvFh0n-OxnijzSJXVmOzoAHQFDhMXArOJZYOKwIY1Y-EkQumh6nWlBqbN6z_D3O6qZ0qLSTaehc-2H_4e3eFBdE2V-JygO30A7UiIKB9TmIlMa7y02in4Q5D97B7e5NyUpScW-uqceDV8I_wHU5e63lOP-M-uizssZBFQepAKYz-KqADJ-vfuzBrslkbR-SaOFEPbRDHk96skgurcPgHUbDQyTs4abEpSVDsBjpRS_1N_Zs8mwPk7azt3j8iQ_cXEVxp9430z7yI8O-FbZkUrPaGgqlSpEUQYvTLYNGeGlAS2zKkXnPrHN3mOe5B-pbS0_Lta1Yt6eD6B9XilnwCVaXnEmNOwa1wVLcNszonKhJZXiw3G9YkMU46nj5WWkDt-M9ri8IJ8IB8KX9J9WhvsRThCuhbitkDPCJbp7uGjXJ2TW_fB8RZd2bjgiotGxF20wnRIG1Cr7K_akz7DebboWNgE2v98O1cpAhUaA7zBftJeCaj-GcByV9n2eJR5wI_nfwe3PJqnKddJxTEPWegSAQ4uNbrgpRerdQqd5CuOXlpCwSlptOyV7lk_LISQz_17cQ-K4Wgv7OJU-Ok0fffWtCaPQedu78Imx7rGm3e8DJw76-KKbkdAtgJUhVaBf1ZoZul26n_WlVaCn7HJXhde_Lakw1qFeExTDY="
+              }
+            ],
+            "role": "model"
+          },
+          "intermediate_data": {
+            "invocation_events": [
+              {
+                "author": "customer_support",
+                "content": {
+                  "parts": [
+                    {
+                      "function_call": {
+                        "id": "adk-59f5317a-b597-407b-95b0-772b6ba11604",
+                        "args": {
+                          "request": "ORD-67890"
+                        },
+                        "name": "order_agent"
+                      },
+                      "thought_signature": "CpsGAY89a18jgZZ9KDwZAtIXpq2dNRtAhYFCc4DMMtVjHun_Vw5yhK9bV-Zlc4ZLYrUeVmzuH-n7KLQqmECh8_j9Sm-oU3L0hpS8FguMqCpTTSKeRULQ3K9wWg7dAhAQsV_8q20VKHz23Xjz3exiJ8ZngtyZfEPzEm1ji5roxCflyeFk2-8GQ_p3FXPCHpVxqrpjcMTyAVD1GBZYtQ6byW0mzPWSiMsKOoW9lIWI9UY-0nwtqIjx2i1sQ11Ao0Dpo0lwZZrzMfuOyV_SNfn3CkN0qmAYtoBwWCWgJfJ7p-PjBO5DipaQy4lEr8mkIu5BjxjXm7YYgQwY6v1d4tEZRaSmahtIVBfHpUizQ_xVdfT-tVnXw1hJlgrT6P-IOBYbbGGJlbHQht7ttyEHLDdZRL4pvbstvglXkkzOh7Qeq1tMMMeUQqnd-Y8MM7TrBWy4CocHVuOIwflARMAs4iXbjLIaeo-ph8Q3q9HaQOL9YNQyvILYGfW-A9NUbLv20c_uXB1LXPhCmty-1JRTPUxnZUTQVyXeJeZq5sGP6rDXDLQdraTQCOASmNU8BF2Lcb_VUkaM-_TryQkW3pQrkaZI1_jDTvrw1YAx2NvIau1GjNRnlhTK9Y6KO2e5I7TipTKVrI7wSG0HzwDzeSjDwXeN96WiCyIzhrmLKz34HUdLo0M9Gxne9td8mJAWlbIcuR94bRzp8VRy70sDCkE_2wcx7hQJQY9PVksqlkPdEtaxptVdWanVx55yF_sDhRb7BEAL24fsLk6JvsZ5VJ043YkKPdoe3jh9ASu13rrxjLLKLDUMv8MXnk5QK9kloLmlCO3DHCq65UjqFrMBEz5pNV7ZqqTUK_gcdoXvGrqruBmmQATYYavw_5dN12yvgmmHkbIS5f4TSw2T_uJ39Nx2_RuJyr_whvBFr3wi4mx0IawPj5rKNPd5Jjfsq7GJ42iR1exphR6Qx1J4hCPz_DgVzF6Szht8YlSn9bBeMlOroB2mDcTV_fmj-WX4z4NAVEvpp68g8aSLlvZMwZDGl9m9z9X3NUh2wx17HcN-gjox1ZT8"
+                    }
+                  ],
+                  "role": "model"
+                }
+              },
+              {
+                "author": "customer_support",
+                "content": {
+                  "parts": [
+                    {
+                      "function_response": {
+                        "id": "adk-59f5317a-b597-407b-95b0-772b6ba11604",
+                        "name": "order_agent",
+                        "response": {
+                          "result": "What would you like to do with order ORD-67890? Track it or view details?"
+                        }
+                      }
+                    }
+                  ],
+                  "role": "user"
+                }
+              }
+            ]
+          },
+          "creation_timestamp": 1770495136.8728607
+        },
+        {
+          "invocation_id": "e-413becc6-da3d-4455-ac8c-84c7264fb6bb",
+          "user_content": {
+            "parts": [
+              {
+                "text": "Show me all my invoices"
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "text": "Here are all your invoices:\n\n*   **Invoice ID:** INV-2025-001\n    *   **Date:** 2025-01-15\n    *   **Total:** 1295.98\n    *   **Status:** Pending\n    *   **Items:**\n        *   ProBook Laptop 15 (1 @ 999.99)\n        *   Wireless Headphones Pro (1 @ 199.99)\n\n*   **Invoice ID:** INV-2025-002\n    *   **Date:** 2025-01-10\n    *   **Total:** 215.99\n    *   **Status:** Paid\n    *   **Items:**\n        *   Wireless Headphones Pro (1 @ 199.99)\n\n*   **Invoice ID:** INV-2024-003\n    *   **Date:** 2024-12-20\n    *   **Total:** 485.99\n    *   **Status:** Paid\n    *   **Items:**\n        *   Ergonomic Office Chair (1 @ 449.99)",
+                "thought_signature": "CsMHAY89a1_zIoi-H1CyFBQSmcNMIdozs21CWzyDbWMH0pLdmS5uN1UMVR9T3UxbLbeDv8dVc7w-OtuMcq-fI25PH6AJjcwvI9GfbrVgyOw2Gbidvtb0o-BoP94m1VxpCESNDgKg9azk7lCRLcGET-ogVsAztrSrppfhY6gWmbY6olIkmqFY_XYa1vMzpWn-Rj_5mbd-hx6qt2YB7_PTesac6yTerH3YFOi55izqVe1b9MKtgJSq5UP2FHjtvmncJ5uzvPOjkisj2reAmKrwwC_FCB6tcJdKHy1UULXquBPrqV8w4Fz_rIZuOyM9k9RgjzmnussUfu5_O-s0SwHoipVdB59K0s3P3jwPBcTWb3tuZ38axVRnUeslbOFJW2SnCPX8b-E7X7RqW6Od1YgtEpk3o3kj55tJCBY3_Os95XkK4CMYlKcXGvpkahHM07xbYzWcvry_3Jg1SOw2Kcz-djzuvdI4kNMXsUum6HJfZ1EkpjQAjRogSwf83GQ_MXdGflBOkBEUcHOpgf0MklZd-E5AqX3ho3rccFfOFmSijKwgMXnlrhpxQo2rlkfHooU3pCgfv4Esev4ps5u8MLn4R03lS_ZdU8icYenHAiVnPjUMvSRNGKReuqI0gYkQlJNUmwluiDWIkBdpFS4HOlrAaOPp2JAbyZgvUAEuzQr3rUlBTUphgR_HNfcrLAsMzwCc4CEmznO4da-PVN00Z5YRBAnvR94xm-yORj6e5IgtYJrIEyX8X6dzbntutDvwrm3FYmb2csgJMJWQ8m9opuUMo1YRUtf_5ZvDrU9NvOkKHqVWar0fz8pRnBxRaS9OJMC5sUNHBd74pCq-v5WjaP-_CZRah4taNT_U5ehBJkd9Mk99HCTYJ_QDVteOJzHi-8Jz3gFHp1__DpyrYg_C7TGvwTbgijwI_ueaGcvpEy3xNk5PnJBy8sVkFZijcNAlpaMMMph_N3hA7hs6NQzucypj39wIxNA4L35mDeD376AMh8SMTGTeQ0b-FpD54HWtvRdiQfm4WNIMuLepRSwI4wfrIiVg7DofMflxGyTEo1do6A-WgsccNqSIVaT74G3Jw4amJQX5oiAdkIhdYCpUgeV4tYKaL9pKvdlF1g91AELYGKCaeSAA2KEKM_JAj94mPnEacDPRtNjCruGQ5ykSafzVtCGKKBtq17NTKSqKkf6sa2in1qdRn92TyAX1Mt_IlDRI7w2QkpBuPj-L5QWEB_zspFmSRNjuq7gTs5iIyOr_c3ip4_XFo1jMfi4Gq5vXfjnAMFpPcCjV"
+              }
+            ],
+            "role": "model"
+          },
+          "intermediate_data": {
+            "invocation_events": [
+              {
+                "author": "customer_support",
+                "content": {
+                  "parts": [
+                    {
+                      "function_call": {
+                        "id": "adk-3ae25ff3-8646-4766-83a6-f0d24f79732f",
+                        "args": {
+                          "request": "Show me all my invoices"
+                        },
+                        "name": "billing_agent"
+                      },
+                      "thought_signature": "Cv8CAY89a1-nZkqxv6UHaP_g1XO5AGG0s_55Kn9krGvwMcUf67XsFafsg3mrTDoLxK_TimfM3Hb-FzkOmXTkR8JfUnd1hf9HEyFsZf810a39-4-FA3jMhsPmfczPfCbcKfpa4AY_-9L-rny8M3SnZ2LaRePALxOh1mjVdUiFSO7siU-pmefanbK8KlHDE7jhKRwiHfa8KXK089w9Jc5-26OZMIknAQcoFcAZMqbX21G9hwd21DMshuR94vHePnsetsp-JkD5it4OX9GH15B958WSSB8gHsmQvhRmpLOph4dGp97wYrZ_EeuiyH7ZKQlYIOGQHL-AvRW_Epfsqk522Q_ghYyM5-bogZLDBXjWH-YrDiLHz0-_QpIjQhblxMriiZp2y_Rbuyn5xTR_At6QoGUDgVik6H9m8Ugct_8SpWEt-PoEX1KC3rF1uPiKLggYQvbCrxtwJwflgpsPx3htuqSmYbYSfWAezx7UwpJUiCTDfekBtoisR31Pez6oIVVySPY="
+                    }
+                  ],
+                  "role": "model"
+                }
+              },
+              {
+                "author": "customer_support",
+                "content": {
+                  "parts": [
+                    {
+                      "function_response": {
+                        "id": "adk-3ae25ff3-8646-4766-83a6-f0d24f79732f",
+                        "name": "billing_agent",
+                        "response": {
+                          "result": "Here are all your invoices:\n\n*   **Invoice ID:** INV-2025-001\n    *   **Date:** 2025-01-15\n    *   **Total:** 1295.98\n    *   **Status:** Pending\n    *   **Items:**\n        *   ProBook Laptop 15 (1 @ 999.99)\n        *   Wireless Headphones Pro (1 @ 199.99)\n\n*   **Invoice ID:** INV-2025-002\n    *   **Date:** 2025-01-10\n    *   **Total:** 215.99\n    *   **Status:** Paid\n    *   **Items:**\n        *   Wireless Headphones Pro (1 @ 199.99)\n\n*   **Invoice ID:** INV-2024-003\n    *   **Date:** 2024-12-20\n    *   **Total:** 485.99\n    *   **Status:** Paid\n    *   **Items:**\n        *   Ergonomic Office Chair (1 @ 449.99)"
+                        }
+                      }
+                    }
+                  ],
+                  "role": "user"
+                }
+              }
+            ]
+          },
+          "creation_timestamp": 1770495155.7619991
+        },
+        {
+          "invocation_id": "e-63350543-c3e2-42fa-813b-5c6e1c6157c5",
+          "user_content": {
+            "parts": [
+              {
+                "text": "What's my payment history?"
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "text": "Here's your payment history:\n\n*   **Order ID:** ORD-12345\n    *   **Amount Due:** $1295.98\n    *   **Payment Method:** Credit Card (ending 4242)\n    *   **Payment Status:** Pending\n*   **Order ID:** ORD-67890\n    *   **Amount Paid:** $215.99\n    *   **Payment Date:** 2025-01-10\n    *   **Payment Method:** Credit Card (ending 4242)\n    *   **Payment Status:** Completed\n    *   **Transaction ID:** TXN-789456\n*   **Order ID:** ORD-11111\n    *   **Amount Paid:** $485.99\n    *   **Payment Date:** 2024-12-20\n    *   **Payment Method:** Credit Card (ending 4242)\n    *   **Payment Status:** Completed\n    *   **Transaction ID:** TXN-111222",
+                "thought_signature": "CtYFAY89a1-KBA9W9UBsSDFZRUxyUvoFKNa_TdjhuBJCu5Ko9Tkc5CzVSpiYXgPXiVsdz2A348-3d-9oSL47aJsEHyomZ7gIFHbtzHWl3a7cAVuexluVpxOFz3zih087I5jpbqiOVl8TrgrG1N9z-wT18s1oZe42rMRCIWS7kuibDkMBMH1kyCRWsk5-CnrPwHVlQLtg4NgJdtE4-oXl5ip3bKszKCgD0ii6v4R61U0SfB-En5aYkHxz4aTWbcorw8Vp1P49zh64eGM4Mi3DSoMimUo09xQtILxp4DNGrxyuntWAjZfXq1_Wxpj44lcrEoPpL-x4HeFx7JbOsazTf1yffdkKtd9bvsoBnp7drCcxcViOPCQ1UyhHJzeS6p1SUJsHcsn3nTA1jfbDKGeF1P2J-1z4wafSpFm-HsjbZnuGfk4J-PO9uf6nweLUXAq5eTAMcHJEDrEH4cdvFvK4fTeRkjDBHeDeO_QOo4BlRTzyNOCPTt9q6hG8XDMw7B6l3P7u6glCJs2hIXbsAemtiSg4dnKPmU5P3kTv7DvGtVLQ-dlPZDetfUjt-d8OlRRGnQKEIflii_MMsBiFwSCJ7_WePkNIDAHYxmb14_oa2W86hic9YTWVxLWJBmAU5HVmgWS97j_8W4ls_WGjGWEDF5ebEhKMebWM1wC4ixckOgXFq5cVpt2-6q5M1PFNvf0cOxHfjfjqnOb_dW6qsWyrzlaODFI7ulOO1PCNTpwLRcV1FICMA75KoEFDXhrlcEW-3St3rBJXg2RTaxSdZbVDjMVmFmR2mFl7tcRhXtuskPwxIrAknjgm1bHIyV2LExF4oarc9cwugyQGfrRb7MJn_D9CSJFsFWEcFysxxpg8Mt0R5wVZn4RXC8tM9ft5um-H5etu2wHZsGq6X4jX1Yf1-SP3pIHWyhh-Q3TXFwtD1ju9IQQHbP55DYO8Vi-7WA2a9LVyRhx--HjN"
+              }
+            ],
+            "role": "model"
+          },
+          "intermediate_data": {
+            "invocation_events": [
+              {
+                "author": "customer_support",
+                "content": {
+                  "parts": [
+                    {
+                      "function_call": {
+                        "id": "adk-c95f4291-e945-436b-9f7a-ca3c6fdea341",
+                        "args": {
+                          "request": "What's my payment history?"
+                        },
+                        "name": "billing_agent"
+                      },
+                      "thought_signature": "CrQDAY89a19BMY5uCOIKwgZbD6jNr3kuFJIaMzr_eSsjPZloQu3OnHI0MPtnidE07hdpv7nntYl8Pb_8iiVQYSpkYRpejAle4A-_W3B1B1Tb5O_DTVFSKnbmUv78TezYlbHLp9WscMUgx8YAEwXsPh7PX88bY0xZNimta1uW7ShYsdbExFrgB2CEPAYlSyTxexsU6GqW9eRLYHs29VI36oOuc9mrN95-lanhlim5-iu6EuRkGrwvH_9kXw3pE0QO4Vq8Ix7zI91ZX8DsRdAeFtu_XhVp8CwW9iQSNtwcsfYRF-27r9DUYiMWV8YpLSgSHlugL6OOLN9IVe1ODLT5zKR_Yhw8A72wp2qmuZeA65jNS9Zf9wABl65ECFNN3Q9FOfb4z6g_4bye_AWi0oh-lIk_V9dU3lWIol275zo2Q8Z5hKnjBSb-23HoCdKPqWx18h8oJ8YJDeJoiuQ9uWRRqNaW_izqyyx3QV2_bO22XmSayHTA7jUuHGc_6xUooIPb3iTPHrh2KdducuAFeXCVzmUBg3YV5rWiuhD9sggbWc4UqS__M3ibVax-G5T_IWErrLFfosmLBg=="
+                    }
+                  ],
+                  "role": "model"
+                }
+              },
+              {
+                "author": "customer_support",
+                "content": {
+                  "parts": [
+                    {
+                      "function_response": {
+                        "id": "adk-c95f4291-e945-436b-9f7a-ca3c6fdea341",
+                        "name": "billing_agent",
+                        "response": {
+                          "result": "Here's your payment history:\n\n*   **Order ID:** ORD-12345\n    *   **Amount Due:** $1295.98\n    *   **Payment Method:** Credit Card (ending 4242)\n    *   **Payment Status:** Pending\n*   **Order ID:** ORD-67890\n    *   **Amount Paid:** $215.99\n    *   **Payment Date:** 2025-01-10\n    *   **Payment Method:** Credit Card (ending 4242)\n    *   **Payment Status:** Completed\n    *   **Transaction ID:** TXN-789456\n*   **Order ID:** ORD-11111\n    *   **Amount Paid:** $485.99\n    *   **Payment Date:** 2024-12-20\n    *   **Payment Method:** Credit Card (ending 4242)\n    *   **Payment Status:** Completed\n    *   **Transaction ID:** TXN-111222"
+                        }
+                      }
+                    }
+                  ],
+                  "role": "user"
+                }
+              }
+            ]
+          },
+          "creation_timestamp": 1770495173.0185966
+        }
+      ],
+      "session_input": {
+        "app_name": "root_agent",
+        "user_id": "demo-user-001"
+      },
+      "creation_timestamp": 1770495173.0189233
+    }
+  ],
+  "creation_timestamp": 1770495173.0189464
+}

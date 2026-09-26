@@ -1,0 +1,148 @@
+{
+  "eval_set_id": "demo_user_002_tests",
+  "name": "demo_user_002_tests",
+  "eval_cases": [
+    {
+      "eval_id": "auth_track_other_user2",
+      "conversation": [
+        {
+          "invocation_id": "e-58e86812-50ac-4d79-afad-523d9ab345e8",
+          "user_content": {
+            "parts": [
+              {
+                "text": "Track order ORD-12345"
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "text": "I'm sorry, I cannot track order ORD-12345 because you do not have permission to access this order. Please ensure you are trying to track an order associated with your account.\n"
+              }
+            ],
+            "role": "model"
+          },
+          "intermediate_data": {
+            "invocation_events": [
+              {
+                "author": "customer_support",
+                "content": {
+                  "parts": [
+                    {
+                      "function_call": {
+                        "id": "adk-ba16b9bb-1976-4e18-981b-5cfbcf5aaa81",
+                        "args": {
+                          "request": "Track order ORD-12345"
+                        },
+                        "name": "order_agent"
+                      },
+                      "thought_signature": "CrcCAY89a1_Bu8gtJbUUcpOirEwL3hYF7Kw14w9HwJEWSDYNe6veCHCPJMMqeJi20hNGB9THd0ivLofkybXmow7pMOnYsE9HFxwlOU2mr6UaJZaA7iMunncuv8_LDEMZU5HGeZmTxLjVPXCPNgRwVOyuHMrMSB1QJF4tTp3pfi9YvSjRdz9ONvIlUzr8byaOkZAbjBKBihn6E6AXkyvnLtJySFdSYZKklgqauaGrq2ph200C0d8gM05pJf6UtI9rmPvZGcgDUHykFL7YJ5WqrmtPXnG4yCVkxPsU-6XI1txlgKo6mHiZkYAhnXLIPVCpDjhhgtWND0dMZj203JYJJ2-dM009XUnpaxKrTXymR-xsKpsOMDTlQlctbe4Qdbki_t1mOcWosEisj-qI-XJBgO5-kWm-Thk7KrI="
+                    }
+                  ],
+                  "role": "model"
+                }
+              },
+              {
+                "author": "customer_support",
+                "content": {
+                  "parts": [
+                    {
+                      "function_response": {
+                        "id": "adk-ba16b9bb-1976-4e18-981b-5cfbcf5aaa81",
+                        "name": "order_agent",
+                        "response": {
+                          "result": "I'm sorry, I cannot track order ORD-12345 because you do not have permission to access this order. Please ensure you are trying to track an order associated with your account."
+                        }
+                      }
+                    }
+                  ],
+                  "role": "user"
+                }
+              }
+            ]
+          },
+          "creation_timestamp": 1772552536.8568785
+        }
+      ],
+      "session_input": {
+        "app_name": "eval_auth_user2",
+        "user_id": "demo-user-002"
+      },
+      "creation_timestamp": 0.0
+    },
+    {
+      "eval_id": "auth_refund_other_user2",
+      "conversation": [
+        {
+          "invocation_id": "e-473c07c6-eaad-49db-8593-3adc64c781f7",
+          "user_content": {
+            "parts": [
+              {
+                "text": "Refund order ORD-67890"
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "text": "I'm sorry, you do not have permission to access order ORD-67890. I can only process refunds for orders associated with your account.",
+                "thought_signature": "CvUDAY89a1_MEv8JmTpKaBmXIPlv3t7KW0f7Uy_Jm0H6lTeOYoTfvLrTSGCjN78IOfgEdPdYiDHEweYsgq2gqfDJTpixz5G_GJKABS5ey6knAEE0D1S9-5W7lT3uXI4tM2X5Jtv836bao-yb4IEe1NOVvcxv7q8nJRK0z7p-nJZ8nRJPbQiWc1xlh313thzcSZ29FHh8F0esu62KfTBloT5MZ2_8106eRC7fyDjpCzF06TWfBzAoL0ihEsrCaCnzwLgXHgn5IGFGtpRMz9oBLUzL5uPLRGEUnx_hsTdPyavp-X9QfaepUoWstKsbT2xJW3D7bkbB3Nz-jvTgnG-DOhM5ffSUng5A9g8zRLhpNedDpcp5btNEwlja_vcJIkIGBTWHHGSNQ_-O5VApv4gB-_JfnsrpdXBS2E75Fscrq7HAVlcmnePP8YggTEMNZL239teZtPS0OlqXI-jPm96gLkrcR7VlZfoVnk7yeWaM2WUKo83meJyJsAfNqwhdLNpzDogAyLcats-vlBbqGlpTwmNC3luyqQpCh8d5FZ_ANsfJX5u1GGr035nc_MqBsdyDipsI7ugSOuYhVefanR52bIy7vII5n0rK2eLCzVWAvmIvn6o9onP4hhY-27IOvlTkcpTJQWRExQqnSsfMTJpPgtI3Eo24qbaU"
+              }
+            ],
+            "role": "model"
+          },
+          "intermediate_data": {
+            "invocation_events": [
+              {
+                "author": "customer_support",
+                "content": {
+                  "parts": [
+                    {
+                      "function_call": {
+                        "id": "adk-223d39b3-55c6-4cd5-9193-ad7dcac6cbed",
+                        "args": {
+                          "order_id": "ORD-67890"
+                        },
+                        "name": "check_if_refundable"
+                      },
+                      "thought_signature": "CqwDAY89a1-Qy80B8iNnzfDYpTdm8TS7OgZes6WglAfs1jdxDENy8giOEyiiIvmH6VHZAIkjh3SF4P_dfqfQF1qF5N_WqwqHONCP6x6JRTfU7n75zwBlTUN0oHPaQKQQjnZQvDbn8XXA4_9nxTb1bFL8D9INIqYJN95B2A8eJL2I9XpZ5dhAd_khHYF_Tpia9YHmjXVwoMElFWYChrwkcFdmBeLvJDyhJiCxgON-0NVZjrTHOVVPFzbav4JifRzIuMERHyev_5Q7NxD8ppZh_HGTZnvYJQtPfi3KLrIIW9S96d1i_h553a4Fc9y-_ouuA7-GqGNKCZCQhXXzdpJ1VdFsSybHuldFlb6uTUpdV55MDAb8mjbK0C1OyQi0GFad4lrRgaPfIgh3r9Z_WE8nJv87SQaCUf6AjQ6kwIqVHKO1w3vlNJnLRaaRTZjyK7GbLkt-UeMp1E4rYYXtSIU_t0XVuIvtY7ar35n4AC2M8EmCw_s4b03W6fmJ3vk82x4L8RZW0I-VkrEQ9mLMOhOHv0FpXbWjMG8rVHW0LQAgH8PR1NCT8QMJNGY-Oi8VcoM="
+                    }
+                  ],
+                  "role": "model"
+                }
+              },
+              {
+                "author": "customer_support",
+                "content": {
+                  "parts": [
+                    {
+                      "function_response": {
+                        "id": "adk-223d39b3-55c6-4cd5-9193-ad7dcac6cbed",
+                        "name": "check_if_refundable",
+                        "response": {
+                          "status": "not_eligible",
+                          "eligible": false,
+                          "reason": "You don't have permission to access order ORD-67890"
+                        }
+                      }
+                    }
+                  ],
+                  "role": "user"
+                }
+              }
+            ]
+          },
+          "creation_timestamp": 1772552551.4386156
+        }
+      ],
+      "session_input": {
+        "app_name": "eval_auth_user2",
+        "user_id": "demo-user-002"
+      },
+      "creation_timestamp": 0.0
+    }
+  ],
+  "creation_timestamp": 1772552551.4386778
+}

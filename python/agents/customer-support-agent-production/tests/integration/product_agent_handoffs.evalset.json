@@ -1,0 +1,253 @@
+{
+  "eval_set_id": "product_agent_handoffs",
+  "name": "product_agent_handoffs",
+  "eval_cases": [
+    {
+      "eval_id": "product_browse_flow",
+      "conversation": [
+        {
+          "invocation_id": "e-346402d2-2fd5-4027-a94a-a9200a208f59",
+          "user_content": {
+            "parts": [
+              {
+                "text": "Show me laptops"
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "text": "I found two laptops for you:\n\n*   **ProBook Laptop 15** (PROD-001) - High-performance laptop with Intel i7 - $999.99\n*   **ROG Gaming Laptop** (PROD-006) - High-performance gaming laptop with RTX 4060 graphics card - $1499.99\n\nWould you like more details on any of these?\n"
+              }
+            ],
+            "role": "model"
+          },
+          "intermediate_data": {
+            "invocation_events": [
+              {
+                "author": "customer_support",
+                "content": {
+                  "parts": [
+                    {
+                      "function_call": {
+                        "id": "adk-938df5b2-19a9-4d21-95b9-4b2082873600",
+                        "args": {
+                          "request": "laptops"
+                        },
+                        "name": "product_agent"
+                      },
+                      "thought_signature": "CqIDAY89a1-t2d1DLzM6aT7nAwV8p1RBOm7pBl5WdvAEd_SDsrX-KGag2L0YILLLc1PMQrm-9YDLWXysCqlG8Kr2xHRLsMsANjQ4RsNhPBvcQyFhYOM3uDfqPmNQ7VYZYZDKumNxcheMG9v9Vf3jOaVbUEEj5sYJ_59rhj80a7hDiuvTT9z53NfN2MtmW83kXEoklOTMgRuIrx6Hv3j2vEtjfnu8dv1-Kh91S0SgWdB40Vp2xehxo0vXb4lIs3ox7XWkxBs7Ph7nx_LkwXmGnnfe9PmWLB_tUomN9TADpwGFRnP4WVHs44u7r0XewWLXajbA8FQHbhfPrWuMdjKiNpkf7HkyY1c51zL6uQP-lckrWGk3rijqeogfMqT8SX_-vFG8H5PNK7_SPNFlUPXZcgkvY1HYU5k7fPK3wR8g8SelRBDfN4sxonaBEFTidx9FeAuuTVTZk5NOoedBGMduSjuvl30y6PqRo-4u56mVEiX5rROM579R0YDKCb43okhj5_i29sJGjto7IrvF0-timlLEDQTuHwkaeciV3jUnYi45DYm4VQ=="
+                    }
+                  ],
+                  "role": "model"
+                }
+              },
+              {
+                "author": "customer_support",
+                "content": {
+                  "parts": [
+                    {
+                      "function_response": {
+                        "id": "adk-938df5b2-19a9-4d21-95b9-4b2082873600",
+                        "name": "product_agent",
+                        "response": {
+                          "result": "I found two laptops for you:\n\n*   **ProBook Laptop 15** (PROD-001) - High-performance laptop with Intel i7 - $999.99\n*   **ROG Gaming Laptop** (PROD-006) - High-performance gaming laptop with RTX 4060 graphics card - $1499.99\n\nWould you like more details on any of these?"
+                        }
+                      }
+                    }
+                  ],
+                  "role": "user"
+                }
+              }
+            ]
+          },
+          "creation_timestamp": 1770491724.5558
+        },
+        {
+          "invocation_id": "e-98fa4701-c4cf-4a9f-a63c-74f628420de5",
+          "user_content": {
+            "parts": [
+              {
+                "text": "Tell me more about the ProBook"
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "text": "The ProBook Laptop 15 (PROD-001) is a high-performance laptop with an Intel i7 processor, 16GB DDR5 RAM, and a 512GB NVMe SSD. It costs $999.99 and comes with a 2-year warranty.\n\nThere are 45 units in stock, with 10 in the EU, 15 in US-East, and 20 in US-West.\n\nIt has an average rating of 4.5 stars from 234 reviews. Recent reviews highlight its \"Excellent performance!\" and that it's \"Great for coding.\"\n"
+              }
+            ],
+            "role": "model"
+          },
+          "intermediate_data": {
+            "invocation_events": [
+              {
+                "author": "customer_support",
+                "content": {
+                  "parts": [
+                    {
+                      "function_call": {
+                        "id": "adk-642c68a8-1e33-4da3-91d7-53fb2d8d70eb",
+                        "args": {
+                          "request": "more details about the ProBook"
+                        },
+                        "name": "product_agent"
+                      },
+                      "thought_signature": "CpwGAY89a1-_dsnLYTnnFkaxsDcDBcwEg19z3N2T3p81QeAe8i9lF6yGVeJxpt_EMB15pl24m5BHirOZhHo1Oaw3q2onKkuEKorTcHJED0pN07im9Aro-rAwAjpvfslT5_9D6JuJg6qGLLHhLE9PS8CZT8gygKJtZ0UXAfldUGdmse1xRxioaKRgzkmH294cTYrOTqJJPWNXS7zfGZTNEkXSr-CgM8F1JuTdGuWPTzojP78JmvoyrM5UPE_lV3vPjPlHBtBZ53wgYL8nHL3uuPNpmUYmuqYL2YYa5TOo0c77sDhJc-5R6mZv9FU1eNCq-2rNw15H9XvKj7YyO4c_pCS-_YynVXrI-OChGwnda2wjZf3EDtHIJAFZba4sVyOp1E4o3xaTUIpwWm22vF7ZjzauOfbFgbBjIIS7KlqvlEPkKcZmdCJ4BYPwvHmyAbvrnsDno5T8evF3_PVPKIrBuodSBqEPxEetD_1LXAB-k7CO8oTweqOPPOhEv2TGKhn3M8vxR1E6e3PUipcpL-7HJdK18Mpxly9QxeMLhn2wBwlCL4UsR81pU5wuou6RQa5jUS_0kpEj6qhpZCLjGiUgWA5pE1panHIU66POPKtDb2DOVlQkIpqXJj4kuJgQP1deNRWD15gl8mcEP15evniqIniAtvc107DXL_Lkkii309V5HCUfw8UYj2NpmGnLXZjW4Rg7at5O2jDr-i_RYV-bnTLm0j4EIeHfpf_aLQJYI7TvgOkhC8EimgTGkwmspHUPC4wbWNBUD_j3iDAoh1pfSyiUOnoGEDpzv4IQuEP9TZEQ7qsCJh29hD9TH-aNA6665JHv0z60-vCLy_Cy3o1fK_LuKDNIjKNJ-ZKtFHGHTSctJoG_LWMjgpSEu7EqorCRK8iPVUrh24OS6dGyi1c3k8-oUnXB2s5w4MihuKEQ70JnJyvMsRByBqAA5rh5ZDeJzGcOpEIj_xD2XSFGkCYHdr2weZzDwTjS6GCP_ke8kbceXPMRvDimEWEwV9sS1fOjaeKH-7mXDAojTOp1tX9HQ5DxyVl0MyAbABtee3bnvg=="
+                    }
+                  ],
+                  "role": "model"
+                }
+              },
+              {
+                "author": "customer_support",
+                "content": {
+                  "parts": [
+                    {
+                      "function_response": {
+                        "id": "adk-642c68a8-1e33-4da3-91d7-53fb2d8d70eb",
+                        "name": "product_agent",
+                        "response": {
+                          "result": "The ProBook Laptop 15 (PROD-001) is a high-performance laptop with an Intel i7 processor, 16GB DDR5 RAM, and a 512GB NVMe SSD. It costs $999.99 and comes with a 2-year warranty.\n\nThere are 45 units in stock, with 10 in the EU, 15 in US-East, and 20 in US-West.\n\nIt has an average rating of 4.5 stars from 234 reviews. Recent reviews highlight its \"Excellent performance!\" and that it's \"Great for coding.\""
+                        }
+                      }
+                    }
+                  ],
+                  "role": "user"
+                }
+              }
+            ]
+          },
+          "creation_timestamp": 1770491742.825707
+        },
+        {
+          "invocation_id": "e-93c83a27-2cc4-4f8d-aea7-87c5c02e5f90",
+          "user_content": {
+            "parts": [
+              {
+                "text": "Is it in stock?"
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "text": "Yes, the ProBook Laptop 15 is in stock! There are 45 units available in total, with 10 in the EU, 15 in US-East, and 20 in US-West.\n"
+              }
+            ],
+            "role": "model"
+          },
+          "intermediate_data": {
+            "invocation_events": [
+              {
+                "author": "customer_support",
+                "content": {
+                  "parts": [
+                    {
+                      "function_call": {
+                        "id": "adk-454f5d9f-e991-4ea6-b0fb-19294d750ee8",
+                        "args": {
+                          "request": "Is the ProBook Laptop 15 in stock?"
+                        },
+                        "name": "product_agent"
+                      },
+                      "thought_signature": "CqkEAY89a1_5VRqg1_qN2Me0hBYUN7e_mdUVSF4SkuDOJoJRop2VK_85mjASLt3lQq1gNf4KqfgS8dPyN-JCCm4WLFyz_wyr103QcDr7zwZu39WAXUXbRfYuYR5P__nMYgGlhhH4cjTITE_L2PeDWYNZyTzQDR9kdYNkGyvosK7wNyOnCZlLz4-QMB23314R4fW9MT0eeSJwYaP6Eu01NHSIxp2dRSceeCEhki_qsEWPxEG0Fjg2CLy2pQuCj1HUzGbNnEvyQeTxCpuv3dRtrcJy91B7awkyCa0Va-rwugr-bFWLM-w8DXaAudWWNVzI0cVrYqAYAEWAjS9DtP-l41aiyXukLPYTjbR9WVJrYo-9Fk7KhLmUKEikDQbxA-163AywJo6PmDWdrp9LD8j7EKPa9WNC5zk4wTPVhXYBC_urVA6XzY6PpZWBVgu7-m7urG0mM7_bVrwumUwzzXDHMbLrjS_Njolh9gsjvY4k1igUEcrREUXbi-rNNALggeiaAYX4-qCV0lcc1KKf5V7wNNnUu2s9t4ruG7M-vDMGHxi2AP_QBcmcfIMXd4mM5ipOi8WORQGbgXtm03Ni--B5CUamNIp1ILVorquvWIRCcXC9X3Ok8nCI4zqvErhW7VjDhAHKJtcaIHVZCxHIO04hTEKQiIqtpOuFJcmDXsxJoNfadRvHcM5PUocBW3hncOTX3broTwYZn5vFzzp6mQb2i1fpr7tEhPJ1AOlh8g=="
+                    }
+                  ],
+                  "role": "model"
+                }
+              },
+              {
+                "author": "customer_support",
+                "content": {
+                  "parts": [
+                    {
+                      "function_response": {
+                        "id": "adk-454f5d9f-e991-4ea6-b0fb-19294d750ee8",
+                        "name": "product_agent",
+                        "response": {
+                          "result": "Yes, the ProBook Laptop 15 is in stock! There are 45 units available in total, with 10 in the EU, 15 in US-East, and 20 in US-West."
+                        }
+                      }
+                    }
+                  ],
+                  "role": "user"
+                }
+              }
+            ]
+          },
+          "creation_timestamp": 1770491773.531171
+        },
+        {
+          "invocation_id": "e-f27fec65-a4e8-4160-80e3-ec0e181cfd3d",
+          "user_content": {
+            "parts": [
+              {
+                "text": "What are the reviews?"
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "text": "The ProBook Laptop 15 (PROD-001) has an average rating of 4.5 stars based on 234 reviews.\n\nHere are a couple of recent reviews:\n*   **TechFan**: \"Excellent performance!\" (5 stars)\n*   **Student123**: \"Great for coding.\" (4 stars)\n"
+              }
+            ],
+            "role": "model"
+          },
+          "intermediate_data": {
+            "invocation_events": [
+              {
+                "author": "customer_support",
+                "content": {
+                  "parts": [
+                    {
+                      "function_call": {
+                        "id": "adk-f30c6af1-25d1-4ec4-965c-377c52e4da8d",
+                        "args": {
+                          "request": "What are the reviews for the ProBook Laptop 15?"
+                        },
+                        "name": "product_agent"
+                      },
+                      "thought_signature": "CvYKAY89a188EwVSR49VQoV49w9EJbkVtoO_3khLfqMb9tAUV5w75qG_xjGpqBOaFxC2zT6NwYtZxI9cIFSgmrTwun_gzPAZkirakAkLxtFB_zjTa7yYs7GXdyKAVDZ-rd3GQbvRaqOum7hm3LDHFaTRnws29Tz_Opdv9b7Qa7h0raa_vhScfK-JNuf8bckKexuGmhlumx-MjsOL2Tkp7vlVs56wW0YNs6LhR7qcmd-W7TFYHSughEW8dEPKTgtsTij6N8RVWMe4GmmFC4N_fOEggfbh7GOmH75PAupjUW-Y3ZXaLHr4BslBClEa-L8H0Cs47dWimsDG1pXqpm_yaASLNPvbwmkKwZ-tCCrmfPsnz_i4GeRLFlcX0v_9_pJRf5zgWV0um5v-kFuXKAdymcL21hLgpzEkecUAlG2vuXq8bh79ThlwpUB9nIwKdsxVRfYjEBv8L1t5epf3g-AXyWf0V-GEY0pRYzt2ziAOchr39OtShtJr516ZAqr_hLaxAh0QePjlKZMmazeF-vYt8tAuee_Jg3LTbX_DExWTEY1VocZPJzksgksOxYxIWObg849DHG1kizuSXVMqaDBUFMLqQY5zfFqUolwuVIr5di9OZMcc4yQMw1hoUnBdD5vVNSSbJnJ-l9UJzr_NMPkI-dXzUl8fJPKCArw4I6s-pTzuw8U7xuM--5zyioMl0spg9bhMDKH_bd3L8gBHlbo3KLhRL5jQoyTLR_5byXgW4PdOJEzYuZh7oNnxMqF7xCZvx5NFtpUyvvcwAEIQGfhS0vqnGDozVnW1OGKpSavvYUdur8cASwcNmPivUGltYt4OBPYCqq4aLmlFxhjIWHUIwCIVdXeM632GjYeclaVOw9qbdApJYW9HwXCxln974EjY-9kZApStxm6zRE9eWRK5mPzDv0vD2C2buDXlIYQ5p1viGmpVoQnkbz2yPiOQuG-_P78g_W6Sn7TKqY6JkEEiWcAtY9lmCYJFjDz1YKUE_-bPSsh4rvtJUswsJ-t0V9zcMJksDH9gvtao19aTTfuj7LWtByfB6MgwbHxhlB2cviAJuAOT61Ky-FG202fahC9ZBl8BhKGvKomG2ZwCrVjWT6boqTCSwHfgZz1s0yrdULxQj14i4l_7o1YLSaw9QidmQj2eXWv2PS9Qk4kweyEfYIbMZRxsSoxXn0ekbt-y0CGtpE5ouQyhnUpVruqiM0OgvfzddJYte12AARDVfN7atH5S2GCaljuvW7CB1RwXJZFGWTUo4xRjLkUh4907MTKc_MYCgBT_mJZJT2tgd0sYv2xpwXN0q9r6DzXs3lu3xHDv1ouORXx_aFmpMvz7BZmPD9ryQqfof3XP-TIUqEcrvjN7mmVwMPUFwQVqe3hAtYPvcwKcoRtPu0O4Z3Ge6FXLMoaQJQiPYOExzvJUdW2tFO2pLC5uPjKEUytDs4X7o3MA3e_aSyRc6y3lWxB98dFuVJTx5DiB50PFXDcrslFat20T0JaFyeLEyU_ZC4JjhU9UAd0QRFZwQGxSz8zuS3w_dWN5TCSU8BWmNFiS5T3M2MJRipo6qwvk5FgcaBvZ0G8ovvzMCgqlXQNu13JaZU8NLB5_9XlBfAM_jER55OoEELYGnIr996tgUxYCefLHUeq1Fgj_TsQAulmAAj28MqTL-dYW_FQsN5a8iLjiRd3glVkgoDYXfwI5KXkYTCNoI56FSJhO4YgXO2d8VcswcI_HSyS-IZncoSUlarSOdIPgrNlkn9EARnP_xyzENCKBBP1d7qHav3HcqMIMQkyd7kKSzLanZypdmURS6PGx39tocuZO2rtaiSvu3TXdH_o9ZnTm_yTEM8MqomAEOPZvNfZNxBq0ZwSZRAfS"
+                    }
+                  ],
+                  "role": "model"
+                }
+              },
+              {
+                "author": "customer_support",
+                "content": {
+                  "parts": [
+                    {
+                      "function_response": {
+                        "id": "adk-f30c6af1-25d1-4ec4-965c-377c52e4da8d",
+                        "name": "product_agent",
+                        "response": {
+                          "result": "The ProBook Laptop 15 (PROD-001) has an average rating of 4.5 stars based on 234 reviews.\n\nHere are a couple of recent reviews:\n*   **TechFan**: \"Excellent performance!\" (5 stars)\n*   **Student123**: \"Great for coding.\" (4 stars)"
+                        }
+                      }
+                    }
+                  ],
+                  "role": "user"
+                }
+              }
+            ]
+          },
+          "creation_timestamp": 1770491797.0276017
+        }
+      ],
+      "session_input": {
+        "app_name": "root_agent",
+        "user_id": "demo-user-001"
+      },
+      "creation_timestamp": 1770491797.0280051
+    }
+  ],
+  "creation_timestamp": 1770491797.028026
+}

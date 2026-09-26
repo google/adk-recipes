@@ -1,0 +1,392 @@
+{
+  "eval_set_id": "refund_eligibility_tests",
+  "eval_cases": [
+    {
+      "eval_id": "check_eligible",
+      "conversation": [
+        {
+          "invocation_id": "e-9ec548a4-f39a-4759-8c1b-48a953bd5959",
+          "user_content": {
+            "parts": [
+              {
+                "text": "I want a refund for order ORD-67890"
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "text": "Of course! I've just checked and your order is eligible for a refund. There are 25 days remaining in the return window and the estimated refund amount is $199.99. To proceed, please tell me the reason for the refund.\n"
+              }
+            ],
+            "role": "model"
+          },
+          "intermediate_data": {
+            "invocation_events": [
+              {
+                "author": "refund_eligibility_tester",
+                "content": {
+                  "parts": [
+                    {
+                      "function_call": {
+                        "id": "adk-3f22d8f0-ed72-4d05-8282-f5296ec85268",
+                        "args": {
+                          "order_id": "ORD-67890"
+                        },
+                        "name": "check_if_refundable"
+                      },
+                      "thought_signature": "CpkEAY89a1_Tr71e1kF6Q-FnLqHZhAhX46vtEBZICuERA81gZ1_xBSLJHPPBHpwO7Y7h0QFi_UgsOgYuXl3od2ex6iSniUpO6hxClPYlprtL3fUJC96UbGBuVB_UPGSkdD1D3xu2PolIFCCem74sXl6hUYp5hDvzv_UHdY0_tbFJCL6PmHsj82s_O35cpN12gmmKlNpVLO5vJ6GXRReqOyn5efQ8hV2tpSHHTdOvIBESEAvn6OlL5p5hFOSfufMwWRwVqZGCYA90dG6S2pHHXs4EH9K7bBDA22mXGP-1VQeYu3gqmjvmDNfAUM2NuJM93-3Pwy1-Co1Vsne5U7qYd3mCCxZq6XRWItdq7SNs3trtBMYMTjIhiyCrWY53bp3r430AvY7KxybbPjvboYX3FaQdhyFfzVtFiNpt0Be_b9eFPwUWcXO8uzxM6go1RLPbbm4RhE7HX0bhwQtFm_vtw0IMQ4SUbvz9lUl92GLcUJ1hibAP4oWcScf7ruZWJMOFbuc-4-COKwZMhivbIF5zTmu3ncVo1D3PJhbRMyKzByOvCMCuGi17lgXI0JLaaUuHSyV-fQnhs_05ilZjZ_erfTTud3OT1EZHmHjjTiq6_gBodFiDYttXopDcYa9v4lDg4xYUycO1I-FrxGnqUvPS8hG5T-LK0c5t94UI4OaCwnpFPBcCS4Icx5UJVilEefvbCFfEIe17sAfKNJCR"
+                    }
+                  ],
+                  "role": "model"
+                }
+              },
+              {
+                "author": "refund_eligibility_tester",
+                "content": {
+                  "parts": [
+                    {
+                      "function_response": {
+                        "id": "adk-3f22d8f0-ed72-4d05-8282-f5296ec85268",
+                        "name": "check_if_refundable",
+                        "response": {
+                          "status": "eligible",
+                          "eligible": true,
+                          "order_id": "ORD-67890",
+                          "message": "Order ORD-67890 is eligible for refund.",
+                          "refundable_items": [
+                            {
+                              "product_id": "PROD-002",
+                              "name": "Wireless Headphones Pro",
+                              "qty": 1,
+                              "price": 199.99
+                            }
+                          ],
+                          "estimated_refund_amount": 199.99,
+                          "days_remaining_in_window": 25,
+                          "next_step": "Please provide the reason for your refund request."
+                        }
+                      }
+                    }
+                  ],
+                  "role": "user"
+                }
+              }
+            ]
+          },
+          "creation_timestamp": 1770412587.460255
+        }
+      ],
+      "session_input": {
+        "app_name": "eval_refund",
+        "user_id": "demo-user-001",
+        "state": {}
+      },
+      "creation_timestamp": 0.0,
+      "final_session_state": {}
+    },
+    {
+      "eval_id": "check_past_window",
+      "conversation": [
+        {
+          "invocation_id": "e-21294fe1-581c-4b34-a985-92481a26f776",
+          "user_content": {
+            "parts": [
+              {
+                "text": "I want a refund for order ORD-11111"
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "text": "I am sorry, but your order ORD-11111 is not eligible for a refund. It was delivered 45 days ago, and refunds must be requested within 30 days of delivery.",
+                "thought_signature": "CpAFAY89a197Q9BS9WEsGwJi7ME_KVk0hrDkRsMWC8qb82D-lHpkakEZdUBZKHDRTwe0_LbHEdsTxgBgzf_SxTY6TLumVtwKLkCMThy5xVOH9PdFQxe59d29z9JD0_8Dyq7N9dOTW3EFj0gp3BHemhsn6cHaEwY-5aaX9E2121mxeLDVjuT49xmAEmo5yI_DURYPrJ3c9iLG64_DTpyAdjOIYohINnyF13sE-ZqQ103KdeISHC3dV3NS0KzQ2-LiO9VV7axrmKpA7LoBxA6-MPIDCM2G8K9duIODeh9MtrvB25FUOMrlnG_dNWrT0U9coMj2ab4jNkzzmlrN_oDcGBnMsy0BcQN1B_Eh8IjnEBorrIC-8EKRduVqleu-ogzuMiF44c0hwYn2jlifi4diSTK8eWarZR4iHunxtlvnI2ELcWI9ojBqAbyo5Z1iTgZVU-2Q-uJbRkQaPxu-KPo4JCzh_8gh_IWgJsCa_LNeuoUasQSQ6VPqSqebSGJD65Y6TIgGNKgM-YN-nIZKXbpdTcAvV8H9SbkPl3yesUvP0k6if-M_5FUIq8OV3SvA3IRGJdaZDrygua48t82neCdR72Jy4XI6FhdO_AKC1XmYAf8bDVjO0bysyxxwn1nK42AVB0pMFpD316LLcuofU0XWcjQQYUff4e9gyVdMzG723fLXmJL40Yh6K__wu3i8Wc2gp6qu1wsPWG7xy_7gwxhEgKj5jZPIAvG1-HSo-ySMguLEsopL1iX_xFVdPKYeMBVcgLwPqJNypsISE9ZVUKBRWWDO_IDmqRUc8bFLA9gpDMbp5oHBdeY5gd65cB5S4vUaIgXggjYxXdyog6Ch42MnUrJLEHrt4zXI29t--NMWDPJIsGY="
+              }
+            ],
+            "role": "model"
+          },
+          "intermediate_data": {
+            "invocation_events": [
+              {
+                "author": "refund_eligibility_tester",
+                "content": {
+                  "parts": [
+                    {
+                      "function_call": {
+                        "id": "adk-35fd6866-fccf-4d1a-aecd-3cbd313e7ade",
+                        "args": {
+                          "order_id": "ORD-11111"
+                        },
+                        "name": "check_if_refundable"
+                      },
+                      "thought_signature": "CuYEAY89a19gmEvvjqdWwu5lgkW8QtMEey7lSAjqzVbYFyiT0MWknbRwpAYqkBs0zLSDGIQMKBynMwqjOeyuCzsYsT7BQ4SqsnulJCd-fyNje9pG_hGI9H9cXFSymUQ9rK997-GxZvdbIzyRhIF02GbA9xBy71s6q75TU6GJFxY7SFP7djq0rb0Q7iBzSUBWLAagY5yeu3yL2n35KlUevV_z9aP-K9rNjMKXryK_urmQqS0_k772lJTgXwZaI61Umd8Z4kvnFwD3R2JHurbMUuF5oIcpDTufPUmvlJa8noRc6VkhrWgrz9z8ft2eE48kU6RbKN-VYTSS9TswHo6QfY8gf8slyw5jePsfTIys5GT6t67B9F7Mxpby2nrJgDw_PH-Jz_L6gGHmsQMys1pfpxl0RIWsyxY3Nh-VdM2ZyezmKSUBb_BVuinVuqSYwn8lmm3ou5SRlVooN3yH14IttzOGMX7xnPq99lcy4gBLTas9L3AU_4eOv2Q-2GdKaWwyq7b9A6P3vIX40eS8TOw_CA0NEKnrxiXIQEMCmNEs2IJ3gXxOlPLRf561vsa9mroJ_vdKJhNLFKS5vQXyF6h7mKRsPTKiTFUk7kpF6T0QZdsxOJQqfSaDiw9gREVn7bxlcTk95oLC_IEz7OfFyjLCrdGQ5Zh4eSHHri5ku-L-vGUQ3-EZPKWb8T-Z83uGDiSszCuKA8xxH1jMV7Q82DWRAdUGnn-YuiyaxSTSy1Uqs0cWZHSVCNuqo4e4RveT2cvvckSMNiY1IPHtjtufW3X5mvFCzs-xpQ4PcjXZPZIxKQcwyN2iZc2I8lQ="
+                    }
+                  ],
+                  "role": "model"
+                }
+              },
+              {
+                "author": "refund_eligibility_tester",
+                "content": {
+                  "parts": [
+                    {
+                      "function_response": {
+                        "id": "adk-35fd6866-fccf-4d1a-aecd-3cbd313e7ade",
+                        "name": "check_if_refundable",
+                        "response": {
+                          "status": "not_eligible",
+                          "eligible": false,
+                          "reason": "Order was delivered 45 days ago. Refunds must be requested within 30 days of delivery.",
+                          "delivered_date": "2025-12-23",
+                          "days_since_delivery": 45,
+                          "refund_window_days": 30
+                        }
+                      }
+                    }
+                  ],
+                  "role": "user"
+                }
+              }
+            ]
+          },
+          "creation_timestamp": 1770412605.2184947
+        }
+      ],
+      "session_input": {
+        "app_name": "eval_refund",
+        "user_id": "demo-user-001",
+        "state": {}
+      },
+      "creation_timestamp": 0.0,
+      "final_session_state": {}
+    },
+    {
+      "eval_id": "check_not_delivered",
+      "conversation": [
+        {
+          "invocation_id": "e-5bba0957-68e6-45c1-b007-67fcc2186748",
+          "user_content": {
+            "parts": [
+              {
+                "text": "Refund order ORD-12345"
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "text": "I'm sorry, but I cannot process a refund for order ORD-12345 at this time. The order is currently in transit and is expected to be delivered on 2025-01-20. Please wait until the order has been delivered to request a refund.",
+                "thought_signature": "CsgGAY89a1_3gT0roUGQ50co53PRMpaEazCVWoRMT2gMRFQs-_mBrjan6wL8qOGJJyGhv_WRWRX3o6zaJIdE2u8OF8ZqXmHSe0OwRZ0cLSgJE-VUKJmXK3sGfwyv58u8_mHfOBTgCTvcLYDWd_-12rQp9Be66BpjliAuszHYqxH5kxCUSEeSNBge5bq-NglqnAHx2ZnyKoJP9uSepmCqJIsrN8MKM7knX0TAyJoojJH_2LzHRaF03xTnVrpFJpemoOXvK6LsUyMF6c3yfkL0mMrhW9Uk7l5QpIeNtZjD_5fINzV59eI-GcIPdqrOKtF5-Fy9aM6GYaiql5-Vt0iSDCkVg1waq9KI_n3esVDeGH9NF6f8lXPMx-EphtY1r3AGSiQMIEu3r_6rwjfihNxSNZzBsg4eo-avWjIX8NF-6QsUm_uVkmuj-p0T3EpuZMbWA-xneNor7w3rpp1qihUbQx7V7sVVHrsOOeY-isQg3xMZVgUhOw6Tir7AbWPmv0q2wF2IRek0CrU7RKSbi2V_lJmTbUCkB_lTW_a7BKqUhe854X2TPkXW7G273xIFedM6odCAVzj57U7zAQ0akd1hbrpsjgPyBNZEyHsP-m-W9vUVEK-U0XNG1FGv5mXLvHkEu28bTYYp4z_3_8lDH9qVaRzCtOOSfKo99kDl0BLpzPRIvpqTzPShkl6dqNnYfjAe0RLPfJEN6YWm7L8hNLZUEqQZK98Viw1ZqWSqp4gSPxKTiRBJ0_Z7mMtj5XODIpcdMszJkbIpUijY9X9pBVa0uI41sjGAlLbM4cGEQnigfy706H-zWxudJSI8iRtjE1d-0yvtJTD2FydJ5IvKP0eqEbloxXXGtURW5ZoI0ncXuXBZ1LLXy5c9mOFgkIqtiMEgQsNLpJ880OjH-G6HqbMkrnSg-YfDr5vqmVdp7XTF-Q3Ecn7fPGL5JYvao13WiKeNU29foI2VbPBaat2cHZaEYRRvKNk25NvIZhxgZteK_806Li5h70wgKAgGckuGk8k43iX_vraS0OVkOVcp_ovFHWa0eYy4DKA2M3PsjxQTke4A2aQq8CVWGEXmIw87MmXLUmqxVD7PBVLxVKn9UoUw2mzjY6ujQ63vJleX"
+              }
+            ],
+            "role": "model"
+          },
+          "intermediate_data": {
+            "invocation_events": [
+              {
+                "author": "refund_eligibility_tester",
+                "content": {
+                  "parts": [
+                    {
+                      "function_call": {
+                        "id": "adk-f5efa404-0eeb-41e2-80f3-df74112d1295",
+                        "args": {
+                          "order_id": "ORD-12345"
+                        },
+                        "name": "check_if_refundable"
+                      },
+                      "thought_signature": "CscEAY89a1_Ag_pciZwJF6kh74GUTCufO970RfhJqjq4vgKR61jVQtsslknzy7NIfJ38RHVtIE3fIvwFa61zQaF_ToPNszeT6ZWv4_YTRIT3Zpuw2bnpFXNzoe52ko2936-pKZrx6hPKG_lu4IIE9Gm2t63Z_0xt3SpqMce7rKWdC9KpT68Ni5yvAN3lw8bzdNLpaB4ZuWY7uA3rdJyArZYqYD3nWi94m-dQ5HJf_8KJ7cR5oxup3x780UAfmoXao1igZFScHpQ3jQ6N-Q1ScFQDouyRzOzKVh14ViQ30bS-7XBNA69f1TLXgOvl7pAqH0CgEi0nr9ZIAiwh7HTRXA5iPW53dnXM7-fhlI8npONvA83gtD7x7Ncs4erAkrsNjGlyVlFG6hGYvOIjUI-3SQibz7tHpAkAqRI8i-R5vN8BiDIls4fW-8I9Aifc7KGx5srF5eXRH1tW_GrsiUEOIBvt9Wbo_-VC25n0qb-jqHXV8vTvI3x-nRy3xEiIsp71GV6-Gk9PGJEPgcTecKxJGN8M4M-khVzfCXINFqLQUD35ewtUWqovJtrooYKcS2z_zr-Ux9Bzbe3dXcxWjXmomfR0lv9LtpypYUm-Zvb5dxMrm170VBMDLajl-J-4oHZfsJVCvIly-thFNYURLR8tob-XR4uAiIO65W2DJAxF4yS66KmciOgnrSp7ANKhOJYBb6dDohRNSusuRT3yGsw0QJTeELnh53U03D8hNOE9VmzkpI47hndaa1mHdvUcpfPIT-yr4_WYPyq6sg=="
+                    }
+                  ],
+                  "role": "model"
+                }
+              },
+              {
+                "author": "refund_eligibility_tester",
+                "content": {
+                  "parts": [
+                    {
+                      "function_response": {
+                        "id": "adk-f5efa404-0eeb-41e2-80f3-df74112d1295",
+                        "name": "check_if_refundable",
+                        "response": {
+                          "status": "not_eligible",
+                          "eligible": false,
+                          "reason": "Order ORD-12345 is currently in transit. Please wait until it's delivered to request a refund.",
+                          "current_status": "in transit",
+                          "estimated_delivery": "2025-01-20"
+                        }
+                      }
+                    }
+                  ],
+                  "role": "user"
+                }
+              }
+            ]
+          },
+          "creation_timestamp": 1770412623.3388412
+        }
+      ],
+      "session_input": {
+        "app_name": "eval_refund",
+        "user_id": "demo-user-001",
+        "state": {}
+      },
+      "creation_timestamp": 0.0,
+      "final_session_state": {}
+    },
+    {
+      "eval_id": "check_not_found",
+      "conversation": [
+        {
+          "invocation_id": "e-ffe8bc9d-e0da-446c-8c30-809107e2d2c4",
+          "user_content": {
+            "parts": [
+              {
+                "text": "Refund order ORD-99999"
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "text": "I am sorry, but order ORD-99999 was not found. Please double-check the order number and try again.",
+                "thought_signature": "CvICAY89a19UJSH7H3uQR2oGduBZLx-Ym381dqJpFRY3HSYnDy7OlBHnBybD_OYmf4yIW_h466FWrD4GB-QSJpj1GtTwp70zrGwRd1kjOPOZqB8nct4LPYjcufP5MyXR2wTEn4x5apLI0IT-NYovYLrqmLT2IBjVZWQNevfu9atAAplOu-lD99mCsHgdIhcu9bh97h1fo9e-56Q95nPn3OULnZ2oLJH1ANdhNPSIfUrmarLUitRgDU6m3WdcKm-mZjn5qhE1WcVmhX8WDAHZgxQkU-1Wf90Pqszz1MhG3gHlrUoP4TGsT-Q_zO5iIlNucQRpVHaj0QA0l5fanLtncAik58sNovp8Ghem7Egjdqk7SUSmi4KUtWXqn1ehbu80ogUlFCA_Ib13RX2YkwZcCPDTCirqxwT2DUPUt0RAlcyDeLjo_3265qJGLaK1Xwd_-rPMKwY42_Ap2stdhqtHk3_9peuSHGGgbz0dcfkktd7-dEOUeg=="
+              }
+            ],
+            "role": "model"
+          },
+          "intermediate_data": {
+            "invocation_events": [
+              {
+                "author": "refund_eligibility_tester",
+                "content": {
+                  "parts": [
+                    {
+                      "function_call": {
+                        "id": "adk-cbeb4363-62d4-471c-902b-0ac2edf0f919",
+                        "args": {
+                          "order_id": "ORD-99999"
+                        },
+                        "name": "check_if_refundable"
+                      },
+                      "thought_signature": "CqgEAY89a1-yiTua1ZNcq8sh3rHi4leKulCaoIhX9vVUaBVKwBjKOEAvlPY0ib5p0g4svBUxnbcleYv6f7qKQykOktJr_D1SGUzgDAMxlTi1xBqc1Bk55pXq7TwhklGe5wOnj1Cu_6SWaqgfC7J_2DVdpY60O3vQQuQ7WvlHK7JvhAAioRfb6N3GT9Ib62rHnx4bx5VPk0yOBMRdopR4fvbYE_3sD4sWCIZrIxvlTvRqwpgNHDYK8_Ac_VuvZ3T45s33OixdTNHNhhL6e9PNK4iF8LIocW3BLhAaBn8-WRbnsHl6xeEr-SA2SItLdCyrisHyo1Y4nAYdbu-Im4SfS3B4oE2sXj5bx4RhtnAOLpfrPLSxG62Ev6UTl0hRmO84kgKl-f448bkzKRcVS4gpXrGHY7r3x4tU3o0Gkcen--j-wJrgXus8xjYQB2XZR_8hG_TYbMJTn7rpdq1U3bXhBTkwfrNJEuQf1eZlMHLRSzXi0AJLzIs0lGwqV3WUSHxhiZYo8UnPIdja2eVm9oZAQCkHANGRcsE-iEAvUvLffC9V5n1SCuMKj7fru1xpNM4PCKc5CkFH_rTeZiTO4AJQgNp9ty55bwROZpXupgcXDQek8zouDF-leSmY2J5yNZpmIM6s6iOoy9mSxey6sTQiuMW6TWjtUzS4YIFR7okC1TFHcEkRy_ECl3RHu-rVFQ7nHsEBBbsYeVA0tYIuc1f0KabG1csKxDKFHNLF"
+                    }
+                  ],
+                  "role": "model"
+                }
+              },
+              {
+                "author": "refund_eligibility_tester",
+                "content": {
+                  "parts": [
+                    {
+                      "function_response": {
+                        "id": "adk-cbeb4363-62d4-471c-902b-0ac2edf0f919",
+                        "name": "check_if_refundable",
+                        "response": {
+                          "status": "not_eligible",
+                          "eligible": false,
+                          "reason": "Order ORD-99999 not found"
+                        }
+                      }
+                    }
+                  ],
+                  "role": "user"
+                }
+              }
+            ]
+          },
+          "creation_timestamp": 1770412640.594292
+        }
+      ],
+      "session_input": {
+        "app_name": "eval_refund",
+        "user_id": "demo-user-001",
+        "state": {}
+      },
+      "creation_timestamp": 0.0,
+      "final_session_state": {}
+    },
+    {
+      "eval_id": "check_unauthorized",
+      "conversation": [
+        {
+          "invocation_id": "e-4d6cf30c-1abf-4b0c-9532-e24ede829e10",
+          "user_content": {
+            "parts": [
+              {
+                "text": "Refund order ORD-22222"
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "text": "I am sorry, but I cannot process your refund request for order ORD-22222 because you do not have permission to access it. Please check the order ID and try again.",
+                "thought_signature": "CpkHAY89a19oH_Jdi-CkXGu28B-cRcOjf9ppXFjoFShZM6AwWkgPq1iGWTNlrOK7RnSIojakYiW6mOvcIprNb4J7zDjpCRBngG62_67K6ZX6JrH39W8wDpYGW0NXH99lWScBFdU-lXo2NGkDq6buABe7qQNANS4iCqUhNIhhP-fCG0dGI7-gZrpqeduq7Us3f6WY1cMRWiDYqNlBVurQB1-yr7r06jw-u1XECbCBmJVjwWoECgIoZq1DjtgZmYZJQ9f2NEtNRcFST6gr9Wtl6fOm3RGb_LsCxuykNpsOrleuYKgrdUx9NYXLNi1jvdNmFdkFdCG8mD4KyD-tegB7omo6kx0efjsyrsed0mFVQwDAgZZn80igzXQmRziBhlTl1TWMe0a6EdQBSvqF4cx468NGmSMlUiWonL_9KzwPFUC_7Qsj470gMiUbro1ctys-clah_SZgUMdoK_6Iw7GHNJDcV7oYz2cHf9v8fry0bu5mJLw8lolIeaR_S-mhSkVA1N5prfZEJ9vrx0gbCyzkGky_XhRmbuKOn1O0wrOjza1QOKa2RqhFJmAsUHW2eD-4sH3SeEGud0S_vSNSyQEokB9O2IvGGeg_z8o8fk8RkWAIxNka03d3tt-6vQUyx5_PmiAuz_id48KiCNGn0ZJQGibMHJIN_bb_e6nJHjiioPLiPxEKReeWcADev7KVhx75YxhGYBF0CSfAAPChdBIuP9vF9yBZtAImTcDznwrN2P22wPN8oheLM0Xwq5I81rYrLkv4xkw8IGUkTeGjd3P2b3f0SEFLo7mtAf3D-CZqwHwTkBFuDxwW2hl8sSxeuy0dWtEJoZ_PcNSLeL5mZ1-oTasHVRvYddy93KFpTAbF24YpFoNKolB5d3sBq6ylvnhWYj1hkgvDJducQu27Ycbs8w3xmdEqiAtmyfPGSZQhYW9jnwmLWUEx9AICWAfIzmrQ3v6OdAySTiCj7_81zXLEl0EA5QXtZtD4uPf8SdeL7_6G5ePrTogdOK6II-bCo94z1fFDokejXvHy0lgKdfLnBCUA8O1kNZu1a8AXfX3FQcCEDWbczKv40oxvpLIHGzJIEnLY3vmspGWqoyF3SJxz8fF9DdHxmvTNwNDKXeqQYxkmNYsNVwhsDEXErdYKK9HuDhzAZ6U_sSiRp8b_SfZNqti04fXPfcpdn6v3SndOTuuDoY2Kn1lRy-G2QjFyvs4-0hMaNJipNkO0FVWp"
+              }
+            ],
+            "role": "model"
+          },
+          "intermediate_data": {
+            "invocation_events": [
+              {
+                "author": "refund_eligibility_tester",
+                "content": {
+                  "parts": [
+                    {
+                      "function_call": {
+                        "id": "adk-6830caf5-3bd5-441d-b225-5200508f2c86",
+                        "args": {
+                          "order_id": "ORD-22222"
+                        },
+                        "name": "check_if_refundable"
+                      },
+                      "thought_signature": "CtEEAY89a1-gHxtZPLh81-B0j0Pt2zntzif9Gd0KpKhLLKwV7FmvuQsqc4ipQZUDShN_JzR8Z6gdot1oQ0Onkmuuszbq7SbVznp13cxcv5Qj5yuBin5R5AzEtXqR9LOKujB9-7zMv5EKjUZ8LFp6rPgWmNa2OCxq-HbiByLKbCiH-i0nVk-tf7ac8RXXAZpsKwptyW_-uaC0f9FIMzdATPGkcYxUHexSftpo25NqfuN0N7ddgxkHET6cyEqk0yWPzL3Fu1lCHYz-Te6d_yQFABhwvFrL41dHGoTLFnY9pqmT0Mm6uYJA3MD5bRn3ZFoDEi9Fa8t9QFqAJy3Xm_tFb1aEX5R8MycnC4xqO6qiJV-3cqH5UgvMCltHrNvrK8TmoLjUm6amT6RqTbXuw0Q_61gUlfRU2NKD0DCEi_b3YyLBnmJyKU0iwk_mt1v8LDnZYmiiknlT8sdQM2aBIGrepgUEElGZsqdOlLlIAwpA2BQkPzZoftKWNsZaA16wXCRnZK2d42suq2qLLI8vZDFf_aZxcQiPYHuiuM74y1zmnaN2GGEMmkVNJo6Z76F1bmL8tMEkNAkpibGjqHMxahBZp83HNXAbFsWTC0zLhVnlQBQ9lycfJfHJs-0r6HNFR29uianqYPsWHO-JcGr9qaDLm1G8zUSAYLvnWNDJU6z6GdTo9RimpVY_1uXFyq_FX8QP7T7RQux9aMaNKWH4pt32STDa-TA-c5Z93dYxLAZOqNa4eLmpyLzX-DAM-q5oUZwxmiuBCs_cvD0hIkCKatADLD5XhUo="
+                    }
+                  ],
+                  "role": "model"
+                }
+              },
+              {
+                "author": "refund_eligibility_tester",
+                "content": {
+                  "parts": [
+                    {
+                      "function_response": {
+                        "id": "adk-6830caf5-3bd5-441d-b225-5200508f2c86",
+                        "name": "check_if_refundable",
+                        "response": {
+                          "status": "not_eligible",
+                          "eligible": false,
+                          "reason": "You don't have permission to access order ORD-22222"
+                        }
+                      }
+                    }
+                  ],
+                  "role": "user"
+                }
+              }
+            ]
+          },
+          "creation_timestamp": 1770412659.4516354
+        }
+      ],
+      "session_input": {
+        "app_name": "eval_refund",
+        "user_id": "demo-user-001",
+        "state": {}
+      },
+      "creation_timestamp": 0.0,
+      "final_session_state": {}
+    }
+  ],
+  "creation_timestamp": 1770412659.4517002
+}

@@ -1,0 +1,16 @@
+[
+  {
+    "prompt": "Show me laptops",
+    "reference": "We have the ProBook Laptop 15 and ROG Gaming Laptop available.",
+    "expected_tool_use": [
+      {"tool_name": "product_agent", "tool_input": {"request": "laptops"}}
+    ]
+  },
+  {
+    "prompt": "Where is my order ORD-12345?",
+    "reference": "Your order ORD-12345 is currently in transit. It was shipped via FastShip with tracking number FS789456123.",
+    "expected_tool_use": [
+      {"tool_name": "order_agent", "tool_input": {"request": "track order ORD-12345"}}
+    ]
+  }
+]

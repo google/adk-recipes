@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "customer-support-backend"
+version = "0.1.0"
+description = "FastAPI backend for Customer Support MAS"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.34.0",
+    "python-dotenv>=1.0.0",
+    "google-cloud-aiplatform[adk,agent_engines]>=1.112",
+    "google-cloud-firestore>=2.16.0",
+    "vertexai>=1.38.0",
+    "pydantic>=2.6.1",
+    "pydantic-settings>=2.1.0",
+    "email-validator>=2.0.0",
+    "bcrypt>=4.0.0",
+    "google-cloud-modelarmor>=0.1.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["app*"]
