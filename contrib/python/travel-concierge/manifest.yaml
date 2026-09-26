@@ -1,0 +1,36 @@
+type: "standalone"     # Options: [standalone | module]
+status: "active"     # Options: [active | inactive]
+language: "python"     # Options: [python | java | go | kotlin | typescript]
+description: "Orchestrates personalized travel experiences, illustrates means to integrate
+  booking systems, and provides support throughout the traveler's journey, from initial
+  planning, booking, to real-time itinerary services and alerts."
+
+deployable: true       # uv run python deployment/deploy.py --create
+
+architecture:          
+  agent: "multi"       
+  stateful: false      # This agent does not persist state beyond session.
+  datasources:         # Local profiles and external (Maps/Search)
+  - "local"
+  - "external"
+
+dependencies:
+  libraries:
+    - "ADK"
+    - "pydantic"
+    - "arize"
+  services:
+    - "Google Maps Grounding"
+    - "Google Search Grounding"
+
+ownership:
+  team: "fde"
+  poc: "gkcng"
+  contributors:
+    - "whisper88-lgtm"
+    - "anishasjkaul"
+    - "drenfrowsymon-google"
+
+tags:
+  - "travel"
+  - "multi-agent"

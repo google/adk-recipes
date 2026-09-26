@@ -1,0 +1,151 @@
+{
+  "state": {
+    "user_profile" : {
+      "passport_nationality" : "US Citizen",
+      "seat_preference": "window",
+      "food_preference": "vegan",
+      "allergies": [],
+      "likes": [],
+      "dislikes": [],
+      "price_sensitivity": [],    
+      "home":
+      {
+        "event_type": "home",
+        "address": "6420 Sequence Dr #400, San Diego, CA 92121, United States",
+        "local_prefer_mode": "drive"
+      }  
+    },
+    "itinerary": {
+      "trip_name": "San Diego to Seattle Getaway",
+      "start_date": "2025-06-15",
+      "end_date": "2025-06-17",
+      "origin": "San Diego",
+      "destination": "Seattle",
+      "days": [
+        {
+          "day_number": 1,
+          "date": "2025-06-15",
+          "events": [
+            {
+              "event_type": "flight",
+              "description": "Flight from San Diego to Seattle",
+              "flight_number": "AA1234",
+              "departure_airport": "SAN",
+              "arrival_airport": "SEA",
+              "departure_time": "08:00",
+              "boarding_time": "07:30",
+              "seat_number": "22A",
+              "booking_required": true,
+              "booking_id": "ABC-123-XYZ"
+            }
+          ]
+        },
+        {
+          "day_number": 2,
+          "date": "2025-06-16",
+          "events": [
+            {
+              "event_type": "visit",
+              "description": "Visit Pike Place Market",
+              "location": {
+                "name": "Pike Place Market",
+                "address": "85 Pike St, Seattle, WA 98101",
+                "latitude": "47.6097",
+                "longitude": "-122.3422"
+              },
+              "start_time": "09:00",
+              "end_time": "12:00",
+              "booking_required": false
+            },
+            {
+              "event_type": "visit",
+              "description": "Lunch at Ivar's Acres of Clams",
+              "location": {
+                "name": "Ivar's Acres of Clams",
+                "address": "1001 Alaskan Way, Pier 54, Seattle, WA 98104",
+                "latitude": "47.6029",
+                "longitude": "-122.3398"
+              },
+              "start_time": "12:30",
+              "end_time": "13:30",
+              "booking_required": false
+            },
+            {
+              "event_type": "visit",
+              "description": "Visit the Space Needle",
+              "location": {
+                "name": "Space Needle",
+                "address": "400 Broad St, Seattle, WA 98109",
+                "latitude": "47.6205",
+                "longitude": "-122.3492"
+              },
+              "start_time": "14:30",
+              "end_time": "16:30",
+              "booking_required": true,
+              "booking_id": "DEF-456-UVW"
+            },
+            {
+              "event_type": "visit",
+              "description": "Dinner in Capitol Hill",
+              "location": {
+                "name": "Capitol Hill Neighborhood",
+                "address": "Capitol Hill, Seattle, WA",
+                "latitude": "47.6234",
+                "longitude": "-122.3175"
+              },
+              "start_time": "19:00",
+              "end_time": "21:00",
+              "booking_required": false
+            }
+          ]
+        },
+        {
+          "day_number": 3,
+          "date": "2025-06-17",
+          "events": [
+            {
+              "event_type": "visit",
+              "description": "Visit the Museum of Pop Culture (MoPOP)",
+              "location": {
+                "name": "Museum of Pop Culture (MoPOP)",
+                "address": "325 5th Ave N, Seattle, WA 98109",
+                "latitude": "47.6212",
+                "longitude": "-122.3472"
+              },
+              "start_time": "10:00",
+              "end_time": "13:00",
+              "booking_required": true,
+              "booking_id": "GHI-789-PQR"
+            },
+            {
+              "event_type":"flight",
+              "description": "Return Flight from Seattle to San Diego",
+              "flight_number": "UA5678",
+              "departure_airport": "SEA",
+              "arrival_airport": "SAN",
+              "departure_time": "16:00",
+              "boarding_time": "15:30",
+              "seat_number": "10F",
+              "booking_required": true,
+              "booking_id": "LMN-012-STU"
+            }
+          ]
+        }
+      ]
+    },
+    "origin": "San Diego",
+    "destination": "Seattle",    
+    "start_date": "2025-06-15",
+    "end_date": "2025-06-17",    
+    "outbound_flight_selection" : "",
+    "outbound_seat_number" : "",
+    "return_flight_selection" : "",
+    "return_seat_number" : "",
+    "hotel_selection" : "",
+    "room_selection" : "",
+    "poi" : "",
+    "itinerary_datetime" : "",
+    "itinerary_start_date" : "2025-06-15",
+    "itinerary_end_date" : "2025-06-17"    
+  }
+}
