@@ -1,0 +1,34 @@
+[project]
+name = "graphrag-multi-agent"
+version = "0.1.0"
+description = "Multi-agent GraphRAG system that answers investment-research questions over a Neo4j knowledge graph using Text-to-Cypher, a custom investor tool, and optional MCP Toolbox queries."
+readme = "README.md"
+license = { text = "Apache License 2.0" }
+requires-python = ">=3.11"
+
+dependencies = [
+    "google-adk[mcp]>=1.21.0",
+    "neo4j>=6.0.3",
+    "python-dotenv>=1.0.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3.2",
+    "pytest-asyncio>=0.23.7",
+]
+
+[tool.pytest.ini_options]
+pythonpath = "."
+asyncio_default_fixture_loop_scope = "function"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[[tool.uv.index]]
+url = "https://pypi.org/simple/"
+default = true

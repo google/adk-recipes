@@ -1,0 +1,14 @@
+# Local environment
+.env
+
+# Generated MCP Toolbox config (holds credentials; generated from .env)
+app/.adk/tools.yaml
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.egg-info/
