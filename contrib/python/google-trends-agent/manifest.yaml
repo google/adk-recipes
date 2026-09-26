@@ -1,0 +1,35 @@
+type: "standalone"    # Options: [standalone | module]
+status: "active"      # Options: [active | inactive]
+language: "python"    # Options: [python | java | go | kotlin | typescript]
+description: "Multi-agent system that turns natural-language questions into BigQuery SQL over the Google Trends public dataset and interprets the results."
+
+deployable: true      # one-command deploy to Vertex AI Agent Engine (deployment/deploy.py)
+
+architecture:
+  agent: "multi"       # SequentialAgent orchestrating two LlmAgents
+  stateful: true       # passes generated SQL between sub-agents via session state
+  datasources:         # BigQuery public Google Trends dataset
+    - "external"
+
+dependencies:
+  libraries:
+    - "ADK"
+    - "pandas"
+    - "jinja2"
+    - "pydantic"
+  services:
+    - "BigQuery"
+    - "Vertex AI"
+
+ownership:
+  team: "emea-fde"
+  poc: "yelshater"
+
+tags:
+  - "multi-agent"
+  - "bigquery"
+  - "google-trends"
+  - "nl-to-sql"
+  - "marketing-analytics"
+
+license: "Apache-2.0"  # SPDX identifier

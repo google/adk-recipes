@@ -1,0 +1,203 @@
+Few-Shot Examples
+
+To guide your response, you will be provided with a set of few-shot examples in a separate file. Study these examples to understand the expected format and logic for translating questions into BigQuery SQL queries. The examples will illustrate how to handle various types of user questions, including those that require filtering by date, country, and specific metrics.
+
+### Example 1: Top terms in the USA
+*   **User Question:** "What are the top 10 search terms in the United States for the most recent week available?"
+*   **Correct SQL:**
+   
+    SELECT
+      term,
+      ARRAY_AGG(STRUCT(rank, week) ORDER BY week DESC LIMIT 1) AS latest_week_data
+    FROM
+      `bigquery-public-data.google_trends.top_terms`
+    WHERE
+      refresh_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY)
+      AND refresh_date = (
+        SELECT MAX(refresh_date)
+        FROM `bigquery-public-data.google_trends.top_terms`
+        WHERE refresh_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY)
+      )
+    GROUP BY
+      term
+    ORDER BY
+      (SELECT rank FROM UNNEST(latest_week_data))
+    LIMIT 10;
+   
+
+### Example 2: Rising terms from a past date
+*   **User Question:** "For the latest set of rising terms in Canada, find out which region had the highest score for each term exactly 52 weeks prior."
+*   **Correct SQL:**
+   
+    SELECT
+      term,
+      week,
+      ARRAY_AGG(STRUCT(region_name, score) ORDER BY score DESC LIMIT 1) AS top_region
+    FROM
+      `bigquery-public-data.google_trends.international_top_rising_terms`
+    WHERE
+      refresh_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY)
+      AND refresh_date = (
+        SELECT MAX(refresh_date)
+        FROM `bigquery-public-data.google_trends.international_top_rising_terms`
+        WHERE refresh_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY)
+      )
+      AND week = (
+        SELECT DATE_SUB(MAX(week), INTERVAL 52 WEEK)
+        FROM `bigquery-public-data.google_trends.international_top_rising_terms`
+        WHERE refresh_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY)
+      )
+      AND country_name = 'Canada'
+    GROUP BY
+      term, week
+    ORDER BY
+      (SELECT score FROM UNNEST(top_region)) DESC;
+   
+
+### Example 3: Filter by specific rank
+*   **User Question:** "I need a template to find only the #1 top ranked term in Germany."
+    
+    SELECT
+      term,
+      week,
+      rank
+    FROM
+      `bigquery-public-data.google_trends.international_top_terms`
+    WHERE
+      refresh_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY)
+      AND refresh_date = (
+        SELECT MAX(refresh_date)
+        FROM `bigquery-public-data.google_trends.international_top_terms`
+        WHERE refresh_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY)
+      )
+      AND country_name = 'Germany'
+      AND rank = 1
+    ORDER BY
+      week DESC;
+   
+
+### Example 4: Filter by high percent gain
+*   **User Question:** "Give me a template for all rising terms in Australia that had a breakout gain of more than 1000 percent."
+*   **Correct `.j2` SQL Output:**
+    
+    SELECT
+      term,
+      percent_gain,
+      week
+    FROM
+      `bigquery-public-data.google_trends.international_top_rising_terms`
+    WHERE
+      refresh_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY)
+      AND refresh_date = (
+        SELECT MAX(refresh_date)
+        FROM `bigquery-public-data.google_trends.international_top_rising_terms`
+        WHERE refresh_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY)
+      )
+      AND country_name = 'Australia'
+      AND percent_gain > 1000
+    ORDER BY
+      percent_gain DESC;
+   
+
+### Example 5: Region-specific rising terms
+*   **User Question:** "What were the top 5 rising terms just for the 'Île-de-France' region in France? Create a template for this."
+    
+    SELECT
+      term,
+      rank,
+      percent_gain
+    FROM
+      `bigquery-public-data.google_trends.international_top_rising_terms`
+    WHERE
+      refresh_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY)
+      AND refresh_date = (
+        SELECT MAX(refresh_date)
+        FROM `bigquery-public-data.google_trends.international_top_rising_terms`
+        WHERE refresh_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY)
+      )
+      AND country_name = 'France'
+      AND region_name = 'Île-de-France'
+    ORDER BY
+      rank
+    LIMIT 5;
+   
+
+### Example 6: Time-based query with a date range
+*   **User Question:** "Generate a template to find all rising terms in Brazil that appeared in the first quarter of 2023."
+    
+    SELECT
+      DISTINCT term,
+      week,
+      rank
+    FROM
+      `bigquery-public-data.google_trends.international_top_rising_terms`
+    WHERE
+      refresh_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY)
+      AND refresh_date = (
+        SELECT MAX(refresh_date)
+        FROM `bigquery-public-data.google_trends.international_top_rising_terms`
+        WHERE refresh_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY)
+      )
+      AND country_name = 'Brazil'
+      AND week BETWEEN '2023-01-01' AND '2023-03-31'
+    ORDER BY
+      week, rank;
+   
+
+### Example 7: Advanced query using a subquery filter
+*   **User Question:** "For the top 5 overall most popular terms in Japan, I want a template to see their rising term data (percent gain and rank)."
+    
+    SELECT
+      term,
+      percent_gain,
+      rank,
+      score,
+      week
+    FROM
+      `bigquery-public-data.google_trends.international_top_rising_terms`
+    WHERE
+      refresh_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY)
+      AND refresh_date = (
+        SELECT MAX(refresh_date)
+        FROM `bigquery-public-data.google_trends.international_top_rising_terms`
+        WHERE refresh_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY)
+      )
+      AND country_name = 'Japan'
+      AND term IN (
+        SELECT
+          term
+        FROM
+          `bigquery-public-data.google_trends.international_top_terms`
+        WHERE
+          refresh_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY)
+          AND refresh_date = (
+            SELECT MAX(refresh_date)
+            FROM `bigquery-public-data.google_trends.international_top_terms`
+            WHERE refresh_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY)
+          )
+          AND country_name = 'Japan'
+          AND rank <= 5
+      )
+    ORDER BY
+      term, week;
+
+### Example 8: Rising terms in the USA
+*   **User Question:** "Show me rising terms in the USA with a percent gain over 1000."
+*   **Correct SQL:**
+
+    SELECT
+      term,
+      percent_gain,
+      week
+    FROM
+      `bigquery-public-data.google_trends.top_rising_terms`
+    WHERE
+      refresh_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY)
+      AND refresh_date = (
+        SELECT MAX(refresh_date)
+        FROM `bigquery-public-data.google_trends.top_rising_terms`
+        WHERE refresh_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY)
+      )
+      AND percent_gain > 1000
+    ORDER BY
+      percent_gain DESC
