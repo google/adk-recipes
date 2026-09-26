@@ -2908,7 +2908,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "absl-py", specifier = ">=2.3.1" },
-    { name = "google-adk", specifier = ">=1.7.0" },
+    { name = "google-adk", specifier = ">=1.28.0" },
     { name = "google-auth", specifier = ">=2.30.0" },
     { name = "google-cloud-aiplatform", extras = ["adk", "agent-engines"], specifier = ">=1.93.0" },
     { name = "google-cloud-modelarmor", specifier = ">=0.2.8" },
