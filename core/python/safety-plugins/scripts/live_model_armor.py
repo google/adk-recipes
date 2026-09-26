@@ -24,9 +24,12 @@ import asyncio
 import json
 import logging
 import os
+import shutil
 import subprocess
 from collections.abc import AsyncGenerator
+from pathlib import Path
 
+from dotenv import dotenv_values
 from google.adk.agents import LlmAgent
 from google.adk.apps import App
 from google.adk.models.base_llm import BaseLlm
@@ -37,7 +40,15 @@ from google.genai import types
 from google.oauth2.credentials import Credentials
 from pydantic import Field
 
-os.environ.setdefault("MODEL_NAME_GENERATED_1", "gemini-3.5-flash")
+# Importing the recipe also constructs its demo agent. Only its model name is
+# needed here; all Cloud settings for the probe come from explicit CLI flags.
+if "MODEL_NAME_GENERATED_1" not in os.environ:
+    model_name = dotenv_values(
+        Path(__file__).resolve().parents[1] / ".env.example"
+    )["MODEL_NAME_GENERATED_1"]
+    if model_name is None:
+        raise ValueError("Set MODEL_NAME_GENERATED_1 in .env.example")
+    os.environ["MODEL_NAME_GENERATED_1"] = model_name
 
 from safety_plugins.plugins.model_armor import (
     ModelArmorClient,
@@ -328,11 +339,17 @@ async def run_case(args, credentials, logs, name, prompt, output=None):
 async def main(args):
     # Keep the short-lived token in memory; never change the active account
     # or write credentials or Google protobufs to a report.
-    token = subprocess.run(
-        ["gcloud", "auth", "print-access-token", f"--account={args.account}"],
+    gcloud = shutil.which("gcloud")
+    if gcloud is None:
+        raise FileNotFoundError("Install gcloud and add it to PATH")
+    # Fixed executable and subcommand; the account stays one literal argument.
+    token = subprocess.run(  # noqa: S603 -- no shell or user-supplied command
+        [gcloud, "auth", "print-access-token", f"--account={args.account}"],
         check=True,
         capture_output=True,
         text=True,
+        timeout=30,
+        shell=False,
     ).stdout.strip()
     credentials = Credentials(token=token, quota_project_id=args.project)
     logs = VerdictLogHandler()

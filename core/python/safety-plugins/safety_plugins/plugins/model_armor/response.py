@@ -4,7 +4,7 @@
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -90,6 +90,7 @@ def deidentified_text(response: ModelArmorResponse) -> str | None:
     result_kind, verdict = filter_verdict(sdp_filter)
     if (
         result_kind != "deidentify_result"
+        or verdict is None
         or verdict.execution_state
         != modelarmor_v1.FilterExecutionState.EXECUTION_SUCCESS
         or verdict.match_state != modelarmor_v1.FilterMatchState.MATCH_FOUND

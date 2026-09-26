@@ -14,10 +14,8 @@
 
 """Utility functions for Guardian."""
 
-from google.adk import runners
+from google.adk.runners import Runner
 from google.genai import types
-
-Runner = runners.Runner
 
 
 async def run_prompt(

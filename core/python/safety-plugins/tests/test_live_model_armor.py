@@ -21,7 +21,59 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from google.cloud import modelarmor_v1
 
+from safety_plugins.plugins.model_armor.constants import ModelArmorMethod
 from scripts.live_model_armor import EMAIL, VerdictLogHandler, run_case
+from scripts.live_model_armor import main as run_probe
+
+
+@pytest.mark.asyncio
+async def test_probe_uses_resolved_gcloud_and_literal_account(monkeypatch):
+    account = "test@example.com; echo ignored"
+    command = MagicMock(
+        return_value=SimpleNamespace(stdout="synthetic-token\n")
+    )
+    run = AsyncMock(return_value=True)
+    monkeypatch.setattr("shutil.which", lambda _: "/opt/google/bin/gcloud")
+    monkeypatch.setattr("scripts.live_model_armor.subprocess.run", command)
+    monkeypatch.setattr("scripts.live_model_armor.run_case", run)
+    monkeypatch.setattr(
+        "scripts.live_model_armor.logging.getLogger", MagicMock()
+    )
+    args = SimpleNamespace(
+        account=account, project="test-project", case="benign"
+    )
+
+    assert await run_probe(args) == 0
+
+    command.assert_called_once_with(
+        [
+            "/opt/google/bin/gcloud",
+            "auth",
+            "print-access-token",
+            f"--account={account}",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        shell=False,
+    )
+    credentials = run.await_args.args[1]
+    assert credentials.token == "synthetic-token"
+    assert credentials.quota_project_id == "test-project"
+
+
+@pytest.mark.asyncio
+async def test_probe_missing_gcloud_fails_before_authentication(monkeypatch):
+    command = MagicMock()
+    monkeypatch.setattr("shutil.which", lambda _: None)
+    monkeypatch.setattr("scripts.live_model_armor.subprocess.run", command)
+    args = SimpleNamespace(account="test@example.com", project="test-project")
+
+    with pytest.raises(FileNotFoundError, match="gcloud"):
+        await run_probe(args)
+
+    command.assert_not_called()
 
 
 @pytest.mark.parametrize(
@@ -115,6 +167,10 @@ async def test_runner_mixed_content_evidence(monkeypatch, name):
                         }
                     }
                 },
+            )
+        if method == ModelArmorMethod.SANITIZE_USER_PROMPT:
+            return modelarmor_v1.SanitizeUserPromptResponse(
+                sanitization_result=result
             )
         return modelarmor_v1.SanitizeModelResponseResponse(
             sanitization_result=result

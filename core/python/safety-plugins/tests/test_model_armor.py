@@ -14,6 +14,7 @@
 
 """Behavior tests for the Model Armor safety plugin."""
 
+from collections.abc import Iterator
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -66,6 +67,22 @@ def _user_prompt_response(
     return modelarmor_v1.SanitizeUserPromptResponse(
         sanitization_result=modelarmor_v1.SanitizationResult(
             invocation_result=invocation_result,
+            filter_match_state=match_state,
+            filter_results=filter_results,
+        )
+    )
+
+
+def _model_response(
+    filter_results: dict[str, modelarmor_v1.FilterResult],
+    *,
+    match_state: modelarmor_v1.FilterMatchState = (
+        modelarmor_v1.FilterMatchState.MATCH_FOUND
+    ),
+) -> modelarmor_v1.SanitizeModelResponseResponse:
+    return modelarmor_v1.SanitizeModelResponseResponse(
+        sanitization_result=modelarmor_v1.SanitizationResult(
+            invocation_result=modelarmor_v1.InvocationResult.SUCCESS,
             filter_match_state=match_state,
             filter_results=filter_results,
         )
@@ -129,7 +146,9 @@ def _virus_filter() -> modelarmor_v1.FilterResult:
 
 
 @pytest.fixture
-def plugin_with_client() -> tuple[ModelArmorSafetyFilterPlugin, MagicMock]:
+def plugin_with_client() -> Iterator[
+    tuple[ModelArmorSafetyFilterPlugin, MagicMock]
+]:
     client = MagicMock()
     client.sanitize_user_prompt = AsyncMock()
     client.sanitize_model_response = AsyncMock()
@@ -336,7 +355,7 @@ async def test_sdp_model_response_uses_transformed_text(
     plugin_with_client,
 ) -> None:
     plugin, client = plugin_with_client
-    client.sanitize_model_response.return_value = _user_prompt_response(
+    client.sanitize_model_response.return_value = _model_response(
         {"sdp": _sdp_deidentify_filter()}
     )
     response = LlmResponse(content=types.ModelContent("alex@example.com"))
@@ -352,7 +371,7 @@ async def test_sdp_model_response_uses_transformed_text(
 @pytest.mark.asyncio
 async def test_redaction_preserves_tool_call_and_signature(plugin_with_client):
     plugin, client = plugin_with_client
-    client.sanitize_model_response.return_value = _user_prompt_response(
+    client.sanitize_model_response.return_value = _model_response(
         {"sdp": _sdp_deidentify_filter()}
     )
     call = types.Part(
@@ -403,7 +422,7 @@ async def test_ambiguous_model_redaction_blocks(
     plugin_with_client, parts, caplog
 ):
     plugin, client = plugin_with_client
-    client.sanitize_model_response.return_value = _user_prompt_response(
+    client.sanitize_model_response.return_value = _model_response(
         {"sdp": _sdp_deidentify_filter()}
     )
     with caplog.at_level("INFO"):
@@ -455,7 +474,7 @@ async def test_user_redaction_with_media(plugin_with_client, extra_text):
 @pytest.mark.asyncio
 async def test_allow_preserves_mixed_content_exactly(plugin_with_client):
     plugin, client = plugin_with_client
-    client.sanitize_model_response.return_value = _user_prompt_response(
+    client.sanitize_model_response.return_value = _model_response(
         {}, match_state=modelarmor_v1.FilterMatchState.NO_MATCH_FOUND
     )
     response = LlmResponse(
@@ -569,11 +588,9 @@ async def test_tool_output_preserves_redacted_json_structure(
 @pytest.mark.asyncio
 async def test_non_sdp_matches_block_every_stage(plugin_with_client, stage):
     plugin, client = plugin_with_client
-    response = _user_prompt_response(
-        {"sdp": _sdp_deidentify_filter(), "virus_scan": _virus_filter()}
-    )
-    client.sanitize_user_prompt.return_value = response
-    client.sanitize_model_response.return_value = response
+    filters = {"sdp": _sdp_deidentify_filter(), "virus_scan": _virus_filter()}
+    client.sanitize_user_prompt.return_value = _user_prompt_response(filters)
+    client.sanitize_model_response.return_value = _model_response(filters)
 
     if stage == "model":
         result = await plugin.after_model_callback(
@@ -605,7 +622,9 @@ async def test_runner_blocks_before_model_and_recovers_next_turn(
         _user_prompt_response({"pi_and_jailbreak": _prompt_injection_filter()}),
         safe,
     ]
-    client.sanitize_model_response.return_value = safe
+    client.sanitize_model_response.return_value = _model_response(
+        {}, match_state=modelarmor_v1.FilterMatchState.NO_MATCH_FOUND
+    )
     capture = _CaptureModelRequestPlugin()
     runner = InMemoryRunner(
         app=App(
@@ -673,7 +692,7 @@ async def test_runner_blocks_incomplete_filter_despite_global_success(
         {"pi_and_jailbreak": modelarmor_v1.FilterResult(filter_result)},
         match_state=modelarmor_v1.FilterMatchState.NO_MATCH_FOUND,
     )
-    client.sanitize_model_response.return_value = _user_prompt_response(
+    client.sanitize_model_response.return_value = _model_response(
         {}, match_state=modelarmor_v1.FilterMatchState.NO_MATCH_FOUND
     )
     capture = _CaptureModelRequestPlugin()
@@ -748,7 +767,9 @@ async def test_runner_saves_and_forwards_only_the_redacted_tool_result(
         "sdp"
     ].sdp_filter_result.deidentify_result.data.text = '{"email": "***"}'
     client.sanitize_user_prompt.side_effect = [safe, redacted]
-    client.sanitize_model_response.return_value = safe
+    client.sanitize_model_response.return_value = _model_response(
+        {}, match_state=modelarmor_v1.FilterMatchState.NO_MATCH_FOUND
+    )
 
     def lookup_contact() -> dict[str, str]:
         """Return the synthetic address."""
@@ -814,7 +835,9 @@ async def test_plugin_screens_content_across_agent_transfer(plugin_with_client):
     )
     # The user event is transformed once; the transfer tool's result is safe.
     client.sanitize_user_prompt.side_effect = [redacted, safe]
-    client.sanitize_model_response.return_value = redacted
+    client.sanitize_model_response.return_value = _model_response(
+        {"sdp": _sdp_deidentify_filter()}
+    )
     parent_model = TransferModel()
     child_model = ProbeModel(output="alex@example.com")
     async with InMemoryRunner(

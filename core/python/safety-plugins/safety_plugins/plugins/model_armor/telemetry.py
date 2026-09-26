@@ -52,7 +52,7 @@ def screening_fields(
         sdp = result.filter_results.get(SDP_FILTER)
         if sdp is not None:
             kind, verdict = filter_verdict(sdp)
-            if kind == "deidentify_result":
+            if kind == "deidentify_result" and verdict is not None:
                 fields[SDP_FILTER] = {
                     "info_types": list(verdict.info_types),
                     "transformed_bytes": verdict.transformed_bytes,

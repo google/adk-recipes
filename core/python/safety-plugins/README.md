@@ -7,9 +7,9 @@ session persistence and screening tool results, beyond the first-party
 plugin's documented blocking behavior. It is an educational implementation,
 not a production support commitment.
 
-The recipe keeps ADK 1.28.0 in its lockfile. The local test suite also passes
-with ADK 2.9.1 on Python 3.11; this compatibility check uses mocked Google
-services and does not establish live Gemini behavior.
+The recipe requires ADK 1.38.0 or newer and locks ADK 1.38.0 with compatible
+security updates, including Starlette 1.3.1 and Google GenAI 2.9.0. The local
+tests use synthetic Google responses and do not establish live Gemini behavior.
 
 ## Overview
 
@@ -282,6 +282,8 @@ These tests use synthetic Google protobuf responses and a mocked Gemini
 boundary. They require neither `.env` nor credentials. They cover response
 validation, timeout handling, redaction, blocking, transport cleanup and the
 content actually sent to the model and saved by an ADK Runner.
+Test model/backend settings come from `.env.example`; dotenv loading is
+disabled so a local `.env` cannot change the test configuration.
 
 To validate a real Model Armor template, enable advanced SDP email replacement
 and prompt-injection detection in that template, authenticate the chosen
@@ -307,6 +309,9 @@ determine the result. The JSON report includes individual checks and the
 probe's synthetic request/output values. It exits nonzero on failure. The access
 token stays in memory; the command changes no active gcloud account, ADC
 configuration or template.
+The command resolves `gcloud` from `PATH` and limits authentication to 30
+seconds. The demo agent's import-time model name comes from the environment
+or `.env.example`; the probe itself uses only the deterministic local model.
 
 ## Customization
 
