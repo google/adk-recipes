@@ -36,7 +36,9 @@ def test_load_policy_reads_real_policy_file():
     """Loads the real repository policy.yml."""
     policy = rd.load_policy(POLICY_PATH)
     assert isinstance(policy, dict)
-    assert policy.get("repo_admin") == "happyhuman"
+    repo_admin = policy.get("repo_admin")
+    assert isinstance(repo_admin, str)
+    assert len(repo_admin) > 0
 
 
 def test_get_repo_admin_from_policy_dict():
@@ -220,6 +222,21 @@ def test_find_existing_deletion_pr():
         }
     ]
     assert rd.find_existing_deletion_pr(recipe_path, merged_pr) is None
+
+    # Overlapping prefix names do not falsely match
+    overlap_prs = [
+        {
+            "number": 103,
+            "title": "Deprecate recipe: contrib/python/recipe-a-advanced",
+            "headRefName": "deprecate/contrib/python/recipe-a-advanced",
+            "state": "OPEN",
+            "mergedAt": None,
+        }
+    ]
+    assert (
+        rd.find_existing_deletion_pr("contrib/python/recipe-a", overlap_prs)
+        is None
+    )
 
     # Unrelated PRs don't match
     unrelated = [

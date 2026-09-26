@@ -40,6 +40,7 @@ import argparse
 import json
 import logging
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -69,6 +70,7 @@ SKIP_DIRS = {
 
 DEFAULT_INACTIVE_DAYS = 60
 DEFAULT_REPO_ADMIN = "happyhuman"
+DEFAULT_PR_LIMIT = 1000
 
 
 @dataclass
@@ -204,13 +206,16 @@ def get_deletion_pr_title(recipe_rel_path: str) -> str:
 
 
 def get_deletion_pr_body(
-    recipe_rel_path: str, repo_admin: str, days_inactive: int
+    recipe_rel_path: str,
+    repo_admin: str,
+    days_inactive: int,
+    threshold_days: int = DEFAULT_INACTIVE_DAYS,
 ) -> str:
     """PR description for recipe deprecation."""
     return (
         f"## Deprecation of inactive recipe\n\n"
         f"This PR deletes the inactive recipe at `{recipe_rel_path}` because "
-        f"it has been marked as `status: inactive` for {days_inactive} days (threshold: 60+ days).\n\n"
+        f"it has been marked as `status: inactive` for {days_inactive} days (threshold: {threshold_days}+ days).\n\n"
         f"Assigned to @{repo_admin} for manual review.\n"
     )
 
@@ -224,7 +229,7 @@ def fetch_prs(repo: str | None = None) -> list[dict]:
         "--state",
         "all",
         "--limit",
-        "1000",
+        str(DEFAULT_PR_LIMIT),
         "--json",
         "number,title,headRefName,state,url,assignees,closedAt,mergedAt",
     ]
@@ -255,8 +260,11 @@ def find_existing_deletion_pr(
         is_match = False
         if head in (expected_branch, alt_branch_1, alt_branch_2):
             is_match = True
-        elif recipe_rel_path in title and any(
+        elif any(
             kw in title.lower() for kw in ("deprecate", "delete")
+        ) and re.search(
+            rf"(?<![a-zA-Z0-9_\-/]){re.escape(recipe_rel_path)}(?![a-zA-Z0-9_\-/])",
+            title,
         ):
             is_match = True
 
@@ -296,7 +304,7 @@ def assign_pr(
         return True
 
     endpoint = (
-        f"repos/{repo}/issues/{pr_number}/assignees"
+        f"/repos/{repo}/issues/{pr_number}/assignees"
         if repo
         else f"/repos/:owner/:repo/issues/{pr_number}/assignees"
     )
@@ -365,12 +373,18 @@ def create_deletion_pr(
     repo_root: Path = REPO_ROOT,
     repo: str | None = None,
     dry_run: bool = False,
-    days_inactive: int = DEFAULT_INACTIVE_DAYS,
+    days_inactive: int = 0,
+    threshold_days: int = DEFAULT_INACTIVE_DAYS,
 ) -> int | None:
     """Create a branch, delete the recipe folder, commit, push, and open a PR."""
     branch_name = get_deletion_branch_name(recipe.rel_path)
     title = get_deletion_pr_title(recipe.rel_path)
-    body = get_deletion_pr_body(recipe.rel_path, repo_admin, days_inactive)
+    body = get_deletion_pr_body(
+        recipe.rel_path,
+        repo_admin,
+        days_inactive=days_inactive,
+        threshold_days=threshold_days,
+    )
 
     if dry_run:
         print(
@@ -578,6 +592,7 @@ def process_recipes(
                     repo=repo,
                     dry_run=dry_run,
                     days_inactive=elapsed_days,
+                    threshold_days=inactive_days,
                 )
         else:
             summary["skipped"] += 1
