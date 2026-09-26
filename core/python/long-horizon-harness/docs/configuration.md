@@ -108,7 +108,7 @@ longer rebuilt per session.
 | `LHA_PRUNE_TOOL_OUTPUTS` | on | `0` disables zeroing of old large tool-result bodies. |
 | `LHA_PRELOAD_MAX_MEMORIES` | `20` | Cap on memories injected into the per-turn `<PAST_CONVERSATIONS>` block. ADK's `search_memory` takes no `top_k`, so without this the block grows with the user's memory count forever. |
 | `LHA_PRELOAD_MAX_CHARS` | `4000` | Character cap on the same block, applied after the count cap. |
-| `ADK_DISABLE_JSON_SCHEMA_FOR_FUNC_DECL` | unset | Selects ADK's lean declaration path process-wide. The root agent no longer needs it: `context/declaration_compaction.py` scopes the same switch to its own tool builds, worth 2,549 chars of the tool surface on every turn. Set it yourself only if you also want it for the child agents, and only if nothing else in the process would be re-rendered by it. |
+| `ADK_DISABLE_JSON_SCHEMA_FOR_FUNC_DECL` | unset | Selects ADK's lean declaration path process-wide. The root agent no longer needs it: `context/declaration_compaction.py` scopes the same switch to its own tool builds. Set it yourself only if you also want it for the child agents, and only if nothing else in the process would be re-rendered by it. |
 | `LHA_COMPACTION_WINDOW_FRACTION` | `0.75` | Fraction (0,1) of the model's input window at which compaction fires. |
 
 ### Scheduler / routines
