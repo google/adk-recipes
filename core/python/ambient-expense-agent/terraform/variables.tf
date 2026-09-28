@@ -38,7 +38,7 @@ variable "frontend_service_name" {
 variable "agent_name" {
   description = "ADK agent name (matches the agent directory name)."
   type        = string
-  default     = "expense_agent"
+  default     = "app"
 }
 
 variable "backend_image" {

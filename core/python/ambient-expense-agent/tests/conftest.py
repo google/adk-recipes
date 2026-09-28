@@ -17,7 +17,7 @@
 This conftest deliberately does two things at module top so tests are
 self-contained and never depend on a ``.env`` file existing in CI:
 
-1. Populate the env vars that ``expense_agent.config`` reads at import
+1. Populate the env vars that ``app.config`` reads at import
    time (``GOOGLE_API_KEY``, ``MODEL_NAME``). Setting ``GOOGLE_API_KEY``
    also steers ``config.py`` down the AI Studio branch so
    ``google.auth.default()`` is never called — no ADC required.
@@ -27,10 +27,10 @@ self-contained and never depend on a ``.env`` file existing in CI:
    a valid API key.
 """
 
-# --- Env bootstrap (runs before test files import expense_agent) -----------
+# --- Env bootstrap (runs before test files import app) -----------
 # pytest loads conftest.py before collecting sibling test modules, so this
 # module-level code runs *before* test_integration.py's top-level
-# ``from expense_agent.fast_api_app import app`` triggers config.py.
+# ``from app.fast_api_app import app`` triggers config.py.
 import os
 
 os.environ.setdefault("GOOGLE_API_KEY", "test-key-not-used")
@@ -49,7 +49,7 @@ os.environ.setdefault("ADK_DISABLE_LOCAL_STORAGE", "1")
 # the correct test values here (using setdefault so a real .env with
 # meaningful values still wins) so the frontend queries the right ADK app
 # and user_id when running tests.
-os.environ.setdefault("APP_NAME", "expense_agent")
+os.environ.setdefault("APP_NAME", "app")
 os.environ.setdefault("PUBSUB_SUBSCRIPTION", "test-sub")
 
 # --- LLM mock (imports are safe now that env is set) -----------------------

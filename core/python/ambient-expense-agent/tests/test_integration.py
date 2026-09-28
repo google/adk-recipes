@@ -26,7 +26,7 @@ import httpx
 import pytest
 import pytest_asyncio
 
-from expense_agent.fast_api_app import app as backend_app
+from app.fast_api_app import app as backend_app
 from frontend.main import app as frontend_app
 
 
@@ -100,7 +100,7 @@ async def test_auto_approve(backend):
     )
 
     resp = await backend.post(
-        "/apps/expense_agent/trigger/pubsub",
+        "/apps/app/trigger/pubsub",
         json=payload,
     )
     assert resp.status_code == 200
@@ -122,7 +122,7 @@ async def test_review_and_hitl_approval(backend, frontend, monkeypatch):
     )
 
     resp = await backend.post(
-        "/apps/expense_agent/trigger/pubsub",
+        "/apps/app/trigger/pubsub",
         json=payload,
     )
     assert resp.status_code == 200
@@ -142,7 +142,7 @@ async def test_review_and_hitl_approval(backend, frontend, monkeypatch):
 
     # Step 3: Approve via frontend
     approval_body = {
-        "appName": "expense_agent",
+        "appName": "app",
         "userId": item["user_id"],
         "sessionId": item["session_id"],
         "newMessage": {
@@ -191,7 +191,7 @@ async def test_review_and_hitl_rejection(backend, frontend, monkeypatch):
     )
 
     resp = await backend.post(
-        "/apps/expense_agent/trigger/pubsub",
+        "/apps/app/trigger/pubsub",
         json=payload,
     )
     assert resp.status_code == 200
@@ -203,7 +203,7 @@ async def test_review_and_hitl_rejection(backend, frontend, monkeypatch):
 
     # Reject
     rejection_body = {
-        "appName": "expense_agent",
+        "appName": "app",
         "userId": item["user_id"],
         "sessionId": item["session_id"],
         "newMessage": {
@@ -245,13 +245,13 @@ async def test_subscription_normalization(backend):
     payload["subscription"] = "projects/my-project/subscriptions/test-sub"
 
     resp = await backend.post(
-        "/apps/expense_agent/trigger/pubsub",
+        "/apps/app/trigger/pubsub",
         json=payload,
     )
     assert resp.status_code == 200
 
     # Session should be queryable with the short name
-    resp = await backend.get("/apps/expense_agent/users/test-sub/sessions")
+    resp = await backend.get("/apps/app/users/test-sub/sessions")
     assert resp.status_code == 200
     sessions = resp.json()
     assert len(sessions) >= 1

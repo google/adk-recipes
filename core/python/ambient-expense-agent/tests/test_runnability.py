@@ -28,6 +28,6 @@ def test_agent_runnability() -> None:
     with patch(
         "google.auth.default", return_value=(MagicMock(), "test-project")
     ):
-        import expense_agent.agent
+        import app.agent
 
-    assert expense_agent.agent.root_agent is not None
+    assert app.agent.root_agent is not None

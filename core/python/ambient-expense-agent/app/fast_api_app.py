@@ -34,7 +34,7 @@ from google.adk.cli.fast_api import get_fast_api_app
 from starlette.requests import Request
 
 # The ADK needs the project root as agents_dir so it discovers
-# expense_agent/ as an agent package (contains agent.py + __init__.py).
+# app/ as an agent package (contains agent.py + __init__.py).
 AGENTS_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 app = get_fast_api_app(
