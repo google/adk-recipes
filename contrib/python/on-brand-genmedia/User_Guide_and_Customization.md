@@ -44,7 +44,7 @@ This section explains how to customize the agent for your own brand by updating 
 The agent uses stored images and a metadata JSON file to reference existing digital assets.
 
 1.  **Add Images**: Place new image files in the `app/data/assets/` directory.
-2.  **Update Metadata**: Open `app/data/brand_assets_metadata.json` and add an entry for the new asset. Below is a suggested exmaple based on the existing file. Please feel free to come up with your own schema and fields based on your needs.
+2.  **Update Metadata**: Open `app/data/brand_assets_metadata.json` and add an entry for the new asset. Below is a suggested example based on the existing file. Please feel free to come up with your own schema and fields based on your needs.
 
 Example JSON entry:
 ```json
