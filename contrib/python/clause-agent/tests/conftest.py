@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from clause_agent.tools import document_search, memory_bank
+from app.tools import document_search, memory_bank
 
 
 @pytest.fixture(autouse=True)

@@ -36,5 +36,5 @@
 /contrib/typescript/** @happyhuman
 /contrib/kotlin/**     @happyhuman
 
-# --- skills/ ---
-/skills/**             @happyhuman
+# --- plugins/ ---
+/plugins/**            @happyhuman

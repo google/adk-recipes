@@ -1,4 +1,4 @@
-<!-- word count: 119 (target 100, cap 200) -->
+<!-- word count: 135 (target 100, cap 200) -->
 
 # Java Recipes
 
@@ -15,8 +15,9 @@ mirror the shape of the [Python page](./python.md).
 Structural checks apply to Java recipes today: every recipe must include
 `manifest.yaml`, `README.md`, `.env.example`, and one build configuration
 file (`pom.xml`, `build.gradle`, or `build.gradle.kts` — both Maven
-and Gradle are supported). You can submit a working `contrib/java/`
-recipe against those alone.
+and Gradle are supported). No lockfile is required (Maven has no
+lockfile concept, and Gradle dependency locking is not used). You can
+submit a working `contrib/java/` recipe against those alone.
 
 ---
 

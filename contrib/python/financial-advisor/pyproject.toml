@@ -60,13 +60,13 @@ asyncio_default_fixture_loop_scope = "function"
 
 [tool.hatch.build.targets.wheel]
 # Ensures Hatchling finds the package folder correctly
-packages = ["financial_advisor"]
+packages = ["app"]
 
 [tool.agent-starter-pack]
 example_question = "Analyze AAPL"
 
 [tool.agent-starter-pack.settings]
-agent_directory = "financial_advisor"
+agent_directory = "app"
 
 [build-system]
 requires = ["hatchling"]

@@ -13,9 +13,9 @@
 # limitations under the License.
 """Runnability tests for the recipe."""
 
-import clause_agent.agent
+import app.agent
 
 
 def test_agent_runnability() -> None:
     """Verify agent.py imports and defines the expected globals."""
-    assert clause_agent.agent.root_agent is not None
+    assert app.agent.root_agent is not None

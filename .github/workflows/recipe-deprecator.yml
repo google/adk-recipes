@@ -1,0 +1,75 @@
+name: Recipe Deprecator
+
+# Scheduled recipe deprecation workflow.
+#
+# Scans the recipe tree for recipes marked `status: inactive` in their manifest.yaml.
+# If a recipe has been inactive for 60+ days (calculated from the manifest.yaml's
+# latest Git commit / file modification date), triggers the deletion process:
+#   1. Parses policy.yml to identify repo_admin.
+#   2. Checks for an existing deletion PR:
+#      - If an open PR exists, does nothing.
+#      - If a closed/ignored PR exists, reopens it.
+#      - If no PR exists, creates a branch, deletes the recipe directory, and opens a new PR.
+#   3. Assigns new or reopened PRs to repo_admin for manual review.
+
+on:
+  schedule:
+    # Run twice monthly on the 2nd and 16th at 06:00 UTC.
+    - cron: "0 6 2,16 * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "List actions without creating branches or PRs"
+        type: boolean
+        default: false
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  deprecate:
+    name: Deprecate Inactive Recipes
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v4
+        with:
+          # Fetch full history so git log can determine accurate manifest commit dates.
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # ratchet:astral-sh/setup-uv@v10.0.1
+        with:
+          python-version: "3.11"
+
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Run Recipe Deprecator
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          args=()
+          if [ "${DRY_RUN:-false}" = "true" ]; then
+            args+=(--dry-run)
+          fi
+          uv run --no-project --with pyyaml python3 \
+            .github/scripts/recipe_deprecator.py "${args[@]}"

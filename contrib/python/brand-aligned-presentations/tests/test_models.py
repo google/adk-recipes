@@ -15,7 +15,7 @@
 import pytest
 from pydantic import ValidationError
 
-from presentation_agent.shared_libraries.models import (
+from app.shared_libraries.models import (
     CoverSpec,
     DeckSpec,
     SlideSpec,

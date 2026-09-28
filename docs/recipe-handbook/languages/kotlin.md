@@ -1,4 +1,4 @@
-<!-- word count: 110 (target 100, cap 200) -->
+<!-- word count: 114 (target 100, cap 200) -->
 
 # Kotlin Recipes
 
@@ -13,7 +13,8 @@ this page will mirror the shape of the [Python page](./python.md).
 
 Structural checks apply to Kotlin recipes today: every recipe must include
 `manifest.yaml`, `README.md`, `.env.example`, and `build.gradle.kts`.
-You can submit a working `contrib/kotlin/` recipe against those alone.
+No lockfile is required (Gradle dependency locking is not used). You
+can submit a working `contrib/kotlin/` recipe against those alone.
 
 ---
 

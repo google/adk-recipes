@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from presentation_agent.sub_agents.google_research.agent import (
+from app.sub_agents.google_research.agent import (
     google_research_grounded_tool,
 )
 
@@ -47,11 +47,11 @@ async def test_google_research_programmatic_extraction():
     mock_runner.run_async = mock_run_async
 
     with patch(
-        "presentation_agent.sub_agents.google_research.agent.Runner",
+        "app.sub_agents.google_research.agent.Runner",
         return_value=mock_runner,
     ):
         with patch(
-            "presentation_agent.sub_agents.google_research.agent.InMemorySessionService",
+            "app.sub_agents.google_research.agent.InMemorySessionService",
             return_value=AsyncMock(),
         ):
             result = await google_research_grounded_tool("test query")

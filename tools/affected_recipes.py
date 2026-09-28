@@ -10,10 +10,10 @@ the set of recipes that need re-validation.
 Layout rules (kept in sync with tools/validate_manifest.py):
     <root>/<recipe>/…              flat            (core / contrib)
     <root>/<language>/<recipe>/…   language-nsed   (core / contrib)
-    skills/<vertical>/<solution>/… vertical-nsed   (skills)
+    plugins/<vertical>/<solution>/… vertical-nsed   (plugins)
 
 where:
-    <root>      ∈ RECIPE_ROOTS               (core / contrib / skills)
+    <root>      ∈ RECIPE_ROOTS               (core / contrib / plugins)
     <language>  ∈ LANGUAGE_NAMESPACE_DIRS    (python / java / go / …)
     <vertical>  is free-form (retail / hr / finance / …) and mandatory —
                 see NAMESPACE_REQUIRED_ROOTS in validate_manifest.py
@@ -80,11 +80,11 @@ def recipe_dir_for(path: str) -> str | None:
     if not part1:
         return None
 
-    # Roots where the namespace is mandatory (skills/<vertical>/<solution>).
+    # Roots where the namespace is mandatory (plugins/<vertical>/<solution>).
     # The vertical is free-form, so it can only be recognised by position:
     # a path identifies a solution only when there is something BELOW it,
     # i.e. at least root/vertical/solution/<file>. Anything shallower —
-    # `skills/foo/SKILL.md`, a solution placed directly under the root —
+    # `plugins/foo/SKILL.md`, a solution placed directly under the root —
     # deliberately maps to None rather than inventing a recipe at the wrong
     # depth. tools/validate_placement.py reports those as misplaced.
     if root in vm.NAMESPACE_REQUIRED_ROOTS:

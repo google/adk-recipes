@@ -120,8 +120,8 @@ Runs `scripts/extract_env_vars.py` against a recipe directory. The script:
 
    If `load_dotenv` is already present the injection is skipped.
 
-   **If no package `__init__.py` exists** (common in vertical skills under
-   `skills/`, where the code lives in a plain `scripts/` directory rather
+   **If no package `__init__.py` exists** (common in vertical plugins under
+   `plugins/`, where the code lives in a plain `scripts/` directory rather
    than an importable package) the injection is skipped with a `[WARN]`,
    and the step reports that no bootstrap is in place. Step 4 below depends
    on that answer.
@@ -285,7 +285,7 @@ Python source (unchanged behaviour) and WRITES only to `.env.example`.
 
 | Field | Required | Description |
 |-------|----------|-------------|
-| Recipe directory | Yes | Path to the recipe root (e.g. `contrib/python/my-recipe`, `core/python/my-recipe`, or `skills/retail/store-ops`) |
+| Recipe directory | Yes | Path to the recipe root (e.g. `contrib/python/my-recipe`, `core/python/my-recipe`, or `plugins/retail/store-ops`) |
 
 If the user has not specified the recipe directory, ask for it before proceeding.
 
