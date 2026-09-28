@@ -1,6 +1,6 @@
 # Architecture overview
 
-This document explains how Long Horizon (the `horizon` package) is put together and where to
+This document explains how Long Horizon (the `app` package) is put together and where to
 look when you want to understand or change a behavior. It is for new maintainers, and for
 readers who want a practical map of the system without reading the whole implementation
 first.
