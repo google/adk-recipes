@@ -67,7 +67,7 @@ The project follows a modular structure to separate core logic from deployment u
 ├── docs/                 # Architectural diagrams, templates, and guides
 ├── tests/                # Unit and integration test suite
 ├── eval/                 # Multi-scenario evaluation pipeline
-└── presentation_agent/   # Core logic package
+└── app/   # Core logic package
     ├── __init__.py
     ├── agent.py          # Main agent definition and ADK runner
     ├── prompt.py         # Agent instructions and workflows
@@ -174,11 +174,11 @@ We use a dual-evaluation approach testing both structural integrity and narrativ
 ## 7. Customization & Extension
 
 ### Modifying the Flow
-- **Prompts:** Tweak the core orchestration logic and instructions in `presentation_agent/prompt.py`. This file controls the dual "Create" and "Edit" workflows.
-- **Sub-Agents:** Modify sub-agent behaviors (Deep Research, Synthesis) in `presentation_agent/sub_agents/`.
+- **Prompts:** Tweak the core orchestration logic and instructions in `app/prompt.py`. This file controls the dual "Create" and "Edit" workflows.
+- **Sub-Agents:** Modify sub-agent behaviors (Deep Research, Synthesis) in `app/sub_agents/`.
 
 ### Adding Tools
-To add new external APIs or utilities, place them in `presentation_agent/tools/` and register them as `FunctionTool` objects in the `agent_tools` array within `presentation_agent/agent.py`.
+To add new external APIs or utilities, place them in `app/tools/` and register them as `FunctionTool` objects in the `agent_tools` array within `app/agent.py`.
 
 ### User-Provided Templates 
 Users can provide your own `.pptx` templates. To achieve flawless formatting without the Python engine resorting to programmatic resizing hacks, the provided template should follow (docs/pptx_template_guide.md)

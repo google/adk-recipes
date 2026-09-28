@@ -16,24 +16,22 @@
 
 def test_agent_runnability() -> None:
     """Verify agent.py imports and defines the expected globals."""
-    import financial_advisor.agent
+    import app.agent
 
-    assert financial_advisor.agent.root_agent is not None
-    assert financial_advisor.agent.app is not None
+    assert app.agent.root_agent is not None
+    assert app.agent.app is not None
 
 
 def test_fast_api_app_runnability() -> None:
     """Verify fast_api_app boots and serves /list-apps and A2A agent card."""
     from fastapi.testclient import TestClient
 
-    from financial_advisor.fast_api_app import app
+    from app.fast_api_app import app
 
     with TestClient(app) as client:
         resp = client.get("/list-apps")
         assert resp.status_code == 200
-        assert "financial_advisor" in resp.json()
+        assert "app" in resp.json()
 
-        card_resp = client.get(
-            "/a2a/financial_advisor/.well-known/agent-card.json"
-        )
+        card_resp = client.get("/a2a/app/.well-known/agent-card.json")
         assert card_resp.status_code == 200

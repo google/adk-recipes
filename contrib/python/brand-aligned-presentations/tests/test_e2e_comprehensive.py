@@ -4,15 +4,15 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from presentation_agent.shared_libraries.config import (
+from app.shared_libraries.config import (
     PRESENTATION_SPEC_ARTIFACT,
     RESEARCH_SUMMARY_ARTIFACT,
 )
-from presentation_agent.sub_agents.synthesizer.agent import (
+from app.sub_agents.synthesizer.agent import (
     batch_generate_slides,
     generate_and_save_outline,
 )
-from presentation_agent.tools.presentation_orchestrator import (
+from app.tools.presentation_orchestrator import (
     generate_and_render_deck,
 )
 
@@ -69,7 +69,7 @@ async def test_comprehensive_e2e_flow():
 
     print("\n--- Phase 2: Synthesis ---")
     with patch(
-        "presentation_agent.sub_agents.synthesizer.agent.initialize_genai_client",
+        "app.sub_agents.synthesizer.agent.initialize_genai_client",
         return_value=mock_client,
     ):
         await generate_and_save_outline(
@@ -100,7 +100,7 @@ async def test_comprehensive_e2e_flow():
 
     print("--- Phase 4.1: Batch Generation ---")
     with patch(
-        "presentation_agent.sub_agents.synthesizer.agent.initialize_genai_client",
+        "app.sub_agents.synthesizer.agent.initialize_genai_client",
         return_value=mock_client,
     ):
         # Must retrieve research and plan from state!
@@ -122,23 +122,23 @@ async def test_comprehensive_e2e_flow():
 
     with (
         patch(
-            "presentation_agent.tools.presentation_orchestrator.get_gcs_file_as_local_path",
+            "app.tools.presentation_orchestrator.get_gcs_file_as_local_path",
             AsyncMock(return_value="mock.pptx"),
         ),
         patch(
-            "presentation_agent.tools.presentation_orchestrator.Presentation",
+            "app.tools.presentation_orchestrator.Presentation",
             MagicMock(),
         ),
         patch(
-            "presentation_agent.tools.presentation_orchestrator.render_deck_from_spec",
+            "app.tools.presentation_orchestrator.render_deck_from_spec",
             AsyncMock(return_value="final_output.pptx"),
         ),
         patch(
-            "presentation_agent.tools.presentation_orchestrator.save_presentation",
+            "app.tools.presentation_orchestrator.save_presentation",
             side_effect=mock_save_pres,
         ),
         patch(
-            "presentation_agent.tools.presentation_orchestrator.os.remove",
+            "app.tools.presentation_orchestrator.os.remove",
             MagicMock(),
         ),
     ):

@@ -19,7 +19,7 @@ from google.adk.agents.callback_context import CallbackContext
 from google.adk.models.llm_response import LlmResponse
 from google.genai import types
 
-from presentation_agent.shared_libraries.model_armor import (
+from app.shared_libraries.model_armor import (
     model_armor_interceptor,
     model_armor_response_interceptor,
 )
@@ -53,10 +53,10 @@ def create_mock_response(json_data):
 
 
 @patch(
-    "presentation_agent.shared_libraries.model_armor.MODEL_ARMOR_TEMPLATE_ID",
+    "app.shared_libraries.model_armor.MODEL_ARMOR_TEMPLATE_ID",
     "test-template",
 )
-@patch("presentation_agent.shared_libraries.model_armor.google.auth.default")
+@patch("app.shared_libraries.model_armor.google.auth.default")
 @patch("httpx.AsyncClient.post")
 @pytest.mark.asyncio
 async def test_model_armor_interceptor_allow(
@@ -76,10 +76,10 @@ async def test_model_armor_interceptor_allow(
 
 
 @patch(
-    "presentation_agent.shared_libraries.model_armor.MODEL_ARMOR_TEMPLATE_ID",
+    "app.shared_libraries.model_armor.MODEL_ARMOR_TEMPLATE_ID",
     "test-template",
 )
-@patch("presentation_agent.shared_libraries.model_armor.google.auth.default")
+@patch("app.shared_libraries.model_armor.google.auth.default")
 @patch("httpx.AsyncClient.post")
 @pytest.mark.asyncio
 async def test_model_armor_interceptor_block(
@@ -101,10 +101,10 @@ async def test_model_armor_interceptor_block(
 
 
 @patch(
-    "presentation_agent.shared_libraries.model_armor.MODEL_ARMOR_TEMPLATE_ID",
+    "app.shared_libraries.model_armor.MODEL_ARMOR_TEMPLATE_ID",
     "test-template",
 )
-@patch("presentation_agent.shared_libraries.model_armor.google.auth.default")
+@patch("app.shared_libraries.model_armor.google.auth.default")
 @patch("httpx.AsyncClient.post")
 @pytest.mark.asyncio
 async def test_model_armor_response_interceptor_allow(
@@ -126,10 +126,10 @@ async def test_model_armor_response_interceptor_allow(
 
 
 @patch(
-    "presentation_agent.shared_libraries.model_armor.MODEL_ARMOR_TEMPLATE_ID",
+    "app.shared_libraries.model_armor.MODEL_ARMOR_TEMPLATE_ID",
     "test-template",
 )
-@patch("presentation_agent.shared_libraries.model_armor.google.auth.default")
+@patch("app.shared_libraries.model_armor.google.auth.default")
 @patch("httpx.AsyncClient.post")
 @pytest.mark.asyncio
 async def test_model_armor_response_interceptor_redact(
@@ -159,11 +159,11 @@ async def test_model_armor_response_interceptor_redact(
 
 
 @patch(
-    "presentation_agent.shared_libraries.model_armor.MODEL_ARMOR_TEMPLATE_ID",
+    "app.shared_libraries.model_armor.MODEL_ARMOR_TEMPLATE_ID",
     "test-template",
 )
-@patch("presentation_agent.shared_libraries.model_armor.google.auth.default")
-@patch("presentation_agent.shared_libraries.model_armor.os.getenv")
+@patch("app.shared_libraries.model_armor.google.auth.default")
+@patch("app.shared_libraries.model_armor.os.getenv")
 @pytest.mark.asyncio
 async def test_model_armor_interceptor_no_project(
     mock_getenv, mock_auth, mock_callback_context
@@ -181,10 +181,10 @@ async def test_model_armor_interceptor_no_project(
 
 
 @patch(
-    "presentation_agent.shared_libraries.model_armor.MODEL_ARMOR_TEMPLATE_ID",
+    "app.shared_libraries.model_armor.MODEL_ARMOR_TEMPLATE_ID",
     "test-template",
 )
-@patch("presentation_agent.shared_libraries.model_armor.google.auth.default")
+@patch("app.shared_libraries.model_armor.google.auth.default")
 @pytest.mark.asyncio
 async def test_model_armor_interceptor_exception(
     mock_auth, mock_callback_context
@@ -198,10 +198,10 @@ async def test_model_armor_interceptor_exception(
 
 
 @patch(
-    "presentation_agent.shared_libraries.model_armor.MODEL_ARMOR_TEMPLATE_ID",
+    "app.shared_libraries.model_armor.MODEL_ARMOR_TEMPLATE_ID",
     "test-template",
 )
-@patch("presentation_agent.shared_libraries.model_armor._call_model_armor_api")
+@patch("app.shared_libraries.model_armor._call_model_armor_api")
 @pytest.mark.asyncio
 async def test_model_armor_interceptor_mocked_allow(
     mock_call_api,
@@ -217,7 +217,7 @@ async def test_model_armor_interceptor_mocked_allow(
 
 
 @patch(
-    "presentation_agent.shared_libraries.model_armor.MODEL_ARMOR_TEMPLATE_ID",
+    "app.shared_libraries.model_armor.MODEL_ARMOR_TEMPLATE_ID",
     None,
 )
 @pytest.mark.asyncio
@@ -227,7 +227,7 @@ async def test_model_armor_interceptor_no_template_id(mock_callback_context):
 
 
 @patch(
-    "presentation_agent.shared_libraries.model_armor.MODEL_ARMOR_TEMPLATE_ID",
+    "app.shared_libraries.model_armor.MODEL_ARMOR_TEMPLATE_ID",
     "test-template",
 )
 @pytest.mark.asyncio
@@ -239,7 +239,7 @@ async def test_model_armor_interceptor_no_user_content():
 
 
 @patch(
-    "presentation_agent.shared_libraries.model_armor.MODEL_ARMOR_TEMPLATE_ID",
+    "app.shared_libraries.model_armor.MODEL_ARMOR_TEMPLATE_ID",
     "test-template",
 )
 @pytest.mark.asyncio
@@ -251,7 +251,7 @@ async def test_model_armor_interceptor_no_user_text():
 
 
 @patch(
-    "presentation_agent.shared_libraries.model_armor.MODEL_ARMOR_TEMPLATE_ID",
+    "app.shared_libraries.model_armor.MODEL_ARMOR_TEMPLATE_ID",
     None,
 )
 @pytest.mark.asyncio
@@ -265,7 +265,7 @@ async def test_model_armor_response_interceptor_no_template_id(
 
 
 @patch(
-    "presentation_agent.shared_libraries.model_armor.MODEL_ARMOR_TEMPLATE_ID",
+    "app.shared_libraries.model_armor.MODEL_ARMOR_TEMPLATE_ID",
     "test-template",
 )
 @pytest.mark.asyncio
@@ -279,7 +279,7 @@ async def test_model_armor_response_interceptor_no_llm_content(
 
 
 @patch(
-    "presentation_agent.shared_libraries.model_armor.MODEL_ARMOR_TEMPLATE_ID",
+    "app.shared_libraries.model_armor.MODEL_ARMOR_TEMPLATE_ID",
     "test-template",
 )
 @pytest.mark.asyncio
@@ -293,10 +293,10 @@ async def test_model_armor_response_interceptor_no_llm_text(
 
 
 @patch(
-    "presentation_agent.shared_libraries.model_armor.MODEL_ARMOR_TEMPLATE_ID",
+    "app.shared_libraries.model_armor.MODEL_ARMOR_TEMPLATE_ID",
     "test-template",
 )
-@patch("presentation_agent.shared_libraries.model_armor.google.auth.default")
+@patch("app.shared_libraries.model_armor.google.auth.default")
 @pytest.mark.asyncio
 async def test_model_armor_response_interceptor_fail_closed(
     mock_auth, mock_callback_context, mock_llm_response
@@ -311,10 +311,10 @@ async def test_model_armor_response_interceptor_fail_closed(
 
 
 @patch(
-    "presentation_agent.shared_libraries.model_armor.MODEL_ARMOR_TEMPLATE_ID",
+    "app.shared_libraries.model_armor.MODEL_ARMOR_TEMPLATE_ID",
     "test-template",
 )
-@patch("presentation_agent.shared_libraries.model_armor._call_model_armor_api")
+@patch("app.shared_libraries.model_armor._call_model_armor_api")
 @pytest.mark.asyncio
 async def test_model_armor_response_interceptor_mocked_allow(
     mock_call_api,
@@ -333,10 +333,10 @@ async def test_model_armor_response_interceptor_mocked_allow(
 
 
 @patch(
-    "presentation_agent.shared_libraries.model_armor.MODEL_ARMOR_TEMPLATE_ID",
+    "app.shared_libraries.model_armor.MODEL_ARMOR_TEMPLATE_ID",
     "test-template",
 )
-@patch("presentation_agent.shared_libraries.model_armor.google.auth.default")
+@patch("app.shared_libraries.model_armor.google.auth.default")
 @patch("httpx.AsyncClient.post")
 @pytest.mark.asyncio
 async def test_model_armor_response_interceptor_block(
