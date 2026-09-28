@@ -1,5 +1,5 @@
 SHELL := /bin/bash
-PYTHONPATH = genmedia4commerce
+PYTHONPATH = app
 
 # ==============================================================================
 # Installation & Setup
@@ -12,12 +12,12 @@ install:
 	uv sync
 
 # Sync the root config.env into the package directory.
-# The runtime loads genmedia4commerce/config.env (the package-internal one) because
+# The runtime loads app/config.env (the package-internal one) because
 # at deploy time only the package directory ships. The root config.env is the
 # user-facing source of truth; the package one is a build artifact (gitignored).
 sync-config:
 	@if [ ! -f config.env ]; then echo "Error: config.env not found. Copy config.env.example to config.env and edit it."; exit 1; fi
-	@cp config.env genmedia4commerce/config.env
+	@cp config.env app/config.env
 
 # ==============================================================================
 # Playground Targets
@@ -30,7 +30,7 @@ playground: sync-config
 	@echo "|                                                                             |"
 	@echo "| 💡 Try asking: What's the weather in San Francisco?                         |"
 	@echo "|                                                                             |"
-	@echo "| 🔍 IMPORTANT: Select the 'genmedia4commerce' folder to interact with your agent.          |"
+	@echo "| 🔍 IMPORTANT: Select the 'app' folder to interact with your agent.          |"
 	@echo "==============================================================================="
 	uv run adk web . --port 8501 --reload_agents
 
@@ -42,13 +42,13 @@ playground: sync-config
 # Usage: make deploy [AGENT_IDENTITY=true] [SECRETS="KEY=SECRET_ID,..."] - Set AGENT_IDENTITY=true to enable per-agent IAM identity (Preview)
 deploy:
 	# Export dependencies to requirements file using uv export.
-	(uv export --no-hashes --no-header --no-dev --no-emit-project --no-annotate > genmedia4commerce/app_utils/.requirements.txt 2>/dev/null || \
-	uv export --no-hashes --no-header --no-dev --no-emit-project > genmedia4commerce/app_utils/.requirements.txt) && \
-	uv run -m genmedia4commerce.app_utils.deploy \
-		--source-packages=./genmedia4commerce \
-		--entrypoint-module=genmedia4commerce.agent_engine_app \
+	(uv export --no-hashes --no-header --no-dev --no-emit-project --no-annotate > app/app_utils/.requirements.txt 2>/dev/null || \
+	uv export --no-hashes --no-header --no-dev --no-emit-project > app/app_utils/.requirements.txt) && \
+	uv run -m app.app_utils.deploy \
+		--source-packages=./app \
+		--entrypoint-module=app.agent_engine_app \
 		--entrypoint-object=agent_engine \
-		--requirements-file=genmedia4commerce/app_utils/.requirements.txt \
+		--requirements-file=app/app_utils/.requirements.txt \
 		$(if $(AGENT_IDENTITY),--agent-identity) \
 		$(if $(filter command line,$(origin SECRETS)),--set-secrets="$(SECRETS)")
 
@@ -59,16 +59,16 @@ backend: deploy
 # Usage: make deploy-agent-engine [AGENT_IDENTITY=true] [SECRETS="KEY=SECRET_ID,..."]
 deploy-agent-engine: sync-config
 	source config.env && gcloud config set project $$PROJECT_ID --quiet && \
-	(uv export --no-hashes --no-header --no-dev --no-emit-project --no-annotate > genmedia4commerce/app_utils/.requirements.txt 2>/dev/null || \
-	uv export --no-hashes --no-header --no-dev --no-emit-project > genmedia4commerce/app_utils/.requirements.txt) && \
-	uv run -m genmedia4commerce.app_utils.deploy \
+	(uv export --no-hashes --no-header --no-dev --no-emit-project --no-annotate > app/app_utils/.requirements.txt 2>/dev/null || \
+	uv export --no-hashes --no-header --no-dev --no-emit-project > app/app_utils/.requirements.txt) && \
+	uv run -m app.app_utils.deploy \
 		--project=$${PROJECT_ID} \
 		--location=$${DEFAULT_REGION:-us-central1} \
-		--source-packages=./genmedia4commerce \
+		--source-packages=./app \
 		--source-packages=./startup_scripts \
-		--entrypoint-module=genmedia4commerce.agent_engine_app \
+		--entrypoint-module=app.agent_engine_app \
 		--entrypoint-object=agent_engine \
-		--requirements-file=genmedia4commerce/app_utils/.requirements.txt \
+		--requirements-file=app/app_utils/.requirements.txt \
 		--display-name=genmedia-for-commerce \
 		--description="GenMedia for Commerce agent" \
 		--cpu=8 \
@@ -120,7 +120,7 @@ eval:
 	@echo "| Running Agent Evaluation                                                    |"
 	@echo "==============================================================================="
 	uv sync --dev --extra eval
-	uv run adk eval ./genmedia4commerce $${EVALSET:-tests/eval/evalsets/basic.evalset.json} \
+	uv run adk eval ./app $${EVALSET:-tests/eval/evalsets/basic.evalset.json} \
 		$(if $(EVAL_CONFIG),--config_file_path=$(EVAL_CONFIG),$(if $(wildcard tests/eval/eval_config.json),--config_file_path=tests/eval/eval_config.json,))
 
 # Run evaluation with all evalsets
@@ -165,7 +165,7 @@ dev:
 
 # Run the combined FastAPI server locally (ADK agent API + REST endpoints + MCP server + frontend)
 run-backend: sync-config
-	MCP_SERVER_URL=http://localhost:8081/sse PYTHONPATH=$(PYTHONPATH) uv run uvicorn genmedia4commerce.fast_api_app:app --host 0.0.0.0 --port 8000 --reload
+	MCP_SERVER_URL=http://localhost:8081/sse PYTHONPATH=$(PYTHONPATH) uv run uvicorn app.fast_api_app:app --host 0.0.0.0 --port 8000 --reload
 
 # Build and run frontend dev server (target named to avoid conflict with frontend/ directory)
 run-frontend:
@@ -207,7 +207,7 @@ endef
 
 # Download assets from GCS (no-op if already on disk)
 pull-assets:
-	@uv run python -c "from genmedia4commerce.config import pull_assets"
+	@uv run python -c "from app.config import pull_assets"
 
 # One-time setup: creates AR repo, Cloud Run service, IAM bindings
 setup-infra: pull-assets

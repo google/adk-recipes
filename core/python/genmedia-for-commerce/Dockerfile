@@ -43,7 +43,7 @@ WORKDIR /code
 COPY pyproject.toml README.md uv.lock* ./
 
 # Copy application code
-COPY genmedia4commerce/ ./genmedia4commerce/
+COPY app/ ./app/
 COPY frontend/ ./frontend/
 COPY config.env.example* config.env* ./
 RUN mkdir -p assets && if [ ! -f config.env ] && [ -f config.env.example ]; then cp config.env.example config.env; fi
@@ -73,9 +73,9 @@ new_session('u2net'); \
 print('rembg u2net model ready')"
 
 # Set PYTHONPATH so imports work (from workflows..., from mcp_server..., etc.)
-ENV PYTHONPATH=/code/genmedia4commerce
+ENV PYTHONPATH=/code/app
 
 EXPOSE 8080
 
 # Run the combined FastAPI app (ADK agent + REST + frontend)
-CMD ["uv", "run", "uvicorn", "genmedia4commerce.fast_api_app:app", "--host", "0.0.0.0", "--port", "8080"]
+CMD ["uv", "run", "uvicorn", "app.fast_api_app:app", "--host", "0.0.0.0", "--port", "8080"]

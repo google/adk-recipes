@@ -49,8 +49,8 @@ dependencies = [
 
 [dependency-groups]
 dev = [
-    "pytest>=8.3.4,<9.0.0",
-    "pytest-asyncio>=0.23.8,<1.0.0",
+    "pytest>=9.0.3",
+    "pytest-asyncio>=1.2.0",
     "pytest-cov>=4.0.0",
     "nest-asyncio>=1.6.0,<2.0.0",
     "agent-starter-pack>=0.41.0",
@@ -69,6 +69,13 @@ eval = [
     # Install eval deps separately when needed: pip install google-adk[eval]
 ]
 
+[tool.uv]
+# moviepy 2.2.1 (the latest release) caps pillow below 12, which pins pillow
+# to versions with known CVEs. moviepy only uses long-stable Pillow APIs
+# (Image.open/new/fromarray/resize/rotate and the resampling constants), so
+# the cap is overridden until moviepy ships a release without it.
+override-dependencies = ["pillow>=12.3.0"]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
@@ -78,10 +85,10 @@ url = "https://pypi.org/simple"
 default = true
 
 [tool.hatch.build.targets.wheel]
-packages = ["genmedia4commerce"]
+packages = ["app"]
 
 [tool.pytest.ini_options]
-pythonpath = [".", "genmedia4commerce"]
+pythonpath = [".", "app"]
 asyncio_default_fixture_loop_scope = "function"
 
 [tool.codespell]
@@ -97,6 +104,6 @@ example_question = "Generate a virtual try-on video of this model wearing this r
 name = "genmedia-for-commerce"
 description = "GenMedia retail media generation agent with MCP tools"
 base_template = "adk"
-agent_directory = "genmedia4commerce"
+agent_directory = "app"
 deployment_targets = ["agent_engine", "cloud_run"]
 interactive_command = "setup-infra && make playground"

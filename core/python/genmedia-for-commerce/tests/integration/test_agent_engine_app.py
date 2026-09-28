@@ -25,7 +25,7 @@ if not os.getenv("MODEL_NAME_GENERATED_1"):
 
 from google.adk.events.event import Event
 
-from genmedia4commerce.agent_engine_app import AgentEngineApp
+from app.agent_engine_app import AgentEngineApp
 
 
 @pytest.fixture
@@ -34,7 +34,7 @@ def agent_app(monkeypatch: pytest.MonkeyPatch) -> AgentEngineApp:
     # Set integration test flag to mock external services
     monkeypatch.setenv("INTEGRATION_TEST", "TRUE")
 
-    from genmedia4commerce.agent_engine_app import agent_engine
+    from app.agent_engine_app import agent_engine
 
     agent_engine.set_up()
     return agent_engine
