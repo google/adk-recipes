@@ -23,8 +23,8 @@ from __future__ import annotations
 from google.adk.runners import InMemoryRunner
 from google.genai import types
 
-from clause_agent.agent import build_root_agent
-from clause_agent.tools.legal_review import resolve_legal_review
+from app.agent import build_root_agent
+from app.tools.legal_review import resolve_legal_review
 from tests.fakes import ScriptedModel, call, text, text_and_call
 
 APP_NAME = "clause_agent_trace_test"
@@ -297,7 +297,7 @@ async def test_prd_simulated_session_act1_and_act2(request):
     assert "60" in _final_text(turn2_events)
 
     # The approved ruling must now be retrievable from Memory Bank.
-    from clause_agent.tools.memory_bank import memory_bank_search
+    from app.tools.memory_bank import memory_bank_search
 
     ruling = memory_bank_search(
         scope={
@@ -347,7 +347,7 @@ async def test_prd_simulated_session_act1_and_act2(request):
     assert correction_response["status"] == "logged"
     assert "100234" in _final_text(turn4_events)
 
-    from clause_agent.shared_libraries import audit_log
+    from app.shared_libraries import audit_log
 
     events_logged = audit_log.read_events()
     assert any(e["event_type"] == "correction" for e in events_logged)
