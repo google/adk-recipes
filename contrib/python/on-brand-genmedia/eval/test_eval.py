@@ -35,7 +35,7 @@ async def test_all():
     )
     print(f"\nLooking for evalset at: {test_json_path}")
     results = await AgentEvaluator.evaluate(
-        "on_brand_genmedia",
+        "app",
         str(pathlib.Path(__file__).parent / "data"),
         num_runs=1,
     )

@@ -14,7 +14,7 @@
 
 from pptx import Presentation
 
-from presentation_agent.tools import get_safe_layout
+from app.tools import get_safe_layout
 
 
 def test_get_safe_layout_exact_match():

@@ -17,7 +17,7 @@ import tempfile
 
 from pptx import Presentation
 
-from presentation_agent.tools.pptx_editor import (
+from app.tools.pptx_editor import (
     add_slide_to_end,
     delete_slide,
     edit_slide_text,
