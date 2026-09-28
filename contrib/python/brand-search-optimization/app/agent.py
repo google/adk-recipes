@@ -37,4 +37,4 @@ root_agent = LlmAgent(
     ],
 )
 
-app = App(root_agent=root_agent, name="brand_search_optimization")
+app = App(root_agent=root_agent, name="app")
