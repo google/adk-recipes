@@ -1131,6 +1131,11 @@ def test_plugins_are_not_checked_for_agent_layout(isolated_repo):
         "from .core import root_agent\n",
         "from .core import build as root_agent\n",
         "def root_agent():\n    pass\n",
+        "root_agent, app = build()\n",
+        # Chosen by environment at module level.
+        "if USE_LITE:\n    root_agent = lite()\nelse:\n    root_agent = full()\n",
+        "try:\n    root_agent = build()\nexcept ImportError:\n    raise\n",
+        "with ctx():\n    root_agent = build()\n",
         # PEP 562 lazy module attribute, as in attenu-guard-customer-service.
         "def __getattr__(name):\n"
         "    if name in ('app', 'root_agent'):\n"
@@ -1148,6 +1153,10 @@ def test_python_root_agent_definitions_are_recognized(source):
         "agent = Agent(name='root_agent')\n",
         "def build():\n    root_agent = 1\n",
         "# root_agent = Agent()\n",
+        # A bare annotation binds nothing.
+        "root_agent: Agent\n",
+        "class Holder:\n    root_agent = 1\n",
+        "if True:\n    def build():\n        root_agent = 1\n",
     ],
 )
 def test_python_non_definitions_are_rejected(source):
@@ -1191,6 +1200,13 @@ def test_python_non_definitions_are_rejected(source):
             True,
         ),
         ("java", "ROOT_AGENT", "BaseAgent ROOT_AGENT = initAgent();", False),
+        (
+            "java",
+            "ROOT_AGENT",
+            "public static final BaseAgent ROOT_AGENT;\n"
+            "static {\n  ROOT_AGENT = initAgent();\n}",
+            True,
+        ),
         (
             "kotlin",
             "rootAgent",
@@ -1242,3 +1258,10 @@ def test_layout_directory_name_is_case_strict(isolated_repo):
     _write(recipe / "App" / "agent.py", "root_agent = 1\n")
     (diag,) = _layout_errors(recipe)
     assert "'app/'" in diag.what
+
+
+def test_python_entry_with_null_bytes_is_reported(isolated_repo):
+    recipe = _make_python_recipe(isolated_repo, "contrib/foo")
+    _write(recipe / "app" / "agent.py", "root_agent = 1\x00\n")
+    (diag,) = _layout_errors(recipe)
+    assert "could not be read" in diag.what

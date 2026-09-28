@@ -775,8 +775,9 @@ _SYMBOL_PATTERNS: dict[str, tuple[str, ...]] = {
         r"^\s+{symbol}(?:\s+[\w.*\[\]]+)?\s*=(?!=)",
         r"^func\s+{symbol}\s*\(",
     ),
-    # public static final BaseAgent ROOT_AGENT = …
-    "java": (r"\bstatic\b[^;{{}}()=]*\b{symbol}\s*=",),
+    # public static final BaseAgent ROOT_AGENT = …, or a declaration
+    # assigned later in a static initializer block.
+    "java": (r"\bstatic\b[^;{{}}()=]*\b{symbol}\s*[=;]",),
     # val rootAgent = … (top level or inside an object), or fun rootAgent().
     "kotlin": (
         r"\b(?:val|var)\s+{symbol}\b",
@@ -785,22 +786,55 @@ _SYMBOL_PATTERNS: dict[str, tuple[str, ...]] = {
 }
 
 
+def _module_level_statements(body: list[ast.stmt]) -> Iterable[ast.stmt]:
+    """Every statement that runs at module level: the top-level body plus
+    the branches of module-level if/try/with/match blocks, which recipes
+    use to pick an agent by environment. Function and class bodies are
+    not descended into — a name bound there is not a module attribute."""
+    for node in body:
+        yield node
+        if isinstance(node, (ast.If, ast.With, ast.AsyncWith)):
+            yield from _module_level_statements(node.body)
+            yield from _module_level_statements(getattr(node, "orelse", []))
+        elif isinstance(node, (ast.Try, ast.TryStar)):
+            for block in (node.body, node.orelse, node.finalbody):
+                yield from _module_level_statements(block)
+            for handler in node.handlers:
+                yield from _module_level_statements(handler.body)
+        elif isinstance(node, ast.Match):
+            for case in node.cases:
+                yield from _module_level_statements(case.body)
+
+
+def _binds(target: ast.expr, symbol: str) -> bool:
+    """Whether an assignment target binds `symbol`, including through
+    tuple/list unpacking (`root_agent, app = build()`)."""
+    if isinstance(target, ast.Name):
+        return target.id == symbol
+    if isinstance(target, (ast.Tuple, ast.List)):
+        return any(_binds(e, symbol) for e in target.elts)
+    if isinstance(target, ast.Starred):
+        return _binds(target.value, symbol)
+    return False
+
+
 def _python_defines(source: str, symbol: str) -> bool:
     """True when the module binds `symbol` at module level.
 
-    Accepts an assignment (annotated or not), an import, a def or class of
-    that name, and a module-level `__getattr__` (PEP 562) that serves the
-    name — some recipes build the root agent lazily so importing the
-    module stays side-effect-free.
+    Accepts an assignment (annotated with a value, or not), an import, a
+    def or class of that name, and a module-level `__getattr__` (PEP 562)
+    that serves the name — some recipes build the root agent lazily so
+    importing the module stays side-effect-free. Definitions inside
+    module-level if/try/with/match blocks count.
     """
     tree = ast.parse(source)
-    for node in tree.body:
+    for node in _module_level_statements(tree.body):
         if isinstance(node, ast.Assign):
-            names = [t for t in node.targets if isinstance(t, ast.Name)]
-            if any(n.id == symbol for n in names):
+            if any(_binds(t, symbol) for t in node.targets):
                 return True
         elif isinstance(node, ast.AnnAssign):
-            if isinstance(node.target, ast.Name) and node.target.id == symbol:
+            # A bare annotation (`root_agent: Agent`) binds nothing.
+            if node.value is not None and _binds(node.target, symbol):
                 return True
         elif isinstance(node, (ast.Import, ast.ImportFrom)):
             for alias in node.names:
@@ -823,8 +857,8 @@ def _python_defines(source: str, symbol: str) -> bool:
 def entry_defines_symbol(language: str, source: str, symbol: str) -> bool:
     """Whether an entry file's source defines the root agent `symbol`.
 
-    Raises SyntaxError for unparseable Python; languages without a
-    recognizer here are accepted as-is.
+    Raises SyntaxError (or ValueError, for null bytes) for unparseable
+    Python. Languages without a recognizer here are accepted as-is.
     """
     if language == "python":
         return _python_defines(source, symbol)
@@ -918,7 +952,8 @@ def check_agent_layout(
         defined = entry_defines_symbol(
             language, found.read_text(encoding="utf-8"), symbol
         )
-    except (SyntaxError, UnicodeDecodeError) as exc:
+    # ValueError: ast.parse rejects source containing null bytes.
+    except (SyntaxError, UnicodeDecodeError, ValueError) as exc:
         return [
             diag(
                 f"Entry file '{entry}' could not be read: {exc}.",

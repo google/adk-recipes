@@ -184,7 +184,7 @@ git add <recipe-path>/scripts/.gitkeep
 
 **Symptom** — `Agent code directory '<dir>/' is missing`,
 `Entry file '<path>' is missing`, or
-`'<path>' does not define the root agent '<symbol>'`
+`'<path>' does not define the root agent <symbol>`
 
 **Cause** — every recipe under `core/` and `contrib/` keeps its agent code in
 one fixed place per `manifest.language` (`policy.agent_layout`). Plugins are
