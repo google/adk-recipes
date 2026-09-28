@@ -1141,6 +1141,16 @@ def test_plugins_are_not_checked_for_agent_layout(isolated_repo):
         "    if name in ('app', 'root_agent'):\n"
         "        return 1\n"
         "    raise AttributeError(name)\n",
+        "def __getattr__(name):\n    return {'root_agent': 1}[name]\n",
+        "def __getattr__(name):\n"
+        "    match name:\n"
+        "        case 'root_agent':\n"
+        "            return 1\n"
+        "    raise AttributeError(name)\n",
+        "if LAZY:\n"
+        "    def __getattr__(name):\n"
+        "        if name == 'root_agent':\n"
+        "            return 1\n",
     ],
 )
 def test_python_root_agent_definitions_are_recognized(source):
@@ -1157,6 +1167,11 @@ def test_python_root_agent_definitions_are_recognized(source):
         "root_agent: Agent\n",
         "class Holder:\n    root_agent = 1\n",
         "if True:\n    def build():\n        root_agent = 1\n",
+        # Only mentioned in an error message, not served.
+        "def __getattr__(name):\n"
+        "    raise AttributeError(f'{name}; did you mean root_agent?')\n",
+        "def __getattr__(name):\n"
+        "    raise AttributeError('root_agent is built by build_app()')\n",
     ],
 )
 def test_python_non_definitions_are_rejected(source):
@@ -1193,6 +1208,18 @@ def test_python_non_definitions_are_rejected(source):
         ),
         ("go", "RootAgent", "func RootAgent() agent.Agent {", True),
         ("go", "RootAgent", "func main() {\n\tRootAgent := build()\n}", False),
+        ("go", "RootAgent", "func init() {\n\tRootAgent = build()\n}", False),
+        (
+            "go",
+            "RootAgent",
+            "func main() {\n\tvar RootAgent = build()\n}",
+            False,
+        ),
+        ("go", "RootAgent", "// var RootAgent = build()", False),
+        ("go", "RootAgent", "/*\nvar RootAgent = build()\n*/", False),
+        ("typescript", "rootAgent", "// export const rootAgent = x;", False),
+        ("typescript", "rootAgent", "/* export const rootAgent = x; */", False),
+        ("kotlin", "rootAgent", "// val rootAgent = SequentialAgent()", False),
         (
             "java",
             "ROOT_AGENT",

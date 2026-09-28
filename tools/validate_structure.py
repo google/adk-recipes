@@ -758,9 +758,10 @@ def check_required_dirs(
 
 
 # How each language's entry file "defines" its root agent. Regexes run in
-# MULTILINE mode with `{symbol}` substituted; Python is parsed with `ast`
-# instead (see _python_defines), because a regex cannot tell a module-level
-# binding from one inside a function.
+# MULTILINE mode with `{symbol}` substituted, over the source with its
+# comments removed. Python is parsed with `ast` instead (see
+# _python_defines), because a regex cannot tell a module-level binding from
+# one inside a function; Go adds `var (…)` blocks in _go_var_block_defines.
 _SYMBOL_PATTERNS: dict[str, tuple[str, ...]] = {
     # export const rootAgent = …, export function rootAgent(…), or
     # export { rootAgent }.
@@ -768,11 +769,12 @@ _SYMBOL_PATTERNS: dict[str, tuple[str, ...]] = {
         r"\bexport\s+(?:const|let|var|function|class)\s+{symbol}\b",
         r"\bexport\s*\{{[^}}]*\b{symbol}\b[^}}]*\}}",
     ),
-    # Package-level `var RootAgent …`, an entry in a `var (…)` block, or
-    # `func RootAgent(`. A local `RootAgent := …` does not count.
+    # Package-level `var RootAgent …` or `func RootAgent(`. gofmt starts
+    # package-level declarations in column 0, so an indented `var` or an
+    # assignment inside a function does not count. Entries of a `var (…)`
+    # block are handled by _go_var_block_defines.
     "go": (
-        r"^\s*var\s+{symbol}\b",
-        r"^\s+{symbol}(?:\s+[\w.*\[\]]+)?\s*=(?!=)",
+        r"^var\s+{symbol}\b",
         r"^func\s+{symbol}\s*\(",
     ),
     # public static final BaseAgent ROOT_AGENT = …, or a declaration
@@ -784,6 +786,23 @@ _SYMBOL_PATTERNS: dict[str, tuple[str, ...]] = {
         r"\bfun\s+{symbol}\s*\(",
     ),
 }
+
+
+# `/* … */` and `//` comments, for every language in _SYMBOL_PATTERNS. Not
+# string-aware: a `//` inside a string literal ends the line early, which
+# can only hide text after it, never invent a definition.
+_C_COMMENT_RE = re.compile(r"/\*.*?\*/|//[^\n]*", re.DOTALL)
+
+# A package-level `var ( … )` block in Go (gofmt: `var (` and `)` in
+# column 0).
+_GO_VAR_BLOCK_RE = re.compile(r"^var\s*\((.*?)^\)", re.MULTILINE | re.DOTALL)
+
+
+def _go_var_block_defines(source: str, symbol: str) -> bool:
+    entry = re.compile(rf"^\s+{re.escape(symbol)}\b", re.MULTILINE)
+    return any(
+        entry.search(block) for block in _GO_VAR_BLOCK_RE.findall(source)
+    )
 
 
 def _module_level_statements(body: list[ast.stmt]) -> Iterable[ast.stmt]:
@@ -846,12 +865,36 @@ def _python_defines(source: str, symbol: str) -> bool:
         ):
             if node.name == symbol:
                 return True
-            if node.name == "__getattr__" and any(
-                isinstance(c, ast.Constant) and c.value == symbol
-                for c in ast.walk(node)
-            ):
+            if node.name == "__getattr__" and symbol in _getattr_serves(node):
                 return True
     return False
+
+
+def _getattr_serves(func: ast.AST) -> set[str]:
+    """Names a module `__getattr__` dispatches on: string constants it
+    compares `name` against (`name == "x"`, `name in ("x", "y")`), uses as
+    dict keys, or matches in a `case`. A name that only appears in an error
+    message or a log line is not served."""
+    served: set[str] = set()
+
+    def strings(expr: ast.AST) -> None:
+        if isinstance(expr, ast.Constant) and isinstance(expr.value, str):
+            served.add(expr.value)
+        elif isinstance(expr, (ast.Tuple, ast.List, ast.Set)):
+            for elt in expr.elts:
+                strings(elt)
+
+    for node in ast.walk(func):
+        if isinstance(node, ast.Compare):
+            for operand in (node.left, *node.comparators):
+                strings(operand)
+        elif isinstance(node, ast.Dict):
+            for key in node.keys:
+                if key is not None:
+                    strings(key)
+        elif isinstance(node, ast.MatchValue):
+            strings(node.value)
+    return served
 
 
 def entry_defines_symbol(language: str, source: str, symbol: str) -> bool:
@@ -865,8 +908,11 @@ def entry_defines_symbol(language: str, source: str, symbol: str) -> bool:
     patterns = _SYMBOL_PATTERNS.get(language)
     if patterns is None:
         return True
+    code = _C_COMMENT_RE.sub("", source)
+    if language == "go" and _go_var_block_defines(code, symbol):
+        return True
     return any(
-        re.search(p.format(symbol=re.escape(symbol)), source, re.MULTILINE)
+        re.search(p.format(symbol=re.escape(symbol)), code, re.MULTILINE)
         for p in patterns
     )
 
