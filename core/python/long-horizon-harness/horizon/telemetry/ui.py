@@ -102,7 +102,7 @@ async def before_tool_log_callback(tool, args, tool_context):
             "args": _args_preview(args),
             "started_ms": _now_ms(),
         }
-    except Exception:
+    except Exception:  # noqa: S110
         pass
 
 
@@ -124,7 +124,7 @@ async def tool_call_log_callback(tool, args, tool_context, tool_response):
             tool_context.state, TOOL_CALL_LOG_STATE_KEY, entry, _TOOL_LOG_CAP
         )
         tool_context.state[IN_FLIGHT_TOOL_CALL_STATE_KEY] = None
-    except Exception:
+    except Exception:  # noqa: S110
         # Telemetry must never break a tool call.
         pass
 
@@ -152,7 +152,7 @@ def record_delegate_run(
         _append_capped(
             tool_context.state, DELEGATE_HISTORY_STATE_KEY, entry, _DELEGATE_CAP
         )
-    except Exception:
+    except Exception:  # noqa: S110
         pass
 
 
@@ -180,7 +180,7 @@ def record_subagent_spawn(
         _append_capped(
             tool_context.state, DELEGATE_HISTORY_STATE_KEY, entry, _DELEGATE_CAP
         )
-    except Exception:
+    except Exception:  # noqa: S110
         pass
 
 
@@ -213,7 +213,7 @@ def update_subagent_status(
                 )
                 tool_context.state[DELEGATE_HISTORY_STATE_KEY] = existing
                 return
-    except Exception:
+    except Exception:  # noqa: S110
         pass
 
 
@@ -234,5 +234,5 @@ def record_memory_write(
         _append_capped(
             tool_context.state, MEMORY_WRITES_STATE_KEY, entry, _MEMORY_CAP
         )
-    except Exception:
+    except Exception:  # noqa: S110
         pass

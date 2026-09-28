@@ -14,11 +14,13 @@
 
 """Risk Analysis Agent for providing the final risk evaluation"""
 
+import os
+
 from google.adk import Agent
 
 from . import prompt
 
-MODEL = "gemini-2.5-pro"
+MODEL = os.getenv("MODEL_NAME")
 
 risk_analyst_agent = Agent(
     model=MODEL,

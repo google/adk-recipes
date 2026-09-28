@@ -86,6 +86,11 @@ def _load():
 
     emb_path = _LOCAL_DIR / _EMBEDDINGS_FILE
     if not emb_path.exists():
+        if os.getenv("INTEGRATION_TEST"):
+            logger.info(
+                "INTEGRATION_TEST is set; skipping GCS catalogue download."
+            )
+            return
         # Download embeddings from GCS (truncated variant or full)
         logger.info(f"Downloading {_EMBEDDINGS_FILE} from GCS...")
         from google.cloud import storage

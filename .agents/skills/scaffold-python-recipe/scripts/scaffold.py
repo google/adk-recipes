@@ -182,7 +182,7 @@ def scaffold(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Scaffold a new Python ADK sample."
+        description="Scaffold a new Python ADK recipe."
     )
     parser.add_argument("--name", required=True, help="Name of the recipe")
     parser.add_argument(

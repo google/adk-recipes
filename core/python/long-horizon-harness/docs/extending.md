@@ -36,7 +36,7 @@ Per-user config the agent must NOT self-edit lives in the `.lha/` overlay
 
 ## 2. Lift the harness — env + edit points
 
-This is a sample, not a framework: configure it with environment variables and adapt
+This is a recipe, not a framework: configure it with environment variables and adapt
 it by editing the code. There's no wrapper API to learn.
 
 | Change | How |
@@ -149,7 +149,9 @@ class GkeEnvironment(Environment):
     async def delete_file(self, path, *, recursive=False): ...
     async def download_zip(self, path): ...
     async def upload_zip(self, path, data): ...
-    async def spawn_process(self, command, *, cwd=None, env=None) -> ProcessHandle: ...
+    async def spawn_process(
+        self, command, *, cwd=None, env=None
+    ) -> ProcessHandle: ...
 
     async def refresh_auth(self) -> bool:
         # optional: re-mint a short-lived platform token each turn;

@@ -21,7 +21,7 @@ from google.adk.tools import google_search
 
 from . import prompt
 
-MODEL = os.getenv("MODEL_NAME", "gemini-3.6-flash")
+MODEL = os.getenv("MODEL_NAME")
 
 data_analyst_agent = Agent(
     model=MODEL,

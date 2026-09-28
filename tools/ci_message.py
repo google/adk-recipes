@@ -59,7 +59,7 @@ from __future__ import annotations
 import shutil
 from collections.abc import Callable
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 
 # ---------------------------------------------------------------------------
 # Documentation anchors
@@ -73,7 +73,7 @@ from enum import Enum
 _TROUBLESHOOTING = "docs/recipe-handbook/troubleshooting.md"
 
 
-class Doc(str, Enum):
+class Doc(StrEnum):
     """Anchors into the troubleshooting handbook."""
 
     MANIFEST = "manifestyaml-missing-or-invalid"
@@ -83,6 +83,7 @@ class Doc(str, Enum):
     REQUIRED_FILES = "required-file-or-directory-missing"
     PLACEMENT = "recipe-is-in-the-wrong-folder"
     RETIRED_FOLDER = "changes-inside-a-retired-folder"
+    GITHUB_DIR_ADMIN = "only-repository-admins-may-modify-files-under-github"
 
     README_MISSING = "readmemd-is-missing-or-empty"
     README_TODO = "readmemd-contains-todo-placeholders"
@@ -92,6 +93,7 @@ class Doc(str, Enum):
 
     RUFF_CONFIG = "pyprojecttoml-has-a-local-ruff-configuration"
     RUFF_STANDALONE = "standalone-ruff-config-file"
+    LINT_CONFIG = "standalone-lint-or-style-config-file"
     PROJECT_NAME = "project-name-doesnt-match-the-required-name"
     PROJECT_DESCRIPTION = "project-description-doesnt-match-manifest"
     REQUIRES_PYTHON = "requires-python-below-311"
@@ -112,6 +114,9 @@ class Doc(str, Enum):
     ADK_MAJOR = "core-recipe-is-behind-the-current-adk-major"
     RECIPE_INACTIVE = "recipe-is-marked-inactive"
 
+    DOCKER_BUILD = "dockerfile-build-failed"
+    DOCKER_SERVES = "recipe-container-does-not-serve"
+
     CI_FAULT = "ci-infrastructure-failure"
 
     @property
@@ -120,7 +125,7 @@ class Doc(str, Enum):
         return f"{_TROUBLESHOOTING}#{self.value}"
 
 
-class Severity(str, Enum):
+class Severity(StrEnum):
     ERROR = "error"
     WARNING = "warning"
     NOTICE = "notice"

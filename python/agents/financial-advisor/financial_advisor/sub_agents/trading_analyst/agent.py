@@ -14,11 +14,13 @@
 
 """Execution_analyst_agent for finding the ideal execution strategy"""
 
+import os
+
 from google.adk import Agent
 
 from . import prompt
 
-MODEL = "gemini-2.5-pro"
+MODEL = os.getenv("MODEL_NAME")
 
 trading_analyst_agent = Agent(
     model=MODEL,

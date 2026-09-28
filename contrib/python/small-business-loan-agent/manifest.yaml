@@ -1,0 +1,26 @@
+type: "standalone"
+status: "active"
+language: "python"
+description: "A multi-agent system that automates small business loan processing with human-in-the-loop approval and repair & resume support."
+
+architecture:
+  agent: "multi"
+  stateful: true
+  datasources:
+    - "local"
+    - "external"
+
+ownership:
+  team: "AI FDE Financial Services"
+  poc: "norarfilali"
+  contributors:
+    - "nmdesai"
+
+tags:
+  - "financial-services"
+  - "loan-origination"
+  - "multi-agent"
+  - "human-in-the-loop"
+  - "firestore"
+
+license: "Apache-2.0"

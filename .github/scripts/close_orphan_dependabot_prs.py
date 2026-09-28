@@ -106,7 +106,7 @@ MULTI_SEGMENT_PACKAGE_ECOSYSTEMS = {
 
 # The GitHub repo to operate on. Set by Actions automatically; fall back to
 # the known upstream when running locally.
-REPO = os.environ.get("GITHUB_REPOSITORY", "google/adk-samples")
+REPO = os.environ.get("GITHUB_REPOSITORY", "google/adk-recipes")
 
 # Upper bound on how many PRs one run may close. See the circuit breaker in
 # main() for the rationale. Sized well above routine cleanup (a recipe removal

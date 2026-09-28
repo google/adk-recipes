@@ -1,4 +1,4 @@
-# Agent Development Kit (ADK) Go Samples
+# Agent Development Kit (ADK) Go Recipes
 
 > [!IMPORTANT]
 > **This folder is retired.** `go/agents/` no longer accepts new
@@ -17,14 +17,14 @@
 
 <img src="https://github.com/google/adk-docs/blob/main/docs/assets/agent-development-kit.png" alt="Agent Development Kit Logo" width="150">
 
-This collection provides ready-to-use sample agents built on top of Go
+This collection provides ready-to-use recipes built on top of Go
 [Agent Development Kit](https://github.com/google/adk-go). These agents
 cover a range of common use cases and complexities, from simple conversational
 bots to complex multi-agent workflows.
 
-## 🚀 Getting Started with Go Samples
+## 🚀 Getting Started with Go Recipes
 
-Follow these steps to set up and run the sample agents:
+Follow these steps to set up and run the recipes:
 
 1.  **Prerequisites:**
     *   **Install Go ADK:** Ensure you have Go Agent
@@ -50,17 +50,17 @@ Follow these steps to set up and run the sample agents:
 
 2.  **Clone this repository:**
 
-    To start working with the ADK Go samples, first clone the public `adk-samples` repository:
+    To start working with the ADK Go recipes, first clone the public `adk-recipes` repository:
     ```bash
-    git clone https://github.com/google/adk-samples.git
-    cd adk-samples/go
+    git clone https://github.com/google/adk-recipes.git
+    cd adk-recipes/go
     ```
 
 3.  **Explore the Agents:**
 
     *   Navigate to the `agents/` directory.
     *   The `agents/README.md` provides an overview and categorization of the available agents.
-    *   Browse the subdirectories. Each contains a specific sample agent with its own
+    *   Browse the subdirectories. Each contains a specific recipe with its own
     `README.md`.
 
 4.  **Run an Agent:**
@@ -76,15 +76,15 @@ Follow these steps to set up and run the sample agents:
 
 These agents have been built and tested using
 [Google models](https://cloud.google.com/vertex-ai/generative-ai/docs/learn/models)
-on Vertex AI. You can test these samples with other models as well. Please refer
+on Vertex AI. You can test these recipes with other models as well. Please refer
 to [ADK Tutorials](https://google.github.io/adk-docs/tutorials/) to use
-other models for these samples.
+other models for these recipes.
 
 ## 🧱 Repository Structure
 ```bash
 .
-├── go                      # Contains all the Go sample code
-│   ├── agents                  # Contains individual agent samples
+├── go                      # Contains all the Go recipe code
+│   ├── agents                  # Contains individual agent recipes
 │   │   ├── agent1              # Specific agent directory
 │   │   │   └── README.md       # Agent-specific instructions
 │   │   ├── agent2

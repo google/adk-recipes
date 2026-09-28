@@ -150,7 +150,7 @@ def process_file(gcs_uri: str) -> str:
     On failure, error is non-null; text is "" and relevant is False so
     the row is excluded from chunking until the error is resolved.
     """
-    file_id = hashlib.md5(gcs_uri.encode()).hexdigest()
+    file_id = hashlib.md5(gcs_uri.encode()).hexdigest()  # noqa: S324
 
     if _is_scanner_probe(gcs_uri):
         logger.info("Skipping scanner probe: %s", gcs_uri)
@@ -262,4 +262,10 @@ async def handle_request(request: Request):
 
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", "8080")))
+    port_env = os.getenv("PORT")
+    port = int(port_env) if port_env else 8080
+    uvicorn.run(
+        app,
+        host="0.0.0.0",  # noqa: S104 -- container entrypoint
+        port=port,
+    )

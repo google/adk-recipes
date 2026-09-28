@@ -1,16 +1,23 @@
-# Repository rules — `google/adk-samples`
+# Repository rules — `google/adk-recipes`
 
-**Single source of truth for repo-specific review rules.** Three consumers:
+**Single source of truth for repo-specific review rules.** Four consumers:
 
 - The four **AI PR reviewers**. `_ai-pr-review-core.yml` injects everything
   between the `BEGIN`/`END REVIEWER RULES` markers verbatim into their prompt.
   They run in an empty scratch directory with no repository access, so the
-  marked region is the ONLY repo knowledge they have.
+  marked region is the ONLY repo knowledge they have. How a comment must be
+  WORDED lives in [`review-voice.md`](./review-voice.md), injected the same way
+  under its own cap.
+- The **house-rules lane**, `ai-pr-review-house-rules.yml`. No model: it runs
+  `check_house_rules.py` against a checkout of the PR and posts what the script
+  decides. Rules it implements do not depend on a reviewer reading this file
+  correctly, and it cannot invent a violation.
 - The **`github-pr-review` repo skill**, run by hand. Its house-rules lane reads
   this file; `reference/lane-prompt.md` cites findings by `H` number.
-- **`scripts/check_house_rules.py`**, which reimplements the mechanical rules in
+- **`scripts/check_house_rules.py`**, which implements the mechanical rules in
   Python. It does not read this file — `tests/test_house_rules_drift.py` pins
-  the two together.
+  the two together, and fails if a reportable rule is neither implemented there
+  nor declared in its `MODEL_JUDGED` list.
 
 Text outside the markers reaches the skill and its tests, never the AI prompt.
 
@@ -18,7 +25,7 @@ Text outside the markers reaches the skill and its tests, never the AI prompt.
 
 **Rule ids are permanent.** `H1`-`H27` predate this file and are cited in the
 skill's output. Never renumber or reuse one; retire it and add `H<next>`.
-`H12` and `H46` are retired.
+`H12` and `H46` are retired. The next free id is `H49`.
 
 **Every rule must earn its place.** Name the comment it prevents or produces.
 
@@ -172,6 +179,12 @@ section, to be left alone.
 16. **H25** · **advisory** — A runnability test asserting inside the
     `with patch(...)` block rather than after it.
     — `.agents/skills/generate-python-runnability-test/`
+17. **H48** · **advisory** — **Always comment.** An `ownership.team` that names
+    no team: a whole company (`Google`, `Google Cloud`), a filler word (`team`,
+    `n/a`, `eng`, `demo`), or the author's own GitHub handle — the same string
+    as `poc` or a contributor. The schema only checks it is non-empty, so
+    nothing else catches it. Ask for the maintaining team, never suggest one.
+    — `.github/schemas/manifest-schema.json`
 
 ### Already enforced — do not report
 
@@ -264,6 +277,14 @@ consistency-only for `.tf .yaml .yml`.
 
 The middle case matters. On PR #2373, 78 files used a one-line notice and 9 used
 Apache; calling the 78 "truncated Apache headers" misdescribed the recipe.
+
+**H48 calibration.** `check_house_rules.py` decides it against a closed list of
+generic values plus a comparison with `poc`/`contributors`. Do not widen it by
+shape: `DEE`, `octo`, `adk-kotlin`, `attenu-io`, `OpenEAGO`, `RobustAI` and
+`FDE/Blackbelt` are all real owning teams already in the repo, and a
+"that looks like a username" heuristic flags every one of them. An unfamiliar
+name is somebody's org until it matches the `poc`. When it does fire, ask who
+maintains the recipe; never propose a team name.
 
 **Known contradictions — do not over-claim.**
 

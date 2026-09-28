@@ -40,6 +40,8 @@ on:
       - "core/**/package.json"
       - "contrib/**/package.json"
       - "skills/**/package.json"
+      # Recipe-local Biome configs are forbidden, but only by an advisory
+      # check for now, so a change to one still needs a format run.
       - "core/**/biome.json"
       - "core/**/biome.jsonc"
       - "contrib/**/biome.json"

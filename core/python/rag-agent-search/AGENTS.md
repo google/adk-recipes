@@ -39,7 +39,7 @@ and the `scripts/` wrappers exist to tame.
 ## Most interesting files to study (in order)
 
 ### Terraform + data connector (the bulk of the logic)
-1. **`infra/terraform/agent_platform_search.tf`** — the heart of the sample.
+1. **`infra/terraform/agent_platform_search.tf`** — the heart of the recipe.
    Shows the whole pattern: a `google_storage_bucket` for docs, a
    `null_resource.data_connector` whose create/destroy `local-exec`
    provisioners shell out to Python scripts, a `data "external" "data_store_id"`
@@ -99,7 +99,7 @@ and the `scripts/` wrappers exist to tame.
 - **Ingestion is fully managed.** The GCS Data Connector
   (`data_schema = "content"`) ingests unstructured files (PDF, HTML, TXT, …) —
   one document per file, IDs derived from the file URI — and Discovery Engine
-  handles chunking/embeddings/indexing. No pipeline code in this sample.
+  handles chunking/embeddings/indexing. No pipeline code in this recipe.
 - **Docs bucket:** `${project_id}-${project_name}-docs`. Drop files here; the
   connector syncs them on its `data_connector_refresh_interval` (default daily,
   `86400s`), or run `start_connector_run.py` to sync immediately.

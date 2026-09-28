@@ -176,7 +176,7 @@ jobs:
           # `--no-project` matches dependabot-housekeeping.yml and
           # stale-branch-sweep.yml: load_policy.py imports the standard
           # library plus yaml, so there is nothing to sync. Without it uv
-          # resolves and builds the root `adk-samples-tools` project, making
+          # resolves and builds the root `adk-recipes-tools` project, making
           # a threshold lookup fail for reasons unrelated to the threshold.
           p() {
             uv run --no-project --with pyyaml python3 \

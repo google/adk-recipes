@@ -1,4 +1,4 @@
-# ADK Memory Bank Sample
+# ADK Memory Bank Recipe
 
 An [ADK](https://adk.dev/) agent with [Memory Bank](https://docs.cloud.google.com/agent-builder/agent-engine/memory-bank/set-up) integration that remembers user preferences and facts across sessions. Deployable to Agent Runtime or Cloud Run.
 
@@ -166,7 +166,7 @@ You can also use the [Google Agents CLI](https://github.com/google/agents-cli) t
 uvx google-agents-cli setup
 ```
 
-**Create the project from this sample** (replace `my-memory-bank` with your project name):
+**Create the project from this recipe** (replace `my-memory-bank` with your project name):
 
 ```bash
 agents-cli create my-memory-bank -a adk@memory-bank
@@ -176,4 +176,4 @@ The Google Agents CLI will prompt you to select deployment options and provides 
 
 ## Disclaimer
 
-This software is provided as-is, without warranty or representation for any use or purpose. This is sample code intended for demonstration and learning purposes only. It is not intended for production use. Your use of this software is at your own risk.
+This software is provided as-is, without warranty or representation for any use or purpose. This is recipe code intended for demonstration and learning purposes only. It is not intended for production use. Your use of this software is at your own risk.

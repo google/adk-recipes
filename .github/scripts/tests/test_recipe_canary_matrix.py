@@ -137,10 +137,14 @@ def test_vendored_directories_are_pruned(tmp_path):
     assert m.discover_recipes(tmp_path) == ["core/python/real"]
 
 
-def test_legacy_duplicates_are_skipped(tmp_path):
-    _recipe(tmp_path, "core/rag-agent-search")
-    _recipe(tmp_path, "core/python/rag-agent-search")
-    assert m.discover_recipes(tmp_path) == ["core/python/rag-agent-search"]
+def test_a_skipped_recipe_is_dropped_from_discovery(tmp_path, monkeypatch):
+    """SKIP_RECIPES is empty today, so the mechanism has no live entry to
+    exercise it. Pin the behaviour anyway: the next entry added must still
+    remove exactly its own recipe and nothing else."""
+    monkeypatch.setattr(m, "SKIP_RECIPES", {"core/legacy-dupe"})
+    _recipe(tmp_path, "core/legacy-dupe")
+    _recipe(tmp_path, "core/python/legacy-dupe")
+    assert m.discover_recipes(tmp_path) == ["core/python/legacy-dupe"]
 
 
 def test_every_skip_entry_still_names_a_real_recipe():
@@ -271,12 +275,9 @@ def test_the_canary_sees_every_python_recipe_in_the_tree():
 # Guarding that residual is the entire remaining job of a frozen literal,
 # and it needs two lines rather than one entry per recipe in the repo.
 #
-# Maintainer-owned. A recipe contributor never touches this; it is deleted
-# along with the legacy duplicates it names.
-ALLOWED_SKIPS = {
-    "core/rag-agent-search",
-    "core/rag-vector-search",
-}
+# Maintainer-owned. A recipe contributor never touches this; it held the two
+# legacy flat-path duplicates until #2653 deleted them, and is empty now.
+ALLOWED_SKIPS: set[str] = set()
 
 
 def test_the_skip_list_has_not_grown():
@@ -463,11 +464,12 @@ def test_an_unknown_recipe_argument_is_rejected():
         m.build_matrix(only="core/python/does-not-exist")
 
 
-def test_a_skipped_recipe_cannot_be_canaried_by_hand():
+def test_a_skipped_recipe_cannot_be_canaried_by_hand(monkeypatch):
     """`--recipe` also bypassed SKIP_RECIPES entirely, so a maintainer could
-    hand-run the canary against exactly the duplicate the skip list exists to
-    keep quiet."""
-    skipped = sorted(m.SKIP_RECIPES)[0]
+    hand-run the canary against exactly the recipe the skip list exists to
+    keep quiet. Skipping a real recipe here, since SKIP_RECIPES is empty."""
+    skipped = m.discover_recipes()[0]
+    monkeypatch.setattr(m, "SKIP_RECIPES", {skipped})
     with pytest.raises(m.MatrixError):
         m.build_matrix(only=skipped)
 

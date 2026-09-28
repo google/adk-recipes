@@ -1,0 +1,57 @@
+name: Workflow Security Lint
+
+# Audits GitHub Actions workflow definitions for security anti-patterns,
+# privilege escalations, and unpinned dependencies using zizmor.
+#
+# Why this exists
+# ---------------
+# Workflows run with repository permissions and can be targeted for supply
+# chain attacks, injection, or excessive credential leakage. Zizmor audit
+# rules are cited throughout existing workflow hardening comments, and this
+# workflow continuously verifies that workflows conform to security best
+# practices and prevent regression.
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/**'
+      - '.github/dependabot.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/**'
+      - '.github/dependabot.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  zizmor:
+    name: Lint GitHub Actions workflows with zizmor
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # ratchet:astral-sh/setup-uv@v10.0.1
+        with:
+          python-version: "3.11"
+          enable-cache: false
+
+      # No GH_TOKEN: --no-online-audits means zizmor makes no API calls, so
+      # handing this step a token would widen its reach for nothing.
+      - name: Run zizmor
+        run: |
+          set -euo pipefail
+          uvx zizmor@1.30.1 --no-online-audits .

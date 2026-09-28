@@ -366,7 +366,7 @@ You can also use the [Google Agents CLI](https://github.com/google/agents-cli) t
 uvx google-agents-cli setup
 ```
 
-**Create the project from this sample** (replace `my-adk-ae-oauth` with your project name):
+**Create the project from this recipe** (replace `my-adk-ae-oauth` with your project name):
 
 ```bash
 agents-cli create my-adk-ae-oauth -a adk@adk-ae-oauth

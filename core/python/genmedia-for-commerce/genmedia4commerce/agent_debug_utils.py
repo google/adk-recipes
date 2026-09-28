@@ -25,7 +25,7 @@ Usage:
 
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from google.adk.agents.callback_context import CallbackContext
 from google.adk.models.llm_request import LlmRequest
@@ -40,7 +40,7 @@ def dump_llm_request(
     try:
         from google.cloud import storage
 
-        ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S-%f")
+        ts = datetime.now(UTC).strftime("%Y%m%d-%H%M%S-%f")
         blob_path = f"sessions/{global_session_id}/debug_llm_requests/{ts}.json"
 
         data = {}

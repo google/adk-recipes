@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Agent definitions for the Safety Plugins sample."""
+"""Agent definitions for the Safety Plugins recipe."""
 
 import os
 

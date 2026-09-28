@@ -56,7 +56,7 @@ under `skills/<vertical>/<solution>/`.
 ## Getting help
 
 Open a GitHub issue at
-[github.com/google/adk-samples/issues](https://github.com/google/adk-samples/issues).
+[github.com/google/adk-recipes/issues](https://github.com/google/adk-recipes/issues).
 
 ## License
 

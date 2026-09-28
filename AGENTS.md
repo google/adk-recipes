@@ -1,4 +1,4 @@
-# Agent Guidelines for adk-samples
+# Agent Guidelines for adk-recipes
 All agents must follow the guidelines below without being reminded.
 
 ## General

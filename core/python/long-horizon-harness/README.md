@@ -4,9 +4,9 @@
   <h3>A reference implementation of an agent harness on ADK and Google's Agent Platform.</h3>
 </div>
 
-This sample shows how to build a long-horizon harness on ADK with capabilities like cross-session memory, a per-user sandbox, tool guardrails, sub-agents, and a self-improvement loop. Read it, then lift the patterns into your own agent.
+This recipe shows how to build a long-horizon harness on ADK with capabilities like cross-session memory, a per-user sandbox, tool guardrails, sub-agents, and a self-improvement loop. Read it, then lift the patterns into your own agent.
 
-> **Not an officially supported Google product** — sample code for demonstration only.
+> **Not an officially supported Google product** — recipe code for demonstration only.
 
 - **Study the components** — [`AGENTS.md`](AGENTS.md), where each row links to the function to start from
 - **Run it yourself** — [Quickstart](#quickstart)
@@ -15,7 +15,7 @@ This sample shows how to build a long-horizon harness on ADK with capabilities l
 - **Review the security model** — [`docs/security-model.md`](docs/security-model.md), before pointing it at anything real
 
 <div align="center">
-  <img src="https://raw.githubusercontent.com/google/adk-samples/assets/long-horizon-harness/horizon-demo.gif" alt="The Horizon web UI running two tasks: an AI research digest and a BigQuery analysis, each streaming tool calls and ending in a rendered HTML artifact" width="820">
+  <img src="https://raw.githubusercontent.com/google/adk-recipes/assets/long-horizon-harness/horizon-demo.gif" alt="The Horizon web UI running two tasks: an AI research digest and a BigQuery analysis, each streaming tool calls and ending in a rendered HTML artifact" width="820">
 </div>
 
 **Features:**
@@ -91,9 +91,9 @@ gcloud services enable aiplatform.googleapis.com  # the API Agent Platform serve
 ### Setup and run
 
 ```bash
-# 1. Clone just this sample
-git clone --depth 1 --filter=blob:none --sparse https://github.com/google/adk-samples.git
-cd adk-samples && git sparse-checkout set core/python/long-horizon-harness
+# 1. Clone just this recipe
+git clone --depth 1 --filter=blob:none --sparse https://github.com/google/adk-recipes.git
+cd adk-recipes && git sparse-checkout set core/python/long-horizon-harness
 cd core/python/long-horizon-harness
 
 # 2. Run — the first run installs deps and seeds .env from .env.example
@@ -105,7 +105,7 @@ make dev-local
 Run `uvx google-agents-cli setup`, then ask your coding agent:
 
 > Using `agents-cli` and this reference —
-> https://github.com/google/adk-samples/tree/main/core/python/long-horizon-harness
+> https://github.com/google/adk-recipes/tree/main/core/python/long-horizon-harness
 > — help me build an agent that **&lt;does xyz&gt;**.
 
 ### Testing
@@ -124,7 +124,7 @@ Full config reference: [`docs/configuration.md`](docs/configuration.md).
 
 ## Learn & adapt
 
-Horizon is a sample — **configure it with environment variables and adapt it by editing the code** (there's no wrapper API). Where to go next:
+Horizon is a recipe — **configure it with environment variables and adapt it by editing the code** (there's no wrapper API). Where to go next:
 
 - **The custom interfaces** → [`AGENTS.md`](AGENTS.md) — each row links to the function that implements it.
 - **Architecture** → [`docs/architecture.md`](docs/architecture.md) — the map + per-subsystem start-here files (and the runtime diagram).
@@ -152,4 +152,4 @@ make destroy   # flips the delete guards off, then terraform destroy of all the 
 
 ## Disclaimer
 
-This repository is for demonstrative purposes only and is **not an officially supported Google product**. It is reference/sample code provided **without warranty or support of any kind**; review, test, and secure it before any real use. Licensed under Apache 2.0.
+This repository is for demonstrative purposes only and is **not an officially supported Google product**. It is reference/recipe code provided **without warranty or support of any kind**; review, test, and secure it before any real use. Licensed under Apache 2.0.

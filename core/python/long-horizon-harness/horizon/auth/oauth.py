@@ -55,7 +55,7 @@ from horizon.secrets import get_secret_store
 logger = logging.getLogger(__name__)
 
 AUTH_ENDPOINT = "https://accounts.google.com/o/oauth2/v2/auth"
-TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token"
+TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token"  # noqa: S105
 
 _SCOPE_PREFIX = "https://www.googleapis.com/auth/"
 CLOUD_PLATFORM_SCOPE = _SCOPE_PREFIX + "cloud-platform"
@@ -96,9 +96,9 @@ WORKSPACE_SURFACES: dict[str, dict[str, tuple[str, ...]]] = {
 
 # Per-user secret names. Token keys are read by gcloud/gws from the sandbox env;
 # the *_EXPIRES_AT / *_META keys are metadata for /status (harmless extra env).
-GCP_TOKEN_KEY = "CLOUDSDK_AUTH_ACCESS_TOKEN"
+GCP_TOKEN_KEY = "CLOUDSDK_AUTH_ACCESS_TOKEN"  # noqa: S105
 GCP_EXPIRES_KEY = "CLOUDSDK_AUTH_TOKEN_EXPIRES_AT"
-GWS_TOKEN_KEY = "GOOGLE_WORKSPACE_CLI_TOKEN"
+GWS_TOKEN_KEY = "GOOGLE_WORKSPACE_CLI_TOKEN"  # noqa: S105
 GWS_EXPIRES_KEY = "GOOGLE_WORKSPACE_TOKEN_EXPIRES_AT"
 GWS_META_KEY = "GOOGLE_WORKSPACE_SCOPES_META"  # json: {"surfaces": [...], "readonly": bool}
 
@@ -182,12 +182,12 @@ def build_auth_url(
 
 def _http_post(url: str, data: dict[str, str]) -> dict[str, Any]:
     body = urllib.parse.urlencode(data).encode()
-    req = urllib.request.Request(
+    req = urllib.request.Request(  # noqa: S310
         url,
         data=body,
         headers={"Content-Type": "application/x-www-form-urlencoded"},
     )
-    with urllib.request.urlopen(req, timeout=30) as resp:
+    with urllib.request.urlopen(req, timeout=30) as resp:  # noqa: S310
         return json.loads(resp.read())
 
 

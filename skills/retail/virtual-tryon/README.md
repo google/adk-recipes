@@ -9,7 +9,7 @@ Codex, ...) via `npx skills add`. The tool discovers `SKILL.md` from this
 recipe and registers `/retail-virtual-tryon` as an invocable skill:
 
 ```bash
-npx skills add google/adk-samples --skill retail-virtual-tryon
+npx skills add google/adk-recipes --skill retail-virtual-tryon
 ```
 
 Installs to `~/.claude/skills/` or `~/.agents/skills/` depending on host.
@@ -19,8 +19,8 @@ Antigravity discovers from `~/.agents/skills/` automatically.
 consuming it):
 
 ```bash
-git clone https://github.com/google/adk-samples.git
-cd adk-samples/skills/retail/virtual-tryon
+git clone https://github.com/google/adk-recipes.git
+cd adk-recipes/skills/retail/virtual-tryon
 uv sync
 ```
 

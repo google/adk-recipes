@@ -1,7 +1,7 @@
 ---
 name: repo-oracle
 description: >
-  Answer questions about how the adk-samples repo itself is governed — CI and
+  Answer questions about how the adk-recipes repo itself is governed — CI and
   workflow behavior, the limits and thresholds in .github/policy.yml and the
   reasoning behind them, CODEOWNERS routing, what the bots (stale sweep,
   Dependabot, recipe canary, AI review) do, how the repo is organised (core vs

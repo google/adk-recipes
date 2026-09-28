@@ -61,7 +61,7 @@ def _mint_id_token(audience: str) -> str:
     # Try the standard metadata-based approach first (works on GCE, Cloud Run)
     try:
         return id_token.fetch_id_token(auth_request, audience)
-    except Exception:
+    except Exception:  # noqa: S110
         pass
 
     # Fallback for Vertex AI Pipelines: use the service account credentials

@@ -272,6 +272,7 @@ def test_no_contributor_checker_hand_builds_an_annotation():
         "ci_message.py",
         "close_orphan_dependabot_prs.py",
         "sweep_stale_branches.py",
+        "check_model_literals.py",
     }
     pattern = re.compile(r'["\']::(error|warning|notice)')
     offenders: list[str] = []

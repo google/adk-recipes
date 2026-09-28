@@ -1,20 +1,11 @@
 [project]
 name = "deep-search"
 version = "0.1.0"
-description = "A production-ready fullstack research agent that uses Gemini to strategize, research, and synthesize comprehensive reports with human-in-the-loop collaboration"
-authors = [
-    {name = "Amit Dutta", email = "amitdutta@google.com"},
-    {name = "Deepak Moonat", email = "dmoonat@google.com"},
-    {name = "Elia Secchi", email = "eliasecchi@google.com"},
-    {name = "Erwin Huizenga", email = "erwinh@google.com"},
-    {name = "Lavi Nigam", email = "lavinigam@google.com"},
-]
-license = {text = "Apache License 2.0"}
-readme = "README.md"
-requires-python = ">=3.10,<3.13"
+requires-python = ">=3.11,<3.13"
 
 dependencies = [
-    "google-adk>=1.8.0",
+    "google-adk>=2.9.0,<3.0.0",
+    "python-dotenv>=1.0.0",
 ]
 
 [dependency-groups]
@@ -34,17 +25,6 @@ lint = [
     "types-pyyaml>=6.0.12.20240917",
     "types-requests>=2.32.4.20250913",
 ]
-
-[tool.ruff]
-# Point back to the Master template in the root
-extend = "../../../pyproject.toml"
-
-[tool.ruff.lint.per-file-ignores]
-"__init__.py" = ["E402", "F401"]
-
-[tool.ruff.lint.isort]
-# Treat both app and frontend as internal packages
-known-first-party = ["app", "frontend", "deep_search"]
 
 [tool.mypy]
 disallow_untyped_calls = true
@@ -85,3 +65,7 @@ interactive_command = "dev"
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[[tool.uv.index]]
+url = "https://pypi.org/simple/"
+default = true

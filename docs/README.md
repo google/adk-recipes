@@ -1,8 +1,8 @@
 <!-- word count: 195 (target 100, cap 200) -->
 
-# Contributing to adk-samples
+# Contributing to adk-recipes
 
-`adk-samples` is a curated collection of runnable ADK agent examples.
+`adk-recipes` is a curated collection of runnable ADK agent examples.
 A **recipe** is one such example — a focused, self-contained agent
 that lives under `contrib/` and demonstrates one concrete ADK pattern.
 

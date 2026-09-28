@@ -12,7 +12,7 @@ concepts that are hard to demonstrate in isolation:
 3. An `AfterModelCallback` post-processing a sub-agent's raw output before it
    reaches the user.
 
-This is the Kotlin counterpart of the `llm_auditor` sample in adk-python.
+This is the Kotlin counterpart of the `llm_auditor` recipe in adk-python.
 
 ## When To Use
 

@@ -27,8 +27,13 @@ Core image processing operations used throughout the application.
 #### Background Removal
 
 ```python
-def replace_background(client, img_bytes, contour_tolerance=0.01,
-                       background_color="#FFFFFF", mask_margin_pixels=40) -> bytes:
+def replace_background(
+    client,
+    img_bytes,
+    contour_tolerance=0.01,
+    background_color="#FFFFFF",
+    mask_margin_pixels=40,
+) -> bytes:
     """
     Extract product from background and place on new background.
 
@@ -80,9 +85,17 @@ def crop_face(img_bytes, padding_ratio=0.3) -> bytes:
 #### Canvas Creation
 
 ```python
-def create_canvas(product_image_bytes, canvas_width=1920, canvas_height=1080,
-                  margin_top=150, margin_side=0, bg_color=(255,255,255,255),
-                  zoom_factor=1.0, target_diagonal=None, target_height=None) -> bytes:
+def create_canvas(
+    product_image_bytes,
+    canvas_width=1920,
+    canvas_height=1080,
+    margin_top=150,
+    margin_side=0,
+    bg_color=(255, 255, 255, 255),
+    zoom_factor=1.0,
+    target_diagonal=None,
+    target_height=None,
+) -> bytes:
     """
     Center product on a canvas with configurable sizing.
 
@@ -92,9 +105,14 @@ def create_canvas(product_image_bytes, canvas_width=1920, canvas_height=1080,
     - Default: Fit within margins
     """
 
-def create_canvas_with_height_scaling(images_bytes, canvas_height=1080,
-                                       canvas_width=1920, margin_top=60,
-                                       margin_side=300) -> list[bytes]:
+
+def create_canvas_with_height_scaling(
+    images_bytes,
+    canvas_height=1080,
+    canvas_width=1920,
+    margin_top=60,
+    margin_side=300,
+) -> list[bytes]:
     """
     Create canvases for multiple images with consistent height.
     Calculates shared target height that fits all images.
@@ -107,8 +125,10 @@ def create_canvas_with_height_scaling(images_bytes, canvas_height=1080,
 def stack_images_horizontally(img1_bytes, img2_bytes, padding=0.03) -> bytes:
     """Stack two images side by side with optional padding."""
 
-def stack_and_canvas_images(images, classes=None, canvas_height=2160,
-                            canvas_width=3840) -> list[bytes] | tuple:
+
+def stack_and_canvas_images(
+    images, classes=None, canvas_height=2160, canvas_width=3840
+) -> list[bytes] | tuple:
     """
     Create 4K canvases, stacking last two images if 4 provided.
 
@@ -120,8 +140,13 @@ def stack_and_canvas_images(images, classes=None, canvas_height=2160,
 #### Combined Operations
 
 ```python
-def extract_upscale_product(client, upscale_client, img_bytes,
-                            clean_after_upscale=True, mask_margin_pixels=40) -> bytes:
+def extract_upscale_product(
+    client,
+    upscale_client,
+    img_bytes,
+    clean_after_upscale=True,
+    mask_margin_pixels=40,
+) -> bytes:
     """
     Full pipeline: extract product → upscale → clean artifacts.
 
@@ -134,9 +159,14 @@ def extract_upscale_product(client, upscale_client, img_bytes,
 #### Batch Preprocessing
 
 ```python
-def preprocess_images(images_bytes_list, client, upscale_client,
-                      num_workers=16, upscale_images=True,
-                      create_canva=True) -> list[bytes]:
+def preprocess_images(
+    images_bytes_list,
+    client,
+    upscale_client,
+    num_workers=16,
+    upscale_images=True,
+    create_canva=True,
+) -> list[bytes]:
     """
     Preprocess images with optional upscaling and canvas creation.
 
@@ -179,7 +209,9 @@ Video processing and analysis utilities.
 #### Frame Extraction
 
 ```python
-def extract_frames_as_bytes_list(video_bytes, image_format=".png") -> list[bytes]:
+def extract_frames_as_bytes_list(
+    video_bytes, image_format=".png"
+) -> list[bytes]:
     """Extract all frames from video as list of image bytes."""
 ```
 
@@ -188,6 +220,7 @@ def extract_frames_as_bytes_list(video_bytes, image_format=".png") -> list[bytes
 ```python
 def create_mp4_from_bytes_to_bytes(frames_bytes, fps=24, quality=7) -> bytes:
     """Create MP4 video in memory from list of frame bytes."""
+
 
 def reverse_video(video_bytes, fps=24, quality=7) -> bytes:
     """Reverse a video by reversing frame order."""
@@ -216,8 +249,10 @@ def merge_videos_from_bytes(videos_bytes, speeds=None, fps=24) -> bytes:
 def get_frame_similarity_bytes(frame1_bytes, frame2_bytes) -> float:
     """Calculate SSIM similarity between two images (0-1 scale)."""
 
-def find_most_similar_frame_index(all_frames, reference_frame,
-                                   num_frames_to_check=None) -> int:
+
+def find_most_similar_frame_index(
+    all_frames, reference_frame, num_frames_to_check=None
+) -> int:
     """Find index of frame most similar to reference."""
 ```
 
@@ -237,11 +272,19 @@ Veo video generation wrappers with automatic retry.
 #### Image-to-Video / Interpolation
 
 ```python
-def generate_veo(client, image, prompt, last_frame=None,
-                 model="veo-3.1-fast-generate-001", duration=8,
-                 number_of_videos=1, aspect_ratio="16:9",
-                 person_generation=None, enhance_prompt=None,
-                 generate_audio=False) -> list[bytes]:
+def generate_veo(
+    client,
+    image,
+    prompt,
+    last_frame=None,
+    model="veo-3.1-fast-generate-001",
+    duration=8,
+    number_of_videos=1,
+    aspect_ratio="16:9",
+    person_generation=None,
+    enhance_prompt=None,
+    generate_audio=False,
+) -> list[bytes]:
     """
     Generate video from starting image.
 
@@ -257,9 +300,15 @@ def generate_veo(client, image, prompt, last_frame=None,
 #### Reference-to-Video (R2V)
 
 ```python
-def generate_veo_r2v(client, reference_images, prompt,
-                     reference_type="asset", model="veo-3.1-fast-generate-001",
-                     duration=8, generate_audio=False) -> bytes:
+def generate_veo_r2v(
+    client,
+    reference_images,
+    prompt,
+    reference_type="asset",
+    model="veo-3.1-fast-generate-001",
+    duration=8,
+    generate_audio=False,
+) -> bytes:
     """
     Generate video using reference images.
 
@@ -283,25 +332,44 @@ Google Cloud Storage operations using Transfer Manager for high-performance uplo
 #### Single File Operations
 
 ```python
-def upload_file_to_gcs(bucket_name, source_file_path, destination_blob_name,
-                       project_id=None, content_type=None) -> str:
+def upload_file_to_gcs(
+    bucket_name,
+    source_file_path,
+    destination_blob_name,
+    project_id=None,
+    content_type=None,
+) -> str:
     """Upload single file, returns GCS URI."""
 
-def upload_bytes_to_gcs(bucket_name, file_bytes, destination_blob_name,
-                        project_id=None, content_type=None) -> str:
+
+def upload_bytes_to_gcs(
+    bucket_name,
+    file_bytes,
+    destination_blob_name,
+    project_id=None,
+    content_type=None,
+) -> str:
     """Upload bytes directly, returns GCS URI."""
 
-def download_file_from_gcs(bucket_name, source_blob_name,
-                           destination_file_path, project_id=None) -> str:
+
+def download_file_from_gcs(
+    bucket_name, source_blob_name, destination_file_path, project_id=None
+) -> str:
     """Download file from GCS."""
 ```
 
 #### Folder Upload
 
 ```python
-def upload_folder_to_gcs(bucket_name, source_folder_path, destination_prefix="",
-                         project_id=None, include_extensions=None,
-                         exclude_extensions=None, max_workers=50) -> list[str]:
+def upload_folder_to_gcs(
+    bucket_name,
+    source_folder_path,
+    destination_prefix="",
+    project_id=None,
+    include_extensions=None,
+    exclude_extensions=None,
+    max_workers=50,
+) -> list[str]:
     """
     Upload entire folder using parallel Transfer Manager.
 
@@ -320,10 +388,15 @@ def upload_folder_to_gcs(bucket_name, source_folder_path, destination_prefix="",
 #### Pipeline Results Upload
 
 ```python
-def save_and_upload_to_gcs(result, product_id, bucket_name,
-                           gcs_destination_prefix="shoe_spinning_outputs",
-                           project_id=None, pre_sampled_frames=None,
-                           image_format="png") -> list[str]:
+def save_and_upload_to_gcs(
+    result,
+    product_id,
+    bucket_name,
+    gcs_destination_prefix="shoe_spinning_outputs",
+    project_id=None,
+    pre_sampled_frames=None,
+    image_format="png",
+) -> list[str]:
     """
     Orchestrate saving and uploading video pipeline results.
 
@@ -351,9 +424,13 @@ Gemini/LLM integration utilities.
 #### Retry Decorator
 
 ```python
-@retry_with_exponential_backoff(max_retries=5, initial_delay=1.0,
-                                 exponential_base=5.0, max_delay=60.0,
-                                 exceptions=(ClientError,))
+@retry_with_exponential_backoff(
+    max_retries=5,
+    initial_delay=1.0,
+    exponential_base=5.0,
+    max_delay=60.0,
+    exceptions=(ClientError,),
+)
 def some_function():
     """Automatically retries on failure with exponential backoff."""
 ```
@@ -373,8 +450,10 @@ def get_part(input_piece, return_dict=False) -> Part:
     - Other strings: Text content
     """
 
+
 def get_mime_type_from_bytes(data) -> str:
     """Detect MIME type from file signature (magic bytes)."""
+
 
 def get_mime_type_from_path(path) -> str:
     """Detect MIME type from file extension."""
@@ -384,11 +463,16 @@ def get_mime_type_from_path(path) -> str:
 
 ```python
 def get_generate_content_config(
-    temperature=1, top_p=0.95, max_output_tokens=32768,
-    response_modalities=None, response_mime_type=None,
-    response_schema=None, system_instruction=None,
-    thinking_budget=None, safety_off=True,
-    image_config=None
+    temperature=1,
+    top_p=0.95,
+    max_output_tokens=32768,
+    response_modalities=None,
+    response_mime_type=None,
+    response_schema=None,
+    system_instruction=None,
+    thinking_budget=None,
+    safety_off=True,
+    image_config=None,
 ) -> GenerateContentConfig:
     """
     Create standard Gemini generation config.
@@ -412,8 +496,9 @@ Face comparison for VTO and background changer quality evaluation.
 #### Face Comparison
 
 ```python
-def compare_faces(reference_face_bytes, generated_face_bytes,
-                  model_name="ArcFace") -> dict:
+def compare_faces(
+    reference_face_bytes, generated_face_bytes, model_name="ArcFace"
+) -> dict:
     """
     Compare two face images using DeepFace.
 
@@ -434,8 +519,9 @@ def compare_faces(reference_face_bytes, generated_face_bytes,
 #### Person Match Evaluation
 
 ```python
-def evaluate_person_match(reference_face_bytes, generated_vto_bytes,
-                          model_name="ArcFace") -> dict:
+def evaluate_person_match(
+    reference_face_bytes, generated_vto_bytes, model_name="ArcFace"
+) -> dict:
     """
     Main evaluation function for generated images.
 
@@ -462,8 +548,9 @@ def evaluate_person_match(reference_face_bytes, generated_vto_bytes,
 Generic parallel processing utilities.
 
 ```python
-def predict_parallel(to_predict, predict_function, max_workers=8,
-                     show_progress_bar=True) -> list:
+def predict_parallel(
+    to_predict, predict_function, max_workers=8, show_progress_bar=True
+) -> list:
     """
     Execute function in parallel using ThreadPoolExecutor.
 
@@ -488,11 +575,14 @@ In-memory product catalog search using pre-computed embeddings. Data is download
 def search(query: str, k: int = 20) -> list[dict]:
     """Search catalog by text query. Embeds the query and returns top-k products."""
 
+
 def search_by_vector(embedding: list[float], k: int = 20) -> list[dict]:
     """Search catalog by pre-computed embedding vector (numpy dot-product)."""
 
+
 def embed_query(text: str) -> list[float]:
     """Embed a text query using Gemini embedding model."""
+
 
 def search_for_outfit_item(item: dict, k: int = 20) -> dict:
     """Search for a single outfit item and enrich with matched products."""
@@ -528,7 +618,7 @@ processed = extract_upscale_product(
     client=gemini_client,
     upscale_client=imagen_client,
     img_bytes=product_image,
-    clean_after_upscale=True
+    clean_after_upscale=True,
 )
 ```
 
@@ -541,7 +631,7 @@ video_bytes = generate_veo_r2v(
     client=veo_client,
     reference_images=[img1_bytes, img2_bytes, img3_bytes],
     prompt="A sleek product rotates 360 degrees on white background",
-    reference_type="asset"
+    reference_type="asset",
 )
 ```
 
@@ -555,7 +645,7 @@ from workflows.shared.image_utils import replace_background
 processed_images = predict_parallel(
     to_predict=image_list,
     predict_function=lambda img: replace_background(client, img),
-    max_workers=16
+    max_workers=16,
 )
 ```
 
@@ -565,8 +655,7 @@ processed_images = predict_parallel(
 from workflows.shared.person_eval import evaluate_person_match
 
 result = evaluate_person_match(
-    reference_face_bytes=cropped_face,
-    generated_vto_bytes=generated_image
+    reference_face_bytes=cropped_face, generated_vto_bytes=generated_image
 )
 
 if result["face_detected"] and result["similarity_percentage"] > 85:
@@ -582,7 +671,7 @@ uploaded = upload_folder_to_gcs(
     bucket_name="my-bucket",
     source_folder_path="/tmp/outputs",
     destination_prefix="products/shoe_123",
-    max_workers=50
+    max_workers=50,
 )
 ```
 

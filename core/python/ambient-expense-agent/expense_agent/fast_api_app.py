@@ -73,6 +73,6 @@ async def normalize_pubsub_subscription(request: Request, call_next):  # type: i
 if __name__ == "__main__":
     uvicorn.run(
         app,
-        host="0.0.0.0",
+        host="0.0.0.0",  # noqa: S104 -- container entrypoint
         port=int(os.environ.get("PORT", "8080")),
     )

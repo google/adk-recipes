@@ -40,7 +40,7 @@ except ImportError:
             parts = re.split(r"^---\s*$", content, flags=re.MULTILINE)
             if len(parts) >= 3:
                 return yaml.safe_load(parts[1]) or {}
-        except Exception:
+        except Exception:  # noqa: S110
             pass
         return {}
 
@@ -49,7 +49,10 @@ except ImportError:
         if dry_run:
             logger.info(f"[DRY-RUN] Would run: {' '.join(cmd)}")
             return True
-        res = subprocess.run(cmd, check=False)
+        res = subprocess.run(  # noqa: S603 -- setup script runs known command list
+            cmd,
+            check=False,
+        )
         return res.returncode == 0
 
 

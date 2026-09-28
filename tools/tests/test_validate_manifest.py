@@ -2,7 +2,7 @@
 """Unit tests for tools/validate_manifest.py.
 
 The `validate` / `validate_manifest` modules are importable directly because
-the repo root is installed as the `adk-samples-tools` package (see the hatch
+the repo root is installed as the `adk-recipes-tools` package (see the hatch
 `sources` mapping in pyproject.toml), so no sys.path shim is needed here.
 """
 

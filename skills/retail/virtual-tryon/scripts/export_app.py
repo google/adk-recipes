@@ -25,9 +25,9 @@ import os
 import re
 import shutil
 import sys
+import tomllib
 from pathlib import Path
 
-import tomllib
 import yaml
 
 try:

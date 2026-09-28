@@ -17,6 +17,7 @@
 import os
 
 from google.adk.agents import LlmAgent
+from google.adk.apps import App
 from google.adk.tools.agent_tool import AgentTool
 
 from . import prompt
@@ -25,7 +26,7 @@ from .sub_agents.execution_analyst import execution_analyst_agent
 from .sub_agents.risk_analyst import risk_analyst_agent
 from .sub_agents.trading_analyst import trading_analyst_agent
 
-MODEL = os.getenv("MODEL_NAME", "gemini-3.6-flash")
+MODEL = os.environ.get("MODEL_NAME")
 
 
 financial_coordinator = LlmAgent(
@@ -48,3 +49,5 @@ financial_coordinator = LlmAgent(
 )
 
 root_agent = financial_coordinator
+
+app = App(root_agent=root_agent, name="financial_advisor")

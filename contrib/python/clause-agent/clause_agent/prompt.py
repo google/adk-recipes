@@ -1,6 +1,6 @@
 """Instruction strings for root_agent, hierarchy_resolver, clause_extractor.
 
-Kept in one module (mirrors adk-samples convention, e.g.
+Kept in one module (mirrors adk-recipes convention, e.g.
 invoice-processing/invoice_processing/prompt.py) so the guardrail language
 is easy to review and keep consistent across agents.
 """

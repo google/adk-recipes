@@ -154,7 +154,7 @@ user (React frontend / ADK web / Gemini Enterprise)
   `config.env` is the source of truth — `make sync-config` copies it in, and
   most targets depend on it. Copy `config.env.example` → `config.env` first.
 - **`.env.example` model literals are deprecated.** `MODEL_NAME_GENERATED_*`
-  captures the original sample (`gemini-3.6-flash`, …). Per the repo `AGENTS.md`
+  captures the original recipe (`gemini-3.6-flash`, …). Per the repo `AGENTS.md`
   model policy, review/replace with `gemini-3.6-flash` before use.
 - **The `eval` extra is intentionally empty.** `google-adk[eval]` /
   `aiplatform[evaluation]` cap `scikit-learn<=1.5.2`, which conflicts with the

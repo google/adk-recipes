@@ -84,7 +84,7 @@ any new requirements automatically. Then check the
 ## Contact
 
 Open a GitHub issue at
-[github.com/google/adk-samples/issues](https://github.com/google/adk-samples/issues).
+[github.com/google/adk-recipes/issues](https://github.com/google/adk-recipes/issues).
 Include the recipe path and the CI check name if you're
 reporting a failure.
 

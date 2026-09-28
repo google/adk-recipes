@@ -108,7 +108,7 @@ if not os.environ.get("GOOGLE_CLOUD_PROJECT"):
                 "project %r. Set it explicitly to choose a different project.",
                 project_id,
             )
-    except Exception:  # no ADC (e.g. forked sample imported offline) — leave project to env/explicit config
+    except Exception:  # no ADC (e.g. forked recipe imported offline) — leave project to env/explicit config
         _logger.debug(
             "google.auth.default() found no credentials; GOOGLE_CLOUD_PROJECT left as-is"
         )

@@ -1,0 +1,34 @@
+type: "standalone"    # Options: [standalone | module]
+status: "active"      # Options: [active | inactive]
+language: "python"    # Options: [python | java | go | kotlin | typescript]
+description: "Generate a brand-adherent deck that integrates custom research."
+
+architecture:
+  agent: "multi"       # Options: [single | multi]
+  stateful: true       # Options: [true | false]
+  datasources:         # Options: [hardcoded | local | external]
+    - "external"
+
+dependencies:
+  libraries:
+    - "ADK"
+    - "python-pptx"
+    - "google-genai"
+  services:
+    - "Vertex AI"
+    - "Cloud Storage"
+
+ownership:
+  team: "FDE@Google-Cloud"
+  poc: "whisper88-lgtm"
+  contributors:
+    - "xiaolizhang"
+    - "nmdesai"
+
+tags:
+  - "presentation"
+  - "multi-agent"
+  - "gemini"
+  - "research"
+
+license: "Apache-2.0"
