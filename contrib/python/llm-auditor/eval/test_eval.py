@@ -32,7 +32,7 @@ def load_env():
 async def test_all():
     """Test the agent's basic ability on a few examples."""
     await AgentEvaluator.evaluate(
-        "llm_auditor",
+        "app",
         str(pathlib.Path(__file__).parent / "data"),
         num_runs=5,
     )

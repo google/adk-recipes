@@ -26,9 +26,9 @@ def test_agent_runnability() -> None:
     with patch(
         "google.auth.default", return_value=(MagicMock(), "test-project")
     ):
-        import brand_search_optimization.agent
+        import app.agent
 
-    agent = brand_search_optimization.agent.root_agent
+    agent = app.agent.root_agent
     assert agent is not None
     assert agent.name == "brand_search_optimization"
     assert len(agent.sub_agents) == 3

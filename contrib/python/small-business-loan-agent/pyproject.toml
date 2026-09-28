@@ -47,6 +47,7 @@ requires = ["uv_build>=0.8.14,<0.9.0"]
 build-backend = "uv_build"
 
 [tool.uv.build-backend]
+module-name = "app"
 module-root = ""
 
 # This configuration file is used by goo.gle/agent-starter-pack to power remote templating.
@@ -55,7 +56,7 @@ module-root = ""
 example_question = "Process this loan application for SBL-2025-00142"
 
 [tool.agent-starter-pack.settings]
-agent_directory = "small_business_loan_agent"
+agent_directory = "app"
 
 [[tool.uv.index]]
 url = "https://pypi.org/simple/"
