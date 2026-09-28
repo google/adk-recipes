@@ -16,6 +16,8 @@ dependencies {
     implementation("com.google.adk:google-adk-kotlin-core:$adkVersion")
     implementation("com.google.adk:google-adk-kotlin-webserver:$adkVersion")
     ksp("com.google.adk:google-adk-kotlin-processor:$adkVersion")
+
+    testImplementation(kotlin("test"))
 }
 
 kotlin {
@@ -27,6 +29,10 @@ application {
         project.findProperty("mainClass") as? String
             ?: "com.google.adk.samples.agents.llmauditor.MainKt",
     )
+}
+
+tasks.test {
+    useJUnitPlatform()
 }
 
 tasks.named<JavaExec>("run") {
