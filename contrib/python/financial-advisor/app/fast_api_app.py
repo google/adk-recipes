@@ -23,9 +23,9 @@ from fastapi import FastAPI
 from google.adk.cli.fast_api import get_fast_api_app
 from google.adk.runners import Runner
 
-from financial_advisor.app_utils import services
-from financial_advisor.app_utils.a2a import attach_a2a_routes
-from financial_advisor.app_utils.reasoning_engine_adapter import (
+from app.app_utils import services
+from app.app_utils.a2a import attach_a2a_routes
+from app.app_utils.reasoning_engine_adapter import (
     attach_reasoning_engine_routes,
 )
 
@@ -54,8 +54,8 @@ AGENT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 @contextlib.asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    from financial_advisor.agent import app as adk_app
-    from financial_advisor.agent import root_agent
+    from app.agent import app as adk_app
+    from app.agent import root_agent
 
     runner = Runner(
         app=adk_app,
