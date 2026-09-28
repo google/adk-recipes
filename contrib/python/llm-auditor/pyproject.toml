@@ -34,7 +34,7 @@ deployment = [
 
 [tool.hatch.build.targets.wheel]
 # Ensures Hatchling finds the package folder correctly
-packages = ["llm_auditor"]
+packages = ["app"]
 
 [tool.pytest.ini_options]
 pythonpath = "."
@@ -50,7 +50,7 @@ lint = [
 example_question = "Double check this: Earth is further away from the Sun than Mars."
 
 [tool.agent-starter-pack.settings]
-agent_directory = "llm_auditor"
+agent_directory = "app"
 
 [build-system]
 requires = ["hatchling"]
