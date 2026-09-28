@@ -371,7 +371,7 @@ One line only: `consistency: <n> findings` then the absolute path to findings.js
 
 ## Template C — house-rules lane (`google/adk-samples` only)
 
-Dispatch **one** of these whenever the PR touches `core/`, `contrib/` or `skills/`
+Dispatch **one** of these whenever the PR touches `core/`, `contrib/` or `plugins/`
 in `google/adk-samples`. Skip it for every other repo.
 
 ### Why this lane exists

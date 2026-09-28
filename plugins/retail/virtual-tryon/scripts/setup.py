@@ -30,13 +30,13 @@ try:
     from _setup_utils import load_config, run_step
 except ImportError:
     # Minimal fallback loader if _setup_utils isn't importable.
-    def load_config(path):
+    def load_config(config_path: str) -> dict:
         import re
 
         import yaml
 
         try:
-            content = Path(path).read_text()
+            content = Path(config_path).read_text()
             parts = re.split(r"^---\s*$", content, flags=re.MULTILINE)
             if len(parts) >= 3:
                 return yaml.safe_load(parts[1]) or {}
@@ -44,8 +44,8 @@ except ImportError:
             pass
         return {}
 
-    def run_step(msg, cmd, dry_run=False):
-        logger.info(msg)
+    def run_step(description: str, cmd: list, dry_run: bool = False) -> bool:
+        logger.info(description)
         if dry_run:
             logger.info(f"[DRY-RUN] Would run: {' '.join(cmd)}")
             return True

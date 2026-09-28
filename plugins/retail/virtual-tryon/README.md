@@ -20,7 +20,7 @@ consuming it):
 
 ```bash
 git clone https://github.com/google/adk-recipes.git
-cd adk-recipes/skills/retail/virtual-tryon
+cd adk-recipes/plugins/retail/virtual-tryon
 uv sync
 ```
 

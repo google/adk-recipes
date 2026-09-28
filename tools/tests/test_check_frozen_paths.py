@@ -40,7 +40,7 @@ FROZEN = [
         # Active locations are untouched.
         ("contrib/python/foo/agent.py", None),
         ("core/python/foo/agent.py", None),
-        ("skills/python/foo/SKILL.md", None),
+        ("plugins/python/foo/SKILL.md", None),
         # The language README sits OUTSIDE the frozen prefix on purpose —
         # the deprecation notice has to stay editable.
         ("python/README.md", None),

@@ -298,12 +298,12 @@ def test_allows_documented_output_dirs(output_dir):
 @pytest.mark.parametrize(
     "output_dir",
     [
-        # Vertical skills need a template this skill does not ship — SKILL.md,
+        # Vertical plugins need a template this skill does not ship — SKILL.md,
         # EVAL.yaml, scripts/, assets/, references/, tests/unit/ — so they must
         # be refused rather than filled with a recipe-shaped tree.
-        "skills",
-        "skills/retail",
-        "skills/retail/store-ops",
+        "plugins",
+        "plugins/retail",
+        "plugins/retail/store-ops",
         # Retired roots and other stray locations.
         "python/agents",
         "core",
@@ -324,4 +324,4 @@ def test_allow_list_matches_the_skill_docs():
     )
     for allowed in m.ALLOWED_OUTPUT_DIRS:
         assert f"`{allowed}/`" in skill_md, allowed
-    assert "skills/<vertical>/<solution>/" in skill_md
+    assert "plugins/<vertical>/<solution>/" in skill_md

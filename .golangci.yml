@@ -5,7 +5,7 @@
 # .github/workflows/go-format.yml deliberately passes NO style flags on the
 # CLI (no -E/--enable, no max-len, no --default). golangci-lint discovers
 # this file by walking up from the directory it runs in, so every Go recipe
-# under core/, contrib/, and skills/ resolves to this one config. Change the
+# under core/, contrib/, and plugins/ resolves to this one config. Change the
 # standard here, not in the workflow.
 #
 # IMPORTANT — path resolution: golangci-lint reports issue paths relative to

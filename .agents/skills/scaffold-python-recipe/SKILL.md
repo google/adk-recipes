@@ -38,7 +38,7 @@ The user must choose one of these valid locations:
 
 If the user has not specified which directory, ask them to choose. Do not proceed until a valid choice is confirmed.
 
-This skill **cannot** scaffold a vertical skill (`skills/<vertical>/<solution>/`). Those have a different shape — `SKILL.md`, `EVAL.yaml`, `scripts/`, `assets/`, `references/`, `tests/unit/` — and no template ships for them yet. If the user asks for one, tell them so rather than scaffolding into the wrong place.
+This skill **cannot** scaffold a vertical plugin (`plugins/<vertical>/<solution>/`). Those have a different shape — `SKILL.md`, `EVAL.yaml`, `scripts/`, `assets/`, `references/`, `tests/unit/` — and no template ships for them yet. If the user asks for one, tell them so rather than scaffolding into the wrong place.
 
 ### 2. Recipe Name (Required — must ask if not provided)
 

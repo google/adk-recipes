@@ -33,7 +33,7 @@ import yaml
 try:
     from _setup_utils import load_config as _shared_load_config
 except ImportError:
-    _shared_load_config = None
+    _shared_load_config = None  # type: ignore[assignment]
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"

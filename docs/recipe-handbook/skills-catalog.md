@@ -9,9 +9,9 @@ works, authoring more skills. Source lives at
 with a full description. This catalog summarises them and maps
 them to the [checklist](../recipe-checklist.md).
 
-> Not to be confused with **vertical skills** — recipes shipped to
-> users under `skills/<vertical>/<solution>/`. Repo skills build this
-> repo; vertical skills are built with it.
+> Not to be confused with **plugins** — recipes shipped to
+> users under `plugins/<vertical>/<solution>/`. Repo skills build this
+> repo; plugins are built with it.
 
 > **Fastest path:** for a PR-ready recipe in one command, use
 > [`prepare-python-recipe`](#prepare-python-recipe). It runs

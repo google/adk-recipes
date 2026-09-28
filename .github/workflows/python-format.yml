@@ -9,7 +9,7 @@ on:
     paths:
       - "core/**/*.py"
       - "contrib/**/*.py"
-      - "skills/**/*.py"
+      - "plugins/**/*.py"
       - "**/pyproject.toml"
 
 # Read-only by default. `pull-requests: write` is granted per job below
@@ -76,7 +76,7 @@ jobs:
 
           # 2. Resolve Python files modified in this PR diff. Use an array so
           #    filenames with spaces or globs stay intact when passed to ruff.
-          mapfile -t CHANGED_FILES < <(git diff --name-only --diff-filter=d "origin/$BASE_REF...HEAD" | grep '\.py$' || true)
+          mapfile -t CHANGED_FILES < <(git diff --name-only --diff-filter=d "origin/$BASE_REF...HEAD" -- core contrib plugins | grep '\.py$' || true)
 
           if [ ${#CHANGED_FILES[@]} -eq 0 ]; then
             echo "No Python files were modified in this pull request. Skipping formatting."
@@ -176,7 +176,7 @@ jobs:
           git fetch origin "$BASE_REF"
 
           # 2. Resolve Python files modified in this PR diff
-          mapfile -t CHANGED_FILES < <(git diff --name-only --diff-filter=d "origin/$BASE_REF...HEAD" | grep '\.py$' || true)
+          mapfile -t CHANGED_FILES < <(git diff --name-only --diff-filter=d "origin/$BASE_REF...HEAD" -- core contrib plugins | grep '\.py$' || true)
 
           if [ ${#CHANGED_FILES[@]} -eq 0 ]; then
             echo "No Python files were modified in this pull request. Skipping lint."
@@ -313,7 +313,7 @@ jobs:
           git fetch origin "$BASE_REF"
 
           # 2. Resolve Python files modified in this PR diff
-          mapfile -t CHANGED_FILES < <(git diff --name-only --diff-filter=d "origin/$BASE_REF...HEAD" | grep '\.py$' || true)
+          mapfile -t CHANGED_FILES < <(git diff --name-only --diff-filter=d "origin/$BASE_REF...HEAD" -- core contrib plugins | grep '\.py$' || true)
 
           if [ ${#CHANGED_FILES[@]} -eq 0 ]; then
             echo "No Python files were modified in this pull request. Skipping type check."

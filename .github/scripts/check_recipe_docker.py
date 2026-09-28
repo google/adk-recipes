@@ -59,7 +59,7 @@ from ci_message import (  # noqa: E402
 )
 
 CHECKER = "check_recipe_docker.py"
-RECIPE_ROOTS = ("core", "contrib", "skills")
+RECIPE_ROOTS = ("core", "contrib", "plugins")
 DEFAULT_DOCKER_TIMEOUT = 30
 
 DEFAULT_PROBE_PATHS = (
@@ -501,7 +501,7 @@ def _get_container_logs(name: str, max_lines: int = 40) -> str:
 def find_recipes_with_dockerfile(
     root: Path = REPO_ROOT,
 ) -> list[Path]:
-    """Find all recipe directories under core/, contrib/, skills/ with a root Dockerfile."""
+    """Find all recipe directories under core/, contrib/, plugins/ with a root Dockerfile."""
     recipes: list[Path] = []
     for root_name in RECIPE_ROOTS:
         root_dir = root / root_name
