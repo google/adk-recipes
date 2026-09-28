@@ -78,6 +78,10 @@ concurrency:
 # reads untrusted code cannot post and the job that posts cannot read it.
 permissions: {}
 
+env:
+  # GitHub's diff API (`gh pr diff`) answers HTTP 406 above this many files.
+  MAX_DIFF_FILES: 300
+
 jobs:
   check:
     name: 'Check the house rules'
@@ -100,6 +104,8 @@ jobs:
     outputs:
       pr_number: '${{ steps.pr.outputs.number }}'
       has_payload: '${{ steps.payload.outputs.has_payload }}'
+      too_large: '${{ steps.files.outputs.too_large }}'
+      total_files: '${{ steps.files.outputs.total_files }}'
 
     steps:
       - name: 'Resolve the PR number and head commit'
@@ -180,6 +186,7 @@ jobs:
         run: 'python3 -m pip install --quiet "pyyaml==6.0.2"'
 
       - name: 'List the changed files'
+        id: 'files'
         env:
           GH_TOKEN: '${{ github.token }}'
           GH_REPO: '${{ github.repository }}'
@@ -192,9 +199,24 @@ jobs:
           gh api --paginate \
             "repos/${GH_REPO}/pulls/${PR_NUMBER}/files" \
             --jq '.[].filename' > changed_files.txt
-          echo "$(wc -l < changed_files.txt) changed file(s)."
+          # `tr -d` because BSD wc right-pads, and the count reaches a comment.
+          TOTAL="$(wc -l < changed_files.txt | tr -d '[:space:]')"
+          echo "${TOTAL} changed file(s)."
+          echo "total_files=${TOTAL}" >> "${GITHUB_OUTPUT}"
+
+          # `gh pr diff` below answers HTTP 406 "PullRequest.diff too_large"
+          # above MAX_DIFF_FILES files, and that failure is deterministic. The comment
+          # anchors need the combined diff, so there is nothing to check
+          # against; skip the rest and let `post` say so, as the model lanes
+          # in _ai-pr-review-core.yml do.
+          if (( TOTAL > MAX_DIFF_FILES )); then
+            echo "too_large=true" >> "${GITHUB_OUTPUT}"
+            echo "::notice::${TOTAL} files changed, above the ${MAX_DIFF_FILES}-file diff API limit; skipping the house-rules check."
+          fi
 
       - name: 'Fetch the diff'
+        if: |-
+          steps.files.outputs.too_large != 'true'
         env:
           GH_TOKEN: '${{ github.token }}'
           GH_REPO: '${{ github.repository }}'
@@ -207,6 +229,8 @@ jobs:
           echo "$(wc -c < pr_diff.txt) bytes of diff."
 
       - name: 'Run the deterministic checks'
+        if: |-
+          steps.files.outputs.too_large != 'true'
         run: |-
           set -euo pipefail
           python3 base/.github/scripts/house_rules_lane.py \
@@ -216,6 +240,8 @@ jobs:
             --out findings.json
 
       - name: 'Build the review payload'
+        if: |-
+          steps.files.outputs.too_large != 'true'
         id: 'payload'
         env:
           GH_TOKEN: '${{ github.token }}'
@@ -274,11 +300,14 @@ jobs:
     needs:
       - 'check'
     if: |-
-      needs.check.outputs.has_payload == 'true'
+      needs.check.outputs.has_payload == 'true' ||
+      needs.check.outputs.too_large == 'true'
     runs-on: 'ubuntu-latest'
     timeout-minutes: 10
 
     permissions:
+      # issues: `gh pr comment` (too-large notice) posts through the issues API.
+      issues: 'write'
       pull-requests: 'write'
 
     steps:
@@ -291,14 +320,39 @@ jobs:
           app-id: '${{ vars.APP_ID }}'
           private-key: '${{ secrets.APP_PRIVATE_KEY }}'
           permission-contents: 'read'
+          permission-issues: 'write'
           permission-pull-requests: 'write'
 
+      - name: 'Report a PR too large to diff'
+        if: |-
+          needs.check.outputs.too_large == 'true'
+        env:
+          GH_TOKEN: '${{ steps.generate_token.outputs.token || github.token }}'
+          # This job takes no checkout, so `gh pr comment` has no git remote
+          # to infer the repository from.
+          GH_REPO: '${{ github.repository }}'
+          PR_NUMBER: '${{ needs.check.outputs.pr_number }}'
+          TOTAL_FILES: '${{ needs.check.outputs.total_files }}'
+          DRY_RUN: '${{ github.event.inputs.dry_run }}'
+        run: |-
+          set -euo pipefail
+          BODY="This PR changes ${TOTAL_FILES} files, above the ${MAX_DIFF_FILES} files GitHub's diff API will serve, so the house-rules check was skipped. Splitting it up would get each part checked."
+          if [[ "${DRY_RUN}" == 'true' ]]; then
+            printf '### Dry run — House Rules\n\nWould comment: %s\n' "${BODY}" >> "${GITHUB_STEP_SUMMARY}"
+            exit 0
+          fi
+          gh pr comment "${PR_NUMBER}" --body "${BODY}"
+
       - name: 'Download the payload'
+        if: |-
+          needs.check.outputs.has_payload == 'true'
         uses: 'actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c' # ratchet:actions/download-artifact@v8.0.1
         with:
           name: 'house-rules-payload'
 
       - name: 'Post the review'
+        if: |-
+          needs.check.outputs.has_payload == 'true'
         env:
           GH_TOKEN: '${{ steps.generate_token.outputs.token || github.token }}'
           PR_NUMBER: '${{ needs.check.outputs.pr_number }}'
