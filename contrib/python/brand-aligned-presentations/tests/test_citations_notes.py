@@ -17,7 +17,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from presentation_agent.sub_agents.synthesizer.agent import (
+from app.sub_agents.synthesizer.agent import (
     batch_generate_slides,
 )
 
@@ -53,7 +53,7 @@ async def test_citation_recovery():
     )
 
     with patch(
-        "presentation_agent.sub_agents.synthesizer.agent.initialize_genai_client",
+        "app.sub_agents.synthesizer.agent.initialize_genai_client",
         return_value=mock_client,
     ):
         result = await batch_generate_slides(
@@ -94,7 +94,7 @@ async def test_speaker_notes_recovery():
     )
 
     with patch(
-        "presentation_agent.sub_agents.synthesizer.agent.initialize_genai_client",
+        "app.sub_agents.synthesizer.agent.initialize_genai_client",
         return_value=mock_client,
     ):
         result = await batch_generate_slides(
@@ -136,7 +136,7 @@ async def test_speaker_notes_appending():
     )
 
     with patch(
-        "presentation_agent.sub_agents.synthesizer.agent.initialize_genai_client",
+        "app.sub_agents.synthesizer.agent.initialize_genai_client",
         return_value=mock_client,
     ):
         result = await batch_generate_slides(
@@ -182,7 +182,7 @@ async def test_no_duplicate_notes_appending():
     )
 
     with patch(
-        "presentation_agent.sub_agents.synthesizer.agent.initialize_genai_client",
+        "app.sub_agents.synthesizer.agent.initialize_genai_client",
         return_value=mock_client,
     ):
         result = await batch_generate_slides(
@@ -221,7 +221,7 @@ async def test_layout_sanitization_with_visual():
     )
 
     with patch(
-        "presentation_agent.sub_agents.synthesizer.agent.initialize_genai_client",
+        "app.sub_agents.synthesizer.agent.initialize_genai_client",
         return_value=mock_client,
     ):
         result = await batch_generate_slides(

@@ -13,7 +13,7 @@
 # limitations under the License.
 """Unit tests for the align-recipe-pyproject skill script.
 
-Covers the two checks added after a vertical skill under skills/ showed that
+Covers the two checks added after a vertical plugin under plugins/ showed that
 raising `requires-python` silently desynced the recipe's own bootstrap script,
 and that a narrow `testpaths` can exclude the required runnability test.
 """
@@ -212,10 +212,10 @@ def test_new_checks_appear_in_report(tmp_path):
 # ---------------------------------------------------------------------------
 # project-name-matches-folder — expected name derivation
 #
-# core/ and contrib/ derive the name from the folder basename. skills/ joins
-# the vertical namespace to it, because skills/<vertical>/<solution> makes the
-# basename non-unique across verticals (skills/retail/product-search and
-# skills/grocery/product-search would otherwise both want "product-search").
+# core/ and contrib/ derive the name from the folder basename. plugins/ joins
+# the vertical namespace to it, because plugins/<vertical>/<solution> makes the
+# basename non-unique across verticals (plugins/retail/product-search and
+# plugins/grocery/product-search would otherwise both want "product-search").
 # ---------------------------------------------------------------------------
 
 
@@ -228,14 +228,14 @@ def test_new_checks_appear_in_report(tmp_path):
         # Legacy flat layout still present under core/.
         ("core/rag-vector-search", "rag-vector-search"),
         # Vertical-namespaced root — vertical is joined in.
-        ("skills/retail/product-search", "retail-product-search"),
-        ("skills/hr/onboarding", "hr-onboarding"),
-        ("skills/finance/month-end-close", "finance-month-end-close"),
+        ("plugins/retail/product-search", "retail-product-search"),
+        ("plugins/hr/onboarding", "hr-onboarding"),
+        ("plugins/finance/month-end-close", "finance-month-end-close"),
         # A bare directory name has no root to inspect.
         ("product-search", "product-search"),
         # Deeper than <root>/<namespace>/<solution>, so not the namespaced
         # shape. validate_placement.py rejects this layout anyway.
-        ("skills/retail/deep/nested", "nested"),
+        ("plugins/retail/deep/nested", "nested"),
     ],
 )
 def test_expected_project_name_for_repo_relative_paths(path, expected):
@@ -246,7 +246,7 @@ def test_expected_project_name_for_repo_relative_paths(path, expected):
     ("path", "expected"),
     [
         (
-            "/w/adk-samples/skills/retail/product-search",
+            "/w/adk-samples/plugins/retail/product-search",
             "retail-product-search",
         ),
         ("/w/adk-samples/core/python/deep-search", "deep-search"),
@@ -260,12 +260,12 @@ def test_absolute_paths_inside_the_repo_resolve_the_same(path, expected):
 @pytest.mark.parametrize(
     "path",
     [
-        # A checkout directory that merely happens to be NAMED "skills".
+        # A checkout directory that merely happens to be NAMED "plugins".
         # Matching the third-from-last segment made this script WRITE
         # [project].name = "core-rag-vector-search" into a real pyproject.
-        "/home/me/skills/core/rag-vector-search",
+        "/home/me/plugins/core/rag-vector-search",
         # Right shape, wrong repository.
-        "/elsewhere/skills/retail/rag-vector-search",
+        "/elsewhere/plugins/retail/rag-vector-search",
     ],
 )
 def test_paths_outside_the_repo_fall_back_to_basename(path):
@@ -296,7 +296,7 @@ def _name_check(recipe_dir: Path, name: str | None, apply: bool) -> m.Check:
 
 
 def test_skill_with_vertical_prefixed_name_is_ok(fake_repo):
-    recipe = fake_repo / "skills" / "retail" / "product-search"
+    recipe = fake_repo / "plugins" / "retail" / "product-search"
     check, _ = _name_check(recipe, "retail-product-search", apply=False)
     assert check.status == m.OK
 
@@ -305,7 +305,7 @@ def test_skill_with_bare_basename_is_rewritten(fake_repo):
     """The pre-fix behaviour (bare basename) is now a violation, and the
     auto-fix promotes it to the vertical-prefixed form rather than the other
     way around."""
-    recipe = fake_repo / "skills" / "retail" / "product-search"
+    recipe = fake_repo / "plugins" / "retail" / "product-search"
     check, doc = _name_check(recipe, "product-search", apply=True)
     assert check.status == m.FIXED
     assert check.details == {
@@ -316,7 +316,7 @@ def test_skill_with_bare_basename_is_rewritten(fake_repo):
 
 
 def test_skill_dry_run_message_explains_the_vertical_rule(fake_repo):
-    recipe = fake_repo / "skills" / "retail" / "product-search"
+    recipe = fake_repo / "plugins" / "retail" / "product-search"
     check, _ = _name_check(recipe, "product-search", apply=False)
     assert check.status == m.WOULD_FIX
     assert "<vertical>-<solution>" in check.message
@@ -331,7 +331,7 @@ def test_core_recipe_message_still_says_basename(fake_repo):
 
 
 def test_missing_name_is_added_with_vertical_prefix(fake_repo):
-    recipe = fake_repo / "skills" / "retail" / "product-search"
+    recipe = fake_repo / "plugins" / "retail" / "product-search"
     check, doc = _name_check(recipe, None, apply=True)
     assert check.status == m.FIXED
     assert doc["project"]["name"] == "retail-product-search"

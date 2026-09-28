@@ -26,18 +26,18 @@ from google.adk.tools.computer_use.computer_use_toolset import (
 )
 from starlette.datastructures import Headers
 
-from brand_search_optimization.app_utils import (
+from app.app_utils import (
     a2a,
     reasoning_engine_adapter,
     services,
 )
-from brand_search_optimization.shared_libraries import constants
-from brand_search_optimization.sub_agents.comparison.models import (
+from app.shared_libraries import constants
+from app.sub_agents.comparison.models import (
     TitleOptimizationReport,
     TitleRecommendation,
 )
-from brand_search_optimization.tools import bq_connector
-from brand_search_optimization.tools.browser_computer import (
+from app.tools import bq_connector
+from app.tools.browser_computer import (
     MockBrowserComputer,
     PlaywrightBrowserComputer,
     _calculate_scroll_deltas,
@@ -52,7 +52,7 @@ from brand_search_optimization.tools.browser_computer import (
 class TestBigQueryConnector:
     """Tests for BigQuery catalog extraction tool."""
 
-    @patch("brand_search_optimization.tools.bq_connector.client")
+    @patch("app.tools.bq_connector.client")
     def test_get_product_details_for_brand_success(self, mock_client):
         mock_row1 = MagicMock(
             Title="Cymbal Air Max",
@@ -90,7 +90,7 @@ class TestBigQueryConnector:
             assert response.products[1].title == "Cymbal Sportswear T-Shirt"
             assert response.is_sample_data is False
 
-    @patch("brand_search_optimization.tools.bq_connector.client")
+    @patch("app.tools.bq_connector.client")
     def test_get_product_details_for_brand_null_fields(self, mock_client):
         mock_row = MagicMock()
         mock_row.Title = "Cymbal Runner"
@@ -121,9 +121,9 @@ class TestBigQueryConnector:
         assert response.products == []
         assert response.is_sample_data is False
 
-    @patch("brand_search_optimization.tools.bq_connector.client", None)
+    @patch("app.tools.bq_connector.client", None)
     @patch(
-        "brand_search_optimization.tools.bq_connector._get_client",
+        "app.tools.bq_connector._get_client",
         return_value=None,
     )
     def test_get_product_details_for_brand_offline_fallback(self, _):
@@ -258,7 +258,7 @@ class TestBrowserComputer:
             assert img.size == (1, 1)
 
         with patch(
-            "brand_search_optimization.tools.browser_computer._resolved_addresses_allowed",
+            "app.tools.browser_computer._resolved_addresses_allowed",
             return_value=True,
         ):
             nav_state = await computer.navigate(

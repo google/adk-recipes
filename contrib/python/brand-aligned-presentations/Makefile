@@ -4,10 +4,10 @@ install:
 	uv sync
 
 backend:
-	uv run python presentation_agent/deployment/deploy.py --mode create
+	uv run python app/deployment/deploy.py --mode create
 
 update:
-	uv run python presentation_agent/deployment/deploy.py --mode update
+	uv run python app/deployment/deploy.py --mode update
 
 test:
 	find . -type d -name "__pycache__" -exec rm -rf {} +

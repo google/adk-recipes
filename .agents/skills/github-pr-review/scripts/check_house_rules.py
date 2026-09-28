@@ -549,7 +549,7 @@ def check_license_headers(out, root, rel):
 # Roots whose recipe name is namespaced by the segment above it. Mirrors
 # NAMESPACED_ROOTS in .github/scripts/check_recipe_pyproject.py, which is what
 # actually fails the build.
-_NAMESPACED_ROOTS = {"skills"}
+_NAMESPACED_ROOTS = {"plugins"}
 
 
 def _expected_project_name(rel, recipe_name):
@@ -592,10 +592,10 @@ def check_pyproject(out, root, rel, recipe_name):
             "grep '^\\[tool\\.ruff' in this file",
         )
 
-    # H3 -- [project].name. Under skills/ the expected value is
+    # H3 -- [project].name. Under plugins/ the expected value is
     # <vertical>-<solution>, not the bare basename: check_recipe_pyproject's
     # NAMESPACED_ROOTS namespaces that root. Comparing against the basename
-    # fired on both shipped vertical skills and told each author to set the
+    # fired on both shipped vertical plugins and told each author to set the
     # one value CI would reject.
     name = proj.get("name")
     expected = _expected_project_name(rel, recipe_name)
@@ -1367,7 +1367,7 @@ def check_pr_shape(out, root, rel):
         return
     skill_files = sorted(c for c in CHANGED if c.startswith(".agents/skills/"))
     recipe_files = sorted(
-        c for c in CHANGED if c.startswith(("core/", "contrib/", "skills/"))
+        c for c in CHANGED if c.startswith(("core/", "contrib/", "plugins/"))
     )
     if not skill_files or not recipe_files:
         return
@@ -1422,7 +1422,7 @@ _REQUIRED_ALWAYS = ["README.md"]
 _REQUIRED_BY_ROOT = {
     "core": ["AGENTS.md"],
     "contrib": [],
-    "skills": ["SKILL.md", "EVAL.yaml"],
+    "plugins": ["SKILL.md", "EVAL.yaml"],
 }
 _REQUIRED_BY_LANGUAGE = {
     "python": [
@@ -1478,7 +1478,7 @@ def _missing(recipe_abs, rel_name, lenient):
 def _required_files(root, rel, recipe_abs):
     """The files THIS recipe must have: always + by root + by its language.
 
-    A recipe's language comes from its manifest, not its path: under skills/
+    A recipe's language comes from its manifest, not its path: under plugins/
     the middle folder is a vertical, so the path cannot say.
     """
     policy = _load_policy_required_files(root)
@@ -1642,11 +1642,11 @@ def check_layout(out, root, rel, recipe_name):
             "count the characters",
         )
 
-    # H23 / H41 / H47 -- skills/<vertical>/<solution>. One condition, three
-    # different consequences; emit exactly one, or a misplaced skill collects
+    # H23 / H41 / H47 -- plugins/<vertical>/<solution>. One condition, three
+    # different consequences; emit exactly one, or a misplaced plugin collects
     # three comments saying the same thing in different words.
     parts = rel.strip("/").split("/")
-    if parts[0] == "skills":
+    if parts[0] == "plugins":
         if len(parts) == 2:
             # H41: the depth CI checks and the depth the Python validation
             # matrix reads are different things. This passes and is unvalidated.
@@ -1656,9 +1656,9 @@ def check_layout(out, root, rel, recipe_name):
                 CI_ADV,
                 rel,
                 1,
-                f"a solution directly under skills/ ({rel}) gets no per-recipe "
+                f"a solution directly under plugins/ ({rel}) gets no per-recipe "
                 "Python validation at all -- it must be "
-                "skills/<vertical>/<solution>/",
+                "plugins/<vertical>/<solution>/",
                 ".github/scripts/recipe_manifests.py",
                 "count the path segments",
             )
@@ -1669,7 +1669,7 @@ def check_layout(out, root, rel, recipe_name):
                 CI_FAIL,
                 rel,
                 1,
-                f"skills recipes must be at skills/<vertical>/<solution>/, got {rel}",
+                f"plugins recipes must be at plugins/<vertical>/<solution>/, got {rel}",
                 "validate_placement.py:51-92",
                 "count the path segments",
             )
@@ -1894,7 +1894,7 @@ def check_text_wide(out, root, rel):
     else:
         # The negative lookahead is the whole point: `gemini-2.5-flash-image`
         # is a CURRENT model and `gemini-2.5-flash-lite` another, and a
-        # prefix match told the author of skills/retail/virtual-tryon to
+        # prefix match told the author of plugins/retail/virtual-tryon to
         # replace a correct image model with a text one, 21 times. A trailing
         # `-` followed by a letter starts a different model name; a digit
         # (`-001`) is a version pin of the same deprecated one, so that still

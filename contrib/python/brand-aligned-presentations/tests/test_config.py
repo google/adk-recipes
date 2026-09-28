@@ -14,14 +14,14 @@
 
 from unittest.mock import MagicMock, patch
 
-import presentation_agent.shared_libraries.config as config_module
+import app.shared_libraries.config as config_module
 
 
 def test_app_config_no_project_does_not_raise_exception():
     config_module._genai_client = None
     with patch("os.getenv", return_value=None):
         with patch(
-            "presentation_agent.shared_libraries.config.genai.Client",
+            "app.shared_libraries.config.genai.Client",
             side_effect=Exception("Test Exception"),
         ):
             # We are testing that initialize_genai_client does not raise an exception,
@@ -33,9 +33,7 @@ def test_app_config_no_project_does_not_raise_exception():
 
 def test_initialize_genai_client_success():
     config_module._genai_client = None
-    with patch(
-        "presentation_agent.shared_libraries.config.genai.Client"
-    ) as mock_client:
+    with patch("app.shared_libraries.config.genai.Client") as mock_client:
         mock_client.return_value = MagicMock()
         client = config_module.initialize_genai_client()
         assert client is not None
@@ -45,27 +43,21 @@ def test_initialize_genai_client_success():
 
 def test_initialize_genai_client_exception():
     config_module._genai_client = None
-    with patch(
-        "presentation_agent.shared_libraries.config.genai.Client"
-    ) as mock_client:
+    with patch("app.shared_libraries.config.genai.Client") as mock_client:
         mock_client.side_effect = Exception("Test client init failure")
         client = config_module.initialize_genai_client()
         assert client is None
 
 
 def test_get_gcs_client_success():
-    with patch(
-        "presentation_agent.shared_libraries.config.storage.Client"
-    ) as mock_client:
+    with patch("app.shared_libraries.config.storage.Client") as mock_client:
         mock_client.return_value = MagicMock()
         client = config_module.get_gcs_client()
         assert client is not None
 
 
 def test_get_gcs_client_exception():
-    with patch(
-        "presentation_agent.shared_libraries.config.storage.Client"
-    ) as mock_client:
+    with patch("app.shared_libraries.config.storage.Client") as mock_client:
         mock_client.side_effect = Exception("Test GCS client init failure")
         client = config_module.get_gcs_client()
         assert client is None
