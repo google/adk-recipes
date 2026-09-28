@@ -29,7 +29,7 @@ import json
 from agentplatform.agent_engines.templates.adk import AdkApp
 from fastapi import FastAPI, HTTPException, Request, encoders, responses
 
-from brand_search_optimization.app_utils import services
+from app.app_utils import services
 
 
 def _no_op_instrumentor_builder(_project_id: str) -> None:
@@ -56,7 +56,7 @@ def attach_reasoning_engine_routes(app: FastAPI) -> None:
     def get_runtime() -> AdkApp:
         nonlocal runtime, streaming_methods, sync_methods
         if runtime is None:
-            from brand_search_optimization.agent import app as adk_app
+            from app.agent import app as adk_app
 
             # Reuse the process-wide services so sessions created here are
             # visible to the adk_api and A2A paths, and vice versa (see services.py).

@@ -25,7 +25,7 @@ WORKDIR /code
 RUN chown appuser:appuser /code
 
 COPY --chown=appuser:appuser ./pyproject.toml ./README.md ./uv.lock* ./
-COPY --chown=appuser:appuser ./brand_search_optimization ./brand_search_optimization
+COPY --chown=appuser:appuser ./app ./app
 COPY --chown=appuser:appuser ./.env.example ./.env.example
 
 RUN uv sync --frozen && uv run playwright install --with-deps chromium
@@ -39,4 +39,4 @@ ENV AGENT_VERSION=${AGENT_VERSION}
 
 EXPOSE 8080
 
-CMD ["uv", "run", "uvicorn", "brand_search_optimization.fast_api_app:app", "--host", "0.0.0.0", "--port", "8080"]
+CMD ["uv", "run", "uvicorn", "app.fast_api_app:app", "--host", "0.0.0.0", "--port", "8080"]
