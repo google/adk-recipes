@@ -81,6 +81,7 @@ class Doc(StrEnum):
     FOLDER_NAME = "directory-name-too-long-or-invalid"
     SIZE_LIMIT = "recipe-exceeds-size-or-file-limit"
     REQUIRED_FILES = "required-file-or-directory-missing"
+    AGENT_LAYOUT = "agent-code-is-not-in-the-standard-location"
     PLACEMENT = "recipe-is-in-the-wrong-folder"
     RETIRED_FOLDER = "changes-inside-a-retired-folder"
     GITHUB_DIR_ADMIN = "only-repository-admins-may-modify-files-under-github"

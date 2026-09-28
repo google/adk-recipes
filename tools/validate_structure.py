@@ -20,6 +20,9 @@ Checks performed, in order, for each recipe:
   6. Required directories present — the same three-way union over
      policy.required_dirs. Vertical plugins use this for scripts/.
      An empty directory passes.
+  7. Agent code layout (core/ and contrib/ only) — the agent directory,
+     entry file and root agent symbol from
+     policy.agent_layout.by_language[<manifest.language>].
 
 Name matching for checks 5 and 6 is done in Python rather than by asking
 the filesystem, so a case-mismatched file fails identically on macOS and
@@ -54,6 +57,7 @@ Exit codes:
 from __future__ import annotations
 
 import argparse
+import ast
 import fnmatch
 import re
 import sys
@@ -753,6 +757,188 @@ def check_required_dirs(
     return diagnostics
 
 
+# How each language's entry file "defines" its root agent. Regexes run in
+# MULTILINE mode with `{symbol}` substituted; Python is parsed with `ast`
+# instead (see _python_defines), because a regex cannot tell a module-level
+# binding from one inside a function.
+_SYMBOL_PATTERNS: dict[str, tuple[str, ...]] = {
+    # export const rootAgent = …, export function rootAgent(…), or
+    # export { rootAgent }.
+    "typescript": (
+        r"\bexport\s+(?:const|let|var|function|class)\s+{symbol}\b",
+        r"\bexport\s*\{{[^}}]*\b{symbol}\b[^}}]*\}}",
+    ),
+    # Package-level `var RootAgent …`, an entry in a `var (…)` block, or
+    # `func RootAgent(`. A local `RootAgent := …` does not count.
+    "go": (
+        r"^\s*var\s+{symbol}\b",
+        r"^\s+{symbol}(?:\s+[\w.*\[\]]+)?\s*=(?!=)",
+        r"^func\s+{symbol}\s*\(",
+    ),
+    # public static final BaseAgent ROOT_AGENT = …
+    "java": (r"\bstatic\b[^;{{}}()=]*\b{symbol}\s*=",),
+    # val rootAgent = … (top level or inside an object), or fun rootAgent().
+    "kotlin": (
+        r"\b(?:val|var)\s+{symbol}\b",
+        r"\bfun\s+{symbol}\s*\(",
+    ),
+}
+
+
+def _python_defines(source: str, symbol: str) -> bool:
+    """True when the module binds `symbol` at module level.
+
+    Accepts an assignment (annotated or not), an import, a def or class of
+    that name, and a module-level `__getattr__` (PEP 562) that serves the
+    name — some recipes build the root agent lazily so importing the
+    module stays side-effect-free.
+    """
+    tree = ast.parse(source)
+    for node in tree.body:
+        if isinstance(node, ast.Assign):
+            names = [t for t in node.targets if isinstance(t, ast.Name)]
+            if any(n.id == symbol for n in names):
+                return True
+        elif isinstance(node, ast.AnnAssign):
+            if isinstance(node.target, ast.Name) and node.target.id == symbol:
+                return True
+        elif isinstance(node, (ast.Import, ast.ImportFrom)):
+            for alias in node.names:
+                bound = alias.asname or alias.name.split(".")[0]
+                if bound == symbol:
+                    return True
+        elif isinstance(
+            node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+        ):
+            if node.name == symbol:
+                return True
+            if node.name == "__getattr__" and any(
+                isinstance(c, ast.Constant) and c.value == symbol
+                for c in ast.walk(node)
+            ):
+                return True
+    return False
+
+
+def entry_defines_symbol(language: str, source: str, symbol: str) -> bool:
+    """Whether an entry file's source defines the root agent `symbol`.
+
+    Raises SyntaxError for unparseable Python; languages without a
+    recognizer here are accepted as-is.
+    """
+    if language == "python":
+        return _python_defines(source, symbol)
+    patterns = _SYMBOL_PATTERNS.get(language)
+    if patterns is None:
+        return True
+    return any(
+        re.search(p.format(symbol=re.escape(symbol)), source, re.MULTILINE)
+        for p in patterns
+    )
+
+
+def agent_layout_for(
+    policy: dict, root: str, language: str | None, recipe_name: str
+) -> tuple[str, str, str] | None:
+    """(dir, entry path, symbol) this recipe must follow, or None when the
+    policy has no rule for its root or language."""
+    config = policy.get("agent_layout") or {}
+    if root not in (config.get("roots") or []) or not language:
+        return None
+    rule = (config.get("by_language") or {}).get(language)
+    if not rule:
+        return None
+    agent_dir = str(rule["dir"]).format(name=recipe_name.replace("-", ""))
+    return agent_dir, f"{agent_dir}/{rule['entry']}", str(rule["symbol"])
+
+
+def check_agent_layout(
+    recipe_dir: Path, root: str, language: str | None, policy: dict
+) -> list[Diagnostic]:
+    """The agent code directory, entry file and root symbol from
+    policy.agent_layout. Stops at the first missing piece: without the
+    directory, a missing entry file is the same problem reported twice."""
+    layout = agent_layout_for(policy, root, language, recipe_dir.name)
+    if layout is None:
+        return []
+    agent_dir, entry, symbol = layout
+    recipe_rel = vm.repo_relative(recipe_dir, REPO_ROOT)
+    why = (
+        f"manifest.language is '{language}', and every {language} recipe "
+        f"under {root}/ keeps its agent code in {agent_dir}/, with the root "
+        f"agent `{symbol}` defined in {entry} "
+        f"(policy.agent_layout.by_language.{language}). Tooling and readers "
+        f"rely on finding it there."
+    )
+
+    def diag(what: str, how: str, file: str) -> Diagnostic:
+        return Diagnostic(
+            check="agent-layout",
+            what=what,
+            why=why,
+            how=how,
+            doc=Doc.AGENT_LAYOUT,
+            file=f"{recipe_rel}/{file}",
+        )
+
+    found, _ = _find_entry(recipe_dir, agent_dir, case_insensitive=False)
+    if found is None or not found.is_dir():
+        how = (
+            f"Move the agent code into {agent_dir}/ and update every "
+            f"reference to the old location."
+        )
+        if language == "python":
+            how += (
+                "\nFor a Python package: `git mv <old_package> app`, then "
+                "update imports, patch targets, [tool.hatch.build.targets."
+                "wheel] packages / agent_directory in pyproject.toml, and "
+                "any Dockerfile, Makefile or README paths. The ADK app name "
+                'follows the directory, so App(name=...) becomes "app".'
+            )
+        return [
+            diag(
+                f"Agent code directory '{agent_dir}/' is missing.",
+                how,
+                agent_dir,
+            )
+        ]
+
+    found, _ = _find_entry(recipe_dir, entry, case_insensitive=False)
+    if found is None or not found.is_file():
+        return [
+            diag(
+                f"Entry file '{entry}' is missing.",
+                f"Define the root agent `{symbol}` in {entry}, renaming the "
+                f"file that holds it today if there is one.",
+                entry,
+            )
+        ]
+
+    try:
+        defined = entry_defines_symbol(
+            language, found.read_text(encoding="utf-8"), symbol
+        )
+    except (SyntaxError, UnicodeDecodeError) as exc:
+        return [
+            diag(
+                f"Entry file '{entry}' could not be read: {exc}.",
+                f"Fix the file so it parses, and define `{symbol}` in it.",
+                entry,
+            )
+        ]
+    if not defined:
+        return [
+            diag(
+                f"'{entry}' does not define the root agent `{symbol}`.",
+                f"Define `{symbol}` in {entry}. If the agent has another "
+                f"name, bind it: `{symbol} = <your agent>`, or the "
+                f"language's equivalent.",
+                entry,
+            )
+        ]
+    return []
+
+
 # ===========================================================================
 # Per-recipe orchestration
 # ===========================================================================
@@ -824,6 +1010,10 @@ def validate_recipe(
     # a `scripts` entry under required_files could never be satisfied.
     diagnostics.extend(check_required_dirs(recipe_dir, root, language, policy))
 
+    # Check 7: agent code layout — where the agent lives and what the entry
+    # file must define. Keyed on the same manifest.language.
+    diagnostics.extend(check_agent_layout(recipe_dir, root, language, policy))
+
     return diagnostics
 
 
@@ -854,8 +1044,8 @@ def main(scope: str | None = None) -> int:
             f"\nRe-run locally:\n"
             f"  uv run validate structure <recipe-path>\n"
             f"\nThe rules themselves live in .github/policy.yml "
-            f"(required_files, required_dirs, recipe_size_limits, "
-            f"recipe_naming)."
+            f"(required_files, required_dirs, agent_layout, "
+            f"recipe_size_limits, recipe_naming)."
         ),
     )
 

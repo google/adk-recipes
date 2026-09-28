@@ -994,3 +994,251 @@ def test_committed_policy_keeps_tool_read_files_case_strict():
         "tests/test_runnability.py",
     ):
         assert f not in lenient, f
+
+
+# ---------------------------------------------------------------------------
+# Agent code layout (check 7)
+# ---------------------------------------------------------------------------
+
+STANDARD_LAYOUT = {
+    "python": ("app", "agent.py", "root_agent"),
+    "typescript": ("src", "agent.ts", "rootAgent"),
+    "go": ("app", "agent.go", "RootAgent"),
+    "java": (
+        "src/main/java/com/google/adk/recipes/{name}",
+        "Agent.java",
+        "ROOT_AGENT",
+    ),
+    "kotlin": (
+        "src/main/kotlin/com/google/adk/recipes/{name}",
+        "Agent.kt",
+        "rootAgent",
+    ),
+}
+
+
+def _layout_policy() -> dict:
+    p = _full_policy()
+    p["agent_layout"] = {
+        "roots": ["core", "contrib"],
+        "by_language": {
+            lang: {"dir": d, "entry": e, "symbol": s}
+            for lang, (d, e, s) in STANDARD_LAYOUT.items()
+        },
+    }
+    return p
+
+
+def _manifest_for(language: str) -> str:
+    return VALID_MANIFEST.replace("language: python", f"language: {language}")
+
+
+def _layout_errors(recipe: Path) -> list[Diagnostic]:
+    errs = m.validate_recipe(recipe, _layout_policy(), vm.load_schema())
+    return [e for e in errs if e.check == "agent-layout"]
+
+
+def test_committed_policy_matches_the_agent_layout_standard():
+    policy = m.load_policy()
+    layout = policy["agent_layout"]
+    assert layout["roots"] == ["core", "contrib"]
+    got = {
+        lang: (r["dir"], r["entry"], r["symbol"])
+        for lang, r in layout["by_language"].items()
+    }
+    assert got == STANDARD_LAYOUT
+
+
+def test_agent_layout_for_substitutes_name_without_hyphens():
+    assert m.agent_layout_for(
+        _layout_policy(), "core", "kotlin", "llm-auditor"
+    ) == (
+        "src/main/kotlin/com/google/adk/recipes/llmauditor",
+        "src/main/kotlin/com/google/adk/recipes/llmauditor/Agent.kt",
+        "rootAgent",
+    )
+
+
+@pytest.mark.parametrize(
+    ("root", "language"),
+    [("plugins", "python"), ("core", None), ("core", "rust")],
+)
+def test_agent_layout_for_skips_unchecked_recipes(root, language):
+    assert m.agent_layout_for(_layout_policy(), root, language, "x") is None
+
+
+def test_agent_layout_is_a_noop_without_the_policy_section(isolated_repo):
+    recipe = _make_python_recipe(isolated_repo, "core/foo", include_agents=True)
+    assert m.check_agent_layout(recipe, "core", "python", _full_policy()) == []
+
+
+def test_python_recipe_with_standard_layout_passes(isolated_repo):
+    recipe = _make_python_recipe(isolated_repo, "contrib/foo")
+    _write(recipe / "app" / "agent.py", "root_agent = object()\n")
+    assert _layout_errors(recipe) == []
+
+
+def test_python_recipe_with_old_package_name_fails(isolated_repo):
+    recipe = _make_python_recipe(
+        isolated_repo, "core/foo-bar", include_agents=True
+    )
+    _write(recipe / "foo_bar" / "agent.py", "root_agent = object()\n")
+    (diag,) = _layout_errors(recipe)
+    assert "'app/'" in diag.what
+    assert diag.file == "core/foo-bar/app"
+    assert "git mv <old_package> app" in diag.how
+    assert "policy.agent_layout.by_language.python" in diag.why
+    assert diag.doc is Doc.AGENT_LAYOUT
+
+
+def test_python_recipe_missing_entry_file_fails(isolated_repo):
+    recipe = _make_python_recipe(isolated_repo, "contrib/foo")
+    _write(recipe / "app" / "__init__.py", "")
+    (diag,) = _layout_errors(recipe)
+    assert "'app/agent.py' is missing" in diag.what
+
+
+def test_python_recipe_missing_root_agent_fails(isolated_repo):
+    recipe = _make_python_recipe(isolated_repo, "contrib/foo")
+    _write(
+        recipe / "app" / "agent.py",
+        "def build():\n    root_agent = object()\n    return root_agent\n",
+    )
+    (diag,) = _layout_errors(recipe)
+    assert "does not define the root agent `root_agent`" in diag.what
+
+
+def test_python_entry_that_does_not_parse_is_reported(isolated_repo):
+    recipe = _make_python_recipe(isolated_repo, "contrib/foo")
+    _write(recipe / "app" / "agent.py", "root_agent = (\n")
+    (diag,) = _layout_errors(recipe)
+    assert "could not be read" in diag.what
+
+
+def test_plugins_are_not_checked_for_agent_layout(isolated_repo):
+    plugin = _make_plugin(isolated_repo)
+    assert (
+        m.check_agent_layout(plugin, "plugins", "python", _layout_policy())
+        == []
+    )
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "root_agent = Agent(name='x')\n",
+        "root_agent: Agent = Agent(name='x')\n",
+        "from .core import root_agent\n",
+        "from .core import build as root_agent\n",
+        "def root_agent():\n    pass\n",
+        # PEP 562 lazy module attribute, as in attenu-guard-customer-service.
+        "def __getattr__(name):\n"
+        "    if name in ('app', 'root_agent'):\n"
+        "        return 1\n"
+        "    raise AttributeError(name)\n",
+    ],
+)
+def test_python_root_agent_definitions_are_recognized(source):
+    assert m.entry_defines_symbol("python", source, "root_agent")
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "agent = Agent(name='root_agent')\n",
+        "def build():\n    root_agent = 1\n",
+        "# root_agent = Agent()\n",
+    ],
+)
+def test_python_non_definitions_are_rejected(source):
+    assert not m.entry_defines_symbol("python", source, "root_agent")
+
+
+@pytest.mark.parametrize(
+    ("language", "symbol", "source", "expected"),
+    [
+        (
+            "typescript",
+            "rootAgent",
+            "export const rootAgent = new LlmAgent({});",
+            True,
+        ),
+        (
+            "typescript",
+            "rootAgent",
+            "const rootAgent = 1;\nexport { rootAgent };",
+            True,
+        ),
+        (
+            "typescript",
+            "rootAgent",
+            "const rootAgent = new LlmAgent({});",
+            False,
+        ),
+        ("go", "RootAgent", "var RootAgent = agent.New()", True),
+        (
+            "go",
+            "RootAgent",
+            "var (\n\tRootAgent agent.Agent = build()\n)",
+            True,
+        ),
+        ("go", "RootAgent", "func RootAgent() agent.Agent {", True),
+        ("go", "RootAgent", "func main() {\n\tRootAgent := build()\n}", False),
+        (
+            "java",
+            "ROOT_AGENT",
+            "public static final BaseAgent ROOT_AGENT = initAgent();",
+            True,
+        ),
+        ("java", "ROOT_AGENT", "BaseAgent ROOT_AGENT = initAgent();", False),
+        (
+            "kotlin",
+            "rootAgent",
+            "object Agent {\n    val rootAgent = SequentialAgent()\n}",
+            True,
+        ),
+        ("kotlin", "rootAgent", "fun rootAgent(): BaseAgent = build()", True),
+        (
+            "kotlin",
+            "rootAgent",
+            'val agent = SequentialAgent(name = "rootAgent")',
+            False,
+        ),
+    ],
+)
+def test_other_language_root_symbols(language, symbol, source, expected):
+    assert m.entry_defines_symbol(language, source, symbol) is expected
+
+
+def test_kotlin_recipe_needs_agent_kt_in_the_recipes_package(isolated_repo):
+    recipe = isolated_repo / "core" / "llm-auditor"
+    _write(recipe / "manifest.yaml", _manifest_for("kotlin"))
+    _write(recipe / "README.md", "# r\n")
+    _write(recipe / "AGENTS.md", "# a\n")
+    pkg = recipe / "src/main/kotlin/com/google/adk/recipes/llmauditor"
+    _write(pkg / "LlmAuditorAgent.kt", "object X { val rootAgent = 1 }\n")
+    (diag,) = _layout_errors(recipe)
+    assert (
+        "'src/main/kotlin/com/google/adk/recipes/llmauditor/Agent.kt' "
+        "is missing" in diag.what
+    )
+
+    (pkg / "LlmAuditorAgent.kt").rename(pkg / "Agent.kt")
+    assert _layout_errors(recipe) == []
+
+
+def test_go_recipe_without_main_go_passes(isolated_repo):
+    recipe = isolated_repo / "contrib" / "weather"
+    _write(recipe / "manifest.yaml", _manifest_for("go"))
+    _write(recipe / "README.md", "# r\n")
+    _write(
+        recipe / "app" / "agent.go", "package app\n\nvar RootAgent = build()\n"
+    )
+    assert _layout_errors(recipe) == []
+
+
+def test_layout_directory_name_is_case_strict(isolated_repo):
+    recipe = _make_python_recipe(isolated_repo, "contrib/foo")
+    _write(recipe / "App" / "agent.py", "root_agent = 1\n")
+    (diag,) = _layout_errors(recipe)
+    assert "'app/'" in diag.what

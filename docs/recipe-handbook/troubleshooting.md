@@ -29,6 +29,7 @@ Each command below says which directory to run it from. Replace
 - [The recipe folder name breaks the naming rule](#directory-name-too-long-or-invalid)
 - [The recipe is too big, or has too many files](#recipe-exceeds-size-or-file-limit)
 - [A file or directory the recipe must have is absent](#required-file-or-directory-missing)
+- [The agent code is not where the language's layout puts it](#agent-code-is-not-in-the-standard-location)
 - [The recipe sits at the wrong path](#recipe-is-in-the-wrong-folder)
 - [The recipe lives in a folder that no longer accepts edits](#changes-inside-a-retired-folder)
 - [Only repository admins may modify files under .github/](#only-repository-admins-may-modify-files-under-github)
@@ -176,6 +177,42 @@ empty directory. Commit a placeholder:
 touch <recipe-path>/scripts/.gitkeep
 git add <recipe-path>/scripts/.gitkeep
 ```
+
+**Confirm**, from the repo root — `uv run validate structure <recipe-path>`
+
+## Agent code is not in the standard location
+
+**Symptom** — `Agent code directory '<dir>/' is missing`,
+`Entry file '<path>' is missing`, or
+`'<path>' does not define the root agent '<symbol>'`
+
+**Cause** — every recipe under `core/` and `contrib/` keeps its agent code in
+one fixed place per `manifest.language` (`policy.agent_layout`). Plugins are
+not checked.
+
+| Language | Agent code lives in | Entry file | Root symbol |
+| --- | --- | --- | --- |
+| Python | `app/` | `app/agent.py` | `root_agent` |
+| TypeScript | `src/` | `src/agent.ts` | `rootAgent` |
+| Go | `app/` | `app/agent.go` | `RootAgent` |
+| Java | `src/main/java/com/google/adk/recipes/<name>/` | `Agent.java` | `ROOT_AGENT` |
+| Kotlin | `src/main/kotlin/com/google/adk/recipes/<name>/` | `Agent.kt` | `rootAgent` |
+
+`<name>` is the recipe folder name with the hyphens removed:
+`llm-auditor` becomes `llmauditor`.
+
+**Fix** — move the code, then update everything that names the old location.
+For a Python package:
+
+```bash
+# from the recipe directory
+git mv <old_package> app
+```
+
+Then update imports and `mock.patch` targets, `packages` / `agent_directory`
+in `pyproject.toml`, and any Dockerfile, Makefile or README paths. The ADK app
+name follows the directory, so `App(name=...)` becomes `"app"`. For Java and
+Kotlin, also update each file's `package` line and the Gradle/Maven main class.
 
 **Confirm**, from the repo root — `uv run validate structure <recipe-path>`
 

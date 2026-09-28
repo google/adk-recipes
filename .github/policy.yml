@@ -329,6 +329,56 @@ required_dirs:
     typescript: []
 
 # --------------------------------------------------------------------------
+# Agent code layout — enforced by
+# .github/workflows/validate-recipe-structure.yml via
+# tools/validate_structure.py (check 7).
+#
+# Where a recipe keeps its agent code, which file is the entry point, and
+# the name of the root agent that file defines, keyed by
+# manifest.language. One fixed place per language means tooling (skills,
+# validators, the dev UI) never has to guess where a recipe's agent lives,
+# and every recipe of a language reads the same way.
+#
+# Applies only to the roots in `roots`. Vertical plugins keep their code in
+# scripts/ (see required_dirs.by_root.plugins) and are not checked.
+#
+#   dir     — agent code directory, relative to the recipe. `{name}` is the
+#             recipe folder name with hyphens removed (llm-auditor ->
+#             llmauditor): JVM package segments cannot contain hyphens.
+#   entry   — entry file, relative to `dir`.
+#   symbol  — the root agent the entry file must define. How "define" is
+#             recognized per language lives in validate_structure.py.
+#
+# A language with no entry here is not checked.
+# --------------------------------------------------------------------------
+agent_layout:
+  roots:
+    - core
+    - contrib
+
+  by_language:
+    python:
+      dir: app
+      entry: agent.py
+      symbol: root_agent
+    typescript:
+      dir: src
+      entry: agent.ts
+      symbol: rootAgent
+    go:
+      dir: app
+      entry: agent.go
+      symbol: RootAgent
+    java:
+      dir: "src/main/java/com/google/adk/recipes/{name}"
+      entry: Agent.java
+      symbol: ROOT_AGENT
+    kotlin:
+      dir: "src/main/kotlin/com/google/adk/recipes/{name}"
+      entry: Agent.kt
+      symbol: rootAgent
+
+# --------------------------------------------------------------------------
 # Staleness policy — enforced by .github/workflows/stale-sweep.yml (pull
 # requests and issues) and .github/workflows/stale-branch-sweep.yml
 # (branches). Both run weekly on Mondays.

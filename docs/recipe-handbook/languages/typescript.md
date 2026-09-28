@@ -13,9 +13,13 @@ bun), test runner, and TypeScript config before you invest the
 work. Once accepted, this page will mirror the shape of the
 [Python page](./python.md).
 
-Structural checks (folder name, size limits, `manifest.yaml`)
-apply to TypeScript recipes today — you can submit a working
-`contrib/typescript/` recipe against those alone.
+Structural checks (folder name, size limits, `manifest.yaml`,
+agent layout) apply to TypeScript recipes today — you can submit a
+working `contrib/typescript/` recipe against those alone.
+
+**Layout** (enforced for `core/` and `contrib/`): agent code in
+`src/`, with the root agent `rootAgent` exported from
+`src/agent.ts`.
 
 ---
 

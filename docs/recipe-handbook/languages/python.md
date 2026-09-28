@@ -23,10 +23,10 @@ contrib/python/my-recipe/
     test_runnability.py     # import smoke test
 ```
 
-**Best practice: name the Python package `app`.** Not strictly
-enforced, but the root Ruff/isort configuration assumes it
-(`known-first-party = ["app"]`) — other names produce wrong
-import ordering.
+**The Python package must be `app`, with the root agent `root_agent`
+defined in `app/agent.py`.** `validate structure` enforces this for
+`core/` and `contrib/` recipes (`policy.agent_layout`), and the root
+Ruff/isort configuration assumes it (`known-first-party = ["app"]`).
 
 **Minimum Python:** 3.11.
 
