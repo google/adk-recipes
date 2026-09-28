@@ -37,8 +37,8 @@ from google.adk.memory import InMemoryMemoryService
 from google.adk.sessions import InMemorySessionService
 from google.genai import types
 
-from horizon.memory.add_memory_tool import add_memory_entry
-from horizon.memory.auto_capture import auto_capture_callback
+from app.memory.add_memory_tool import add_memory_entry
+from app.memory.auto_capture import auto_capture_callback
 
 pytestmark = pytest.mark.asyncio
 

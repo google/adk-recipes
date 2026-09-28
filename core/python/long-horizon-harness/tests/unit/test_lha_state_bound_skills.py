@@ -21,8 +21,8 @@ onto the response key, defaulting to ``[]`` when absent.
 
 from __future__ import annotations
 
-from horizon.api.state import _slice_state
-from horizon.tools.skill_reload import BOUND_SKILLS_STATE_KEY
+from app.api.state import _slice_state
+from app.tools.skill_reload import BOUND_SKILLS_STATE_KEY
 
 
 def test_bound_skills_round_trips() -> None:

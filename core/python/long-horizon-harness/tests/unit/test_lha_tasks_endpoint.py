@@ -31,9 +31,9 @@ from google.adk.memory import InMemoryMemoryService
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 
-from horizon.a2a.executor import LHA_ACTIVE_TASK_KEY, LHA_TASK_IDS_KEY
-from horizon.api.tasks import attach_task_routes
-from horizon.auth import current_user_id
+from app.a2a.executor import LHA_ACTIVE_TASK_KEY, LHA_TASK_IDS_KEY
+from app.api.tasks import attach_task_routes
+from app.auth import current_user_id
 
 APP_NAME = "app"
 USER_ID = "u"

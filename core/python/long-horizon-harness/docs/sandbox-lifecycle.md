@@ -16,8 +16,8 @@ a workspace did or didn't survive across sessions, restarts, or upgrades.
 - **Where to go next** — sibling subsystem docs.
 
 How Horizon's sandbox provisioning maps onto ADK's app / user / session model.
-Verified against `horizon/sandbox/`, `horizon/conversation/session_start.py`, and
-`horizon/agent.py`.
+Verified against `app/sandbox/`, `app/conversation/session_start.py`, and
+`app/agent.py`.
 
 > **Persistence model (what's actually implemented).** There is no durable
 > `/workspace` backing store on the host — files live inside the running Vertex
@@ -25,21 +25,21 @@ Verified against `horizon/sandbox/`, `horizon/conversation/session_start.py`, an
 >
 > 1. **Reattach (always on).** `close()` only shuts the local HTTP client; the
 >    platform-side sandbox stays RUNNING, and the next session for the same user
->    reattaches to it (`find_latest_user_sandbox`, `horizon/sandbox/lifecycle.py`).
+>    reattaches to it (`find_latest_user_sandbox`, `app/sandbox/lifecycle.py`).
 >    This holds until the sandbox's TTL/idle teardown. See Diagram 2.
 > 2. **Snapshot / restore (Phase C, gated by `LHA_SNAPSHOT_ENABLED` — off in
 >    code, but `terraform/cloud_run.tf` sets it to `1`, so a deployed stack has
 >    it on).** To survive the teardown a daily Cloud Scheduler job snapshots
 >    each active user's full `$HOME`, and a session with no RUNNING sandbox
 >    restores from the latest snapshot before provisioning blank. This is a
->    **real implemented path** — `horizon/scheduler/snapshot_endpoint.py` +
+>    **real implemented path** — `app/scheduler/snapshot_endpoint.py` +
 >    `snapshot_and_prune_user` / `restore_sandbox_from_snapshot` in
->    `horizon/sandbox/lifecycle.py` — **not** a host-local atexit/`index.json`
+>    `app/sandbox/lifecycle.py` — **not** a host-local atexit/`index.json`
 >    design. See Diagram 3.
 >
 > **Version-scoped identity, version-agnostic reattach (implemented).** The
 > per-user sandbox `display_name` encodes the runtime image tag
-> (`lha-<user>-<tag>`, `horizon/sandbox/lifecycle.py:sandbox_display_name`), but
+> (`lha-<user>-<tag>`, `app/sandbox/lifecycle.py:sandbox_display_name`), but
 > reattach (`find_latest_user_sandbox`) is **version-agnostic**: it picks the
 > user's most-recent RUNNING sandbox regardless of image version, so a backend
 > rollout keeps installed CLIs (they live in `$HOME`/`~/.local`, outside the
@@ -58,7 +58,7 @@ Verified against `horizon/sandbox/`, `horizon/conversation/session_start.py`, an
 ```
 ADK identity model (per ADK conventions: app/user/session)
 ┌──────────────────────────────────────────────────────────────────┐
-│ App(name="app")  ← one per process; defined in horizon/agent.py      │
+│ App(name="app")  ← one per process; defined in app/agent.py      │
 │                                                                  │
 │   ├── User(user_id="alice")  ← from auth middleware              │
 │   │     ├── Session(id=ctx-1)  ← ADK events list                 │
@@ -126,7 +126,7 @@ Two sessions for alice in the same process see the same /workspace.
 ```
 
 > Process exit does **not** snapshot. `_close_envs_at_exit`
-> (`horizon/conversation/session_start.py`) only closes the local HTTP client so
+> (`app/conversation/session_start.py`) only closes the local HTTP client so
 > sockets don't leak; the sandbox is reattached by the next process (any
 > instance — discovery is Agent Platform's authoritative list, not a host-local file).
 > There is no signal-handler snapshot flush and no `~/.lha/snapshots/index.json`.
@@ -203,8 +203,8 @@ routine (`lhart-`) sandboxes (per-routine, no snapshot/restore).
 | `LHA_SANDBOX_TTL` | `14d` | TTL on the live sandbox (and on a restored one). |
 | `LHA_RUNTIME_MIN_VERSION` | unset | Force-upgrade floor: a sandbox below it is migrated to the current image at session start instead of reattached. |
 
-Verified against `horizon/scheduler/snapshot_endpoint.py`,
-`horizon/sandbox/lifecycle.py`, `horizon/conversation/session_start.py`, and
+Verified against `app/scheduler/snapshot_endpoint.py`,
+`app/sandbox/lifecycle.py`, `app/conversation/session_start.py`, and
 `terraform/cloud_scheduler.tf`.
 
 ## Troubleshooting

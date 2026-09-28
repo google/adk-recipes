@@ -20,7 +20,7 @@ import { mockA2A } from "./helpers/mock-a2a";
 // that exact filename, NOT the "attachment.<ext>" fallback that
 // message-bubble.tsx::defaultFileName() returns when file.name is missing.
 //
-// If horizon/tools/artifacts.py drops Blob.display_name again, the A2A stream
+// If app/tools/artifacts.py drops Blob.display_name again, the A2A stream
 // emits FilePart.file.name=null, the alt text falls back to "attachment.png",
 // and the second assertion in this spec catches it.
 test("image filename from FilePart renders in chat (not 'attachment.png' fallback)", async ({

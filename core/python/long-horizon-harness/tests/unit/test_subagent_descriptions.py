@@ -62,7 +62,7 @@ def _desc(req: Any, name: str) -> str:
 
 
 async def test_rewrites_subagent_with_pointer_and_profiles() -> None:
-    from horizon.subagents.descriptions import (
+    from app.subagents.descriptions import (
         make_subagent_description_callback,
     )
 
@@ -81,7 +81,7 @@ async def test_rewrites_subagent_with_pointer_and_profiles() -> None:
 async def test_suffix_carries_no_skill_catalog() -> None:
     """The catalog is in <available_skills> once, not spliced in a second
     time here (cut A) — regardless of what skills happen to be loaded."""
-    from horizon.subagents.descriptions import _build_suffix
+    from app.subagents.descriptions import _build_suffix
 
     suffix = _build_suffix()
     assert "## Skills you can pass to a child" not in suffix
@@ -89,7 +89,7 @@ async def test_suffix_carries_no_skill_catalog() -> None:
 
 async def test_idempotent_across_turns() -> None:
     """Calling the callback twice must not double-append the dynamic block."""
-    from horizon.subagents.descriptions import (
+    from app.subagents.descriptions import (
         make_subagent_description_callback,
     )
 
@@ -104,7 +104,7 @@ async def test_idempotent_across_turns() -> None:
 
 
 async def test_handles_request_with_no_tools() -> None:
-    from horizon.subagents.descriptions import (
+    from app.subagents.descriptions import (
         make_subagent_description_callback,
     )
 

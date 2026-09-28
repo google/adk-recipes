@@ -20,8 +20,8 @@ keyword-coverage test that would pass on almost any English paragraph.
 To intentionally update the golden file after a real prose change:
 
     uv run python -c "
-    from horizon.conversation.system_prompt import build_static_instruction
-    from horizon.tools import names
+    from app.conversation.system_prompt import build_static_instruction
+    from app.tools import names
     text = build_static_instruction(
         tool_names=sorted(names.ALL),
         model_name='gemini-3.7-flash',
@@ -38,8 +38,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from horizon.conversation.system_prompt import build_static_instruction
-from horizon.tools import names
+from app.conversation.system_prompt import build_static_instruction
+from app.tools import names
 
 GOLDEN_PATH = (
     Path(__file__).parent / "testdata" / "static_instruction_golden.txt"
@@ -78,7 +78,7 @@ def test_root_agent_actually_wires_static_instruction():
     test (which only exercises the pure function) still green."""
     import asyncio
 
-    from horizon.agent import root_agent
+    from app.agent import root_agent
 
     # instruction must be "" (not merely falsy) — a non-empty instruction
     # demotes into the uncached trailing user-content tail per
@@ -104,6 +104,6 @@ def _model_name_used() -> str:
     # agent.py resolves the model with resolve_model_name(None) at
     # App-build time (no per-session /model override exists yet); match
     # that exactly rather than hardcoding a model name that could drift.
-    from horizon.models.selector import resolve_model_name
+    from app.models.selector import resolve_model_name
 
     return resolve_model_name(None)

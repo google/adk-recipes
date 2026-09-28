@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from horizon.secrets.dotenv import ParsedDotenv, Skipped, parse_dotenv
+from app.secrets.dotenv import ParsedDotenv, Skipped, parse_dotenv
 
 
 def test_basic_key_values():

@@ -12,7 +12,7 @@ Deploys the full application (ADK agent + REST API + MCP server + React frontend
 
 - **What's deployed**: Everything — agent, REST API endpoints, MCP server, frontend
 - **Best for**: Full application deployment, custom infrastructure, event-driven workloads
-- **Entrypoint**: `genmedia4commerce/fast_api_app.py`
+- **Entrypoint**: `app/fast_api_app.py`
 
 ### Agent Runtime (`make deploy-agent-engine`)
 
@@ -20,7 +20,7 @@ Deploys only the ADK agent to Agent Runtime as a managed service. No Dockerfile 
 
 - **What's deployed**: ADK agent only (conversational interface)
 - **Best for**: Managed infrastructure, minimal ops, agent-only deployments
-- **Entrypoint**: `genmedia4commerce/agent_engine_app.py`
+- **Entrypoint**: `app/agent_engine_app.py`
 - **Note**: REST API endpoints (VTO, spinning, etc.) are not included — those still require Cloud Run
 
 ## Setup

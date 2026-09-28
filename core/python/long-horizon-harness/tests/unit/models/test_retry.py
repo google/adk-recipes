@@ -32,7 +32,7 @@ def _effective_retry_codes(opts) -> tuple[int, ...]:
 
 
 def test_robust_retry_options_retry_429_with_backoff():
-    from horizon.models.registry import ROBUST_RETRY_OPTIONS
+    from app.models.registry import ROBUST_RETRY_OPTIONS
 
     # More than the old attempts=3 and the ADK docs' attempts=2 example: enough
     # retries to ride out a transient per-minute quota spike.
@@ -45,7 +45,7 @@ def test_robust_retry_options_retry_429_with_backoff():
 
 
 def test_gemini_root_backend_uses_robust_retry():
-    from horizon.models.registry import MODEL_REGISTRY, ROBUST_RETRY_OPTIONS
+    from app.models.registry import MODEL_REGISTRY, ROBUST_RETRY_OPTIONS
 
     entry = MODEL_REGISTRY["gemini-3.7-flash"]
     assert isinstance(entry, Gemini)
@@ -53,8 +53,8 @@ def test_gemini_root_backend_uses_robust_retry():
 
 
 def test_gemini_subagents_use_robust_retry():
-    from horizon.models.registry import ROBUST_RETRY_OPTIONS
-    from horizon.subagents.web_research import web_research_agent
+    from app.models.registry import ROBUST_RETRY_OPTIONS
+    from app.subagents.web_research import web_research_agent
 
     model = web_research_agent.model
     assert isinstance(model, Gemini)

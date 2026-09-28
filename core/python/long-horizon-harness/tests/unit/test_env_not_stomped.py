@@ -28,7 +28,7 @@ def test_create_does_not_clobber_preset_cloud_location():
     env["GOOGLE_CLOUD_LOCATION"] = "us-central1"
     env["GOOGLE_GENAI_USE_VERTEXAI"] = "False"
     code = (
-        "import os; import horizon.agent; "
+        "import os; import app.agent; "
         "print(os.environ['GOOGLE_CLOUD_LOCATION']); "
         "print(os.environ['GOOGLE_GENAI_USE_VERTEXAI'])"
     )

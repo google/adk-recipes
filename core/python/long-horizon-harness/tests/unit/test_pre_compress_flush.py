@@ -49,7 +49,7 @@ def _make_event(text: str, *, author: str = "user") -> Event:
 @pytest.fixture
 def captured_spawn(monkeypatch):
     """Stub ``SIBLING_AGENT_PLUGIN.spawn_sibling`` and record kwargs."""
-    from horizon import agent as agent_mod
+    from app import agent as agent_mod
 
     calls: list[dict[str, Any]] = []
 
@@ -69,7 +69,7 @@ def captured_spawn(monkeypatch):
 
 
 async def test_module_exposes_entrypoints():
-    from horizon.memory.flush_fork import (
+    from app.memory.flush_fork import (
         FLUSH_FORK_ENABLED_ENV,
         spawn_flush_fork,
     )
@@ -85,7 +85,7 @@ async def test_module_exposes_entrypoints():
 
 class TestToolWhitelist:
     async def test_allows_memory(self):
-        from horizon.memory.flush_fork import _whitelist_tools_callback
+        from app.memory.flush_fork import _whitelist_tools_callback
 
         tool = SimpleNamespace(name="memory")
         result = await _whitelist_tools_callback(
@@ -97,7 +97,7 @@ class TestToolWhitelist:
         # The consolidated ``skill`` dispatch must not run during a
         # pre-compress flush — the flush fork only persists memory; any
         # skill mutation would muddy the curation pass.
-        from horizon.memory.flush_fork import _whitelist_tools_callback
+        from app.memory.flush_fork import _whitelist_tools_callback
 
         tool = SimpleNamespace(name="skill")
         result = await _whitelist_tools_callback(
@@ -107,7 +107,7 @@ class TestToolWhitelist:
         assert "error" in result
 
     async def test_denies_terminal(self):
-        from horizon.memory.flush_fork import _whitelist_tools_callback
+        from app.memory.flush_fork import _whitelist_tools_callback
 
         tool = SimpleNamespace(name="terminal")
         result = await _whitelist_tools_callback(
@@ -124,7 +124,7 @@ class TestToolWhitelist:
 
 class TestSnapshotFormat:
     async def test_wraps_in_conversation_markers(self):
-        from horizon.memory.flush_fork import _format_snapshot
+        from app.memory.flush_fork import _format_snapshot
 
         out = _format_snapshot([_make_event("hello", author="user")])
         assert "<CONVERSATION>" in out
@@ -132,7 +132,7 @@ class TestSnapshotFormat:
         assert "hello" in out
 
     async def test_empty_events_still_wrapped(self):
-        from horizon.memory.flush_fork import _format_snapshot
+        from app.memory.flush_fork import _format_snapshot
 
         out = _format_snapshot([])
         assert "<CONVERSATION>" in out
@@ -146,7 +146,7 @@ class TestSnapshotFormat:
 
 class TestSpawnGating:
     async def test_noop_when_env_disabled(self, monkeypatch, captured_spawn):
-        from horizon.memory import flush_fork
+        from app.memory import flush_fork
 
         monkeypatch.setenv("LHA_PRE_COMPRESS_FLUSH", "0")
         ok = flush_fork.spawn_flush_fork(
@@ -159,7 +159,7 @@ class TestSpawnGating:
         assert captured_spawn == []
 
     async def test_noop_without_memory_service(self, captured_spawn):
-        from horizon.memory import flush_fork
+        from app.memory import flush_fork
 
         ok = flush_fork.spawn_flush_fork(
             parent_memory_service=None,
@@ -171,7 +171,7 @@ class TestSpawnGating:
         assert captured_spawn == []
 
     async def test_noop_with_no_events(self, captured_spawn):
-        from horizon.memory import flush_fork
+        from app.memory import flush_fork
 
         ok = flush_fork.spawn_flush_fork(
             parent_memory_service=InMemoryMemoryService(),
@@ -183,7 +183,7 @@ class TestSpawnGating:
         assert captured_spawn == []
 
     async def test_spawns_sibling_when_enabled(self, captured_spawn):
-        from horizon.memory import flush_fork
+        from app.memory import flush_fork
 
         parent_memory = InMemoryMemoryService()
         ok = flush_fork.spawn_flush_fork(
@@ -204,7 +204,7 @@ class TestSpawnGating:
         assert call["log_prefix"] == "flush_fork"
 
     async def test_uses_explicit_plugin_handle_when_passed(self):
-        from horizon.memory import flush_fork
+        from app.memory import flush_fork
 
         explicit_plugin = MagicMock()
         ok = flush_fork.spawn_flush_fork(

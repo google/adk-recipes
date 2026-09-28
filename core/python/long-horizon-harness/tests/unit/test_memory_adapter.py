@@ -6,7 +6,7 @@ from __future__ import annotations
 import pytest
 from google.adk.memory import InMemoryMemoryService
 
-from horizon.memory.adapter import (
+from app.memory.adapter import (
     InMemoryMemoryAdapter,
     MemoryAdapter,
     NoopMemoryAdapter,

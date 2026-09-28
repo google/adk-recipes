@@ -23,7 +23,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from horizon.feedback.context import build_redacted_context
+from app.feedback.context import build_redacted_context
 
 
 def _event(author: str, *texts: str) -> SimpleNamespace:

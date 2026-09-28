@@ -22,8 +22,8 @@ stay coherent across compactions) belongs in evals, not pytest.
 
 from __future__ import annotations
 
-from horizon.agent import app
-from horizon.context.summarizer import HorizonSummarizer
+from app.agent import app
+from app.context.summarizer import HorizonSummarizer
 
 
 def test_app_has_events_compaction_config():

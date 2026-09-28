@@ -22,7 +22,7 @@ from typing import Any
 
 import pytest
 
-from horizon.subagents.transcript import (
+from app.subagents.transcript import (
     MAX_TRANSCRIPT_CHARS,
     parent_transcript,
 )
@@ -96,7 +96,7 @@ async def test_skips_events_with_no_content() -> None:
 
 async def test_subagent_off_by_default(monkeypatch) -> None:
     """A child sees only what it is handed. Default must not leak the chat."""
-    from horizon.subagents import subagent as mod
+    from app.subagents import subagent as mod
 
     seen: dict[str, Any] = {}
 
@@ -111,7 +111,7 @@ async def test_subagent_off_by_default(monkeypatch) -> None:
 
 
 async def test_subagent_prepends_transcript_when_opted_in(monkeypatch) -> None:
-    from horizon.subagents import subagent as mod
+    from app.subagents import subagent as mod
 
     seen: dict[str, Any] = {}
 
@@ -136,7 +136,7 @@ async def test_awaiting_approval_summary_says_nothing_is_done() -> None:
     """The paused-for-approval envelope had `summary` set to the bare hint,
     which reads like a result. An eval caught the parent claiming a paused
     child had created a test suite."""
-    from horizon.subagents.delegate import _awaiting_summary
+    from app.subagents.delegate import _awaiting_summary
 
     out = _awaiting_summary("child wants to run `rm -rf build/`")
 

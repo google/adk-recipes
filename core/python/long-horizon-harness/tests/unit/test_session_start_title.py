@@ -24,7 +24,7 @@ from typing import Any
 import pytest
 from google.genai import types
 
-from horizon.infrastructure.constants import TITLE_KEY
+from app.infrastructure.constants import TITLE_KEY
 
 pytestmark = pytest.mark.asyncio
 
@@ -54,7 +54,7 @@ def _local_backend(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _stub_profile(monkeypatch):
-    from horizon.conversation import session_start
+    from app.conversation import session_start
 
     async def fake_load(**_kwargs: Any) -> str:
         return ""
@@ -63,7 +63,7 @@ def _stub_profile(monkeypatch):
 
 
 async def test_stamps_title_from_first_user_message():
-    from horizon.conversation import session_start
+    from app.conversation import session_start
 
     state: dict[str, Any] = {}
     await session_start.on_session_start_callback(
@@ -73,7 +73,7 @@ async def test_stamps_title_from_first_user_message():
 
 
 async def test_does_not_overwrite_an_existing_title():
-    from horizon.conversation import session_start
+    from app.conversation import session_start
 
     state: dict[str, Any] = {TITLE_KEY: "renamed by user"}
     await session_start.on_session_start_callback(
@@ -83,7 +83,7 @@ async def test_does_not_overwrite_an_existing_title():
 
 
 async def test_no_user_content_leaves_title_unset():
-    from horizon.conversation import session_start
+    from app.conversation import session_start
 
     state: dict[str, Any] = {}
     await session_start.on_session_start_callback(_ctx(state, user_text=None))

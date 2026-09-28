@@ -16,8 +16,8 @@ import inspect
 
 import pytest
 
-from horizon.environment.process import BackendGoneError
-from horizon.sandbox import provider as prov
+from app.environment.process import BackendGoneError
+from app.sandbox import provider as prov
 
 
 def test_provider_protocol_has_no_refresh_auth():
@@ -39,7 +39,7 @@ def test_routing_fetcher_maps_404_to_backend_gone(monkeypatch):
     # The closure resolves the symbol at call time via the module, so patching
     # after building still takes effect.
     monkeypatch.setattr(
-        "horizon.sandbox.lifecycle.fetch_routing_token",
+        "app.sandbox.lifecycle.fetch_routing_token",
         fake_fetch,
         raising=False,
     )

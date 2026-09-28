@@ -26,11 +26,11 @@ from types import SimpleNamespace
 
 import pytest
 
-from horizon.guardrails import permission_rules as pr
-from horizon.guardrails.permission_guard import resolve_permission_decision
-from horizon.guardrails.permission_rules import parse_rule
-from horizon.guardrails.policies import policies_guard
-from horizon.tools import names
+from app.guardrails import permission_rules as pr
+from app.guardrails.permission_guard import resolve_permission_decision
+from app.guardrails.permission_rules import parse_rule
+from app.guardrails.policies import policies_guard
+from app.tools import names
 
 pytestmark = pytest.mark.asyncio
 

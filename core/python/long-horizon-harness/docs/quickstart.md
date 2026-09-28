@@ -77,7 +77,7 @@ gcloud artifacts repositories create lha-sandbox \
   --repository-format=docker --location=us-central1 --project=$PROJECT_ID
 
 # 3. Build + push the sandbox runtime image (Cloud Build, never local docker).
-gcloud builds submit horizon/sandbox/runtime \
+gcloud builds submit app/sandbox/runtime \
   --tag=us-central1-docker.pkg.dev/$PROJECT_ID/lha-sandbox/runtime:v0.1.0 \
   --project=$PROJECT_ID
 
@@ -122,7 +122,7 @@ os.environ.setdefault(
 )  # tools run on this host
 os.environ.setdefault("LHA_ROOT_MODEL", "gemini-3.7-flash")
 
-from horizon.fast_api_app import (
+from app.fast_api_app import (
     app,
 )  # every router mounts; edit fast_api_app.py to trim
 ```
@@ -144,7 +144,7 @@ uv run pytest tests/unit tests/integration   # deterministic, InMemory* stand-in
 The **"Connect Google" buttons** (Auth panel in the web UI) wire each user's own
 Google credentials into their sandbox — a `cloud-platform` token for `gcloud`/`bq`,
 and least-privilege Workspace scopes for the `gws` CLI. The server side already
-lives in the repo (`horizon/auth/oauth.py`, routes under `/lha/gcp/*`); you don't
+lives in the repo (`app/auth/oauth.py`, routes under `/lha/gcp/*`); you don't
 build a webapp. What you supply is **your own OAuth client** in your own Google
 Cloud project. Leave the three env vars unset and the feature is simply off
 (`/connect` returns 503) — nothing else breaks.

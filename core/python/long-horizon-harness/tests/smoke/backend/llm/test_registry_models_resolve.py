@@ -27,7 +27,7 @@ import os
 
 import pytest
 
-from horizon.models.registry import MODEL_REGISTRY
+from app.models.registry import MODEL_REGISTRY
 
 pytestmark = pytest.mark.skipif(
     not (os.environ.get("RUN_SMOKE") and os.environ.get("RUN_SMOKE_LLM")),

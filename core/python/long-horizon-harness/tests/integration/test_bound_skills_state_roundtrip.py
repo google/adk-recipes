@@ -38,10 +38,10 @@ from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai import types
 
-from horizon.environment import LocalEnvironment
-from horizon.environment_context import set_active_environment
-from horizon.tools import skill_reload
-from horizon.tools.skill_loader import build_skill_toolset, builtin_skills_root
+from app.environment import LocalEnvironment
+from app.environment_context import set_active_environment
+from app.tools import skill_reload
+from app.tools.skill_loader import build_skill_toolset, builtin_skills_root
 
 pytestmark = pytest.mark.asyncio
 

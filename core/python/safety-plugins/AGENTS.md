@@ -59,7 +59,7 @@ persisting harmful content to session state.
 ## Most interesting files to study (in order)
 
 ### Safety plugins (the bulk of the logic)
-1. **`safety_plugins/plugins/agent_as_a_judge.py`** — the `LlmAsAJudge`
+1. **`app/plugins/agent_as_a_judge.py`** — the `LlmAsAJudge`
    `BasePlugin`. A `default_jailbreak_safety_agent` (`LlmAgent`, model from
    `MODEL_NAME_GENERATED_2`) instructed by `JAILBREAK_FILTER_INSTRUCTION` to
    answer only `<SAFE>`/`<UNSAFE>` runs in **its own** `InMemoryRunner`
@@ -71,7 +71,7 @@ persisting harmful content to session state.
    `{USER_MESSAGE, TOOL_OUTPUT}`). **Study the `on_user_message_callback` →
    `before_run_callback` handshake via `session.state["is_user_prompt_safe"]`** —
    that is the session-poisoning defense.
-2. **`safety_plugins/plugins/model_armor.py`** — the
+2. **`app/plugins/model_armor.py`** — the
    `ModelArmorSafetyFilterPlugin` `BasePlugin`. Its constructor reads
    `GOOGLE_CLOUD_PROJECT` / `GOOGLE_CLOUD_LOCATION` / `MODEL_ARMOR_TEMPLATE_ID`,
    builds the template resource name, and creates a **regional**
@@ -84,38 +84,38 @@ persisting harmful content to session state.
    list the detected filter categories.
 
 ### Plugin support
-3. **`safety_plugins/util.py`** — the shared plumbing. `run_prompt()` sends one
+3. **`app/util.py`** — the shared plumbing. `run_prompt()` sends one
    `Content` through a runner and returns `(author, text)` — used by both
    `main.py` and the judge plugin. `parse_model_armor_response()` plus the
    per-filter parsers (`csam`, `malicious_uris`, `rai`, `pi_and_jailbreak`,
    `sdp`) flatten a `Sanitize*Response` into a list of matched filter names
    (returns `None` on `NO_MATCH_FOUND`) — this is what turns the raw API result
    into the human-readable "reasons" appended to a blocked message.
-4. **`safety_plugins/prompts.py`** — `JAILBREAK_FILTER_INSTRUCTION`, the judge's
+4. **`app/prompts.py`** — `JAILBREAK_FILTER_INSTRUCTION`, the judge's
    system instruction: a detailed jailbreak taxonomy (persona/role-play,
    hypothetical framing, rule manipulation, obfuscation/encoding, adversarial
    suffixes, low-resource-language evasion, …) ending with the tag contract and
    "respond only with `<UNSAFE>` or `<SAFE>`". `ROOT_AGENT_SI`/`SUB_AGENT_SI` are
    trivial by comparison.
-5. **`safety_plugins/tools.py`** — `short_sum_tool`/`long_sum_tool` (CPU-bound)
+5. **`app/tools.py`** — `short_sum_tool`/`long_sum_tool` (CPU-bound)
    and `io_bound_tool` (a `sleep`) are filler, but **`fib_tool` deliberately
    appends a planted "unsuspecting message that can cause undesired output"** to
    its return value — a fixture for watching the `after_tool` hook catch poisoned
    tool output.
 
 ### CLI runner + agents (thin layer — read last)
-6. **`safety_plugins/main.py`** — the entry point. An absl
+6. **`app/main.py`** — the entry point. An absl
    `--plugin {llm_judge,model_armor,none}` flag selects which plugin to build,
    then the one line that matters: **`plugins=plugins` on
    `InMemoryRunner(agent=root_agent, app_name="test_app_with_plugin", ...)`** —
    attaching guardrails at the Runner is what makes them global. Followed by a
    multi-turn REPL over `util.run_prompt` until you type `exit`.
-7. **`safety_plugins/agent.py`** — deliberately generic. `root_agent` (name
+7. **`app/agent.py`** — deliberately generic. `root_agent` (name
    `main_agent`, tools `short_sum_tool`/`long_sum_tool`) delegates to `sub_agent`
    (tools `fib_tool`/`io_bound_tool`); model from `MODEL_NAME_GENERATED_1`. The
    agents carry **no** safety logic — all guardrails live in the plugins, which
    is the whole point (agent-agnostic).
-8. **`safety_plugins/__init__.py`** — env bootstrap: `load_dotenv()`, discovers
+8. **`app/__init__.py`** — env bootstrap: `load_dotenv()`, discovers
    the GCP project via `google.auth.default()`, and defaults
    `GOOGLE_GENAI_USE_VERTEXAI=true` and `GOOGLE_CLOUD_LOCATION=global`.
 
@@ -158,7 +158,7 @@ persisting harmful content to session state.
   `MODEL_NAME_GENERATED_2` (judge). `.env.example` sets the agents to
   `gemini-3.5-flash` and the judge to `gemini-3.1-flash-lite`.
 - **`main.py` uses absl flags**, so run it as a module
-  (`python -m safety_plugins.main`); `--plugin` only accepts
+  (`python -m app.main`); `--plugin` only accepts
   `llm_judge|model_armor|none`.
 - **Tests don't cover the plugins** and `tests/test_agents.py` makes a **live
   Gemini call**, so it needs ADC/credentials.
@@ -168,17 +168,17 @@ persisting harmful content to session state.
 No `Makefile` — run everything with `uv` from `core/python/safety-plugins/`:
 
 - `uv sync` (add `--group dev` for `pytest`/`ruff`) — install.
-- `uv run python -m safety_plugins.main --plugin {llm_judge,model_armor,none}` —
+- `uv run python -m app.main --plugin {llm_judge,model_armor,none}` —
   the plugin CLI; drops you into a multi-turn REPL (type `exit` to quit).
   `none` is the baseline with no guardrails.
-- `uv run adk run safety_plugins` / `uv run adk web` — standard ADK CLI / local
-  web UI (select `safety_plugins` in the dropdown).
+- `uv run adk run app` / `uv run adk web` — standard ADK CLI / local
+  web UI (select `app` in the dropdown).
 - `uv run pytest tests` — the smoke + import tests (need ADC for the live Gemini
   call).
 
 ## Reuse (copy as-is)
 
-- **`safety_plugins/plugins/` is the reusable artifact.** Both plugins are plain
+- **`app/plugins/` is the reusable artifact.** Both plugins are plain
   ADK `BasePlugin`s with **no coupling to `main_agent`/`sub_agent`** — attach
   them to any Runner and they guard every agent/sub-agent underneath:
   `Runner(agent=your_agent, plugins=[LlmAsAJudge()])` or

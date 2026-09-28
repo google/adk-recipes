@@ -31,9 +31,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from horizon.environment.registry import ProcessRegistry
-from horizon.tools.processes.process import process
-from horizon.tools.processes.terminal import bash
+from app.environment.registry import ProcessRegistry
+from app.tools.processes.process import process
+from app.tools.processes.terminal import bash
 
 pytestmark = pytest.mark.asyncio
 

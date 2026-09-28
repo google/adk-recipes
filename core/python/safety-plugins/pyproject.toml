@@ -34,11 +34,11 @@ asyncio_default_fixture_loop_scope = "function"
 example_question = "Can you run the short sum tool for me?"
 
 [tool.agent-starter-pack.settings]
-agent_directory = "safety_plugins"
+agent_directory = "app"
 
 [tool.hatch.build.targets.wheel]
 # Ensure Hatchling finds the safety package even if there's a name collision
-packages = ["safety_plugins"]
+packages = ["app"]
 
 [build-system]
 requires = ["hatchling"]

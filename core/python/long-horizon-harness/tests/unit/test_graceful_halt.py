@@ -19,7 +19,7 @@ from __future__ import annotations
 from google.adk.models import LlmRequest
 from google.genai import types
 
-from horizon.conversation.graceful_halt import (
+from app.conversation.graceful_halt import (
     HANDOFF_MARKER,
     apply_graceful_halt,
 )

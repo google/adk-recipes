@@ -14,11 +14,11 @@
 
 import inspect
 
-import horizon.environment.process as proc
+import app.environment.process as proc
 
 
 def test_process_handle_is_in_environment_layer():
-    assert proc.ProcessHandle.__module__ == "horizon.environment.process"
+    assert proc.ProcessHandle.__module__ == "app.environment.process"
 
 
 def test_backend_gone_error_is_exception():
@@ -27,11 +27,11 @@ def test_backend_gone_error_is_exception():
 
 def test_process_module_imports_nothing_from_tools_or_sandbox():
     src = inspect.getsource(proc)
-    assert "horizon.tools" not in src
-    assert "horizon.sandbox" not in src
+    assert "app.tools" not in src
+    assert "app.sandbox" not in src
 
 
 def test_base_env_module_has_no_tools_import():
-    from horizon.environment import base
+    from app.environment import base
 
-    assert "from horizon.tools" not in inspect.getsource(base)
+    assert "from app.tools" not in inspect.getsource(base)

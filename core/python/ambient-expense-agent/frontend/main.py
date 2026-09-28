@@ -40,7 +40,7 @@ logger = logging.getLogger(__name__)
 
 BACKEND_URL = os.environ.get("BACKEND_URL", "http://localhost:8080")
 USE_SERVICE_AUTH = os.environ.get("USE_SERVICE_AUTH", "false").lower() == "true"
-APP_NAME = os.environ.get("APP_NAME", "expense_agent")
+APP_NAME = os.environ.get("APP_NAME", "app")
 
 # The Pub/Sub subscription name is used as user_id by the ADK trigger
 # handler. This must match the ``subscription`` field in trigger requests.

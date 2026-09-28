@@ -12,14 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Unit tests for horizon.auth.oauth_verify (tokeninfo-based verification)."""
+"""Unit tests for app.auth.oauth_verify (tokeninfo-based verification)."""
 
 from __future__ import annotations
 
 import pytest
 
-from horizon.auth import oauth_verify
-from horizon.auth.oauth_verify import (
+from app.auth import oauth_verify
+from app.auth.oauth_verify import (
     OAuthVerifyError,
     verify_google_access_token,
 )

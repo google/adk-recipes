@@ -21,13 +21,13 @@ import json
 
 import pytest
 
-from horizon.environment_context import set_active_environment
-from horizon.guardrails.permission_guard import (
+from app.environment_context import set_active_environment
+from app.guardrails.permission_guard import (
     permission_guard,
     reset_headless_mode,
     set_headless_mode,
 )
-from horizon.guardrails.permission_rules import PERMISSION_OVERLAY_FILENAME
+from app.guardrails.permission_rules import PERMISSION_OVERLAY_FILENAME
 from tests.stubs import FakeTool, FakeToolContext
 
 pytestmark = pytest.mark.asyncio
@@ -38,7 +38,7 @@ _Ctx = FakeToolContext
 
 @pytest.fixture(autouse=True)
 def _env(tmp_path):
-    from horizon.environment import LocalEnvironment
+    from app.environment import LocalEnvironment
 
     env = LocalEnvironment(working_dir=tmp_path)
     env._working_dir = tmp_path
@@ -149,7 +149,7 @@ async def test_headless_does_not_reach_destructive_blocked_shell():
     """The shell allow-branch is safe only because the destructive policy guard
     runs ahead of it in the chain and is headless-independent: it blocks a
     destructive command whether or not headless mode is set."""
-    from horizon.guardrails.policies import policies_guard
+    from app.guardrails.policies import policies_guard
 
     args = {"command": "rm -rf /"}
     blocked_plain = await policies_guard(

@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Unit tests for ``horizon.auth.identity``.
+"""Unit tests for ``app.auth.identity``.
 
 Covers the env-driven mode selector, the dev-user fallback, IAP JWT
 verification (mocked), the request-scoped ContextVar populated by
@@ -27,8 +27,8 @@ import pytest
 from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
-from horizon.auth import identity as auth
-from horizon.auth.identity import (
+from app.auth import identity as auth
+from app.auth.identity import (
     AuthMode,
     DevAuthInProductionError,
     IdentityMiddleware,
@@ -312,8 +312,8 @@ def test_iap_mode_accepts_oauth_bearer_when_no_iap_jwt(monkeypatch):
     monkeypatch.setenv("LHA_IAP_AUDIENCE", "aud")
     monkeypatch.setenv("LHA_GCP_OAUTH_CLIENT_ID", "client-123")
 
-    from horizon.auth import oauth_verify
-    from horizon.secrets import inject
+    from app.auth import oauth_verify
+    from app.secrets import inject
 
     monkeypatch.setattr(
         oauth_verify,
@@ -356,7 +356,7 @@ def test_iap_mode_rejects_invalid_oauth_bearer(monkeypatch):
     monkeypatch.setenv("LHA_IAP_AUDIENCE", "aud")
     monkeypatch.setenv("LHA_GCP_OAUTH_CLIENT_ID", "client-123")
 
-    from horizon.auth import oauth_verify
+    from app.auth import oauth_verify
 
     def boom(token, *, expected_aud):
         raise oauth_verify.OAuthVerifyError("bad aud")

@@ -40,7 +40,7 @@ registration).
 
 ```
 user (React frontend / ADK web / Gemini Enterprise)
-   -> root_agent "genmedia_router" (genmedia4commerce/agent.py)
+   -> root_agent "genmedia_router" (app/agent.py)
       - before_model_callback: uploads described by Gemini, pushed to GCS,
         inline bytes replaced with [user_upload | filename | description]
    -> McpToolset -> GenMedia MCP server (mcp_server/server.py, 7 tools)
@@ -56,7 +56,7 @@ user (React frontend / ADK web / Gemini Enterprise)
 ## Most interesting files to study (in order)
 
 ### MCP tool server (the tool surface)
-1. **`genmedia4commerce/mcp_server/server.py`** — a `FastMCP` server
+1. **`app/mcp_server/server.py`** — a `FastMCP` server
    (`genmedia-retail`) exposing **7 tools**: `product_fitting`, `image_vto`,
    `video_vto`, `background_changer`, `product_spinning`, `animate_model`,
    `catalog_search`. Each `@server.tool()` is a thin async wrapper that
@@ -64,41 +64,41 @@ user (React frontend / ADK web / Gemini Enterprise)
    ADK agent subprocess) or **SSE** (`--transport sse`, for external clients).
 
 ### Media-generation workflows (the bulk of the logic)
-2. **`genmedia4commerce/workflows/`** — the real pipelines, grouped by
+2. **`app/workflows/`** — the real pipelines, grouped by
    capability: `video_vto/` (clothes catwalk + glasses), `image_vto/` (static
    clothes/glasses VTO with evaluation ranking), `spinning/` (shoe & product
    360° R2V + interpolation), `product_enrichment/product_fitting/` (front/back
    views on a model body), `other/background_changer/`, and `shared/`
    (Gemini/Veo/image/video/GCS utilities). Each `*/pipeline.py` is the entry the
    matching `*_mcp.py` calls.
-3. **`genmedia4commerce/workflows/spinning/r2v/shoes/pipeline.py`** — the richest
+3. **`app/workflows/spinning/r2v/shoes/pipeline.py`** — the richest
    pipeline: classify shoe angle/closure → select & stack images (Veo caps
    reference images at 3) → generate → **validate**. Study its two validators:
    **`video_validation_r2v.py`** (`validate_and_fix_product_spin_consistency_r2v`,
    rotation-direction + glitch checks with retry) and
    **`product_consistency_validation.py`** (`validate_product_consistency`).
-4. **`genmedia4commerce/workflows/shared/vector_search.py`** — the catalogue
+4. **`app/workflows/shared/vector_search.py`** — the catalogue
    backend: an **in-memory dot-product search** over pre-computed embeddings
    (`numpy`) + `metadata.parquet` (`pyarrow`), **Matryoshka-truncated to 128d**,
    with `audience`/`season`/etc. filters. No managed index — assets are pulled
    from GCS at import. Read side of `catalog_search`.
-5. **`genmedia4commerce/workflows/shared/`** — `veo_utils.py` (Veo R2V calls),
+5. **`app/workflows/shared/`** — `veo_utils.py` (Veo R2V calls),
    `image_utils.py` (framing, canvas, background removal), `video_utils.py`,
    `llm_utils.py`, `gcs_utils.py`, `person_eval.py` — the reusable primitives
    every pipeline composes.
 
 ### App stack & infrastructure
-6. **`genmedia4commerce/fast_api_app.py`** (+ **`chat_api.py`**) — the combined
+6. **`app/fast_api_app.py`** (+ **`chat_api.py`**) — the combined
    server: `get_fast_api_app` (ADK `/run`, sessions, optional web UI) **plus**
    every `mcp_server/*/*_api.py` REST router, a `/feedback` + `/health` +
    `/api/status` endpoint, an **embedded MCP server on a daemon thread (SSE)**,
    and SPA/static mounts for the built React app. This is the Cloud Run
    entrypoint.
-7. **`genmedia4commerce/agent_engine_app.py`** (+ **`genmedia4commerce/app_utils/deploy.py`**) —
+7. **`app/agent_engine_app.py`** (+ **`app/app_utils/deploy.py`**) —
    the Agent Engine path: wraps `agent.app` in an `AdkApp` subclass
    (`AgentEngineApp`) with telemetry, GCS artifacts, and a `register_feedback`
    op. `make deploy-agent-engine` exports requirements and calls
-   `genmedia4commerce.app_utils.deploy`.
+   `app.app_utils.deploy`.
 8. **`infra/terraform/`** — GCP provisioning: `main.tf` (APIs), `storage.tf`
    (media bucket `${project_id}-genmedia-for-commerce-media-payloads`),
    `artifact_registry.tf`, `cloudrun.tf`, `iam.tf`. **`infra/model_training/`** —
@@ -106,17 +106,17 @@ user (React frontend / ADK web / Gemini Enterprise)
    (`make train-shoe-model` / `make eval-set-shoe-model`).
 
 ### Agent + frontend (thin layer — read last)
-9. **`genmedia4commerce/agent.py`** — `root_agent` (`genmedia_router`, Gemini)
+9. **`app/agent.py`** — `root_agent` (`genmedia_router`, Gemini)
    and `app`. Thin on routing (one `McpToolset`), but carries the recipe's
    **callback machinery**: `before_model` (GE-stable session id, upload →
    describe → GCS), `after_model` (inject `[session_id=...]`), `before_tool`
    (filename → base64), `after_tool` (media → artifacts + GCS, summary to LLM).
-10. **`genmedia4commerce/agent_utils.py`** — the helpers behind those callbacks:
+10. **`app/agent_utils.py`** — the helpers behind those callbacks:
     **GCS-backed conversation history** (`append_to_history` /
     `retrieve_from_history`), `upload_asset_to_gcs` / `copy_gcs_asset`,
     `resolve_filename_to_gcs_uri`, `extract_media` / `resolve_media`, and
     parallel image description.
-11. **`genmedia4commerce/agents/style_advisor_agent/agent.py`** — a second,
+11. **`app/agents/style_advisor_agent/agent.py`** — a second,
     self-contained **multi-agent** app: a `style_advisor` searcher that delegates
     to a `stylish_agent` curator sub-agent (`sub_agents=[...]`). Its own
     `App(...)`; not wired into the router. Read for the ADK sub-agent pattern.
@@ -150,7 +150,7 @@ user (React frontend / ADK web / Gemini Enterprise)
 ## Gotchas / things to know
 
 - **`config.env` vs `.env`.** The runtime loads the **package-internal**
-  `genmedia4commerce/config.env` (a gitignored build artifact). The root
+  `app/config.env` (a gitignored build artifact). The root
   `config.env` is the source of truth — `make sync-config` copies it in, and
   most targets depend on it. Copy `config.env.example` → `config.env` first.
 - **`.env.example` model literals are deprecated.** `MODEL_NAME_GENERATED_*`
@@ -195,9 +195,9 @@ Eval lives under `tests/eval/` (`eval_config.json` + `evalsets/`).
 
 ## Reuse (copy as-is)
 
-- **`genmedia4commerce/mcp_server/`** is a self-contained **FastMCP** server —
+- **`app/mcp_server/`** is a self-contained **FastMCP** server —
   run it standalone (`python -m mcp_server.server` / `make mcp-server`) and
-  connect any MCP client. It imports `genmedia4commerce/workflows/`, so copy the
+  connect any MCP client. It imports `app/workflows/`, so copy the
   two together (the workflows are the actual generation logic).
 - **`infra/terraform/`** is self-contained GCP provisioning (media bucket, AR
   repo, Cloud Run service, IAM, APIs). `make setup-infra` derives `TF_VAR_*`

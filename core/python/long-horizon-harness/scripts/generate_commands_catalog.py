@@ -18,7 +18,7 @@ Usage:
     uv run python scripts/generate_commands_catalog.py           # writes docs/commands.md
     uv run python scripts/generate_commands_catalog.py --check   # exits 1 if stale
 
-Runs offline: imports only the registry (`horizon.commands`), which needs
+Runs offline: imports only the registry (`app.commands`), which needs
 neither GCP creds nor the optional extras.
 """
 
@@ -33,7 +33,7 @@ _REPO_ROOT = Path(__file__).resolve().parents[1]
 
 sys.path.insert(0, str(_REPO_ROOT))
 
-from horizon.commands import BUILTIN_COMMAND_REGISTRY  # noqa: E402
+from app.commands import BUILTIN_COMMAND_REGISTRY  # noqa: E402
 
 _OUTPUT = _REPO_ROOT / "docs" / "commands.md"
 
@@ -46,7 +46,7 @@ _INTRO = (
     "Reference for Long Horizon's built-in slash commands — the user-facing affordances "
     "(swap models, force a memory rollup, grant a HITL bypass, refresh skills, …) "
     "that `make_slash_command_dispatcher` intercepts before the model runs. Names "
-    "come from `horizon/commands/__init__.py`; regenerate after changing the "
+    "come from `app/commands/__init__.py`; regenerate after changing the "
     "registry."
 )
 
@@ -110,7 +110,7 @@ def generate() -> str:
         "",
         _INTRO,
         "",
-        "_Auto-generated from `horizon/commands/__init__.py`. "
+        "_Auto-generated from `app/commands/__init__.py`. "
         "Regenerate with `make commands-catalog`._",
         "",
         f"## Commands ({len(commands)})",

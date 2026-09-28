@@ -35,13 +35,13 @@ pytestmark = pytest.mark.asyncio
 async def test_render_skill_block_resolves_user_skill_from_host_mirror() -> (
     None
 ):
-    from horizon.environment_context import (
+    from app.environment_context import (
         clear_active_environment,
         set_active_environment,
     )
-    from horizon.subagents.delegate_builder import _render_skill_block
-    from horizon.tools.skill_loader import mirror_user_skills_to_host
-    from horizon.tools.skill_reload import host_mirror_dir
+    from app.subagents.delegate_builder import _render_skill_block
+    from app.tools.skill_loader import mirror_user_skills_to_host
+    from app.tools.skill_reload import host_mirror_dir
 
     interface_root = Path("/sandbox-only/delegate-ws")
     skills_root = interface_root / ".agents" / "skills"

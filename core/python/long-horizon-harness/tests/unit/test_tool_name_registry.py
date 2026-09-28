@@ -29,34 +29,34 @@ from pathlib import Path
 
 import pytest
 
-from horizon.tools import names
+from app.tools import names
 
 pytestmark = pytest.mark.asyncio
 
-_HORIZON_ROOT = Path(__file__).resolve().parents[2] / "horizon"
+_HORIZON_ROOT = Path(__file__).resolve().parents[2] / "app"
 _DEFAULT_POLICIES_JSONL = (
     _HORIZON_ROOT / "guardrails" / "default_policies.jsonl"
 )
 
 
 def _fail_closed_sets() -> dict[str, set[str]]:
-    from horizon.a2a import executor as a2a_executor
-    from horizon.context import artifact_url_redaction as aur
-    from horizon.context import summarizer as summ
-    from horizon.context import tool_output_pruning as top
-    from horizon.conversation import system_prompt as sp
-    from horizon.guardrails import permission_rules as pr
-    from horizon.guardrails.permission_guard import (
+    from app.a2a import executor as a2a_executor
+    from app.context import artifact_url_redaction as aur
+    from app.context import summarizer as summ
+    from app.context import tool_output_pruning as top
+    from app.conversation import system_prompt as sp
+    from app.guardrails import permission_rules as pr
+    from app.guardrails.permission_guard import (
         READ_ONLY_TOOLS,
         SELF_CONFIRMING_TOOLS,
         SUBAGENT_TOOLS,
     )
-    from horizon.memory import flush_fork as ff
-    from horizon.memory import review_fork as rf
-    from horizon.memory import skill_telemetry as st
-    from horizon.subagents import delegate_builder as db
-    from horizon.subagents import descriptions as desc
-    from horizon.subagents import profiles as prof
+    from app.memory import flush_fork as ff
+    from app.memory import review_fork as rf
+    from app.memory import skill_telemetry as st
+    from app.subagents import delegate_builder as db
+    from app.subagents import descriptions as desc
+    from app.subagents import profiles as prof
 
     sets: dict[str, set[str]] = {
         "READ_ONLY_TOOLS": set(READ_ONLY_TOOLS),
@@ -135,7 +135,7 @@ async def test_no_fail_closed_set_references_a_missing_tool():
 
 
 async def test_registry_matches_registered_tools():
-    from horizon.agent import root_agent
+    from app.agent import root_agent
 
     live = {t.name for t in await root_agent.canonical_tools()}
     assert live == set(names.ALL), {
@@ -151,7 +151,7 @@ async def test_no_dead_tool_name_in_model_facing_prose():
     ``static_instruction`` string (catches a mention that only renders under
     some condition) and every builtin skill's instructions.
     """
-    from horizon.agent import root_agent
+    from app.agent import root_agent
 
     sources: dict[str, str] = {
         "root_agent.static_instruction": root_agent.static_instruction
@@ -208,7 +208,7 @@ _LEGACY_TOKENS = (
 # "reminder" is added here, not to _LEGACY_TOKENS above: it has the same
 # "legitimate non-tool meaning common enough to swamp the scan" problem as
 # reload/patch/terminal/write_file (see the comment above _LEGACY_TOKENS) —
-# `<system-reminder>` (the volatile prompt tail, horizon/conversation/
+# `<system-reminder>` (the volatile prompt tail, app/conversation/
 # reminders.py) uses the word constantly and legitimately across 16+ files.
 # The narrower two-surface scan below, with snippet-level (not file-level)
 # exceptions, can tell the two apart; a repo-wide bare-substring scan cannot.
@@ -231,13 +231,13 @@ _DEAD_TOOL_PRESENCE_EXCEPTIONS: dict[str, dict[str, list[str]]] = {
             "there is no reminder tool",
         ],
     },
-    "horizon/builtin_skills/routines/SKILL.md": {
+    "app/builtin_skills/routines/SKILL.md": {
         "reminder": ["no one-off reminder tool"],
     },
     # An external MCP server's own same-named tool, unrelated to ours (same
     # exception as the repo-wide scan below); both example lines it appears
     # on, so a genuinely new mention elsewhere in the file still gets caught.
-    "horizon/builtin_skills/bootstrap-google-tools/SKILL.md": {
+    "app/builtin_skills/bootstrap-google-tools/SKILL.md": {
         "read_file": [
             'mcp-cli info filesystem read_file")',
             "mcp-cli call filesystem read_file '",
@@ -246,8 +246,8 @@ _DEAD_TOOL_PRESENCE_EXCEPTIONS: dict[str, dict[str, list[str]]] = {
 }
 
 _LEGACY_SCAN_GLOBS = (
-    "horizon/**/*.py",
-    "horizon/builtin_skills/**/*.md",
+    "app/**/*.py",
+    "app/builtin_skills/**/*.md",
     "tests/eval/evalsets/*.json",
     "web/**/*.ts",
     "web/**/*.tsx",
@@ -266,27 +266,27 @@ _LEGACY_SCAN_GLOBS = (
 # eval_id/rubric_id label, not graded content; (g) historically-accurate
 # prose about a deleted tool.
 _LEGACY_TOKEN_EXCEPTIONS: dict[str, frozenset[str]] = {
-    "horizon/tools/names.py": frozenset(_LEGACY_TOKENS),
-    "horizon/tools/file_ops.py": frozenset({"read_file", "replace_all"}),
-    "horizon/tools/__init__.py": frozenset({"read_file"}),
-    "horizon/tools/read.py": frozenset({"read_file", "as_media"}),
-    "horizon/tools/artifacts.py": frozenset({"read_file"}),
-    "horizon/tools/skill_loader.py": frozenset({"read_file"}),
-    "horizon/tools/past_sessions.py": frozenset({"recall_past_sessions"}),
-    "horizon/guardrails/_overlay.py": frozenset({"read_file"}),
-    "horizon/guardrails/permission_rules.py": frozenset({"read_file"}),
-    "horizon/environment/sandbox.py": frozenset({"read_file"}),
-    "horizon/api/uploads.py": frozenset({"read_file"}),
-    "horizon/sandbox/runtime/server.py": frozenset({"read_file"}),
+    "app/tools/names.py": frozenset(_LEGACY_TOKENS),
+    "app/tools/file_ops.py": frozenset({"read_file", "replace_all"}),
+    "app/tools/__init__.py": frozenset({"read_file"}),
+    "app/tools/read.py": frozenset({"read_file", "as_media"}),
+    "app/tools/artifacts.py": frozenset({"read_file"}),
+    "app/tools/skill_loader.py": frozenset({"read_file"}),
+    "app/tools/past_sessions.py": frozenset({"recall_past_sessions"}),
+    "app/guardrails/_overlay.py": frozenset({"read_file"}),
+    "app/guardrails/permission_rules.py": frozenset({"read_file"}),
+    "app/environment/sandbox.py": frozenset({"read_file"}),
+    "app/api/uploads.py": frozenset({"read_file"}),
+    "app/sandbox/runtime/server.py": frozenset({"read_file"}),
     # recall_past_sessions_entries, category (b), same as past_sessions.py.
-    "horizon/memory/add_memory_tool.py": frozenset(
+    "app/memory/add_memory_tool.py": frozenset(
         {"add_memory", "recall_past_sessions", "session_search"}
     ),
-    "horizon/memory/_writer.py": frozenset({"add_memory"}),
-    "horizon/memory/__init__.py": frozenset({"add_memory"}),
-    "horizon/memory/review_fork.py": frozenset({"add_memory"}),
-    "horizon/memory/flush_fork.py": frozenset({"add_memory"}),
-    "horizon/builtin_skills/bootstrap-google-tools/SKILL.md": frozenset(
+    "app/memory/_writer.py": frozenset({"add_memory"}),
+    "app/memory/__init__.py": frozenset({"add_memory"}),
+    "app/memory/review_fork.py": frozenset({"add_memory"}),
+    "app/memory/flush_fork.py": frozenset({"add_memory"}),
+    "app/builtin_skills/bootstrap-google-tools/SKILL.md": frozenset(
         {"read_file"}
     ),
     "docs/extending.md": frozenset({"read_file", "session_search"}),
@@ -310,13 +310,13 @@ _LEGACY_TOKEN_EXCEPTIONS: dict[str, frozenset[str]] = {
     "AGENTS.md": frozenset({"add_memory", "set_workspace_window"}),
     # session_search: historically-accurate prose about the merge into
     # memory(action='search'), category (g).
-    "horizon/agent.py": frozenset({"session_search"}),
-    "horizon/conversation/system_prompt.py": frozenset({"session_search"}),
-    "horizon/guardrails/permission_guard.py": frozenset({"session_search"}),
-    "horizon/subagents/delegate_builder.py": frozenset({"session_search"}),
+    "app/agent.py": frozenset({"session_search"}),
+    "app/conversation/system_prompt.py": frozenset({"session_search"}),
+    "app/guardrails/permission_guard.py": frozenset({"session_search"}),
+    "app/subagents/delegate_builder.py": frozenset({"session_search"}),
     # find_replacement's own kwargs (category b); the model-facing error
     # text says oldText, but this private helper's signature didn't change.
-    "horizon/tools/_replacers.py": frozenset({"old_string", "replace_all"}),
+    "app/tools/_replacers.py": frozenset({"old_string", "replace_all"}),
 }
 
 
@@ -354,9 +354,9 @@ _CALL_SHAPE_PATTERN = re.compile(
     r"(?<![\w.])(reload|patch|terminal|write_file)\("
 )
 _CALL_SHAPE_EXCEPTIONS: dict[str, frozenset[str]] = {
-    "horizon/commands/__init__.py": frozenset({"reload"}),  # /reload's helper
-    "horizon/environment/sandbox.py": frozenset({"write_file"}),  # ADK method
-    "horizon/sandbox/runtime/server.py": frozenset({"write_file"}),  # its route
+    "app/commands/__init__.py": frozenset({"reload"}),  # /reload's helper
+    "app/environment/sandbox.py": frozenset({"write_file"}),  # ADK method
+    "app/sandbox/runtime/server.py": frozenset({"write_file"}),  # its route
 }
 
 
@@ -368,8 +368,8 @@ async def test_no_legacy_tool_calls_survive_after_the_rename():
     repo_root = _HORIZON_ROOT.parent
     offenders: dict[str, list[str]] = {}
     for glob in (
-        "horizon/**/*.py",
-        "horizon/builtin_skills/**/*.md",
+        "app/**/*.py",
+        "app/builtin_skills/**/*.md",
         "tests/eval/evalsets/*.json",
     ):
         for path in repo_root.glob(glob):

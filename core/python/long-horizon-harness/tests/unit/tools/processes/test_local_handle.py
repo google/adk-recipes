@@ -31,7 +31,7 @@ import pytest
 @pytest.fixture
 def handle_factory(tmp_path: Path):
     """Spawn handles in a fresh tmp cwd; tear down any still running."""
-    from horizon.environment.local_process import LocalProcessHandle
+    from app.environment.local_process import LocalProcessHandle
 
     spawned: list[LocalProcessHandle] = []
 

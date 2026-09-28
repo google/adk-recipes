@@ -7,14 +7,14 @@ import sys
 
 import pytest
 
-from horizon.secrets import (
+from app.secrets import (
     InMemorySecretStore,
     SecretManagerStore,
     SecretStore,
     get_secret_store,
     set_secret_store,
 )
-from horizon.secrets.store import reset_secret_store
+from app.secrets.store import reset_secret_store
 
 
 @pytest.fixture(autouse=True)

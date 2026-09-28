@@ -31,7 +31,7 @@ remember it for the session, or persist it forever. It sits **below** the
 security guards: a call must clear the hard-deny floor first, and only then does
 the permission gate decide whether to ask.
 
-The gate is `permission_guard` (`horizon/guardrails/permission_guard.py`), a
+The gate is `permission_guard` (`app/guardrails/permission_guard.py`), a
 `before_tool_callback` that runs **last** in the before-tool chain:
 
 ```
@@ -42,10 +42,10 @@ Running last is the contract: the security guards have already had their say, so
 anything reaching `permission_guard` is, from the security model's view, allowed.
 
 If anything here disagrees with the code, trust the code — these are the files:
-`horizon/guardrails/permission_guard.py` (the gate),
-`horizon/guardrails/permission_rules.py` (rule model + `.lha/permissions.jsonl`
-store + matcher), `horizon/guardrails/command_classify.py` (shell-command
-parsing), `horizon/commands/__init__.py` (`/permissions`).
+`app/guardrails/permission_guard.py` (the gate),
+`app/guardrails/permission_rules.py` (rule model + `.lha/permissions.jsonl`
+store + matcher), `app/guardrails/command_classify.py` (shell-command
+parsing), `app/commands/__init__.py` (`/permissions`).
 
 ---
 
@@ -237,7 +237,7 @@ card names the escalation and the grant can't leak onto the unprivileged form.
 
 ## `/permissions`
 
-The `/permissions` slash command (`horizon/commands/__init__.py`) reports the
+The `/permissions` slash command (`app/commands/__init__.py`) reports the
 active session grants and the count of persisted rules:
 
 ```
@@ -290,7 +290,7 @@ The ask flow assumes a human is present to answer. In **unattended** sessions
 there is nobody to click a button, so an `ask_user` cannot pause for input.
 
 **Routine runs** resolve this via `set_headless_mode(True)`
-(`horizon/guardrails/permission_guard.py`): an `ask_user` on a **shell** command
+(`app/guardrails/permission_guard.py`): an `ask_user` on a **shell** command
 (bash / process write) is **allowed** — it runs in the routine's own isolated
 `lhart-` sandbox, which is the blast radius — while a **non-shell** `ask_user`
 becomes a deny (`headless_denied`). The earlier guards in the chain still apply

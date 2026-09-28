@@ -16,13 +16,13 @@
 
 
 def test_agent_runnability() -> None:
-    import horizon.agent
+    import app.agent
 
-    assert horizon.agent.root_agent is not None
+    assert app.agent.root_agent is not None
 
 
 def test_app_is_built() -> None:
-    """`horizon.agent` also owns the ADK ``App`` the Runner/FastAPI surface serves."""
-    import horizon.agent
+    """`app.agent` also owns the ADK ``App`` the Runner/FastAPI surface serves."""
+    import app.agent
 
-    assert horizon.agent.app is not None
+    assert app.agent.app is not None

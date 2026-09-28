@@ -15,8 +15,8 @@
 import pytest
 import yaml
 
-from horizon.environment import LocalEnvironment
-from horizon.routines.manifest import parse_manifest, write_routine_via_env
+from app.environment import LocalEnvironment
+from app.routines.manifest import parse_manifest, write_routine_via_env
 
 pytestmark = pytest.mark.asyncio
 

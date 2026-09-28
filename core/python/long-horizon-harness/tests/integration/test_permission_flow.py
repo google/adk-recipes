@@ -19,8 +19,8 @@ from __future__ import annotations
 
 import pytest
 
-from horizon.guardrails.permission_guard import permission_guard
-from horizon.guardrails.permission_rules import PERMISSION_GRANTS_STATE_KEY
+from app.guardrails.permission_guard import permission_guard
+from app.guardrails.permission_rules import PERMISSION_GRANTS_STATE_KEY
 
 pytestmark = pytest.mark.asyncio
 
@@ -52,8 +52,8 @@ class _TC:
 
 
 async def test_session_grant_suppresses_second_prompt(tmp_path, monkeypatch):
-    from horizon.environment import LocalEnvironment
-    from horizon.environment_context import set_active_environment
+    from app.environment import LocalEnvironment
+    from app.environment_context import set_active_environment
 
     env = LocalEnvironment(working_dir=tmp_path)
     env._working_dir = tmp_path
@@ -99,8 +99,8 @@ async def test_session_grant_suppresses_second_prompt(tmp_path, monkeypatch):
 async def test_git_push_force_and_rephrases_all_require_confirmation(
     tmp_path, command
 ):
-    from horizon.environment import LocalEnvironment
-    from horizon.environment_context import set_active_environment
+    from app.environment import LocalEnvironment
+    from app.environment_context import set_active_environment
 
     env = LocalEnvironment(working_dir=tmp_path)
     env._working_dir = tmp_path
@@ -121,8 +121,8 @@ async def test_git_push_force_and_rephrases_all_require_confirmation(
 
 async def test_git_push_without_force_does_not_require_confirmation(tmp_path):
     # Contrast case: the gate is force-specific, not a blanket push blocker.
-    from horizon.environment import LocalEnvironment
-    from horizon.environment_context import set_active_environment
+    from app.environment import LocalEnvironment
+    from app.environment_context import set_active_environment
 
     env = LocalEnvironment(working_dir=tmp_path)
     env._working_dir = tmp_path

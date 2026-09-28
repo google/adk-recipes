@@ -105,7 +105,7 @@ Starting from the bottom:
   interfaces](#where-custom-code-earns-its-keep) most long-running agents need.
 
 To localize a behavior: if it is about how the model is invoked, what state carries between
-steps, or how a turn is persisted/resumed, it is **ADK** — read `horizon/agent.py`'s wiring,
+steps, or how a turn is persisted/resumed, it is **ADK** — read `app/agent.py`'s wiring,
 then ADK. If it is a managed capability (a model, memory, a sandbox, a quota/region error),
 it is **Vertex** — region and enablement, not Horizon code. Everything else — prompt
 assembly, guardrails, secrets, the env interface, delegation, self-improvement — is **Horizon**
@@ -113,24 +113,24 @@ and lives in this repo.
 
 ## Construction
 
-The agent is defined in **`horizon/agent.py`** — `root_agent` + the ADK `App`, with the
+The agent is defined in **`app/agent.py`** — `root_agent` + the ADK `App`, with the
 full tool/callback/plugin wiring, built once as the module-level `app` / `root_agent`
-singletons. **`horizon/fast_api_app.py`** serves it: it resolves the session/memory/
+singletons. **`app/fast_api_app.py`** serves it: it resolves the session/memory/
 artifact backends and the sandbox from the environment, builds the ADK `Runner`, and
 mounts the routes.
 
 ```bash
-uvicorn horizon.fast_api_app:app --port 8001   # the served app
+uvicorn app.fast_api_app:app --port 8001   # the served app
 ```
 
 ```python
-from horizon.fast_api_app import build_runner
+from app.fast_api_app import build_runner
 
 runner = build_runner()  # embed without FastAPI (CLI/batch); services from env
 ```
 
-- **`horizon.fast_api_app:app`** — the FastAPI surface (A2A + `/lha/*` + `/scheduler/*`),
-  built lazily via module `__getattr__` so a bare `import horizon` stays offline. Every
+- **`app.fast_api_app:app`** — the FastAPI surface (A2A + `/lha/*` + `/scheduler/*`),
+  built lazily via module `__getattr__` so a bare `import app` stays offline. Every
   router mounts; ship a subset by deleting `attach_*` calls (see
   [`docs/security-model.md`](security-model.md)).
 - **`build_runner()`** — resolves services (session/memory/artifact) + the sandbox and
@@ -138,11 +138,11 @@ runner = build_runner()  # embed without FastAPI (CLI/batch); services from env
 - **Config is by environment** — `LHA_ROOT_MODEL`, `LHA_ENVIRONMENT_BACKEND`, service
   URIs (`SESSION_DB_URL`, `AGENT_ENGINE_RESOURCE_NAME`, `LOGS_BUCKET_NAME`). A custom
   sandbox backend installs via `set_environment_provider(factory)`; anything deeper is a
-  `horizon/agent.py` edit. See [`docs/configuration.md`](configuration.md).
+  `app/agent.py` edit. See [`docs/configuration.md`](configuration.md).
 
-`agent.py` builds `app = _build_app_object()` at import; `import horizon` stays offline
-because the package `__init__` doesn't import `agent` — only reading `horizon.agent` /
-`horizon.fast_api_app.app` triggers the build.
+`agent.py` builds `app = _build_app_object()` at import; `import app` stays offline
+because the package `__init__` doesn't import `agent` — only reading `app.agent` /
+`app.fast_api_app.app` triggers the build.
 
 **What `_build_app_object` assembles**, in order:
 
@@ -221,7 +221,7 @@ scheduler store: cron + routines"]
     Backend --> CloudSQL
 ```
 
-The FastAPI surface (`horizon/fast_api_app.py`) exposes the A2A JSON-RPC endpoint, OAuth callbacks, and
+The FastAPI surface (`app/fast_api_app.py`) exposes the A2A JSON-RPC endpoint, OAuth callbacks, and
 the `/lha/*` routers (state, sessions, tasks, memories, secrets, feedback,
 uploads, sandbox). A2A invokes the ADK `Runner` described above. Cross-session memory is
 Memory Bank ([`docs/memory.md`](memory.md)) — prefetched each turn via ADK's
@@ -240,31 +240,31 @@ behind IAP; FastAPI does not serve the web bundle.
 
 ## Backend tree map — where to start
 
-The Python package lives in `horizon/` (the outer repo dir stays `lha/`). Find the subsystem
+The Python package lives in `app/` (the outer repo dir stays `lha/`). Find the subsystem
 you care about, open its **start-here** file first, then fan out to the supporting files.
 
 | If you want to learn about… | Start here | Supporting files | Deep-dive doc |
 |---|---|---|---|
-| **The agent itself** (tools, callback order, plugins, App) | `horizon/agent.py` | `horizon/fast_api_app.py` (served app + Runner) | this file + [`AGENTS.md`](../AGENTS.md) |
-| **Memory & self-improvement** | `horizon/memory/add_memory_tool.py` | `auto_capture.py`, `review_fork.py`, `dream_review.py`, `user_profile.py`, `skill_curator.py` | [`docs/memory.md`](memory.md) |
-| **Sandbox / workspace / env interface** | `horizon/environment/base.py` (`Environment` contract), `horizon/sandbox/provider.py` (`SandboxProvider`), `horizon/sandbox/lifecycle.py` | `horizon/environment/local.py`, `horizon/environment/sandbox.py`, `sandbox/runtime/` (in-container shim), `horizon/environment_context.py`, `horizon/workspace_window.py` | [`docs/sandbox-lifecycle.md`](sandbox-lifecycle.md) |
-| **Exfil guard** | `horizon/guardrails/exfil_guard.py` | `guardrails/exfil_config.py` | [`docs/security-model.md`](security-model.md) |
-| **A2A** (JSON-RPC transport) | `horizon/a2a/routes.py` | `a2a/executor.py` (stream converter), `a2a/user_converter.py` (authenticated user_id), `a2a/datapart.py` | — |
-| **System prompt & per-turn steering** | `horizon/conversation/system_prompt.py` | `conversation/reminders.py` (volatile tier), `conversation/session_start.py`, `conversation/soul_loader.py` | — |
-| **Guardrails & halts** | `horizon/guardrails/guardrails_plugin.py` | `guardrails/policies.py`, `policy_grants.py`, `no_progress.py`, `repeated_failure.py` | [`docs/security-model.md`](security-model.md) |
-| **Tool-permission approval** | `horizon/guardrails/permission_guard.py` | `guardrails/permission_rules.py`, `guardrails/command_classify.py` | [`docs/permission-model.md`](permission-model.md) |
-| **Tools** (file/bash/web) | `horizon/tools/file_ops.py` | `tools/read.py` (merged text+media read), `tools/processes/` (bash+process), `tools/web_search.py` | — |
-| **Sub-agents / delegation** | `horizon/subagents/subagent.py` | `subagents/delegate.py` (blocking, still-internal), `subagents/spawn.py` (fire-and-forget, still-internal), `subagents/profiles.py`, `subagents/descriptions.py` | — |
-| **Context compaction** | `horizon/context/summarizer.py` | `context/tool_output_pruning.py`, `context/compaction_context.py` | [`docs/memory.md`](memory.md) |
-| **Scheduler (dream-review / snapshot)** | `horizon/scheduler/dream_review_endpoint.py` | `scheduler/snapshot_endpoint.py`, `scheduler/auth.py` | — |
-| **Routines** (unattended cron tasks in an isolated sandbox) | `horizon/routines/tools.py` | `routines/manifest.py`, `routines/run_context.py`, `scheduler/routine_store.py`, `scheduler/routine_postgres_store.py`, `scheduler/cron.py`, `scheduler/routine_tick_endpoint.py` | [`docs/routines.md`](routines.md) |
-| **Secrets** | `horizon/secrets/store.py` | `secrets/inject.py`, `secrets/dotenv.py`, `horizon/auth/oauth.py` (Connect Google) | — |
-| **Slash commands** | `horizon/commands/__init__.py` | `commands/dispatcher.py` | — |
-| **Models / LLM routing** | `horizon/models/dispatcher.py` | `models/registry.py`, `models/selector.py`, `models/media.py` | — |
-| **HTTP routers** (`/lha/*`, `/feedback`) | `horizon/api/` | one file per route (`sessions`, `state`, `tasks`, `memories`, `sandbox`, `secrets`, `uploads`, `feedback`); attached in `horizon/fast_api_app.py` (every router mounts; ship a subset by deleting `attach_*` calls) | [`docs/security-model.md`](security-model.md) |
-| **Feedback pipeline** | `horizon/feedback/sink.py` | `feedback/context.py`, `feedback/models.py`, `horizon/api/feedback.py` (route) | — |
-| **Telemetry / observability** | `horizon/telemetry/otel.py` | `telemetry/ui.py` (live web-panel tool log) | — |
-| **DB resilience / infra** | `horizon/infrastructure/db_resilience.py` | `infrastructure/resilient_session_service.py`, `infrastructure/memory_config.py`, `infrastructure/constants.py` | — |
+| **The agent itself** (tools, callback order, plugins, App) | `app/agent.py` | `app/fast_api_app.py` (served app + Runner) | this file + [`AGENTS.md`](../AGENTS.md) |
+| **Memory & self-improvement** | `app/memory/add_memory_tool.py` | `auto_capture.py`, `review_fork.py`, `dream_review.py`, `user_profile.py`, `skill_curator.py` | [`docs/memory.md`](memory.md) |
+| **Sandbox / workspace / env interface** | `app/environment/base.py` (`Environment` contract), `app/sandbox/provider.py` (`SandboxProvider`), `app/sandbox/lifecycle.py` | `app/environment/local.py`, `app/environment/sandbox.py`, `sandbox/runtime/` (in-container shim), `app/environment_context.py`, `app/workspace_window.py` | [`docs/sandbox-lifecycle.md`](sandbox-lifecycle.md) |
+| **Exfil guard** | `app/guardrails/exfil_guard.py` | `guardrails/exfil_config.py` | [`docs/security-model.md`](security-model.md) |
+| **A2A** (JSON-RPC transport) | `app/a2a/routes.py` | `a2a/executor.py` (stream converter), `a2a/user_converter.py` (authenticated user_id), `a2a/datapart.py` | — |
+| **System prompt & per-turn steering** | `app/conversation/system_prompt.py` | `conversation/reminders.py` (volatile tier), `conversation/session_start.py`, `conversation/soul_loader.py` | — |
+| **Guardrails & halts** | `app/guardrails/guardrails_plugin.py` | `guardrails/policies.py`, `policy_grants.py`, `no_progress.py`, `repeated_failure.py` | [`docs/security-model.md`](security-model.md) |
+| **Tool-permission approval** | `app/guardrails/permission_guard.py` | `guardrails/permission_rules.py`, `guardrails/command_classify.py` | [`docs/permission-model.md`](permission-model.md) |
+| **Tools** (file/bash/web) | `app/tools/file_ops.py` | `tools/read.py` (merged text+media read), `tools/processes/` (bash+process), `tools/web_search.py` | — |
+| **Sub-agents / delegation** | `app/subagents/subagent.py` | `subagents/delegate.py` (blocking, still-internal), `subagents/spawn.py` (fire-and-forget, still-internal), `subagents/profiles.py`, `subagents/descriptions.py` | — |
+| **Context compaction** | `app/context/summarizer.py` | `context/tool_output_pruning.py`, `context/compaction_context.py` | [`docs/memory.md`](memory.md) |
+| **Scheduler (dream-review / snapshot)** | `app/scheduler/dream_review_endpoint.py` | `scheduler/snapshot_endpoint.py`, `scheduler/auth.py` | — |
+| **Routines** (unattended cron tasks in an isolated sandbox) | `app/routines/tools.py` | `routines/manifest.py`, `routines/run_context.py`, `scheduler/routine_store.py`, `scheduler/routine_postgres_store.py`, `scheduler/cron.py`, `scheduler/routine_tick_endpoint.py` | [`docs/routines.md`](routines.md) |
+| **Secrets** | `app/secrets/store.py` | `secrets/inject.py`, `secrets/dotenv.py`, `app/auth/oauth.py` (Connect Google) | — |
+| **Slash commands** | `app/commands/__init__.py` | `commands/dispatcher.py` | — |
+| **Models / LLM routing** | `app/models/dispatcher.py` | `models/registry.py`, `models/selector.py`, `models/media.py` | — |
+| **HTTP routers** (`/lha/*`, `/feedback`) | `app/api/` | one file per route (`sessions`, `state`, `tasks`, `memories`, `sandbox`, `secrets`, `uploads`, `feedback`); attached in `app/fast_api_app.py` (every router mounts; ship a subset by deleting `attach_*` calls) | [`docs/security-model.md`](security-model.md) |
+| **Feedback pipeline** | `app/feedback/sink.py` | `feedback/context.py`, `feedback/models.py`, `app/api/feedback.py` (route) | — |
+| **Telemetry / observability** | `app/telemetry/otel.py` | `telemetry/ui.py` (live web-panel tool log) | — |
+| **DB resilience / infra** | `app/infrastructure/db_resilience.py` | `infrastructure/resilient_session_service.py`, `infrastructure/memory_config.py`, `infrastructure/constants.py` | — |
 
 ## Where custom code earns its keep
 
@@ -279,16 +279,16 @@ read at all.
 Each is a real interface (a Protocol, a ContextVar, or an ordered callback chain) where custom
 code genuinely earns its keep. Roughly six:
 
-1. **Environment interface** — Horizon's `Environment` (`horizon/environment/base.py`, a
+1. **Environment interface** — Horizon's `Environment` (`app/environment/base.py`, a
    superset of ADK's `BaseEnvironment` adding `list_directory`/`delete_file`/`make_dir`/
    `download_zip`/`upload_zip`/`spawn_process` + the `on_host_fs` capability flag) behind a
    ContextVar. Tools dispatch by method/capability (never `isinstance` on a concrete
    class), so the same tool code runs on the local host
-   (`horizon/environment/local.py:LocalEnvironment`) or in a per-user Sandbox
+   (`app/environment/local.py:LocalEnvironment`) or in a per-user Sandbox
    — pluggable via `LHA_ENVIRONMENT_BACKEND` (string) or
-   `set_environment_provider(factory)`. (`horizon/environment_context.py` for the ContextVar
-   + `horizon/environment/` for the contract + local backend + `horizon/sandbox/` for the
-   Vertex backend + `horizon/conversation/session_start.py`'s `_build_environment`)
+   `set_environment_provider(factory)`. (`app/environment_context.py` for the ContextVar
+   + `app/environment/` for the contract + local backend + `app/sandbox/` for the
+   Vertex backend + `app/conversation/session_start.py`'s `_build_environment`)
 2. **Tool guardrails** — the ordered `before_tool` chain (`exfil_guard` Layer A →
    `policies_guard` Layer C → `permission_guard` Layer D, which runs last as the central
    interactive ask-layer and, for shell tools, classifies the command via
@@ -300,32 +300,32 @@ code genuinely earns its keep. Roughly six:
    material, credential reads, metadata-server access, upload-shaped commands to
    non-allowlisted hosts). See
    [`docs/security-model.md`](security-model.md) + [`docs/permission-model.md`](permission-model.md).
-   (`horizon/guardrails/`)
+   (`app/guardrails/`)
 3. **Per-user secrets** — a `SecretStore` Protocol (`SecretManagerStore` |
    `InMemorySecretStore`, selected by `LHA_SECRET_BACKEND`, overridable via
    `set_secret_store`) plus env injection (`secret_env`) and the "Connect Google" OAuth
    flow, so the agent acts with the *user's own* credentials **without the model ever
    seeing them**. Same shape as the env interface — a Protocol + a factory; ADK gives you
-   nothing here. (`horizon/secrets/` + `horizon/auth/oauth.py`)
+   nothing here. (`app/secrets/` + `app/auth/oauth.py`)
 4. **Sub-agent delegation + HITL resurfacing** — a blocking `delegate` and a
    fire-and-forget `agent` (`spawn`/`status`/`result`/`wait`/`cancel`/`list`), each with its
    own isolated context window and toolset. The delegate drives a *resumable* child
    (`build_resumable_child_runner`/`drive_child`) that pauses on a risky-op approval,
    bubbles it to the human, and resumes from the stored `FunctionResponse` — durable HITL
    without re-running the turn; a blocked child can also `ask_parent` to escalate one
-   free-text decision up the same path. (`horizon/subagents/`)
+   free-text decision up the same path. (`app/subagents/`)
 5. **Self-improvement loop** — throttled `after_agent` work: memory write-back
    (`auto_capture_callback`), skill promote/demote (`skill_curator_callback`), and a judge
    fork (`review_fork_callback`), plus the pre-compaction memory flush (`spawn_flush_fork`,
    fired by the summarizer *before* facts are lost to a lossy summary) and nightly
-   dream-review consolidation on Memory Bank. (`horizon/memory/`)
+   dream-review consolidation on Memory Bank. (`app/memory/`)
 6. **3-tier system prompt** — a constant tier built once as `Agent(static_instruction=
    build_static_instruction(...))`, so ADK's own request processor places it ahead of every
    callback instead of horizon hand-rolling a per-session cache; a per-session context tier
    (project file at cwd) still riding a `before_model_callback`; and a volatile per-turn
    tier (iteration count, last error, date, budget warnings, the env hint, the secrets
    line) injected as trailing system reminders so the cache prefix stays byte-stable.
-   (`horizon/conversation/system_prompt.py` + `horizon/conversation/reminders.py`)
+   (`app/conversation/system_prompt.py` + `app/conversation/reminders.py`)
 
 ### ADK / Vertex knobs — config you set, not code you own
 
@@ -336,7 +336,7 @@ at most supplies a prompt. Don't mistake these for interfaces:
   ADK's `LlmEventSummarizer` owns the lifecycle; `HorizonSummarizer` only swaps in a
   structured summarization prompt + a REFERENCE-ONLY banner. Its one genuinely custom idea,
   the pre-compaction memory flush, belongs to the self-improvement interface above.
-  (`horizon/context/summarizer.py`)
+  (`app/context/summarizer.py`)
 - **Resumability** — `ResumabilityConfig(is_resumable=True)`, one line; durable
   persistence is Vertex's Agent Platform Sessions. The custom value is the delegate *child* driver in
   interface 4, not resumability itself.
@@ -357,14 +357,14 @@ docs and in the [tree map](#backend-tree-map--where-to-start) rather than the in
   [`docs/routines.md`](routines.md)
 - **Scheduler** (dream-review / snapshot) — two cron-driven maintenance passes, neither an
   agent turn: dream-review is the self-improvement interface on a cron (no A2A handler, no
-  Task); snapshot is per-user sandbox snapshot+prune for TTL survival. (`horizon/scheduler/`)
+  Task); snapshot is per-user sandbox snapshot+prune for TTL survival. (`app/scheduler/`)
 
 ### Where the subsystems live
 
-- **Memory** → `horizon/memory/` + walkthrough in [`docs/memory.md`](memory.md)
-- **Sandbox / environment interface** → `horizon/sandbox/` + `horizon/environment_context.py` +
+- **Memory** → `app/memory/` + walkthrough in [`docs/memory.md`](memory.md)
+- **Sandbox / environment interface** → `app/sandbox/` + `app/environment_context.py` +
   walkthrough in [`docs/sandbox-lifecycle.md`](sandbox-lifecycle.md)
-- **Routines** (unattended cron tasks) → `horizon/routines/` + `horizon/scheduler/routine_*` +
+- **Routines** (unattended cron tasks) → `app/routines/` + `app/scheduler/routine_*` +
   walkthrough in [`docs/routines.md`](routines.md)
 
 To lift a subsystem into your own ADK app, copy its directory and wire it at the
@@ -377,14 +377,14 @@ Localize a symptom to its owner before changing code. The chains run in the orde
 
 | Symptom | Where to look | Why |
 |---|---|---|
-| A turn halts unexpectedly (`[halted: …]`) | `GuardrailsPlugin` (`horizon/guardrails/guardrails_plugin.py`) + `session.state["halt_reason"]` | A guard (iteration budget, no-progress, repeated-failure) set `halt_reason`; the plugin's `before_model` hook consumes it the next turn. Check which guard fired. |
+| A turn halts unexpectedly (`[halted: …]`) | `GuardrailsPlugin` (`app/guardrails/guardrails_plugin.py`) + `session.state["halt_reason"]` | A guard (iteration budget, no-progress, repeated-failure) set `halt_reason`; the plugin's `before_model` hook consumes it the next turn. Check which guard fired. |
 | A tool call is blocked or refused | the `before_tool` chain: `exfil_guard` (A) → `policies_guard` (C) → `permission_guard` (D) | Guards run in order; identify which one returned the error. A is secret/exfil, C is hard-deny + confirmation, D is the interactive ask. |
 | Model returns a 404 for a valid model | `GOOGLE_CLOUD_LOCATION` / Vertex enablement, **not** the model name | A Vertex region/enablement issue (e.g. set `global`); the registry key is fine. This is a Vertex-layer problem, not Horizon code. |
-| An exported env var (region/provider) seems ignored | `horizon/agent.py` top — `os.environ.setdefault(...)` | The agent uses `setdefault`, so a value you export *before* building wins; if it is set *after* import, the default already applied. |
-| Wrong model used for a session | `selected_model` state + `select_model_callback` (`horizon/models/selector.py`) | `/model` writes `selected_model`; `select_model_callback` (first in `before_model`) stamps it onto `llm_request.model`. If unset, `LHA_ROOT_MODEL` / the registry default applies. |
-| `<available_skills>` shows the wrong user's skills | `bind_session_skills_callback` (`horizon/tools/skill_reload.py`) | The skill toolset is module-global; `bind_session_skills_callback` (`before_agent`) repoints it at the active session's workspace each turn. |
-| A fact/preference isn't carried to the next session | `auto_capture_callback` (`horizon/memory/auto_capture.py`) + dream-review; prefetch via `PreloadMemoryTool` | Write-back is throttled `after_agent`, not a blanket flush; cross-session memory is Memory Bank, prefetched each turn — a miss is a capture or prefetch gap, not lost state. |
-| Model emits a dead `attachment://` link or leaks a signed URL | `redact_artifact_urls_callback` (`horizon/context/artifact_url_redaction.py`) + `_strip_fake_artifact_links` (`horizon/a2a/executor.py`) | The signed URL is redacted from the model's view; the client renders the artifact from the FilePart. Fabricated `attachment:`/`sandbox:` links are stripped as a backstop. |
+| An exported env var (region/provider) seems ignored | `app/agent.py` top — `os.environ.setdefault(...)` | The agent uses `setdefault`, so a value you export *before* building wins; if it is set *after* import, the default already applied. |
+| Wrong model used for a session | `selected_model` state + `select_model_callback` (`app/models/selector.py`) | `/model` writes `selected_model`; `select_model_callback` (first in `before_model`) stamps it onto `llm_request.model`. If unset, `LHA_ROOT_MODEL` / the registry default applies. |
+| `<available_skills>` shows the wrong user's skills | `bind_session_skills_callback` (`app/tools/skill_reload.py`) | The skill toolset is module-global; `bind_session_skills_callback` (`before_agent`) repoints it at the active session's workspace each turn. |
+| A fact/preference isn't carried to the next session | `auto_capture_callback` (`app/memory/auto_capture.py`) + dream-review; prefetch via `PreloadMemoryTool` | Write-back is throttled `after_agent`, not a blanket flush; cross-session memory is Memory Bank, prefetched each turn — a miss is a capture or prefetch gap, not lost state. |
+| Model emits a dead `attachment://` link or leaks a signed URL | `redact_artifact_urls_callback` (`app/context/artifact_url_redaction.py`) + `_strip_fake_artifact_links` (`app/a2a/executor.py`) | The signed URL is redacted from the model's view; the client renders the artifact from the FilePart. Fabricated `attachment:`/`sandbox:` links are stripped as a backstop. |
 
 ## Design tradeoffs
 

@@ -14,7 +14,7 @@
 
 """Skill curator pass — promotes/flags skills based on per-session telemetry.
 
-Pins the contract for ``horizon.memory.skill_curator``:
+Pins the contract for ``app.memory.skill_curator``:
 
 * ``run_skill_curator(*, telemetry, memory_service, app_name, user_id,
   session_id)`` reads the telemetry dict, writes Memory Bank entries for
@@ -28,7 +28,7 @@ Pins the contract for ``horizon.memory.skill_curator``:
 The promotion step runs inline as an ``after_agent_callback`` at end of
 invocation; a background/scheduled curator is out of scope.
 
-Thresholds (see ``horizon/memory/skill_curator.py`` constants):
+Thresholds (see ``app/memory/skill_curator.py`` constants):
 * ``MIN_MANAGES_FOR_PROMOTION = 3`` — enough successful edits in one
   session to call a skill ``reliable``.
 * ``MIN_VIEWS_FOR_REVIEW = 5`` — frequently read but never edited;
@@ -69,7 +69,7 @@ async def _all_memory_text(
 
 
 def test_module_exposes_thresholds_and_entrypoints():
-    from horizon.memory.skill_curator import (
+    from app.memory.skill_curator import (
         MIN_MANAGES_FOR_PROMOTION,
         MIN_VIEWS_FOR_REVIEW,
         run_skill_curator,
@@ -92,7 +92,7 @@ class TestPromotion:
     async def test_three_manages_promotes(
         self, fake_memory_service: InMemoryMemoryService
     ):
-        from horizon.memory.skill_curator import run_skill_curator
+        from app.memory.skill_curator import run_skill_curator
 
         telem = {
             "git-rebase": {
@@ -117,7 +117,7 @@ class TestPromotion:
     async def test_two_manages_does_not_promote(
         self, fake_memory_service: InMemoryMemoryService
     ):
-        from horizon.memory.skill_curator import run_skill_curator
+        from app.memory.skill_curator import run_skill_curator
 
         telem = {
             "git-rebase": {
@@ -140,7 +140,7 @@ class TestPromotion:
     async def test_many_manages_still_one_entry(
         self, fake_memory_service: InMemoryMemoryService
     ):
-        from horizon.memory.skill_curator import run_skill_curator
+        from app.memory.skill_curator import run_skill_curator
 
         telem = {
             "git-rebase": {
@@ -172,7 +172,7 @@ class TestReview:
     async def test_five_views_zero_manages_flags_review(
         self, fake_memory_service: InMemoryMemoryService
     ):
-        from horizon.memory.skill_curator import run_skill_curator
+        from app.memory.skill_curator import run_skill_curator
 
         telem = {
             "docs-reader": {
@@ -198,7 +198,7 @@ class TestReview:
     async def test_five_views_with_manages_does_not_flag_review(
         self, fake_memory_service: InMemoryMemoryService
     ):
-        from horizon.memory.skill_curator import run_skill_curator
+        from app.memory.skill_curator import run_skill_curator
 
         telem = {
             "active-skill": {
@@ -222,7 +222,7 @@ class TestReview:
     async def test_four_views_zero_manages_does_not_flag(
         self, fake_memory_service: InMemoryMemoryService
     ):
-        from horizon.memory.skill_curator import run_skill_curator
+        from app.memory.skill_curator import run_skill_curator
 
         telem = {
             "low-views": {
@@ -253,7 +253,7 @@ class TestIdempotency:
     async def test_promote_is_idempotent(
         self, fake_memory_service: InMemoryMemoryService
     ):
-        from horizon.memory.skill_curator import run_skill_curator
+        from app.memory.skill_curator import run_skill_curator
 
         telem = {
             "git-rebase": {
@@ -281,7 +281,7 @@ class TestIdempotency:
     async def test_review_is_idempotent(
         self, fake_memory_service: InMemoryMemoryService
     ):
-        from horizon.memory.skill_curator import run_skill_curator
+        from app.memory.skill_curator import run_skill_curator
 
         telem = {
             "docs-reader": {
@@ -314,7 +314,7 @@ class TestMultiSkill:
     async def test_only_qualifying_skills_emit_entries(
         self, fake_memory_service: InMemoryMemoryService
     ):
-        from horizon.memory.skill_curator import run_skill_curator
+        from app.memory.skill_curator import run_skill_curator
 
         telem = {
             "promoted": {
@@ -366,7 +366,7 @@ class TestEmpty:
     async def test_empty_telemetry_is_noop(
         self, fake_memory_service: InMemoryMemoryService
     ):
-        from horizon.memory.skill_curator import run_skill_curator
+        from app.memory.skill_curator import run_skill_curator
 
         await run_skill_curator(
             telemetry={},
@@ -383,7 +383,7 @@ class TestEmpty:
     async def test_none_telemetry_is_noop(
         self, fake_memory_service: InMemoryMemoryService
     ):
-        from horizon.memory.skill_curator import run_skill_curator
+        from app.memory.skill_curator import run_skill_curator
 
         await run_skill_curator(
             telemetry=None,
@@ -404,8 +404,8 @@ class TestCallback:
     async def test_callback_runs_curator_with_session_state(
         self, fake_memory_service: InMemoryMemoryService
     ):
-        from horizon.memory.skill_curator import skill_curator_callback
-        from horizon.memory.skill_telemetry import SKILL_TELEMETRY_STATE_KEY
+        from app.memory.skill_curator import skill_curator_callback
+        from app.memory.skill_telemetry import SKILL_TELEMETRY_STATE_KEY
 
         state = {
             SKILL_TELEMETRY_STATE_KEY: {
@@ -434,8 +434,8 @@ class TestCallback:
         assert len(promoted) == 1
 
     async def test_callback_noop_without_memory_service(self):
-        from horizon.memory.skill_curator import skill_curator_callback
-        from horizon.memory.skill_telemetry import SKILL_TELEMETRY_STATE_KEY
+        from app.memory.skill_curator import skill_curator_callback
+        from app.memory.skill_telemetry import SKILL_TELEMETRY_STATE_KEY
 
         state = {
             SKILL_TELEMETRY_STATE_KEY: {
@@ -462,7 +462,7 @@ class TestCallback:
     async def test_callback_noop_without_telemetry(
         self, fake_memory_service: InMemoryMemoryService
     ):
-        from horizon.memory.skill_curator import skill_curator_callback
+        from app.memory.skill_curator import skill_curator_callback
 
         callback_context = SimpleNamespace(
             state={},

@@ -20,9 +20,9 @@ from datetime import UTC, datetime
 
 import pytest
 
-from horizon.auth.identity import user_identity_scope
-from horizon.commands import BUILTIN_COMMAND_REGISTRY
-from horizon.scheduler.routine_store import (
+from app.auth.identity import user_identity_scope
+from app.commands import BUILTIN_COMMAND_REGISTRY
+from app.scheduler.routine_store import (
     InMemoryRoutineStore,
     RoutineRow,
     reset_routine_store,
@@ -65,7 +65,7 @@ async def test_routines_lists_and_removes():
     await store.add(row)
 
     # Inject the store as the singleton so the command finds it
-    import horizon.scheduler.routine_store as store_mod
+    import app.scheduler.routine_store as store_mod
 
     store_mod._singleton = store
 

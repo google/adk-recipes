@@ -24,7 +24,7 @@ from __future__ import annotations
 import pytest
 from google.genai.types import Content, FunctionResponse, Part
 
-from horizon.context.artifact_url_redaction import (
+from app.context.artifact_url_redaction import (
     REDACTED_URL,
     redact_artifact_urls,
     redact_artifact_urls_callback,

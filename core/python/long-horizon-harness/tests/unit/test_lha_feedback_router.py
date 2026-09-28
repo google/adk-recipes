@@ -23,7 +23,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-import horizon.api.feedback as feedback_router
+import app.api.feedback as feedback_router
 
 
 @pytest.fixture()

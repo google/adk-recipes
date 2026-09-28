@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import pytest
 
-from horizon.guardrails.command_classify import (
+from app.guardrails.command_classify import (
     command_prefix,
     has_command_substitution,
     has_redirection,
@@ -191,7 +191,7 @@ def test_derived_prefix_always_matches_its_own_command():
     must match that command, or approving it re-prompts forever."""
     import itertools
 
-    from horizon.guardrails.permission_rules import _prefix_matches
+    from app.guardrails.permission_rules import _prefix_matches
 
     parts = ["sudo", "env", "FOO=b", "bq", "./r.sh", "--q", "-n", "--p=v", "--"]
     words = ["query", "rm", "default", "x.y"]

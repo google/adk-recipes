@@ -29,7 +29,7 @@ _ALLOWED_SUBDIRS = frozenset({"references", "assets", "scripts"})
 def test_policy_builtin_exists_and_parses():
     from google.adk.skills import load_skill_from_dir
 
-    from horizon.tools.skill_loader import builtin_skills_root
+    from app.tools.skill_loader import builtin_skills_root
 
     skill_dir = builtin_skills_root() / "policy"
     skill_md = skill_dir / "SKILL.md"
@@ -46,7 +46,7 @@ def test_policy_builtin_directory_layout():
     Guards against accidentally committing scratch files that would
     end up shipped in the wheel.
     """
-    from horizon.tools.skill_loader import builtin_skills_root
+    from app.tools.skill_loader import builtin_skills_root
 
     policy_dir = builtin_skills_root() / "policy"
     for entry in policy_dir.iterdir():
@@ -65,7 +65,7 @@ def test_policy_builtin_packaged_with_app():
     rides in the wheel as long as packaging includes non-.py data files
     under app/. If this test fails, ``builtin_skills_root()`` is pointing
     somewhere unexpected."""
-    from horizon import tools as app_tools
+    from app import tools as app_tools
 
     app_root = Path(app_tools.__file__).resolve().parent.parent
     expected = app_root / "builtin_skills" / "policy" / "SKILL.md"

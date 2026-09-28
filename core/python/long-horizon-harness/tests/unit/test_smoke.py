@@ -26,7 +26,7 @@ from google.adk.sessions import InMemorySessionService
 
 def test_app_module_loads() -> None:
     """The app entrypoint must import without side-effects that break tests."""
-    from horizon import agent as agent_module
+    from app import agent as agent_module
 
     assert agent_module.app is not None
     assert agent_module.root_agent is not None
@@ -44,7 +44,7 @@ def test_fake_services_are_isolated(
 def test_runner_factory_builds_runner(
     runner_factory: Callable[..., Runner],
 ) -> None:
-    from horizon.agent import root_agent
+    from app.agent import root_agent
 
     runner = runner_factory(agent=root_agent, app_name="smoke")
     assert isinstance(runner, Runner)

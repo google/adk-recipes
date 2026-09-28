@@ -28,16 +28,16 @@ def _ctx(state: dict) -> SimpleNamespace:
 
 
 async def test_registered():
-    from horizon.commands import BUILTIN_COMMAND_REGISTRY
+    from app.commands import BUILTIN_COMMAND_REGISTRY
 
     assert "model" in BUILTIN_COMMAND_REGISTRY
 
 
 async def test_list_shows_current_and_available(monkeypatch):
     monkeypatch.delenv("LHA_ROOT_MODEL", raising=False)
-    from horizon.commands import BUILTIN_COMMAND_REGISTRY
-    from horizon.models import DEFAULT_MODEL_NAME
-    from horizon.models.registry import MODEL_REGISTRY
+    from app.commands import BUILTIN_COMMAND_REGISTRY
+    from app.models import DEFAULT_MODEL_NAME
+    from app.models.registry import MODEL_REGISTRY
 
     handler = BUILTIN_COMMAND_REGISTRY["model"]
     out = await handler("", _ctx({}))
@@ -47,9 +47,9 @@ async def test_list_shows_current_and_available(monkeypatch):
 
 
 async def test_list_reflects_session_override():
-    from horizon.commands import BUILTIN_COMMAND_REGISTRY
-    from horizon.models import DEFAULT_MODEL_NAME
-    from horizon.models.registry import MODEL_REGISTRY
+    from app.commands import BUILTIN_COMMAND_REGISTRY
+    from app.models import DEFAULT_MODEL_NAME
+    from app.models.registry import MODEL_REGISTRY
 
     other = next(n for n in MODEL_REGISTRY if n != DEFAULT_MODEL_NAME)
     handler = BUILTIN_COMMAND_REGISTRY["model"]
@@ -59,9 +59,9 @@ async def test_list_reflects_session_override():
 
 
 async def test_set_valid_model_updates_state():
-    from horizon.commands import BUILTIN_COMMAND_REGISTRY
-    from horizon.models import DEFAULT_MODEL_NAME
-    from horizon.models.registry import MODEL_REGISTRY
+    from app.commands import BUILTIN_COMMAND_REGISTRY
+    from app.models import DEFAULT_MODEL_NAME
+    from app.models.registry import MODEL_REGISTRY
 
     other = next(n for n in MODEL_REGISTRY if n != DEFAULT_MODEL_NAME)
     handler = BUILTIN_COMMAND_REGISTRY["model"]
@@ -72,7 +72,7 @@ async def test_set_valid_model_updates_state():
 
 
 async def test_set_invalid_model_rejected():
-    from horizon.commands import BUILTIN_COMMAND_REGISTRY
+    from app.commands import BUILTIN_COMMAND_REGISTRY
 
     handler = BUILTIN_COMMAND_REGISTRY["model"]
     state: dict = {}

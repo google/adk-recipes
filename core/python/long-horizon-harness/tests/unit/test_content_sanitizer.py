@@ -26,7 +26,7 @@ def _json_part() -> Part:
 
 
 def test_json_inline_data_becomes_text_placeholder():
-    from horizon.memory.content_sanitizer import sanitize_content_for_memory
+    from app.memory.content_sanitizer import sanitize_content_for_memory
 
     content = Content(
         role="user", parts=[Part(text="see attached"), _json_part()]
@@ -40,7 +40,7 @@ def test_json_inline_data_becomes_text_placeholder():
 
 
 def test_text_parts_pass_through_unchanged():
-    from horizon.memory.content_sanitizer import sanitize_content_for_memory
+    from app.memory.content_sanitizer import sanitize_content_for_memory
 
     content = Content(role="user", parts=[Part(text="hello")])
     out = sanitize_content_for_memory(content)
@@ -50,7 +50,7 @@ def test_text_parts_pass_through_unchanged():
 
 
 def test_image_inline_data_is_preserved():
-    from horizon.memory.content_sanitizer import sanitize_content_for_memory
+    from app.memory.content_sanitizer import sanitize_content_for_memory
 
     img = Part(inline_data=Blob(mime_type="image/png", data=b"\x89PNG"))
     content = Content(role="user", parts=[img])
@@ -61,7 +61,7 @@ def test_image_inline_data_is_preserved():
 
 
 def test_pdf_inline_data_is_preserved():
-    from horizon.memory.content_sanitizer import sanitize_content_for_memory
+    from app.memory.content_sanitizer import sanitize_content_for_memory
 
     pdf = Part(inline_data=Blob(mime_type="application/pdf", data=b"%PDF-"))
     content = Content(role="user", parts=[pdf])
@@ -72,7 +72,7 @@ def test_pdf_inline_data_is_preserved():
 
 
 def test_csv_and_octet_stream_are_degraded():
-    from horizon.memory.content_sanitizer import sanitize_content_for_memory
+    from app.memory.content_sanitizer import sanitize_content_for_memory
 
     parts = [
         Part(inline_data=Blob(mime_type="text/csv", data=b"a,b")),
@@ -87,13 +87,13 @@ def test_csv_and_octet_stream_are_degraded():
 
 
 def test_none_content_returns_none():
-    from horizon.memory.content_sanitizer import sanitize_content_for_memory
+    from app.memory.content_sanitizer import sanitize_content_for_memory
 
     assert sanitize_content_for_memory(None) is None
 
 
 def test_content_without_parts_is_returned_as_is():
-    from horizon.memory.content_sanitizer import sanitize_content_for_memory
+    from app.memory.content_sanitizer import sanitize_content_for_memory
 
     content = Content(role="user", parts=None)
     out = sanitize_content_for_memory(content)
@@ -103,7 +103,7 @@ def test_content_without_parts_is_returned_as_is():
 def test_function_response_part_passes_through():
     from google.genai.types import FunctionResponse
 
-    from horizon.memory.content_sanitizer import sanitize_content_for_memory
+    from app.memory.content_sanitizer import sanitize_content_for_memory
 
     fr = Part(
         function_response=FunctionResponse(name="t", response={"ok": True})

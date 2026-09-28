@@ -46,7 +46,7 @@ from vertexai._genai.types import (
     ReasoningEngineContextSpec,
 )
 
-from horizon.infrastructure.memory_config import memory_bank_config
+from app.infrastructure.memory_config import memory_bank_config
 
 
 def _structured_dump(spec: object) -> list[Any]:

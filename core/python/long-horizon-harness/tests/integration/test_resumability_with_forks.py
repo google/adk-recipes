@@ -46,12 +46,12 @@ from google.adk.events import Event, EventActions
 from google.adk.memory import InMemoryMemoryService
 from google.adk.sessions import InMemorySessionService
 
-from horizon.agent import app as root_app
-from horizon.api.state import _latest_pending_confirmation
-from horizon.memory import _throttle
-from horizon.memory.auto_capture import auto_capture_callback
-from horizon.memory.review_fork import review_fork_callback
-from horizon.tools.clarify import clarify
+from app.agent import app as root_app
+from app.api.state import _latest_pending_confirmation
+from app.memory import _throttle
+from app.memory.auto_capture import auto_capture_callback
+from app.memory.review_fork import review_fork_callback
+from app.tools.clarify import clarify
 
 
 def test_root_app_has_resumability_enabled() -> None:

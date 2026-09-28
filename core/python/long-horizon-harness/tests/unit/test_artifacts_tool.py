@@ -29,7 +29,7 @@ from typing import Any
 import pytest
 from google.genai import types as genai_types
 
-from horizon.environment import LocalEnvironment
+from app.environment import LocalEnvironment
 
 
 class _FakeActions:
@@ -94,7 +94,7 @@ def local_env(
 ) -> LocalEnvironment:
     """Wire a LocalEnvironment so the dispatch tool has real bytes to
     read/write through the env contract."""
-    from horizon.environment_context import set_active_environment
+    from app.environment_context import set_active_environment
 
     env = LocalEnvironment(working_dir=tmp_path)
     set_active_environment(env)
@@ -110,7 +110,7 @@ pytestmark = pytest.mark.asyncio
 
 
 async def test_module_exposes_dispatch_entrypoint() -> None:
-    from horizon.tools import artifacts
+    from app.tools import artifacts
 
     assert callable(artifacts.artifact)
 
@@ -125,7 +125,7 @@ async def test_save_reads_from_env_and_stores_in_context(
 ) -> None:
     """Happy path: file exists in the workspace, save copies the bytes
     into the artifact service and returns the version."""
-    from horizon.tools.artifacts import artifact
+    from app.tools.artifacts import artifact
 
     payload = b"col1,col2\n1,2\n3,4\n"
     (local_env.working_dir / "report.csv").write_bytes(payload)
@@ -150,7 +150,7 @@ async def test_save_strips_directory_prefix(
 ) -> None:
     """The artifact name is just the basename — the workspace path is
     internal detail. ``reports/Q3/summary.csv`` becomes ``summary.csv``."""
-    from horizon.tools.artifacts import artifact
+    from app.tools.artifacts import artifact
 
     nested = local_env.working_dir / "reports" / "Q3"
     nested.mkdir(parents=True)
@@ -170,7 +170,7 @@ async def test_save_handles_binary_payload(
     local_env: LocalEnvironment, fake_ctx: _FakeToolContext
 ) -> None:
     """Binary bytes must survive the round-trip — no UTF-8 decode pass."""
-    from horizon.tools.artifacts import artifact
+    from app.tools.artifacts import artifact
 
     payload = bytes([0x00, 0xFF, 0x80, 0x01])
     (local_env.working_dir / "blob.bin").write_bytes(payload)
@@ -190,7 +190,7 @@ async def test_save_missing_file_returns_structured_error(
     """The tool returns a structured error rather than raising — callers
     in the agent loop are not equipped to handle exceptions, and a clear
     error message lets the LLM choose to recover."""
-    from horizon.tools.artifacts import artifact
+    from app.tools.artifacts import artifact
 
     result = await artifact(
         action="save", path="does_not_exist.txt", tool_context=fake_ctx
@@ -207,7 +207,7 @@ async def test_save_records_artifact_delta_for_a2a_emission(
     """The A2A artifact interceptor only emits FileParts to the client when
     ``actions.artifact_delta`` is populated. Without this, generated files
     persist in the artifact service but never reach the UI."""
-    from horizon.tools.artifacts import artifact
+    from app.tools.artifacts import artifact
 
     (local_env.working_dir / "chart.png").write_bytes(b"\x89PNG\r\nfake")
     await artifact(action="save", path="chart.png", tool_context=fake_ctx)
@@ -221,7 +221,7 @@ async def test_save_mime_from_bytes_not_extension(
     """A file saved as .png whose bytes are JPEG must carry image/jpeg, so the
     FilePart re-sent to the model on a later turn isn't rejected for a
     media-type mismatch."""
-    from horizon.tools.artifacts import artifact
+    from app.tools.artifacts import artifact
 
     jpeg = b"\xff\xd8\xff\xe0\x00\x10JFIF" + b"\x00" * 8
     (local_env.working_dir / "out.png").write_bytes(jpeg)
@@ -240,7 +240,7 @@ async def test_save_sets_display_name_for_a2a_filepart_name(
     the FilePart's ``name`` field. Without it, the UI receives ``name=None``
     and falls back to a generic "attachment.png", breaking downloads of
     generated files like "damped_oscillator.png"."""
-    from horizon.tools.artifacts import artifact
+    from app.tools.artifacts import artifact
 
     (local_env.working_dir / "damped_oscillator.png").write_bytes(
         b"\x89PNG\r\nfake"
@@ -261,7 +261,7 @@ async def test_save_returns_increasing_version_on_resave(
     """Re-saving the same filename returns a higher version — the artifact
     service handles versioning, and the tool surfaces what version was
     assigned so the agent can disambiguate later."""
-    from horizon.tools.artifacts import artifact
+    from app.tools.artifacts import artifact
 
     (local_env.working_dir / "report.csv").write_bytes(b"v1")
     r1 = await artifact(action="save", path="report.csv", tool_context=fake_ctx)
@@ -283,7 +283,7 @@ async def test_load_writes_to_env(
 ) -> None:
     """Symmetric to save: pull a stored artifact and write it into the
     workspace at the requested destination path."""
-    from horizon.tools.artifacts import artifact
+    from app.tools.artifacts import artifact
 
     payload = b"loaded-bytes-here"
     part = genai_types.Part.from_bytes(data=payload, mime_type="text/plain")
@@ -305,7 +305,7 @@ async def test_load_writes_to_env(
 async def test_load_missing_name_returns_structured_error(
     local_env: LocalEnvironment, fake_ctx: _FakeToolContext
 ) -> None:
-    from horizon.tools.artifacts import artifact
+    from app.tools.artifacts import artifact
 
     result = await artifact(
         action="load",
@@ -327,7 +327,7 @@ class TestDispatchErrors:
     async def test_save_missing_path_rejected(
         self, local_env: LocalEnvironment, fake_ctx: _FakeToolContext
     ) -> None:
-        from horizon.tools.artifacts import artifact
+        from app.tools.artifacts import artifact
 
         result = await artifact(action="save", tool_context=fake_ctx)
         assert result["success"] is False
@@ -336,7 +336,7 @@ class TestDispatchErrors:
     async def test_load_missing_name_rejected(
         self, local_env: LocalEnvironment, fake_ctx: _FakeToolContext
     ) -> None:
-        from horizon.tools.artifacts import artifact
+        from app.tools.artifacts import artifact
 
         result = await artifact(
             action="load", dest_path="dest.txt", tool_context=fake_ctx
@@ -347,7 +347,7 @@ class TestDispatchErrors:
     async def test_load_missing_dest_path_rejected(
         self, local_env: LocalEnvironment, fake_ctx: _FakeToolContext
     ) -> None:
-        from horizon.tools.artifacts import artifact
+        from app.tools.artifacts import artifact
 
         result = await artifact(
             action="load", name="foo.txt", tool_context=fake_ctx
@@ -358,7 +358,7 @@ class TestDispatchErrors:
     async def test_unknown_action_rejected(
         self, local_env: LocalEnvironment, fake_ctx: _FakeToolContext
     ) -> None:
-        from horizon.tools.artifacts import artifact
+        from app.tools.artifacts import artifact
 
         result = await artifact(
             action="banana",  # type: ignore[arg-type]

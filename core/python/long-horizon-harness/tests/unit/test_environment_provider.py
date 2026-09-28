@@ -12,9 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import horizon.environment_context as ec
-from horizon.conversation.session_start import _build_environment
-from horizon.environment import LocalEnvironment
+import app.environment_context as ec
+from app.conversation.session_start import _build_environment
+from app.environment import LocalEnvironment
 
 
 class _DummyEnv(LocalEnvironment):

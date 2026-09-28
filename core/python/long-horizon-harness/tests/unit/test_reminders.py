@@ -22,7 +22,7 @@ import pytest
 from google.adk.models import LlmRequest
 from google.genai import types
 
-from horizon.conversation.reminders import (
+from app.conversation.reminders import (
     REMINDER_CLOSE,
     REMINDER_OPEN,
     build_budget_reminder,
@@ -123,8 +123,8 @@ class TestSecretsReminder:
 
     @pytest.mark.asyncio
     async def test_none_when_no_secrets(self):
-        from horizon.secrets import set_secret_store
-        from horizon.secrets.store import SecretManagerStore
+        from app.secrets import set_secret_store
+        from app.secrets.store import SecretManagerStore
         from tests.unit.test_secret_store import FakeSecretClient
 
         store = SecretManagerStore(client=FakeSecretClient(), project_id="proj")
@@ -136,8 +136,8 @@ class TestSecretsReminder:
 
     @pytest.mark.asyncio
     async def test_wraps_the_secrets_line_when_present(self):
-        from horizon.secrets import set_secret_store
-        from horizon.secrets.store import SecretManagerStore
+        from app.secrets import set_secret_store
+        from app.secrets.store import SecretManagerStore
         from tests.unit.test_secret_store import FakeSecretClient
 
         store = SecretManagerStore(client=FakeSecretClient(), project_id="proj")
@@ -182,7 +182,7 @@ class TestReminderInjectionCallbackIncludesEnvAndSecrets:
 
 class TestFocusReminder:
     def test_volatile_includes_focus_when_window_set(self):
-        from horizon.workspace_window import WORKSPACE_WINDOW_STATE_KEY
+        from app.workspace_window import WORKSPACE_WINDOW_STATE_KEY
 
         out = build_volatile_reminder(
             state={WORKSPACE_WINDOW_STATE_KEY: ["projA"]}

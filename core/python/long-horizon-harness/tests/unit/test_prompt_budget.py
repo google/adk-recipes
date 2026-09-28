@@ -28,8 +28,8 @@ import inspect
 import pytest
 from google.adk.models import LlmRequest
 
-from horizon.agent import _SKILL_TOOLSET, root_agent
-from horizon.conversation.system_prompt import build_static_instruction
+from app.agent import _SKILL_TOOLSET, root_agent
+from app.conversation.system_prompt import build_static_instruction
 
 # Two coarse guards, deliberately not a per-component ratchet set.
 #
@@ -69,7 +69,7 @@ async def _measure() -> dict[str, int]:
     index = len(skills_block) - preamble if idx >= 0 else 0
 
     try:
-        from horizon.subagents.descriptions import _build_suffix
+        from app.subagents.descriptions import _build_suffix
 
         suffix = len(_build_suffix())
     except Exception:

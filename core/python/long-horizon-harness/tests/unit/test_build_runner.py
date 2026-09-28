@@ -14,7 +14,7 @@
 
 from google.adk.runners import Runner
 
-from horizon.fast_api_app import build_runner
+from app.fast_api_app import build_runner
 
 
 def test_build_runner_returns_runner_under_in_memory_env(monkeypatch):

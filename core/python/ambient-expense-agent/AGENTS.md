@@ -28,7 +28,7 @@ approval UI, and Cloud Monitoring email alerts, all provisioned by **Terraform**
 - **Scenarios Path**: none — this recipe ships **no eval datasets** and no
   `tests/eval/` directory; nothing is wired into `make test`.
 - What exists instead lives under **`tests/`**:
-  - `tests/test_runnability.py` — imports `expense_agent.agent`, patches
+  - `tests/test_runnability.py` — imports `app.agent`, patches
     `google.auth.default()`, and asserts `root_agent` is defined (a smoke test).
   - `tests/test_integration.py` — drives the **full flow in-process** over
     `httpx.ASGITransport` (no real servers): Pub/Sub trigger → auto-approve,
@@ -42,7 +42,7 @@ approval UI, and Cloud Monitoring email alerts, all provisioned by **Terraform**
 
 ```
 expense published to Pub/Sub topic "expense-reports"
-   -> authenticated OIDC push -> POST /apps/expense_agent/trigger/pubsub
+   -> authenticated OIDC push -> POST /apps/app/trigger/pubsub
    -> parse_expense_email (base64/plain JSON -> ExpenseData fields)
    -> route_by_amount ($100 threshold, stashes expense_data in ctx.state)
         |                                   |
@@ -70,7 +70,7 @@ is not held for the human; the HITL resume is entirely out-of-band.
 ## Most interesting files to study (in order)
 
 ### Trigger server (the ambient entry point)
-1. **`expense_agent/fast_api_app.py`** — the whole "ambient" seam. Builds the ADK
+1. **`app/fast_api_app.py`** — the whole "ambient" seam. Builds the ADK
    app with `get_fast_api_app(..., trigger_sources=["pubsub"])` so Pub/Sub can
    POST expenses to `/apps/{app}/trigger/pubsub`. Adds middleware that
    **normalizes** `projects/.../subscriptions/NAME` → `NAME`, because the ADK
@@ -106,17 +106,17 @@ is not held for the human; the HITL resume is entirely out-of-band.
    service-to-service auth; locally it calls the backend unauthenticated.
 
 ### Agent graph & config (read last)
-7. **`expense_agent/config.py`** — the auth bootstrap and the two knobs. Picks
+7. **`app/config.py`** — the auth bootstrap and the two knobs. Picks
    AI Studio if `GOOGLE_API_KEY` is set, else Vertex via `google.auth.default()`
    **at import time**. Exposes `model` (from `MODEL_NAME` env) and
    `review_threshold = 100.0`.
-8. **`expense_agent/agent.py`** — the payoff, once you understand how events
+8. **`app/agent.py`** — the payoff, once you understand how events
    arrive and approvals flow back. Defines the `ExpenseData` Pydantic schema, the
    function nodes (`parse_expense_email`, `route_by_amount`, `auto_approve`,
    `request_approval`, `process_decision`), the LLM `review_agent`
    (`emit_expense_alert` tool), and the **`Workflow` graph** that stitches them
    together — a mixed function/LLM graph with conditional routing and a
-   `RequestInput` HITL pause. `expense_agent/__init__.py` runs `load_dotenv()`
+   `RequestInput` HITL pause. `app/__init__.py` runs `load_dotenv()`
    before the submodule imports (hence the `# noqa: E402`).
 
 ## Data handling
@@ -194,6 +194,6 @@ is not held for the human; the HITL resume is entirely out-of-band.
   `uv.lock`, and `Dockerfile`) — a generic **ADK HITL approval proxy**. It has no
   code coupling to the backend beyond the ADK session-API contract; point it at
   any ADK agent via `BACKEND_URL`, `APP_NAME`, and `PUBSUB_SUBSCRIPTION`.
-- There is **no code coupling into `expense_agent/`**: the agent is configured
+- There is **no code coupling into `app/`**: the agent is configured
   purely through env (`MODEL_NAME`, `GOOGLE_API_KEY` / `GOOGLE_CLOUD_*`), and the
   frontend reaches it only over HTTP.

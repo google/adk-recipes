@@ -26,7 +26,7 @@ import pytest
 from google.adk.events.event import Event
 from google.genai.types import Content, FunctionResponse, Part
 
-from horizon.context.tool_output_pruning import (
+from app.context.tool_output_pruning import (
     PRUNE_MARKER,
     prune_tool_outputs,
     prune_tool_outputs_callback,
@@ -101,7 +101,7 @@ class TestPruneTransform:
         # "re-run the tool if needed" means re-running a multi-minute,
         # multi-dollar agent, or re-interrupting the user — neither is a
         # sane recovery for a pruned part.
-        from horizon.tools import names
+        from app.tools import names
 
         events = [
             _tool_event(names.SUBAGENT, _big(80_000), ts=1.0),

@@ -14,15 +14,15 @@
 
 import pytest
 
-from horizon.environment import LocalEnvironment
-from horizon.environment_context import set_active_environment
-from horizon.secrets import (
+from app.environment import LocalEnvironment
+from app.environment_context import set_active_environment
+from app.secrets import (
     reset_routine_secret_scope,
     secret_env,
     set_routine_secret_scope,
     set_secret_store,
 )
-from horizon.secrets.store import SecretManagerStore
+from app.secrets.store import SecretManagerStore
 from tests.unit.test_secret_store import FakeSecretClient
 
 

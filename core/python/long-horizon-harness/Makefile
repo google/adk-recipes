@@ -4,7 +4,7 @@
 
 BACKEND_PORT             ?= 8001
 WEB_PORT                 ?= 3000
-APP_MODULE               ?= horizon.fast_api_app:app
+APP_MODULE               ?= app.fast_api_app:app
 LHA_ENVIRONMENT_BACKEND ?= local
 
 # PROJECT_ID defaults to whatever `gcloud config get-value project` returns

@@ -14,17 +14,17 @@
 
 import pytest
 
-from horizon.auth.oauth import (
+from app.auth.oauth import (
     GCP_EXPIRES_KEY,
     GCP_TOKEN_KEY,
     GWS_EXPIRES_KEY,
     GWS_META_KEY,
     GWS_TOKEN_KEY,
 )
-from horizon.environment import LocalEnvironment
-from horizon.environment_context import set_active_environment
-from horizon.secrets import secret_env, set_secret_store
-from horizon.secrets.store import SecretManagerStore
+from app.environment import LocalEnvironment
+from app.environment_context import set_active_environment
+from app.secrets import secret_env, set_secret_store
+from app.secrets.store import SecretManagerStore
 from tests.unit.test_secret_store import FakeSecretClient
 
 
@@ -57,7 +57,7 @@ async def test_secret_env_uses_environment_owner(
 async def test_secret_env_falls_back_to_context_user(wired_store, tmp_path):
     await wired_store.set_secret("bob@x", "K", "v")
     set_active_environment(LocalEnvironment(working_dir=tmp_path))
-    from horizon.auth.identity import _user_id_var
+    from app.auth.identity import _user_id_var
 
     token = _user_id_var.set("bob@x")
     try:

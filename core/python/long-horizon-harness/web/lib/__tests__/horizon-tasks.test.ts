@@ -18,7 +18,7 @@ import { createElement, type ReactNode } from "react";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { makeQueryClient } from "../query-client";
 import { qk } from "../query-keys";
-import { useLhaTasks, type HorizonTaskSummary } from "../horizon-tasks";
+import { useLhaTasks, type HorizonTaskSummary } from "../app-tasks";
 
 function wrapper(client = makeQueryClient()) {
   return ({ children }: { children: ReactNode }) =>

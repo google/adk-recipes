@@ -14,7 +14,7 @@
 
 """Tool-guardrail callback tests.
 
-Pins three callback-shaped guardrail components in ``horizon.guardrails``:
+Pins three callback-shaped guardrail components in ``app.guardrails``:
 
 * ``RepeatedFailureGuard`` — ``after_tool_callback`` that sets
   ``session.state["halt_reason"]`` when the SAME (tool_name, canonical
@@ -68,7 +68,7 @@ def _model_response(text: str) -> LlmResponse:
 
 
 def test_module_exposes_three_guardrail_callbacks():
-    from horizon.guardrails import (
+    from app.guardrails import (
         NoProgressGuard,
         RepeatedFailureGuard,
         halt_consumer_callback,
@@ -85,7 +85,7 @@ def test_halt_reason_state_key_is_documented_constant():
     Exposing it as a module constant prevents silent drift between the
     setter (guards) and the reader (halt_consumer_callback).
     """
-    from horizon.guardrails import HALT_REASON_STATE_KEY
+    from app.guardrails import HALT_REASON_STATE_KEY
 
     assert HALT_REASON_STATE_KEY == "halt_reason"
 
@@ -94,7 +94,7 @@ def test_last_error_state_key_is_documented_constant():
     """The system_prompt volatile tier reads ``state["last_error"]`` —
     RepeatedFailureGuard writes the same key. A module-level constant
     keeps the setter and reader from drifting apart."""
-    from horizon.guardrails import LAST_ERROR_STATE_KEY
+    from app.guardrails import LAST_ERROR_STATE_KEY
 
     assert LAST_ERROR_STATE_KEY == "last_error"
 
@@ -106,7 +106,7 @@ def test_last_error_state_key_is_documented_constant():
 
 class TestRepeatedFailureGuard:
     def test_keyword_only_threshold_with_default(self):
-        from horizon.guardrails import RepeatedFailureGuard
+        from app.guardrails import RepeatedFailureGuard
 
         # Default keeps test suites honest about the production threshold.
         guard = RepeatedFailureGuard()
@@ -116,7 +116,7 @@ class TestRepeatedFailureGuard:
         assert custom.threshold == 5
 
     def test_threshold_must_be_positional_keyword_only(self):
-        from horizon.guardrails import RepeatedFailureGuard
+        from app.guardrails import RepeatedFailureGuard
 
         with pytest.raises(TypeError):
             RepeatedFailureGuard(3)
@@ -124,7 +124,7 @@ class TestRepeatedFailureGuard:
     def test_threshold_must_be_at_least_two(self):
         """A threshold of 1 would halt on the very first failure, which is
         indistinguishable from no retry budget at all."""
-        from horizon.guardrails import RepeatedFailureGuard
+        from app.guardrails import RepeatedFailureGuard
 
         with pytest.raises(ValueError):
             RepeatedFailureGuard(threshold=1)
@@ -133,7 +133,7 @@ class TestRepeatedFailureGuard:
 
     @pytest.mark.asyncio
     async def test_first_failure_does_not_halt(self):
-        from horizon.guardrails import (
+        from app.guardrails import (
             HALT_REASON_STATE_KEY,
             RepeatedFailureGuard,
         )
@@ -152,7 +152,7 @@ class TestRepeatedFailureGuard:
 
     @pytest.mark.asyncio
     async def test_n_identical_failures_set_halt_reason(self):
-        from horizon.guardrails import (
+        from app.guardrails import (
             HALT_REASON_STATE_KEY,
             RepeatedFailureGuard,
         )
@@ -176,7 +176,7 @@ class TestRepeatedFailureGuard:
 
     @pytest.mark.asyncio
     async def test_threshold_minus_one_failures_do_not_halt(self):
-        from horizon.guardrails import (
+        from app.guardrails import (
             HALT_REASON_STATE_KEY,
             RepeatedFailureGuard,
         )
@@ -200,7 +200,7 @@ class TestRepeatedFailureGuard:
         the model retries the EXACT same call. Different args means the
         model is exploring, not stuck — must not halt.
         """
-        from horizon.guardrails import (
+        from app.guardrails import (
             HALT_REASON_STATE_KEY,
             RepeatedFailureGuard,
         )
@@ -224,7 +224,7 @@ class TestRepeatedFailureGuard:
         same signature — otherwise the streak silently resets on every
         differently-ordered call.
         """
-        from horizon.guardrails import (
+        from app.guardrails import (
             HALT_REASON_STATE_KEY,
             RepeatedFailureGuard,
         )
@@ -249,7 +249,7 @@ class TestRepeatedFailureGuard:
 
     @pytest.mark.asyncio
     async def test_success_between_failures_resets_streak(self):
-        from horizon.guardrails import (
+        from app.guardrails import (
             HALT_REASON_STATE_KEY,
             RepeatedFailureGuard,
         )
@@ -284,7 +284,7 @@ class TestRepeatedFailureGuard:
 
     @pytest.mark.asyncio
     async def test_different_tools_track_independent_streaks(self):
-        from horizon.guardrails import (
+        from app.guardrails import (
             HALT_REASON_STATE_KEY,
             RepeatedFailureGuard,
         )
@@ -316,7 +316,7 @@ class TestRepeatedFailureGuard:
         """A terminal result with non-zero exit_code is a failure for
         streak purposes; exit_code 0 is success.
         """
-        from horizon.guardrails import (
+        from app.guardrails import (
             HALT_REASON_STATE_KEY,
             RepeatedFailureGuard,
         )
@@ -350,7 +350,7 @@ class TestRepeatedFailureGuard:
     async def test_failure_classification_generic_error_key(self):
         """A response dict containing an ``"error"`` key counts as a
         failure regardless of tool name."""
-        from horizon.guardrails import (
+        from app.guardrails import (
             HALT_REASON_STATE_KEY,
             RepeatedFailureGuard,
         )
@@ -377,7 +377,7 @@ class TestRepeatedFailureGuard:
         and sets halt_reason. Otherwise it would silently mask tool
         output the model needs to see.
         """
-        from horizon.guardrails import RepeatedFailureGuard
+        from app.guardrails import RepeatedFailureGuard
 
         guard = RepeatedFailureGuard(threshold=2)
         ctx = _fake_context()
@@ -408,7 +408,7 @@ class TestRepeatedFailureGuard:
         now — the model has moved on and the old streak is no longer
         evidence of a stuck loop.
         """
-        from horizon.guardrails import (
+        from app.guardrails import (
             HALT_REASON_STATE_KEY,
             RepeatedFailureGuard,
             repeated_failure,
@@ -447,7 +447,7 @@ class TestRepeatedFailureGuard:
         """If another guard already set a halt_reason this turn, this
         guard must not clobber it — the FIRST halt reason wins so the
         user sees the proximate cause, not the later cascade."""
-        from horizon.guardrails import (
+        from app.guardrails import (
             HALT_REASON_STATE_KEY,
             RepeatedFailureGuard,
         )
@@ -470,7 +470,7 @@ class TestRepeatedFailureGuard:
         """Every failure must mirror the error string to
         ``state["last_error"]`` so the system_prompt volatile tier can
         surface the most recent failure to the model on its next turn."""
-        from horizon.guardrails import (
+        from app.guardrails import (
             LAST_ERROR_STATE_KEY,
             RepeatedFailureGuard,
         )
@@ -493,7 +493,7 @@ class TestRepeatedFailureGuard:
         otherwise the volatile tier keeps showing a stale failure long
         after the model recovered from it. ADK's State has no .pop/del,
         so "cleared" means set to None — readers must use .get()."""
-        from horizon.guardrails import (
+        from app.guardrails import (
             LAST_ERROR_STATE_KEY,
             RepeatedFailureGuard,
         )
@@ -523,7 +523,7 @@ class TestRepeatedFailureGuard:
         """A non-zero exit_code is a failure for streak purposes — the
         mirror must surface SOMETHING informative even when there's no
         ``error`` key, so the model sees the failure in its next prompt."""
-        from horizon.guardrails import (
+        from app.guardrails import (
             LAST_ERROR_STATE_KEY,
             RepeatedFailureGuard,
         )
@@ -549,7 +549,7 @@ class TestRepeatedFailureGuard:
 
 class TestNoProgressGuard:
     def test_keyword_only_window_with_default(self):
-        from horizon.guardrails import NoProgressGuard
+        from app.guardrails import NoProgressGuard
 
         guard = NoProgressGuard()
         assert guard.window == 5
@@ -558,13 +558,13 @@ class TestNoProgressGuard:
         assert custom.window == 3
 
     def test_window_must_be_keyword_only(self):
-        from horizon.guardrails import NoProgressGuard
+        from app.guardrails import NoProgressGuard
 
         with pytest.raises(TypeError):
             NoProgressGuard(3)
 
     def test_window_must_be_at_least_two(self):
-        from horizon.guardrails import NoProgressGuard
+        from app.guardrails import NoProgressGuard
 
         with pytest.raises(ValueError):
             NoProgressGuard(window=1)
@@ -573,7 +573,7 @@ class TestNoProgressGuard:
 
     @pytest.mark.asyncio
     async def test_first_few_responses_do_not_halt(self):
-        from horizon.guardrails import HALT_REASON_STATE_KEY, NoProgressGuard
+        from app.guardrails import HALT_REASON_STATE_KEY, NoProgressGuard
 
         guard = NoProgressGuard(window=5)
         ctx = _fake_context()
@@ -588,7 +588,7 @@ class TestNoProgressGuard:
 
     @pytest.mark.asyncio
     async def test_window_identical_responses_set_halt_reason(self):
-        from horizon.guardrails import HALT_REASON_STATE_KEY, NoProgressGuard
+        from app.guardrails import HALT_REASON_STATE_KEY, NoProgressGuard
 
         guard = NoProgressGuard(window=3)
         ctx = _fake_context()
@@ -609,7 +609,7 @@ class TestNoProgressGuard:
 
     @pytest.mark.asyncio
     async def test_differing_responses_do_not_halt(self):
-        from horizon.guardrails import HALT_REASON_STATE_KEY, NoProgressGuard
+        from app.guardrails import HALT_REASON_STATE_KEY, NoProgressGuard
 
         guard = NoProgressGuard(window=3)
         ctx = _fake_context()
@@ -627,7 +627,7 @@ class TestNoProgressGuard:
         """Models often produce drift like a trailing newline or extra
         space without making real progress. Normalize whitespace so the
         guard catches this loop."""
-        from horizon.guardrails import HALT_REASON_STATE_KEY, NoProgressGuard
+        from app.guardrails import HALT_REASON_STATE_KEY, NoProgressGuard
 
         guard = NoProgressGuard(window=3)
         ctx = _fake_context()
@@ -649,7 +649,7 @@ class TestNoProgressGuard:
 
     @pytest.mark.asyncio
     async def test_streak_resets_after_different_response(self):
-        from horizon.guardrails import HALT_REASON_STATE_KEY, NoProgressGuard
+        from app.guardrails import HALT_REASON_STATE_KEY, NoProgressGuard
 
         guard = NoProgressGuard(window=3)
         ctx = _fake_context()
@@ -678,7 +678,7 @@ class TestNoProgressGuard:
         comparable surface — it shouldn't be folded into the same-text
         streak.
         """
-        from horizon.guardrails import HALT_REASON_STATE_KEY, NoProgressGuard
+        from app.guardrails import HALT_REASON_STATE_KEY, NoProgressGuard
 
         guard = NoProgressGuard(window=3)
         ctx = _fake_context()
@@ -701,7 +701,7 @@ class TestNoProgressGuard:
         """``after_model_callback`` returning ``None`` keeps the model's
         actual response. Returning an ``LlmResponse`` would override it
         — never the guard's job."""
-        from horizon.guardrails import NoProgressGuard
+        from app.guardrails import NoProgressGuard
 
         guard = NoProgressGuard(window=2)
         ctx = _fake_context()
@@ -718,7 +718,7 @@ class TestNoProgressGuard:
 
     @pytest.mark.asyncio
     async def test_does_not_overwrite_existing_halt_reason(self):
-        from horizon.guardrails import HALT_REASON_STATE_KEY, NoProgressGuard
+        from app.guardrails import HALT_REASON_STATE_KEY, NoProgressGuard
 
         guard = NoProgressGuard(window=2)
         ctx = _fake_context({HALT_REASON_STATE_KEY: "pre-existing"})
@@ -735,7 +735,7 @@ class TestNoProgressGuard:
         """Two ``CallbackContext`` instances (e.g. two sessions sharing a
         guard instance) must keep independent streaks. Otherwise a busy
         session could trip another session's halt."""
-        from horizon.guardrails import HALT_REASON_STATE_KEY, NoProgressGuard
+        from app.guardrails import HALT_REASON_STATE_KEY, NoProgressGuard
 
         guard = NoProgressGuard(window=3)
         ctx_a = _fake_context()
@@ -764,7 +764,7 @@ class TestHaltConsumerCallback:
     async def test_no_halt_reason_returns_none(self):
         """``before_model_callback`` returning ``None`` lets ADK proceed
         with the real model call. That's the happy path."""
-        from horizon.guardrails import halt_consumer_callback
+        from app.guardrails import halt_consumer_callback
 
         ctx = _fake_context()
         result = await halt_consumer_callback(
@@ -778,7 +778,7 @@ class TestHaltConsumerCallback:
         is still set, the callback must return a complete ``LlmResponse``
         so the runner skips the model entirely.
         """
-        from horizon.guardrails.halt_consumer import (
+        from app.guardrails.halt_consumer import (
             HALT_HANDOFF_DELIVERED_STATE_KEY,
             HALT_REASON_STATE_KEY,
             halt_consumer_callback,
@@ -806,7 +806,7 @@ class TestHaltConsumerCallback:
     async def test_halt_response_role_is_model(self):
         """ADK's content must be ``model`` for an assistant-style turn —
         ``system`` is reserved and would break the role contract."""
-        from horizon.guardrails.halt_consumer import (
+        from app.guardrails.halt_consumer import (
             HALT_HANDOFF_DELIVERED_STATE_KEY,
             HALT_REASON_STATE_KEY,
             halt_consumer_callback,
@@ -831,7 +831,7 @@ class TestHaltConsumerCallback:
         """An empty/None halt_reason must NOT trip the guard — only an
         actual reason string halts. This prevents an accidental clear-
         then-not-clear from looking like a halt."""
-        from horizon.guardrails import (
+        from app.guardrails import (
             HALT_REASON_STATE_KEY,
             halt_consumer_callback,
         )
@@ -857,7 +857,7 @@ class TestHaltConsumerCallback:
         """The halt_reason must remain in state after the callback runs
         — downstream consumers (logging, the next turn's halt-aware
         prompt) may need to read it. Don't clear it."""
-        from horizon.guardrails.halt_consumer import (
+        from app.guardrails.halt_consumer import (
             HALT_HANDOFF_DELIVERED_STATE_KEY,
             HALT_REASON_STATE_KEY,
             halt_consumer_callback,
@@ -892,7 +892,7 @@ class TestGuardAndConsumerCompose:
     async def test_repeated_failure_then_consumer_halts(self):
         from google.adk.models import LlmRequest
 
-        from horizon.guardrails import (
+        from app.guardrails import (
             RepeatedFailureGuard,
             halt_consumer_callback,
         )
@@ -923,7 +923,7 @@ class TestGuardAndConsumerCompose:
     async def test_no_progress_then_consumer_halts(self):
         from google.adk.models import LlmRequest
 
-        from horizon.guardrails import NoProgressGuard, halt_consumer_callback
+        from app.guardrails import NoProgressGuard, halt_consumer_callback
 
         guard = NoProgressGuard(window=2)
         ctx = _fake_context()

@@ -25,7 +25,7 @@ from typing import Any
 
 import pytest
 
-from horizon.telemetry.ui import DELEGATE_HISTORY_STATE_KEY
+from app.telemetry.ui import DELEGATE_HISTORY_STATE_KEY
 
 pytestmark = pytest.mark.asyncio
 
@@ -40,8 +40,8 @@ def _hist(tc: _FakeToolContext) -> list[dict[str, Any]]:
 
 
 async def test_spawn_records_running_row(monkeypatch):
-    from horizon.subagents import delegate as delegate_module
-    from horizon.subagents.spawn import agent
+    from app.subagents import delegate as delegate_module
+    from app.subagents.spawn import agent
 
     async def _fake_build(**_kwargs: Any) -> Any:
         return object()
@@ -63,8 +63,8 @@ async def test_spawn_records_running_row(monkeypatch):
 
 
 async def test_result_flips_row_to_completed(monkeypatch):
-    from horizon.subagents import delegate as delegate_module
-    from horizon.subagents.spawn import agent
+    from app.subagents import delegate as delegate_module
+    from app.subagents.spawn import agent
 
     async def _fake_build(**_kwargs: Any) -> Any:
         return object()
@@ -96,8 +96,8 @@ async def test_result_flips_row_to_completed(monkeypatch):
 
 
 async def test_result_failure_flips_row_to_halted(monkeypatch):
-    from horizon.subagents import delegate as delegate_module
-    from horizon.subagents.spawn import agent
+    from app.subagents import delegate as delegate_module
+    from app.subagents.spawn import agent
 
     async def _fake_build(**_kwargs: Any) -> Any:
         raise KeyError("not-a-toolset")
@@ -121,8 +121,8 @@ async def test_result_failure_flips_row_to_halted(monkeypatch):
 
 
 async def test_spawn_without_tool_context_is_noop(monkeypatch):
-    from horizon.subagents import delegate as delegate_module
-    from horizon.subagents.spawn import agent
+    from app.subagents import delegate as delegate_module
+    from app.subagents.spawn import agent
 
     async def _fake_build(**_kwargs: Any) -> Any:
         return object()

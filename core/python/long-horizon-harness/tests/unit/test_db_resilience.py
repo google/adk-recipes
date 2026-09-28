@@ -19,7 +19,7 @@ from __future__ import annotations
 import asyncpg
 import pytest
 
-from horizon.infrastructure.db_resilience import (
+from app.infrastructure.db_resilience import (
     is_pooled_sql_url,
     resilient_engine_kwargs,
 )
@@ -98,7 +98,7 @@ def test_db_resilience_has_no_module_level_asyncpg_import():
     # db_resilience / fast_api_app and call build_runner().
     from pathlib import Path
 
-    from horizon.infrastructure import db_resilience
+    from app.infrastructure import db_resilience
 
     src = Path(db_resilience.__file__).read_text()
     assert "\nimport asyncpg" not in src
@@ -107,7 +107,7 @@ def test_db_resilience_has_no_module_level_asyncpg_import():
 def test_transient_disconnect_types_degrade_without_asyncpg(monkeypatch):
     import sys
 
-    from horizon.infrastructure import db_resilience as dbr
+    from app.infrastructure import db_resilience as dbr
 
     monkeypatch.setitem(sys.modules, "asyncpg", None)  # forces ImportError
     dbr._transient_disconnect_types.cache_clear()
@@ -121,7 +121,7 @@ def test_transient_disconnect_types_degrade_without_asyncpg(monkeypatch):
 
 
 def test_task_store_engine_has_pre_ping(monkeypatch):
-    from horizon.fast_api_app import _build_task_store
+    from app.fast_api_app import _build_task_store
 
     monkeypatch.setenv("TASK_DB_URL", "sqlite+aiosqlite://")
     monkeypatch.delenv("USE_IN_MEMORY_TASK_STORE", raising=False)
@@ -136,7 +136,7 @@ def test_task_store_sqlite_builds_without_queuepool_sizing(monkeypatch):
     # sqlite's StaticPool — create_async_engine would raise if it did.
     from sqlalchemy.pool import QueuePool
 
-    from horizon.fast_api_app import _build_task_store
+    from app.fast_api_app import _build_task_store
 
     monkeypatch.setenv("TASK_DB_URL", "sqlite+aiosqlite://")
     monkeypatch.delenv("USE_IN_MEMORY_TASK_STORE", raising=False)
@@ -147,7 +147,7 @@ def test_task_store_sqlite_builds_without_queuepool_sizing(monkeypatch):
 
 
 def test_default_task_db_lives_under_data_dir(monkeypatch):
-    from horizon.fast_api_app import _build_task_store
+    from app.fast_api_app import _build_task_store
 
     # No explicit TASK_DB_URL / in-memory flag => dev default sqlite is
     # relocated under .data/ to keep the repo root clean.
@@ -167,7 +167,7 @@ def test_is_transient_disconnect_matches_known_drops():
     import asyncpg
     from sqlalchemy.exc import DBAPIError
 
-    from horizon.infrastructure.db_resilience import is_transient_disconnect
+    from app.infrastructure.db_resilience import is_transient_disconnect
 
     assert is_transient_disconnect(
         asyncpg.exceptions.ConnectionDoesNotExistError()
@@ -187,7 +187,7 @@ def test_is_transient_disconnect_matches_known_drops():
 
 
 def test_is_transient_disconnect_rejects_non_transient():
-    from horizon.infrastructure.db_resilience import is_transient_disconnect
+    from app.infrastructure.db_resilience import is_transient_disconnect
 
     assert not is_transient_disconnect(ValueError("bad sql"))
     assert not is_transient_disconnect(KeyError("missing"))
@@ -195,7 +195,7 @@ def test_is_transient_disconnect_rejects_non_transient():
 
 @pytest.mark.asyncio
 async def test_retry_on_disconnect_retries_then_succeeds():
-    from horizon.infrastructure.db_resilience import retry_on_disconnect
+    from app.infrastructure.db_resilience import retry_on_disconnect
 
     calls = {"n": 0}
 
@@ -212,7 +212,7 @@ async def test_retry_on_disconnect_retries_then_succeeds():
 
 @pytest.mark.asyncio
 async def test_retry_on_disconnect_gives_up_after_attempts():
-    from horizon.infrastructure.db_resilience import retry_on_disconnect
+    from app.infrastructure.db_resilience import retry_on_disconnect
 
     async def op():
         raise ConnectionRefusedError(111, "Connection refused")
@@ -223,7 +223,7 @@ async def test_retry_on_disconnect_gives_up_after_attempts():
 
 @pytest.mark.asyncio
 async def test_retry_on_disconnect_does_not_retry_application_errors():
-    from horizon.infrastructure.db_resilience import retry_on_disconnect
+    from app.infrastructure.db_resilience import retry_on_disconnect
 
     calls = {"n": 0}
 
@@ -237,7 +237,7 @@ async def test_retry_on_disconnect_does_not_retry_application_errors():
 
 
 def test_build_app_passes_session_db_kwargs_to_adk_web_path(monkeypatch):
-    import horizon.fast_api_app as faa
+    import app.fast_api_app as faa
 
     captured = {}
 
@@ -263,8 +263,8 @@ def test_build_app_passes_session_db_kwargs_to_adk_web_path(monkeypatch):
 
 
 def test_lifespan_session_service_is_retry_wrapped_for_pooled_url(monkeypatch):
-    import horizon.fast_api_app as faa
-    from horizon.infrastructure.resilient_session_service import (
+    import app.fast_api_app as faa
+    from app.infrastructure.resilient_session_service import (
         ResilientSessionService,
     )
 
@@ -279,7 +279,7 @@ def test_lifespan_session_service_is_retry_wrapped_for_pooled_url(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_task_store_save_retries_on_disconnect():
-    from horizon.fast_api_app import _ResilientTaskStore
+    from app.fast_api_app import _ResilientTaskStore
 
     class _Inner:
         def __init__(self):
@@ -299,7 +299,7 @@ async def test_task_store_save_retries_on_disconnect():
 
 
 def test_task_store_unwrapped_attr_passes_through_to_delegate():
-    from horizon.fast_api_app import _ResilientTaskStore
+    from app.fast_api_app import _ResilientTaskStore
 
     class _Inner:
         marker = "from-inner"
@@ -314,7 +314,7 @@ def test_task_store_unwrapped_attr_passes_through_to_delegate():
 
 
 def test_task_store_getattr_raises_for_genuinely_missing_attr():
-    from horizon.fast_api_app import _ResilientTaskStore
+    from app.fast_api_app import _ResilientTaskStore
 
     class _Inner:
         pass

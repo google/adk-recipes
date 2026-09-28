@@ -28,7 +28,7 @@ import pytest
 
 def _detect(tail, idle=5.0):
     """Convenience wrapper. Uses the default idle threshold > the default."""
-    from horizon.tools.processes.interactive import (
+    from app.tools.processes.interactive import (
         detect_interactive_prompt,
     )
 
@@ -106,7 +106,7 @@ class TestIdleGate:
 
     def test_threshold_inclusive(self) -> None:
         # Default detection threshold is 3.0s — match should fire at exactly 3.0.
-        from horizon.tools.processes.interactive import (
+        from app.tools.processes.interactive import (
             INTERACTIVE_IDLE_SECONDS,
             detect_interactive_prompt,
         )

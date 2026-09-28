@@ -26,12 +26,12 @@ from pathlib import Path
 
 import pytest
 
-from horizon.environment_context import (
+from app.environment_context import (
     clear_active_environment,
     set_active_environment,
 )
-from horizon.tools import skill_reload
-from horizon.tools.skill_loader import build_skill_toolset
+from app.tools import skill_reload
+from app.tools.skill_loader import build_skill_toolset
 
 pytestmark = pytest.mark.asyncio
 

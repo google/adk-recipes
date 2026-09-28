@@ -24,7 +24,7 @@ from google.adk.features._feature_registry import (
 )
 from google.adk.tools.function_tool import FunctionTool
 
-from horizon.context.declaration_compaction import compact_tool_declarations
+from app.context.declaration_compaction import compact_tool_declarations
 
 
 def _sample(query: str | None = None) -> str:
@@ -49,7 +49,7 @@ def test_a_toolset_passes_through() -> None:
 
 
 def test_importing_horizon_leaves_the_process_default_alone() -> None:
-    import horizon.agent  # noqa: F401
+    import app.agent  # noqa: F401
 
     # Catches the env var and override_feature_enabled alike: either would
     # re-render the declarations of every other ADK agent in the process.
@@ -72,7 +72,7 @@ def test_no_param_reaches_vertex_without_a_type() -> None:
     probe = {"type": "OBJECT", "properties": {"m": {"nullable": True}}}
     assert _typeless(probe, "p") == ["p.m"]
 
-    from horizon.agent import root_agent
+    from app.agent import root_agent
 
     offenders = []
     for tool in root_agent.tools:

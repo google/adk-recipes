@@ -21,7 +21,7 @@ TestClient context. Assertions are prefix-based — ADK adds its own base routes
 
 import pytest
 
-from horizon.fast_api_app import _build_app
+from app.fast_api_app import _build_app
 
 # One representative prefix per router group.
 _EXPECTED_PREFIXES = (

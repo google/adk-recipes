@@ -29,7 +29,7 @@ import pytest
 
 @pytest.fixture
 def make_handle(tmp_path: Path):
-    from horizon.environment.local_process import LocalProcessHandle
+    from app.environment.local_process import LocalProcessHandle
 
     spawned: list[LocalProcessHandle] = []
 
@@ -53,7 +53,7 @@ def make_handle(tmp_path: Path):
 
 class TestBasics:
     def test_register_and_get(self, make_handle) -> None:
-        from horizon.environment.registry import ProcessRegistry
+        from app.environment.registry import ProcessRegistry
 
         reg = ProcessRegistry()
         h = make_handle()
@@ -61,13 +61,13 @@ class TestBasics:
         assert reg.get(h.session_id) is h
 
     def test_get_unknown_returns_none(self) -> None:
-        from horizon.environment.registry import ProcessRegistry
+        from app.environment.registry import ProcessRegistry
 
         assert ProcessRegistry().get("proc_nonexistent") is None
 
     @pytest.mark.asyncio
     async def test_list_split_by_status(self, make_handle) -> None:
-        from horizon.environment.registry import ProcessRegistry
+        from app.environment.registry import ProcessRegistry
 
         reg = ProcessRegistry()
         running = make_handle("sleep 5")
@@ -87,7 +87,7 @@ class TestBasics:
 class TestCap:
     @pytest.mark.asyncio
     async def test_lru_evicts_oldest_finished(self, make_handle) -> None:
-        from horizon.environment.registry import ProcessRegistry
+        from app.environment.registry import ProcessRegistry
 
         reg = ProcessRegistry(max_sessions=3)
         old = make_handle("true")
@@ -109,7 +109,7 @@ class TestCap:
 
     @pytest.mark.asyncio
     async def test_running_processes_never_evicted(self, make_handle) -> None:
-        from horizon.environment.registry import ProcessRegistry
+        from app.environment.registry import ProcessRegistry
 
         reg = ProcessRegistry(max_sessions=2)
         # Two running first (count against the cap).
@@ -131,7 +131,7 @@ class TestCap:
 class TestTTL:
     @pytest.mark.asyncio
     async def test_finished_sessions_drop_after_ttl(self, make_handle) -> None:
-        from horizon.environment.registry import ProcessRegistry
+        from app.environment.registry import ProcessRegistry
 
         reg = ProcessRegistry(finished_ttl_s=0.2)
         h = make_handle("true")
@@ -146,7 +146,7 @@ class TestTTL:
 
 class TestSessionStateBinding:
     def test_for_state_creates_if_missing(self) -> None:
-        from horizon.environment.registry import (
+        from app.environment.registry import (
             REGISTRY_STATE_KEY,
             ProcessRegistry,
         )
@@ -157,7 +157,7 @@ class TestSessionStateBinding:
         assert state[REGISTRY_STATE_KEY] is reg
 
     def test_for_state_reuses_existing(self) -> None:
-        from horizon.environment.registry import ProcessRegistry
+        from app.environment.registry import ProcessRegistry
 
         state: dict = {}
         first = ProcessRegistry.for_state(state)

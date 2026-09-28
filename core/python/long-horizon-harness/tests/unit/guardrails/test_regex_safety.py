@@ -12,9 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from horizon.guardrails._regex_safety import safe_regex
-from horizon.guardrails.permission_rules import parse_rule
-from horizon.guardrails.policies import _evaluate
+from app.guardrails._regex_safety import safe_regex
+from app.guardrails.permission_rules import parse_rule
+from app.guardrails.policies import _evaluate
 
 
 def test_plain_patterns_are_safe():
@@ -54,7 +54,7 @@ def test_permission_rule_with_unsafe_args_pattern_is_dropped():
 
 
 def test_policies_skips_unsafe_destructive_regex(tmp_path):
-    from horizon.guardrails.policies import load_policies
+    from app.guardrails.policies import load_policies
 
     # Write an overlay with mix of safe and unsafe patterns
     overlay_path = tmp_path / ".lha" / "policies.jsonl"

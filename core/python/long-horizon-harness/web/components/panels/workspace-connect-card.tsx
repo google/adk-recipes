@@ -23,7 +23,7 @@ import {
   isExpired,
 } from "@/lib/gcp-connection";
 
-// Keys must mirror WORKSPACE_SURFACES in horizon/auth/oauth.py — the
+// Keys must mirror WORKSPACE_SURFACES in app/auth/oauth.py — the
 // backend drives the available list; an unmapped key falls back to its raw name.
 const SURFACE_LABELS: Record<string, string> = {
   drive: "Drive",

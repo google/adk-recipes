@@ -69,7 +69,7 @@ def stub_child() -> Agent:
 async def test_run_delegate_returns_completed_envelope(
     monkeypatch, stub_child: Agent
 ) -> None:
-    from horizon.subagents import delegate_runner
+    from app.subagents import delegate_runner
 
     fake = _make_fake_runner(
         [_text_event("Done. Found 3 files.", author="delegate_stub")]
@@ -90,7 +90,7 @@ async def test_run_delegate_returns_completed_envelope(
 async def test_run_delegate_concatenates_text_parts(
     monkeypatch, stub_child: Agent
 ) -> None:
-    from horizon.subagents import delegate_runner
+    from app.subagents import delegate_runner
 
     fake = _make_fake_runner(
         [
@@ -112,7 +112,7 @@ async def test_run_delegate_concatenates_text_parts(
 async def test_run_delegate_timeout_returns_timeout_envelope(
     monkeypatch, stub_child: Agent
 ) -> None:
-    from horizon.subagents import delegate_runner
+    from app.subagents import delegate_runner
 
     async def slow_run_async(**_kwargs: Any) -> AsyncIterator[Event]:
         await asyncio.sleep(5)  # longer than our timeout
@@ -137,7 +137,7 @@ async def test_timeout_summary_says_the_work_is_incomplete(
     the incompleteness has to be IN the summary, not only in a sibling
     status field. A parent once relayed 'the test suite has been added' from
     a run that never finished."""
-    from horizon.subagents import delegate_runner
+    from app.subagents import delegate_runner
 
     async def chatty_then_hang(**_kwargs: Any) -> AsyncIterator[Event]:
         yield _text_event("Added tests/unit/test_regression.py. All passing.")
@@ -165,7 +165,7 @@ async def test_timeout_summary_says_the_work_is_incomplete(
 async def test_completed_run_carries_no_error_key(
     monkeypatch, stub_child: Agent
 ) -> None:
-    from horizon.subagents import delegate_runner
+    from app.subagents import delegate_runner
 
     async def quick(**_kwargs: Any) -> AsyncIterator[Event]:
         yield _text_event("done")
@@ -189,7 +189,7 @@ async def test_run_delegate_isolates_from_parent_session(
     receives a parent service reference."""
     from google.adk.sessions import InMemorySessionService
 
-    from horizon.subagents import delegate_runner
+    from app.subagents import delegate_runner
 
     captured: dict[str, Any] = {}
 
@@ -217,7 +217,7 @@ async def test_run_delegate_empty_response_still_completes(
     termination, so ``status='completed'``. The summary must SAY it reported
     nothing: a success flag with an empty body is the same vacuum that had a
     parent inventing a finished test suite after a timeout."""
-    from horizon.subagents import delegate_runner
+    from app.subagents import delegate_runner
 
     fake = _make_fake_runner([])
     monkeypatch.setattr(delegate_runner, "_build_runner", lambda **_: fake)
@@ -238,7 +238,7 @@ async def test_run_delegate_max_iterations_halts_at_cap(
     """When the child emits more events than ``max_iterations`` allows,
     drain stops and the envelope is marked ``halted`` with a clear
     summary. This is the structured-axis counterpart to ``timeout_s``."""
-    from horizon.subagents import delegate_runner
+    from app.subagents import delegate_runner
 
     events = [_text_event(f"step {i} ") for i in range(10)]
     fake = _make_fake_runner(events)
@@ -257,7 +257,7 @@ async def test_run_delegate_max_iterations_unbounded_when_none(
 ) -> None:
     """``max_iterations=None`` (the default) means no cap — all events
     drain through."""
-    from horizon.subagents import delegate_runner
+    from app.subagents import delegate_runner
 
     events = [_text_event(f"step {i} ") for i in range(7)]
     fake = _make_fake_runner(events)
@@ -273,7 +273,7 @@ async def test_run_delegate_max_iterations_unbounded_when_none(
 async def test_run_delegate_records_duration(
     monkeypatch, stub_child: Agent
 ) -> None:
-    from horizon.subagents import delegate_runner
+    from app.subagents import delegate_runner
 
     async def slightly_slow(**_kwargs: Any) -> AsyncIterator[Event]:
         await asyncio.sleep(0.05)

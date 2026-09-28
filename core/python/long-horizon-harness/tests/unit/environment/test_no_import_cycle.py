@@ -31,25 +31,25 @@ def _fresh_import(mod: str) -> None:
 
 
 def test_environment_imports_clean():
-    _fresh_import("horizon.environment")
+    _fresh_import("app.environment")
 
 
 def test_tools_processes_imports_clean():
-    _fresh_import("horizon.tools.processes")
+    _fresh_import("app.tools.processes")
 
 
 def test_environment_layer_has_no_tools_import():
-    import horizon.environment.registry as reg
-    from horizon.environment import base, local
+    import app.environment.registry as reg
+    from app.environment import base, local
 
     for mod in (base, local, reg):
-        assert "horizon.tools" not in inspect.getsource(mod), mod.__name__
+        assert "app.tools" not in inspect.getsource(mod), mod.__name__
 
 
 def test_old_locations_are_gone():
     for mod in (
-        "horizon.tools.processes.handle",
-        "horizon.tools.processes.registry",
+        "app.tools.processes.handle",
+        "app.tools.processes.registry",
     ):
         with pytest.raises(ModuleNotFoundError):
             importlib.import_module(mod)

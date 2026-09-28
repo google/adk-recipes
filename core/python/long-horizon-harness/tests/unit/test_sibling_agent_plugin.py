@@ -60,7 +60,7 @@ def _fake_runner(
 
 class TestSpawnSiblingIdentifiers:
     async def test_session_created_under_parent_ids(self, monkeypatch):
-        from horizon.memory import sibling_agent_plugin
+        from app.memory import sibling_agent_plugin
 
         captured: dict[str, Any] = {}
 
@@ -102,7 +102,7 @@ class TestSpawnSiblingIdentifiers:
         assert isinstance(captured["session_service"], InMemorySessionService)
 
     async def test_passes_prompt_text_into_user_message(self, monkeypatch):
-        from horizon.memory import sibling_agent_plugin
+        from app.memory import sibling_agent_plugin
 
         runner = _fake_runner([])
         monkeypatch.setattr(
@@ -132,7 +132,7 @@ class TestSpawnSiblingPersistentSession:
     async def test_uses_provided_session_service_with_state(self, monkeypatch):
         from google.adk.sessions import InMemorySessionService
 
-        from horizon.memory import sibling_agent_plugin
+        from app.memory import sibling_agent_plugin
 
         captured: dict[str, Any] = {}
 
@@ -179,7 +179,7 @@ class TestSpawnSiblingPersistentSession:
 
 class TestSpawnSiblingOnEvent:
     async def test_invokes_on_event_for_each_event(self, monkeypatch):
-        from horizon.memory import sibling_agent_plugin
+        from app.memory import sibling_agent_plugin
 
         events = [object(), object(), object()]
         monkeypatch.setattr(
@@ -202,7 +202,7 @@ class TestSpawnSiblingOnEvent:
         assert seen == events
 
     async def test_no_on_event_is_fine(self, monkeypatch):
-        from horizon.memory import sibling_agent_plugin
+        from app.memory import sibling_agent_plugin
 
         events = [object(), object()]
         monkeypatch.setattr(
@@ -229,7 +229,7 @@ class TestSpawnSiblingOnEvent:
 
 class TestSpawnSiblingErrorHandling:
     async def test_swallows_runner_exceptions(self, monkeypatch, caplog):
-        from horizon.memory import sibling_agent_plugin
+        from app.memory import sibling_agent_plugin
 
         monkeypatch.setattr(
             sibling_agent_plugin,
@@ -258,7 +258,7 @@ class TestSpawnSiblingErrorHandling:
 
 class TestTaskTracking:
     async def test_task_tracked_then_released(self, monkeypatch):
-        from horizon.memory import sibling_agent_plugin
+        from app.memory import sibling_agent_plugin
 
         monkeypatch.setattr(
             sibling_agent_plugin,
@@ -281,7 +281,7 @@ class TestTaskTracking:
         assert task not in plugin._pending
 
     async def test_returns_asyncio_task(self, monkeypatch):
-        from horizon.memory import sibling_agent_plugin
+        from app.memory import sibling_agent_plugin
 
         monkeypatch.setattr(
             sibling_agent_plugin,
@@ -307,7 +307,7 @@ class TestTaskTracking:
 
 class TestClose:
     async def test_awaits_pending_tasks(self, monkeypatch):
-        from horizon.memory import sibling_agent_plugin
+        from app.memory import sibling_agent_plugin
 
         finished = asyncio.Event()
 
@@ -337,7 +337,7 @@ class TestClose:
         assert not plugin._pending
 
     async def test_drain_times_out_without_raising(self, monkeypatch, caplog):
-        from horizon.memory import sibling_agent_plugin
+        from app.memory import sibling_agent_plugin
 
         started = asyncio.Event()
 
@@ -374,7 +374,7 @@ class TestClose:
             await task
 
     async def test_close_is_noop_when_no_pending(self):
-        from horizon.memory.sibling_agent_plugin import SiblingAgentPlugin
+        from app.memory.sibling_agent_plugin import SiblingAgentPlugin
 
         plugin = SiblingAgentPlugin()
         await plugin.close()  # no exception, no log noise required
@@ -386,7 +386,7 @@ class TestClose:
         # `async with asyncio.timeout(close_timeout)`. If our drain outlives
         # that budget, the outer timeout cancels us — close() must absorb it,
         # not let RuntimeError("Failed to close plugins...") propagate.
-        from horizon.memory import sibling_agent_plugin
+        from app.memory import sibling_agent_plugin
 
         started = asyncio.Event()
 
@@ -429,7 +429,7 @@ class TestClose:
 
 class TestDrainTimeoutBudget:
     async def test_default_drain_is_under_adk_close_budget(self):
-        from horizon.memory.sibling_agent_plugin import SiblingAgentPlugin
+        from app.memory.sibling_agent_plugin import SiblingAgentPlugin
 
         plugin = SiblingAgentPlugin()
         # ADK's PluginManager wraps plugin.close() in asyncio.timeout(5.0).
@@ -439,7 +439,7 @@ class TestDrainTimeoutBudget:
         assert plugin._drain_timeout <= 4.5
 
     async def test_override_is_capped_under_budget(self, monkeypatch):
-        from horizon.memory.sibling_agent_plugin import SiblingAgentPlugin
+        from app.memory.sibling_agent_plugin import SiblingAgentPlugin
 
         # An operator setting a too-large override must still be capped.
         monkeypatch.setenv("LHA_SIBLING_DRAIN_TIMEOUT", "30")
@@ -447,13 +447,13 @@ class TestDrainTimeoutBudget:
         assert plugin._drain_timeout <= 4.5
 
     async def test_ctor_override_is_capped_under_budget(self):
-        from horizon.memory.sibling_agent_plugin import SiblingAgentPlugin
+        from app.memory.sibling_agent_plugin import SiblingAgentPlugin
 
         plugin = SiblingAgentPlugin(drain_timeout=30.0)
         assert plugin._drain_timeout <= 4.5
 
     async def test_small_override_is_respected(self, monkeypatch):
-        from horizon.memory.sibling_agent_plugin import SiblingAgentPlugin
+        from app.memory.sibling_agent_plugin import SiblingAgentPlugin
 
         monkeypatch.setenv("LHA_SIBLING_DRAIN_TIMEOUT", "1.5")
         plugin = SiblingAgentPlugin()
@@ -468,7 +468,7 @@ class TestDrainTimeoutBudget:
 async def test_is_base_plugin():
     from google.adk.plugins.base_plugin import BasePlugin
 
-    from horizon.memory.sibling_agent_plugin import SiblingAgentPlugin
+    from app.memory.sibling_agent_plugin import SiblingAgentPlugin
 
     plugin = SiblingAgentPlugin()
     assert isinstance(plugin, BasePlugin)

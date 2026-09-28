@@ -21,7 +21,7 @@ import asyncio
 from google.adk.models import LlmRequest
 from google.genai import types
 
-from horizon.context.schema_normalization import normalize_tool_descriptions
+from app.context.schema_normalization import normalize_tool_descriptions
 
 
 def _request(description: str) -> LlmRequest:
@@ -58,7 +58,7 @@ def test_no_description_is_not_a_crash():
 def test_live_agent_declarations_are_normalized_once_and_stay_normalized():
     # Args: blocks keep their indentation on purpose; the invariant is that
     # a second pass finds nothing left to strip.
-    from horizon.agent import root_agent
+    from app.agent import root_agent
 
     async def _run() -> tuple[int, int]:
         req = LlmRequest()

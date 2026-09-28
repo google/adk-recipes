@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Deterministic tests for ``horizon.conversation.iteration_budget.IterationBudget``.
+"""Deterministic tests for ``app.conversation.iteration_budget.IterationBudget``.
 
 ``IterationBudget`` is a per-agent iteration counter (``max_total`` cap,
 ``used`` / ``remaining`` accessors) with these properties:
@@ -42,7 +42,7 @@ import pytest
 
 class TestModuleSurface:
     def test_exports_class_and_exceptions(self) -> None:
-        from horizon.conversation import iteration_budget as mod
+        from app.conversation import iteration_budget as mod
 
         for name in (
             "IterationBudget",
@@ -51,7 +51,7 @@ class TestModuleSurface:
             "AgentHalted",
         ):
             assert hasattr(mod, name), (
-                f"horizon.conversation.iteration_budget must export {name}"
+                f"app.conversation.iteration_budget must export {name}"
             )
 
     def test_exceptions_inherit_from_distinct_base(self) -> None:
@@ -60,7 +60,7 @@ class TestModuleSurface:
         A caller that wants to handle 'budget exhausted' differently from
         'halted by guardrail' must be able to distinguish them.
         """
-        from horizon.conversation.iteration_budget import (
+        from app.conversation.iteration_budget import (
             AgentHalted,
             IterationLimitExceeded,
             ToolCallLimitExceeded,
@@ -78,7 +78,7 @@ class TestModuleSurface:
 
 class TestConstructor:
     def test_accepts_positive_max_iterations(self) -> None:
-        from horizon.conversation.iteration_budget import IterationBudget
+        from app.conversation.iteration_budget import IterationBudget
 
         budget = IterationBudget(max_iterations=10)
         assert budget.iterations_used == 0
@@ -86,7 +86,7 @@ class TestConstructor:
         assert budget.tool_calls_this_iteration == 0
 
     def test_default_max_tool_calls_per_iteration_is_fifty(self) -> None:
-        from horizon.conversation.iteration_budget import (
+        from app.conversation.iteration_budget import (
             IterationBudget,
             ToolCallLimitExceeded,
         )
@@ -99,25 +99,25 @@ class TestConstructor:
             budget.record_tool_call()
 
     def test_zero_max_iterations_rejected(self) -> None:
-        from horizon.conversation.iteration_budget import IterationBudget
+        from app.conversation.iteration_budget import IterationBudget
 
         with pytest.raises(ValueError):
             IterationBudget(max_iterations=0)
 
     def test_negative_max_iterations_rejected(self) -> None:
-        from horizon.conversation.iteration_budget import IterationBudget
+        from app.conversation.iteration_budget import IterationBudget
 
         with pytest.raises(ValueError):
             IterationBudget(max_iterations=-1)
 
     def test_zero_max_tool_calls_rejected(self) -> None:
-        from horizon.conversation.iteration_budget import IterationBudget
+        from app.conversation.iteration_budget import IterationBudget
 
         with pytest.raises(ValueError):
             IterationBudget(max_iterations=10, max_tool_calls_per_iteration=0)
 
     def test_negative_max_tool_calls_rejected(self) -> None:
-        from horizon.conversation.iteration_budget import IterationBudget
+        from app.conversation.iteration_budget import IterationBudget
 
         with pytest.raises(ValueError):
             IterationBudget(max_iterations=10, max_tool_calls_per_iteration=-1)
@@ -125,7 +125,7 @@ class TestConstructor:
     def test_constructor_is_keyword_only(self) -> None:
         """``max_iterations`` is keyword-only to prevent confusion between the
         two limits at call sites."""
-        from horizon.conversation.iteration_budget import IterationBudget
+        from app.conversation.iteration_budget import IterationBudget
 
         with pytest.raises(TypeError):
             IterationBudget(10)
@@ -138,7 +138,7 @@ class TestConstructor:
 
 class TestRecordIteration:
     def test_increments_iterations_used(self) -> None:
-        from horizon.conversation.iteration_budget import IterationBudget
+        from app.conversation.iteration_budget import IterationBudget
 
         budget = IterationBudget(max_iterations=3)
         budget.record_iteration()
@@ -147,7 +147,7 @@ class TestRecordIteration:
         assert budget.iterations_used == 2
 
     def test_remaining_iterations_decreases(self) -> None:
-        from horizon.conversation.iteration_budget import IterationBudget
+        from app.conversation.iteration_budget import IterationBudget
 
         budget = IterationBudget(max_iterations=5)
         assert budget.remaining_iterations == 5
@@ -157,7 +157,7 @@ class TestRecordIteration:
         assert budget.remaining_iterations == 3
 
     def test_records_up_to_limit_then_raises(self) -> None:
-        from horizon.conversation.iteration_budget import (
+        from app.conversation.iteration_budget import (
             IterationBudget,
             IterationLimitExceeded,
         )
@@ -170,7 +170,7 @@ class TestRecordIteration:
             budget.record_iteration()
 
     def test_exception_message_carries_limit_value(self) -> None:
-        from horizon.conversation.iteration_budget import (
+        from app.conversation.iteration_budget import (
             IterationBudget,
             IterationLimitExceeded,
         )
@@ -188,7 +188,7 @@ class TestRecordIteration:
         Otherwise repeated callers would see ``iterations_used > max_iterations``,
         which would confuse downstream UI / logging.
         """
-        from horizon.conversation.iteration_budget import (
+        from app.conversation.iteration_budget import (
             IterationBudget,
             IterationLimitExceeded,
         )
@@ -202,7 +202,7 @@ class TestRecordIteration:
         assert budget.iterations_used == 2
 
     def test_remaining_iterations_clamps_at_zero(self) -> None:
-        from horizon.conversation.iteration_budget import (
+        from app.conversation.iteration_budget import (
             IterationBudget,
             IterationLimitExceeded,
         )
@@ -222,7 +222,7 @@ class TestRecordIteration:
 
 class TestRecordToolCall:
     def test_increments_tool_calls_this_iteration(self) -> None:
-        from horizon.conversation.iteration_budget import IterationBudget
+        from app.conversation.iteration_budget import IterationBudget
 
         budget = IterationBudget(
             max_iterations=5, max_tool_calls_per_iteration=4
@@ -234,7 +234,7 @@ class TestRecordToolCall:
         assert budget.tool_calls_this_iteration == 2
 
     def test_raises_when_per_iter_cap_hit(self) -> None:
-        from horizon.conversation.iteration_budget import (
+        from app.conversation.iteration_budget import (
             IterationBudget,
             ToolCallLimitExceeded,
         )
@@ -250,7 +250,7 @@ class TestRecordToolCall:
             budget.record_tool_call()
 
     def test_exception_message_carries_per_iter_cap(self) -> None:
-        from horizon.conversation.iteration_budget import (
+        from app.conversation.iteration_budget import (
             IterationBudget,
             ToolCallLimitExceeded,
         )
@@ -266,7 +266,7 @@ class TestRecordToolCall:
         assert "4" in str(excinfo.value)
 
     def test_tool_call_counter_does_not_advance_past_cap(self) -> None:
-        from horizon.conversation.iteration_budget import (
+        from app.conversation.iteration_budget import (
             IterationBudget,
             ToolCallLimitExceeded,
         )
@@ -290,7 +290,7 @@ class TestRecordToolCall:
 
 class TestResetIterationCounters:
     def test_zeroes_per_iteration_tool_calls(self) -> None:
-        from horizon.conversation.iteration_budget import IterationBudget
+        from app.conversation.iteration_budget import IterationBudget
 
         budget = IterationBudget(
             max_iterations=5, max_tool_calls_per_iteration=3
@@ -304,7 +304,7 @@ class TestResetIterationCounters:
 
     def test_does_not_zero_iterations_used(self) -> None:
         """Iteration boundary resets per-iter counters, NOT the total counter."""
-        from horizon.conversation.iteration_budget import IterationBudget
+        from app.conversation.iteration_budget import IterationBudget
 
         budget = IterationBudget(
             max_iterations=5, max_tool_calls_per_iteration=3
@@ -317,7 +317,7 @@ class TestResetIterationCounters:
         assert budget.remaining_iterations == 3
 
     def test_after_reset_tool_calls_can_run_again(self) -> None:
-        from horizon.conversation.iteration_budget import IterationBudget
+        from app.conversation.iteration_budget import IterationBudget
 
         budget = IterationBudget(
             max_iterations=5, max_tool_calls_per_iteration=2
@@ -332,7 +332,7 @@ class TestResetIterationCounters:
         assert budget.tool_calls_this_iteration == 2
 
     def test_reset_on_fresh_budget_is_noop(self) -> None:
-        from horizon.conversation.iteration_budget import IterationBudget
+        from app.conversation.iteration_budget import IterationBudget
 
         budget = IterationBudget(max_iterations=5)
         budget.reset_iteration_counters()
@@ -348,7 +348,7 @@ class TestResetIterationCounters:
 
 class TestHalt:
     def test_halt_sets_flag_and_reason(self) -> None:
-        from horizon.conversation.iteration_budget import IterationBudget
+        from app.conversation.iteration_budget import IterationBudget
 
         budget = IterationBudget(max_iterations=5)
         assert budget.halted is False
@@ -361,7 +361,7 @@ class TestHalt:
         )
 
     def test_record_iteration_raises_after_halt(self) -> None:
-        from horizon.conversation.iteration_budget import (
+        from app.conversation.iteration_budget import (
             AgentHalted,
             IterationBudget,
         )
@@ -372,7 +372,7 @@ class TestHalt:
             budget.record_iteration()
 
     def test_record_tool_call_raises_after_halt(self) -> None:
-        from horizon.conversation.iteration_budget import (
+        from app.conversation.iteration_budget import (
             AgentHalted,
             IterationBudget,
         )
@@ -384,7 +384,7 @@ class TestHalt:
             budget.record_tool_call()
 
     def test_halt_exception_carries_reason(self) -> None:
-        from horizon.conversation.iteration_budget import (
+        from app.conversation.iteration_budget import (
             AgentHalted,
             IterationBudget,
         )
@@ -396,7 +396,7 @@ class TestHalt:
         assert "no_progress_for_3_iterations" in str(excinfo.value)
 
     def test_halt_after_some_iterations_preserves_used_count(self) -> None:
-        from horizon.conversation.iteration_budget import IterationBudget
+        from app.conversation.iteration_budget import IterationBudget
 
         budget = IterationBudget(max_iterations=10)
         budget.record_iteration()
@@ -413,7 +413,7 @@ class TestHalt:
         A guardrail that halted the agent must stay halted until the loop
         exits, not until the next iteration starts.
         """
-        from horizon.conversation.iteration_budget import (
+        from app.conversation.iteration_budget import (
             AgentHalted,
             IterationBudget,
         )
@@ -429,7 +429,7 @@ class TestHalt:
         """A second halt() must not erase the halt entirely — the agent stays
         halted and a non-empty reason is preserved. Spec doesn't mandate
         first-wins vs last-wins; either is fine."""
-        from horizon.conversation.iteration_budget import IterationBudget
+        from app.conversation.iteration_budget import IterationBudget
 
         budget = IterationBudget(max_iterations=5)
         budget.halt("first reason")
@@ -451,7 +451,7 @@ class TestLoopScenario:
         (e.g., merging record_iteration and reset_iteration_counters) gets
         caught.
         """
-        from horizon.conversation.iteration_budget import IterationBudget
+        from app.conversation.iteration_budget import IterationBudget
 
         budget = IterationBudget(
             max_iterations=3, max_tool_calls_per_iteration=4
@@ -568,7 +568,7 @@ class TestPluginSessionStateIsBudgetSourceOfTruth:
         process restart. A second plugin instance pointed at that state
         must see the iterations already used — not start from 0 and let
         the user blow past the original cap."""
-        from horizon.conversation.iteration_budget_plugin import (
+        from app.conversation.iteration_budget_plugin import (
             IterationBudgetPlugin,
         )
 
@@ -591,7 +591,7 @@ class TestPluginSessionStateIsBudgetSourceOfTruth:
         """A new logical session (fresh session.state) must always start
         un-halted, even if the same (user_id, session_id) keys were used
         by a previously halted session in this process."""
-        from horizon.conversation.iteration_budget_plugin import (
+        from app.conversation.iteration_budget_plugin import (
             IterationBudgetPlugin,
         )
 
@@ -617,7 +617,7 @@ class TestPluginSessionStateIsBudgetSourceOfTruth:
         """If a guardrail halts the session, the halt must survive process
         restart on the same durable session — otherwise an agent halted
         for repeated-failure could be silently resumed by a restart."""
-        from horizon.conversation.iteration_budget_plugin import (
+        from app.conversation.iteration_budget_plugin import (
             IterationBudgetPlugin,
         )
 
@@ -639,7 +639,7 @@ class TestPluginSessionStateIsBudgetSourceOfTruth:
         """Within a single plugin instance, halt set via halt() must still
         block subsequent before_run callbacks — the session-state fix
         must not weaken intra-process halt enforcement."""
-        from horizon.conversation.iteration_budget_plugin import (
+        from app.conversation.iteration_budget_plugin import (
             IterationBudgetPlugin,
         )
 
@@ -659,7 +659,7 @@ class TestPluginSessionStateIsBudgetSourceOfTruth:
         a long-running process would otherwise leak one entry per
         (user_id, session_id) seen, with no GC path. ``session.state``
         is the only durable store."""
-        from horizon.conversation.iteration_budget_plugin import (
+        from app.conversation.iteration_budget_plugin import (
             IterationBudgetPlugin,
         )
 

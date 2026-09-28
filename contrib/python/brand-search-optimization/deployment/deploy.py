@@ -19,8 +19,8 @@ from absl import app, flags
 from vertexai import agent_engines
 from vertexai.preview.reasoning_engines import AdkApp
 
-from brand_search_optimization.agent import root_agent
-from brand_search_optimization.shared_libraries import constants
+from app.agent import root_agent
+from app.shared_libraries import constants
 
 FLAGS = flags.FLAGS
 flags.DEFINE_string("project_id", None, "GCP project ID.")
@@ -38,7 +38,7 @@ def create(env_vars: dict) -> None:
         enable_tracing=True,
     )
 
-    extra_packages = ["./brand_search_optimization"]
+    extra_packages = ["./app"]
 
     remote_agent = agent_engines.create(
         adk_app,

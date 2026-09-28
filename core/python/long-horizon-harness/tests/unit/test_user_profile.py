@@ -29,10 +29,10 @@ from typing import Any
 import pytest
 from google.adk.memory import InMemoryMemoryService
 
-from horizon.infrastructure.memory_config import USER_PROFILE_SCHEMA_ID
-from horizon.memory.adapter import VertexMemoryAdapter
-from horizon.memory.add_memory_tool import add_memory_entry
-from horizon.memory.user_profile import (
+from app.infrastructure.memory_config import USER_PROFILE_SCHEMA_ID
+from app.memory.adapter import VertexMemoryAdapter
+from app.memory.add_memory_tool import add_memory_entry
+from app.memory.user_profile import (
     _render_profile,
     engine_resource_name,
     load_user_profile,
@@ -252,7 +252,7 @@ class TestLoadUserProfile:
         assert profile == ""
 
     async def test_omits_lists_for_the_prompt_path(self, monkeypatch):
-        from horizon.memory import user_profile as up
+        from app.memory import user_profile as up
 
         client = _profile_client(
             {
@@ -282,7 +282,7 @@ class TestLoadUserProfile:
         assert "PST timezone" in full
 
     async def test_returns_rendered_profile(self, monkeypatch):
-        from horizon.memory import user_profile as up
+        from app.memory import user_profile as up
 
         client = _profile_client(
             {
@@ -300,7 +300,7 @@ class TestLoadUserProfile:
         assert profile == "Hi Alice."
 
     async def test_missing_schema_id_returns_empty(self, monkeypatch):
-        from horizon.memory import user_profile as up
+        from app.memory import user_profile as up
 
         client = _profile_client(
             {"other-schema": SimpleNamespace(profile={"x": 1})}
@@ -314,7 +314,7 @@ class TestLoadUserProfile:
         assert profile == ""
 
     async def test_empty_profile_returns_empty(self, monkeypatch):
-        from horizon.memory import user_profile as up
+        from app.memory import user_profile as up
 
         client = _profile_client(
             {USER_PROFILE_SCHEMA_ID: SimpleNamespace(profile={})}
@@ -328,7 +328,7 @@ class TestLoadUserProfile:
         assert profile == ""
 
     async def test_retrieve_raising_returns_empty(self, monkeypatch):
-        from horizon.memory import user_profile as up
+        from app.memory import user_profile as up
 
         async def boom(**_kw):
             raise RuntimeError("vertex down")

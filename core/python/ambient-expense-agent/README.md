@@ -43,7 +43,7 @@ analysis and **human-in-the-loop approval** before a decision is made.
 The agent is built as an ADK 2.0 [`Workflow`](https://adk.dev/workflows/) with
 conditional routing. The $100 threshold lives in code, not in a prompt — only
 high-value expenses hit the LLM. See
-[`expense_agent/agent.py`](expense_agent/agent.py) for the full graph definition.
+[`app/agent.py`](app/agent.py) for the full graph definition.
 
 ```
   Expense arrives (Pub/Sub)
@@ -161,7 +161,7 @@ This starts the ADK web UI at `http://localhost:8501`.
 To test the full Pub/Sub trigger flow, send an expense in another terminal:
 
 ```bash
-curl -s http://localhost:8080/apps/expense_agent/trigger/pubsub \
+curl -s http://localhost:8080/apps/app/trigger/pubsub \
   -H "Content-Type: application/json" \
   -d "{\"message\":{\"data\":\"$(echo '{"amount":250,"submitter":"alice@company.com","category":"travel","description":"Flight to NYC","date":"2026-04-10"}' | base64)\",\"attributes\":{\"source\":\"test\"}},\"subscription\":\"test-sub\"}"
 ```
@@ -212,10 +212,10 @@ make clean NOTIFICATION_EMAIL=finance@example.com
 
 | What to change | How |
 | --- | --- |
-| **Approval threshold** | Change `review_threshold` in `expense_agent/config.py` |
-| **LLM model** | Change `model` in `expense_agent/config.py` |
-| **Expense schema** | Edit the `ExpenseData` Pydantic model in `expense_agent/agent.py` |
-| **Review logic** | Edit the `review_agent` instruction in `expense_agent/agent.py` |
+| **Approval threshold** | Change `review_threshold` in `app/config.py` |
+| **LLM model** | Change `model` in `app/config.py` |
+| **Expense schema** | Edit the `ExpenseData` Pydantic model in `app/agent.py` |
+| **Review logic** | Edit the `review_agent` instruction in `app/agent.py` |
 | **Approval UI** | Edit `frontend/static/approval.html` |
 | **Downstream actions** | Add workflow nodes for Slack, databases, or notifications |
 | **Multi-level routing** | Add routes (e.g., `ESCALATE` for expenses > $1000) |

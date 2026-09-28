@@ -66,7 +66,7 @@ export interface HorizonSandboxStatus {
   ready_at?: string;
   error?: string;
   // Sandbox resource name (e.g. projects/.../sandboxes/...) — returned by
-  // get_user_sandbox_state in horizon/sandbox/lifecycle.py.
+  // get_user_sandbox_state in app/sandbox/lifecycle.py.
   sandbox_name?: string;
 }
 

@@ -33,11 +33,11 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from httpx import ASGITransport
 
-from horizon.api import sandbox as lha_sandbox
-from horizon.api.sandbox import attach_sandbox_routes
-from horizon.auth import current_user_id
-from horizon.conversation import session_start
-from horizon.environment import LocalEnvironment
+from app.api import sandbox as lha_sandbox
+from app.api.sandbox import attach_sandbox_routes
+from app.auth import current_user_id
+from app.conversation import session_start
+from app.environment import LocalEnvironment
 
 USER_ID = "u@local"
 

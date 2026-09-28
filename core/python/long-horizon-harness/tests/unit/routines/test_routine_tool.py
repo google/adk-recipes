@@ -17,10 +17,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from horizon.environment import LocalEnvironment
-from horizon.environment_context import set_active_environment
-from horizon.routines import tools as routine_tools
-from horizon.scheduler import routine_store as store_mod
+from app.environment import LocalEnvironment
+from app.environment_context import set_active_environment
+from app.routines import tools as routine_tools
+from app.scheduler import routine_store as store_mod
 
 pytestmark = pytest.mark.asyncio
 

@@ -30,9 +30,9 @@ from fastapi.testclient import TestClient
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 
-from horizon.api.sessions import attach_session_routes
-from horizon.auth import current_user_id
-from horizon.infrastructure.constants import APP_NAME
+from app.api.sessions import attach_session_routes
+from app.auth import current_user_id
+from app.infrastructure.constants import APP_NAME
 
 USER_ID = "u@local"
 OTHER_USER = "other@local"

@@ -78,10 +78,10 @@ url = "https://pypi.org/simple"
 default = true
 
 [tool.hatch.build.targets.wheel]
-packages = ["genmedia4commerce"]
+packages = ["app"]
 
 [tool.pytest.ini_options]
-pythonpath = [".", "genmedia4commerce"]
+pythonpath = [".", "app"]
 asyncio_default_fixture_loop_scope = "function"
 
 [tool.codespell]
@@ -97,6 +97,6 @@ example_question = "Generate a virtual try-on video of this model wearing this r
 name = "genmedia-for-commerce"
 description = "GenMedia retail media generation agent with MCP tools"
 base_template = "adk"
-agent_directory = "genmedia4commerce"
+agent_directory = "app"
 deployment_targets = ["agent_engine", "cloud_run"]
 interactive_command = "setup-infra && make playground"

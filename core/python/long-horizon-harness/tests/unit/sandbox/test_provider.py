@@ -3,10 +3,10 @@ from pathlib import Path
 
 import pytest
 
-from horizon.conversation import session_start
-from horizon.environment import LocalEnvironment
-from horizon.environment_context import set_sandbox_provider
-from horizon.sandbox.provider import (
+from app.conversation import session_start
+from app.environment import LocalEnvironment
+from app.environment_context import set_sandbox_provider
+from app.sandbox.provider import (
     LocalProvider,
     SandboxProvider,
     UpgradeProvision,

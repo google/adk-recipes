@@ -28,7 +28,7 @@ from google.adk.sessions.in_memory_session_service import InMemorySessionService
 from google.adk.tools.tool_context import ToolContext
 from google.genai import types
 
-from horizon.subagents.delegate_runner import (
+from app.subagents.delegate_runner import (
     DELEGATE_APP_NAME,
     build_resumable_child_runner,
     drive_child,

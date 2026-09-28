@@ -23,7 +23,7 @@ response shape against from pytest.
 
 These tests therefore pin WIRING, not behavior:
 
-* the singleton is re-exported from ``horizon.tools.web_search``
+* the singleton is re-exported from ``app.tools.web_search``
 * it is the actual ADK class instance (no accidental shadow)
 * it is present in ``root_agent.tools``
 * importing the app does not crash with the tool added
@@ -47,10 +47,10 @@ import inspect
 
 def test_module_exposes_google_search_singleton():
     """This module re-exports ADK's ``google_search`` so consumers can
-    ``from horizon.tools.web_search import google_search`` instead of
+    ``from app.tools.web_search import google_search`` instead of
     reaching into ``google.adk.tools``. Keeps the import surface
     consistent with our other tools."""
-    from horizon.tools.web_search import google_search
+    from app.tools.web_search import google_search
 
     assert google_search is not None
 
@@ -62,7 +62,7 @@ def test_re_exported_singleton_is_adk_built_in():
     internal wiring to Gemini's search-grounding bit)."""
     from google.adk.tools import google_search as adk_google_search
 
-    from horizon.tools.web_search import google_search
+    from app.tools.web_search import google_search
 
     assert google_search is adk_google_search
 
@@ -73,7 +73,7 @@ def test_re_exported_singleton_is_google_search_tool_class():
     surfaces here rather than silently shipping a broken tool."""
     from google.adk.tools.google_search_tool import GoogleSearchTool
 
-    from horizon.tools.web_search import google_search
+    from app.tools.web_search import google_search
 
     assert isinstance(google_search, GoogleSearchTool)
 
@@ -83,7 +83,7 @@ def test_google_search_tool_name_is_stable():
     'google_search'``. A rename in ADK would silently disable
     grounding — pin the literal so a drift fails a unit test instead
     of being noticed in production."""
-    from horizon.tools.web_search import google_search
+    from app.tools.web_search import google_search
 
     assert google_search.name == "google_search"
 
@@ -99,7 +99,7 @@ def test_module_does_not_define_a_custom_wrapper():
     class, the bait-and-switch needs a conscious decision (and a new
     test), not a silent slide back into lha-shaped complexity.
     """
-    import horizon.tools.web_search as module
+    import app.tools.web_search as module
 
     # Allow stdlib imports + the singleton re-export. Anything else
     # added to the module's public surface is a flag for review.
@@ -109,7 +109,7 @@ def test_module_does_not_define_a_custom_wrapper():
     for name in public_names - {"google_search"}:
         value = getattr(module, name)
         assert inspect.ismodule(value), (
-            f"Unexpected public symbol {name!r} in horizon.tools.web_search — "
+            f"Unexpected public symbol {name!r} in app.tools.web_search — "
             "Path A requires the module stay a thin re-export."
         )
 
@@ -123,9 +123,9 @@ def test_module_does_not_import_an_http_client():
 
     # Drop any stale cached copy so the import-side effects are
     # observable in this test run.
-    sys.modules.pop("horizon.tools.web_search", None)
+    sys.modules.pop("app.tools.web_search", None)
 
-    import horizon.tools.web_search  # noqa: F401
+    import app.tools.web_search  # noqa: F401
 
     module_imports = {
         name
@@ -135,12 +135,12 @@ def test_module_does_not_import_an_http_client():
     # `urllib3` is a transitive dep of half the SDK universe — only
     # fail if the WEB_SEARCH module itself imports an HTTP client
     # directly. Check its source.
-    import horizon.tools.web_search as web_search_module
+    import app.tools.web_search as web_search_module
 
     source = inspect.getsource(web_search_module)
     for forbidden in ("import requests", "import httpx", "import aiohttp"):
         assert forbidden not in source, (
-            f"horizon.tools.web_search must not {forbidden!r} — Path A means "
+            f"app.tools.web_search must not {forbidden!r} — Path A means "
             "no local HTTP. Found in module source."
         )
     # Silence the unused-var lint; the broader-sdk check above is
@@ -166,9 +166,9 @@ def test_google_search_lives_on_web_research_sub_agent_not_root():
     wrapping web_research_agent is on root_agent.tools."""
     from google.adk.tools.agent_tool import AgentTool
 
-    from horizon.agent import root_agent
-    from horizon.subagents.web_research import web_research_agent
-    from horizon.tools.web_search import google_search
+    from app.agent import root_agent
+    from app.subagents.web_research import web_research_agent
+    from app.tools.web_search import google_search
 
     assert google_search not in root_agent.tools, (
         "google_search must NOT be on root_agent.tools — Gemini API "
@@ -192,19 +192,19 @@ def test_google_search_lives_on_web_research_sub_agent_not_root():
 
 
 def test_root_agent_boots_with_web_search_registered():
-    """Sanity: importing ``horizon.agent`` must not raise after web_search
+    """Sanity: importing ``app.agent`` must not raise after web_search
     is added. ADK validates the tool list at construction time, so a
     misconfigured tool (e.g., conflicting with another grounding tool)
     would surface as an import-time ValueError. This test catches
     that without needing to spin up the Runner."""
     import importlib
 
-    import horizon.agent
+    import app.agent
 
     # Force a fresh import so any deferred ValueError fires in this
     # test run rather than relying on the import cache from another
     # test.
-    importlib.reload(horizon.agent)
+    importlib.reload(app.agent)
 
-    assert horizon.agent.root_agent is not None
-    assert horizon.agent.root_agent.tools, "root_agent must have tools wired"
+    assert app.agent.root_agent is not None
+    assert app.agent.root_agent.tools, "root_agent must have tools wired"

@@ -81,7 +81,7 @@ def smoke_http_port() -> int:
 def smoke_http_server(
     smoke_http_port: int, tmp_path_factory: pytest.TempPathFactory
 ) -> Iterator[str]:
-    """Spawn ``horizon.fast_api_app:app`` via subprocess; yield base URL."""
+    """Spawn ``app.fast_api_app:app`` via subprocess; yield base URL."""
 
     env = os.environ.copy()
     env["USE_IN_MEMORY_SESSION"] = "true"
@@ -95,7 +95,7 @@ def smoke_http_server(
             sys.executable,
             "-m",
             "uvicorn",
-            "horizon.fast_api_app:app",
+            "app.fast_api_app:app",
             "--host",
             "127.0.0.1",
             "--port",

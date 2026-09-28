@@ -19,8 +19,8 @@ from __future__ import annotations
 
 import pytest
 
-from horizon.environment import LocalEnvironment
-from horizon.environment import registry as reg
+from app.environment import LocalEnvironment
+from app.environment import registry as reg
 
 
 class _FakeHandle:

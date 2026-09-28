@@ -14,7 +14,7 @@
 // limitations under the License.
 
 import { useQuery } from "@tanstack/react-query";
-import { deleteLhaSession, type HorizonSessionSummary } from "./horizon-sessions";
+import { deleteLhaSession, type HorizonSessionSummary } from "./app-sessions";
 import { qk } from "./query-keys";
 import { readErrorDetail } from "./read-error-detail";
 

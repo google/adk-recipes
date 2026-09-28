@@ -45,9 +45,9 @@ import pytest
 from google.adk.models import LlmRequest
 from google.genai import types as genai_types
 
-from horizon.environment import LocalEnvironment
-from horizon.environment_context import set_active_environment
-from horizon.tools import names
+from app.environment import LocalEnvironment
+from app.environment_context import set_active_environment
+from app.tools import names
 
 
 class _FakeActions:
@@ -102,7 +102,7 @@ pytestmark = pytest.mark.asyncio
 
 
 def _tool():
-    from horizon.tools.read import ReadTool
+    from app.tools.read import ReadTool
 
     return ReadTool()
 
@@ -198,7 +198,7 @@ async def test_limit_caps_returned_lines(
 async def test_truncation_flag_and_trailer_survive(
     local_env: LocalEnvironment, ctx: _FakeToolContext
 ) -> None:
-    from horizon.tools.file_ops import _MAX_READ_CHARS
+    from app.tools.file_ops import _MAX_READ_CHARS
 
     target = local_env.working_dir / "huge.txt"
     line = "a" * 999 + "\n"
@@ -479,7 +479,7 @@ async def test_process_llm_request_skips_evicted_artifacts(
 
 
 def _restricted_caps(*, max_image_bytes: int | None = None):
-    from horizon.models.capabilities import ModelCapabilities
+    from app.models.capabilities import ModelCapabilities
 
     def _image_or_pdf(mime: str | None) -> bool:
         base = (mime or "").split(";")[0].strip().lower()
@@ -495,7 +495,7 @@ def _restricted_caps(*, max_image_bytes: int | None = None):
 async def test_unviewable_mime_not_injected_but_surfaced(
     local_env: LocalEnvironment, ctx: _FakeToolContext, monkeypatch
 ) -> None:
-    from horizon.tools import read as read_mod
+    from app.tools import read as read_mod
 
     monkeypatch.setattr(
         read_mod, "model_capabilities", lambda _n: _restricted_caps()
@@ -514,7 +514,7 @@ async def test_unviewable_mime_not_injected_but_surfaced(
 async def test_oversized_image_not_injected_when_capped(
     local_env: LocalEnvironment, ctx: _FakeToolContext, monkeypatch
 ) -> None:
-    from horizon.tools import read as read_mod
+    from app.tools import read as read_mod
 
     cap = 5 * 1024 * 1024
     monkeypatch.setattr(
@@ -609,7 +609,7 @@ async def test_legacy_string_pending_entry_still_loads(
     local_env: LocalEnvironment, ctx: _FakeToolContext
 ) -> None:
     """Plain-string entries in _pending_media_reads must still inject."""
-    from horizon.tools.read import _PENDING_STATE_KEY
+    from app.tools.read import _PENDING_STATE_KEY
 
     png_data = b"\x89PNG\r\n\x1a\nlegacy"
     part = genai_types.Part(

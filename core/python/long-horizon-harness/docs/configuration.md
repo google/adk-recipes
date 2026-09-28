@@ -18,16 +18,16 @@ the per-layer security model in [`security-model.md`](security-model.md).
 
 ## Routes
 
-The served app (`horizon.fast_api_app:app`) mounts every router: A2A + `/lha/*`
+The served app (`app.fast_api_app:app`) mounts every router: A2A + `/lha/*`
 (sessions, state, tasks, memories, uploads, sandbox, processes, secrets, routines),
 `/feedback`, the OAuth callbacks, and the `/scheduler/*` endpoints. To ship a subset,
-delete the `attach_*` calls you don't want in `horizon/fast_api_app.py`. What each
+delete the `attach_*` calls you don't want in `app/fast_api_app.py`. What each
 route exposes — and the credentials the `secrets`/`oauth` routes inject — is in
 [`security-model.md`](security-model.md).
 
 > **Feedback stays in your project.** The `feedback` surface (the UI's
 > "Have a suggestion?" button → `POST /feedback`) writes a structured record to
-> **your own Cloud Logging** (`horizon/feedback/sink.py`), with a stdlib-log
+> **your own Cloud Logging** (`app/feedback/sink.py`), with a stdlib-log
 > fallback. It is never sent to the project authors or any external endpoint.
 
 ---
@@ -54,7 +54,7 @@ route exposes — and the credentials the `secrets`/`oauth` routes inject — is
 
 | Var | Default | Notes |
 |---|---|---|
-| `LHA_ROOT_MODEL` | `gemini-3.7-flash` | Root-agent default; a key in `horizon/models/registry.py`. `/model` overrides per-session. |
+| `LHA_ROOT_MODEL` | `gemini-3.7-flash` | Root-agent default; a key in `app/models/registry.py`. `/model` overrides per-session. |
 | `LHA_VERTEX_SERVICE_TIER` | _(off)_ | Set to `priority` to pin Gemini to Vertex's `SERVICE_TIER_PRIORITY` per turn. **Off by default** — the tier needs a Vertex entitlement most projects lack. |
 
 ### Environment / sandbox
@@ -95,9 +95,9 @@ route exposes — and the credentials the `secrets`/`oauth` routes inject — is
 ### Identity (SOUL.md)
 
 `~/.lha/SOUL.md`, if present, replaces `DEFAULT_AGENT_IDENTITY` as the opening line of the
-agent's system prompt (`horizon/conversation/soul_loader.py`). It is read once, at
+agent's system prompt (`app/conversation/soul_loader.py`). It is read once, at
 App-build time, as part of assembling `Agent.static_instruction`
-(`horizon/conversation/system_prompt.py:build_static_instruction`) — editing it now needs
+(`app/conversation/system_prompt.py:build_static_instruction`) — editing it now needs
 a process restart to take effect, not just a new session, since the constant prefix is no
 longer rebuilt per session.
 
@@ -143,7 +143,7 @@ longer rebuilt per session.
 
 ### Connect Google (OAuth)
 
-Step-by-step client setup: [`quickstart.md`](quickstart.md#6-connect-google-optional-oauth). Bring your own Web OAuth client (the server routes ship in `horizon/auth/oauth.py`); unset ⇒ feature off.
+Step-by-step client setup: [`quickstart.md`](quickstart.md#6-connect-google-optional-oauth). Bring your own Web OAuth client (the server routes ship in `app/auth/oauth.py`); unset ⇒ feature off.
 
 | Var | Default | Notes |
 |---|---|---|
@@ -155,7 +155,7 @@ Step-by-step client setup: [`quickstart.md`](quickstart.md#6-connect-google-opti
 
 ## Dependency extras
 
-Core (`import horizon` + the default Gemini agent) needs no extra. Provider/subsystem
+Core (`import app` + the default Gemini agent) needs no extra. Provider/subsystem
 deps are optional extras in `pyproject.toml`; the dev/test env pulls them all back via
 `lha[full]` in the `dev` dependency-group.
 

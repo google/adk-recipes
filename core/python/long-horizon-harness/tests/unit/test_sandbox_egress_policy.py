@@ -66,7 +66,7 @@ class TestDefaultInternetAccess:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Local dev (no K_SERVICE) gets egress so ``make dev`` works out of the box."""
-        from horizon.sandbox.provider import default_internet_access
+        from app.sandbox.provider import default_internet_access
 
         monkeypatch.delenv("K_SERVICE", raising=False)
         monkeypatch.delenv("LHA_SANDBOX_INTERNET_ACCESS", raising=False)
@@ -76,7 +76,7 @@ class TestDefaultInternetAccess:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Cloud Run (K_SERVICE injected) is default-deny."""
-        from horizon.sandbox.provider import default_internet_access
+        from app.sandbox.provider import default_internet_access
 
         monkeypatch.setenv("K_SERVICE", "lha")
         monkeypatch.delenv("LHA_SANDBOX_INTERNET_ACCESS", raising=False)
@@ -98,7 +98,7 @@ class TestDefaultInternetAccess:
         flag: str,
         expected: bool,
     ) -> None:
-        from horizon.sandbox.provider import default_internet_access
+        from app.sandbox.provider import default_internet_access
 
         if k_service is None:
             monkeypatch.delenv("K_SERVICE", raising=False)
@@ -110,7 +110,7 @@ class TestDefaultInternetAccess:
 
 class TestEnsureTemplateEgress:
     def test_default_is_hermetic(self) -> None:
-        from horizon.sandbox.lifecycle import (
+        from app.sandbox.lifecycle import (
             ensure_template,
             template_display_name,
         )
@@ -126,7 +126,7 @@ class TestEnsureTemplateEgress:
         assert _config_get(egress, "internet_access") is False
 
     def test_internet_access_true_creates_net_template(self) -> None:
-        from horizon.sandbox.lifecycle import (
+        from app.sandbox.lifecycle import (
             ensure_template,
             template_display_name,
         )
@@ -149,7 +149,7 @@ class TestProvisionSandboxNoDescription:
     def test_create_config_omits_description(self) -> None:
         """Regression: the live sandbox create API rejects a ``description`` field
         (400 INVALID_ARGUMENT), so we must never send one."""
-        from horizon.sandbox.lifecycle import provision_sandbox
+        from app.sandbox.lifecycle import provision_sandbox
 
         captured: dict[str, Any] = {}
 
@@ -180,7 +180,7 @@ class TestProvisionSandboxNoDescription:
 
 class TestSandboxEnvironmentInternetAccess:
     def _env(self, **kw: Any) -> Any:
-        from horizon.environment.sandbox import SandboxEnvironment
+        from app.environment.sandbox import SandboxEnvironment
 
         return SandboxEnvironment(
             client=MagicMock(),
@@ -206,7 +206,7 @@ class TestSandboxEnvironmentInternetAccess:
 
 class TestEgressHelpers:
     def test_template_display_name_encodes_mode(self) -> None:
-        from horizon.sandbox.lifecycle import template_display_name
+        from app.sandbox.lifecycle import template_display_name
 
         # The two variants MUST differ so ensure_template's display_name+image
         # match never lets a hermetic caller reuse an internet-enabled template.
@@ -215,7 +215,7 @@ class TestEgressHelpers:
         assert template_display_name(False).endswith("-hermetic")
 
     def test_template_internet_access_reads_egress_config(self) -> None:
-        from horizon.sandbox.lifecycle import template_internet_access
+        from app.sandbox.lifecycle import template_internet_access
 
         on = SimpleNamespace(
             egress_control_config=SimpleNamespace(internet_access=True)
@@ -227,7 +227,7 @@ class TestEgressHelpers:
         assert template_internet_access(off, default=True) is False
 
     def test_template_internet_access_falls_back_to_display_name(self) -> None:
-        from horizon.sandbox.lifecycle import template_internet_access
+        from app.sandbox.lifecycle import template_internet_access
 
         net = SimpleNamespace(
             egress_control_config=None, display_name="lha-default-net"
@@ -239,7 +239,7 @@ class TestEgressHelpers:
         assert template_internet_access(herm, default=True) is False
 
     def test_template_internet_access_defaults_when_unknown(self) -> None:
-        from horizon.sandbox.lifecycle import template_internet_access
+        from app.sandbox.lifecycle import template_internet_access
 
         blank = SimpleNamespace(egress_control_config=None, display_name=None)
         assert template_internet_access(blank, default=True) is True

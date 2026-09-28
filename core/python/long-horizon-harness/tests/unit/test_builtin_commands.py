@@ -16,7 +16,7 @@
 
 These cover capabilities that belong to the user's affordance surface, not
 the model's. The model never sees ``/cmd`` turns — they're intercepted by
-``make_slash_command_dispatcher`` in ``horizon/commands/dispatcher.py``.
+``make_slash_command_dispatcher`` in ``app/commands/dispatcher.py``.
 """
 
 from __future__ import annotations
@@ -56,7 +56,7 @@ def _callback_ctx(
 
 
 async def test_module_registers_builtins():
-    from horizon.commands import BUILTIN_COMMAND_REGISTRY
+    from app.commands import BUILTIN_COMMAND_REGISTRY
 
     for name in ("dream-review", "reload", "grant", "model"):
         assert name in BUILTIN_COMMAND_REGISTRY
@@ -68,8 +68,8 @@ async def test_module_registers_builtins():
 
 
 async def test_dream_review_calls_internal_entrypoint(monkeypatch):
-    from horizon.commands import BUILTIN_COMMAND_REGISTRY
-    from horizon.memory import dream_review
+    from app.commands import BUILTIN_COMMAND_REGISTRY
+    from app.memory import dream_review
 
     spy = AsyncMock(return_value={"success": True, "sessions_reviewed": 3})
     monkeypatch.setattr(dream_review, "_run_dream_review_for_user", spy)
@@ -86,7 +86,7 @@ async def test_dream_review_calls_internal_entrypoint(monkeypatch):
 
 
 async def test_dream_review_handles_missing_invocation_context():
-    from horizon.commands import BUILTIN_COMMAND_REGISTRY
+    from app.commands import BUILTIN_COMMAND_REGISTRY
 
     handler = BUILTIN_COMMAND_REGISTRY["dream-review"]
     ctx = SimpleNamespace(state={}, user_id="ada", _invocation_context=None)
@@ -101,8 +101,8 @@ async def test_dream_review_handles_missing_invocation_context():
 
 
 async def test_reload_returns_noop_when_no_toolset_bound(monkeypatch):
-    import horizon.commands as commands_mod
-    from horizon.commands import BUILTIN_COMMAND_REGISTRY
+    import app.commands as commands_mod
+    from app.commands import BUILTIN_COMMAND_REGISTRY
 
     async def _noop():
         return None
@@ -116,8 +116,8 @@ async def test_reload_returns_noop_when_no_toolset_bound(monkeypatch):
 
 
 async def test_reload_reports_skill_diff(monkeypatch):
-    import horizon.commands as commands_mod
-    from horizon.commands import BUILTIN_COMMAND_REGISTRY
+    import app.commands as commands_mod
+    from app.commands import BUILTIN_COMMAND_REGISTRY
 
     async def _diff():
         return {"loaded": ["new-skill"], "removed": [], "total": 7}
@@ -138,9 +138,9 @@ async def test_reload_reports_skill_diff(monkeypatch):
 
 async def test_grant_records_bash_grant_for_command():
     """/grant uses names.BASH, not a hardcoded pre-rename literal (Task 11)."""
-    from horizon.commands import BUILTIN_COMMAND_REGISTRY
-    from horizon.guardrails.policy_grants import POLICY_GRANTS_STATE_KEY
-    from horizon.tools import names
+    from app.commands import BUILTIN_COMMAND_REGISTRY
+    from app.guardrails.policy_grants import POLICY_GRANTS_STATE_KEY
+    from app.tools import names
 
     state: dict = {}
     ctx = _callback_ctx(state=state)
@@ -160,9 +160,9 @@ async def test_grant_also_clears_process_spawn_and_write_shapes():
     three, or the documented recovery path silently no-ops for two of
     them.
     """
-    from horizon.commands import BUILTIN_COMMAND_REGISTRY
-    from horizon.guardrails.policy_grants import find_matching_grant
-    from horizon.tools import names
+    from app.commands import BUILTIN_COMMAND_REGISTRY
+    from app.guardrails.policy_grants import find_matching_grant
+    from app.tools import names
 
     state: dict = {}
     ctx = _callback_ctx(state=state)
@@ -185,8 +185,8 @@ async def test_grant_also_clears_process_spawn_and_write_shapes():
 
 
 async def test_grant_no_args_lists_active_grants():
-    from horizon.commands import BUILTIN_COMMAND_REGISTRY
-    from horizon.guardrails.policy_grants import POLICY_GRANTS_STATE_KEY
+    from app.commands import BUILTIN_COMMAND_REGISTRY
+    from app.guardrails.policy_grants import POLICY_GRANTS_STATE_KEY
 
     state: dict = {
         POLICY_GRANTS_STATE_KEY: [
@@ -207,8 +207,8 @@ async def test_grant_no_args_lists_active_grants():
 
 
 async def test_dispatcher_routes_to_builtin_registry(monkeypatch):
-    from horizon.commands.dispatcher import make_slash_command_dispatcher
-    from horizon.memory import dream_review
+    from app.commands.dispatcher import make_slash_command_dispatcher
+    from app.memory import dream_review
 
     spy = AsyncMock(return_value={"success": True, "sessions_reviewed": 0})
     monkeypatch.setattr(dream_review, "_run_dream_review_for_user", spy)
@@ -224,7 +224,7 @@ async def test_dispatcher_routes_to_builtin_registry(monkeypatch):
 
 
 async def test_dispatcher_ignores_non_slash_turns():
-    from horizon.commands.dispatcher import make_slash_command_dispatcher
+    from app.commands.dispatcher import make_slash_command_dispatcher
 
     dispatch = make_slash_command_dispatcher()
     ctx = _callback_ctx(state={})
@@ -236,7 +236,7 @@ async def test_dispatcher_ignores_non_slash_turns():
 
 
 async def test_dispatcher_ignores_unknown_slash_commands():
-    from horizon.commands.dispatcher import make_slash_command_dispatcher
+    from app.commands.dispatcher import make_slash_command_dispatcher
 
     dispatch = make_slash_command_dispatcher()
     ctx = _callback_ctx(state={})
@@ -253,20 +253,20 @@ async def test_dispatcher_ignores_unknown_slash_commands():
 
 
 async def test_sandbox_upgrade_registered():
-    from horizon.commands import BUILTIN_COMMAND_REGISTRY
+    from app.commands import BUILTIN_COMMAND_REGISTRY
 
     assert "sandbox-upgrade" in BUILTIN_COMMAND_REGISTRY
 
 
 async def test_sandbox_upgrade_reports_upgraded(monkeypatch):
-    from horizon.commands import BUILTIN_COMMAND_REGISTRY
+    from app.commands import BUILTIN_COMMAND_REGISTRY
 
     async def fake_upgrade(user_id):
         assert user_id == "ada"
         return {"status": "upgraded", "version": "v0_3_1"}
 
     monkeypatch.setattr(
-        "horizon.conversation.session_start.upgrade_user_sandbox", fake_upgrade
+        "app.conversation.session_start.upgrade_user_sandbox", fake_upgrade
     )
     out = await BUILTIN_COMMAND_REGISTRY["sandbox-upgrade"](
         "", _callback_ctx(state={}, user_id="ada")
@@ -275,13 +275,13 @@ async def test_sandbox_upgrade_reports_upgraded(monkeypatch):
 
 
 async def test_sandbox_upgrade_reports_already_current(monkeypatch):
-    from horizon.commands import BUILTIN_COMMAND_REGISTRY
+    from app.commands import BUILTIN_COMMAND_REGISTRY
 
     async def fake_upgrade(user_id):
         return {"status": "already_current", "version": "v0_3_1"}
 
     monkeypatch.setattr(
-        "horizon.conversation.session_start.upgrade_user_sandbox", fake_upgrade
+        "app.conversation.session_start.upgrade_user_sandbox", fake_upgrade
     )
     out = await BUILTIN_COMMAND_REGISTRY["sandbox-upgrade"](
         "", _callback_ctx(state={}, user_id="ada")
@@ -292,7 +292,7 @@ async def test_sandbox_upgrade_reports_already_current(monkeypatch):
 async def test_sandbox_upgrade_reports_unavailable_on_local_backend(
     monkeypatch,
 ):
-    from horizon.commands import BUILTIN_COMMAND_REGISTRY
+    from app.commands import BUILTIN_COMMAND_REGISTRY
 
     async def fake_upgrade(user_id):
         return {
@@ -301,7 +301,7 @@ async def test_sandbox_upgrade_reports_unavailable_on_local_backend(
         }
 
     monkeypatch.setattr(
-        "horizon.conversation.session_start.upgrade_user_sandbox", fake_upgrade
+        "app.conversation.session_start.upgrade_user_sandbox", fake_upgrade
     )
     out = await BUILTIN_COMMAND_REGISTRY["sandbox-upgrade"](
         "", _callback_ctx(state={}, user_id="ada")
@@ -310,7 +310,7 @@ async def test_sandbox_upgrade_reports_unavailable_on_local_backend(
 
 
 async def test_sandbox_upgrade_handles_missing_user():
-    from horizon.commands import BUILTIN_COMMAND_REGISTRY
+    from app.commands import BUILTIN_COMMAND_REGISTRY
 
     ctx = SimpleNamespace(state={}, user_id=None, _invocation_context=None)
     out = await BUILTIN_COMMAND_REGISTRY["sandbox-upgrade"]("", ctx)

@@ -30,9 +30,9 @@ import tempfile
 async def main() -> None:
     from google.adk.environment import LocalEnvironment
 
-    from horizon.environment_context import set_active_environment
-    from horizon.subagents.registry import reset_registry
-    from horizon.subagents.spawn import agent
+    from app.environment_context import set_active_environment
+    from app.subagents.registry import reset_registry
+    from app.subagents.spawn import agent
 
     reset_registry()
     with tempfile.TemporaryDirectory() as tmp:

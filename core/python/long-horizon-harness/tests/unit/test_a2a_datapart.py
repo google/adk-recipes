@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Unit tests for ``horizon.a2a.datapart.unwrap_a2a_datapart_text``.
+"""Unit tests for ``app.a2a.datapart.unwrap_a2a_datapart_text``.
 
 ADK wraps untyped A2A ``DataPart`` payloads (no ADK metadata-type key) in a
 ``<a2a_datapart_json>...</a2a_datapart_json>`` ``text/plain`` inline_data blob.
@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import json
 
-from horizon.a2a.datapart import (
+from app.a2a.datapart import (
     A2A_DATA_PART_END_TAG,
     A2A_DATA_PART_START_TAG,
     unwrap_a2a_datapart_text,

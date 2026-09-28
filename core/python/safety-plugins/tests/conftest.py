@@ -17,7 +17,7 @@
 This conftest deliberately does two things at module top so tests are
 self-contained and never depend on a ``.env`` file existing in CI:
 
-1. Populate the env vars that ``safety_plugins`` reads at import time
+1. Populate the env vars that ``app`` reads at import time
    (``MODEL_NAME_GENERATED_1`` / ``MODEL_NAME_GENERATED_2`` for the agents
    and judge, plus ``GOOGLE_CLOUD_PROJECT`` so ADK's Vertex path can
    initialise without ADC). ``load_dotenv()`` in the package's
@@ -29,11 +29,11 @@ self-contained and never depend on a ``.env`` file existing in CI:
    the network or needing valid credentials.
 """
 
-# --- Env bootstrap (runs before test files import safety_plugins) ----------
+# --- Env bootstrap (runs before test files import app) ----------
 # pytest loads conftest.py before collecting sibling test modules, so this
 # module-level code runs *before* test_agents.py's top-level
-# ``from safety_plugins.agent import root_agent`` triggers
-# ``safety_plugins/__init__.py`` (which calls ``load_dotenv()``).
+# ``from app.agent import root_agent`` triggers
+# ``app/__init__.py`` (which calls ``load_dotenv()``).
 import os
 
 os.environ.setdefault("GOOGLE_CLOUD_PROJECT", "test-project")

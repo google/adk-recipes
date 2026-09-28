@@ -14,8 +14,8 @@
 
 import pytest
 
-from horizon.sandbox.runtime.protocol import ExecRequest
-from horizon.sandbox.runtime.server import exec_command
+from app.sandbox.runtime.protocol import ExecRequest
+from app.sandbox.runtime.server import exec_command
 
 
 @pytest.mark.asyncio

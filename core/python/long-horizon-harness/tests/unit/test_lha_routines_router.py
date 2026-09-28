@@ -22,8 +22,8 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from horizon.api.routines import attach_routines_routes
-from horizon.scheduler.routine_store import (
+from app.api.routines import attach_routines_routes
+from app.scheduler.routine_store import (
     RoutineRow,
     get_routine_store,
     reset_routine_store,

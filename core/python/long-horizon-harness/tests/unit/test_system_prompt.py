@@ -23,7 +23,7 @@ Two tiers remain (the third, volatile, always lived in the reminder tail):
 
   * static  — ``Agent.static_instruction``, built once by
               ``build_static_instruction()`` at App-build time
-              (``horizon/agent.py:_build_app_object``). Never touched by
+              (``app/agent.py:_build_app_object``). Never touched by
               ``system_prompt_assembly_callback``; testing
               ``build_static_instruction(...)`` output directly IS testing
               the assembled prefix now, since (unlike the old
@@ -48,11 +48,11 @@ from unittest.mock import patch
 import pytest
 from google.adk.models import LlmRequest
 
-from horizon.conversation.soul_loader import (
+from app.conversation.soul_loader import (
     DEFAULT_AGENT_IDENTITY,
     load_soul_identity,
 )
-from horizon.conversation.system_prompt import (
+from app.conversation.system_prompt import (
     ACTING_GUIDANCE,
     CODE_EXECUTION_GUIDANCE,
     MEMORY_GUIDANCE,
@@ -233,7 +233,7 @@ async def test_identity_appears_once_in_static_instruction(tmp_path: Path):
 
 
 async def test_memory_guidance_present_when_memory_tool_loaded(tmp_path: Path):
-    from horizon.tools import names
+    from app.tools import names
 
     instruction = build_static_instruction(
         tool_names=[names.MEMORY, names.PRELOAD_MEMORY],
@@ -260,7 +260,7 @@ async def test_skills_guidance_present_when_load_skill_tool_loaded(
     tmp_path: Path,
 ):
     # Real tool name, not the dead "skill" placeholder the old gate used.
-    from horizon.tools import names
+    from app.tools import names
 
     instruction = build_static_instruction(
         tool_names=[names.LOAD_SKILL],
@@ -296,7 +296,7 @@ async def test_cross_session_recall_guidance_present_when_memory_tool_loaded(
     """session_search folded into memory(action='search') — the
     cross-session-recall paragraph now lives inside MEMORY_GUIDANCE, gated
     on names.MEMORY like the rest of that block."""
-    from horizon.tools import names
+    from app.tools import names
 
     instruction = build_static_instruction(
         tool_names=[names.MEMORY],
@@ -323,7 +323,7 @@ async def test_cross_session_recall_guidance_absent_when_memory_tool_not_loaded(
 async def test_artifact_html_guidance_is_gone():
     """ARTIFACT_HTML_GUIDANCE duplicated the artifact tool's own description
     and was deleted outright (single-source-of-truth), not merged."""
-    import horizon.conversation.system_prompt as sp
+    import app.conversation.system_prompt as sp
 
     assert not hasattr(sp, "ARTIFACT_HTML_GUIDANCE")
 
@@ -541,7 +541,7 @@ async def test_static_instruction_has_no_session_state_dependency():
     assert "callback_context" not in params
     assert "state" not in params
 
-    import horizon.conversation.system_prompt as sp
+    import app.conversation.system_prompt as sp
 
     assert not hasattr(sp, "_ensure_stable_tier")
     assert not hasattr(sp, "_STABLE_TIER_STATE_KEY")

@@ -217,9 +217,7 @@ def main():
     # Use the system prompt from the codebase
     sys.path.insert(
         0,
-        os.path.join(
-            os.path.dirname(__file__), "..", "..", "genmedia4commerce"
-        ),
+        os.path.join(os.path.dirname(__file__), "..", "..", "app"),
     )
     from workflows.spinning.r2v.shoes.classify_shoes import (
         SHOE_CLASSIFICATION_SYSTEM_PROMPT,

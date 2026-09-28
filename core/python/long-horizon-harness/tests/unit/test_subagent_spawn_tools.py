@@ -30,8 +30,8 @@ pytestmark = pytest.mark.asyncio
 
 
 async def test_spawn_returns_task_id_and_status(monkeypatch):
-    from horizon.subagents import delegate as delegate_module
-    from horizon.subagents.spawn import agent
+    from app.subagents import delegate as delegate_module
+    from app.subagents.spawn import agent
 
     async def _fake_build(**_kwargs: Any) -> Any:
         return object()
@@ -61,8 +61,8 @@ async def test_spawn_returns_task_id_and_status(monkeypatch):
 
 
 async def test_result_no_wait_returns_pending(monkeypatch):
-    from horizon.subagents import delegate as delegate_module
-    from horizon.subagents.spawn import agent
+    from app.subagents import delegate as delegate_module
+    from app.subagents.spawn import agent
 
     release = asyncio.Event()
 
@@ -90,8 +90,8 @@ async def test_result_no_wait_returns_pending(monkeypatch):
 
 
 async def test_cancel(monkeypatch):
-    from horizon.subagents import delegate as delegate_module
-    from horizon.subagents.spawn import agent
+    from app.subagents import delegate as delegate_module
+    from app.subagents.spawn import agent
 
     started = asyncio.Event()
 
@@ -125,7 +125,7 @@ async def test_cancel(monkeypatch):
 
 async def test_delegate_wrapper_still_returns_run_envelope(monkeypatch):
     """delegate() should keep its current shape — backwards compat."""
-    from horizon.subagents import delegate as delegate_module
+    from app.subagents import delegate as delegate_module
 
     async def _fake_build(**_kwargs: Any) -> Any:
         return object()
@@ -154,8 +154,8 @@ async def test_delegate_wrapper_still_returns_run_envelope(monkeypatch):
 
 
 async def test_unknown_toolset_returns_error_envelope(monkeypatch):
-    from horizon.subagents import delegate as delegate_module
-    from horizon.subagents.spawn import agent
+    from app.subagents import delegate as delegate_module
+    from app.subagents.spawn import agent
 
     async def _fake_build(**_kwargs: Any) -> Any:
         raise KeyError("not-a-toolset")
@@ -177,8 +177,8 @@ async def test_unknown_toolset_returns_error_envelope(monkeypatch):
 
 
 async def test_wait_dispatch_returns_finished(monkeypatch):
-    from horizon.subagents import delegate as delegate_module
-    from horizon.subagents.spawn import agent
+    from app.subagents import delegate as delegate_module
+    from app.subagents.spawn import agent
 
     async def _fake_build(**_kwargs: Any) -> Any:
         return object()
@@ -201,7 +201,7 @@ async def test_wait_dispatch_returns_finished(monkeypatch):
 
 
 async def test_wait_unknown_scope_returns_no_active():
-    from horizon.subagents.spawn import agent
+    from app.subagents.spawn import agent
 
     out = await agent(action="wait", task_ids=["does-not-exist"], timeout_s=0.1)
     assert out["status"] == "no_active_tasks"
@@ -214,35 +214,35 @@ async def test_wait_unknown_scope_returns_no_active():
 
 class TestDispatchErrors:
     async def test_spawn_missing_goal_rejected(self):
-        from horizon.subagents.spawn import agent
+        from app.subagents.spawn import agent
 
         result = await agent(action="spawn")
         assert result["success"] is False
         assert "goal" in result["error"].lower()
 
     async def test_status_missing_task_id_rejected(self):
-        from horizon.subagents.spawn import agent
+        from app.subagents.spawn import agent
 
         result = await agent(action="status")
         assert result["success"] is False
         assert "task_id" in result["error"]
 
     async def test_result_missing_task_id_rejected(self):
-        from horizon.subagents.spawn import agent
+        from app.subagents.spawn import agent
 
         result = await agent(action="result")
         assert result["success"] is False
         assert "task_id" in result["error"]
 
     async def test_cancel_missing_task_id_rejected(self):
-        from horizon.subagents.spawn import agent
+        from app.subagents.spawn import agent
 
         result = await agent(action="cancel")
         assert result["success"] is False
         assert "task_id" in result["error"]
 
     async def test_unknown_action_rejected(self):
-        from horizon.subagents.spawn import agent
+        from app.subagents.spawn import agent
 
         result = await agent(action="banana")  # type: ignore[arg-type]
         assert result["success"] is False
@@ -256,8 +256,8 @@ class TestDispatchErrors:
 
 class TestSpawnWiderApi:
     async def test_spawn_forwards_model_override(self, monkeypatch):
-        from horizon.subagents import delegate as delegate_module
-        from horizon.subagents.spawn import agent
+        from app.subagents import delegate as delegate_module
+        from app.subagents.spawn import agent
 
         captured: dict[str, Any] = {}
 
@@ -282,8 +282,8 @@ class TestSpawnWiderApi:
     async def test_spawn_forwards_tools_and_instructions_and_inline_skills(
         self, monkeypatch
     ):
-        from horizon.subagents import delegate as delegate_module
-        from horizon.subagents.spawn import agent
+        from app.subagents import delegate as delegate_module
+        from app.subagents.spawn import agent
 
         captured: dict[str, Any] = {}
 
@@ -314,8 +314,8 @@ class TestSpawnWiderApi:
         ]
 
     async def test_spawn_forwards_max_iterations_to_runner(self, monkeypatch):
-        from horizon.subagents import delegate as delegate_module
-        from horizon.subagents.spawn import agent
+        from app.subagents import delegate as delegate_module
+        from app.subagents.spawn import agent
 
         captured: dict[str, Any] = {}
 
@@ -342,8 +342,8 @@ class TestSpawnWiderApi:
         envelopes so the parent can correlate task_ids with intent."""
         import asyncio
 
-        from horizon.subagents import delegate as delegate_module
-        from horizon.subagents.spawn import agent
+        from app.subagents import delegate as delegate_module
+        from app.subagents.spawn import agent
 
         release = asyncio.Event()
 
@@ -371,8 +371,8 @@ class TestSpawnWiderApi:
         )
 
     async def test_spawn_output_format_json_parses_summary(self, monkeypatch):
-        from horizon.subagents import delegate as delegate_module
-        from horizon.subagents.spawn import agent
+        from app.subagents import delegate as delegate_module
+        from app.subagents.spawn import agent
 
         async def _fake_build(**_kwargs: Any) -> Any:
             return object()

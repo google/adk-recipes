@@ -21,7 +21,7 @@ install-frontend:
 		uv sync
 
 dev:
-	uv run python expense_agent/fast_api_app.py
+	uv run python app/fast_api_app.py
 
 dev-frontend:
 	cd frontend && BACKEND_URL=http://localhost:8080 uv run python main.py

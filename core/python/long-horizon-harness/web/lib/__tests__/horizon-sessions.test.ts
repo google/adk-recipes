@@ -26,7 +26,7 @@ import {
   useScheduledSessions,
   userSessionsKey,
   type HorizonSessionSummary,
-} from "../horizon-sessions";
+} from "../app-sessions";
 
 function wrapper(client: QueryClient) {
   return ({ children }: { children: ReactNode }) =>

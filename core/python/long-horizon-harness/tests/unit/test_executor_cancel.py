@@ -27,8 +27,8 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from a2a.types import TaskState
 
-from horizon.a2a.executor import build_executor
-from horizon.auth.identity import _user_id_var
+from app.a2a.executor import build_executor
+from app.auth.identity import _user_id_var
 
 
 @pytest.fixture(autouse=True)

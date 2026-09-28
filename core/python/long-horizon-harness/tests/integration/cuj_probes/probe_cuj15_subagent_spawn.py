@@ -37,7 +37,7 @@ pytestmark = pytest.mark.asyncio
 
 @pytest.fixture
 def registry():
-    from horizon.subagents.registry import SubAgentRegistry
+    from app.subagents.registry import SubAgentRegistry
 
     return SubAgentRegistry()
 
@@ -158,8 +158,8 @@ async def test_child_toolsets_do_not_include_agent_dispatch():
     the registry's cancellation cascade no longer matches what the
     parent agent reasoning expects.
     """
-    from horizon.subagents import spawn as spawn_module
-    from horizon.subagents.toolsets import TOOLSETS
+    from app.subagents import spawn as spawn_module
+    from app.subagents.toolsets import TOOLSETS
 
     forbidden = {spawn_module.agent}
 

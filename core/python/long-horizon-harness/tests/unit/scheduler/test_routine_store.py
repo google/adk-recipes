@@ -17,7 +17,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from horizon.scheduler.routine_store import (
+from app.scheduler.routine_store import (
     InMemoryRoutineStore,
     RoutineRow,
     get_routine_store,

@@ -24,7 +24,7 @@ from __future__ import annotations
 from google.adk.events.event import Event
 from google.genai.types import Content, Part
 
-from horizon.context.summarizer import (
+from app.context.summarizer import (
     SUMMARY_BANNER_PREFIX,
     build_compaction_prompt,
 )

@@ -24,7 +24,7 @@ from __future__ import annotations
 import logging
 from unittest.mock import MagicMock
 
-from horizon.feedback import sink
+from app.feedback import sink
 
 
 def test_emit_logs_struct_unchanged(monkeypatch) -> None:

@@ -1,5 +1,5 @@
 {
-  "description": "function_call DataPart for the clarify tool. The agent is asking the user to pick from a finite list of choices. Wire shape mirrors horizon/tools/clarify.py — args carry question + choices.",
+  "description": "function_call DataPart for the clarify tool. The agent is asking the user to pick from a finite list of choices. Wire shape mirrors app/tools/clarify.py — args carry question + choices.",
   "event": {
     "payload": {
       "$case": "statusUpdate",

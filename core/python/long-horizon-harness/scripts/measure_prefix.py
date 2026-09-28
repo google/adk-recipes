@@ -12,14 +12,14 @@ from google.adk.models import LlmRequest
 
 
 async def main() -> None:
-    from horizon.agent import _SKILL_TOOLSET, root_agent
+    from app.agent import _SKILL_TOOLSET, root_agent
 
     tools = await root_agent.canonical_tools()
     names = [t.name for t in tools]
 
     # Measure post-normalization: ADK's non-pydantic path keeps source
     # indentation, which normalize_tool_schemas_callback strips per request.
-    from horizon.context.schema_normalization import (
+    from app.context.schema_normalization import (
         normalize_tool_descriptions,
     )
 
@@ -43,7 +43,7 @@ async def main() -> None:
     index = len(skills_block) - preamble if idx >= 0 else 0
 
     try:
-        from horizon.subagents.descriptions import _build_suffix
+        from app.subagents.descriptions import _build_suffix
 
         suffix = len(_build_suffix())
     except Exception:

@@ -1,12 +1,12 @@
 [project]
 # Distribution name + Cloud Run service name (agents-cli derives the service
 # from this — a deploy contract: web proxy, IAP, APP_URL all target `lha`).
-# The IMPORT package is `horizon` (see [tool.hatch...] packages + the horizon/
+# The IMPORT package is `app` (see [tool.hatch...] packages + the app/
 # dir); a distribution name that differs from the import name is normal.
 name = "long-horizon-harness"
 version = "0.1.0"
 description = "Horizon — a self-improving long-horizon agent on Google ADK + Vertex AI"
-# Core runtime — what `import horizon` + the default Gemini agent need. Provider
+# Core runtime — what `import app` + the default Gemini agent need. Provider
 # and subsystem deps live in [project.optional-dependencies] extras below so an
 # external harness can install a minimal slice; this repo's own dev/test env
 # pulls them all back via the `long-horizon-harness[full]` self-reference in [dependency-groups].
@@ -150,4 +150,4 @@ asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests/unit", "tests/integration"]
 
 [tool.hatch.build.targets.wheel]
-packages = ["horizon"]
+packages = ["app"]

@@ -18,7 +18,7 @@ Direct tool-call rather than LLM-driven — same pattern as
 ``test_terminal_tool.py`` / ``test_search_and_read_smoke.py``. The smoke
 contract is twofold:
 
-1. The fuzzy replacer ladder (``horizon/tools/_replacers.py``) resolves an
+1. The fuzzy replacer ladder (``app/tools/_replacers.py``) resolves an
    ``oldText`` that differs from the file only by whitespace/indentation
    and applies the edit end-to-end through ``env.read_file`` /
    ``env.write_file`` — proving the ladder runs against the real backend.
@@ -44,7 +44,7 @@ pytestmark = pytest.mark.asyncio(loop_scope="session")
 async def test_fuzzy_patch_applies_whitespace_drifted_old_text(
     active_env: BaseEnvironment, unique_name: str
 ) -> None:
-    from horizon.tools.file_ops import edit, read_file, write
+    from app.tools.file_ops import edit, read_file, write
 
     target = f"{unique_name}.py"
     # Original uses 4-space indentation inside the function body.
@@ -78,7 +78,7 @@ async def test_fuzzy_patch_applies_whitespace_drifted_old_text(
 async def test_post_edit_ruff_never_raises_and_degrades_cleanly(
     active_env: BaseEnvironment, unique_name: str
 ) -> None:
-    from horizon.tools.file_ops import write
+    from app.tools.file_ops import write
 
     target = f"{unique_name}_lint.py"
     # An unused import — a classic ruff F401 finding. Whether ruff is present

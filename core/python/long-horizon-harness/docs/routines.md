@@ -22,12 +22,12 @@ declares. A routine is for work that should happen without the user present —
 a draft PR". There is no separate one-off reminder tool: a routine cannot
 prompt the user mid-run, so it is the wrong fit for a plain time-based ping.
 
-Verified against `horizon/routines/` (`manifest.py`, `store.py`, `tools.py`,
-`run_context.py`, `isolation.py`, `run_once.py`), `horizon/scheduler/`
+Verified against `app/routines/` (`manifest.py`, `store.py`, `tools.py`,
+`run_context.py`, `isolation.py`, `run_once.py`), `app/scheduler/`
 (`routine_store.py`,
 `routine_postgres_store.py`, `cron.py`, `routine_tick_endpoint.py`, `sessions.py`),
-`horizon/secrets/inject.py`, `horizon/guardrails/permission_guard.py`,
-`horizon/conversation/session_start.py`, and `horizon/sandbox/lifecycle.py`.
+`app/secrets/inject.py`, `app/guardrails/permission_guard.py`,
+`app/conversation/session_start.py`, and `app/sandbox/lifecycle.py`.
 
 ## Two artifacts per routine
 
@@ -36,17 +36,17 @@ and never need to be reconciled at fire time:
 
 1. **The human-readable manifest** — `.lha/routines/<id>.yaml`, written through
    the environment interface (`active_environment().write_file`, see
-   `write_routine_via_env` in `horizon/routines/manifest.py`) so it lands inside the
+   `write_routine_via_env` in `app/routines/manifest.py`) so it lands inside the
    user's sandbox under the sandbox backend, not just on the host. The body is
    `name` / `schedule` / `task` / `secrets` / `delivery`; the id is the file stem
    (a slug of the name). It is the readable source the user can inspect, and it
    lives in the dotted `.lha/` overlay the agent itself cannot write — the
    backend writes it on the user's behalf after approval. `parse_manifest`
-   (`horizon/routines/manifest.py`) normalizes it into the frozen
+   (`app/routines/manifest.py`) normalizes it into the frozen
    `RoutineManifest`.
 
 2. **The runtime row** — a `RoutineRow` in the `RoutineStore`
-   (`horizon/scheduler/routine_store.py`) carrying the same fields plus
+   (`app/scheduler/routine_store.py`) carrying the same fields plus
    `user_id` / `app_name` / `next_fire_at` / `created_at`. This is the copy the
    **fire path consumes**. The row deliberately duplicates the manifest fields so
    the tick is self-contained: a routine fires into a fresh `lhart-<id>` sandbox
@@ -60,19 +60,19 @@ only ever hold the secret env vars it names (see the isolation model below).
 ## The isolation model
 
 The fire path wraps the routine's agent turn in three ContextVars
-(`horizon/scheduler/routine_tick_endpoint.py:_fire_routine`), all reset in a
+(`app/scheduler/routine_tick_endpoint.py:_fire_routine`), all reset in a
 `finally`. Each is a `contextvars.ContextVar` (not a process global) so
 concurrent web turns on the same backend instance are unaffected.
 
 - **Fresh isolated sandbox** — `set_routine_run(RoutineRun(routine_id, owner))`
-  (`horizon/routines/run_context.py`). When a routine run is active,
-  `_ensure_environment` (`horizon/conversation/session_start.py`) takes the
+  (`app/routines/run_context.py`). When a routine run is active,
+  `_ensure_environment` (`app/conversation/session_start.py`) takes the
   routine branch: it keys the env cache on `("routine", routine_id)` instead of
   `(backend, user_id)`, and builds the routine's **own** environment via
   `_build_routine_environment`. Under the sandbox backend
   (`_build_routine_sandbox_environment`) that is the routine's own
   `lhart-<id>-<version>` sandbox, discovered/created via `find_routine_sandbox` /
-  `routine_display_name` (`horizon/sandbox/lifecycle.py`). The `lhart-` prefix is
+  `routine_display_name` (`app/sandbox/lifecycle.py`). The `lhart-` prefix is
   strictly disjoint from the user's `lha-<user>-` prefix, so a routine sandbox
   can never be matched by the user-sandbox discovery and vice versa — it cannot
   see the user's workspace, other projects, installed CLIs, or any other routine.
@@ -83,7 +83,7 @@ concurrent web turns on the same backend instance are unaffected.
   (`<root>/routines/<id>`), again separate from the user's `<root>/users/<id>`.
 
 - **Scoped secrets** — `set_routine_secret_scope(routine.secrets)`
-  (`horizon/secrets/inject.py`). `secret_env()` (called by `terminal` / `process`
+  (`app/secrets/inject.py`). `secret_env()` (called by `terminal` / `process`
   when injecting env into a command) reads the active scope and, when set,
   filters the resolved secret map down to only the declared names, so a routine
   receives only its `declared` secrets — never the user's full secret surface. A
@@ -92,7 +92,7 @@ concurrent web turns on the same backend instance are unaffected.
   per-user secrets, so they reach a routine only if it declares them.)
 
 - **Headless approval** — `set_headless_mode(True)`
-  (`horizon/guardrails/permission_guard.py`). The permission guard runs last in
+  (`app/guardrails/permission_guard.py`). The permission guard runs last in
   the `before_tool_callback` chain as the interactive ask-layer. With no user to
   prompt, an `ask_user` decision splits by tool: a **shell** command (terminal /
   process write) is **allowed** — it runs in the routine's own isolated `lhart-`
@@ -124,15 +124,15 @@ Cloud Scheduler ──▶ POST /scheduler/routine-tick
                        (the SAME shared A2A handler the web uses)
 ```
 
-`/scheduler/routine-tick` (`horizon/scheduler/routine_tick_endpoint.py`) is
-mounted by `horizon.fast_api_app` alongside the other scheduler endpoints; it is
+`/scheduler/routine-tick` (`app/scheduler/routine_tick_endpoint.py`) is
+mounted by `app.fast_api_app` alongside the other scheduler endpoints; it is
 protected by `verify_cloud_scheduler_token` like the rest of `/scheduler/*`. On each tick it
 calls `store.claim_due(now)` — which returns every row whose `next_fire_at` has
 passed and atomically advances each row's `next_fire_at` to the next cron
 occurrence (routines recur; they are never deleted on claim). For each claimed
 routine `_fire_routine` installs the three ContextVars, creates a persisted,
 tagged session via `create_scheduled_session(..., job_type="routine")`
-(`horizon/scheduler/sessions.py`), and runs the turn under
+(`app/scheduler/sessions.py`), and runs the turn under
 `user_identity_scope(routine.user_id)` through the **shared A2A handler**
 (`app.state.a2a_handler` — the same `DefaultRequestHandler` the web uses). The
 turn message is the routine's `task` prefixed with a headless preamble
@@ -145,12 +145,12 @@ runner directly would leave it blank). The endpoint returns `{"fired": N}` (plus
 ## Authoring
 
 The user authors a routine via the agent. The `routine` tool
-(`horizon/routines/tools.py`) is a first-class root-agent tool with four actions:
+(`app/routines/tools.py`) is a first-class root-agent tool with four actions:
 
 - **`test`** (`name`, `task`, optional `secrets`, `schedule`) — run the routine
   ONCE synchronously, right now, under its **real isolation**, and return the
   output WITHOUT scheduling anything. `run_routine_once`
-  (`horizon/routines/run_once.py`) builds a throwaway `Runner` over the live
+  (`app/routines/run_once.py`) builds a throwaway `Runner` over the live
   `App` with ephemeral in-memory services and drives one turn under
   `routine_isolation` — so the run is faithful (same agent/callbacks/plugins, own
   `lhart-<slug>` sandbox, headless, only the declared secrets) but persists
@@ -163,7 +163,7 @@ The user authors a routine via the agent. The `routine` tool
   it's keyed on the slug and reused by the scheduled routine, so a test before
   `create` warms the exact sandbox the routine will run in. Same isolation via the
   shared `routine_isolation` / `HEADLESS_PREAMBLE` in
-  `horizon/routines/isolation.py`, used by both paths so they can't drift.)
+  `app/routines/isolation.py`, used by both paths so they can't drift.)
 - **`create`** (`name`, `schedule`, `task`, optional `secrets`, `delivery`) —
   validates the cron expression (`is_valid_cron`), then **gates on HITL**: the
   first call dispatches an ADK `request_confirmation` and returns
@@ -180,22 +180,22 @@ The user authors a routine via the agent. The `routine` tool
 
 The agent learns the capability through a thin "Routines:" pointer in the system
 prompt plus the on-demand `routines` builtin skill
-(`horizon/builtin_skills/routines/SKILL.md`), which carries the how-to detail so
+(`app/builtin_skills/routines/SKILL.md`), which carries the how-to detail so
 the cached prefix stays lean.
 
 The user can also manage routines directly with the `/routines` slash command
-(`horizon/commands/__init__.py`): `/routines` lists the caller's routines and
+(`app/commands/__init__.py`): `/routines` lists the caller's routines and
 `/routines remove <id>` cancels one.
 
 ## Storage backends
 
-`get_routine_store()` (`horizon/scheduler/routine_store.py`) returns a process
+`get_routine_store()` (`app/scheduler/routine_store.py`) returns a process
 singleton selected by **`LHA_ROUTINE_STORE`**:
 
 - **`memory`** (default) — `InMemoryRoutineStore`, for tests and single-process
   dev. Not durable across restarts.
 - **`postgres`** — `PostgresRoutineStore`
-  (`horizon/scheduler/routine_postgres_store.py`), asyncpg-backed. It reuses
+  (`app/scheduler/routine_postgres_store.py`), asyncpg-backed. It reuses
   **`LHA_REMINDER_DB_URL`** (a historical name, now owned solely by routines);
   unset under `postgres` raises at startup. The `routines` table is bootstrapped
   idempotently on first use, `claim_due` uses `FOR UPDATE SKIP LOCKED` so
@@ -203,7 +203,7 @@ singleton selected by **`LHA_ROUTINE_STORE`**:
   `retry_on_disconnect` for Cloud SQL failover resilience. `secrets` is stored as
   JSON text.
 
-Cron scheduling is `croniter`-backed (`horizon/scheduler/cron.py`):
+Cron scheduling is `croniter`-backed (`app/scheduler/cron.py`):
 `is_valid_cron` validates a 5-field expression and `next_cron_fire` computes the
 next fire strictly after a given time, raising on an invalid expression.
 

@@ -22,35 +22,35 @@ class TestAgentDefinition:
 
     def test_agent_imports(self):
         """Agent module should import without errors."""
-        from genmedia4commerce.agent import app, root_agent
+        from app.agent import app, root_agent
 
         assert root_agent is not None
         assert app is not None
 
     def test_agent_name(self):
         """Agent should have the correct name."""
-        from genmedia4commerce.agent import root_agent
+        from app.agent import root_agent
 
         assert root_agent.name == "genmedia_router"
 
     def test_agent_has_tools(self):
         """Agent should have the product_fitting tool."""
-        from genmedia4commerce.agent import root_agent
+        from app.agent import root_agent
 
         assert root_agent.tools is not None
         assert len(root_agent.tools) > 0
 
     def test_agent_has_after_tool_callback(self):
         """Agent should have the after_tool_callback for image extraction."""
-        from genmedia4commerce.agent import root_agent
+        from app.agent import root_agent
 
         assert root_agent.after_tool_callback is not None
 
     def test_app_name(self):
         """App should have the correct name."""
-        from genmedia4commerce.agent import app
+        from app.agent import app
 
-        assert app.name == "genmedia4commerce"
+        assert app.name == "app"
 
 
 class TestStripImagesFromResult:
@@ -58,7 +58,7 @@ class TestStripImagesFromResult:
 
     def test_no_images(self):
         """Should return the same dict when no base64 images are present."""
-        from genmedia4commerce.agents.style_advisor_agent.agent import (
+        from app.agents.style_advisor_agent.agent import (
             _strip_images_from_result,
         )
 
@@ -70,7 +70,7 @@ class TestStripImagesFromResult:
 
     def test_top_level_base64_extraction(self):
         """Should extract top-level *_base64 keys with large values."""
-        from genmedia4commerce.agents.style_advisor_agent.agent import (
+        from app.agents.style_advisor_agent.agent import (
             _strip_images_from_result,
         )
 
@@ -88,7 +88,7 @@ class TestStripImagesFromResult:
 
     def test_nested_base64_extraction(self):
         """Should extract base64 from nested dicts (e.g. front/back views)."""
-        from genmedia4commerce.agents.style_advisor_agent.agent import (
+        from app.agents.style_advisor_agent.agent import (
             _strip_images_from_result,
         )
 
@@ -108,7 +108,7 @@ class TestStripImagesFromResult:
 
     def test_short_base64_not_extracted(self):
         """Should not extract short base64 strings (< 1000 chars)."""
-        from genmedia4commerce.agents.style_advisor_agent.agent import (
+        from app.agents.style_advisor_agent.agent import (
             _strip_images_from_result,
         )
 
@@ -120,7 +120,7 @@ class TestStripImagesFromResult:
 
     def test_none_values_preserved(self):
         """Should preserve None values."""
-        from genmedia4commerce.agents.style_advisor_agent.agent import (
+        from app.agents.style_advisor_agent.agent import (
             _strip_images_from_result,
         )
 

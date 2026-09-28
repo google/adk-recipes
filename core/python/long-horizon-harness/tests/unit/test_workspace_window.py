@@ -17,7 +17,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from horizon.workspace_window import (
+from app.workspace_window import (
     WORKSPACE_WINDOW_STATE_KEY,
     maybe_seed_window,
     render_window,

@@ -14,7 +14,7 @@
 
 """End-to-end regression net for the artifact filename bug.
 
-The bug was: ``horizon/tools/artifacts.py`` saved ``Part.from_bytes()``
+The bug was: ``app/tools/artifacts.py`` saved ``Part.from_bytes()``
 without setting ``Blob.display_name``; the ADK genai→A2A converter
 then emitted ``FilePart.name=None`` and the UI fell back to
 ``attachment.<ext>``. The Phase 1 tool-level test
@@ -115,7 +115,7 @@ def test_a2a_artifact_save_emits_filepart_with_real_name(
     assert filename in names, (
         f"FilePart.name regression: expected {filename!r} in stream, "
         f"got names={names!r}. If any are None, the "
-        f"`Blob.display_name` fix in horizon/tools/artifacts.py has regressed."
+        f"`Blob.display_name` fix in app/tools/artifacts.py has regressed."
     )
     assert None not in names, (
         f"FilePart.name regression: stream contained a FilePart with name=None; "

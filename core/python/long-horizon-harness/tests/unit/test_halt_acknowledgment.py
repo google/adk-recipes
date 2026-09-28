@@ -46,18 +46,18 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from horizon.guardrails import (
+from app.guardrails import (
     HALT_REASON_STATE_KEY,
     NoProgressGuard,
     RepeatedFailureGuard,
     clear_halt_state,
     halt_consumer_callback,
 )
-from horizon.guardrails.no_progress import (
+from app.guardrails.no_progress import (
     _LAST_TEXT_STATE_KEY as NP_LAST_TEXT_KEY,
 )
-from horizon.guardrails.no_progress import _STREAK_STATE_KEY as NP_STREAK_KEY
-from horizon.guardrails.repeated_failure import (
+from app.guardrails.no_progress import _STREAK_STATE_KEY as NP_STREAK_KEY
+from app.guardrails.repeated_failure import (
     _STREAK_STATE_KEY as RF_STREAK_KEY,
 )
 
@@ -216,7 +216,7 @@ async def test_on_session_start_clears_halt_on_subsequent_invocation():
     guard (SESSION_STARTED_STATE_KEY) was returning early before any
     halt-clearing could happen on later turns. The clear must run on
     every invocation, not just the first."""
-    from horizon.conversation.session_start import (
+    from app.conversation.session_start import (
         SESSION_STARTED_STATE_KEY,
         on_session_start_callback,
     )
@@ -234,15 +234,15 @@ async def test_on_session_start_clears_halt_on_subsequent_invocation():
     # Stub the env/sandbox/compaction side-effects — orthogonal to halt clearing.
     with (
         patch(
-            "horizon.conversation.session_start._ensure_environment",
+            "app.conversation.session_start._ensure_environment",
             new=AsyncMock(return_value=SimpleNamespace()),
         ),
         patch(
-            "horizon.conversation.session_start._refresh_sandbox_auth",
+            "app.conversation.session_start._refresh_sandbox_auth",
             new=AsyncMock(return_value=None),
         ),
-        patch("horizon.conversation.session_start.set_active_environment"),
-        patch("horizon.conversation.session_start._bind_compaction_ctx_from"),
+        patch("app.conversation.session_start.set_active_environment"),
+        patch("app.conversation.session_start._bind_compaction_ctx_from"),
     ):
         await on_session_start_callback(ctx)
 

@@ -23,10 +23,10 @@ from __future__ import annotations
 
 import pytest
 
-from horizon.environment_context import set_active_environment
-from horizon.guardrails.permission_guard import permission_guard
-from horizon.guardrails.policies import policies_guard
-from horizon.tools import names
+from app.environment_context import set_active_environment
+from app.guardrails.permission_guard import permission_guard
+from app.guardrails.policies import policies_guard
+from app.tools import names
 
 pytestmark = pytest.mark.asyncio
 
@@ -59,7 +59,7 @@ class _Tool:
 
 @pytest.fixture(autouse=True)
 def _env(tmp_path, monkeypatch):
-    from horizon.environment import LocalEnvironment
+    from app.environment import LocalEnvironment
 
     env = LocalEnvironment(working_dir=tmp_path)
     set_active_environment(env)

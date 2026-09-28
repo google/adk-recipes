@@ -38,7 +38,7 @@ SANDBOX_NAME = (
 
 
 def _make_env(**overrides: Any) -> Any:
-    from horizon.environment.sandbox import SandboxEnvironment
+    from app.environment.sandbox import SandboxEnvironment
 
     kwargs: dict[str, Any] = {
         "client": MagicMock(),

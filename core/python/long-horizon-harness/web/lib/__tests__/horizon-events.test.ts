@@ -103,7 +103,7 @@ describe("extractParts", () => {
   it("skips a lha_ge_label text part (the 📎 artifact link, rendered inline instead)", () => {
     // The 📎 saved-artifact link is GE-only: the web renders the artifact inline
     // from its FilePart, so mapPart drops the marked link to avoid a duplicate
-    // (see horizon/a2a/executor.py _surface_artifact_links).
+    // (see app/a2a/executor.py _surface_artifact_links).
     const event = {
       payload: {
         $case: "statusUpdate",
@@ -171,7 +171,7 @@ describe("mapPart", () => {
 
   it("strips the GE horizon__ prefix from tool call names", () => {
     // The backend prefixes flat names so GE's <agent>__<action> timeline filter
-    // shows them (horizon/a2a/executor.py); the web renders the flat label.
+    // shows them (app/a2a/executor.py); the web renders the flat label.
     expect(
       mapPart({
         content: {

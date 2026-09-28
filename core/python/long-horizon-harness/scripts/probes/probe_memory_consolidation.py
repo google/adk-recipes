@@ -24,7 +24,7 @@ Gates the dream-pass consolidation build. Answers, against the live API:
 
 If (a)/(b) hold, the existing dream-review generate call already consolidates
 general memories — confirming that count-surfacing + the ``LHA_MEMORY_CONSOLIDATION``
-kill switch (already shipped in ``horizon/memory/dream_review.py``) is the whole
+kill switch (already shipped in ``app/memory/dream_review.py``) is the whole
 feature. If they do NOT, the consolidation story needs rework (e.g. an
 ``allowed_topics``/scope-differentiated generate) — investigate before relying on it.
 
@@ -52,9 +52,9 @@ from google.adk.events.event import Event
 from google.adk.memory import VertexAiMemoryBankService
 from google.genai.types import Content, Part
 
-from horizon.memory.add_memory_tool import add_memory_entry
-from horizon.memory.dream_review import _run_dream_review_for_user
-from horizon.memory.memory_list import list_memory_writes
+from app.memory.add_memory_tool import add_memory_entry
+from app.memory.dream_review import _run_dream_review_for_user
+from app.memory.memory_list import list_memory_writes
 
 
 def _log(msg: str) -> None:

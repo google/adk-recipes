@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from horizon.routines.manifest import (
+from app.routines.manifest import (
     DEFAULT_DELIVERY,
     RoutineManifest,
     parse_manifest,

@@ -1,4 +1,4 @@
-# "Connect Google" OAuth (horizon/auth/oauth.py). Entirely OPTIONAL:
+# "Connect Google" OAuth (app/auth/oauth.py). Entirely OPTIONAL:
 # with the three vars unset the feature is off (the backend returns 503 from
 # /lha/gcp/connect) and nothing here is created — a fresh user gets a working
 # deploy without configuring OAuth. Set all three (client id/secret + redirect)

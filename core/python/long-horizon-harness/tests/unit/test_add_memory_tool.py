@@ -25,7 +25,7 @@ Tests drive ``add_memory_entry`` (the pure async helper that takes a
 ``BaseMemoryService`` + scope identifiers directly), avoiding the need to
 spin up a Runner / InvocationContext just to unit-test storage semantics.
 
-Tests drive ``horizon.memory.add_memory_tool``.
+Tests drive ``app.memory.add_memory_tool``.
 """
 
 from __future__ import annotations
@@ -37,8 +37,8 @@ from google.adk.memory import InMemoryMemoryService
 # Tool surface under test — import inside fixtures/tests to keep
 # collection cheap.
 def _import_tool():
-    from horizon.memory._content_safety import scan_memory_content
-    from horizon.memory.add_memory_tool import (
+    from app.memory._content_safety import scan_memory_content
+    from app.memory.add_memory_tool import (
         MEMORY_CHAR_LIMIT,
         USER_CHAR_LIMIT,
         add_memory_entry,

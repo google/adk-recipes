@@ -66,7 +66,7 @@ def _make_json_attachment_event() -> Event:
 async def test_generate_receives_no_unsupported_inline_mime(fake_vertex):
     """JSON inline_data is degraded to text before reaching generate, so the
     POST body can never carry the mimeType the extractor rejects."""
-    from horizon.memory import dream_review
+    from app.memory import dream_review
 
     service = _FakeSessionService([[_make_json_attachment_event()]])
     result = await dream_review._run_dream_review_for_user(
@@ -168,7 +168,7 @@ class _FakeMemories:
 
 
 def _vertex_adapter(client: Any) -> Any:
-    from horizon.memory.adapter import VertexMemoryAdapter
+    from app.memory.adapter import VertexMemoryAdapter
 
     service = SimpleNamespace(
         _get_api_client=lambda: client,
@@ -182,7 +182,7 @@ def _vertex_adapter(client: Any) -> Any:
 @pytest.fixture
 def fake_vertex(monkeypatch):
     """Patch dream_review.memory_adapter → a Vertex adapter over a fake client."""
-    from horizon.memory import dream_review
+    from app.memory import dream_review
 
     memories = _FakeMemories()
     client = SimpleNamespace(agent_engines=SimpleNamespace(memories=memories))
@@ -209,7 +209,7 @@ def _ctx(memory: Any, session_service: Any, *, user_id: str = "user-1") -> Any:
 
 
 async def test_module_exposes_entrypoints():
-    from horizon.memory import dream_review
+    from app.memory import dream_review
 
     assert callable(dream_review.request_dream_review)
     assert callable(dream_review.list_active_users)
@@ -223,7 +223,7 @@ async def test_module_exposes_entrypoints():
 
 
 async def test_disabled_env_returns_disabled_envelope(monkeypatch, fake_vertex):
-    from horizon.memory import dream_review
+    from app.memory import dream_review
 
     monkeypatch.setenv(dream_review.DREAM_REVIEW_ENABLED_ENV, "0")
     result = await dream_review._run_dream_review_for_user(
@@ -238,7 +238,7 @@ async def test_disabled_env_returns_disabled_envelope(monkeypatch, fake_vertex):
 
 
 async def test_returns_failure_without_session_service(fake_vertex):
-    from horizon.memory import dream_review
+    from app.memory import dream_review
 
     result = await dream_review._run_dream_review_for_user(
         memory_service=object(),
@@ -252,7 +252,7 @@ async def test_returns_failure_without_session_service(fake_vertex):
 
 async def test_returns_failure_for_non_vertex_memory(monkeypatch):
     """Without a Vertex Memory Bank, structured profiles are unavailable."""
-    from horizon.memory import dream_review
+    from app.memory import dream_review
 
     result = await dream_review._run_dream_review_for_user(
         memory_service=InMemoryMemoryService(),
@@ -265,7 +265,7 @@ async def test_returns_failure_for_non_vertex_memory(monkeypatch):
 
 
 async def test_returns_failure_when_session_service_lacks_lookup(fake_vertex):
-    from horizon.memory import dream_review
+    from app.memory import dream_review
 
     result = await dream_review._run_dream_review_for_user(
         memory_service=object(),
@@ -279,7 +279,7 @@ async def test_returns_failure_when_session_service_lacks_lookup(fake_vertex):
 
 
 async def test_returns_failure_when_no_session_content(fake_vertex):
-    from horizon.memory import dream_review
+    from app.memory import dream_review
 
     result = await dream_review._run_dream_review_for_user(
         memory_service=object(),
@@ -300,7 +300,7 @@ async def test_returns_failure_when_no_session_content(fake_vertex):
 
 
 async def test_generate_called_with_scope_and_events(fake_vertex):
-    from horizon.memory import dream_review
+    from app.memory import dream_review
 
     service = _FakeSessionService(
         [[_make_event("first")], [_make_event("second")]]
@@ -325,7 +325,7 @@ async def test_generate_called_with_scope_and_events(fake_vertex):
 
 
 async def test_envelope_reports_consolidation_counts(fake_vertex):
-    from horizon.memory import dream_review
+    from app.memory import dream_review
 
     service = _FakeSessionService([[_make_event("hi")]])
     result = await dream_review._run_dream_review_for_user(
@@ -344,7 +344,7 @@ async def test_envelope_reports_consolidation_counts(fake_vertex):
 
 
 async def test_kill_switch_off_disables_consolidation(monkeypatch, fake_vertex):
-    from horizon.memory import dream_review
+    from app.memory import dream_review
 
     monkeypatch.setenv("LHA_MEMORY_CONSOLIDATION", "0")
     service = _FakeSessionService([[_make_event("hi")]])
@@ -361,7 +361,7 @@ async def test_kill_switch_off_disables_consolidation(monkeypatch, fake_vertex):
 
 
 async def test_generate_failure_returns_envelope(monkeypatch):
-    from horizon.memory import dream_review
+    from app.memory import dream_review
 
     async def boom(**_kw):
         raise RuntimeError("vertex down")
@@ -387,7 +387,7 @@ async def test_generate_failure_returns_envelope(monkeypatch):
 
 
 async def test_request_dream_review_threads_context(fake_vertex):
-    from horizon.memory import dream_review
+    from app.memory import dream_review
 
     service = _FakeSessionService([[_make_event("hi")]])
     result = await dream_review.request_dream_review(
@@ -402,7 +402,7 @@ async def test_request_dream_review_threads_context(fake_vertex):
 
 
 async def test_request_dream_review_without_invocation_context():
-    from horizon.memory import dream_review
+    from app.memory import dream_review
 
     result = await dream_review.request_dream_review(
         tool_context=SimpleNamespace(_invocation_context=None)

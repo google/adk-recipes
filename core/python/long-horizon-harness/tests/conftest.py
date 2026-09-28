@@ -38,7 +38,7 @@ from google.adk.memory import InMemoryMemoryService
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 
-from horizon.environment import LocalEnvironment
+from app.environment import LocalEnvironment
 
 PROJECT_ROOT = Path(__file__).parent.parent
 if str(PROJECT_ROOT) not in sys.path:
@@ -85,8 +85,8 @@ def _scoped_environment(tmp_path: Path) -> Iterator[None]:
     path-scoped tools (file_ops, terminal) resolve under it. Tests that
     need a different working_dir override the binding by calling
     ``set_active_environment`` themselves."""
-    from horizon.context.compaction_context import clear_compaction_context
-    from horizon.environment_context import (
+    from app.context.compaction_context import clear_compaction_context
+    from app.environment_context import (
         clear_active_environment,
         set_active_environment,
     )

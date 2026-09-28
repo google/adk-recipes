@@ -19,13 +19,13 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from horizon.auth.identity import get_user_id_from_context
-from horizon.guardrails.permission_guard import _HEADLESS
-from horizon.routines.run_context import active_routine_run
-from horizon.scheduler import routine_store as store_mod
-from horizon.scheduler import routine_tick_endpoint
-from horizon.scheduler.routine_store import RoutineRow
-from horizon.secrets.inject import _routine_secret_scope
+from app.auth.identity import get_user_id_from_context
+from app.guardrails.permission_guard import _HEADLESS
+from app.routines.run_context import active_routine_run
+from app.scheduler import routine_store as store_mod
+from app.scheduler import routine_tick_endpoint
+from app.scheduler.routine_store import RoutineRow
+from app.secrets.inject import _routine_secret_scope
 
 try:
     from google.adk.sessions import InMemorySessionService

@@ -3,8 +3,8 @@
 import pytest
 import pytest_asyncio
 
-from horizon.environment import Environment, LocalEnvironment
-from horizon.environment.process import ProcessHandle
+from app.environment import Environment, LocalEnvironment
+from app.environment.process import ProcessHandle
 
 
 @pytest_asyncio.fixture

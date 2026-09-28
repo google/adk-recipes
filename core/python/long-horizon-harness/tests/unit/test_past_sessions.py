@@ -27,7 +27,7 @@ from google.adk.events.event import Event
 from google.adk.sessions import InMemorySessionService
 from google.genai import types
 
-from horizon.tools.past_sessions import (
+from app.tools.past_sessions import (
     EVENT_TEXT_MAX_LEN,
     recall_past_sessions_entries,
 )

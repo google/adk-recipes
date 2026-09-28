@@ -55,7 +55,7 @@ export interface UseChatStreamArgs {
 
 // Tools whose execution can change /workspace contents. Names must match the
 // `name` field on function-call data parts emitted by the agent (see
-// horizon/tools/*). Kept narrow so quiet turns don't trigger refetches; widen as
+// app/tools/*). Kept narrow so quiet turns don't trigger refetches; widen as
 // new FS-touching tools land.
 const FS_TOUCHING_TOOLS = new Set([
   "bash", // arbitrary shell — assume any invocation may touch the FS

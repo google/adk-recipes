@@ -18,8 +18,8 @@ first if you just want endpoints; read [Threat model](#threat-model) if you're
 drawing a security boundary.
 
 If anything here disagrees with the code, trust the code — these are the files:
-`horizon/auth/identity.py` (auth), `horizon/fast_api_app.py` (route mounting),
-`horizon/secrets/inject.py` (secret injection), `horizon/agent.py` (always-on
+`app/auth/identity.py` (auth), `app/fast_api_app.py` (route mounting),
+`app/secrets/inject.py` (secret injection), `app/agent.py` (always-on
 plugins/callbacks).
 
 ## In this doc
@@ -39,9 +39,9 @@ plugins/callbacks).
 
 ## The routes (start here)
 
-The served app (`horizon.fast_api_app:app`) mounts **every** router — there's no
+The served app (`app.fast_api_app:app`) mounts **every** router — there's no
 preset knob. To ship a subset, delete the `attach_*` calls you don't want in
-`horizon/fast_api_app.py`. The security question isn't *which* routes mount but
+`app/fast_api_app.py`. The security question isn't *which* routes mount but
 *what each one exposes*:
 
 | Route group | Endpoints | What it exposes |
@@ -79,10 +79,10 @@ FastAPI):
 
 | Invariant | Where | What it does |
 |---|---|---|
-| `exfil_guard` (Layer A) | `before_tool_callback` (`horizon/guardrails/exfil_guard.py`) | Blocks outbound tool calls that carry secret material or upload a credential file, and routes uploads to non-allowlisted hosts through a one-time `/grant`. Always on, every agent. |
-| `IterationBudgetPlugin` | `App(plugins=…)` (`horizon/conversation/iteration_budget_plugin.py`) | Caps tool calls per iteration so a runaway turn can't spend unbounded tokens. |
-| `GuardrailsPlugin` | `App(plugins=…)` (`horizon/guardrails/guardrails_plugin.py`) | No-progress, repeated-failure, and halt guards sharing one `halt_reason`; short-circuits a stuck turn. |
-| `IdentityMiddleware` | `_build_app` (`horizon/auth/identity.py`) | Resolves the request's `user_id` once per request per `LHA_AUTH_MODE`, before any route runs. Added unconditionally whenever the FastAPI surface is built. |
+| `exfil_guard` (Layer A) | `before_tool_callback` (`app/guardrails/exfil_guard.py`) | Blocks outbound tool calls that carry secret material or upload a credential file, and routes uploads to non-allowlisted hosts through a one-time `/grant`. Always on, every agent. |
+| `IterationBudgetPlugin` | `App(plugins=…)` (`app/conversation/iteration_budget_plugin.py`) | Caps tool calls per iteration so a runaway turn can't spend unbounded tokens. |
+| `GuardrailsPlugin` | `App(plugins=…)` (`app/guardrails/guardrails_plugin.py`) | No-progress, repeated-failure, and halt guards sharing one `halt_reason`; short-circuits a stuck turn. |
+| `IdentityMiddleware` | `_build_app` (`app/auth/identity.py`) | Resolves the request's `user_id` once per request per `LHA_AUTH_MODE`, before any route runs. Added unconditionally whenever the FastAPI surface is built. |
 
 You cannot toggle these off. They are the floor.
 
@@ -145,7 +145,7 @@ A `delegate` child runs in its own runner, so historically an `ask_user` inside
 it became a hard deny. Now a **blocking `delegate`** drives a **durable,
 resumable** child (reusing the parent's session service) and surfaces the
 child's risky ops to the user: the child guard
-(`horizon/subagents/child_guard.py`) resolves the full permission ruleset and,
+(`app/subagents/child_guard.py`) resolves the full permission ruleset and,
 when a bubble is available (`resurface_context`), pauses the child via
 `request_confirmation`; `delegate` re-raises that on the **parent turn** tagged
 `[delegated: <name>]` and, on approval, resumes the child **in place** (ADK
@@ -183,7 +183,7 @@ carry that. This prevents accidental over-granting.
 ### Regex-safety guard (tenant-authored patterns only)
 
 Tenant-authored regexes in `.lha/{permissions,policies,exfil}.jsonl` are
-validated (`horizon/guardrails/_regex_safety.py`) before compiling: length cap
+validated (`app/guardrails/_regex_safety.py`) before compiling: length cap
 (1,000 chars) + nested-quantifier pattern detection. Malformed regexes are
 skipped with a warning. **Trusted defaults and seed rules are NOT gated** —
 only user-authored overlay/grant patterns.
@@ -230,7 +230,7 @@ invokes `/a2a` with the Discovery Engine SA in `X-Serverless-Authorization`
 (Cloud Run edge IAM) and the **end-user's OAuth access token in
 `Authorization: Bearer`**; with no IAP JWT present, the backend verifies that
 token via Google `tokeninfo`, requiring `aud == LHA_GCP_OAUTH_CLIENT_ID` and a
-verified email (`horizon/auth/oauth_verify.py`). The same token is overlaid as
+verified email (`app/auth/oauth_verify.py`). The same token is overlaid as
 `CLOUDSDK_AUTH_ACCESS_TOKEN` for that turn so the sandbox acts as the user
 (delegated Google access). GE registration wires this via
 `authorizationConfig.agentAuthorization` (a Discovery Engine **authorization**
@@ -249,7 +249,7 @@ operating on a request-bound user.
 ## What the routes expose
 
 All routers mount; three carry more than an HTTP endpoint and are the ones to
-reason about (delete their `attach_*` call in `horizon/fast_api_app.py` to drop
+reason about (delete their `attach_*` call in `app/fast_api_app.py` to drop
 the route — but see the injection caveat).
 
 ### Credential-injecting routes (`secrets`, `oauth`)
@@ -259,7 +259,7 @@ the route — but see the injection caveat).
 | secrets | `/lha/secrets` (GET / PUT / DELETE `{name}`, POST `/secrets/import`) | the per-user API keys `secret_env()` injects into sandbox commands |
 | oauth | `/lha/gcp/*` (`/connect`, `/callback`, `/status`, `/disconnect`) | the Connect-Google flow storing the 5 Google OAuth tokens (`CLOUDSDK_AUTH_ACCESS_TOKEN`, `CLOUDSDK_AUTH_TOKEN_EXPIRES_AT`, `GOOGLE_WORKSPACE_CLI_TOKEN`, `GOOGLE_WORKSPACE_TOKEN_EXPIRES_AT`, `GOOGLE_WORKSPACE_SCOPES_META`) `secret_env()` injects |
 
-`secret_env()` (`horizon/secrets/inject.py`) is the single injection point — it
+`secret_env()` (`app/secrets/inject.py`) is the single injection point — it
 returns every stored secret for the request's user (routines narrow this to their
 declared names). **Injection happens whenever a credential is stored, regardless
 of whether these routes are mounted** — the routes are only the management API. To
@@ -293,7 +293,7 @@ Each rung adds capability and accepts new attack surface. Climb only as far as
 your use case needs.
 
 ### L1 — bare agent, no HTTP
-`horizon.fast_api_app.build_runner()`. You drive the `Runner` directly (CLI /
+`app.fast_api_app.build_runner()`. You drive the `Runner` directly (CLI /
 batch / embedding in another framework).
 - **Adds:** the agent loop with all the always-on invariants (exfil guard,
   iteration budget, guardrails). No network surface at all.
@@ -301,7 +301,7 @@ batch / embedding in another framework).
   boundary because there is no HTTP. The agent runs as you.
 
 ### L2 — FastAPI surface
-`uvicorn horizon.fast_api_app:app`. Mounts A2A + all `/lha/*` + `/scheduler/*`.
+`uvicorn app.fast_api_app:app`. Mounts A2A + all `/lha/*` + `/scheduler/*`.
 Pick `LHA_AUTH_MODE` here.
 - **Adds:** the HTTP API and per-request identity. Every route mounts (trim by
   deleting `attach_*` calls — see [The routes](#the-routes-start-here)).
@@ -370,7 +370,7 @@ IAP-fronted proxy), Cloud SQL, Cloud Scheduler, IAM, secrets.
   backend (IAM-gated, invoked only by the web/scheduler SAs + A2A peers),
   `iap_enabled=true` on `lha-web`, scheduler OIDC.
 - **You accept:** the operational surface of a production deploy. Every route is
-  mounted (it demos secrets/oauth/scheduler); trim `horizon/fast_api_app.py` for a
+  mounted (it demos secrets/oauth/scheduler); trim `app/fast_api_app.py` for a
   tighter footprint.
 
 ---
@@ -380,7 +380,7 @@ IAP-fronted proxy), Cloud SQL, Cloud Scheduler, IAM, secrets.
 | Token / layer | Tier | Env / knob |
 |---|---|---|
 | Identity | — (always) | `LHA_AUTH_MODE` (`dev` / `iap` / `trusted_header`), `LHA_DEV_USER_ID`, `LHA_IAP_AUDIENCE` |
-| Routes | — | all mount; trim by deleting `attach_*` in `horizon/fast_api_app.py` |
+| Routes | — | all mount; trim by deleting `attach_*` in `app/fast_api_app.py` |
 | `secrets` | route + injection | `/lha/secrets`; injection always-on when a key is stored |
 | `oauth` | route + injection | `/lha/gcp/*`; OAuth client via `LHA_GCP_OAUTH_*` |
 | `scheduler` | unattended | `/scheduler/*`; OIDC via `LHA_SCHEDULER_SA` / `LHA_SCHEDULER_AUDIENCE` |
@@ -398,16 +398,16 @@ first one to object is the one in the error.
 
 | Symptom | Where to look | Why |
 |---|---|---|
-| Tool blocked: `exfiltration guard: …` | Layer A — `exfil_guard` (`horizon/guardrails/exfil_guard.py`) | Args carry secret material, or a shell command reads a credential / hits the GCP metadata server / uploads to a non-allowlisted host. A hard block needs an exact `/grant`; an upload to an unknown host needs `/grant` or an `allow_hosts` overlay. |
-| Tool blocked: `blocked by policy` / `blocked by command_safety` | Layer C — `policies_guard` (`horizon/guardrails/policies.py` + `command_safety.py`) | A seed/overlay policy matched, or `command_safety.classify()` returned a `deny` verdict (e.g. `rm -rf /`). On a child/headless chain an `ask` verdict also hard-denies (`ask_is_deny`). |
-| Tool blocked: `denied by permission rule`, or it pauses for a four-button approval card | Layer D — `permission_guard` (`horizon/guardrails/permission_guard.py`) | A permission rule said `deny`; otherwise the call cleared the hard-deny floor but is consequential (`ask` verdict / no allow rule) and prompts. Approve, or set `/yolo` for the session. |
-| `401`/`403` from the sandbox shim | Per-user JWT + routing token at the Sandbox LB (`horizon/sandbox/lifecycle.py`, `environment.py`) | Bearer JWT or `X-Sandbox-Routing-Token` expired (env re-mints next turn), or the caller's ADC lacks `roles/iam.serviceAccountTokenCreator`. |
-| Secret not injected into a command | `secret_env()` (`horizon/secrets/inject.py`) | The credential isn't stored for this user, the local backend resolved no `owner`, or a routine scope filtered it to the manifest's declared names only. |
-| Wrong / shared user identity | `LHA_AUTH_MODE` (`horizon/auth/identity.py`) | `dev` collapses every request to `LHA_DEV_USER_ID`. Set `iap` or `trusted_header` for any deploy. |
-| `500` `LHA_AUTH_MODE=dev refused…` | `DevAuthInProductionError` (`horizon/auth/identity.py`) | `dev` mode on Cloud Run (`K_SERVICE` is set) — fail-closed backstop. Set a real auth mode. |
+| Tool blocked: `exfiltration guard: …` | Layer A — `exfil_guard` (`app/guardrails/exfil_guard.py`) | Args carry secret material, or a shell command reads a credential / hits the GCP metadata server / uploads to a non-allowlisted host. A hard block needs an exact `/grant`; an upload to an unknown host needs `/grant` or an `allow_hosts` overlay. |
+| Tool blocked: `blocked by policy` / `blocked by command_safety` | Layer C — `policies_guard` (`app/guardrails/policies.py` + `command_safety.py`) | A seed/overlay policy matched, or `command_safety.classify()` returned a `deny` verdict (e.g. `rm -rf /`). On a child/headless chain an `ask` verdict also hard-denies (`ask_is_deny`). |
+| Tool blocked: `denied by permission rule`, or it pauses for a four-button approval card | Layer D — `permission_guard` (`app/guardrails/permission_guard.py`) | A permission rule said `deny`; otherwise the call cleared the hard-deny floor but is consequential (`ask` verdict / no allow rule) and prompts. Approve, or set `/yolo` for the session. |
+| `401`/`403` from the sandbox shim | Per-user JWT + routing token at the Sandbox LB (`app/sandbox/lifecycle.py`, `environment.py`) | Bearer JWT or `X-Sandbox-Routing-Token` expired (env re-mints next turn), or the caller's ADC lacks `roles/iam.serviceAccountTokenCreator`. |
+| Secret not injected into a command | `secret_env()` (`app/secrets/inject.py`) | The credential isn't stored for this user, the local backend resolved no `owner`, or a routine scope filtered it to the manifest's declared names only. |
+| Wrong / shared user identity | `LHA_AUTH_MODE` (`app/auth/identity.py`) | `dev` collapses every request to `LHA_DEV_USER_ID`. Set `iap` or `trusted_header` for any deploy. |
+| `500` `LHA_AUTH_MODE=dev refused…` | `DevAuthInProductionError` (`app/auth/identity.py`) | `dev` mode on Cloud Run (`K_SERVICE` is set) — fail-closed backstop. Set a real auth mode. |
 | `401` `invalid IAP JWT` / `invalid OAuth bearer` | `iap` verification (`identity.py`, `auth/oauth_verify.py`) | Wrong `LHA_IAP_AUDIENCE`, or a GE bearer whose `aud != LHA_GCP_OAUTH_CLIENT_ID`. |
 | Headless run auto-denied (`headless_denied`) | Headless mode (`permission_guard.py:set_headless_mode`) | A non-shell op needed approval with no user present (routine fire path). Redesign the routine to avoid it. |
-| Route `404` that should exist | Route mounting (`horizon/fast_api_app.py`) | Its `attach_*` call was removed. Confirm with `{r.path for r in app.routes}`. |
+| Route `404` that should exist | Route mounting (`app/fast_api_app.py`) | Its `attach_*` call was removed. Confirm with `{r.path for r in app.routes}`. |
 
 ---
 
@@ -420,7 +420,7 @@ first one to object is the one in the error.
 > the cited code before relying on any row, and prefer the hard boundaries
 > (per-user identity, sandbox isolation) over the defense-in-depth heuristics.
 
-Scope: the agent + FastAPI surface in this repo (`horizon/`). Out of scope: the
+Scope: the agent + FastAPI surface in this repo (`app/`). Out of scope: the
 LLM's own behavior (jailbreaks), Agent Platform Sessions / Sandboxes / Cloud Run / IAP
 internals, and anything an operator misconfigures away (e.g. `dev` auth in
 prod, which the `K_SERVICE` backstop turns into a fail-closed 500).
@@ -429,16 +429,16 @@ prod, which the `K_SERVICE` backstop turns into a fail-closed 500).
 
 | ID | Component | Trust level | Default | Entry point |
 |---|---|---|---|---|
-| C1 | Identity middleware (per-request `user_id`) | framework | on with FastAPI | `horizon/auth/identity.py` (`IdentityMiddleware`, `resolve_user_id`) |
-| C2 | Layer A — exfil guard | framework | always on | `horizon/guardrails/exfil_guard.py` (+ `exfil_config.py`) |
-| C3 | Layer C — policies guard + argv classifier | framework | always on | `horizon/guardrails/policies.py`, `command_safety.py` |
-| C5 | Layer D — permission ask-gate | framework | always on | `horizon/guardrails/permission_guard.py`, `permission_rules.py` |
-| C6 | Halt / budget plugins | framework | always on | `horizon/guardrails/guardrails_plugin.py`, `horizon/conversation/iteration_budget_plugin.py` |
-| C7 | Sandbox per-user JWT isolation | framework | on when `backend=sandbox` | `horizon/sandbox/lifecycle.py` (`mint_sandbox_token`), `environment.py` |
-| C8 | Per-user secret store + injection point | framework | on when a key is stored | `horizon/secrets/store.py`, `inject.py` (`secret_env`) |
-| C9 | A2A converter (URL redaction + fake-link strip) | framework | on (A2A path) | `horizon/a2a/executor.py`, `horizon/context/artifact_url_redaction.py` |
-| C10 | Memory namespace (per-user scope) | framework | always on | `horizon/memory/user_profile.py`, `infrastructure/memory_config.py` (`profile_scope`) |
-| C11 | Headless / routine run isolation | framework | on (scheduler) | `horizon/guardrails/permission_guard.py` (`set_headless_mode`), `secrets/inject.py` (`scoped_secret_env`) |
+| C1 | Identity middleware (per-request `user_id`) | framework | on with FastAPI | `app/auth/identity.py` (`IdentityMiddleware`, `resolve_user_id`) |
+| C2 | Layer A — exfil guard | framework | always on | `app/guardrails/exfil_guard.py` (+ `exfil_config.py`) |
+| C3 | Layer C — policies guard + argv classifier | framework | always on | `app/guardrails/policies.py`, `command_safety.py` |
+| C5 | Layer D — permission ask-gate | framework | always on | `app/guardrails/permission_guard.py`, `permission_rules.py` |
+| C6 | Halt / budget plugins | framework | always on | `app/guardrails/guardrails_plugin.py`, `app/conversation/iteration_budget_plugin.py` |
+| C7 | Sandbox per-user JWT isolation | framework | on when `backend=sandbox` | `app/sandbox/lifecycle.py` (`mint_sandbox_token`), `environment.py` |
+| C8 | Per-user secret store + injection point | framework | on when a key is stored | `app/secrets/store.py`, `inject.py` (`secret_env`) |
+| C9 | A2A converter (URL redaction + fake-link strip) | framework | on (A2A path) | `app/a2a/executor.py`, `app/context/artifact_url_redaction.py` |
+| C10 | Memory namespace (per-user scope) | framework | always on | `app/memory/user_profile.py`, `infrastructure/memory_config.py` (`profile_scope`) |
+| C11 | Headless / routine run isolation | framework | on (scheduler) | `app/guardrails/permission_guard.py` (`set_headless_mode`), `secrets/inject.py` (`scoped_secret_env`) |
 
 ### Trust boundaries
 
@@ -457,13 +457,13 @@ prod, which the `K_SERVICE` backstop turns into a fail-closed 500).
 | ID | Threat | Boundary | Severity | Mitigation | Code reference |
 |---|---|---|---|---|---|
 | H1 | Prompt injection in fetched web/tool content steers the model into a harmful tool call | TB4 | Medium | The resulting tool call still passes the A–D guard chain; content itself is **not** scanned (honest limit) | `permission_guard.py`, `exfil_guard.py` |
-| H2 | Secret exfiltration via shell (`cat .env \| curl`, metadata-server read) | TB3 | High | `exfil_guard` hard-blocks secret material, credential-read-plus-network shapes, and metadata reads; **heuristic** over command shapes | `horizon/guardrails/exfil_guard.py`, `exfil_config.py` |
+| H2 | Secret exfiltration via shell (`cat .env \| curl`, metadata-server read) | TB3 | High | `exfil_guard` hard-blocks secret material, credential-read-plus-network shapes, and metadata reads; **heuristic** over command shapes | `app/guardrails/exfil_guard.py`, `exfil_config.py` |
 | H3 | Data upload to a non-allowlisted host | TB3 | Medium | `exfil_guard` surfaces a `/grant` confirmation | `exfil_guard.py` |
-| H4 | Destructive shell command (`rm -rf /`, `git push --force`) | TB2 | High | `command_safety.classify()` returns `deny` (hard-block) or `ask` (interactive approval; hard-deny when headless) | `horizon/guardrails/command_safety.py`, `permission_guard.py` |
+| H4 | Destructive shell command (`rm -rf /`, `git push --force`) | TB2 | High | `command_safety.classify()` returns `deny` (hard-block) or `ask` (interactive approval; hard-deny when headless) | `app/guardrails/command_safety.py`, `permission_guard.py` |
 | H5 | Cross-user data / workspace access | TB6 | High | Per-user sandbox JWT, per-user memory scope, per-user secret owner; `dev`-in-prod collapse blocked by `K_SERVICE` backstop | `auth/identity.py` (`DevAuthInProductionError`), `sandbox/lifecycle.py`, `memory/user_profile.py` |
 | H6 | Forged identity at the HTTP boundary | TB1 | High | `iap` re-verifies the Google-signed JWT (signature + audience) or the GE bearer via `tokeninfo`; `dev` = no verification (local only) | `auth/identity.py` (`_verify_iap_jwt`), `auth/oauth_verify.py` |
 | H7 | Credentialed artifact (signed) URL pasted into the model's reply | TB4 | Medium | `redact_artifact_urls_callback` swaps the URL for a placeholder in the model's view; converter strips fabricated artifact links | `context/artifact_url_redaction.py`, `a2a/executor.py` (`_strip_fake_artifact_links`) |
-| H8 | Over-broad secret injection into the sandbox | TB5 | Medium | `secret_env()` scopes to the request's user; routines filter to manifest-declared names; interactive turns inject the user's full stored surface | `horizon/secrets/inject.py` |
+| H8 | Over-broad secret injection into the sandbox | TB5 | Medium | `secret_env()` scopes to the request's user; routines filter to manifest-declared names; interactive turns inject the user's full stored surface | `app/secrets/inject.py` |
 | H9 | Unattended routine run abuses the full toolset | TB7 | Medium | `/scheduler/*` OIDC-gated; routine runs in an isolated `lhart-` sandbox with scoped secrets; non-shell approvals auto-deny | `permission_guard.py` (`set_headless_mode`), `secrets/inject.py` (`scoped_secret_env`) |
 | H10 | Permission over-grant via overlay (blanket "always allow bash") | TB2 | Low | Overlay/grant rules targeting `bash`/`process` with no narrowing field are rejected at load; tenant regexes validated | `permission_rules.py`, `_regex_safety.py` |
 | H11 | Stale/expired sandbox token replayed | TB6 | Low | Bearer JWT + routing token each carry a TTL and are re-minted/rotated; the LB returns `401`/`403` on expiry/missing creds | `sandbox/lifecycle.py` (`mint_sandbox_token`, `fetch_routing_token`), `environment.py` |

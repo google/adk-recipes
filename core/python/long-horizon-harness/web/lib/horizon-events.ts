@@ -66,7 +66,7 @@ export interface ExtractedToolResult {
   result: unknown;
 }
 
-// The clarify tool (horizon/tools/clarify.py) and ADK's framework-synthesized
+// The clarify tool (app/tools/clarify.py) and ADK's framework-synthesized
 // `adk_request_confirmation` carrying a clarify originalCall both collapse
 // to this shape: a question, an optional finite set of choices, and the
 // function_call_id needed for the continuation message.
@@ -130,7 +130,7 @@ export type Extracted =
 const CLARIFY_TOOL_NAME = "clarify";
 const CONFIRMATION_TOOL_NAME = "adk_request_confirmation";
 
-// Mirrors horizon/a2a/executor.py _GE_TOOL_NAME_PREFIX: the backend prefixes flat
+// Mirrors app/a2a/executor.py _GE_TOOL_NAME_PREFIX: the backend prefixes flat
 // tool names so GE's <agent>__<action> timeline filter renders them. Strip it
 // back so the web shows flat labels and the special-case selectors still match.
 const GE_TOOL_NAME_PREFIX = "horizon__";
@@ -141,7 +141,7 @@ function _stripGePrefix(name: string | undefined): string | undefined {
     : name;
 }
 
-// Mirrors horizon/a2a/executor.py _GE_LABEL_KEY: marks a text part the web
+// Mirrors app/a2a/executor.py _GE_LABEL_KEY: marks a text part the web
 // should skip because it renders the same thing richly — the 📎 saved-artifact
 // link (the web shows the artifact inline from its FilePart, so the text link
 // would be a duplicate). GE has no inline file rendering and keeps the link.

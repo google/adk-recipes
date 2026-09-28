@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from horizon.conversation.system_prompt import (
+from app.conversation.system_prompt import (
     MAX_CONTEXT_FILE_BYTES,
     discover_context_files,
 )

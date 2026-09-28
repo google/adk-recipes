@@ -28,7 +28,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 RUNTIME_DIR = (
-    Path(__file__).resolve().parents[3] / "horizon" / "sandbox" / "runtime"
+    Path(__file__).resolve().parents[3] / "app" / "sandbox" / "runtime"
 )
 
 

@@ -23,11 +23,11 @@ regression fails with an unambiguous name instead of a generic
 
 from __future__ import annotations
 
-from horizon.conversation.system_prompt import (
+from app.conversation.system_prompt import (
     SKILLS_GUIDANCE,
     build_static_instruction,
 )
-from horizon.tools import names
+from app.tools import names
 
 
 def test_skills_guidance_gate_is_a_real_tool_name():
@@ -66,7 +66,7 @@ def test_cross_session_recall_guidance_is_gated_on_memory_not_a_placeholder():
     Its cross-session-recall paragraph now lives inside MEMORY_GUIDANCE,
     gated on the real names.MEMORY — proven here with a name that is
     definitely not a registered tool."""
-    from horizon.conversation.system_prompt import MEMORY_GUIDANCE
+    from app.conversation.system_prompt import MEMORY_GUIDANCE
 
     dead_gate = build_static_instruction(
         tool_names=["definitely_not_a_registered_tool"],
@@ -85,18 +85,18 @@ def test_has_code_executor_flag_actually_reaches_the_built_agent():
     """v1's draft passed has_code_executor=False unconditionally because
     agent.py never called build_stable_tier at all, so the flag would have
     defaulted to False forever even with a real executor configured. Pin
-    that horizon.agent now threads _build_code_executor()'s presence
+    that app.agent now threads _build_code_executor()'s presence
     through to build_static_instruction at App-build time."""
     import inspect
 
-    import horizon.agent as agent_module
+    import app.agent as agent_module
 
     source = inspect.getsource(agent_module._static_instruction_for)
     assert "has_code_executor" in source
 
 
 def test_code_execution_guidance_follows_the_flag_not_a_hardcoded_default():
-    from horizon.conversation.system_prompt import CODE_EXECUTION_GUIDANCE
+    from app.conversation.system_prompt import CODE_EXECUTION_GUIDANCE
 
     without = build_static_instruction(
         tool_names=[], model_name="gemini-3.7-flash", has_code_executor=False

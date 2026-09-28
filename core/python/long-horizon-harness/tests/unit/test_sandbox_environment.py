@@ -54,7 +54,7 @@ def _make_env(
     port: str = "8080",
     root: Path = Path("/workspace"),
 ) -> Any:
-    from horizon.environment.sandbox import SandboxEnvironment
+    from app.environment.sandbox import SandboxEnvironment
 
     return SandboxEnvironment(
         client=client if client is not None else MagicMock(),
@@ -74,7 +74,7 @@ def _make_env(
 
 
 def test_module_exposes_class() -> None:
-    from horizon.environment.sandbox import SandboxEnvironment
+    from app.environment.sandbox import SandboxEnvironment
 
     assert callable(SandboxEnvironment)
 
@@ -365,9 +365,7 @@ class TestInitialize:
         async def fake_sleep(delay: float) -> None:
             sleeps.append(delay)
 
-        monkeypatch.setattr(
-            "horizon.environment.sandbox.asyncio.sleep", fake_sleep
-        )
+        monkeypatch.setattr("app.environment.sandbox.asyncio.sleep", fake_sleep)
 
         with respx.mock() as mock:
             mock.get(f"{BASE_URL}/healthz").mock(
@@ -389,9 +387,7 @@ class TestInitialize:
         async def fake_sleep(delay: float) -> None:
             return
 
-        monkeypatch.setattr(
-            "horizon.environment.sandbox.asyncio.sleep", fake_sleep
-        )
+        monkeypatch.setattr("app.environment.sandbox.asyncio.sleep", fake_sleep)
 
         with respx.mock() as mock:
             healthz = mock.get(f"{BASE_URL}/healthz").mock(
@@ -507,7 +503,7 @@ async def test_boot_probe_gateway_error_does_not_mark_env_gone(
     async def fake_sleep(delay: float) -> None:
         return None
 
-    monkeypatch.setattr("horizon.environment.sandbox.asyncio.sleep", fake_sleep)
+    monkeypatch.setattr("app.environment.sandbox.asyncio.sleep", fake_sleep)
 
     with respx.mock() as mock:
         mock.get(f"{BASE_URL}/healthz").mock(
@@ -560,7 +556,7 @@ def test_routing_token_age_seconds_tracks_refresh(
         return clock["now"]
 
     monkeypatch.setattr(
-        "horizon.environment.sandbox.time.monotonic", fake_monotonic
+        "app.environment.sandbox.time.monotonic", fake_monotonic
     )
 
     env = _make_env()

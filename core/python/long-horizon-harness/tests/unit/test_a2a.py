@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Unit tests for ``horizon.a2a.routes.attach_a2a_routes``.
+"""Unit tests for ``app.a2a.routes.attach_a2a_routes``.
 
 The function is pure plumbing: build an agent card, register A2A JSON-RPC +
 well-known card routes. These tests cover route registration and that the
@@ -27,7 +27,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from google.adk.agents.llm_agent import LlmAgent
 
-from horizon.a2a.routes import A2A_RPC_PATH, attach_a2a_routes
+from app.a2a.routes import A2A_RPC_PATH, attach_a2a_routes
 
 
 def _make_agent() -> LlmAgent:

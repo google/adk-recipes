@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from horizon.environment import Environment
+from app.environment import Environment
 
 
 class _Fake(Environment):

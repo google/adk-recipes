@@ -15,7 +15,7 @@
 """Lock in the artifact save → display_name → load round-trip.
 
 Regression net for the bug where ``Part.from_bytes()`` was used in
-``horizon/tools/artifacts.py`` without setting ``Blob.display_name`` — the
+``app/tools/artifacts.py`` without setting ``Blob.display_name`` — the
 ADK genai→A2A converter then emitted ``FilePart.name=None`` and the UI
 fell back to ``attachment.<ext>``, breaking generated-file downloads.
 
@@ -43,7 +43,7 @@ async def test_save_then_load_round_trips_payload_and_filename(
     tool_context: _FakeToolContext,
     unique_name: str,
 ) -> None:
-    from horizon.tools.artifacts import artifact
+    from app.tools.artifacts import artifact
 
     payload = b"\x89PNG\r\n\x1a\nfake-pixels-" + unique_name.encode()
     workspace_path = Path(f"{unique_name}.png")
@@ -83,7 +83,7 @@ async def test_save_missing_file_returns_error_not_exception(
     tool_context: _FakeToolContext,
     unique_name: str,
 ) -> None:
-    from horizon.tools.artifacts import artifact
+    from app.tools.artifacts import artifact
 
     missing = f"{unique_name}_does_not_exist.txt"
     result = await artifact(

@@ -39,7 +39,7 @@ pytestmark = [
 async def test_write_file_relative_path_resolves_under_env(
     tmp_path: Path,
 ) -> None:
-    from horizon.tools.file_ops import write
+    from app.tools.file_ops import write
 
     result = await write("reports/q3.md", "hello")
     assert result["success"], result
@@ -49,7 +49,7 @@ async def test_write_file_relative_path_resolves_under_env(
 async def test_read_file_relative_path_resolves_under_env(
     tmp_path: Path,
 ) -> None:
-    from horizon.tools.file_ops import read_file
+    from app.tools.file_ops import read_file
 
     (tmp_path / "data").mkdir()
     (tmp_path / "data" / "note.txt").write_text("ok")
@@ -58,7 +58,7 @@ async def test_read_file_relative_path_resolves_under_env(
 
 
 async def test_patch_relative_path_resolves_under_env(tmp_path: Path) -> None:
-    from horizon.tools.file_ops import edit
+    from app.tools.file_ops import edit
 
     (tmp_path / "x.md").write_text("draft v1")
     result = await edit("x.md", [{"oldText": "v1", "newText": "v2"}])
@@ -69,7 +69,7 @@ async def test_patch_relative_path_resolves_under_env(tmp_path: Path) -> None:
 async def test_search_files_relative_path_resolves_under_env(
     tmp_path: Path,
 ) -> None:
-    from horizon.tools.file_ops import search_files
+    from app.tools.file_ops import search_files
 
     (tmp_path / "src").mkdir()
     (tmp_path / "src" / "a.txt").write_text("hello world")
@@ -84,7 +84,7 @@ async def test_search_files_relative_path_resolves_under_env(
 
 
 async def test_write_file_absolute_under_env_allowed(tmp_path: Path) -> None:
-    from horizon.tools.file_ops import write
+    from app.tools.file_ops import write
 
     target = tmp_path / "inside.txt"
     result = await write(str(target), "ok")
@@ -98,7 +98,7 @@ async def test_write_file_absolute_under_env_allowed(tmp_path: Path) -> None:
 
 
 async def test_write_file_absolute_outside_env_rejected(tmp_path: Path) -> None:
-    from horizon.tools.file_ops import write
+    from app.tools.file_ops import write
 
     # /tmp is outside tmp_path-rooted env on every platform pytest runs on.
     result = await write("/tmp/should-not-land.txt", "nope")
@@ -110,7 +110,7 @@ async def test_write_file_absolute_outside_env_rejected(tmp_path: Path) -> None:
 
 
 async def test_read_file_absolute_outside_env_rejected(tmp_path: Path) -> None:
-    from horizon.tools.file_ops import read_file
+    from app.tools.file_ops import read_file
 
     result = await read_file("/etc/hosts")
     assert result["success"] is False
@@ -121,7 +121,7 @@ async def test_read_file_absolute_outside_env_rejected(tmp_path: Path) -> None:
 
 
 async def test_patch_absolute_outside_env_rejected(tmp_path: Path) -> None:
-    from horizon.tools.file_ops import edit
+    from app.tools.file_ops import edit
 
     result = await edit("/etc/hosts", [{"oldText": "x", "newText": "y"}])
     assert result["success"] is False
@@ -137,7 +137,7 @@ async def test_patch_absolute_outside_env_rejected(tmp_path: Path) -> None:
 
 
 async def test_write_file_dotdot_escape_rejected(tmp_path: Path) -> None:
-    from horizon.tools.file_ops import write
+    from app.tools.file_ops import write
 
     result = await write("../escape.txt", "nope")
     assert result["success"] is False
@@ -148,7 +148,7 @@ async def test_write_file_dotdot_escape_rejected(tmp_path: Path) -> None:
 
 
 async def test_read_file_dotdot_escape_rejected(tmp_path: Path) -> None:
-    from horizon.tools.file_ops import read_file
+    from app.tools.file_ops import read_file
 
     result = await read_file("../../etc/passwd")
     assert result["success"] is False

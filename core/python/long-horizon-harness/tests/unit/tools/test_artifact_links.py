@@ -16,7 +16,7 @@
 
 from __future__ import annotations
 
-from horizon.tools import _artifact_links as al
+from app.tools import _artifact_links as al
 
 
 def test_workspace_download_url_is_root_relative_inline():

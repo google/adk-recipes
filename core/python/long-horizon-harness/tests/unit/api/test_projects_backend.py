@@ -27,13 +27,13 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from google.adk.sessions import InMemorySessionService
 
-from horizon.api.sessions import attach_session_routes
-from horizon.api.uploads import attach_uploads_routes
-from horizon.auth import current_user_id
-from horizon.conversation import session_start
-from horizon.environment import LocalEnvironment
-from horizon.infrastructure.constants import APP_NAME, TITLE_KEY
-from horizon.workspace_window import WORKSPACE_WINDOW_STATE_KEY
+from app.api.sessions import attach_session_routes
+from app.api.uploads import attach_uploads_routes
+from app.auth import current_user_id
+from app.conversation import session_start
+from app.environment import LocalEnvironment
+from app.infrastructure.constants import APP_NAME, TITLE_KEY
+from app.workspace_window import WORKSPACE_WINDOW_STATE_KEY
 
 USER_ID = "projects-unit@local"
 

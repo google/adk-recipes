@@ -88,7 +88,7 @@ def _build_callback_context(
 
 
 def test_module_exposes_entrypoints():
-    from horizon.memory.review_fork import (
+    from app.memory.review_fork import (
         REVIEW_FORK_ENABLED_ENV,
         review_fork_callback,
     )
@@ -104,8 +104,8 @@ def test_module_exposes_entrypoints():
 
 class TestPromptSelection:
     def test_combined_when_skill_activity(self):
-        from horizon.memory.review_fork import _pick_prompt
-        from horizon.memory.review_prompts import COMBINED_REVIEW_PROMPT
+        from app.memory.review_fork import _pick_prompt
+        from app.memory.review_prompts import COMBINED_REVIEW_PROMPT
 
         telem = {
             "git-rebase": {
@@ -117,8 +117,8 @@ class TestPromptSelection:
         assert _pick_prompt(telem) is COMBINED_REVIEW_PROMPT
 
     def test_combined_when_only_views(self):
-        from horizon.memory.review_fork import _pick_prompt
-        from horizon.memory.review_prompts import COMBINED_REVIEW_PROMPT
+        from app.memory.review_fork import _pick_prompt
+        from app.memory.review_prompts import COMBINED_REVIEW_PROMPT
 
         telem = {
             "docs-reader": {
@@ -130,20 +130,20 @@ class TestPromptSelection:
         assert _pick_prompt(telem) is COMBINED_REVIEW_PROMPT
 
     def test_memory_only_when_empty_telemetry(self):
-        from horizon.memory.review_fork import _pick_prompt
-        from horizon.memory.review_prompts import MEMORY_REVIEW_PROMPT
+        from app.memory.review_fork import _pick_prompt
+        from app.memory.review_prompts import MEMORY_REVIEW_PROMPT
 
         assert _pick_prompt({}) is MEMORY_REVIEW_PROMPT
 
     def test_memory_only_when_none(self):
-        from horizon.memory.review_fork import _pick_prompt
-        from horizon.memory.review_prompts import MEMORY_REVIEW_PROMPT
+        from app.memory.review_fork import _pick_prompt
+        from app.memory.review_prompts import MEMORY_REVIEW_PROMPT
 
         assert _pick_prompt(None) is MEMORY_REVIEW_PROMPT
 
     def test_memory_only_when_all_zero(self):
-        from horizon.memory.review_fork import _pick_prompt
-        from horizon.memory.review_prompts import MEMORY_REVIEW_PROMPT
+        from app.memory.review_fork import _pick_prompt
+        from app.memory.review_prompts import MEMORY_REVIEW_PROMPT
 
         telem = {
             "stale": {
@@ -162,7 +162,7 @@ class TestPromptSelection:
 
 class TestSnapshotFormat:
     def test_wraps_in_conversation_markers(self):
-        from horizon.memory.review_fork import _format_snapshot
+        from app.memory.review_fork import _format_snapshot
 
         events = [_make_event("hello", author="user")]
         out = _format_snapshot(events)
@@ -172,7 +172,7 @@ class TestSnapshotFormat:
         assert "user" in out
 
     def test_includes_author_labels(self):
-        from horizon.memory.review_fork import _format_snapshot
+        from app.memory.review_fork import _format_snapshot
 
         events = [
             _make_event("question", author="user"),
@@ -183,14 +183,14 @@ class TestSnapshotFormat:
         assert "root_agent" in out
 
     def test_empty_events_still_wrapped(self):
-        from horizon.memory.review_fork import _format_snapshot
+        from app.memory.review_fork import _format_snapshot
 
         out = _format_snapshot([])
         assert "<CONVERSATION>" in out
         assert "</CONVERSATION>" in out
 
     def test_skips_events_without_text(self):
-        from horizon.memory.review_fork import _format_snapshot
+        from app.memory.review_fork import _format_snapshot
 
         bare = Event(author="system", invocation_id="x")
         out = _format_snapshot([bare, _make_event("real")])
@@ -205,7 +205,7 @@ class TestSnapshotFormat:
 @pytest.mark.asyncio
 class TestToolWhitelist:
     async def test_allows_memory(self):
-        from horizon.memory.review_fork import _whitelist_tools_callback
+        from app.memory.review_fork import _whitelist_tools_callback
 
         tool = SimpleNamespace(name="memory")
         result = await _whitelist_tools_callback(
@@ -214,7 +214,7 @@ class TestToolWhitelist:
         assert result is None
 
     async def test_allows_load_skill(self):
-        from horizon.memory.review_fork import _whitelist_tools_callback
+        from app.memory.review_fork import _whitelist_tools_callback
 
         tool = SimpleNamespace(name="load_skill")
         result = await _whitelist_tools_callback(
@@ -225,7 +225,7 @@ class TestToolWhitelist:
     async def test_allows_load_skill_with_resource(self):
         """load_skill also covers what used to be a separate
         load_skill_resource tool — same tool name, an extra arg."""
-        from horizon.memory.review_fork import _whitelist_tools_callback
+        from app.memory.review_fork import _whitelist_tools_callback
 
         tool = SimpleNamespace(name="load_skill")
         result = await _whitelist_tools_callback(
@@ -238,7 +238,7 @@ class TestToolWhitelist:
     async def test_allows_load_skill_reload_action(self):
         """reload folded into load_skill(action='reload') — same tool name,
         no skill_name needed."""
-        from horizon.memory.review_fork import _whitelist_tools_callback
+        from app.memory.review_fork import _whitelist_tools_callback
 
         tool = SimpleNamespace(name="load_skill")
         result = await _whitelist_tools_callback(
@@ -247,7 +247,7 @@ class TestToolWhitelist:
         assert result is None
 
     async def test_allows_write_to_skills_path(self):
-        from horizon.memory.review_fork import _whitelist_tools_callback
+        from app.memory.review_fork import _whitelist_tools_callback
 
         tool = SimpleNamespace(name="write")
         result = await _whitelist_tools_callback(
@@ -258,7 +258,7 @@ class TestToolWhitelist:
         assert result is None
 
     async def test_allows_edit_on_skills_path(self):
-        from horizon.memory.review_fork import _whitelist_tools_callback
+        from app.memory.review_fork import _whitelist_tools_callback
 
         tool = SimpleNamespace(name="edit")
         result = await _whitelist_tools_callback(
@@ -275,7 +275,7 @@ class TestToolWhitelist:
     async def test_denies_write_outside_skills(self):
         """The fork must not be able to scribble over arbitrary workspace
         files — only ``.agents/skills/<name>/...`` is in scope."""
-        from horizon.memory.review_fork import _whitelist_tools_callback
+        from app.memory.review_fork import _whitelist_tools_callback
 
         tool = SimpleNamespace(name="write")
         result = await _whitelist_tools_callback(
@@ -290,7 +290,7 @@ class TestToolWhitelist:
     async def test_denies_write_at_skills_root(self):
         """``.agents/skills/README.md`` has no ``<name>/`` after the prefix —
         not attributable to a skill, so it's blocked."""
-        from horizon.memory.review_fork import _whitelist_tools_callback
+        from app.memory.review_fork import _whitelist_tools_callback
 
         tool = SimpleNamespace(name="write")
         result = await _whitelist_tools_callback(
@@ -302,7 +302,7 @@ class TestToolWhitelist:
         assert "error" in result
 
     async def test_denies_terminal(self):
-        from horizon.memory.review_fork import _whitelist_tools_callback
+        from app.memory.review_fork import _whitelist_tools_callback
 
         tool = SimpleNamespace(name="terminal")
         result = await _whitelist_tools_callback(
@@ -313,7 +313,7 @@ class TestToolWhitelist:
         assert "terminal" in result["error"]
 
     async def test_denies_delegate(self):
-        from horizon.memory.review_fork import _whitelist_tools_callback
+        from app.memory.review_fork import _whitelist_tools_callback
 
         tool = SimpleNamespace(name="delegate")
         result = await _whitelist_tools_callback(
@@ -331,8 +331,8 @@ class TestToolWhitelist:
 @pytest.mark.asyncio
 class TestReviewForkCallback:
     async def test_noop_without_memory_service(self, monkeypatch):
-        from horizon import agent as agent_mod
-        from horizon.memory import review_fork
+        from app import agent as agent_mod
+        from app.memory import review_fork
 
         spawn_calls: list[dict[str, Any]] = []
 
@@ -350,8 +350,8 @@ class TestReviewForkCallback:
         assert spawn_calls == []
 
     async def test_noop_when_env_disabled(self, monkeypatch):
-        from horizon import agent as agent_mod
-        from horizon.memory import review_fork
+        from app import agent as agent_mod
+        from app.memory import review_fork
 
         monkeypatch.setenv("LHA_REVIEW_FORK", "0")
 
@@ -368,8 +368,8 @@ class TestReviewForkCallback:
         assert spawn_calls == []
 
     async def test_spawns_sibling_when_enabled(self, monkeypatch):
-        from horizon import agent as agent_mod
-        from horizon.memory import review_fork
+        from app import agent as agent_mod
+        from app.memory import review_fork
 
         spawn_calls: list[dict[str, Any]] = []
         monkeypatch.setattr(

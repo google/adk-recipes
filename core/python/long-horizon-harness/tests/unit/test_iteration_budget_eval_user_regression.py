@@ -21,7 +21,7 @@ from typing import Any
 
 import pytest
 
-from horizon.conversation.iteration_budget_plugin import (
+from app.conversation.iteration_budget_plugin import (
     IterationBudgetPlugin,
 )
 

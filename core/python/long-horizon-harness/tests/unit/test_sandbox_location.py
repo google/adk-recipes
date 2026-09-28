@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from horizon.sandbox.provider import _sandbox_location
+from app.sandbox.provider import _sandbox_location
 
 
 def test_sandbox_location_defaults_to_us_central1(monkeypatch):

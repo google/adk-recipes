@@ -45,7 +45,7 @@ _SCHEDULER_SA = "lha-scheduler@example.iam.gserviceaccount.com"
 
 
 def _build_app() -> FastAPI:
-    from horizon.scheduler import routine_tick_endpoint
+    from app.scheduler import routine_tick_endpoint
 
     app = FastAPI()
     app.include_router(routine_tick_endpoint.router)
@@ -54,8 +54,8 @@ def _build_app() -> FastAPI:
 
 @pytest.fixture(autouse=True)
 def _reset(monkeypatch):
-    from horizon.scheduler import auth as auth_mod
-    from horizon.scheduler import routine_store
+    from app.scheduler import auth as auth_mod
+    from app.scheduler import routine_store
 
     routine_store.reset_routine_store()
     auth_mod._reset_bypass_warning_for_tests()
@@ -89,7 +89,7 @@ async def test_malformed_header_returns_401():
 
 
 async def test_verifier_raises_returns_401(monkeypatch):
-    from horizon.scheduler import auth as auth_mod
+    from app.scheduler import auth as auth_mod
 
     def boom(token, audience):
         raise ValueError("invalid signature")
@@ -102,7 +102,7 @@ async def test_verifier_raises_returns_401(monkeypatch):
 
 
 async def test_wrong_audience_returns_401(monkeypatch):
-    from horizon.scheduler import auth as auth_mod
+    from app.scheduler import auth as auth_mod
 
     def mimic_audience_mismatch(token, audience):
         # google.oauth2.id_token raises ValueError on aud mismatch.
@@ -120,7 +120,7 @@ async def test_wrong_audience_returns_401(monkeypatch):
 
 
 async def test_email_not_on_allowlist_returns_403(monkeypatch):
-    from horizon.scheduler import auth as auth_mod
+    from app.scheduler import auth as auth_mod
 
     def returns_intruder(token, audience):
         return {"email": "attacker@evil.example", "email_verified": True}
@@ -142,7 +142,7 @@ async def test_audience_unset_returns_500(monkeypatch):
 
 
 async def test_happy_path_returns_200(monkeypatch):
-    from horizon.scheduler import auth as auth_mod
+    from app.scheduler import auth as auth_mod
 
     def returns_scheduler_sa(token, audience):
         assert audience == _AUDIENCE
@@ -158,7 +158,7 @@ async def test_happy_path_returns_200(monkeypatch):
 
 
 async def test_allowlist_case_insensitive(monkeypatch):
-    from horizon.scheduler import auth as auth_mod
+    from app.scheduler import auth as auth_mod
 
     monkeypatch.setenv("LHA_SCHEDULER_SA", _SCHEDULER_SA.upper())
 

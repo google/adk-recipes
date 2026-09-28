@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""In-container runtime shim (``horizon/sandbox/runtime/server.py``) tests.
+"""In-container runtime shim (``app/sandbox/runtime/server.py``) tests.
 
 The shim is normally launched inside the BYOC container with
 ``--app-dir /opt/runtime``; here we put that dir on ``sys.path`` and point
@@ -32,7 +32,7 @@ from typing import Any
 import pytest
 
 RUNTIME_DIR = (
-    Path(__file__).resolve().parents[2] / "horizon" / "sandbox" / "runtime"
+    Path(__file__).resolve().parents[2] / "app" / "sandbox" / "runtime"
 )
 
 

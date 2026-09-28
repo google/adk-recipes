@@ -1125,7 +1125,7 @@ function ToolRow({
   const [open, setOpen] = useState(false);
   const isLoadSkill = name === "load_skill";
   // The tool's real arg is skill_name, not name (final-review Fix 9) — see
-  // horizon/tools/skill_toolset.py's declared schema.
+  // app/tools/skill_toolset.py's declared schema.
   const skillName =
     isLoadSkill && typeof args?.skill_name === "string"
       ? args.skill_name

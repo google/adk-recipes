@@ -77,10 +77,10 @@ npm run test:e2e    # playwright (chromium)
 
 The relevant backend wiring lives in:
 
-- `horizon/a2a/routes.py` — builds the agent card and registers the A2A JSON-RPC routes.
-- `horizon/a2a/executor.py` — the A2A executor: per-session task tracking (`lha:task_ids` / `lha:active_task_id`) and `adk_partial` event tagging.
-- `horizon/api/state.py` — read-only `GET /lha/state` for the side panels.
-- `horizon/agent.py` — the `root_agent` instruction nudges the model to save rich/visual output as a self-contained HTML artifact.
+- `app/a2a/routes.py` — builds the agent card and registers the A2A JSON-RPC routes.
+- `app/a2a/executor.py` — the A2A executor: per-session task tracking (`lha:task_ids` / `lha:active_task_id`) and `adk_partial` event tagging.
+- `app/api/state.py` — read-only `GET /lha/state` for the side panels.
+- `app/agent.py` — the `root_agent` instruction nudges the model to save rich/visual output as a self-contained HTML artifact.
 
 ## Showcase prompts
 

@@ -28,7 +28,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 from typing import Any
 
-from horizon.api.state import _latest_pending_confirmation, _slice_state
+from app.api.state import _latest_pending_confirmation, _slice_state
 
 
 def _event_with_request(
