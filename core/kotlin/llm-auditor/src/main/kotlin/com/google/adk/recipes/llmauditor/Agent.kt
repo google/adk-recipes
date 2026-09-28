@@ -19,6 +19,8 @@ package com.google.adk.recipes.llmauditor
 import com.google.adk.kt.agents.SequentialAgent
 import com.google.adk.kt.models.Gemini
 
+private val model = Gemini(name = "gemini-flash-latest")
+
 /**
  * The LLM Auditor is a sequential multi-agent pipeline that fact-checks
  * LLM-generated answers. It chains two sub-agents:
@@ -28,20 +30,16 @@ import com.google.adk.kt.models.Gemini
  * 2. **Reviser**: Takes the original answer and the critic's findings, then
  *    minimally edits the answer to correct any inaccuracies.
  */
-object LlmAuditorAgent {
-    private val model = Gemini(name = "gemini-flash-latest")
-
-    @JvmField
-    val rootAgent =
-        SequentialAgent(
-            name = "llm_auditor",
-            description =
-                "Evaluates and corrects LLM-generated answers by " +
-                    "fact-checking claims and revising inaccuracies.",
-            subAgents =
-                listOf(
-                    createCriticAgent(model),
-                    createReviserAgent(model),
-                ),
-        )
-}
+@JvmField
+val rootAgent =
+    SequentialAgent(
+        name = "llm_auditor",
+        description =
+            "Evaluates and corrects LLM-generated answers by " +
+                "fact-checking claims and revising inaccuracies.",
+        subAgents =
+            listOf(
+                createCriticAgent(model),
+                createReviserAgent(model),
+            ),
+    )

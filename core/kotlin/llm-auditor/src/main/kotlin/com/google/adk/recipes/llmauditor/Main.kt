@@ -19,5 +19,5 @@ package com.google.adk.recipes.llmauditor
 import com.google.adk.kt.runners.ReplRunner
 
 fun main() {
-    ReplRunner(LlmAuditorAgent.rootAgent).start()
+    ReplRunner(rootAgent).start()
 }

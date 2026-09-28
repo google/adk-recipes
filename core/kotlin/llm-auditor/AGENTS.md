@@ -60,9 +60,10 @@ state along; the reviser sees the critic's output as prior context.
 
 ## Most interesting files to study (in order)
 
-- **`LlmAuditorAgent.kt`** — the whole composition, ~45 lines. One `Gemini`
+- **`Agent.kt`** — the whole composition, ~45 lines. One `Gemini`
   instance is built once and handed to both sub-agents, so the model is
-  configured in a single place. `rootAgent` is `@JvmField` for Java callers.
+  configured in a single place. The top-level `rootAgent` is `@JvmField`
+  for Java callers (`AgentKt.rootAgent`).
 - **`ReviserAgent.kt`** — the most instructive file. `removeEndOfEditMark` is an
   `AfterModelCallback` that rewrites the `LlmResponse` before it is emitted: it
   walks `content.parts`, truncates the first part containing `END_MARK`, and

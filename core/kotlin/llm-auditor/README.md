@@ -46,7 +46,7 @@ The LLM Auditor chains two sub-agents in a sequential pipeline:
 ```
 llm-auditor/
     src/main/kotlin/com/google/adk/recipes/llmauditor/
-        LlmAuditorAgent.kt    # Root SequentialAgent definition
+        Agent.kt              # Root agent (rootAgent)
         CriticAgent.kt        # Critic sub-agent (Google Search)
         CriticPrompt.kt       # Critic system prompt
         ReviserAgent.kt       # Reviser sub-agent (after-model callback)

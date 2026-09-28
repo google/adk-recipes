@@ -22,7 +22,7 @@ import com.google.adk.kt.webserver.dev.AdkDevServer
 fun main() {
     // inMemory() supplies the agent loader and the session and artifact
     // services, holding their state in the process.
-    val config = AdkServerConfig.inMemory(LlmAuditorAgent.rootAgent)
+    val config = AdkServerConfig.inMemory(rootAgent)
 
     println("Starting ADK dev server on http://${config.host}:${config.port}")
     AdkDevServer(config).start(wait = true)
