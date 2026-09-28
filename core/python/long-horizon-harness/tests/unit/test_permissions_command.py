@@ -18,8 +18,8 @@ from __future__ import annotations
 
 import pytest
 
-from horizon.commands import BUILTIN_COMMAND_REGISTRY
-from horizon.guardrails.permission_rules import PERMISSION_GRANTS_STATE_KEY
+from app.commands import BUILTIN_COMMAND_REGISTRY
+from app.guardrails.permission_rules import PERMISSION_GRANTS_STATE_KEY
 
 pytestmark = pytest.mark.asyncio
 

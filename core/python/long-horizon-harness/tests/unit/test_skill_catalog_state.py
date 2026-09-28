@@ -26,9 +26,9 @@ from typing import Any
 
 import pytest
 
-from horizon.environment_context import set_active_environment
-from horizon.tools import skill_reload
-from horizon.tools.skill_loader import build_skill_toolset, builtin_skills_root
+from app.environment_context import set_active_environment
+from app.tools import skill_reload
+from app.tools.skill_loader import build_skill_toolset, builtin_skills_root
 
 _USER_SKILL_MD = (
     "---\n"
@@ -68,7 +68,7 @@ class _ToolCtx:
 def workspace(tmp_path: Path):
     """A LocalEnvironment-rooted workspace with a real builtin catalog and a
     freshly-created (never invoked) user skill."""
-    from horizon.environment import LocalEnvironment
+    from app.environment import LocalEnvironment
 
     ws = tmp_path / "ws"
     skills_dir = ws / ".agents" / "skills"
@@ -122,7 +122,7 @@ async def test_catalog_rows_carry_name_and_description(workspace: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_user_skill_shadowing_builtin_tagged_user(tmp_path: Path) -> None:
-    from horizon.environment import LocalEnvironment
+    from app.environment import LocalEnvironment
 
     ws = tmp_path / "ws"
     skills_dir = ws / ".agents" / "skills"
@@ -151,7 +151,7 @@ async def test_user_skill_shadowing_builtin_tagged_user(tmp_path: Path) -> None:
 async def test_reload_tool_writes_catalog_into_tool_context_state(
     workspace: Path,
 ) -> None:
-    from horizon.commands import reload
+    from app.commands import reload
 
     tool_ctx = _ToolCtx()
     await reload(tool_context=tool_ctx)

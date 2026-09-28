@@ -30,7 +30,7 @@ import pytest
 
 
 def test_active_environment_raises_when_unset() -> None:
-    from horizon.environment_context import (
+    from app.environment_context import (
         active_environment,
         clear_active_environment,
     )
@@ -41,8 +41,8 @@ def test_active_environment_raises_when_unset() -> None:
 
 
 def test_set_and_get_active_environment(tmp_path: Path) -> None:
-    from horizon.environment import LocalEnvironment
-    from horizon.environment_context import (
+    from app.environment import LocalEnvironment
+    from app.environment_context import (
         active_environment,
         clear_active_environment,
         set_active_environment,
@@ -58,8 +58,8 @@ def test_set_and_get_active_environment(tmp_path: Path) -> None:
 
 
 def test_clear_active_environment_unsets(tmp_path: Path) -> None:
-    from horizon.environment import LocalEnvironment
-    from horizon.environment_context import (
+    from app.environment import LocalEnvironment
+    from app.environment_context import (
         active_environment,
         clear_active_environment,
         set_active_environment,
@@ -76,8 +76,8 @@ def test_active_environment_is_isolated_across_async_tasks(
 ) -> None:
     """ContextVar isolates per-task state — concurrent sessions don't
     leak each other's environments."""
-    from horizon.environment import LocalEnvironment
-    from horizon.environment_context import (
+    from app.environment import LocalEnvironment
+    from app.environment_context import (
         active_environment,
         clear_active_environment,
         set_active_environment,

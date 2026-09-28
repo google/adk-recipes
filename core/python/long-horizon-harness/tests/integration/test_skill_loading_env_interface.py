@@ -27,13 +27,13 @@ from typing import Any
 
 import pytest
 
-from horizon.environment import LocalEnvironment
-from horizon.environment_context import (
+from app.environment import LocalEnvironment
+from app.environment_context import (
     clear_active_environment,
     set_active_environment,
 )
-from horizon.tools import skill_reload
-from horizon.tools.skill_loader import (
+from app.tools import skill_reload
+from app.tools.skill_loader import (
     build_skill_toolset,
     mirror_user_skills_to_host,
 )

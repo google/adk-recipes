@@ -39,8 +39,8 @@ import time
 import vertexai
 from vertexai._genai.types import AgentEngineConfig, IdentityType
 
-from horizon.environment.sandbox import SandboxEnvironment
-from horizon.sandbox.lifecycle import (
+from app.environment.sandbox import SandboxEnvironment
+from app.sandbox.lifecycle import (
     delete_sandbox,
     ensure_template,
     mint_sandbox_token,

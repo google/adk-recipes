@@ -34,7 +34,7 @@ pytestmark = pytest.mark.skipif(
 async def test_retry_survives_forced_backend_termination():
     import asyncpg
 
-    from horizon.infrastructure.db_resilience import retry_on_disconnect
+    from app.infrastructure.db_resilience import retry_on_disconnect
 
     dsn = os.environ["LHA_PROBE_DB_URL"]  # e.g. postgres://...@localhost/lha
     pool = await asyncpg.create_pool(dsn=dsn, min_size=1, max_size=2)

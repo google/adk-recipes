@@ -42,7 +42,7 @@ def _llm_response(text: str) -> LlmResponse:
 async def test_is_base_plugin():
     from google.adk.plugins.base_plugin import BasePlugin
 
-    from horizon.guardrails.guardrails_plugin import GuardrailsPlugin
+    from app.guardrails.guardrails_plugin import GuardrailsPlugin
 
     plugin = GuardrailsPlugin()
     assert isinstance(plugin, BasePlugin)
@@ -58,7 +58,7 @@ class TestBeforeModel:
     async def test_returns_none_when_no_halt(self):
         from google.adk.models import LlmRequest
 
-        from horizon.guardrails.guardrails_plugin import GuardrailsPlugin
+        from app.guardrails.guardrails_plugin import GuardrailsPlugin
 
         plugin = GuardrailsPlugin()
         result = await plugin.before_model_callback(
@@ -69,9 +69,9 @@ class TestBeforeModel:
     async def test_first_halt_turn_does_graceful_handoff(self):
         from google.adk.models import LlmRequest
 
-        from horizon.conversation.graceful_halt import HANDOFF_MARKER
-        from horizon.guardrails.guardrails_plugin import GuardrailsPlugin
-        from horizon.guardrails.halt_consumer import HALT_REASON_STATE_KEY
+        from app.conversation.graceful_halt import HANDOFF_MARKER
+        from app.guardrails.guardrails_plugin import GuardrailsPlugin
+        from app.guardrails.halt_consumer import HALT_REASON_STATE_KEY
 
         plugin = GuardrailsPlugin()
         ctx = _ctx({HALT_REASON_STATE_KEY: "tripped"})
@@ -92,8 +92,8 @@ class TestBeforeModel:
     async def test_second_halt_turn_short_circuits(self):
         from google.adk.models import LlmRequest
 
-        from horizon.guardrails.guardrails_plugin import GuardrailsPlugin
-        from horizon.guardrails.halt_consumer import HALT_REASON_STATE_KEY
+        from app.guardrails.guardrails_plugin import GuardrailsPlugin
+        from app.guardrails.halt_consumer import HALT_REASON_STATE_KEY
 
         plugin = GuardrailsPlugin()
         ctx = _ctx({HALT_REASON_STATE_KEY: "tripped"})
@@ -120,8 +120,8 @@ class TestBeforeModel:
 
 class TestAfterModel:
     async def test_increments_streak_on_identical_text(self):
-        from horizon.guardrails.guardrails_plugin import GuardrailsPlugin
-        from horizon.guardrails.halt_consumer import HALT_REASON_STATE_KEY
+        from app.guardrails.guardrails_plugin import GuardrailsPlugin
+        from app.guardrails.halt_consumer import HALT_REASON_STATE_KEY
 
         plugin = GuardrailsPlugin(no_progress_window=3)
         ctx = _ctx()
@@ -141,8 +141,8 @@ class TestAfterModel:
         assert "no progress" in ctx.state[HALT_REASON_STATE_KEY].lower()
 
     async def test_resets_streak_when_text_differs(self):
-        from horizon.guardrails.guardrails_plugin import GuardrailsPlugin
-        from horizon.guardrails.halt_consumer import HALT_REASON_STATE_KEY
+        from app.guardrails.guardrails_plugin import GuardrailsPlugin
+        from app.guardrails.halt_consumer import HALT_REASON_STATE_KEY
 
         plugin = GuardrailsPlugin(no_progress_window=3)
         ctx = _ctx()
@@ -166,8 +166,8 @@ class TestAfterModel:
 
 class TestAfterTool:
     async def test_halts_after_threshold_identical_failures(self):
-        from horizon.guardrails.guardrails_plugin import GuardrailsPlugin
-        from horizon.guardrails.halt_consumer import HALT_REASON_STATE_KEY
+        from app.guardrails.guardrails_plugin import GuardrailsPlugin
+        from app.guardrails.halt_consumer import HALT_REASON_STATE_KEY
 
         plugin = GuardrailsPlugin(failure_threshold=3)
         ctx = _ctx()
@@ -185,8 +185,8 @@ class TestAfterTool:
         assert "frob" in ctx.state[HALT_REASON_STATE_KEY]
 
     async def test_no_halt_on_success(self):
-        from horizon.guardrails.guardrails_plugin import GuardrailsPlugin
-        from horizon.guardrails.halt_consumer import HALT_REASON_STATE_KEY
+        from app.guardrails.guardrails_plugin import GuardrailsPlugin
+        from app.guardrails.halt_consumer import HALT_REASON_STATE_KEY
 
         plugin = GuardrailsPlugin(failure_threshold=2)
         ctx = _ctx()
@@ -202,8 +202,8 @@ class TestAfterTool:
         assert not ctx.state.get(HALT_REASON_STATE_KEY)
 
     async def test_records_last_error_via_adapter(self):
-        from horizon.guardrails.guardrails_plugin import GuardrailsPlugin
-        from horizon.guardrails.repeated_failure import LAST_ERROR_STATE_KEY
+        from app.guardrails.guardrails_plugin import GuardrailsPlugin
+        from app.guardrails.repeated_failure import LAST_ERROR_STATE_KEY
 
         plugin = GuardrailsPlugin()
         ctx = _ctx()

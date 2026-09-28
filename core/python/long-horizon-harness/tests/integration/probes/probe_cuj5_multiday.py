@@ -39,8 +39,8 @@ async def test_n_sessions_accumulate_state_durably(
     sandbox_env_vars: None,
     reset_env_cache: None,
 ) -> None:
-    from horizon.conversation import session_start
-    from horizon.sandbox.provider import _build_sandbox_environment
+    from app.conversation import session_start
+    from app.sandbox.provider import _build_sandbox_environment
 
     expected_lines: list[str] = []
 

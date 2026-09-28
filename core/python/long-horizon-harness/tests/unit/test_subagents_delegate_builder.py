@@ -30,7 +30,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from horizon.tools import names
+from app.tools import names
 
 pytestmark = pytest.mark.asyncio
 
@@ -47,7 +47,7 @@ def _tool_names(child) -> list[str]:
 def _write_skill(
     root: Path, name: str, body: str, description: str = "test"
 ) -> None:
-    from horizon.tools.skill_reload import host_mirror_dir
+    from app.tools.skill_reload import host_mirror_dir
 
     frontmatter = yaml.safe_dump(
         {"name": name, "description": description}, sort_keys=True
@@ -67,12 +67,12 @@ def _write_skill(
 def skills_home(tmp_path: Path):
     import shutil
 
-    from horizon.environment import LocalEnvironment
-    from horizon.environment_context import (
+    from app.environment import LocalEnvironment
+    from app.environment_context import (
         clear_active_environment,
         set_active_environment,
     )
-    from horizon.tools.skill_reload import host_mirror_dir
+    from app.tools.skill_reload import host_mirror_dir
 
     set_active_environment(LocalEnvironment(working_dir=tmp_path))
     try:
@@ -85,7 +85,7 @@ def skills_home(tmp_path: Path):
 async def test_build_child_agent_returns_llm_agent(skills_home: Path):
     from google.adk.agents import Agent
 
-    from horizon.subagents.delegate_builder import build_child_agent
+    from app.subagents.delegate_builder import build_child_agent
 
     child = await build_child_agent(
         goal="do thing", context="", toolsets=["file"], skills=[]
@@ -97,8 +97,8 @@ async def test_build_child_agent_default_toolsets_used_when_empty(
     skills_home: Path,
 ):
     """``toolsets=[]`` triggers DEFAULT_TOOLSETS (file + shell)."""
-    from horizon.subagents.delegate_builder import build_child_agent
-    from horizon.tools.processes.terminal import bash
+    from app.subagents.delegate_builder import build_child_agent
+    from app.tools.processes.terminal import bash
 
     child = await build_child_agent(
         goal="x", context="", toolsets=[], skills=[]
@@ -112,12 +112,12 @@ async def test_build_child_agent_blocklist_enforced(skills_home: Path):
     """``memory``, ``clarify``, the subagent tool itself, and the
     skill-registry tools must NOT appear on the child even if a future
     toolset accidentally includes them."""
-    from horizon.memory import memory
-    from horizon.subagents.delegate_builder import (
+    from app.memory import memory
+    from app.subagents.delegate_builder import (
         _BLOCKED_TOOL_NAMES,
         build_child_agent,
     )
-    from horizon.tools.clarify import clarify
+    from app.tools.clarify import clarify
 
     child = await build_child_agent(
         goal="x", context="", toolsets=["file", "shell"], skills=[]
@@ -132,7 +132,7 @@ async def test_build_child_agent_blocklist_enforced(skills_home: Path):
 
 
 async def test_build_child_agent_unknown_toolset_raises(skills_home: Path):
-    from horizon.subagents.delegate_builder import build_child_agent
+    from app.subagents.delegate_builder import build_child_agent
 
     with pytest.raises(KeyError):
         await build_child_agent(
@@ -143,7 +143,7 @@ async def test_build_child_agent_unknown_toolset_raises(skills_home: Path):
 async def test_build_child_agent_injects_goal_and_context_into_prompt(
     skills_home: Path,
 ):
-    from horizon.subagents.delegate_builder import build_child_agent
+    from app.subagents.delegate_builder import build_child_agent
 
     child = await build_child_agent(
         goal="Summarize /tmp/foo.txt",
@@ -162,7 +162,7 @@ async def test_build_child_agent_injects_skill_content(skills_home: Path):
         "gws-drive",
         body="Run `gws drive files list` to enumerate.",
     )
-    from horizon.subagents.delegate_builder import build_child_agent
+    from app.subagents.delegate_builder import build_child_agent
 
     child = await build_child_agent(
         goal="enumerate Drive docs",
@@ -180,7 +180,7 @@ async def test_build_child_agent_skips_missing_skill_silently(
     """A missing skill name is an LLM mistake but shouldn't blow up the
     delegate — surface it as a note in the prompt so the child can adapt.
     The dispatch layer surfaces it to the parent too via telemetry."""
-    from horizon.subagents.delegate_builder import build_child_agent
+    from app.subagents.delegate_builder import build_child_agent
 
     child = await build_child_agent(
         goal="do something",
@@ -200,7 +200,7 @@ async def test_build_child_agent_no_memory_no_clarify_no_subagent_recursion(
     (b) child has no clarify tool, (c) child has no subagent tool."""
     from google.adk.tools.preload_memory_tool import PreloadMemoryTool
 
-    from horizon.subagents.delegate_builder import build_child_agent
+    from app.subagents.delegate_builder import build_child_agent
 
     child = await build_child_agent(
         goal="x", context="", toolsets=["file"], skills=[]
@@ -214,7 +214,7 @@ async def test_build_child_agent_no_memory_no_clarify_no_subagent_recursion(
 
 async def test_build_child_agent_uses_isolated_name(skills_home: Path):
     """Child name must not collide with the root or any wired sub-agent."""
-    from horizon.subagents.delegate_builder import build_child_agent
+    from app.subagents.delegate_builder import build_child_agent
 
     child = await build_child_agent(
         goal="x", context="", toolsets=["file"], skills=[]
@@ -230,7 +230,7 @@ async def test_build_child_agent_smoke_with_real_env(skills_home: Path):
     # Make sure no Vertex calls happen — the child is built but never run.
     os.environ.pop("GOOGLE_CLOUD_PROJECT", None)
 
-    from horizon.subagents.delegate_builder import build_child_agent
+    from app.subagents.delegate_builder import build_child_agent
 
     child = await build_child_agent(
         goal="enumerate docs",
@@ -244,7 +244,7 @@ async def test_build_child_agent_smoke_with_real_env(skills_home: Path):
 async def test_build_child_agent_accepts_model_override(skills_home: Path):
     """Caller can pin a different Gemini variant (e.g. pro for deep
     reasoning); model_name flows through to the underlying Gemini model."""
-    from horizon.subagents.delegate_builder import build_child_agent
+    from app.subagents.delegate_builder import build_child_agent
 
     child = await build_child_agent(
         goal="x",
@@ -262,7 +262,7 @@ async def test_build_child_agent_rejects_unknown_model(skills_home: Path):
     than letting Vertex 404 at first use."""
     import pytest
 
-    from horizon.subagents.delegate_builder import build_child_agent
+    from app.subagents.delegate_builder import build_child_agent
 
     with pytest.raises(ValueError, match="model"):
         await build_child_agent(
@@ -280,8 +280,8 @@ async def test_build_child_agent_tools_param_merges_with_toolsets(
     """`tools=[...]` is the fine-grained counterpart to `toolsets=[...]`.
     Both populate the child; the union is deduplicated; blocklist still
     applies."""
-    from horizon.subagents.delegate_builder import build_child_agent
-    from horizon.tools.processes.terminal import bash
+    from app.subagents.delegate_builder import build_child_agent
+    from app.tools.processes.terminal import bash
 
     child = await build_child_agent(
         goal="x",
@@ -300,8 +300,8 @@ async def test_build_child_agent_tools_param_merges_with_toolsets(
 async def test_build_child_agent_tools_only_no_toolsets(skills_home: Path):
     """`tools=[...]` with no `toolsets` skips DEFAULT_TOOLSETS — caller
     gets exactly what they asked for."""
-    from horizon.subagents.delegate_builder import build_child_agent
-    from horizon.tools.processes.terminal import bash
+    from app.subagents.delegate_builder import build_child_agent
+    from app.tools.processes.terminal import bash
 
     child = await build_child_agent(
         goal="x",
@@ -318,7 +318,7 @@ async def test_build_child_agent_tools_only_no_toolsets(skills_home: Path):
 async def test_build_child_agent_unknown_tool_name_raises(skills_home: Path):
     import pytest
 
-    from horizon.subagents.delegate_builder import build_child_agent
+    from app.subagents.delegate_builder import build_child_agent
 
     with pytest.raises(KeyError):
         await build_child_agent(
@@ -336,7 +336,7 @@ async def test_build_child_agent_instructions_appended_under_caller_section(
     """Free-form `instructions` text shows up as its own labeled section in
     the child's system prompt — appended without clobbering the base
     instruction or goal/context."""
-    from horizon.subagents.delegate_builder import build_child_agent
+    from app.subagents.delegate_builder import build_child_agent
 
     child = await build_child_agent(
         goal="enumerate docs",
@@ -355,7 +355,7 @@ async def test_caller_instructions_appear_after_goal(skills_home: Path):
     """Caller instructions must come AFTER ## Goal and ## Context so they
     shape behavior on a known task instead of preempting the base
     contract before the goal is even stated."""
-    from horizon.subagents.delegate_builder import build_child_agent
+    from app.subagents.delegate_builder import build_child_agent
 
     child = await build_child_agent(
         goal="enumerate docs",
@@ -380,7 +380,7 @@ async def test_build_child_agent_inline_skills_render_like_disk_skills(
     """Inline skill bodies appear in the same `## Available skills` block
     as disk-loaded skills — caller doesn't have to author a SKILL.md to
     hand the child ad-hoc guidance."""
-    from horizon.subagents.delegate_builder import build_child_agent
+    from app.subagents.delegate_builder import build_child_agent
 
     child = await build_child_agent(
         goal="x",
@@ -400,7 +400,7 @@ async def test_build_child_agent_disk_and_inline_skills_both_present(
     skills_home: Path,
 ):
     _write_skill(skills_home, "from-disk", body="Disk skill body.")
-    from horizon.subagents.delegate_builder import build_child_agent
+    from app.subagents.delegate_builder import build_child_agent
 
     child = await build_child_agent(
         goal="x",
@@ -420,7 +420,7 @@ async def test_build_child_agent_json_output_sets_output_schema_natively(
     child's ``output_schema`` field. ADK 2.0 enforces the shape at
     generation time via the SetModelResponseTool path; we no longer embed
     the schema in the prompt."""
-    from horizon.subagents.delegate_builder import build_child_agent
+    from app.subagents.delegate_builder import build_child_agent
 
     schema = {"type": "object", "properties": {"answer": {"type": "string"}}}
     child = await build_child_agent(
@@ -439,7 +439,7 @@ async def test_build_child_agent_json_output_no_schema_keeps_prompt_hint(
 ):
     """`output_format='json'` without a schema falls back to a prompt-level
     hint so the child still knows to emit raw JSON."""
-    from horizon.subagents.delegate_builder import build_child_agent
+    from app.subagents.delegate_builder import build_child_agent
 
     child = await build_child_agent(
         goal="x",
@@ -457,7 +457,7 @@ async def test_build_child_agent_custom_name_sanitized_and_suffixed(
 ):
     """Caller-supplied name is sanitized and uuid-suffixed to keep trace
     names searchable AND unique across concurrent delegates."""
-    from horizon.subagents.delegate_builder import build_child_agent
+    from app.subagents.delegate_builder import build_child_agent
 
     child = await build_child_agent(
         goal="x",
@@ -476,7 +476,7 @@ async def test_build_child_agent_custom_name_sanitized_and_suffixed(
 async def test_build_child_agent_name_excessively_long_truncated(
     skills_home: Path,
 ):
-    from horizon.subagents.delegate_builder import build_child_agent
+    from app.subagents.delegate_builder import build_child_agent
 
     huge = "a" * 200
     child = await build_child_agent(
@@ -496,9 +496,9 @@ async def test_build_child_agent_explore_profile_restricts_tools(
 ):
     """An ``explore`` child gets file-read + search only, even when the
     caller asked for the shell toolset."""
-    from horizon.subagents.delegate_builder import build_child_agent
-    from horizon.tools.file_ops import search_files, write
-    from horizon.tools.processes.terminal import bash
+    from app.subagents.delegate_builder import build_child_agent
+    from app.tools.file_ops import search_files, write
+    from app.tools.processes.terminal import bash
 
     child = await build_child_agent(
         goal="scan the repo",
@@ -515,7 +515,7 @@ async def test_build_child_agent_explore_profile_restricts_tools(
 
 
 async def test_build_child_agent_unknown_profile_raises(skills_home: Path):
-    from horizon.subagents.delegate_builder import build_child_agent
+    from app.subagents.delegate_builder import build_child_agent
 
     with pytest.raises(KeyError):
         await build_child_agent(
@@ -526,7 +526,7 @@ async def test_build_child_agent_unknown_profile_raises(skills_home: Path):
 async def test_build_child_agent_attaches_child_policy_guard(skills_home: Path):
     """Every child carries a before_tool_callback so it honors policy +
     inherited grants — not just the static blocklist."""
-    from horizon.subagents.delegate_builder import build_child_agent
+    from app.subagents.delegate_builder import build_child_agent
 
     child = await build_child_agent(
         goal="x", context="", toolsets=["file"], skills=[]
@@ -540,8 +540,8 @@ async def test_build_child_agent_profile_none_keeps_full_toolset(
     skills_home: Path,
 ):
     """No profile = no allowlist restriction; the shell toolset survives."""
-    from horizon.subagents.delegate_builder import build_child_agent
-    from horizon.tools.processes.terminal import bash
+    from app.subagents.delegate_builder import build_child_agent
+    from app.tools.processes.terminal import bash
 
     child = await build_child_agent(
         goal="x", context="", toolsets=["file", "shell"], skills=[]
@@ -557,7 +557,7 @@ async def test_build_child_agent_profile_none_keeps_full_toolset(
 
 @pytest.mark.asyncio
 async def test_hyphenated_name_yields_valid_identifier(tmp_path):
-    from horizon.subagents.delegate_builder import build_child_agent
+    from app.subagents.delegate_builder import build_child_agent
 
     child = await build_child_agent(goal="x", tools=[], name="child-one")
     assert child.name.isidentifier(), child.name
@@ -566,7 +566,7 @@ async def test_hyphenated_name_yields_valid_identifier(tmp_path):
 
 @pytest.mark.asyncio
 async def test_leading_digit_name_yields_valid_identifier(tmp_path):
-    from horizon.subagents.delegate_builder import build_child_agent
+    from app.subagents.delegate_builder import build_child_agent
 
     child = await build_child_agent(goal="x", tools=[], name="2fast")
     assert child.name.isidentifier(), child.name
@@ -576,7 +576,7 @@ def test_child_model_allowlist_tracks_the_registry() -> None:
     """A hand-maintained copy drifts: the pro model was selectable by the root
     agent but not by a delegate, while the retired gemini-flash-latest alias
     still was."""
-    from horizon.models.registry import MODEL_REGISTRY
-    from horizon.subagents.delegate_builder import _ALLOWED_MODELS
+    from app.models.registry import MODEL_REGISTRY
+    from app.subagents.delegate_builder import _ALLOWED_MODELS
 
     assert set(_ALLOWED_MODELS) == set(MODEL_REGISTRY)

@@ -18,8 +18,8 @@ from types import SimpleNamespace
 import pytest
 from google.adk.sessions import InMemorySessionService
 
-from horizon.routines.run_context import active_routine_run
-from horizon.routines.run_once import run_routine_once
+from app.routines.run_context import active_routine_run
+from app.routines.run_once import run_routine_once
 
 pytestmark = pytest.mark.asyncio
 

@@ -58,7 +58,7 @@ def _clean_env(monkeypatch):
 
 
 async def test_dev_bypass_allows_with_no_header(monkeypatch):
-    from horizon.scheduler.auth import verify_cloud_scheduler_token
+    from app.scheduler.auth import verify_cloud_scheduler_token
 
     monkeypatch.setenv("LHA_SCHEDULER_AUTH_DISABLED", "1")
     # Should not raise even with a missing Authorization header
@@ -66,7 +66,7 @@ async def test_dev_bypass_allows_with_no_header(monkeypatch):
 
 
 async def test_dev_bypass_recognizes_truthy_values(monkeypatch):
-    from horizon.scheduler.auth import verify_cloud_scheduler_token
+    from app.scheduler.auth import verify_cloud_scheduler_token
 
     for value in ("1", "true", "TRUE", "yes"):
         monkeypatch.setenv("LHA_SCHEDULER_AUTH_DISABLED", value)
@@ -76,7 +76,7 @@ async def test_dev_bypass_recognizes_truthy_values(monkeypatch):
 async def test_dev_bypass_logs_warning(monkeypatch, caplog):
     import logging
 
-    from horizon.scheduler import auth
+    from app.scheduler import auth
 
     monkeypatch.setenv("LHA_SCHEDULER_AUTH_DISABLED", "1")
     auth._reset_bypass_warning_for_tests()
@@ -91,7 +91,7 @@ async def test_dev_bypass_logs_warning(monkeypatch, caplog):
 async def test_dev_bypass_warning_logged_once(monkeypatch, caplog):
     import logging
 
-    from horizon.scheduler import auth
+    from app.scheduler import auth
 
     monkeypatch.setenv("LHA_SCHEDULER_AUTH_DISABLED", "1")
     auth._reset_bypass_warning_for_tests()
@@ -111,7 +111,7 @@ async def test_dev_bypass_warning_logged_once(monkeypatch, caplog):
 
 
 async def test_missing_audience_fails_closed(monkeypatch):
-    from horizon.scheduler.auth import verify_cloud_scheduler_token
+    from app.scheduler.auth import verify_cloud_scheduler_token
 
     monkeypatch.delenv("LHA_SCHEDULER_AUDIENCE", raising=False)
     with pytest.raises(HTTPException) as exc_info:
@@ -129,7 +129,7 @@ async def test_missing_audience_fails_closed(monkeypatch):
 
 class TestHeaderValidation:
     async def test_missing_header_returns_401(self, monkeypatch):
-        from horizon.scheduler.auth import verify_cloud_scheduler_token
+        from app.scheduler.auth import verify_cloud_scheduler_token
 
         monkeypatch.setenv("LHA_SCHEDULER_AUDIENCE", "https://svc/")
         with pytest.raises(HTTPException) as exc_info:
@@ -137,7 +137,7 @@ class TestHeaderValidation:
         assert exc_info.value.status_code == 401
 
     async def test_non_bearer_scheme_returns_401(self, monkeypatch):
-        from horizon.scheduler.auth import verify_cloud_scheduler_token
+        from app.scheduler.auth import verify_cloud_scheduler_token
 
         monkeypatch.setenv("LHA_SCHEDULER_AUDIENCE", "https://svc/")
         with pytest.raises(HTTPException) as exc_info:
@@ -147,7 +147,7 @@ class TestHeaderValidation:
         assert exc_info.value.status_code == 401
 
     async def test_empty_bearer_returns_401(self, monkeypatch):
-        from horizon.scheduler.auth import verify_cloud_scheduler_token
+        from app.scheduler.auth import verify_cloud_scheduler_token
 
         monkeypatch.setenv("LHA_SCHEDULER_AUDIENCE", "https://svc/")
         with pytest.raises(HTTPException) as exc_info:
@@ -162,7 +162,7 @@ class TestHeaderValidation:
 
 class TestTokenVerification:
     async def test_invalid_token_returns_401(self, monkeypatch):
-        from horizon.scheduler import auth
+        from app.scheduler import auth
 
         def _raise(*_a, **_kw):
             raise ValueError("token signature invalid")
@@ -176,7 +176,7 @@ class TestTokenVerification:
         assert exc_info.value.status_code == 401
 
     async def test_valid_token_no_allowlist_allows(self, monkeypatch):
-        from horizon.scheduler import auth
+        from app.scheduler import auth
 
         monkeypatch.setenv("LHA_SCHEDULER_AUDIENCE", "https://svc/")
         monkeypatch.setattr(
@@ -190,7 +190,7 @@ class TestTokenVerification:
         )
 
     async def test_audience_passed_to_verifier(self, monkeypatch):
-        from horizon.scheduler import auth
+        from app.scheduler import auth
 
         captured: dict[str, Any] = {}
 
@@ -215,7 +215,7 @@ class TestTokenVerification:
 
 class TestAllowlist:
     async def test_email_on_allowlist_allows(self, monkeypatch):
-        from horizon.scheduler import auth
+        from app.scheduler import auth
 
         monkeypatch.setenv("LHA_SCHEDULER_AUDIENCE", "https://svc/")
         monkeypatch.setenv(
@@ -231,7 +231,7 @@ class TestAllowlist:
         )
 
     async def test_email_not_on_allowlist_returns_403(self, monkeypatch):
-        from horizon.scheduler import auth
+        from app.scheduler import auth
 
         monkeypatch.setenv("LHA_SCHEDULER_AUDIENCE", "https://svc/")
         monkeypatch.setenv(
@@ -249,7 +249,7 @@ class TestAllowlist:
         assert exc_info.value.status_code == 403
 
     async def test_email_case_insensitive_match(self, monkeypatch):
-        from horizon.scheduler import auth
+        from app.scheduler import auth
 
         monkeypatch.setenv("LHA_SCHEDULER_AUDIENCE", "https://svc/")
         monkeypatch.setenv(
@@ -265,7 +265,7 @@ class TestAllowlist:
         )
 
     async def test_allowlist_supports_multiple_emails(self, monkeypatch):
-        from horizon.scheduler import auth
+        from app.scheduler import auth
 
         monkeypatch.setenv("LHA_SCHEDULER_AUDIENCE", "https://svc/")
         monkeypatch.setenv(
@@ -282,7 +282,7 @@ class TestAllowlist:
         )
 
     async def test_missing_email_claim_returns_403(self, monkeypatch):
-        from horizon.scheduler import auth
+        from app.scheduler import auth
 
         monkeypatch.setenv("LHA_SCHEDULER_AUDIENCE", "https://svc/")
         monkeypatch.setenv(

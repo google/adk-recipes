@@ -14,7 +14,7 @@
 
 from types import SimpleNamespace
 
-from horizon.sandbox.lifecycle import (
+from app.sandbox.lifecycle import (
     find_latest_user_sandbox,
     find_routine_sandbox,
     find_user_sandbox,

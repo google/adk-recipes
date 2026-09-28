@@ -28,9 +28,9 @@ from fastapi.testclient import TestClient
 from google.adk.sessions import InMemorySessionService
 from google.adk.sessions.base_session_service import GetSessionConfig
 
-from horizon.api.sessions import TITLE_KEY, attach_session_routes
-from horizon.auth import current_user_id
-from horizon.infrastructure.constants import APP_NAME
+from app.api.sessions import TITLE_KEY, attach_session_routes
+from app.auth import current_user_id
+from app.infrastructure.constants import APP_NAME
 
 USER_ID = "u@local"
 

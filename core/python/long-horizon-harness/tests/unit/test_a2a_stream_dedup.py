@@ -28,7 +28,7 @@ from google.adk.a2a import _compat as a2a_compat
 from google.adk.events.event import Event
 from google.genai import types
 
-from horizon.a2a.executor import (
+from app.a2a.executor import (
     _StreamDedupConverter,
     _strip_fake_artifact_links,
     _surface_tool_calls,

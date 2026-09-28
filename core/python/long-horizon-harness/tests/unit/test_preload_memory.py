@@ -31,7 +31,7 @@ from google.adk.models.gemini_context_cache_manager import (
 )
 from google.genai import types
 
-from horizon.memory.preload import HorizonPreloadMemoryTool
+from app.memory.preload import HorizonPreloadMemoryTool
 
 pytestmark = pytest.mark.asyncio
 

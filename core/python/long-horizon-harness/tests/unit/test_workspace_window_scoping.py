@@ -20,9 +20,9 @@ from typing import Any
 
 import pytest
 
-from horizon.environment import LocalEnvironment
-from horizon.environment_context import set_active_environment
-from horizon.workspace_window import WORKSPACE_WINDOW_STATE_KEY
+from app.environment import LocalEnvironment
+from app.environment_context import set_active_environment
+from app.workspace_window import WORKSPACE_WINDOW_STATE_KEY
 
 
 class _Ctx:
@@ -47,7 +47,7 @@ def _run(coro):
 
 
 def test_search_files_windowed_only_matches_window(workspace):
-    from horizon.tools.file_ops import search_files
+    from app.tools.file_ops import search_files
 
     ctx = _Ctx({WORKSPACE_WINDOW_STATE_KEY: ["projA"]})
     result = _run(search_files("ALPHA", tool_context=ctx))
@@ -58,7 +58,7 @@ def test_search_files_windowed_only_matches_window(workspace):
 
 
 def test_search_files_scope_workspace_matches_all(workspace):
-    from horizon.tools.file_ops import search_files
+    from app.tools.file_ops import search_files
 
     ctx = _Ctx({WORKSPACE_WINDOW_STATE_KEY: ["projA"]})
     result = _run(search_files("ALPHA", scope="workspace", tool_context=ctx))
@@ -68,7 +68,7 @@ def test_search_files_scope_workspace_matches_all(workspace):
 
 
 def test_write_then_read_relative_lands_in_window(workspace):
-    from horizon.tools.file_ops import read_file, write
+    from app.tools.file_ops import read_file, write
 
     ctx = _Ctx({WORKSPACE_WINDOW_STATE_KEY: ["projA"]})
     res = _run(write("note.md", "hello", tool_context=ctx))
@@ -79,7 +79,7 @@ def test_write_then_read_relative_lands_in_window(workspace):
 
 
 def test_read_slash_path_escapes_window(workspace):
-    from horizon.tools.file_ops import read_file
+    from app.tools.file_ops import read_file
 
     (workspace / "projB" / "only-b.txt").write_text("from B")
     ctx = _Ctx({WORKSPACE_WINDOW_STATE_KEY: ["projA"]})
@@ -88,7 +88,7 @@ def test_read_slash_path_escapes_window(workspace):
 
 
 def test_no_window_relative_unchanged(workspace):
-    from horizon.tools.file_ops import read_file, write
+    from app.tools.file_ops import read_file, write
 
     res = _run(write("top.md", "x", tool_context=_Ctx({})))
     assert res["success"]
@@ -102,7 +102,7 @@ def test_media_read_relative_lands_in_window(workspace):
     # media branch is now reached only by auto-detection on MIME type, so
     # this uses a real PNG rather than forcing the path with a kwarg that
     # no longer exists. Same resolve_in_window scoping either way.
-    from horizon.tools.read import ReadTool
+    from app.tools.read import ReadTool
 
     png_bytes = b"\x89PNG\r\n\x1a\n" + b"\x00" * 16
     (workspace / "projA" / "doc.png").write_bytes(png_bytes)
@@ -124,7 +124,7 @@ def test_media_read_relative_lands_in_window(workspace):
 
 
 def test_first_write_into_subdir_seeds_window(workspace):
-    from horizon.tools.file_ops import write
+    from app.tools.file_ops import write
 
     ctx = _Ctx({})
     _run(write("projA/out.md", "x", tool_context=ctx))
@@ -132,7 +132,7 @@ def test_first_write_into_subdir_seeds_window(workspace):
 
 
 def test_root_level_write_does_not_seed(workspace):
-    from horizon.tools.file_ops import write
+    from app.tools.file_ops import write
 
     ctx = _Ctx({})
     _run(write("top.md", "x", tool_context=ctx))
@@ -140,7 +140,7 @@ def test_root_level_write_does_not_seed(workspace):
 
 
 def test_existing_window_not_overridden_by_write(workspace):
-    from horizon.tools.file_ops import write
+    from app.tools.file_ops import write
 
     ctx = _Ctx({WORKSPACE_WINDOW_STATE_KEY: ["projA"]})
     # With window projA, "projB/out.md" resolves UNDER projA (relative join),

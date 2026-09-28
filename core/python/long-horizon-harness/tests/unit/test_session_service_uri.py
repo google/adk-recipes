@@ -33,7 +33,7 @@ os.environ["LHA_ADK_SKIP_APP_BUILD"] = "true"
 
 import pytest
 
-from horizon.fast_api_app import (
+from app.fast_api_app import (
     _resolve_service_uris,
     resolve_session_service_uri,
 )
@@ -90,7 +90,7 @@ def test_db_url_wins_over_agent_engine_and_warns(
         "projects/p/locations/l/reasoningEngines/123",
     )
 
-    with caplog.at_level(logging.WARNING, logger="horizon.fast_api_app"):
+    with caplog.at_level(logging.WARNING, logger="app.fast_api_app"):
         result = resolve_session_service_uri()
 
     assert result == "sqlite:///./sessions.db"
@@ -111,7 +111,7 @@ def test_no_warning_when_only_one_source_set(
     monkeypatch.delenv("AGENT_ENGINE_RESOURCE_NAME", raising=False)
     monkeypatch.delenv("AGENT_ENGINE_SESSION_NAME", raising=False)
 
-    with caplog.at_level(logging.WARNING, logger="horizon.fast_api_app"):
+    with caplog.at_level(logging.WARNING, logger="app.fast_api_app"):
         resolve_session_service_uri()
 
     assert not any("SESSION_DB_URL" in rec.message for rec in caplog.records), (

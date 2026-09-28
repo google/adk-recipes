@@ -35,8 +35,8 @@ async def test_delegate_forwards_profile_and_grants(monkeypatch) -> None:
         captured.update(kwargs)
         return {"status": "completed", "summary": "ok", "telemetry": {}}
 
-    from horizon.guardrails.policy_grants import POLICY_GRANTS_STATE_KEY
-    from horizon.subagents import delegate as delegate_mod
+    from app.guardrails.policy_grants import POLICY_GRANTS_STATE_KEY
+    from app.subagents import delegate as delegate_mod
 
     monkeypatch.setattr(delegate_mod, "run_child", _fake_run_child)
 
@@ -56,7 +56,7 @@ async def test_delegate_no_grants_when_state_empty(monkeypatch) -> None:
         captured.update(kwargs)
         return {"status": "completed", "summary": "ok", "telemetry": {}}
 
-    from horizon.subagents import delegate as delegate_mod
+    from app.subagents import delegate as delegate_mod
 
     monkeypatch.setattr(delegate_mod, "run_child", _fake_run_child)
     await delegate_mod.delegate(goal="g", tool_context=_Ctx({}))
@@ -72,8 +72,8 @@ async def test_spawn_forwards_profile_no_grants(monkeypatch) -> None:
         captured.update(kwargs)
         return {"status": "completed", "summary": "ok", "telemetry": {}}
 
-    from horizon.subagents import spawn as spawn_mod
-    from horizon.subagents.registry import reset_registry
+    from app.subagents import spawn as spawn_mod
+    from app.subagents.registry import reset_registry
 
     reset_registry()
     monkeypatch.setattr(spawn_mod, "run_child", _fake_run_child)

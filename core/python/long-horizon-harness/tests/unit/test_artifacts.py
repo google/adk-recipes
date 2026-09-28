@@ -18,9 +18,9 @@ from __future__ import annotations
 
 import pytest
 
-from horizon.environment import LocalEnvironment
-from horizon.environment_context import set_active_environment
-from horizon.tools import artifacts as art
+from app.environment import LocalEnvironment
+from app.environment_context import set_active_environment
+from app.tools import artifacts as art
 
 
 class _Actions:
@@ -59,9 +59,7 @@ async def test_save_returns_signed_url_when_bucket_set(tmp_path, monkeypatch):
 
     # `artifact_url` (imported into artifacts.py) calls `_signed_blob_url` as a
     # module global, so patch it on the source module.
-    monkeypatch.setattr(
-        "horizon.tools._artifact_links._signed_blob_url", fake_sign
-    )
+    monkeypatch.setattr("app.tools._artifact_links._signed_blob_url", fake_sign)
     out = await art.artifact(
         action="save", path="report.html", tool_context=_Ctx()
     )

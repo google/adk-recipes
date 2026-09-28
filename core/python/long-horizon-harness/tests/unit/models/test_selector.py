@@ -30,8 +30,8 @@ def _ctx(state: dict) -> SimpleNamespace:
 
 
 async def test_state_wins_over_env(monkeypatch):
-    from horizon.models import DEFAULT_MODEL_NAME, select_model_callback
-    from horizon.models.registry import MODEL_REGISTRY
+    from app.models import DEFAULT_MODEL_NAME, select_model_callback
+    from app.models.registry import MODEL_REGISTRY
 
     other = next(n for n in MODEL_REGISTRY if n != DEFAULT_MODEL_NAME)
     monkeypatch.setenv("LHA_ROOT_MODEL", other)
@@ -45,8 +45,8 @@ async def test_state_wins_over_env(monkeypatch):
 
 
 async def test_env_used_when_state_unset(monkeypatch):
-    from horizon.models import DEFAULT_MODEL_NAME, select_model_callback
-    from horizon.models.registry import MODEL_REGISTRY
+    from app.models import DEFAULT_MODEL_NAME, select_model_callback
+    from app.models.registry import MODEL_REGISTRY
 
     other = next(n for n in MODEL_REGISTRY if n != DEFAULT_MODEL_NAME)
     monkeypatch.setenv("LHA_ROOT_MODEL", other)
@@ -57,7 +57,7 @@ async def test_env_used_when_state_unset(monkeypatch):
 
 
 async def test_hardcoded_default_when_no_state_no_env(monkeypatch):
-    from horizon.models import DEFAULT_MODEL_NAME, select_model_callback
+    from app.models import DEFAULT_MODEL_NAME, select_model_callback
 
     monkeypatch.delenv("LHA_ROOT_MODEL", raising=False)
 
@@ -69,7 +69,7 @@ async def test_hardcoded_default_when_no_state_no_env(monkeypatch):
 async def test_unknown_state_value_falls_back_to_default(monkeypatch):
     """An unknown selected_model (e.g. stale state from a removed model)
     must not break the turn — fall through to default."""
-    from horizon.models import DEFAULT_MODEL_NAME, select_model_callback
+    from app.models import DEFAULT_MODEL_NAME, select_model_callback
 
     monkeypatch.delenv("LHA_ROOT_MODEL", raising=False)
     req = LlmRequest()
@@ -81,7 +81,7 @@ async def test_unknown_state_value_falls_back_to_default(monkeypatch):
 
 
 async def test_returns_none():
-    from horizon.models import select_model_callback
+    from app.models import select_model_callback
 
     result = await select_model_callback(
         callback_context=_ctx({}), llm_request=LlmRequest()

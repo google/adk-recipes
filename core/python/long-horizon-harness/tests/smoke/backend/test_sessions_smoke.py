@@ -31,9 +31,9 @@ from google.adk.events.event import Event
 from google.adk.sessions import InMemorySessionService
 from google.genai import types
 
-from horizon.api.sessions import TITLE_KEY, attach_session_routes
-from horizon.auth import current_user_id
-from horizon.infrastructure.constants import APP_NAME
+from app.api.sessions import TITLE_KEY, attach_session_routes
+from app.auth import current_user_id
+from app.infrastructure.constants import APP_NAME
 
 pytestmark = pytest.mark.skipif(
     os.environ.get("RUN_SMOKE") != "1", reason="RUN_SMOKE=1 required"

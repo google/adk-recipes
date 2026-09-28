@@ -38,8 +38,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from horizon.environment import LocalEnvironment
-from horizon.environment_context import (
+from app.environment import LocalEnvironment
+from app.environment_context import (
     clear_active_environment,
     set_active_environment,
 )
@@ -76,7 +76,7 @@ def _tool_ctx(state: dict) -> SimpleNamespace:
 
 
 async def test_module_exposes_policy_grant_entrypoint():
-    from horizon.guardrails import policy_grants
+    from app.guardrails import policy_grants
 
     assert callable(policy_grants.policy_grant)
     assert isinstance(policy_grants.POLICY_GRANTS_STATE_KEY, str)
@@ -89,7 +89,7 @@ async def test_module_exposes_policy_grant_entrypoint():
 
 class TestGrantRecording:
     async def test_grant_appends_to_state(self):
-        from horizon.guardrails.policy_grants import (
+        from app.guardrails.policy_grants import (
             POLICY_GRANTS_STATE_KEY,
             policy_grant,
         )
@@ -109,7 +109,7 @@ class TestGrantRecording:
         assert grants[0]["signature"] == {"command": "rm -rf build/"}
 
     async def test_grant_with_empty_signature_is_rejected(self):
-        from horizon.guardrails.policy_grants import (
+        from app.guardrails.policy_grants import (
             POLICY_GRANTS_STATE_KEY,
             policy_grant,
         )
@@ -126,7 +126,7 @@ class TestGrantRecording:
         assert state.get(POLICY_GRANTS_STATE_KEY) in (None, [])
 
     async def test_grant_with_non_string_values_is_rejected(self):
-        from horizon.guardrails.policy_grants import policy_grant
+        from app.guardrails.policy_grants import policy_grant
 
         state: dict = {}
         result = policy_grant(
@@ -138,7 +138,7 @@ class TestGrantRecording:
         assert result["granted"] is False
 
     async def test_grant_without_tool_name_is_rejected(self):
-        from horizon.guardrails.policy_grants import policy_grant
+        from app.guardrails.policy_grants import policy_grant
 
         state: dict = {}
         result = policy_grant(
@@ -150,7 +150,7 @@ class TestGrantRecording:
         assert result["granted"] is False
 
     async def test_duplicate_grant_is_idempotent(self):
-        from horizon.guardrails.policy_grants import (
+        from app.guardrails.policy_grants import (
             POLICY_GRANTS_STATE_KEY,
             policy_grant,
         )
@@ -179,8 +179,8 @@ class TestGrantRecording:
 
 class TestGrantBypassesBlock:
     async def test_matching_grant_allows_blocked_call(self, policies_env: Path):
-        from horizon.guardrails.policies import policies_guard
-        from horizon.guardrails.policy_grants import policy_grant
+        from app.guardrails.policies import policies_guard
+        from app.guardrails.policy_grants import policy_grant
 
         _write_policies(
             policies_env,
@@ -206,8 +206,8 @@ class TestGrantBypassesBlock:
         assert result is None
 
     async def test_different_arg_value_still_blocked(self, policies_env: Path):
-        from horizon.guardrails.policies import policies_guard
-        from horizon.guardrails.policy_grants import policy_grant
+        from app.guardrails.policies import policies_guard
+        from app.guardrails.policy_grants import policy_grant
 
         _write_policies(
             policies_env,
@@ -234,8 +234,8 @@ class TestGrantBypassesBlock:
         assert result.get("confirmation_required") is True
 
     async def test_grant_does_not_match_other_tool(self, policies_env: Path):
-        from horizon.guardrails.policies import policies_guard
-        from horizon.guardrails.policy_grants import policy_grant
+        from app.guardrails.policies import policies_guard
+        from app.guardrails.policy_grants import policy_grant
 
         _write_policies(
             policies_env,
@@ -263,8 +263,8 @@ class TestGrantBypassesBlock:
     async def test_signature_subset_match(self, policies_env: Path):
         """Extra args in the call don't break a grant whose signature is
         a subset of those args."""
-        from horizon.guardrails.policies import policies_guard
-        from horizon.guardrails.policy_grants import policy_grant
+        from app.guardrails.policies import policies_guard
+        from app.guardrails.policy_grants import policy_grant
 
         _write_policies(
             policies_env,
@@ -292,8 +292,8 @@ class TestGrantBypassesBlock:
     async def test_grant_does_not_bleed_across_sessions(
         self, policies_env: Path
     ):
-        from horizon.guardrails.policies import policies_guard
-        from horizon.guardrails.policy_grants import policy_grant
+        from app.guardrails.policies import policies_guard
+        from app.guardrails.policy_grants import policy_grant
 
         _write_policies(
             policies_env,
@@ -328,7 +328,7 @@ class TestGrantBypassesBlock:
 
 class TestGrantListAndRevoke:
     async def test_list_returns_active_grants(self):
-        from horizon.guardrails.policy_grants import policy_grant
+        from app.guardrails.policy_grants import policy_grant
 
         state: dict = {}
         policy_grant(
@@ -349,7 +349,7 @@ class TestGrantListAndRevoke:
         assert names == ["bash", "write"]
 
     async def test_list_when_no_grants(self):
-        from horizon.guardrails.policy_grants import policy_grant
+        from app.guardrails.policy_grants import policy_grant
 
         state: dict = {}
         result = policy_grant(action="list", tool_context=_tool_ctx(state))
@@ -357,7 +357,7 @@ class TestGrantListAndRevoke:
         assert result["grants"] == []
 
     async def test_revoke_by_index_removes_grant(self):
-        from horizon.guardrails.policy_grants import (
+        from app.guardrails.policy_grants import (
             POLICY_GRANTS_STATE_KEY,
             policy_grant,
         )
@@ -384,7 +384,7 @@ class TestGrantListAndRevoke:
         assert remaining[0]["signature"] == {"command": "b"}
 
     async def test_revoke_out_of_range_is_safe(self):
-        from horizon.guardrails.policy_grants import policy_grant
+        from app.guardrails.policy_grants import policy_grant
 
         state: dict = {}
         result = policy_grant(
@@ -400,7 +400,7 @@ class TestGrantListAndRevoke:
 
 class TestDispatchErrors:
     async def test_grant_missing_tool_name_kwarg_rejected(self):
-        from horizon.guardrails.policy_grants import policy_grant
+        from app.guardrails.policy_grants import policy_grant
 
         state: dict = {}
         result = policy_grant(
@@ -412,7 +412,7 @@ class TestDispatchErrors:
         assert "tool_name" in result["error"]
 
     async def test_grant_missing_signature_kwarg_rejected(self):
-        from horizon.guardrails.policy_grants import policy_grant
+        from app.guardrails.policy_grants import policy_grant
 
         state: dict = {}
         result = policy_grant(
@@ -424,7 +424,7 @@ class TestDispatchErrors:
         assert "signature" in result["error"]
 
     async def test_revoke_missing_index_rejected(self):
-        from horizon.guardrails.policy_grants import policy_grant
+        from app.guardrails.policy_grants import policy_grant
 
         state: dict = {}
         result = policy_grant(action="revoke", tool_context=_tool_ctx(state))
@@ -432,7 +432,7 @@ class TestDispatchErrors:
         assert "index" in result["error"].lower()
 
     async def test_unknown_action_rejected(self):
-        from horizon.guardrails.policy_grants import policy_grant
+        from app.guardrails.policy_grants import policy_grant
 
         state: dict = {}
         result = policy_grant(action="banana", tool_context=_tool_ctx(state))  # type: ignore[arg-type]

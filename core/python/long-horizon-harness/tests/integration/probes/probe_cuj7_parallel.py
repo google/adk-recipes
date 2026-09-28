@@ -34,7 +34,7 @@ SENTINEL_PATH = Path("/workspace/last_writer.txt")
 
 
 async def _session(fresh_user_id: str, sentinel: bytes) -> None:
-    from horizon.sandbox.provider import _build_sandbox_environment
+    from app.sandbox.provider import _build_sandbox_environment
 
     env, _ = _build_sandbox_environment(fresh_user_id)
     await env.initialize()
@@ -50,8 +50,8 @@ async def test_two_parallel_sessions_both_succeed(
     sandbox_env_vars: None,
     reset_env_cache: None,
 ) -> None:
-    from horizon.conversation import session_start
-    from horizon.sandbox.provider import _build_sandbox_environment
+    from app.conversation import session_start
+    from app.sandbox.provider import _build_sandbox_environment
 
     sentinel_a = b"writer-A"
     sentinel_b = b"writer-B"

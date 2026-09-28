@@ -47,7 +47,7 @@ def _local_backend(monkeypatch):
 
 
 async def test_populates_user_profile_state(monkeypatch):
-    from horizon.conversation import session_start
+    from app.conversation import session_start
 
     calls: list[dict[str, Any]] = []
 
@@ -69,7 +69,7 @@ async def test_populates_user_profile_state(monkeypatch):
 
 
 async def test_loads_once_per_session(monkeypatch):
-    from horizon.conversation import session_start
+    from app.conversation import session_start
 
     calls: list[Any] = []
 
@@ -88,7 +88,7 @@ async def test_loads_once_per_session(monkeypatch):
 
 
 async def test_empty_profile_still_sets_key(monkeypatch):
-    from horizon.conversation import session_start
+    from app.conversation import session_start
 
     async def fake_load(**_kwargs: Any) -> str:
         return ""

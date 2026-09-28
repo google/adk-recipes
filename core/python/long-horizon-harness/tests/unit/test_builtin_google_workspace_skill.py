@@ -25,7 +25,7 @@ from __future__ import annotations
 
 
 def _skill_dir():
-    from horizon.tools.skill_loader import builtin_skills_root
+    from app.tools.skill_loader import builtin_skills_root
 
     return builtin_skills_root() / "google-workspace"
 

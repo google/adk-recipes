@@ -58,7 +58,7 @@ async def test_agent_recovers_needle_from_overflow_file(
     # deterministically in test_terminal_overflow_smoke.py; here we test the
     # RECOVERY half — given a truncated result + a saved-file pointer, the agent
     # must read the file to surface a needle that is past the preview.
-    from horizon.tools.processes.terminal import terminal
+    from app.tools.processes.terminal import bash as terminal
 
     command = (
         "python3 -c \"[print('filler-%06d' % i) for i in range(15000)]; "

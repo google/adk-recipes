@@ -44,8 +44,8 @@ async def test_live_sandbox_survives_unclean_drop(
     reset_env_cache: None,
     vertex_client: object,
 ) -> None:
-    from horizon.conversation import session_start
-    from horizon.sandbox.provider import _build_sandbox_environment
+    from app.conversation import session_start
+    from app.sandbox.provider import _build_sandbox_environment
 
     sentinel = b"crashed-but-still-running"
 

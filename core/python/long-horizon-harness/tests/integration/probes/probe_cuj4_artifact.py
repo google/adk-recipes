@@ -56,9 +56,9 @@ async def test_save_then_load_artifact_round_trip(
     sandbox_env_vars: None,
     reset_env_cache: None,
 ) -> None:
-    from horizon.environment_context import set_active_environment
-    from horizon.sandbox.provider import _build_sandbox_environment
-    from horizon.tools.artifacts import artifact
+    from app.environment_context import set_active_environment
+    from app.sandbox.provider import _build_sandbox_environment
+    from app.tools.artifacts import artifact
 
     payload = b"col1,col2\n1,2\n3,4\n"
     env, _ = _build_sandbox_environment(fresh_user_id)

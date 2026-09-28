@@ -22,17 +22,17 @@ from __future__ import annotations
 
 import pytest
 
-from horizon.environment import LocalEnvironment
-from horizon.environment_context import set_active_environment
-from horizon.guardrails.permission_guard import (
+from app.environment import LocalEnvironment
+from app.environment_context import set_active_environment
+from app.guardrails.permission_guard import (
     permission_guard,
     reset_headless_mode,
     set_headless_mode,
 )
-from horizon.routines.manifest import write_routine_via_env
-from horizon.secrets import set_secret_store
-from horizon.secrets.inject import scoped_secret_env
-from horizon.secrets.store import SecretManagerStore
+from app.routines.manifest import write_routine_via_env
+from app.secrets import set_secret_store
+from app.secrets.inject import scoped_secret_env
+from app.secrets.store import SecretManagerStore
 from tests.stubs import FakeTool, FakeToolContext
 from tests.unit.test_secret_store import FakeSecretClient
 

@@ -17,7 +17,7 @@ from types import SimpleNamespace
 import pytest
 from google.api_core.exceptions import AlreadyExists, NotFound
 
-from horizon.secrets.store import SecretManagerStore, SecretTooLargeError
+from app.secrets.store import SecretManagerStore, SecretTooLargeError
 
 
 class FakeSecretClient:

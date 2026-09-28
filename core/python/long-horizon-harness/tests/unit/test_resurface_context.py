@@ -16,7 +16,7 @@
 
 from __future__ import annotations
 
-from horizon.subagents.resurface_context import (
+from app.subagents.resurface_context import (
     bubble_budget,
     child_drain,
     try_consume_bubble,

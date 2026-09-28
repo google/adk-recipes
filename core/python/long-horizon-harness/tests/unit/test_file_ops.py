@@ -32,7 +32,7 @@ The four tools pinned here are:
 Each returns a dict with `success: bool` and either result data or
 `error: str`. Tests pass `tmp_path` as the working root.
 
-This module is *the spec* for ``horizon/tools/file_ops.py``.
+This module is *the spec* for ``app/tools/file_ops.py``.
 """
 
 from __future__ import annotations
@@ -52,7 +52,7 @@ pytestmark = [
 
 class TestReadFile:
     async def test_reads_existing_file(self, tmp_path: Path) -> None:
-        from horizon.tools.file_ops import read_file
+        from app.tools.file_ops import read_file
 
         target = tmp_path / "hello.txt"
         target.write_text("line1\nline2\nline3\n")
@@ -65,7 +65,7 @@ class TestReadFile:
         assert "line3" in result["content"]
 
     async def test_missing_file_returns_error(self, tmp_path: Path) -> None:
-        from horizon.tools.file_ops import read_file
+        from app.tools.file_ops import read_file
 
         result = await read_file(str(tmp_path / "does_not_exist.txt"))
 
@@ -76,7 +76,7 @@ class TestReadFile:
     async def test_empty_file_returns_empty_content(
         self, tmp_path: Path
     ) -> None:
-        from horizon.tools.file_ops import read_file
+        from app.tools.file_ops import read_file
 
         target = tmp_path / "empty.txt"
         target.write_text("")
@@ -90,7 +90,7 @@ class TestReadFile:
         self, tmp_path: Path
     ) -> None:
         """offset=1 is the first line (1-indexed, matching lha convention)."""
-        from horizon.tools.file_ops import read_file
+        from app.tools.file_ops import read_file
 
         target = tmp_path / "numbered.txt"
         target.write_text("\n".join(f"line_{i}" for i in range(1, 101)) + "\n")
@@ -105,7 +105,7 @@ class TestReadFile:
         assert "line_53" not in result["content"]
 
     async def test_limit_caps_returned_lines(self, tmp_path: Path) -> None:
-        from horizon.tools.file_ops import read_file
+        from app.tools.file_ops import read_file
 
         target = tmp_path / "long.txt"
         target.write_text("\n".join(f"l{i}" for i in range(1, 1001)) + "\n")
@@ -121,7 +121,7 @@ class TestReadFile:
         assert len(numbered) == 10
 
     async def test_offset_past_end_returns_empty(self, tmp_path: Path) -> None:
-        from horizon.tools.file_ops import read_file
+        from app.tools.file_ops import read_file
 
         target = tmp_path / "short.txt"
         target.write_text("only\nthree\nlines\n")
@@ -133,7 +133,7 @@ class TestReadFile:
 
     async def test_binary_file_is_rejected(self, tmp_path: Path) -> None:
         """Binary files (by extension) should be refused with a clear error."""
-        from horizon.tools.file_ops import read_file
+        from app.tools.file_ops import read_file
 
         target = tmp_path / "image.png"
         target.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
@@ -144,7 +144,7 @@ class TestReadFile:
         assert "binary" in result["error"].lower()
 
     async def test_directory_path_returns_error(self, tmp_path: Path) -> None:
-        from horizon.tools.file_ops import read_file
+        from app.tools.file_ops import read_file
 
         result = await read_file(str(tmp_path))
 
@@ -156,7 +156,7 @@ class TestReadFileNumbering:
     async def test_lines_are_prefixed_with_1_indexed_numbers(
         self, tmp_path: Path
     ) -> None:
-        from horizon.tools.file_ops import read_file
+        from app.tools.file_ops import read_file
 
         target = tmp_path / "numbered.txt"
         target.write_text("alpha\nbeta\ngamma\n")
@@ -169,7 +169,7 @@ class TestReadFileNumbering:
         assert "3: gamma" in result["content"]
 
     async def test_line_numbers_respect_offset(self, tmp_path: Path) -> None:
-        from horizon.tools.file_ops import read_file
+        from app.tools.file_ops import read_file
 
         target = tmp_path / "numbered.txt"
         target.write_text("\n".join(f"line_{i}" for i in range(1, 101)) + "\n")
@@ -184,7 +184,7 @@ class TestReadFileNumbering:
     async def test_long_line_is_capped_with_suffix(
         self, tmp_path: Path
     ) -> None:
-        from horizon.tools.file_ops import MAX_LINE_LENGTH, read_file
+        from app.tools.file_ops import MAX_LINE_LENGTH, read_file
 
         target = tmp_path / "wide.txt"
         target.write_text("x" * 5000 + "\n")
@@ -199,7 +199,7 @@ class TestReadFileNumbering:
         assert len(body) == MAX_LINE_LENGTH
 
     async def test_short_line_is_not_truncated(self, tmp_path: Path) -> None:
-        from horizon.tools.file_ops import read_file
+        from app.tools.file_ops import read_file
 
         target = tmp_path / "ok.txt"
         target.write_text("short\n")
@@ -212,7 +212,7 @@ class TestReadFileNumbering:
     async def test_complete_read_ends_with_end_of_file_trailer(
         self, tmp_path: Path
     ) -> None:
-        from horizon.tools.file_ops import read_file
+        from app.tools.file_ops import read_file
 
         target = tmp_path / "small.txt"
         target.write_text("a\nb\nc\n")
@@ -225,7 +225,7 @@ class TestReadFileNumbering:
     async def test_partial_read_ends_with_continuation_trailer(
         self, tmp_path: Path
     ) -> None:
-        from horizon.tools.file_ops import read_file
+        from app.tools.file_ops import read_file
 
         target = tmp_path / "big.txt"
         target.write_text("\n".join(f"l{i}" for i in range(1, 101)) + "\n")
@@ -241,7 +241,7 @@ class TestReadFileNumbering:
     async def test_continuation_trailer_respects_offset(
         self, tmp_path: Path
     ) -> None:
-        from horizon.tools.file_ops import read_file
+        from app.tools.file_ops import read_file
 
         target = tmp_path / "big.txt"
         target.write_text("\n".join(f"l{i}" for i in range(1, 101)) + "\n")
@@ -257,7 +257,7 @@ class TestReadFileNumbering:
     async def test_window_ending_exactly_at_eof_uses_end_trailer(
         self, tmp_path: Path
     ) -> None:
-        from horizon.tools.file_ops import read_file
+        from app.tools.file_ops import read_file
 
         target = tmp_path / "exact.txt"
         target.write_text("\n".join(f"l{i}" for i in range(1, 11)) + "\n")
@@ -276,7 +276,7 @@ class TestReadFileNumbering:
 
 class TestWriteFile:
     async def test_creates_new_file(self, tmp_path: Path) -> None:
-        from horizon.tools.file_ops import write
+        from app.tools.file_ops import write
 
         target = tmp_path / "new.txt"
         result = await write(str(target), "hello world")
@@ -285,7 +285,7 @@ class TestWriteFile:
         assert target.read_text() == "hello world"
 
     async def test_overwrites_existing_file(self, tmp_path: Path) -> None:
-        from horizon.tools.file_ops import write
+        from app.tools.file_ops import write
 
         target = tmp_path / "existing.txt"
         target.write_text("original")
@@ -297,7 +297,7 @@ class TestWriteFile:
 
     async def test_creates_parent_directories(self, tmp_path: Path) -> None:
         """Writing to a path with missing intermediate dirs should auto-create them."""
-        from horizon.tools.file_ops import write
+        from app.tools.file_ops import write
 
         target = tmp_path / "nested" / "deeper" / "file.txt"
         result = await write(str(target), "ok")
@@ -308,7 +308,7 @@ class TestWriteFile:
     async def test_empty_content_creates_empty_file(
         self, tmp_path: Path
     ) -> None:
-        from horizon.tools.file_ops import write
+        from app.tools.file_ops import write
 
         target = tmp_path / "empty.txt"
         result = await write(str(target), "")
@@ -320,8 +320,8 @@ class TestWriteFile:
     async def test_deny_list_blocks_ssh_authorized_keys(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Ported from horizon test_file_write_safety.TestStaticDenyList — never write SSH keys."""
-        from horizon.tools.file_ops import write
+        """Ported from app test_file_write_safety.TestStaticDenyList — never write SSH keys."""
+        from app.tools.file_ops import write
 
         monkeypatch.setenv("HOME", str(tmp_path))
         fake_ssh = tmp_path / ".ssh"
@@ -340,7 +340,7 @@ class TestWriteFile:
     async def test_deny_list_blocks_ssh_private_key(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from horizon.tools.file_ops import write
+        from app.tools.file_ops import write
 
         monkeypatch.setenv("HOME", str(tmp_path))
         fake_ssh = tmp_path / ".ssh"
@@ -355,7 +355,7 @@ class TestWriteFile:
     async def test_deny_list_blocks_netrc(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from horizon.tools.file_ops import write
+        from app.tools.file_ops import write
 
         monkeypatch.setenv("HOME", str(tmp_path))
         target = tmp_path / ".netrc"
@@ -370,7 +370,7 @@ class TestWriteFile:
     async def test_deny_list_blocks_aws_credentials(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from horizon.tools.file_ops import write
+        from app.tools.file_ops import write
 
         monkeypatch.setenv("HOME", str(tmp_path))
         aws_dir = tmp_path / ".aws"
@@ -383,8 +383,8 @@ class TestWriteFile:
         assert not target.exists()
 
     async def test_temp_file_not_denied(self, tmp_path: Path) -> None:
-        """Ported from horizon test_temp_file_not_denied_by_default — sanity check."""
-        from horizon.tools.file_ops import write
+        """Ported from app test_temp_file_not_denied_by_default — sanity check."""
+        from app.tools.file_ops import write
 
         target = tmp_path / "scratch.txt"
         result = await write(str(target), "ok")
@@ -403,7 +403,7 @@ def _edits(*pairs: tuple[str, str]) -> list[dict[str, str]]:
 
 class TestPatch:
     async def test_replaces_unique_old_text(self, tmp_path: Path) -> None:
-        from horizon.tools.file_ops import edit
+        from app.tools.file_ops import edit
 
         target = tmp_path / "code.py"
         target.write_text('def greet():\n    print("hello")\n')
@@ -418,7 +418,7 @@ class TestPatch:
     async def test_missing_old_text_fails_and_leaves_file(
         self, tmp_path: Path
     ) -> None:
-        from horizon.tools.file_ops import edit
+        from app.tools.file_ops import edit
 
         target = tmp_path / "code.py"
         original = 'def greet():\n    print("hello")\n'
@@ -437,7 +437,7 @@ class TestPatch:
         flagged so the caller picks a more specific anchor — there is no
         replace_all to swap every occurrence; pass one edit per occurrence
         instead (each still needs its own unique anchor)."""
-        from horizon.tools.file_ops import edit
+        from app.tools.file_ops import edit
 
         target = tmp_path / "code.py"
         target.write_text("x = 1\nx = 1\n")
@@ -458,7 +458,7 @@ class TestPatch:
     ) -> None:
         """The replacement for replace_all: N edits in one call, each
         matching a distinct, unique, non-overlapping region."""
-        from horizon.tools.file_ops import edit
+        from app.tools.file_ops import edit
 
         target = tmp_path / "code.py"
         target.write_text("x = 1\ny = 1\nz = 1\n")
@@ -478,7 +478,7 @@ class TestPatch:
         """Atomicity: two edits would succeed on their own, but the third's
         oldText is absent — the file must come back exactly as it was, not
         partially edited."""
-        from horizon.tools.file_ops import edit
+        from app.tools.file_ops import edit
 
         target = tmp_path / "code.py"
         original = "x = 1\ny = 1\nz = 1\n"
@@ -503,7 +503,7 @@ class TestPatch:
         rules out an implementation that applies edits as it validates them
         instead of resolving the whole batch against the original text
         first."""
-        from horizon.tools.file_ops import edit
+        from app.tools.file_ops import edit
 
         target = tmp_path / "code.py"
         original = "x = 1\ny = 1\nz = 1\n"
@@ -526,7 +526,7 @@ class TestPatch:
         one edit instead — applying both would make the second's match
         offset (computed against the original content) land on text the
         first edit already replaced."""
-        from horizon.tools.file_ops import edit
+        from app.tools.file_ops import edit
 
         target = tmp_path / "code.py"
         original = "value = 100\n"
@@ -542,7 +542,7 @@ class TestPatch:
         assert target.read_text() == original
 
     async def test_empty_edits_list_is_rejected(self, tmp_path: Path) -> None:
-        from horizon.tools.file_ops import edit
+        from app.tools.file_ops import edit
 
         target = tmp_path / "code.py"
         original = "value = 1\n"
@@ -554,7 +554,7 @@ class TestPatch:
         assert target.read_text() == original
 
     async def test_patch_missing_file_fails(self, tmp_path: Path) -> None:
-        from horizon.tools.file_ops import edit
+        from app.tools.file_ops import edit
 
         result = await edit(str(tmp_path / "nope.py"), _edits(("a", "b")))
 
@@ -564,12 +564,12 @@ class TestPatch:
     async def test_patch_preserves_pipe_in_unmodified_lines(
         self, tmp_path: Path
     ) -> None:
-        """Ported from horizon test_preserves_non_prefix_pipe_characters_in_unmodified_lines.
+        """Ported from app test_preserves_non_prefix_pipe_characters_in_unmodified_lines.
 
         A file containing pipe characters (e.g. shell commands) in unrelated
         lines must come through verbatim after an edit on a different line.
         """
-        from horizon.tools.file_ops import edit
+        from app.tools.file_ops import edit
 
         target = tmp_path / "sample.py"
         target.write_text(
@@ -593,11 +593,11 @@ class TestPatch:
         )
 
     async def test_patch_preserves_long_lines(self, tmp_path: Path) -> None:
-        """Ported from horizon test_apply_update_preserves_long_lines.
+        """Ported from app test_apply_update_preserves_long_lines.
 
         A line >2000 chars elsewhere in the file must NOT be truncated by edit.
         """
-        from horizon.tools.file_ops import edit
+        from app.tools.file_ops import edit
 
         long_line = "x" * 3000
         target = tmp_path / "wide.py"
@@ -613,11 +613,11 @@ class TestPatch:
         assert "return 2" in new
 
     async def test_patch_preserves_large_files(self, tmp_path: Path) -> None:
-        """Ported from horizon test_apply_update_file_over_2000_lines.
+        """Ported from app test_apply_update_file_over_2000_lines.
 
         Editing one line in a 2500-line file must keep all 2500 lines.
         """
-        from horizon.tools.file_ops import edit
+        from app.tools.file_ops import edit
 
         lines = [f"line_{i}" for i in range(1, 2501)]
         lines[2200] = "old_value"  # 1-indexed line 2201
@@ -636,7 +636,7 @@ class TestPatch:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """The write deny list must also block patches that modify protected files."""
-        from horizon.tools.file_ops import edit
+        from app.tools.file_ops import edit
 
         monkeypatch.setenv("HOME", str(tmp_path))
         fake_ssh = tmp_path / ".ssh"
@@ -654,7 +654,7 @@ class TestPatch:
         self, tmp_path: Path
     ) -> None:
         """Model supplies oldText with the wrong indent; fuzzy match recovers."""
-        from horizon.tools.file_ops import edit
+        from app.tools.file_ops import edit
 
         target = tmp_path / "code.py"
         target.write_text(
@@ -675,7 +675,7 @@ class TestPatch:
     async def test_patch_succeeds_with_collapsed_whitespace(
         self, tmp_path: Path
     ) -> None:
-        from horizon.tools.file_ops import edit
+        from app.tools.file_ops import edit
 
         target = tmp_path / "code.py"
         target.write_text("x   =        1\n")
@@ -688,7 +688,7 @@ class TestPatch:
     async def test_patch_block_anchor_when_interior_drifts(
         self, tmp_path: Path
     ) -> None:
-        from horizon.tools.file_ops import edit
+        from app.tools.file_ops import edit
 
         target = tmp_path / "code.py"
         target.write_text("def f():\n    a = 1\n    b = 2\n    return a + b\n")
@@ -710,7 +710,7 @@ class TestPatch:
     async def test_fuzzy_no_match_leaves_file_and_lists_strategies(
         self, tmp_path: Path
     ) -> None:
-        from horizon.tools.file_ops import edit
+        from app.tools.file_ops import edit
 
         target = tmp_path / "code.py"
         original = "value = 1\n"
@@ -728,8 +728,8 @@ class TestPatch:
         """First edit into a subdirectory must seed the workspace window."""
         from types import SimpleNamespace
 
-        from horizon.tools.file_ops import edit
-        from horizon.workspace_window import WORKSPACE_WINDOW_STATE_KEY
+        from app.tools.file_ops import edit
+        from app.workspace_window import WORKSPACE_WINDOW_STATE_KEY
 
         sub = tmp_path.resolve() / "pkg"
         sub.mkdir()
@@ -754,7 +754,7 @@ class TestPatch:
 
 class TestSearchFiles:
     async def test_finds_text_match_in_file(self, tmp_path: Path) -> None:
-        from horizon.tools.file_ops import search_files
+        from app.tools.file_ops import search_files
 
         (tmp_path / "a.py").write_text("def needle():\n    pass\n")
         (tmp_path / "b.py").write_text("def other():\n    pass\n")
@@ -767,7 +767,7 @@ class TestSearchFiles:
         assert not any(p.endswith("b.py") for p in matched_paths)
 
     async def test_no_matches_returns_empty_list(self, tmp_path: Path) -> None:
-        from horizon.tools.file_ops import search_files
+        from app.tools.file_ops import search_files
 
         (tmp_path / "a.py").write_text("def foo(): pass\n")
 
@@ -779,7 +779,7 @@ class TestSearchFiles:
     async def test_finds_match_in_nested_directory(
         self, tmp_path: Path
     ) -> None:
-        from horizon.tools.file_ops import search_files
+        from app.tools.file_ops import search_files
 
         nested = tmp_path / "pkg" / "sub"
         nested.mkdir(parents=True)
@@ -792,7 +792,7 @@ class TestSearchFiles:
         assert any("deep.py" in p for p in matched_paths)
 
     async def test_file_glob_filters_extension(self, tmp_path: Path) -> None:
-        from horizon.tools.file_ops import search_files
+        from app.tools.file_ops import search_files
 
         (tmp_path / "a.py").write_text("needle\n")
         (tmp_path / "b.txt").write_text("needle\n")
@@ -807,7 +807,7 @@ class TestSearchFiles:
         assert not any(p.endswith("b.txt") for p in matched_paths)
 
     async def test_limit_caps_result_count(self, tmp_path: Path) -> None:
-        from horizon.tools.file_ops import search_files
+        from app.tools.file_ops import search_files
 
         for i in range(20):
             (tmp_path / f"f{i}.py").write_text("needle\n")
@@ -818,7 +818,7 @@ class TestSearchFiles:
         assert len(result["matches"]) <= 5
 
     async def test_missing_path_returns_error(self, tmp_path: Path) -> None:
-        from horizon.tools.file_ops import search_files
+        from app.tools.file_ops import search_files
 
         result = await search_files(
             "anything", path=str(tmp_path / "nonexistent_dir")
@@ -830,9 +830,9 @@ class TestSearchFiles:
     async def test_skips_hidden_directories(self, tmp_path: Path) -> None:
         """Standard convention: ripgrep-style search skips dot-directories.
 
-        Ported from horizon test_search_files_fallback_hidden_paths.
+        Ported from app test_search_files_fallback_hidden_paths.
         """
-        from horizon.tools.file_ops import search_files
+        from app.tools.file_ops import search_files
 
         hidden = tmp_path / ".git"
         hidden.mkdir()
@@ -849,7 +849,7 @@ class TestSearchFiles:
 
 class TestSearchFilesRegex:
     async def test_regex_pattern_matches(self, tmp_path: Path) -> None:
-        from horizon.tools.file_ops import search_files
+        from app.tools.file_ops import search_files
 
         (tmp_path / "a.py").write_text("def needle_42():\n    pass\n")
         (tmp_path / "b.py").write_text("def other():\n    pass\n")
@@ -862,7 +862,7 @@ class TestSearchFilesRegex:
         assert not any(p.endswith("b.py") for p in matched_paths)
 
     async def test_anchored_regex(self, tmp_path: Path) -> None:
-        from horizon.tools.file_ops import search_files
+        from app.tools.file_ops import search_files
 
         (tmp_path / "a.py").write_text("import os\nx = import_helper()\n")
 
@@ -875,7 +875,7 @@ class TestSearchFilesRegex:
     async def test_invalid_regex_returns_error_not_crash(
         self, tmp_path: Path
     ) -> None:
-        from horizon.tools.file_ops import search_files
+        from app.tools.file_ops import search_files
 
         (tmp_path / "a.py").write_text("anything\n")
 
@@ -889,7 +889,7 @@ class TestSearchFilesRegex:
         )
 
     async def test_matches_do_not_leak_mtime(self, tmp_path: Path) -> None:
-        from horizon.tools.file_ops import search_files
+        from app.tools.file_ops import search_files
 
         (tmp_path / "a.py").write_text("needle\n")
         result = await search_files("needle", path=str(tmp_path))
@@ -905,7 +905,7 @@ class TestSearchFilesRegex:
         import os
         import time
 
-        from horizon.tools.file_ops import search_files
+        from app.tools.file_ops import search_files
 
         old = tmp_path / "old.py"
         new = tmp_path / "new.py"
@@ -923,7 +923,7 @@ class TestSearchFilesRegex:
         assert ordered_paths[-1].endswith("old.py")
 
     async def test_ignore_case_search(self, tmp_path: Path) -> None:
-        from horizon.tools.file_ops import search_files
+        from app.tools.file_ops import search_files
 
         (tmp_path / "a.py").write_text("def NeedleCase(): pass\n")
 
@@ -939,7 +939,7 @@ class TestSearchFilesRegex:
     async def test_excludes_noise_directories_by_default(
         self, tmp_path: Path
     ) -> None:
-        from horizon.tools.file_ops import search_files
+        from app.tools.file_ops import search_files
 
         src = tmp_path / "src"
         src.mkdir()
@@ -962,7 +962,7 @@ class TestSearchFilesRegex:
     async def test_no_ignore_includes_noise_directories(
         self, tmp_path: Path
     ) -> None:
-        from horizon.tools.file_ops import search_files
+        from app.tools.file_ops import search_files
 
         nm = tmp_path / "node_modules" / "pkg"
         nm.mkdir(parents=True)
@@ -976,7 +976,7 @@ class TestSearchFilesRegex:
         assert "node_modules" in result["matches"][0]["path"]
 
     async def test_truncates_long_matched_lines(self, tmp_path: Path) -> None:
-        from horizon.tools.file_ops import search_files
+        from app.tools.file_ops import search_files
 
         prefix = "x" * 200
         suffix = "y" * 200
@@ -994,8 +994,8 @@ class TestSearchFilesRegex:
     async def test_skips_files_exceeding_max_size(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from horizon.tools import file_ops
-        from horizon.tools.file_ops import search_files
+        from app.tools import file_ops
+        from app.tools.file_ops import search_files
 
         monkeypatch.setattr(file_ops, "_SEARCH_MAX_FILE_SIZE", 100)
 
@@ -1021,11 +1021,11 @@ class TestModuleSurface:
     """Pin the public API surface."""
 
     def test_exports_four_tools(self) -> None:
-        from horizon.tools import file_ops
+        from app.tools import file_ops
 
         for name in ("read_file", "write", "edit", "search_files"):
             assert hasattr(file_ops, name), (
-                f"horizon.tools.file_ops must export {name}"
+                f"app.tools.file_ops must export {name}"
             )
             assert callable(getattr(file_ops, name))
 
@@ -1034,7 +1034,7 @@ class TestRoundTrips:
     async def test_write_then_read_returns_same_content(
         self, tmp_path: Path
     ) -> None:
-        from horizon.tools.file_ops import read_file, write
+        from app.tools.file_ops import read_file, write
 
         target = tmp_path / "roundtrip.txt"
         payload = "alpha\nbeta\ngamma\n"
@@ -1049,7 +1049,7 @@ class TestRoundTrips:
         assert "gamma" in read_result["content"]
 
     async def test_write_then_patch_then_read(self, tmp_path: Path) -> None:
-        from horizon.tools.file_ops import edit, read_file, write
+        from app.tools.file_ops import edit, read_file, write
 
         target = tmp_path / "cycle.py"
         await write(str(target), "value = 1\n")

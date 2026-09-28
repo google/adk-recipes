@@ -31,7 +31,7 @@ def test_gemini_entry_is_on_demand_by_default():
     # force-pinned. See test_registry_lazy.py for the opt-in path.
     from google.adk.models import Gemini
 
-    from horizon.models.registry import MODEL_REGISTRY, _PriorityGemini
+    from app.models.registry import MODEL_REGISTRY, _PriorityGemini
 
     entry = MODEL_REGISTRY["gemini-3.7-flash"]
     assert isinstance(entry, Gemini)
@@ -42,7 +42,7 @@ def test_priority_tier_literal_round_trips_through_sdk():
     # Pins the google-genai _missing_ fallback we depend on: the SDK enum has no
     # SERVICE_TIER_* member, so the Vertex literal must survive as its own value.
     # Fails loudly if an SDK upgrade changes that behavior.
-    from horizon.models.registry import _PRIORITY_SERVICE_TIER
+    from app.models.registry import _PRIORITY_SERVICE_TIER
 
     assert _PRIORITY_SERVICE_TIER is not None
     assert _PRIORITY_SERVICE_TIER.value == "SERVICE_TIER_PRIORITY"
@@ -50,7 +50,7 @@ def test_priority_tier_literal_round_trips_through_sdk():
 
 @pytest.mark.asyncio
 async def test_priority_gemini_sets_service_tier(monkeypatch):
-    from horizon.models.registry import _PriorityGemini
+    from app.models.registry import _PriorityGemini
 
     seen: dict[str, Any] = {}
 

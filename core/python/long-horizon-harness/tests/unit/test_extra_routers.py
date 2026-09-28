@@ -14,7 +14,7 @@
 
 """A caller can mount their own routes on the built app via include_router."""
 
-from horizon.fast_api_app import _build_app
+from app.fast_api_app import _build_app
 
 
 def test_include_router_on_built_app(monkeypatch):

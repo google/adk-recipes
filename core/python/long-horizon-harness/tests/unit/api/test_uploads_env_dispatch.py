@@ -4,8 +4,8 @@ from pathlib import Path
 import pytest
 import pytest_asyncio
 
-from horizon.api import uploads
-from horizon.environment import LocalEnvironment
+from app.api import uploads
+from app.environment import LocalEnvironment
 
 
 @pytest_asyncio.fixture

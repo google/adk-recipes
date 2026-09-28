@@ -36,7 +36,7 @@ pytestmark = pytest.mark.asyncio
 
 
 async def test_module_exposes_entrypoints():
-    from horizon.subagents import registry
+    from app.subagents import registry
 
     assert callable(registry.get_registry)
     assert hasattr(registry, "SubAgentRegistry")
@@ -44,7 +44,7 @@ async def test_module_exposes_entrypoints():
 
 
 async def test_register_returns_unique_task_ids():
-    from horizon.subagents.registry import SubAgentRegistry
+    from app.subagents.registry import SubAgentRegistry
 
     reg = SubAgentRegistry()
 
@@ -59,7 +59,7 @@ async def test_register_returns_unique_task_ids():
 
 
 async def test_get_status_returns_unknown_for_missing_task():
-    from horizon.subagents.registry import SubAgentRegistry
+    from app.subagents.registry import SubAgentRegistry
 
     reg = SubAgentRegistry()
     result = await reg.get_status("nonexistent")
@@ -67,7 +67,7 @@ async def test_get_status_returns_unknown_for_missing_task():
 
 
 async def test_pending_then_completed_lifecycle():
-    from horizon.subagents.registry import SubAgentRegistry
+    from app.subagents.registry import SubAgentRegistry
 
     reg = SubAgentRegistry()
     started = asyncio.Event()
@@ -94,7 +94,7 @@ async def test_pending_then_completed_lifecycle():
 
 
 async def test_get_result_without_wait_returns_pending():
-    from horizon.subagents.registry import SubAgentRegistry
+    from app.subagents.registry import SubAgentRegistry
 
     reg = SubAgentRegistry()
     release = asyncio.Event()
@@ -112,7 +112,7 @@ async def test_get_result_without_wait_returns_pending():
 
 
 async def test_cancel_marks_handle_cancelled():
-    from horizon.subagents.registry import SubAgentRegistry
+    from app.subagents.registry import SubAgentRegistry
 
     reg = SubAgentRegistry()
     started = asyncio.Event()
@@ -141,7 +141,7 @@ async def test_cancel_marks_handle_cancelled():
 
 
 async def test_failed_task_surfaces_error():
-    from horizon.subagents.registry import SubAgentRegistry
+    from app.subagents.registry import SubAgentRegistry
 
     reg = SubAgentRegistry()
 
@@ -155,7 +155,7 @@ async def test_failed_task_surfaces_error():
 
 
 async def test_list_active_includes_pending_and_running_only():
-    from horizon.subagents.registry import SubAgentRegistry
+    from app.subagents.registry import SubAgentRegistry
 
     reg = SubAgentRegistry()
     release_a = asyncio.Event()
@@ -186,7 +186,7 @@ async def test_list_active_includes_pending_and_running_only():
 
 
 async def test_wait_returns_first_completed_with_result():
-    from horizon.subagents.registry import SubAgentRegistry
+    from app.subagents.registry import SubAgentRegistry
 
     reg = SubAgentRegistry()
     release_slow = asyncio.Event()
@@ -212,7 +212,7 @@ async def test_wait_returns_first_completed_with_result():
 
 
 async def test_wait_no_active_tasks():
-    from horizon.subagents.registry import SubAgentRegistry
+    from app.subagents.registry import SubAgentRegistry
 
     reg = SubAgentRegistry()
     out = await reg.wait(task_ids=None, timeout_s=1.0)
@@ -220,7 +220,7 @@ async def test_wait_no_active_tasks():
 
 
 async def test_wait_timeout_returns_still_running():
-    from horizon.subagents.registry import SubAgentRegistry
+    from app.subagents.registry import SubAgentRegistry
 
     reg = SubAgentRegistry()
     release = asyncio.Event()
@@ -239,7 +239,7 @@ async def test_wait_timeout_returns_still_running():
 
 
 async def test_wait_scoped_to_given_task_ids():
-    from horizon.subagents.registry import SubAgentRegistry
+    from app.subagents.registry import SubAgentRegistry
 
     reg = SubAgentRegistry()
     release_a = asyncio.Event()
@@ -264,7 +264,7 @@ async def test_wait_scoped_to_given_task_ids():
 
 
 async def test_get_registry_returns_same_instance_per_context():
-    from horizon.subagents.registry import get_registry
+    from app.subagents.registry import get_registry
 
     first = get_registry()
     second = get_registry()
@@ -280,7 +280,7 @@ async def test_get_registry_survives_across_copied_contexts():
     """
     import contextvars
 
-    from horizon.subagents.registry import (
+    from app.subagents.registry import (
         get_registry,
         reset_registry,
     )

@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import pytest
 
-from horizon.auth import oauth as g
+from app.auth import oauth as g
 
 # --- workspace scope assembly --------------------------------------------
 
@@ -256,7 +256,7 @@ def client_and_store(monkeypatch):
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
 
-    from horizon.secrets.store import set_secret_store
+    from app.secrets.store import set_secret_store
 
     monkeypatch.setenv("LHA_AUTH_MODE", "dev")
     monkeypatch.setenv("LHA_DEV_USER_ID", "u-test")

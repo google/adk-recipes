@@ -25,7 +25,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from horizon.feedback.models import Feedback
+from app.feedback.models import Feedback
 
 
 def test_text_only_payload_validates() -> None:

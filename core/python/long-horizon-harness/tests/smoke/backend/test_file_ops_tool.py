@@ -25,7 +25,8 @@ pytestmark = pytest.mark.asyncio(loop_scope="session")
 async def test_write_then_read_round_trips(
     active_env: BaseEnvironment, unique_name: str
 ) -> None:
-    from horizon.tools.file_ops import read_file, write_file
+    from app.tools.file_ops import read_file
+    from app.tools.file_ops import write as write_file
 
     payload = f"hello from {unique_name}\nsecond line\n"
     write_result = await write_file(path=f"{unique_name}.txt", content=payload)
@@ -38,7 +39,7 @@ async def test_write_then_read_round_trips(
 
 
 async def test_read_traversal_is_rejected(active_env: BaseEnvironment) -> None:
-    from horizon.tools.file_ops import read_file
+    from app.tools.file_ops import read_file
 
     result = await read_file(path="../../../etc/passwd")
     assert result["success"] is False
@@ -46,7 +47,7 @@ async def test_read_traversal_is_rejected(active_env: BaseEnvironment) -> None:
 
 
 async def test_write_traversal_is_rejected(active_env: BaseEnvironment) -> None:
-    from horizon.tools.file_ops import write_file
+    from app.tools.file_ops import write as write_file
 
     result = await write_file(path="/tmp/escape.txt", content="x")
     assert result["success"] is False

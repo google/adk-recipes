@@ -183,7 +183,7 @@ def _fake_client(
 
 
 def test_module_exposes_entrypoints() -> None:
-    from horizon.sandbox import lifecycle
+    from app.sandbox import lifecycle
 
     assert callable(lifecycle.ensure_template)
     assert callable(lifecycle.provision_sandbox)
@@ -197,7 +197,7 @@ def test_module_no_longer_exposes_index_helpers() -> None:
     """Local-file index was Cloud-Run incompatible; the helpers and
     their fcntl/tempfile machinery were dropped in favor of Vertex's
     own ``sandboxes.list`` + ``display_name`` convention."""
-    from horizon.sandbox import lifecycle
+    from app.sandbox import lifecycle
 
     for removed in (
         "read_sandbox_index",
@@ -231,7 +231,7 @@ def _template_with_image(
 
 class TestEnsureTemplate:
     def test_creates_when_missing(self) -> None:
-        from horizon.sandbox.lifecycle import (
+        from app.sandbox.lifecycle import (
             DEFAULT_TEMPLATE_DISPLAY_NAME,
             ensure_template,
         )
@@ -284,7 +284,7 @@ class TestEnsureTemplate:
     def test_reuses_existing_by_image_uri(self) -> None:
         """Identity for BYOC templates is the image URI, not the display name —
         rebuilds publish a new image tag, and we should re-create then."""
-        from horizon.sandbox.lifecycle import (
+        from app.sandbox.lifecycle import (
             DEFAULT_TEMPLATE_DISPLAY_NAME,
             ensure_template,
         )
@@ -317,7 +317,7 @@ class TestEnsureTemplate:
     def test_creates_new_when_image_uri_differs(self) -> None:
         """A template tagged with the old image is not a match for the new
         image — we must build a fresh template."""
-        from horizon.sandbox.lifecycle import (
+        from app.sandbox.lifecycle import (
             DEFAULT_TEMPLATE_DISPLAY_NAME,
             ensure_template,
         )
@@ -351,7 +351,7 @@ class TestEnsureTemplate:
         even though get(name=...) hydrates it. We must hydrate via get() before
         skipping on display-name mismatch — otherwise we create a duplicate
         template on every cold start and burn through quota."""
-        from horizon.sandbox.lifecycle import (
+        from app.sandbox.lifecycle import (
             DEFAULT_TEMPLATE_DISPLAY_NAME,
             ensure_template,
         )
@@ -379,7 +379,7 @@ class TestEnsureTemplate:
         assert len(calls.get("template_get", [])) == 1
 
     def test_ignores_templates_with_other_display_names(self) -> None:
-        from horizon.sandbox.lifecycle import ensure_template
+        from app.sandbox.lifecycle import ensure_template
 
         client, calls = _fake_client(
             existing_templates=[
@@ -403,7 +403,7 @@ class TestEnsureTemplate:
 
 class TestProvisionSandbox:
     def test_fresh_provision_passes_template_into_config(self) -> None:
-        from horizon.sandbox.lifecycle import provision_sandbox
+        from app.sandbox.lifecycle import provision_sandbox
 
         client, calls = _fake_client()
         agent_instance = "projects/p/locations/l/reasoningEngines/r"
@@ -435,7 +435,7 @@ class TestProvisionSandbox:
         assert _config_get(config, "sandbox_environment_template") == template
 
     def test_normalizes_ttl_to_protobuf_duration(self) -> None:
-        from horizon.sandbox.lifecycle import provision_sandbox
+        from app.sandbox.lifecycle import provision_sandbox
 
         client, calls = _fake_client()
         agent_instance = "projects/p/locations/l/reasoningEngines/r"
@@ -456,7 +456,7 @@ class TestProvisionSandbox:
         assert _config_get(calls["create"][0]["config"], "ttl") == "1209600s"
 
     def test_rejects_invalid_ttl(self) -> None:
-        from horizon.sandbox.lifecycle import provision_sandbox
+        from app.sandbox.lifecycle import provision_sandbox
 
         client, _ = _fake_client()
         with pytest.raises(ValueError, match="Invalid TTL"):
@@ -469,7 +469,7 @@ class TestProvisionSandbox:
             )
 
     def test_rejects_empty_template(self) -> None:
-        from horizon.sandbox.lifecycle import provision_sandbox
+        from app.sandbox.lifecycle import provision_sandbox
 
         client, _ = _fake_client()
         with pytest.raises(ValueError, match="template_name"):
@@ -488,7 +488,7 @@ class TestProvisionSandbox:
 
 class TestMintSandboxToken:
     def test_returns_jwt_verbatim(self) -> None:
-        from horizon.sandbox.lifecycle import mint_sandbox_token
+        from app.sandbox.lifecycle import mint_sandbox_token
 
         client, calls = _fake_client(token="header.payload.sig")
 
@@ -509,7 +509,7 @@ class TestMintSandboxToken:
 
 class TestDeleteSandbox:
     def test_happy_path(self) -> None:
-        from horizon.sandbox.lifecycle import delete_sandbox
+        from app.sandbox.lifecycle import delete_sandbox
 
         client, calls = _fake_client()
         delete_sandbox(
@@ -525,7 +525,7 @@ class TestDeleteSandbox:
     def test_swallows_404(self) -> None:
         """A 404 during cleanup means the sandbox is already gone — that's
         the desired state, so we must not raise."""
-        from horizon.sandbox.lifecycle import delete_sandbox
+        from app.sandbox.lifecycle import delete_sandbox
 
         client = MagicMock()
 
@@ -546,7 +546,7 @@ class TestDeleteSandbox:
         )
 
     def test_propagates_non_404_errors(self) -> None:
-        from horizon.sandbox.lifecycle import delete_sandbox
+        from app.sandbox.lifecycle import delete_sandbox
 
         client = MagicMock()
 
@@ -584,39 +584,39 @@ def _sandbox_stub(
 
 class TestRuntimeImageVersion:
     def test_extracts_and_sanitizes_tag(self) -> None:
-        from horizon.sandbox.lifecycle import runtime_image_version
+        from app.sandbox.lifecycle import runtime_image_version
 
         assert runtime_image_version(RUNTIME_IMAGE) == "v0_11_0"
 
     def test_ignores_registry_host_port(self) -> None:
         """A ``host:port`` colon is not a tag — only the tag after the
         final ``:`` (when it has no ``/``) counts."""
-        from horizon.sandbox.lifecycle import runtime_image_version
+        from app.sandbox.lifecycle import runtime_image_version
 
         assert (
             runtime_image_version("localhost:5000/runtime:v1.2.3") == "v1_2_3"
         )
 
     def test_untagged_ref_falls_back(self) -> None:
-        from horizon.sandbox.lifecycle import runtime_image_version
+        from app.sandbox.lifecycle import runtime_image_version
 
         assert runtime_image_version("localhost:5000/runtime") == "untagged"
 
     def test_digest_ref_uses_short_digest(self) -> None:
-        from horizon.sandbox.lifecycle import runtime_image_version
+        from app.sandbox.lifecycle import runtime_image_version
 
         ref = "us-central1-docker.pkg.dev/p/lha-sandbox/runtime@sha256:abcdef0123456789"
         assert runtime_image_version(ref) == "sha256_abcdef012345"
 
     def test_empty_falls_back(self) -> None:
-        from horizon.sandbox.lifecycle import runtime_image_version
+        from app.sandbox.lifecycle import runtime_image_version
 
         assert runtime_image_version("") == "untagged"
 
 
 class TestSandboxDisplayName:
     def test_email_like_user_id_is_sanitized(self) -> None:
-        from horizon.sandbox.lifecycle import sandbox_display_name
+        from app.sandbox.lifecycle import sandbox_display_name
 
         assert (
             sandbox_display_name("alice@example.com", RUNTIME_IMAGE)
@@ -624,7 +624,7 @@ class TestSandboxDisplayName:
         )
 
     def test_empty_user_id_falls_back_to_anonymous(self) -> None:
-        from horizon.sandbox.lifecycle import sandbox_display_name
+        from app.sandbox.lifecycle import sandbox_display_name
 
         assert (
             sandbox_display_name("", RUNTIME_IMAGE) == "lha-anonymous-v0_11_0"
@@ -633,13 +633,13 @@ class TestSandboxDisplayName:
     def test_non_ascii_chars_collapse_to_single_underscore(self) -> None:
         """Runs of unsafe chars collapse to one underscore (regex ``+``
         quantifier on the unsafe character class)."""
-        from horizon.sandbox.lifecycle import sandbox_display_name
+        from app.sandbox.lifecycle import sandbox_display_name
 
         assert sandbox_display_name("用户1", RUNTIME_IMAGE) == "lha-_1-v0_11_0"
 
     def test_long_user_id_is_truncated(self) -> None:
         """Sanitized user portion clamped to 32 chars; version suffix appended."""
-        from horizon.sandbox.lifecycle import sandbox_display_name
+        from app.sandbox.lifecycle import sandbox_display_name
 
         long_id = "a" * 100
         result = sandbox_display_name(long_id, RUNTIME_IMAGE)
@@ -649,14 +649,14 @@ class TestSandboxDisplayName:
 
     def test_version_scopes_identity(self) -> None:
         """Same user, different image tag → different display_name."""
-        from horizon.sandbox.lifecycle import sandbox_display_name
+        from app.sandbox.lifecycle import sandbox_display_name
 
         assert sandbox_display_name(
             "alice", RUNTIME_IMAGE
         ) != sandbox_display_name("alice", RUNTIME_IMAGE_OLD)
 
     def test_deterministic_same_input_same_output(self) -> None:
-        from horizon.sandbox.lifecycle import sandbox_display_name
+        from app.sandbox.lifecycle import sandbox_display_name
 
         assert sandbox_display_name(
             "alice", RUNTIME_IMAGE
@@ -665,7 +665,7 @@ class TestSandboxDisplayName:
 
 class TestFindUserSandbox:
     def test_returns_running_sandbox_matching_display_name(self) -> None:
-        from horizon.sandbox.lifecycle import (
+        from app.sandbox.lifecycle import (
             find_user_sandbox,
             sandbox_display_name,
         )
@@ -694,7 +694,7 @@ class TestFindUserSandbox:
         ]
 
     def test_returns_none_when_no_matches(self) -> None:
-        from horizon.sandbox.lifecycle import find_user_sandbox
+        from app.sandbox.lifecycle import find_user_sandbox
 
         agent_instance = "projects/p/locations/l/reasoningEngines/r"
         client, _ = _fake_client(existing_sandboxes=[])
@@ -713,7 +713,7 @@ class TestFindUserSandbox:
         """The reattach path is version-scoped: a RUNNING sandbox for the
         same user but built from an older image must NOT be reattached —
         the caller migrates from it and provisions fresh instead."""
-        from horizon.sandbox.lifecycle import (
+        from app.sandbox.lifecycle import (
             find_user_sandbox,
             sandbox_display_name,
         )
@@ -738,7 +738,7 @@ class TestFindUserSandbox:
     def test_skips_non_running_sandboxes(self) -> None:
         """A sandbox with the right display_name but in STOPPING/PENDING
         is not reattachable — skip it so the caller re-provisions."""
-        from horizon.sandbox.lifecycle import (
+        from app.sandbox.lifecycle import (
             find_user_sandbox,
             sandbox_display_name,
         )
@@ -765,7 +765,7 @@ class TestFindUserSandbox:
         """Race: two backend instances both provisioned for the same user.
         Pick a deterministic winner so subsequent reads converge; the
         loser ages out via TTL."""
-        from horizon.sandbox.lifecycle import (
+        from app.sandbox.lifecycle import (
             find_user_sandbox,
             sandbox_display_name,
         )
@@ -794,7 +794,7 @@ class TestFindUserSandbox:
 
     def test_ignores_sandboxes_with_other_display_names(self) -> None:
         """Some other tool's sandbox under the same engine — leave it alone."""
-        from horizon.sandbox.lifecycle import find_user_sandbox
+        from app.sandbox.lifecycle import find_user_sandbox
 
         agent_instance = "projects/p/locations/l/reasoningEngines/r"
         other_tool = _sandbox_stub(
@@ -816,7 +816,7 @@ class TestFindUserSandbox:
 
 class TestFindPriorUserSandbox:
     def test_returns_running_sandbox_built_from_an_older_image(self) -> None:
-        from horizon.sandbox.lifecycle import (
+        from app.sandbox.lifecycle import (
             find_prior_user_sandbox,
             sandbox_display_name,
         )
@@ -837,7 +837,7 @@ class TestFindPriorUserSandbox:
         assert found == prior.name
 
     def test_excludes_current_version_sandbox(self) -> None:
-        from horizon.sandbox.lifecycle import (
+        from app.sandbox.lifecycle import (
             find_prior_user_sandbox,
             sandbox_display_name,
         )
@@ -861,7 +861,7 @@ class TestFindPriorUserSandbox:
 
     def test_picks_newest_by_create_time(self) -> None:
         """With two prior versions, migrate from the most recently created."""
-        from horizon.sandbox.lifecycle import (
+        from app.sandbox.lifecycle import (
             find_prior_user_sandbox,
             sandbox_display_name,
         )
@@ -891,7 +891,7 @@ class TestFindPriorUserSandbox:
         assert found == newer.name
 
     def test_skips_non_running_priors(self) -> None:
-        from horizon.sandbox.lifecycle import (
+        from app.sandbox.lifecycle import (
             find_prior_user_sandbox,
             sandbox_display_name,
         )
@@ -915,7 +915,7 @@ class TestFindPriorUserSandbox:
         )
 
     def test_ignores_other_users_and_other_tools(self) -> None:
-        from horizon.sandbox.lifecycle import (
+        from app.sandbox.lifecycle import (
             find_prior_user_sandbox,
             sandbox_display_name,
         )
@@ -944,7 +944,7 @@ class TestFindPriorUserSandbox:
 
 class TestGetUserSandboxState:
     def test_returns_ready_when_sandbox_is_running(self) -> None:
-        from horizon.sandbox.lifecycle import (
+        from app.sandbox.lifecycle import (
             get_user_sandbox_state,
             sandbox_display_name,
         )
@@ -966,7 +966,7 @@ class TestGetUserSandboxState:
         assert snap == {"status": "ready", "sandbox_name": sandbox.name}
 
     def test_returns_provisioning_when_sandbox_is_creating(self) -> None:
-        from horizon.sandbox.lifecycle import (
+        from app.sandbox.lifecycle import (
             get_user_sandbox_state,
             sandbox_display_name,
         )
@@ -988,7 +988,7 @@ class TestGetUserSandboxState:
         assert snap == {"status": "provisioning", "sandbox_name": sandbox.name}
 
     def test_returns_error_when_sandbox_is_in_error_state(self) -> None:
-        from horizon.sandbox.lifecycle import (
+        from app.sandbox.lifecycle import (
             get_user_sandbox_state,
             sandbox_display_name,
         )
@@ -1010,7 +1010,7 @@ class TestGetUserSandboxState:
         assert snap == {"status": "error", "sandbox_name": sandbox.name}
 
     def test_returns_none_when_no_matching_sandbox(self) -> None:
-        from horizon.sandbox.lifecycle import get_user_sandbox_state
+        from app.sandbox.lifecycle import get_user_sandbox_state
 
         agent_instance = "projects/p/locations/l/reasoningEngines/r"
         client, _ = _fake_client(existing_sandboxes=[])
@@ -1027,7 +1027,7 @@ class TestGetUserSandboxState:
 
     def test_returns_none_for_terminal_non_render_states(self) -> None:
         """STOPPING/STOPPED/UNSPECIFIED don't drive the banner — return None."""
-        from horizon.sandbox.lifecycle import (
+        from app.sandbox.lifecycle import (
             get_user_sandbox_state,
             sandbox_display_name,
         )
@@ -1053,7 +1053,7 @@ class TestGetUserSandboxState:
     def test_prefers_running_over_creating_when_both_exist(self) -> None:
         """Race: prior CREATING leftover plus a fresh RUNNING. UI cares
         about the usable one, so RUNNING wins."""
-        from horizon.sandbox.lifecycle import (
+        from app.sandbox.lifecycle import (
             get_user_sandbox_state,
             sandbox_display_name,
         )
@@ -1080,7 +1080,7 @@ class TestGetUserSandboxState:
         assert snap == {"status": "ready", "sandbox_name": running.name}
 
     def test_ignores_other_users_sandboxes(self) -> None:
-        from horizon.sandbox.lifecycle import (
+        from app.sandbox.lifecycle import (
             get_user_sandbox_state,
             sandbox_display_name,
         )
@@ -1109,7 +1109,7 @@ class TestFindLatestUserSandbox:
     forces a re-provision."""
 
     def test_returns_running_sandbox_regardless_of_version(self) -> None:
-        from horizon.sandbox.lifecycle import (
+        from app.sandbox.lifecycle import (
             find_latest_user_sandbox,
             sandbox_display_name,
         )
@@ -1131,7 +1131,7 @@ class TestFindLatestUserSandbox:
         assert found == (old.name, old.display_name)
 
     def test_picks_newest_by_create_time(self) -> None:
-        from horizon.sandbox.lifecycle import (
+        from app.sandbox.lifecycle import (
             find_latest_user_sandbox,
             sandbox_display_name,
         )
@@ -1157,7 +1157,7 @@ class TestFindLatestUserSandbox:
         assert found == (newer.name, newer.display_name)
 
     def test_skips_non_running(self) -> None:
-        from horizon.sandbox.lifecycle import (
+        from app.sandbox.lifecycle import (
             find_latest_user_sandbox,
             sandbox_display_name,
         )
@@ -1180,7 +1180,7 @@ class TestFindLatestUserSandbox:
         )
 
     def test_ignores_other_users_and_tools(self) -> None:
-        from horizon.sandbox.lifecycle import (
+        from app.sandbox.lifecycle import (
             find_latest_user_sandbox,
             sandbox_display_name,
         )
@@ -1206,7 +1206,7 @@ class TestFindLatestUserSandbox:
         )
 
     def test_lex_tie_break_on_equal_create_time(self) -> None:
-        from horizon.sandbox.lifecycle import (
+        from app.sandbox.lifecycle import (
             find_latest_user_sandbox,
             sandbox_display_name,
         )
@@ -1233,7 +1233,7 @@ class TestFindLatestUserSandbox:
         assert found == (smaller.name, smaller.display_name)
 
     def test_returns_none_when_empty(self) -> None:
-        from horizon.sandbox.lifecycle import find_latest_user_sandbox
+        from app.sandbox.lifecycle import find_latest_user_sandbox
 
         agent_instance = "projects/p/locations/l/reasoningEngines/r"
         client, _ = _fake_client(existing_sandboxes=[])
@@ -1254,17 +1254,17 @@ class TestVersionBelowFloor:
     shim/protocol changes)."""
 
     def test_below_floor_is_true(self) -> None:
-        from horizon.sandbox.lifecycle import version_below_floor
+        from app.sandbox.lifecycle import version_below_floor
 
         assert version_below_floor("lha-alice-v0_9_0", "v0.11.0") is True
 
     def test_at_floor_is_false(self) -> None:
-        from horizon.sandbox.lifecycle import version_below_floor
+        from app.sandbox.lifecycle import version_below_floor
 
         assert version_below_floor("lha-alice-v0_11_0", "v0.11.0") is False
 
     def test_above_floor_is_false(self) -> None:
-        from horizon.sandbox.lifecycle import version_below_floor
+        from app.sandbox.lifecycle import version_below_floor
 
         assert version_below_floor("lha-alice-v0_12_0", "v0.11.0") is False
 
@@ -1272,22 +1272,22 @@ class TestVersionBelowFloor:
         """The version token in a display_name has ``.``→``_`` mangling
         (runtime_image_version). Un-mangle before semver compare or
         ``v0_9_0`` parses as one non-numeric release."""
-        from horizon.sandbox.lifecycle import version_below_floor
+        from app.sandbox.lifecycle import version_below_floor
 
         assert version_below_floor("lha-alice-v0_9_0", "v0.10.0") is True
 
     def test_unparseable_token_is_false(self) -> None:
-        from horizon.sandbox.lifecycle import version_below_floor
+        from app.sandbox.lifecycle import version_below_floor
 
         assert version_below_floor("lha-alice-untagged", "v0.11.0") is False
 
     def test_unparseable_floor_is_false(self) -> None:
-        from horizon.sandbox.lifecycle import version_below_floor
+        from app.sandbox.lifecycle import version_below_floor
 
         assert version_below_floor("lha-alice-v0_9_0", "latest") is False
 
     def test_empty_floor_is_false(self) -> None:
-        from horizon.sandbox.lifecycle import version_below_floor
+        from app.sandbox.lifecycle import version_below_floor
 
         assert version_below_floor("lha-alice-v0_9_0", "") is False
 
@@ -1303,7 +1303,7 @@ def _snapshot_stub(
 
 class TestSnapshotUserSandbox:
     def test_creates_snapshot_and_returns_name(self) -> None:
-        from horizon.sandbox.lifecycle import snapshot_user_sandbox
+        from app.sandbox.lifecycle import snapshot_user_sandbox
 
         agent_instance = "projects/p/locations/l/reasoningEngines/r"
         sandbox = f"{agent_instance}/sandboxEnvironments/sb-alice"
@@ -1330,7 +1330,7 @@ class TestSnapshotUserSandbox:
 
 class TestFindLatestUserSnapshot:
     def test_returns_newest_matching_prefix(self) -> None:
-        from horizon.sandbox.lifecycle import find_latest_user_snapshot
+        from app.sandbox.lifecycle import find_latest_user_snapshot
 
         agent_instance = "projects/p/locations/l/reasoningEngines/r"
         older = _snapshot_stub(
@@ -1351,7 +1351,7 @@ class TestFindLatestUserSnapshot:
         assert found == (newer.name, newer.display_name)
 
     def test_ignores_other_users(self) -> None:
-        from horizon.sandbox.lifecycle import find_latest_user_snapshot
+        from app.sandbox.lifecycle import find_latest_user_snapshot
 
         agent_instance = "projects/p/locations/l/reasoningEngines/r"
         bob = _snapshot_stub(
@@ -1368,7 +1368,7 @@ class TestFindLatestUserSnapshot:
         )
 
     def test_returns_none_when_empty(self) -> None:
-        from horizon.sandbox.lifecycle import find_latest_user_snapshot
+        from app.sandbox.lifecycle import find_latest_user_snapshot
 
         agent_instance = "projects/p/locations/l/reasoningEngines/r"
         client, _ = _fake_client(existing_snapshots=[])
@@ -1383,7 +1383,7 @@ class TestFindLatestUserSnapshot:
 
 class TestDeleteSnapshot:
     def test_calls_delete(self) -> None:
-        from horizon.sandbox.lifecycle import delete_snapshot
+        from app.sandbox.lifecycle import delete_snapshot
 
         client, calls = _fake_client()
         snap = "projects/p/locations/l/reasoningEngines/r/sandboxEnvironmentSnapshots/s1"
@@ -1391,7 +1391,7 @@ class TestDeleteSnapshot:
         assert calls["snapshot_delete"] == [{"name": snap}]
 
     def test_swallows_404(self) -> None:
-        from horizon.sandbox.lifecycle import delete_snapshot
+        from app.sandbox.lifecycle import delete_snapshot
 
         client, _ = _fake_client()
 
@@ -1410,7 +1410,7 @@ class TestDeleteSnapshot:
 
 class TestRestoreSandboxFromSnapshot:
     def test_creates_sandbox_from_snapshot(self) -> None:
-        from horizon.sandbox.lifecycle import restore_sandbox_from_snapshot
+        from app.sandbox.lifecycle import restore_sandbox_from_snapshot
 
         agent_instance = "projects/p/locations/l/reasoningEngines/r"
         snap = f"{agent_instance}/sandboxEnvironmentSnapshots/snap-1"
@@ -1437,7 +1437,7 @@ class TestRestoreSandboxFromSnapshot:
 
 class TestPruneUserSnapshots:
     def test_keeps_latest_n_deletes_rest(self) -> None:
-        from horizon.sandbox.lifecycle import prune_user_snapshots
+        from app.sandbox.lifecycle import prune_user_snapshots
 
         agent_instance = "projects/p/locations/l/reasoningEngines/r"
         snaps = [
@@ -1463,7 +1463,7 @@ class TestPruneUserSnapshots:
         assert set(deleted) == deleted_names
 
     def test_noop_when_within_keep(self) -> None:
-        from horizon.sandbox.lifecycle import prune_user_snapshots
+        from app.sandbox.lifecycle import prune_user_snapshots
 
         agent_instance = "projects/p/locations/l/reasoningEngines/r"
         snaps = [
@@ -1485,7 +1485,7 @@ class TestPruneUserSnapshots:
 
 class TestSnapshotAndPruneUser:
     def test_snapshots_running_sandbox_then_prunes(self) -> None:
-        from horizon.sandbox.lifecycle import (
+        from app.sandbox.lifecycle import (
             sandbox_display_name,
             snapshot_and_prune_user,
         )
@@ -1525,7 +1525,7 @@ class TestSnapshotAndPruneUser:
         assert calls["snapshot_delete"] == []
 
     def test_no_running_sandbox_is_noop(self) -> None:
-        from horizon.sandbox.lifecycle import snapshot_and_prune_user
+        from app.sandbox.lifecycle import snapshot_and_prune_user
 
         agent_instance = "projects/p/locations/l/reasoningEngines/r"
         client, calls = _fake_client(existing_sandboxes=[])

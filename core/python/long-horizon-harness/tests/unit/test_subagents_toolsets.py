@@ -27,11 +27,11 @@ from __future__ import annotations
 
 
 def test_toolsets_module_importable():
-    from horizon.subagents import toolsets  # noqa: F401
+    from app.subagents import toolsets  # noqa: F401
 
 
 def test_toolsets_registry_is_a_dict_of_lists():
-    from horizon.subagents.toolsets import TOOLSETS
+    from app.subagents.toolsets import TOOLSETS
 
     assert isinstance(TOOLSETS, dict)
     assert TOOLSETS, "Registry must not be empty."
@@ -48,9 +48,9 @@ def test_file_toolset_has_file_ops():
     # read_file/view_file were merged into ReadTool (Task 3); the file
     # bundle carries the merged tool, not the bare function, so children
     # keep media reads.
-    from horizon.subagents.toolsets import TOOLSETS
-    from horizon.tools.file_ops import edit, search_files, write
-    from horizon.tools.read import ReadTool
+    from app.subagents.toolsets import TOOLSETS
+    from app.tools.file_ops import edit, search_files, write
+    from app.tools.read import ReadTool
 
     file_tools = TOOLSETS["file"]
     assert any(isinstance(t, ReadTool) for t in file_tools)
@@ -60,8 +60,8 @@ def test_file_toolset_has_file_ops():
 
 
 def test_shell_toolset_has_bash():
-    from horizon.subagents.toolsets import TOOLSETS
-    from horizon.tools.processes.terminal import bash
+    from app.subagents.toolsets import TOOLSETS
+    from app.tools.processes.terminal import bash
 
     assert bash in TOOLSETS["shell"]
 
@@ -74,8 +74,8 @@ def test_web_toolset_wraps_web_research_agent_in_agent_tool():
     it."""
     from google.adk.tools.agent_tool import AgentTool
 
-    from horizon.subagents.toolsets import TOOLSETS
-    from horizon.subagents.web_research import web_research_agent
+    from app.subagents.toolsets import TOOLSETS
+    from app.subagents.web_research import web_research_agent
 
     web = TOOLSETS["web"]
     wrappers = [
@@ -90,7 +90,7 @@ def test_resolve_returns_unique_tool_list():
     """``resolve_toolsets(["file", "shell", "file"])`` should produce a
     list with no duplicates — the same tool listed under two toolsets is
     a single entry on the child's agent."""
-    from horizon.subagents.toolsets import TOOLSETS, resolve_toolsets
+    from app.subagents.toolsets import TOOLSETS, resolve_toolsets
 
     resolved = resolve_toolsets(["file", "shell", "file"])
     assert len(resolved) == len(set(map(id, resolved)))
@@ -107,7 +107,7 @@ def test_resolve_unknown_toolset_raises_keyerror():
     delegate tool can surface a structured error back to the parent."""
     import pytest
 
-    from horizon.subagents.toolsets import resolve_toolsets
+    from app.subagents.toolsets import resolve_toolsets
 
     with pytest.raises(KeyError):
         resolve_toolsets(["bogus"])
@@ -116,7 +116,7 @@ def test_resolve_unknown_toolset_raises_keyerror():
 def test_default_toolsets_is_file_and_shell():
     """When the LLM omits ``toolsets=[]``, default to ``["file", "shell"]`` —
     the most common scratch-work shape."""
-    from horizon.subagents.toolsets import DEFAULT_TOOLSETS
+    from app.subagents.toolsets import DEFAULT_TOOLSETS
 
     assert DEFAULT_TOOLSETS == ["file", "shell"]
 
@@ -124,7 +124,7 @@ def test_default_toolsets_is_file_and_shell():
 def test_available_toolset_names_is_sorted_and_complete():
     """The dynamic delegate's docstring enumerates available toolsets to
     the parent LLM. The enumeration is sorted for stable schema output."""
-    from horizon.subagents.toolsets import (
+    from app.subagents.toolsets import (
         TOOLSETS,
         available_toolset_names,
     )
@@ -136,9 +136,9 @@ def test_available_toolset_names_is_sorted_and_complete():
 def test_resolve_tools_by_name_returns_concrete_tools():
     """Caller can pick individual tools by name (not just whole bundles).
     Matches against the union of every tool in every toolset."""
-    from horizon.subagents.toolsets import resolve_tools_by_name
-    from horizon.tools.processes.terminal import bash
-    from horizon.tools.read import ReadTool
+    from app.subagents.toolsets import resolve_tools_by_name
+    from app.tools.processes.terminal import bash
+    from app.tools.read import ReadTool
 
     resolved = resolve_tools_by_name(["read", "bash"])
     assert any(isinstance(t, ReadTool) for t in resolved)
@@ -147,7 +147,7 @@ def test_resolve_tools_by_name_returns_concrete_tools():
 
 
 def test_resolve_tools_by_name_dedups():
-    from horizon.subagents.toolsets import resolve_tools_by_name
+    from app.subagents.toolsets import resolve_tools_by_name
 
     resolved = resolve_tools_by_name(["read", "read"])
     assert len(resolved) == 1
@@ -159,7 +159,7 @@ def test_resolve_tools_by_name_unknown_raises_keyerror():
     error to the parent."""
     import pytest
 
-    from horizon.subagents.toolsets import resolve_tools_by_name
+    from app.subagents.toolsets import resolve_tools_by_name
 
     with pytest.raises(KeyError):
         resolve_tools_by_name(["read_nonsense_tool"])

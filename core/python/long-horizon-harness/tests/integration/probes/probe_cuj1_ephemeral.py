@@ -36,8 +36,8 @@ async def test_ephemeral_session_cleans_up_sandbox(
     reset_env_cache: None,
     vertex_client: object,
 ) -> None:
-    from horizon.environment.sandbox import SandboxEnvironment
-    from horizon.sandbox.provider import _build_sandbox_environment
+    from app.environment.sandbox import SandboxEnvironment
+    from app.sandbox.provider import _build_sandbox_environment
 
     env, _ = _build_sandbox_environment(fresh_user_id)
     assert isinstance(env, SandboxEnvironment)

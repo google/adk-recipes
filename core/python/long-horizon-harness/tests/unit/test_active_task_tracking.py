@@ -26,12 +26,12 @@ from google.adk.memory import InMemoryMemoryService
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 
-from horizon.a2a.executor import (
+from app.a2a.executor import (
     LHA_ACTIVE_TASK_KEY,
     LHA_TASK_IDS_KEY,
     build_executor,
 )
-from horizon.auth.identity import _user_id_var
+from app.auth.identity import _user_id_var
 
 
 @pytest.fixture(autouse=True)

@@ -1,7 +1,7 @@
 {
   "eval_set_id": "output_style",
   "name": "Output Style — Brevity, No Chitchat, Tools-for-Actions",
-  "description": "Behavioral evals for the OUTPUT_STYLE_GUIDANCE block (`horizon/conversation/system_prompt.py`) that lha adapts from gemini-cli's output-style guidance. The rules: (a) trivial answers should fit in <3 lines, (b) skip preambles like 'Sure!' / 'I'd be happy to help' and trailing offers like 'Let me know if you have any questions', (c) use tools for actions and text only for communication — don't narrate, do. Graded under rubric_based_final_response_quality_v1 only (no trajectory grader per eval_config.json). These cases exist to verify the prompt change actually moves Gemini behavior; pytest only proves the rules reach the model. Cases run against the default toolset for `app`, so `bash`, `file_ops`, `read`, etc. are all available.",
+  "description": "Behavioral evals for the OUTPUT_STYLE_GUIDANCE block (`app/conversation/system_prompt.py`) that lha adapts from gemini-cli's output-style guidance. The rules: (a) trivial answers should fit in <3 lines, (b) skip preambles like 'Sure!' / 'I'd be happy to help' and trailing offers like 'Let me know if you have any questions', (c) use tools for actions and text only for communication — don't narrate, do. Graded under rubric_based_final_response_quality_v1 only (no trajectory grader per eval_config.json). These cases exist to verify the prompt change actually moves Gemini behavior; pytest only proves the rules reach the model. Cases run against the default toolset for `app`, so `bash`, `file_ops`, `read`, etc. are all available.",
   "eval_cases": [
     {
       "eval_id": "trivial_question_short_reply_no_preamble",

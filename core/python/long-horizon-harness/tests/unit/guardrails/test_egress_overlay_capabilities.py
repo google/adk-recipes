@@ -1,7 +1,7 @@
 # Copyright 2026 Google LLC
 from pathlib import Path
 
-from horizon.guardrails import _overlay
+from app.guardrails import _overlay
 
 
 class _Local:

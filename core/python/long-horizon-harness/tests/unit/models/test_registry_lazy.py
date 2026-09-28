@@ -21,7 +21,7 @@ import subprocess
 import sys
 
 # Simulate a minimal install: block the optional extras' top-level packages and
-# spy on the ADC probe, then `import horizon`. Must succeed with no ADC probe.
+# spy on the ADC probe, then `import app`. Must succeed with no ADC probe.
 _MINIMAL_INSTALL_SIM = """
 import sys
 
@@ -45,11 +45,11 @@ def _spy(*a, **k):
     return _orig(*a, **k)
 google.auth.default = _spy
 
-import horizon
+import app
 
 assert "asyncpg" not in sys.modules, "asyncpg imported on bare import"
 assert not _auth_calls, "google.auth.default() probed on bare import"
-assert isinstance(horizon.__version__, str)
+assert isinstance(app.__version__, str)
 print("MINIMAL_OK")
 """
 
@@ -83,7 +83,7 @@ class _Block:
 
 sys.meta_path.insert(0, _Block())
 
-from horizon.models import build_root_llm
+from app.models import build_root_llm
 
 llm = build_root_llm()
 assert llm.model == "gemini-3.7-flash"
@@ -103,7 +103,7 @@ def test_build_root_llm_minimal_install():
 
 
 def test_registry_membership_is_key_only():
-    from horizon.models.registry import MODEL_REGISTRY
+    from app.models.registry import MODEL_REGISTRY
 
     # key-only ops never instantiate a backend
     assert "gemini-3.7-flash" in MODEL_REGISTRY
@@ -118,7 +118,7 @@ def test_gemini_backend_default_is_on_demand(monkeypatch):
     monkeypatch.delenv("LHA_VERTEX_SERVICE_TIER", raising=False)
     from google.adk.models import Gemini
 
-    from horizon.models.registry import _build_gemini, _PriorityGemini
+    from app.models.registry import _build_gemini, _PriorityGemini
 
     g = _build_gemini()
     assert type(g) is Gemini
@@ -127,6 +127,6 @@ def test_gemini_backend_default_is_on_demand(monkeypatch):
 
 def test_gemini_backend_priority_tier_opt_in(monkeypatch):
     monkeypatch.setenv("LHA_VERTEX_SERVICE_TIER", "priority")
-    from horizon.models.registry import _build_gemini, _PriorityGemini
+    from app.models.registry import _build_gemini, _PriorityGemini
 
     assert isinstance(_build_gemini(), _PriorityGemini)

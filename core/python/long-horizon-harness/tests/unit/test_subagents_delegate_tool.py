@@ -36,7 +36,7 @@ pytestmark = pytest.mark.asyncio
 
 
 def _write_skill(root: Path, name: str, body: str) -> None:
-    from horizon.tools.skill_reload import host_mirror_dir
+    from app.tools.skill_reload import host_mirror_dir
 
     fm = yaml.safe_dump({"name": name, "description": "test"}, sort_keys=True)
     content = f"---\n{fm}---\n\n{body}\n"
@@ -54,12 +54,12 @@ def _write_skill(root: Path, name: str, body: str) -> None:
 def skills_home(tmp_path: Path):
     import shutil
 
-    from horizon.environment import LocalEnvironment
-    from horizon.environment_context import (
+    from app.environment import LocalEnvironment
+    from app.environment_context import (
         clear_active_environment,
         set_active_environment,
     )
-    from horizon.tools.skill_reload import host_mirror_dir
+    from app.tools.skill_reload import host_mirror_dir
 
     set_active_environment(LocalEnvironment(working_dir=tmp_path))
     try:
@@ -72,7 +72,7 @@ def skills_home(tmp_path: Path):
 async def test_delegate_returns_run_envelope_on_happy_path(
     monkeypatch, skills_home: Path
 ) -> None:
-    from horizon.subagents import delegate as delegate_mod
+    from app.subagents import delegate as delegate_mod
 
     captured: dict[str, Any] = {}
 
@@ -113,9 +113,9 @@ async def test_delegate_defaults_when_optional_args_omitted(
 ) -> None:
     """``context``, ``toolsets``, ``skills``, ``timeout_s`` all optional;
     omitting them must produce a working child built with defaults."""
-    from horizon.subagents import delegate as delegate_mod
-    from horizon.tools.processes.terminal import bash
-    from horizon.tools.read import ReadTool
+    from app.subagents import delegate as delegate_mod
+    from app.tools.processes.terminal import bash
+    from app.tools.read import ReadTool
 
     captured: dict[str, Any] = {}
 
@@ -149,7 +149,7 @@ async def test_delegate_unknown_toolset_returns_structured_error(
 ) -> None:
     """KeyError from the builder must NOT escape — surface a halted
     envelope so the parent LLM can retry with a valid toolset name."""
-    from horizon.subagents import delegate as delegate_mod
+    from app.subagents import delegate as delegate_mod
 
     called = {"value": False}
 
@@ -171,7 +171,7 @@ async def test_delegate_passes_skill_content_to_child(
     monkeypatch, skills_home: Path
 ) -> None:
     _write_skill(skills_home, "gws-drive", body="Run `gws drive files list`.")
-    from horizon.subagents import delegate as delegate_mod
+    from app.subagents import delegate as delegate_mod
 
     captured: dict[str, Any] = {}
 
@@ -204,7 +204,7 @@ async def test_delegate_user_message_is_short_fixed_kickoff(
     """The runner's ``user_message`` is a short fixed kickoff line — the
     goal and context live in the system instruction, so the user turn
     must NOT recap them (avoids duplication and mid-word truncation)."""
-    from horizon.subagents import delegate as delegate_mod
+    from app.subagents import delegate as delegate_mod
 
     captured: dict[str, str] = {}
 
@@ -235,7 +235,7 @@ async def test_delegate_accepts_model_override(
     monkeypatch, skills_home: Path
 ) -> None:
     """A non-default `model=` flows through to the built child."""
-    from horizon.subagents import delegate as delegate_mod
+    from app.subagents import delegate as delegate_mod
 
     captured: dict[str, Any] = {}
 
@@ -263,7 +263,7 @@ async def test_delegate_rejects_unknown_model_with_structured_error(
 ) -> None:
     """An off-allowlist model name must produce a halted envelope, not
     a raw exception leaking into the parent."""
-    from horizon.subagents import delegate as delegate_mod
+    from app.subagents import delegate as delegate_mod
 
     async def fake_run_delegate(**_kwargs: Any) -> dict[str, Any]:
         raise AssertionError("runner should not be reached")
@@ -279,9 +279,9 @@ async def test_delegate_tools_list_merges_with_toolsets(
 ) -> None:
     """``tools=[...]`` adds to the resolved tool list alongside toolsets,
     deduplicated."""
-    from horizon.subagents import delegate as delegate_mod
-    from horizon.tools.processes.terminal import bash
-    from horizon.tools.read import ReadTool
+    from app.subagents import delegate as delegate_mod
+    from app.tools.processes.terminal import bash
+    from app.tools.read import ReadTool
 
     captured: dict[str, Any] = {}
 
@@ -312,7 +312,7 @@ async def test_delegate_tools_list_merges_with_toolsets(
 async def test_delegate_unknown_tool_returns_structured_error(
     monkeypatch, skills_home: Path
 ) -> None:
-    from horizon.subagents import delegate as delegate_mod
+    from app.subagents import delegate as delegate_mod
 
     async def fake_run_delegate(**_kwargs: Any) -> dict[str, Any]:
         raise AssertionError("runner should not be reached")
@@ -328,7 +328,7 @@ async def test_delegate_unknown_tool_returns_structured_error(
 async def test_delegate_inline_instructions_appended_to_child_prompt(
     monkeypatch, skills_home: Path
 ) -> None:
-    from horizon.subagents import delegate as delegate_mod
+    from app.subagents import delegate as delegate_mod
 
     captured: dict[str, Any] = {}
 
@@ -356,7 +356,7 @@ async def test_delegate_inline_skills_render_alongside_disk_skills(
     monkeypatch, skills_home: Path
 ) -> None:
     _write_skill(skills_home, "from-disk", body="Disk skill body.")
-    from horizon.subagents import delegate as delegate_mod
+    from app.subagents import delegate as delegate_mod
 
     captured: dict[str, Any] = {}
 
@@ -387,7 +387,7 @@ async def test_delegate_output_format_json_parses_summary(
 ) -> None:
     """``output_format='json'`` parses the child's text into a dict and
     places it in the ``summary`` field of the envelope."""
-    from horizon.subagents import delegate as delegate_mod
+    from app.subagents import delegate as delegate_mod
 
     async def fake_run_delegate(*, child, user_message, timeout_s, **_kwargs):
         return {
@@ -411,7 +411,7 @@ async def test_delegate_output_format_json_with_code_fences_parses(
 ) -> None:
     """Children sometimes wrap JSON in ```json fences despite the
     directive. Strip fences before parsing rather than failing."""
-    from horizon.subagents import delegate as delegate_mod
+    from app.subagents import delegate as delegate_mod
 
     async def fake_run_delegate(*, child, user_message, timeout_s, **_kwargs):
         return {
@@ -434,7 +434,7 @@ async def test_delegate_output_format_json_parse_failure_returns_halted(
 ) -> None:
     """When the child returns non-JSON despite the directive, mark the
     envelope ``halted`` and preserve the raw text under ``summary_raw``."""
-    from horizon.subagents import delegate as delegate_mod
+    from app.subagents import delegate as delegate_mod
 
     async def fake_run_delegate(*, child, user_message, timeout_s, **_kwargs):
         return {
@@ -460,7 +460,7 @@ async def test_delegate_output_schema_flows_to_child_agent(
     ``output_schema`` attribute (SetModelResponseTool path) rather than by
     a post-hoc validation pass inside ``delegate()``. Assert the schema
     flows through to the child."""
-    from horizon.subagents import delegate as delegate_mod
+    from app.subagents import delegate as delegate_mod
 
     schema = {
         "type": "object",
@@ -495,7 +495,7 @@ async def test_delegate_max_iterations_propagates_to_runner(
 ) -> None:
     """``max_iterations`` flows through to ``run_delegate`` so the runner
     can enforce the cap."""
-    from horizon.subagents import delegate as delegate_mod
+    from app.subagents import delegate as delegate_mod
 
     captured: dict[str, Any] = {}
 
@@ -519,7 +519,7 @@ async def test_delegate_max_iterations_propagates_to_runner(
 async def test_delegate_custom_name_surfaces_in_child(
     monkeypatch, skills_home: Path
 ) -> None:
-    from horizon.subagents import delegate as delegate_mod
+    from app.subagents import delegate as delegate_mod
 
     captured: dict[str, Any] = {}
 

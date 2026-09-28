@@ -36,9 +36,9 @@ async def test_local_backend_never_calls_provision(
     reset_env_cache: None,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from horizon.conversation import session_start
-    from horizon.environment import LocalEnvironment
-    from horizon.sandbox import lifecycle
+    from app.conversation import session_start
+    from app.environment import LocalEnvironment
+    from app.sandbox import lifecycle
 
     monkeypatch.setenv("LHA_ENVIRONMENT_BACKEND", "local")
 

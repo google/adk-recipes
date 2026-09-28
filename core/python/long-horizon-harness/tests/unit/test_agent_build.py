@@ -18,8 +18,8 @@ import sys
 
 import pytest
 
-from horizon.agent import _build_app_object, _resolve_root_model
-from horizon.models import MODEL_REGISTRY, DispatchingLlm
+from app.agent import _build_app_object, _resolve_root_model
+from app.models import MODEL_REGISTRY, DispatchingLlm
 
 
 def test_resolve_root_model_none_returns_default_dispatching_llm():
@@ -69,23 +69,23 @@ def test_build_app_object_root_agent_name():
 
 
 def test_module_singletons_are_built():
-    from horizon import agent
+    from app import agent
 
     assert agent.app.root_agent is agent.root_agent
     assert agent.root_agent.name == "root_agent"
 
 
 def test_lha_version_is_str():
-    import horizon
+    import app
 
-    assert isinstance(horizon.__version__, str)
-    assert "__version__" in horizon.__all__
+    assert isinstance(app.__version__, str)
+    assert "__version__" in app.__all__
 
 
 def test_import_horizon_and_build_agent_without_credentials():
     # Credentials/env are process-global and google.auth caches, so run in a
     # subprocess with ADC genuinely stripped (no GOOGLE_APPLICATION_CREDENTIALS
-    # file, no gcloud config dir). Importing horizon.agent builds the App; this
+    # file, no gcloud config dir). Importing app.agent builds the App; this
     # must not require GCP credentials.
     env = {
         "PATH": os.environ.get("PATH", ""),
@@ -93,7 +93,7 @@ def test_import_horizon_and_build_agent_without_credentials():
         "CLOUDSDK_CONFIG": "/nonexistent",
         "GOOGLE_CLOUD_PROJECT": "",
     }
-    code = "import horizon.agent as a; print(a.root_agent.name)"
+    code = "import app.agent as a; print(a.root_agent.name)"
     r = subprocess.run(
         [sys.executable, "-c", code],
         capture_output=True,
@@ -102,6 +102,6 @@ def test_import_horizon_and_build_agent_without_credentials():
         check=False,
     )
     assert r.returncode == 0, (
-        f"import horizon.agent failed offline:\nSTDOUT={r.stdout}\nSTDERR={r.stderr}"
+        f"import app.agent failed offline:\nSTDOUT={r.stdout}\nSTDERR={r.stderr}"
     )
     assert "root_agent" in r.stdout

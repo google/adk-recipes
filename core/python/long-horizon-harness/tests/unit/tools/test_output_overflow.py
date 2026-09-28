@@ -21,12 +21,12 @@ from pathlib import Path
 
 import pytest
 
-from horizon.environment import LocalEnvironment
-from horizon.environment_context import (
+from app.environment import LocalEnvironment
+from app.environment_context import (
     clear_active_environment,
     set_active_environment,
 )
-from horizon.tools._output_overflow import (
+from app.tools._output_overflow import (
     OVERFLOW_SUBDIR,
     make_preview,
     overflow_to_file,

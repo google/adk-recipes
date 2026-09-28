@@ -18,13 +18,13 @@ from __future__ import annotations
 
 
 def test_description_callback_registered_after_prompt_assembly() -> None:
-    from horizon.agent import root_agent
-    from horizon.subagents.descriptions import subagent_description_callback
+    from app.agent import root_agent
+    from app.subagents.descriptions import subagent_description_callback
 
     chain = root_agent.before_model_callback
     assert subagent_description_callback in chain
     # Must run after system prompt assembly so the chain order is preserved.
-    from horizon.conversation.system_prompt import (
+    from app.conversation.system_prompt import (
         system_prompt_assembly_callback,
     )
 

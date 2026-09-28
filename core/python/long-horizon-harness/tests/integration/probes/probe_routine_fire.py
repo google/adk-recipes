@@ -42,14 +42,14 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from horizon.infrastructure.constants import (
+from app.infrastructure.constants import (
     APP_NAME,
     SCHEDULER_JOB_KEY,
     SESSION_SOURCE_KEY,
 )
-from horizon.scheduler import routine_store as store_mod
-from horizon.scheduler import routine_tick_endpoint
-from horizon.scheduler.routine_store import RoutineRow
+from app.scheduler import routine_store as store_mod
+from app.scheduler import routine_tick_endpoint
+from app.scheduler.routine_store import RoutineRow
 
 pytestmark = pytest.mark.asyncio
 
@@ -73,15 +73,15 @@ async def test_routine_fires_in_isolated_sandbox(
     reset_env_cache: None,
     vertex_client: object,
 ) -> None:
-    from horizon.a2a.executor import build_executor
-    from horizon.a2a.routes import attach_a2a_routes
-    from horizon.agent import root_agent
-    from horizon.fast_api_app import _build_task_store, build_runner
-    from horizon.sandbox.lifecycle import (
+    from app.a2a.executor import build_executor
+    from app.a2a.routes import attach_a2a_routes
+    from app.agent import root_agent
+    from app.fast_api_app import _build_task_store, build_runner
+    from app.sandbox.lifecycle import (
         find_latest_user_sandbox,
         find_routine_sandbox,
     )
-    from horizon.sandbox.provider import _resolve_sandbox_engine
+    from app.sandbox.provider import _resolve_sandbox_engine
 
     image_uri = os.environ.get("LHA_RUNTIME_IMAGE", "").strip()
     routine_id = f"probe-rt-{fresh_user_id}"
@@ -175,7 +175,7 @@ async def test_routine_fires_in_isolated_sandbox(
         assert full.state[SCHEDULER_JOB_KEY] == "routine"
     finally:
         # Best-effort teardown so the probe doesn't leak the routine sandbox.
-        from horizon.sandbox.lifecycle import delete_sandbox
+        from app.sandbox.lifecycle import delete_sandbox
 
         leftover = find_routine_sandbox(
             vertex_client,  # type: ignore[arg-type]

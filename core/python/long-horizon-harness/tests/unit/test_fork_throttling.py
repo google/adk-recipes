@@ -20,7 +20,7 @@ near-identical Memory Bank writes and two near-identical review-fork
 spawns within a few seconds. The throttling layer enforces a per-type
 cooldown (default 120s) and a per-session safety cap (50 runs).
 
-Tests below patch ``horizon.memory._throttle.time.time`` so the clock is
+Tests below patch ``app.memory._throttle.time.time`` so the clock is
 deterministic — never assert on real wallclock behavior in tests.
 """
 
@@ -34,7 +34,7 @@ from unittest.mock import MagicMock
 import pytest
 from google.adk.memory import InMemoryMemoryService
 
-from horizon.memory import _throttle
+from app.memory import _throttle
 
 
 @pytest.fixture
@@ -188,7 +188,7 @@ class TestAutoCaptureThrottle:
     async def test_first_turn_flushes(
         self, fake_clock: dict[str, float]
     ) -> None:
-        from horizon.memory.auto_capture import auto_capture_callback
+        from app.memory.auto_capture import auto_capture_callback
 
         ctx = _FakeAutoCaptureContext(memory_service=InMemoryMemoryService())
         await auto_capture_callback(ctx)  # type: ignore[arg-type]
@@ -197,7 +197,7 @@ class TestAutoCaptureThrottle:
     async def test_back_to_back_turn_is_throttled(
         self, fake_clock: dict[str, float]
     ) -> None:
-        from horizon.memory.auto_capture import auto_capture_callback
+        from app.memory.auto_capture import auto_capture_callback
 
         ctx = _FakeAutoCaptureContext(memory_service=InMemoryMemoryService())
         await auto_capture_callback(ctx)  # type: ignore[arg-type]
@@ -208,7 +208,7 @@ class TestAutoCaptureThrottle:
     async def test_post_cooldown_turn_flushes_again(
         self, fake_clock: dict[str, float]
     ) -> None:
-        from horizon.memory.auto_capture import auto_capture_callback
+        from app.memory.auto_capture import auto_capture_callback
 
         ctx = _FakeAutoCaptureContext(memory_service=InMemoryMemoryService())
         await auto_capture_callback(ctx)  # type: ignore[arg-type]
@@ -244,7 +244,7 @@ class TestReviewForkThrottle:
         fake_clock: dict[str, float],
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        from horizon.memory import review_fork
+        from app.memory import review_fork
 
         spawned: list[Any] = []
 

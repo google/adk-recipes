@@ -16,9 +16,9 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from horizon.api.secrets import attach_secrets_routes
-from horizon.secrets import set_secret_store
-from horizon.secrets.store import SecretManagerStore
+from app.api.secrets import attach_secrets_routes
+from app.secrets import set_secret_store
+from app.secrets.store import SecretManagerStore
 from tests.unit.test_secret_store import FakeSecretClient
 
 

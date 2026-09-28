@@ -21,7 +21,7 @@ import os
 
 import pytest
 
-from horizon.infrastructure.env import env_flag
+from app.infrastructure.env import env_flag
 
 
 @functools.cache

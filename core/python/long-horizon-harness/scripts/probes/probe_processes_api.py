@@ -41,9 +41,9 @@ _USER_ID = "probe-user"
 
 
 async def main() -> None:
-    from horizon.api.processes import attach_processes_routes
-    from horizon.auth import current_user_id
-    from horizon.fast_api_app import build_runner
+    from app.api.processes import attach_processes_routes
+    from app.auth import current_user_id
+    from app.fast_api_app import build_runner
 
     runner = build_runner()
     session = await runner.session_service.create_session(

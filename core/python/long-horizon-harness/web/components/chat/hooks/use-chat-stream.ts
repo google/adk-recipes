@@ -55,7 +55,7 @@ export interface UseChatStreamArgs {
 
 // Tools whose execution can change /workspace contents. Names must match the
 // `name` field on function-call data parts emitted by the agent (see
-// horizon/tools/*). Kept narrow so quiet turns don't trigger refetches; widen as
+// app/tools/*). Kept narrow so quiet turns don't trigger refetches; widen as
 // new FS-touching tools land.
 const FS_TOUCHING_TOOLS = new Set([
   "bash", // arbitrary shell — assume any invocation may touch the FS
@@ -123,6 +123,7 @@ export function useChatStream({
   // A context switch (or any client rebuild) means the in-flight stream is
   // for a session we no longer care about — kill it so its `finally` block
   // doesn't flip busy/segments on the next session.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `client` is the trigger, not an input: the cleanup must run when the client is rebuilt.
   useEffect(() => {
     return () => {
       abortRef.current?.abort();

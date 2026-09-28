@@ -14,7 +14,7 @@
 
 import pytest
 
-from horizon.guardrails.command_safety import classify, lex, segments
+from app.guardrails.command_safety import classify, lex, segments
 
 
 def test_lex_quote_aware_and_operator_aware():

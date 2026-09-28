@@ -31,7 +31,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from horizon.sandbox import provider
+from app.sandbox import provider
 
 pytestmark = pytest.mark.asyncio
 
@@ -78,7 +78,7 @@ def _build_test_app(
     app_name: str = "app",
     memory_service: Any = _NO_MEMORY,
 ) -> FastAPI:
-    from horizon.scheduler import dream_review_endpoint, snapshot_endpoint
+    from app.scheduler import dream_review_endpoint, snapshot_endpoint
 
     app = FastAPI()
     app.include_router(dream_review_endpoint.router)
@@ -103,7 +103,7 @@ def _build_test_app(
 class TestDreamReviewEndpoint:
     async def test_empty_user_ids_discovers_active_users(self, monkeypatch):
         """Empty body (the cron's payload) dreams about every active user."""
-        from horizon.scheduler import dream_review_endpoint
+        from app.scheduler import dream_review_endpoint
 
         called: list[dict[str, Any]] = []
 
@@ -160,7 +160,7 @@ class TestDreamReviewEndpoint:
         assert "session" in body.get("reason", "").lower()
 
     async def test_dispatches_per_user(self, monkeypatch):
-        from horizon.scheduler import dream_review_endpoint
+        from app.scheduler import dream_review_endpoint
 
         called: list[dict[str, Any]] = []
 
@@ -183,7 +183,7 @@ class TestDreamReviewEndpoint:
         assert sorted(call["user_id"] for call in called) == ["alice", "bob"]
 
     async def test_failures_recorded(self, monkeypatch):
-        from horizon.scheduler import dream_review_endpoint
+        from app.scheduler import dream_review_endpoint
 
         async def fake_run(**kwargs):
             if kwargs["user_id"] == "alice":
@@ -251,7 +251,7 @@ class TestSnapshotEndpoint:
         assert "disabled" in body.get("reason", "").lower()
 
     async def test_dispatches_per_user(self, monkeypatch):
-        from horizon.sandbox import lifecycle
+        from app.sandbox import lifecycle
 
         _enable_snapshots(monkeypatch)
         monkeypatch.setattr(provider, "_vertex_client_factory", object)
@@ -280,7 +280,7 @@ class TestSnapshotEndpoint:
         assert sorted(seen) == ["alice", "bob"]
 
     async def test_no_sandbox_user_not_counted(self, monkeypatch):
-        from horizon.sandbox import lifecycle
+        from app.sandbox import lifecycle
 
         _enable_snapshots(monkeypatch)
         monkeypatch.setattr(provider, "_vertex_client_factory", object)

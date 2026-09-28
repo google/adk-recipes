@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from horizon.infrastructure.env import env_flag
+from app.infrastructure.env import env_flag
 
 
 def test_absent_uses_default(monkeypatch):

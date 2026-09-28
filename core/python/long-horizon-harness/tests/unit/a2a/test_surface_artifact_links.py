@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from google.adk.a2a import _compat as a2a_compat
 
-from horizon.a2a.executor import _GE_LABEL_KEY, _surface_artifact_links
+from app.a2a.executor import _GE_LABEL_KEY, _surface_artifact_links
 
 
 def _fn_response_event(response: dict, name: str = "artifact"):

@@ -27,12 +27,12 @@ import pytest
 from google.adk.events.event import Event
 from google.genai.types import Content, Part
 
-from horizon.context.compaction_context import (
+from app.context.compaction_context import (
     CompactionContext,
     bind_compaction_context,
     clear_compaction_context,
 )
-from horizon.context.summarizer import (
+from app.context.summarizer import (
     SUMMARY_BANNER_PREFIX,
     HorizonSummarizer,
 )
@@ -152,7 +152,7 @@ def captured_flush(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
         return True
 
     monkeypatch.setattr(
-        "horizon.context.summarizer.spawn_flush_fork",
+        "app.context.summarizer.spawn_flush_fork",
         _fake_spawn_flush_fork,
     )
     return captured
@@ -202,7 +202,7 @@ async def test_flush_fork_failure_does_not_block_compaction(
     def _boom(**_kwargs: Any) -> bool:
         raise RuntimeError("flush spawn exploded")
 
-    monkeypatch.setattr("horizon.context.summarizer.spawn_flush_fork", _boom)
+    monkeypatch.setattr("app.context.summarizer.spawn_flush_fork", _boom)
     bind_compaction_context(
         CompactionContext(
             memory_service=SimpleNamespace(),
@@ -266,7 +266,7 @@ def _tool_call_event(
 
 
 def test_huge_tool_result_is_capped_in_history():
-    from horizon.context.summarizer import _format_history
+    from app.context.summarizer import _format_history
 
     events = [_tool_result_event("bash", "x" * 50_000)]
 
@@ -280,7 +280,7 @@ def test_huge_tool_result_is_capped_in_history():
 
 
 def test_huge_function_call_args_are_capped_in_history():
-    from horizon.context.summarizer import _format_history
+    from app.context.summarizer import _format_history
 
     events = [
         _tool_call_event("write", {"content": "y" * 50_000, "path": "f.txt"})
@@ -293,7 +293,7 @@ def test_huge_function_call_args_are_capped_in_history():
 
 
 def test_small_tool_result_is_not_marked_or_altered():
-    from horizon.context.summarizer import _format_history
+    from app.context.summarizer import _format_history
 
     events = [_tool_result_event("read", "small output")]
 
@@ -304,7 +304,7 @@ def test_small_tool_result_is_not_marked_or_altered():
 
 
 def test_compaction_prompt_stays_bounded_with_many_large_tool_results():
-    from horizon.context.summarizer import build_compaction_prompt
+    from app.context.summarizer import build_compaction_prompt
 
     events = [_tool_result_event("bash", "z" * 50_000, ts=i) for i in range(20)]
 
@@ -353,7 +353,7 @@ def _tracked_files_section(prompt: str) -> str:
 
 
 def test_touched_files_from_this_pass_are_listed():
-    from horizon.context.summarizer import build_compaction_prompt
+    from app.context.summarizer import build_compaction_prompt
 
     events = [
         _file_call_event("read", "src/app.py", ts=1.0),
@@ -368,7 +368,7 @@ def test_touched_files_from_this_pass_are_listed():
 
 
 def test_files_from_previous_summary_survive_a_second_pass_even_when_not_reread():
-    from horizon.context.summarizer import (
+    from app.context.summarizer import (
         SUMMARY_BANNER_PREFIX,
         build_compaction_prompt,
     )
@@ -409,7 +409,7 @@ def test_files_from_previous_summary_survive_a_second_pass_even_when_not_reread(
 
 
 def test_no_files_touched_adds_no_section():
-    from horizon.context.summarizer import build_compaction_prompt
+    from app.context.summarizer import build_compaction_prompt
 
     prompt = build_compaction_prompt([_user_event("just chatting")])
 

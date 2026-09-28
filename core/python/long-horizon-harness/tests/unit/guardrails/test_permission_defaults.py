@@ -18,7 +18,7 @@ _shell_decision/command_safety (see test_permission_guard.py + test_command_safe
 
 from __future__ import annotations
 
-from horizon.guardrails.permission_rules import (
+from app.guardrails.permission_rules import (
     DEFAULT_RULES,
     parse_rule,
     resolve_decision,

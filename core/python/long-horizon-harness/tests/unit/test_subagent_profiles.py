@@ -20,7 +20,7 @@ import pytest
 
 
 def test_explore_profile_is_read_only() -> None:
-    from horizon.subagents.profiles import get_profile
+    from app.subagents.profiles import get_profile
 
     explore = get_profile("explore")
     # view_file was merged into read (Task 3); the merged read tool's media
@@ -38,14 +38,14 @@ def test_explore_profile_is_read_only() -> None:
 
 
 def test_get_profile_unknown_raises_keyerror() -> None:
-    from horizon.subagents.profiles import get_profile
+    from app.subagents.profiles import get_profile
 
     with pytest.raises(KeyError):
         get_profile("does-not-exist")
 
 
 def test_render_profiles_block_lists_each_profile() -> None:
-    from horizon.subagents.profiles import render_profiles_block
+    from app.subagents.profiles import render_profiles_block
 
     block = render_profiles_block()
     assert "## Child profiles" in block

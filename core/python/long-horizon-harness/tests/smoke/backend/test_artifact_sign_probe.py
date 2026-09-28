@@ -28,7 +28,7 @@ import pytest
 from google.adk.artifacts.gcs_artifact_service import GcsArtifactService
 from google.genai import types as genai_types
 
-from horizon.tools._artifact_links import _signed_blob_url
+from app.tools._artifact_links import _signed_blob_url
 
 pytestmark = pytest.mark.skipif(
     os.environ.get("RUN_ARTIFACT_SIGN_PROBE") != "1",

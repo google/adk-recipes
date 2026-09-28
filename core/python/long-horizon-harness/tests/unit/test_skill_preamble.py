@@ -30,7 +30,7 @@ import pytest
 from google.adk.models import LlmRequest
 from google.adk.tools.skill_toolset import ListSkillsTool, SkillToolset
 
-from horizon.tools.skill_toolset import HorizonSkillToolset
+from app.tools.skill_toolset import HorizonSkillToolset
 
 pytestmark = pytest.mark.asyncio
 
@@ -41,7 +41,7 @@ def toolset() -> HorizonSkillToolset:
     # ListSkillsTool, which flips SkillToolset.process_llm_request into
     # SKIPPING the <available_skills> XML append (a list_skills tool call
     # becomes the catalog's only path instead). Production strips it in
-    # horizon.tools.skill_loader.build_skill_toolset; mirror that here so
+    # app.tools.skill_loader.build_skill_toolset; mirror that here so
     # this fixture actually exercises the shape the app ships.
     ts = HorizonSkillToolset(skills=[])
     ts._tools = [t for t in ts._tools if not isinstance(t, ListSkillsTool)]

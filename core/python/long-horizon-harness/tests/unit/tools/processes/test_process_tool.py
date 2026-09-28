@@ -41,8 +41,8 @@ def context_factory(tmp_path: Path):
 @pytest.fixture
 def spawn_into(tmp_path: Path):
     """Register a fresh background handle into the given context's registry."""
-    from horizon.environment.local_process import LocalProcessHandle
-    from horizon.environment.registry import ProcessRegistry
+    from app.environment.local_process import LocalProcessHandle
+    from app.environment.registry import ProcessRegistry
 
     spawned: list[LocalProcessHandle] = []
 
@@ -68,7 +68,7 @@ def spawn_into(tmp_path: Path):
 @pytest.mark.asyncio
 class TestListAction:
     async def test_list_empty(self, context_factory) -> None:
-        from horizon.tools.processes.process import process
+        from app.tools.processes.process import process
 
         ctx = context_factory()
         result = await process(action="list", tool_context=ctx)
@@ -77,7 +77,7 @@ class TestListAction:
     async def test_list_partitions_by_state(
         self, context_factory, spawn_into
     ) -> None:
-        from horizon.tools.processes.process import process
+        from app.tools.processes.process import process
 
         ctx = context_factory()
         live = spawn_into(ctx, "sleep 5")
@@ -96,7 +96,7 @@ class TestPollAction:
     async def test_poll_running_returns_status(
         self, context_factory, spawn_into
     ) -> None:
-        from horizon.tools.processes.process import process
+        from app.tools.processes.process import process
 
         ctx = context_factory()
         h = spawn_into(ctx, "echo hi; sleep 5")
@@ -111,7 +111,7 @@ class TestPollAction:
     async def test_poll_exited_returns_exit_code(
         self, context_factory, spawn_into
     ) -> None:
-        from horizon.tools.processes.process import process
+        from app.tools.processes.process import process
 
         ctx = context_factory()
         h = spawn_into(ctx, "echo done")
@@ -125,7 +125,7 @@ class TestPollAction:
     async def test_poll_unknown_session_returns_error(
         self, context_factory
     ) -> None:
-        from horizon.tools.processes.process import process
+        from app.tools.processes.process import process
 
         ctx = context_factory()
         result = await process(
@@ -139,7 +139,7 @@ class TestLogAction:
     async def test_log_returns_paginated_chunk(
         self, context_factory, spawn_into
     ) -> None:
-        from horizon.tools.processes.process import process
+        from app.tools.processes.process import process
 
         ctx = context_factory()
         h = spawn_into(ctx, "yes A | head -c 200")
@@ -167,7 +167,7 @@ class TestWaitAction:
     async def test_wait_returns_exit_code(
         self, context_factory, spawn_into
     ) -> None:
-        from horizon.tools.processes.process import process
+        from app.tools.processes.process import process
 
         ctx = context_factory()
         h = spawn_into(ctx, "sleep 0.3")
@@ -183,7 +183,7 @@ class TestWaitAction:
     async def test_wait_timeout_returns_running(
         self, context_factory, spawn_into
     ) -> None:
-        from horizon.tools.processes.process import process
+        from app.tools.processes.process import process
 
         ctx = context_factory()
         h = spawn_into(ctx, "sleep 5")
@@ -202,7 +202,7 @@ class TestKillAction:
     async def test_kill_stops_process(
         self, context_factory, spawn_into
     ) -> None:
-        from horizon.tools.processes.process import process
+        from app.tools.processes.process import process
 
         ctx = context_factory()
         h = spawn_into(ctx, "sleep 30")
@@ -219,7 +219,7 @@ class TestWriteAction:
     async def test_write_drives_interactive(
         self, context_factory, spawn_into
     ) -> None:
-        from horizon.tools.processes.process import process
+        from app.tools.processes.process import process
 
         ctx = context_factory()
         h = spawn_into(ctx, "bash -c 'read x; echo got=$x'")
@@ -237,7 +237,7 @@ class TestWriteAction:
     async def test_write_to_unknown_session_errors(
         self, context_factory
     ) -> None:
-        from horizon.tools.processes.process import process
+        from app.tools.processes.process import process
 
         ctx = context_factory()
         result = await process(
@@ -251,8 +251,8 @@ class TestWriteAction:
     async def test_write_oserror_returns_error_envelope(
         self, context_factory
     ) -> None:
-        from horizon.environment.registry import ProcessRegistry
-        from horizon.tools.processes.process import process
+        from app.environment.registry import ProcessRegistry
+        from app.tools.processes.process import process
 
         class _DeadPtyHandle:
             session_id = "proc_dead_pty"
@@ -280,7 +280,7 @@ class TestWriteAction:
 @pytest.mark.asyncio
 class TestActionEnum:
     async def test_unknown_action_errors(self, context_factory) -> None:
-        from horizon.tools.processes.process import process
+        from app.tools.processes.process import process
 
         ctx = context_factory()
         result = await process(action="frobnicate", tool_context=ctx)
@@ -292,7 +292,7 @@ class TestWaitForAction:
     async def test_matches_pattern_in_output(
         self, context_factory, spawn_into
     ) -> None:
-        from horizon.tools.processes.process import process
+        from app.tools.processes.process import process
 
         ctx = context_factory()
         h = spawn_into(ctx, "sh -c 'sleep 0.2; echo READY-MARKER; sleep 5'")
@@ -309,7 +309,7 @@ class TestWaitForAction:
         await h.kill()
 
     async def test_regex_alternation(self, context_factory, spawn_into) -> None:
-        from horizon.tools.processes.process import process
+        from app.tools.processes.process import process
 
         ctx = context_factory()
         h = spawn_into(ctx, "sh -c 'sleep 0.1; echo boom-Error-here; sleep 5'")
@@ -327,7 +327,7 @@ class TestWaitForAction:
     async def test_returns_when_process_exits_before_match(
         self, context_factory, spawn_into
     ) -> None:
-        from horizon.tools.processes.process import process
+        from app.tools.processes.process import process
 
         ctx = context_factory()
         h = spawn_into(ctx, "sh -c 'echo nope; exit 0'")
@@ -345,7 +345,7 @@ class TestWaitForAction:
     async def test_times_out_while_running(
         self, context_factory, spawn_into
     ) -> None:
-        from horizon.tools.processes.process import process
+        from app.tools.processes.process import process
 
         ctx = context_factory()
         h = spawn_into(ctx, "sh -c 'sleep 10'")
@@ -364,7 +364,7 @@ class TestWaitForAction:
     async def test_invalid_regex_returns_error(
         self, context_factory, spawn_into
     ) -> None:
-        from horizon.tools.processes.process import process
+        from app.tools.processes.process import process
 
         ctx = context_factory()
         h = spawn_into(ctx, "true")
@@ -381,7 +381,7 @@ class TestWaitForAction:
     async def test_missing_pattern_rejected(
         self, context_factory, spawn_into
     ) -> None:
-        from horizon.tools.processes.process import process
+        from app.tools.processes.process import process
 
         ctx = context_factory()
         h = spawn_into(ctx, "true")
@@ -400,8 +400,8 @@ def spawn_env(tmp_path: Path):
     other action — calls active_environment() itself (bash's former
     background=True moved here). Separate from context_factory/spawn_into,
     which construct LocalProcessHandle directly and need no environment."""
-    from horizon.environment import LocalEnvironment
-    from horizon.environment_context import (
+    from app.environment import LocalEnvironment
+    from app.environment_context import (
         clear_active_environment,
         set_active_environment,
     )
@@ -427,7 +427,7 @@ class TestSpawnAction:
     async def test_spawn_requires_command(self, context_factory) -> None:
         # No active environment needed: process() rejects a commandless
         # spawn before ever calling active_environment().
-        from horizon.tools.processes.process import process
+        from app.tools.processes.process import process
 
         ctx = context_factory()
         result = await process(action="spawn", tool_context=ctx)
@@ -438,7 +438,7 @@ class TestSpawnAction:
     ) -> None:
         # path_under_root runs before open_handle, so an outside-root cwd
         # never spawns a process at all.
-        from horizon.tools.processes.process import process
+        from app.tools.processes.process import process
 
         ctx = context_factory()
         result = await process(
@@ -453,7 +453,7 @@ class TestSpawnAction:
     async def test_spawn_returns_session_id_immediately(
         self, context_factory, spawn_env: Path
     ) -> None:
-        from horizon.tools.processes.process import process
+        from app.tools.processes.process import process
 
         ctx = context_factory()
         result = await process(
@@ -466,7 +466,7 @@ class TestSpawnAction:
     async def test_spawn_handle_lands_in_registry(
         self, context_factory, spawn_env: Path
     ) -> None:
-        from horizon.tools.processes.process import process
+        from app.tools.processes.process import process
 
         ctx = context_factory()
         spawn = await process(
@@ -481,7 +481,7 @@ class TestSpawnAction:
     ) -> None:
         import time
 
-        from horizon.tools.processes.process import process
+        from app.tools.processes.process import process
 
         ctx = context_factory()
         start = time.monotonic()
@@ -492,7 +492,7 @@ class TestSpawnAction:
     async def test_spawn_defaults_cwd_to_workspace_root(
         self, context_factory, spawn_env: Path
     ) -> None:
-        from horizon.tools.processes.process import process
+        from app.tools.processes.process import process
 
         (spawn_env / "marker.txt").write_text("here")
         ctx = context_factory()

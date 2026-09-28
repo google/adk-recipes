@@ -22,7 +22,7 @@ uniqueness / replace_all rule.
 
 from __future__ import annotations
 
-from horizon.tools._replacers import (
+from app.tools._replacers import (
     block_anchor_replacer,
     find_replacement,
     indentation_flexible_replacer,

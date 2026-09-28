@@ -19,7 +19,7 @@ from __future__ import annotations
 import asyncpg
 import pytest
 
-from horizon.infrastructure.resilient_session_service import (
+from app.infrastructure.resilient_session_service import (
     ResilientSessionService,
 )
 

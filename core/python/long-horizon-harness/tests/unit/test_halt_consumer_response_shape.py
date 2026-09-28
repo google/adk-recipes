@@ -43,8 +43,8 @@ from typing import Any
 import pytest
 from google.adk.models import LlmRequest
 
-from horizon.guardrails import HALT_REASON_STATE_KEY
-from horizon.guardrails.halt_consumer import (
+from app.guardrails import HALT_REASON_STATE_KEY
+from app.guardrails.halt_consumer import (
     HALT_HANDOFF_DELIVERED_STATE_KEY,
     halt_consumer_callback,
 )
@@ -75,7 +75,7 @@ def _halted_context_past_handoff(reason: str) -> SimpleNamespace:
 
 
 async def test_first_halt_turn_strips_tools_and_returns_none():
-    from horizon.conversation.graceful_halt import HANDOFF_MARKER
+    from app.conversation.graceful_halt import HANDOFF_MARKER
 
     ctx = _fake_context({HALT_REASON_STATE_KEY: "tool loop detected"})
     req = LlmRequest()

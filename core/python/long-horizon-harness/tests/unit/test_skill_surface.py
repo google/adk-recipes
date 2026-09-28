@@ -33,12 +33,12 @@ import pytest
 import yaml
 from google.adk.skills import models
 
-from horizon.tools.skill_loader import (
+from app.tools.skill_loader import (
     build_skill_toolset,
     builtin_skills_root,
     walk_skill_dirs,
 )
-from horizon.tools.skill_toolset import HorizonSkillToolset, LoadSkillTool
+from app.tools.skill_toolset import HorizonSkillToolset, LoadSkillTool
 
 pytestmark = pytest.mark.asyncio
 
@@ -252,7 +252,7 @@ async def test_load_skill_resource_not_found_counter_is_scoped_per_invocation():
 
 async def test_load_skill_resource_binary_content_is_reported_honestly():
     """Binary-file detection, deliberately narrower than ADK's
-    LoadSkillResourceTool (see horizon/tools/skill_toolset.py's module
+    LoadSkillResourceTool (see app/tools/skill_toolset.py's module
     docstring): this tool does not reproduce the process_llm_request hook
     that injects a resource's raw bytes into the next turn, so it must not
     claim it did. No builtin skill ships a binary resource today. The
@@ -290,7 +290,7 @@ async def test_adk_inject_state_metadata_branch(
     tool_context is not one, so the helper is stubbed rather than exercised
     end-to-end: ADK's own template substitution is not this repo's code
     to re-verify."""
-    import horizon.tools.skill_toolset as skill_toolset_mod
+    import app.tools.skill_toolset as skill_toolset_mod
 
     calls = []
 
@@ -374,12 +374,12 @@ async def test_load_skill_reload_refreshes_the_catalog(tmp_path: Path):
     # same "no environment" fallback (plain refresh_skills()) production
     # hits when reload runs outside a session — and matches the existing
     # test_build_skill_toolset_survives_reload pattern.
-    from horizon.environment import LocalEnvironment
-    from horizon.environment_context import (
+    from app.environment import LocalEnvironment
+    from app.environment_context import (
         clear_active_environment,
         set_active_environment,
     )
-    from horizon.tools.skill_reload import bind_toolset
+    from app.tools.skill_reload import bind_toolset
 
     user_dir = tmp_path / "user_skills"
     user_dir.mkdir()
@@ -439,11 +439,11 @@ def test_run_skill_script_and_load_skill_resource_are_gone():
 
 
 def test_build_skill_toolset_survives_reload():
-    """refresh_skills() (horizon.tools.skill_reload) rebuilds only _skills,
+    """refresh_skills() (app.tools.skill_reload) rebuilds only _skills,
     never _tools. The merged load_skill and the dropped
     ListSkillsTool/LoadSkillResourceTool/RunSkillScriptTool trio must
     survive a /reload."""
-    from horizon.tools.skill_reload import bind_toolset, refresh_skills
+    from app.tools.skill_reload import bind_toolset, refresh_skills
 
     user_dir = builtin_skills_root().parent / "_unbound_user_skills"
     toolset = build_skill_toolset(

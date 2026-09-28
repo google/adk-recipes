@@ -47,7 +47,7 @@ from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService, Session
 from google.genai import types
 
-from horizon.conversation.iteration_budget_plugin import (
+from app.conversation.iteration_budget_plugin import (
     ITERATION_STATE_KEY,
     IterationBudgetPlugin,
 )

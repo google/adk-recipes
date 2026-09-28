@@ -22,10 +22,10 @@ Memory Bank plus a fire-and-forget self-improvement loop. There is **no
 custom vector DB or SQLite for memory** — Memory Bank is the only durable
 cross-session store.
 
-Verified against `horizon/memory/`, `horizon/agent.py` (callback wiring),
-`horizon/fast_api_app.py` (service resolution),
-`horizon/infrastructure/memory_config.py`, `horizon/scheduler/dream_review_endpoint.py`,
-and `horizon/context/summarizer.py`.
+Verified against `app/memory/`, `app/agent.py` (callback wiring),
+`app/fast_api_app.py` (service resolution),
+`app/infrastructure/memory_config.py`, `app/scheduler/dream_review_endpoint.py`,
+and `app/context/summarizer.py`.
 
 > **Where the custom code is.** The store and its consolidation are
 > managed by ADK + Vertex; Horizon owns (a) the **write surface** (the
@@ -39,7 +39,7 @@ and `horizon/context/summarizer.py`.
 ## 1. The managed core
 
 `memory_service` is set on the ADK `Runner`, not constructed inside the
-memory layer. `horizon/fast_api_app.py:build_runner` resolves it from the
+memory layer. `app/fast_api_app.py:build_runner` resolves it from the
 environment:
 
 - **Tests / local:** `InMemoryMemoryService` (from ADK's
@@ -55,20 +55,20 @@ service is configured.
 
 **How memory is surfaced each turn:** via ADK's built-in
 **`PreloadMemoryTool()`**, registered in the root agent's `tools` list
-(`horizon/agent.py`). It queries `memory_service.search_memory()` and injects
+(`app/agent.py`). It queries `memory_service.search_memory()` and injects
 the hits into context. There is no custom `before_model` memory-search
 callback — `PreloadMemoryTool` is the whole *search*-based prefetch.
 
 It is not the only memory-derived injection, though. The structured user
 profile is a second, separate path: `session_start.py` loads it once per
 session into `state["user_profile"]`, and `build_volatile_reminder`
-(`horizon/conversation/reminders.py`) renders it into the prompt on **every**
+(`app/conversation/reminders.py`) renders it into the prompt on **every**
 turn via `render_user_profile`. So: `PreloadMemoryTool` = per-turn similarity
 search; user profile = once-per-session load, re-rendered each turn.
 
 ## 2. Writing to memory
 
-**`memory(content, scope)` tool** (`horizon/memory/add_memory_tool.py`) —
+**`memory(content, scope)` tool** (`app/memory/add_memory_tool.py`) —
 the LLM-callable write surface, also in the root agent's `tools`. Two
 scopes: `"user"` (who the user is — name, role, preferences;
 `USER_CHAR_LIMIT = 1375`) and `"agent"` (the agent's own notes — env,
@@ -80,7 +80,7 @@ first by `_content_safety.scan_memory_content` (rejects invisible-unicode
 and prompt-injection / exfil patterns — memory is replayed into future
 turns, so it's an untrusted-input boundary).
 
-**`auto_capture_callback`** (`horizon/memory/auto_capture.py`, registered as an
+**`auto_capture_callback`** (`app/memory/auto_capture.py`, registered as an
 `after_agent_callback`) flushes the just-finished session to the service
 with ADK's `add_session_to_memory()`, **throttled** per session
 (`_throttle.try_claim`: 120 s cooldown — tunable via `LHA_FORK_COOLDOWN` —
@@ -94,7 +94,7 @@ to a text placeholder so Memory Bank's extractor doesn't 400 on them.
 ## 3. The self-improvement loop (the custom heart)
 
 All three forks run **fire-and-forget** via `SiblingAgentPlugin`
-(`horizon/memory/sibling_agent_plugin.py`, registered as an `App` plugin). It
+(`app/memory/sibling_agent_plugin.py`, registered as an `App` plugin). It
 owns a throwaway runner per sibling and an `asyncio.Task` lifecycle;
 siblings run under the **parent's `(app_name, user_id)`** so their writes
 land where the parent's next-turn `PreloadMemoryTool` query will find them.
@@ -103,30 +103,30 @@ under ADK's 5 s plugin-close budget) so a turn's writes still land on
 SIGTERM. The parent's user-facing response is **never blocked** by any of
 these.
 
-- **Review fork** (`horizon/memory/review_fork.py`, `after_agent_callback`,
+- **Review fork** (`app/memory/review_fork.py`, `after_agent_callback`,
   gated by `LHA_REVIEW_FORK`, throttled). After each turn it hands a
   restricted Gemini agent (`gemini-3.7-flash`) the conversation as a
   `<CONVERSATION>…</CONVERSATION>` snapshot plus a review prompt
-  (`horizon/memory/review_prompts.py` — memory-only or combined memory+skill,
+  (`app/memory/review_prompts.py` — memory-only or combined memory+skill,
   picked by whether the session touched skills). Toolset is whitelisted to
   `memory` + skill read/write (`write`/`edit` restricted to
   `.agents/skills/<name>/…`) + `load_skill`. Recursion guard is structural: the fork's
   agent has no `after_agent_callback` chain.
 
-- **Flush fork** (`horizon/memory/flush_fork.py`, gated by
+- **Flush fork** (`app/memory/flush_fork.py`, gated by
   `LHA_PRE_COMPRESS_FLUSH`). Fired by `HorizonSummarizer` (see §5) **right
   before** ADK compacts old events — a sharper sibling whose only tool is
   `memory`, asked to rescue durable user facts before they're discarded
   into a summary. Not throttled (fires at most once per compaction).
 
-- **Throttling** lives in `horizon/memory/_throttle.py`; `auto_capture` and
+- **Throttling** lives in `app/memory/_throttle.py`; `auto_capture` and
   `review_fork` share it. The flush fork and the dream pass deliberately do
   **not** use it (each is once-per-compaction / on-demand).
 
 ## 4. The nightly "dream" pass
 
-`POST /scheduler/dream-review` (`horizon/scheduler/dream_review_endpoint.py`)
-→ `horizon/memory/dream_review.py`. The cron sends an **empty** `user_ids`,
+`POST /scheduler/dream-review` (`app/scheduler/dream_review_endpoint.py`)
+→ `app/memory/dream_review.py`. The cron sends an **empty** `user_ids`,
 which means "every user with a real (non-scheduler) session in the lookback
 window" — discovered by `list_active_users` (window =
 `LHA_DREAM_LOOKBACK_HOURS`, default 24 h). The `app_name` comes from
@@ -138,11 +138,11 @@ calls Memory Bank's **`memories.generate`** once. That single call does two
 things server-side:
 
 1. **Consolidates a native Structured Profile** — schema in
-   `horizon/infrastructure/memory_config.py` (`summary` / `role` / `interests` /
+   `app/infrastructure/memory_config.py` (`summary` / `role` / `interests` /
    `working_style` / `durable_facts`, one per `(app_name, user_id)`),
    applied to the Agent Engine resource by `scripts/provision_agent_engine.py`. The
    live agent reads it back with `retrieve_profiles`
-   (`horizon/memory/user_profile.py:load_user_profile`), loaded once per session
+   (`app/memory/user_profile.py:load_user_profile`), loaded once per session
    into `state['user_profile']` and rendered as a `## User Profile` block in
    the volatile prompt tier. That block carries the **narrative fields only**
    (`summary` / `role` / `working_style`); `interests` and `durable_facts` hold
@@ -159,23 +159,23 @@ things server-side:
 
 Master switch: `LHA_DREAM_REVIEW=0` makes every path return
 `{success: false}`. The same pass is callable on-demand via the
-**`/dream-review` slash command** (`horizon/commands/__init__.py`) — a user
+**`/dream-review` slash command** (`app/commands/__init__.py`) — a user
 command, not an LLM tool.
 
 ## 5. Pre-compaction flush wiring
 
-`HorizonSummarizer` (`horizon/context/summarizer.py`) subclasses ADK's
+`HorizonSummarizer` (`app/context/summarizer.py`) subclasses ADK's
 `LlmEventSummarizer`. In `maybe_summarize_events` it (a) calls
 `spawn_flush_fork(...)` against the soon-to-be-compacted events and (b)
 prepends a `[CONTEXT COMPACTION — REFERENCE ONLY]` banner to the produced
 summary. It reads the memory-service + sibling-plugin handles from the
-`CompactionContext` ContextVar (`horizon/context/compaction_context.py`),
+`CompactionContext` ContextVar (`app/context/compaction_context.py`),
 populated in `on_session_start_callback`. So compaction itself triggers the
 flush; the summarizer never touches Memory Bank directly.
 
 ## 6. Skills vs memory
 
-`horizon/memory/skill_curator.py` and `horizon/memory/skill_telemetry.py` live in
+`app/memory/skill_curator.py` and `app/memory/skill_telemetry.py` live in
 this directory but drive **skill-library** promotion, not the memory store
 proper (related self-improvement, different concern):
 
@@ -188,7 +188,7 @@ proper (related self-improvement, different concern):
   ⇒ flag for review). It rides Memory Bank because that's the cross-session
   store, but its subject is skills, not user facts.
 
-`horizon/memory/memory_list.py` is read-only — it powers the chat UI's memory
+`app/memory/memory_list.py` is read-only — it powers the chat UI's memory
 panel (`/lha/memories`), walking either the in-memory store or Vertex
 `retrieve`, parsing `[user]`/`[agent]`/`[user_profile]` markers, and pinning
 the Structured Profile to the top.
@@ -197,20 +197,20 @@ the Structured Profile to the top.
 
 | Piece | ADK hook / entry point | File |
 |---|---|---|
-| Memory surfaced each turn | `tools=[PreloadMemoryTool()]` → `search_memory` | `horizon/agent.py` |
-| `memory` tool | `tools=[memory]` | `horizon/memory/add_memory_tool.py` |
-| Post-turn flush | `after_agent_callback` (throttled) | `horizon/memory/auto_capture.py` |
-| Review fork (judge) | `after_agent_callback` (throttled, fire-and-forget) | `horizon/memory/review_fork.py` |
-| Pre-compaction flush | fired by `HorizonSummarizer` (compaction hook) | `horizon/memory/flush_fork.py` |
-| Sibling runner lifecycle | `App(plugins=[SiblingAgentPlugin()])` | `horizon/memory/sibling_agent_plugin.py` |
-| Skill telemetry | `after_tool_callback` | `horizon/memory/skill_telemetry.py` |
-| Skill curator | `after_agent_callback` | `horizon/memory/skill_curator.py` |
-| Dream pass | `POST /scheduler/dream-review` (cron) + `/dream-review` slash command | `horizon/memory/dream_review.py` |
-| Structured Profile schema | applied to the Agent Engine resource at provision time | `horizon/infrastructure/memory_config.py`, `scripts/provision_agent_engine.py` |
-| Profile read-back | `on_session_start_callback` → `state['user_profile']` | `horizon/memory/user_profile.py` |
+| Memory surfaced each turn | `tools=[PreloadMemoryTool()]` → `search_memory` | `app/agent.py` |
+| `memory` tool | `tools=[memory]` | `app/memory/add_memory_tool.py` |
+| Post-turn flush | `after_agent_callback` (throttled) | `app/memory/auto_capture.py` |
+| Review fork (judge) | `after_agent_callback` (throttled, fire-and-forget) | `app/memory/review_fork.py` |
+| Pre-compaction flush | fired by `HorizonSummarizer` (compaction hook) | `app/memory/flush_fork.py` |
+| Sibling runner lifecycle | `App(plugins=[SiblingAgentPlugin()])` | `app/memory/sibling_agent_plugin.py` |
+| Skill telemetry | `after_tool_callback` | `app/memory/skill_telemetry.py` |
+| Skill curator | `after_agent_callback` | `app/memory/skill_curator.py` |
+| Dream pass | `POST /scheduler/dream-review` (cron) + `/dream-review` slash command | `app/memory/dream_review.py` |
+| Structured Profile schema | applied to the Agent Engine resource at provision time | `app/infrastructure/memory_config.py`, `scripts/provision_agent_engine.py` |
+| Profile read-back | `on_session_start_callback` → `state['user_profile']` | `app/memory/user_profile.py` |
 
 `after_agent_callback` order is the contract:
-`auto_capture` → `skill_curator` → `review_fork` (see `horizon/agent.py`).
+`auto_capture` → `skill_curator` → `review_fork` (see `app/agent.py`).
 
 ## 8. Honesty callouts
 
@@ -230,7 +230,7 @@ the Structured Profile to the top.
   dedup/contradiction-handling only happens in the nightly consolidation
   pass.
 - **Backend-specific memory access is confined to one abstraction** —
-  `horizon/memory/adapter.py` (`MemoryAdapter` Protocol + `memory_adapter()`
+  `app/memory/adapter.py` (`MemoryAdapter` Protocol + `memory_adapter()`
   factory). It owns the only `isinstance(VertexAiMemoryBankService)` /
   `InMemoryMemoryService` checks and the only private-attr reaches
   (`_session_events`, `_get_api_client`, `_agent_engine_id`), which ADK's

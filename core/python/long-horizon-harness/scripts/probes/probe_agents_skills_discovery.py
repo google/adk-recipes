@@ -54,10 +54,10 @@ _USER_ID = "probe-user"
 
 
 async def main() -> None:
-    from horizon.environment import LocalEnvironment
-    from horizon.environment_context import set_environment_provider
-    from horizon.fast_api_app import build_runner
-    from horizon.tools.skill_reload import bound_skill_catalog
+    from app.environment import LocalEnvironment
+    from app.environment_context import set_environment_provider
+    from app.fast_api_app import build_runner
+    from app.tools.skill_reload import bound_skill_catalog
 
     workspace = Path(tempfile.mkdtemp(prefix="lha-skill-probe-"))
     # Stage ONLY under .agents/skills/ — the npx location, not skills/.

@@ -37,8 +37,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from horizon.environment import LocalEnvironment
-from horizon.environment_context import (
+from app.environment import LocalEnvironment
+from app.environment_context import (
     clear_active_environment,
     set_active_environment,
 )
@@ -71,7 +71,7 @@ def _ctx(state: dict | None = None) -> SimpleNamespace:
 
 class TestForegroundUnchanged:
     async def test_simple_echo_returns_stdout(self, env_root: Path) -> None:
-        from horizon.tools.processes.terminal import bash
+        from app.tools.processes.terminal import bash
 
         result = await bash(command="echo hi", tool_context=_ctx())
         assert result["exit_code"] == 0
@@ -84,7 +84,7 @@ class TestForegroundUnchanged:
         # A completed foreground command must spill oversized output to
         # lha/tool-output/ and return a pointer — not silently drop it
         # behind make_preview.
-        from horizon.tools.processes.terminal import bash
+        from app.tools.processes.terminal import bash
 
         result = await bash(
             command=(
@@ -106,7 +106,7 @@ class TestForegroundUnchanged:
         """Minimal parameter space: no cwd. Use `cd dir && cmd`."""
         import inspect
 
-        from horizon.tools.processes.terminal import bash
+        from app.tools.processes.terminal import bash
 
         params = inspect.signature(bash).parameters
         assert "cwd" not in params
@@ -116,7 +116,7 @@ class TestForegroundUnchanged:
     async def test_cd_and_cmd_reaches_another_directory(
         self, env_root: Path
     ) -> None:
-        from horizon.tools.processes.terminal import bash
+        from app.tools.processes.terminal import bash
 
         (env_root / "sub").mkdir()
         (env_root / "sub" / "marker.txt").write_text("here")
@@ -131,7 +131,7 @@ class TestForegroundUnchanged:
 
 class TestAutoPromote:
     async def test_promote_on_timeout(self, env_root: Path) -> None:
-        from horizon.tools.processes.terminal import bash
+        from app.tools.processes.terminal import bash
 
         ctx = _ctx()
         result = await bash(
@@ -145,8 +145,8 @@ class TestAutoPromote:
         assert "partial_marker" in result["partial_output"]
 
     async def test_promoted_session_is_alive(self, env_root: Path) -> None:
-        from horizon.tools.processes.process import process
-        from horizon.tools.processes.terminal import bash
+        from app.tools.processes.process import process
+        from app.tools.processes.terminal import bash
 
         ctx = _ctx()
         result = await bash(
@@ -162,8 +162,8 @@ class TestAutoPromote:
     async def test_promoted_session_lands_in_the_registry(
         self, env_root: Path
     ) -> None:
-        from horizon.tools.processes.process import process
-        from horizon.tools.processes.terminal import bash
+        from app.tools.processes.process import process
+        from app.tools.processes.terminal import bash
 
         ctx = _ctx()
         spawn = await bash(command="sleep 30", timeout_s=1, tool_context=ctx)
@@ -177,7 +177,7 @@ class TestNoInBodyGating:
         """The wrapper does not gate in-body — a confirm-tier policy does
         not short-circuit it. Per-operation approval is the central
         permission_guard's job (before the tool ever runs)."""
-        from horizon.tools.processes.terminal import bash
+        from app.tools.processes.terminal import bash
 
         overlay = env_root / ".lha" / "policies.jsonl"
         overlay.parent.mkdir(parents=True, exist_ok=True)

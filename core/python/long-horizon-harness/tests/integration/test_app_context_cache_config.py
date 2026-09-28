@@ -23,7 +23,7 @@ silently drop it.
 
 from __future__ import annotations
 
-from horizon.agent import app
+from app.agent import app
 
 
 def test_app_has_context_cache_config():

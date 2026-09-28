@@ -30,7 +30,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from google.adk.agents import Agent
 
-from horizon.a2a.routes import attach_a2a_routes
+from app.a2a.routes import attach_a2a_routes
 
 
 class _NoopExecutor:

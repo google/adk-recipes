@@ -14,7 +14,7 @@
 
 """The packaged default-policy seed must block the substrings we care about.
 
-The seed lives at ``horizon/guardrails/default_policies.jsonl`` and is the
+The seed lives at ``app/guardrails/default_policies.jsonl`` and is the
 authoritative denylist for the ``bash`` tool. We assert behavior at the
 ``policies_guard`` boundary (block / allow) so the seed file and the
 evaluator stay coupled in code, not just in prose.
@@ -31,8 +31,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from horizon.environment import LocalEnvironment
-from horizon.environment_context import (
+from app.environment import LocalEnvironment
+from app.environment_context import (
     clear_active_environment,
     set_active_environment,
 )
@@ -54,7 +54,7 @@ def policies_env(tmp_path: Path) -> Iterator[Path]:
 async def _is_blocked(command: str) -> bool:
     """Run ``policies_guard`` against a bash command and return whether
     it produced a block dict. Never executes the command."""
-    from horizon.guardrails.policies import policies_guard
+    from app.guardrails.policies import policies_guard
 
     result = await policies_guard(
         tool=SimpleNamespace(name="bash"),
@@ -254,7 +254,7 @@ class TestSecretDirectoryWrites:
     async def test_blocks_writes_to_secret_dirs(
         self, policies_env: Path, tool_name: str, arg_name: str, path: str
     ):
-        from horizon.guardrails.policies import policies_guard
+        from app.guardrails.policies import policies_guard
 
         result = await policies_guard(
             tool=SimpleNamespace(name=tool_name),
@@ -294,7 +294,7 @@ class TestBlockMessageSurfacesGrantCommand:
     programmatic ``policy_grant`` tool, which the user has no way to invoke."""
 
     async def test_block_message_mentions_slash_grant(self, policies_env: Path):
-        from horizon.guardrails.policies import policies_guard
+        from app.guardrails.policies import policies_guard
 
         result = await policies_guard(
             tool=SimpleNamespace(name="bash"),

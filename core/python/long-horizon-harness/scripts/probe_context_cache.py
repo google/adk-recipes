@@ -8,7 +8,7 @@ import asyncio
 
 from google.genai import types
 
-from horizon.fast_api_app import build_runner
+from app.fast_api_app import build_runner
 
 USER = "cache_probe_user"
 TURNS = ["hi", "what is 2+2?", "and 3+3?"]

@@ -1,0 +1,18 @@
+# osv-scanner reads this file for ./uv.lock (the CVE scan in
+# .github/workflows/dependency-cve-scan.yml). Only vulnerabilities with no
+# usable fixed release belong here; remove each entry once one can be taken.
+
+[[IgnoredVulns]]
+id = "GHSA-8mgp-746c-j5xp"
+ignoreUntil = 2026-12-27
+reason = "No fixed nltk release exists (3.10.3 is the latest affected). Transitive dependency via rouge-score; not called by this recipe's code."
+
+[[IgnoredVulns]]
+id = "GHSA-5pwr-322w-8jr4"
+ignoreUntil = 2026-12-27
+reason = "Fixed only in pyopenssl 26, which pyproject.toml excludes (pyopenssl<25): 26 breaks the urllib3.contrib.pyopenssl TLS path google-auth injects. The flaw is in the DTLS cookie callback, which neither this recipe nor its dependencies use."
+
+[[IgnoredVulns]]
+id = "GHSA-vp96-hxj8-p424"
+ignoreUntil = 2026-12-27
+reason = "Fixed only in pyopenssl 26, which pyproject.toml excludes (pyopenssl<25): 26 breaks the urllib3.contrib.pyopenssl TLS path google-auth injects. The flaw is in set_tlsext_servername_callback (TLS server side); this recipe only makes client connections."

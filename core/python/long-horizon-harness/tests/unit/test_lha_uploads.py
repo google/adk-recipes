@@ -31,13 +31,13 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from horizon.api.uploads import (
+from app.api.uploads import (
     MAX_TREE_ENTRIES,
     attach_uploads_routes,
 )
-from horizon.auth import current_user_id
-from horizon.conversation import session_start
-from horizon.environment import LocalEnvironment
+from app.auth import current_user_id
+from app.conversation import session_start
+from app.environment import LocalEnvironment
 
 USER_ID = "u@local"
 
@@ -115,7 +115,7 @@ def test_upload_oversize_is_413(
     env_at_tmp: LocalEnvironment, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # Shrink the cap so the test doesn't have to allocate 50 MB.
-    monkeypatch.setattr("horizon.api.uploads.MAX_UPLOAD_BYTES", 16)
+    monkeypatch.setattr("app.api.uploads.MAX_UPLOAD_BYTES", 16)
     client = TestClient(_build_app())
     resp = client.post(
         "/lha/uploads",
@@ -464,7 +464,7 @@ def test_download_outside_workspace_is_400(
 def test_download_oversize_is_413(
     env_at_tmp: LocalEnvironment, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr("horizon.api.uploads.MAX_UPLOAD_BYTES", 16)
+    monkeypatch.setattr("app.api.uploads.MAX_UPLOAD_BYTES", 16)
     (env_at_tmp.working_dir / "big.bin").write_bytes(b"x" * 32)
     client = TestClient(_build_app())
     resp = client.get(
@@ -681,7 +681,7 @@ def test_write_protected_path_is_403(
     agent's own write tool — the UI must not be a way around it."""
     target = env_at_tmp.working_dir / "secrets.txt"
     target.write_text("keep", encoding="utf-8")
-    monkeypatch.setattr("horizon.api.uploads._is_write_denied", lambda _p: True)
+    monkeypatch.setattr("app.api.uploads._is_write_denied", lambda _p: True)
 
     client = TestClient(_build_app())
     resp = client.put(
@@ -694,7 +694,7 @@ def test_write_protected_path_is_403(
 
 
 def test_write_oversized_content_is_413(env_at_tmp: LocalEnvironment) -> None:
-    from horizon.api.uploads import MAX_EDIT_BYTES
+    from app.api.uploads import MAX_EDIT_BYTES
 
     target = env_at_tmp.working_dir / "big.md"
     target.write_text("small", encoding="utf-8")

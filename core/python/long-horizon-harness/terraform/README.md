@@ -43,7 +43,7 @@ shouldn't know who its consumers are.
 ## Sandbox backend
 
 Per-user workspace persistence is provided by `SandboxEnvironment`
-(`horizon/environment/sandbox.py`). A session **reattaches** to the user's
+(`app/environment/sandbox.py`). A session **reattaches** to the user's
 most-recent RUNNING sandbox if there is one, else provisions blank (or restores
 a snapshot when Phase C is on). `close()` only tears down the local HTTP client
 — **it does not snapshot**; the platform-side sandbox keeps running for the next
@@ -63,7 +63,7 @@ export AGENT_ENGINE_RESOURCE_NAME=projects/<p>/locations/<l>/reasoningEngines/<r
 # SandboxConfigurationError on it).
 #
 # BYOC runtime image the sandbox boots; rebuilt + pushed from
-# horizon/sandbox/runtime/. A new tag forces a new template. Nothing in this
+# app/sandbox/runtime/. A new tag forces a new template. Nothing in this
 # module creates the Artifact Registry repo — see ../AGENTS.md for the one-time
 # `gcloud artifacts repositories create` + Cloud Build steps.
 export LHA_RUNTIME_IMAGE=us-central1-docker.pkg.dev/<p>/lha-sandbox/runtime:<tag>

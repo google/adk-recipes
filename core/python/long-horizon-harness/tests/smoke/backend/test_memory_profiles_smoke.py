@@ -42,9 +42,9 @@ pytestmark = pytest.mark.skipif(
 async def test_generate_then_retrieve_profile_round_trip():
     from google.adk.memory import VertexAiMemoryBankService
 
-    from horizon.infrastructure.memory_config import USER_PROFILE_SCHEMA_ID
-    from horizon.memory.dream_review import _run_dream_review_for_user
-    from horizon.memory.user_profile import load_user_profile
+    from app.infrastructure.memory_config import USER_PROFILE_SCHEMA_ID
+    from app.memory.dream_review import _run_dream_review_for_user
+    from app.memory.user_profile import load_user_profile
 
     resource = os.environ["AGENT_ENGINE_RESOURCE_NAME"]
     engine_id = resource.rsplit("/", 1)[-1]

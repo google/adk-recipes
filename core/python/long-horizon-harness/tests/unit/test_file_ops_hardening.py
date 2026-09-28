@@ -14,13 +14,13 @@
 
 """file_ops hardening pack — 8 safety/edge cases not covered by test_file_ops.
 
-Pins safety gaps in ``horizon/tools/file_ops.py`` not covered by the base
+Pins safety gaps in ``app/tools/file_ops.py`` not covered by the base
 test file (``test_file_ops.py``), which covers happy-path
 read/write/edit/search, the write-side deny list, and a few
 binary/encoding fallbacks. This pack adds the safety edges that path
 doesn't reach.
 
-Implementation notes for ``horizon/tools/file_ops.py`` (~30 LOC):
+Implementation notes for ``app/tools/file_ops.py`` (~30 LOC):
 
   A. Character-device/FIFO/socket blocking in ``read_file``:
        reading ``/dev/urandom`` via ``Path.read_text`` will hang
@@ -76,7 +76,7 @@ current impl and PASS after the ~30 LOC impl delta. Each test names
 the gap in its docstring so a future reader knows what's being pinned.
 
 Surface assumption: the implementation will live in
-``horizon/tools/file_ops.py`` and expose either ``_MAX_READ_CHARS`` (for
+``app/tools/file_ops.py`` and expose either ``_MAX_READ_CHARS`` (for
 test G) and either ``_is_read_denied`` (a new helper) or an extended
 ``_is_write_denied`` that also gates reads. The contracts pinned by
 the tests are stable across either naming choice.
@@ -92,7 +92,7 @@ from pathlib import Path
 
 import pytest
 
-from horizon.tools.file_ops import read_file, search_files, write
+from app.tools.file_ops import read_file, search_files, write
 
 pytestmark = [
     pytest.mark.filterwarnings("ignore::DeprecationWarning"),
@@ -198,7 +198,7 @@ class TestReadFileCapsContentLength:
         overhead (a few hundred chars) — bounded generously here rather
         than with a strict <=, since bash's own overflow contract makes
         the same tradeoff and has no stricter test either."""
-        from horizon.tools.file_ops import _MAX_READ_CHARS
+        from app.tools.file_ops import _MAX_READ_CHARS
 
         # Write ~500KB of content, well over the 50KB cap.
         target = tmp_path / "big.txt"
@@ -288,8 +288,8 @@ class TestReadFileDenyList:
         if not os.path.exists("/etc/passwd"):
             pytest.skip("/etc/passwd not present on this platform")
 
-        from horizon.environment import LocalEnvironment
-        from horizon.environment_context import set_active_environment
+        from app.environment import LocalEnvironment
+        from app.environment_context import set_active_environment
 
         # Bind the env root to "/" so /etc/passwd is IN-root and the read reaches
         # the protected-paths deny-list — not the out-of-root check, whose message
@@ -405,11 +405,11 @@ class TestSymlinkResolution:
 
 class TestModuleConstants:
     def test_max_read_chars_constant_is_exposed(self) -> None:
-        """The cap value must be importable from ``horizon.tools.file_ops`` so
+        """The cap value must be importable from ``app.tools.file_ops`` so
         it's greppable and tunable in one place. Pins the module surface
         — a refactor that inlines the constant into the function would
         regress this."""
-        from horizon.tools import file_ops
+        from app.tools import file_ops
 
         assert hasattr(file_ops, "_MAX_READ_CHARS"), (
             "Module must expose _MAX_READ_CHARS as a module-level "

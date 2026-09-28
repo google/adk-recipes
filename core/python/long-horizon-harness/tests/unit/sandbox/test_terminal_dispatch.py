@@ -35,7 +35,7 @@ import httpx
 import pytest
 import respx
 
-from horizon.environment_context import (
+from app.environment_context import (
     clear_active_environment,
     set_active_environment,
 )
@@ -45,7 +45,7 @@ BASE_URL = f"https://{LB_HOST}"
 
 
 def _make_sandbox_env(root: Path) -> Any:
-    from horizon.environment.sandbox import SandboxEnvironment
+    from app.environment.sandbox import SandboxEnvironment
 
     return SandboxEnvironment(
         client=MagicMock(),
@@ -83,7 +83,7 @@ def sandbox_env(tmp_path: Path):
 async def test_background_spawn_calls_runtime_processes_endpoint(
     sandbox_env,
 ) -> None:
-    from horizon.tools.processes.process import process
+    from app.tools.processes.process import process
 
     route = respx.post(f"{BASE_URL}/processes").mock(
         return_value=httpx.Response(
@@ -106,7 +106,7 @@ async def test_background_spawn_calls_runtime_processes_endpoint(
 async def test_background_spawn_registers_handle_for_process_tool(
     sandbox_env,
 ) -> None:
-    from horizon.tools.processes.process import process
+    from app.tools.processes.process import process
 
     respx.post(f"{BASE_URL}/processes").mock(
         return_value=httpx.Response(
@@ -124,7 +124,7 @@ async def test_background_spawn_registers_handle_for_process_tool(
 @pytest.mark.asyncio
 @respx.mock
 async def test_process_tool_kill_routes_to_runtime(sandbox_env) -> None:
-    from horizon.tools.processes.process import process
+    from app.tools.processes.process import process
 
     respx.post(f"{BASE_URL}/processes").mock(
         return_value=httpx.Response(
@@ -149,7 +149,7 @@ async def test_process_tool_kill_routes_to_runtime(sandbox_env) -> None:
 @pytest.mark.asyncio
 @respx.mock
 async def test_process_tool_log_decodes_remote_output(sandbox_env) -> None:
-    from horizon.tools.processes.process import process
+    from app.tools.processes.process import process
 
     respx.post(f"{BASE_URL}/processes").mock(
         return_value=httpx.Response(

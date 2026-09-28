@@ -16,9 +16,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from horizon.commands import _reload
-from horizon.secrets import set_secret_store
-from horizon.secrets.store import SecretManagerStore
+from app.commands import _reload
+from app.secrets import set_secret_store
+from app.secrets.store import SecretManagerStore
 from tests.unit.test_secret_store import FakeSecretClient
 
 
@@ -34,7 +34,7 @@ async def test_reload_invalidates_user_secret_cache(monkeypatch):
         async def _noop_reload(tool_context=None):
             return {"skills_refreshed": False, "reason": "no toolset"}
 
-        monkeypatch.setattr("horizon.commands.reload", _noop_reload)
+        monkeypatch.setattr("app.commands.reload", _noop_reload)
 
         ctx = SimpleNamespace(
             _invocation_context=SimpleNamespace(user_id="alice@x")

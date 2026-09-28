@@ -26,7 +26,7 @@ export const SELECTION_DATA_KIND = "lha.selection";
 
 /**
  * Discriminator on the DataPart a dragged workspace file travels in.
- * Must match _FILEREF_KIND in horizon/a2a/datapart.py.
+ * Must match _FILEREF_KIND in app/a2a/datapart.py.
  */
 export const FILEREF_DATA_KIND = "lha.fileref";
 

@@ -39,13 +39,16 @@ async def test_session_2_reattaches_to_session_1_sandbox(
 ) -> None:
     import os
 
-    from horizon.conversation import session_start
-    from horizon.conversation.session_start import (
+    from app.conversation import session_start
+
+    # These helpers no longer exist in session_start (provisioning now goes
+    # through _resolve_provider); this live probe needs porting to that API.
+    from app.conversation.session_start import (  # type: ignore[attr-defined]
         _build_sandbox_environment,
         _resolve_sandbox_engine,
         _vertex_client_factory,
     )
-    from horizon.sandbox.lifecycle import find_user_sandbox
+    from app.sandbox.lifecycle import find_user_sandbox
 
     sentinel = b"lha-cuj2-resume-sentinel"
     notes_path = Path("/workspace/notes.md")

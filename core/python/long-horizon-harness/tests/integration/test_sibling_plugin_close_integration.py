@@ -36,7 +36,7 @@ pytestmark = pytest.mark.asyncio
 async def test_adk_plugin_manager_close_does_not_raise_with_slow_sibling(
     monkeypatch,
 ):
-    from horizon.memory import sibling_agent_plugin
+    from app.memory import sibling_agent_plugin
 
     started = asyncio.Event()
 

@@ -18,7 +18,7 @@ from __future__ import annotations
 
 
 def test_curated_default_allowlist_coverage():
-    from horizon.guardrails.exfil_config import default_config, host_allowed
+    from app.guardrails.exfil_config import default_config, host_allowed
 
     cfg = default_config()
     for h in [

@@ -20,7 +20,7 @@ from pathlib import Path
 
 import pytest
 
-from horizon.guardrails.permission_rules import (
+from app.guardrails.permission_rules import (
     DEFAULT_RULES,
     PERMISSION_GRANTS_STATE_KEY,
     PERMISSION_OVERLAY_FILENAME,
@@ -238,7 +238,7 @@ def test_default_rules_open_shell_and_benign_tools():
 
 @pytest.mark.asyncio
 async def test_append_persisted_rule_writes_jsonl(tmp_path: Path):
-    from horizon.environment import LocalEnvironment
+    from app.environment import LocalEnvironment
 
     env = LocalEnvironment(working_dir=tmp_path)
     await append_persisted_rule(
@@ -375,10 +375,10 @@ async def test_blanket_allow_for_terminal_is_dropped_from_overlay(monkeypatch):
         return [parse_rule({"toolName": "bash", "decision": "allow"})]
 
     monkeypatch.setattr(
-        "horizon.guardrails.permission_rules.load_persisted_rules",
+        "app.guardrails.permission_rules.load_persisted_rules",
         fake_persisted,
     )
-    from horizon.guardrails.permission_rules import effective_rules
+    from app.guardrails.permission_rules import effective_rules
 
     rules = await effective_rules(env=object(), session_grants=None)
     assert not any(
@@ -406,10 +406,10 @@ async def test_narrowed_terminal_allow_survives(monkeypatch):
         ]
 
     monkeypatch.setattr(
-        "horizon.guardrails.permission_rules.load_persisted_rules",
+        "app.guardrails.permission_rules.load_persisted_rules",
         fake_persisted,
     )
-    from horizon.guardrails.permission_rules import effective_rules
+    from app.guardrails.permission_rules import effective_rules
 
     rules = await effective_rules(env=object(), session_grants=None)
     assert any(r.command_prefixes == ("npm test",) for r in rules)

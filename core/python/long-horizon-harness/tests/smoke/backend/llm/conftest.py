@@ -60,7 +60,7 @@ def _bind_shared_env_to_session_cache(
 ) -> Iterator[None]:
     """Pre-populate ``_env_cache`` so ``on_session_start_callback`` reuses
     our shared env instead of provisioning its own."""
-    from horizon.conversation import session_start
+    from app.conversation import session_start
 
     backend = (
         os.environ.get("LHA_ENVIRONMENT_BACKEND", "sandbox").strip().lower()
@@ -82,7 +82,7 @@ async def llm_runner(smoke_user_id: str) -> AsyncIterator[Any]:
     from google.adk.runners import Runner
     from google.adk.sessions import InMemorySessionService
 
-    from horizon.agent import root_agent
+    from app.agent import root_agent
 
     session_service = InMemorySessionService()
     session = await session_service.create_session(

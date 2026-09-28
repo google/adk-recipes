@@ -89,8 +89,8 @@ def sandbox_env_vars(monkeypatch: pytest.MonkeyPatch) -> None:
 def reset_env_cache() -> Iterator[None]:
     """Drop any cached environments before AND after the probe so the
     next test starts fresh, even if this one leaks."""
-    from horizon.conversation import session_start
-    from horizon.environment_context import clear_active_environment
+    from app.conversation import session_start
+    from app.environment_context import clear_active_environment
 
     session_start._env_cache.clear()  # type: ignore[attr-defined]
     session_start._template_cache.clear()  # type: ignore[attr-defined]

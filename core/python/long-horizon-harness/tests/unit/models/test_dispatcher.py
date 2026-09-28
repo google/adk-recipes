@@ -28,7 +28,7 @@ from google.adk.models.llm_response import LlmResponse
 from google.genai import types
 from pydantic import Field
 
-from horizon.models.capabilities import ModelCapabilities
+from app.models.capabilities import ModelCapabilities
 
 pytestmark = pytest.mark.asyncio
 
@@ -77,7 +77,7 @@ async def _collect(agen: AsyncGenerator[Any, None]) -> list[Any]:
 
 
 async def test_dispatches_to_named_backend():
-    from horizon.models.dispatcher import DispatchingLlm
+    from app.models.dispatcher import DispatchingLlm
 
     llm = DispatchingLlm(model="alpha", backends=_backends())
     req = LlmRequest(model="beta")
@@ -86,7 +86,7 @@ async def test_dispatches_to_named_backend():
 
 
 async def test_falls_back_to_default_when_request_model_unset():
-    from horizon.models.dispatcher import DispatchingLlm
+    from app.models.dispatcher import DispatchingLlm
 
     llm = DispatchingLlm(model="alpha", backends=_backends())
     req = LlmRequest()  # no model
@@ -95,7 +95,7 @@ async def test_falls_back_to_default_when_request_model_unset():
 
 
 async def test_unknown_model_raises_with_known_names_in_message():
-    from horizon.models.dispatcher import DispatchingLlm
+    from app.models.dispatcher import DispatchingLlm
 
     llm = DispatchingLlm(model="alpha", backends=_backends())
     req = LlmRequest(model="gamma")
@@ -104,7 +104,7 @@ async def test_unknown_model_raises_with_known_names_in_message():
 
 
 async def test_default_must_exist_in_backends():
-    from horizon.models.dispatcher import DispatchingLlm
+    from app.models.dispatcher import DispatchingLlm
 
     with pytest.raises(ValueError):
         DispatchingLlm(model="missing", backends=_backends())
@@ -121,8 +121,8 @@ def _caps_with(hook) -> ModelCapabilities:
 async def test_prepare_contents_hook_transforms_before_dispatch(monkeypatch):
     """A model whose capabilities set prepare_contents has its contents
     transformed before the backend sees them — the per-model content interface."""
-    from horizon.models import dispatcher as disp_mod
-    from horizon.models.dispatcher import DispatchingLlm
+    from app.models import dispatcher as disp_mod
+    from app.models.dispatcher import DispatchingLlm
 
     def _hook(contents: list[types.Content]) -> list[types.Content]:
         return [
@@ -143,8 +143,8 @@ async def test_prepare_contents_hook_transforms_before_dispatch(monkeypatch):
 
 
 async def test_no_hook_passes_contents_through_untouched(monkeypatch):
-    from horizon.models import dispatcher as disp_mod
-    from horizon.models.dispatcher import DispatchingLlm
+    from app.models import dispatcher as disp_mod
+    from app.models.dispatcher import DispatchingLlm
 
     monkeypatch.setattr(
         disp_mod, "model_capabilities", lambda _n: _caps_with(None)

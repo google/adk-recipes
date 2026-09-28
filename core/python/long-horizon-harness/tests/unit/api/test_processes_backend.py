@@ -20,9 +20,9 @@ from __future__ import annotations
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from horizon.api.processes import attach_processes_routes
-from horizon.auth import current_user_id
-from horizon.conversation import session_start
+from app.api.processes import attach_processes_routes
+from app.auth import current_user_id
+from app.conversation import session_start
 
 USER_ID = "proc-unit@local"
 

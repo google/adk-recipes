@@ -48,7 +48,7 @@ def _last_user_text(req: SimpleNamespace) -> str | None:
 
 
 async def test_skill_with_args_rewrites_and_falls_through(monkeypatch):
-    from horizon.commands import dispatcher as disp
+    from app.commands import dispatcher as disp
 
     monkeypatch.setattr(disp, "bound_skill_names", lambda: {"chathelp"})
     req = _request("/chathelp triage my inbox")
@@ -62,7 +62,7 @@ async def test_skill_with_args_rewrites_and_falls_through(monkeypatch):
 
 
 async def test_skill_no_args_rewrites_without_trailing_space(monkeypatch):
-    from horizon.commands import dispatcher as disp
+    from app.commands import dispatcher as disp
 
     monkeypatch.setattr(disp, "bound_skill_names", lambda: {"chathelp"})
     req = _request("/chathelp")
@@ -76,7 +76,7 @@ async def test_skill_no_args_rewrites_without_trailing_space(monkeypatch):
 
 
 async def test_unknown_command_left_untouched(monkeypatch):
-    from horizon.commands import dispatcher as disp
+    from app.commands import dispatcher as disp
 
     monkeypatch.setattr(disp, "bound_skill_names", lambda: {"chathelp"})
     req = _request("/nope do x")
@@ -90,7 +90,7 @@ async def test_unknown_command_left_untouched(monkeypatch):
 
 
 async def test_builtin_short_circuits(monkeypatch):
-    from horizon.commands import dispatcher as disp
+    from app.commands import dispatcher as disp
 
     async def _ping(args: str, callback_context):
         return "pong"
@@ -109,7 +109,7 @@ async def test_builtin_short_circuits(monkeypatch):
 
 
 async def test_image_only_turn_falls_through(monkeypatch):
-    from horizon.commands import dispatcher as disp
+    from app.commands import dispatcher as disp
 
     monkeypatch.setattr(disp, "bound_skill_names", lambda: {"chathelp"})
     req = SimpleNamespace(
@@ -134,7 +134,7 @@ async def test_image_only_turn_falls_through(monkeypatch):
 
 
 async def test_mixed_case_skill_does_not_match(monkeypatch):
-    from horizon.commands import dispatcher as disp
+    from app.commands import dispatcher as disp
 
     monkeypatch.setattr(disp, "bound_skill_names", lambda: {"chathelp"})
     req = _request("/ChatHelp do x")
@@ -148,7 +148,7 @@ async def test_mixed_case_skill_does_not_match(monkeypatch):
 
 
 async def test_builtin_wins_over_colliding_skill(monkeypatch):
-    from horizon.commands import dispatcher as disp
+    from app.commands import dispatcher as disp
 
     async def _model(args: str, callback_context):
         return "builtin-model"

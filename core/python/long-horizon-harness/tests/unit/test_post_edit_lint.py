@@ -26,7 +26,7 @@ from dataclasses import dataclass
 
 import pytest
 
-from horizon.environment_context import set_active_environment
+from app.environment_context import set_active_environment
 
 pytestmark = pytest.mark.asyncio
 
@@ -71,7 +71,7 @@ def _ruff_json(path: str, n: int) -> str:
 
 class TestPostEditDiagnostics:
     async def test_returns_block_for_ruff_findings(self) -> None:
-        from horizon.tools.file_ops import _post_edit_diagnostics
+        from app.tools.file_ops import _post_edit_diagnostics
 
         path = "/work/code.py"
         env = _StubEnv(_Result(exit_code=1, stdout=_ruff_json(path, 2)))
@@ -85,7 +85,7 @@ class TestPostEditDiagnostics:
         assert any("ruff check" in c for c in env.commands)
 
     async def test_caps_findings_at_twenty(self) -> None:
-        from horizon.tools.file_ops import _post_edit_diagnostics
+        from app.tools.file_ops import _post_edit_diagnostics
 
         path = "/work/code.py"
         env = _StubEnv(_Result(exit_code=1, stdout=_ruff_json(path, 50)))
@@ -99,7 +99,7 @@ class TestPostEditDiagnostics:
         assert "more" in block.lower()
 
     async def test_no_findings_returns_none(self) -> None:
-        from horizon.tools.file_ops import _post_edit_diagnostics
+        from app.tools.file_ops import _post_edit_diagnostics
 
         env = _StubEnv(_Result(exit_code=0, stdout="[]"))
         set_active_environment(env)
@@ -107,7 +107,7 @@ class TestPostEditDiagnostics:
         assert await _post_edit_diagnostics("/work/code.py") is None
 
     async def test_ruff_missing_returns_none(self) -> None:
-        from horizon.tools.file_ops import _post_edit_diagnostics
+        from app.tools.file_ops import _post_edit_diagnostics
 
         env = _StubEnv(
             _Result(exit_code=127, stdout="", stderr="ruff: command not found")
@@ -117,7 +117,7 @@ class TestPostEditDiagnostics:
         assert await _post_edit_diagnostics("/work/code.py") is None
 
     async def test_execute_raises_returns_none(self) -> None:
-        from horizon.tools.file_ops import _post_edit_diagnostics
+        from app.tools.file_ops import _post_edit_diagnostics
 
         env = _StubEnv(RuntimeError("transport boom"))
         set_active_environment(env)
@@ -125,7 +125,7 @@ class TestPostEditDiagnostics:
         assert await _post_edit_diagnostics("/work/code.py") is None
 
     async def test_unparseable_json_returns_none(self) -> None:
-        from horizon.tools.file_ops import _post_edit_diagnostics
+        from app.tools.file_ops import _post_edit_diagnostics
 
         env = _StubEnv(_Result(exit_code=1, stdout="not json at all"))
         set_active_environment(env)
@@ -165,7 +165,7 @@ class _RWStubEnv(_StubEnv):
 
 class TestDiagnosticsIntegration:
     async def test_patch_attaches_diagnostics_for_py(self, tmp_path) -> None:
-        from horizon.tools.file_ops import edit
+        from app.tools.file_ops import edit
 
         target = tmp_path / "code.py"
         target.write_text("x = 1\n")
@@ -186,7 +186,7 @@ class TestDiagnosticsIntegration:
     async def test_write_file_attaches_diagnostics_for_py(
         self, tmp_path
     ) -> None:
-        from horizon.tools.file_ops import write
+        from app.tools.file_ops import write
 
         target = tmp_path / "code.py"
         env = _RWStubEnv(
@@ -200,7 +200,7 @@ class TestDiagnosticsIntegration:
         assert "diagnostics" in result
 
     async def test_no_diagnostics_key_for_non_py(self, tmp_path) -> None:
-        from horizon.tools.file_ops import write
+        from app.tools.file_ops import write
 
         target = tmp_path / "notes.txt"
         env = _RWStubEnv(_Result(exit_code=0, stdout="[]"))
@@ -214,7 +214,7 @@ class TestDiagnosticsIntegration:
         assert not any("ruff check" in c for c in env.commands)
 
     async def test_clean_py_has_no_diagnostics_key(self, tmp_path) -> None:
-        from horizon.tools.file_ops import write
+        from app.tools.file_ops import write
 
         target = tmp_path / "clean.py"
         env = _RWStubEnv(_Result(exit_code=0, stdout="[]"))

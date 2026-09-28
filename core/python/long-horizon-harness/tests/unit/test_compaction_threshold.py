@@ -22,15 +22,15 @@ from __future__ import annotations
 
 import pytest
 
-from horizon.context.compaction_threshold import (
+from app.context.compaction_threshold import (
     DEFAULT_WINDOW_FRACTION,
     compaction_token_threshold,
 )
-from horizon.models.registry import (
+from app.models.registry import (
     DEFAULT_INPUT_TOKEN_LIMIT,
     input_token_limit,
 )
-from horizon.models.selector import apply_compaction_threshold
+from app.models.selector import apply_compaction_threshold
 
 
 class TestInputTokenLimit:

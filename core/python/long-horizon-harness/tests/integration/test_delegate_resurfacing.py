@@ -36,9 +36,9 @@ from google.adk.sessions.in_memory_session_service import InMemorySessionService
 from google.adk.tools.tool_context import ToolContext
 from google.genai import types
 
-import horizon.subagents.delegate as delegate_mod
-from horizon.subagents.child_guard import make_child_policy_guard
-from horizon.subagents.delegate import delegate
+import app.subagents.delegate as delegate_mod
+from app.subagents.child_guard import make_child_policy_guard
+from app.subagents.delegate import delegate
 
 _CONFIRM_FN = "adk_request_confirmation"
 
@@ -230,7 +230,7 @@ class _AskParentChildLlm(BaseLlm):
 
 
 def _ask_parent_child_factory() -> Callable[..., Any]:
-    from horizon.subagents.ask_parent import ask_parent as ask_parent_tool
+    from app.subagents.ask_parent import ask_parent as ask_parent_tool
 
     async def _build(**_kwargs: Any) -> LlmAgent:
         return LlmAgent(

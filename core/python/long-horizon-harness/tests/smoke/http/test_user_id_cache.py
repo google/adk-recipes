@@ -23,7 +23,7 @@ the noise floor.
 
 This test is intentionally loose: it asserts the ratio, not absolute
 numbers, so it survives slow CI hosts and warm GCP regions. Treat a
-failure as a signal to investigate ``horizon/conversation/session_start.py``
+failure as a signal to investigate ``app/conversation/session_start.py``
 not as a perf gate.
 """
 
@@ -108,5 +108,5 @@ def test_second_request_for_same_user_is_warm(smoke_http_server: str) -> None:
     assert warm < cold, (
         f"expected second request to be faster (warm _env_cache); "
         f"cold={cold:.2f}s warm={warm:.2f}s — investigate "
-        f"horizon/conversation/session_start.py _env_cache eviction"
+        f"app/conversation/session_start.py _env_cache eviction"
     )

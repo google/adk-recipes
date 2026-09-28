@@ -16,8 +16,8 @@
 
 from __future__ import annotations
 
-from horizon.subagents.ask_parent import ask_parent
-from horizon.subagents.resurface_context import child_drain
+from app.subagents.ask_parent import ask_parent
+from app.subagents.resurface_context import child_drain
 
 
 class _Actions:

@@ -97,7 +97,7 @@ async def shared_environment(
     """One ``BaseEnvironment`` provisioned for the whole smoke session.
 
     Tests reuse this instance — see ``active_env`` for the per-test
-    binding into the ``ContextVar`` that ``horizon/tools/*`` resolve against.
+    binding into the ``ContextVar`` that ``app/tools/*`` resolve against.
 
     Session-scoped event loop is required because the real
     ``SandboxEnvironment`` binds internal ``asyncio.Event`` / ``Lock``
@@ -106,7 +106,7 @@ async def shared_environment(
     """
     # Imported lazily so test collection doesn't fail if horizon imports
     # blow up under unusual env (e.g. missing GOOGLE_APPLICATION_CREDENTIALS).
-    from horizon.conversation.session_start import _build_environment
+    from app.conversation.session_start import _build_environment
 
     env, _ = _build_environment(smoke_user_id)
     await env.initialize()
@@ -122,7 +122,7 @@ def active_env(
 ) -> Iterator[BaseEnvironment]:
     """Bind ``shared_environment`` into the ContextVar for the test body
     and clear it on teardown."""
-    from horizon.environment_context import (
+    from app.environment_context import (
         clear_active_environment,
         set_active_environment,
     )

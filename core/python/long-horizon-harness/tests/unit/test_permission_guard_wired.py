@@ -16,7 +16,7 @@
 
 from __future__ import annotations
 
-from horizon.agent import root_agent
+from app.agent import root_agent
 
 
 def test_permission_guard_is_last_before_tool_callback():

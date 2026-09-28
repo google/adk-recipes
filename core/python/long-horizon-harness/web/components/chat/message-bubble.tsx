@@ -13,7 +13,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import React, { useEffect, useId, useMemo, useState } from "react";
+import React, { useEffect, useId, useState } from "react";
 import {
   BookOpen,
   ChevronRight,
@@ -78,6 +78,7 @@ function MessageBubbleInner({
         {message.segments.map((seg, i) =>
           seg.kind === "text" ? (
             <div
+              // biome-ignore lint/suspicious/noArrayIndexKey: system segments have no id; the key combines the index with the text prefix.
               key={`sys-${i}-${seg.text.slice(0, 24)}`}
               className="rounded-md border border-dashed bg-muted/30 px-3 py-1.5 text-xs text-muted-foreground"
             >
@@ -100,10 +101,12 @@ function MessageBubbleInner({
     >
       {grouped.map((group, gi) => {
         if (group.kind === "toolGroup") {
+          // biome-ignore lint/suspicious/noArrayIndexKey: groups are derived from the segment list on every render and have no stable id; the index is their identity.
           return <ToolGroup key={`tg-${gi}`} tools={group.tools} />;
         }
         if (group.kind === "confirmGroup") {
           return (
+            // biome-ignore lint/suspicious/noArrayIndexKey: groups are derived from the segment list on every render and have no stable id; the index is their identity.
             <CombinedPermissionCard key={`cg-${gi}`} items={group.items} />
           );
         }
@@ -309,6 +312,7 @@ function UserTextSegment({
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           rows={Math.min(8, Math.max(2, draft.split("\n").length))}
+          // biome-ignore lint/a11y/noAutofocus: the editor opens in response to the user clicking Edit, so focus moving into it is expected.
           autoFocus
           className="w-full resize-y rounded-md border bg-background px-2 py-1.5 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
         />
@@ -942,6 +946,7 @@ function CombinedPermissionCard({ items }: { items: ConfirmItem[] }) {
       })),
     );
   return (
+    // biome-ignore lint/a11y/useSemanticElements: a <fieldset> would bring its default border, padding and min-width; this card only needs the group role.
     <div
       role="group"
       className="flex max-w-[88%] flex-col gap-2 rounded-lg border border-l-4 border-l-primary bg-card px-3.5 py-2.5"
@@ -1125,7 +1130,7 @@ function ToolRow({
   const [open, setOpen] = useState(false);
   const isLoadSkill = name === "load_skill";
   // The tool's real arg is skill_name, not name (final-review Fix 9) — see
-  // horizon/tools/skill_toolset.py's declared schema.
+  // app/tools/skill_toolset.py's declared schema.
   const skillName =
     isLoadSkill && typeof args?.skill_name === "string"
       ? args.skill_name
@@ -1232,7 +1237,7 @@ function RichToolBody({
 function ToolPayload({ label, data }: { label: string; data: unknown }) {
   const text = formatPayload(data);
   const truncated = text.length > 2000;
-  const display = truncated ? text.slice(0, 2000) + "\n… (truncated)" : text;
+  const display = truncated ? `${text.slice(0, 2000)}\n… (truncated)` : text;
   return (
     <div className="flex w-full max-w-full flex-col gap-0.5">
       <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
@@ -1263,7 +1268,7 @@ function formatArgsPreview(args: Record<string, unknown> | null): string {
   for (const k of keys.slice(0, 2)) {
     const v = args[k];
     const s = typeof v === "string" ? v : JSON.stringify(v);
-    const short = s.length > 40 ? s.slice(0, 39) + "…" : s;
+    const short = s.length > 40 ? `${s.slice(0, 39)}…` : s;
     parts.push(`${k}=${short.replace(/\n/g, " ")}`);
   }
   return parts.join(", ");

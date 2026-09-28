@@ -33,7 +33,8 @@ pytestmark = pytest.mark.asyncio(loop_scope="session")
 async def test_search_files_regex_matches(
     active_env: BaseEnvironment, unique_name: str
 ) -> None:
-    from horizon.tools.file_ops import search_files, write_file
+    from app.tools.file_ops import search_files
+    from app.tools.file_ops import write as write_file
 
     sub = unique_name
     await write_file(
@@ -52,8 +53,9 @@ async def test_search_files_regex_matches(
 async def test_search_files_ranks_recent_first(
     active_env: BaseEnvironment, unique_name: str
 ) -> None:
-    from horizon.tools.file_ops import search_files, write_file
-    from horizon.tools.processes.terminal import terminal
+    from app.tools.file_ops import search_files
+    from app.tools.file_ops import write as write_file
+    from app.tools.processes.terminal import bash as terminal
 
     sub = unique_name
     await write_file(path=f"{sub}/old.py", content="needle\n")
@@ -75,7 +77,8 @@ async def test_search_files_ranks_recent_first(
 async def test_search_invalid_regex_returns_error(
     active_env: BaseEnvironment, unique_name: str
 ) -> None:
-    from horizon.tools.file_ops import search_files, write_file
+    from app.tools.file_ops import search_files
+    from app.tools.file_ops import write as write_file
 
     sub = unique_name
     await write_file(path=f"{sub}/a.py", content="anything\n")
@@ -93,7 +96,8 @@ async def test_search_invalid_regex_returns_error(
 async def test_read_file_is_line_numbered_with_eof_trailer(
     active_env: BaseEnvironment, unique_name: str
 ) -> None:
-    from horizon.tools.file_ops import read_file, write_file
+    from app.tools.file_ops import read_file
+    from app.tools.file_ops import write as write_file
 
     target = f"{unique_name}.txt"
     await write_file(path=target, content="alpha\nbeta\ngamma\n")
@@ -110,7 +114,8 @@ async def test_read_file_is_line_numbered_with_eof_trailer(
 async def test_read_file_continuation_trailer_on_partial_read(
     active_env: BaseEnvironment, unique_name: str
 ) -> None:
-    from horizon.tools.file_ops import read_file, write_file
+    from app.tools.file_ops import read_file
+    from app.tools.file_ops import write as write_file
 
     target = f"{unique_name}.txt"
     payload = "\n".join(f"l{i}" for i in range(1, 101)) + "\n"

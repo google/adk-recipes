@@ -47,13 +47,13 @@ def _fake_context(
 
 
 def test_module_exposes_clarify_function():
-    from horizon.tools.clarify import clarify
+    from app.tools.clarify import clarify
 
     assert callable(clarify)
 
 
 def test_max_choices_constant_matches_lha():
-    from horizon.tools.clarify import MAX_CHOICES
+    from app.tools.clarify import MAX_CHOICES
 
     assert MAX_CHOICES == 4
 
@@ -64,7 +64,7 @@ def test_max_choices_constant_matches_lha():
 
 
 def test_empty_question_rejected():
-    from horizon.tools.clarify import clarify
+    from app.tools.clarify import clarify
 
     ctx = _fake_context()
     result = clarify(question="", tool_context=ctx)
@@ -75,7 +75,7 @@ def test_empty_question_rejected():
 
 
 def test_whitespace_only_question_rejected():
-    from horizon.tools.clarify import clarify
+    from app.tools.clarify import clarify
 
     ctx = _fake_context()
     result = clarify(question="   \n\t ", tool_context=ctx)
@@ -85,7 +85,7 @@ def test_whitespace_only_question_rejected():
 
 
 def test_question_is_stripped():
-    from horizon.tools.clarify import clarify
+    from app.tools.clarify import clarify
 
     ctx = _fake_context()
     result = clarify(question="  what color?  ", tool_context=ctx)
@@ -100,7 +100,7 @@ def test_question_is_stripped():
 
 
 def test_open_ended_question_has_no_choices():
-    from horizon.tools.clarify import clarify
+    from app.tools.clarify import clarify
 
     ctx = _fake_context()
     result = clarify(question="describe your goal", tool_context=ctx)
@@ -110,7 +110,7 @@ def test_open_ended_question_has_no_choices():
 
 
 def test_choices_passed_through():
-    from horizon.tools.clarify import clarify
+    from app.tools.clarify import clarify
 
     ctx = _fake_context()
     result = clarify(
@@ -124,7 +124,7 @@ def test_choices_passed_through():
 
 
 def test_choices_trimmed_to_max():
-    from horizon.tools.clarify import MAX_CHOICES, clarify
+    from app.tools.clarify import MAX_CHOICES, clarify
 
     ctx = _fake_context()
     too_many = [f"opt-{i}" for i in range(MAX_CHOICES + 3)]
@@ -136,7 +136,7 @@ def test_choices_trimmed_to_max():
 
 
 def test_blank_choices_filtered():
-    from horizon.tools.clarify import clarify
+    from app.tools.clarify import clarify
 
     ctx = _fake_context()
     result = clarify(
@@ -150,7 +150,7 @@ def test_blank_choices_filtered():
 
 
 def test_all_blank_choices_collapse_to_open_ended():
-    from horizon.tools.clarify import clarify
+    from app.tools.clarify import clarify
 
     ctx = _fake_context()
     result = clarify(
@@ -164,7 +164,7 @@ def test_all_blank_choices_collapse_to_open_ended():
 
 
 def test_choices_stripped_individually():
-    from horizon.tools.clarify import clarify
+    from app.tools.clarify import clarify
 
     ctx = _fake_context()
     result = clarify(
@@ -178,7 +178,7 @@ def test_choices_stripped_individually():
 
 
 def test_non_list_choices_rejected():
-    from horizon.tools.clarify import clarify
+    from app.tools.clarify import clarify
 
     ctx = _fake_context()
     result = clarify(
@@ -197,7 +197,7 @@ def test_non_list_choices_rejected():
 
 
 def test_first_call_requests_confirmation_with_question_as_hint():
-    from horizon.tools.clarify import clarify
+    from app.tools.clarify import clarify
 
     ctx = _fake_context()
     clarify(question="continue?", choices=["yes", "no"], tool_context=ctx)
@@ -212,7 +212,7 @@ def test_first_call_requests_confirmation_with_question_as_hint():
 
 
 def test_first_call_sets_skip_summarization():
-    from horizon.tools.clarify import clarify
+    from app.tools.clarify import clarify
 
     ctx = _fake_context()
     clarify(question="why?", tool_context=ctx)
@@ -221,7 +221,7 @@ def test_first_call_sets_skip_summarization():
 
 
 def test_first_call_returns_awaiting_status():
-    from horizon.tools.clarify import clarify
+    from app.tools.clarify import clarify
 
     ctx = _fake_context()
     result = clarify(question="why?", tool_context=ctx)
@@ -236,7 +236,7 @@ def test_first_call_returns_awaiting_status():
 
 
 def test_resume_with_answer_payload_returns_answer():
-    from horizon.tools.clarify import clarify
+    from app.tools.clarify import clarify
 
     ctx = _fake_context(
         tool_confirmation=SimpleNamespace(
@@ -255,7 +255,7 @@ def test_resume_with_answer_payload_returns_answer():
 
 def test_resume_with_choice_payload_returns_answer():
     """Predefined-choice buttons send the picked option under ``choice``."""
-    from horizon.tools.clarify import clarify
+    from app.tools.clarify import clarify
 
     ctx = _fake_context(
         tool_confirmation=SimpleNamespace(
@@ -276,7 +276,7 @@ def test_resume_with_choice_payload_returns_answer():
 
 def test_resume_with_string_payload_returns_answer():
     """Front-ends that pass a bare string as the payload still work."""
-    from horizon.tools.clarify import clarify
+    from app.tools.clarify import clarify
 
     ctx = _fake_context(
         tool_confirmation=SimpleNamespace(confirmed=True, payload="freeform")
@@ -288,7 +288,7 @@ def test_resume_with_string_payload_returns_answer():
 
 
 def test_resume_without_answer_returns_none_answer():
-    from horizon.tools.clarify import clarify
+    from app.tools.clarify import clarify
 
     ctx = _fake_context(
         tool_confirmation=SimpleNamespace(confirmed=True, payload=None)
@@ -300,7 +300,7 @@ def test_resume_without_answer_returns_none_answer():
 
 
 def test_resume_declined_returns_declined_envelope():
-    from horizon.tools.clarify import clarify
+    from app.tools.clarify import clarify
 
     ctx = _fake_context(
         tool_confirmation=SimpleNamespace(confirmed=False, payload=None)
@@ -319,7 +319,7 @@ def test_resume_declined_returns_declined_envelope():
 def test_tool_context_is_keyword_only():
     import inspect
 
-    from horizon.tools.clarify import clarify
+    from app.tools.clarify import clarify
 
     sig = inspect.signature(clarify)
     tc = sig.parameters["tool_context"]
@@ -332,7 +332,7 @@ def test_tool_context_is_keyword_only():
 
 
 def test_clarify_registered_on_root_agent():
-    from horizon.agent import root_agent
+    from app.agent import root_agent
 
     # By name, not identity: the tool list holds the FunctionTool wrappers
     # that carry the compact declaration, not the bare functions.

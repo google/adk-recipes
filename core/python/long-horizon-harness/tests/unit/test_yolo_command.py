@@ -18,8 +18,8 @@ from __future__ import annotations
 
 import pytest
 
-from horizon.commands import BUILTIN_COMMAND_REGISTRY
-from horizon.guardrails.permission_rules import (
+from app.commands import BUILTIN_COMMAND_REGISTRY
+from app.guardrails.permission_rules import (
     APPROVAL_MODE_STATE_KEY,
     read_approval_mode,
 )

@@ -40,10 +40,10 @@ _FAKE_SANDBOX_RESOURCE = "projects/fake/locations/us-central1/reasoningEngines/1
 
 
 def _reload_app_agent():
-    import horizon.agent
+    import app.agent
 
-    importlib.reload(horizon.agent)
-    return horizon.agent
+    importlib.reload(app.agent)
+    return app.agent
 
 
 # =============================================================================
@@ -125,7 +125,7 @@ def test_code_executor_is_never_unsafe_local_executor(
 
 
 def test_root_agent_boots_in_either_env_state(monkeypatch: pytest.MonkeyPatch):
-    """Importing ``horizon.agent`` must not raise in either env state. ADK
+    """Importing ``app.agent`` must not raise in either env state. ADK
     validates Agent config at construction time; a bad slot (e.g.,
     pydantic-incompatible executor) would surface here. Also pins that
     ``_build_code_executor()`` doesn't call out to GCP at import time

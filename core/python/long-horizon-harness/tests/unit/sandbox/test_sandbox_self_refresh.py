@@ -14,8 +14,8 @@
 
 import pytest
 
-from horizon.environment.process import BackendGoneError
-from horizon.environment.sandbox import SandboxEnvironment
+from app.environment.process import BackendGoneError
+from app.environment.sandbox import SandboxEnvironment
 
 
 def _env(minter, fetcher, *, interval=0.0):

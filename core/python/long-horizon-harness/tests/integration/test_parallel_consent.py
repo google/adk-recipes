@@ -41,7 +41,7 @@ from google.adk.sessions import InMemorySessionService
 from google.adk.tools.tool_confirmation import ToolConfirmation
 from google.genai import types
 
-from horizon.guardrails.permission_guard import permission_guard
+from app.guardrails.permission_guard import permission_guard
 
 pytestmark = pytest.mark.asyncio
 

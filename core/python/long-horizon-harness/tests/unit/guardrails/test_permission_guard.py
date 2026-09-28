@@ -18,9 +18,9 @@ from __future__ import annotations
 
 import pytest
 
-from horizon.environment_context import set_active_environment
-from horizon.guardrails.permission_guard import permission_guard
-from horizon.guardrails.permission_rules import (
+from app.environment_context import set_active_environment
+from app.guardrails.permission_guard import permission_guard
+from app.guardrails.permission_rules import (
     PERMISSION_GRANTS_STATE_KEY,
     PERMISSION_OVERLAY_FILENAME,
     read_session_grants,
@@ -97,7 +97,7 @@ class _TC:
 
 @pytest.fixture(autouse=True)
 def _env(tmp_path, monkeypatch):
-    from horizon.environment import LocalEnvironment
+    from app.environment import LocalEnvironment
 
     env = LocalEnvironment(working_dir=tmp_path)
     monkeypatch.setattr(env, "_auto_created", False, raising=False)
@@ -544,7 +544,7 @@ async def test_ansi_c_quoting_cannot_hide_substitution_under_a_grant():
 async def test_flagged_rule_prefix_still_matches_literally():
     # A hand-written overlay rule that names a flag must NOT be flag-tolerantly
     # widened — `git push --force` must not authorize a plain `git push`.
-    from horizon.guardrails.permission_rules import _prefix_matches
+    from app.guardrails.permission_rules import _prefix_matches
 
     assert _prefix_matches("git push --force origin main", "git push --force")
     assert not _prefix_matches("git push origin main", "git push --force")
@@ -663,8 +663,8 @@ async def test_always_allow_persists_across_turns_via_interface(tmp_path):
 
 async def test_find_delete_downgrades_to_ask():
     # find is a safe prefix; command_safety must force an ask.
-    from horizon.guardrails.permission_guard import _shell_decision
-    from horizon.guardrails.permission_rules import DEFAULT_RULES
+    from app.guardrails.permission_guard import _shell_decision
+    from app.guardrails.permission_rules import DEFAULT_RULES
 
     decision, _deny, _prefixes = _shell_decision(
         list(DEFAULT_RULES), "bash", "find / -delete", None
@@ -673,8 +673,8 @@ async def test_find_delete_downgrades_to_ask():
 
 
 async def test_plain_find_still_allows():
-    from horizon.guardrails.permission_guard import _shell_decision
-    from horizon.guardrails.permission_rules import DEFAULT_RULES
+    from app.guardrails.permission_guard import _shell_decision
+    from app.guardrails.permission_rules import DEFAULT_RULES
 
     decision, _deny, _ = _shell_decision(
         list(DEFAULT_RULES), "bash", "find . -name '*.py'", None
@@ -756,7 +756,7 @@ async def test_yolo_does_not_bypass_deny():
 async def test_yolo_with_headless_still_denies_non_shell():
     # Headless + YOLO: shell commands are already allowed by headless; non-shell
     # ask_user becomes deny (headless fail-closed, same behavior with or without YOLO).
-    from horizon.guardrails.permission_guard import set_headless_mode
+    from app.guardrails.permission_guard import set_headless_mode
 
     ctx = _Ctx()
     ctx.state["approval_mode"] = "yolo"
@@ -769,7 +769,7 @@ async def test_yolo_with_headless_still_denies_non_shell():
         assert result.get("headless_denied") is True
     finally:
         set_headless_mode(False)
-        from horizon.guardrails.permission_guard import reset_headless_mode
+        from app.guardrails.permission_guard import reset_headless_mode
 
         reset_headless_mode(tok)
 

@@ -31,7 +31,7 @@ os.environ["LHA_ADK_SKIP_APP_BUILD"] = "true"
 
 import pytest
 
-from horizon import fast_api_app
+from app import fast_api_app
 
 
 class _FakePlugin:
@@ -59,14 +59,14 @@ class _FakeStore:
 def _install_fake_plugin(
     monkeypatch: pytest.MonkeyPatch, plugin: _FakePlugin
 ) -> None:
-    fake_agent = types.ModuleType("horizon.agent")
+    fake_agent = types.ModuleType("app.agent")
     fake_agent.SIBLING_AGENT_PLUGIN = plugin  # type: ignore[attr-defined]
-    monkeypatch.setitem(sys.modules, "horizon.agent", fake_agent)
+    monkeypatch.setitem(sys.modules, "app.agent", fake_agent)
 
 
 def _patch_routine_store(monkeypatch: pytest.MonkeyPatch, store) -> None:
     monkeypatch.setattr(
-        "horizon.scheduler.routine_store.active_routine_store", lambda: store
+        "app.scheduler.routine_store.active_routine_store", lambda: store
     )
 
 

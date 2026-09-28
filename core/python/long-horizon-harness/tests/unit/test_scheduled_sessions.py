@@ -19,13 +19,13 @@ from __future__ import annotations
 import pytest
 from google.adk.sessions import InMemorySessionService
 
-from horizon.api.sessions import TITLE_KEY
-from horizon.infrastructure.constants import (
+from app.api.sessions import TITLE_KEY
+from app.infrastructure.constants import (
     SCHEDULER_JOB_KEY,
     SCHEDULER_SOURCE,
     SESSION_SOURCE_KEY,
 )
-from horizon.scheduler.sessions import (
+from app.scheduler.sessions import (
     create_scheduled_session,
     scheduled_session_state,
 )

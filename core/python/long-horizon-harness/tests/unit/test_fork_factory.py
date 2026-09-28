@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for the shared fork helpers at ``horizon/memory/_fork.py``.
+"""Tests for the shared fork helpers at ``app/memory/_fork.py``.
 
 Runner construction, task lifecycle, and ``run_fork`` drive-loop tests
 moved to :mod:`tests.unit.test_sibling_agent_plugin` when those concerns
@@ -26,7 +26,7 @@ from typing import Any
 
 import pytest
 
-from horizon.memory import _fork
+from app.memory import _fork
 
 
 def _make_event(text: str, author: str = "user") -> SimpleNamespace:
@@ -145,7 +145,7 @@ async def test_whitelist_extra_check_can_block():
 def test_log_successful_writes_logs_only_successful_responses(caplog):
     import logging
 
-    caplog.set_level(logging.INFO, logger="horizon.memory._fork")
+    caplog.set_level(logging.INFO, logger="app.memory._fork")
     event = SimpleNamespace(
         content=SimpleNamespace(
             parts=[
@@ -173,6 +173,6 @@ def test_log_successful_writes_logs_only_successful_responses(caplog):
 def test_log_successful_writes_handles_missing_content(caplog):
     import logging
 
-    caplog.set_level(logging.INFO, logger="horizon.memory._fork")
+    caplog.set_level(logging.INFO, logger="app.memory._fork")
     _fork.log_successful_writes(SimpleNamespace(content=None), log_prefix="x")
     assert not caplog.records

@@ -17,7 +17,7 @@ import pytest
 
 def test_build_from_env_requires_dsn(monkeypatch):
     monkeypatch.delenv("LHA_REMINDER_DB_URL", raising=False)
-    from horizon.scheduler.routine_postgres_store import build_from_env
+    from app.scheduler.routine_postgres_store import build_from_env
 
     with pytest.raises(ValueError):
         build_from_env()
@@ -26,7 +26,7 @@ def test_build_from_env_requires_dsn(monkeypatch):
 def test_row_to_routine_maps_fields():
     from datetime import UTC, datetime
 
-    from horizon.scheduler.routine_postgres_store import _row_to_routine
+    from app.scheduler.routine_postgres_store import _row_to_routine
 
     rec = {
         "id": "digest",

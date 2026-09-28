@@ -41,8 +41,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from horizon.environment import LocalEnvironment
-from horizon.environment_context import (
+from app.environment import LocalEnvironment
+from app.environment_context import (
     clear_active_environment,
     set_active_environment,
 )
@@ -74,7 +74,7 @@ def _write_policies(working_dir: Path, rules: list[dict]) -> Path:
 
 
 async def test_module_exposes_entrypoints():
-    from horizon.guardrails import policies
+    from app.guardrails import policies
 
     assert callable(policies.policies_guard)
     assert callable(policies.load_policies)
@@ -91,7 +91,7 @@ class TestDefaultSeed:
     async def test_seed_blocks_rm_rf_root_via_terminal(
         self, policies_env: Path
     ):
-        from horizon.guardrails.policies import policies_guard
+        from app.guardrails.policies import policies_guard
 
         result = await policies_guard(
             tool=SimpleNamespace(name="bash"),
@@ -103,7 +103,7 @@ class TestDefaultSeed:
         assert "error" in result
 
     async def test_seed_allows_benign_terminal(self, policies_env: Path):
-        from horizon.guardrails.policies import policies_guard
+        from app.guardrails.policies import policies_guard
 
         result = await policies_guard(
             tool=SimpleNamespace(name="bash"),
@@ -147,7 +147,7 @@ class TestSeedRootDeletionAndRcTruncation:
     async def test_seed_blocks_dangerous(
         self, policies_env: Path, command: str
     ):
-        from horizon.guardrails.policies import policies_guard
+        from app.guardrails.policies import policies_guard
 
         result = await policies_guard(
             tool=SimpleNamespace(name="bash"),
@@ -159,7 +159,7 @@ class TestSeedRootDeletionAndRcTruncation:
 
     @pytest.mark.parametrize("command", _SEED_MUST_ALLOW)
     async def test_seed_allows_safe(self, policies_env: Path, command: str):
-        from horizon.guardrails.policies import policies_guard
+        from app.guardrails.policies import policies_guard
 
         result = await policies_guard(
             tool=SimpleNamespace(name="bash"),
@@ -180,7 +180,7 @@ class TestSeedRootDeletionAndRcTruncation:
     async def test_seed_blocks_clustered_extra_flags(
         self, policies_env: Path, command: str
     ):
-        from horizon.guardrails.policies import policies_guard
+        from app.guardrails.policies import policies_guard
 
         result = await policies_guard(
             tool=SimpleNamespace(name="bash"),
@@ -201,7 +201,7 @@ class TestSeedRootDeletionAndRcTruncation:
     async def test_seed_clustered_flags_no_false_positive(
         self, policies_env: Path, command: str
     ):
-        from horizon.guardrails.policies import policies_guard
+        from app.guardrails.policies import policies_guard
 
         result = await policies_guard(
             tool=SimpleNamespace(name="bash"),
@@ -218,7 +218,7 @@ class TestSeedRootDeletionAndRcTruncation:
 
 class TestDestructiveAlwaysBlock:
     async def test_always_blocks_tool(self, policies_env: Path):
-        from horizon.guardrails.policies import policies_guard
+        from app.guardrails.policies import policies_guard
 
         _write_policies(
             policies_env,
@@ -233,7 +233,7 @@ class TestDestructiveAlwaysBlock:
         assert result.get("confirmation_required") is True
 
     async def test_does_not_apply_to_other_tool(self, policies_env: Path):
-        from horizon.guardrails.policies import policies_guard
+        from app.guardrails.policies import policies_guard
 
         _write_policies(
             policies_env,
@@ -254,7 +254,7 @@ class TestDestructiveAlwaysBlock:
 
 class TestDestructiveCommands:
     async def test_blocks_when_arg_contains_substring(self, policies_env: Path):
-        from horizon.guardrails.policies import policies_guard
+        from app.guardrails.policies import policies_guard
 
         _write_policies(
             policies_env,
@@ -273,7 +273,7 @@ class TestDestructiveCommands:
         assert isinstance(result, dict)
 
     async def test_allows_when_arg_does_not_match(self, policies_env: Path):
-        from horizon.guardrails.policies import policies_guard
+        from app.guardrails.policies import policies_guard
 
         _write_policies(
             policies_env,
@@ -295,7 +295,7 @@ class TestDestructiveCommands:
     async def test_substring_match_is_case_insensitive(
         self, policies_env: Path
     ):
-        from horizon.guardrails.policies import policies_guard
+        from app.guardrails.policies import policies_guard
 
         _write_policies(
             policies_env,
@@ -321,7 +321,7 @@ class TestDestructiveCommands:
 
 class TestDestructivePaths:
     async def test_blocks_write_to_forbidden_prefix(self, policies_env: Path):
-        from horizon.guardrails.policies import policies_guard
+        from app.guardrails.policies import policies_guard
 
         _write_policies(
             policies_env,
@@ -341,7 +341,7 @@ class TestDestructivePaths:
         assert result.get("confirmation_required") is True
 
     async def test_allows_safe_path(self, policies_env: Path):
-        from horizon.guardrails.policies import policies_guard
+        from app.guardrails.policies import policies_guard
 
         _write_policies(
             policies_env,
@@ -360,7 +360,7 @@ class TestDestructivePaths:
         assert result is None
 
     async def test_checks_multiple_path_args(self, policies_env: Path):
-        from horizon.guardrails.policies import policies_guard
+        from app.guardrails.policies import policies_guard
 
         _write_policies(
             policies_env,
@@ -386,7 +386,7 @@ class TestDestructivePaths:
 
 class TestHotReload:
     async def test_picks_up_new_rule_on_next_call(self, policies_env: Path):
-        from horizon.guardrails.policies import policies_guard
+        from app.guardrails.policies import policies_guard
 
         # No user policies → cherry tool allowed.
         result = await policies_guard(
@@ -416,7 +416,7 @@ class TestHotReload:
 
 class TestLoaderRobustness:
     async def test_skips_malformed_jsonl_lines(self, policies_env: Path):
-        from horizon.guardrails.policies import load_policies
+        from app.guardrails.policies import load_policies
 
         path = policies_env / ".lha" / "policies.jsonl"
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -432,7 +432,7 @@ class TestLoaderRobustness:
     async def test_ignores_missing_canonical_tool_name(
         self, policies_env: Path
     ):
-        from horizon.guardrails.policies import load_policies
+        from app.guardrails.policies import load_policies
 
         path = policies_env / ".lha" / "policies.jsonl"
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -445,7 +445,7 @@ class TestLoaderRobustness:
         assert all(r.get("canonical_tool_name") for r in rules)
 
     async def test_no_user_file_returns_only_defaults(self, policies_env: Path):
-        from horizon.guardrails.policies import load_policies
+        from app.guardrails.policies import load_policies
 
         rules = load_policies(policies_env)
         assert len(rules) > 0
@@ -472,7 +472,7 @@ class _FakeSandboxEnv:
 class TestInterfaceLoader:
     async def test_sandbox_overlay_read_via_interface(self, tmp_path: Path):
         # The overlay lives in the sandbox (reached by the interface), not the host fs.
-        from horizon.guardrails.policies import load_policies_for_env
+        from app.guardrails.policies import load_policies_for_env
 
         env = _FakeSandboxEnv(tmp_path / "sbx")
         env.put(
@@ -487,7 +487,7 @@ class TestInterfaceLoader:
         assert len(rules) > 1
 
     async def test_sandbox_missing_overlay_is_seed_only(self, tmp_path: Path):
-        from horizon.guardrails.policies import (
+        from app.guardrails.policies import (
             _read_default_seed,
             load_policies_for_env,
         )
@@ -504,7 +504,7 @@ class TestInterfaceLoader:
 
 class TestEdgeCases:
     async def test_handles_non_dict_args(self, policies_env: Path):
-        from horizon.guardrails.policies import policies_guard
+        from app.guardrails.policies import policies_guard
 
         result = await policies_guard(
             tool=SimpleNamespace(name="bash"),
@@ -514,7 +514,7 @@ class TestEdgeCases:
         assert result is None
 
     async def test_handles_missing_tool_name(self, policies_env: Path):
-        from horizon.guardrails.policies import policies_guard
+        from app.guardrails.policies import policies_guard
 
         result = await policies_guard(
             tool=SimpleNamespace(),
@@ -526,7 +526,7 @@ class TestEdgeCases:
     async def test_no_active_environment_falls_back_to_defaults(
         self, monkeypatch
     ):
-        from horizon.guardrails import policies
+        from app.guardrails import policies
 
         clear_active_environment()
         # rm -rf / is still blocked because the seed loads without
@@ -545,7 +545,7 @@ class TestEdgeCases:
 
 
 async def test_seed_blocks_write_file_to_dotlha_exfil(policies_env):
-    from horizon.guardrails.policies import policies_guard
+    from app.guardrails.policies import policies_guard
 
     res = await policies_guard(
         tool=SimpleNamespace(name="write"),
@@ -556,7 +556,7 @@ async def test_seed_blocks_write_file_to_dotlha_exfil(policies_env):
 
 
 async def test_seed_blocks_patch_to_dotlha_policies_absolute(policies_env):
-    from horizon.guardrails.policies import policies_guard
+    from app.guardrails.policies import policies_guard
 
     res = await policies_guard(
         tool=SimpleNamespace(name="edit"),
@@ -571,7 +571,7 @@ async def test_seed_blocks_patch_to_dotlha_policies_absolute(policies_env):
 
 
 async def test_seed_blocks_terminal_redirect_to_dotlha(policies_env):
-    from horizon.guardrails.policies import policies_guard
+    from app.guardrails.policies import policies_guard
 
     for cmd in (
         "echo '{}' >> .lha/exfil.jsonl",
@@ -588,7 +588,7 @@ async def test_seed_blocks_terminal_redirect_to_dotlha(policies_env):
 
 
 async def test_seed_blocks_terminal_deletion_of_dotlha(policies_env):
-    from horizon.guardrails.policies import policies_guard
+    from app.guardrails.policies import policies_guard
 
     for cmd in (
         "rm -rf .lha",
@@ -619,7 +619,7 @@ async def test_seed_blocks_terminal_deletion_of_dotlha(policies_env):
 async def test_seed_allows_deleting_a_dotlha_suffixed_archive(policies_env):
     # `.lha` is also an archive extension; deleting foo.lha must NOT be blocked
     # (the rule guards the `.lha/` overlay dir, not a same-suffixed filename).
-    from horizon.guardrails.policies import policies_guard
+    from app.guardrails.policies import policies_guard
 
     for cmd in ("rm foo.lha", "rm archive.lha", "truncate -s0 backup.lha"):
         res = await policies_guard(
@@ -631,7 +631,7 @@ async def test_seed_allows_deleting_a_dotlha_suffixed_archive(policies_env):
 
 
 async def test_seed_allows_write_to_lha_todos(policies_env):
-    from horizon.guardrails.policies import policies_guard
+    from app.guardrails.policies import policies_guard
 
     res = await policies_guard(
         tool=SimpleNamespace(name="write"),
@@ -642,7 +642,7 @@ async def test_seed_allows_write_to_lha_todos(policies_env):
 
 
 async def test_seed_allows_ordinary_terminal_write(policies_env):
-    from horizon.guardrails.policies import policies_guard
+    from app.guardrails.policies import policies_guard
 
     res = await policies_guard(
         tool=SimpleNamespace(name="bash"),
@@ -658,7 +658,7 @@ async def test_seed_allows_ordinary_terminal_write(policies_env):
 
 
 async def test_process_write_destructive_data_blocked(policies_env):
-    from horizon.guardrails.policies import policies_guard
+    from app.guardrails.policies import policies_guard
 
     res = await policies_guard(
         tool=SimpleNamespace(name="process"),
@@ -672,7 +672,7 @@ async def test_process_write_destructive_data_blocked(policies_env):
 
 
 async def test_process_write_redirect_to_dotlha_blocked(policies_env):
-    from horizon.guardrails.policies import policies_guard
+    from app.guardrails.policies import policies_guard
 
     res = await policies_guard(
         tool=SimpleNamespace(name="process"),
@@ -687,7 +687,7 @@ async def test_process_write_redirect_to_dotlha_blocked(policies_env):
 
 
 async def test_process_write_benign_data_allowed(policies_env):
-    from horizon.guardrails.policies import policies_guard
+    from app.guardrails.policies import policies_guard
 
     res = await policies_guard(
         tool=SimpleNamespace(name="process"),
@@ -703,7 +703,7 @@ async def test_process_write_benign_data_allowed(policies_env):
 
 
 async def test_block_message_does_not_mention_policy_grant(policies_env):
-    from horizon.guardrails.policies import policies_guard
+    from app.guardrails.policies import policies_guard
 
     _write_policies(
         policies_env,
@@ -725,7 +725,7 @@ async def test_block_message_does_not_mention_policy_grant(policies_env):
 
 
 async def test_seed_blocks_tee_append_to_dotlha(policies_env):
-    from horizon.guardrails.policies import policies_guard
+    from app.guardrails.policies import policies_guard
 
     res = await policies_guard(
         tool=SimpleNamespace(name="bash"),
@@ -755,7 +755,7 @@ class _Ctx:
     "cmd", ["sudo apt-get update", "chmod -R 777 /etc", "find . -delete"]
 )
 async def test_risky_defers_on_root_chain(cmd):
-    from horizon.guardrails.policies import policies_guard
+    from app.guardrails.policies import policies_guard
 
     res = await policies_guard(
         tool=_Tool("bash"), args={"command": cmd}, tool_context=_Ctx()
@@ -768,7 +768,7 @@ async def test_risky_defers_on_root_chain(cmd):
     "cmd", ["sudo apt-get update", "chmod -R 777 /etc", "find . -delete"]
 )
 async def test_risky_blocks_on_child_chain(cmd):
-    from horizon.guardrails.policies import policies_guard
+    from app.guardrails.policies import policies_guard
 
     res = await policies_guard(
         tool=_Tool("bash"),
@@ -784,7 +784,7 @@ async def test_risky_blocks_on_child_chain(cmd):
     "cmd", ["rm -rf /", "dd if=/dev/zero of=/dev/sda", "cat ~/.ssh/id_rsa"]
 )
 async def test_catastrophic_and_cred_block_both_modes(cmd):
-    from horizon.guardrails.policies import policies_guard
+    from app.guardrails.policies import policies_guard
 
     for ask_is_deny in (False, True):
         res = await policies_guard(
@@ -798,7 +798,7 @@ async def test_catastrophic_and_cred_block_both_modes(cmd):
 
 @pytest.mark.asyncio
 async def test_echo_of_dangerous_string_not_blocked():
-    from horizon.guardrails.policies import policies_guard
+    from app.guardrails.policies import policies_guard
 
     res = await policies_guard(
         tool=_Tool("bash"),
@@ -810,7 +810,7 @@ async def test_echo_of_dangerous_string_not_blocked():
 
 @pytest.mark.asyncio
 async def test_block_message_names_source():
-    from horizon.guardrails.policies import policies_guard
+    from app.guardrails.policies import policies_guard
 
     res = await policies_guard(
         tool=_Tool("bash"),
@@ -832,7 +832,7 @@ async def test_block_message_names_source():
 )
 @pytest.mark.parametrize("ask_is_deny", [False, True])
 async def test_wrapped_catastrophic_blocks_both_chains(cmd, ask_is_deny):
-    from horizon.guardrails.policies import policies_guard
+    from app.guardrails.policies import policies_guard
 
     res = await policies_guard(
         tool=_Tool("bash"),

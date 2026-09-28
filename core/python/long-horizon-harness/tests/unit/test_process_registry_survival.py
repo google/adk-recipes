@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import types
 
-from horizon.environment.registry import (
+from app.environment.registry import (
     DEFAULT_MAX_SESSION_REGISTRIES,
     ProcessRegistry,
     reset_session_registries,

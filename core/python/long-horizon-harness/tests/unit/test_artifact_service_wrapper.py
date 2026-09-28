@@ -33,7 +33,7 @@ from google.adk.artifacts.in_memory_artifact_service import (
 )
 from google.genai import types
 
-from horizon.infrastructure.artifact_service import (
+from app.infrastructure.artifact_service import (
     FilenamePreservingArtifactService,
 )
 

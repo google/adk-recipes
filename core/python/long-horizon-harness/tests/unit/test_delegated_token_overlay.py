@@ -18,14 +18,14 @@ from __future__ import annotations
 
 import pytest
 
-from horizon.environment import LocalEnvironment
-from horizon.environment_context import set_active_environment
-from horizon.secrets import secret_env, set_secret_store
-from horizon.secrets.inject import (
+from app.environment import LocalEnvironment
+from app.environment_context import set_active_environment
+from app.secrets import secret_env, set_secret_store
+from app.secrets.inject import (
     reset_delegated_google_token,
     set_delegated_google_token,
 )
-from horizon.secrets.store import SecretManagerStore
+from app.secrets.store import SecretManagerStore
 from tests.unit.test_secret_store import FakeSecretClient
 
 

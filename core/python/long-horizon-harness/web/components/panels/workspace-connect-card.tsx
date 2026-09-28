@@ -13,7 +13,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-
 import { useState } from "react";
 import { ChevronRight, Loader2, Mail } from "lucide-react";
 import {
@@ -23,7 +22,7 @@ import {
   isExpired,
 } from "@/lib/gcp-connection";
 
-// Keys must mirror WORKSPACE_SURFACES in horizon/auth/oauth.py — the
+// Keys must mirror WORKSPACE_SURFACES in app/auth/oauth.py — the
 // backend drives the available list; an unmapped key falls back to its raw name.
 const SURFACE_LABELS: Record<string, string> = {
   drive: "Drive",
@@ -93,7 +92,9 @@ export function WorkspaceConnectCard() {
       {ws?.connected ? (
         <>
           {isExpired(ws.expires_at) ? (
-            <div className="text-destructive">Connection expired — reconnect</div>
+            <div className="text-destructive">
+              Connection expired — reconnect
+            </div>
           ) : (
             <div className="text-muted-foreground">
               Connected · {ws.readonly ? "read-only" : "read-write"}
@@ -105,6 +106,7 @@ export function WorkspaceConnectCard() {
           )}
           <div className="flex gap-2">
             <button
+              type="button"
               onClick={() =>
                 run(() =>
                   connectGoogle("workspace", {
@@ -119,7 +121,10 @@ export function WorkspaceConnectCard() {
               Reconnect
             </button>
             <button
-              onClick={() => run(() => disconnectGoogle("workspace").then(refresh))}
+              type="button"
+              onClick={() =>
+                run(() => disconnectGoogle("workspace").then(refresh))
+              }
               disabled={busy}
               className="rounded border border-border px-2 py-1 hover:bg-muted disabled:opacity-50"
             >
@@ -212,6 +217,7 @@ export function WorkspaceConnectCard() {
         Read-only
       </label>
       <button
+        type="button"
         onClick={() =>
           run(() =>
             connectGoogle("workspace", {

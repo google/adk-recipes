@@ -75,7 +75,7 @@ def test_blank_declarations_are_read_empty_safe() -> None:
     the blank would win over the default. Use ``env_str``/``env_flag`` instead."""
     blank = {k for k, v in _declared().items() if not v}
     offenders: list[str] = []
-    for path in (REPO_ROOT / "horizon").rglob("*.py"):
+    for path in (REPO_ROOT / "app").rglob("*.py"):
         src = path.read_text(encoding="utf-8")
         for m in _NONEMPTY_DEFAULT.finditer(src):
             if m.group(1) in blank:

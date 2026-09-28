@@ -18,8 +18,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from horizon.conversation import system_prompt
-from horizon.conversation.system_prompt import (
+from app.conversation import system_prompt
+from app.conversation.system_prompt import (
     _build_runtime_env_sentence,
     build_environment_hints,
 )

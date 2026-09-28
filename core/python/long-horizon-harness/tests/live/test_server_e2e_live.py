@@ -49,7 +49,7 @@ def start_server() -> subprocess.Popen[str]:
         sys.executable,
         "-m",
         "uvicorn",
-        "horizon.fast_api_app:app",
+        "app.fast_api_app:app",
         "--host",
         "0.0.0.0",
         "--port",

@@ -14,9 +14,9 @@
 
 import pytest
 
-from horizon.conversation.system_prompt import _available_secrets_line
-from horizon.secrets import set_secret_store
-from horizon.secrets.store import SecretManagerStore
+from app.conversation.system_prompt import _available_secrets_line
+from app.secrets import set_secret_store
+from app.secrets.store import SecretManagerStore
 from tests.unit.test_secret_store import FakeSecretClient
 
 

@@ -1,11 +1,11 @@
 # agents-cli project manifest (agents-cli 1.x reads this file).
 # Migrated from the legacy [tool.agents-cli] block in pyproject.toml.
 # `name` is the Cloud Run service; `agent_directory` is the import package
-# agents-cli loads (horizon). Region is pinned — Cloud Run, Cloud SQL, Agent
+# agents-cli loads (app). Region is pinned — Cloud Run, Cloud SQL, Agent
 # Engine, and the scheduler all live in us-central1.
 name: "lha"
 acli_version: "1.1.0"
-agent_directory: "horizon"
+agent_directory: "app"
 region: "us-central1"
 base_template: "adk"
 generated_at: "2026-05-19T12:19:36.368847+00:00"

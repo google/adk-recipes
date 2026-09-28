@@ -51,8 +51,8 @@ import time
 
 import vertexai
 
-from horizon.environment.sandbox import SandboxEnvironment
-from horizon.sandbox.lifecycle import (
+from app.environment.sandbox import SandboxEnvironment
+from app.sandbox.lifecycle import (
     ProvisionedSandbox,
     _normalize_ttl,
     delete_sandbox,

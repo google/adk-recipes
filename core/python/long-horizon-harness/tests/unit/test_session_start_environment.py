@@ -37,7 +37,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from horizon.sandbox import provider
+from app.sandbox import provider
 
 
 def _fake_context(
@@ -61,7 +61,7 @@ CALLER_SA = "lha-caller@p.iam.gserviceaccount.com"
 
 def _dn(user_id: str, image_uri: str = IMAGE_URI) -> str:
     """Version-scoped sandbox display_name, matching production identity."""
-    from horizon.sandbox.lifecycle import sandbox_display_name
+    from app.sandbox.lifecycle import sandbox_display_name
 
     return sandbox_display_name(user_id, image_uri)
 
@@ -247,9 +247,9 @@ def _sandbox_stub(
 @pytest.fixture(autouse=True)
 def _reset_env_cache() -> None:
     """Each test starts with no cached environments."""
-    from horizon.conversation import session_start
-    from horizon.environment_context import clear_active_environment
-    from horizon.sandbox import provider
+    from app.conversation import session_start
+    from app.environment_context import clear_active_environment
+    from app.sandbox import provider
 
     session_start._env_cache.clear()  # type: ignore[attr-defined]
     provider._template_cache.clear()  # type: ignore[attr-defined]
@@ -263,9 +263,9 @@ async def test_default_backend_falls_back_to_local_when_sandbox_unconfigured(
     """Default backend is ``sandbox``, but with sandbox env vars absent the
     callback warns and degrades to ``LocalEnvironment`` so offline dev and
     unit tests still work."""
-    from horizon.conversation.session_start import on_session_start_callback
-    from horizon.environment import LocalEnvironment
-    from horizon.environment_context import active_environment
+    from app.conversation.session_start import on_session_start_callback
+    from app.environment import LocalEnvironment
+    from app.environment_context import active_environment
 
     monkeypatch.delenv("LHA_ENVIRONMENT_BACKEND", raising=False)
     monkeypatch.delenv("LHA_RUNTIME_IMAGE", raising=False)
@@ -282,9 +282,9 @@ async def test_default_backend_falls_back_to_local_when_sandbox_unconfigured(
 async def test_local_backend_explicit(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from horizon.conversation.session_start import on_session_start_callback
-    from horizon.environment import LocalEnvironment
-    from horizon.environment_context import active_environment
+    from app.conversation.session_start import on_session_start_callback
+    from app.environment import LocalEnvironment
+    from app.environment_context import active_environment
 
     monkeypatch.setenv("LHA_ENVIRONMENT_BACKEND", "local")
     monkeypatch.setenv("LHA_LOCAL_ROOT", str(tmp_path))
@@ -314,9 +314,9 @@ async def test_sandbox_backend_with_agent_instance(
     via a BYOC template, talking to the LB via a freshly-minted JWT. The
     create config carries the deterministic ``display_name`` (so the next
     cold start can find it via ``sandboxes.list``) and the default TTL."""
-    from horizon.conversation.session_start import on_session_start_callback
-    from horizon.environment.sandbox import SandboxEnvironment
-    from horizon.environment_context import active_environment
+    from app.conversation.session_start import on_session_start_callback
+    from app.environment.sandbox import SandboxEnvironment
+    from app.environment_context import active_environment
 
     agent_instance = "projects/p/locations/l/reasoningEngines/r"
     _set_sandbox_env(
@@ -359,9 +359,9 @@ async def test_sandbox_backend_reattaches_to_discovered_sandbox(
     """A user with a RUNNING sandbox discoverable via ``sandboxes.list``
     (matched on ``display_name``) reattaches to it — no template ensure,
     no provision, just a get + a fresh JWT mint."""
-    from horizon.conversation.session_start import on_session_start_callback
-    from horizon.environment.sandbox import SandboxEnvironment
-    from horizon.environment_context import active_environment
+    from app.conversation.session_start import on_session_start_callback
+    from app.environment.sandbox import SandboxEnvironment
+    from app.environment_context import active_environment
 
     agent_instance = "projects/p/locations/l/reasoningEngines/r"
     _set_sandbox_env(
@@ -412,8 +412,8 @@ async def test_sandbox_backend_reprovisions_when_discovered_sandbox_gone(
     """``sandboxes.list`` returns a match but ``get`` 404s (deleted between
     list and get, or stale list cache) → fall through to provisioning a
     fresh one rather than failing the session."""
-    from horizon.conversation.session_start import on_session_start_callback
-    from horizon.environment.sandbox import SandboxEnvironment
+    from app.conversation.session_start import on_session_start_callback
+    from app.environment.sandbox import SandboxEnvironment
 
     agent_instance = "projects/p/locations/l/reasoningEngines/r"
     _set_sandbox_env(
@@ -454,8 +454,8 @@ async def test_sandbox_backend_reprovisions_when_discovered_sandbox_not_running(
 ) -> None:
     """STOPPING/PENDING sandboxes are filtered out by ``find_user_sandbox``
     itself, so we go straight to provisioning without even calling ``get``."""
-    from horizon.conversation.session_start import on_session_start_callback
-    from horizon.environment.sandbox import SandboxEnvironment
+    from app.conversation.session_start import on_session_start_callback
+    from app.environment.sandbox import SandboxEnvironment
 
     agent_instance = "projects/p/locations/l/reasoningEngines/r"
     _set_sandbox_env(
@@ -491,8 +491,8 @@ async def test_sandbox_provision_passes_ttl_from_env(
     """``LHA_SANDBOX_TTL`` override propagates to the ``create`` config so
     operators can tune sandbox lifetime per environment without code
     changes."""
-    from horizon.conversation.session_start import on_session_start_callback
-    from horizon.environment.sandbox import SandboxEnvironment
+    from app.conversation.session_start import on_session_start_callback
+    from app.environment.sandbox import SandboxEnvironment
 
     agent_instance = "projects/p/locations/l/reasoningEngines/r"
     _set_sandbox_env(
@@ -548,9 +548,9 @@ async def test_routine_bump_reattaches_to_old_version_without_provisioning(
     """The headline non-disruptive behavior: after an image bump, a user
     whose only RUNNING sandbox is on the PRIOR image reattaches to it —
     no provision, no migration, no delete. Their installed CLIs survive."""
-    from horizon.conversation.session_start import on_session_start_callback
-    from horizon.environment.sandbox import SandboxEnvironment
-    from horizon.environment_context import active_environment
+    from app.conversation.session_start import on_session_start_callback
+    from app.environment.sandbox import SandboxEnvironment
+    from app.environment_context import active_environment
 
     agent_instance = "projects/p/locations/l/reasoningEngines/r"
     _set_sandbox_env(
@@ -587,10 +587,10 @@ async def test_scheduler_session_reattaches_version_agnostically(
 ) -> None:
     """A2/A6 regression: a scheduler-sourced session takes the same
     reattach path and is NOT force-upgraded mid-run by a routine bump."""
-    from horizon.conversation.session_start import on_session_start_callback
-    from horizon.environment.sandbox import SandboxEnvironment
-    from horizon.environment_context import active_environment
-    from horizon.infrastructure.constants import (
+    from app.conversation.session_start import on_session_start_callback
+    from app.environment.sandbox import SandboxEnvironment
+    from app.environment_context import active_environment
+    from app.infrastructure.constants import (
         SCHEDULER_SOURCE,
         SESSION_SOURCE_KEY,
     )
@@ -629,9 +629,9 @@ async def test_subfloor_sandbox_force_upgrades_and_migrates(
 ) -> None:
     """When LHA_RUNTIME_MIN_VERSION is above the reattach candidate's
     version, force-upgrade: provision fresh, copy /workspace, delete prior."""
-    from horizon.conversation.session_start import on_session_start_callback
-    from horizon.environment.sandbox import SandboxEnvironment
-    from horizon.environment_context import active_environment
+    from app.conversation.session_start import on_session_start_callback
+    from app.environment.sandbox import SandboxEnvironment
+    from app.environment_context import active_environment
 
     agent_instance = "projects/p/locations/l/reasoningEngines/r"
     _set_sandbox_env(
@@ -686,9 +686,9 @@ async def test_subfloor_migration_failure_leaves_prior_intact(
 ) -> None:
     """If the force-upgrade copy raises, the new sandbox is still usable and
     the prior is NOT deleted (so files can't be lost to a migration bug)."""
-    from horizon.conversation.session_start import on_session_start_callback
-    from horizon.environment.sandbox import SandboxEnvironment
-    from horizon.environment_context import active_environment
+    from app.conversation.session_start import on_session_start_callback
+    from app.environment.sandbox import SandboxEnvironment
+    from app.environment_context import active_environment
 
     agent_instance = "projects/p/locations/l/reasoningEngines/r"
     _set_sandbox_env(
@@ -728,8 +728,8 @@ async def test_no_prior_sandbox_skips_migration(
 ) -> None:
     """First-ever session (no prior sandbox) provisions cleanly with no
     download/upload/delete."""
-    from horizon.conversation.session_start import on_session_start_callback
-    from horizon.environment.sandbox import SandboxEnvironment
+    from app.conversation.session_start import on_session_start_callback
+    from app.environment.sandbox import SandboxEnvironment
 
     agent_instance = "projects/p/locations/l/reasoningEngines/r"
     _set_sandbox_env(
@@ -773,9 +773,9 @@ async def test_restores_from_snapshot_when_no_running_sandbox(
     """No RUNNING sandbox but a snapshot exists (TTL/idle teardown) → restore
     from the snapshot instead of provisioning a blank sandbox. The restored
     sandbox is labelled with the snapshot's image version, not the current one."""
-    from horizon.conversation.session_start import on_session_start_callback
-    from horizon.environment.sandbox import SandboxEnvironment
-    from horizon.environment_context import active_environment
+    from app.conversation.session_start import on_session_start_callback
+    from app.environment.sandbox import SandboxEnvironment
+    from app.environment_context import active_environment
 
     agent_instance = "projects/p/locations/l/reasoningEngines/r"
     _set_sandbox_env(
@@ -815,8 +815,8 @@ async def test_snapshot_restore_disabled_by_default_provisions_fresh(
 ) -> None:
     """With LHA_SNAPSHOT_ENABLED unset (default off, gated on the probe), an
     existing snapshot is ignored and a fresh sandbox is provisioned."""
-    from horizon.conversation.session_start import on_session_start_callback
-    from horizon.environment.sandbox import SandboxEnvironment
+    from app.conversation.session_start import on_session_start_callback
+    from app.environment.sandbox import SandboxEnvironment
 
     agent_instance = "projects/p/locations/l/reasoningEngines/r"
     _set_sandbox_env(
@@ -849,8 +849,8 @@ async def test_provisions_fresh_when_no_snapshot(
 ) -> None:
     """No sandbox and no snapshot → provision fresh from the template (today's
     first-session path), with no snapshot restore."""
-    from horizon.conversation.session_start import on_session_start_callback
-    from horizon.environment.sandbox import SandboxEnvironment
+    from app.conversation.session_start import on_session_start_callback
+    from app.environment.sandbox import SandboxEnvironment
 
     agent_instance = "projects/p/locations/l/reasoningEngines/r"
     _set_sandbox_env(
@@ -876,12 +876,12 @@ async def test_upgrade_user_sandbox_provisions_migrates_and_hot_swaps(
     """`/sandbox-upgrade` happy path: user on an old-version sandbox →
     provision current image, migrate /workspace, delete prior, and hot-swap
     the cached + active env so the running session uses the new sandbox."""
-    from horizon.conversation.session_start import (
+    from app.conversation.session_start import (
         _env_cache,
         upgrade_user_sandbox,
     )
-    from horizon.environment.sandbox import SandboxEnvironment
-    from horizon.environment_context import active_environment
+    from app.environment.sandbox import SandboxEnvironment
+    from app.environment_context import active_environment
 
     agent_instance = "projects/p/locations/l/reasoningEngines/r"
     _set_sandbox_env(
@@ -940,8 +940,8 @@ async def test_upgrade_user_sandbox_already_current_is_noop(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """If the user already has a current-image sandbox, upgrade is a no-op."""
-    from horizon.conversation.session_start import upgrade_user_sandbox
-    from horizon.environment.sandbox import SandboxEnvironment
+    from app.conversation.session_start import upgrade_user_sandbox
+    from app.environment.sandbox import SandboxEnvironment
 
     agent_instance = "projects/p/locations/l/reasoningEngines/r"
     _set_sandbox_env(
@@ -969,7 +969,7 @@ async def test_upgrade_user_sandbox_already_current_is_noop(
 async def test_upgrade_user_sandbox_unavailable_on_local_backend(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from horizon.conversation.session_start import upgrade_user_sandbox
+    from app.conversation.session_start import upgrade_user_sandbox
 
     monkeypatch.setenv("LHA_ENVIRONMENT_BACKEND", "local")
 
@@ -988,10 +988,10 @@ async def test_fresh_sandbox_is_hermetic_by_default_in_prod(
     """On Cloud Run with no opt-in, a freshly provisioned sandbox is hermetic: the
     internet-off template (no ``description`` stamp — the create API rejects it),
     and the env reports ``internet_access is False``."""
-    from horizon.conversation.session_start import on_session_start_callback
-    from horizon.environment.sandbox import SandboxEnvironment
-    from horizon.environment_context import active_environment
-    from horizon.sandbox.lifecycle import template_display_name
+    from app.conversation.session_start import on_session_start_callback
+    from app.environment.sandbox import SandboxEnvironment
+    from app.environment_context import active_environment
+    from app.sandbox.lifecycle import template_display_name
 
     agent_instance = "projects/p/locations/l/reasoningEngines/r"
     _set_sandbox_env(
@@ -1019,10 +1019,10 @@ async def test_fresh_sandbox_has_internet_by_default_in_dev(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Local dev (no ``K_SERVICE``) provisions internet-on so ``make dev`` works."""
-    from horizon.conversation.session_start import on_session_start_callback
-    from horizon.environment.sandbox import SandboxEnvironment
-    from horizon.environment_context import active_environment
-    from horizon.sandbox.lifecycle import template_display_name
+    from app.conversation.session_start import on_session_start_callback
+    from app.environment.sandbox import SandboxEnvironment
+    from app.environment_context import active_environment
+    from app.sandbox.lifecycle import template_display_name
 
     agent_instance = "projects/p/locations/l/reasoningEngines/r"
     _set_sandbox_env(
@@ -1049,10 +1049,10 @@ async def test_fresh_sandbox_internet_when_flag_set(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """``LHA_SANDBOX_INTERNET_ACCESS=1`` opts a prod sandbox back into egress."""
-    from horizon.conversation.session_start import on_session_start_callback
-    from horizon.environment.sandbox import SandboxEnvironment
-    from horizon.environment_context import active_environment
-    from horizon.sandbox.lifecycle import template_display_name
+    from app.conversation.session_start import on_session_start_callback
+    from app.environment.sandbox import SandboxEnvironment
+    from app.environment_context import active_environment
+    from app.sandbox.lifecycle import template_display_name
 
     agent_instance = "projects/p/locations/l/reasoningEngines/r"
     _set_sandbox_env(
@@ -1081,11 +1081,11 @@ async def test_reattach_recovers_internet_access_from_template(
 ) -> None:
     """A reattached sandbox recovers its egress mode from its template; a legacy
     sandbox with no template ref is assumed internet-on."""
-    from horizon.conversation.session_start import (
+    from app.conversation.session_start import (
         _ensure_environment,
         _env_cache,
     )
-    from horizon.environment.sandbox import SandboxEnvironment
+    from app.environment.sandbox import SandboxEnvironment
 
     agent_instance = "projects/p/locations/l/reasoningEngines/r"
     _set_sandbox_env(
@@ -1114,7 +1114,7 @@ async def test_reattach_recovers_internet_access_from_template(
 def _build_routine_env(
     monkeypatch: pytest.MonkeyPatch, agent_instance: str
 ) -> Any:
-    from horizon.routines.run_context import RoutineRun
+    from app.routines.run_context import RoutineRun
 
     client, calls = _fake_vertex_client()
     monkeypatch.setattr(provider, "_vertex_client_factory", lambda: client)
@@ -1129,7 +1129,7 @@ async def test_routine_sandbox_follows_fleet_default_hermetic(
 ) -> None:
     """Routines are unattended, so they inherit the same egress default as
     interactive sandboxes — hermetic when deployed, not internet-on."""
-    from horizon.sandbox.lifecycle import template_display_name
+    from app.sandbox.lifecycle import template_display_name
 
     agent_instance = "projects/p/locations/l/reasoningEngines/r"
     _set_sandbox_env(
@@ -1150,7 +1150,7 @@ async def test_routine_sandbox_follows_fleet_when_enabled(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """``LHA_SANDBOX_INTERNET_ACCESS=1`` opts routine sandboxes in too."""
-    from horizon.sandbox.lifecycle import template_display_name
+    from app.sandbox.lifecycle import template_display_name
 
     agent_instance = "projects/p/locations/l/reasoningEngines/r"
     _set_sandbox_env(
@@ -1171,9 +1171,9 @@ async def test_upgrade_user_sandbox_preserves_internet_mode(
 ) -> None:
     """/sandbox-upgrade of an internet-on sandbox must re-provision internet-on
     (read the prior's template egress), not reset to the hermetic fleet default."""
-    from horizon.conversation.session_start import upgrade_user_sandbox
-    from horizon.environment.sandbox import SandboxEnvironment
-    from horizon.sandbox.lifecycle import template_display_name
+    from app.conversation.session_start import upgrade_user_sandbox
+    from app.environment.sandbox import SandboxEnvironment
+    from app.sandbox.lifecycle import template_display_name
 
     agent_instance = "projects/p/locations/l/reasoningEngines/r"
     _set_sandbox_env(
@@ -1223,9 +1223,9 @@ async def test_sandbox_backend_auto_discovers_engine_by_display_name(
     """When ``AGENT_ENGINE_RESOURCE_NAME`` is unset, look up the engine by
     its display name (default ``lha-sandbox-host``) and reuse the
     existing one — same survival-across-restart pattern Memory Bank uses."""
-    from horizon.conversation.session_start import on_session_start_callback
-    from horizon.environment.sandbox import SandboxEnvironment
-    from horizon.environment_context import active_environment
+    from app.conversation.session_start import on_session_start_callback
+    from app.environment.sandbox import SandboxEnvironment
+    from app.environment_context import active_environment
 
     monkeypatch.setenv("LHA_ENVIRONMENT_BACKEND", "sandbox")
     monkeypatch.delenv("AGENT_ENGINE_RESOURCE_NAME", raising=False)
@@ -1257,8 +1257,8 @@ async def test_sandbox_backend_creates_engine_when_not_found(
 ) -> None:
     """No engine matches the display name → create one so the deploy is
     self-bootstrapping on a fresh project."""
-    from horizon.conversation.session_start import on_session_start_callback
-    from horizon.environment.sandbox import SandboxEnvironment
+    from app.conversation.session_start import on_session_start_callback
+    from app.environment.sandbox import SandboxEnvironment
 
     monkeypatch.setenv("LHA_ENVIRONMENT_BACKEND", "sandbox")
     monkeypatch.delenv("AGENT_ENGINE_RESOURCE_NAME", raising=False)
@@ -1292,8 +1292,8 @@ async def test_sandbox_backend_env_var_overrides_auto_discovery(
 ) -> None:
     """An explicit ``AGENT_ENGINE_RESOURCE_NAME`` short-circuits discovery —
     no list/create RPCs, sandbox provisioned under the pinned engine."""
-    from horizon.conversation.session_start import on_session_start_callback
-    from horizon.environment.sandbox import SandboxEnvironment
+    from app.conversation.session_start import on_session_start_callback
+    from app.environment.sandbox import SandboxEnvironment
 
     pinned = "projects/p/locations/l/reasoningEngines/r-pinned"
     _set_sandbox_env(monkeypatch, tmp_path=tmp_path, agent_instance=pinned)
@@ -1316,8 +1316,8 @@ async def test_sandbox_engine_resolution_is_cached(
 ) -> None:
     """The discovered engine name is cached across users so we only pay the
     list RPC once per process."""
-    from horizon.conversation.session_start import on_session_start_callback
-    from horizon.environment.sandbox import SandboxEnvironment
+    from app.conversation.session_start import on_session_start_callback
+    from app.environment.sandbox import SandboxEnvironment
 
     monkeypatch.setenv("LHA_ENVIRONMENT_BACKEND", "sandbox")
     monkeypatch.delenv("AGENT_ENGINE_RESOURCE_NAME", raising=False)
@@ -1349,9 +1349,9 @@ async def test_sandbox_backend_engine_resolution_failure_falls_back_to_local(
 ) -> None:
     """If auto-discovery raises (no GCP access, quota, etc.) the agent
     must NOT crash — fall back to local so the deploy survives."""
-    from horizon.conversation.session_start import on_session_start_callback
-    from horizon.environment import LocalEnvironment
-    from horizon.environment_context import active_environment
+    from app.conversation.session_start import on_session_start_callback
+    from app.environment import LocalEnvironment
+    from app.environment_context import active_environment
 
     monkeypatch.setenv("LHA_ENVIRONMENT_BACKEND", "sandbox")
     monkeypatch.delenv("AGENT_ENGINE_RESOURCE_NAME", raising=False)
@@ -1374,9 +1374,9 @@ async def test_sandbox_backend_without_runtime_image_falls_back_to_local(
 ) -> None:
     """``LHA_RUNTIME_IMAGE`` is mandatory for the sandbox backend — if
     missing, fall back rather than calling ensure_template with no image."""
-    from horizon.conversation.session_start import on_session_start_callback
-    from horizon.environment import LocalEnvironment
-    from horizon.environment_context import active_environment
+    from app.conversation.session_start import on_session_start_callback
+    from app.environment import LocalEnvironment
+    from app.environment_context import active_environment
 
     monkeypatch.setenv("LHA_ENVIRONMENT_BACKEND", "sandbox")
     monkeypatch.setenv(
@@ -1395,9 +1395,9 @@ async def test_sandbox_backend_without_caller_sa_falls_back_to_local(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """No caller SA → cannot mint the LB JWT → fall back."""
-    from horizon.conversation.session_start import on_session_start_callback
-    from horizon.environment import LocalEnvironment
-    from horizon.environment_context import active_environment
+    from app.conversation.session_start import on_session_start_callback
+    from app.environment import LocalEnvironment
+    from app.environment_context import active_environment
 
     monkeypatch.setenv("LHA_ENVIRONMENT_BACKEND", "sandbox")
     monkeypatch.setenv(
@@ -1418,7 +1418,7 @@ async def test_build_sandbox_raises_when_prod_and_missing_runtime_image(
     """In Cloud Run (``K_SERVICE`` set) the local fallback is itself a bug —
     the container's filesystem isn't writable. A missing env var must
     surface as ``SandboxConfigurationError`` so the deploy is loudly broken."""
-    from horizon.conversation.session_start import (
+    from app.conversation.session_start import (
         SandboxConfigurationError,
         on_session_start_callback,
     )
@@ -1440,7 +1440,7 @@ async def test_build_sandbox_raises_when_prod_and_missing_runtime_image(
 async def test_build_sandbox_raises_when_prod_and_missing_caller_sa(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from horizon.conversation.session_start import (
+    from app.conversation.session_start import (
         SandboxConfigurationError,
         on_session_start_callback,
     )
@@ -1466,7 +1466,7 @@ async def test_build_sandbox_raises_when_prod_and_engine_resolution_fails(
 ) -> None:
     """Vertex unreachable in prod is a hard failure — the agent can't do
     anything useful without its tool execution backend."""
-    from horizon.conversation.session_start import (
+    from app.conversation.session_start import (
         SandboxConfigurationError,
         on_session_start_callback,
     )
@@ -1492,8 +1492,8 @@ async def test_same_user_reuses_environment(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Per-user cache prevents re-provisioning across turns."""
-    from horizon.conversation.session_start import on_session_start_callback
-    from horizon.environment_context import active_environment
+    from app.conversation.session_start import on_session_start_callback
+    from app.environment_context import active_environment
 
     monkeypatch.setenv("LHA_ENVIRONMENT_BACKEND", "local")
     monkeypatch.setenv("LHA_LOCAL_ROOT", str(tmp_path))
@@ -1508,8 +1508,8 @@ async def test_same_user_reuses_environment(
 async def test_different_users_get_distinct_environments(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from horizon.conversation.session_start import on_session_start_callback
-    from horizon.environment_context import active_environment
+    from app.conversation.session_start import on_session_start_callback
+    from app.environment_context import active_environment
 
     monkeypatch.setenv("LHA_ENVIRONMENT_BACKEND", "local")
     monkeypatch.setenv("LHA_LOCAL_ROOT", str(tmp_path))
@@ -1528,7 +1528,7 @@ async def test_first_invocation_flag_preserved(
 ) -> None:
     """The existing ``_session_started`` first-turn marker must still be
     set on first invocation and remain on subsequent invocations."""
-    from horizon.conversation.session_start import (
+    from app.conversation.session_start import (
         SESSION_STARTED_AT_STATE_KEY,
         SESSION_STARTED_STATE_KEY,
         on_session_start_callback,
@@ -1551,7 +1551,7 @@ async def test_provisioning_status_returns_ready_when_sandbox_is_running(
 ) -> None:
     """A RUNNING sandbox in Vertex → ``status: ready``. Drives the banner
     off the authoritative cross-instance state, not a per-instance dict."""
-    from horizon.conversation.session_start import get_provisioning_status
+    from app.conversation.session_start import get_provisioning_status
 
     agent_instance = "projects/p/locations/l/reasoningEngines/r"
     _set_sandbox_env(
@@ -1575,7 +1575,7 @@ async def test_provisioning_status_returns_provisioning_when_creating(
 ) -> None:
     """A CREATING sandbox → ``status: provisioning`` so the UI shows the
     "spinning up" banner backed by live Vertex state."""
-    from horizon.conversation.session_start import get_provisioning_status
+    from app.conversation.session_start import get_provisioning_status
 
     agent_instance = "projects/p/locations/l/reasoningEngines/r"
     _set_sandbox_env(
@@ -1602,7 +1602,7 @@ async def test_provisioning_status_returns_none_when_no_sandbox_exists(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Empty ``sandboxes.list`` → no banner."""
-    from horizon.conversation.session_start import get_provisioning_status
+    from app.conversation.session_start import get_provisioning_status
 
     agent_instance = "projects/p/locations/l/reasoningEngines/r"
     _set_sandbox_env(
@@ -1620,7 +1620,7 @@ async def test_provisioning_status_skips_vertex_when_local_backend(
 ) -> None:
     """Local backend → return None without making a Vertex RPC. Cheap path
     for the UI poll loop when no sandbox is in play."""
-    from horizon.conversation.session_start import get_provisioning_status
+    from app.conversation.session_start import get_provisioning_status
 
     monkeypatch.setenv("LHA_ENVIRONMENT_BACKEND", "local")
     monkeypatch.setenv("LHA_LOCAL_ROOT", str(tmp_path))
@@ -1637,7 +1637,7 @@ async def test_provisioning_status_skips_vertex_when_env_vars_missing(
 ) -> None:
     """Sandbox configured but mandatory env vars absent → don't show the
     banner (we're not actually attempting a sandbox), and don't hit Vertex."""
-    from horizon.conversation.session_start import get_provisioning_status
+    from app.conversation.session_start import get_provisioning_status
 
     monkeypatch.setenv("LHA_ENVIRONMENT_BACKEND", "sandbox")
     monkeypatch.delenv("LHA_RUNTIME_IMAGE", raising=False)
@@ -1656,7 +1656,7 @@ async def test_provisioning_status_swallows_vertex_errors(
 ) -> None:
     """Transient Vertex error must not 500 ``/lha/state``. Return None and
     let the UI poll again; the next iteration likely recovers."""
-    from horizon.conversation.session_start import get_provisioning_status
+    from app.conversation.session_start import get_provisioning_status
 
     agent_instance = "projects/p/locations/l/reasoningEngines/r"
     _set_sandbox_env(
@@ -1676,8 +1676,8 @@ async def test_cached_sandbox_env_refreshes_jwt_on_reuse(
     """Cache hit on _ensure_environment must re-mint the JWT — UI workspace
     endpoints reuse the cached env outside the agent-turn pathway, so without
     this the sandbox shim 401s once the initial token expires (~1h)."""
-    from horizon.conversation.session_start import _ensure_environment
-    from horizon.environment.sandbox import SandboxEnvironment
+    from app.conversation.session_start import _ensure_environment
+    from app.environment.sandbox import SandboxEnvironment
 
     agent_instance = "projects/p/locations/l/reasoningEngines/r"
     _set_sandbox_env(
@@ -1704,8 +1704,8 @@ async def test_refresh_sandbox_auth_skips_routing_token_within_throttle(
     """JWT refresh fires on every cache hit but routing-token refresh stays
     throttled — without this, each UI workspace poll would hit Vertex for a
     fresh routing token even though the cached one is still valid."""
-    from horizon.conversation.session_start import _ensure_environment
-    from horizon.environment.sandbox import SandboxEnvironment
+    from app.conversation.session_start import _ensure_environment
+    from app.environment.sandbox import SandboxEnvironment
 
     agent_instance = "projects/p/locations/l/reasoningEngines/r"
     _set_sandbox_env(
@@ -1735,10 +1735,10 @@ async def test_refresh_sandbox_auth_refreshes_routing_token_after_throttle(
 ) -> None:
     """Once the throttle window elapses, the next cache hit re-fetches the
     routing token from connection_info and swaps the header."""
-    from horizon.conversation.session_start import (
+    from app.conversation.session_start import (
         _ensure_environment,
     )
-    from horizon.environment.sandbox import SandboxEnvironment
+    from app.environment.sandbox import SandboxEnvironment
 
     agent_instance = "projects/p/locations/l/reasoningEngines/r"
     _set_sandbox_env(
@@ -1764,7 +1764,7 @@ async def test_refresh_sandbox_auth_refreshes_routing_token_after_throttle(
         return clock["now"]
 
     monkeypatch.setattr(
-        "horizon.environment.sandbox.time.monotonic", fake_monotonic
+        "app.environment.sandbox.time.monotonic", fake_monotonic
     )
 
     env = await _ensure_environment("alice")
@@ -1784,10 +1784,10 @@ async def test_refresh_sandbox_auth_swallows_routing_token_fetch_failure(
     """A transient Vertex error during routing-token refresh must not fail
     the request — the cached token is usually still valid and the next poll
     retries. Header must stay at the previously-stamped value."""
-    from horizon.conversation.session_start import (
+    from app.conversation.session_start import (
         _ensure_environment,
     )
-    from horizon.environment.sandbox import SandboxEnvironment
+    from app.environment.sandbox import SandboxEnvironment
 
     agent_instance = "projects/p/locations/l/reasoningEngines/r"
     _set_sandbox_env(
@@ -1808,7 +1808,7 @@ async def test_refresh_sandbox_auth_swallows_routing_token_fetch_failure(
         return clock["now"]
 
     monkeypatch.setattr(
-        "horizon.environment.sandbox.time.monotonic", fake_monotonic
+        "app.environment.sandbox.time.monotonic", fake_monotonic
     )
 
     env = await _ensure_environment("alice")
@@ -1826,11 +1826,11 @@ async def test_refresh_evicts_cache_when_sandbox_gone(
     """A5: when the throttled routing-token refresh 404s (another instance
     deleted the sandbox during a /sandbox-upgrade), evict the dead env and
     rebuild a fresh one in the SAME call rather than serving the dead one."""
-    from horizon.conversation.session_start import (
+    from app.conversation.session_start import (
         _ensure_environment,
         _env_cache,
     )
-    from horizon.environment.sandbox import SandboxEnvironment
+    from app.environment.sandbox import SandboxEnvironment
 
     agent_instance = "projects/p/locations/l/reasoningEngines/r"
     _set_sandbox_env(
@@ -1850,7 +1850,7 @@ async def test_refresh_evicts_cache_when_sandbox_gone(
 
     clock = {"now": 1000.0}
     monkeypatch.setattr(
-        "horizon.environment.sandbox.time.monotonic", lambda: clock["now"]
+        "app.environment.sandbox.time.monotonic", lambda: clock["now"]
     )
 
     env1 = await _ensure_environment("alice")

@@ -16,7 +16,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from horizon.scheduler.cron import is_valid_cron, next_cron_fire
+from app.scheduler.cron import is_valid_cron, next_cron_fire
 
 
 def test_next_cron_fire_daily_8am():

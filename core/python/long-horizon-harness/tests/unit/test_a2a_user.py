@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Unit tests for ``horizon.a2a.user_converter.request_converter``.
+"""Unit tests for ``app.a2a.user_converter.request_converter``.
 
 Two contracts are covered:
 
@@ -33,8 +33,8 @@ from a2a.types import SendMessageRequest
 from google.adk.a2a import _compat as a2a_compat
 from google.adk.agents.run_config import StreamingMode
 
-from horizon.a2a.user_converter import request_converter
-from horizon.auth.identity import _user_id_var
+from app.a2a.user_converter import request_converter
+from app.auth.identity import _user_id_var
 
 
 def _make_context(metadata: dict | None = None) -> RequestContext:

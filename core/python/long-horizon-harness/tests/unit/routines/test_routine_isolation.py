@@ -14,10 +14,10 @@
 
 import pytest
 
-from horizon.guardrails.permission_guard import _HEADLESS
-from horizon.routines.isolation import HEADLESS_PREAMBLE, routine_isolation
-from horizon.routines.run_context import active_routine_run
-from horizon.secrets.inject import _routine_secret_scope
+from app.guardrails.permission_guard import _HEADLESS
+from app.routines.isolation import HEADLESS_PREAMBLE, routine_isolation
+from app.routines.run_context import active_routine_run
+from app.secrets.inject import _routine_secret_scope
 
 
 def test_routine_isolation_sets_and_resets():

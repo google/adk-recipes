@@ -35,8 +35,8 @@ class _Ctx:
 
 
 async def test_profile_blocks_tool_not_in_allowlist() -> None:
-    from horizon.subagents.child_guard import make_child_policy_guard
-    from horizon.subagents.profiles import get_profile
+    from app.subagents.child_guard import make_child_policy_guard
+    from app.subagents.profiles import get_profile
 
     guard = make_child_policy_guard(
         parent_grants=None, profile=get_profile("explore")
@@ -48,8 +48,8 @@ async def test_profile_blocks_tool_not_in_allowlist() -> None:
 
 
 async def test_profile_allows_tool_in_allowlist() -> None:
-    from horizon.subagents.child_guard import make_child_policy_guard
-    from horizon.subagents.profiles import get_profile
+    from app.subagents.child_guard import make_child_policy_guard
+    from app.subagents.profiles import get_profile
 
     guard = make_child_policy_guard(
         parent_grants=None, profile=get_profile("explore")
@@ -62,7 +62,7 @@ async def test_profile_allows_tool_in_allowlist() -> None:
 
 
 async def test_no_profile_falls_through_to_policy_guard() -> None:
-    from horizon.subagents.child_guard import make_child_policy_guard
+    from app.subagents.child_guard import make_child_policy_guard
 
     guard = make_child_policy_guard(parent_grants=None, profile=None)
     # A benign tool with no policy rule passes.
@@ -73,8 +73,8 @@ async def test_no_profile_falls_through_to_policy_guard() -> None:
 
 
 async def test_inherited_grant_seeded_onto_child_state() -> None:
-    from horizon.guardrails.policy_grants import POLICY_GRANTS_STATE_KEY
-    from horizon.subagents.child_guard import make_child_policy_guard
+    from app.guardrails.policy_grants import POLICY_GRANTS_STATE_KEY
+    from app.subagents.child_guard import make_child_policy_guard
 
     grant = {"tool_name": "bash", "signature": {"command": "rm -rf build/"}}
     guard = make_child_policy_guard(parent_grants=[grant], profile=None)
@@ -85,7 +85,7 @@ async def test_inherited_grant_seeded_onto_child_state() -> None:
 
 
 async def test_malformed_parent_grants_treated_as_empty() -> None:
-    from horizon.subagents.child_guard import make_child_policy_guard
+    from app.subagents.child_guard import make_child_policy_guard
 
     guard = make_child_policy_guard(parent_grants="not-a-list", profile=None)
     result = await guard(
@@ -95,7 +95,7 @@ async def test_malformed_parent_grants_treated_as_empty() -> None:
 
 
 async def test_child_still_blocks_risky_commands() -> None:
-    from horizon.subagents.child_guard import make_child_policy_guard
+    from app.subagents.child_guard import make_child_policy_guard
 
     guard = make_child_policy_guard(parent_grants=None, profile=None)
     result = await guard(
@@ -124,8 +124,8 @@ class _ConfirmCtx(_Ctx):
 
 
 async def test_resurface_asks_when_bubble_available() -> None:
-    from horizon.subagents.child_guard import make_child_policy_guard
-    from horizon.subagents.resurface_context import child_drain
+    from app.subagents.child_guard import make_child_policy_guard
+    from app.subagents.resurface_context import child_drain
 
     guard = make_child_policy_guard(parent_grants=None, profile=None)
     ctx = _ConfirmCtx()
@@ -141,8 +141,8 @@ async def test_resurface_asks_when_bubble_available() -> None:
 
 
 async def test_resurface_asks_for_terminal_when_bubble_available() -> None:
-    from horizon.subagents.child_guard import make_child_policy_guard
-    from horizon.subagents.resurface_context import child_drain
+    from app.subagents.child_guard import make_child_policy_guard
+    from app.subagents.resurface_context import child_drain
 
     guard = make_child_policy_guard(parent_grants=None, profile=None)
     ctx = _ConfirmCtx()
@@ -158,8 +158,8 @@ async def test_resurface_asks_for_terminal_when_bubble_available() -> None:
 
 
 async def test_resurface_denies_terminal_when_bubble_exhausted() -> None:
-    from horizon.subagents.child_guard import make_child_policy_guard
-    from horizon.subagents.resurface_context import child_drain
+    from app.subagents.child_guard import make_child_policy_guard
+    from app.subagents.resurface_context import child_drain
 
     guard = make_child_policy_guard(parent_grants=None, profile=None)
     ctx = _ConfirmCtx()
@@ -174,9 +174,9 @@ async def test_resurface_denies_terminal_when_bubble_exhausted() -> None:
 
 
 async def test_resurface_confirmed_allows_and_writes_grant() -> None:
-    from horizon.guardrails.permission_rules import read_session_grants
-    from horizon.subagents.child_guard import make_child_policy_guard
-    from horizon.subagents.resurface_context import child_drain
+    from app.guardrails.permission_rules import read_session_grants
+    from app.subagents.child_guard import make_child_policy_guard
+    from app.subagents.resurface_context import child_drain
 
     guard = make_child_policy_guard(parent_grants=None, profile=None)
     ctx = _ConfirmCtx(tool_confirmation=SimpleNamespace(confirmed=True))
@@ -196,8 +196,8 @@ async def test_resurface_confirmed_allows_and_writes_grant() -> None:
 
 
 async def test_resurface_grant_lets_later_same_prefix_op_through() -> None:
-    from horizon.subagents.child_guard import make_child_policy_guard
-    from horizon.subagents.resurface_context import child_drain
+    from app.subagents.child_guard import make_child_policy_guard
+    from app.subagents.resurface_context import child_drain
 
     guard = make_child_policy_guard(parent_grants=None, profile=None)
     ctx = _ConfirmCtx(tool_confirmation=SimpleNamespace(confirmed=True))
@@ -218,8 +218,8 @@ async def test_resurface_grant_lets_later_same_prefix_op_through() -> None:
 
 
 async def test_resurface_declined_denies() -> None:
-    from horizon.subagents.child_guard import make_child_policy_guard
-    from horizon.subagents.resurface_context import child_drain
+    from app.subagents.child_guard import make_child_policy_guard
+    from app.subagents.resurface_context import child_drain
 
     guard = make_child_policy_guard(parent_grants=None, profile=None)
     ctx = _ConfirmCtx(tool_confirmation=SimpleNamespace(confirmed=False))

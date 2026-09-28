@@ -1,8 +1,8 @@
 # Copyright 2026 Google LLC
 import pytest
 
-from horizon.environment import Environment
-from horizon.environment.sandbox import SandboxEnvironment
+from app.environment import Environment
+from app.environment.sandbox import SandboxEnvironment
 
 
 def _make(**over):

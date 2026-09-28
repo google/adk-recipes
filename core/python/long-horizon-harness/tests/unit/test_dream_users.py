@@ -29,7 +29,7 @@ import pytest
 from google.adk.events.event import Event
 from google.genai.types import Content, Part
 
-from horizon.infrastructure.constants import (
+from app.infrastructure.constants import (
     SCHEDULER_SOURCE,
     SESSION_SOURCE_KEY,
 )
@@ -104,7 +104,7 @@ def _session(
 
 
 async def test_list_active_users_returns_recent_distinct():
-    from horizon.memory.dream_review import list_active_users
+    from app.memory.dream_review import list_active_users
 
     service = _FakeSessionService(
         [
@@ -118,7 +118,7 @@ async def test_list_active_users_returns_recent_distinct():
 
 
 async def test_list_active_users_dedups_per_user():
-    from horizon.memory.dream_review import list_active_users
+    from app.memory.dream_review import list_active_users
 
     service = _FakeSessionService(
         [
@@ -131,7 +131,7 @@ async def test_list_active_users_dedups_per_user():
 
 
 async def test_list_active_users_empty_when_none_recent():
-    from horizon.memory.dream_review import list_active_users
+    from app.memory.dream_review import list_active_users
 
     service = _FakeSessionService([_session("a1", "alice", 100.0)])
     users = await list_active_users(service, app_name="lha", since_ts=500.0)
@@ -139,7 +139,7 @@ async def test_list_active_users_empty_when_none_recent():
 
 
 async def test_list_active_users_handles_service_without_list_api():
-    from horizon.memory.dream_review import list_active_users
+    from app.memory.dream_review import list_active_users
 
     users = await list_active_users(
         SimpleNamespace(), app_name="lha", since_ts=0.0
@@ -149,7 +149,7 @@ async def test_list_active_users_handles_service_without_list_api():
 
 async def test_list_active_users_ignores_scheduler_sessions():
     """A user whose only recent session is dream-review's own is not active."""
-    from horizon.memory.dream_review import list_active_users
+    from app.memory.dream_review import list_active_users
 
     service = _FakeSessionService(
         [
@@ -162,7 +162,7 @@ async def test_list_active_users_ignores_scheduler_sessions():
 
 
 async def test_list_active_users_counts_user_with_real_and_scheduler_session():
-    from horizon.memory.dream_review import list_active_users
+    from app.memory.dream_review import list_active_users
 
     service = _FakeSessionService(
         [
@@ -180,7 +180,7 @@ async def test_list_active_users_counts_user_with_real_and_scheduler_session():
 
 
 async def test_collect_user_sessions_limits_and_orders_newest_first():
-    from horizon.memory.dream_review import _collect_user_sessions
+    from app.memory.dream_review import _collect_user_sessions
 
     service = _FakeSessionService(
         [
@@ -199,7 +199,7 @@ async def test_collect_user_sessions_limits_and_orders_newest_first():
 
 
 async def test_collect_user_sessions_only_target_user():
-    from horizon.memory.dream_review import _collect_user_sessions
+    from app.memory.dream_review import _collect_user_sessions
 
     service = _FakeSessionService(
         [
@@ -216,7 +216,7 @@ async def test_collect_user_sessions_only_target_user():
 
 async def test_collect_user_sessions_excludes_scheduler_sessions():
     """Dream-review's own persisted sessions are not fed back as input."""
-    from horizon.memory.dream_review import _collect_user_sessions
+    from app.memory.dream_review import _collect_user_sessions
 
     service = _FakeSessionService(
         [
@@ -238,7 +238,7 @@ async def test_collect_user_sessions_excludes_scheduler_sessions():
 
 
 async def test_collect_user_sessions_none_when_no_list_api():
-    from horizon.memory.dream_review import _collect_user_sessions
+    from app.memory.dream_review import _collect_user_sessions
 
     out = await _collect_user_sessions(
         SimpleNamespace(), app_name="lha", user_id="alice", limit=5

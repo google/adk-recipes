@@ -25,10 +25,10 @@ import inspect
 
 import pytest
 
-import horizon.subagents.subagent as subagent_mod
-from horizon.subagents import delegate as old_delegate_mod
-from horizon.subagents import spawn as old_spawn_mod
-from horizon.subagents.subagent import _SUPPORTED_ACTIONS, subagent
+import app.subagents.subagent as subagent_mod
+from app.subagents import delegate as old_delegate_mod
+from app.subagents import spawn as old_spawn_mod
+from app.subagents.subagent import _SUPPORTED_ACTIONS, subagent
 
 pytestmark = pytest.mark.asyncio
 

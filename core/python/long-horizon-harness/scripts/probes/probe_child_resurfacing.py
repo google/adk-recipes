@@ -64,7 +64,7 @@ def _text(events: list) -> str:
 
 
 async def main() -> None:
-    from horizon.fast_api_app import build_runner
+    from app.fast_api_app import build_runner
 
     runner = build_runner()
     app_name = runner.app_name

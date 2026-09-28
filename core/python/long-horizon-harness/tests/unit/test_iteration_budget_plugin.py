@@ -34,7 +34,7 @@ import pytest
 from google.adk.events import Event
 from google.genai import types
 
-from horizon.conversation.iteration_budget_plugin import (
+from app.conversation.iteration_budget_plugin import (
     ITERATION_STATE_KEY,
     IterationBudgetPlugin,
 )

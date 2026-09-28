@@ -21,8 +21,8 @@ from types import SimpleNamespace
 import pytest
 from google.adk.models import LlmRequest, LlmResponse
 
-from horizon.conversation.graceful_halt import HANDOFF_MARKER
-from horizon.conversation.iteration_budget_plugin import (
+from app.conversation.graceful_halt import HANDOFF_MARKER
+from app.conversation.iteration_budget_plugin import (
     _HALT_REASON_STATE_KEY,
     _HALTED_STATE_KEY,
     IterationBudgetPlugin,

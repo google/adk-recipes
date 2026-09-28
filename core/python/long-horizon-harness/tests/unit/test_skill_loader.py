@@ -14,9 +14,9 @@
 
 """Loader for ADK ``SkillToolset`` — pins discovery + dual-root shadowing.
 
-``horizon.tools.skill_loader`` is the boundary between the user-skill filesystem
+``app.tools.skill_loader`` is the boundary between the user-skill filesystem
 layout (user skills under ``<workspace>/.agents/skills/<name>/SKILL.md``;
-shipped builtins under ``horizon/builtin_skills/<name>/SKILL.md``) and
+shipped builtins under ``app/builtin_skills/<name>/SKILL.md``) and
 ADK's experimental ``SkillToolset``. The walker returns a single
 ``dict[str, models.Skill]`` with user skills shadowing builtins by
 ``name``; the factory wraps that into a toolset with ``ListSkillsTool``
@@ -86,7 +86,7 @@ def skill_roots(tmp_path: Path) -> Iterator[tuple[Path, Path]]:
 
 class TestWalkSkillDirs:
     def test_returns_dict_keyed_by_name(self, skill_roots: tuple[Path, Path]):
-        from horizon.tools.skill_loader import walk_skill_dirs
+        from app.tools.skill_loader import walk_skill_dirs
 
         user, builtin = skill_roots
         _write_skill(user, "alpha", _USER_SKILL_MD)
@@ -101,7 +101,7 @@ class TestWalkSkillDirs:
         assert isinstance(result["alpha"], models.Skill)
 
     def test_includes_user_skills(self, skill_roots: tuple[Path, Path]):
-        from horizon.tools.skill_loader import walk_skill_dirs
+        from app.tools.skill_loader import walk_skill_dirs
 
         user, builtin = skill_roots
         _write_skill(user, "alpha", _USER_SKILL_MD)
@@ -112,7 +112,7 @@ class TestWalkSkillDirs:
         assert result["alpha"].frontmatter.name == "alpha"
 
     def test_includes_builtin_skills(self, skill_roots: tuple[Path, Path]):
-        from horizon.tools.skill_loader import walk_skill_dirs
+        from app.tools.skill_loader import walk_skill_dirs
 
         user, builtin = skill_roots
         _write_skill(builtin, "bravo", _BUILTIN_ONLY_MD)
@@ -125,7 +125,7 @@ class TestWalkSkillDirs:
     def test_user_shadows_builtin_on_name_collision(
         self, skill_roots: tuple[Path, Path]
     ):
-        from horizon.tools.skill_loader import walk_skill_dirs
+        from app.tools.skill_loader import walk_skill_dirs
 
         user, builtin = skill_roots
         _write_skill(user, "shared", _USER_SHADOW_MD)
@@ -139,7 +139,7 @@ class TestWalkSkillDirs:
         assert "builtin body" not in result["shared"].instructions
 
     def test_missing_user_dir_falls_back_to_builtin(self, tmp_path: Path):
-        from horizon.tools.skill_loader import walk_skill_dirs
+        from app.tools.skill_loader import walk_skill_dirs
 
         builtin = tmp_path / "builtin"
         builtin.mkdir()
@@ -152,7 +152,7 @@ class TestWalkSkillDirs:
         assert "bravo" in result
 
     def test_missing_builtin_dir_returns_only_user(self, tmp_path: Path):
-        from horizon.tools.skill_loader import walk_skill_dirs
+        from app.tools.skill_loader import walk_skill_dirs
 
         user = tmp_path / "user"
         user.mkdir()
@@ -166,7 +166,7 @@ class TestWalkSkillDirs:
         assert len(result) == 1
 
     def test_both_dirs_missing_returns_empty(self, tmp_path: Path):
-        from horizon.tools.skill_loader import walk_skill_dirs
+        from app.tools.skill_loader import walk_skill_dirs
 
         result = walk_skill_dirs(
             user_dir=tmp_path / "u", builtin_dir=tmp_path / "b"
@@ -178,7 +178,7 @@ class TestWalkSkillDirs:
         self, skill_roots: tuple[Path, Path]
     ):
         """A bad SKILL.md must not poison the rest of the catalog."""
-        from horizon.tools.skill_loader import walk_skill_dirs
+        from app.tools.skill_loader import walk_skill_dirs
 
         user, builtin = skill_roots
         _write_skill(user, "alpha", _USER_SKILL_MD)
@@ -199,7 +199,7 @@ class TestBuildSkillToolset:
     def test_returns_skill_toolset(self, skill_roots: tuple[Path, Path]):
         from google.adk.tools.skill_toolset import SkillToolset
 
-        from horizon.tools.skill_loader import build_skill_toolset
+        from app.tools.skill_loader import build_skill_toolset
 
         user, builtin = skill_roots
         _write_skill(user, "alpha", _USER_SKILL_MD)
@@ -213,7 +213,7 @@ class TestBuildSkillToolset:
         the ``<available_skills>`` XML catalog into the system prompt."""
         from google.adk.tools.skill_toolset import ListSkillsTool
 
-        from horizon.tools.skill_loader import build_skill_toolset
+        from app.tools.skill_loader import build_skill_toolset
 
         user, builtin = skill_roots
         _write_skill(user, "alpha", _USER_SKILL_MD)
@@ -236,8 +236,8 @@ class TestBuildSkillToolset:
             LoadSkillTool as AdkLoadSkillTool,
         )
 
-        from horizon.tools.skill_loader import build_skill_toolset
-        from horizon.tools.skill_toolset import (
+        from app.tools.skill_loader import build_skill_toolset
+        from app.tools.skill_toolset import (
             LoadSkillTool as HorizonLoadSkillTool,
         )
 
@@ -265,7 +265,7 @@ class TestBuildSkillToolset:
         stub."""
         from google.adk.models import LlmRequest
 
-        from horizon.tools.skill_loader import build_skill_toolset
+        from app.tools.skill_loader import build_skill_toolset
 
         user, builtin = skill_roots
         _write_skill(user, "alpha", _USER_SKILL_MD)
@@ -281,7 +281,7 @@ class TestBuildSkillToolset:
 
 
 # =============================================================================
-# Built-in surface migrated off horizon.tools.skills
+# Built-in surface migrated off app.tools.skills
 # =============================================================================
 
 
@@ -289,7 +289,7 @@ class TestModuleSurface:
     def test_builtin_root_points_at_app_builtin_skills(self):
         """The loader owns the host-side builtin root that ``skills.py``
         used to provide via ``_builtin_root()``."""
-        from horizon.tools.skill_loader import builtin_skills_root
+        from app.tools.skill_loader import builtin_skills_root
 
         root = builtin_skills_root()
         assert root.is_dir()

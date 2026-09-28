@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for horizon.memory.memory_list — cross-session memory listing."""
+"""Tests for app.memory.memory_list — cross-session memory listing."""
 
 from __future__ import annotations
 
@@ -25,9 +25,9 @@ from google.adk.events import Event
 from google.adk.memory import InMemoryMemoryService
 from google.genai.types import Content, Part
 
-from horizon.memory._writer import write_memory_event
-from horizon.memory.adapter import VertexMemoryAdapter
-from horizon.memory.memory_list import (
+from app.memory._writer import write_memory_event
+from app.memory.adapter import VertexMemoryAdapter
+from app.memory.memory_list import (
     _FETCH_CAP,
     list_memory_writes,
     parse_marker,
@@ -267,7 +267,7 @@ async def test_list_memory_writes_excludes_other_users():
 
 @pytest.mark.asyncio
 async def test_list_memory_writes_prepends_profile_on_first_page(monkeypatch):
-    from horizon.memory import memory_list as ml
+    from app.memory import memory_list as ml
 
     calls: list[dict] = []
 
@@ -303,7 +303,7 @@ async def test_list_memory_writes_prepends_profile_on_first_page(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_list_memory_writes_omits_profile_on_later_pages(monkeypatch):
-    from horizon.memory import memory_list as ml
+    from app.memory import memory_list as ml
 
     async def fake_profile(**_kw):
         return "Role: SWE"

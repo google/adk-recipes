@@ -14,7 +14,7 @@
 
 """Skill telemetry callback tests.
 
-Pins the contract for ``horizon.memory.skill_telemetry.skill_telemetry_callback``:
+Pins the contract for ``app.memory.skill_telemetry.skill_telemetry_callback``:
 an ``after_tool_callback`` that increments per-skill counters in
 ``session.state['skill_telemetry']``.
 
@@ -60,7 +60,7 @@ def _is_iso_timestamp(value: Any) -> bool:
 
 
 def test_module_exposes_callback_and_state_key():
-    from horizon.memory.skill_telemetry import (
+    from app.memory.skill_telemetry import (
         SKILL_TELEMETRY_STATE_KEY,
         skill_telemetry_callback,
     )
@@ -77,7 +77,7 @@ def test_module_exposes_callback_and_state_key():
 class TestSkillView:
     @pytest.mark.asyncio
     async def test_load_skill_increments_view_counter(self):
-        from horizon.memory.skill_telemetry import (
+        from app.memory.skill_telemetry import (
             SKILL_TELEMETRY_STATE_KEY,
             skill_telemetry_callback,
         )
@@ -99,7 +99,7 @@ class TestSkillView:
     async def test_load_skill_with_resource_also_counts_as_view(self):
         """load_skill also covers what used to be a separate
         load_skill_resource tool — same tool name, an extra arg."""
-        from horizon.memory.skill_telemetry import (
+        from app.memory.skill_telemetry import (
             SKILL_TELEMETRY_STATE_KEY,
             skill_telemetry_callback,
         )
@@ -120,7 +120,7 @@ class TestSkillView:
 
     @pytest.mark.asyncio
     async def test_view_multiple_times_accumulates(self):
-        from horizon.memory.skill_telemetry import (
+        from app.memory.skill_telemetry import (
             SKILL_TELEMETRY_STATE_KEY,
             skill_telemetry_callback,
         )
@@ -138,7 +138,7 @@ class TestSkillView:
 
     @pytest.mark.asyncio
     async def test_view_failure_does_not_increment(self):
-        from horizon.memory.skill_telemetry import (
+        from app.memory.skill_telemetry import (
             SKILL_TELEMETRY_STATE_KEY,
             skill_telemetry_callback,
         )
@@ -165,7 +165,7 @@ class TestSkillView:
 class TestSkillManage:
     @pytest.mark.asyncio
     async def test_write_file_to_skill_path_bumps_manages(self):
-        from horizon.memory.skill_telemetry import (
+        from app.memory.skill_telemetry import (
             SKILL_TELEMETRY_STATE_KEY,
             skill_telemetry_callback,
         )
@@ -191,7 +191,7 @@ class TestSkillManage:
 
     @pytest.mark.asyncio
     async def test_patch_on_skill_path_bumps_manages(self):
-        from horizon.memory.skill_telemetry import (
+        from app.memory.skill_telemetry import (
             SKILL_TELEMETRY_STATE_KEY,
             skill_telemetry_callback,
         )
@@ -216,7 +216,7 @@ class TestSkillManage:
     async def test_writes_to_skill_subresource_also_count(self):
         """Editing ``.agents/skills/<name>/references/foo.md`` is still a manage on
         ``<name>`` — sub-files are part of the skill."""
-        from horizon.memory.skill_telemetry import (
+        from app.memory.skill_telemetry import (
             SKILL_TELEMETRY_STATE_KEY,
             skill_telemetry_callback,
         )
@@ -238,7 +238,7 @@ class TestSkillManage:
 
     @pytest.mark.asyncio
     async def test_manage_failure_does_not_increment(self):
-        from horizon.memory.skill_telemetry import (
+        from app.memory.skill_telemetry import (
             SKILL_TELEMETRY_STATE_KEY,
             skill_telemetry_callback,
         )
@@ -261,7 +261,7 @@ class TestSkillManage:
 
     @pytest.mark.asyncio
     async def test_writes_outside_skills_dir_are_ignored(self):
-        from horizon.memory.skill_telemetry import (
+        from app.memory.skill_telemetry import (
             SKILL_TELEMETRY_STATE_KEY,
             skill_telemetry_callback,
         )
@@ -283,7 +283,7 @@ class TestSkillManage:
     async def test_write_to_skills_root_with_no_skill_name_is_ignored(self):
         """``write('.agents/skills/README.md', ...)`` has no ``<name>/`` after
         the prefix — there's no skill to attribute it to."""
-        from horizon.memory.skill_telemetry import (
+        from app.memory.skill_telemetry import (
             SKILL_TELEMETRY_STATE_KEY,
             skill_telemetry_callback,
         )
@@ -310,7 +310,7 @@ class TestSkillManage:
 class TestMultipleSkills:
     @pytest.mark.asyncio
     async def test_distinct_skills_tracked_separately(self):
-        from horizon.memory.skill_telemetry import (
+        from app.memory.skill_telemetry import (
             SKILL_TELEMETRY_STATE_KEY,
             skill_telemetry_callback,
         )
@@ -337,7 +337,7 @@ class TestMultipleSkills:
 
     @pytest.mark.asyncio
     async def test_view_then_manage_same_skill(self):
-        from horizon.memory.skill_telemetry import (
+        from app.memory.skill_telemetry import (
             SKILL_TELEMETRY_STATE_KEY,
             skill_telemetry_callback,
         )
@@ -374,7 +374,7 @@ class TestMultipleSkills:
 class TestNonSkillTools:
     @pytest.mark.asyncio
     async def test_unrelated_tool_ignored(self):
-        from horizon.memory.skill_telemetry import (
+        from app.memory.skill_telemetry import (
             SKILL_TELEMETRY_STATE_KEY,
             skill_telemetry_callback,
         )
@@ -402,7 +402,7 @@ class TestNonSkillTools:
     async def test_reload_is_ignored(self):
         """``reload`` mutates the whole catalog (skills + extensions +
         manifest), not a single skill — no per-skill counter to bump."""
-        from horizon.memory.skill_telemetry import (
+        from app.memory.skill_telemetry import (
             SKILL_TELEMETRY_STATE_KEY,
             skill_telemetry_callback,
         )
@@ -433,7 +433,7 @@ class TestNonSkillTools:
 class TestDefensive:
     @pytest.mark.asyncio
     async def test_load_skill_missing_name_skips_quietly(self):
-        from horizon.memory.skill_telemetry import (
+        from app.memory.skill_telemetry import (
             SKILL_TELEMETRY_STATE_KEY,
             skill_telemetry_callback,
         )
@@ -453,7 +453,7 @@ class TestDefensive:
 
     @pytest.mark.asyncio
     async def test_none_args_skips_quietly(self):
-        from horizon.memory.skill_telemetry import skill_telemetry_callback
+        from app.memory.skill_telemetry import skill_telemetry_callback
 
         ctx = _fake_context()
         await skill_telemetry_callback(
@@ -465,7 +465,7 @@ class TestDefensive:
 
     @pytest.mark.asyncio
     async def test_callback_returns_none(self):
-        from horizon.memory.skill_telemetry import skill_telemetry_callback
+        from app.memory.skill_telemetry import skill_telemetry_callback
 
         ctx = _fake_context()
         result = await skill_telemetry_callback(
@@ -481,22 +481,22 @@ class TestSkillNameFromPath:
     """The path parser that gates skill writes onto ``.agents/skills/<name>/``."""
 
     def test_canonical_agents_skills_path(self):
-        from horizon.memory.skill_telemetry import skill_name_from_path
+        from app.memory.skill_telemetry import skill_name_from_path
 
         assert skill_name_from_path(".agents/skills/foo/SKILL.md") == "foo"
 
     def test_leading_dot_slash_is_stripped_but_agents_dot_preserved(self):
         # ``lstrip('./')`` would eat the dot off ``.agents`` — regression guard.
-        from horizon.memory.skill_telemetry import skill_name_from_path
+        from app.memory.skill_telemetry import skill_name_from_path
 
         assert skill_name_from_path("./.agents/skills/foo/SKILL.md") == "foo"
 
     def test_bare_skills_path_no_longer_matches(self):
-        from horizon.memory.skill_telemetry import skill_name_from_path
+        from app.memory.skill_telemetry import skill_name_from_path
 
         assert skill_name_from_path("skills/foo/SKILL.md") is None
 
     def test_prefix_without_name_is_none(self):
-        from horizon.memory.skill_telemetry import skill_name_from_path
+        from app.memory.skill_telemetry import skill_name_from_path
 
         assert skill_name_from_path(".agents/skills/README.md") is None

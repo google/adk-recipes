@@ -29,7 +29,7 @@ _ALLOWED_SUBDIRS = frozenset({"references", "assets", "scripts"})
 def test_bootstrap_builtin_exists_and_parses():
     from google.adk.skills import load_skill_from_dir
 
-    from horizon.tools.skill_loader import builtin_skills_root
+    from app.tools.skill_loader import builtin_skills_root
 
     skill_dir = builtin_skills_root() / "bootstrap-google-tools"
     skill_md = skill_dir / "SKILL.md"
@@ -41,7 +41,7 @@ def test_bootstrap_builtin_exists_and_parses():
 
 
 def test_bootstrap_builtin_directory_layout():
-    from horizon.tools.skill_loader import builtin_skills_root
+    from app.tools.skill_loader import builtin_skills_root
 
     skill_dir = builtin_skills_root() / "bootstrap-google-tools"
     for entry in skill_dir.iterdir():
@@ -56,7 +56,7 @@ def test_bootstrap_builtin_directory_layout():
 
 
 def test_bootstrap_builtin_packaged_with_app():
-    from horizon import tools as app_tools
+    from app import tools as app_tools
 
     app_root = Path(app_tools.__file__).resolve().parent.parent
     expected = (
@@ -66,7 +66,7 @@ def test_bootstrap_builtin_packaged_with_app():
 
 
 def test_bootstrap_token_path_precedes_loopback_login():
-    from horizon.tools.skill_loader import builtin_skills_root
+    from app.tools.skill_loader import builtin_skills_root
 
     text = (
         builtin_skills_root() / "bootstrap-google-tools" / "SKILL.md"
@@ -82,7 +82,7 @@ def test_bootstrap_token_path_precedes_loopback_login():
 
 
 def test_bootstrap_token_path_is_unconditional_probe():
-    from horizon.tools.skill_loader import builtin_skills_root
+    from app.tools.skill_loader import builtin_skills_root
 
     text = (
         (builtin_skills_root() / "bootstrap-google-tools" / "SKILL.md")

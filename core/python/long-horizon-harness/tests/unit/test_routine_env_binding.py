@@ -14,14 +14,14 @@
 
 import pytest
 
-from horizon.conversation import session_start
-from horizon.environment import LocalEnvironment
-from horizon.routines.run_context import (
+from app.conversation import session_start
+from app.environment import LocalEnvironment
+from app.routines.run_context import (
     RoutineRun,
     reset_routine_run,
     set_routine_run,
 )
-from horizon.sandbox import provider
+from app.sandbox import provider
 
 
 @pytest.fixture(autouse=True)

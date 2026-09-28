@@ -26,7 +26,7 @@ def test_served_app_builds_with_routes(monkeypatch):
     monkeypatch.setenv("USE_IN_MEMORY_TASK_STORE", "true")
     from fastapi.testclient import TestClient
 
-    from horizon.fast_api_app import _build_app
+    from app.fast_api_app import _build_app
 
     app = _build_app()
     # The /lha and /a2a routes are attached inside the FastAPI lifespan, so
