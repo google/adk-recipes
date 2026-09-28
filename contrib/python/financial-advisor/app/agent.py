@@ -50,4 +50,4 @@ financial_coordinator = LlmAgent(
 
 root_agent = financial_coordinator
 
-app = App(root_agent=root_agent, name="financial_advisor")
+app = App(root_agent=root_agent, name="app")
