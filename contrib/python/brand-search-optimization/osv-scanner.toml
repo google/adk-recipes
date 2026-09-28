@@ -1,0 +1,8 @@
+# osv-scanner reads this file for ./uv.lock (the CVE scan in
+# .github/workflows/dependency-cve-scan.yml). Only vulnerabilities with
+# no fixed release belong here; remove each entry once a fix ships.
+
+[[IgnoredVulns]]
+id = "GHSA-8mgp-746c-j5xp"
+ignoreUntil = 2026-12-27
+reason = "No fixed nltk release exists (3.10.3 is the latest affected). Transitive dependency via rouge-score; not called by this recipe's code."

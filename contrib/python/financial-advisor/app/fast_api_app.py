@@ -18,30 +18,26 @@ from collections.abc import AsyncIterator
 
 import google.auth
 from a2a.server.tasks import InMemoryTaskStore
+from dotenv import load_dotenv
 from fastapi import FastAPI
 from google.adk.cli.fast_api import get_fast_api_app
 from google.adk.runners import Runner
 
-from brand_search_optimization.app_utils import services
-from brand_search_optimization.app_utils.a2a import attach_a2a_routes
-from brand_search_optimization.app_utils.reasoning_engine_adapter import (
+from app.app_utils import services
+from app.app_utils.a2a import attach_a2a_routes
+from app.app_utils.reasoning_engine_adapter import (
     attach_reasoning_engine_routes,
 )
 
-# .env.example declares these Agent Engine-injected variables empty. Loaded
-# as-is, their mere presence makes AdkApp build an Agent Engine memory service
-# with no engine id and fail every reasoning_engine call off Agent Engine.
-for _key in (
-    "GOOGLE_CLOUD_AGENT_ENGINE_ID",
-    "GOOGLE_CLOUD_AGENT_ENGINE_LOCATION",
-):
-    if not os.environ.get(_key):
-        os.environ.pop(_key, None)
+load_dotenv()
+for _k, _v in list(os.environ.items()):
+    if _v.startswith(("<TODO", "<YOUR_")):
+        del os.environ[_k]
 
 # Cloud telemetry needs Application Default Credentials. Resolve them here
-# rather than letting get_fast_api_app raise DefaultCredentialsError at import
-# time: the container has no ADC in CI, so an unguarded otel_to_cloud=True
-# makes the image unstartable and fails recipe-docker-build.
+# rather than letting get_fast_api_app raise DefaultCredentialsError at
+# import time: a container built from this template has no ADC in CI, and an
+# unguarded otel_to_cloud=True makes the image unstartable there.
 try:
     _, project_id = google.auth.default()
 except Exception:
@@ -55,15 +51,11 @@ allow_origins = (
 
 AGENT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-# Fallbacks for local execution; deployments set PORT (see .env.example).
-DEFAULT_HOST = "0.0.0.0"  # noqa: S104 -- container entrypoint default host
-DEFAULT_PORT = 8080
-
 
 @contextlib.asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    from brand_search_optimization.agent import app as adk_app
-    from brand_search_optimization.agent import root_agent
+    from app.agent import app as adk_app
+    from app.agent import root_agent
 
     runner = Runner(
         app=adk_app,
@@ -89,11 +81,13 @@ app: FastAPI = get_fast_api_app(
     artifact_service_uri=services.ARTIFACT_SERVICE_URI,
     allow_origins=allow_origins,
     session_service_uri=services.SESSION_SERVICE_URI,
-    otel_to_cloud=project_id is not None and not os.getenv("INTEGRATION_TEST"),
+    otel_to_cloud=project_id is not None
+    and not os.getenv("INTEGRATION_TEST")
+    and os.getenv("USE_IN_MEMORY_SESSION") not in ("true", "1", "True", "TRUE"),
     lifespan=lifespan,
 )
-app.title = "brand-search-optimization"
-app.description = "API for interacting with the Agent brand-search-optimization"
+app.title = "financial-advisor"
+app.description = "API for interacting with the Agent financial-advisor"
 
 # Agent Engine forwards :query and :streamQuery to these routes; without them
 # a container deployed through container_spec starts but 404s every call.
@@ -104,5 +98,4 @@ attach_reasoning_engine_routes(app)
 if __name__ == "__main__":
     import uvicorn
 
-    port = int(os.getenv("PORT") or DEFAULT_PORT)
-    uvicorn.run(app, host=DEFAULT_HOST, port=port)
+    uvicorn.run(app, host="0.0.0.0", port=8000)  # noqa: S104 -- container entrypoint
