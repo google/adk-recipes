@@ -61,7 +61,7 @@ uv run python -m deployment.bq_populate_data
 ### CLI Mode
 
 ```bash
-uv run adk run brand_search_optimization
+uv run adk run app
 ```
 
 ### Web UI Mode
@@ -70,14 +70,14 @@ uv run adk run brand_search_optimization
 uv run adk web
 ```
 
-Then select `brand_search_optimization` from the application dropdown.
+Then select `app` from the application dropdown.
 
 ## Evaluation
 
 Run the evaluation suite:
 
 ```bash
-uv run adk eval brand_search_optimization eval/data/eval_data1.evalset.json --config_file_path eval/data/test_config.json
+uv run adk eval app eval/data/eval_data1.evalset.json --config_file_path eval/data/test_config.json
 ```
 
 ## Tests, Lint, and Type Checking
@@ -143,7 +143,7 @@ See `tests/example_interaction.md` for a complete example interaction trace.
 
 The Computer Use agent drives a real Chromium instance, so any URL the model
 emits becomes an outbound request from wherever the agent runs.
-`brand_search_optimization/tools/browser_computer.py` filters navigation
+`app/tools/browser_computer.py` filters navigation
 targets before handing them to Playwright: it allows only `http`/`https`,
 rejects loopback, private, link-local and metadata hosts, rejects URLs whose
 host Chromium and `urllib.parse` would disagree about (embedded control

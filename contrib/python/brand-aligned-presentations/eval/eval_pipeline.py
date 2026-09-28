@@ -30,7 +30,7 @@ load_dotenv()
 os.environ["GCP_STAGING_BUCKET"] = ""
 os.environ["LOCAL_DEV"] = "true"
 
-from presentation_agent.agent import PresentationExpertApp  # noqa: E402
+from app.agent import PresentationExpertApp  # noqa: E402
 
 
 def create_valid_mock_pptx():
@@ -61,7 +61,7 @@ async def mock_upload_artifact(app, session_id, filename):
 
     # Save the artifact using the EXACT keyword arguments from ADK signature
     await app._runner.artifact_service.save_artifact(
-        app_name="presentation_agent",
+        app_name="app",
         user_id="evaluator",
         filename=filename,
         artifact=artifact,
@@ -152,7 +152,7 @@ async def evaluate_scenario(client, app, test_case, session_id):
 
         # AFTER ALL TURNS: Capture final deck spec from state for constraint check
         session = await app._runner.session_service.get_session(
-            app_name="presentation_agent",
+            app_name="app",
             user_id="evaluator",
             session_id=session_id,
         )
@@ -237,7 +237,7 @@ async def evaluate_scenario(client, app, test_case, session_id):
                         break
                 # Check research summary specifically in state
                 session = await app._runner.session_service.get_session(
-                    app_name="presentation_agent",
+                    app_name="app",
                     user_id="evaluator",
                     session_id=session_id,
                 )
@@ -349,7 +349,7 @@ async def run_evaluation_with_metrics():
     for i, test_case in enumerate(test_scenarios):
         session_id = f"eval_pipeline_session_{i}"
         await app._runner.session_service.create_session(
-            app_name="presentation_agent",
+            app_name="app",
             user_id="evaluator",
             session_id=session_id,
         )

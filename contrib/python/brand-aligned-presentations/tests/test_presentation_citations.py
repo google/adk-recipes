@@ -4,7 +4,7 @@ import os
 import pytest
 from pptx import Presentation
 
-from presentation_agent.tools.presentation_orchestrator import (
+from app.tools.presentation_orchestrator import (
     render_deck_from_spec,
 )
 
