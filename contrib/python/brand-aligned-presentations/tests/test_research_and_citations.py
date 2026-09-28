@@ -5,16 +5,16 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from presentation_agent.shared_libraries.models import (
+from app.shared_libraries.models import (
     CoverSpec,
     PresentationOutline,
     SlideSpec,
 )
-from presentation_agent.sub_agents.synthesizer.agent import (
+from app.sub_agents.synthesizer.agent import (
     batch_generate_slides,
     generate_and_save_outline,
 )
-from presentation_agent.tools.presentation_orchestrator import (
+from app.tools.presentation_orchestrator import (
     render_deck_from_spec,
 )
 
@@ -59,7 +59,7 @@ async def test_full_citation_workflow():
     )
 
     with patch(
-        "presentation_agent.sub_agents.synthesizer.agent.initialize_genai_client"
+        "app.sub_agents.synthesizer.agent.initialize_genai_client"
     ) as mock_init:
         mock_client = mock_init.return_value
         mock_client.models.generate_content.return_value = (
@@ -100,7 +100,7 @@ async def test_full_citation_workflow():
     )
 
     with patch(
-        "presentation_agent.sub_agents.synthesizer.agent.initialize_genai_client"
+        "app.sub_agents.synthesizer.agent.initialize_genai_client"
     ) as mock_init:
         mock_client = mock_init.return_value
         mock_client.aio.models.generate_content = AsyncMock(
@@ -126,7 +126,7 @@ async def test_full_citation_workflow():
     deck_spec_dict = result["deck_spec"]
 
     with patch(
-        "presentation_agent.tools.presentation_orchestrator.Presentation"
+        "app.tools.presentation_orchestrator.Presentation"
     ) as mock_prs_class:
         mock_prs = mock_prs_class.return_value
 
@@ -158,12 +158,8 @@ async def test_full_citation_workflow():
         mock_prs.part = MagicMock()
 
         with patch("os.path.exists", return_value=True):
-            with patch(
-                "presentation_agent.tools.presentation_orchestrator.get_smart_layout"
-            ):
-                with patch(
-                    "presentation_agent.tools.presentation_orchestrator._insert_image"
-                ):
+            with patch("app.tools.presentation_orchestrator.get_smart_layout"):
+                with patch("app.tools.presentation_orchestrator._insert_image"):
                     with patch("tempfile.NamedTemporaryFile") as mock_temp:
                         mock_temp.return_value.__enter__.return_value.name = (
                             "dummy.pptx"

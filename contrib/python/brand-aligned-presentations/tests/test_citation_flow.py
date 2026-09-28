@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from presentation_agent.sub_agents.synthesizer.agent import (
+from app.sub_agents.synthesizer.agent import (
     batch_generate_slides,
 )
 
@@ -53,7 +53,7 @@ async def test_citation_extraction_logic():
     )
 
     with patch(
-        "presentation_agent.sub_agents.synthesizer.agent.initialize_genai_client",
+        "app.sub_agents.synthesizer.agent.initialize_genai_client",
         return_value=mock_client,
     ):
         result = await batch_generate_slides(

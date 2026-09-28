@@ -15,10 +15,10 @@
 import os
 from unittest.mock import patch
 
-from presentation_agent.agent import PresentationExpertApp
+from app.agent import PresentationExpertApp
 
 
-@patch("presentation_agent.agent.initialize_genai_client")
+@patch("app.agent.initialize_genai_client")
 def test_app_initialization(mock_init):
     # This ensures that all tools, memory, and artifact services can be composed properly
     # without running into syntax or initialization errors.
@@ -36,11 +36,11 @@ def test_app_initialization(mock_init):
 
     # Assert runner is composed
     assert app._runner is not None
-    assert app._runner.app_name == "presentation_agent"
+    assert app._runner.app_name == "app"
 
 
-@patch("presentation_agent.agent.initialize_genai_client")
-@patch("presentation_agent.agent.ENABLE_RAG", True)
+@patch("app.agent.initialize_genai_client")
+@patch("app.agent.ENABLE_RAG", True)
 def test_app_initialization_with_rag(mock_init):
     os.environ["GOOGLE_CLOUD_PROJECT"] = "test-project"
     os.environ["GOOGLE_CLOUD_LOCATION"] = "global"
@@ -51,25 +51,25 @@ def test_app_initialization_with_rag(mock_init):
     assert app._agent is not None
 
 
-@patch("presentation_agent.agent.initialize_genai_client")
-@patch("presentation_agent.agent.GCS_BUCKET_NAME", None)
+@patch("app.agent.initialize_genai_client")
+@patch("app.agent.GCS_BUCKET_NAME", None)
 def test_app_initialization_no_gcs_bucket(mock_init):
     app = PresentationExpertApp()
     assert app._agent is not None
 
 
-@patch("presentation_agent.agent.initialize_genai_client")
-@patch("presentation_agent.agent.GCS_BUCKET_NAME", "my-bucket")
-@patch("presentation_agent.agent.get_gcs_client")
+@patch("app.agent.initialize_genai_client")
+@patch("app.agent.GCS_BUCKET_NAME", "my-bucket")
+@patch("app.agent.get_gcs_client")
 def test_app_initialization_gcs_bucket_fail_none(mock_get_gcs, mock_init):
     mock_get_gcs.return_value = None
     app = PresentationExpertApp()
     assert app._agent is not None
 
 
-@patch("presentation_agent.agent.initialize_genai_client")
-@patch("presentation_agent.agent.GCS_BUCKET_NAME", "my-bucket")
-@patch("presentation_agent.agent.get_gcs_client")
+@patch("app.agent.initialize_genai_client")
+@patch("app.agent.GCS_BUCKET_NAME", "my-bucket")
+@patch("app.agent.get_gcs_client")
 def test_app_initialization_gcs_bucket_exception(mock_get_gcs, mock_init):
     mock_get_gcs.side_effect = Exception("Failed")
     app = PresentationExpertApp()

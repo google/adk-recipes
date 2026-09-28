@@ -21,7 +21,7 @@ from google.adk.models.llm_response import LlmResponse
 from google.auth.transport.requests import Request as AuthRequest
 from google.genai import types
 
-from presentation_agent.shared_libraries.config import (
+from app.shared_libraries.config import (
     MODEL_ARMOR_TEMPLATE_ID,
     get_logger,
 )

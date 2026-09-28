@@ -358,7 +358,10 @@ async def batch_generate_slides(
                     )
                     state_spec = json.loads(spec_bytes.decode("utf-8"))
             except Exception:
-                pass
+                get_logger("_generate_single_slide").debug(
+                    "Could not load the saved presentation spec from artifacts",
+                    exc_info=True,
+                )
 
         # FINAL FALLBACK: Ensure state_spec is never None before assignment
         if not state_spec:

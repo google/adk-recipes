@@ -27,11 +27,11 @@ from google.adk.sessions import (
     VertexAiSessionService,
 )
 
-from presentation_agent.prompt import final_instruction
+from app.prompt import final_instruction
 
-# Local Application Imports from the 'presentation_agent' package
+# Local Application Imports from the 'app' package
 # If need to include MODEL_ARMOR_TEMPLATE_ID and related imports, they would go here as well.
-from presentation_agent.shared_libraries.config import (
+from app.shared_libraries.config import (
     ENABLE_DEEP_RESEARCH,
     ENABLE_RAG,
     GCS_BUCKET_NAME,
@@ -41,7 +41,7 @@ from presentation_agent.shared_libraries.config import (
     initialize_genai_client,
     resolve_regional_location,
 )
-from presentation_agent.sub_agents import (
+from app.sub_agents import (
     batch_slide_writer_tool,
     deep_research_agent_tool,
     generate_outline_and_save_tool,
@@ -50,7 +50,7 @@ from presentation_agent.sub_agents import (
     outline_specialist_tool,
     slide_writer_specialist_tool,
 )
-from presentation_agent.tools import ALL_STANDARD_TOOLS
+from app.tools import ALL_STANDARD_TOOLS
 
 
 class PresentationExpertApp:
@@ -154,7 +154,7 @@ class PresentationExpertApp:
         # Configure and Run the Runner
         self._runner = Runner(
             agent=self._agent,
-            app_name="presentation_agent",
+            app_name="app",
             session_service=session_service,
             artifact_service=artifact_service,
             memory_service=InMemoryMemoryService(),
@@ -166,4 +166,4 @@ class PresentationExpertApp:
 coordinator_wrapper = PresentationExpertApp()
 root_agent = coordinator_wrapper._agent
 
-app = App(root_agent=root_agent, name="presentation_agent")
+app = App(root_agent=root_agent, name="app")

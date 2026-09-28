@@ -18,9 +18,9 @@ import json
 import logging
 import os
 import sys
+import tomllib
 from typing import Any
 
-import tomllib
 import vertexai
 from dotenv import load_dotenv, set_key
 from google.cloud import storage
@@ -28,7 +28,7 @@ from vertexai import agent_engines
 from vertexai.preview.reasoning_engines import AdkApp
 
 # Add the project root to sys.path
-# Since we are now in root/presentation_agent/deployment/deploy.py,
+# Since we are now in root/app/deployment/deploy.py,
 # the project root is two levels up.
 project_root = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "..", "..")
@@ -43,8 +43,8 @@ logger = logging.getLogger(__name__)
 
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
-from presentation_agent.agent import root_agent  # noqa: E402
-from presentation_agent.shared_libraries.config import (  # noqa: E402
+from app.agent import root_agent  # noqa: E402
+from app.shared_libraries.config import (  # noqa: E402
     resolve_regional_location,
 )
 
@@ -244,7 +244,7 @@ def main(mode):
                 display_name="presentation_agent",
                 requirements=load_requirements(),
                 extra_packages=[
-                    "./presentation_agent",
+                    "./app",
                 ],
                 env_vars=env_vars,
             )
@@ -265,7 +265,7 @@ def main(mode):
             display_name="presentation_agent",
             requirements=load_requirements(),
             extra_packages=[
-                "./presentation_agent",
+                "./app",
             ],
             env_vars=env_vars,
         )

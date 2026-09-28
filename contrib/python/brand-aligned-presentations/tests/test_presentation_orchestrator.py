@@ -20,12 +20,12 @@ import pytest
 from google.adk.tools.tool_context import ToolContext
 from pptx import Presentation
 
-from presentation_agent.shared_libraries.models import (
+from app.shared_libraries.models import (
     CoverSpec,
     DeckSpec,
     SlideSpec,
 )
-from presentation_agent.tools.presentation_orchestrator import (
+from app.tools.presentation_orchestrator import (
     render_deck_from_spec,
 )
 
@@ -42,7 +42,7 @@ def create_basic_template():
 
 
 @pytest.mark.asyncio
-@patch("presentation_agent.tools.presentation_orchestrator.generate_visual")
+@patch("app.tools.presentation_orchestrator.generate_visual")
 async def test_render_deck_from_spec(mock_generate_visual):
     # Mock visual generation to avoid actual API calls
     mock_generate_visual.return_value = "/mock/path/to/image.png"
@@ -80,7 +80,7 @@ async def test_render_deck_from_spec(mock_generate_visual):
         # We patch _insert_visual_into_slide because it requires a real image file path,
         # and we mocked the visual generation to return a fake path.
         with patch(
-            "presentation_agent.tools.presentation_orchestrator._insert_visual_into_slide"
+            "app.tools.presentation_orchestrator._insert_visual_into_slide"
         ) as mock_insert:
             result = await render_deck_from_spec(
                 spec_dict=spec.model_dump(),

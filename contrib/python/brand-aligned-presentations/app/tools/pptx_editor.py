@@ -76,7 +76,9 @@ def edit_slide_text(
             try:
                 slide.notes_slide.notes_text_frame.text = new_speaker_notes
             except Exception:
-                pass
+                get_logger("edit_slide_text").warning(
+                    "Could not set speaker notes", exc_info=True
+                )
 
         prs.save(pptx_path)
         return f"Successfully edited slide {slide_number}."
@@ -136,7 +138,9 @@ def add_slide_to_end(
             try:
                 slide.notes_slide.notes_text_frame.text = speaker_notes
             except Exception:
-                pass
+                get_logger("add_slide_to_end").warning(
+                    "Could not set speaker notes", exc_info=True
+                )
 
         prs.save(pptx_path)
         return f"Successfully added new slide '{title}'."
@@ -612,7 +616,9 @@ def extract_slide_content(file_path: str, slide_number: int) -> str:
             if slide.has_notes_slide:
                 speaker_notes = slide.notes_slide.notes_text_frame.text
         except Exception:
-            pass
+            get_logger("extract_slide_content").debug(
+                "Could not read speaker notes", exc_info=True
+            )
 
         content = "\n".join(slide_text)
         if speaker_notes:

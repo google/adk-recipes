@@ -13,7 +13,7 @@
 # limitations under the License.
 
 
-from presentation_agent.shared_libraries.config import (
+from app.shared_libraries.config import (
     ENABLE_DEEP_RESEARCH,
     ENABLE_RAG,
 )

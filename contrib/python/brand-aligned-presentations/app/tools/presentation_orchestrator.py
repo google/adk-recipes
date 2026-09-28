@@ -394,7 +394,10 @@ async def render_deck_from_spec(
                             text += f"- {citation}\n"
                     notes.text = text
                 except Exception:
-                    pass
+                    get_logger("_apply_bullets").warning(
+                        "Could not write speaker notes and citations",
+                        exc_info=True,
+                    )
 
         # Closing
         try:
