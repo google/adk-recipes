@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package com.google.adk.samples.agents.llmauditor
+package com.google.adk.recipes.llmauditor
 
 import com.google.adk.kt.webserver.AdkServerConfig
 import com.google.adk.kt.webserver.dev.AdkDevServer

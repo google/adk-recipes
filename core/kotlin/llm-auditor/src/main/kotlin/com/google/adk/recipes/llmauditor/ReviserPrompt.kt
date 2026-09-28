@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package com.google.adk.samples.agents.llmauditor
+package com.google.adk.recipes.llmauditor
 
 const val END_MARK = "---END-OF-EDIT---"
 

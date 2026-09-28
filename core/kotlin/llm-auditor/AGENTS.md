@@ -110,5 +110,5 @@ JDK 17+ and `GOOGLE_API_KEY`.
 | --- | --- |
 | Build | `gradle build` |
 | CLI (REPL) | `gradle run` |
-| Dev UI on :8080 | `gradle run -PmainClass=com.google.adk.samples.agents.llmauditor.WebMainKt` |
+| Dev UI on :8080 | `gradle run -PmainClass=com.google.adk.recipes.llmauditor.WebMainKt` |
 | What CI runs | `gradle test` (compiles; no tests exist) |

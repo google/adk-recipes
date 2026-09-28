@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package com.google.adk.samples.agents.llmauditor
+package com.google.adk.recipes.llmauditor
 
 const val CRITIC_PROMPT = """
 You are a professional investigative journalist, excelling at critical thinking and verifying information before printed to a highly-trustworthy publication.

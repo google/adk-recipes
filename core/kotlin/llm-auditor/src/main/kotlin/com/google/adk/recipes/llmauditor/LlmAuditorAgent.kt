@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package com.google.adk.samples.agents.llmauditor
+package com.google.adk.recipes.llmauditor
 
 import com.google.adk.kt.agents.SequentialAgent
 import com.google.adk.kt.models.Gemini

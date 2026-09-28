@@ -45,7 +45,7 @@ The LLM Auditor chains two sub-agents in a sequential pipeline:
 
 ```
 llm-auditor/
-    src/main/kotlin/com/google/adk/samples/agents/llmauditor/
+    src/main/kotlin/com/google/adk/recipes/llmauditor/
         LlmAuditorAgent.kt    # Root SequentialAgent definition
         CriticAgent.kt        # Critic sub-agent (Google Search)
         CriticPrompt.kt       # Critic system prompt
@@ -104,7 +104,7 @@ gradle run
 Launch the ADK web UI to chat with the agent and inspect execution traces:
 
 ```bash
-gradle run -PmainClass=com.google.adk.samples.agents.llmauditor.WebMainKt
+gradle run -PmainClass=com.google.adk.recipes.llmauditor.WebMainKt
 ```
 
 Then open http://localhost:8080 in your browser.
