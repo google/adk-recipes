@@ -23,10 +23,16 @@ For expired inactive recipes:
   1. Identifies the repo_admin from .github/policy.yml.
   2. Checks for an existing deletion PR:
      - If open: does nothing.
-     - If closed/ignored (unmerged): reopens it.
+     - If closed/ignored (unmerged): reopens it and merges the current main
+       into its branch, so files added to the recipe since the PR was
+       opened are deleted too. If it cannot be reopened (for example its
+       branch was swept), a fresh PR is opened instead.
      - If no PR exists: creates a branch, deletes the recipe directory, commits,
        pushes, and opens a new PR.
   3. Assigns new or reopened PRs to repo_admin for manual review.
+
+Exits non-zero when any PR action fails, so a scheduled run that achieved
+nothing does not show green.
 
 Usage:
   python .github/scripts/recipe_deprecator.py
@@ -41,36 +47,30 @@ import json
 import logging
 import os
 import re
-import shutil
 import subprocess
 import sys
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+import recipe_manifests
 import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 POLICY_PATH = Path(__file__).resolve().parents[1] / "policy.yml"
 
-SCAN_ROOTS = ["core", "contrib", "skills"]
-SKIP_DIRS = {
-    ".venv",
-    "node_modules",
-    ".gradle",
-    ".git",
-    "__pycache__",
-    ".tox",
-    ".mypy_cache",
-    "dist",
-    "build",
-    ".ruff_cache",
-    ".agent-tmp",
-}
+# Shared with the other recipe-tree walkers so a renamed or added recipe root
+# is picked up here too.
+SCAN_ROOTS = recipe_manifests.SCAN_ROOTS
+SKIP_DIRS = recipe_manifests.SKIP_DIRS | {".ruff_cache", ".agent-tmp"}
 
 DEFAULT_INACTIVE_DAYS = 60
 DEFAULT_REPO_ADMIN = "happyhuman"
 DEFAULT_PR_LIMIT = 1000
+BASE_BRANCH = "main"
+
+BOT_NAME = "github-actions[bot]"
+BOT_EMAIL = "41898282+github-actions[bot]@users.noreply.github.com"
 
 
 @dataclass
@@ -214,20 +214,35 @@ def get_deletion_pr_body(
     """PR description for recipe deprecation."""
     return (
         f"## Deprecation of inactive recipe\n\n"
-        f"This PR deletes the inactive recipe at `{recipe_rel_path}` because "
-        f"it has been marked as `status: inactive` for {days_inactive} days (threshold: {threshold_days}+ days).\n\n"
+        f"This PR deletes the inactive recipe at `{recipe_rel_path}`. Its "
+        f"manifest.yaml says `status: inactive` and has not changed for "
+        f"{days_inactive} days (threshold: {threshold_days}+ days).\n\n"
         f"Assigned to @{repo_admin} for manual review.\n"
     )
 
 
 def fetch_prs(repo: str | None = None) -> list[dict]:
-    """Fetch existing PRs from GitHub using gh CLI."""
+    """Fetch existing PRs from GitHub using gh CLI.
+
+    Open PRs are listed on their own so a long-open deletion PR is never
+    pushed out of the window by newer closed ones; missing it would mean
+    force-pushing over its branch. Only the most recent closed PRs are
+    listed, and a closed deletion PR outside that window just gets a fresh
+    PR instead of a reopen.
+
+    Raises RuntimeError on failure. Carrying on with an empty list would make
+    every expired recipe look PR-less and open duplicates of open PRs.
+    """
+    return _list_prs("open", repo) + _list_prs("closed", repo)
+
+
+def _list_prs(state: str, repo: str | None) -> list[dict]:
     cmd = [
         "gh",
         "pr",
         "list",
         "--state",
-        "all",
+        state,
         "--limit",
         str(DEFAULT_PR_LIMIT),
         "--json",
@@ -238,17 +253,29 @@ def fetch_prs(repo: str | None = None) -> list[dict]:
 
     try:
         res = subprocess.run(cmd, capture_output=True, text=True, check=False)
-        if res.returncode == 0 and res.stdout.strip():
-            return json.loads(res.stdout)
-    except Exception as exc:
-        print(f"warning: failed to fetch PRs via gh: {exc}", file=sys.stderr)
-    return []
+    except OSError as exc:
+        raise RuntimeError(f"failed to run gh pr list: {exc}") from exc
+    if res.returncode != 0:
+        raise RuntimeError(f"gh pr list failed: {res.stderr.strip()}")
+    try:
+        prs = json.loads(res.stdout or "[]")
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"gh pr list returned invalid JSON: {exc}") from exc
+    if not isinstance(prs, list):
+        raise RuntimeError("gh pr list did not return a JSON list")
+    return prs
 
 
 def find_existing_deletion_pr(
     recipe_rel_path: str, prs: list[dict]
 ) -> dict | None:
-    """Find existing deletion PR for this recipe."""
+    """Find existing deletion PR for this recipe.
+
+    Any matching open PR counts, including a hand-made one found by title or
+    alternative branch name, since it means deletion is already under review.
+    A closed PR is only returned (for reopening) when it is on this script's
+    own branch, so a person's unrelated closed PR is never reopened.
+    """
     matching: list[dict] = []
     expected_branch = get_deletion_branch_name(recipe_rel_path)
     alt_branch_1 = f"deprecate/{recipe_rel_path.replace('/', '-')}"
@@ -285,6 +312,7 @@ def find_existing_deletion_pr(
         for pr in matching
         if str(pr.get("state", "")).upper() == "CLOSED"
         and not pr.get("mergedAt")
+        and pr.get("headRefName") == expected_branch
     ]
     if unmerged_closed:
         return max(unmerged_closed, key=lambda p: int(p.get("number", 0)))
@@ -367,6 +395,85 @@ def reopen_pr(
     return False
 
 
+def _git_env() -> dict[str, str]:
+    """Environment with a commit identity, for runs outside the workflow."""
+    env = dict(os.environ)
+    env.setdefault("GIT_AUTHOR_NAME", BOT_NAME)
+    env.setdefault("GIT_AUTHOR_EMAIL", BOT_EMAIL)
+    env.setdefault("GIT_COMMITTER_NAME", BOT_NAME)
+    env.setdefault("GIT_COMMITTER_EMAIL", BOT_EMAIL)
+    return env
+
+
+def _run(
+    cmd: list[str],
+    repo_root: Path,
+    env: dict[str, str] | None = None,
+    check: bool = True,
+) -> subprocess.CompletedProcess:
+    """Run a command in repo_root; raise RuntimeError with stderr on failure."""
+    res = subprocess.run(
+        cmd,
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+    )
+    if check and res.returncode != 0:
+        raise RuntimeError(f"{' '.join(cmd)} failed: {res.stderr.strip()}")
+    return res
+
+
+def _current_ref(repo_root: Path, env: dict[str, str]) -> str:
+    """The checked-out branch name, or the commit SHA when detached."""
+    res = _run(
+        ["git", "symbolic-ref", "-q", "--short", "HEAD"],
+        repo_root,
+        env,
+        check=False,
+    )
+    if res.returncode == 0 and res.stdout.strip():
+        return res.stdout.strip()
+    return _run(["git", "rev-parse", "HEAD"], repo_root, env).stdout.strip()
+
+
+def _prepare_checkout(repo_root: Path, env: dict[str, str]) -> str | None:
+    """Return the ref to restore afterwards, or None if the tree is dirty.
+
+    The branch switching below ends with a hard reset, which would destroy
+    uncommitted work in a local checkout, so refuse to start on one.
+    """
+    try:
+        dirty = _run(
+            ["git", "status", "--porcelain", "--untracked-files=no"],
+            repo_root,
+            env,
+        ).stdout.strip()
+        if dirty:
+            print(
+                f"error: {repo_root} has uncommitted changes; commit or stash "
+                "them, or use --dry-run",
+                file=sys.stderr,
+            )
+            return None
+        return _current_ref(repo_root, env)
+    except RuntimeError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return None
+
+
+def _restore_checkout(repo_root: Path, ref: str, env: dict[str, str]) -> None:
+    """Return to ref with a clean tree.
+
+    A step that fails part-way can leave staged deletions or a half-done
+    merge behind. Carried into the next recipe's branch, they would turn its
+    PR into one that deletes two recipes.
+    """
+    _run(["git", "reset", "-q", "--hard"], repo_root, env, check=False)
+    _run(["git", "checkout", "-q", "-f", ref], repo_root, env, check=False)
+
+
 def create_deletion_pr(
     recipe: RecipeInfo,
     repo_admin: str,
@@ -376,7 +483,10 @@ def create_deletion_pr(
     days_inactive: int = 0,
     threshold_days: int = DEFAULT_INACTIVE_DAYS,
 ) -> int | None:
-    """Create a branch, delete the recipe folder, commit, push, and open a PR."""
+    """Create a branch, delete the recipe folder, commit, push, and open a PR.
+
+    Returns the new PR number, or None on failure or in dry-run mode.
+    """
     branch_name = get_deletion_branch_name(recipe.rel_path)
     title = get_deletion_pr_title(recipe.rel_path)
     body = get_deletion_pr_body(
@@ -393,72 +503,49 @@ def create_deletion_pr(
         )
         return None
 
-    # Ensure git user is configured if not present
-    env = dict(os.environ)
-    env.setdefault("GIT_AUTHOR_NAME", "github-actions[bot]")
-    env.setdefault(
-        "GIT_AUTHOR_EMAIL",
-        "41898282+github-actions[bot]@users.noreply.github.com",
-    )
-    env.setdefault("GIT_COMMITTER_NAME", "github-actions[bot]")
-    env.setdefault(
-        "GIT_COMMITTER_EMAIL",
-        "41898282+github-actions[bot]@users.noreply.github.com",
-    )
-
+    env = _git_env()
+    original_ref = _prepare_checkout(repo_root, env)
+    if original_ref is None:
+        return None
     try:
-        # 1. Checkout new branch from origin/main (fallback to main or HEAD)
-        checkout_res = subprocess.run(
-            ["git", "checkout", "-B", branch_name, "origin/main"],
-            cwd=repo_root,
-            capture_output=True,
-            text=True,
-            check=False,
-            env=env,
+        # Always branch from the freshly fetched base. Falling back to HEAD
+        # would put whatever branch the workflow was dispatched from into
+        # the deletion PR.
+        _run(["git", "fetch", "-q", "origin", BASE_BRANCH], repo_root, env)
+        _run(
+            [
+                "git",
+                "checkout",
+                "-q",
+                "-B",
+                branch_name,
+                f"origin/{BASE_BRANCH}",
+            ],
+            repo_root,
+            env,
         )
-        if checkout_res.returncode != 0:
-            subprocess.run(
-                ["git", "checkout", "-B", branch_name],
-                cwd=repo_root,
-                capture_output=True,
-                text=True,
-                check=True,
-                env=env,
-            )
-
-        # 2. Delete recipe directory
-        recipe_full_path = repo_root / recipe.rel_path
-        if recipe_full_path.exists():
-            shutil.rmtree(recipe_full_path, ignore_errors=True)
-            subprocess.run(
-                ["git", "add", "-A", recipe.rel_path],
-                cwd=repo_root,
-                check=True,
-                env=env,
-            )
-
-        # 3. Commit
-        commit_msg = f"Deprecate inactive recipe: {recipe.rel_path}"
-        subprocess.run(
-            ["git", "commit", "-m", commit_msg],
-            cwd=repo_root,
-            capture_output=True,
-            text=True,
-            check=True,
-            env=env,
+        _run(["git", "rm", "-r", "-q", "--", recipe.rel_path], repo_root, env)
+        _run(
+            [
+                "git",
+                "commit",
+                "-q",
+                "-m",
+                f"Deprecate inactive recipe: {recipe.rel_path}",
+            ],
+            repo_root,
+            env,
+        )
+        # The branch belongs to this script and no open PR uses it (that case
+        # never reaches here), so overwrite whatever an earlier failed run or
+        # an unreopenable closed PR left on it. A plain push would be
+        # rejected on every future run.
+        _run(
+            ["git", "push", "-q", "--force", "-u", "origin", branch_name],
+            repo_root,
+            env,
         )
 
-        # 4. Push to remote
-        subprocess.run(
-            ["git", "push", "-u", "origin", branch_name],
-            cwd=repo_root,
-            capture_output=True,
-            text=True,
-            check=True,
-            env=env,
-        )
-
-        # 5. Open PR
         pr_cmd = [
             "gh",
             "pr",
@@ -467,6 +554,8 @@ def create_deletion_pr(
             title,
             "--body",
             body,
+            "--base",
+            BASE_BRANCH,
             "--head",
             branch_name,
             "--assignee",
@@ -474,27 +563,17 @@ def create_deletion_pr(
         ]
         if repo:
             pr_cmd.extend(["--repo", repo])
-
-        pr_res = subprocess.run(
-            pr_cmd,
-            cwd=repo_root,
-            capture_output=True,
-            text=True,
-            check=True,
-            env=env,
-        )
-        pr_url = pr_res.stdout.strip()
+        pr_url = _run(pr_cmd, repo_root, env).stdout.strip()
         print(f"Created PR: {pr_url}")
 
-        # Try to parse PR number from URL or output if possible
-        pr_num = None
-        if "/" in pr_url:
-            try:
-                pr_num = int(pr_url.rstrip("/").split("/")[-1])
-            except ValueError:
-                pass
-
-        return pr_num
+        try:
+            return int(pr_url.rstrip("/").split("/")[-1])
+        except ValueError:
+            print(
+                f"warning: could not parse PR number from {pr_url!r}",
+                file=sys.stderr,
+            )
+            return 0
     except Exception as exc:
         print(
             f"error: failed to create deletion PR for {recipe.rel_path}: {exc}",
@@ -502,15 +581,103 @@ def create_deletion_pr(
         )
         return None
     finally:
-        # Switch back to main
-        subprocess.run(
-            ["git", "checkout", "main"],
-            cwd=repo_root,
-            capture_output=True,
-            text=True,
-            check=False,
-            env=env,
+        _restore_checkout(repo_root, original_ref, env)
+
+
+def update_deletion_branch(
+    recipe: RecipeInfo,
+    repo_root: Path = REPO_ROOT,
+    dry_run: bool = False,
+) -> bool:
+    """Bring a reopened deletion PR's branch up to date with the base branch.
+
+    The branch deleted the recipe as it stood when the PR was first opened.
+    Files added to the recipe on main since then would survive the merge and
+    leave a half-deleted recipe behind, so merge main in and delete whatever
+    of the recipe it brings back. Pushes only fast-forwards, which a reopened
+    PR accepts.
+    """
+    branch_name = get_deletion_branch_name(recipe.rel_path)
+    if dry_run:
+        print(f"[DRY RUN] Would merge {BASE_BRANCH} into {branch_name}")
+        return True
+
+    env = _git_env()
+    original_ref = _prepare_checkout(repo_root, env)
+    if original_ref is None:
+        return False
+    try:
+        _run(
+            ["git", "fetch", "-q", "origin", BASE_BRANCH, branch_name],
+            repo_root,
+            env,
         )
+        _run(
+            [
+                "git",
+                "checkout",
+                "-q",
+                "-B",
+                branch_name,
+                f"origin/{branch_name}",
+            ],
+            repo_root,
+            env,
+        )
+        merge = _run(
+            ["git", "merge", "-q", "--no-edit", f"origin/{BASE_BRANCH}"],
+            repo_root,
+            env,
+            check=False,
+        )
+        if merge.returncode != 0:
+            # The branch only deletes the recipe, so any conflict is a
+            # modify/delete inside it; resolve by deleting. A conflict
+            # anywhere else stays unresolved and makes the commit fail.
+            # -f because files main added to the recipe are staged by the
+            # merge, and a plain `git rm` refuses staged files.
+            _run(
+                [
+                    "git",
+                    "rm",
+                    "-r",
+                    "-q",
+                    "-f",
+                    "--ignore-unmatch",
+                    "--",
+                    recipe.rel_path,
+                ],
+                repo_root,
+                env,
+            )
+            _run(["git", "commit", "-q", "--no-edit"], repo_root, env)
+        remaining = _run(
+            ["git", "ls-files", "--", recipe.rel_path], repo_root, env
+        ).stdout.strip()
+        if remaining:
+            _run(
+                ["git", "rm", "-r", "-q", "--", recipe.rel_path], repo_root, env
+            )
+            _run(
+                [
+                    "git",
+                    "commit",
+                    "-q",
+                    "-m",
+                    f"Delete files added to {recipe.rel_path} since the "
+                    "deprecation PR was opened",
+                ],
+                repo_root,
+                env,
+            )
+        _run(["git", "push", "-q", "origin", branch_name], repo_root, env)
+        print(f"Updated {branch_name} with {BASE_BRANCH}")
+        return True
+    except Exception as exc:
+        print(f"error: failed to update {branch_name}: {exc}", file=sys.stderr)
+        return False
+    finally:
+        _restore_checkout(repo_root, original_ref, env)
 
 
 def process_recipes(
@@ -521,7 +688,10 @@ def process_recipes(
     now: datetime | None = None,
     repo: str | None = None,
 ) -> dict:
-    """Execute the deprecation process across all recipes in the repository."""
+    """Execute the deprecation process across all recipes in the repository.
+
+    Raises RuntimeError if the existing PRs cannot be listed.
+    """
     if now is None:
         now = datetime.now(UTC)
 
@@ -538,11 +708,27 @@ def process_recipes(
         "pr_reopened": 0,
         "pr_existing_open": 0,
         "skipped": 0,
+        "failed": 0,
     }
 
     print(
         f"Scanning {len(recipes)} recipes (repo_admin: @{repo_admin}, inactive threshold: {inactive_days}d)..."
     )
+
+    def open_new_pr(recipe: RecipeInfo, elapsed_days: int) -> None:
+        pr_num = create_deletion_pr(
+            recipe,
+            repo_admin,
+            repo_root=repo_root,
+            repo=repo,
+            dry_run=dry_run,
+            days_inactive=elapsed_days,
+            threshold_days=inactive_days,
+        )
+        if pr_num is not None or dry_run:
+            summary["pr_opened"] += 1
+        else:
+            summary["failed"] += 1
 
     for recipe in recipes:
         classification = classify_recipe(
@@ -572,28 +758,28 @@ def process_recipes(
                     print(
                         f"  -> Open deletion PR #{pr_num} already exists for {recipe.rel_path}; doing nothing"
                     )
-                else:
-                    # Closed unmerged PR exists
+                elif reopen_pr(pr_num, repo_admin, repo=repo, dry_run=dry_run):
                     summary["pr_reopened"] += 1
                     print(
-                        f"  -> Closed deletion PR #{pr_num} exists for {recipe.rel_path}; reopening"
+                        f"  -> Reopened closed deletion PR #{pr_num} for {recipe.rel_path}"
                     )
-                    reopen_pr(pr_num, repo_admin, repo=repo, dry_run=dry_run)
+                    if not update_deletion_branch(
+                        recipe, repo_root=repo_root, dry_run=dry_run
+                    ):
+                        summary["failed"] += 1
+                else:
+                    # Typically the branch is gone (stale-branch sweep), and
+                    # GitHub cannot reopen a PR without it. Retrying the
+                    # reopen every run would never succeed.
+                    print(
+                        f"  -> Could not reopen PR #{pr_num} for {recipe.rel_path}; opening a new PR"
+                    )
+                    open_new_pr(recipe, elapsed_days)
             else:
-                # No existing PR
-                summary["pr_opened"] += 1
                 print(
                     f"  -> No PR exists for {recipe.rel_path}; creating branch and opening PR"
                 )
-                create_deletion_pr(
-                    recipe,
-                    repo_admin,
-                    repo_root=repo_root,
-                    repo=repo,
-                    dry_run=dry_run,
-                    days_inactive=elapsed_days,
-                    threshold_days=inactive_days,
-                )
+                open_new_pr(recipe, elapsed_days)
         else:
             summary["skipped"] += 1
 
@@ -605,6 +791,7 @@ def process_recipes(
     print(f"  Existing open PRs: {summary['pr_existing_open']}")
     print(f"  Reopened PRs: {summary['pr_reopened']}")
     print(f"  New PRs opened: {summary['pr_opened']}")
+    print(f"  Failed actions: {summary['failed']}")
 
     return summary
 
@@ -644,13 +831,19 @@ def main() -> None:
     )
 
     args = parser.parse_args()
-    process_recipes(
-        repo_root=args.repo_root,
-        policy_path=args.policy_path,
-        inactive_days=args.inactive_days,
-        dry_run=args.dry_run,
-        repo=args.repo,
-    )
+    try:
+        summary = process_recipes(
+            repo_root=args.repo_root,
+            policy_path=args.policy_path,
+            inactive_days=args.inactive_days,
+            dry_run=args.dry_run,
+            repo=args.repo,
+        )
+    except RuntimeError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        sys.exit(1)
+    if summary["failed"]:
+        sys.exit(1)
 
 
 if __name__ == "__main__":

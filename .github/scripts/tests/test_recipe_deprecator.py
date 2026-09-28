@@ -15,16 +15,22 @@
 
 from __future__ import annotations
 
+import subprocess
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
 import recipe_deprecator as rd
 import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 WORKFLOW_PATH = REPO_ROOT / ".github" / "workflows" / "recipe-deprecator.yml"
 POLICY_PATH = REPO_ROOT / ".github" / "policy.yml"
+
+# The third recipe root ("skills" before the rename, "plugins" after); taken
+# from the script so the fixtures follow recipe_manifests.SCAN_ROOTS.
+VERTICAL_ROOT = rd.SCAN_ROOTS[2]
 
 
 # ---------------------------------------------------------------------------
@@ -109,7 +115,7 @@ def test_scan_recipes(tmp_path):
         "type: standalone\nstatus: inactive\n", encoding="utf-8"
     )
 
-    skill_recipe = tmp_path / "skills" / "retail" / "recipe-c"
+    skill_recipe = tmp_path / VERTICAL_ROOT / "retail" / "recipe-c"
     skill_recipe.mkdir(parents=True)
     (skill_recipe / "manifest.yaml").write_text(
         "type: standalone\nstatus: inactive\n", encoding="utf-8"
@@ -126,7 +132,7 @@ def test_scan_recipes(tmp_path):
     assert rel_paths == [
         "contrib/python/recipe-b",
         "core/python/recipe-a",
-        "skills/retail/recipe-c",
+        f"{VERTICAL_ROOT}/retail/recipe-c",
     ]
     assert recipes[0].status == "inactive"
     assert recipes[1].status == "active"
@@ -295,11 +301,13 @@ def test_create_deletion_pr_success(tmp_path):
         mtime=datetime.now(UTC) - timedelta(days=90),
     )
 
-    mock_res = MagicMock()
-    mock_res.returncode = 0
-    mock_res.stdout = "https://github.com/google/adk-recipes/pull/999\n"
+    def fake(cmd, *args, **kwargs):
+        # A clean `git status`; every other command prints the PR URL.
+        url = "https://github.com/google/adk-recipes/pull/999\n"
+        out = "" if cmd[:2] == ["git", "status"] else url
+        return subprocess.CompletedProcess(cmd, 0, out, "")
 
-    with patch("subprocess.run", return_value=mock_res):
+    with patch("subprocess.run", side_effect=fake):
         result = rd.create_deletion_pr(
             recipe, "happyhuman", repo_root=tmp_path, dry_run=False
         )
@@ -346,7 +354,7 @@ def test_process_recipes_orchestration(tmp_path):
     )
 
     # 5. Inactive expired (100 days ago) with no PR -> should open new PR
-    r_no_pr = tmp_path / "skills" / "retail" / "new-pr-rec"
+    r_no_pr = tmp_path / VERTICAL_ROOT / "retail" / "new-pr-rec"
     r_no_pr.mkdir(parents=True)
     (r_no_pr / "manifest.yaml").write_text(
         "status: inactive\n", encoding="utf-8"
@@ -386,6 +394,9 @@ def test_process_recipes_orchestration(tmp_path):
         patch("recipe_deprecator.fetch_prs", return_value=mock_prs),
         patch("recipe_deprecator.reopen_pr", return_value=True) as mock_reopen,
         patch(
+            "recipe_deprecator.update_deletion_branch", return_value=True
+        ) as mock_update,
+        patch(
             "recipe_deprecator.create_deletion_pr", return_value=301
         ) as mock_create,
     ):
@@ -408,9 +419,333 @@ def test_process_recipes_orchestration(tmp_path):
         mock_reopen.assert_called_once_with(
             202, "happyhuman", repo=None, dry_run=False
         )
+        assert summary["failed"] == 0
+        assert mock_update.call_count == 1
+        assert mock_update.call_args[0][0].rel_path == (
+            "contrib/python/closed-pr-rec"
+        )
         assert mock_create.call_count == 1
         created_recipe = mock_create.call_args[0][0]
-        assert created_recipe.rel_path == "skills/retail/new-pr-rec"
+        assert created_recipe.rel_path == f"{VERTICAL_ROOT}/retail/new-pr-rec"
+
+
+def _expired_tree(tmp_path: Path, now: datetime) -> Path:
+    """One expired inactive recipe plus a policy file; returns the policy."""
+    recipe = tmp_path / "contrib" / "python" / "old-rec"
+    recipe.mkdir(parents=True)
+    (recipe / "manifest.yaml").write_text("status: inactive\n", "utf-8")
+    policy_file = tmp_path / "policy.yml"
+    policy_file.write_text("repo_admin: happyhuman\n", encoding="utf-8")
+    return policy_file
+
+
+def _closed_pr(number: int, head: str, title: str) -> dict:
+    return {
+        "number": number,
+        "title": title,
+        "headRefName": head,
+        "state": "CLOSED",
+        "mergedAt": None,
+    }
+
+
+def test_fetch_prs_raises_on_gh_failure():
+    mock_res = MagicMock(returncode=1, stdout="", stderr="HTTP 401")
+    with (
+        patch("subprocess.run", return_value=mock_res),
+        pytest.raises(RuntimeError, match="HTTP 401"),
+    ):
+        rd.fetch_prs()
+
+
+def test_fetch_prs_empty_list_is_not_an_error():
+    mock_res = MagicMock(returncode=0, stdout="[]\n", stderr="")
+    with patch("subprocess.run", return_value=mock_res):
+        assert rd.fetch_prs() == []
+
+
+def test_find_existing_does_not_reopen_foreign_closed_pr():
+    path = "contrib/python/foo"
+    foreign = [
+        _closed_pr(5, "fix/foo-tests", f"Delete flaky test in {path}"),
+        _closed_pr(6, f"delete/{path}", f"Remove {path}"),
+    ]
+    assert rd.find_existing_deletion_pr(path, foreign) is None
+
+    # The same PRs still count while open: deletion is already in review.
+    for pr in foreign:
+        pr["state"] = "OPEN"
+    assert rd.find_existing_deletion_pr(path, foreign)["number"] == 5
+
+
+def test_process_recipes_opens_new_pr_when_reopen_fails(tmp_path):
+    now = datetime(2026, 9, 25, tzinfo=UTC)
+    policy_file = _expired_tree(tmp_path, now)
+    prs = [
+        _closed_pr(
+            7,
+            "deprecate/contrib/python/old-rec",
+            "Deprecate recipe: contrib/python/old-rec",
+        )
+    ]
+    with (
+        patch(
+            "recipe_deprecator.get_manifest_mtime",
+            return_value=now - timedelta(days=90),
+        ),
+        patch("recipe_deprecator.fetch_prs", return_value=prs),
+        patch("recipe_deprecator.reopen_pr", return_value=False),
+        patch("recipe_deprecator.update_deletion_branch") as mock_update,
+        patch(
+            "recipe_deprecator.create_deletion_pr", return_value=8
+        ) as mock_create,
+    ):
+        summary = rd.process_recipes(
+            repo_root=tmp_path, policy_path=policy_file, now=now
+        )
+    assert summary["pr_reopened"] == 0
+    assert summary["pr_opened"] == 1
+    assert summary["failed"] == 0
+    mock_update.assert_not_called()
+    mock_create.assert_called_once()
+
+
+def test_process_recipes_counts_failed_creation(tmp_path):
+    now = datetime(2026, 9, 25, tzinfo=UTC)
+    policy_file = _expired_tree(tmp_path, now)
+    with (
+        patch(
+            "recipe_deprecator.get_manifest_mtime",
+            return_value=now - timedelta(days=90),
+        ),
+        patch("recipe_deprecator.fetch_prs", return_value=[]),
+        patch("recipe_deprecator.create_deletion_pr", return_value=None),
+    ):
+        summary = rd.process_recipes(
+            repo_root=tmp_path, policy_path=policy_file, now=now
+        )
+    assert summary["pr_opened"] == 0
+    assert summary["failed"] == 1
+
+
+def test_main_exits_nonzero_on_failed_action(monkeypatch):
+    monkeypatch.setattr("sys.argv", ["recipe_deprecator.py"])
+    with (
+        patch(
+            "recipe_deprecator.process_recipes",
+            return_value={"failed": 1},
+        ),
+        pytest.raises(SystemExit) as exc,
+    ):
+        rd.main()
+    assert exc.value.code == 1
+
+
+def test_main_exits_nonzero_when_pr_listing_fails(monkeypatch, capsys):
+    monkeypatch.setattr("sys.argv", ["recipe_deprecator.py"])
+    with (
+        patch(
+            "recipe_deprecator.process_recipes",
+            side_effect=RuntimeError("gh pr list failed: HTTP 401"),
+        ),
+        pytest.raises(SystemExit) as exc,
+    ):
+        rd.main()
+    assert exc.value.code == 1
+    assert "HTTP 401" in capsys.readouterr().err
+
+
+def test_main_exits_zero_when_nothing_failed(monkeypatch):
+    monkeypatch.setattr("sys.argv", ["recipe_deprecator.py"])
+    with patch("recipe_deprecator.process_recipes", return_value={"failed": 0}):
+        rd.main()
+
+
+# ---------------------------------------------------------------------------
+# Real-git Tests (local bare remote; only `gh` is faked)
+# ---------------------------------------------------------------------------
+
+RECIPE = "contrib/python/foo"
+
+
+def _git(cwd: Path, *args: str) -> str:
+    if cwd.suffix == ".git":
+        # Bare remote: name it explicitly, which also works under
+        # safe.bareRepository=explicit.
+        args = (f"--git-dir={cwd}", *args)
+        cwd = cwd.parent
+    return subprocess.run(
+        ["git", *args],
+        cwd=cwd,
+        check=True,
+        capture_output=True,
+        text=True,
+        env=rd._git_env(),
+    ).stdout.strip()
+
+
+@pytest.fixture
+def git_repo(tmp_path: Path) -> tuple[Path, Path]:
+    """A clone on main of a bare origin holding RECIPE and another recipe."""
+    origin = tmp_path / "origin.git"
+    work = tmp_path / "work"
+    _git(tmp_path, "init", "-q", "--bare", "-b", "main", str(origin))
+    _git(tmp_path, "clone", "-q", str(origin), str(work))
+    _git(work, "checkout", "-q", "-B", "main")
+    for rel in (RECIPE, "contrib/python/bar"):
+        (work / rel).mkdir(parents=True)
+        (work / rel / "manifest.yaml").write_text("status: inactive\n")
+        (work / rel / "agent.py").write_text("x = 1\n")
+    _git(work, "add", "-A")
+    _git(work, "commit", "-q", "-m", "init")
+    _git(work, "push", "-q", "-u", "origin", "main")
+    return origin, work
+
+
+def _fake_gh(real_run):
+    """subprocess.run that answers `gh` calls and passes git through."""
+    calls: list[list[str]] = []
+
+    def run(cmd, *args, **kwargs):
+        if cmd[0] == "gh":
+            calls.append(cmd)
+            return subprocess.CompletedProcess(
+                cmd, 0, "https://github.com/o/r/pull/42\n", ""
+            )
+        return real_run(cmd, *args, **kwargs)
+
+    return run, calls
+
+
+def _recipe(work: Path) -> rd.RecipeInfo:
+    return rd.RecipeInfo(
+        rel_path=RECIPE,
+        dir_path=work / RECIPE,
+        manifest_path=work / RECIPE / "manifest.yaml",
+        status="inactive",
+        mtime=datetime.now(UTC) - timedelta(days=90),
+    )
+
+
+def test_create_deletion_pr_real_git(git_repo):
+    origin, work = git_repo
+    branch = f"deprecate/{RECIPE}"
+    # A branch left over from an earlier run whose `gh pr create` failed.
+    _git(work, "checkout", "-q", "-b", "stale")
+    (work / "unrelated.txt").write_text("stale\n")
+    _git(work, "add", "-A")
+    _git(work, "commit", "-q", "-m", "stale")
+    _git(work, "push", "-q", "origin", f"stale:{branch}")
+    _git(work, "checkout", "-q", "main")
+
+    fake, calls = _fake_gh(subprocess.run)
+    with patch("subprocess.run", side_effect=fake):
+        assert rd.create_deletion_pr(_recipe(work), "admin", work) == 42
+
+    assert (
+        _git(work, "ls-tree", "-r", "--name-only", branch, "--", RECIPE) == ""
+    )
+    assert "unrelated.txt" not in _git(origin, "ls-tree", "--name-only", branch)
+    assert _git(
+        origin,
+        "ls-tree",
+        "-r",
+        "--name-only",
+        branch,
+        "--",
+        "contrib/python/bar",
+    )
+    assert _git(work, "rev-parse", f"origin/{branch}") == _git(
+        origin, "rev-parse", branch
+    )
+    assert calls and calls[0][:3] == ["gh", "pr", "create"]
+    # Back where it started, clean.
+    assert _git(work, "symbolic-ref", "--short", "HEAD") == "main"
+    assert _git(work, "status", "--porcelain") == ""
+
+
+def test_create_deletion_pr_failure_leaves_clean_tree(git_repo):
+    _, work = git_repo
+
+    def fake(cmd, *args, **kwargs):
+        if cmd[:2] == ["git", "commit"]:
+            return subprocess.CompletedProcess(cmd, 1, "", "hook failed")
+        return real_run(cmd, *args, **kwargs)
+
+    real_run = subprocess.run
+    with patch("subprocess.run", side_effect=fake):
+        assert rd.create_deletion_pr(_recipe(work), "admin", work) is None
+    assert _git(work, "symbolic-ref", "--short", "HEAD") == "main"
+    assert _git(work, "status", "--porcelain") == ""
+    assert (work / RECIPE / "agent.py").is_file()
+
+
+def test_update_deletion_branch_deletes_files_added_since(git_repo):
+    origin, work = git_repo
+    branch = f"deprecate/{RECIPE}"
+    fake, _ = _fake_gh(subprocess.run)
+    with patch("subprocess.run", side_effect=fake):
+        assert rd.create_deletion_pr(_recipe(work), "admin", work) == 42
+    before = _git(origin, "rev-parse", branch)
+
+    # Main moves on: one recipe file modified (modify/delete conflict), one
+    # added (would silently survive a merge of the old branch).
+    (work / RECIPE / "agent.py").write_text("x = 2\n")
+    (work / RECIPE / "app").mkdir()
+    (work / RECIPE / "app" / "new.py").write_text("y = 1\n")
+    _git(work, "add", "-A")
+    _git(work, "commit", "-q", "-m", "main moves on")
+    _git(work, "push", "-q", "origin", "main")
+
+    assert rd.update_deletion_branch(_recipe(work), work) is True
+
+    after = _git(origin, "rev-parse", branch)
+    assert _git(origin, "merge-base", "--is-ancestor", before, after) == ""
+    assert _git(origin, "merge-base", "--is-ancestor", "main", after) == ""
+    assert (
+        _git(origin, "ls-tree", "-r", "--name-only", branch, "--", RECIPE) == ""
+    )
+    assert _git(
+        origin,
+        "ls-tree",
+        "-r",
+        "--name-only",
+        branch,
+        "--",
+        "contrib/python/bar",
+    )
+    assert _git(work, "symbolic-ref", "--short", "HEAD") == "main"
+    assert _git(work, "status", "--porcelain") == ""
+
+
+def test_mutations_refuse_dirty_tree(git_repo):
+    _, work = git_repo
+    agent = work / RECIPE / "agent.py"
+    agent.write_text("local edit\n")
+    assert rd.create_deletion_pr(_recipe(work), "admin", work) is None
+    assert rd.update_deletion_branch(_recipe(work), work) is False
+    assert agent.read_text() == "local edit\n"
+    assert _git(work, "symbolic-ref", "--short", "HEAD") == "main"
+
+
+def test_fetch_prs_lists_open_and_closed_separately():
+    def fake(cmd, *args, **kwargs):
+        state = cmd[cmd.index("--state") + 1]
+        out = '[{"number": 1, "state": "OPEN"}]' if state == "open" else "[]"
+        return subprocess.CompletedProcess(cmd, 0, out, "")
+
+    with patch("subprocess.run", side_effect=fake) as run:
+        assert rd.fetch_prs() == [{"number": 1, "state": "OPEN"}]
+    states = [
+        c.args[0][c.args[0].index("--state") + 1] for c in run.call_args_list
+    ]
+    assert states == ["open", "closed"]
+
+
+def test_update_deletion_branch_missing_branch_fails(git_repo):
+    _, work = git_repo
+    assert rd.update_deletion_branch(_recipe(work), work) is False
+    assert _git(work, "symbolic-ref", "--short", "HEAD") == "main"
 
 
 # ---------------------------------------------------------------------------

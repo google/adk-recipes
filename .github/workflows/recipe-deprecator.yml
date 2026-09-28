@@ -8,7 +8,8 @@ name: Recipe Deprecator
 #   1. Parses policy.yml to identify repo_admin.
 #   2. Checks for an existing deletion PR:
 #      - If an open PR exists, does nothing.
-#      - If a closed/ignored PR exists, reopens it.
+#      - If a closed/ignored PR exists, reopens it and merges main into its
+#        branch; if it cannot be reopened, opens a fresh PR instead.
 #      - If no PR exists, creates a branch, deletes the recipe directory, and opens a new PR.
 #   3. Assigns new or reopened PRs to repo_admin for manual review.
 
