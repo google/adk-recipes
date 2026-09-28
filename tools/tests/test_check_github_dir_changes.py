@@ -404,6 +404,47 @@ def test_main_fails_with_multiple_github_files(monkeypatch, capsys):
     assert "3 unauthorized files modified under .github/" in out
 
 
+def test_main_passes_for_dependabot_workflow_only_changes(monkeypatch, capsys):
+    monkeypatch.setattr(
+        "sys.stdin",
+        io.StringIO(
+            ".github/workflows/python-tests.yml\n"
+            ".github/workflows/global-checks.yml\n"
+        ),
+    )
+    with patch.object(m, "check_is_admin") as is_admin:
+        code = m.main(["--author", "dependabot[bot]", "--repo", "google/x"])
+
+    assert code == 0
+    assert "[PASS]" in capsys.readouterr().out
+    is_admin.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "path",
+    [".github/dependabot.yml", ".github/scripts/foo.py", ".github/CODEOWNERS"],
+)
+def test_main_fails_for_dependabot_outside_workflows(monkeypatch, capsys, path):
+    monkeypatch.setattr(
+        "sys.stdin",
+        io.StringIO(f".github/workflows/python-tests.yml\n{path}\n"),
+    )
+    code = m.main(["--author", "dependabot[bot]", "--is-admin", "false"])
+
+    assert code == 1
+    out = capsys.readouterr().out
+    assert f"::error file={path}::" in out
+
+
+def test_main_dependabot_exemption_requires_exact_login(monkeypatch, capsys):
+    monkeypatch.setattr(
+        "sys.stdin", io.StringIO(".github/workflows/python-tests.yml\n")
+    )
+    code = m.main(["--author", "dependabot", "--is-admin", "false"])
+
+    assert code == 1
+
+
 def test_main_reports_ci_fault_when_admin_status_undetermined(
     monkeypatch, capsys
 ):

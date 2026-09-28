@@ -52,8 +52,15 @@ deletion is invisible to this check. With `core.quotePath` on (the default),
 a path containing non-ASCII bytes arrives C-quoted -- `".github/w\\303\\266rk.yml"`
 -- whose first path component is `".github`, not `.github`.
 
+Dependabot exemption: .github/dependabot.yml keeps the `github-actions`
+ecosystem enabled, and those PRs can only ever touch workflow files. A PR
+authored by `dependabot[bot]` whose .github/ changes all sit under
+.github/workflows/ passes. The `[bot]` suffix is reserved for GitHub Apps, so
+a human account cannot claim that login.
+
 Exit codes:
-    0  no .github/ changes, or author is a repository administrator
+    0  no .github/ changes, author is a repository administrator, or a
+       Dependabot PR that only touches .github/workflows/
     1  unauthorized changes to .github/ by a non-admin
     2  CI fault -- including "could not determine whether the author is an
        administrator". That still fails closed, but it is reported as our
@@ -100,6 +107,10 @@ _NON_ADMIN_ASSOCIATIONS = frozenset(
         "NONE",
     }
 )
+
+# Dependabot may only touch the paths its `github-actions` ecosystem updates.
+_DEPENDABOT_LOGIN = "dependabot[bot]"
+_DEPENDABOT_ALLOWED_PREFIX = ".github/workflows/"
 
 
 def _unquote_git_path(path: str) -> str:
@@ -334,6 +345,15 @@ def main(argv: list[str] | None = None) -> int:
     github_files = find_github_files(changed_files)
     if not github_files:
         print("[PASS] No files under .github/ modified in this PR.")
+        return EXIT_OK
+
+    if args.author == _DEPENDABOT_LOGIN and all(
+        f.startswith(_DEPENDABOT_ALLOWED_PREFIX) for f in github_files
+    ):
+        print(
+            f"[PASS] .github/ changes authorized: {_DEPENDABOT_LOGIN} only "
+            f"modified files under {_DEPENDABOT_ALLOWED_PREFIX}."
+        )
         return EXIT_OK
 
     is_admin = check_is_admin(
