@@ -22,9 +22,9 @@ from fastapi import FastAPI
 from google.adk.cli.fast_api import get_fast_api_app
 from google.adk.runners import Runner
 
-from brand_search_optimization.app_utils import services
-from brand_search_optimization.app_utils.a2a import attach_a2a_routes
-from brand_search_optimization.app_utils.reasoning_engine_adapter import (
+from app.app_utils import services
+from app.app_utils.a2a import attach_a2a_routes
+from app.app_utils.reasoning_engine_adapter import (
     attach_reasoning_engine_routes,
 )
 
@@ -62,8 +62,8 @@ DEFAULT_PORT = 8080
 
 @contextlib.asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    from brand_search_optimization.agent import app as adk_app
-    from brand_search_optimization.agent import root_agent
+    from app.agent import app as adk_app
+    from app.agent import root_agent
 
     runner = Runner(
         app=adk_app,
