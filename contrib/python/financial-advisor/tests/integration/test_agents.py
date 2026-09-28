@@ -21,7 +21,7 @@ import pytest
 from google.adk.runners import InMemoryRunner
 from google.genai.types import Part, UserContent
 
-from financial_advisor.agent import root_agent
+from app.agent import root_agent
 
 pytest_plugins = ("pytest_asyncio",)
 

@@ -332,7 +332,7 @@ uv run python data/generate_sample_applications.py
 uv run adk web
 ```
 
-Then open `http://localhost:8000`, select `small_business_loan_agent`, upload a sample PDF, and send:
+Then open `http://localhost:8000`, select `app`, upload a sample PDF, and send:
 
 ```
 Process this loan application for SBL-2025-00142

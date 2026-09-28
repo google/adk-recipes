@@ -32,11 +32,11 @@ dependencies = [
     "google-cloud-modelarmor>=0.4.0",
     "httpx>=0.28.1",
     "python-pptx==1.0.2",
-    "pillow==11.3.0",
+    "pillow>=12.3.0",
     "pydantic>=2.12.0",
-    "pydantic-settings==2.13.1",
-    "python-dotenv==1.1.1",
-    "google-cloud-storage==2.19.0",
+    "pydantic-settings>=2.14.2",
+    "python-dotenv>=1.2.2",
+    "google-cloud-storage>=2.19.0",
     "google-genai>=1.68.0",
     "opentelemetry-instrumentation-google-genai",
 ]
@@ -60,11 +60,11 @@ dev = [
 # This configuration file is used by goo.gle/agent-starter-pack to power remote templating.
 # It defines the template's properties and settings.
 [tool.agent-starter-pack]
-agent_module = "presentation_agent.agent"
+agent_module = "app.agent"
 agent_object = "root_agent"
 
 [tool.agent-starter-pack.settings]
-agent_directory = "presentation_agent"
+agent_directory = "app"
 deployment_targets = ["agent_engine"]
 extra_directories = ["eval", "docs"]
 
@@ -73,7 +73,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["eval", "presentation_agent"]
+packages = ["eval", "app"]
 
 [tool.codespell]
 ignore-words-list = "rouge"

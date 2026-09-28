@@ -22,7 +22,7 @@ prepare(){
 
 run_eval(){
     adk eval \
-        brand_search_optimization \
+        app \
         eval/data/eval_data1.evalset.json \
         --config_file_path eval/data/test_config.json
 }

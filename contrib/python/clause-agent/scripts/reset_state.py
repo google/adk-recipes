@@ -3,7 +3,7 @@
 
 Restarting `adk web`/`adk run` alone does NOT reset anything -- Memory
 Bank, the audit log, and the Legal-review queue are all file-backed (see
-`clause_agent/shared_libraries/config.py`) and persist across restarts by
+`app/shared_libraries/config.py`) and persist across restarts by
 design. This script clears that state (and, optionally, ADK's own
 conversation/session history) so a demo can be replayed from scratch.
 
@@ -29,9 +29,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from clause_agent.shared_libraries import config
+from app.shared_libraries import config
 
-AGENT_DIR = Path(__file__).resolve().parent.parent / "clause_agent"
+AGENT_DIR = Path(__file__).resolve().parent.parent / "app"
 
 
 def _clauseiq_state_paths() -> list[Path]:
@@ -64,7 +64,7 @@ def main() -> None:
         "--keep-sessions",
         action="store_true",
         help=(
-            "Keep ADK chat/session history (clause_agent/.adk/); only reset"
+            "Keep ADK chat/session history (app/.adk/); only reset"
             " ClauseIQ's own memory/audit/legal-queue state."
         ),
     )

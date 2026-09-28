@@ -67,7 +67,7 @@ gcloud auth application-default login
 gcloud auth application-default set-quota-project YOUR_PROJECT_ID
 ```
 
-`llm_auditor/__init__.py` loads `.env`, then uses **`google.auth.default()`** and **`os.environ.setdefault("GOOGLE_CLOUD_PROJECT", …)`** when Vertex is enabled so ADC can supply the project. It skips ADC when `GOOGLE_GENAI_USE_VERTEXAI` is false (Gemini API key path).
+`app/__init__.py` loads `.env`, then uses **`google.auth.default()`** and **`os.environ.setdefault("GOOGLE_CLOUD_PROJECT", …)`** when Vertex is enabled so ADC can supply the project. It skips ADC when `GOOGLE_GENAI_USE_VERTEXAI` is false (Gemini API key path).
 
 Copy `.env.example` to `.env` and set at least:
 
@@ -84,11 +84,11 @@ export MODEL_NAME=<your-desired-model>
 ### Run locally (ADK)
 
 ```bash
-uv run adk run llm_auditor
+uv run adk run app
 uv run adk web
 ```
 
-Select **llm_auditor** in the UI. Example prompts:
+Select **app** in the UI. Example prompts:
 
 *   `Double check this: Earth is further away from the Sun than Mars.`
 *   `Q: Why the blueberries are blue? A: Because blueberries have pigments on
@@ -105,12 +105,12 @@ uvx google-agents-cli --help
 
 ### Programmatic access
 
-Importing `llm_auditor` runs the package `__init__.py` (env + ADC defaults).
+Importing `app` runs the package `__init__.py` (env + ADC defaults).
 
 ```python
 from google.adk.runners import InMemoryRunner
 from google.genai.types import Part, UserContent
-from llm_auditor.agent import root_agent
+from app.agent import root_agent
 
 user_input = "Double check this: Earth is further away from the Sun than Mars."
 
