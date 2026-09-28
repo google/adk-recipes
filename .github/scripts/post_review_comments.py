@@ -473,6 +473,29 @@ def added_line_anchors(diff: str) -> dict[str, set[int]]:
     return walk_right_side(diff)[0]
 
 
+def restrict_to_pr(
+    anchors: dict[str, set[int]], pr_diff: str
+) -> dict[str, set[int]]:
+    """Keep only the anchors the PR's own base...head diff also adds.
+
+    An incremental diff (last reviewed commit...head) taken across a merge of
+    the base branch marks everything that landed on base in between as
+    added. Those lines are not in the PR's diff, so GitHub rejects a comment
+    on one with HTTP 422, and when every comment in a run is such a line the
+    post job fails. Both diffs end at head, so new-file line numbers agree
+    and a plain intersection is enough. A dropped anchor is not lost: its
+    finding still verifies against the line text and goes in the review body.
+
+    Every path keeps its key, even with no anchors left, so path resolution
+    against the reviewed diff behaves as before.
+    """
+    pr_anchors = added_line_anchors(pr_diff)
+    return {
+        path: lines & pr_anchors.get(path, set())
+        for path, lines in anchors.items()
+    }
+
+
 def extract_findings(response: str) -> list:
     """Pull the findings array out of the reviewer's text response.
 
@@ -1719,6 +1742,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="the exact diff the reviewer was shown",
     )
     parser.add_argument(
+        "--pr-diff",
+        type=Path,
+        default=None,
+        help="the PR's whole base...head diff, when --diff is an incremental "
+        "one. Inline anchors are limited to lines this diff adds, because "
+        "GitHub rejects a comment on any other line",
+    )
+    parser.add_argument(
         "--label", required=True, help="review type, e.g. Correctness"
     )
     parser.add_argument(
@@ -1993,6 +2024,14 @@ def _post(args, findings: list) -> int:
         print(f"{len(existing)} comment(s) already on this PR.")
 
     anchors, line_text = walk_right_side(diff)
+    if args.pr_diff is not None:
+        try:
+            pr_diff = args.pr_diff.read_text(encoding="utf-8", errors="replace")
+        except OSError as exc:
+            return report_infra_fault(
+                infra_fault(CHECKER, f"cannot read diff {args.pr_diff}: {exc}")
+            )
+        anchors = restrict_to_pr(anchors, pr_diff)
     comments, notes, skipped = build_comments(
         findings, anchors, line_text, existing
     )

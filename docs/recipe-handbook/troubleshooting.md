@@ -32,6 +32,7 @@ Each command below says which directory to run it from. Replace
 - [The recipe sits at the wrong path](#recipe-is-in-the-wrong-folder)
 - [The recipe lives in a folder that no longer accepts edits](#changes-inside-a-retired-folder)
 - [Only repository admins may modify files under .github/](#only-repository-admins-may-modify-files-under-github)
+- [The recipe contains a recipe-local lint or style configuration file](#standalone-lint-or-style-config-file)
 
 **Containers (Dockerfile)**
 - [Dockerfile failed to build](#dockerfile-build-failed)
@@ -247,6 +248,17 @@ a token the check has in CI and you generally do not have locally:
     git -c core.quotePath=false diff --no-renames --name-only origin/main...HEAD \
       | uv run --no-project python tools/check_github_dir_changes.py \
           --author "$(git config user.name)" --is-admin false
+
+## Standalone lint or style config file
+
+**Symptom** — `Recipe contains a recipe-local Biome/golangci-lint/.editorconfig configuration file`
+
+**Cause** — the recipe contains a recipe-local configuration file (`biome.json`, `biome.jsonc`, `.biomerc*`, `.golangci.yml`, `.golangci.yaml`, `.golangci.toml`, `.golangci.json`, or an `.editorconfig` that configures Kotlin style: a Kotlin section such as `[*.{kt,kts}]`, a `ktlint_*` or `ij_kotlin_*` property, or — in a Kotlin recipe — a property such as `max_line_length` in `[*]`). Style and lint configurations are centralized at the repository root. The check is advisory for now: it reports a warning and does not fail the PR.
+
+**Fix** — delete the file from the recipe, or remove the section or property the warning names from `.editorconfig`. If repository-wide style or lint rules need updating, update the root configuration file.
+
+**Confirm**, from the repo root —
+`python3 .github/scripts/check_recipe_lint_config.py <recipe-path>`
 
 ## README.md is missing or empty
 

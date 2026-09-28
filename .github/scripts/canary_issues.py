@@ -66,7 +66,7 @@ import json
 import os
 import subprocess
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -250,7 +250,7 @@ def find_issue(
 
 def age_days(created_at: str, now: datetime | None = None) -> int:
     created = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
-    current = now or datetime.now(timezone.utc)
+    current = now or datetime.now(UTC)
     return (current - created).days
 
 

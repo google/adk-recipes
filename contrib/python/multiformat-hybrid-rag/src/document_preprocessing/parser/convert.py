@@ -53,7 +53,7 @@ def to_format(file_path: str, fmt: str = "pdf") -> str:
     outdir = tempfile.mkdtemp(prefix="lo_convert_")
 
     lo_bin = _find_libreoffice()
-    result = subprocess.run(
+    result = subprocess.run(  # noqa: S603
         [
             lo_bin,
             "--headless",

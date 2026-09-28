@@ -193,7 +193,7 @@ async def change_background_endpoint(
                         yield f"data: {json.dumps({'index': idx, 'status': 'ready', 'image_base64': base64.b64encode(item['image']).decode('utf-8'), 'evaluation': item['evaluation']})}\n\n"
 
                     results_received += 1
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     yield f"data: {json.dumps({'index': results_received, 'status': 'failed', 'error': 'Timeout'})}\n\n"
                     results_received += 1
 

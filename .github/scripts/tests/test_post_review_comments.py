@@ -654,6 +654,125 @@ def test_diff_trimmed_mid_utf8_character_does_not_crash(tmp_path):
     )
 
 
+def test_restrict_to_pr_drops_lines_the_pr_does_not_add():
+    # Incremental diff across a base-branch merge: line 2 came from base.
+    incremental = {"x.py": {1, 2, 3}, "y.py": {5}}
+    pr_diff = "--- a/x.py\n+++ b/x.py\n@@ -1,2 +1,3 @@\n+one\n two\n+three\n"
+    restricted = m.restrict_to_pr(incremental, pr_diff)
+    assert restricted == {"x.py": {1, 3}, "y.py": set()}
+
+
+def test_pr_diff_keeps_base_branch_lines_out_of_inline_comments(tmp_path):
+    """#2677: every comment was on a line a merge from main brought in.
+
+    The incremental diff showed that line as added, so it passed validation,
+    and GitHub then rejected the comment with HTTP 422 because the line is
+    not in the PR's own diff.
+    """
+    result = tmp_path / "agy_result.json"
+    result.write_text(
+        json.dumps(
+            {
+                "response": (
+                    '```json\n[{"path": "x.py", "line": 2, "body": "from '
+                    'base"}, {"path": "x.py", "line": 3, "body": "from pr"}]'
+                    "\n```"
+                )
+            }
+        ),
+        encoding="utf-8",
+    )
+    incremental = tmp_path / "pr_diff_used.txt"
+    incremental.write_text(
+        "--- a/x.py\n+++ b/x.py\n@@ -0,0 +1,3 @@\n+one\n+two\n+three\n",
+        encoding="utf-8",
+    )
+    whole = tmp_path / "pr_diff_full.txt"
+    whole.write_text(
+        "--- a/x.py\n+++ b/x.py\n@@ -1,2 +1,3 @@\n+one\n two\n+three\n",
+        encoding="utf-8",
+    )
+
+    def run(*extra: str) -> list[int]:
+        out = tmp_path / "review_payload.json"
+        out.unlink(missing_ok=True)
+        proc = subprocess.run(
+            [
+                sys.executable,
+                str(SCRIPT),
+                "--result",
+                str(result),
+                "--diff",
+                str(incremental),
+                *extra,
+                "--label",
+                "Correctness",
+                "--out",
+                str(out),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert proc.returncode == 0, proc.stderr
+        payload = json.loads(out.read_text(encoding="utf-8"))
+        return sorted(c["line"] for c in payload["comments"])
+
+    assert run() == [2, 3]
+    assert run("--pr-diff", str(whole)) == [3]
+
+
+def test_unreadable_pr_diff_is_a_ci_fault(tmp_path):
+    result = tmp_path / "agy_result.json"
+    result.write_text(json.dumps({"response": "[]"}), encoding="utf-8")
+    diff_file = tmp_path / "pr_diff_used.txt"
+    diff_file.write_text("", encoding="utf-8")
+    proc = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT),
+            "--result",
+            str(result),
+            "--diff",
+            str(diff_file),
+            "--pr-diff",
+            str(tmp_path / "missing.txt"),
+            "--label",
+            "Correctness",
+            "--out",
+            str(tmp_path / "out.json"),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert proc.returncode == 2, proc.stdout + proc.stderr
+    assert "cannot read diff" in proc.stdout
+
+
+def test_the_workflow_passes_the_whole_pr_diff_for_anchors():
+    import yaml
+
+    workflow = (
+        Path(__file__).resolve().parents[3]
+        / ".github"
+        / "workflows"
+        / "_ai-pr-review-core.yml"
+    )
+    steps = yaml.safe_load(workflow.read_text(encoding="utf-8"))["jobs"][
+        "review"
+    ]["steps"]
+    fetch = next(s for s in steps if s.get("id") == "fetch_diff")["run"]
+    build = next(s for s in steps if s.get("id") == "build_review")["run"]
+    assert "pr_diff_full.txt" in fetch
+    assert "--pr-diff pr_diff_full.txt" in build
+    assert "--pr-diff" in {
+        opt
+        for action in m.build_parser()._actions
+        for opt in action.option_strings
+    }
+
+
 def test_workflow_invokes_this_script_with_the_flags_it_defines():
     """Pin the workflow -> CLI contract.
 

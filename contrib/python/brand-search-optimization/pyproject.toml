@@ -20,6 +20,7 @@ dependencies = [
     "gcsfs>=2024.11.0",
     "opentelemetry-resourcedetector-gcp<=1.12.0a0",
     "joserfc>=1.6.8",
+    "google-cloud-aiplatform[agent-engines]>=1.156.0,<2.0.0",
 ]
 
 [dependency-groups]

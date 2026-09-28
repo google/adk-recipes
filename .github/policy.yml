@@ -12,6 +12,11 @@
 #
 # Add new sections here rather than hardcoding constants in workflow files.
 
+# Default human for repository maintenance: the login automation assigns
+# or @-mentions when it needs one. Aliased below as `*repo_admin`. Must be
+# a GitHub login with write access.
+repo_admin: &repo_admin happyhuman
+
 # --------------------------------------------------------------------------
 # Recipe size limits — enforced by
 # .github/workflows/validate-recipe-structure.yml (language-agnostic).
@@ -387,7 +392,7 @@ stale_policy:
     # quiet are the ones Dependabot itself has abandoned, which is exactly
     # the set worth escalating.
     bot_label: dependencies
-    bot_escalation_mention: happyhuman
+    bot_escalation_mention: *repo_admin
 
   issues:
     # Deliberately triple the PR window, because the two cases are not
@@ -612,6 +617,9 @@ deployability:
     - "gcsfs>=2024.11.0"
     - "google-adk[gcp,otel-gcp]>=2.6.0,<3.0.0"
     - "opentelemetry-resourcedetector-gcp<=1.12.0a0"
+    # Provides `agentplatform`, which app_utils/reasoning_engine_adapter.py
+    # imports. Same floor agents-cli uses for its agent_runtime target.
+    - "google-cloud-aiplatform[agent-engines]>=1.156.0,<2.0.0"
 
   # Files a deployable recipe must have. `<pkg>` is the recipe's agent
   # package directory (e.g. `app`, `horizon`, `expense_agent`).

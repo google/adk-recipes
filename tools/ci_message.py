@@ -59,7 +59,7 @@ from __future__ import annotations
 import shutil
 from collections.abc import Callable
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 
 # ---------------------------------------------------------------------------
 # Documentation anchors
@@ -73,7 +73,7 @@ from enum import Enum
 _TROUBLESHOOTING = "docs/recipe-handbook/troubleshooting.md"
 
 
-class Doc(str, Enum):
+class Doc(StrEnum):
     """Anchors into the troubleshooting handbook."""
 
     MANIFEST = "manifestyaml-missing-or-invalid"
@@ -93,6 +93,7 @@ class Doc(str, Enum):
 
     RUFF_CONFIG = "pyprojecttoml-has-a-local-ruff-configuration"
     RUFF_STANDALONE = "standalone-ruff-config-file"
+    LINT_CONFIG = "standalone-lint-or-style-config-file"
     PROJECT_NAME = "project-name-doesnt-match-the-required-name"
     PROJECT_DESCRIPTION = "project-description-doesnt-match-manifest"
     REQUIRES_PYTHON = "requires-python-below-311"
@@ -124,7 +125,7 @@ class Doc(str, Enum):
         return f"{_TROUBLESHOOTING}#{self.value}"
 
 
-class Severity(str, Enum):
+class Severity(StrEnum):
     ERROR = "error"
     WARNING = "warning"
     NOTICE = "notice"

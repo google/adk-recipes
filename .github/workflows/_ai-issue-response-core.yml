@@ -82,6 +82,8 @@ jobs:
     steps:
       - name: 'Checkout repository'
         uses: 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1' # ratchet:actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: 'Generate GitHub App Token'
         id: 'generate_token'
@@ -118,7 +120,7 @@ jobs:
       - name: 'Install Antigravity CLI (agy)'
         run: |-
           set -euo pipefail
-          curl -fsSL https://antigravity.google/cli/install.sh | bash
+          bash .github/scripts/install_agy.sh
           echo "${HOME}/.local/bin" >> "${GITHUB_PATH}"
 
       # SECURITY: the allowlist is EMPTY. The agent receives all context in

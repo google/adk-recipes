@@ -413,7 +413,7 @@ class PlaywrightBrowserComputer(BaseComputer):
                 await self._page.wait_for_load_state(
                     "domcontentloaded", timeout=DEFAULT_TIMEOUT_MS
                 )
-            except Exception:
+            except Exception:  # noqa: S110
                 pass
         return await self.current_state()
 
@@ -445,7 +445,7 @@ class PlaywrightBrowserComputer(BaseComputer):
                     await self._page.wait_for_load_state(
                         "domcontentloaded", timeout=DEFAULT_TIMEOUT_MS
                     )
-                except Exception:
+                except Exception:  # noqa: S110
                     pass
         return await self.current_state()
 
@@ -489,7 +489,7 @@ class PlaywrightBrowserComputer(BaseComputer):
                 await self._page.go_back(
                     wait_until="domcontentloaded", timeout=DEFAULT_TIMEOUT_MS
                 )
-            except Exception:
+            except Exception:  # noqa: S110
                 pass
         return await self.current_state()
 
@@ -500,7 +500,7 @@ class PlaywrightBrowserComputer(BaseComputer):
                 await self._page.go_forward(
                     wait_until="domcontentloaded", timeout=DEFAULT_TIMEOUT_MS
                 )
-            except Exception:
+            except Exception:  # noqa: S110
                 pass
         return await self.current_state()
 
@@ -581,14 +581,14 @@ class PlaywrightBrowserComputer(BaseComputer):
             if page is not None:
                 try:
                     await page.close()
-                except Exception:
+                except Exception:  # noqa: S110
                     pass
         self._pages.clear()
         for context in self._contexts.values():
             if context is not None:
                 try:
                     await context.close()
-                except Exception:
+                except Exception:  # noqa: S110
                     pass
         self._contexts.clear()
         if self._browser is not None:

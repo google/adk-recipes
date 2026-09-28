@@ -21,6 +21,8 @@ import google.auth
 import requests
 from google.auth.transport.requests import Request
 
+_REQUEST_TIMEOUT = 30
+
 
 def get_config(var_name, prompt, default=None, is_secret=False):
     """Helper to get config from env or user input."""
@@ -128,6 +130,7 @@ def register_oauth():
             f"{base_url}?authorizationId={auth_id}",
             headers=headers,
             json=payload,
+            timeout=_REQUEST_TIMEOUT,
         )
 
         if response.status_code == 200:
@@ -140,7 +143,9 @@ def register_oauth():
             )
 
             del_response = requests.delete(
-                f"{base_url}/{auth_id}", headers=headers
+                f"{base_url}/{auth_id}",
+                headers=headers,
+                timeout=_REQUEST_TIMEOUT,
             )
             if del_response.status_code in [200, 204]:
                 print("🗑️  Old resource deleted. Re-creating...")
@@ -149,6 +154,7 @@ def register_oauth():
                     f"{base_url}?authorizationId={auth_id}",
                     headers=headers,
                     json=payload,
+                    timeout=_REQUEST_TIMEOUT,
                 )
                 if retry_response.status_code == 200:
                     print(

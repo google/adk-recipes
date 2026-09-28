@@ -144,7 +144,7 @@ def get_product_details_for_brand(
             `{constants.PROJECT}.{constants.DATASET_ID}.{constants.TABLE_ID}`
         WHERE LOWER(Brand) LIKE LOWER(CONCAT('%', @brand_param, '%'))
         LIMIT @limit_param
-    """
+    """  # noqa: S608
     job_config = bigquery.QueryJobConfig(
         query_parameters=[
             bigquery.ScalarQueryParameter("brand_param", "STRING", clean_brand),

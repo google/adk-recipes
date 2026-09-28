@@ -78,5 +78,8 @@ if __name__ == "__main__":
     logger.info("=" * 60)
 
     uvicorn.run(
-        "scripts.server:app", host="0.0.0.0", port=config.PORT, reload=True
+        "scripts.server:app",
+        host="127.0.0.1",
+        port=config.PORT,
+        reload=True,
     )

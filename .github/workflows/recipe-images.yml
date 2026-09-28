@@ -192,6 +192,10 @@ jobs:
         with:
           context: ${{ matrix.path }}
           file: ${{ matrix.path }}/Dockerfile
+          # Docker v2 media types, not OCI: Agent Engine fails to start an
+          # OCI-manifest image deployed through container_spec, while the same
+          # image as Docker v2 deploys. `outputs` replaces `push` to set this.
+          outputs: type=image,push=${{ !inputs.dry_run }},oci-mediatypes=false
           # `latest` for humans and for docs that cannot chase a digest.
           #
           # The pinnable tag is date-and-commit, not commit alone. The weekly
@@ -201,18 +205,61 @@ jobs:
           # so a bare `:<sha>` would be rewritten every Tuesday and would not
           # mean what a commit-shaped tag implies. Dating it keeps every
           # published image immutable and still traceable to its source.
-          push: ${{ !inputs.dry_run }}
           tags: |
             ${{ matrix.image }}:latest
             ${{ matrix.image }}:${{ needs.matrix.outputs.build_tag }}
           build-args: |
             AGENT_VERSION=${{ github.sha }}
+          # Must stay false with oci-mediatypes=false: BuildKit fails the build
+          # with "cannot export attestations with oci-mediatypes=false".
           provenance: false
           # Shared across runs of the same recipe, not across recipes: these
           # images share a base layer but nothing above it, and a common
           # scope would have them evicting each other's dependency layers.
           cache-from: type=gha,scope=${{ matrix.path }}
           cache-to: type=gha,mode=max,scope=${{ matrix.path }}
+
+      # Only on a run that pushed. The build exports straight to the registry
+      # (`outputs: type=image`), so nothing is loaded into the local daemon
+      # and a dry run leaves Trivy with no image to resolve.
+      - name: Scan image with Trivy
+        if: ${{ !inputs.dry_run }}
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # ratchet:aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ${{ matrix.image }}:${{ needs.matrix.outputs.build_tag }}
+          format: table
+          output: ${{ runner.temp }}/trivy.txt
+          # Report, do not gate. These findings are overwhelmingly in the base
+          # image and not fixable by the recipe, and this job publishes to
+          # Artifact Registry — failing here would stop shipping a recipe over
+          # something its author cannot act on.
+          exit-code: 0
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: CRITICAL,HIGH
+
+      # Without this the scan reaches only the raw log of a scheduled run,
+      # which nobody opens. `exit-code: 0` means the table IS the whole output
+      # of the step, so it has to land somewhere a person will actually see.
+      - name: Publish Trivy findings to the run summary
+        if: ${{ !inputs.dry_run }}
+        env:
+          IMAGE: ${{ matrix.image }}
+          BUILD_TAG: ${{ needs.matrix.outputs.build_tag }}
+          TRIVY_REPORT: ${{ runner.temp }}/trivy.txt
+        run: |
+          set -euo pipefail
+          {
+            echo "### Trivy — ${IMAGE}:${BUILD_TAG}"
+            echo ""
+            if [ ! -s "${TRIVY_REPORT}" ]; then
+              echo "Trivy produced no report file."
+            else
+              echo '```'
+              cat "${TRIVY_REPORT}"
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Report
         env:
