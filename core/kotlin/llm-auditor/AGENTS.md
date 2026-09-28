@@ -26,10 +26,11 @@ rather than defining one.
 
 The only automated test is a runnability smoke test,
 `src/test/kotlin/.../RunnabilityTest.kt`: it builds `rootAgent` and checks its
-name and sub-agents, without calling the model or needing credentials. CI
-runs it with `gradle test`, so CI verifies that the recipe compiles against
-the pinned adk-kotlin release and that the agent graph builds, not that it
-behaves correctly. Verify behaviour by hand:
+name and sub-agents without calling the model. `build.gradle.kts` gives it a
+placeholder `GOOGLE_API_KEY`, because `Gemini()` will not construct without a
+key; no real credentials are needed. CI runs it with `gradle test`, so CI
+verifies that the recipe compiles against the pinned adk-kotlin release and
+that the agent graph builds, not that it behaves correctly. Verify behaviour by hand:
 
 ```bash
 export GOOGLE_API_KEY="..."

@@ -21,8 +21,8 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 
 /**
- * Smoke test: the agent graph builds. It never calls the model, so it needs
- * no credentials or network access.
+ * Smoke test: the agent graph builds. It never calls the model; the API key
+ * it needs to construct is a placeholder set in build.gradle.kts.
  */
 class RunnabilityTest {
     @Test
