@@ -3,7 +3,7 @@
 
 This is the human-facing side of the Legal loop (PRD "How it works -- two
 feedback loops"). It only reads/writes the local legal-queue file (see
-`clause_agent/tools/legal_review.py`) -- it does NOT talk to a running
+`app/tools/legal_review.py`) -- it does NOT talk to a running
 agent session directly. To actually resume a paused `adk web`/`adk run`
 conversation after using this script, send the agent a message noting the
 task was approved/edited/rejected (e.g. "LR-a1b2c was approved by
@@ -30,7 +30,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from clause_agent.tools.legal_review import (
+from app.tools.legal_review import (
     list_pending,
     resolve_legal_review,
 )

@@ -14,7 +14,7 @@
 
 from google.cloud import bigquery
 
-from brand_search_optimization.shared_libraries import constants
+from app.shared_libraries import constants
 
 PROJECT = constants.PROJECT
 TABLE_ID = constants.TABLE_ID

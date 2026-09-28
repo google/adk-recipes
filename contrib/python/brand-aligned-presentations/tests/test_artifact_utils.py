@@ -18,7 +18,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from google.genai import types
 
-from presentation_agent.tools.artifact_utils import (
+from app.tools.artifact_utils import (
     save_deck_spec,
     update_slide_in_spec,
 )

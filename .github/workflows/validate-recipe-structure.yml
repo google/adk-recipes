@@ -1,7 +1,7 @@
 name: Validate Recipe Structure
 
 # Language-agnostic structural validation for every recipe under `core/`,
-# `contrib/`, and `skills/`: manifest presence + schema, folder name,
+# `contrib/`, and `plugins/`: manifest presence + schema, folder name,
 # size, file count, and required files (matrix from `.github/policy.yml`).
 
 on:
@@ -14,7 +14,7 @@ on:
     paths:
       - 'core/**'
       - 'contrib/**'
-      - 'skills/**'
+      - 'plugins/**'
       # Retired recipe roots (policy.yml `frozen_paths`). Without these the
       # workflow never fires for a PR that only touches a retired folder,
       # and the check below could never see it.
@@ -43,7 +43,7 @@ on:
     paths:
       - 'core/**'
       - 'contrib/**'
-      - 'skills/**'
+      - 'plugins/**'
       - '.github/schemas/manifest-schema.json'
       - '.github/policy.yml'
       - '.github/workflows/validate-recipe-structure.yml'
@@ -77,7 +77,7 @@ jobs:
           persist-credentials: false
 
       - name: Install uv
-        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # ratchet:astral-sh/setup-uv@v10.0.1
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # ratchet:astral-sh/setup-uv@v10.2.0
         with:
           # Pin explicitly for reproducibility and to match the sibling
           # python-validate-recipe.yml step. Structure checks only need
@@ -236,7 +236,7 @@ jobs:
           CI_FAULT=0
 
           if [ "$VALIDATE_ALL" = "true" ]; then
-            # Both validators walk core/, contrib/, and skills/ in one pass.
+            # Both validators walk core/, contrib/, and plugins/ in one pass.
             run_validator structure
             run_validator readme
 
@@ -244,7 +244,7 @@ jobs:
               [ -z "$recipe" ] && continue
               run_lint_config_check "$recipe"
               run_model_literal_check "$recipe"
-            done < <(find core contrib skills -mindepth 1 -maxdepth 3 -type f -name manifest.yaml -exec dirname {} \;)
+            done < <(find core contrib plugins -mindepth 1 -maxdepth 3 -type f -name manifest.yaml -exec dirname {} \;)
 
             if [ "$CI_FAULT" -eq 1 ]; then
               ci_fault_banner
@@ -341,7 +341,7 @@ jobs:
           persist-credentials: false
 
       - name: Install uv
-        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # ratchet:astral-sh/setup-uv@v10.0.1
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # ratchet:astral-sh/setup-uv@v10.2.0
         with:
           python-version: "3.11"
           enable-cache: false
@@ -379,7 +379,7 @@ jobs:
     #
     # It cannot ride on the validate-structure job above: that runs the
     # validators per AFFECTED recipe, and affected_recipes.py maps a
-    # misplaced skill (skills/<solution> with no vertical) to None, so it
+    # misplaced plugin (plugins/<solution> with no vertical) to None, so it
     # would never appear in changed_recipes.
 
     steps:
@@ -389,7 +389,7 @@ jobs:
           persist-credentials: false
 
       - name: Install uv
-        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # ratchet:astral-sh/setup-uv@v10.0.1
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # ratchet:astral-sh/setup-uv@v10.2.0
         with:
           python-version: "3.11"
           enable-cache: false

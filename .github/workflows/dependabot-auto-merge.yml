@@ -170,17 +170,17 @@ jobs:
 
           # Get all changed recipe directories across all supported locations:
           #   core/<language>/<recipe>       contrib/<language>/<recipe>
-          #   skills/<vertical>/<solution>
+          #   plugins/<vertical>/<solution>
           # Note the middle segment differs: a LANGUAGE under core/ and
-          # contrib/, a VERTICAL under skills/. The pattern captures exactly
+          # contrib/, a VERTICAL under plugins/. The pattern captures exactly
           # 3 path segments either way, so sub-directories (e.g.
           # core/python/deep-search/frontend) map back to the recipe root.
           CHANGED_AGENT_DIRS=$(echo "$CHANGED_FILES" \
-            | grep -oE '(core|contrib|skills)/[^/]+/[^/]+' \
+            | grep -oE '(core|contrib|plugins)/[^/]+/[^/]+' \
             | sort -u || true)
 
           if [ -z "$CHANGED_AGENT_DIRS" ]; then
-            echo "No changes in core/|contrib/|skills/ recipe directories"
+            echo "No changes in core/|contrib/|plugins/ recipe directories"
             HAS_AUTOMATED_TESTS=false
           else
             for dir in $CHANGED_AGENT_DIRS; do

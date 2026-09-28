@@ -16,7 +16,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from presentation_agent.tools.visual_generator import generate_visual
+from app.tools.visual_generator import generate_visual
 
 
 class MockResponse:
@@ -39,15 +39,15 @@ async def test_generate_visual_success_gcs():
 
     with (
         patch(
-            "presentation_agent.tools.visual_generator.initialize_genai_client",
+            "app.tools.visual_generator.initialize_genai_client",
             return_value=mock_client,
         ),
         patch(
-            "presentation_agent.tools.visual_generator.GCS_BUCKET_NAME",
+            "app.tools.visual_generator.GCS_BUCKET_NAME",
             "my-bucket",
         ),
         patch(
-            "presentation_agent.tools.visual_generator.get_gcs_client",
+            "app.tools.visual_generator.get_gcs_client",
             return_value=mock_storage_client,
         ),
     ):
@@ -67,11 +67,11 @@ async def test_generate_visual_success_local():
 
     with (
         patch(
-            "presentation_agent.tools.visual_generator.initialize_genai_client",
+            "app.tools.visual_generator.initialize_genai_client",
             return_value=mock_client,
         ),
         patch(
-            "presentation_agent.tools.visual_generator.GCS_BUCKET_NAME",
+            "app.tools.visual_generator.GCS_BUCKET_NAME",
             None,
         ),
     ):
@@ -90,11 +90,11 @@ async def test_generate_visual_no_candidates():
 
     with (
         patch(
-            "presentation_agent.tools.visual_generator.initialize_genai_client",
+            "app.tools.visual_generator.initialize_genai_client",
             return_value=mock_client,
         ),
         patch(
-            "presentation_agent.tools.visual_generator.GCS_BUCKET_NAME",
+            "app.tools.visual_generator.GCS_BUCKET_NAME",
             None,
         ),
     ):
@@ -112,15 +112,15 @@ async def test_generate_visual_gcs_no_client():
 
     with (
         patch(
-            "presentation_agent.tools.visual_generator.initialize_genai_client",
+            "app.tools.visual_generator.initialize_genai_client",
             return_value=mock_client,
         ),
         patch(
-            "presentation_agent.tools.visual_generator.GCS_BUCKET_NAME",
+            "app.tools.visual_generator.GCS_BUCKET_NAME",
             "my-bucket",
         ),
         patch(
-            "presentation_agent.tools.visual_generator.get_gcs_client",
+            "app.tools.visual_generator.get_gcs_client",
             return_value=None,
         ),
     ):
@@ -140,11 +140,11 @@ async def test_generate_visual_exception():
 
     with (
         patch(
-            "presentation_agent.tools.visual_generator.initialize_genai_client",
+            "app.tools.visual_generator.initialize_genai_client",
             return_value=mock_client,
         ),
         patch(
-            "presentation_agent.tools.visual_generator.GCS_BUCKET_NAME",
+            "app.tools.visual_generator.GCS_BUCKET_NAME",
             None,
         ),
     ):
@@ -156,7 +156,7 @@ async def test_generate_visual_exception():
 @pytest.mark.asyncio
 async def test_generate_visual_client_none():
     with patch(
-        "presentation_agent.tools.visual_generator.initialize_genai_client",
+        "app.tools.visual_generator.initialize_genai_client",
         return_value=None,
     ):
         result = await generate_visual("test prompt")

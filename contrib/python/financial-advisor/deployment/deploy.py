@@ -22,7 +22,7 @@ from dotenv import load_dotenv
 from vertexai import agent_engines
 from vertexai.preview.reasoning_engines import AdkApp
 
-from financial_advisor.agent import root_agent
+from app.agent import root_agent
 
 FLAGS = flags.FLAGS
 flags.DEFINE_string("project_id", None, "GCP project ID.")

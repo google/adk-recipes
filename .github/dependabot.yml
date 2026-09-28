@@ -123,7 +123,7 @@
 # The obvious source for this list is recipe_manifests.DETECTORS, and it is
 # the wrong one. DETECTORS answers "which recipe directories do the canary
 # and the orphan cleanup track", and it is scoped to
-# SCAN_ROOTS = core/, contrib/, skills/. Dependabot's `**/*` glob is scoped
+# SCAN_ROOTS = core/, contrib/, plugins/. Dependabot's `**/*` glob is scoped
 # to the repository. The two disagree in both directions:
 #
 #   - The legacy python/, java/ and kotlin/ trees are closed to new work and

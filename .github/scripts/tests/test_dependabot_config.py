@@ -66,7 +66,7 @@ def config() -> dict:
 # moment it is added there.
 #
 # This is a FLOOR, not the whole set. DETECTORS is scoped to
-# SCAN_ROOTS (core/, contrib/, skills/) because it answers "which recipe
+# SCAN_ROOTS (core/, contrib/, plugins/) because it answers "which recipe
 # directories do the canary and orphan cleanup track". Dependabot's `**/*`
 # glob is scoped to the repository, so it also sees the legacy python/,
 # java/ and kotlin/ trees, and it parses manifest types no detector looks

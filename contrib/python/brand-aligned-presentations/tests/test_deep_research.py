@@ -17,7 +17,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from presentation_agent.sub_agents.deep_research.tools.deep_research_tool import (
+from app.sub_agents.deep_research.tools.deep_research_tool import (
     _deep_research_sync_impl,
     _parse_deep_research_stream,
     deep_research_search,
@@ -93,9 +93,7 @@ def test_parse_deep_research_stream():
     assert interaction_id2 == "456"
 
 
-@patch(
-    "presentation_agent.sub_agents.deep_research.tools.deep_research_tool.genai.Client"
-)
+@patch("app.sub_agents.deep_research.tools.deep_research_tool.genai.Client")
 def test_deep_research_sync_impl(mock_client_class):
     mock_client = mock_client_class.return_value
     mock_interactions = mock_client.interactions
@@ -138,7 +136,7 @@ def test_deep_research_sync_impl(mock_client_class):
 
 @pytest.mark.asyncio
 @patch(
-    "presentation_agent.sub_agents.deep_research.tools.deep_research_tool._deep_research_sync_impl"
+    "app.sub_agents.deep_research.tools.deep_research_tool._deep_research_sync_impl"
 )
 async def test_deep_research_search(mock_sync_impl):
     mock_sync_impl.return_value = "Async Result"

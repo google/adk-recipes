@@ -101,7 +101,7 @@ relaxes that per-entry, and its header lists which files must never be added to 
 ## Retire, move, or rename a recipe
 
 1. **Move the files.** Recipes belong at `<root>/<language>/<recipe>`, except under
-   `skills/`, where the middle folder is a `<vertical>`.
+   `plugins/`, where the middle folder is a `<vertical>`.
 2. **`.github/policy.yml`, `frozen_paths`** — if closing a whole root. A PR that adds
    or modifies files under a frozen path fails; deletions and renames are exempt, so
    migrating out is never blocked.

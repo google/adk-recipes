@@ -33,7 +33,7 @@ async def test_all():
     """Test the agent's basic ability on a few examples."""
     print("Running evaluate")
     await AgentEvaluator.evaluate(
-        "financial_advisor",
+        "app",
         str(pathlib.Path(__file__).parent / "data"),
         num_runs=5,
     )

@@ -40,7 +40,7 @@ deployment = [
 [tool.mypy]
 python_version = "3.11"
 ignore_missing_imports = true
-files = ["brand_search_optimization", "tests", "eval"]
+files = ["app", "tests", "eval"]
 exclude = ["^deployment/", "^\\.venv/", "__pycache__"]
 
 
@@ -48,7 +48,7 @@ exclude = ["^deployment/", "^\\.venv/", "__pycache__"]
 pythonpath = "."
 
 [tool.hatch.build.targets.wheel]
-packages = ["brand_search_optimization"]
+packages = ["app"]
 
 [build-system]
 requires = ["hatchling"]
@@ -58,7 +58,7 @@ build-backend = "hatchling.build"
 example_question = "Can you help optimize my brand product title for search?"
 
 [tool.agent-starter-pack.settings]
-agent_directory = "brand_search_optimization"
+agent_directory = "app"
 
 [[tool.uv.index]]
 url = "https://pypi.org/simple"
