@@ -1418,7 +1418,7 @@ def _rule_sources(root):
 # Mirrors .github/policy.yml `required_files`. Read from policy.yml when it is
 # present in the tree under review, so the two cannot drift; these are the
 # fallback for a checkout that predates a key.
-_REQUIRED_ALWAYS = ["README.md"]
+_REQUIRED_ALWAYS = ["README.md", ".env.example"]
 _REQUIRED_BY_ROOT = {
     "core": ["AGENTS.md"],
     "contrib": [],
@@ -1428,10 +1428,21 @@ _REQUIRED_BY_LANGUAGE = {
     "python": [
         "pyproject.toml",
         "uv.lock",
-        ".env.example",
         "tests/test_runnability.py",
     ],
     "go": ["go.mod"],
+    "java": [("pom.xml", "build.gradle", "build.gradle.kts")],
+    "kotlin": ["build.gradle.kts"],
+    "typescript": [
+        "package.json",
+        (
+            "package-lock.json",
+            "pnpm-lock.yaml",
+            "yarn.lock",
+            "bun.lockb",
+            "bun.lock",
+        ),
+    ],
 }
 
 
@@ -1494,8 +1505,11 @@ def _required_files(root, rel, recipe_abs):
         parts = rel.strip("/").split("/")
         if area in ("core", "contrib") and len(parts) >= 2:
             language = parts[1].lower()
-    for item in by_language.get(language) or []:
-        required.append(tuple(item) if isinstance(item, list) else item)
+    required += list(by_language.get(language) or [])
+    # A YAML list entry means "any one of these"; tuples keep it hashable for
+    # the dedupe below. Converted for every source, as validate_structure.py
+    # does, so an alternative added under `always` or `by_root` cannot crash.
+    required = [tuple(i) if isinstance(i, list) else i for i in required]
     seen = set()
     deduped = []
     for item in required:
