@@ -11,13 +11,13 @@ from google.adk.agents import LlmAgent
 from google.adk.models.base_llm import BaseLlm
 from google.adk.tools.long_running_tool import LongRunningFunctionTool
 
-from clause_agent.prompt import (
+from app.prompt import (
     get_hierarchy_resolver_instruction,
 )
-from clause_agent.shared_libraries import config
-from clause_agent.tools.document_search import search_documents
-from clause_agent.tools.legal_review import request_legal_review
-from clause_agent.tools.memory_bank import (
+from app.shared_libraries import config
+from app.tools.document_search import search_documents
+from app.tools.legal_review import request_legal_review
+from app.tools.memory_bank import (
     memory_bank_create,
     memory_bank_search,
 )

@@ -10,7 +10,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-PACKAGE_DIR = Path(__file__).resolve().parent.parent  # clause_agent/
+PACKAGE_DIR = Path(__file__).resolve().parent.parent  # app/
 PROJECT_ROOT = PACKAGE_DIR.parent
 
 

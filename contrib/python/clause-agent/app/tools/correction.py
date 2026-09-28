@@ -13,8 +13,8 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from clause_agent.shared_libraries import audit_log
-from clause_agent.shared_libraries.schemas import Correction
+from app.shared_libraries import audit_log
+from app.shared_libraries.schemas import Correction
 
 
 def submit_correction(

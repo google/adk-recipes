@@ -26,8 +26,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol
 
-from clause_agent.shared_libraries import config
-from clause_agent.shared_libraries.schemas import MemoryRecord
+from app.shared_libraries import config
+from app.shared_libraries.schemas import MemoryRecord
 
 _lock = threading.Lock()
 

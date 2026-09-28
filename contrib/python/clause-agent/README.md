@@ -19,14 +19,14 @@ answers.
 - `clause_extractor` -- extracts a specific billing field's value with a
   citation; accepts corrections from Billing/AR users and generalizes
   lessons into reusable Memory Bank rules.
-- Memory Bank (`clause_agent/tools/memory_bank.py`) -- structured, scoped
+- Memory Bank (`app/tools/memory_bank.py`) -- structured, scoped
   facts/rules behind a swappable backend (`LocalJsonMemoryBankBackend` for
   the POC; implement `MemoryBankBackend` against real Vertex AI Memory
   Bank for production without touching agent/tool code).
 - SAP connector -- mocked per PRD scope.
 
-See `clause_agent/prompt.py` for the exact guardrail language each agent
-follows, and `clause_agent/tools/` for how each guardrail is *structurally*
+See `app/prompt.py` for the exact guardrail language each agent
+follows, and `app/tools/` for how each guardrail is *structurally*
 enforced (not just prompted), e.g. `memory_bank_create` hard-refuses an
 unapproved precedence ruling.
 
@@ -107,11 +107,11 @@ downstream project like this one.
 ## POC scope and known simplifications
 
 - **Document Search** is keyword/tag matching over a small synthetic
-  corpus (`clause_agent/data/contracts/corpus.json`), not a production RAG
+  corpus (`app/data/contracts/corpus.json`), not a production RAG
   pipeline -- explicitly out of scope per the PRD.
 - **Memory Bank** defaults to a local JSON file with exact scope-dict
   matching, not real Vertex AI Memory Bank's semantic search. Swappable
-  via `clause_agent.tools.memory_bank.set_backend`.
+  via `app.tools.memory_bank.set_backend`.
 - **SAP connector** is mocked, per the PRD.
 - **Confidence threshold** (`CLAUSE_AGENT_CONFIDENCE_THRESHOLD`, default
   `0.90`) is enforced via agent instructions, not a deterministic code

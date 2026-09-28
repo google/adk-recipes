@@ -11,11 +11,11 @@ from __future__ import annotations
 from google.adk.agents import LlmAgent
 from google.adk.models.base_llm import BaseLlm
 
-from clause_agent.prompt import CLAUSE_EXTRACTOR_INSTRUCTION
-from clause_agent.shared_libraries import config
-from clause_agent.tools.correction import submit_correction
-from clause_agent.tools.document_search import search_documents
-from clause_agent.tools.memory_bank import (
+from app.prompt import CLAUSE_EXTRACTOR_INSTRUCTION
+from app.shared_libraries import config
+from app.tools.correction import submit_correction
+from app.tools.document_search import search_documents
+from app.tools.memory_bank import (
     memory_bank_create,
     memory_bank_search,
 )

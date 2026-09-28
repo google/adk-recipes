@@ -5,7 +5,7 @@ invoice-processing/invoice_processing/prompt.py) so the guardrail language
 is easy to review and keep consistent across agents.
 """
 
-from clause_agent.shared_libraries import config
+from app.shared_libraries import config
 
 ROOT_AGENT_INSTRUCTION = """\
 You are the ClauseIQ Orchestrator. You help Billing/AR Analysts and Legal

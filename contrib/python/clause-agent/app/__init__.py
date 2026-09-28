@@ -9,6 +9,6 @@ _env_path = Path(__file__).resolve().parent.parent / ".env"
 if _env_path.is_file():
     load_dotenv(_env_path)
 
-from clause_agent.agent import root_agent  # noqa: E402
+from app.agent import root_agent  # noqa: E402
 
 __all__ = ["root_agent"]

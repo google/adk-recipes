@@ -1,7 +1,7 @@
 """Legal Review tool: blocking human-in-the-loop gate for precedence rulings.
 
 Wrapped as a `LongRunningFunctionTool` in
-`clause_agent/sub_agents/hierarchy_resolver.py`
+`app/sub_agents/hierarchy_resolver.py`
 (`google.adk.tools.long_running_tool.LongRunningFunctionTool`). Per ADK's
 HITL pattern for long-running tools:
 
@@ -31,8 +31,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from clause_agent.shared_libraries import audit_log, config
-from clause_agent.shared_libraries.schemas import LegalReviewTask
+from app.shared_libraries import audit_log, config
+from app.shared_libraries.schemas import LegalReviewTask
 
 _lock = threading.Lock()
 
