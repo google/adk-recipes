@@ -238,8 +238,20 @@ def _mount_frontend():
 
     @app.get("/{full_path:path}")
     async def serve_spa(full_path: str):
+        clean_path = full_path.lstrip("/")
+        resolved_base = frontend_dir.resolve()
+        try:
+            file_path = (resolved_base / clean_path).resolve()
+            is_safe = file_path.is_relative_to(resolved_base)
+        except (ValueError, RuntimeError):
+            is_safe = False
+
+        if not is_safe:
+            from fastapi.responses import JSONResponse
+
+            return JSONResponse({"detail": "Not Found"}, status_code=404)
+
         # If the path matches an actual file in dist/, serve it
-        file_path = frontend_dir / full_path
         if full_path and file_path.is_file():
             return FileResponse(str(file_path))
         # Only serve index.html for SPA routes (paths without file extensions)
