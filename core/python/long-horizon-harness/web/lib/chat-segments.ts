@@ -17,7 +17,7 @@
 // resubscribe.ts). Single source of truth so the three paths can't diverge.
 
 import type { ChatMessage, MessageSegment } from "@/components/chat/chat-shell";
-import type { Extracted } from "./app-events";
+import type { Extracted } from "./horizon-events";
 
 // Mark every unresolved clarify/confirmation segment that matches `callId` as
 // answered, deriving the displayed text from the same payload the card sent.

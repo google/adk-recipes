@@ -18,7 +18,7 @@ import { createElement, type ReactNode } from "react";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { makeQueryClient } from "../query-client";
 import { qk } from "../query-keys";
-import { useLhaMemories, type HorizonMemoriesResponse } from "../app-memories";
+import { useLhaMemories, type HorizonMemoriesResponse } from "../horizon-memories";
 
 function wrapper(client = makeQueryClient()) {
   return ({ children }: { children: ReactNode }) =>

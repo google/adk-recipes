@@ -17,7 +17,7 @@ import { renderHook } from "@testing-library/react";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { createElement, type ReactNode } from "react";
 import { makeQueryClient } from "../query-client";
-import { useSandboxStatus } from "../app-sandbox-status";
+import { useSandboxStatus } from "../horizon-sandbox-status";
 
 const W = (c = makeQueryClient()) =>
   ({ children }: { children: ReactNode }) =>

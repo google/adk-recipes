@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import type { HorizonSessionSummary } from "./app-sessions";
+import type { HorizonSessionSummary } from "./horizon-sessions";
 
 export interface ScheduledGroup {
   label: string;

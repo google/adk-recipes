@@ -22,7 +22,7 @@ import {
   useLhaState,
   type HorizonStateResponse,
   type HorizonState,
-} from "../app-state";
+} from "../horizon-state";
 
 function wrapper(client: QueryClient) {
   return ({ children }: { children: ReactNode }) =>

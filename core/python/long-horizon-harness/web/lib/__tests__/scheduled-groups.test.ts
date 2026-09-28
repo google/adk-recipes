@@ -14,7 +14,7 @@
 
 import { describe, expect, it } from "vitest";
 import { groupByJobType } from "../scheduled-groups";
-import type { HorizonSessionSummary } from "../app-sessions";
+import type { HorizonSessionSummary } from "../horizon-sessions";
 
 function s(id: string, jobType: HorizonSessionSummary["jobType"]): HorizonSessionSummary {
   return {
