@@ -19,7 +19,7 @@ dev = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["clause_agent"]
+packages = ["app"]
 
 [tool.pytest.ini_options]
 pythonpath = "."

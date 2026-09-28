@@ -2,7 +2,7 @@
 
 POC scope (PRD §5): a real document-ingestion pipeline is explicitly out of
 scope. This module loads a small, structured JSON corpus (see
-`clause_agent/data/contracts/corpus.json`) and does keyword/tag matching
+`app/data/contracts/corpus.json`) and does keyword/tag matching
 instead of embeddings -- enough to prove the hierarchy-resolution and
 citation logic without building a production RAG pipeline.
 
@@ -23,8 +23,8 @@ import json
 import re
 from typing import Any
 
-from clause_agent.shared_libraries import config
-from clause_agent.shared_libraries.schemas import ClauseHit
+from app.shared_libraries import config
+from app.shared_libraries.schemas import ClauseHit
 
 DEFAULT_SCOPE = ("body", "amendment", "renewal")
 VALID_DOC_TYPES = {"body", "amendment", "renewal", "exhibit", "appendix"}

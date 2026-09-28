@@ -8,12 +8,12 @@ loops"):
     via the non-blocking `submit_correction` tool.
 
 Both loops write into the same scoped Memory Bank (see
-`clause_agent/tools/memory_bank.py`), which both sub-agents check before
+`app/tools/memory_bank.py`), which both sub-agents check before
 acting.
 
 Usage:
-    adk web clause_agent
-    adk run clause_agent
+    adk web app
+    adk run app
 """
 
 from __future__ import annotations
@@ -21,11 +21,11 @@ from __future__ import annotations
 from google.adk.agents import LlmAgent
 from google.adk.models.base_llm import BaseLlm
 
-from clause_agent.prompt import ROOT_AGENT_INSTRUCTION
-from clause_agent.shared_libraries import config
-from clause_agent.sub_agents.clause_extractor import build_clause_extractor
-from clause_agent.sub_agents.hierarchy_resolver import build_hierarchy_resolver
-from clause_agent.tools.sap_connector import check_sap_invoice_status
+from app.prompt import ROOT_AGENT_INSTRUCTION
+from app.shared_libraries import config
+from app.sub_agents.clause_extractor import build_clause_extractor
+from app.sub_agents.hierarchy_resolver import build_hierarchy_resolver
+from app.tools.sap_connector import check_sap_invoice_status
 
 
 def build_root_agent(model: str | BaseLlm | None = None) -> LlmAgent:
