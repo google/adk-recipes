@@ -142,7 +142,7 @@ ADK provides convenient ways to bring up agents locally and interact with them.
 You may talk to the agent using the CLI:
 
 ```bash
-uv run adk run safety_plugins
+uv run adk run app
 ```
 
 Or on a web interface:
@@ -152,7 +152,7 @@ uv run adk web
 ```
 
 The command `adk web` will start a web server on your machine and print the URL.
-Select "safety_plugins" in the top-left drop-down menu.
+Select "app" in the top-left drop-down menu.
 
 ### Using the plugin CLI (advanced)
 
@@ -161,13 +161,13 @@ To test the safety plugins specifically, use the `main.py` entry point with the
 
 ```bash
 # LlmAsAJudge plugin
-uv run python -m safety_plugins.main --plugin llm_judge
+uv run python -m app.main --plugin llm_judge
 
 # Model Armor plugin
-uv run python -m safety_plugins.main --plugin model_armor
+uv run python -m app.main --plugin model_armor
 
 # No safety filter (baseline)
-uv run python -m safety_plugins.main
+uv run python -m app.main
 ```
 
 You can also modify `tools.py` to add text that the plugins will filter,
