@@ -78,6 +78,10 @@ concurrency:
 # reads untrusted code cannot post and the job that posts cannot read it.
 permissions: {}
 
+env:
+  # GitHub's diff API (`gh pr diff`) answers HTTP 406 above this many files.
+  MAX_DIFF_FILES: 300
+
 jobs:
   check:
     name: 'Check the house rules'
@@ -201,13 +205,13 @@ jobs:
           echo "total_files=${TOTAL}" >> "${GITHUB_OUTPUT}"
 
           # `gh pr diff` below answers HTTP 406 "PullRequest.diff too_large"
-          # above 300 files, and that failure is deterministic. The comment
+          # above MAX_DIFF_FILES files, and that failure is deterministic. The comment
           # anchors need the combined diff, so there is nothing to check
           # against; skip the rest and let `post` say so, as the model lanes
           # in _ai-pr-review-core.yml do.
-          if (( TOTAL > 300 )); then
+          if (( TOTAL > MAX_DIFF_FILES )); then
             echo "too_large=true" >> "${GITHUB_OUTPUT}"
-            echo "::notice::${TOTAL} files changed, above the 300-file diff API limit; skipping the house-rules check."
+            echo "::notice::${TOTAL} files changed, above the ${MAX_DIFF_FILES}-file diff API limit; skipping the house-rules check."
           fi
 
       - name: 'Fetch the diff'
@@ -332,7 +336,7 @@ jobs:
           DRY_RUN: '${{ github.event.inputs.dry_run }}'
         run: |-
           set -euo pipefail
-          BODY="This PR changes ${TOTAL_FILES} files, above the 300 GitHub's diff API will serve, so the house-rules check was skipped. Splitting it up would get each part checked."
+          BODY="This PR changes ${TOTAL_FILES} files, above the ${MAX_DIFF_FILES} files GitHub's diff API will serve, so the house-rules check was skipped. Splitting it up would get each part checked."
           if [[ "${DRY_RUN}" == 'true' ]]; then
             printf '### Dry run — House Rules\n\nWould comment: %s\n' "${BODY}" >> "${GITHUB_STEP_SUMMARY}"
             exit 0
