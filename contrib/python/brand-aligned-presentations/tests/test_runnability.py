@@ -25,12 +25,12 @@ def test_agent_runnability() -> None:
     os.environ.setdefault("GOOGLE_CLOUD_PROJECT", "test-project")
 
     # Clear cached agent module so credential patch is active during module execution
-    sys.modules.pop("presentation_agent.agent", None)
+    sys.modules.pop("app.agent", None)
 
     with patch(
         "google.auth.default", return_value=(MagicMock(), "test-project")
     ):
-        import presentation_agent.agent
+        import app.agent
 
-    assert presentation_agent.agent.root_agent is not None
-    assert presentation_agent.agent.app is not None
+    assert app.agent.root_agent is not None
+    assert app.agent.app is not None

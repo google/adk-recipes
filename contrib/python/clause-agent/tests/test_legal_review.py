@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from clause_agent.tools.legal_review import (
+from app.tools.legal_review import (
     get_task,
     list_pending,
     request_legal_review,
@@ -117,7 +117,7 @@ def test_resolve_invalid_decision_raises():
 
 
 def test_resolution_is_audit_logged():
-    from clause_agent.shared_libraries import audit_log
+    from app.shared_libraries import audit_log
 
     result = request_legal_review(
         customer="Acme Corp",

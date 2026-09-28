@@ -6,7 +6,7 @@
     {
       "eval_id": "shepherd_test",
       "session_input": {
-        "app_name": "on_brand_genmedia",
+        "app_name": "app",
         "user_id": "test_user_1",
         "state": {}
       },
@@ -59,7 +59,7 @@
     {
       "eval_id": "neurovibe_engineer",
       "session_input": {
-        "app_name": "on_brand_genmedia",
+        "app_name": "app",
         "user_id": "test_user_2",
         "state": {}
       },
@@ -112,7 +112,7 @@
     {
       "eval_id": "neurovibe_reception",
       "session_input": {
-        "app_name": "on_brand_genmedia",
+        "app_name": "app",
         "user_id": "test_user_3",
         "state": {}
       },
