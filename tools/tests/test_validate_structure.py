@@ -27,6 +27,7 @@ VALID_MANIFEST = textwrap.dedent(
       poc: my-github-id
     """
 )
+MINIMAL_DOCKERFILE = "FROM scratch\n"
 
 
 def _write(path: Path, content: str = "") -> Path:
@@ -446,7 +447,7 @@ def test_check_required_files_java_alternatives(tmp_path):
     r1 = tmp_path / "contrib" / "java-pom"
     _write(r1 / "README.md", "# x\n")
     _write(r1 / ".env.example", "# env\n")
-    _write(r1 / "Dockerfile", "FROM scratch\n")
+    _write(r1 / "Dockerfile", MINIMAL_DOCKERFILE)
     _write(r1 / "pom.xml", "<project/>\n")
     assert m.check_required_files(r1, "contrib", "java", policy) == []
 
@@ -454,7 +455,7 @@ def test_check_required_files_java_alternatives(tmp_path):
     r2 = tmp_path / "contrib" / "java-gradle"
     _write(r2 / "README.md", "# x\n")
     _write(r2 / ".env.example", "# env\n")
-    _write(r2 / "Dockerfile", "FROM scratch\n")
+    _write(r2 / "Dockerfile", MINIMAL_DOCKERFILE)
     _write(r2 / "build.gradle", "// gradle\n")
     assert m.check_required_files(r2, "contrib", "java", policy) == []
 
@@ -462,7 +463,7 @@ def test_check_required_files_java_alternatives(tmp_path):
     r3 = tmp_path / "contrib" / "java-kts"
     _write(r3 / "README.md", "# x\n")
     _write(r3 / ".env.example", "# env\n")
-    _write(r3 / "Dockerfile", "FROM scratch\n")
+    _write(r3 / "Dockerfile", MINIMAL_DOCKERFILE)
     _write(r3 / "build.gradle.kts", "// kts\n")
     assert m.check_required_files(r3, "contrib", "java", policy) == []
 
@@ -470,7 +471,7 @@ def test_check_required_files_java_alternatives(tmp_path):
     r4 = tmp_path / "contrib" / "java-none"
     _write(r4 / "README.md", "# x\n")
     _write(r4 / ".env.example", "# env\n")
-    _write(r4 / "Dockerfile", "FROM scratch\n")
+    _write(r4 / "Dockerfile", MINIMAL_DOCKERFILE)
     errs = m.check_required_files(r4, "contrib", "java", policy)
     assert len(errs) == 1
     assert "pom.xml OR build.gradle OR build.gradle.kts" in errs[0].what
@@ -482,7 +483,7 @@ def test_check_required_files_kotlin(tmp_path):
     r1 = tmp_path / "contrib" / "kt-good"
     _write(r1 / "README.md", "# x\n")
     _write(r1 / ".env.example", "# env\n")
-    _write(r1 / "Dockerfile", "FROM scratch\n")
+    _write(r1 / "Dockerfile", MINIMAL_DOCKERFILE)
     _write(r1 / "build.gradle.kts", "// kts\n")
     assert m.check_required_files(r1, "contrib", "kotlin", policy) == []
 
@@ -490,14 +491,14 @@ def test_check_required_files_kotlin(tmp_path):
     r2 = tmp_path / "contrib" / "kt-bad"
     _write(r2 / "README.md", "# x\n")
     _write(r2 / ".env.example", "# env\n")
-    _write(r2 / "Dockerfile", "FROM scratch\n")
+    _write(r2 / "Dockerfile", MINIMAL_DOCKERFILE)
     errs = m.check_required_files(r2, "contrib", "kotlin", policy)
     assert any("build.gradle.kts" in e.what for e in errs)
 
     # Missing .env.example fails
     r3 = tmp_path / "contrib" / "kt-no-env"
     _write(r3 / "README.md", "# x\n")
-    _write(r3 / "Dockerfile", "FROM scratch\n")
+    _write(r3 / "Dockerfile", MINIMAL_DOCKERFILE)
     _write(r3 / "build.gradle.kts", "// kts\n")
     errs = m.check_required_files(r3, "contrib", "kotlin", policy)
     assert any(".env.example" in e.what for e in errs)
@@ -516,7 +517,7 @@ def test_check_required_files_typescript(tmp_path):
         r = tmp_path / "contrib" / f"ts-{lock}"
         _write(r / "README.md", "# x\n")
         _write(r / ".env.example", "# env\n")
-        _write(r / "Dockerfile", "FROM scratch\n")
+        _write(r / "Dockerfile", MINIMAL_DOCKERFILE)
         _write(r / "package.json", "{}\n")
         _write(r / lock, "# lock\n")
         assert m.check_required_files(r, "contrib", "typescript", policy) == []
@@ -525,7 +526,7 @@ def test_check_required_files_typescript(tmp_path):
     r_no_lock = tmp_path / "contrib" / "ts-no-lock"
     _write(r_no_lock / "README.md", "# x\n")
     _write(r_no_lock / ".env.example", "# env\n")
-    _write(r_no_lock / "Dockerfile", "FROM scratch\n")
+    _write(r_no_lock / "Dockerfile", MINIMAL_DOCKERFILE)
     _write(r_no_lock / "package.json", "{}\n")
     errs = m.check_required_files(r_no_lock, "contrib", "typescript", policy)
     assert any("package-lock.json" in e.what for e in errs)
@@ -534,7 +535,7 @@ def test_check_required_files_typescript(tmp_path):
     r_no_pkg = tmp_path / "contrib" / "ts-no-pkg"
     _write(r_no_pkg / "README.md", "# x\n")
     _write(r_no_pkg / ".env.example", "# env\n")
-    _write(r_no_pkg / "Dockerfile", "FROM scratch\n")
+    _write(r_no_pkg / "Dockerfile", MINIMAL_DOCKERFILE)
     _write(r_no_pkg / "yarn.lock", "# lock\n")
     errs = m.check_required_files(r_no_pkg, "contrib", "typescript", policy)
     assert any("package.json" in e.what for e in errs)
@@ -545,7 +546,7 @@ def test_check_required_files_go(tmp_path):
     r1 = tmp_path / "contrib" / "go-good"
     _write(r1 / "README.md", "# x\n")
     _write(r1 / ".env.example", "# env\n")
-    _write(r1 / "Dockerfile", "FROM scratch\n")
+    _write(r1 / "Dockerfile", MINIMAL_DOCKERFILE)
     _write(r1 / "go.mod", "module example.com/foo\n")
     # Note: no go.sum, must still pass
     assert m.check_required_files(r1, "contrib", "go", policy) == []
@@ -554,7 +555,7 @@ def test_check_required_files_go(tmp_path):
     r2 = tmp_path / "contrib" / "go-bad"
     _write(r2 / "README.md", "# x\n")
     _write(r2 / ".env.example", "# env\n")
-    _write(r2 / "Dockerfile", "FROM scratch\n")
+    _write(r2 / "Dockerfile", MINIMAL_DOCKERFILE)
     errs = m.check_required_files(r2, "contrib", "go", policy)
     assert any("go.mod" in e.what for e in errs)
 

@@ -600,14 +600,15 @@ def test_validate_manifest_contrib_requires_deployable_true(
 ):
     monkeypatch.setattr(m, "REPO_ROOT", tmp_path)
     schema = m.load_schema()
+    check_deployable = "manifest-deployable"
 
     # Contrib recipe with deployable omitted fails
     recipe_no_dep = _make_recipe(
         tmp_path, "contrib/python/no-deployable", VALID_MANIFEST
     )
     diags = m.validate_manifest(recipe_no_dep / "manifest.yaml", schema)
-    assert any(d.check == "manifest-deployable" for d in diags)
-    (diag,) = [d for d in diags if d.check == "manifest-deployable"]
+    assert any(d.check == check_deployable for d in diags)
+    (diag,) = [d for d in diags if d.check == check_deployable]
     assert "every recipe in contrib/ must be deployable" in diag.what
     assert "Set 'deployable: true'" in diag.how
 
@@ -617,7 +618,7 @@ def test_validate_manifest_contrib_requires_deployable_true(
         tmp_path, "contrib/python/false-deployable", manifest_false
     )
     diags = m.validate_manifest(recipe_false / "manifest.yaml", schema)
-    assert any(d.check == "manifest-deployable" for d in diags)
+    assert any(d.check == check_deployable for d in diags)
 
     # Contrib recipe with deployable: true passes
     manifest_true = VALID_MANIFEST + "deployable: true\n"

@@ -51,6 +51,7 @@ SCHEMA_PATH = REPO_ROOT / ".github" / "schemas" / "manifest-schema.json"
 MANIFEST_FILENAME = "manifest.yaml"
 # Top-level directories that may hold recipes.
 RECIPE_ROOTS = ["core", "contrib", "plugins"]
+CONTRIB_ROOT = "contrib"
 
 OWNERSHIP_TEAM_PLACEHOLDER = "TODO: Replace with your team name"
 OWNERSHIP_POC_PLACEHOLDER = "TODO: Replace with your GitHub user ID"
@@ -472,7 +473,7 @@ def validate_manifest(manifest_path: Path, schema: dict) -> list[Diagnostic]:
         parts = Path(file).parts
         if (
             len(parts) > 1
-            and parts[0] == "contrib"
+            and parts[0] == CONTRIB_ROOT
             and data.get("deployable") is not True
         ):
             diagnostics.append(
