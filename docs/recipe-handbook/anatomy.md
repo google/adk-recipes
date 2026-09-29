@@ -1,4 +1,4 @@
-<!-- word count: 418 (target 700, cap 1000) -->
+<!-- word count: 418 (target 800, cap 1200) -->
 
 # Anatomy of a Recipe
 

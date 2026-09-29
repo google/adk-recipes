@@ -8,6 +8,7 @@ the page's complete example is itself a valid manifest.
 """
 
 import re
+from functools import cache
 from pathlib import Path
 
 import validate_manifest as m
@@ -40,13 +41,27 @@ def _schema_fields(properties: dict, prefix: str = "") -> set[str]:
     return fields
 
 
-def _doc_fields(text: str) -> set[str]:
-    return set(_FIELD_ROW.findall(text))
+@cache
+def _schema() -> dict:
+    return m.load_schema()
+
+
+@cache
+def _known_fields() -> frozenset[str]:
+    return frozenset(_schema_fields(_schema()["properties"]))
+
+
+@cache
+def _doc_text() -> str:
+    return DOC_PATH.read_text(encoding="utf-8")
+
+
+def _doc_fields() -> set[str]:
+    return set(_FIELD_ROW.findall(_doc_text()))
 
 
 def test_doc_lists_every_schema_field():
-    expected = _schema_fields(m.load_schema()["properties"]) - UNDOCUMENTED
-    missing = expected - _doc_fields(DOC_PATH.read_text(encoding="utf-8"))
+    missing = (_known_fields() - UNDOCUMENTED) - _doc_fields()
     assert not missing, (
         f"manifest-schema.json defines {sorted(missing)} but "
         f"{DOC_PATH.relative_to(REPO_ROOT)} has no table row for them."
@@ -54,8 +69,7 @@ def test_doc_lists_every_schema_field():
 
 
 def test_doc_names_no_field_the_schema_lacks():
-    known = _schema_fields(m.load_schema()["properties"])
-    extra = _doc_fields(DOC_PATH.read_text(encoding="utf-8")) - known
+    extra = _doc_fields() - _known_fields()
     assert not extra, (
         f"{DOC_PATH.relative_to(REPO_ROOT)} documents {sorted(extra)}, which "
         "manifest-schema.json does not define."
@@ -64,21 +78,20 @@ def test_doc_names_no_field_the_schema_lacks():
 
 def test_undocumented_fields_are_still_in_the_schema():
     """An entry here for a field the schema dropped is dead weight."""
-    known = _schema_fields(m.load_schema()["properties"])
-    assert known >= UNDOCUMENTED, sorted(UNDOCUMENTED - known)
+    assert _known_fields() >= UNDOCUMENTED, sorted(
+        UNDOCUMENTED - _known_fields()
+    )
 
 
 def test_undocumented_fields_stay_off_the_page():
-    text = DOC_PATH.read_text(encoding="utf-8")
-    shown = {f for f in UNDOCUMENTED if f"`{f}`" in text}
+    shown = {f for f in UNDOCUMENTED if f"`{f}`" in _doc_text()}
     assert not shown, f"{sorted(shown)} are meant to stay undocumented"
 
 
 def test_complete_example_is_a_valid_manifest(tmp_path):
-    text = DOC_PATH.read_text(encoding="utf-8")
-    section = text.split("## Complete example", 1)[1]
+    section = _doc_text().split("## Complete example", 1)[1]
     example = re.search(r"```yaml\n(.*?)```", section, re.DOTALL)
     assert example, "no ```yaml block under '## Complete example'"
     manifest = tmp_path / "manifest.yaml"
     manifest.write_text(example.group(1), encoding="utf-8")
-    assert m.validate_manifest(manifest, m.load_schema()) == []
+    assert m.validate_manifest(manifest, _schema()) == []
