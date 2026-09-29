@@ -25,6 +25,7 @@ import os
 import pathlib
 
 from google.adk import Agent
+from google.adk.apps import App
 from google.adk.skills import load_skill_from_dir, models
 from google.adk.tools.skill_toolset import SkillToolset
 
@@ -198,3 +199,5 @@ root_agent = Agent(
     ),
     tools=[skill_toolset],
 )
+
+app = App(root_agent=root_agent, name="app")

@@ -1,6 +1,7 @@
 type: "standalone"   # Options: [standalone | module]
 status: "inactive"   # Options: [active | inactive]
 language: "python"   # Options: [python | java | go | kotlin | typescript]
+deployable: true
 description: "ADK agent demonstrating 4 skill patterns: inline skills, file-based
   skills, external skills, and meta skills (skill-creator). Uses SkillToolset for
   progressive disclosure."
