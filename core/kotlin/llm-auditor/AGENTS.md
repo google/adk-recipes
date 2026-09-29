@@ -24,9 +24,13 @@ rather than defining one.
 
 ## Eval
 
-There is **no automated test suite**. `gradle test` reports `NO-SOURCE`; CI
-therefore verifies that the recipe *compiles* against the pinned adk-kotlin
-release, not that it behaves correctly. Verify behaviour by hand:
+The only automated test is a runnability smoke test,
+`src/test/kotlin/.../RunnabilityTest.kt`: it builds `rootAgent` and checks its
+name and sub-agents without calling the model. `build.gradle.kts` gives it a
+placeholder `GOOGLE_API_KEY`, because `Gemini()` will not construct without a
+key; no real credentials are needed. CI runs it with `gradle test`, so CI
+verifies that the recipe compiles against the pinned adk-kotlin release and
+that the agent graph builds, not that it behaves correctly. Verify behaviour by hand:
 
 ```bash
 export GOOGLE_API_KEY="..."
@@ -111,4 +115,4 @@ JDK 17+ and `GOOGLE_API_KEY`.
 | Build | `gradle build` |
 | CLI (REPL) | `gradle run` |
 | Dev UI on :8080 | `gradle run -PmainClass=com.google.adk.samples.agents.llmauditor.WebMainKt` |
-| What CI runs | `gradle test` (compiles; no tests exist) |
+| What CI runs | `gradle test` (compiles, then runs the runnability test) |
