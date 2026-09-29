@@ -1,4 +1,4 @@
-<!-- word count: 1122 (target 800, cap 1200) -->
+<!-- word count: 1131 (target 800, cap 1200) -->
 
 # Repo Skills Catalog
 
@@ -160,8 +160,9 @@ a container and runnable as a service. Generates the serving files
 `app_utils/{a2a,services,reasoning_engine_adapter}.py`,
 `agents-cli-manifest.yaml`) and configures the recipe to match.
 
-Opt-in, and deliberately not part of `prepare-python-recipe`: most
-recipes do not need to be deployable.
+Not part of `prepare-python-recipe`. Required for every recipe under
+`contrib/`, which must ship a `Dockerfile` and set `deployable: true`;
+optional under `core/` and `plugins/`.
 
 - **Input:** recipe path. Optional `--data-dirs`, `--region`,
   `--overwrite`, `--verify-container`.
