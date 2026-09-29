@@ -15,13 +15,16 @@
 
 ## Moved recipes
 
-Recipes used to live at `python/agents/<recipe>`. Links to the old
-paths return a 404 — GitHub does not redirect a moved directory —
-so update any link you own:
+Recipes used to live at `python/agents/<recipe>`. Update any link you
+own to the current location. GitHub does not redirect a moved
+directory, so most old paths return a 404. `deep-search`,
+`financial-advisor` and `llm-auditor` still have a frozen copy at the
+old path; the current version is at the new location.
 
 | Old path | Current location |
 | :--- | :--- |
 | `python/agents/ambient-expense-agent` | [`core/python/ambient-expense-agent`](../core/python/ambient-expense-agent) |
+| `python/agents/brand-aligned-presentations` | [`contrib/python/brand-aligned-presentations`](../contrib/python/brand-aligned-presentations) |
 | `python/agents/brand-search-optimization` | [`contrib/python/brand-search-optimization`](../contrib/python/brand-search-optimization) |
 | `python/agents/deep-search` | [`core/python/deep-search`](../core/python/deep-search) |
 | `python/agents/financial-advisor` | [`contrib/python/financial-advisor`](../contrib/python/financial-advisor) |
@@ -30,13 +33,35 @@ so update any link you own:
 | `python/agents/multiformat-hybrid-rag` | [`contrib/python/multiformat-hybrid-rag`](../contrib/python/multiformat-hybrid-rag) |
 | `python/agents/on-brand-genmedia` | [`contrib/python/on-brand-genmedia`](../contrib/python/on-brand-genmedia) |
 | `python/agents/safety-plugins` | [`core/python/safety-plugins`](../core/python/safety-plugins) |
-| `python/agents/software-bug-assistant` | [`contrib/python/software-bug-assistant`](../contrib/python/software-bug-assistant) |
+| `python/agents/small-business-loan-agent` | [`contrib/python/small-business-loan-agent`](../contrib/python/small-business-loan-agent) |
+
+## Recipes still in this folder
+
+These recipes have not moved and exist only here. They are frozen:
+they accept no changes, and they may not match current repo standards.
+
+| Recipe | Description |
+| :--- | :--- |
+| [`adk-ae-oauth`](agents/adk-ae-oauth) | Agent Runtime with OAuth, reading Google Drive |
+| [`agent-skills-tutorial`](agents/agent-skills-tutorial) | Building ADK agents with skills |
+| [`cyber-guardian-agent`](agents/cyber-guardian-agent) | Cyber Guardian security agent |
+| [`data-science`](agents/data-science) | Data science with multiple agents |
+| [`fomc-research`](agents/fomc-research) | FOMC research agent |
+| [`high-volume-document-analyzer`](agents/high-volume-document-analyzer) | High-volume document analyzer |
+| [`memory-bank`](agents/memory-bank) | ADK Memory Bank |
+| [`personalized-shopping`](agents/personalized-shopping) | Personalized shopping |
+| [`sdlc-task-planner`](agents/sdlc-task-planner) | SDLC task planner |
+| [`sdlc-technical-designer`](agents/sdlc-technical-designer) | SDLC technical designer |
+| [`sdlc-user-story-refiner`](agents/sdlc-user-story-refiner) | SDLC user story refiner |
+| [`software-bug-assistant`](agents/software-bug-assistant) | Software bug assistant |
+| [`travel-concierge`](agents/travel-concierge) | Travel concierge |
+| [`youtube-analyst`](agents/youtube-analyst) | YouTube analyst |
 
 Any other recipe that lived here has been removed. Browse
 [`core/`](../core/) and [`contrib/`](../contrib/) for the current
 collection.
 
-[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](../LICENSE)
 
 <img src="https://github.com/google/adk-docs/blob/main/docs/assets/agent-development-kit.png" alt="Agent Development Kit Logo" width="150">
 
@@ -81,17 +106,15 @@ Follow these steps to set up and run the recipes:
 
 3.  **Explore the Agents:**
 
-    *   Navigate to the `agents/` directory.
-    *   The `agents/README.md` provides an overview and categorization of the available agents.
-    *   Browse the subdirectories. Each contains a specific recipe with its own
-    `README.md`.
+    *   The [Recipes still in this folder](#recipes-still-in-this-folder)
+        table lists the recipes under `agents/`.
+    *   Each recipe directory has its own `README.md`.
 
 4.  **Run an Agent:**
     *   Choose an agent from the `agents/` directory.
     *   Navigate into that agent's specific directory (e.g., `cd agents/llm-auditor`).
-    *   Follow the instructions in *that agent's* `README.md` file for specific
-        setup (like installing dependencies via `poetry install`) and running
-        the agent.
+    *   Follow the instructions in *that agent's* `README.md` file for
+        setup and running the agent.
     *   Browse the folders in this repository. Each agent and tool have its own
         `README.md` file with detailed instructions.
 
@@ -113,7 +136,7 @@ other models for these recipes.
 │   │   ├── agent2
 │   │   │   └── README.md
 │   │   ├── ...
-│   │   └── README.md           # Overview and categorization of agents
+│   │   └── README.md           # Points to this file
 │   └── README.md               # This file (Repository overview)
 ```
 
