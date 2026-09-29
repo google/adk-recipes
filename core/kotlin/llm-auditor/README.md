@@ -53,6 +53,8 @@ llm-auditor/
         ReviserPrompt.kt      # Reviser system prompt
         Main.kt               # CLI entry point (ReplRunner)
         WebMain.kt            # Web UI entry point (AdkDevServer)
+    src/test/kotlin/com/google/adk/samples/agents/llmauditor/
+        RunnabilityTest.kt    # Smoke test: the agent graph builds
     build.gradle.kts
     settings.gradle.kts
     manifest.yaml
