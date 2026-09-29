@@ -1,6 +1,6 @@
 ---
 name: generate-manifest
-description: Scan an ADK recipe directory and generate a manifest.yaml for it based on the schema at .github/schemas/manifest-schema.json. Use when the user wants to create or generate a manifest.yaml for a recipe under core/, contrib/, or skills/.
+description: Scan an ADK recipe directory and generate a manifest.yaml for it based on the schema at .github/schemas/manifest-schema.json. Use when the user wants to create or generate a manifest.yaml for a recipe under core/, contrib/, or plugins/.
 ---
 
 # Generate Manifest
@@ -11,7 +11,7 @@ Scan a recipe directory and produce a valid `manifest.yaml` for it, then validat
 
 ### 1. Identify the target recipe
 
-The user will provide a path to a recipe directory (e.g. `core/python/rag-agent-search`, `contrib/python/my-recipe`, `skills/retail/store-ops`). If they don't, ask for it before proceeding.
+The user will provide a path to a recipe directory (e.g. `core/python/rag-agent-search`, `contrib/python/my-recipe`, `plugins/retail/store-ops`). If they don't, ask for it before proceeding.
 
 ### 2. Read the schema
 
@@ -33,7 +33,7 @@ Read the following files if they exist:
 |---|---|
 | `type` | Infer from code. `standalone` = has its own runnable entry point: look for an `if __name__ == "__main__"` block, a `make playground`/run target, an `adk web`/`adk run` invocation, or a CLI. `module` = only importable (it just exports a `root_agent`/`Agent` for another workflow to orchestrate, with no way to run on its own). When ambiguous, re-read the schema's `type` description and prefer `module` only when there is genuinely no entry point. |
 | `deployable` | OPTIONAL. `true` only if a single `make` target or script deploys everything with no manual steps. Omit the field entirely if false (schema default is `false`). |
-| `large` | OPTIONAL. Whether to opt into the relaxed size tier. Exact limits depend on whether the recipe lives under `core/` or `contrib/` and are defined in `.github/policy.yml` (`recipe_size_limits`) — as of writing: `contrib/` default is 70 files / 2 MB and large is 200 files / 10 MB; `core/` default is 500 files / 50 MB; `skills/` has no configured size limits (checks skipped). Omit the field unless the recipe would otherwise exceed the default tier's limits (schema default is `false`). |
+| `large` | OPTIONAL. Whether to opt into the relaxed size tier. Exact limits depend on whether the recipe lives under `core/` or `contrib/` or `plugins/` and are defined in `.github/policy.yml` (`recipe_size_limits`) — as of writing: `contrib/` and `plugins/` default is 70 files / 2 MB and large is 200 files / 10 MB; `core/` default is 500 files / 50 MB. Omit the field unless the recipe would otherwise exceed the default tier's limits (schema default is `false`). |
 | `status` | Always `"active"` unless there is explicit evidence of abandonment. |
 | `language` | Read from file extensions or `pyproject.toml`. Never guess. |
 | `description` | Read `README.md` and `AGENTS.md` only (author-written intent, not code). Write a draft of at most 15 words summarising what the recipe does. The schema requires at least 10 characters, so keep the draft comfortably above that. Append the comment `# TODO: review and expand this draft description`. If neither file exists or the intent is unclear, fall back to `"DESCRIPTION"` with the same TODO comment. |
@@ -101,7 +101,7 @@ After writing the manifest, run the validator **from the repo root** (do not `cd
 uv run validate manifest <recipe-path>
 ```
 
-`<recipe-path>` must be **relative to the repo root** (e.g. `core/python/my-recipe`, `contrib/python/my-recipe`, `skills/retail/store-ops`), not an absolute path.
+`<recipe-path>` must be **relative to the repo root** (e.g. `core/python/my-recipe`, `contrib/python/my-recipe`, `plugins/retail/store-ops`), not an absolute path.
 
 Interpret the result carefully — there are two kinds of failure:
 

@@ -10,7 +10,7 @@
 # `agents-cli deploy` uses this file as the project-root marker and reads
 # `deployment_target` to choose how to deploy.
 name: "financial-advisor"
-agent_directory: "financial_advisor"
+agent_directory: "app"
 language: "python"
 region: "us-central1"
 create_params:

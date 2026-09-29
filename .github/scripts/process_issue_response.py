@@ -20,7 +20,7 @@ Routing rules for Option 4:
   /contrib/java/**     -> @happyhuman
   /contrib/typescript/** -> @happyhuman
   /contrib/kotlin/**   -> @happyhuman
-  /skills/**           -> @happyhuman
+  /plugins/**          -> @happyhuman
 
 Usage:
   python3 process_issue_response.py \\
@@ -79,8 +79,8 @@ ROUTING_RULES: list[tuple[str, str]] = [
     ("contrib/java", "happyhuman"),
     ("contrib/typescript", "happyhuman"),
     ("contrib/kotlin", "happyhuman"),
-    # Skills directory assignments
-    ("skills", "happyhuman"),
+    # Plugins directory assignments
+    ("plugins", "happyhuman"),
 ]
 
 DEFAULT_ASSIGNEE = "happyhuman"

@@ -25,7 +25,7 @@ htmlcov/
 
 # Local ADK Database & Session artifacts
 .adk/
-presentation_agent/.adk/
+app/.adk/
 
 
 # Registration config (contains deployment IDs)

@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from clause_agent.shared_libraries import audit_log
-from clause_agent.tools.correction import submit_correction
+from app.shared_libraries import audit_log
+from app.tools.correction import submit_correction
 
 
 def test_submit_correction_logs_and_returns_id():

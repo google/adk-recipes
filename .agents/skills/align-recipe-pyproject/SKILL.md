@@ -36,7 +36,7 @@ Runs `scripts/align_pyproject.py` against a recipe directory. Eight rules:
 |---|---|---|
 | `no-local-ruff-config` | Recipe `pyproject.toml` must not declare any `[tool.ruff*]` table. Ruff config is centralized in the root `pyproject.toml`. | Yes — removes the tables. |
 | `python-version-floor` | `[project].requires-python` must **accept Python 3.11 exactly** — it must neither permit anything below (loose floors like `>=3.10`) nor exclude 3.11 by requiring higher (`>=3.12`, `~=3.12`, etc.). Per `AGENTS.md` "Minimum python version: 3.11" and CI in `.github/workflows/python-dependency-policy.yml`, which pins Python 3.11 and would otherwise emit a misleading "lockfile is out of date" error whose real cause is the interpreter mismatch. | Yes — rewrites the specifier so its lower bound is `>=3.11` while preserving every upper bound, exclusion, compatible-release (`~=`) ceiling, and pin (only pure `>=`/`>` are dropped or replaced). Applies to BOTH failure modes (loose floors AND higher-than-min floors). If the result would still exclude 3.11 (e.g. `>=3.10,!=3.11` → `>=3.11,!=3.11`, or `~=3.12` → `>=3.11,~=3.12` == `>=3.12,<4`), refuses to apply and returns `needs_input` for a human to resolve (typically: relax the ceiling, or raise the recipe with the maintainers to update CI's pinned interpreter). |
-| `project-name-matches-folder` | `[project].name` must equal the recipe's required name: the folder basename under `core/`/`contrib/`, but `<vertical>-<solution>` under `skills/`, whose mandatory vertical namespace (`skills/<vertical>/<solution>`) makes the basename non-unique — `skills/retail/product-search` and `skills/grocery/product-search` would otherwise both claim `product-search`. | Yes — sets it. |
+| `project-name-matches-folder` | `[project].name` must equal the recipe's required name: the folder basename under `core/`/`contrib/`, but `<vertical>-<solution>` under `plugins/`, whose mandatory vertical namespace (`plugins/<vertical>/<solution>`) makes the basename non-unique — `plugins/retail/product-search` and `plugins/grocery/product-search` would otherwise both claim `product-search`. | Yes — sets it. |
 | `description-matches-manifest` | If `[project].description` is set, it must equal `manifest.description`. Field is optional; skipped when absent. | Only with `--description-source={pyproject,manifest,delete}`. Refuses to touch description otherwise. |
 | `build-system-present` | `[build-system]` must have both `requires` and `build-backend`. Without it, `uv build` and `pip install .` fail. | **No** — backend choice is editorial. Reported for the human to fix. |
 | `default-pypi-index` | `[[tool.uv.index]]` must have an entry with `default = true` pointing at public PyPI (`https://pypi.org/simple[/]`). Required so `uv sync` works on Google corp workstations without corp Airlock auth — see the block comment in the root `pyproject.toml` for the full rationale. | Yes when the block is entirely missing — appends it. **No** when a default entry exists but points elsewhere (custom private index, TestPyPI, mirror) — reported for the human to reconcile, since the divergence may be intentional. |
@@ -76,7 +76,7 @@ this check runs). Hits are capped at 40 in `details.hits`, but
 
 1. **Always use the script — never hand-edit `pyproject.toml` or `manifest.yaml` to perform these changes.** The script exists specifically so edits are style-preserving and reviewable via one report.
 
-2. **Ask for the recipe directory** if the user has not provided one. Do not guess. Recipe roots live under `core/python/<name>/`, `contrib/python/<name>/`, or `skills/<vertical>/<solution>/`.
+2. **Ask for the recipe directory** if the user has not provided one. Do not guess. Recipe roots live under `core/python/<name>/`, `contrib/python/<name>/`, or `plugins/<vertical>/<solution>/`.
 
 3. **Always start with `--dry-run`** unless the user has explicitly said "apply", "fix it", "just do it", or equivalent. Show them what would change before doing it.
 
@@ -104,7 +104,7 @@ this check runs). Hits are capped at 40 in `details.hits`, but
 
 | Field | Required | Description |
 |---|---|---|
-| `--recipe-dir` | Yes | Path to the recipe root (e.g. `core/python/cross-session-memory`, `contrib/python/my-recipe`, `skills/retail/store-ops`). |
+| `--recipe-dir` | Yes | Path to the recipe root (e.g. `core/python/cross-session-memory`, `contrib/python/my-recipe`, `plugins/retail/store-ops`). |
 | `--dry-run` | No | Report what would change without modifying any files. |
 | `--description-source` | Only when resolving a `description-matches-manifest` mismatch. Values: `pyproject`, `manifest`, `delete`. See below. | Chooses how to reconcile a description mismatch. |
 

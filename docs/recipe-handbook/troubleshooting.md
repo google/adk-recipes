@@ -1,4 +1,4 @@
-<!-- word count: 3305 (target 500+, no cap) -->
+<!-- word count: 4069 (target 500+, no cap) -->
 
 # Troubleshooting
 
@@ -8,7 +8,7 @@ section to confirm the fix worked before you push again.
 
 Each command below says which directory to run it from. Replace
 `<recipe-path>` with the path to your recipe — `core/python/my-recipe`,
-`contrib/python/my-recipe`, or `skills/retail/my-skill`.
+`contrib/python/my-recipe`, or `plugins/retail/my-plugin`.
 
 ## Contents
 
@@ -17,6 +17,7 @@ Each command below says which directory to run it from. Replace
 **manifest.yaml**
 - [manifest.yaml is missing, or fails the schema](#manifestyaml-missing-or-invalid)
 - [ownership.team or ownership.poc still holds scaffold text](#ownershipteam-or-poc-is-a-placeholder)
+- [A contrib/ recipe is not deployable](#contrib-recipe-is-not-deployable)
 
 **README.md**
 - [README.md is absent or empty](#readmemd-is-missing-or-empty)
@@ -32,6 +33,7 @@ Each command below says which directory to run it from. Replace
 - [The recipe sits at the wrong path](#recipe-is-in-the-wrong-folder)
 - [The recipe lives in a folder that no longer accepts edits](#changes-inside-a-retired-folder)
 - [Only repository admins may modify files under .github/](#only-repository-admins-may-modify-files-under-github)
+- [The recipe contains a recipe-local lint or style configuration file](#standalone-lint-or-style-config-file)
 
 **Containers (Dockerfile)**
 - [Dockerfile failed to build](#dockerfile-build-failed)
@@ -82,8 +84,8 @@ Each command below says which directory to run it from. Replace
 `[manifest-empty] manifest.yaml has no content — it is either empty or
 contains only comments.`, or a schema error naming the failing field.
 
-**Cause** — every recipe needs a `manifest.yaml` matching the
-[schema](../../.github/schemas/manifest-schema.json).
+**Cause** — every recipe needs a `manifest.yaml` with the fields
+described on the [manifest](./manifest.md) page.
 
 **Fix**
 
@@ -106,6 +108,28 @@ placeholder`, or the same for `ownership.poc`.
 real GitHub user ID.
 
 **Confirm**, from the repo root — `uv run validate manifest <recipe-path>`
+
+## Contrib recipe is not deployable
+
+**Symptom** — `[manifest-deployable] manifest.deployable is not set; every
+recipe in contrib/ must be deployable.` (or `is false`), often alongside
+`Required file 'Dockerfile' is missing.`
+
+**Cause** — every recipe under `contrib/` must run as a container. It needs a
+`Dockerfile` at the recipe root and `deployable: true` in `manifest.yaml`.
+Recipes under `core/` and `plugins/` are exempt.
+
+**Fix**
+
+1. Add a root `Dockerfile` that builds the recipe and serves the agent. For a
+   Python recipe, the `make-python-recipe-deployable` AI skill generates it
+   and the other serving files.
+2. Set `deployable: true` in `manifest.yaml`.
+3. Build and run the container locally. CI builds it, starts it with the
+   values from `.env.example`, and probes it; see
+   [Recipe container does not serve](#recipe-container-does-not-serve).
+
+**Confirm**, from the repo root — `uv run validate <recipe-path>`
 
 ## Directory name too long or invalid
 
@@ -146,15 +170,20 @@ and 2 MB.
 
 **Cause** — the required set is the union of every rule that applies to your
 recipe. Language rules key off `manifest.language`, not the folder path: a
-vertical skill at `skills/retail/product-search` picks up the Python list
+vertical plugin at `plugins/retail/product-search` picks up the Python list
 because its manifest says `language: python`.
 
 | Rule | Applies to | Entries |
 | --- | --- | --- |
-| `always` | every recipe | `README.md` |
+| `always` | every recipe | `README.md`, `.env.example` |
 | `by_root.core` | anything under `core/` | `AGENTS.md` |
-| `by_root.skills` | anything under `skills/` | `SKILL.md`, `EVAL.yaml`, `scripts/` |
-| `by_language.python` | `manifest.language: python` | `pyproject.toml`, `uv.lock`, `.env.example`, `tests/test_runnability.py` |
+| `by_root.contrib` | anything under `contrib/` | `Dockerfile` |
+| `by_root.plugins` | anything under `plugins/` | `SKILL.md`, `EVAL.yaml`, `scripts/` |
+| `by_language.python` | `manifest.language: python` | `pyproject.toml`, `uv.lock`, `tests/test_runnability.py` |
+| `by_language.go` | `manifest.language: go` | `go.mod` |
+| `by_language.java` | `manifest.language: java` | `pom.xml` / `build.gradle` / `build.gradle.kts` |
+| `by_language.kotlin` | `manifest.language: kotlin` | `build.gradle.kts` |
+| `by_language.typescript` | `manifest.language: typescript` | `package.json`, lockfile (`package-lock.json` / `pnpm-lock.yaml` / `yarn.lock` / `bun.lockb` / `bun.lock`) |
 
 **Fix** — most missing entries have a generator:
 
@@ -182,20 +211,20 @@ git add <recipe-path>/scripts/.gitkeep
 
 **Symptom** — `sits directly under` or `is nested too deeply`
 
-**Cause** — every recipe under `skills/` must sit at
-`skills/<vertical>/<solution>/`. The vertical (`retail/`, `hr/`, `finance/`)
+**Cause** — every recipe under `plugins/` must sit at
+`plugins/<vertical>/<solution>/`. The vertical (`retail/`, `hr/`, `finance/`)
 is mandatory.
 
 ```
-skills/retail/product-search/manifest.yaml    valid
-skills/product-search/manifest.yaml           too shallow — no vertical
-skills/retail/product-search/x/manifest.yaml  too deep
+plugins/retail/product-search/manifest.yaml    valid
+plugins/product-search/manifest.yaml           too shallow — no vertical
+plugins/retail/product-search/x/manifest.yaml  too deep
 ```
 
 **Fix**
 
 1. Move the directory to the path named in the error.
-2. Update `[project].name` in `pyproject.toml` — a vertical skill needs
+2. Update `[project].name` in `pyproject.toml` — a vertical plugin needs
    `<vertical>-<solution>`, not the folder basename. See
    [Project name doesn't match the required name](#project-name-doesnt-match-the-required-name).
 
@@ -247,6 +276,17 @@ a token the check has in CI and you generally do not have locally:
     git -c core.quotePath=false diff --no-renames --name-only origin/main...HEAD \
       | uv run --no-project python tools/check_github_dir_changes.py \
           --author "$(git config user.name)" --is-admin false
+
+## Standalone lint or style config file
+
+**Symptom** — `Recipe contains a recipe-local Biome/golangci-lint/.editorconfig configuration file`
+
+**Cause** — the recipe contains a recipe-local configuration file (`biome.json`, `biome.jsonc`, `.biomerc*`, `.golangci.yml`, `.golangci.yaml`, `.golangci.toml`, `.golangci.json`, or an `.editorconfig` that configures Kotlin style: a Kotlin section such as `[*.{kt,kts}]`, a `ktlint_*` or `ij_kotlin_*` property, or — in a Kotlin recipe — a property such as `max_line_length` in `[*]`). Style and lint configurations are centralized at the repository root. The check is advisory for now: it reports a warning and does not fail the PR.
+
+**Fix** — delete the file from the recipe, or remove the section or property the warning names from `.editorconfig`. If repository-wide style or lint rules need updating, update the root configuration file.
+
+**Confirm**, from the repo root —
+`python3 .github/scripts/check_recipe_lint_config.py <recipe-path>`
 
 ## README.md is missing or empty
 
@@ -346,7 +386,7 @@ no such file.
 yours does not match.
 
 - `core/` and `contrib/` — the recipe folder basename.
-- `skills/` — `<vertical>-<solution>`, because `skills/` interposes a
+- `plugins/` — `<vertical>-<solution>`, because `plugins/` interposes a
   mandatory vertical.
 
 **Fix** — set the name the error reports as required:
@@ -355,7 +395,7 @@ yours does not match.
 # contrib/python/my-recipe
 name = "my-recipe"
 
-# skills/retail/product-search
+# plugins/retail/product-search
 name = "retail-product-search"
 ```
 

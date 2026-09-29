@@ -197,8 +197,8 @@ Classifies shoe images by viewing angle using a custom Vertex AI endpoint.
 ```python
 def classify_shoe(image_bytes, client, shoe_classifier_model) -> str:
     """Returns: 'front', 'back', 'left', 'right', 'top', 'bottom',
-                'front_left', 'front_right', 'back_left', 'back_right',
-                'multiple', 'invalid'"""
+    'front_left', 'front_right', 'back_left', 'back_right',
+    'multiple', 'invalid'"""
 ```
 
 ### `split_multiple_shoes.py`
@@ -206,7 +206,9 @@ def classify_shoe(image_bytes, client, shoe_classifier_model) -> str:
 Splits images containing multiple shoes into individual images.
 
 ```python
-def divide_duplicate_image(image_bytes, client, return_masks=False) -> list[bytes]:
+def divide_duplicate_image(
+    image_bytes, client, return_masks=False
+) -> list[bytes]:
     """Returns list of individual shoe image bytes"""
 ```
 
@@ -215,8 +217,11 @@ def divide_duplicate_image(image_bytes, client, return_masks=False) -> list[byte
 Selects and orders images for optimal video generation.
 
 ```python
-def pick_images_by_ordered_best_side(images_classified) -> list[tuple[bytes, str]]:
+def pick_images_by_ordered_best_side(
+    images_classified,
+) -> list[tuple[bytes, str]]:
     """Returns ordered list of (image_bytes, classification) tuples"""
+
 
 def classify_video_gen_status(labels) -> str:
     """Returns: 'full_rotation', 'partial_rotation', 'exclude'"""
@@ -227,7 +232,9 @@ def classify_video_gen_status(labels) -> str:
 Validates generated videos for spin consistency.
 
 ```python
-def validate_and_fix_product_spin_consistency_r2v(video_bytes, client, shoe_classifier_model):
+def validate_and_fix_product_spin_consistency_r2v(
+    video_bytes, client, shoe_classifier_model
+):
     """Returns: (is_valid, reason, fixed_video_bytes, frame_classifications, ...)"""
 ```
 
@@ -275,11 +282,7 @@ for path in ["front.jpg", "back.jpg", "left.jpg", "right.jpg"]:
 # Run pipeline
 response = requests.post(
     "http://localhost:8000/api/shoes/spinning/run-pipeline-r2v",
-    json={
-        "images_base64": images,
-        "max_retries": 4,
-        "upscale_images": True
-    }
+    json={"images_base64": images, "max_retries": 4, "upscale_images": True},
 )
 
 result = response.json()

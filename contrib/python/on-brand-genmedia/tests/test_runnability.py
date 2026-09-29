@@ -26,6 +26,6 @@ def test_agent_runnability() -> None:
     with patch(
         "google.auth.default", return_value=(MagicMock(), "test-project")
     ):
-        import on_brand_genmedia.agent
+        import app.agent
 
-    assert on_brand_genmedia.agent.root_agent is not None
+    assert app.agent.root_agent is not None

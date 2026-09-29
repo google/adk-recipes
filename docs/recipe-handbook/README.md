@@ -1,4 +1,4 @@
-<!-- word count: 603 (target 500, cap 800) -->
+<!-- word count: 619 (target 500, cap 800) -->
 
 # Recipe Handbook
 
@@ -33,6 +33,8 @@ it covers everything on one page. Come back here for deeper context:
 
 - [Anatomy of a recipe](./anatomy.md) — file layout rules for all
   recipes, regardless of language
+- [The manifest](./manifest.md) — every `manifest.yaml` field and
+  the rules CI enforces
 - [Python language rules](./languages/python.md) — starts with the
   fast path; specific requirements and end-to-end scenarios
 - [Repo skills catalog](./skills-catalog.md) — the assistant
@@ -64,11 +66,10 @@ any new requirements automatically. Then check the
   `prepare-python-recipe`). Files live in `.agents/skills/` and load
   automatically when you open this repo. Repo skills *build* the
   repo; they are never shipped to users.
-- **Vertical skill** — a recipe under
-  `skills/<vertical>/<solution>/` (e.g. `skills/retail/store-ops/`),
+- **Plugin** — a recipe under
+  `plugins/<vertical>/<solution>/` (e.g. `plugins/retail/store-ops/`),
   where the vertical names the business domain that owns it.
-  Shipped to users like any other recipe. Unrelated to repo skills,
-  despite the shared word.
+  Shipped to users like any other recipe. Unrelated to repo skills.
 - **Manifest** — `manifest.yaml`. Declares recipe metadata:
   type, language, ownership, description.
 - **Runnability test** — a smoke test that imports the agent module

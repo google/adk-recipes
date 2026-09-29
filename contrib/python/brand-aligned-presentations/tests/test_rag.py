@@ -15,7 +15,7 @@
 import importlib
 from unittest.mock import patch
 
-import presentation_agent.sub_agents.rag.agent as rag_module
+import app.sub_agents.rag.agent as rag_module
 
 
 def test_dummy_search():
@@ -32,7 +32,7 @@ def test_rag_agent_exists():
 
 def test_rag_agent_tool_selection():
     # Patch config and reload the module to test the else block
-    with patch("presentation_agent.shared_libraries.config.DATASTORE_ID", ""):
+    with patch("app.shared_libraries.config.DATASTORE_ID", ""):
         importlib.reload(rag_module)
         from google.adk.tools import FunctionTool
 
@@ -41,9 +41,7 @@ def test_rag_agent_tool_selection():
         assert rag_module.vertex_search_tool.name == "dummy_search"
 
     # Patch config and reload to test the if block
-    with patch(
-        "presentation_agent.shared_libraries.config.DATASTORE_ID", "some_id"
-    ):
+    with patch("app.shared_libraries.config.DATASTORE_ID", "some_id"):
         importlib.reload(rag_module)
         from google.adk.tools import VertexAiSearchTool
 

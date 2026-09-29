@@ -23,13 +23,13 @@ Every test below pins one of those.
 """
 
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import canary_issues as m
 import pytest
 
-NOW = datetime(2026, 6, 1, tzinfo=timezone.utc)
+NOW = datetime(2026, 6, 1, tzinfo=UTC)
 
 
 def _issue(days_old: int, labels: set[str] | None = None) -> dict:
@@ -389,7 +389,7 @@ def test_the_title_carries_nothing_that_varies_between_runs():
     """The complement, as cheap insurance against a future f-string reaching
     for the clock or the interpreter version."""
     title = m.issue_title("core/python/x")
-    for token in (str(datetime.now(timezone.utc).year), "3.11", "T00:"):
+    for token in (str(datetime.now(UTC).year), "3.11", "T00:"):
         assert token not in title
 
 

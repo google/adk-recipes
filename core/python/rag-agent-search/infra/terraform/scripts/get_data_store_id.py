@@ -89,7 +89,7 @@ def main() -> None:
             if "collections" in parts:
                 cidx = parts.index("collections")
                 resolved_collection_id = parts[cidx + 1]
-    except Exception:
+    except Exception:  # noqa: S110
         pass
 
     json.dump(

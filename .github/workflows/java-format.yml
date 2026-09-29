@@ -17,7 +17,7 @@ on:
     paths:
       - "core/**/*.java"
       - "contrib/**/*.java"
-      - "skills/**/*.java"
+      - "plugins/**/*.java"
       - ".github/workflows/java-format.yml"
       # NOTE: `java/agents/**` is deliberately absent, exactly as
       # `go/agents/**` is absent from go-format.yml. Those are retired
@@ -28,11 +28,11 @@ on:
       # This list alone is NOT sufficient to exclude them: `paths:` decides
       # whether the workflow RUNS, not which files the diff below returns.
       # The job therefore also scopes `git diff` to `-- core contrib
-      # skills`. Keep the two in sync.
+      # plugins`. Keep the two in sync.
       #
       # Both Java files in the repo today live under java/agents, so this
       # workflow is forward-looking: it goes green with nothing to do until
-      # the first core/java, contrib/java or Java vertical-skill recipe
+      # the first core/java, contrib/java or Java plugin recipe
       # lands. That mirrors go-format.yml, which shipped the same way.
 
 # Declared per job rather than here. `pull-requests: write` at the workflow
@@ -164,13 +164,13 @@ jobs:
           #    formatted, never reported. NUL-delimited output is never
           #    quoted.
           #
-          #    `-- core contrib skills` is load-bearing: `on.paths` above
+          #    `-- core contrib plugins` is load-bearing: `on.paths` above
           #    controls only whether this workflow RUNS. A run triggered by
           #    an in-scope file would otherwise also collect any retired
           #    `java/agents/**` file in the same PR and demand the author
           #    reformat a frozen path they are not allowed to touch.
           git diff -z --name-only --diff-filter=d "origin/$BASE_REF...HEAD" \
-            -- core contrib skills > "$WORK/changed"
+            -- core contrib plugins > "$WORK/changed"
 
           ALL_CHANGED=()
           mapfile -d '' -t ALL_CHANGED < "$WORK/changed"
@@ -183,7 +183,7 @@ jobs:
           done
 
           if [ ${#CHANGED_FILES[@]} -eq 0 ]; then
-            echo "No Java files were modified under core/, contrib/ or skills/. Skipping formatting."
+            echo "No Java files were modified under core/, contrib/ or plugins/. Skipping formatting."
             exit 0
           fi
 

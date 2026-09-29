@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Validates the structural shell of every recipe under core/ and contrib/
-(and, once it lands, skills/) — the checks that are determined by folder
+(and plugins/) — the checks that are determined by folder
 location and the recipe's declared language, NOT by anything language-
 specific.
 
@@ -18,7 +18,7 @@ Checks performed, in order, for each recipe:
      manifest.yaml itself is NOT listed in policy.required_files; check 1
      is authoritative for it, and duplicating the rule would double-report.
   6. Required directories present — the same three-way union over
-     policy.required_dirs. Vertical skills use this for scripts/.
+     policy.required_dirs. Vertical plugins use this for scripts/.
      An empty directory passes.
 
 Name matching for checks 5 and 6 is done in Python rather than by asking
@@ -70,7 +70,7 @@ POLICY_PATH = REPO_ROOT / ".github" / "policy.yml"
 
 # Every folder that may hold recipes at the top level. Kept aligned with
 # validate_manifest.RECIPE_ROOTS but extensible: adding a new root here
-# (e.g. "skills") plus a matching `by_root:` entry in policy.yml is all
+# (e.g. "plugins") plus a matching `by_root:` entry in policy.yml is all
 # it takes to bring the new root under structural validation.
 RECIPE_ROOTS: list[str] = list(vm.RECIPE_ROOTS)
 
@@ -98,9 +98,13 @@ def load_policy() -> dict:
         return yaml.safe_load(f) or {}
 
 
+def _as_key(name: str | list[str]) -> str | tuple[str, ...]:
+    return tuple(name) if isinstance(name, list) else name
+
+
 def _resolve_required(
     policy: dict, section: str, root: str, language: str | None
-) -> list[tuple[str, str]]:
+) -> list[tuple[str | tuple[str, ...], str]]:
     """Union of `always`, `by_root[root]`, and `by_language[language]`
     from the named policy section, each entry paired with the rule that
     contributed it (`always`, `by_root.<root>`, `by_language.<language>`).
@@ -115,19 +119,19 @@ def _resolve_required(
     partial policy configs remain usable (e.g. a root with no entries yet).
     """
     config = policy.get(section) or {}
-    entries: list[tuple[str, str]] = []
+    entries: list[tuple[str | tuple[str, ...], str]] = []
     for name in config.get("always") or []:
-        entries.append((name, "always"))
+        entries.append((_as_key(name), "always"))
     for name in (config.get("by_root") or {}).get(root) or []:
-        entries.append((name, f"by_root.{root}"))
+        entries.append((_as_key(name), f"by_root.{root}"))
     if language:
         for name in (config.get("by_language") or {}).get(language) or []:
-            entries.append((name, f"by_language.{language}"))
+            entries.append((_as_key(name), f"by_language.{language}"))
     # Preserve order but drop duplicates — an entry could be listed under
     # multiple sources without meaning it's required twice. The FIRST
     # source wins, which keeps the reported rule stable as policy grows.
-    seen: set[str] = set()
-    deduped: list[tuple[str, str]] = []
+    seen: set[str | tuple[str, ...]] = set()
+    deduped: list[tuple[str | tuple[str, ...], str]] = []
     for name, source in entries:
         if name not in seen:
             seen.add(name)
@@ -137,14 +141,14 @@ def _resolve_required(
 
 def required_files_for(
     policy: dict, root: str, language: str | None
-) -> list[tuple[str, str]]:
+) -> list[tuple[str | tuple[str, ...], str]]:
     """(file, rule) pairs every recipe under this root/language must ship."""
     return _resolve_required(policy, "required_files", root, language)
 
 
 def required_dirs_for(
     policy: dict, root: str, language: str | None
-) -> list[tuple[str, str]]:
+) -> list[tuple[str | tuple[str, ...], str]]:
     """(directory, rule) pairs every recipe under this root/language ships.
 
     Separate from required_files because the two need different existence
@@ -196,22 +200,42 @@ _FILE_REMEDIATION: dict[str, str] = {
     ),
     "SKILL.md": (
         "Add a SKILL.md — the conversational installer for a vertical "
-        "skill: it runs the interview, writes the design spec, and "
+        "plugin: it runs the interview, writes the design spec, and "
         "performs setup."
     ),
     "EVAL.yaml": (
-        "Add an EVAL.yaml holding the eval rubrics that prove the skill "
+        "Add an EVAL.yaml holding the eval rubrics that prove the plugin "
         "performs — see docs/recipe-handbook/anatomy.md."
     ),
     "go.mod": (
         "Every Go recipe is its own module: run `go mod init` in the "
         "recipe directory."
     ),
+    "build.gradle.kts": "Add build.gradle.kts to the recipe.",
+    "package.json": "Add package.json to the recipe.",
+    "Dockerfile": (
+        "Add a Dockerfile to the recipe so it can be containerized and "
+        "deployed (for Python recipes, the `make-python-recipe-deployable` "
+        "AI skill can generate one)."
+    ),
 }
 
 
-def _file_remediation(rel: str, recipe_rel: str) -> str:
+def _file_remediation(rel: str | tuple[str, ...], recipe_rel: str) -> str:
     """The fix for one missing required file."""
+    if isinstance(rel, tuple):
+        if "pom.xml" in rel:
+            return (
+                "Add a build configuration file to the recipe: pom.xml (Maven), "
+                "build.gradle, or build.gradle.kts (Gradle)."
+            )
+        if "package-lock.json" in rel:
+            return (
+                "Add a lockfile (package-lock.json, pnpm-lock.yaml, yarn.lock, "
+                "bun.lockb, or bun.lock) to the recipe by running your package "
+                "manager's install/lock command."
+            )
+        return f"Add one of {', '.join(rel)} to the recipe."
     if rel == "uv.lock":
         # Needs the recipe path, so it cannot live in the static table.
         return f"cd {recipe_rel} && uv lock"
@@ -224,7 +248,7 @@ def _file_remediation(rel: str, recipe_rel: str) -> str:
     )
 
 
-def _dir_remediation(rel: str, recipe_rel: str) -> str:
+def _dir_remediation(rel: str | tuple[str, ...], recipe_rel: str) -> str:
     """The fix for a missing required directory.
 
     Always leads with the git detail: the overwhelmingly common report is
@@ -232,11 +256,12 @@ def _dir_remediation(rel: str, recipe_rel: str) -> str:
     never committed it, because git tracks files and an empty directory
     has none.
     """
+    target = rel[0] if isinstance(rel, tuple) else rel
     return (
         f"git cannot commit an empty directory, so a folder with nothing "
         f"in it never reaches CI. Add a placeholder and commit it:\n"
-        f"  touch {recipe_rel}/{rel}/.gitkeep && "
-        f"git add {recipe_rel}/{rel}/.gitkeep\n"
+        f"  touch {recipe_rel}/{target}/.gitkeep && "
+        f"git add {recipe_rel}/{target}/.gitkeep\n"
         f"If the directory should have content, add the content instead."
     )
 
@@ -455,9 +480,8 @@ def check_size_and_count(
     recipe_dir: Path, root: str, policy: dict, manifest_path: Path
 ) -> list[Diagnostic]:
     """Enforce the size (MB) and file-count tiers from policy.yml.
-    Tier is chosen by `root` (core vs contrib) then by manifest.large.
-    Recipes under roots not covered by recipe_size_limits (e.g. a
-    future 'skills' root without limits) skip these checks."""
+    Tier is chosen by `root` (core vs contrib vs plugins) then by manifest.large.
+    Recipes under roots not covered by recipe_size_limits skip these checks."""
     rel = vm.repo_relative(recipe_dir, REPO_ROOT)
     manifest_rel = vm.repo_relative(manifest_path, REPO_ROOT)
     limits_by_root = policy.get("recipe_size_limits") or {}
@@ -661,46 +685,71 @@ def check_required_files(
 ) -> list[Diagnostic]:
     """Every path in the union list must exist as a file (not a dir).
     Paths are recipe-relative and may include subdirectories
-    (e.g. tests/test_runnability.py)."""
+    (e.g. tests/test_runnability.py). If an entry is a tuple of
+    alternatives, any ONE of the files is sufficient."""
     recipe_rel = vm.repo_relative(recipe_dir, REPO_ROOT)
     lenient = case_insensitive_entries(policy)
     diagnostics: list[Diagnostic] = []
     for rel, source in required_files_for(policy, root, language):
-        found, exact = _find_entry(
-            recipe_dir, rel, case_insensitive=rel in lenient
-        )
         why = _provenance("required_files", source, root, language)
         fix = _file_remediation(rel, recipe_rel)
-        if found is None:
-            diagnostics.append(
-                Diagnostic(
-                    check="required-files",
-                    what=f"Required file '{rel}' is missing.",
-                    why=why,
-                    how=fix,
-                    doc=Doc.REQUIRED_FILES,
-                    file=f"{recipe_rel}/{rel}",
+        if isinstance(rel, tuple):
+            matched_file = False
+            for alt in rel:
+                found, exact = _find_entry(
+                    recipe_dir, alt, case_insensitive=alt in lenient
                 )
-            )
-        elif not found.is_file():
-            diagnostics.append(
-                Diagnostic(
-                    check="required-files",
-                    what=(
-                        f"Required file '{rel}' exists but is a "
-                        f"{'directory' if found.is_dir() else 'non-file'}."
-                    ),
-                    why=why,
-                    how=(
-                        f"Remove or rename {recipe_rel}/{rel}, then add the "
-                        f"file.\n{fix}"
-                    ),
-                    doc=Doc.REQUIRED_FILES,
-                    file=f"{recipe_rel}/{rel}",
+                if found is not None and found.is_file():
+                    matched_file = True
+                    if not exact:
+                        _note_inexact(alt, found)
+                    break
+            if not matched_file:
+                alt_str = " OR ".join(rel)
+                diagnostics.append(
+                    Diagnostic(
+                        check="required-files",
+                        what=f"Required file '{alt_str}' is missing (any ONE is required).",
+                        why=why,
+                        how=fix,
+                        doc=Doc.REQUIRED_FILES,
+                        file=f"{recipe_rel}/{rel[0]}",
+                    )
                 )
+        else:
+            found, exact = _find_entry(
+                recipe_dir, rel, case_insensitive=rel in lenient
             )
-        elif not exact:
-            _note_inexact(rel, found)
+            if found is None:
+                diagnostics.append(
+                    Diagnostic(
+                        check="required-files",
+                        what=f"Required file '{rel}' is missing.",
+                        why=why,
+                        how=fix,
+                        doc=Doc.REQUIRED_FILES,
+                        file=f"{recipe_rel}/{rel}",
+                    )
+                )
+            elif not found.is_file():
+                diagnostics.append(
+                    Diagnostic(
+                        check="required-files",
+                        what=(
+                            f"Required file '{rel}' exists but is a "
+                            f"{'directory' if found.is_dir() else 'non-file'}."
+                        ),
+                        why=why,
+                        how=(
+                            f"Remove or rename {recipe_rel}/{rel}, then add the "
+                            f"file.\n{fix}"
+                        ),
+                        doc=Doc.REQUIRED_FILES,
+                        file=f"{recipe_rel}/{rel}",
+                    )
+                )
+            elif not exact:
+                _note_inexact(rel, found)
     return diagnostics
 
 
@@ -717,40 +766,64 @@ def check_required_dirs(
     lenient = case_insensitive_entries(policy)
     diagnostics: list[Diagnostic] = []
     for rel, source in required_dirs_for(policy, root, language):
-        found, exact = _find_entry(
-            recipe_dir, rel, case_insensitive=rel in lenient
-        )
         why = _provenance("required_dirs", source, root, language)
-        if found is None:
-            diagnostics.append(
-                Diagnostic(
-                    check="required-dirs",
-                    what=f"Required directory '{rel}/' is missing.",
-                    why=why,
-                    how=_dir_remediation(rel, recipe_rel),
-                    doc=Doc.REQUIRED_FILES,
-                    file=f"{recipe_rel}/{rel}",
+        if isinstance(rel, tuple):
+            matched_dir = False
+            for alt in rel:
+                found, exact = _find_entry(
+                    recipe_dir, alt, case_insensitive=alt in lenient
                 )
-            )
-        elif not found.is_dir():
-            # Reporting this as "missing" would send the author hunting
-            # for something that is right there under the wrong kind.
-            diagnostics.append(
-                Diagnostic(
-                    check="required-dirs",
-                    what=f"Required directory '{rel}/' exists but is a file.",
-                    why=why,
-                    how=(
-                        f"Rename or delete the file at {recipe_rel}/{rel}, "
-                        f"then create a directory in its place:\n"
-                        f"  mkdir -p {recipe_rel}/{rel}"
-                    ),
-                    doc=Doc.REQUIRED_FILES,
-                    file=f"{recipe_rel}/{rel}",
+                if found is not None and found.is_dir():
+                    matched_dir = True
+                    if not exact:
+                        _note_inexact(alt, found)
+                    break
+            if not matched_dir:
+                alt_str = " OR ".join(f"{a}/" for a in rel)
+                diagnostics.append(
+                    Diagnostic(
+                        check="required-dirs",
+                        what=f"Required directory '{alt_str}' is missing.",
+                        why=why,
+                        how=_dir_remediation(rel, recipe_rel),
+                        doc=Doc.REQUIRED_FILES,
+                        file=f"{recipe_rel}/{rel[0]}",
+                    )
                 )
+        else:
+            found, exact = _find_entry(
+                recipe_dir, rel, case_insensitive=rel in lenient
             )
-        elif not exact:
-            _note_inexact(rel, found)
+            if found is None:
+                diagnostics.append(
+                    Diagnostic(
+                        check="required-dirs",
+                        what=f"Required directory '{rel}/' is missing.",
+                        why=why,
+                        how=_dir_remediation(rel, recipe_rel),
+                        doc=Doc.REQUIRED_FILES,
+                        file=f"{recipe_rel}/{rel}",
+                    )
+                )
+            elif not found.is_dir():
+                # Reporting this as "missing" would send the author hunting
+                # for something that is right there under the wrong kind.
+                diagnostics.append(
+                    Diagnostic(
+                        check="required-dirs",
+                        what=f"Required directory '{rel}/' exists but is a file.",
+                        why=why,
+                        how=(
+                            f"Rename or delete the file at {recipe_rel}/{rel}, "
+                            f"then create a directory in its place:\n"
+                            f"  mkdir -p {recipe_rel}/{rel}"
+                        ),
+                        doc=Doc.REQUIRED_FILES,
+                        file=f"{recipe_rel}/{rel}",
+                    )
+                )
+            elif not exact:
+                _note_inexact(rel, found)
     return diagnostics
 
 
@@ -782,7 +855,7 @@ def validate_recipe(
                 how=(
                     "Move it under one of them: core/ for curated recipes, "
                     "contrib/ for community ones, "
-                    "skills/<vertical>/<solution> for a vertical skill."
+                    "plugins/<vertical>/<solution> for a vertical plugin."
                 ),
                 doc=Doc.PLACEMENT,
                 file=rel,

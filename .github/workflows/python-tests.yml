@@ -17,10 +17,10 @@ on:
       - "contrib/**/pyproject.toml"
       - "contrib/**/uv.lock"
       - "contrib/**/manifest.yaml"
-      - "skills/**/*.py"
-      - "skills/**/pyproject.toml"
-      - "skills/**/uv.lock"
-      - "skills/**/manifest.yaml"
+      - "plugins/**/*.py"
+      - "plugins/**/pyproject.toml"
+      - "plugins/**/uv.lock"
+      - "plugins/**/manifest.yaml"
       - ".github/workflows/python-tests.yml"
   workflow_dispatch:
     inputs:
@@ -53,6 +53,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Detect Python recipes to test
         id: detect
@@ -78,11 +79,11 @@ jobs:
             grep -qiE "^[[:space:]]*language:[[:space:]]*[\"']?python[\"']?[[:space:]]*(#.*)?$" "$1"
           }
 
-          # Helper: collect all Python recipe dirs under core/, contrib/, and skills/.
+          # Helper: collect all Python recipe dirs under core/, contrib/, and plugins/.
           # A recipe dir is any directory that contains a manifest.yaml
           # declaring language: python.
           all_python_recipes() {
-            for root in core contrib skills; do
+            for root in core contrib plugins; do
               [ -d "$root" ] || continue
               while IFS= read -r manifest; do
                 if is_python_recipe "$manifest"; then
@@ -143,7 +144,7 @@ jobs:
             while IFS= read -r file; do
               [ -z "$file" ] && continue
               case "$file" in
-                core/*|contrib/*|skills/*) ;;
+                core/*|contrib/*|plugins/*) ;;
                 *) continue ;;
               esac
               recipe_dir="$(find_recipe_dir "$file")"
@@ -191,11 +192,13 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Install uv
         # Leave enable-cache at the default (true) — wheel caching between
         # runs is worthwhile here (contrast with detect-recipes above).
-        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # ratchet:astral-sh/setup-uv@v10.0.1
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # ratchet:astral-sh/setup-uv@v10.2.0
         with:
           python-version: "3.11"
 

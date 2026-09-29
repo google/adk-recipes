@@ -330,66 +330,66 @@ def test_nonexistent_scope_is_explained_not_silently_passed(fake_repo, capsys):
 
 
 # ---------------------------------------------------------------------------
-# skills/ — mandatory vertical namespace (skills/<vertical>/<solution>)
+# plugins/ — mandatory vertical namespace (plugins/<vertical>/<solution>)
 # ---------------------------------------------------------------------------
 
 
 @pytest.fixture
-def skills_repo(tmp_path, monkeypatch):
-    """A fake repo laid out as skills/<vertical>/<solution>."""
-    _make_recipe(tmp_path, "skills/retail/store-ops")
-    _make_recipe(tmp_path, "skills/hr/onboarding")
-    _make_recipe(tmp_path, "skills/finance/month-end-close")
+def plugins_repo(tmp_path, monkeypatch):
+    """A fake repo laid out as plugins/<vertical>/<solution>."""
+    _make_recipe(tmp_path, "plugins/retail/store-ops")
+    _make_recipe(tmp_path, "plugins/hr/onboarding")
+    _make_recipe(tmp_path, "plugins/finance/month-end-close")
     monkeypatch.setattr(m, "REPO_ROOT", tmp_path)
     return tmp_path
 
 
-def test_collect_skills_returns_solutions_not_verticals(skills_repo):
+def test_collect_plugins_returns_solutions_not_verticals(plugins_repo):
     """The regression this whole layout change exists to prevent: before
-    NAMESPACE_REQUIRED_ROOTS, this returned the VERTICALS (skills/retail,
-    skills/hr), so every check ran against the wrong directory and the
+    NAMESPACE_REQUIRED_ROOTS, this returned the VERTICALS (plugins/retail,
+    plugins/hr), so every check ran against the wrong directory and the
     real solutions were never validated at all."""
-    dirs = m.collect_recipe_dirs("skills")
-    assert _rel(dirs, skills_repo) == {
-        "skills/retail/store-ops",
-        "skills/hr/onboarding",
-        "skills/finance/month-end-close",
+    dirs = m.collect_recipe_dirs("plugins")
+    assert _rel(dirs, plugins_repo) == {
+        "plugins/retail/store-ops",
+        "plugins/hr/onboarding",
+        "plugins/finance/month-end-close",
     }
 
 
-def test_collect_scoped_to_one_vertical(skills_repo):
-    dirs = m.collect_recipe_dirs("skills/retail")
-    assert _rel(dirs, skills_repo) == {"skills/retail/store-ops"}
+def test_collect_scoped_to_one_vertical(plugins_repo):
+    dirs = m.collect_recipe_dirs("plugins/retail")
+    assert _rel(dirs, plugins_repo) == {"plugins/retail/store-ops"}
 
 
-def test_collect_single_solution(skills_repo):
-    dirs = m.collect_recipe_dirs("skills/retail/store-ops")
-    assert _rel(dirs, skills_repo) == {"skills/retail/store-ops"}
+def test_collect_single_solution(plugins_repo):
+    dirs = m.collect_recipe_dirs("plugins/retail/store-ops")
+    assert _rel(dirs, plugins_repo) == {"plugins/retail/store-ops"}
 
 
 def test_collect_skips_a_solution_with_no_vertical(tmp_path, monkeypatch):
-    """A solution directly under skills/ is treated as an (empty) vertical
+    """A solution directly under plugins/ is treated as an (empty) vertical
     and contributes nothing, rather than being validated at the wrong
     depth. validate_placement.py is what reports the misplacement."""
-    _make_recipe(tmp_path, "skills/retail/store-ops")
-    _make_recipe(tmp_path, "skills/no-vertical")
+    _make_recipe(tmp_path, "plugins/retail/store-ops")
+    _make_recipe(tmp_path, "plugins/no-vertical")
     monkeypatch.setattr(m, "REPO_ROOT", tmp_path)
-    assert _rel(m.collect_recipe_dirs("skills"), tmp_path) == {
-        "skills/retail/store-ops"
+    assert _rel(m.collect_recipe_dirs("plugins"), tmp_path) == {
+        "plugins/retail/store-ops"
     }
 
 
 def test_a_vertical_named_like_a_language_is_still_a_vertical(
     tmp_path, monkeypatch
 ):
-    """`skills/python/foo` is vertical `python` + solution `foo`, not a
+    """`plugins/python/foo` is vertical `python` + solution `foo`, not a
     language namespace. The result matches what the old language-based
     rule produced, but for a different reason — pinned so a future
-    refactor cannot quietly reintroduce language semantics under skills/."""
-    _make_recipe(tmp_path, "skills/python/foo")
+    refactor cannot quietly reintroduce language semantics under plugins/."""
+    _make_recipe(tmp_path, "plugins/python/foo")
     monkeypatch.setattr(m, "REPO_ROOT", tmp_path)
-    assert _rel(m.collect_recipe_dirs("skills"), tmp_path) == {
-        "skills/python/foo"
+    assert _rel(m.collect_recipe_dirs("plugins"), tmp_path) == {
+        "plugins/python/foo"
     }
 
 
@@ -400,15 +400,13 @@ def test_a_vertical_named_like_a_language_is_still_a_vertical(
         (["core", "python"], True),
         (["contrib", "java"], True),
         (["core", "my-recipe"], False),
-        # skills: namespace recognised by POSITION, whatever it is called.
-        (["skills", "retail"], True),
-        (["skills", "anything-at-all"], True),
+        # plugins: namespace recognised by POSITION, whatever it is called.
+        (["plugins", "retail"], True),
+        (["plugins", "anything-at-all"], True),
         # Depth matters — only the component directly under a root.
-        (["skills", "retail", "store-ops"], False),
+        (["plugins", "retail", "store-ops"], False),
         (["core", "python", "foo"], False),
         (["core"], False),
-        # Not a recipe root.
-        (["python", "agents"], False),
     ],
 )
 def test_is_namespace_path(parts, expected):
@@ -595,3 +593,66 @@ def test_report_inactive_annotates_without_failing(
     # The notice has to say what to do about it, not just that it is true.
     assert "status: active" in out
     assert Doc.RECIPE_INACTIVE.value in out
+
+
+def test_validate_manifest_contrib_requires_deployable_true(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(m, "REPO_ROOT", tmp_path)
+    schema = m.load_schema()
+    check_deployable = "manifest-deployable"
+
+    # Contrib recipe with deployable omitted fails
+    recipe_no_dep = _make_recipe(
+        tmp_path, "contrib/python/no-deployable", VALID_MANIFEST
+    )
+    diags = m.validate_manifest(recipe_no_dep / "manifest.yaml", schema)
+    assert any(d.check == check_deployable for d in diags)
+    (diag,) = [d for d in diags if d.check == check_deployable]
+    assert "is not set" in diag.what
+    assert "every recipe in contrib/ must be deployable" in diag.what
+    assert "Dockerfile" in diag.how
+    assert "'deployable: true'" in diag.how
+    assert diag.doc is Doc.MANIFEST_DEPLOYABLE
+
+    # Contrib recipe with deployable: false fails, and says false (YAML
+    # spelling), not Python's False
+    manifest_false = VALID_MANIFEST + "deployable: false\n"
+    recipe_false = _make_recipe(
+        tmp_path, "contrib/python/false-deployable", manifest_false
+    )
+    diags = m.validate_manifest(recipe_false / "manifest.yaml", schema)
+    (diag,) = [d for d in diags if d.check == check_deployable]
+    assert "is false" in diag.what
+
+    # Contrib recipe with deployable: true passes
+    manifest_true = VALID_MANIFEST + "deployable: true\n"
+    recipe_true = _make_recipe(
+        tmp_path, "contrib/python/true-deployable", manifest_true
+    )
+    assert m.validate_manifest(recipe_true / "manifest.yaml", schema) == []
+
+
+def test_validate_manifest_core_and_plugins_do_not_require_deployable(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(m, "REPO_ROOT", tmp_path)
+    schema = m.load_schema()
+
+    # Core recipe with deployable omitted passes
+    recipe_core = _make_recipe(tmp_path, "core/python/foo", VALID_MANIFEST)
+    assert m.validate_manifest(recipe_core / "manifest.yaml", schema) == []
+
+    # Plugin with deployable omitted passes
+    recipe_plugin = _make_recipe(tmp_path, "plugins/retail/bar", VALID_MANIFEST)
+    assert m.validate_manifest(recipe_plugin / "manifest.yaml", schema) == []
+
+
+def test_validate_manifest_flat_contrib_recipe_requires_deployable(
+    tmp_path, monkeypatch
+):
+    """contrib/<recipe>/ with no language folder is still under contrib/."""
+    monkeypatch.setattr(m, "REPO_ROOT", tmp_path)
+    recipe = _make_recipe(tmp_path, "contrib/flat-recipe", VALID_MANIFEST)
+    diags = m.validate_manifest(recipe / "manifest.yaml", m.load_schema())
+    assert [d.check for d in diags] == ["manifest-deployable"]

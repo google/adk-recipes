@@ -27,6 +27,7 @@ VALID_MANIFEST = textwrap.dedent(
       poc: my-github-id
     """
 )
+MINIMAL_DOCKERFILE = "FROM scratch\n"
 
 
 def _write(path: Path, content: str = "") -> Path:
@@ -48,7 +49,9 @@ def _blob(diagnostics: list[Diagnostic]) -> str:
     )
 
 
-def _names(entries: list[tuple[str, str]]) -> list[str]:
+def _names(
+    entries: list[tuple[str | tuple[str, ...], str]],
+) -> list[str | tuple[str, ...]]:
     return [name for name, _ in entries]
 
 
@@ -93,7 +96,7 @@ def _base_policy() -> dict:
             "by_root": {
                 "core": ["AGENTS.md"],
                 "contrib": [],
-                "skills": ["SKILL.md", "EVAL.yaml"],
+                "plugins": ["SKILL.md", "EVAL.yaml"],
             },
             "by_language": {
                 "python": ["pyproject.toml", "uv.lock"],
@@ -105,7 +108,7 @@ def _base_policy() -> dict:
             "by_root": {
                 "core": [],
                 "contrib": [],
-                "skills": ["scripts", "assets", "references", "tests/unit"],
+                "plugins": ["scripts", "assets", "references", "tests/unit"],
             },
             "by_language": {"python": [], "java": []},
         },
@@ -134,11 +137,11 @@ def test_required_files_for_contrib_python():
     ]
 
 
-def test_required_files_for_skills_no_language():
-    assert m.required_files_for(_base_policy(), "skills", None) == [
+def test_required_files_for_plugins_no_language():
+    assert m.required_files_for(_base_policy(), "plugins", None) == [
         ("README.md", "always"),
-        ("SKILL.md", "by_root.skills"),
-        ("EVAL.yaml", "by_root.skills"),
+        ("SKILL.md", "by_root.plugins"),
+        ("EVAL.yaml", "by_root.plugins"),
     ]
 
 
@@ -153,6 +156,64 @@ def test_required_files_for_unknown_root_and_language():
 def test_required_files_for_missing_config():
     # An empty policy shouldn't crash — it should return an empty list.
     assert m.required_files_for({}, "core", "python") == []
+
+
+def test_required_files_for_all_five_languages_from_policy():
+    policy = m.load_policy()
+    # Python
+    py_files = m.required_files_for(policy, "contrib", "python")
+    assert ("README.md", "always") in py_files
+    assert (".env.example", "always") in py_files
+    assert ("Dockerfile", "by_root.contrib") in py_files
+    assert ("pyproject.toml", "by_language.python") in py_files
+    assert ("uv.lock", "by_language.python") in py_files
+    assert ("tests/test_runnability.py", "by_language.python") in py_files
+
+    # Go: only go.mod in by_language
+    go_files = m.required_files_for(policy, "contrib", "go")
+    assert go_files == [
+        ("README.md", "always"),
+        (".env.example", "always"),
+        ("Dockerfile", "by_root.contrib"),
+        ("go.mod", "by_language.go"),
+    ]
+
+    # Java: build file alternatives
+    java_files = m.required_files_for(policy, "contrib", "java")
+    assert java_files == [
+        ("README.md", "always"),
+        (".env.example", "always"),
+        ("Dockerfile", "by_root.contrib"),
+        (("pom.xml", "build.gradle", "build.gradle.kts"), "by_language.java"),
+    ]
+
+    # Kotlin: build.gradle.kts
+    kotlin_files = m.required_files_for(policy, "contrib", "kotlin")
+    assert kotlin_files == [
+        ("README.md", "always"),
+        (".env.example", "always"),
+        ("Dockerfile", "by_root.contrib"),
+        ("build.gradle.kts", "by_language.kotlin"),
+    ]
+
+    # TypeScript: package.json + lockfile alternatives
+    ts_files = m.required_files_for(policy, "contrib", "typescript")
+    assert ts_files == [
+        ("README.md", "always"),
+        (".env.example", "always"),
+        ("Dockerfile", "by_root.contrib"),
+        ("package.json", "by_language.typescript"),
+        (
+            (
+                "package-lock.json",
+                "pnpm-lock.yaml",
+                "yarn.lock",
+                "bun.lockb",
+                "bun.lock",
+            ),
+            "by_language.typescript",
+        ),
+    ]
 
 
 def test_required_files_for_deduplicates():
@@ -298,7 +359,7 @@ def test_committed_policy_pairs_every_entry_with_a_rule():
     blank source would report "Required for every recipe" for a rule that
     is nothing of the kind."""
     policy = m.load_policy()
-    for root in ("core", "contrib", "skills"):
+    for root in ("core", "contrib", "plugins"):
         entries = m.required_files_for(policy, root, "python")
         entries += m.required_dirs_for(policy, root, "python")
         for name, source in entries:
@@ -378,6 +439,125 @@ def test_check_required_files_nested_path(tmp_path):
     )
     errs = m.check_required_files(recipe, "core", "python", policy)
     assert any("tests/test_runnability.py" in e.what for e in errs)
+
+
+def test_check_required_files_java_alternatives(tmp_path):
+    policy = m.load_policy()
+    # 1. pom.xml satisfies
+    r1 = tmp_path / "contrib" / "java-pom"
+    _write(r1 / "README.md", "# x\n")
+    _write(r1 / ".env.example", "# env\n")
+    _write(r1 / "Dockerfile", MINIMAL_DOCKERFILE)
+    _write(r1 / "pom.xml", "<project/>\n")
+    assert m.check_required_files(r1, "contrib", "java", policy) == []
+
+    # 2. build.gradle satisfies
+    r2 = tmp_path / "contrib" / "java-gradle"
+    _write(r2 / "README.md", "# x\n")
+    _write(r2 / ".env.example", "# env\n")
+    _write(r2 / "Dockerfile", MINIMAL_DOCKERFILE)
+    _write(r2 / "build.gradle", "// gradle\n")
+    assert m.check_required_files(r2, "contrib", "java", policy) == []
+
+    # 3. build.gradle.kts satisfies
+    r3 = tmp_path / "contrib" / "java-kts"
+    _write(r3 / "README.md", "# x\n")
+    _write(r3 / ".env.example", "# env\n")
+    _write(r3 / "Dockerfile", MINIMAL_DOCKERFILE)
+    _write(r3 / "build.gradle.kts", "// kts\n")
+    assert m.check_required_files(r3, "contrib", "java", policy) == []
+
+    # 4. Missing build file fails
+    r4 = tmp_path / "contrib" / "java-none"
+    _write(r4 / "README.md", "# x\n")
+    _write(r4 / ".env.example", "# env\n")
+    _write(r4 / "Dockerfile", MINIMAL_DOCKERFILE)
+    errs = m.check_required_files(r4, "contrib", "java", policy)
+    assert len(errs) == 1
+    assert "pom.xml OR build.gradle OR build.gradle.kts" in errs[0].what
+    assert "by_language.java" in errs[0].why
+
+
+def test_check_required_files_kotlin(tmp_path):
+    policy = m.load_policy()
+    r1 = tmp_path / "contrib" / "kt-good"
+    _write(r1 / "README.md", "# x\n")
+    _write(r1 / ".env.example", "# env\n")
+    _write(r1 / "Dockerfile", MINIMAL_DOCKERFILE)
+    _write(r1 / "build.gradle.kts", "// kts\n")
+    assert m.check_required_files(r1, "contrib", "kotlin", policy) == []
+
+    # Missing build.gradle.kts fails
+    r2 = tmp_path / "contrib" / "kt-bad"
+    _write(r2 / "README.md", "# x\n")
+    _write(r2 / ".env.example", "# env\n")
+    _write(r2 / "Dockerfile", MINIMAL_DOCKERFILE)
+    errs = m.check_required_files(r2, "contrib", "kotlin", policy)
+    assert any("build.gradle.kts" in e.what for e in errs)
+
+    # Missing .env.example fails
+    r3 = tmp_path / "contrib" / "kt-no-env"
+    _write(r3 / "README.md", "# x\n")
+    _write(r3 / "Dockerfile", MINIMAL_DOCKERFILE)
+    _write(r3 / "build.gradle.kts", "// kts\n")
+    errs = m.check_required_files(r3, "contrib", "kotlin", policy)
+    assert any(".env.example" in e.what for e in errs)
+
+
+def test_check_required_files_typescript(tmp_path):
+    policy = m.load_policy()
+    lockfiles = [
+        "package-lock.json",
+        "pnpm-lock.yaml",
+        "yarn.lock",
+        "bun.lockb",
+        "bun.lock",
+    ]
+    for lock in lockfiles:
+        r = tmp_path / "contrib" / f"ts-{lock}"
+        _write(r / "README.md", "# x\n")
+        _write(r / ".env.example", "# env\n")
+        _write(r / "Dockerfile", MINIMAL_DOCKERFILE)
+        _write(r / "package.json", "{}\n")
+        _write(r / lock, "# lock\n")
+        assert m.check_required_files(r, "contrib", "typescript", policy) == []
+
+    # Missing lockfile fails
+    r_no_lock = tmp_path / "contrib" / "ts-no-lock"
+    _write(r_no_lock / "README.md", "# x\n")
+    _write(r_no_lock / ".env.example", "# env\n")
+    _write(r_no_lock / "Dockerfile", MINIMAL_DOCKERFILE)
+    _write(r_no_lock / "package.json", "{}\n")
+    errs = m.check_required_files(r_no_lock, "contrib", "typescript", policy)
+    assert any("package-lock.json" in e.what for e in errs)
+
+    # Missing package.json fails
+    r_no_pkg = tmp_path / "contrib" / "ts-no-pkg"
+    _write(r_no_pkg / "README.md", "# x\n")
+    _write(r_no_pkg / ".env.example", "# env\n")
+    _write(r_no_pkg / "Dockerfile", MINIMAL_DOCKERFILE)
+    _write(r_no_pkg / "yarn.lock", "# lock\n")
+    errs = m.check_required_files(r_no_pkg, "contrib", "typescript", policy)
+    assert any("package.json" in e.what for e in errs)
+
+
+def test_check_required_files_go(tmp_path):
+    policy = m.load_policy()
+    r1 = tmp_path / "contrib" / "go-good"
+    _write(r1 / "README.md", "# x\n")
+    _write(r1 / ".env.example", "# env\n")
+    _write(r1 / "Dockerfile", MINIMAL_DOCKERFILE)
+    _write(r1 / "go.mod", "module example.com/foo\n")
+    # Note: no go.sum, must still pass
+    assert m.check_required_files(r1, "contrib", "go", policy) == []
+
+    # Missing go.mod fails
+    r2 = tmp_path / "contrib" / "go-bad"
+    _write(r2 / "README.md", "# x\n")
+    _write(r2 / ".env.example", "# env\n")
+    _write(r2 / "Dockerfile", MINIMAL_DOCKERFILE)
+    errs = m.check_required_files(r2, "contrib", "go", policy)
+    assert any("go.mod" in e.what for e in errs)
 
 
 def test_check_required_files_directory_does_not_satisfy(tmp_path):
@@ -525,7 +705,7 @@ def test_check_size_and_count_large_tier_relaxes(tmp_path):
 
 def test_check_size_and_count_root_without_limits_skips(tmp_path):
     # A root with no section in recipe_size_limits → nothing to enforce.
-    # Uses a fictional root because core, contrib and skills all have real
+    # Uses a fictional root because core, contrib and plugins all have real
     # limits in .github/policy.yml now, so none of them demonstrates this.
     recipe = _make_python_recipe(
         tmp_path, "playground/foo", include_agents=False
@@ -683,7 +863,7 @@ def test_validate_recipe_outside_known_roots(isolated_repo):
     errs = m.validate_recipe(recipe, _full_policy(), schema)
     assert len(errs) == 1
     assert errs[0].check == "placement"
-    assert "core/" in errs[0].how and "skills/" in errs[0].how
+    assert "core/" in errs[0].how and "plugins/" in errs[0].how
 
 
 def test_every_diagnostic_carries_a_working_doc_anchor(isolated_repo):
@@ -772,12 +952,12 @@ def test_main_single_recipe_scope(fake_repo):
 # ---------------------------------------------------------------------------
 
 
-def test_required_dirs_for_skills():
-    assert m.required_dirs_for(_base_policy(), "skills", "python") == [
-        ("scripts", "by_root.skills"),
-        ("assets", "by_root.skills"),
-        ("references", "by_root.skills"),
-        ("tests/unit", "by_root.skills"),
+def test_required_dirs_for_plugins():
+    assert m.required_dirs_for(_base_policy(), "plugins", "python") == [
+        ("scripts", "by_root.plugins"),
+        ("assets", "by_root.plugins"),
+        ("references", "by_root.plugins"),
+        ("tests/unit", "by_root.plugins"),
     ]
 
 
@@ -786,90 +966,90 @@ def test_required_dirs_for_core_is_empty():
 
 
 def test_required_dirs_for_missing_section_degrades():
-    assert m.required_dirs_for({}, "skills", "python") == []
+    assert m.required_dirs_for({}, "plugins", "python") == []
 
 
 def test_required_dirs_for_dedupes():
     policy = {
         "required_dirs": {
             "always": ["scripts"],
-            "by_root": {"skills": ["scripts", "assets"]},
+            "by_root": {"plugins": ["scripts", "assets"]},
             "by_language": {"python": ["assets"]},
         }
     }
-    assert m.required_dirs_for(policy, "skills", "python") == [
+    assert m.required_dirs_for(policy, "plugins", "python") == [
         ("scripts", "always"),
-        ("assets", "by_root.skills"),
+        ("assets", "by_root.plugins"),
     ]
 
 
 # ---------------------------------------------------------------------------
-# Vertical skills — the full file + directory contract
+# Vertical plugins — the full file + directory contract
 # ---------------------------------------------------------------------------
 
-SKILL_MANIFEST = VALID_MANIFEST
+PLUGIN_MANIFEST = VALID_MANIFEST
 
 
-def _make_skill(root: Path, rel: str = "skills/retail/store-ops") -> Path:
-    """A complete, valid Python vertical skill: every required file and
+def _make_plugin(root: Path, rel: str = "plugins/retail/store-ops") -> Path:
+    """A complete, valid Python vertical plugin: every required file and
     every required directory."""
-    skill = root / rel
-    skill.mkdir(parents=True, exist_ok=True)
-    _write(skill / "manifest.yaml", SKILL_MANIFEST)
-    _write(skill / "README.md", "# skill\n")
-    _write(skill / "SKILL.md", "# installer\n")
-    _write(skill / "EVAL.yaml", "rubrics: []\n")
-    _write(skill / "pyproject.toml", "[project]\nname='x'\n")
-    _write(skill / "uv.lock", "# lockfile\n")
-    _write(skill / ".env.example", "FOO=1\n")
-    _write(skill / "tests" / "test_runnability.py", "def test(): pass\n")
+    plugin = root / rel
+    plugin.mkdir(parents=True, exist_ok=True)
+    _write(plugin / "manifest.yaml", PLUGIN_MANIFEST)
+    _write(plugin / "README.md", "# plugin\n")
+    _write(plugin / "SKILL.md", "# installer\n")
+    _write(plugin / "EVAL.yaml", "rubrics: []\n")
+    _write(plugin / "pyproject.toml", "[project]\nname='x'\n")
+    _write(plugin / "uv.lock", "# lockfile\n")
+    _write(plugin / ".env.example", "FOO=1\n")
+    _write(plugin / "tests" / "test_runnability.py", "def test(): pass\n")
     for d in ("scripts", "assets", "references", "tests/unit"):
-        (skill / d).mkdir(parents=True, exist_ok=True)
-    return skill
+        (plugin / d).mkdir(parents=True, exist_ok=True)
+    return plugin
 
 
-def test_complete_skill_passes(isolated_repo):
-    skill = _make_skill(isolated_repo)
+def test_complete_plugin_passes(isolated_repo):
+    plugin = _make_plugin(isolated_repo)
     schema = vm.load_schema()
-    assert m.validate_recipe(skill, _full_policy(), schema) == []
+    assert m.validate_recipe(plugin, _full_policy(), schema) == []
 
 
-def test_skill_missing_a_required_dir_fails(isolated_repo):
-    skill = _make_skill(isolated_repo)
-    (skill / "assets").rmdir()
-    errors = m.validate_recipe(skill, _full_policy(), vm.load_schema())
+def test_plugin_missing_a_required_dir_fails(isolated_repo):
+    plugin = _make_plugin(isolated_repo)
+    (plugin / "assets").rmdir()
+    errors = m.validate_recipe(plugin, _full_policy(), vm.load_schema())
     (diag,) = [d for d in errors if d.check == "required-dirs"]
     assert "assets/" in diag.what
     # The overwhelmingly common report is "the folder is right there" —
     # so the fix has to lead with git's inability to commit an empty one.
     assert "git cannot commit an empty directory" in diag.how
     assert (
-        "touch skills/retail/store-ops/assets/.gitkeep && "
-        "git add skills/retail/store-ops/assets/.gitkeep" in diag.how
+        "touch plugins/retail/store-ops/assets/.gitkeep && "
+        "git add plugins/retail/store-ops/assets/.gitkeep" in diag.how
     )
 
 
 def test_missing_dir_says_which_rule_required_it(isolated_repo):
-    skill = _make_skill(isolated_repo)
-    (skill / "scripts").rmdir()
-    (diag,) = m.check_required_dirs(skill, "skills", "python", _full_policy())
-    assert "under skills/" in diag.why
-    assert "policy.required_dirs.by_root.skills" in diag.why
+    plugin = _make_plugin(isolated_repo)
+    (plugin / "scripts").rmdir()
+    (diag,) = m.check_required_dirs(plugin, "plugins", "python", _full_policy())
+    assert "under plugins/" in diag.why
+    assert "policy.required_dirs.by_root.plugins" in diag.why
 
 
-def test_skill_missing_eval_yaml_fails(isolated_repo):
-    skill = _make_skill(isolated_repo)
-    (skill / "EVAL.yaml").unlink()
-    errors = m.validate_recipe(skill, _full_policy(), vm.load_schema())
+def test_plugin_missing_eval_yaml_fails(isolated_repo):
+    plugin = _make_plugin(isolated_repo)
+    (plugin / "EVAL.yaml").unlink()
+    errors = m.validate_recipe(plugin, _full_policy(), vm.load_schema())
     assert "EVAL.yaml" in _blob(errors)
 
 
 def test_empty_required_dirs_pass(isolated_repo):
-    """assets/ and references/ are legitimately empty for some skills."""
-    skill = _make_skill(isolated_repo)
-    assert list((skill / "assets").iterdir()) == []
+    """assets/ and references/ are legitimately empty for some plugins."""
+    plugin = _make_plugin(isolated_repo)
+    assert list((plugin / "assets").iterdir()) == []
     assert (
-        m.check_required_dirs(skill, "skills", "python", _full_policy()) == []
+        m.check_required_dirs(plugin, "plugins", "python", _full_policy()) == []
     )
 
 
@@ -878,10 +1058,10 @@ def test_required_dir_that_is_actually_a_file_is_reported_precisely(
 ):
     """'missing' would send the author hunting for something that is
     right there under the wrong kind."""
-    skill = _make_skill(isolated_repo)
-    (skill / "scripts").rmdir()
-    _write(skill / "scripts", "oops\n")
-    errors = m.check_required_dirs(skill, "skills", "python", _full_policy())
+    plugin = _make_plugin(isolated_repo)
+    (plugin / "scripts").rmdir()
+    _write(plugin / "scripts", "oops\n")
+    errors = m.check_required_dirs(plugin, "plugins", "python", _full_policy())
     assert len(errors) == 1
     assert "exists but is a file" in errors[0].what
 
@@ -895,21 +1075,22 @@ def test_wrong_case_fails_for_a_strict_entry(isolated_repo):
     """pyproject.toml is read by uv, which resolves it by exact name.
     Accepting PyProject.toml would pass here and then break uv. This must
     fail on macOS too, where the filesystem alone would accept it."""
-    skill = _make_skill(isolated_repo)
-    (skill / "pyproject.toml").unlink()
-    _write(skill / "PyProject.toml", "[project]\nname='x'\n")
-    errors = m.check_required_files(skill, "skills", "python", _full_policy())
+    plugin = _make_plugin(isolated_repo)
+    (plugin / "pyproject.toml").unlink()
+    _write(plugin / "PyProject.toml", "[project]\nname='x'\n")
+    errors = m.check_required_files(plugin, "plugins", "python", _full_policy())
     assert any(
         "pyproject.toml" in e.what and "missing" in e.what for e in errors
     )
 
 
 def test_wrong_case_passes_for_eval_yaml_with_a_note(isolated_repo, capsys):
-    skill = _make_skill(isolated_repo)
-    (skill / "EVAL.yaml").unlink()
-    _write(skill / "eval.yaml", "rubrics: []\n")
+    plugin = _make_plugin(isolated_repo)
+    (plugin / "EVAL.yaml").unlink()
+    _write(plugin / "eval.yaml", "rubrics: []\n")
     assert (
-        m.check_required_files(skill, "skills", "python", _full_policy()) == []
+        m.check_required_files(plugin, "plugins", "python", _full_policy())
+        == []
     )
     out = capsys.readouterr().out
     assert "[NOTE]" in out
@@ -918,9 +1099,10 @@ def test_wrong_case_passes_for_eval_yaml_with_a_note(isolated_repo, capsys):
 
 
 def test_exact_case_produces_no_note(isolated_repo, capsys):
-    skill = _make_skill(isolated_repo)
+    plugin = _make_plugin(isolated_repo)
     assert (
-        m.check_required_files(skill, "skills", "python", _full_policy()) == []
+        m.check_required_files(plugin, "plugins", "python", _full_policy())
+        == []
     )
     assert "[NOTE]" not in capsys.readouterr().out
 
@@ -959,11 +1141,11 @@ def test_case_insensitive_entries_reads_policy():
 # ---------------------------------------------------------------------------
 
 
-def test_committed_policy_declares_the_skill_contract():
+def test_committed_policy_declares_the_plugin_contract():
     """A future edit must not silently drop part of the contract."""
     policy = m.load_policy()
-    files = _names(m.required_files_for(policy, "skills", "python"))
-    dirs = _names(m.required_dirs_for(policy, "skills", "python"))
+    files = _names(m.required_files_for(policy, "plugins", "python"))
+    dirs = _names(m.required_dirs_for(policy, "plugins", "python"))
     for f in (
         "README.md",
         "SKILL.md",
@@ -979,6 +1161,23 @@ def test_committed_policy_declares_the_skill_contract():
     # created by the scaffold — see the comment above required_dirs in
     # .github/policy.yml.
     assert dirs == ["scripts"]
+
+
+def test_committed_policy_declares_the_contrib_contract():
+    """Every recipe under contrib/ must require a Dockerfile."""
+    policy = m.load_policy()
+    files = _names(m.required_files_for(policy, "contrib", "python"))
+    assert "Dockerfile" in files
+
+
+def test_check_required_files_contrib_missing_dockerfile(tmp_path):
+    policy = m.load_policy()
+    recipe = _make_python_recipe(tmp_path, "contrib/foo")
+    errs = m.check_required_files(recipe, "contrib", "python", policy)
+    assert any("Dockerfile" in e.what for e in errs)
+    docker_err = next(e for e in errs if "Dockerfile" in e.what)
+    assert "by_root.contrib" in docker_err.why
+    assert "make-python-recipe-deployable" in docker_err.how
 
 
 def test_committed_policy_keeps_tool_read_files_case_strict():

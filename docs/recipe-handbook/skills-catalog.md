@@ -1,4 +1,4 @@
-<!-- word count: 1112 (target 800, cap 1200) -->
+<!-- word count: 1131 (target 800, cap 1200) -->
 
 # Repo Skills Catalog
 
@@ -9,9 +9,9 @@ works, authoring more skills. Source lives at
 with a full description. This catalog summarises them and maps
 them to the [checklist](../recipe-checklist.md).
 
-> Not to be confused with **vertical skills** — recipes shipped to
-> users under `skills/<vertical>/<solution>/`. Repo skills build this
-> repo; vertical skills are built with it.
+> Not to be confused with **plugins** — recipes shipped to
+> users under `plugins/<vertical>/<solution>/`. Repo skills build this
+> repo; plugins are built with it.
 
 > **Fastest path:** for a PR-ready recipe in one command, use
 > [`prepare-python-recipe`](#prepare-python-recipe). It runs
@@ -58,8 +58,8 @@ Apply regardless of language.
 ### `generate-manifest`
 
 Reads your recipe's files, infers what belongs in `manifest.yaml`,
-and writes a valid manifest matching the
-[schema](../../.github/schemas/manifest-schema.json).
+and writes a valid manifest. The [manifest](./manifest.md) page
+describes every field.
 
 - **Input:** recipe path.
 - **Writes:** `manifest.yaml`.
@@ -160,8 +160,9 @@ a container and runnable as a service. Generates the serving files
 `app_utils/{a2a,services,reasoning_engine_adapter}.py`,
 `agents-cli-manifest.yaml`) and configures the recipe to match.
 
-Opt-in, and deliberately not part of `prepare-python-recipe`: most
-recipes do not need to be deployable.
+Not part of `prepare-python-recipe`. Required for every recipe under
+`contrib/`, which must ship a `Dockerfile` and set `deployable: true`;
+optional under `core/` and `plugins/`.
 
 - **Input:** recipe path. Optional `--data-dirs`, `--region`,
   `--overwrite`, `--verify-container`.
