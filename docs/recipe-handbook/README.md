@@ -1,4 +1,4 @@
-<!-- word count: 636 (target 500, cap 800) -->
+<!-- word count: 619 (target 500, cap 800) -->
 
 # Recipe Handbook
 
@@ -25,8 +25,6 @@ Every accepted recipe:
 - Passes the runnability test (agent code loads without
   crashing).
 - Has real owners in `manifest.ownership`.
-- Is deployable: it has a `Dockerfile` at the recipe root and sets
-  `deployable: true` in `manifest.yaml`.
 
 ## Handbook pages
 

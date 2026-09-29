@@ -1,4 +1,4 @@
-<!-- word count: 482 (target 800, cap 1200) -->
+<!-- word count: 441 (target 800, cap 1200) -->
 
 # Anatomy of a Recipe
 
@@ -15,16 +15,9 @@ Every recipe lives at `<root>/<lang>/<name>`, where `<root>` is
 Contributors submit new recipes to `contrib/`. The rest of this
 page covers what all recipes share. `core/` recipes have one additional file — `AGENTS.md` — written
 for coding agents: intent, key files to study, and reuse notes.
-Not required for `contrib/`.
-
-## Every `contrib/` recipe must be deployable
-
-Any recipe in `contrib/` must be deployable, which means it must have
-a `Dockerfile` at the recipe root that builds and serves the agent,
-and must set `deployable: true` in `manifest.yaml`. CI rejects a
-`contrib/` recipe that is missing either. For a Python recipe, the
-`make-python-recipe-deployable` AI skill generates the `Dockerfile`.
-See [Contrib recipe is not deployable](./troubleshooting.md#contrib-recipe-is-not-deployable).
+Not required for `contrib/`. Every `contrib/` recipe must be
+deployable, which means it must have a `Dockerfile` at the recipe
+root and set `deployable: true` in `manifest.yaml`.
 
 ## Naming
 
