@@ -429,7 +429,7 @@ def test_process_recipes_orchestration(tmp_path):
         assert created_recipe.rel_path == f"{VERTICAL_ROOT}/retail/new-pr-rec"
 
 
-def _expired_tree(tmp_path: Path, now: datetime) -> Path:
+def _expired_tree(tmp_path: Path) -> Path:
     """One expired inactive recipe plus a policy file; returns the policy."""
     recipe = tmp_path / "contrib" / "python" / "old-rec"
     recipe.mkdir(parents=True)
@@ -480,7 +480,7 @@ def test_find_existing_does_not_reopen_foreign_closed_pr():
 
 def test_process_recipes_opens_new_pr_when_reopen_fails(tmp_path):
     now = datetime(2026, 9, 25, tzinfo=UTC)
-    policy_file = _expired_tree(tmp_path, now)
+    policy_file = _expired_tree(tmp_path)
     prs = [
         _closed_pr(
             7,
@@ -512,7 +512,7 @@ def test_process_recipes_opens_new_pr_when_reopen_fails(tmp_path):
 
 def test_process_recipes_counts_failed_creation(tmp_path):
     now = datetime(2026, 9, 25, tzinfo=UTC)
-    policy_file = _expired_tree(tmp_path, now)
+    policy_file = _expired_tree(tmp_path)
     with (
         patch(
             "recipe_deprecator.get_manifest_mtime",
@@ -558,7 +558,8 @@ def test_main_exits_nonzero_when_pr_listing_fails(monkeypatch, capsys):
 def test_main_exits_zero_when_nothing_failed(monkeypatch):
     monkeypatch.setattr("sys.argv", ["recipe_deprecator.py"])
     with patch("recipe_deprecator.process_recipes", return_value={"failed": 0}):
-        rd.main()
+        # Returning at all means no SystemExit, i.e. exit status 0.
+        assert rd.main() is None
 
 
 # ---------------------------------------------------------------------------
@@ -617,6 +618,14 @@ def _fake_gh(real_run):
     return run, calls
 
 
+def _open_deletion_pr(work: Path) -> list[list[str]]:
+    """Run create_deletion_pr with real git and faked gh; return gh calls."""
+    fake, calls = _fake_gh(subprocess.run)
+    with patch("subprocess.run", side_effect=fake):
+        assert rd.create_deletion_pr(_recipe(work), "admin", work) == 42
+    return calls
+
+
 def _recipe(work: Path) -> rd.RecipeInfo:
     return rd.RecipeInfo(
         rel_path=RECIPE,
@@ -638,9 +647,7 @@ def test_create_deletion_pr_real_git(git_repo):
     _git(work, "push", "-q", "origin", f"stale:{branch}")
     _git(work, "checkout", "-q", "main")
 
-    fake, calls = _fake_gh(subprocess.run)
-    with patch("subprocess.run", side_effect=fake):
-        assert rd.create_deletion_pr(_recipe(work), "admin", work) == 42
+    calls = _open_deletion_pr(work)
 
     assert (
         _git(work, "ls-tree", "-r", "--name-only", branch, "--", RECIPE) == ""
@@ -683,9 +690,7 @@ def test_create_deletion_pr_failure_leaves_clean_tree(git_repo):
 def test_update_deletion_branch_deletes_files_added_since(git_repo):
     origin, work = git_repo
     branch = f"deprecate/{RECIPE}"
-    fake, _ = _fake_gh(subprocess.run)
-    with patch("subprocess.run", side_effect=fake):
-        assert rd.create_deletion_pr(_recipe(work), "admin", work) == 42
+    _open_deletion_pr(work)
     before = _git(origin, "rev-parse", branch)
 
     # Main moves on: one recipe file modified (modify/delete conflict), one

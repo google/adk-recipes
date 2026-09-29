@@ -485,7 +485,9 @@ def create_deletion_pr(
 ) -> int | None:
     """Create a branch, delete the recipe folder, commit, push, and open a PR.
 
-    Returns the new PR number, or None on failure or in dry-run mode.
+    Returns the new PR number, or None on failure or in dry-run mode. If the
+    PR was created but its number cannot be read from gh's output, returns 0:
+    the PR exists, so this still counts as success.
     """
     branch_name = get_deletion_branch_name(recipe.rel_path)
     title = get_deletion_pr_title(recipe.rel_path)
