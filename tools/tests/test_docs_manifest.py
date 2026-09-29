@@ -88,6 +88,18 @@ def test_undocumented_fields_stay_off_the_page():
     assert not shown, f"{sorted(shown)} are meant to stay undocumented"
 
 
+def test_docs_do_not_point_at_the_schema_file():
+    """The schema defines UNDOCUMENTED fields, so contributor docs link to
+    the manifest page instead of sending readers to the raw schema."""
+    docs = REPO_ROOT / "docs"
+    offenders = sorted(
+        str(p.relative_to(REPO_ROOT))
+        for p in docs.rglob("*.md")
+        if "manifest-schema.json" in p.read_text(encoding="utf-8")
+    )
+    assert not offenders, offenders
+
+
 def test_complete_example_is_a_valid_manifest(tmp_path):
     section = _doc_text().split("## Complete example", 1)[1]
     example = re.search(r"```yaml\n(.*?)```", section, re.DOTALL)

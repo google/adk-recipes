@@ -1,11 +1,10 @@
-<!-- word count: 820 (target 700, cap 1000) -->
+<!-- word count: 808 (target 700, cap 1000) -->
 
 # The Manifest
 
 Every recipe has a `manifest.yaml` at its root. It declares what the
-recipe is, who owns it, and what it depends on. CI validates it
-against [`.github/schemas/manifest-schema.json`](../../.github/schemas/manifest-schema.json)
-on every PR that changes the recipe. Where this page and the schema disagree, the schema wins.
+recipe is, who owns it, and what it depends on. CI validates it on
+every PR that changes the recipe.
 
 ## Generate it with the `generate-manifest` skill
 
