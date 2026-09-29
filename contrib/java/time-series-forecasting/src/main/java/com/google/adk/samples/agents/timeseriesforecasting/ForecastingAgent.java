@@ -1,6 +1,5 @@
 package com.google.adk.samples.agents.timeseriesforecasting;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.adk.agents.BaseAgent;
 import com.google.adk.agents.LlmAgent;
 import com.google.adk.agents.RunConfig;
@@ -9,7 +8,6 @@ import com.google.adk.models.BaseLlm;
 import com.google.adk.models.Gemini;
 import com.google.adk.runner.InMemoryRunner;
 import com.google.adk.sessions.Session;
-import com.google.adk.tools.BaseTool;
 import com.google.adk.tools.mcp.McpToolset;
 import com.google.adk.tools.mcp.SseServerParameters;
 import com.google.common.collect.ImmutableList;
@@ -26,7 +24,6 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.logging.Level;
 import java.util.logging.Logger;
-import java.util.stream.Collectors;
 
 /** The main application class for the time series forecasting agent. */
 public class ForecastingAgent {
@@ -72,65 +69,20 @@ public class ForecastingAgent {
   }
 
   /**
-   * Loads tools from the MCP server.
-   *
-   * @return The list of tools.
+   * Returns the MCP Toolbox toolset, or no tools when MCP_TOOLBOX_SERVER_URL is unset. The toolset
+   * connects to the server and lists its tools when the agent first needs them.
    */
-  private static List<BaseTool> getTools() {
-    List<BaseTool> tools = ImmutableList.of();
-
+  private static List<Object> getTools() {
     String mcpServerUrl = env(MCP_TOOLBOX_SERVER_URL_ENV_VAR);
-    ADK_LOGGER.info("MCP Server URL from env: " + mcpServerUrl);
-
-    if (mcpServerUrl == null || mcpServerUrl.trim().isEmpty()) {
+    if (mcpServerUrl == null) {
       ADK_LOGGER.info(
           MCP_TOOLBOX_SERVER_URL_ENV_VAR
               + " environment variable not set. No remote tools will be loaded.");
-    } else {
-      ADK_LOGGER.info("Attempting to load tools from MCP server: " + mcpServerUrl);
-
-      try {
-        SseServerParameters params = SseServerParameters.builder().url(mcpServerUrl).build();
-        ADK_LOGGER.fine("URL in SseServerParameters object: " + params.url());
-
-        McpToolset.McpToolsAndToolsetResult toolsAndToolsetResult =
-            McpToolset.fromServer(params, new ObjectMapper()).get();
-
-        if (toolsAndToolsetResult == null) {
-          ADK_LOGGER.warning(
-              "Failed to load tools from MCP server at "
-                  + mcpServerUrl
-                  + ". Load method returned null.");
-        } else {
-          try (McpToolset managedToolset = toolsAndToolsetResult.getToolset()) {
-            if (toolsAndToolsetResult.getTools() != null) {
-              tools = toolsAndToolsetResult.getTools().stream().collect(Collectors.toList());
-              ADK_LOGGER.info("Loaded " + tools.size() + " tools.");
-            } else {
-              tools = ImmutableList.of();
-              ADK_LOGGER.warning(
-                  "Proceeding with an empty tool list due to previous errors or no tools loaded.");
-            }
-
-            if (tools.isEmpty()) {
-              ADK_LOGGER.warning(
-                  MCP_TOOLBOX_SERVER_URL_ENV_VAR
-                      + " was set, but no tools were loaded. Agent will function without these"
-                      + " tools.");
-            }
-          }
-        }
-      } catch (Exception e) {
-        ADK_LOGGER.log(
-            Level.WARNING,
-            "Failed to load tools from MCP server at "
-                + mcpServerUrl
-                + ". Ensure the server is running and accessible, and the URL is correct.",
-            e);
-      }
+      return ImmutableList.of();
     }
-
-    return tools;
+    ADK_LOGGER.info("Using MCP Toolbox server: " + mcpServerUrl);
+    return ImmutableList.of(
+        new McpToolset(SseServerParameters.builder().url(mcpServerUrl).build()));
   }
 
   /**
@@ -139,7 +91,7 @@ public class ForecastingAgent {
    * @return The created LLM agent.
    */
   private static BaseAgent initAgent() {
-    List<BaseTool> tools = getTools();
+    List<Object> tools = getTools();
     LlmAgent.Builder builder = LlmAgent.builder();
     BaseLlm vertexModel = getVertexModel();
     if (vertexModel != null) {
@@ -217,7 +169,8 @@ public class ForecastingAgent {
 
         Content userMsgForHistory = Content.fromParts(Part.fromText(userInput));
         Flowable<Event> events =
-            runner.runWithSessionId(session.id(), userMsgForHistory, RunConfig.builder().build());
+            runner.runAsync(
+                session.userId(), session.id(), userMsgForHistory, RunConfig.builder().build());
 
         System.out.print("\\nAgent > ");
         final StringBuilder agentResponseBuilder = new StringBuilder();
