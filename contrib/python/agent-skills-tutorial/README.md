@@ -23,8 +23,8 @@ Build an ADK agent that uses four different skill patterns: inline skills define
 
 ```bash
 # Clone the repo
-git clone https://github.com/GoogleCloudPlatform/adk-samples.git
-cd adk-samples/python/agents/agent-skills-tutorial
+git clone https://github.com/google/adk-recipes.git
+cd adk-recipes/contrib/python/agent-skills-tutorial
 
 # Set up environment
 python3 -m venv .venv && source .venv/bin/activate

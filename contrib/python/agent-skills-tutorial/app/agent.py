@@ -7,6 +7,7 @@ This agent showcases:
   4. Meta skills — A skill-creator that generates new SKILL.md definitions
 """
 
+import os
 import pathlib
 
 from google.adk import Agent
@@ -160,7 +161,7 @@ skill_toolset = SkillToolset(
 )
 
 root_agent = Agent(
-    model="gemini-2.5-flash",
+    model=os.getenv("MODEL_NAME"),
     name="blog_skills_agent",
     description="A blog-writing agent powered by reusable skills.",
     instruction=(
