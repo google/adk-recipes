@@ -26,6 +26,12 @@
       <artifactId>google-adk-dev</artifactId>
       <version>0.1.0</version>
     </dependency>
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <version>5.12.2</version>
+      <scope>test</scope>
+    </dependency>
   </dependencies>
 
   <build>
@@ -46,6 +52,11 @@
           <mainClass>${mainClass}</mainClass>
           <classpathScope>compile</classpathScope>
         </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <version>3.5.3</version>
       </plugin>
     </plugins>
   </build>
