@@ -1,4 +1,4 @@
-<!-- word count: 3305 (target 500+, no cap) -->
+<!-- word count: 3921 (target 500+, no cap) -->
 
 # Troubleshooting
 
@@ -83,8 +83,8 @@ Each command below says which directory to run it from. Replace
 `[manifest-empty] manifest.yaml has no content — it is either empty or
 contains only comments.`, or a schema error naming the failing field.
 
-**Cause** — every recipe needs a `manifest.yaml` matching the
-[schema](../../.github/schemas/manifest-schema.json).
+**Cause** — every recipe needs a `manifest.yaml` with the fields
+described on the [manifest](./manifest.md) page.
 
 **Fix**
 
