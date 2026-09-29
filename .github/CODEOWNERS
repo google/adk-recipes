@@ -29,6 +29,10 @@
 /core/typescript/**    @happyhuman
 /core/kotlin/**        @happyhuman
 
+# Recipes owned by their authors. Listed after the language lines above,
+# because the last matching rule wins.
+/core/python/ambient-quality-agent/** @maxgasztych @eliasecchig
+
 # --- contrib/ ---
 /contrib/python/**     @happyhuman
 /contrib/go/**         @ToniCorinne
