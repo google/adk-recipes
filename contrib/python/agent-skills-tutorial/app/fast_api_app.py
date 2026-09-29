@@ -30,6 +30,10 @@ from app.app_utils.reasoning_engine_adapter import (
 )
 
 load_dotenv()
+# Drop unfilled .env.example placeholders so they read as unset.
+for _k, _v in list(os.environ.items()):
+    if _v.startswith(("<TODO", "<YOUR_")):
+        del os.environ[_k]
 
 # Cloud telemetry needs Application Default Credentials. Resolve them here
 # rather than letting get_fast_api_app raise DefaultCredentialsError at
@@ -41,8 +45,8 @@ except Exception:
     project_id = None
 
 allow_origins = (
-    os.getenv("ALLOW_ORIGINS", "").split(",")
-    if os.getenv("ALLOW_ORIGINS")
+    [origin.strip() for origin in origins.split(",") if origin.strip()]
+    if (origins := os.getenv("ALLOW_ORIGINS"))
     else None
 )
 
