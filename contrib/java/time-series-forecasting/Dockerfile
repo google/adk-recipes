@@ -11,7 +11,7 @@ EXPOSE 8080
 
 ENTRYPOINT ["mvn", "compile", "exec:java", \
     "-Dexec.args=--server.port=${PORT} \
-    --adk.agents.source-dir=src/main/java \
+    --adk.agents.source-dir=. \
     --logging.level.com.google.adk.dev=DEBUG \
     --logging.level.com.google.adk.demo.agents=DEBUG" \
     ]
