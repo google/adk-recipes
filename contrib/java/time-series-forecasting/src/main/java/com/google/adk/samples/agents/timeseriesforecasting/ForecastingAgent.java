@@ -33,7 +33,7 @@ public class ForecastingAgent {
   private static final Logger ADK_LOGGER = Logger.getLogger(ForecastingAgent.class.getName());
 
   private static final String AGENT_NAME = "time-series-forecasting";
-  private static final String MODEL_NAME = "gemini-2.5-flash";
+  private static final String MODEL_NAME = "gemini-3.5-flash";
   private static final String MCP_TOOLBOX_SERVER_URL_ENV_VAR = "MCP_TOOLBOX_SERVER_URL";
 
   // Reads .env from the working directory. Real environment variables take
@@ -102,10 +102,8 @@ public class ForecastingAgent {
                   + mcpServerUrl
                   + ". Load method returned null.");
         } else {
-          McpToolset toolset =
-              (toolsAndToolsetResult != null) ? toolsAndToolsetResult.getToolset() : null;
-          try (McpToolset managedToolset = toolset) {
-            if (toolsAndToolsetResult != null && toolsAndToolsetResult.getTools() != null) {
+          try (McpToolset managedToolset = toolsAndToolsetResult.getToolset()) {
+            if (toolsAndToolsetResult.getTools() != null) {
               tools = toolsAndToolsetResult.getTools().stream().collect(Collectors.toList());
               ADK_LOGGER.info("Loaded " + tools.size() + " tools.");
             } else {
@@ -114,13 +112,11 @@ public class ForecastingAgent {
                   "Proceeding with an empty tool list due to previous errors or no tools loaded.");
             }
 
-            if (tools.isEmpty() && System.getenv(MCP_TOOLBOX_SERVER_URL_ENV_VAR) != null) {
+            if (tools.isEmpty()) {
               ADK_LOGGER.warning(
                   MCP_TOOLBOX_SERVER_URL_ENV_VAR
                       + " was set, but no tools were loaded. Agent will function without these"
                       + " tools.");
-            } else if (tools.isEmpty()) {
-              ADK_LOGGER.warning("No tools are configured for the agent.");
             }
           }
         }
