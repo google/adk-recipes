@@ -87,13 +87,15 @@ No specific table creation is needed in your project for this sample if you are 
 
     The server will typically start on `http://localhost:5000`. The MCP endpoints are usually served under the `/mcp/` path.
 
-### 3. Configure Environment Variable for Local Toolbox 🧰
+### 3. Configure Environment Variables 🧰
 
-Set the `MCP_TOOLBOX_SERVER_URL` environment variable to point to your running MCP Toolbox server. Ensure the URL includes the `/mcp/` path.
+The agent reads its configuration from a `.env` file in the recipe directory (real environment variables take precedence). Copy the template and fill it in:
 
 ```bash
-export MCP_TOOLBOX_SERVER_URL="http://localhost:5000/mcp/"
+cp .env.example .env
 ```
+
+Set `MCP_TOOLBOX_SERVER_URL` to your running MCP Toolbox server, including the `/mcp/` path (e.g. `http://localhost:5000/mcp/`), and set `GOOGLE_CLOUD_PROJECT` and `GOOGLE_CLOUD_LOCATION` for Gemini on Vertex AI.
 
 ### 4. Run the Java agent locally 🚀
 

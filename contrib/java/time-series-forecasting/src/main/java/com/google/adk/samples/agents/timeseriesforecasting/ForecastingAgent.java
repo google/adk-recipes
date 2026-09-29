@@ -5,15 +5,19 @@ import com.google.adk.agents.BaseAgent;
 import com.google.adk.agents.LlmAgent;
 import com.google.adk.agents.RunConfig;
 import com.google.adk.events.Event;
+import com.google.adk.models.BaseLlm;
+import com.google.adk.models.Gemini;
 import com.google.adk.runner.InMemoryRunner;
 import com.google.adk.sessions.Session;
 import com.google.adk.tools.BaseTool;
 import com.google.adk.tools.mcp.McpToolset;
 import com.google.adk.tools.mcp.SseServerParameters;
 import com.google.common.collect.ImmutableList;
+import com.google.genai.Client;
 import com.google.genai.types.Content;
 import com.google.genai.types.FunctionResponse;
 import com.google.genai.types.Part;
+import io.github.cdimascio.dotenv.Dotenv;
 import io.reactivex.rxjava3.core.Flowable;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
@@ -32,7 +36,40 @@ public class ForecastingAgent {
   private static final String MODEL_NAME = "gemini-2.5-flash";
   private static final String MCP_TOOLBOX_SERVER_URL_ENV_VAR = "MCP_TOOLBOX_SERVER_URL";
 
+  // Reads .env from the working directory. Real environment variables take
+  // precedence, and a missing .env is fine (e.g. on Cloud Run).
+  private static final Dotenv DOTENV = Dotenv.configure().ignoreIfMissing().load();
+
   public static final BaseAgent ROOT_AGENT = initAgent();
+
+  /**
+   * Returns a variable from the environment or .env, or null if it is unset, blank, or still an
+   * unfilled .env.example placeholder.
+   */
+  private static String env(String key) {
+    String value = DOTENV.get(key);
+    if (value == null || value.isBlank() || value.startsWith("<TODO")) {
+      return null;
+    }
+    return value.trim();
+  }
+
+  /**
+   * Returns a Vertex AI model when the Vertex settings are configured, else null. The GenAI SDK
+   * only reads the process environment, so settings that come from .env are passed to the client
+   * explicitly.
+   */
+  private static BaseLlm getVertexModel() {
+    String project = env("GOOGLE_CLOUD_PROJECT");
+    String location = env("GOOGLE_CLOUD_LOCATION");
+    if (!Boolean.parseBoolean(env("GOOGLE_GENAI_USE_VERTEXAI"))
+        || project == null
+        || location == null) {
+      return null;
+    }
+    Client client = Client.builder().vertexAI(true).project(project).location(location).build();
+    return Gemini.builder().modelName(MODEL_NAME).apiClient(client).build();
+  }
 
   /**
    * Loads tools from the MCP server.
@@ -42,7 +79,7 @@ public class ForecastingAgent {
   private static List<BaseTool> getTools() {
     List<BaseTool> tools = ImmutableList.of();
 
-    String mcpServerUrl = System.getenv(MCP_TOOLBOX_SERVER_URL_ENV_VAR);
+    String mcpServerUrl = env(MCP_TOOLBOX_SERVER_URL_ENV_VAR);
     ADK_LOGGER.info("MCP Server URL from env: " + mcpServerUrl);
 
     if (mcpServerUrl == null || mcpServerUrl.trim().isEmpty()) {
@@ -107,11 +144,17 @@ public class ForecastingAgent {
    */
   private static BaseAgent initAgent() {
     List<BaseTool> tools = getTools();
-    return LlmAgent.builder()
+    LlmAgent.Builder builder = LlmAgent.builder();
+    BaseLlm vertexModel = getVertexModel();
+    if (vertexModel != null) {
+      builder.model(vertexModel);
+    } else {
+      builder.model(MODEL_NAME);
+    }
+    return builder
         .name(AGENT_NAME)
         .description(
             "A general-purpose agent that performs time series forecasting using provided tools.")
-        .model(MODEL_NAME)
         .instruction(
             """
             You are a highly skilled expert at time-series forecasting, possessing strong data science skills. You will be provided with tools to solve specific time series problems.
