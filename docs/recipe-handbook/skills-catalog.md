@@ -1,4 +1,4 @@
-<!-- word count: 1112 (target 800, cap 1200) -->
+<!-- word count: 1122 (target 800, cap 1200) -->
 
 # Repo Skills Catalog
 
@@ -58,8 +58,8 @@ Apply regardless of language.
 ### `generate-manifest`
 
 Reads your recipe's files, infers what belongs in `manifest.yaml`,
-and writes a valid manifest matching the
-[schema](../../.github/schemas/manifest-schema.json).
+and writes a valid manifest. The [manifest](./manifest.md) page
+describes every field.
 
 - **Input:** recipe path.
 - **Writes:** `manifest.yaml`.

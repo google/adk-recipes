@@ -16,6 +16,8 @@ dependencies {
     implementation("com.google.adk:google-adk-kotlin-core:$adkVersion")
     implementation("com.google.adk:google-adk-kotlin-webserver:$adkVersion")
     ksp("com.google.adk:google-adk-kotlin-processor:$adkVersion")
+
+    testImplementation(kotlin("test"))
 }
 
 kotlin {
@@ -27,6 +29,15 @@ application {
         project.findProperty("mainClass") as? String
             ?: "com.google.adk.samples.agents.llmauditor.MainKt",
     )
+}
+
+tasks.test {
+    useJUnitPlatform()
+    // Gemini() refuses to construct without an API key, even though the
+    // runnability test never calls the model. A placeholder keeps the test
+    // independent of whatever key the developer or runner has exported.
+    environment("GOOGLE_API_KEY", "runnability-test-placeholder")
+    environment.remove("GEMINI_API_KEY")
 }
 
 tasks.named<JavaExec>("run") {
