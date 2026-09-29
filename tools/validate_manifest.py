@@ -441,9 +441,9 @@ def validate_manifest(manifest_path: Path, schema: dict) -> list[Diagnostic]:
                 )
 
         # A "TODO ..." description is long enough to satisfy the schema's
-        # minLength, so it would otherwise slip through. A prefix match
-        # (rather than an exact string) keeps this robust to wording changes
-        # and catches any hand-written "TODO ..." description too.
+        # minLength, so it must be caught by the explicit placeholder guard.
+        # A prefix match (rather than an exact string) keeps this robust to
+        # wording changes and catches any hand-written "TODO ..." description too.
         description = data.get("description")
         if isinstance(
             description, str
@@ -463,6 +463,31 @@ def validate_manifest(manifest_path: Path, schema: dict) -> list[Diagnostic]:
                         "Replace it with one or two sentences saying what "
                         "the recipe demonstrates and what it is good for."
                     ),
+                    doc=Doc.MANIFEST,
+                    file=file,
+                )
+            )
+
+        # Every recipe under contrib/ must be deployable (deployable: true).
+        parts = Path(file).parts
+        if (
+            len(parts) > 1
+            and parts[0] == "contrib"
+            and data.get("deployable") is not True
+        ):
+            diagnostics.append(
+                Diagnostic(
+                    check="manifest-deployable",
+                    what=(
+                        f"manifest.deployable is "
+                        f"{data.get('deployable', False)!r}; every recipe in "
+                        f"contrib/ must be deployable."
+                    ),
+                    why=(
+                        "Recipes under contrib/ are required to be deployable, "
+                        "with a Dockerfile and 'deployable: true' in manifest.yaml."
+                    ),
+                    how="Set 'deployable: true' in manifest.yaml.",
                     doc=Doc.MANIFEST,
                     file=file,
                 )

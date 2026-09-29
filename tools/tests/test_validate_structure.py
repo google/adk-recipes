@@ -163,6 +163,7 @@ def test_required_files_for_all_five_languages_from_policy():
     py_files = m.required_files_for(policy, "contrib", "python")
     assert ("README.md", "always") in py_files
     assert (".env.example", "always") in py_files
+    assert ("Dockerfile", "by_root.contrib") in py_files
     assert ("pyproject.toml", "by_language.python") in py_files
     assert ("uv.lock", "by_language.python") in py_files
     assert ("tests/test_runnability.py", "by_language.python") in py_files
@@ -172,6 +173,7 @@ def test_required_files_for_all_five_languages_from_policy():
     assert go_files == [
         ("README.md", "always"),
         (".env.example", "always"),
+        ("Dockerfile", "by_root.contrib"),
         ("go.mod", "by_language.go"),
     ]
 
@@ -180,6 +182,7 @@ def test_required_files_for_all_five_languages_from_policy():
     assert java_files == [
         ("README.md", "always"),
         (".env.example", "always"),
+        ("Dockerfile", "by_root.contrib"),
         (("pom.xml", "build.gradle", "build.gradle.kts"), "by_language.java"),
     ]
 
@@ -188,6 +191,7 @@ def test_required_files_for_all_five_languages_from_policy():
     assert kotlin_files == [
         ("README.md", "always"),
         (".env.example", "always"),
+        ("Dockerfile", "by_root.contrib"),
         ("build.gradle.kts", "by_language.kotlin"),
     ]
 
@@ -196,6 +200,7 @@ def test_required_files_for_all_five_languages_from_policy():
     assert ts_files == [
         ("README.md", "always"),
         (".env.example", "always"),
+        ("Dockerfile", "by_root.contrib"),
         ("package.json", "by_language.typescript"),
         (
             (
@@ -441,6 +446,7 @@ def test_check_required_files_java_alternatives(tmp_path):
     r1 = tmp_path / "contrib" / "java-pom"
     _write(r1 / "README.md", "# x\n")
     _write(r1 / ".env.example", "# env\n")
+    _write(r1 / "Dockerfile", "FROM scratch\n")
     _write(r1 / "pom.xml", "<project/>\n")
     assert m.check_required_files(r1, "contrib", "java", policy) == []
 
@@ -448,6 +454,7 @@ def test_check_required_files_java_alternatives(tmp_path):
     r2 = tmp_path / "contrib" / "java-gradle"
     _write(r2 / "README.md", "# x\n")
     _write(r2 / ".env.example", "# env\n")
+    _write(r2 / "Dockerfile", "FROM scratch\n")
     _write(r2 / "build.gradle", "// gradle\n")
     assert m.check_required_files(r2, "contrib", "java", policy) == []
 
@@ -455,6 +462,7 @@ def test_check_required_files_java_alternatives(tmp_path):
     r3 = tmp_path / "contrib" / "java-kts"
     _write(r3 / "README.md", "# x\n")
     _write(r3 / ".env.example", "# env\n")
+    _write(r3 / "Dockerfile", "FROM scratch\n")
     _write(r3 / "build.gradle.kts", "// kts\n")
     assert m.check_required_files(r3, "contrib", "java", policy) == []
 
@@ -462,6 +470,7 @@ def test_check_required_files_java_alternatives(tmp_path):
     r4 = tmp_path / "contrib" / "java-none"
     _write(r4 / "README.md", "# x\n")
     _write(r4 / ".env.example", "# env\n")
+    _write(r4 / "Dockerfile", "FROM scratch\n")
     errs = m.check_required_files(r4, "contrib", "java", policy)
     assert len(errs) == 1
     assert "pom.xml OR build.gradle OR build.gradle.kts" in errs[0].what
@@ -473,6 +482,7 @@ def test_check_required_files_kotlin(tmp_path):
     r1 = tmp_path / "contrib" / "kt-good"
     _write(r1 / "README.md", "# x\n")
     _write(r1 / ".env.example", "# env\n")
+    _write(r1 / "Dockerfile", "FROM scratch\n")
     _write(r1 / "build.gradle.kts", "// kts\n")
     assert m.check_required_files(r1, "contrib", "kotlin", policy) == []
 
@@ -480,12 +490,14 @@ def test_check_required_files_kotlin(tmp_path):
     r2 = tmp_path / "contrib" / "kt-bad"
     _write(r2 / "README.md", "# x\n")
     _write(r2 / ".env.example", "# env\n")
+    _write(r2 / "Dockerfile", "FROM scratch\n")
     errs = m.check_required_files(r2, "contrib", "kotlin", policy)
     assert any("build.gradle.kts" in e.what for e in errs)
 
     # Missing .env.example fails
     r3 = tmp_path / "contrib" / "kt-no-env"
     _write(r3 / "README.md", "# x\n")
+    _write(r3 / "Dockerfile", "FROM scratch\n")
     _write(r3 / "build.gradle.kts", "// kts\n")
     errs = m.check_required_files(r3, "contrib", "kotlin", policy)
     assert any(".env.example" in e.what for e in errs)
@@ -504,6 +516,7 @@ def test_check_required_files_typescript(tmp_path):
         r = tmp_path / "contrib" / f"ts-{lock}"
         _write(r / "README.md", "# x\n")
         _write(r / ".env.example", "# env\n")
+        _write(r / "Dockerfile", "FROM scratch\n")
         _write(r / "package.json", "{}\n")
         _write(r / lock, "# lock\n")
         assert m.check_required_files(r, "contrib", "typescript", policy) == []
@@ -512,6 +525,7 @@ def test_check_required_files_typescript(tmp_path):
     r_no_lock = tmp_path / "contrib" / "ts-no-lock"
     _write(r_no_lock / "README.md", "# x\n")
     _write(r_no_lock / ".env.example", "# env\n")
+    _write(r_no_lock / "Dockerfile", "FROM scratch\n")
     _write(r_no_lock / "package.json", "{}\n")
     errs = m.check_required_files(r_no_lock, "contrib", "typescript", policy)
     assert any("package-lock.json" in e.what for e in errs)
@@ -520,6 +534,7 @@ def test_check_required_files_typescript(tmp_path):
     r_no_pkg = tmp_path / "contrib" / "ts-no-pkg"
     _write(r_no_pkg / "README.md", "# x\n")
     _write(r_no_pkg / ".env.example", "# env\n")
+    _write(r_no_pkg / "Dockerfile", "FROM scratch\n")
     _write(r_no_pkg / "yarn.lock", "# lock\n")
     errs = m.check_required_files(r_no_pkg, "contrib", "typescript", policy)
     assert any("package.json" in e.what for e in errs)
@@ -530,6 +545,7 @@ def test_check_required_files_go(tmp_path):
     r1 = tmp_path / "contrib" / "go-good"
     _write(r1 / "README.md", "# x\n")
     _write(r1 / ".env.example", "# env\n")
+    _write(r1 / "Dockerfile", "FROM scratch\n")
     _write(r1 / "go.mod", "module example.com/foo\n")
     # Note: no go.sum, must still pass
     assert m.check_required_files(r1, "contrib", "go", policy) == []
@@ -538,6 +554,7 @@ def test_check_required_files_go(tmp_path):
     r2 = tmp_path / "contrib" / "go-bad"
     _write(r2 / "README.md", "# x\n")
     _write(r2 / ".env.example", "# env\n")
+    _write(r2 / "Dockerfile", "FROM scratch\n")
     errs = m.check_required_files(r2, "contrib", "go", policy)
     assert any("go.mod" in e.what for e in errs)
 
@@ -1143,6 +1160,23 @@ def test_committed_policy_declares_the_plugin_contract():
     # created by the scaffold — see the comment above required_dirs in
     # .github/policy.yml.
     assert dirs == ["scripts"]
+
+
+def test_committed_policy_declares_the_contrib_contract():
+    """Every recipe under contrib/ must require a Dockerfile."""
+    policy = m.load_policy()
+    files = _names(m.required_files_for(policy, "contrib", "python"))
+    assert "Dockerfile" in files
+
+
+def test_check_required_files_contrib_missing_dockerfile(tmp_path):
+    policy = m.load_policy()
+    recipe = _make_python_recipe(tmp_path, "contrib/foo")
+    errs = m.check_required_files(recipe, "contrib", "python", policy)
+    assert any("Dockerfile" in e.what for e in errs)
+    docker_err = next(e for e in errs if "Dockerfile" in e.what)
+    assert "by_root.contrib" in docker_err.why
+    assert "make-python-recipe-deployable" in docker_err.how
 
 
 def test_committed_policy_keeps_tool_read_files_case_strict():

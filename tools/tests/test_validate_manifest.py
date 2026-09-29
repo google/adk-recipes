@@ -593,3 +593,50 @@ def test_report_inactive_annotates_without_failing(
     # The notice has to say what to do about it, not just that it is true.
     assert "status: active" in out
     assert Doc.RECIPE_INACTIVE.value in out
+
+
+def test_validate_manifest_contrib_requires_deployable_true(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(m, "REPO_ROOT", tmp_path)
+    schema = m.load_schema()
+
+    # Contrib recipe with deployable omitted fails
+    recipe_no_dep = _make_recipe(
+        tmp_path, "contrib/python/no-deployable", VALID_MANIFEST
+    )
+    diags = m.validate_manifest(recipe_no_dep / "manifest.yaml", schema)
+    assert any(d.check == "manifest-deployable" for d in diags)
+    (diag,) = [d for d in diags if d.check == "manifest-deployable"]
+    assert "every recipe in contrib/ must be deployable" in diag.what
+    assert "Set 'deployable: true'" in diag.how
+
+    # Contrib recipe with deployable: false fails
+    manifest_false = VALID_MANIFEST + "deployable: false\n"
+    recipe_false = _make_recipe(
+        tmp_path, "contrib/python/false-deployable", manifest_false
+    )
+    diags = m.validate_manifest(recipe_false / "manifest.yaml", schema)
+    assert any(d.check == "manifest-deployable" for d in diags)
+
+    # Contrib recipe with deployable: true passes
+    manifest_true = VALID_MANIFEST + "deployable: true\n"
+    recipe_true = _make_recipe(
+        tmp_path, "contrib/python/true-deployable", manifest_true
+    )
+    assert m.validate_manifest(recipe_true / "manifest.yaml", schema) == []
+
+
+def test_validate_manifest_core_and_plugins_do_not_require_deployable(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(m, "REPO_ROOT", tmp_path)
+    schema = m.load_schema()
+
+    # Core recipe with deployable omitted passes
+    recipe_core = _make_recipe(tmp_path, "core/python/foo", VALID_MANIFEST)
+    assert m.validate_manifest(recipe_core / "manifest.yaml", schema) == []
+
+    # Plugin with deployable omitted passes
+    recipe_plugin = _make_recipe(tmp_path, "plugins/retail/bar", VALID_MANIFEST)
+    assert m.validate_manifest(recipe_plugin / "manifest.yaml", schema) == []
