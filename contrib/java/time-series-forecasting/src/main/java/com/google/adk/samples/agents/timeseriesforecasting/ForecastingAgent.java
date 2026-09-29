@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.google.adk.samples.agents.timeseriesforecasting;
 
 import com.google.adk.agents.BaseAgent;
@@ -30,14 +46,25 @@ public class ForecastingAgent {
   private static final Logger ADK_LOGGER = Logger.getLogger(ForecastingAgent.class.getName());
 
   private static final String AGENT_NAME = "time-series-forecasting";
-  private static final String MODEL_NAME = "gemini-3.5-flash";
   private static final String MCP_TOOLBOX_SERVER_URL_ENV_VAR = "MCP_TOOLBOX_SERVER_URL";
 
   // Reads .env from the working directory. Real environment variables take
   // precedence, and a missing .env is fine (e.g. on Cloud Run).
   private static final Dotenv DOTENV = Dotenv.configure().ignoreIfMissing().load();
 
+  private static final String MODEL_NAME = requireEnv("MODEL_NAME");
+
   public static final BaseAgent ROOT_AGENT = initAgent();
+
+  /** Returns a required variable from the environment or .env, failing fast when it is unset. */
+  private static String requireEnv(String key) {
+    String value = env(key);
+    if (value == null) {
+      throw new IllegalStateException(
+          key + " is not set. Copy .env.example to .env and fill it in, or export " + key + ".");
+    }
+    return value;
+  }
 
   /**
    * Returns a variable from the environment or .env, or null if it is unset, blank, or still an

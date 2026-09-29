@@ -1,6 +1,6 @@
 # Time Series Forecasting Agent with Google ADK and MCP Toolbox 🔮
 
-This sample application demonstrates a Time Series Forecasting Agent built using the Google Agent Development Kit (ADK) for Java. The agent leverages an MCP (Model Context Protocol) Toolbox server to access and execute forecasting tools defined against a Google BigQuery backend.
+This recipe demonstrates a Time Series Forecasting Agent built using the Google Agent Development Kit (ADK) for Java. The agent leverages an MCP (Model Context Protocol) Toolbox server to access and execute forecasting tools defined against a Google BigQuery backend.
 
 ## Features ✨
 
@@ -67,7 +67,7 @@ The forecasting tools in this file query public datasets available in BigQuery (
   * If you want to use the provided `tools.yaml` as-is, ensure your environment is authenticated and has permissions to run queries in your Google Cloud Project (queries against public datasets are typically billed to the querying project).
   * Alternatively, **it is recommended** to update the `project` field in your `tools.yaml` to **your own Google Cloud Project ID**. The queries will still target the public datasets but will run under your project's context and billing.
 
-No specific table creation is needed in your project for this sample if you are using the public datasets referenced in `tools.yaml`.
+No specific table creation is needed in your project for this recipe if you are using the public datasets referenced in `tools.yaml`.
 
 ### 2. Set up and Run MCP Toolbox Server Locally 🛠️
 
@@ -101,9 +101,9 @@ Set `MCP_TOOLBOX_SERVER_URL` to your running MCP Toolbox server, including the `
 
 Now we're ready to run the ADK Java agent.
 
-By default, this agent is configured to talk to the local MCP Toolbox server at `http://127.0.0.1:5000/mcp`, so **keep the Toolbox server running**. Open another Terminal tab for this next step.
+The agent talks to the MCP Toolbox server set in `MCP_TOOLBOX_SERVER_URL`, so **keep the Toolbox server running**. Open another Terminal tab for this next step.
 
-First, ensure that you have the appropriate API key loaded in your environment variables. See the [ADK documentation](https://google.github.io/adk-docs/get-started/quickstart/#set-up-the-model) for details.
+Make sure your `.env` (step 3) is filled in and that you are authenticated for Vertex AI (`gcloud auth application-default login`).
 
 Then, from the agent code directory, run the ADK web UI command. This will download Maven dependencies including ADK Java, compile the agent code, and start a development web server.
 
@@ -199,7 +199,7 @@ This section describes how to deploy the MCP Toolbox server and the Java agent t
 1. **Deploy to Cloud Run**: This command deploys the agent to Cloud Run using the provided Dockerfile.
 
     ```bash
-    gcloud run deploy time-series-forecasting --source . --region $GOOGLE_CLOUD_LOCATION --project $GOOGLE_CLOUD_PROJECT --allow-unauthenticated --set-env-vars="GOOGLE_CLOUD_PROJECT=$GOOGLE_CLOUD_LOCATION,GOOGLE_GENAI_USE_VERTEXAI=$GOOGLE_GENAI_USE_VERTEXAI,MCP_TOOLBOX_SERVER_URL=$MCP_TOOLBOX_SERVER_URL"
+    gcloud run deploy time-series-forecasting --source . --region $GOOGLE_CLOUD_LOCATION --project $GOOGLE_CLOUD_PROJECT --allow-unauthenticated --set-env-vars="GOOGLE_CLOUD_PROJECT=$GOOGLE_CLOUD_PROJECT,GOOGLE_CLOUD_LOCATION=$GOOGLE_CLOUD_LOCATION,GOOGLE_GENAI_USE_VERTEXAI=True,MODEL_NAME=gemini-3.5-flash,MCP_TOOLBOX_SERVER_URL=$MCP_TOOLBOX_SERVER_URL"
     ```
 
     * `--source .`: Specifies the current directory as the source code location.
