@@ -789,23 +789,26 @@ deployability:
       - core/python/rag-vector-search
 
 # --------------------------------------------------------------------------
-# Per-check path exemptions — read by tools/check_exemptions.py.
+# Per-check recipe exemptions consumed by tools/check_exemptions.py.
+# Allows workflows to skip exempt recipes before running checks, keeping
+# check scripts decoupled from policy logic.
 #
-# Keys are check ids (the `check` id in the checker's diagnostics) listed in
-# check_exemptions.KNOWN_CHECKS, the checks that honor this list. Each maps to
-# a list of {path, reason} entries.
+# Mapping structure:
+#   <check-id>:
+#     Check identifier matching either the workflow name without `.yml`
+#     (e.g., recipe-docker-build) or `<workflow>/<check>` when one workflow
+#     runs several checks. Some workflow must reference each key via
+#     `filter --check <id>`; tools/tests/test_check_exemptions.py enforces it.
 #
-# `path`: repo-relative under core/, contrib/, or plugins/. Matches full path
-# components to cover child paths.
+#   path:
+#     Repo-relative path under core/, contrib/, or plugins/. Matches full path
+#     components hierarchically.
 #
-# `reason`: required explanation displayed when the check skips the path.
-#
-# Docker check (.github/scripts/check_recipe_docker.py):
-#   docker-build   skips recipe build and container execution.
-#   docker-serves  builds the Docker image without running the container.
+#   reason:
+#     Required explanation, logged to stderr with each skip.
 # --------------------------------------------------------------------------
 check_exemptions:
-  docker-serves:
+  recipe-docker-build:
     - path: core/python/ambient-quality-agent
       reason: >-
         Agent Runtime image built by `agents-cli deploy`; starts only as a

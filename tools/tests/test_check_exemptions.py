@@ -12,9 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Unit tests for policy exemption loading, path matching, and CLI filtering."""
+"""Unit and integration tests for tools/check_exemptions.py."""
 
 import io
+import re
 import shutil
 import subprocess
 import sys
@@ -25,6 +26,10 @@ import pytest
 
 AQUA = "core/python/ambient-quality-agent"
 TOOLS_DIR = Path(m.__file__).parent
+WORKFLOWS_DIR = m.REPO_ROOT / ".github" / "workflows"
+FILTER_CALL = re.compile(
+    r"check_exemptions\.py\s+filter\s+--check\s+([^\s\"')]+)"
+)
 
 
 def _write_policy(tmp_path: Path, body: str) -> Path:
@@ -34,13 +39,21 @@ def _write_policy(tmp_path: Path, body: str) -> Path:
 
 
 def _build_exemptions(*paths: str) -> dict[str, list[m.Exemption]]:
+    return {"wf-a": [m.Exemption("wf-a", p, "why") for p in paths]}
+
+
+def _find_filtered_check_ids(texts: list[str]) -> set[str]:
     return {
-        "docker-serves": [m.Exemption("docker-serves", p, "why") for p in paths]
+        check_id
+        for text in texts
+        for line in text.splitlines()
+        if not line.lstrip().startswith("#")
+        for check_id in FILTER_CALL.findall(line)
     }
 
 
 # ---------------------------------------------------------------------------
-# load_exemptions
+# Policy loading and validation
 # ---------------------------------------------------------------------------
 
 
@@ -48,23 +61,21 @@ def test_valid_policy_loads_normalized_entries(tmp_path: Path):
     policy = _write_policy(
         tmp_path,
         "check_exemptions:\n"
-        "  docker-serves:\n"
+        "  wf-a:\n"
         "    - path: ' /core/python/a/ '\n"
         "      reason: >-\n"
         "        Needs   live\n"
         "        credentials.\n"
-        "  docker-build:\n"
+        "  wf-b/lint:\n"
         "    - path: contrib/python/b\n"
         "      reason: Broken upstream.\n",
     )
     assert m.load_exemptions(policy) == {
-        "docker-serves": [
-            m.Exemption(
-                "docker-serves", "core/python/a", "Needs live credentials."
-            )
+        "wf-a": [
+            m.Exemption("wf-a", "core/python/a", "Needs live credentials.")
         ],
-        "docker-build": [
-            m.Exemption("docker-build", "contrib/python/b", "Broken upstream.")
+        "wf-b/lint": [
+            m.Exemption("wf-b/lint", "contrib/python/b", "Broken upstream.")
         ],
     }
 
@@ -79,71 +90,62 @@ def test_missing_or_empty_section_is_empty(tmp_path: Path, body: str):
 @pytest.mark.parametrize(
     "section,expected",
     [
-        ("check_exemptions: [docker-build]\n", "must be a mapping"),
+        ("check_exemptions: [wf-a]\n", "must be a mapping"),
         (
-            "check_exemptions:\n  lint:\n    - {path: core/a, reason: x}\n",
-            "unknown check id 'lint'; known ids: docker-build, docker-serves",
+            "check_exemptions:\n  wf-a: core/a\n",
+            "wf-a: must be a list",
         ),
         (
-            "check_exemptions:\n  docker-build: core/a\n",
-            "docker-build: must be a list",
+            "check_exemptions:\n  wf-a:\n    - core/a\n",
+            "wf-a[0]: must be a mapping",
         ),
         (
-            "check_exemptions:\n  docker-build:\n    - core/a\n",
-            "docker-build[0]: must be a mapping",
-        ),
-        (
-            "check_exemptions:\n  docker-build:\n"
+            "check_exemptions:\n  wf-a:\n"
             "    - {path: core/a, reason: x, until: 2027}\n",
             "unknown keys until",
         ),
         (
-            "check_exemptions:\n  docker-build:\n    - {reason: x}\n",
+            "check_exemptions:\n  wf-a:\n    - {reason: x}\n",
             "`path` is missing",
         ),
         (
-            "check_exemptions:\n  docker-build:\n"
-            "    - {path: ' / ', reason: x}\n",
+            "check_exemptions:\n  wf-a:\n    - {path: ' / ', reason: x}\n",
             "`path` is empty",
         ),
         (
-            "check_exemptions:\n  docker-build:\n    - {path: 3, reason: x}\n",
+            "check_exemptions:\n  wf-a:\n    - {path: 3, reason: x}\n",
             "`path` must be a string",
         ),
         (
-            "check_exemptions:\n  docker-build:\n"
-            "    - {path: tools/x, reason: x}\n",
+            "check_exemptions:\n  wf-a:\n    - {path: tools/x, reason: x}\n",
             "must be under one of core, contrib, plugins",
         ),
         (
-            "check_exemptions:\n  docker-build:\n"
+            "check_exemptions:\n  wf-a:\n"
             "    - {path: core/../tools, reason: x}\n",
             "must not contain empty, '.' or '..' components",
         ),
         (
-            "check_exemptions:\n  docker-build:\n"
-            "    - {path: core/./a, reason: x}\n",
+            "check_exemptions:\n  wf-a:\n    - {path: core/./a, reason: x}\n",
             "must not contain empty, '.' or '..' components",
         ),
         (
-            "check_exemptions:\n  docker-build:\n    - {path: core/a}\n",
+            "check_exemptions:\n  wf-a:\n    - {path: core/a}\n",
             "`reason` is missing",
         ),
         (
-            "check_exemptions:\n  docker-build:\n"
-            "    - {path: core/a, reason: '  '}\n",
+            "check_exemptions:\n  wf-a:\n    - {path: core/a, reason: '  '}\n",
             "`reason` is empty",
         ),
         (
-            "check_exemptions:\n  docker-build:\n"
-            "    - {path: core/a, reason: [x]}\n",
+            "check_exemptions:\n  wf-a:\n    - {path: core/a, reason: [x]}\n",
             "`reason` must be a string",
         ),
         (
-            "check_exemptions:\n  docker-build:\n"
+            "check_exemptions:\n  wf-a:\n"
             "    - {path: core/a, reason: x}\n"
             "    - {path: core/a/, reason: y}\n",
-            "docker-build[1]: duplicate path 'core/a'",
+            "wf-a[1]: duplicate path 'core/a'",
         ),
     ],
 )
@@ -155,30 +157,61 @@ def test_invalid_policy_is_rejected(tmp_path: Path, section: str, expected):
 
 
 def test_check_without_entries_is_empty(tmp_path: Path):
-    policy = _write_policy(tmp_path, "check_exemptions:\n  docker-build:\n")
-    assert m.load_exemptions(policy) == {"docker-build": []}
+    policy = _write_policy(tmp_path, "check_exemptions:\n  wf-a:\n")
+    assert m.load_exemptions(policy) == {"wf-a": []}
+
+
+@pytest.mark.parametrize(
+    "check_id", ["recipe-docker-build", "wf/check-2", "0wf", "a"]
+)
+def test_well_formed_check_ids_are_accepted(tmp_path: Path, check_id: str):
+    policy = _write_policy(tmp_path, f"check_exemptions:\n  {check_id}: []\n")
+    assert m.load_exemptions(policy) == {check_id: []}
+
+
+@pytest.mark.parametrize(
+    "check_id",
+    [
+        "Upper",
+        "-lead",
+        "a/-b",
+        "a/b/c",
+        "a/",
+        "/a",
+        "a_b",
+        "a b",
+        "a.yml",
+        "''",
+        "7",
+        "null",
+    ],
+)
+def test_malformed_check_ids_are_rejected(tmp_path: Path, check_id: str):
+    policy = _write_policy(tmp_path, f"check_exemptions:\n  {check_id}: []\n")
+    with pytest.raises(m.ExemptionPolicyError, match="invalid check id"):
+        m.load_exemptions(policy)
 
 
 def test_every_problem_is_reported_in_one_error(tmp_path: Path):
     policy = _write_policy(
         tmp_path,
         "check_exemptions:\n"
-        "  lint: []\n"
-        "  docker-build:\n"
+        "  Bad_Id: []\n"
+        "  wf-a:\n"
         "    - {path: tools/x, reason: x}\n"
-        "  docker-serves:\n"
+        "  wf-b:\n"
         "    - {path: core/a}\n",
     )
     with pytest.raises(m.ExemptionPolicyError) as excinfo:
         m.load_exemptions(policy)
     message = str(excinfo.value)
-    assert "unknown check id 'lint'" in message
-    assert "docker-build[0]: `path` 'tools/x' must be under" in message
-    assert "docker-serves[0]: `reason` is missing" in message
+    assert "invalid check id 'Bad_Id'" in message
+    assert "wf-a[0]: `path` 'tools/x' must be under" in message
+    assert "wf-b[0]: `reason` is missing" in message
 
 
 # ---------------------------------------------------------------------------
-# find_exemption
+# Path matching and exemption resolution
 # ---------------------------------------------------------------------------
 
 
@@ -195,32 +228,26 @@ def test_every_problem_is_reported_in_one_error(tmp_path: Path):
 )
 def test_find_exemption_matches_whole_components(path: str, matched: bool):
     exemptions = _build_exemptions("core/python/a")
-    found = m.find_exemption(exemptions, "docker-serves", path)
+    found = m.find_exemption(exemptions, "wf-a", path)
     assert (found is not None) is matched
 
 
 def test_find_exemption_is_scoped_to_its_check():
     assert (
-        m.find_exemption(_build_exemptions("core/a"), "docker-build", "core/a")
-        is None
+        m.find_exemption(_build_exemptions("core/a"), "wf-b", "core/a") is None
     )
 
 
-def test_find_exemption_rejects_an_unknown_check():
-    with pytest.raises(ValueError, match="KNOWN_CHECKS"):
-        m.find_exemption(_build_exemptions("core/a"), "lint", "core/a")
-
-
 def test_render_skip_line():
-    exemption = m.Exemption("docker-serves", "core/a", "Needs ADC.")
+    exemption = m.Exemption("wf-b", "core/a", "Needs ADC.")
     assert m.render_skip_line(exemption, "core/a/b") == (
-        "[SKIP] core/a/b: exempt from docker-serves by policy.yml "
+        "[SKIP] core/a/b: exempt from wf-b by policy.yml "
         "check_exemptions: Needs ADC."
     )
 
 
 # ---------------------------------------------------------------------------
-# filter CLI
+# Filter CLI command
 # ---------------------------------------------------------------------------
 
 
@@ -230,7 +257,7 @@ def test_filter_prints_non_exempt_paths_and_skips_to_stderr(
     policy = _write_policy(
         tmp_path,
         "check_exemptions:\n"
-        "  docker-serves:\n"
+        "  wf-b:\n"
         "    - {path: core/python/a, reason: Needs ADC.}\n",
     )
     monkeypatch.setattr(m, "POLICY_PATH", policy)
@@ -239,50 +266,95 @@ def test_filter_prints_non_exempt_paths_and_skips_to_stderr(
         io.StringIO("contrib/python/z\n\ncore/python/a\ncore/python/b\n"),
     )
 
-    rc = m.main(["filter", "--check", "docker-serves"])
+    rc = m.main(["filter", "--check", "wf-b"])
 
     captured = capsys.readouterr()
     assert rc == 0
     assert captured.out == "contrib/python/z\ncore/python/b\n"
     assert captured.err == (
-        "[SKIP] core/python/a: exempt from docker-serves by policy.yml "
+        "[SKIP] core/python/a: exempt from wf-b by policy.yml "
         "check_exemptions: Needs ADC.\n"
     )
 
 
-def test_invalid_policy_is_a_ci_fault_kept_off_stdout(tmp_path: Path):
+def _run_filter_script(
+    tmp_path: Path, policy_body: str, stdin: str
+) -> subprocess.CompletedProcess:
     tools = tmp_path / "tools"
     tools.mkdir()
     for name in ("check_exemptions.py", "ci_message.py"):
         shutil.copy(TOOLS_DIR / name, tools / name)
     (tmp_path / ".github").mkdir()
-    _write_policy(tmp_path / ".github", "check_exemptions:\n  lint: []\n")
-
-    proc = subprocess.run(
+    _write_policy(tmp_path / ".github", policy_body)
+    return subprocess.run(
         [
             sys.executable,
             str(tools / "check_exemptions.py"),
             "filter",
             "--check",
-            "docker-build",
+            "wf-a",
         ],
-        input="core/python/a\n",
+        input=stdin,
         capture_output=True,
         text=True,
         check=False,
     )
 
+
+def test_script_prints_only_non_exempt_paths_to_stdout(tmp_path: Path):
+    proc = _run_filter_script(
+        tmp_path,
+        "check_exemptions:\n  wf-a:\n    - {path: core/python/a, reason: x}\n",
+        "core/python/a\ncontrib/python/z\n",
+    )
+
+    assert proc.returncode == 0
+    assert proc.stdout == "contrib/python/z\n"
+    assert proc.stderr.startswith("[SKIP] core/python/a: exempt from wf-a")
+
+
+def test_invalid_policy_is_a_ci_fault_kept_off_stdout(tmp_path: Path):
+    proc = _run_filter_script(
+        tmp_path, "check_exemptions:\n  Bad: []\n", "core/python/a\n"
+    )
+
     assert proc.returncode == 2
     assert proc.stdout == ""
-    assert "unknown check id 'lint'" in proc.stderr
+    assert "invalid check id 'Bad'" in proc.stderr
 
 
 # ---------------------------------------------------------------------------
-# The real policy file
+# Repository policy integration
 # ---------------------------------------------------------------------------
 
 
-def test_real_policy_exempts_the_ambient_quality_agent_from_serving():
+def test_real_policy_exempts_the_ambient_quality_agent_from_docker_build():
     exemptions = m.load_exemptions()
-    assert m.find_exemption(exemptions, "docker-serves", AQUA) is not None
-    assert m.find_exemption(exemptions, "docker-build", AQUA) is None
+    assert m.find_exemption(exemptions, "recipe-docker-build", AQUA)
+
+
+def test_find_filtered_check_ids_reads_workflow_calls():
+    text = (
+        'X=$(echo "$R" | uv run python tools/check_exemptions.py filter '
+        "--check recipe-docker-build)\n"
+        "run: python tools/check_exemptions.py filter --check wf/lint\n"
+        "run: python tools/check_exemptions.py --help\n"
+        "  # python tools/check_exemptions.py filter --check commented\n"
+    )
+    assert _find_filtered_check_ids([text]) == {
+        "recipe-docker-build",
+        "wf/lint",
+    }
+
+
+def test_every_real_policy_check_id_is_filtered_by_a_workflow():
+    texts = [
+        p.read_text(encoding="utf-8")
+        for p in sorted(WORKFLOWS_DIR.glob("*.yml"))
+    ]
+    used = _find_filtered_check_ids(texts)
+    unused = sorted(set(m.load_exemptions()) - used)
+    assert not unused, (
+        f"policy.yml check_exemptions keys with no `check_exemptions.py "
+        f"filter --check <id>` call in .github/workflows: {unused}"
+    )

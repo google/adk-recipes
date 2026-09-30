@@ -157,6 +157,10 @@ jobs:
         run: |
           set -euo pipefail
 
+          # Filter exempt recipes before validation to keep check scripts
+          # unchanged. Exemption notices are logged to stderr.
+          DOCKER_RECIPES=$(echo "$DOCKER_RECIPES" | uv run python tools/check_exemptions.py filter --check recipe-docker-build)
+
           if [ -z "$DOCKER_RECIPES" ]; then
             echo "[INFO] No affected recipes with root Dockerfiles to validate."
             exit 0

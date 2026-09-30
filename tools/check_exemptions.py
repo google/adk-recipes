@@ -13,31 +13,29 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Loads and applies per-check path exemptions defined in .github/policy.yml.
+"""Applies per-check recipe exemptions defined in .github/policy.yml.
 
-Python checkers evaluate exemptions in three steps:
-1. Call `load_exemptions()` once to parse and validate policy exemptions.
-2. Call `find_exemption()` for each path to check for an applicable rule.
-3. Print `render_skip_line()` to report skipped paths.
+Enables CI workflows to exclude recipes from specific checks without modifying
+the check scripts.
 
-Workflow steps and checkers without PyYAML access run the CLI `filter`
-command. It reads newline-delimited paths from stdin and prints non-exempt
-paths to stdout in input order. Skip notices are routed to stderr so stdout
-remains clean:
+The `filter` command processes recipe paths from stdin:
+1. Emits non-exempt recipe paths to stdout.
+2. Emits `[SKIP]` notices with reasons to stderr.
 
-    printf 'core/python/a\\ncore/python/b\\n' | \\
-        uv run --with pyyaml python3 tools/check_exemptions.py \\
-        filter --check docker-serves
+Example:
+    echo "$DOCKER_RECIPES" | uv run python tools/check_exemptions.py \\
+        filter --check recipe-docker-build
 
 Exit codes:
     0  Paths filtered successfully.
-    2  policy.yml `check_exemptions` configuration is invalid.
+    2  CI configuration fault (e.g., invalid policy) or usage error.
 """
 
 from __future__ import annotations
 
 import argparse
 import contextlib
+import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -49,25 +47,20 @@ from ci_message import guard
 REPO_ROOT = Path(__file__).parent.parent
 POLICY_PATH = REPO_ROOT / ".github" / "policy.yml"
 SECTION = "check_exemptions"
-
-# Only register check IDs backed by an active checker to prevent silently
-# ignored policy entries.
-KNOWN_CHECKS: frozenset[str] = frozenset({"docker-build", "docker-serves"})
-
 RECIPE_ROOTS = ("core", "contrib", "plugins")
 
+_CHECK_ID = re.compile(r"^[a-z0-9][a-z0-9-]*(/[a-z0-9][a-z0-9-]*)?$")
 _ENTRY_KEYS = frozenset({"path", "reason"})
 
 
 @dataclass(frozen=True)
 class Exemption:
-    """Represents an exemption rule for a path from a specific check.
+    """Exemption rule for a recipe path under a given check.
 
     Attributes:
-        check: Identifier of the check the path is exempt from.
-        path: Normalized repo-relative path prefix covering all child paths.
-        reason: Rationale for the exemption, displayed when the check skips
-            the path.
+        check: Check identifier (e.g., `recipe-docker-build`).
+        path: Normalized repo-relative path prefix covering all subpaths.
+        reason: Single-line rationale logged when the check is skipped.
     """
 
     check: str
@@ -76,34 +69,23 @@ class Exemption:
 
 
 class ExemptionPolicyError(ValueError):
-    """Raised when policy.yml `check_exemptions` contains validation errors."""
+    """Raised when .github/policy.yml `check_exemptions` is invalid."""
 
 
 def _normalize_path(path: str) -> str:
-    """Normalizes a repo-relative path for prefix comparison.
-
-    Args:
-        path: Path string from policy configuration or check invocation.
-
-    Returns:
-        Path stripped of leading and trailing whitespace and slashes.
-    """
     return path.strip().strip("/")
 
 
 def _validate_path(raw: object, where: str, problems: list[str]) -> str | None:
-    """Validates that an exemption path targets an allowed recipe location.
-
-    Enforces non-empty string paths rooted under `core/`, `contrib/`, or
-    `plugins/` without directory traversal segments.
+    """Validates and normalizes a recipe path from the policy configuration.
 
     Args:
-        raw: Raw path value parsed from policy.yml.
-        where: Policy location label used in error messages.
-        problems: Accumulator for validation error messages.
+        raw: Raw `path` entry from policy.yml.
+        where: Entry location identifier for error reporting.
+        problems: Problem accumulator updated if validation fails.
 
     Returns:
-        Normalized path string, or None if validation failed.
+        Normalized repo-relative path, or None if validation fails.
     """
     if raw is None:
         problems.append(f"{where}: `path` is missing")
@@ -134,18 +116,15 @@ def _validate_path(raw: object, where: str, problems: list[str]) -> str | None:
 def _validate_reason(
     raw: object, where: str, problems: list[str]
 ) -> str | None:
-    """Validates and normalizes an exemption reason string.
-
-    Ensures a non-empty string is provided and collapses internal whitespace
-    so skip logs format cleanly on a single line.
+    """Validates and normalizes an exemption reason from the policy.
 
     Args:
-        raw: Raw reason value parsed from policy.yml.
-        where: Policy location label used in error messages.
-        problems: Accumulator for validation error messages.
+        raw: Raw `reason` entry from policy.yml.
+        where: Entry location identifier for error reporting.
+        problems: Problem accumulator updated if validation fails.
 
     Returns:
-        Single-line reason string with collapsed whitespace, or None if invalid.
+        Single-line normalized reason string, or None if validation fails.
     """
     if raw is None:
         problems.append(f"{where}: `reason` is missing")
@@ -163,18 +142,15 @@ def _validate_reason(
 def _parse_check_entries(
     check: str, entries: object, problems: list[str]
 ) -> list[Exemption]:
-    """Parses and validates exemption entries configured for a check ID.
-
-    Validates mapping keys, checks path and reason syntax, and prevents
-    duplicate paths within the same check.
+    """Parses and validates exemption entries for a specific check ID.
 
     Args:
-        check: Check identifier corresponding to the entries.
-        entries: Raw entry list parsed from policy.yml.
-        problems: Accumulator for validation error messages.
+        check: Check identifier for the entries.
+        entries: Raw list of exemption mappings from policy.yml.
+        problems: Problem accumulator updated with any validation issues.
 
     Returns:
-        Valid Exemption instances for the check, preserving policy order.
+        Parsed and validated Exemption instances for the check.
     """
     if entries is None:
         return []
@@ -211,22 +187,18 @@ def _parse_check_entries(
 def load_exemptions(
     policy_path: Path = POLICY_PATH,
 ) -> dict[str, list[Exemption]]:
-    """Loads and validates the `check_exemptions` configuration from policy.yml.
-
-    Verifies check IDs against KNOWN_CHECKS and validates each exemption entry.
-    All validation errors across the section are accumulated so authors can fix
-    all issues in a single pass.
+    """Loads and validates recipe exemptions from the policy configuration.
 
     Args:
-        policy_path: Path to the repository policy configuration file.
+        policy_path: Path to the policy YAML file.
 
     Returns:
-        Dictionary mapping each check ID to its list of Exemption instances.
-        Returns an empty dict if the section is absent or empty.
+        Mapping of check IDs to their corresponding Exemption lists. Returns
+        an empty mapping if the section is absent.
 
     Raises:
-        ExemptionPolicyError: If the configuration contains syntax or schema
-            errors, listing every problem discovered.
+        ExemptionPolicyError: If the section structure, check IDs, or entries
+            are invalid.
     """
     with open(policy_path, encoding="utf-8") as f:
         policy = yaml.safe_load(f) or {}
@@ -241,10 +213,11 @@ def load_exemptions(
     problems: list[str] = []
     exemptions: dict[str, list[Exemption]] = {}
     for check, entries in section.items():
-        if check not in KNOWN_CHECKS:
+        if not isinstance(check, str) or not _CHECK_ID.fullmatch(check):
             problems.append(
-                f"{SECTION}: unknown check id {check!r}; known ids: "
-                f"{', '.join(sorted(KNOWN_CHECKS))}"
+                f"{SECTION}: invalid check id {check!r}; expected "
+                f"<workflow> or <workflow>/<check> in lowercase letters, "
+                f"digits and hyphens"
             )
             continue
         exemptions[check] = _parse_check_entries(check, entries, problems)
@@ -260,46 +233,38 @@ def load_exemptions(
 def find_exemption(
     exemptions: dict[str, list[Exemption]], check: str, path: str
 ) -> Exemption | None:
-    """Finds the exemption covering a path for a given check ID.
+    """Finds an exemption rule matching a path under the specified check.
 
-    Matches by whole path components so a recipe directory exemption covers
-    all nested files and subdirectories without matching sibling prefixes (e.g.
-    `core/python/a` matches `core/python/a/x`, but not `core/python/a-b`).
+    Matches whole path components so an exempt recipe directory covers all
+    nested files and subdirectories (e.g., `core/python/a` covers
+    `core/python/a/x`, but not `core/python/a-b`).
 
     Args:
-        exemptions: Mapping of check IDs to exemptions from load_exemptions().
-        check: Identifier of the check querying exemptions.
+        exemptions: Exemption mappings indexed by check ID from
+            `load_exemptions()`.
+        check: Target check identifier.
         path: Repo-relative path to evaluate.
 
     Returns:
-        Matching Exemption instance, or None if the path is not exempt.
-
-    Raises:
-        ValueError: If check is not registered in KNOWN_CHECKS, indicating an
-            unregistered caller rather than a policy configuration error.
+        Matching Exemption if found; otherwise None.
     """
-    if check not in KNOWN_CHECKS:
-        raise ValueError(
-            f"check id {check!r} is not in check_exemptions.KNOWN_CHECKS"
-        )
     parts = _normalize_path(path).split("/")
     for exemption in exemptions.get(check, []):
-        prefix_parts = exemption.path.split("/")
-        if parts[: len(prefix_parts)] == prefix_parts:
+        prefix = exemption.path.split("/")
+        if parts[: len(prefix)] == prefix:
             return exemption
     return None
 
 
 def render_skip_line(exemption: Exemption, path: str) -> str:
-    """Formats a standardized skip log line for an exempt path.
+    """Formats the skip log line for an exempt recipe path.
 
     Args:
-        exemption: Exemption rule matched for the path.
-        path: Path being skipped.
+        exemption: Exemption rule that matched the path.
+        path: Repo-relative path being skipped.
 
     Returns:
-        Formatted `[SKIP]` log line containing path, check ID, and exemption
-        reason.
+        Formatted `[SKIP]` log message for stderr.
     """
     return (
         f"[SKIP] {path}: exempt from {exemption.check} by policy.yml "
@@ -310,18 +275,19 @@ def render_skip_line(exemption: Exemption, path: str) -> str:
 def print_non_exempt_paths(
     check: str, policy_path: Path, paths_out: TextIO
 ) -> int:
-    """Filters stdin paths against check exemptions and writes retained paths.
+    """Filters stdin paths against exemptions for a check.
 
-    Routes skip notifications to stderr so paths_out receives only non-exempt
-    paths suitable for command pipelines.
+    Processes incoming paths line-by-line:
+    1. Writes non-exempt paths to `paths_out`.
+    2. Writes formatted `[SKIP]` messages to stderr.
 
     Args:
-        check: Check identifier used to filter paths.
-        policy_path: Path to the policy.yml configuration file.
-        paths_out: Stream receiving non-exempt paths.
+        check: Check identifier to filter against.
+        policy_path: Path to the policy YAML file.
+        paths_out: Output stream receiving non-exempt paths.
 
     Returns:
-        0 on success.
+        Exit code 0 on completion.
     """
     exemptions = load_exemptions(policy_path)
     for line in sys.stdin.read().splitlines():
@@ -337,29 +303,26 @@ def print_non_exempt_paths(
 
 
 def main(argv: list[str] | None = None, paths_out: TextIO | None = None) -> int:
-    """Parses command-line arguments and executes the requested subcommand.
+    """Parses CLI arguments and executes the requested command.
 
     Args:
         argv: Command-line arguments excluding program name; defaults to
-            sys.argv[1:].
-        paths_out: Output stream for non-exempt paths; defaults to sys.stdout.
+            `sys.argv[1:]`.
+        paths_out: Output stream receiving non-exempt paths; defaults to
+            `sys.stdout`.
 
     Returns:
-        Process exit code.
+        Process exit code (0 on success, non-zero on error).
     """
     parser = argparse.ArgumentParser(
         description="Apply policy.yml check_exemptions to a list of paths."
     )
     commands = parser.add_subparsers(dest="command", required=True)
     filter_parser = commands.add_parser(
-        "filter",
-        help="Print the stdin paths that are not exempt from a check.",
+        "filter", help="Print the stdin paths not exempt from a check."
     )
     filter_parser.add_argument(
-        "--check",
-        required=True,
-        choices=sorted(KNOWN_CHECKS),
-        help="Check id to filter for.",
+        "--check", required=True, help="Check id to filter for."
     )
     args = parser.parse_args(argv)
     return print_non_exempt_paths(
@@ -368,8 +331,8 @@ def main(argv: list[str] | None = None, paths_out: TextIO | None = None) -> int:
 
 
 if __name__ == "__main__":
-    # Redirect stdout so guard() emits CI faults to stderr, keeping stdout
-    # clean for paths.
+    # Redirect stdout to stderr so guard() diagnostic messages do not pollute
+    # the downstream recipe path list captured by callers.
     stdout = sys.stdout
     with contextlib.redirect_stdout(sys.stderr):
         sys.exit(guard("check_exemptions.py", lambda: main(paths_out=stdout)))
