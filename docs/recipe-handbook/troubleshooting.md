@@ -1,4 +1,4 @@
-<!-- word count: 3305 (target 500+, no cap) -->
+<!-- word count: 4069 (target 500+, no cap) -->
 
 # Troubleshooting
 
@@ -17,6 +17,7 @@ Each command below says which directory to run it from. Replace
 **manifest.yaml**
 - [manifest.yaml is missing, or fails the schema](#manifestyaml-missing-or-invalid)
 - [ownership.team or ownership.poc still holds scaffold text](#ownershipteam-or-poc-is-a-placeholder)
+- [A contrib/ recipe is not deployable](#contrib-recipe-is-not-deployable)
 
 **README.md**
 - [README.md is absent or empty](#readmemd-is-missing-or-empty)
@@ -83,8 +84,8 @@ Each command below says which directory to run it from. Replace
 `[manifest-empty] manifest.yaml has no content — it is either empty or
 contains only comments.`, or a schema error naming the failing field.
 
-**Cause** — every recipe needs a `manifest.yaml` matching the
-[schema](../../.github/schemas/manifest-schema.json).
+**Cause** — every recipe needs a `manifest.yaml` with the fields
+described on the [manifest](./manifest.md) page.
 
 **Fix**
 
@@ -107,6 +108,28 @@ placeholder`, or the same for `ownership.poc`.
 real GitHub user ID.
 
 **Confirm**, from the repo root — `uv run validate manifest <recipe-path>`
+
+## Contrib recipe is not deployable
+
+**Symptom** — `[manifest-deployable] manifest.deployable is not set; every
+recipe in contrib/ must be deployable.` (or `is false`), often alongside
+`Required file 'Dockerfile' is missing.`
+
+**Cause** — every recipe under `contrib/` must run as a container. It needs a
+`Dockerfile` at the recipe root and `deployable: true` in `manifest.yaml`.
+Recipes under `core/` and `plugins/` are exempt.
+
+**Fix**
+
+1. Add a root `Dockerfile` that builds the recipe and serves the agent. For a
+   Python recipe, the `make-python-recipe-deployable` AI skill generates it
+   and the other serving files.
+2. Set `deployable: true` in `manifest.yaml`.
+3. Build and run the container locally. CI builds it, starts it with the
+   values from `.env.example`, and probes it; see
+   [Recipe container does not serve](#recipe-container-does-not-serve).
+
+**Confirm**, from the repo root — `uv run validate <recipe-path>`
 
 ## Directory name too long or invalid
 
@@ -154,6 +177,7 @@ because its manifest says `language: python`.
 | --- | --- | --- |
 | `always` | every recipe | `README.md`, `.env.example` |
 | `by_root.core` | anything under `core/` | `AGENTS.md` |
+| `by_root.contrib` | anything under `contrib/` | `Dockerfile` |
 | `by_root.plugins` | anything under `plugins/` | `SKILL.md`, `EVAL.yaml`, `scripts/` |
 | `by_language.python` | `manifest.language: python` | `pyproject.toml`, `uv.lock`, `tests/test_runnability.py` |
 | `by_language.go` | `manifest.language: go` | `go.mod` |
