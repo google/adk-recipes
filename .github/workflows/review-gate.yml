@@ -6,8 +6,8 @@ name: Review Gate
 # When the PR becomes ready, the same reviewers are re-requested
 # automatically. Checks that are still running never cause a bounce.
 #
-# All logic lives in .github/scripts/review_gate.py; the knobs live under
-# `review_gate` in .github/policy.yml.
+# All logic lives in .github/scripts/review_gate.py; the knobs live in
+# .github/review-gate-config.yml.
 #
 # WHY TWO TRIGGERS
 # ----------------
@@ -65,7 +65,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
-      # Reading policy.yml and the script from the base branch.
+      # Reading the config and the script from the base branch.
       contents: read
       # Removing and re-requesting reviewers.
       pull-requests: write
@@ -100,8 +100,8 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          LABEL=$(uv run --no-project --with pyyaml python \
-            .github/scripts/load_policy.py review_gate.label)
+          LABEL=$(uv run --no-project --with pyyaml python -c \
+            'import yaml; print(yaml.safe_load(open(".github/review-gate-config.yml"))["label"])')
           gh label create "$LABEL" --force --color FBCA04 \
             --description "Review requests held until checks pass and bot comments are resolved"
 

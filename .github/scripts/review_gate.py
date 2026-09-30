@@ -16,7 +16,7 @@
 Hold review requests until a pull request is ready for review.
 
 "Ready" means no failing checks and no unresolved review threads opened by a
-bot. Configured under `review_gate` in .github/policy.yml. Invoked by
+bot. Configured in .github/review-gate-config.yml. Invoked by
 .github/workflows/review-gate.yml, either for one PR (a review was just
 requested) or as a sweep over every open PR (on a schedule).
 
@@ -70,7 +70,7 @@ from urllib.parse import quote
 
 import yaml
 
-POLICY_PATH = Path(__file__).resolve().parents[1] / "policy.yml"
+CONFIG_PATH = Path(__file__).resolve().parents[1] / "review-gate-config.yml"
 
 # Assigned by main() from GITHUB_REPOSITORY, which is required: this script
 # writes to pull requests, so a run must name its target rather than fall
@@ -243,9 +243,9 @@ class Decision:
 # ---------------------------------------------------------------------------
 
 
-def load_config(path: Path = POLICY_PATH) -> Config:
+def load_config(path: Path = CONFIG_PATH) -> Config:
     with open(path, "rb") as f:
-        section = yaml.safe_load(f)["review_gate"]
+        section = yaml.safe_load(f)
     return Config(
         label=section["label"],
         gate_login=section["gate_login"],
@@ -424,8 +424,9 @@ def blocked_body(ready: Readiness, stored: Reviewers, label: str) -> str:
         "everything is green I will re-request the review automatically, so "
         "there is no need to ping anyone. This is re-checked every 15 minutes.",
         "",
-        f"<sub>Applied by the review gate (`review_gate` in "
-        f"`.github/policy.yml`); the `{label}` label is removed on release."
+        f"<sub>Applied by the review gate "
+        f"(`.github/review-gate-config.yml`); the `{label}` label is removed "
+        "on release."
         "</sub>",
     ]
     return "\n".join(lines)

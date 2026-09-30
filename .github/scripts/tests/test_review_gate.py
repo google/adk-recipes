@@ -156,7 +156,7 @@ def test_ignored_workflows_are_skipped_including_by_glob():
     assert pending is False
 
 
-def test_house_rules_is_not_ignored_by_the_real_policy():
+def test_house_rules_is_not_ignored_by_the_real_config():
     cfg = g.load_config()
     failing, _ = g.evaluate_checks(
         [
@@ -410,5 +410,5 @@ def test_one_bad_reviewer_does_not_strand_the_rest(monkeypatch):
     assert {"reviewers": [], "team_reviewers": ["devex"]} in posted
 
 
-def test_the_real_policy_names_the_gate_login():
+def test_the_real_config_names_the_gate_login():
     assert g.load_config().gate_login == "github-actions[bot]"
