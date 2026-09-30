@@ -40,7 +40,7 @@ State
 The gate's own PR comment is the source of truth. A hidden marker at the top
 carries the reviewers it removed, so a release knows whom to put back. The
 label only exists so humans can filter on it. Only a marker written by the
-gate's own account (`review_gate.gate_login`) is trusted; anyone can paste
+gate's own account (`GATE_LOGIN`) is trusted; anyone can paste
 a marker into a comment.
 
 Usage
@@ -76,6 +76,12 @@ CONFIG_PATH = Path(__file__).resolve().parents[1] / "review-gate-config.yml"
 # writes to pull requests, so a run must name its target rather than fall
 # back to one.
 REPO = ""
+
+# The account GITHUB_TOKEN posts as. Only markers written by it are trusted,
+# since anyone can paste a marker into a comment. A constant rather than
+# config: GitHub fixes this identity, and the check that decides whose state
+# the gate trusts should not be something a config edit can change.
+GATE_LOGIN = "github-actions[bot]"
 
 MARKER_RE = re.compile(r"<!-- review-gate (\{.*?\}) -->")
 
@@ -181,7 +187,6 @@ class GhError(RuntimeError):
 @dataclass(frozen=True)
 class Config:
     label: str
-    gate_login: str
     bot_logins: frozenset[str]
     ignored_workflows: tuple[str, ...]
 
@@ -248,7 +253,6 @@ def load_config(path: Path = CONFIG_PATH) -> Config:
         section = yaml.safe_load(f)
     return Config(
         label=section["label"],
-        gate_login=section["gate_login"],
         bot_logins=frozenset(
             normalize_login(login) for login in section["bot_logins"]
         ),
@@ -521,7 +525,7 @@ def fetch_requested(number: int) -> Reviewers:
     )
 
 
-def fetch_gate_comment(number: int, gate_login: str) -> GateComment | None:
+def fetch_gate_comment(number: int) -> GateComment | None:
     out = gh(
         "api",
         "--paginate",
@@ -534,7 +538,7 @@ def fetch_gate_comment(number: int, gate_login: str) -> GateComment | None:
         if not line.strip():
             continue
         comment = json.loads(line)
-        if comment["login"] != gate_login:
+        if comment["login"] != GATE_LOGIN:
             continue
         parsed = parse_marker(comment["body"] or "")
         if parsed:
@@ -603,7 +607,7 @@ def process(pr: dict, cfg: Config, dry_run: bool) -> str:
         return f"#{number}: none (no review requested)"
 
     ready = readiness(pr, cfg)
-    gate = fetch_gate_comment(number, cfg.gate_login)
+    gate = fetch_gate_comment(number)
     decision = decide(ready, has_requests, gate)
     summary = (
         f"#{number}: {decision.action} ({decision.reason}; "
