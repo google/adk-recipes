@@ -81,10 +81,12 @@ def recipe_dir_for(path: str) -> str | None:
         return None
 
     # Roots where the namespace is mandatory (plugins/<vertical>/<solution> or
-    # plugins/<plugin> for spec-compliant plugins with plugin.json/skills/).
+    # plugins/<plugin> for spec-compliant plugins with plugin.json/skills/mcp/extensions).
     if root in vm.NAMESPACE_REQUIRED_ROOTS:
-        if part2 == "skills" or (
-            len(parts) == 3 and part2 == vm.PLUGIN_FILENAME
+        if (
+            part2 in {"skills", "mcp.json"}
+            or part2.startswith("com.")
+            or (len(parts) == 3 and part2 == vm.PLUGIN_FILENAME)
         ):
             return f"{root}/{part1}"
         if len(parts) >= 4 and part2:

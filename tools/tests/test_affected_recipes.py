@@ -37,6 +37,11 @@ import pytest
         ("plugins/retail/store-ops/SKILL.md", "plugins/retail/store-ops"),
         ("plugins/hr/onboarding/scripts/run.py", "plugins/hr/onboarding"),
         ("plugins/finance/close/eval/cases.jsonl", "plugins/finance/close"),
+        # Spec-compliant plugins map to plugins/<plugin>.
+        ("plugins/retail/plugin.json", "plugins/retail"),
+        ("plugins/retail/mcp.json", "plugins/retail"),
+        ("plugins/retail/skills/product-search/SKILL.md", "plugins/retail"),
+        ("plugins/retail/com.example.extension/config.json", "plugins/retail"),
         # A solution placed directly under plugins/, with no vertical, must
         # NOT be promoted to a recipe — mapping it would validate it at the
         # wrong depth and hide the misplacement. validate_placement.py is

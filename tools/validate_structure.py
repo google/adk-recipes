@@ -836,6 +836,7 @@ def validate_skill_frontmatter(skill_file: Path) -> list[Diagnostic]:
     """Validate that SKILL.md starts with valid YAML front-matter containing
     at minimum `name` and `description`."""
     file = vm.repo_relative(skill_file, REPO_ROOT)
+    parent_rel = vm.repo_relative(skill_file.parent, REPO_ROOT)
     skill_dir_name = skill_file.parent.name
     try:
         text = skill_file.read_text(encoding="utf-8")
@@ -857,7 +858,7 @@ def validate_skill_frontmatter(skill_file: Path) -> list[Diagnostic]:
         return [
             Diagnostic(
                 check="skill-frontmatter",
-                what=f"SKILL.md in '{vm.repo_relative(skill_file.parent, REPO_ROOT)}' does not contain YAML front-matter delimiters (---).",
+                what=f"SKILL.md in '{parent_rel}' does not contain YAML front-matter delimiters (---).",
                 why="SKILL.md must begin with a YAML front-matter block enclosed by '---' markers.",
                 how=f"Add front-matter at the top of {file}:\n---\nname: {skill_dir_name}\ndescription: <description>\n---\n",
                 doc=Doc.REQUIRED_FILES,
@@ -870,7 +871,7 @@ def validate_skill_frontmatter(skill_file: Path) -> list[Diagnostic]:
         return [
             Diagnostic(
                 check="skill-frontmatter",
-                what=f"SKILL.md in '{vm.repo_relative(skill_file.parent, REPO_ROOT)}' has an unclosed YAML front-matter block.",
+                what=f"SKILL.md in '{parent_rel}' has an unclosed YAML front-matter block.",
                 why="The front-matter block must open and close with '---' delimiters.",
                 how=f"Add a closing '---' delimiter after the YAML front-matter in {file}.",
                 doc=Doc.REQUIRED_FILES,
@@ -884,7 +885,7 @@ def validate_skill_frontmatter(skill_file: Path) -> list[Diagnostic]:
         return [
             Diagnostic(
                 check="skill-frontmatter",
-                what=f"SKILL.md front-matter in '{vm.repo_relative(skill_file.parent, REPO_ROOT)}' is not valid YAML.",
+                what=f"SKILL.md front-matter in '{parent_rel}' is not valid YAML.",
                 why=f"YAML parser error: {e}",
                 how=f"Fix the YAML syntax error in the front-matter of {file}.",
                 doc=Doc.REQUIRED_FILES,
@@ -896,7 +897,7 @@ def validate_skill_frontmatter(skill_file: Path) -> list[Diagnostic]:
         return [
             Diagnostic(
                 check="skill-frontmatter",
-                what=f"SKILL.md front-matter in '{vm.repo_relative(skill_file.parent, REPO_ROOT)}' must be a YAML mapping.",
+                what=f"SKILL.md front-matter in '{parent_rel}' must be a YAML mapping.",
                 why="Front-matter must contain key-value pairs (name, description).",
                 how=f"Format the front-matter of {file} as key-value pairs:\nname: {skill_dir_name}\ndescription: ...",
                 doc=Doc.REQUIRED_FILES,
@@ -910,7 +911,7 @@ def validate_skill_frontmatter(skill_file: Path) -> list[Diagnostic]:
         diagnostics.append(
             Diagnostic(
                 check="skill-frontmatter",
-                what=f"Required field 'name' is missing or empty in SKILL.md front-matter for '{vm.repo_relative(skill_file.parent, REPO_ROOT)}'.",
+                what=f"Required field 'name' is missing or empty in SKILL.md front-matter for '{parent_rel}'.",
                 why="Every skill front-matter must declare a 'name' field.",
                 how=f"Add 'name: {skill_dir_name}' to the front-matter of {file}.",
                 doc=Doc.REQUIRED_FILES,
@@ -923,7 +924,7 @@ def validate_skill_frontmatter(skill_file: Path) -> list[Diagnostic]:
         diagnostics.append(
             Diagnostic(
                 check="skill-frontmatter",
-                what=f"Required field 'description' is missing or empty in SKILL.md front-matter for '{vm.repo_relative(skill_file.parent, REPO_ROOT)}'.",
+                what=f"Required field 'description' is missing or empty in SKILL.md front-matter for '{parent_rel}'.",
                 why="Every skill front-matter must declare a 'description' field.",
                 how=f"Add 'description: ...' explaining what the skill does to {file}.",
                 doc=Doc.REQUIRED_FILES,
@@ -935,7 +936,7 @@ def validate_skill_frontmatter(skill_file: Path) -> list[Diagnostic]:
         diagnostics.append(
             Diagnostic(
                 check="skill-frontmatter",
-                what=f"Field 'metadata' in SKILL.md front-matter for '{vm.repo_relative(skill_file.parent, REPO_ROOT)}' must be a YAML mapping.",
+                what=f"Field 'metadata' in SKILL.md front-matter for '{parent_rel}' must be a YAML mapping.",
                 why="If present, 'metadata' must be a key-value mapping.",
                 how=f"Format 'metadata' as a nested YAML object in {file}.",
                 doc=Doc.REQUIRED_FILES,

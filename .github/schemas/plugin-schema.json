@@ -52,6 +52,11 @@
         "type": "string"
       }
     },
+    "large": {
+      "type": "boolean",
+      "default": false,
+      "description": "Whether the plugin opts into the relaxed size tier. false (default): standard tier applies. true: relaxed tier applies."
+    },
     "ownership": {
       "type": "object",
       "required": [
