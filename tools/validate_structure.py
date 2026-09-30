@@ -213,6 +213,11 @@ _FILE_REMEDIATION: dict[str, str] = {
     ),
     "build.gradle.kts": "Add build.gradle.kts to the recipe.",
     "package.json": "Add package.json to the recipe.",
+    "Dockerfile": (
+        "Add a Dockerfile to the recipe so it can be containerized and "
+        "deployed (for Python recipes, the `make-python-recipe-deployable` "
+        "AI skill can generate one)."
+    ),
 }
 
 

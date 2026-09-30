@@ -1,7 +1,0 @@
-[
-  {
-    "query": "Q: Why the blueberries are blue? A: Because blueberries have pigments on their skin.",
-    "expected_tool_use": [],
-    "reference": "I will revise the answer to address the inaccuracies identified in the previous analysis. Revised answer: Because blueberries have a coating of wax on their surface that scatters blue light."
-  }
-]
