@@ -48,7 +48,7 @@ def report(root, *packages, lockfile=LOCK):
     }
 
 
-def g(*ids, aliases=()):
+def group(*ids, aliases=()):
     return (ids, aliases)
 
 
@@ -64,50 +64,53 @@ def test_pr_2702_every_finding_already_on_main():
     base = report(
         "/b",
         pkg(
-            "litellm", "1.83.14", g("GHSA-3cv6-jpf6-8222"), g("PYSEC-2026-388")
+            "litellm",
+            "1.83.14",
+            group("GHSA-3cv6-jpf6-8222"),
+            group("PYSEC-2026-388"),
         ),
-        pkg("oauthlib", "3.3.1", g("GHSA-hj66-6f7g-4r5v")),
-        pkg("virtualenv", "21.3.0", g("PYSEC-2026-4013")),
+        pkg("oauthlib", "3.3.1", group("GHSA-hj66-6f7g-4r5v")),
+        pkg("virtualenv", "21.3.0", group("PYSEC-2026-4013")),
     )
     head = report(
         "/w",
-        pkg("litellm", "1.85.7", g("GHSA-3cv6-jpf6-8222")),
-        pkg("oauthlib", "3.3.1", g("GHSA-hj66-6f7g-4r5v")),
-        pkg("virtualenv", "21.3.0", g("PYSEC-2026-4013")),
+        pkg("litellm", "1.85.7", group("GHSA-3cv6-jpf6-8222")),
+        pkg("oauthlib", "3.3.1", group("GHSA-hj66-6f7g-4r5v")),
+        pkg("virtualenv", "21.3.0", group("PYSEC-2026-4013")),
     )
     assert new(head, base) == []
 
 
 def test_a_newly_added_vulnerable_package_is_new():
-    base = report("/b", pkg("oauthlib", "3.3.1", g("GHSA-hj66-6f7g-4r5v")))
+    base = report("/b", pkg("oauthlib", "3.3.1", group("GHSA-hj66-6f7g-4r5v")))
     head = report(
         "/w",
-        pkg("oauthlib", "3.3.1", g("GHSA-hj66-6f7g-4r5v")),
-        pkg("requests", "2.0.0", g("GHSA-new")),
+        pkg("oauthlib", "3.3.1", group("GHSA-hj66-6f7g-4r5v")),
+        pkg("requests", "2.0.0", group("GHSA-new")),
     )
     assert [f.package for f in new(head, base)] == ["requests"]
 
 
 def test_a_bump_onto_a_different_advisory_is_new():
-    base = report("/b", pkg("litellm", "1.83.14", g("GHSA-old")))
-    head = report("/w", pkg("litellm", "1.90.0", g("GHSA-other")))
-    assert [f.label for f in new(head, base)] == ["GHSA-other"]
+    base = report("/b", pkg("litellm", "1.83.14", group("GHSA-old")))
+    head = report("/w", pkg("litellm", "1.90.0", group("GHSA-other")))
+    assert [f.primary_id for f in new(head, base)] == ["GHSA-other"]
 
 
 def test_the_same_advisory_under_a_different_id_is_not_new():
-    base = report("/b", pkg("x", "1", g("PYSEC-1", aliases=["CVE-1"])))
-    head = report("/w", pkg("x", "1", g("GHSA-1", aliases=["CVE-1"])))
+    base = report("/b", pkg("x", "1", group("PYSEC-1", aliases=["CVE-1"])))
+    head = report("/w", pkg("x", "1", group("GHSA-1", aliases=["CVE-1"])))
     assert new(head, base) == []
 
 
 def test_the_same_advisory_in_another_lockfile_is_new_here():
-    base = report("/b", pkg("x", "1", g("GHSA-1")), lockfile="a/uv.lock")
-    head = report("/w", pkg("x", "1", g("GHSA-1")), lockfile="b/uv.lock")
+    base = report("/b", pkg("x", "1", group("GHSA-1")), lockfile="a/uv.lock")
+    head = report("/w", pkg("x", "1", group("GHSA-1")), lockfile="b/uv.lock")
     assert len(new(head, base)) == 1
 
 
 def test_a_lockfile_new_in_the_pr_has_only_new_findings():
-    head = report("/w", pkg("x", "1", g("GHSA-1")))
+    head = report("/w", pkg("x", "1", group("GHSA-1")))
     assert len(n.new_findings(n.findings(head, "/w"), [])) == 1
 
 
@@ -123,7 +126,7 @@ def test_ungrouped_vulnerabilities_fall_back_to_ids_and_aliases():
 
 def test_paths_are_compared_relative_to_each_root():
     found = n.findings(
-        report("/tmp/runner/cve_base", pkg("x", "1", g("A"))),
+        report("/tmp/runner/cve_base", pkg("x", "1", group("A"))),
         "/tmp/runner/cve_base",
     )
     assert found[0].lockfile == LOCK
@@ -144,7 +147,7 @@ def run(monkeypatch, *argv):
 
 
 def test_exit_0_when_nothing_is_new(tmp_path, monkeypatch, capsys):
-    r = pkg("x", "1", g("A"))
+    r = pkg("x", "1", group("A"))
     head = write(tmp_path, "h.json", report(str(tmp_path / "w"), r))
     base = write(tmp_path, "b.json", report(str(tmp_path / "b"), r))
     code = run(
@@ -166,14 +169,16 @@ def test_exit_1_lists_what_is_new(tmp_path, monkeypatch, capsys):
     head = write(
         tmp_path,
         "h.json",
-        report(str(tmp_path / "w"), pkg("x", "1", g("GHSA-9"))),
+        report(str(tmp_path / "w"), pkg("x", "1", group("GHSA-9"))),
     )
     code = run(monkeypatch, "--head", head, "--head-root", str(tmp_path / "w"))
     assert code == 1
     assert "https://osv.dev/GHSA-9" in capsys.readouterr().out
 
 
-@pytest.mark.parametrize("bad", ["not json", '{"results": [{"source": {}}]}'])
+@pytest.mark.parametrize(
+    "bad", ["not json", '{"results": [{"source": {}}]}', "null", "[]"]
+)
 def test_an_unreadable_report_is_exit_2_never_a_pass(
     tmp_path, monkeypatch, capsys, bad
 ):
@@ -183,7 +188,7 @@ def test_an_unreadable_report_is_exit_2_never_a_pass(
     assert "NOT caused by your changes" in capsys.readouterr().out
 
 
-def test_base_without_base_root_is_a_usage_error(tmp_path, monkeypatch):
+def test_base_without_base_root_is_a_usage_error(monkeypatch):
     with pytest.raises(SystemExit):
         run(monkeypatch, "--head", "h", "--head-root", ".", "--base", "b")
 
@@ -192,7 +197,7 @@ def test_base_without_base_root_is_a_usage_error(tmp_path, monkeypatch):
 def test_new_count_is_written_on_completion(
     tmp_path, monkeypatch, groups, expected
 ):
-    packages = [pkg("x", "1", g(*groups))] if groups else []
+    packages = [pkg("x", "1", group(*groups))] if groups else []
     head = write(tmp_path, "h.json", report(str(tmp_path / "w"), *packages))
     count = tmp_path / "count"
     run(

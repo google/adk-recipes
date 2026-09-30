@@ -61,6 +61,7 @@ import argparse
 import json
 import os
 import sys
+from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -83,7 +84,7 @@ class Finding:
         return (self.lockfile, self.ecosystem, self.package)
 
     @property
-    def label(self) -> str:
+    def primary_id(self) -> str:
         return sorted(self.ids)[0]
 
 
@@ -124,10 +125,10 @@ def findings(report: dict, root: str) -> list[Finding]:
 
 
 def new_findings(head: list[Finding], base: list[Finding]) -> list[Finding]:
-    known: dict[tuple[str, str, str], set[str]] = {}
+    known: defaultdict[tuple[str, str, str], set[str]] = defaultdict(set)
     for f in base:
-        known.setdefault(f.key, set()).update(f.ids)
-    return [f for f in head if not f.ids & known.get(f.key, set())]
+        known[f.key].update(f.ids)
+    return [f for f in head if not f.ids & known[f.key]]
 
 
 def _load(path: str) -> dict:
@@ -150,7 +151,7 @@ def main() -> int:
     try:
         head = findings(_load(args.head), args.head_root)
         base = findings(_load(args.base), args.base_root) if args.base else []
-    except (OSError, ValueError, KeyError, TypeError) as exc:
+    except (OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
         return report_infra_fault(
             infra_fault(
                 CHECKER,
@@ -173,9 +174,9 @@ def main() -> int:
     print(
         f"{len(added)} vulnerability group(s) introduced by this pull request:"
     )
-    for f in sorted(added, key=lambda f: (f.lockfile, f.package, f.label)):
+    for f in sorted(added, key=lambda f: (f.lockfile, f.package, f.primary_id)):
         print(
-            f"  https://osv.dev/{f.label}  {f.ecosystem} {f.package} "
+            f"  https://osv.dev/{f.primary_id}  {f.ecosystem} {f.package} "
             f"{f.version}  ({f.lockfile})"
         )
     return 1
