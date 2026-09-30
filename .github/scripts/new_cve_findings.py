@@ -41,6 +41,11 @@ Exit codes
   1  at least one new vulnerability (listed on stdout)
   2  a report could not be read; the caller must not treat this as a pass
 
+Python also exits 1 on a crash that escapes before guard() runs (a failed
+import, say), which would read as "new vulnerabilities". So `--new-count`
+names a file the script writes only when it completes, holding the number of
+new findings. The workflow trusts an exit code only when that file agrees.
+
 Usage
 -----
   new_cve_findings.py --head head.json --head-root . \\
@@ -58,6 +63,11 @@ import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools"))
+from ci_message import guard, infra_fault, report_infra_fault
+
+CHECKER = "new_cve_findings.py"
 
 
 @dataclass(frozen=True)
@@ -130,6 +140,9 @@ def main() -> int:
     parser.add_argument("--head-root", required=True)
     parser.add_argument("--base")
     parser.add_argument("--base-root")
+    parser.add_argument(
+        "--new-count", help="file to write the number of new findings to"
+    )
     args = parser.parse_args()
     if bool(args.base) != bool(args.base_root):
         parser.error("--base and --base-root go together")
@@ -138,10 +151,16 @@ def main() -> int:
         head = findings(_load(args.head), args.head_root)
         base = findings(_load(args.base), args.base_root) if args.base else []
     except (OSError, ValueError, KeyError, TypeError) as exc:
-        print(f"::error::could not read an osv-scanner report: {exc}")
-        return 2
+        return report_infra_fault(
+            infra_fault(
+                CHECKER,
+                f"could not read an osv-scanner report: {exc!r}",
+            )
+        )
 
     added = new_findings(head, base)
+    if args.new_count:
+        Path(args.new_count).write_text(f"{len(added)}\n", encoding="utf-8")
     existing = len(head) - len(added)
     if existing:
         print(
@@ -163,4 +182,6 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    # guard(): any other crash is reported as a CI fault (exit 2), which the
+    # workflow treats as "could not compare", never as a pass.
+    sys.exit(guard(CHECKER, main))

@@ -175,12 +175,50 @@ def test_exit_1_lists_what_is_new(tmp_path, monkeypatch, capsys):
 
 @pytest.mark.parametrize("bad", ["not json", '{"results": [{"source": {}}]}'])
 def test_an_unreadable_report_is_exit_2_never_a_pass(
-    tmp_path, monkeypatch, bad
+    tmp_path, monkeypatch, capsys, bad
 ):
     head = write(tmp_path, "h.json", bad)
     assert run(monkeypatch, "--head", head, "--head-root", str(tmp_path)) == 2
+    # Reported as a CI fault, never pointed at the contributor's lockfile.
+    assert "NOT caused by your changes" in capsys.readouterr().out
 
 
 def test_base_without_base_root_is_a_usage_error(tmp_path, monkeypatch):
     with pytest.raises(SystemExit):
         run(monkeypatch, "--head", "h", "--head-root", ".", "--base", "b")
+
+
+@pytest.mark.parametrize(("groups", "expected"), [([], "0"), (["GHSA-9"], "1")])
+def test_new_count_is_written_on_completion(
+    tmp_path, monkeypatch, groups, expected
+):
+    packages = [pkg("x", "1", g(*groups))] if groups else []
+    head = write(tmp_path, "h.json", report(str(tmp_path / "w"), *packages))
+    count = tmp_path / "count"
+    run(
+        monkeypatch,
+        "--head",
+        head,
+        "--head-root",
+        str(tmp_path / "w"),
+        "--new-count",
+        str(count),
+    )
+    assert count.read_text().strip() == expected
+
+
+def test_new_count_is_not_written_when_a_report_is_unreadable(
+    tmp_path, monkeypatch
+):
+    head = write(tmp_path, "h.json", "not json")
+    count = tmp_path / "count"
+    run(
+        monkeypatch,
+        "--head",
+        head,
+        "--head-root",
+        str(tmp_path),
+        "--new-count",
+        str(count),
+    )
+    assert not count.exists()
