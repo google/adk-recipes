@@ -64,16 +64,82 @@ def find_manifests(root: Path) -> list[Path]:
     return found
 
 
-def describe_violation(rel_parts: list[str]) -> Diagnostic | None:
-    """Return a diagnostic for a manifest path, or None if it is valid.
+def find_plugin_manifests(root: Path) -> list[Path]:
+    """Every plugin.json beneath `root`, skipping vendored/build dirs."""
+    if not root.is_dir():
+        return []
+    found: list[Path] = []
+    for path in sorted(root.rglob(vm.PLUGIN_FILENAME)):
+        if any(part in PRUNED_DIRS for part in path.parts):
+            continue
+        found.append(path)
+    return found
 
-    `rel_parts` are the manifest's path components relative to the repo
-    root, e.g. ["plugins", "retail", "store-ops", "manifest.yaml"].
+
+def find_skills(root: Path) -> list[Path]:
+    """Every SKILL.md beneath `root`, skipping vendored/build dirs."""
+    if not root.is_dir():
+        return []
+    found: list[Path] = []
+    for path in sorted(root.rglob("SKILL.md")):
+        if any(part in PRUNED_DIRS for part in path.parts):
+            continue
+        found.append(path)
+    return found
+
+
+def describe_violation(rel_parts: list[str]) -> Diagnostic | None:
+    """Return a diagnostic for a manifest or plugin path, or None if it is valid.
+
+    `rel_parts` are the path components relative to the repo root, e.g.
+    ["plugins", "retail", "store-ops", "manifest.yaml"] or
+    ["plugins", "retail", "plugin.json"].
     """
+    if not rel_parts:
+        return None
+
+    filename = rel_parts[-1]
+    root = rel_parts[0]
+
+    if filename == vm.PLUGIN_FILENAME:
+        # plugins/<plugin>/plugin.json (depth 3)
+        if len(rel_parts) == 3:
+            return None
+        recipe_dir = "/".join(rel_parts[:-1])
+        if len(rel_parts) < 3:
+            return Diagnostic(
+                check="placement",
+                what=f"'{recipe_dir}' sits directly under '{root}/' with no plugin directory.",
+                why=f"In a spec-compliant plugin, {vm.PLUGIN_FILENAME} must sit directly at {root}/<plugin>/{vm.PLUGIN_FILENAME}.",
+                how=f"Move it into a plugin directory:\n  git mv {recipe_dir}/{vm.PLUGIN_FILENAME} {root}/<plugin>/{vm.PLUGIN_FILENAME}",
+                doc=Doc.PLACEMENT,
+                file="/".join(rel_parts),
+            )
+        return Diagnostic(
+            check="placement",
+            what=f"'{recipe_dir}' is nested too deeply.",
+            why=f"In a spec-compliant plugin, {vm.PLUGIN_FILENAME} must sit directly at {root}/<plugin>/{vm.PLUGIN_FILENAME}.",
+            how=f"Move {vm.PLUGIN_FILENAME} up to the plugin root:\n  git mv {'/'.join(rel_parts)} {root}/{rel_parts[1]}/{vm.PLUGIN_FILENAME}",
+            doc=Doc.PLACEMENT,
+            file="/".join(rel_parts),
+        )
+
+    if filename == "SKILL.md":
+        # Spec skill: plugins/<plugin>/skills/<skill>/SKILL.md (depth 5)
+        if len(rel_parts) == 5 and rel_parts[2] == "skills":
+            return None
+        return Diagnostic(
+            check="placement",
+            what=f"'{'/'.join(rel_parts)}' is placed at an invalid location.",
+            why="In a spec-compliant plugin, skills must live at plugins/<plugin>/skills/<skill-name>/SKILL.md.",
+            how=f"Move SKILL.md to plugins/{rel_parts[1]}/skills/<skill-name>/SKILL.md.",
+            doc=Doc.PLACEMENT,
+            file="/".join(rel_parts),
+        )
+
     if len(rel_parts) == EXPECTED_PARTS:
         return None
 
-    root = rel_parts[0]
     recipe_dir = "/".join(rel_parts[:-1])
     expected = f"{root}/<vertical>/<solution>/{vm.MANIFEST_FILENAME}"
     why = (
@@ -131,15 +197,130 @@ def check_root(
     on an unrelated problem elsewhere in the tree.
     """
     diagnostics: list[Diagnostic] = []
-    for manifest in find_manifests(repo_root / root_name):
-        rel = manifest.relative_to(repo_root)
+    root_path = repo_root / root_name
+    if not root_path.is_dir():
+        return []
+
+    # Check for manifest at root of plugins/
+    root_manifest = root_path / vm.MANIFEST_FILENAME
+    if root_manifest.is_file():
+        rel = root_manifest.relative_to(repo_root)
+        if not scope or str(rel) == scope or str(rel).startswith(f"{scope}/"):
+            diag = describe_violation(list(rel.parts))
+            if diag is not None:
+                diagnostics.append(diag)
+
+    root_plugin = root_path / vm.PLUGIN_FILENAME
+    if root_plugin.is_file():
+        rel = root_plugin.relative_to(repo_root)
+        if not scope or str(rel) == scope or str(rel).startswith(f"{scope}/"):
+            diag = describe_violation(list(rel.parts))
+            if diag is not None:
+                diagnostics.append(diag)
+
+    for child in sorted(root_path.iterdir()):
+        if not child.is_dir() or child.name.startswith("."):
+            continue
+        rel_child = child.relative_to(repo_root)
+        child_str = str(rel_child)
+
         if scope and not (
-            str(rel) == scope or str(rel).startswith(f"{scope}/")
+            child_str == scope
+            or child_str.startswith(f"{scope}/")
+            or scope.startswith(f"{child_str}/")
         ):
             continue
-        diagnostic = describe_violation(list(rel.parts))
-        if diagnostic is not None:
-            diagnostics.append(diagnostic)
+
+        manifests = find_manifests(child)
+        plugins = find_plugin_manifests(child)
+        skills = find_skills(child)
+
+        # Check for mixed pattern
+        if manifests and plugins:
+            diagnostics.append(
+                Diagnostic(
+                    check="placement",
+                    what=f"'{child_str}' mixes legacy and spec-compliant plugin layouts.",
+                    why=(
+                        "A plugin directory under plugins/ must use either the "
+                        "legacy layout (plugins/<vertical>/<solution>/manifest.yaml) "
+                        "or the spec-compliant layout (plugins/<plugin>/plugin.json "
+                        "with skills/<skill>/SKILL.md), not both."
+                    ),
+                    how=(
+                        "Choose one layout: migrate fully to the spec-compliant "
+                        "layout (remove manifest.yaml and use plugin.json with skills/) "
+                        "or keep the legacy layout."
+                    ),
+                    doc=Doc.PLACEMENT,
+                    file=child_str,
+                )
+            )
+            continue
+
+        if plugins:
+            for p in plugins:
+                rel = p.relative_to(repo_root)
+                if scope and not (
+                    str(rel) == scope or str(rel).startswith(f"{scope}/")
+                ):
+                    continue
+                diag = describe_violation(list(rel.parts))
+                if diag is not None:
+                    diagnostics.append(diag)
+            for s in skills:
+                rel = s.relative_to(repo_root)
+                if scope and not (
+                    str(rel) == scope or str(rel).startswith(f"{scope}/")
+                ):
+                    continue
+                if not (len(rel.parts) == 5 and rel.parts[2] == "skills"):
+                    diagnostics.append(
+                        Diagnostic(
+                            check="placement",
+                            what=f"'{rel}' is placed at an invalid location.",
+                            why=(
+                                "In a spec-compliant plugin, skills must live at "
+                                "plugins/<plugin>/skills/<skill-name>/SKILL.md."
+                            ),
+                            how=f"Move SKILL.md to plugins/{rel.parts[1]}/skills/<skill-name>/SKILL.md.",
+                            doc=Doc.PLACEMENT,
+                            file=str(rel),
+                        )
+                    )
+        elif manifests:
+            for m_path in manifests:
+                rel = m_path.relative_to(repo_root)
+                if scope and not (
+                    str(rel) == scope or str(rel).startswith(f"{scope}/")
+                ):
+                    continue
+                diag = describe_violation(list(rel.parts))
+                if diag is not None:
+                    diagnostics.append(diag)
+        else:
+            for s in skills:
+                rel = s.relative_to(repo_root)
+                if scope and not (
+                    str(rel) == scope or str(rel).startswith(f"{scope}/")
+                ):
+                    continue
+                if len(rel.parts) == 5 and rel.parts[2] == "skills":
+                    diagnostics.append(
+                        Diagnostic(
+                            check="placement",
+                            what=f"'{child_str}' contains skills but is missing plugin.json.",
+                            why=(
+                                "A spec-compliant plugin container must have a "
+                                "plugin.json file at plugins/<plugin>/plugin.json."
+                            ),
+                            how=f"Add plugin.json to {child_str}/plugin.json.",
+                            doc=Doc.PLACEMENT,
+                            file=child_str,
+                        )
+                    )
+                    break
+
     return diagnostics
 
 

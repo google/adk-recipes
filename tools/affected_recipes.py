@@ -80,14 +80,13 @@ def recipe_dir_for(path: str) -> str | None:
     if not part1:
         return None
 
-    # Roots where the namespace is mandatory (plugins/<vertical>/<solution>).
-    # The vertical is free-form, so it can only be recognised by position:
-    # a path identifies a solution only when there is something BELOW it,
-    # i.e. at least root/vertical/solution/<file>. Anything shallower —
-    # `plugins/foo/SKILL.md`, a solution placed directly under the root —
-    # deliberately maps to None rather than inventing a recipe at the wrong
-    # depth. tools/validate_placement.py reports those as misplaced.
+    # Roots where the namespace is mandatory (plugins/<vertical>/<solution> or
+    # plugins/<plugin> for spec-compliant plugins with plugin.json/skills/).
     if root in vm.NAMESPACE_REQUIRED_ROOTS:
+        if part2 == "skills" or (
+            len(parts) == 3 and part2 == vm.PLUGIN_FILENAME
+        ):
+            return f"{root}/{part1}"
         if len(parts) >= 4 and part2:
             return f"{root}/{part1}/{part2}"
         return None
