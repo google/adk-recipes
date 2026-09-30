@@ -24,6 +24,7 @@ import review_gate as g
 
 CFG = g.Config(
     label="status/not-ready-for-review",
+    gate_login="github-actions[bot]",
     bot_logins=frozenset({"github-actions"}),
     ignored_workflows=("Review Gate", "*AI PR Review — Security"),
 )
@@ -299,7 +300,7 @@ def api(monkeypatch):
 
 
 def test_bounce_removes_reviewers_comments_and_labels(api, monkeypatch):
-    monkeypatch.setattr(g, "fetch_gate_comment", lambda n: None)
+    monkeypatch.setattr(g, "fetch_gate_comment", lambda n, login: None)
     monkeypatch.setattr(
         g, "fetch_requested", lambda n: g.Reviewers(users=["alice"])
     )
@@ -316,7 +317,7 @@ def test_bounce_removes_reviewers_comments_and_labels(api, monkeypatch):
 def test_bounce_labels_before_it_removes_anyone(api, monkeypatch):
     # The label is how the sweep finds a bounced PR again once its reviewers
     # are gone, so it must land before they are removed.
-    monkeypatch.setattr(g, "fetch_gate_comment", lambda n: None)
+    monkeypatch.setattr(g, "fetch_gate_comment", lambda n, login: None)
     monkeypatch.setattr(
         g, "fetch_requested", lambda n: g.Reviewers(users=["alice"])
     )
@@ -332,7 +333,9 @@ def test_bounce_labels_before_it_removes_anyone(api, monkeypatch):
 
 
 def test_a_second_bounce_remembers_the_first_reviewers(api, monkeypatch):
-    monkeypatch.setattr(g, "fetch_gate_comment", lambda n: blocked_gate())
+    monkeypatch.setattr(
+        g, "fetch_gate_comment", lambda n, login: blocked_gate()
+    )
     monkeypatch.setattr(
         g, "fetch_requested", lambda n: g.Reviewers(users=["bob"])
     )
@@ -345,7 +348,7 @@ def test_a_second_bounce_remembers_the_first_reviewers(api, monkeypatch):
 
 def test_release_re_requests_and_drops_the_label(api, monkeypatch):
     monkeypatch.setattr(
-        g, "fetch_gate_comment", lambda n: blocked_gate(teams=["devex"])
+        g, "fetch_gate_comment", lambda n, login: blocked_gate(teams=["devex"])
     )
     g.process(
         pr([run("ok")], requests=0, labels=[CFG.label]), CFG, dry_run=False
@@ -365,7 +368,7 @@ def test_release_re_requests_and_drops_the_label(api, monkeypatch):
 
 
 def test_dry_run_changes_nothing(api, monkeypatch):
-    monkeypatch.setattr(g, "fetch_gate_comment", lambda n: None)
+    monkeypatch.setattr(g, "fetch_gate_comment", lambda n, login: None)
     g.process(pr(red(1)), CFG, dry_run=True)
     assert api == []
 
@@ -375,8 +378,12 @@ def test_drafts_are_skipped(api):
     assert api == []
 
 
-def test_refuses_to_run_without_a_target_repository(monkeypatch):
-    monkeypatch.setattr(g, "REPO", "")
+@pytest.mark.parametrize("value", [None, "", "not-a-repo"])
+def test_refuses_to_run_without_a_target_repository(monkeypatch, value):
+    if value is None:
+        monkeypatch.delenv("GITHUB_REPOSITORY", raising=False)
+    else:
+        monkeypatch.setenv("GITHUB_REPOSITORY", value)
     monkeypatch.setattr("sys.argv", ["review_gate.py", "--sweep", "--dry-run"])
     with pytest.raises(SystemExit) as exc:
         g.main()
@@ -401,3 +408,7 @@ def test_one_bad_reviewer_does_not_strand_the_rest(monkeypatch):
     assert failed == g.Reviewers(users=["gone"])
     assert {"reviewers": ["alice"], "team_reviewers": []} in posted
     assert {"reviewers": [], "team_reviewers": ["devex"]} in posted
+
+
+def test_the_real_policy_names_the_gate_login():
+    assert g.load_config().gate_login == "github-actions[bot]"

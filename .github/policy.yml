@@ -900,6 +900,13 @@ review_gate:
   # early, remove the label and request the reviewers yourself.
   label: status/not-ready-for-review
 
+  # The account the workflow's GITHUB_TOKEN posts as. The gate keeps its
+  # state in a hidden marker in its own PR comment and only trusts markers
+  # written by this account, since anyone can paste one into a comment.
+  # This is fixed by GitHub for GITHUB_TOKEN; change it only if the workflow
+  # moves to a GitHub App token, whose comments carry the app's login.
+  gate_login: "github-actions[bot]"
+
   # Review threads opened by these accounts must be resolved before a
   # review goes through. Threads from humans never block: a reviewer who
   # left comments and is being re-requested after a fix is the normal flow.

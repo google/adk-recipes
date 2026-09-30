@@ -40,7 +40,8 @@ State
 The gate's own PR comment is the source of truth. A hidden marker at the top
 carries the reviewers it removed, so a release knows whom to put back. The
 label only exists so humans can filter on it. Only a marker written by the
-gate's own account is trusted; anyone can paste a marker into a comment.
+gate's own account (`review_gate.gate_login`) is trusted; anyone can paste
+a marker into a comment.
 
 Usage
 -----
@@ -71,13 +72,10 @@ import yaml
 
 POLICY_PATH = Path(__file__).resolve().parents[1] / "policy.yml"
 
-# No fallback on purpose: this script writes to pull requests, so a local run
-# must name its target rather than silently act on the upstream repository.
-REPO = os.environ.get("GITHUB_REPOSITORY", "")
-
-# The account the workflow's GITHUB_TOKEN acts as. Its comments are the only
-# ones whose marker is trusted.
-GATE_LOGIN = "github-actions[bot]"
+# Assigned by main() from GITHUB_REPOSITORY, which is required: this script
+# writes to pull requests, so a run must name its target rather than fall
+# back to one.
+REPO = ""
 
 MARKER_RE = re.compile(r"<!-- review-gate (\{.*?\}) -->")
 
@@ -183,6 +181,7 @@ class GhError(RuntimeError):
 @dataclass(frozen=True)
 class Config:
     label: str
+    gate_login: str
     bot_logins: frozenset[str]
     ignored_workflows: tuple[str, ...]
 
@@ -249,6 +248,7 @@ def load_config(path: Path = POLICY_PATH) -> Config:
         section = yaml.safe_load(f)["review_gate"]
     return Config(
         label=section["label"],
+        gate_login=section["gate_login"],
         bot_logins=frozenset(
             normalize_login(login) for login in section["bot_logins"]
         ),
@@ -520,7 +520,7 @@ def fetch_requested(number: int) -> Reviewers:
     )
 
 
-def fetch_gate_comment(number: int) -> GateComment | None:
+def fetch_gate_comment(number: int, gate_login: str) -> GateComment | None:
     out = gh(
         "api",
         "--paginate",
@@ -533,7 +533,7 @@ def fetch_gate_comment(number: int) -> GateComment | None:
         if not line.strip():
             continue
         comment = json.loads(line)
-        if comment["login"] != GATE_LOGIN:
+        if comment["login"] != gate_login:
             continue
         parsed = parse_marker(comment["body"] or "")
         if parsed:
@@ -602,7 +602,7 @@ def process(pr: dict, cfg: Config, dry_run: bool) -> str:
         return f"#{number}: none (no review requested)"
 
     ready = readiness(pr, cfg)
-    gate = fetch_gate_comment(number)
+    gate = fetch_gate_comment(number, cfg.gate_login)
     decision = decide(ready, has_requests, gate)
     summary = (
         f"#{number}: {decision.action} ({decision.reason}; "
@@ -664,8 +664,12 @@ def main() -> int:
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
 
-    if not re.fullmatch(r"[\w.-]+/[\w.-]+", REPO):
+    global REPO
+    if not re.fullmatch(
+        r"[\w.-]+/[\w.-]+", os.environ.get("GITHUB_REPOSITORY") or ""
+    ):
         parser.error("set GITHUB_REPOSITORY to the owner/name to act on")
+    REPO = os.environ["GITHUB_REPOSITORY"]
 
     cfg = load_config()
     prs = [fetch_pr(args.pr)] if args.pr else fetch_open_prs()
