@@ -1,8 +1,0 @@
-output/
-.env
-.venv/
-__pycache__/
-.ruff_cache/
-_archive/
-.adk/
-.python-version
