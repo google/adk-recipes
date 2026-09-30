@@ -1,4 +1,4 @@
-<!-- word count: 620 (target 500, cap 800) -->
+<!-- word count: 619 (target 500, cap 800) -->
 
 # Docs Style
 
@@ -64,6 +64,7 @@ does not mean the doc is underdeveloped.
 | `recipe-checklist.md` | 400 | 600 |
 | `recipe-handbook/README.md` | 500 | 800 |
 | `recipe-handbook/anatomy.md` | 800 | 1200 |
+| `recipe-handbook/manifest.md` | 700 | 1000 |
 | `recipe-handbook/languages/python.md` | 700 | 1000 |
 | `recipe-handbook/skills-catalog.md` | 800 | 1200 |
 | `recipe-handbook/troubleshooting.md` | 500+, grows | no cap |
