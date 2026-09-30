@@ -129,6 +129,18 @@ def test_a_rerun_that_passed_supersedes_the_failed_attempt():
     assert failing == []
 
 
+def test_a_queued_rerun_supersedes_the_failed_attempt_it_retries():
+    failing, pending = g.evaluate_checks(
+        [
+            run("a", conclusion="FAILURE", at="2026-01-01T00:00:00Z"),
+            run("a", status="QUEUED", at=None),
+        ],
+        CFG,
+    )
+    assert failing == []
+    assert pending is True
+
+
 def test_ignored_workflows_are_skipped_including_by_glob():
     failing, pending = g.evaluate_checks(
         [
@@ -301,6 +313,24 @@ def test_bounce_removes_reviewers_comments_and_labels(api, monkeypatch):
     assert g.parse_marker(body) == ("blocked", g.Reviewers(users=["alice"]))
 
 
+def test_bounce_labels_before_it_removes_anyone(api, monkeypatch):
+    # The label is how the sweep finds a bounced PR again once its reviewers
+    # are gone, so it must land before they are removed.
+    monkeypatch.setattr(g, "fetch_gate_comment", lambda n: None)
+    monkeypatch.setattr(
+        g, "fetch_requested", lambda n: g.Reviewers(users=["alice"])
+    )
+    g.process(pr(red(1)), CFG, dry_run=False)
+
+    order = [(m, p) for m, p, _ in api]
+    assert order.index(("POST", "issues/7/labels")) < order.index(
+        ("DELETE", "pulls/7/requested_reviewers")
+    )
+    assert order.index(("POST", "issues/7/comments")) < order.index(
+        ("DELETE", "pulls/7/requested_reviewers")
+    )
+
+
 def test_a_second_bounce_remembers_the_first_reviewers(api, monkeypatch):
     monkeypatch.setattr(g, "fetch_gate_comment", lambda n: blocked_gate())
     monkeypatch.setattr(
@@ -343,3 +373,11 @@ def test_dry_run_changes_nothing(api, monkeypatch):
 def test_drafts_are_skipped(api):
     assert "skipped" in g.process(pr(red(1), draft=True), CFG, dry_run=False)
     assert api == []
+
+
+def test_refuses_to_run_without_a_target_repository(monkeypatch):
+    monkeypatch.setattr(g, "REPO", "")
+    monkeypatch.setattr("sys.argv", ["review_gate.py", "--sweep", "--dry-run"])
+    with pytest.raises(SystemExit) as exc:
+        g.main()
+    assert exc.value.code == 2

@@ -894,6 +894,10 @@ pr_review_budget:
 review_gate:
   # Applied while the gate is holding a PR's review requests. Filter it out
   # of a review queue with `-label:status/not-ready-for-review`.
+  #
+  # The sweep finds a held PR through this label, so removing it by hand
+  # cancels the hold WITHOUT re-requesting anyone. To let a review through
+  # early, remove the label and request the reviewers yourself.
   label: status/not-ready-for-review
 
   # Review threads opened by these accounts must be resolved before a

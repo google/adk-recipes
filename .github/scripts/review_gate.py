@@ -31,6 +31,9 @@ gate's own account is trusted; anyone can paste a marker into a comment.
 
 Usage
 -----
+GITHUB_REPOSITORY must name the repository (Actions sets it; set it by hand
+for a local run).
+
   python .github/scripts/review_gate.py --pr 123
   python .github/scripts/review_gate.py --sweep
   python .github/scripts/review_gate.py --sweep --dry-run
@@ -54,7 +57,10 @@ from urllib.parse import quote
 import yaml
 
 POLICY_PATH = Path(__file__).resolve().parents[1] / "policy.yml"
-REPO = os.environ.get("GITHUB_REPOSITORY", "google/adk-recipes")
+
+# No fallback on purpose: this script writes to pull requests, so a local run
+# must name its target rather than silently act on the upstream repository.
+REPO = os.environ.get("GITHUB_REPOSITORY", "")
 
 # The account the workflow's GITHUB_TOKEN acts as. Its comments are the only
 # ones whose marker is trusted.
@@ -70,6 +76,9 @@ FAILED_CONCLUSIONS = {
 }
 FAILED_STATES = {"FAILURE", "ERROR"}
 PENDING_STATES = {"PENDING", "EXPECTED"}
+
+# Sorts after every ISO-8601 timestamp.
+NOT_STARTED = "~"
 
 # Team reviewers are deliberately absent: the GraphQL `Team.slug` field needs
 # `read:org`, which GITHUB_TOKEN never has, and asking for it fails the whole
@@ -260,7 +269,10 @@ def evaluate_checks(
             if any(fnmatch.fnmatch(workflow, p) for p in cfg.ignored_workflows):
                 continue
             key = (workflow, ctx.get("name") or "")
-            stamp = ctx.get("startedAt") or ""
+            # A queued re-run has not started yet, so it has no timestamp. It
+            # is still the newest attempt and must supersede the one it
+            # re-runs, or a failure already being retried would bounce.
+            stamp = ctx.get("startedAt") or NOT_STARTED
         elif ctx.get("__typename") == "StatusContext":
             key = ("", ctx.get("context") or "")
             stamp = ctx.get("createdAt") or ""
@@ -593,15 +605,19 @@ def process(pr: dict, cfg: Config, dry_run: bool) -> str:
         stored = (
             gate.stored if gate and gate.state == "blocked" else Reviewers()
         ).merged(requested)
-        if requested:
-            rest_json("DELETE", path, reviewers_payload(requested))
-        write_comment(number, gate, blocked_body(ready, stored, cfg.label))
+        # Label first, and record who is removed before removing them. The
+        # sweep only revisits PRs with a review request or the label, so
+        # once the reviewers are gone the label is the only way back. If a
+        # later step fails, the next sweep finds the PR again and retries.
         if cfg.label not in labels:
             rest_json(
                 "POST",
                 f"repos/{REPO}/issues/{number}/labels",
                 {"labels": [cfg.label]},
             )
+        write_comment(number, gate, blocked_body(ready, stored, cfg.label))
+        if requested:
+            rest_json("DELETE", path, reviewers_payload(requested))
     elif decision.action == "update" and gate is not None:
         write_comment(number, gate, blocked_body(ready, gate.stored, cfg.label))
     elif decision.action == "release" and gate is not None:
@@ -633,6 +649,9 @@ def main() -> int:
     target.add_argument("--sweep", action="store_true", help="every open PR")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
+
+    if not re.fullmatch(r"[\w.-]+/[\w.-]+", REPO):
+        parser.error("set GITHUB_REPOSITORY to the owner/name to act on")
 
     cfg = load_config()
     prs = [fetch_pr(args.pr)] if args.pr else fetch_open_prs()
