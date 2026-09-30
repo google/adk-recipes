@@ -51,6 +51,7 @@ SCHEMA_PATH = REPO_ROOT / ".github" / "schemas" / "manifest-schema.json"
 MANIFEST_FILENAME = "manifest.yaml"
 # Top-level directories that may hold recipes.
 RECIPE_ROOTS = ["core", "contrib", "plugins"]
+CONTRIB_ROOT = "contrib"
 
 OWNERSHIP_TEAM_PLACEHOLDER = "TODO: Replace with your team name"
 OWNERSHIP_POC_PLACEHOLDER = "TODO: Replace with your GitHub user ID"
@@ -464,6 +465,44 @@ def validate_manifest(manifest_path: Path, schema: dict) -> list[Diagnostic]:
                         "the recipe demonstrates and what it is good for."
                     ),
                     doc=Doc.MANIFEST,
+                    file=file,
+                )
+            )
+
+        # Every recipe under contrib/ must be deployable (deployable: true).
+        # The matching root Dockerfile is required by policy.yml
+        # required_files.by_root.contrib and checked by validate_structure.
+        parts = Path(file).parts
+        if (
+            len(parts) > 1
+            and parts[0] == CONTRIB_ROOT
+            and data.get("deployable") is not True
+        ):
+            value = data.get("deployable")
+            if "deployable" not in data:
+                state = "is not set"
+            elif isinstance(value, bool):
+                state = f"is {str(value).lower()}"
+            else:
+                state = f"is {_quote(value)}"
+            diagnostics.append(
+                Diagnostic(
+                    check="manifest-deployable",
+                    what=(
+                        f"manifest.deployable {state}; every recipe in "
+                        "contrib/ must be deployable."
+                    ),
+                    why=(
+                        "Recipes under contrib/ must run as a container, so "
+                        "each needs a root Dockerfile and 'deployable: true' "
+                        "in manifest.yaml."
+                    ),
+                    how=(
+                        "Add a Dockerfile at the recipe root that builds and "
+                        "serves the agent, then set 'deployable: true' in "
+                        "manifest.yaml."
+                    ),
+                    doc=Doc.MANIFEST_DEPLOYABLE,
                     file=file,
                 )
             )
