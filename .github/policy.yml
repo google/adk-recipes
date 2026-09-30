@@ -789,20 +789,27 @@ deployability:
       - core/python/rag-vector-search
 
 # --------------------------------------------------------------------------
-# Recipe Docker check configuration (.github/scripts/check_recipe_docker.py,
-# invoked by .github/workflows/recipe-docker-build.yml).
+# Per-check path exemptions — read by tools/check_exemptions.py.
 #
-# Exempts recipes from CI Docker build and container verification when their
-# images start only as a deployed service with credentials, so the check
-# cannot pass.
+# Keys are check ids (the `check` id in the checker's diagnostics) listed in
+# check_exemptions.KNOWN_CHECKS, the checks that honor this list. Each maps to
+# a list of {path, reason} entries.
 #
-# Entries must be repo-relative recipe paths with an explanatory comment.
+# `path`: repo-relative under core/, contrib/, or plugins/. Matches full path
+# components to cover child paths.
+#
+# `reason`: required explanation displayed when the check skips the path.
+#
+# Docker check (.github/scripts/check_recipe_docker.py):
+#   docker-build   skips recipe build and container execution.
+#   docker-serves  builds the Docker image without running the container.
 # --------------------------------------------------------------------------
-recipe_docker_check:
-  skip:
-    # Built by `agents-cli deploy` from the recipe root; requires Application
-    # Default Credentials and a deployed engine to start.
-    - core/python/ambient-quality-agent
+check_exemptions:
+  docker-serves:
+    - path: core/python/ambient-quality-agent
+      reason: >-
+        Agent Runtime image built by `agents-cli deploy`; starts only as a
+        deployed engine with Application Default Credentials.
 
 # --------------------------------------------------------------------------
 # Automated PR review — read by .github/scripts/review_budget.py, which the

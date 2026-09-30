@@ -17,7 +17,9 @@
 
 Given one or more recipe directories (or --all / stdin paths):
 1. Verifies the recipe contains a Dockerfile at the recipe root.
-2. Skips recipes listed under `recipe_docker_check.skip` in .github/policy.yml.
+2. Evaluates `check_exemptions` from .github/policy.yml: skips recipes exempt
+   from `docker-build`, and skips container execution for recipes exempt
+   from `docker-serves`.
 3. Builds the Docker image for the recipe (platform linux/amd64).
 4. Runs the container with a test environment (populated from .env.example).
 5. Probes the running container to verify that the agent/service is accessible.
@@ -29,8 +31,9 @@ Usage:
   python3 .github/scripts/check_recipe_docker.py --all
 
 Exit codes:
-  0  all target recipe Dockerfiles built and verified accessible (or none in
-     scope, or all exempt by policy.yml)
+  0  all target recipe Dockerfiles built and verified accessible (or built
+     only when exempt from docker-serves, or none in scope, or all exempt
+     from docker-build by policy.yml)
   1  one or more recipe containers failed to build or serve
   2  CI tooling failure
 """
@@ -48,10 +51,14 @@ import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import yaml
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT / "tools"))
+from check_exemptions import (  # noqa: E402
+    Exemption,
+    find_exemption,
+    load_exemptions,
+    render_skip_line,
+)
 from ci_message import (  # noqa: E402
     EXIT_OK,
     Diagnostic,
@@ -63,7 +70,9 @@ from ci_message import (  # noqa: E402
 )
 
 CHECKER = "check_recipe_docker.py"
-POLICY_PATH = REPO_ROOT / ".github" / "policy.yml"
+# Diagnostic check identifiers matching check_exemptions keys in policy.yml.
+DOCKER_BUILD_CHECK = "docker-build"
+DOCKER_SERVES_CHECK = "docker-serves"
 RECIPE_ROOTS = ("core", "contrib", "plugins")
 DEFAULT_DOCKER_TIMEOUT = 30
 
@@ -98,11 +107,16 @@ class ValidationResult:
     error_message: str | None = None
     solution: str | None = None
     log_tail: str | None = None
+    serve_skipped_reason: str | None = None
     details: dict[str, str] = field(default_factory=dict)
 
     @property
     def passed(self) -> bool:
-        return self.has_dockerfile and self.build_passed and self.run_passed
+        return (
+            self.has_dockerfile
+            and self.build_passed
+            and (self.run_passed or self.serve_skipped_reason is not None)
+        )
 
 
 def parse_env_example(path: Path) -> dict[str, str]:
@@ -289,8 +303,23 @@ def validate_recipe_docker(
     probe_timeout: int = 90,
     port: int = 8080,
     probe_paths: tuple[str, ...] = DEFAULT_PROBE_PATHS,
+    serve_skip_reason: str | None = None,
 ) -> ValidationResult:
-    """Build Dockerfile and verify container accessibility for a recipe directory."""
+    """Builds the Docker image and verifies container runtime accessibility.
+
+    Args:
+        recipe_dir: Recipe directory containing the root Dockerfile.
+        build_timeout: Maximum image build duration in seconds.
+        probe_timeout: Maximum duration in seconds to wait for container
+            readiness.
+        port: Target container port exposed for health checks.
+        probe_paths: HTTP endpoints probed to confirm service readiness.
+        serve_skip_reason: Exemption reason to skip running the container after
+            a successful build.
+
+    Returns:
+        ValidationResult recording build and runtime status.
+    """
     recipe_rel = os.path.relpath(recipe_dir, REPO_ROOT)
     dockerfile_path = recipe_dir / "Dockerfile"
 
@@ -343,6 +372,13 @@ def validate_recipe_docker(
 
     result.build_passed = True
     print(f"[PASS] Docker image built successfully: {image_tag}")
+
+    if serve_skip_reason is not None:
+        result.serve_skipped_reason = serve_skip_reason
+        run_cmd(
+            ["docker", "rmi", "-f", image_tag], timeout=DEFAULT_DOCKER_TIMEOUT
+        )
+        return result
 
     # 2. Run the container and test accessibility
     try:
@@ -519,54 +555,6 @@ def find_recipes_with_dockerfile(
     return sorted(set(recipes))
 
 
-def load_skipped_recipes(policy_path: Path = POLICY_PATH) -> set[str]:
-    """Load recipe paths exempt from Docker verification from policy.yml.
-
-    Args:
-        policy_path: Path to the repository policy configuration file.
-
-    Returns:
-        Repo-relative recipe paths listed under `recipe_docker_check.skip`,
-        trimmed of surrounding slashes. Empty if the section is omitted.
-
-    Raises:
-        TypeError: If `recipe_docker_check.skip` is not a list.
-    """
-    with open(policy_path, encoding="utf-8") as f:
-        policy = yaml.safe_load(f) or {}
-    section = policy.get("recipe_docker_check") or {}
-    raw = section.get("skip") or []
-    # Prevents strings from being silently iterated character by character.
-    if not isinstance(raw, list):
-        raise TypeError("policy.yml recipe_docker_check.skip must be a list")
-    return {p for p in (str(x).strip().strip("/") for x in raw) if p}
-
-
-def drop_skipped_recipes(
-    recipe_dirs: list[Path], skipped: set[str]
-) -> list[Path]:
-    """Filter out recipe directories exempt by policy and report skips.
-
-    Args:
-        recipe_dirs: Recipe directories to validate.
-        skipped: Repo-relative POSIX recipe paths exempt from verification.
-
-    Returns:
-        Recipe directories not present in `skipped`, preserving original order.
-    """
-    kept: list[Path] = []
-    for recipe_dir in recipe_dirs:
-        recipe_rel = Path(os.path.relpath(recipe_dir, REPO_ROOT)).as_posix()
-        if recipe_rel in skipped:
-            print(
-                f"[SKIP] {recipe_rel}: exempt by policy.yml "
-                "recipe_docker_check.skip"
-            )
-        else:
-            kept.append(recipe_dir)
-    return kept
-
-
 def to_diagnostic(result: ValidationResult) -> Diagnostic | None:
     """Convert a failed ValidationResult into a structured Diagnostic."""
     if result.passed:
@@ -585,7 +573,7 @@ def to_diagnostic(result: ValidationResult) -> Diagnostic | None:
         if result.log_tail:
             how = f"{how}\n\nBuild log tail:\n{result.log_tail}"
         return Diagnostic(
-            check="docker-build",
+            check=DOCKER_BUILD_CHECK,
             what=what,
             why=why,
             how=how,
@@ -604,13 +592,53 @@ def to_diagnostic(result: ValidationResult) -> Diagnostic | None:
         how = f"{how}\n\nContainer logs:\n{result.log_tail}"
 
     return Diagnostic(
-        check="docker-serves",
+        check=DOCKER_SERVES_CHECK,
         what=what,
         why=why,
         how=how,
         doc=Doc.DOCKER_SERVES,
         file=dockerfile,
     )
+
+
+def plan_docker_validations(
+    recipe_dirs: list[Path], exemptions: dict[str, list[Exemption]]
+) -> list[tuple[Path, str | None]]:
+    """Filters and plans validations for recipes according to policy exemptions.
+
+    Evaluates exemptions in order of precedence:
+    1. If exempt from `docker-build`, logs the skip and excludes the recipe.
+    2. If exempt from `docker-serves`, logs the skip and retains the recipe with
+       its exemption reason so only the build runs.
+    3. If not exempt, retains the recipe to build and run the container.
+
+    Args:
+        recipe_dirs: Recipe directories containing a root Dockerfile.
+        exemptions: Exemptions mapped by check identifier from
+            load_exemptions().
+
+    Returns:
+        Tuples of recipe directory and optional docker-serves skip reason
+        (or None if the container must be run), preserving input order.
+    """
+    plan: list[tuple[Path, str | None]] = []
+    for recipe_dir in recipe_dirs:
+        recipe_rel = Path(os.path.relpath(recipe_dir, REPO_ROOT)).as_posix()
+        build_exemption = find_exemption(
+            exemptions, DOCKER_BUILD_CHECK, recipe_rel
+        )
+        if build_exemption is not None:
+            print(render_skip_line(build_exemption, recipe_rel))
+            continue
+        serve_exemption = find_exemption(
+            exemptions, DOCKER_SERVES_CHECK, recipe_rel
+        )
+        if serve_exemption is None:
+            plan.append((recipe_dir, None))
+        else:
+            print(render_skip_line(serve_exemption, recipe_rel))
+            plan.append((recipe_dir, serve_exemption.reason))
+    return plan
 
 
 def _run() -> int:
@@ -687,12 +715,11 @@ def _run() -> int:
         )
         return EXIT_OK
 
-    docker_targets = drop_skipped_recipes(
-        docker_targets, load_skipped_recipes()
-    )
-    if not docker_targets:
+    validation_plan = plan_docker_validations(docker_targets, load_exemptions())
+    if not validation_plan:
         print(
-            "[PASS] Every recipe Dockerfile in scope is exempt by policy.yml."
+            "[PASS] Every recipe Dockerfile in scope is exempt by policy.yml "
+            "check_exemptions."
         )
         return EXIT_OK
 
@@ -712,12 +739,13 @@ def _run() -> int:
     diagnostics: list[Diagnostic] = []
     results: list[ValidationResult] = []
 
-    for recipe_dir in docker_targets:
+    for recipe_dir, serve_skip_reason in validation_plan:
         res = validate_recipe_docker(
             recipe_dir,
             build_timeout=args.build_timeout,
             probe_timeout=args.probe_timeout,
             port=args.port,
+            serve_skip_reason=serve_skip_reason,
         )
         results.append(res)
         diag = to_diagnostic(res)
@@ -729,15 +757,24 @@ def _run() -> int:
     print("=" * 60)
     for res in results:
         status_str = "PASS" if res.passed else "FAIL"
-        endpoint_info = (
-            f" ({res.accessible_endpoint})" if res.accessible_endpoint else ""
-        )
-        print(f"[{status_str}] {res.recipe}{endpoint_info}")
+        if res.serve_skipped_reason is not None:
+            detail = f" (build only; serve skipped: {res.serve_skipped_reason})"
+        elif res.accessible_endpoint:
+            detail = f" ({res.accessible_endpoint})"
+        else:
+            detail = ""
+        print(f"[{status_str}] {res.recipe}{detail}")
 
+    passed_message = "All recipe Dockerfiles built and verified accessible."
+    if any(res.serve_skipped_reason is not None for res in results):
+        passed_message = (
+            "All recipe Dockerfiles built; every recipe not exempt from "
+            "docker-serves verified accessible."
+        )
     return report(
         diagnostics,
         header="Recipe Dockerfile validation failed",
-        passed_message="All recipe Dockerfiles built and verified accessible.",
+        passed_message=passed_message,
         next_step="Fix the Dockerfile or runtime configuration for each failed recipe listed above.",
     )
 
