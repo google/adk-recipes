@@ -17,18 +17,20 @@
 
 Given one or more recipe directories (or --all / stdin paths):
 1. Verifies the recipe contains a Dockerfile at the recipe root.
-2. Builds the Docker image for the recipe (platform linux/amd64).
-3. Runs the container with a test environment (populated from .env.example).
-4. Probes the running container to verify that the agent/service is accessible.
-5. Emits clear diagnostics, error annotations, and actionable solutions on failure.
-6. Cleans up all test containers and images.
+2. Skips recipes listed under `recipe_docker_check.skip` in .github/policy.yml.
+3. Builds the Docker image for the recipe (platform linux/amd64).
+4. Runs the container with a test environment (populated from .env.example).
+5. Probes the running container to verify that the agent/service is accessible.
+6. Emits clear diagnostics, error annotations, and actionable solutions on failure.
+7. Cleans up all test containers and images.
 
 Usage:
   python3 .github/scripts/check_recipe_docker.py core/python/ambient-expense-agent
   python3 .github/scripts/check_recipe_docker.py --all
 
 Exit codes:
-  0  all target recipe Dockerfiles built and verified accessible (or none in scope)
+  0  all target recipe Dockerfiles built and verified accessible (or none in
+     scope, or all exempt by policy.yml)
   1  one or more recipe containers failed to build or serve
   2  CI tooling failure
 """
@@ -46,6 +48,8 @@ import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import yaml
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT / "tools"))
 from ci_message import (  # noqa: E402
@@ -59,6 +63,7 @@ from ci_message import (  # noqa: E402
 )
 
 CHECKER = "check_recipe_docker.py"
+POLICY_PATH = REPO_ROOT / ".github" / "policy.yml"
 RECIPE_ROOTS = ("core", "contrib", "plugins")
 DEFAULT_DOCKER_TIMEOUT = 30
 
@@ -514,6 +519,54 @@ def find_recipes_with_dockerfile(
     return sorted(set(recipes))
 
 
+def load_skipped_recipes(policy_path: Path = POLICY_PATH) -> set[str]:
+    """Load recipe paths exempt from Docker verification from policy.yml.
+
+    Args:
+        policy_path: Path to the repository policy configuration file.
+
+    Returns:
+        Repo-relative recipe paths listed under `recipe_docker_check.skip`,
+        trimmed of surrounding slashes. Empty if the section is omitted.
+
+    Raises:
+        TypeError: If `recipe_docker_check.skip` is not a list.
+    """
+    with open(policy_path, encoding="utf-8") as f:
+        policy = yaml.safe_load(f) or {}
+    section = policy.get("recipe_docker_check") or {}
+    raw = section.get("skip") or []
+    # Prevents strings from being silently iterated character by character.
+    if not isinstance(raw, list):
+        raise TypeError("policy.yml recipe_docker_check.skip must be a list")
+    return {p for p in (str(x).strip().strip("/") for x in raw) if p}
+
+
+def drop_skipped_recipes(
+    recipe_dirs: list[Path], skipped: set[str]
+) -> list[Path]:
+    """Filter out recipe directories exempt by policy and report skips.
+
+    Args:
+        recipe_dirs: Recipe directories to validate.
+        skipped: Repo-relative POSIX recipe paths exempt from verification.
+
+    Returns:
+        Recipe directories not present in `skipped`, preserving original order.
+    """
+    kept: list[Path] = []
+    for recipe_dir in recipe_dirs:
+        recipe_rel = Path(os.path.relpath(recipe_dir, REPO_ROOT)).as_posix()
+        if recipe_rel in skipped:
+            print(
+                f"[SKIP] {recipe_rel}: exempt by policy.yml "
+                "recipe_docker_check.skip"
+            )
+        else:
+            kept.append(recipe_dir)
+    return kept
+
+
 def to_diagnostic(result: ValidationResult) -> Diagnostic | None:
     """Convert a failed ValidationResult into a structured Diagnostic."""
     if result.passed:
@@ -631,6 +684,15 @@ def _run() -> int:
     if not docker_targets:
         print(
             "[PASS] None of the specified recipe directories contain a root Dockerfile."
+        )
+        return EXIT_OK
+
+    docker_targets = drop_skipped_recipes(
+        docker_targets, load_skipped_recipes()
+    )
+    if not docker_targets:
+        print(
+            "[PASS] Every recipe Dockerfile in scope is exempt by policy.yml."
         )
         return EXIT_OK
 

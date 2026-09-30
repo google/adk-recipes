@@ -14,11 +14,13 @@
 
 """Unit tests for check_recipe_docker.py."""
 
+import io
 import subprocess
 import sys
 from pathlib import Path
 
 import check_recipe_docker as m
+import pytest
 
 
 def test_parse_env_example(tmp_path: Path):
@@ -310,3 +312,122 @@ def test_200_wins_over_a_404_on_an_earlier_path(tmp_path: Path, monkeypatch):
     )
     assert result.run_passed
     assert result.accessible_endpoint == "/docs (HTTP 200)"
+
+
+def test_load_skipped_recipes_normalises_entries(tmp_path: Path):
+    policy = tmp_path / "policy.yml"
+    policy.write_text(
+        "recipe_docker_check:\n"
+        "  skip:\n"
+        "    - core/python/a/\n"
+        "    - ' contrib/python/b '\n"
+        "    - ''\n",
+        encoding="utf-8",
+    )
+    assert m.load_skipped_recipes(policy) == {
+        "core/python/a",
+        "contrib/python/b",
+    }
+
+
+def test_load_skipped_recipes_without_section_is_empty(tmp_path: Path):
+    policy = tmp_path / "policy.yml"
+    policy.write_text("frozen_paths:\n  - python/agents\n", encoding="utf-8")
+    assert m.load_skipped_recipes(policy) == set()
+
+
+def test_load_skipped_recipes_rejects_a_scalar(tmp_path: Path):
+    policy = tmp_path / "policy.yml"
+    policy.write_text(
+        "recipe_docker_check:\n  skip: core/python/a\n", encoding="utf-8"
+    )
+    with pytest.raises(TypeError, match="must be a list"):
+        m.load_skipped_recipes(policy)
+
+
+def test_real_policy_file_skips_the_ambient_quality_agent():
+    """Verify policy.yml retains the ambient-quality-agent skip exemption."""
+    assert "core/python/ambient-quality-agent" in m.load_skipped_recipes()
+
+
+def _recipe_in_repo(repo_root: Path, rel: str) -> Path:
+    recipe = repo_root / rel
+    recipe.mkdir(parents=True)
+    (recipe / "manifest.yaml").write_text(
+        "language: python\n", encoding="utf-8"
+    )
+    (recipe / "Dockerfile").write_text("FROM scratch\n", encoding="utf-8")
+    return recipe
+
+
+def _record_docker_commands(monkeypatch) -> list[list[str]]:
+    """Mock a healthy container and intercept executed Docker commands.
+
+    Args:
+        monkeypatch: Pytest monkeypatch fixture to override system commands.
+
+    Returns:
+        List that records all command argument lists passed to `run_cmd`.
+    """
+    _docker_mocks(monkeypatch, lambda url, timeout=5: (200, '["app"]'))
+    commands: list[list[str]] = []
+    mocked_run_cmd = m.run_cmd
+
+    def recording_run_cmd(cmd, **kwargs):
+        commands.append(cmd)
+        return mocked_run_cmd(cmd, **kwargs)
+
+    monkeypatch.setattr(m, "run_cmd", recording_run_cmd)
+    return commands
+
+
+@pytest.mark.parametrize("mode", ["positional", "all", "stdin"])
+def test_policy_skip_applies_to_every_input_mode(
+    tmp_path: Path, monkeypatch, capsys, mode: str
+):
+    monkeypatch.setattr(m, "REPO_ROOT", tmp_path)
+    skipped = "core/python/skipped"
+    checked = "core/python/checked"
+    _recipe_in_repo(tmp_path, skipped)
+    _recipe_in_repo(tmp_path, checked)
+    monkeypatch.setattr(m, "load_skipped_recipes", lambda: {skipped})
+    commands = _record_docker_commands(monkeypatch)
+
+    argv = ["check_recipe_docker.py", "--probe-timeout", "1"]
+    if mode == "positional":
+        argv += [skipped, checked]
+    elif mode == "all":
+        argv.append("--all")
+    else:
+        monkeypatch.setattr("sys.stdin", io.StringIO(f"{skipped}\n{checked}\n"))
+    monkeypatch.setattr(sys, "argv", argv)
+
+    rc = m.main()
+
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert (
+        f"[SKIP] {skipped}: exempt by policy.yml recipe_docker_check.skip"
+        in out
+    )
+    assert f"[PASS] {checked}" in out
+    builds = [c for c in commands if c[:2] == ["docker", "build"]]
+    assert any(checked in " ".join(c) for c in builds)
+    assert not any(skipped in " ".join(c) for c in builds)
+
+
+def test_all_targets_skipped_needs_no_docker(
+    tmp_path: Path, monkeypatch, capsys
+):
+    monkeypatch.setattr(m, "REPO_ROOT", tmp_path)
+    skipped = "core/python/skipped"
+    _recipe_in_repo(tmp_path, skipped)
+    monkeypatch.setattr(m, "load_skipped_recipes", lambda: {skipped})
+    commands = _record_docker_commands(monkeypatch)
+    monkeypatch.setattr(sys, "argv", ["check_recipe_docker.py", skipped])
+
+    rc = m.main()
+
+    assert rc == 0
+    assert commands == []
+    assert "exempt by policy.yml" in capsys.readouterr().out

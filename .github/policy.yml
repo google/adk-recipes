@@ -789,6 +789,22 @@ deployability:
       - core/python/rag-vector-search
 
 # --------------------------------------------------------------------------
+# Recipe Docker check configuration (.github/scripts/check_recipe_docker.py,
+# invoked by .github/workflows/recipe-docker-build.yml).
+#
+# Exempts recipes from CI Docker build and container verification when their
+# images start only as a deployed service with credentials, so the check
+# cannot pass.
+#
+# Entries must be repo-relative recipe paths with an explanatory comment.
+# --------------------------------------------------------------------------
+recipe_docker_check:
+  skip:
+    # Built by `agents-cli deploy` from the recipe root; requires Application
+    # Default Credentials and a deployed engine to start.
+    - core/python/ambient-quality-agent
+
+# --------------------------------------------------------------------------
 # Automated PR review — read by .github/scripts/review_budget.py, which the
 # AI review lanes call to work out how much they may say on a given push.
 #
