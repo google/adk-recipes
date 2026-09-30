@@ -1,4 +1,17 @@
 #!/usr/bin/env python3
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 """
 Hold review requests until a pull request is ready for review.
 
@@ -493,8 +506,12 @@ def fetch_open_prs() -> list[dict]:
         cursor = page["pageInfo"]["endCursor"]
 
 
+def reviewers_path(number: int) -> str:
+    return f"repos/{REPO}/pulls/{number}/requested_reviewers"
+
+
 def fetch_requested(number: int) -> Reviewers:
-    data = rest_json("GET", f"repos/{REPO}/pulls/{number}/requested_reviewers")
+    data = rest_json("GET", reviewers_path(number))
     if not isinstance(data, dict):
         raise GhError(f"unexpected requested_reviewers response: {data!r}")
     return Reviewers(
@@ -548,27 +565,23 @@ def request_reviewers(number: int, reviewers: Reviewers) -> Reviewers:
     One call first. If it fails (typically one login lost access), retry one
     at a time so a single bad entry does not strand everyone else.
     """
-    path = f"repos/{REPO}/pulls/{number}/requested_reviewers"
+    path = reviewers_path(number)
     try:
         rest_json("POST", path, reviewers_payload(reviewers))
         return Reviewers()
     except GhError:
         pass
     failed = Reviewers()
-    for user in reviewers.users:
+    singles = [(Reviewers(users=[u]), failed.users, u) for u in reviewers.users]
+    singles += [
+        (Reviewers(teams=[t]), failed.teams, t) for t in reviewers.teams
+    ]
+    for single, failures, name in singles:
         try:
-            rest_json("POST", path, reviewers_payload(Reviewers(users=[user])))
+            rest_json("POST", path, reviewers_payload(single))
         except GhError as exc:
-            print(f"  ! could not re-request {user}: {exc}", file=sys.stderr)
-            failed.users.append(user)
-    for team in reviewers.teams:
-        try:
-            rest_json("POST", path, reviewers_payload(Reviewers(teams=[team])))
-        except GhError as exc:
-            print(
-                f"  ! could not re-request team {team}: {exc}", file=sys.stderr
-            )
-            failed.teams.append(team)
+            print(f"  ! could not re-request {name}: {exc}", file=sys.stderr)
+            failures.append(name)
     return failed
 
 
@@ -599,7 +612,6 @@ def process(pr: dict, cfg: Config, dry_run: bool) -> str:
     if dry_run or decision.action == "none":
         return summary
 
-    path = f"repos/{REPO}/pulls/{number}/requested_reviewers"
     if decision.action == "bounce":
         requested = fetch_requested(number)
         stored = (
@@ -617,7 +629,9 @@ def process(pr: dict, cfg: Config, dry_run: bool) -> str:
             )
         write_comment(number, gate, blocked_body(ready, stored, cfg.label))
         if requested:
-            rest_json("DELETE", path, reviewers_payload(requested))
+            rest_json(
+                "DELETE", reviewers_path(number), reviewers_payload(requested)
+            )
     elif decision.action == "update" and gate is not None:
         write_comment(number, gate, blocked_body(ready, gate.stored, cfg.label))
     elif decision.action == "release" and gate is not None:

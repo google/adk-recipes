@@ -90,6 +90,10 @@ jobs:
           python-version: "3.11"
           enable-cache: false
 
+      # The repository is given the same way in both steps below: gh reads
+      # GH_REPO, and review_gate.py reads GITHUB_REPOSITORY, which Actions
+      # sets for every step. Set both explicitly so neither step depends on
+      # the checkout's git remote.
       - name: Ensure the gate label exists
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -104,6 +108,7 @@ jobs:
       - name: Run the gate
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           EVENT_NAME: ${{ github.event_name }}
           EVENT_PR: ${{ github.event.pull_request.number }}

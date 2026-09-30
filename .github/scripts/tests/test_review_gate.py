@@ -381,3 +381,23 @@ def test_refuses_to_run_without_a_target_repository(monkeypatch):
     with pytest.raises(SystemExit) as exc:
         g.main()
     assert exc.value.code == 2
+
+
+def test_one_bad_reviewer_does_not_strand_the_rest(monkeypatch):
+    monkeypatch.setattr(g, "REPO", "o/r")
+    posted = []
+
+    def rest_json(method, path, payload=None):
+        if len(payload["reviewers"]) + len(payload["team_reviewers"]) > 1:
+            raise g.GhError("batch rejected")
+        if payload["reviewers"] == ["gone"]:
+            raise g.GhError("not a collaborator")
+        posted.append(payload)
+
+    monkeypatch.setattr(g, "rest_json", rest_json)
+    failed = g.request_reviewers(
+        7, g.Reviewers(users=["alice", "gone"], teams=["devex"])
+    )
+    assert failed == g.Reviewers(users=["gone"])
+    assert {"reviewers": ["alice"], "team_reviewers": []} in posted
+    assert {"reviewers": [], "team_reviewers": ["devex"]} in posted
