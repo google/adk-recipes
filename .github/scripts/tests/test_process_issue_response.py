@@ -104,6 +104,19 @@ def test_resolve_assignee_from_path(path, expected_assignee):
     assert resolve_assignee_from_path(path) == expected_assignee
 
 
+@pytest.mark.parametrize(
+    ("path", "expected_assignee"),
+    [
+        ("core/python/ambient-quality-agent/src/x.py", "maxgasztych"),
+        ("core/python/other-recipe/app.py", "eliasecchig"),
+    ],
+)
+def test_resolve_assignee_from_path_prefers_last_matching_rule(
+    path, expected_assignee
+):
+    assert resolve_assignee_from_path(path) == expected_assignee
+
+
 # ---------------------------------------------------------------------------
 # Routing synchronization tests (CODEOWNERS vs script vs workflow prompt)
 # ---------------------------------------------------------------------------

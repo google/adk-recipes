@@ -73,6 +73,8 @@ ROUTING_RULES: list[tuple[str, str]] = [
     ("core/java", "eliasecchig"),
     ("core/typescript", "happyhuman"),
     ("core/kotlin", "happyhuman"),
+    # Author-owned recipes
+    ("core/python/ambient-quality-agent", "maxgasztych"),
     # Contrib directory assignments
     ("contrib/python", "happyhuman"),
     ("contrib/go", "ToniCorinne"),
@@ -86,7 +88,12 @@ ROUTING_RULES: list[tuple[str, str]] = [
 DEFAULT_ASSIGNEE = "happyhuman"
 
 # Known developer usernames (without @ prefix)
-VALID_ASSIGNEES = {"eliasecchig", "ToniCorinne", "happyhuman"}
+VALID_ASSIGNEES = {
+    "eliasecchig",
+    "ToniCorinne",
+    "happyhuman",
+    "maxgasztych",
+}
 
 FENCED_JSON = re.compile(
     r"```(?:json)?\s*(\{.*?\})\s*```", re.DOTALL | re.IGNORECASE
@@ -104,7 +111,7 @@ def normalize_path(path: str) -> str:
 
 
 def resolve_assignee_from_path(path: str | None) -> str:
-    """Resolve the assigned developer username based on path ownership."""
+    """Resolve the assignee for a path; the last matching rule wins."""
     if not path:
         return DEFAULT_ASSIGNEE
 
@@ -112,7 +119,7 @@ def resolve_assignee_from_path(path: str | None) -> str:
     if not normalized:
         return DEFAULT_ASSIGNEE
 
-    for prefix, assignee in ROUTING_RULES:
+    for prefix, assignee in reversed(ROUTING_RULES):
         if normalized == prefix or normalized.startswith(prefix + "/"):
             return assignee
 
