@@ -55,7 +55,6 @@ SKILL_FILENAME = "SKILL.md"
 #   Spec plugin:  plugins/<plugin>/plugin.json
 #   Spec skill:   plugins/<plugin>/skills/<skill>/SKILL.md
 EXPECTED_LEGACY_PARTS = 4
-EXPECTED_PARTS = EXPECTED_LEGACY_PARTS
 EXPECTED_SPEC_PLUGIN_PARTS = 3
 EXPECTED_SPEC_SKILL_PARTS = 5
 
