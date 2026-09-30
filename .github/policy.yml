@@ -228,7 +228,8 @@ required_files:
     # validation — the fix is to add the file, not to loosen the policy.
     core:
       - AGENTS.md
-    contrib: []
+    contrib:
+      - Dockerfile
     # Vertical plugins live at plugins/<vertical>/<solution>.
     #   SKILL.md  — the conversational installer: runs the interview,
     #               writes the design spec, performs setup.
