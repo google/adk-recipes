@@ -9,12 +9,12 @@ shopping assistant agents.
 
 ## Skill Surfacing Personas & Boolean Config
 
-This plugin provides boolean configuration flags (`SURFACE_LOCAL_SKILL`, `SURFACE_GOOGLE3_SKILL`) in [`assets/design-spec.md`](assets/design-spec.md), [`.env.example`](.env.example), and [`Makefile`](Makefile) so you can choose which skill surfaces to enable:
+This plugin provides boolean configuration flags (`SURFACE_GEMINI_SKILL`, `SURFACE_AGENTS_SKILL`) in [`assets/design-spec.md`](assets/design-spec.md), [`.env.example`](.env.example), and [`Makefile`](Makefile) so you can choose which skill surfaces to enable:
 
 | Persona / Surface | Boolean Flag | Default | What It Does |
 |---|---|---|---|
-| **Local Skill Hosts & GE Desktop App** (Spark Beta, GoGo, Sobi, Antigravity, Claude Code, Gemini CLI) | `SURFACE_LOCAL_SKILL` (`surface_local_skill`) | `true` | Installs a clean skill folder to `~/.gemini/skills/retail-product-search` (validated for Spark Beta) and symlinks to `~/.gemini/config/skills` & `~/.agents/skills` |
-| **Google3 (`//third_party/skills`)** (CitC / Cloudtop GoGo & Sobi) | `SURFACE_GOOGLE3_SKILL` (`surface_google3_skill`) | `false` | Syncs the skill to `//third_party/skills/skills/retail-product-search` locally on Cloudtop or via `CLOUDTOP_HOST` over SSH |
+| **Gemini Enterprise Desktop & Gemini CLI** | `SURFACE_GEMINI_SKILL` (`surface_gemini_skill`) | `true` | Installs a clean skill folder to `~/.gemini/skills/retail-product-search` and symlinks `~/.gemini/config/skills/retail-product-search` |
+| **AI Coding Assistants (`.agents/skills`)** (ADK, Claude Code, Antigravity) | `SURFACE_AGENTS_SKILL` (`surface_agents_skill`) | `true` | Symlinks the skill into `~/.agents/skills/retail-product-search` |
 
 ## Install
 
@@ -23,14 +23,14 @@ This plugin provides boolean configuration flags (`SURFACE_LOCAL_SKILL`, `SURFAC
 Toggle whichever skill personas you want to surface:
 
 ```bash
-# Default: surface to local skill hosts & Spark Beta Desktop (SURFACE_LOCAL_SKILL=true, SURFACE_GOOGLE3_SKILL=false)
+# Default: surface to both ~/.gemini/skills and ~/.agents/skills
 make surface
 
-# Surface to both local skill hosts AND google3 CitC:
-make surface SURFACE_LOCAL_SKILL=true SURFACE_GOOGLE3_SKILL=true
+# Surface only to Gemini Enterprise Desktop / Gemini CLI (~/.gemini/skills):
+make surface SURFACE_GEMINI_SKILL=true SURFACE_AGENTS_SKILL=false
 
-# Surface to remote Cloudtop google3 over SSH:
-make surface SURFACE_LOCAL_SKILL=true SURFACE_GOOGLE3_SKILL=true CLOUDTOP_HOST=<your-cloudtop>.c.googlers.com
+# Surface only to ~/.agents/skills:
+make surface SURFACE_GEMINI_SKILL=false SURFACE_AGENTS_SKILL=true
 ```
 
 ### Option 2: Install via `npx skills add`
@@ -62,10 +62,10 @@ uv sync
 
 ## Run Each Persona
 
-### Persona 1: GE Desktop App (Spark Beta / GoGo / Sobi)
+### Persona 1: Gemini Enterprise Desktop App / Gemini CLI
 
-1. Run `make surface SURFACE_LOCAL_SKILL=true`.
-2. In **Spark Beta**, open **Settings → General → Skills Folders**, add `~/.gemini/skills`, and check the **Skills** tab (`retail-product-search` appears automatically).
+1. Run `make surface SURFACE_GEMINI_SKILL=true`.
+2. In your Gemini Enterprise Desktop app, open **Settings → General → Skills Folders**, add `~/.gemini/skills`, and check the **Skills** tab (`retail-product-search` appears automatically).
 3. In chat, prompt:
    ```
    Use the retail-product-search skill to set up a product search agent on Google Cloud.
@@ -111,7 +111,7 @@ To deploy and surface the standalone agent to **Gemini Enterprise Agent Platform
 
 ```bash
 cd ../../../contrib/python/retail-product-search
-make surface DEPLOY_AGENT_ENGINE=true PUBLISH_GEMINI_ENTERPRISE=true DEPLOY_CLOUD_RUN=false
+make surface DEPLOY_AGENT_ENGINE=true PUBLISH_GEMINI_ENTERPRISE=true PUBLISH_AGENT_GARDEN=true DEPLOY_CLOUD_RUN=false
 ```
 
 ### Which mode?

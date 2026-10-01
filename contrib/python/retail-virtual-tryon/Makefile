@@ -22,6 +22,7 @@ PORT ?= 8080
 
 DEPLOY_AGENT_ENGINE ?= true
 PUBLISH_GEMINI_ENTERPRISE ?= true
+PUBLISH_AGENT_GARDEN ?= true
 DEPLOY_CLOUD_RUN ?= false
 RUN_LOCAL_WEB ?= false
 
@@ -39,6 +40,7 @@ surface:
 	@echo "=== Surfacing Retail Virtual Try-On Agent (contrib/python/retail-virtual-tryon) ==="
 	@echo "DEPLOY_AGENT_ENGINE       = $(DEPLOY_AGENT_ENGINE)"
 	@echo "PUBLISH_GEMINI_ENTERPRISE = $(PUBLISH_GEMINI_ENTERPRISE)"
+	@echo "PUBLISH_AGENT_GARDEN      = $(PUBLISH_AGENT_GARDEN)"
 	@echo "DEPLOY_CLOUD_RUN          = $(DEPLOY_CLOUD_RUN)"
 	@echo "RUN_LOCAL_WEB             = $(RUN_LOCAL_WEB)"
 	@if [ "$(DEPLOY_AGENT_ENGINE)" = "true" ] || [ "$(DEPLOY_AGENT_ENGINE)" = "TRUE" ] || [ "$(DEPLOY_AGENT_ENGINE)" = "1" ]; then \
@@ -50,6 +52,9 @@ surface:
 		else \
 			echo "Skipping register-gemini-enterprise: set GEMINI_ENTERPRISE_APP_ID in .env to publish."; \
 		fi; \
+	fi
+	@if [ "$(PUBLISH_AGENT_GARDEN)" = "true" ] || [ "$(PUBLISH_AGENT_GARDEN)" = "TRUE" ] || [ "$(PUBLISH_AGENT_GARDEN)" = "1" ]; then \
+		$(MAKE) publish-agent-garden; \
 	fi
 	@if [ "$(DEPLOY_CLOUD_RUN)" = "true" ] || [ "$(DEPLOY_CLOUD_RUN)" = "TRUE" ] || [ "$(DEPLOY_CLOUD_RUN)" = "1" ]; then \
 		$(MAKE) deploy; \
@@ -83,6 +88,15 @@ register-gemini-enterprise:
 		--app-id $$APP_ID \
 		--display-name "Retail Virtual Try-On Assistant"
 
+publish-agent-garden:
+	@test -f manifest.yaml && grep -q "deployable: true" manifest.yaml || { echo "Error: manifest.yaml must have deployable: true"; exit 1; }
+	@test -f agents-cli-manifest.yaml || { echo "Error: agents-cli-manifest.yaml is required for Agent Garden"; exit 1; }
+	@test -f Dockerfile || { echo "Error: Dockerfile is required for Agent Garden"; exit 1; }
+	@echo "✅ Validated Agent Garden bundle (manifest.yaml deployable: true + agents-cli-manifest.yaml + Dockerfile)"
+	@echo "   • Managed Agent Garden Console: https://console.cloud.google.com/vertex-ai/agents/agent-garden?project=$(PROJECT_ID)"
+	@echo "   • Deployed Agent Engines Console: https://console.cloud.google.com/vertex-ai/agents/agent-engines?project=$(PROJECT_ID)"
+	@echo "   • One-click CLI deploy from Agent Garden catalog: uvx --from google-agents-cli agents-cli create $(SERVICE_NAME)"
+
 test:
 	uv run pytest
 
@@ -90,4 +104,4 @@ lint:
 	uvx ruff check .
 	uvx ruff format --check .
 
-.PHONY: install playground local-backend surface deploy deploy-agent-engine register-gemini-enterprise test lint
+.PHONY: install playground local-backend surface deploy deploy-agent-engine register-gemini-enterprise publish-agent-garden test lint

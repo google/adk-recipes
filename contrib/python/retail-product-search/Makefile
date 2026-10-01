@@ -10,12 +10,13 @@ PORT ?= 8000
 # Boolean config flags to toggle agent surfacing personas
 DEPLOY_AGENT_ENGINE ?= true
 PUBLISH_GEMINI_ENTERPRISE ?= true
+PUBLISH_AGENT_GARDEN ?= true
 DEPLOY_CLOUD_RUN ?= false
 RUN_LOCAL_WEB ?= false
 
 # ==============================================================================
 # Surface Agent Personas via Boolean Config
-# Usage: make surface [DEPLOY_AGENT_ENGINE=true|false] [PUBLISH_GEMINI_ENTERPRISE=true|false] [DEPLOY_CLOUD_RUN=true|false] [RUN_LOCAL_WEB=true|false]
+# Usage: make surface [DEPLOY_AGENT_ENGINE=true|false] [PUBLISH_GEMINI_ENTERPRISE=true|false] [PUBLISH_AGENT_GARDEN=true|false] [DEPLOY_CLOUD_RUN=true|false] [RUN_LOCAL_WEB=true|false]
 # ==============================================================================
 
 surface:
@@ -24,6 +25,9 @@ surface:
 	fi
 	@if [ "$(PUBLISH_GEMINI_ENTERPRISE)" = "true" ]; then \
 		$(MAKE) publish-gemini-enterprise; \
+	fi
+	@if [ "$(PUBLISH_AGENT_GARDEN)" = "true" ]; then \
+		$(MAKE) publish-agent-garden; \
 	fi
 	@if [ "$(DEPLOY_CLOUD_RUN)" = "true" ]; then \
 		$(MAKE) deploy-cloudrun; \
@@ -53,6 +57,15 @@ publish-gemini-enterprise:
 		--tool-description="$(DESCRIPTION)"
 
 register-gemini-enterprise: publish-gemini-enterprise
+
+publish-agent-garden:
+	@test -f manifest.yaml && grep -q "deployable: true" manifest.yaml || { echo "Error: manifest.yaml must have deployable: true"; exit 1; }
+	@test -f agents-cli-manifest.yaml || { echo "Error: agents-cli-manifest.yaml is required for Agent Garden"; exit 1; }
+	@test -f Dockerfile || { echo "Error: Dockerfile is required for Agent Garden"; exit 1; }
+	@echo "✅ Validated Agent Garden bundle (manifest.yaml deployable: true + agents-cli-manifest.yaml + Dockerfile)"
+	@echo "   • Managed Agent Garden Console: https://console.cloud.google.com/vertex-ai/agents/agent-garden?project=$(PROJECT_ID)"
+	@echo "   • Deployed Agent Engines Console: https://console.cloud.google.com/vertex-ai/agents/agent-engines?project=$(PROJECT_ID)"
+	@echo "   • One-click CLI deploy from Agent Garden catalog: uvx --from google-agents-cli agents-cli create $(SERVICE_NAME)"
 
 deploy-cloudrun:
 	uvx --from google-agents-cli agents-cli deploy \

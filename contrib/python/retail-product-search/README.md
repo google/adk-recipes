@@ -12,10 +12,10 @@ This recipe provides boolean configuration flags in [`.env.example`](.env.exampl
 | Persona / Platform | Boolean Flag | Default | What It Does |
 |---|---|---|---|
 | **Gemini Enterprise Agent Platform (Agent Engine)** | `DEPLOY_AGENT_ENGINE` | `true` | Deploys `app.agent:root_agent` as a managed ADK Reasoning Engine in Google Cloud |
-| **Gemini Enterprise (GE) App (Sobi / Enterprise Assistant)** | `PUBLISH_GEMINI_ENTERPRISE` | `true` | Registers the deployed Agent Engine (or A2A endpoint) with your Gemini Enterprise App |
+| **Gemini Enterprise (GE) App (Enterprise Assistant)** | `PUBLISH_GEMINI_ENTERPRISE` | `true` | Registers the deployed Agent Engine (or A2A endpoint) with your Gemini Enterprise App |
+| **Managed Agent Garden** | `PUBLISH_AGENT_GARDEN` | `true` | Validates the Agent Garden bundle (`deployable: true` in `manifest.yaml` + `agents-cli-manifest.yaml` + `Dockerfile`) and outputs Console Agent Garden links & `agents-cli` command |
 | **Cloud Run (FastAPI + A2A + Reasoning Engine HTTP)** | `DEPLOY_CLOUD_RUN` | `false` | Builds the `Dockerfile` and deploys the containerized A2A/ADK server to Cloud Run |
 | **Local ADK Web & A2A Server** | `RUN_LOCAL_WEB` | `false` | Starts the local FastAPI + ADK Web + A2A server at `http://127.0.0.1:8000` |
-| **Managed Agent Garden** | `deployable: true` (in `manifest.yaml`) | Enabled | Ready for one-click deployment and discovery via `agents-cli` (`agents-cli-manifest.yaml` + `Dockerfile`) |
 
 ## Prerequisites
 
@@ -39,11 +39,12 @@ uv sync
 Toggle any combination of surfacing personas in a single command:
 
 ```bash
-# Deploy to Agent Engine + register in Gemini Enterprise App:
+# Deploy to Agent Engine + register in Gemini Enterprise App + validate Agent Garden:
 make surface \
   PROJECT_ID=your-gcp-project-id \
   DEPLOY_AGENT_ENGINE=true \
   PUBLISH_GEMINI_ENTERPRISE=true \
+  PUBLISH_AGENT_GARDEN=true \
   DEPLOY_CLOUD_RUN=false \
   RUN_LOCAL_WEB=false
 
@@ -51,6 +52,7 @@ make surface \
 make surface \
   DEPLOY_AGENT_ENGINE=false \
   PUBLISH_GEMINI_ENTERPRISE=false \
+  PUBLISH_AGENT_GARDEN=false \
   RUN_LOCAL_WEB=true
 ```
 
@@ -89,6 +91,16 @@ make publish-gemini-enterprise \
 ```bash
 make deploy-cloudrun PROJECT_ID=your-gcp-project-id REGION=us-central1
 ```
+
+#### 5. Surface in Managed Agent Garden
+
+```bash
+make publish-agent-garden PROJECT_ID=your-gcp-project-id
+```
+
+- **Google Cloud Console (Agent Garden):** `https://console.cloud.google.com/vertex-ai/agents/agent-garden?project=your-gcp-project-id`
+- **Google Cloud Console (Deployed Agent Engines):** `https://console.cloud.google.com/vertex-ai/agents/agent-engines?project=your-gcp-project-id`
+- **One-click CLI from Agent Garden catalog:** `uvx --from google-agents-cli agents-cli create retail-product-search`
 
 ## License
 

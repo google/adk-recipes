@@ -91,12 +91,12 @@ class _Config:
         return _read_env("EMBEDDING_MODEL")
 
     @property
-    def SURFACE_LOCAL_SKILL(self) -> bool:
-        return _read_bool("SURFACE_LOCAL_SKILL")
+    def SURFACE_GEMINI_SKILL(self) -> bool:
+        return _read_bool("SURFACE_GEMINI_SKILL")
 
     @property
-    def SURFACE_GOOGLE3_SKILL(self) -> bool:
-        return _read_bool("SURFACE_GOOGLE3_SKILL")
+    def SURFACE_AGENTS_SKILL(self) -> bool:
+        return _read_bool("SURFACE_AGENTS_SKILL")
 
 
 config = _Config()

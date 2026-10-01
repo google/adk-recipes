@@ -28,11 +28,13 @@ def test_config_surfacing_flags(monkeypatch) -> None:
 
     monkeypatch.delenv("DEPLOY_AGENT_ENGINE", raising=False)
     monkeypatch.delenv("PUBLISH_GEMINI_ENTERPRISE", raising=False)
+    monkeypatch.delenv("PUBLISH_AGENT_GARDEN", raising=False)
     monkeypatch.delenv("DEPLOY_CLOUD_RUN", raising=False)
     monkeypatch.delenv("RUN_LOCAL_WEB", raising=False)
 
     assert config.DEPLOY_AGENT_ENGINE is True
     assert config.PUBLISH_GEMINI_ENTERPRISE is True
+    assert config.PUBLISH_AGENT_GARDEN is True
     assert config.DEPLOY_CLOUD_RUN is False
     assert config.RUN_LOCAL_WEB is False
 

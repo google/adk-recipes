@@ -28,8 +28,8 @@ tryon_catalog_upload: true                                  # set false to run p
 # gcs_catalog_bucket: ""                                    # gs:// bucket hosting the catalog images
 
 # --- Skill Surfacing Personas (boolean flags) ---
-surface_local_skill: true                                   # true | false: install to ~/.gemini/skills (Spark Beta/GoGo/Sobi), ~/.gemini/config/skills, and ~/.agents/skills
-surface_google3_skill: false                                # true | false: sync to //third_party/skills/skills/retail-virtual-tryon
+surface_gemini_skill: true                                  # true | false: install to ~/.gemini/skills and ~/.gemini/config/skills (Gemini Enterprise Desktop / Gemini CLI)
+surface_agents_skill: true                                  # true | false: install to ~/.agents/skills (ADK / Claude Code / Antigravity)
 ---
 
 # Virtual Try-On Agent

@@ -48,6 +48,7 @@ In `.env` (copied from `.env.example`), toggle the boolean flags for the platfor
 # Surfacing boolean flags (choose which targets `make surface` runs)
 DEPLOY_AGENT_ENGINE=true
 PUBLISH_GEMINI_ENTERPRISE=true
+PUBLISH_AGENT_GARDEN=true
 DEPLOY_CLOUD_RUN=false
 RUN_LOCAL_WEB=false
 
@@ -70,10 +71,10 @@ You can also run or deploy each persona individually via `make` targets:
 | Persona | Platform / Surface | Boolean Flag in `.env` | Direct Command |
 | :--- | :--- | :--- | :--- |
 | **1. Managed Reasoning Engine** | **Gemini Enterprise Agent Platform (Agent Engine)** | `DEPLOY_AGENT_ENGINE=true` | `make deploy-agent-engine` |
-| **2. Enterprise Assistant** | **Gemini Enterprise App / Sobi** | `PUBLISH_GEMINI_ENTERPRISE=true` | `make register-gemini-enterprise GEMINI_ENTERPRISE_APP_ID=<app-id>` |
-| **3. Containerized A2A Microservice** | **Cloud Run (FastAPI + A2A)** | `DEPLOY_CLOUD_RUN=true` | `make deploy` |
-| **4. Interactive Dev UI** | **ADK Web Playground / Local FastAPI** | `RUN_LOCAL_WEB=true` | `make playground` or `make local-backend` |
-| **5. Public Catalog Discovery** | **ADK Samples Gallery / Agents CLI** | `deployable: true` in `manifest.yaml` | Automatic once merged to `main` |
+| **2. Enterprise Assistant** | **Gemini Enterprise App** | `PUBLISH_GEMINI_ENTERPRISE=true` | `make register-gemini-enterprise GEMINI_ENTERPRISE_APP_ID=<app-id>` |
+| **3. Managed Agent Garden** | **Google Cloud Console Agent Garden / Agents CLI** | `PUBLISH_AGENT_GARDEN=true` | `make publish-agent-garden` |
+| **4. Containerized A2A Microservice** | **Cloud Run (FastAPI + A2A)** | `DEPLOY_CLOUD_RUN=true` | `make deploy` |
+| **5. Interactive Dev UI** | **ADK Web Playground / Local FastAPI** | `RUN_LOCAL_WEB=true` | `make playground` or `make local-backend` |
 
 ### 1. Gemini Enterprise Agent Platform (Agent Engine)
 Deploys `app/agent.py` (`root_agent`) as a managed Reasoning Engine in your GCP project:
@@ -81,19 +82,28 @@ Deploys `app/agent.py` (`root_agent`) as a managed Reasoning Engine in your GCP 
 make deploy-agent-engine PROJECT_ID=your-gcp-project-id LOCATION=us-central1
 ```
 
-### 2. Gemini Enterprise App (Sobi / Enterprise Search & Assistant)
+### 2. Gemini Enterprise App (Enterprise Search & Assistant)
 Registers the deployed agent with your Gemini Enterprise application:
 ```bash
 make register-gemini-enterprise PROJECT_ID=your-gcp-project-id GEMINI_ENTERPRISE_APP_ID=your-app-id
 ```
 
-### 3. Cloud Run (FastAPI + A2A Server)
+### 3. Managed Agent Garden
+Validates the Agent Garden bundle (`deployable: true` in `manifest.yaml`, `agents-cli-manifest.yaml`, and `Dockerfile`) and prints the Google Cloud Console Agent Garden links & `agents-cli` command:
+```bash
+make publish-agent-garden PROJECT_ID=your-gcp-project-id
+```
+- **Google Cloud Console (Agent Garden):** `https://console.cloud.google.com/vertex-ai/agents/agent-garden?project=your-gcp-project-id`
+- **Google Cloud Console (Deployed Agent Engines):** `https://console.cloud.google.com/vertex-ai/agents/agent-engines?project=your-gcp-project-id`
+- **One-click CLI from Agent Garden catalog:** `uvx --from google-agents-cli agents-cli create retail-virtual-tryon`
+
+### 4. Cloud Run (FastAPI + A2A Server)
 Builds `Dockerfile` and deploys the FastAPI + A2A service (`/.well-known/agent.json`, `/a2a`, `/feedback`, `/health`):
 ```bash
 make deploy PROJECT_ID=your-gcp-project-id LOCATION=us-central1
 ```
 
-### 4. Local Development (ADK Web Playground & FastAPI)
+### 5. Local Development (ADK Web Playground & FastAPI)
 Launch the interactive ADK web UI:
 ```bash
 make playground

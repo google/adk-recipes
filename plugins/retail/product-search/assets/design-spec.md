@@ -18,8 +18,8 @@ table_id: products
 catalog_size: "1K-50K"                                      # only used to trigger a >500K Dataflow hint
 
 # --- Skill Surfacing Personas (boolean flags) ---
-surface_local_skill: true                                   # true | false: install to ~/.gemini/skills (Spark Beta/GoGo/Sobi), ~/.gemini/config/skills, and ~/.agents/skills
-surface_google3_skill: false                                # true | false: sync to //third_party/skills/skills/retail-product-search
+surface_gemini_skill: true                                  # true | false: install to ~/.gemini/skills and ~/.gemini/config/skills (Gemini Enterprise Desktop / Gemini CLI)
+surface_agents_skill: true                                  # true | false: install to ~/.agents/skills (ADK / Claude Code / Antigravity)
 ---
 
 # Product Search Agent

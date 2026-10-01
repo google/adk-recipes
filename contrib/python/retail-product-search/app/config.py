@@ -105,6 +105,10 @@ class _Config:
         return _read_bool("PUBLISH_GEMINI_ENTERPRISE")
 
     @property
+    def PUBLISH_AGENT_GARDEN(self) -> bool:
+        return _read_bool("PUBLISH_AGENT_GARDEN")
+
+    @property
     def DEPLOY_CLOUD_RUN(self) -> bool:
         return _read_bool("DEPLOY_CLOUD_RUN")
 
