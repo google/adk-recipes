@@ -26,12 +26,17 @@ COPY app ./app
 # Defaults live in .env.example; the ADK CLI reads them from .env.
 COPY .env.example ./.env
 
+# /app stays owned by root, so the agent cannot modify its own code. Nothing
+# writes there at runtime: the ADK CLI compiles app/agent.ts into a directory
+# under os.tmpdir(), and sessions and artifacts are held in memory.
 USER node
 
 ENV PORT=8080
 EXPOSE 8080
 
 # The ADK CLI compiles app/agent.ts on startup and serves the dev UI and the
-# REST API on one port. Binding 0.0.0.0 also turns off its DNS-rebinding
-# guard, which only applies to loopback binds.
+# REST API on one port. A container has to bind 0.0.0.0 to be reachable
+# through its published port. The CLI's DNS-rebinding guard only protects
+# loopback binds, so it does not apply here; restrict access where the
+# container runs (for example Cloud Run IAM and ingress settings).
 CMD exec node_modules/.bin/adk web --host 0.0.0.0 --port ${PORT} .
