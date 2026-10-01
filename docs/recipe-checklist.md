@@ -116,11 +116,8 @@ One block, one paste. Requires `$RECIPE_PATH` from above.
 uv run validate $RECIPE_PATH                # Validates manifest, structure, readme, and placement
 uv run ruff format $RECIPE_PATH             # Formats the recipe code
 uv run ruff check --fix $RECIPE_PATH        # Fixes lint errors
-
-# From the recipe root
-cd $RECIPE_PATH
-uv lock                                     # Updates the lock file
-uv run pytest                               # Runs the tests
+uv lock --project $RECIPE_PATH              # Updates the recipe lock file
+(cd $RECIPE_PATH && uv run pytest)          # Runs the recipe tests
 ```
 
 ### Structural checks
@@ -165,8 +162,7 @@ uv run validate placement $RECIPE_PATH
 
 - [ ] Tests pass (integration excluded, same as CI):
       ```bash
-      cd $RECIPE_PATH
-      uv run pytest --ignore=tests/integration --ignore-glob="**/test_integration.py"
+      (cd $RECIPE_PATH && uv run pytest --ignore=tests/integration --ignore-glob="**/test_integration.py")
       ```
 
 ### Integration tests
