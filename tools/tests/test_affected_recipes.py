@@ -455,3 +455,21 @@ def test_language_filter_via_cli(tmp_path, monkeypatch, capsys):
 
     assert m.main() == 0
     assert capsys.readouterr().out.splitlines() == ["core/flat-py"]
+
+
+def test_compute_affected_recipes_maps_any_file_in_spec_plugin_container(
+    tmp_path,
+):
+    plugin_dir = tmp_path / "plugins/retail"
+    (plugin_dir / "assets").mkdir(parents=True)
+    (plugin_dir / "plugin.json").write_text('{"name": "retail"}\n')
+    (plugin_dir / "README.md").write_text("# Retail\n")
+    (plugin_dir / "assets/diagram.png").write_text("png")
+
+    changed = [
+        "plugins/retail/README.md",
+        "plugins/retail/assets/diagram.png",
+    ]
+    assert m.compute_affected_recipes(changed, repo_root=tmp_path) == [
+        "plugins/retail"
+    ]

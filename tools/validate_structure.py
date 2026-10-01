@@ -514,7 +514,7 @@ def check_size_and_count(
                         f"reported instead of quietly falling back."
                     ),
                     how=(
-                        f"Remove `large: true` from {vm.MANIFEST_FILENAME} "
+                        f"Remove `large: true` from {manifest_path.name} "
                         f"and stay within the default tier, or ask a "
                         f"maintainer to add a `{root}.large` block "
                         f"(max_files / max_size_mb) to .github/policy.yml."
@@ -551,7 +551,7 @@ def check_size_and_count(
         if is_large
         else (
             f"If the recipe genuinely needs the room, set `large: true` in "
-            f"{vm.MANIFEST_FILENAME} to opt into the relaxed tier "
+            f"{manifest_path.name} to opt into the relaxed tier "
             f"({_describe_tier(root_limits.get('large'))})."
         )
     )
@@ -866,8 +866,12 @@ def validate_skill_frontmatter(skill_file: Path) -> list[Diagnostic]:
             )
         ]
 
-    parts = stripped.split("---", 2)
-    if len(parts) < 3:
+    fm_match = re.match(
+        r"^---[ \t]*\r?\n(.*?\r?\n)?---[ \t]*(?:\r?\n|$)",
+        stripped,
+        re.DOTALL,
+    )
+    if fm_match is None:
         return [
             Diagnostic(
                 check="skill-frontmatter",
@@ -880,7 +884,7 @@ def validate_skill_frontmatter(skill_file: Path) -> list[Diagnostic]:
         ]
 
     try:
-        data = yaml.safe_load(parts[1])
+        data = yaml.safe_load(fm_match.group(1) or "")
     except yaml.YAMLError as e:
         return [
             Diagnostic(

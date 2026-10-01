@@ -170,16 +170,27 @@ def compute_affected_recipes(
         match on manifest.language. Implies filter_existing (the manifest
         must exist to be read)."""
     candidates: set[str] = set()
+    check_disk = filter_existing or language is not None
     for line in changed_files:
         path = line.strip()
         if not path:
+            continue
+        parts = path.split("/")
+        if (
+            check_disk
+            and len(parts) >= 3
+            and parts[0] in vm.NAMESPACE_REQUIRED_ROOTS
+            and parts[1]
+            and vm.is_plugin_container(repo_root / parts[0] / parts[1])
+        ):
+            candidates.add(f"{parts[0]}/{parts[1]}")
             continue
         rd = recipe_dir_for(path)
         if rd is None:
             continue
         candidates.add(rd)
 
-    if filter_existing or language is not None:
+    if check_disk:
         candidates = {c for c in candidates if (repo_root / c).is_dir()}
 
     if language is not None:

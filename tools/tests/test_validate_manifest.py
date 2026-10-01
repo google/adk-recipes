@@ -811,3 +811,18 @@ def test_collect_spec_compliant_plugin_container(tmp_path, monkeypatch):
     assert [p.relative_to(tmp_path).as_posix() for p in scoped] == [
         "plugins/retail"
     ]
+
+    trailing = m.collect_recipe_dirs("plugins/")
+    assert [p.relative_to(tmp_path).as_posix() for p in trailing] == [
+        "plugins/retail"
+    ]
+
+
+def test_validate_plugin_non_object_json_reports_schema_error(tmp_path):
+    p = tmp_path / "plugins/retail/plugin.json"
+    p.parent.mkdir(parents=True)
+    p.write_text("[]", encoding="utf-8")
+    diags = m.validate_plugin(p, m.load_plugin_schema())
+    assert len(diags) == 1
+    assert diags[0].check == "plugin-schema"
+    assert "JSON object" in diags[0].what

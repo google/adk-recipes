@@ -1337,3 +1337,25 @@ def test_validate_spec_compliant_plugin_mixed_with_manifest_yaml(
     assert any(
         d.check == "placement" and "mixes legacy" in d.what for d in diags
     )
+
+
+def test_validate_skill_frontmatter_with_inline_triple_dashes(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(m, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(vm, "REPO_ROOT", tmp_path)
+    skills = {
+        "product-search": (
+            "---\n"
+            "name: product-search\n"
+            "# --- comment ---\n"
+            'description: "Step 1 --- Step 2"\n'
+            "---\n"
+            "# Body\n"
+        )
+    }
+    plugin = _make_spec_plugin(tmp_path, skills=skills)
+    policy = m.load_policy()
+    schema = vm.load_schema()
+    plugin_schema = vm.load_plugin_schema()
+    assert m.validate_recipe(plugin, policy, schema, plugin_schema) == []

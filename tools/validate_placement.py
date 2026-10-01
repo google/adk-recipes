@@ -277,23 +277,9 @@ def check_root(
                 rel = s.relative_to(repo_root)
                 if not _matches_scope(str(rel), scope):
                     continue
-                if not (
-                    len(rel.parts) == EXPECTED_SPEC_SKILL_PARTS
-                    and rel.parts[2] == "skills"
-                ):
-                    diagnostics.append(
-                        Diagnostic(
-                            check="placement",
-                            what=f"'{rel}' is placed at an invalid location.",
-                            why=(
-                                "In a spec-compliant plugin, skills must live at "
-                                f"plugins/<plugin>/skills/<skill-name>/{SKILL_FILENAME}."
-                            ),
-                            how=f"Move {SKILL_FILENAME} to plugins/{rel.parts[1]}/skills/<skill-name>/{SKILL_FILENAME}.",
-                            doc=Doc.PLACEMENT,
-                            file=str(rel),
-                        )
-                    )
+                diag = describe_violation(list(rel.parts))
+                if diag is not None:
+                    diagnostics.append(diag)
         elif manifests:
             for m_path in manifests:
                 rel = m_path.relative_to(repo_root)
@@ -307,24 +293,21 @@ def check_root(
                 rel = s.relative_to(repo_root)
                 if not _matches_scope(str(rel), scope):
                     continue
-                if (
-                    len(rel.parts) == EXPECTED_SPEC_SKILL_PARTS
-                    and rel.parts[2] == "skills"
-                ):
-                    diagnostics.append(
-                        Diagnostic(
-                            check="placement",
-                            what=f"'{child_str}' contains skills but is missing plugin.json.",
-                            why=(
-                                "A spec-compliant plugin container must have a "
-                                f"plugin.json file at plugins/<plugin>/{vm.PLUGIN_FILENAME}."
-                            ),
-                            how=f"Add {vm.PLUGIN_FILENAME} to {child_str}/{vm.PLUGIN_FILENAME}.",
-                            doc=Doc.PLACEMENT,
-                            file=child_str,
-                        )
+                diagnostics.append(
+                    Diagnostic(
+                        check="placement",
+                        what=f"'{child_str}' contains skills ({rel}) but is missing plugin.json.",
+                        why=(
+                            "A spec-compliant plugin container must have a "
+                            f"plugin.json file at plugins/<plugin>/{vm.PLUGIN_FILENAME} "
+                            f"(or a legacy manifest.yaml at plugins/<vertical>/<solution>/{vm.MANIFEST_FILENAME})."
+                        ),
+                        how=f"Add {vm.PLUGIN_FILENAME} to {child_str}/{vm.PLUGIN_FILENAME}.",
+                        doc=Doc.PLACEMENT,
+                        file=child_str,
                     )
-                    break
+                )
+                break
 
     return diagnostics
 

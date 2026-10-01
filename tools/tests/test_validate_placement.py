@@ -313,3 +313,10 @@ def test_missing_plugin_json_with_skills_directory(tmp_path):
     diags = m.check_root("plugins", repo_root=tmp_path)
     assert len(diags) == 1
     assert "missing plugin.json" in diags[0].what
+
+
+def test_missing_plugin_json_with_shallow_skill_file(tmp_path):
+    _write_file(tmp_path / "plugins/retail/SKILL.md", "# skill")
+    diags = m.check_root("plugins", repo_root=tmp_path)
+    assert len(diags) == 1
+    assert "missing plugin.json" in diags[0].what

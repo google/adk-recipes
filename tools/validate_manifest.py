@@ -617,6 +617,18 @@ def validate_plugin(plugin_path: Path, schema: dict) -> list[Diagnostic]:
             )
         ]
 
+    if not isinstance(data, dict):
+        return [
+            Diagnostic(
+                check="plugin-schema",
+                what=f"{PLUGIN_FILENAME} top-level must be a JSON object.",
+                why="The plugin manifest schema requires an object at the top level.",
+                how="Wrap the plugin manifest fields in a JSON object {...}.",
+                doc=Doc.MANIFEST,
+                file=file,
+            )
+        ]
+
     if not data:
         required = ", ".join(schema.get("required") or [])
         return [
@@ -628,18 +640,6 @@ def validate_plugin(plugin_path: Path, schema: dict) -> list[Diagnostic]:
                     "name, schema and owners."
                 ),
                 how=f"Write the required top-level fields: {required}.",
-                doc=Doc.MANIFEST,
-                file=file,
-            )
-        ]
-
-    if not isinstance(data, dict):
-        return [
-            Diagnostic(
-                check="plugin-schema",
-                what=f"{PLUGIN_FILENAME} top-level must be a JSON object.",
-                why="The plugin manifest schema requires an object at the top level.",
-                how="Wrap the plugin manifest fields in a JSON object {...}.",
                 doc=Doc.MANIFEST,
                 file=file,
             )
@@ -788,6 +788,8 @@ def collect_recipe_dirs(scope: str | None) -> list[Path]:
       "core/some-recipe"        — a single flat recipe directory
       "core/python/some-recipe" — a single namespaced recipe directory
     """
+    if scope is not None:
+        scope = scope.strip("/") or None
     if scope is None or scope == "all":
         roots_to_scan = RECIPE_ROOTS
     elif scope in RECIPE_ROOTS:
