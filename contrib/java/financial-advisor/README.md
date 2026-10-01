@@ -85,8 +85,10 @@ specialist's full output.
 mvn test
 ```
 
-The test builds `ROOT_AGENT` and checks that the coordinator has the four
-specialist tools. It never calls the model, so it needs no credentials.
+`RunnabilityTest` checks that `ROOT_AGENT` loads and that the ADK dev server,
+started the way the `Dockerfile` starts it, lists `financial_coordinator` at
+`/list-apps`. `FinancialAdvisorAgentTest` checks that the coordinator has the
+four specialist tools. Neither calls the model, so they need no credentials.
 
 ## Deployment
 
