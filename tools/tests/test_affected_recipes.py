@@ -473,3 +473,14 @@ def test_compute_affected_recipes_maps_any_file_in_spec_plugin_container(
     assert m.compute_affected_recipes(changed, repo_root=tmp_path) == [
         "plugins/retail"
     ]
+
+
+def test_compute_affected_recipes_rejects_path_traversal(tmp_path):
+    (tmp_path / "plugin.json").write_text('{"name": "root"}\n')
+    changed = [
+        "plugins/../plugin.json",
+        "plugins/../skills/foo/SKILL.md",
+        "core/../secret/agent.py",
+    ]
+    assert m.compute_affected_recipes(changed, repo_root=tmp_path) == []
+    assert m.recipe_dir_for("plugins/../plugin.json") is None

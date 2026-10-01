@@ -64,7 +64,7 @@ def recipe_dir_for(path: str) -> str | None:
     the results against the working tree separately (see main's
     --filter-existing flag)."""
     parts = path.split("/")
-    if len(parts) < 2:
+    if len(parts) < 2 or any(p in {".", ".."} for p in parts):
         return None
     root = parts[0]
     if root not in RECIPE_ROOTS:
@@ -176,15 +176,21 @@ def compute_affected_recipes(
         if not path:
             continue
         parts = path.split("/")
+        if any(p in {".", ".."} for p in parts):
+            continue
         if (
             check_disk
             and len(parts) >= 3
             and parts[0] in vm.NAMESPACE_REQUIRED_ROOTS
             and parts[1]
-            and vm.is_plugin_container(repo_root / parts[0] / parts[1])
         ):
-            candidates.add(f"{parts[0]}/{parts[1]}")
-            continue
+            root_dir = (repo_root / parts[0]).resolve()
+            plugin_dir = (root_dir / parts[1]).resolve()
+            if plugin_dir.is_relative_to(root_dir) and vm.is_plugin_container(
+                plugin_dir
+            ):
+                candidates.add(f"{parts[0]}/{parts[1]}")
+                continue
         rd = recipe_dir_for(path)
         if rd is None:
             continue
