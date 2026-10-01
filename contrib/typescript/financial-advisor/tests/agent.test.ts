@@ -17,7 +17,8 @@ import { expect, test } from "vitest";
 // Runnability test: importing the agent module must build the agent graph. It
 // never calls the model, so it needs no network access or credentials.
 test("rootAgent has the four specialist tools", async () => {
-  process.env.MODEL_NAME ??= "gemini-3.5-flash";
+  // Defaults come from .env.example; variables already set take precedence.
+  process.loadEnvFile(new URL("../.env.example", import.meta.url));
   const { app, rootAgent } = await import("../app/agent");
 
   expect(rootAgent.name).toBe("financial_coordinator");

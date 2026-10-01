@@ -20,7 +20,8 @@ import { expect, test } from "vitest";
 // test_runnability.py. Neither calls the model, so they need no network
 // access or credentials.
 
-process.env.MODEL_NAME ??= "gemini-3.5-flash";
+// Defaults come from .env.example; variables already set take precedence.
+process.loadEnvFile(new URL("../.env.example", import.meta.url));
 
 test("agent module defines rootAgent and app", async () => {
   const { app, rootAgent } = await import("../app/agent");
