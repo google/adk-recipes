@@ -33,6 +33,10 @@ COPY --from=build /out/financial-advisor ./financial-advisor
 # Defaults live in .env.example; the agent reads them from .env.
 COPY .env.example ./.env
 
+# The nonroot image already defaults to this user; stating it keeps the
+# non-root requirement visible here.
+USER nonroot:nonroot
+
 EXPOSE 8080
 
 # Serves the ADK REST API under /api and the dev UI under /ui on port 8080.
