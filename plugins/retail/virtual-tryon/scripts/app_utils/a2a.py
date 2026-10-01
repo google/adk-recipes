@@ -142,7 +142,7 @@ def attach_a2a_routes(
     app: FastAPI,
     *,
     agent: BaseAgent,
-    runner: Runner,
+    runner: Runner | object,
     task_store: TaskStore,
     rpc_path: str,
     capabilities: AgentCapabilities | None = None,

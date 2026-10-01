@@ -107,7 +107,7 @@ class _Config:
 
     @property
     def ALLOW_ORIGINS(self) -> str:
-        return os.getenv("ALLOW_ORIGINS") or ""
+        return _read_env("ALLOW_ORIGINS")
 
     @property
     def APP_URL(self) -> str:

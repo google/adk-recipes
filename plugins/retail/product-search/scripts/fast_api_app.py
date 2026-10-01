@@ -12,7 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import contextlib
 import os
+from collections.abc import AsyncIterator
 
 import google.auth
 from a2a.server.tasks import InMemoryTaskStore
@@ -44,6 +46,20 @@ allow_origins = (
 
 AGENT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
+
+@contextlib.asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    runner = Runner(
+        app=adk_app,
+        session_service=services.get_session_service(),
+        artifact_service=services.get_artifact_service(),
+        auto_create_session=True,
+    )
+    app.state.runner = runner
+    app.state.agent_app_name = adk_app.name
+    yield
+
+
 app: FastAPI = get_fast_api_app(
     agents_dir=AGENT_DIR,
     web=True,
@@ -51,23 +67,15 @@ app: FastAPI = get_fast_api_app(
     allow_origins=allow_origins,
     session_service_uri=services.SESSION_SERVICE_URI,
     otel_to_cloud=project_id is not None and not os.getenv("INTEGRATION_TEST"),
+    lifespan=lifespan,
 )
 app.title = "retail-product-search"
 app.description = "API for interacting with the Agent retail-product-search"
 
-runner = Runner(
-    app=adk_app,
-    session_service=services.get_session_service(),
-    artifact_service=services.get_artifact_service(),
-    auto_create_session=True,
-)
-app.state.runner = runner
-app.state.agent_app_name = adk_app.name
-
 attach_a2a_routes(
     app,
     agent=root_agent,
-    runner=runner,
+    runner=lambda: app.state.runner,
     task_store=InMemoryTaskStore(),
     rpc_path=f"/a2a/{adk_app.name}",
 )
