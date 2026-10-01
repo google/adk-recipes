@@ -61,10 +61,46 @@ _REGENERATE_HINT = (
 
 def _strip_comment(line: str) -> str:
     """Strip // line comments outside quotes."""
-    idx = line.find("//")
-    if idx != -1:
-        line = line[:idx]
+    in_quote: str | None = None
+    i = 0
+    while i < len(line):
+        ch = line[i]
+        if in_quote is not None:
+            if ch == "\\" and i + 1 < len(line):
+                i += 2
+                continue
+            if ch == in_quote:
+                in_quote = None
+            i += 1
+            continue
+
+        if ch in ('"', "'"):
+            in_quote = ch
+            i += 1
+            continue
+
+        if ch == "/" and i + 1 < len(line) and line[i + 1] == "/":
+            return line[:i].strip()
+
+        i += 1
+
     return line.strip()
+
+
+def _record_require(
+    tokens: list[str],
+    requires: dict[str, str],
+    lineno: int,
+    errors: list[str],
+) -> None:
+    """Validate and record a require entry from tokens."""
+    if len(tokens) >= 2:
+        mod_path = tokens[0].strip("\"'")
+        version = tokens[1].strip("\"'")
+        requires[mod_path] = version
+    elif tokens:
+        raw = " ".join(tokens)
+        errors.append(f"Line {lineno}: invalid require entry {raw!r}")
 
 
 def parse_go_mod(content: str) -> tuple[dict[str, str], list[str]]:
@@ -88,12 +124,7 @@ def parse_go_mod(content: str) -> tuple[dict[str, str], list[str]]:
                 in_require_block = False
                 continue
             tokens = line.split()
-            if len(tokens) >= 2:
-                mod_path = tokens[0].strip("\"'")
-                version = tokens[1].strip("\"'")
-                requires[mod_path] = version
-            elif tokens:
-                errors.append(f"Line {lineno}: invalid require entry {line!r}")
+            _record_require(tokens, requires, lineno, errors)
             continue
 
         if (
@@ -108,21 +139,13 @@ def parse_go_mod(content: str) -> tuple[dict[str, str], list[str]]:
                 rest = rest[:-1].strip()
             if rest:
                 tokens = rest.split()
-                if len(tokens) >= 2:
-                    mod_path = tokens[0].strip("\"'")
-                    version = tokens[1].strip("\"'")
-                    requires[mod_path] = version
+                _record_require(tokens, requires, lineno, errors)
             continue
 
         if line.startswith("require ") or line.startswith("require\t"):
-            rest = line[7:].strip()
+            rest = line.removeprefix("require").strip()
             tokens = rest.split()
-            if len(tokens) >= 2:
-                mod_path = tokens[0].strip("\"'")
-                version = tokens[1].strip("\"'")
-                requires[mod_path] = version
-            elif tokens:
-                errors.append(f"Line {lineno}: invalid require entry {line!r}")
+            _record_require(tokens, requires, lineno, errors)
 
     if in_require_block:
         errors.append("Unclosed require block in go.mod")
@@ -153,9 +176,7 @@ def parse_go_sum(
         if not _HASH_RE.match(hash_val):
             malformed.append((lineno, raw_line))
             continue
-        base_ver = (
-            ver_token[:-7] if ver_token.endswith("/go.mod") else ver_token
-        )
+        base_ver = ver_token.removesuffix("/go.mod")
         if not base_ver.startswith("v"):
             malformed.append((lineno, raw_line))
             continue
@@ -246,7 +267,7 @@ def _stale_gosum(go_sum_path: str, go_mod_path: str) -> Diagnostic:
             "go.sum should only contain checksums for dependencies required "
             "by go.mod. A recipe with no dependencies does not need a go.sum file."
         ),
-        how=(f"Remove the unnecessary go.sum file:\n  rm {go_sum_path}"),
+        how=f"Remove the unnecessary go.sum file:\n  rm {go_sum_path}",
         doc=Doc.LOCK_STALE,
         file=go_sum_path,
     )
@@ -330,7 +351,14 @@ def _run(target_str: str) -> int:
             str(go_sum_path),
         )
 
-    # go.sum exists: parse it
+    # Rule: go.mod has no require entries but go.sum exists -> stale
+    if not requires and has_gosum:
+        return _report(
+            [_stale_gosum(str(go_sum_path), str(go_mod_path))],
+            str(go_sum_path),
+        )
+
+    # go.sum exists with dependencies in go.mod: parse it
     try:
         sum_content = go_sum_path.read_text(encoding="utf-8")
     except Exception as exc:
@@ -346,10 +374,6 @@ def _run(target_str: str) -> int:
     sum_entries, malformed_lines = parse_go_sum(sum_content)
 
     diagnostics: list[Diagnostic] = []
-
-    # Rule: go.mod has no require entries but go.sum exists and has entries -> stale
-    if not requires and sum_entries:
-        diagnostics.append(_stale_gosum(str(go_sum_path), str(go_mod_path)))
 
     # Rule: malformed lines in go.sum
     for lineno, line_text in malformed_lines:

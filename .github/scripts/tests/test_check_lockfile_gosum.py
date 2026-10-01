@@ -34,10 +34,9 @@ EXIT_OK = 0
 EXIT_VIOLATIONS = 1
 EXIT_CI_FAULT = 2
 
-# Valid SHA-256 base64 hash (43 chars + '=')
+# Valid SHA-256 base64 hashes (43 chars + '=')
 _VALID_HASH_1 = "h1:7eLL/+HRGLY0ldzfGMeQkb7vMd0as4CfYvUVzLqw0N0="
 _VALID_HASH_2 = "h1:EHSlil6b/KG3OquU+uKDA4cvz/Fyn8Nsch5MysXEehc="
-_VALID_HASH_3 = "h1:qTyG2ynz5dQy2jF4CvZdLHHVslhR0heMue+zM1a4GNM="
 
 
 def _write_recipe(
@@ -236,6 +235,18 @@ def test_stale_gosum_with_no_requires_in_gomod_is_reported(
     assert f"::error file={tmp_path / 'go.sum'}::" in out
 
 
+def test_stale_empty_gosum_with_no_requires_in_gomod_is_reported(
+    tmp_path, monkeypatch, capsys
+):
+    go_mod = "module github.com/example/recipe\n\ngo 1.25.0\n"
+    go_sum = ""
+    path = _write_recipe(tmp_path, go_mod, go_sum)
+    assert _run(path, monkeypatch) == EXIT_VIOLATIONS
+    out = capsys.readouterr().out
+    assert "no require entries" in out
+    assert f"::error file={tmp_path / 'go.sum'}::" in out
+
+
 def test_gomod_syntax_error_is_reported(tmp_path, monkeypatch, capsys):
     go_mod = (
         "module github.com/example/recipe\n\n"
@@ -263,6 +274,31 @@ def test_unclosed_require_block_is_reported(tmp_path, monkeypatch, capsys):
     assert "Unclosed require block" in out
 
 
+def test_single_line_require_parentheses_block(tmp_path, monkeypatch, capsys):
+    go_mod = (
+        "module github.com/example/recipe\n\n"
+        "go 1.25.0\n\n"
+        "require ( github.com/joho/godotenv v1.5.1 )\n"
+    )
+    go_sum = f"github.com/joho/godotenv v1.5.1 {_VALID_HASH_1}\n"
+    path = _write_recipe(tmp_path, go_mod, go_sum)
+    assert _run(path, monkeypatch) == EXIT_OK
+    assert "[PASS]" in capsys.readouterr().out
+
+
+def test_malformed_single_line_require_parentheses_block(
+    tmp_path, monkeypatch, capsys
+):
+    go_mod = (
+        "module github.com/example/recipe\n\n"
+        "go 1.25.0\n\n"
+        "require ( github.com/joho/godotenv )\n"  # missing version
+    )
+    path = _write_recipe(tmp_path, go_mod)
+    assert _run(path, monkeypatch) == EXIT_VIOLATIONS
+    assert "invalid require entry" in capsys.readouterr().out
+
+
 def test_quoted_and_multiple_require_blocks(tmp_path, monkeypatch, capsys):
     go_mod = (
         "module github.com/example/recipe\n\n"
@@ -276,6 +312,18 @@ def test_quoted_and_multiple_require_blocks(tmp_path, monkeypatch, capsys):
         f"github.com/joho/godotenv v1.5.1 {_VALID_HASH_1}\n"
         f"google.golang.org/adk v1.7.0 {_VALID_HASH_2}\n"
     )
+    path = _write_recipe(tmp_path, go_mod, go_sum)
+    assert _run(path, monkeypatch) == EXIT_OK
+    assert "[PASS]" in capsys.readouterr().out
+
+
+def test_quotes_with_slashes_in_gomod(tmp_path, monkeypatch, capsys):
+    go_mod = (
+        "module github.com/example/recipe\n\n"
+        "go 1.25.0\n\n"
+        'require "github.com/joho//godotenv" v1.5.1 // comment with // inside\n'
+    )
+    go_sum = f"github.com/joho//godotenv v1.5.1 {_VALID_HASH_1}\n"
     path = _write_recipe(tmp_path, go_mod, go_sum)
     assert _run(path, monkeypatch) == EXIT_OK
     assert "[PASS]" in capsys.readouterr().out
