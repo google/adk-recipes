@@ -1,23 +1,32 @@
-<!-- word count: 443 (target 800, cap 1200) -->
-
 # Anatomy of a Recipe
 
 The shape shared by every ADK recipe in this repo, regardless
 of root or language. Language-specific detail lives in
-[languages/](./languages/).
+[Python](./languages/python.md), [Go](./languages/go.md),
+[Java](./languages/java.md), [Kotlin](./languages/kotlin.md), and
+[TypeScript](./languages/typescript.md).
 
 ## Where a recipe lives
 
-Every recipe lives at `<root>/<lang>/<name>`, where `<root>` is
-`core/` (curated by the `agents-cli` team) or `contrib/`
-(community). Nested by language.
+Recipes live in one of three roots:
 
-Contributors submit new recipes to `contrib/`. The rest of this
-page covers what all recipes share. `core/` recipes have one additional file — `AGENTS.md` — written
-for coding agents: intent, key files to study, and reuse notes.
-`contrib/` recipes don't need `AGENTS.md`, but every `contrib/`
-recipe must be deployable, which means it must have a `Dockerfile`
-at the recipe root and set `deployable: true` in `manifest.yaml`.
+- `core/<lang>/<name>` — curated by the `agents-cli` team.
+- `contrib/<lang>/<name>` — community contributions.
+- `plugins/<vertical>/<solution>` — domain-vertical solutions
+  (language is set in `manifest.language`).
+
+Contributors submit new recipes to `contrib/`.
+
+Every recipe must include `manifest.yaml`, `README.md`, and `.env.example` at
+its root. Root-specific requirements:
+
+- `core/` — requires `AGENTS.md` (intent, key files to study, reuse notes).
+- `contrib/` — requires a root `Dockerfile` and `deployable: true` in
+  `manifest.yaml`.
+- `plugins/` — requires `SKILL.md`, `EVAL.yaml`, and `scripts/`.
+
+See the full rule matrix in
+[Required file or directory missing](./troubleshooting.md#required-file-or-directory-missing).
 
 ## Naming
 
@@ -27,9 +36,13 @@ at the recipe root and set `deployable: true` in `manifest.yaml`.
 
 ## Size limits
 
-| Root | Max files | Max size |
+| Root | Default (max files / max size) | `large: true` (max files / max size) |
 |---|---|---|
-| `contrib/` | 70 | 2 MB |
+| `contrib/` | 70 / 2 MB | 200 / 10 MB |
+| `plugins/` | 70 / 2 MB | 200 / 10 MB |
+| `core/` | 500 / 50 MB | 10,000 / 10 GB |
+
+Set `large: true` in `manifest.yaml` to opt into the relaxed tier.
 
 **Excluded from the count:** generated files and caches. Common
 exclusions:
@@ -41,15 +54,14 @@ exclusions:
 
 **Images:** a single unoptimized PNG screenshot can consume the whole
 `contrib/` budget. Use WebP (`cwebp -q 85`) for anything only linked from
-docs. Leave the original format alone if application code depends on it —
-an import, a build asset, a hardcoded path or MIME type — not just a doc
-reference.
+docs. Keep the original format when application code depends on it (an
+import, build asset, or hardcoded path/MIME type).
 
 ## `manifest.yaml`
 
 Every recipe has one. It declares the recipe's type, language,
 status, description and owners. Generate it with the
-`generate-manifest` AI skill. The [manifest](./manifest.md) page
+`generate-manifest` repo skill. The [manifest](./manifest.md) page
 lists every field and the rules CI enforces.
 
 Example minimum:
@@ -58,6 +70,7 @@ Example minimum:
 type: standalone
 status: active
 language: python
+deployable: true
 description: A retrieval-augmented search agent over public docs.
 ownership:
   team: your-team-name
@@ -74,16 +87,18 @@ Every recipe has one. Cover:
 4. Optional: architecture diagram, example prompts, screenshots (WebP —
    see [Size limits](#size-limits)).
 
-CI enforces the following content checks:
+CI (`tools/validate_readme.py`) enforces the following content checks:
 
 - No `TODO:` placeholders.
 - At least 100 words (description proxy).
-- A setup section — a heading containing one of: `Setup`,
-  `Prerequisites`, `Installation`, `Requirements`, `Configuration`,
-  `Getting Started`, `Before You Begin`, `Environment`.
-- A run section — a heading containing one of: `Run`, `Running`,
-  `Usage`, `Quickstart`, `Start`, `Deploy`, `Launch`,
-  `How to Run` — plus at least one fenced code block.
+- A setup section — a heading containing one of (case-insensitive): `Setup`,
+  `Prerequisites`, `Prerequisite`, `Installation`, `Install`, `Requirements`,
+  `Requirement`, `Configuration`, `Getting Started`, `Before You Begin`,
+  `Environment`.
+- A run section — a heading containing one of (case-insensitive): `Run`,
+  `Running`, `Usage`, `Quickstart`, `Quick Start`, `Start`, `Deploy`,
+  `Deployment`, `How to Run`, `How to Use`, `Launch`, `Launching` — plus at
+  least one fenced code block.
 
 Run `uv run validate readme <recipe-path>` locally to check
 before opening a PR.
@@ -92,8 +107,8 @@ before opening a PR.
 
 - **Language-specific files** (Python's `pyproject.toml`,
   `uv.lock`, `.env.example`, `tests/test_runnability.py`) — see
-  [languages/](./languages/).
+  [Python](./languages/python.md).
 
 ---
 
-← [Checklist](../recipe-checklist.md) · [Handbook](./README.md)
+← [Docs home](../README.md) · [Checklist](../recipe-checklist.md) · [Handbook](./README.md)

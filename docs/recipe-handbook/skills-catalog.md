@@ -1,27 +1,26 @@
-<!-- word count: 1131 (target 800, cap 1200) -->
-
 # Repo Skills Catalog
 
 **Repo skills** your AI coding assistant invokes while working in this
 repo — preparing a recipe, answering questions about how the repo
-works, authoring more skills. Source lives at
+works, or validating files. Source lives at
 [`.agents/skills/`](../../.agents/skills/); each has a `SKILL.md`
-with a full description. This catalog summarises them and maps
+with a full description. This catalog summarizes them and maps
 them to the [checklist](../recipe-checklist.md).
 
 > Not to be confused with **plugins** — recipes shipped to
 > users under `plugins/<vertical>/<solution>/`. Repo skills build this
-> repo; plugins are built with it.
+> repository; plugins are recipes shipped to users.
 
-> **Fastest path:** for a PR-ready recipe in one command, use
-> [`prepare-python-recipe`](#prepare-python-recipe). It runs
-> every other Python skill in the right order.
+> **Fastest path:** for a PR-ready recipe, use
+> [`prepare-python-recipe`](#prepare-python-recipe). It runs every
+> preparation skill in order; container deployability
+> (`make-python-recipe-deployable`) is a separate required step for `contrib/`.
 
 ## How to invoke a skill
 
 Say the skill's name or its trigger phrase to your assistant:
 
-```
+```text
 "prepare the python recipe contrib/python/my-recipe"
 "align pyproject.toml for my recipe"
 "generate manifest.yaml for contrib/python/my-recipe"
@@ -69,14 +68,14 @@ describes every field.
 
 ## Python skills
 
-Apply to recipes under `contrib/python/`.
+Apply to recipes under `contrib/python/`, `core/python/`, or Python `plugins/`.
 
 ### `prepare-python-recipe`
 
 > **Start here.** The end-to-end orchestrator — if you only run
-> one skill, run this one.
+> one preparation skill, run this one.
 
-Runs seven phases in order:
+Runs eight phases in order:
 
 1. `generate-manifest`
 2. `extract-python-environment-variables`
@@ -84,7 +83,8 @@ Runs seven phases in order:
 4. `ruff format` and `ruff check`
 5. `uv lock`
 6. `generate-python-runnability-test`
-7. `py_compile` verification of the generated test file
+7. `py_compile` and `pytest` verification of the generated test file
+8. `uv run validate manifest` and `uv run validate structure`
 
 Interactive — pauses at fixed decision points, or when it needs a
 decision from you.
@@ -193,23 +193,9 @@ optional under `core/` and `plugins/`.
   under `deployability:`, not in the skill's code.
 - **Trigger:** "make contrib/python/my-recipe deployable".
 
-## Java / Go / TypeScript / Kotlin skills
+## Go / Java / Kotlin / TypeScript skills
 
-None yet. Contributions welcome — see
-[skill authoring](#skill-authoring) below.
-
-## Skill authoring
-
-### `skill-author`
-
-A skill for creating, refining, and iterating on other skills.
-Scaffolds a valid `SKILL.md`, gives feedback on your trigger
-description, and helps you debug when a skill isn't loading.
-
-- **When to use:** writing a new skill, improving a skill's
-  trigger description, fixing a skill that isn't activating.
-- **Trigger:** "help me author a skill named my-skill",
-  "make a skill for my-skill".
+None yet.
 
 ## Skills load automatically
 
@@ -219,4 +205,4 @@ description, and helps you debug when a skill isn't loading.
 
 ---
 
-← [Checklist](../recipe-checklist.md) · [Handbook](./README.md)
+← [Docs home](../README.md) · [Checklist](../recipe-checklist.md) · [Handbook](./README.md)

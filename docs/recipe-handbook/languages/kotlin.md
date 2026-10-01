@@ -1,21 +1,18 @@
-<!-- word count: 114 (target 100, cap 200) -->
-
 # Kotlin Recipes
 
-`core/kotlin/llm-auditor` is the first Kotlin recipe. There are no
-Kotlin authoring skills or `pyproject`-equivalent checks yet.
+`core/kotlin/llm-auditor` and `contrib/kotlin/financial-advisor` are Kotlin
+recipes in this repository. CI runs format/lint (`kotlin-format.yml`) and unit
+tests (`kotlin-tests.yml`). There are no Kotlin authoring repo skills yet.
 
-**If you want to contribute one:** open a GitHub issue at
-[github.com/google/adk-recipes/issues](https://github.com/google/adk-recipes/issues)
-first so we can align on build tool (Gradle / Maven), test
-runner, and JVM target before you invest the work. Once accepted,
-this page will mirror the shape of the [Python page](./python.md).
+**Before contributing a new recipe:** open a
+[Propose a New Recipe](https://github.com/google/adk-recipes/issues/new?template=propose-a-new-recipe.md)
+issue first. Universal layout and size rules live in
+[anatomy](../anatomy.md).
 
-Structural checks apply to Kotlin recipes today: every recipe must include
-`manifest.yaml`, `README.md`, `.env.example`, and `build.gradle.kts`.
-No lockfile is required (Gradle dependency locking is not used). You
-can submit a working `contrib/kotlin/` recipe against those alone.
+Every Kotlin recipe must include `manifest.yaml`, `README.md`, `.env.example`,
+and `build.gradle.kts`, plus `Dockerfile` (`deployable: true`) under `contrib/`
+or `AGENTS.md` under `core/`. No lockfile is required.
 
 ---
 
-← [Checklist](../../recipe-checklist.md) · [Handbook](../README.md)
+← [Docs home](../../README.md) · [Checklist](../../recipe-checklist.md) · [Handbook](../README.md) · [Anatomy](../anatomy.md)

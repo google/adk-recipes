@@ -1,5 +1,3 @@
-<!-- word count: 552 (target 700, cap 1000) -->
-
 # Python Recipes
 
 Everything Python-specific in one place. Universal requirements
@@ -9,8 +7,9 @@ live in [anatomy](../anatomy.md).
 
 Every Python recipe uses this shape:
 
-```
+```text
 contrib/python/my-recipe/
+  Dockerfile                # required for contrib/ (serves on port 8080)
   pyproject.toml            # project spec + deps
   uv.lock                   # pinned deps
   .env.example              # env vars the recipe reads
@@ -23,10 +22,8 @@ contrib/python/my-recipe/
     test_runnability.py     # import smoke test
 ```
 
-**Best practice: name the Python package `app`.** Not strictly
-enforced, but the root Ruff/isort configuration assumes it
-(`known-first-party = ["app"]`) — other names produce wrong
-import ordering.
+**Name the Python package `app`.** The root Ruff/isort configuration marks
+`app` as first-party; other package names produce wrong import ordering.
 
 **Minimum Python:** 3.11.
 
@@ -34,15 +31,16 @@ import ordering.
 
 **New recipe:**
 
-```
+```text
 "scaffold a new Python recipe at contrib/python/my-recipe"
 # ... write your agent in app/agent.py ...
 "prepare the python recipe contrib/python/my-recipe"
+"make contrib/python/my-recipe deployable"
 ```
 
 **Updating a recipe:**
 
-```
+```text
 "prepare the python recipe contrib/python/my-recipe"
 ```
 
@@ -52,13 +50,14 @@ your `.env.example` or hand-written Python code.
 Full skill reference:
 [skills catalog](../skills-catalog.md#python-skills).
 
-> **Deprecated models:** `gemini-2.0-flash` and `gemini-2.5-flash` are no
-> longer accepted. Use `gemini-3.5-flash`.
+> **Model selection:** Prefer a current model such as `gemini-3.7-flash` via
+> `MODEL_NAME` in `.env.example`. Avoid deprecated `gemini-2.0-flash` and
+> `gemini-2.5-flash`.
 
 ## Copy-paste starters
 
-The `scaffold-python-recipe` skill creates these for you. Use
-them by hand if you're setting up a recipe manually.
+The `scaffold-python-recipe` and `make-python-recipe-deployable` repo skills
+create these for you. Use them by hand if you're setting up a recipe manually.
 
 ### `pyproject.toml`
 
@@ -68,13 +67,30 @@ name = "my-recipe"           # see "Project name" below
 version = "0.1.0"
 requires-python = ">=3.11"
 dependencies = [
-    "google-adk",
-    "python-dotenv>=1.0.0",
+    "google-adk[gcp,otel-gcp]>=2.6.0,<3.0.0",
+    "python-dotenv>=1.0.0,<2.0.0",
+    "a2a-sdk[http-server]>=1.0,<2",
+    "aiohttp>=3.13.4",
+    "gcsfs>=2024.11.0",
+    "opentelemetry-resourcedetector-gcp<=1.12.0a0",
+    "google-cloud-aiplatform[agent-engines]>=1.156.0,<2.0.0",
 ]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3.5",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[[tool.uv.index]]
+url = "https://pypi.org/simple/"
+default = true
 ```
 
 **Project name.** `[project].name` is derived from where the
@@ -86,7 +102,7 @@ recipe lives:
 | `contrib/<language>/<recipe>` | the folder name | `financial-advisor` |
 | `plugins/<vertical>/<solution>` | `<vertical>-<solution>` | `retail-product-search` |
 
-Plugins join the vertical in because the folder name
+Plugins prefix the folder name with the vertical because the folder name
 alone is not unique across verticals — `plugins/retail/product-search`
 and `plugins/grocery/product-search` would otherwise both claim the
 distribution name `product-search`. It also keeps the package name
@@ -95,19 +111,39 @@ aligned with the plugin's `SKILL.md` `name:` field.
 Optional: add `description` if you want it in your `pyproject.toml`
 — it must match `manifest.description` exactly. Do NOT add
 `[tool.ruff]` or a local `ruff.toml` (Ruff config is
-centralised at the repo root).
+centralized at the repo root).
+
+### `Dockerfile` (`contrib/`)
+
+```dockerfile
+FROM python:3.11-slim
+
+RUN pip install --no-cache-dir uv==0.8.13
+
+WORKDIR /code
+
+COPY ./pyproject.toml ./README.md ./uv.lock* ./
+COPY ./app ./app
+COPY ./.env.example ./.env
+
+RUN uv sync --frozen
+
+EXPOSE 8080
+
+CMD ["uv", "run", "uvicorn", "app.fast_api_app:app", "--host", "0.0.0.0", "--port", "8080"]
+```
 
 ### `.env.example`
 
-```
+```dotenv
 GOOGLE_CLOUD_PROJECT=your-project-id
 GOOGLE_CLOUD_LOCATION=us-central1
-MODEL_NAME=gemini-3.5-flash
+MODEL_NAME=gemini-3.7-flash
 ```
 
 Every env var your code reads must appear here. Read model
 names from `MODEL_NAME` — never hardcode a model literal in
-source. Deprecated: `gemini-2.0-flash`, `gemini-2.5-flash`.
+source. Avoid deprecated `gemini-2.0-flash` and `gemini-2.5-flash`.
 
 ### `app/__init__.py`
 
@@ -137,9 +173,9 @@ def test_agent_runnability() -> None:
     assert app.agent.root_agent is not None
 ```
 
-This is the bare minimum; you may need to tweak or extend it
-to make it work for your recipe. The core idea is to import
-`app.agent` and check whether `root_agent` is `None`.
+This is the bare minimum; extend it with mocks if your recipe runs external
+initialization at import time. The test imports `app.agent` and asserts that
+`root_agent is not None`.
 
 ## Integration tests
 
@@ -169,7 +205,7 @@ uv run pytest                      # full suite
 ```bash
 # Structural checks (all validators at once)
 uv run validate contrib/python/my-recipe
-# Or individual: manifest / structure / readme
+# Or individual: manifest / structure / readme / placement
 uv run validate readme contrib/python/my-recipe
 
 # Format and lint
@@ -184,4 +220,4 @@ uv run pytest --ignore=tests/integration \
 
 ---
 
-← [Checklist](../../recipe-checklist.md) · [Handbook](../README.md)
+← [Docs home](../../README.md) · [Checklist](../../recipe-checklist.md) · [Handbook](../README.md) · [Anatomy](../anatomy.md)
