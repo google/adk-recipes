@@ -42,7 +42,7 @@ independent financial advisor before making any investment decision.
 
 ## Prerequisites
 
-- Go 1.25 or later
+- Go 1.26 or later
 - Either a Google Cloud project with the Vertex AI API enabled, or a
   [Gemini API key](https://aistudio.google.com/apikey)
 
