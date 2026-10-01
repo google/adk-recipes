@@ -1,0 +1,26 @@
+[
+  {
+    "model_image": "/products/glasses/results/model_007.png",
+    "glasses_image": "/products/glasses/images/glasses_8.jpeg",
+    "vto_result": "/products/glasses/results/result_007.png",
+    "description": "Woman wearing grey tortoiseshell sunglasses"
+  },
+  {
+    "model_image": "/products/glasses/results/model_006.png",
+    "glasses_image": "/products/glasses/images/glasses_5.jpeg",
+    "vto_result": "/products/glasses/results/result_006.png",
+    "description": "Woman wearing amber aviator sunglasses"
+  },
+  {
+    "model_image": "/assets/models/european_man.png",
+    "glasses_image": "/products/glasses/images/glasses_7.jpeg",
+    "vto_result": "/products/glasses/results/result_005.png",
+    "description": "Man wearing dark clubmaster sunglasses"
+  },
+  {
+    "model_image": "/assets/models/african_man.png",
+    "glasses_image": "/products/glasses/images/glasses_6.jpeg",
+    "vto_result": "/products/glasses/results/result_004.png",
+    "description": "African man wearing modern frames"
+  }
+]

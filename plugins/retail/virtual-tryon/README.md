@@ -2,7 +2,21 @@
 
 Virtual try-on agent using Gemini image generation (flash/pro tiers) for clothing, eyewear, jewelry, cosmetics, and footwear. Includes a pre-flight product-cutout classifier and configurable safety levels.
 
+## Supported Personas & Surfaces
+
+This plugin supports both **AI Coding Assistant / Desktop Skill** workflows and **Managed Cloud Agent** deployments:
+
+| Persona / Surface | How it is used | Entrypoint / Tooling |
+|---|---|---|
+| **AI Coding Assistants** (Claude Code, Antigravity, Gemini CLI, Codex) | Conversational skill that provisions GCS buckets, validates Gemini/Veo access, and launches the local VTO sandbox or exports a web app | `SKILL.md` (`npx skills add` or `make install-skill-local`) |
+| **GE Desktop App** (Spark Beta, GoGo, Sobi) | Local skill in `~/.gemini/skills/retail-virtual-tryon` or synced to `google3` (`//third_party/skills/skills/`) | `make install-skill-local` / `make sync-google3-skill` |
+| **Gemini Enterprise Agent Platform (Agent Engine)** | Managed ADK Reasoning Engine runtime (`try_on_product_image`, `try_on_product_video`) on Google Cloud | `make deploy-agent-engine` (`agents-cli deploy`) |
+| **Gemini Enterprise (GE) App** | Registered ADK / A2A agent accessible in the Gemini Enterprise web/Sobi assistant | `make publish-gemini-enterprise` (`agents-cli publish`) |
+| **Cloud Run & Agent Garden** | Containerized FastAPI + A2A + Reasoning Engine HTTP server (`deployable: true`) or standalone exported web app | `make deploy-cloudrun`, `Dockerfile`, `agents-cli-manifest.yaml`, `scripts/export_app.py` |
+
 ## Install
+
+### 1. Skill Install (Coding Assistants & GE Desktop / Spark Beta)
 
 Install directly into your AI coding assistant (Claude Code, Antigravity,
 Codex, ...) via `npx skills add`. The tool discovers `SKILL.md` from this
@@ -12,11 +26,23 @@ recipe and registers `/retail-virtual-tryon` as an invocable skill:
 npx skills add google/adk-recipes --skill retail-virtual-tryon
 ```
 
-Installs to `~/.claude/skills/` or `~/.agents/skills/` depending on host.
-Antigravity discovers from `~/.agents/skills/` automatically.
+Or install locally across `~/.gemini/skills/retail-virtual-tryon` (validated for **Spark Beta**), `~/.gemini/config/skills`, and `~/.agents/skills`:
 
-**Developer install** (if you're contributing to the recipe rather than
-consuming it):
+```bash
+make install-skill-local
+```
+
+To sync the skill to a `google3` CitC client (`//third_party/skills/skills/retail-virtual-tryon`) for GoGo / Sobi:
+
+```bash
+make sync-google3-skill
+# Or from Mac to a remote Cloudtop over SSH:
+make sync-google3-skill CLOUDTOP_HOST=<your-cloudtop>.c.googlers.com
+```
+
+### 2. Developer / Agent Runtime Install
+
+If you're contributing to the recipe or deploying the agent directly:
 
 ```bash
 git clone https://github.com/google/adk-recipes.git
@@ -38,6 +64,8 @@ uv sync
 
 ## Run
 
+### Persona A: Run via Skill (Claude Code / Antigravity / Spark Beta)
+
 In a fresh workspace, launch your AI coding agent and trigger the skill.
 
 **Claude Code:**
@@ -46,7 +74,7 @@ In a fresh workspace, launch your AI coding agent and trigger the skill.
 /retail-virtual-tryon
 ```
 
-**Antigravity:**
+**Antigravity / Spark Beta / Sobi:**
 
 ```
 Use the retail-virtual-tryon skill to set up a virtual try-on app on Google Cloud.
@@ -57,7 +85,7 @@ The agent walks Q-MODE (4-5 questions Quick / 4 questions Export), runs
 provision GCS buckets, verify Gemini Enterprise Agent Platform access,
 and launch the local sandbox at [http://localhost:8080](http://localhost:8080).
 
-### Direct CLI (no agent)
+### Persona B: Direct CLI (No Coding Assistant)
 
 ```bash
 uv sync                                       # or: pip install -e .
@@ -67,9 +95,31 @@ uv run python scripts/setup_tryon.py --project-id $PROJECT --model flash
 uv run python scripts/setup_tryon.py --project-id $PROJECT --model pro
 ```
 
-## Deploy to Cloud Run
+## Deploy to Agent Engine, Gemini Enterprise & Cloud Run
 
-The sandbox is a FastAPI app, so it deploys to Cloud Run as a container.
+### Option 1: Managed Agent Runtime (Agent Engine + Gemini Enterprise + A2A Cloud Run)
+
+Deploy the ADK agent (`scripts/agent.py` / `scripts/fast_api_app.py`) directly to Google Cloud using `google-agents-cli`:
+
+1. **Deploy to Gemini Enterprise Agent Platform (Agent Engine):**
+   ```bash
+   make deploy-agent-engine PROJECT_ID=your-gcp-project-id REGION=us-central1
+   ```
+2. **Register with your Gemini Enterprise (GE) App:**
+   ```bash
+   make publish-gemini-enterprise \
+     PROJECT_ID=your-gcp-project-id \
+     GEMINI_ENTERPRISE_APP_ID="projects/<project-number>/locations/global/collections/default_collection/engines/<engine-id>" \
+     AGENT_ENGINE_ID="projects/<project-number>/locations/us-central1/reasoningEngines/<reasoning-engine-id>"
+   ```
+3. **Deploy Agent Service to Cloud Run (A2A + Reasoning Engine HTTP API):**
+   ```bash
+   make deploy-cloudrun PROJECT_ID=your-gcp-project-id REGION=us-central1
+   ```
+
+### Option 2: Export & Deploy Standalone Web App to Cloud Run
+
+The interactive VTO sandbox is a FastAPI app that can also be exported as a standalone web application.
 `scripts/export_app.py` generates a standalone codebase — it copies the
 backend modules and UI assets, rewrites the `scripts.*` imports for a flat
 layout, renders `Dockerfile`, `cloudbuild.yaml` and `deploy_cloudrun.sh`
@@ -101,7 +151,7 @@ Notes:
 - The container runs as a non-root user and reads its configuration from
   `ENV` values written into the Dockerfile at export time, so it does not
   need a `.env` file.
-- `catalog_images/` is excluded by `.dockerignore`; the app recreates the
+- `catalog_images/` is excluded by `.dockerignore` in the exported app; the app recreates the
   directory at startup and serves catalog images from your GCS bucket. Set
   `tryon_catalog_upload: true` in the design spec so the catalog is synced.
 - The Cloud Run service account needs `roles/aiplatform.user` and

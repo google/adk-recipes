@@ -2,12 +2,13 @@
 name: retail-product-search
 description: >-
   Creates product search agents with semantic search and RAG on Google Cloud
-  (Vertex AI Vector Search, BigQuery, embeddings). Use when the user wants to
+  (Vector Search on Gemini Enterprise Agent Platform, BigQuery, embeddings). Use when the user wants to
   "build a product search agent", "create an e-commerce search", "make a
   shopping assistant", "set up semantic catalog discovery", "ingest products
   into Vector Search", or "deploy a retail RAG agent". Handles the full
-  pipeline: catalog data ingestion to BigQuery, Vertex AI Vector Search
+  pipeline: catalog data ingestion to BigQuery, Gemini Enterprise Agent Platform Vector Search
   collection setup, ADK agent scaffolding, evaluation, and Cloud Run deployment.
+
 metadata:
   author: Google
   license: Apache-2.0
@@ -80,7 +81,7 @@ Details in [references/install-paths.md](references/install-paths.md).
 
 This skill works in conjunction with the following core Google Cloud skills:
 - `bigquery-basics` (for database configuration guidelines)
-- `gemini-api` (for Vertex AI API / Google Gen AI SDK best practices)
+- `gemini-api` (for Gemini Enterprise Agent Platform / Google Gen AI SDK best practices)
 
 Verify if these skills are installed in your active skills directory. If they are missing, recommend the developer to install them by running:
 `npx skills add google/skills --skill bigquery-basics gemini-api`
@@ -246,8 +247,8 @@ should prefer remote MCP tools when available. Migration map:
 | Service | Where | Future MCP |
 |---|---|---|
 | BigQuery | `ingest_bigquery.py`, `validate_schema.py` | BigQuery MCP |
-| Vertex AI Vector Search | `ingest_vertex_search.py`, `setup.py` | Vertex AI MCP |
-| Vertex AI Embeddings | `retrievers.py` | Vertex AI MCP |
+| Vector Search (Gemini Enterprise Agent Platform) | `ingest_vertex_search.py`, `setup.py` | Gemini Enterprise Agent Platform MCP |
+| Embeddings (Gemini Enterprise Agent Platform) | `retrievers.py` | Gemini Enterprise Agent Platform MCP |
 | Cloud Run | `gcloud run deploy` | Cloud Run MCP |
 
 ## Completion Checklist

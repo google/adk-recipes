@@ -5,7 +5,8 @@ cases:
   metadata:
     skill_name: "retail-product-search"
     products:
-      - "Vertex AI Vector Search"
+      - "Gemini Enterprise Agent Platform"
+      - "Vector Search"
       - "BigQuery"
   rubric:
     - "The response MUST return product results that include wireless headphones from the catalog."
@@ -32,7 +33,8 @@ cases:
   metadata:
     skill_name: "retail-product-search"
     products:
-      - "Vertex AI Vector Search"
+      - "Gemini Enterprise Agent Platform"
+      - "Vector Search"
       - "BigQuery"
   rubric:
     - "The response MUST identify the lowest-priced product in the catalog."
@@ -51,7 +53,8 @@ cases:
   metadata:
     skill_name: "retail-product-search"
     products:
-      - "Vertex AI Vector Search"
+      - "Gemini Enterprise Agent Platform"
+      - "Vector Search"
       - "BigQuery"
   rubric:
     - "The response MUST return at least one mechanical keyboard product from the catalog."
@@ -75,7 +78,8 @@ cases:
   metadata:
     skill_name: "retail-product-search"
     products:
-      - "Vertex AI Vector Search"
+      - "Gemini Enterprise Agent Platform"
+      - "Vector Search"
       - "BigQuery"
   rubric:
     - "The response MUST return products categorized under Audio from the catalog."
@@ -98,7 +102,8 @@ cases:
   metadata:
     skill_name: "retail-product-search"
     products:
-      - "Vertex AI Vector Search"
+      - "Gemini Enterprise Agent Platform"
+      - "Vector Search"
       - "BigQuery"
   rubric:
     - "The response MUST return products from the Sony brand present in the catalog."
@@ -118,7 +123,8 @@ cases:
   metadata:
     skill_name: "retail-product-search"
     products:
-      - "Vertex AI Vector Search"
+      - "Gemini Enterprise Agent Platform"
+      - "Vector Search"
       - "BigQuery"
   rubric:
     - "The response MUST clearly state that no matching products were found in the catalog."
@@ -135,7 +141,8 @@ cases:
   metadata:
     skill_name: "retail-product-search"
     products:
-      - "Vertex AI Vector Search"
+      - "Gemini Enterprise Agent Platform"
+      - "Vector Search"
       - "BigQuery"
   rubric:
     - "The response MUST include a side-by-side comparison covering at least name, price, and category."
@@ -155,7 +162,8 @@ cases:
   metadata:
     skill_name: "retail-product-search"
     products:
-      - "Vertex AI Vector Search"
+      - "Gemini Enterprise Agent Platform"
+      - "Vector Search"
       - "BigQuery"
   rubric:
     - "The response MUST only include products with prices between $50 and $150 inclusive."
@@ -174,7 +182,8 @@ cases:
   metadata:
     skill_name: "retail-product-search"
     products:
-      - "Vertex AI Vector Search"
+      - "Gemini Enterprise Agent Platform"
+      - "Vector Search"
       - "BigQuery"
   rubric:
     - "The response MUST return relevant desk-related products from the catalog (e.g., keyboards, monitors)."
@@ -193,7 +202,8 @@ cases:
   metadata:
     skill_name: "retail-product-search"
     products:
-      - "Vertex AI Vector Search"
+      - "Gemini Enterprise Agent Platform"
+      - "Vector Search"
       - "BigQuery"
       - "Cloud Storage"
   rubric:

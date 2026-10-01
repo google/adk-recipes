@@ -1,8 +1,10 @@
 type: standalone
 status: active
 language: python
-description: Semantic product search agent using Vertex AI Vector Search and BigQuery, with ADK agent scaffolding and Cloud Run deployment.
+deployable: true
+description: Semantic product search agent using Vector Search on Gemini Enterprise Agent Platform and BigQuery, with ADK agent scaffolding and Cloud Run deployment.
 license: Apache-2.0
+
 architecture:
   agent: single
   stateful: false

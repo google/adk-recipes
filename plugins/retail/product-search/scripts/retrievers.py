@@ -15,8 +15,8 @@
 """Retrieval helpers for the retail product search agent.
 
 Provides :func:`search_collection` for semantic product lookup via
-Vertex AI Vector Search 2.0, and :func:`search` as a convenience
-wrapper that reads the collection path from the environment.
+Vector Search 2.0 on Gemini Enterprise Agent Platform, and :func:`search`
+as a convenience wrapper that reads the collection path from the environment.
 """
 
 # pylint: disable=line-too-long

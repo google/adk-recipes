@@ -6,7 +6,7 @@ live.
 
 ## Semantic search, not filtered search
 
-`search(query, top_k)` runs Vertex AI Vector Search semantic similarity
+`search(query, top_k)` runs Vector Search semantic similarity on Gemini Enterprise Agent Platform
 over the embedding fields configured in `design-spec.md` (default:
 `name, description, category, brand`). **It does NOT apply structured
 filters on price, currency, stock, or rating** -- those words in a

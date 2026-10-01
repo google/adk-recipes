@@ -1,0 +1,131 @@
+[
+  {
+    "product_name": "Sneaker 360",
+    "product_type": "shoes",
+    "video_path": "/products/shoes/videos/product_4_360.mp4",
+    "product_images": [
+      "/products/shoes/images/product_4/image_1.webp",
+      "/products/shoes/images/product_4/image_2.webp",
+      "/products/shoes/images/product_4/image_3.webp",
+      "/products/shoes/images/product_4/image_4.webp",
+      "/products/shoes/images/product_4/image_5.webp",
+      "/products/shoes/images/product_4/image_6.webp"
+    ],
+    "video_prompt": {
+      "subject": "A sneaker standing still in a white studio (Hex: #FFFFFF, RGB: 255, 255, 255).",
+      "action": "The camera performs one continuous, seamless, very fast 360-degree orbit around the stationary product. The camera movement is perfectly smooth and steady, maintaining a constant distance and speed throughout the entire clip. The product does not move or rotate; only the camera moves.",
+      "negative_prompt": "Text appearing out of nowhere, shaky camera, motion blur on the object, distorted logos."
+    }
+  },
+  {
+    "product_name": "Running Shoe 360",
+    "product_type": "shoes",
+    "video_path": "/products/shoes/videos/product_5_360.mp4",
+    "product_images": [
+      "/products/shoes/images/product_5/image_1.webp",
+      "/products/shoes/images/product_5/image_2.webp",
+      "/products/shoes/images/product_5/image_3.webp",
+      "/products/shoes/images/product_5/image_4.webp",
+      "/products/shoes/images/product_5/image_5.webp",
+      "/products/shoes/images/product_5/image_6.webp"
+    ],
+    "video_prompt": {
+      "subject": "A running shoe standing still in a white studio (Hex: #FFFFFF, RGB: 255, 255, 255).",
+      "action": "The camera performs one continuous, seamless, very fast 360-degree orbit around the stationary product. The camera movement is perfectly smooth and steady, maintaining a constant distance and speed throughout the entire clip. The product does not move or rotate; only the camera moves.",
+      "negative_prompt": "Text appearing out of nowhere, shaky camera, motion blur on the object, distorted logos."
+    }
+  },
+  {
+    "product_name": "Aura Shoes",
+    "product_type": "shoes",
+    "video_path": "/products/shoes/videos/w_aura_shoes.mp4",
+    "product_images": [
+      "/products/shoes/images/aura/aura_1.png",
+      "/products/shoes/images/aura/aura_2.png",
+      "/products/shoes/images/aura/aura_3.png",
+      "/products/shoes/images/aura/aura_4.png"
+    ],
+    "video_prompt": {
+      "subject": "A blue sneaker standing still in a completely white studio (Hex: #FFFFFF, RGB: 255, 255, 255)",
+      "action": "The camera performs one continuous, seamless, very fast 360-degree orbit around the stationary product. The camera movement is perfectly smooth and steady, maintaining a constant distance and speed throughout the entire clip. The product does not move or rotate; only the camera moves.",
+      "scene": "A completely white studio (Hex: #FFFFFF, RGB: 255, 255, 255). The only visible element is the product, nothing else.",
+      "negative_prompt": "Text appearing out of nowhere, shaky camera, motion blur on the object, distorted logos."
+    }
+  },
+  {
+    "product_name": "Shoe 360",
+    "product_type": "shoes",
+    "video_path": "/products/360-videos/shoe-2-360.mp4",
+    "product_images": [
+      "/products/shoes/images/product_3/product_3_1.png",
+      "/products/shoes/images/product_3/product_3_2.png",
+      "/products/shoes/images/product_3/product_3_3.png",
+      "/products/shoes/images/product_3/product_3_4.png"
+    ],
+    "video_prompt": {
+      "subject": "A shoe standing still in a white studio (Hex: #FFFFFF, RGB: 255, 255, 255).",
+      "action": "The camera performs one continuous, seamless, very fast 360-degree orbit around the stationary product. The camera movement is perfectly smooth and steady, maintaining a constant distance and speed throughout the entire clip. The product does not move or rotate; only the camera moves.",
+      "negative_prompt": "Text appearing out of nowhere, shaky camera, motion blur on the object, distorted logos."
+    }
+  },
+  {
+    "product_name": "Hiking Boot 360",
+    "product_type": "shoes",
+    "video_path": "/products/360-videos/shoes-360.mp4",
+    "product_images": [
+      "/products/shoes/images/product_2/image_1.png",
+      "/products/shoes/images/product_2/image_2.png",
+      "/products/shoes/images/product_2/image_3.png",
+      "/products/shoes/images/product_2/image_4.png"
+    ],
+    "video_prompt": {
+      "subject": "A hiking boot standing still in a white studio (Hex: #FFFFFF, RGB: 255, 255, 255).",
+      "action": "The camera performs one continuous, seamless, very fast 360-degree orbit around the stationary product. The camera movement is perfectly smooth and steady, maintaining a constant distance and speed throughout the entire clip. The product does not move or rotate; only the camera moves.",
+      "negative_prompt": "Text appearing out of nowhere, shaky camera, motion blur on the object, distorted logos."
+    }
+  },
+  {
+    "product_name": "Shirt 360",
+    "product_type": "clothes",
+    "video_path": "/products/360-videos/clothes-360.mp4",
+    "product_images": [
+      "/products/clothes/images/shirt-1.png",
+      "/products/clothes/images/shirt-2.png"
+    ],
+    "video_prompt": {
+      "subject": "A shirt standing still in a white studio (Hex: #FFFFFF, RGB: 255, 255, 255).",
+      "action": "The camera performs one continuous, seamless, very fast 360-degree orbit around the stationary product. The camera movement is perfectly smooth and steady, maintaining a constant distance and speed throughout the entire clip. The product does not move or rotate; only the camera moves.",
+      "negative_prompt": "Text appearing out of nowhere, shaky camera, motion blur on the object, distorted logos."
+    }
+  },
+  {
+    "product_name": "Smartphone 360",
+    "product_type": "smartphones",
+    "video_path": "/products/360-videos/accessories-360-2.mp4",
+    "product_images": [
+      "/products/phones/images/phone-1.png",
+      "/products/phones/images/phone-2.png"
+    ],
+    "video_prompt": {
+      "subject": "A smartphone standing still in a white studio (Hex: #FFFFFF, RGB: 255, 255, 255).",
+      "action": "The camera performs one continuous, seamless, very fast 360-degree orbit around the stationary product. The camera movement is perfectly smooth and steady, maintaining a constant distance and speed throughout the entire clip. The product does not move or rotate; only the camera moves.",
+      "negative_prompt": "Text appearing out of nowhere, shaky camera, motion blur on the object, distorted logos."
+    }
+  },
+  {
+    "product_name": "Car 360",
+    "product_type": "cars",
+    "video_path": "/products/360-videos/360-car-spin.mp4",
+    "product_images": [
+      "/products/cars/images/car-1.png",
+      "/products/cars/images/car-2.png",
+      "/products/cars/images/car-3.png",
+      "/products/cars/images/car-4.png"
+    ],
+    "video_prompt": {
+      "subject": "A car standing still in a white studio (Hex: #FFFFFF, RGB: 255, 255, 255).",
+      "action": "The camera performs one continuous, seamless, very fast 360-degree orbit around the stationary product. The camera movement is perfectly smooth and steady, maintaining a constant distance and speed throughout the entire clip. The product does not move or rotate; only the camera moves.",
+      "negative_prompt": "Text appearing out of nowhere, shaky camera, motion blur on the object, distorted logos."
+    }
+  }
+]

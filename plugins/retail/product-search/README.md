@@ -1,10 +1,24 @@
 # Retail Product Search
 
-Semantic product search agent on Google Cloud (Vertex AI Vector Search,
+Semantic product search agent on Google Cloud (Vector Search on Gemini Enterprise Agent Platform,
 BigQuery, embeddings). Use to build e-commerce search, catalog discovery, or
 shopping assistant agents.
 
+## Supported Personas & Surfaces
+
+This plugin supports both **AI Coding Assistant / Desktop Skill** workflows and **Managed Cloud Agent** deployments:
+
+| Persona / Surface | How it is used | Entrypoint / Tooling |
+|---|---|---|
+| **AI Coding Assistants** (Claude Code, Antigravity, Gemini CLI, Codex) | Conversational skill that provisions BigQuery + Vector Search and scaffolds the agent in your workspace | `SKILL.md` (`npx skills add` or `make install-skill-local`) |
+| **GE Desktop App** (Spark Beta, GoGo, Sobi) | Local skill in `~/.gemini/skills/retail-product-search` or synced to `google3` (`//third_party/skills/skills/`) | `make install-skill-local` / `make sync-google3-skill` |
+| **Gemini Enterprise Agent Platform (Agent Engine)** | Managed ADK Reasoning Engine runtime on Google Cloud | `make deploy-agent-engine` (`agents-cli deploy`) |
+| **Gemini Enterprise (GE) App** | Registered ADK / A2A agent accessible in the Gemini Enterprise web/Sobi assistant | `make publish-gemini-enterprise` (`agents-cli publish`) |
+| **Cloud Run & Agent Garden** | Containerized FastAPI + A2A + Reasoning Engine HTTP server (`deployable: true`) | `make deploy-cloudrun`, `Dockerfile`, `agents-cli-manifest.yaml` |
+
 ## Install
+
+### 1. Skill Install (Coding Assistants & GE Desktop / Spark Beta)
 
 Install directly into your AI coding assistant (Claude Code, Antigravity,
 Codex, ...) via `npx skills add`. The tool discovers `SKILL.md` from this
@@ -14,11 +28,23 @@ recipe and registers `/retail-product-search` as an invocable skill:
 npx skills add google/adk-recipes --skill retail-product-search
 ```
 
-Installs to `~/.claude/skills/` or `~/.agents/skills/` depending on host.
-Antigravity discovers from `~/.agents/skills/` automatically.
+Or install locally across `~/.gemini/skills/retail-product-search` (validated for **Spark Beta**), `~/.gemini/config/skills`, and `~/.agents/skills`:
 
-**Developer install** (if you're contributing to the recipe rather than
-consuming it):
+```bash
+make install-skill-local
+```
+
+To sync the skill to a `google3` CitC client (`//third_party/skills/skills/retail-product-search`) for GoGo / Sobi:
+
+```bash
+make sync-google3-skill
+# Or from Mac to a remote Cloudtop over SSH:
+make sync-google3-skill CLOUDTOP_HOST=<your-cloudtop>.c.googlers.com
+```
+
+### 2. Developer / Agent Runtime Install
+
+If you're contributing to the recipe or deploying the agent directly:
 
 ```bash
 git clone https://github.com/google/adk-recipes.git
@@ -31,12 +57,14 @@ uv sync
 - Python 3.11+
 - [`gcloud` CLI](https://cloud.google.com/sdk/docs/install) with ADC
   configured (`gcloud auth application-default login`)
-- A GCP project with billing enabled and BigQuery + Vertex AI APIs on:
+- A GCP project with billing enabled and BigQuery + Gemini Enterprise Agent Platform APIs on:
   ```bash
-  gcloud services enable bigquery.googleapis.com aiplatform.googleapis.com
+  gcloud services enable bigquery.googleapis.com aiplatform.googleapis.com vectorsearch.googleapis.com
   ```
 
 ## Run
+
+### Persona A: Run via Skill (Claude Code / Antigravity / Spark Beta)
 
 In a fresh workspace, launch your AI coding agent and trigger the skill.
 
@@ -46,7 +74,7 @@ In a fresh workspace, launch your AI coding agent and trigger the skill.
 /retail-product-search
 ```
 
-**Antigravity:**
+**Antigravity / Spark Beta / Sobi:**
 
 ```
 Use the retail-product-search skill to set up a product search agent on Google Cloud.
@@ -54,14 +82,41 @@ Use the retail-product-search skill to set up a product search agent on Google C
 
 The agent walks Q-MODE, runs `scripts/bootstrap.sh` to create the venv, then
 `scripts/setup.py` to validate the catalog, ingest to BigQuery, and create
-the Vector Search collection. Once setup finishes, the agent (or you, at a
-terminal) launches the ADK web UI as a separate step:
+the Vector Search collection. Once setup finishes, launch the ADK web UI:
 
 ```bash
 .venv/bin/adk web "$SKILL_DIR/scripts" --port 8765
 ```
 
 Then open [http://localhost:8765](http://localhost:8765).
+
+### Persona B: Direct CLI Setup (No Coding Assistant)
+
+Provision the BigQuery dataset and Vector Search 2.0 collection directly using the `Makefile`:
+
+```bash
+make setup PROJECT_ID=your-gcp-project-id REGION=us-central1
+```
+
+### Persona C: Deploy to Agent Engine, Gemini Enterprise & Cloud Run
+
+Once the catalog is ingested (`make setup`), deploy and surface the agent to managed Google Cloud runtimes:
+
+1. **Deploy to Gemini Enterprise Agent Platform (Agent Engine):**
+   ```bash
+   make deploy-agent-engine PROJECT_ID=your-gcp-project-id REGION=us-central1
+   ```
+2. **Register with your Gemini Enterprise (GE) App:**
+   ```bash
+   make publish-gemini-enterprise \
+     PROJECT_ID=your-gcp-project-id \
+     GEMINI_ENTERPRISE_APP_ID="projects/<project-number>/locations/global/collections/default_collection/engines/<engine-id>" \
+     AGENT_ENGINE_ID="projects/<project-number>/locations/us-central1/reasoningEngines/<reasoning-engine-id>"
+   ```
+3. **Deploy to Cloud Run (A2A + Reasoning Engine FastAPI Service):**
+   ```bash
+   make deploy-cloudrun PROJECT_ID=your-gcp-project-id REGION=us-central1
+   ```
 
 ### Which mode?
 
@@ -117,7 +172,7 @@ Full table: [references/troubleshooting.md](references/troubleshooting.md).
 ## What gets built
 
 - BigQuery dataset `retail_skill_products.products`
-- Vertex AI Vector Search collection `retail-skill-products-collection` in
+- Vector Search collection `retail-skill-products-collection` on Gemini Enterprise Agent Platform in
   `us-central1`, with auto-embeddings via `gemini-embedding-001`
 - Workspace venv with the skill installed editable + a `design-spec.md`
 

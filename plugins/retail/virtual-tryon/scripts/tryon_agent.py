@@ -28,6 +28,22 @@ from scripts.tryon_processor import generate_tryon_image, generate_tryon_video
 logger = logging.getLogger(__name__)
 
 
+def _format_ge_attachment(res: dict, label: str) -> dict:
+    """Strip raw binary bytes and add a Gemini Enterprise markdown attachment link."""
+    clean = {
+        k: v for k, v in res.items() if k not in ("image_bytes", "video_bytes")
+    }
+    uri = clean.get("output_uri") or clean.get("output_path")
+    if isinstance(uri, str) and uri:
+        http_url = (
+            f"https://storage.mtls.cloud.google.com/{uri[5:]}"
+            if uri.startswith("gs://")
+            else uri
+        )
+        clean["markdown_link"] = f"📎 [{label}]({http_url})"
+    return clean
+
+
 def try_on_product_image(
     product_id: str,
     user_photo_path: str,
@@ -46,7 +62,7 @@ def try_on_product_image(
 
     Returns:
         A dictionary with "status" ("success" or "error"), "output_uri" (if bucket configured) or
-        "output_path" (if saved locally), and "model_used".
+        "output_path" (if saved locally), "markdown_link", and "model_used".
     """
     if not config.GOOGLE_CLOUD_PROJECT:
         return {
@@ -69,7 +85,8 @@ def try_on_product_image(
             product_category=product_category,
             product_description=product_description,
         )
-        return {"status": "success", "product_id": product_id, **res}
+        clean_res = _format_ge_attachment(res, f"tryon-{product_id}.jpg")
+        return {"status": "success", "product_id": product_id, **clean_res}
     except Exception as e:
         logger.exception(
             "try_on_product_image failed for product_id=%s", product_id
@@ -97,7 +114,7 @@ def try_on_product_video(
 
     Returns:
         A dictionary with "status" ("success" or "error"), "output_uri" (if bucket configured) or
-        "output_path" (if saved locally) of the generated catwalk video.
+        "output_path" (if saved locally), and "markdown_link" of the generated catwalk video.
     """
     if not config.GOOGLE_CLOUD_PROJECT:
         return {
@@ -130,8 +147,8 @@ def try_on_product_video(
             output_bucket=config.TRYON_OUTPUT_BUCKET or None,
             scene_description=scene_description,
         )
-
-        return {"status": "success", "product_id": product_id, **video_res}
+        clean_res = _format_ge_attachment(video_res, f"tryon-{product_id}.mp4")
+        return {"status": "success", "product_id": product_id, **clean_res}
     except Exception as e:
         logger.exception(
             "try_on_product_video failed for product_id=%s", product_id
@@ -145,8 +162,9 @@ looks on them as a still image, and the try_on_product_video tool when the
 user wants a short catwalk animation.
 
 Always ask the user to provide their portrait photo and confirm the product
-they want to try on before calling a tool. Present the returned output URI
-or path to the user so they can view the result."""
+they want to try on before calling a tool. When presenting results, always
+include the returned `markdown_link` (📎 [filename](url)) verbatim in your
+response so Gemini Enterprise and web clients render the attachment link."""
 
 
 root_agent = agents.Agent(

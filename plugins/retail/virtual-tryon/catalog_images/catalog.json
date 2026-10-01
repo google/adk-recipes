@@ -1,0 +1,14 @@
+[
+  {
+    "id": "shirt_001",
+    "category": "Clothing",
+    "description": "A plain red shirt.",
+    "image_path": "catalog_images/shirt_001.jpg"
+  },
+  {
+    "id": "sunglasses_001",
+    "category": "Eyewear",
+    "description": "A pair of black wayfarer-style sunglasses.",
+    "image_path": "catalog_images/sunglasses_001.jpg"
+  }
+]

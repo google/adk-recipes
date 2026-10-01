@@ -15,7 +15,7 @@ working foundation instead of a blank page.
 
 ## Try a recipe
 
-Recipes live in two places:
+Recipes live in three places:
 
 - **[`core/`](./core/)** — canonical patterns curated by the
   `agents-cli` team. Small, focused recipes that teach one thing
@@ -23,6 +23,11 @@ Recipes live in two places:
 - **[`contrib/`](./contrib/)** — community-contributed recipes.
   Broader in scope; each one is a self-contained example for a
   specific use case or industry workflow.
+- **[`plugins/`](./plugins/)** — domain-specific vertical solutions
+  (e.g., `plugins/retail/product-search`, `plugins/retail/virtual-tryon`)
+  that ship both as installable AI coding-assistant / GE Desktop skills
+  (`SKILL.md`) and as deployable cloud agents for Gemini Enterprise Agent
+  Platform (Agent Engine), Gemini Enterprise (GE), Cloud Run, and Agent Garden.
 
 Each recipe has its own `README.md` with setup and run
 instructions.

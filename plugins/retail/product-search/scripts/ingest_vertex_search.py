@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-r"""Ingest products into Vertex AI Vector Search 2.0 Collection.
+r"""Ingest products into Vector Search 2.0 Collection on Gemini Enterprise Agent Platform.
 
 Reads products from BigQuery, creates a Vector Search 2.0 Collection
 (if it doesn't exist), and inserts products one at a time. `AlreadyExists`
@@ -31,9 +31,9 @@ Usage:
 
 # pylint: disable=line-too-long
 # (error messages with collection_id hints and gcloud commands are intentionally long.)
-
 import argparse
 import logging
+import os
 import pathlib
 import sys
 from typing import Any
@@ -51,7 +51,7 @@ from _setup_utils import (
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-DEFAULT_EMBEDDING_MODEL = "gemini-embedding-001"
+DEFAULT_EMBEDDING_MODEL = os.getenv("MODEL_NAME", "gemini-embedding-001")
 DEFAULT_EMBEDDING_FIELDS = ["name", "description", "category", "brand"]
 
 # Vector dimensions each embedding model emits. Vector Search collections
@@ -420,7 +420,7 @@ def ingest_pipeline(  # pylint: disable=too-many-arguments
 def main():
     """Parse CLI arguments and run the Vector Search ingestion pipeline."""
     parser = argparse.ArgumentParser(
-        description="Ingest products to Vertex AI Vector Search 2.0"
+        description="Ingest products to Vector Search 2.0 on Gemini Enterprise Agent Platform"
     )
     parser.add_argument(
         "--config",

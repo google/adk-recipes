@@ -42,7 +42,7 @@ The agent reads these env vars at runtime:
 | Variable | Default | Purpose |
 |---|---|---|
 | `GEMINI_MODEL` | `gemini-3.5-flash` | LLM used by `root_agent` |
-| `GOOGLE_CLOUD_PROJECT` | from ADC | GCP project for Vertex AI |
+| `GOOGLE_CLOUD_PROJECT` | from ADC | GCP project for Gemini Enterprise Agent Platform |
 | `GOOGLE_CLOUD_LOCATION` | `global` | LLM region |
 | `VECTOR_SEARCH_LOCATION` | `us-central1` | Vector Search region (used to build the default collection path) |
 | `VECTOR_SEARCH_COLLECTION` | `projects/<project>/locations/<region>/collections/retail-skill-products-collection` | Full collection resource path |

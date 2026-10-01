@@ -155,6 +155,22 @@ lint:
 register-gemini-enterprise:
 	@uvx agent-starter-pack@0.41.0 register-gemini-enterprise
 
+# Publish the deployed agent to Gemini Enterprise via agents-cli
+# Usage: make publish-gemini-enterprise [GEMINI_ENTERPRISE_APP_ID=<app-id>] [AGENT_ENGINE_ID=<id> | AGENT_CARD_URL=<url>]
+publish-gemini-enterprise:
+	@source config.env && \
+	uvx --from google-agents-cli agents-cli publish gemini-enterprise \
+		--interactive \
+		--project-id "$$PROJECT_ID" \
+		--gemini-enterprise-app-id "$(or $(GEMINI_ENTERPRISE_APP_ID),projects/991831686961/locations/global/collections/default_collection/engines/gemini-enterprise-17845347_1784534731408)" \
+		--display-name "GenMedia for Commerce" \
+		--description "AI-powered multimodal creative workflows for retail and e-commerce" \
+		--tool-description "AI-powered multimodal creative workflows for retail and e-commerce" \
+		$(if $(AGENT_ENGINE_ID),--agent-runtime-id "$(AGENT_ENGINE_ID)",) \
+		$(if $(AGENT_CARD_URL),--agent-card-url "$(AGENT_CARD_URL)",)
+
+
+
 # ==============================================================================
 # Local Development
 # ==============================================================================

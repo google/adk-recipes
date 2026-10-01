@@ -14,8 +14,9 @@
 
 """ADK agent definition for the retail product search skill.
 
-Exposes a :data:`root_agent` (and :data:`app`) that uses Vertex AI Vector
-Search 2.0 for semantic product retrieval via the :func:`retrieve_docs` tool.
+Exposes a :data:`root_agent` (and :data:`app`) that uses Vector Search 2.0
+on Gemini Enterprise Agent Platform for semantic product retrieval via the
+:func:`retrieve_docs` tool.
 """
 
 # pylint: disable=line-too-long
@@ -42,7 +43,7 @@ _resolved_project_id: str | None = None
 
 
 def _resolve_project_id() -> str:
-    """Resolve the effective GCP project id and init Vertex AI on first call.
+    """Resolve the effective GCP project id and init Gemini Enterprise Agent Platform on first call.
 
     Prefers the value in .env (via config), falls back to ADC's default
     project, then writes back into os.environ so any code that reads

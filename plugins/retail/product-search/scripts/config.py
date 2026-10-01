@@ -33,8 +33,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Vertex AI genai client bootstrap. Centralized so downstream helpers can
-# rely on it being set before the first genai call.
+# Gemini Enterprise Agent Platform genai client bootstrap. Centralized so
+# downstream helpers can rely on it being set before the first genai call.
 os.environ.setdefault("GOOGLE_GENAI_USE_VERTEXAI", "True")
 
 
