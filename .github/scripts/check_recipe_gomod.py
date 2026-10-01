@@ -229,6 +229,21 @@ def _parse_replace_tokens(
     )
 
 
+def _handle_replace(
+    tokens: list[str],
+    lineno: int,
+    gomod_path: Path,
+    clean_line: str,
+    parsed: ParsedGoMod,
+    diagnostics: list[Diagnostic],
+) -> None:
+    rep, diag = _parse_replace_tokens(tokens, lineno, gomod_path, clean_line)
+    if diag:
+        diagnostics.append(diag)
+    elif rep:
+        parsed.replaces.append(rep)
+
+
 def parse_gomod(
     content: str, gomod_path: Path
 ) -> tuple[ParsedGoMod, list[Diagnostic]]:
@@ -254,13 +269,9 @@ def parse_gomod(
                     continue
 
         if in_block == "replace":
-            rep, diag = _parse_replace_tokens(
-                tokens, lineno, gomod_path, clean_line
+            _handle_replace(
+                tokens, lineno, gomod_path, clean_line, parsed, diagnostics
             )
-            if diag:
-                diagnostics.append(diag)
-            elif rep:
-                parsed.replaces.append(rep)
             continue
 
         if in_block == "module":
@@ -294,13 +305,9 @@ def parse_gomod(
             if len(tokens) > 1 and tokens[1] == "(":
                 in_block = "replace"
                 continue
-            rep, diag = _parse_replace_tokens(
-                tokens[1:], lineno, gomod_path, clean_line
+            _handle_replace(
+                tokens[1:], lineno, gomod_path, clean_line, parsed, diagnostics
             )
-            if diag:
-                diagnostics.append(diag)
-            elif rep:
-                parsed.replaces.append(rep)
         elif directive in ("require", "exclude", "retract"):
             if len(tokens) > 1 and tokens[1] == "(":
                 in_block = directive
