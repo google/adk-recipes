@@ -49,6 +49,7 @@ def test_looks_like_scope_path():
 def test_looks_like_scope_roots():
     assert m.looks_like_scope("core") is True
     assert m.looks_like_scope("contrib") is True
+    assert m.looks_like_scope("plugins") is True
     assert m.looks_like_scope("all") is True
 
 
