@@ -31,9 +31,9 @@ Usage:
 
 # pylint: disable=line-too-long
 # (log lines and error messages with config paths are intentionally long.)
+
 import argparse
 import logging
-import os
 import pathlib
 import sys
 from typing import Any
@@ -177,9 +177,7 @@ def setup(config_path: str, dry_run: bool = False) -> bool:  # pylint: disable=t
     catalog_size = cfg.get("catalog_size", "1K-50K")
     gcp_region = cfg.get("gcp_region", "us-central1")
     collection_id = cfg.get("collection_id", "retail-skill-products-collection")
-    embedding_model = cfg.get(
-        "embedding_model", os.getenv("MODEL_NAME", "gemini-embedding-001")
-    )
+    embedding_model = cfg.get("embedding_model", "gemini-embedding-001")
     raw_fields = cfg.get(
         "embedding_fields", "name, description, category, brand"
     )

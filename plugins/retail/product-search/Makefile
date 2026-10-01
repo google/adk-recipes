@@ -2,11 +2,10 @@ SHELL := /bin/bash
 SKILL_NAME := retail-product-search
 DISPLAY_NAME ?= Retail Product Search
 DESCRIPTION ?= Hybrid semantic and keyword retail catalogue search agent
-PROJECT_ID ?= capstone-tanvi-01-447109
+PROJECT_ID ?= $(or $(GOOGLE_CLOUD_PROJECT),your-gcp-project-id)
 REGION ?= us-central1
 GOOGLE3_DIR ?= /google/src/cloud/$(USER)/MyClient/google3
-DEFAULT_GE_APP_ID := projects/991831686961/locations/global/collections/default_collection/engines/gemini-enterprise-17845347_1784534731408
-APP_ID := $(or $(GEMINI_ENTERPRISE_APP_ID),$(GE_APP_ID),$(DEFAULT_GE_APP_ID))
+APP_ID := $(or $(GEMINI_ENTERPRISE_APP_ID),$(GE_APP_ID))
 
 
 # ==============================================================================

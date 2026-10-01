@@ -33,7 +33,6 @@ Usage:
 # (error messages with collection_id hints and gcloud commands are intentionally long.)
 import argparse
 import logging
-import os
 import pathlib
 import sys
 from typing import Any
@@ -47,11 +46,12 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from _setup_utils import (
     load_config,  # pylint: disable=wrong-import-position
 )
+from config import config  # pylint: disable=wrong-import-position
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-DEFAULT_EMBEDDING_MODEL = os.getenv("MODEL_NAME", "gemini-embedding-001")
+DEFAULT_EMBEDDING_MODEL = config.EMBEDDING_MODEL
 DEFAULT_EMBEDDING_FIELDS = ["name", "description", "category", "brand"]
 
 # Vector dimensions each embedding model emits. Vector Search collections

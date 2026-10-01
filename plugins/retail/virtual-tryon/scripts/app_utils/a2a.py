@@ -22,7 +22,8 @@ registration.
 
 from __future__ import annotations
 
-import os
+import asyncio
+import concurrent.futures
 from typing import TYPE_CHECKING
 
 from a2a.server.request_handlers import DefaultRequestHandler
@@ -42,6 +43,8 @@ from a2a.types import (
 from a2a.utils.constants import AGENT_CARD_WELL_KNOWN_PATH
 from google.adk.a2a.executor.a2a_agent_executor import A2aAgentExecutor
 from google.adk.a2a.utils.agent_card_builder import AgentCardBuilder
+
+from scripts.config import config
 
 
 class _A2AServerCallContextBuilder(DefaultServerCallContextBuilder):
@@ -97,7 +100,9 @@ async def _add_v0_3_compat_interface(card: AgentCard) -> AgentCard:
     """Advertise a v0.3 JSON-RPC interface so the served card stays consumable by
     v0.3 A2A clients — notably Gemini Enterprise registration, whose validator
     still requires the 0.3 card shape (top-level ``url``/``protocolVersion``)."""
-    if card.supported_interfaces:
+    if card.supported_interfaces and not any(
+        i.protocol_version == "0.3" for i in card.supported_interfaces
+    ):
         card.supported_interfaces.append(
             AgentInterface(
                 protocol_binding="JSONRPC",
@@ -123,7 +128,17 @@ def _default_capabilities() -> AgentCapabilities:
     )
 
 
-async def attach_a2a_routes(
+def _build_card_sync(builder: AgentCardBuilder) -> AgentCard:
+    """Build an AgentCard synchronously, supporting both sync and async callers."""
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(builder.build())
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(asyncio.run, builder.build()).result()
+
+
+def attach_a2a_routes(
     app: FastAPI,
     *,
     agent: BaseAgent,
@@ -136,25 +151,21 @@ async def attach_a2a_routes(
 ) -> None:
     """Register A2A routes (JSON-RPC + agent-card endpoints) under ``rpc_path``.
 
-    Builds a dynamic agent card from ``agent`` and mounts the routes on ``app``.
-    The ``runner`` should share the session/artifact/memory services with the
-    standard ADK path. ``capabilities``, ``agent_version``, and ``app_url``
-    override their defaults (streaming + ADK extension, ``AGENT_VERSION``,
-    ``APP_URL``). Call once per app — typically in a FastAPI ``lifespan``, since
-    the card is built asynchronously; repeated calls register duplicate routes.
+    Builds a dynamic agent card from ``agent`` and mounts the routes on ``app``
+    at module import time so FastAPI routing includes them before startup.
     """
-    resolved_app_url = app_url or os.getenv("APP_URL", "http://127.0.0.1:8000")
-    resolved_agent_version = agent_version or os.getenv(
-        "AGENT_VERSION", "0.1.0"
-    )
+    resolved_app_url = app_url or config.APP_URL
+    resolved_agent_version = agent_version or config.AGENT_VERSION
     resolved_capabilities = capabilities or _default_capabilities()
 
-    agent_card = await AgentCardBuilder(
-        agent=agent,
-        capabilities=resolved_capabilities,
-        rpc_url=f"{resolved_app_url}{rpc_path}",
-        agent_version=resolved_agent_version,
-    ).build()
+    agent_card = _build_card_sync(
+        AgentCardBuilder(
+            agent=agent,
+            capabilities=resolved_capabilities,
+            rpc_url=f"{resolved_app_url}{rpc_path}",
+            agent_version=resolved_agent_version,
+        )
+    )
 
     request_handler = DefaultRequestHandler(
         agent_executor=A2aAgentExecutor(runner=runner),

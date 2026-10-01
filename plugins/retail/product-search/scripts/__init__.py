@@ -12,27 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-FROM python:3.11-slim
+"""Retail product search agent package."""
 
-RUN pip install --no-cache-dir uv==0.8.13
+from dotenv import load_dotenv
 
-WORKDIR /code
-
-COPY ./pyproject.toml ./README.md ./uv.lock* ./
-
-COPY ./scripts ./scripts
-
-COPY ./assets ./assets
-COPY ./references ./references
-
-RUN uv sync --frozen
-
-ARG AGENT_VERSION=0.0.0
-ENV AGENT_VERSION=${AGENT_VERSION}
-
-RUN useradd --create-home --uid 1000 appuser && chown -R appuser:appuser /code
-USER appuser
-
-EXPOSE 8080
-
-CMD ["uv", "run", "uvicorn", "scripts.fast_api_app:app", "--host", "0.0.0.0", "--port", "8080"]
+load_dotenv()

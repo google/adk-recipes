@@ -63,8 +63,10 @@ def _resolve_project_id() -> str:
             "Copy .env.example to .env and set GOOGLE_CLOUD_PROJECT, or run "
             "`gcloud auth application-default set-quota-project <PROJECT>`."
         )
-    os.environ.setdefault("GOOGLE_CLOUD_PROJECT", project_id)
-    os.environ.setdefault("GOOGLE_CLOUD_LOCATION", config.GOOGLE_CLOUD_LOCATION)
+    if "GOOGLE_CLOUD_PROJECT" not in os.environ:
+        os.environ["GOOGLE_CLOUD_PROJECT"] = project_id
+    if "GOOGLE_CLOUD_LOCATION" not in os.environ:
+        os.environ["GOOGLE_CLOUD_LOCATION"] = config.GOOGLE_CLOUD_LOCATION
     vertexai.init(project=project_id, location=config.GOOGLE_CLOUD_LOCATION)
     _resolved_project_id = project_id
     return project_id

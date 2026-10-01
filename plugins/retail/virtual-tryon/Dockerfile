@@ -30,6 +30,9 @@ RUN uv sync --frozen
 ARG AGENT_VERSION=0.0.0
 ENV AGENT_VERSION=${AGENT_VERSION}
 
+RUN useradd --create-home --uid 1000 appuser && chown -R appuser:appuser /code
+USER appuser
+
 EXPOSE 8080
 
 CMD ["uv", "run", "uvicorn", "scripts.fast_api_app:app", "--host", "0.0.0.0", "--port", "8080"]

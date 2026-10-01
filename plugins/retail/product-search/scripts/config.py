@@ -14,11 +14,11 @@
 
 """Single source of truth for retail-product-search configuration.
 
-Loads `.env` via `python-dotenv` at import, then exposes every configurable
-value via the module-level `config` object. Reads are lazy — each attribute
-access calls `os.getenv()` — so that scripts which mutate `os.environ` (for
-example `setup._design_spec_to_env`) see their changes reflected on the
-very next read.
+Loads `.env` via `python-dotenv` at import and reads defaults from
+`.env.example`, then exposes every configurable value via the module-level
+`config` object. Reads are lazy — each attribute access calls `os.getenv()`
+— so that scripts which mutate `os.environ` (for example
+`setup._design_spec_to_env`) see their changes reflected on the very next read.
 
 `.env.example` at the recipe root documents every key below. When adding
 a new value, add it in three places: `.env.example`, this module, and
@@ -28,14 +28,33 @@ the code that consumes it.
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
-from dotenv import load_dotenv
+from dotenv import dotenv_values, load_dotenv
 
 load_dotenv()
+_DEFAULTS = dotenv_values(
+    Path(__file__).resolve().parent.parent / ".env.example"
+)
+
+
+def _read_env(key: str) -> str:
+    """Read an environment variable, falling back to `.env.example`."""
+    val = os.getenv(key)
+    if val is not None and val != "":
+        return val
+    default_val = _DEFAULTS.get(key)
+    if default_val and not default_val.startswith("<"):
+        return default_val
+    return ""
+
 
 # Gemini Enterprise Agent Platform genai client bootstrap. Centralized so
 # downstream helpers can rely on it being set before the first genai call.
-os.environ.setdefault("GOOGLE_GENAI_USE_VERTEXAI", "True")
+if "GOOGLE_GENAI_USE_VERTEXAI" not in os.environ:
+    os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = _read_env(
+        "GOOGLE_GENAI_USE_VERTEXAI"
+    )
 
 
 class _Config:
@@ -43,28 +62,44 @@ class _Config:
 
     @property
     def GOOGLE_CLOUD_PROJECT(self) -> str:
-        return os.getenv("GOOGLE_CLOUD_PROJECT", "")
+        return _read_env("GOOGLE_CLOUD_PROJECT")
 
     @property
     def GOOGLE_CLOUD_LOCATION(self) -> str:
-        return os.getenv("GOOGLE_CLOUD_LOCATION", "global")
+        return _read_env("GOOGLE_CLOUD_LOCATION")
 
     @property
     def VECTOR_SEARCH_LOCATION(self) -> str:
-        return os.getenv("VECTOR_SEARCH_LOCATION", "us-central1")
+        return _read_env("VECTOR_SEARCH_LOCATION")
 
     @property
     def VECTOR_SEARCH_COLLECTION(self) -> str:
         """Explicit collection path if set; empty string means 'derive from other config'."""
-        return os.getenv("VECTOR_SEARCH_COLLECTION", "")
+        return _read_env("VECTOR_SEARCH_COLLECTION")
 
     @property
     def GEMINI_MODEL(self) -> str:
-        return os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
+        return _read_env("GEMINI_MODEL")
 
     @property
     def EMBEDDING_MODEL(self) -> str:
-        return os.getenv("EMBEDDING_MODEL", "gemini-embedding-001")
+        return _read_env("EMBEDDING_MODEL")
+
+    @property
+    def AGENT_VERSION(self) -> str:
+        return _read_env("AGENT_VERSION")
+
+    @property
+    def ALLOW_ORIGINS(self) -> str:
+        return os.getenv("ALLOW_ORIGINS") or ""
+
+    @property
+    def APP_URL(self) -> str:
+        return _read_env("APP_URL")
+
+    @property
+    def PORT(self) -> int:
+        return int(_read_env("PORT"))
 
 
 config = _Config()
