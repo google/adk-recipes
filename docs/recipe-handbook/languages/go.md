@@ -1,23 +1,19 @@
-<!-- word count: 114 (target 100, cap 200) -->
-
 # Go Recipes
 
-Not currently active. No Go recipes have landed yet and no
-language-specific tooling (skills, CI, `pyproject`-equivalent
-checks) is in place.
+Go recipes live under `core/go/` and `contrib/go/`. CI runs formatting,
+linting, and unit tests on Go recipes. There are no Go authoring repo skills
+yet.
 
-**If you want to contribute one:** open a GitHub issue at
-[github.com/google/adk-recipes/issues](https://github.com/google/adk-recipes/issues)
-first so we can align on module layout, test runner, and CI
-expectations before you invest the work. Once accepted, this page
-will mirror the shape of the [Python page](./python.md).
+**Before contributing a new recipe:** open a
+[Propose a New Recipe](https://github.com/google/adk-recipes/issues/new?template=propose-a-new-recipe.md)
+issue first. Universal layout and size rules live in
+[anatomy](../anatomy.md).
 
-Structural checks apply to Go recipes today: every recipe must include
-`manifest.yaml`, `README.md`, `.env.example`, and `go.mod` (every
-recipe is its own module; `go.sum` is not required if there are no
-external dependencies). You can submit a working `contrib/go/`
-recipe against those alone.
+Every Go recipe must include `manifest.yaml`, `README.md`, `.env.example`, and
+`go.mod` (`go.sum` is only required when the module has external dependencies),
+plus `Dockerfile` (`deployable: true`) under `contrib/` or `AGENTS.md` under
+`core/`.
 
 ---
 
-← [Checklist](../../recipe-checklist.md) · [Handbook](../README.md)
+← [Docs home](../../README.md) · [Checklist](../../recipe-checklist.md) · [Handbook](../README.md) · [Anatomy](../anatomy.md)

@@ -209,6 +209,7 @@ jobs:
             - /core/java/** -> eliasecchig
             - /core/typescript/** -> happyhuman
             - /core/kotlin/** -> happyhuman
+            - /core/python/ambient-quality-agent/** -> maxgasztych
 
             Contrib Directory Assignments:
             - /contrib/python/** -> happyhuman
