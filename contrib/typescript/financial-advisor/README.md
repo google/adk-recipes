@@ -92,8 +92,11 @@ npm test
 npm run typecheck
 ```
 
-The test imports the agent module and checks that the coordinator has the four
-specialist tools. It never calls the model, so it needs no credentials.
+`tests/runnability.test.ts` imports the agent module and starts the ADK API
+server on the recipe directory, the same loader `adk web .` uses, and checks
+that it lists `app` at `/list-apps`. `tests/agent.test.ts` checks that the
+coordinator has the four specialist tools. Neither calls the model, so they
+need no credentials.
 
 ## Deployment
 
