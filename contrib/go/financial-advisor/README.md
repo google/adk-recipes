@@ -14,7 +14,9 @@ walks the user through four steps and calls a specialist agent for each one:
 
 This is the [ADK for Go](https://github.com/google/adk-go) port of
 [`contrib/python/financial-advisor`](../../python/financial-advisor). The
-prompts are identical, and so is the agent graph.
+agent graph is the same, and so are the prompts apart from small fixes: typos,
+the subagent names the coordinator calls, and one shared copy of the legal
+disclaimer.
 
 <img src="financial-advisor.webp" alt="Financial Advisor architecture" width="800"/>
 
@@ -31,6 +33,7 @@ session state (for example `market_data_analysis_output`).
 | `agent.go` | The coordinator and the agent tools that wrap the specialists |
 | `data_analyst.go` | The data analyst, the only agent with a tool (`geminitool.GoogleSearch`) |
 | `trading_analyst.go`, `execution_analyst.go`, `risk_analyst.go` | The other three specialists |
+| `disclaimer.go` | The disclaimer those three specialists include in their output |
 | `model.go` | Reads `.env` and creates the Gemini client on first use |
 
 **Legal disclaimer.** The information and trading strategy outlines provided
