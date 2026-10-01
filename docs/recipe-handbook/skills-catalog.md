@@ -7,9 +7,9 @@ works, or validating files. Source lives at
 with a full description. This catalog summarizes them and maps
 them to the [checklist](../recipe-checklist.md).
 
-> Not to be confused with **plugins** — recipes shipped to
-> users under `plugins/<vertical>/<solution>/`. Repo skills build this
-> repository; plugins are recipes shipped to users.
+> Not to be confused with **plugins** — recipes and solutions shipped to
+> users under `plugins/` (see [Plugin Layout and Specification](./plugins.md)).
+> Repo skills build this repository; plugins are recipes shipped to users.
 
 > **Fastest path:** for a PR-ready recipe, use
 > [`prepare-python-recipe`](#prepare-python-recipe). It runs every

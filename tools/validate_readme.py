@@ -287,6 +287,8 @@ def main(scope: str | None = None) -> int:
 
     diagnostics: list[Diagnostic] = []
     for recipe_dir in recipe_dirs:
+        if validate_manifest.is_plugin_container(recipe_dir):
+            continue
         readme_path = recipe_dir / README_FILENAME
         if not readme_path.exists():
             diagnostics.append(

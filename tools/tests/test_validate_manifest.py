@@ -656,3 +656,173 @@ def test_validate_manifest_flat_contrib_recipe_requires_deployable(
     recipe = _make_recipe(tmp_path, "contrib/flat-recipe", VALID_MANIFEST)
     diags = m.validate_manifest(recipe / "manifest.yaml", m.load_schema())
     assert [d.check for d in diags] == ["manifest-deployable"]
+
+
+# ---------------------------------------------------------------------------
+# Plugin JSON validation (Agent Plugins v1.0.0 spec)
+# ---------------------------------------------------------------------------
+
+VALID_PLUGIN_JSON = """{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "retail-ops",
+  "version": "1.0.0",
+  "description": "Retail operations plugin for store management.",
+  "ownership": {
+    "team": "Retail AI",
+    "poc": "retail-lead"
+  }
+}"""
+
+
+def _make_plugin(
+    root: Path, rel: str, content: str = VALID_PLUGIN_JSON
+) -> Path:
+    plugin_dir = root / rel
+    plugin_dir.mkdir(parents=True, exist_ok=True)
+    _write(plugin_dir / "plugin.json", content)
+    return plugin_dir
+
+
+def test_validate_plugin_valid(tmp_path, monkeypatch):
+    monkeypatch.setattr(m, "REPO_ROOT", tmp_path)
+    plugin = _make_plugin(tmp_path, "plugins/retail")
+    schema = m.load_plugin_schema()
+    assert m.validate_plugin(plugin / "plugin.json", schema) == []
+
+
+def test_validate_plugin_invalid_json(tmp_path, monkeypatch):
+    monkeypatch.setattr(m, "REPO_ROOT", tmp_path)
+    plugin = _make_plugin(tmp_path, "plugins/retail", "{not valid json}")
+    schema = m.load_plugin_schema()
+    diags = m.validate_plugin(plugin / "plugin.json", schema)
+    assert len(diags) == 1
+    assert diags[0].check == "plugin-json"
+    assert "not valid JSON" in diags[0].what
+
+
+def test_validate_plugin_empty(tmp_path, monkeypatch):
+    monkeypatch.setattr(m, "REPO_ROOT", tmp_path)
+    plugin = _make_plugin(tmp_path, "plugins/retail", "{}")
+    schema = m.load_plugin_schema()
+    diags = m.validate_plugin(plugin / "plugin.json", schema)
+    assert len(diags) == 1
+    assert diags[0].check == "plugin-empty"
+
+
+def test_validate_plugin_missing_required_fields(tmp_path, monkeypatch):
+    monkeypatch.setattr(m, "REPO_ROOT", tmp_path)
+    plugin = _make_plugin(tmp_path, "plugins/retail", '{"description": "desc"}')
+    schema = m.load_plugin_schema()
+    diags = m.validate_plugin(plugin / "plugin.json", schema)
+    blob = _blob(diags)
+    assert "plugin-schema" in blob
+    assert "$schema" in blob
+    assert "name" in blob
+    assert "ownership" in blob
+
+
+def test_validate_plugin_invalid_schema_const(tmp_path, monkeypatch):
+    monkeypatch.setattr(m, "REPO_ROOT", tmp_path)
+    content = """{
+      "$schema": "https://example.com/invalid.json",
+      "name": "retail-ops",
+      "ownership": {"team": "Retail", "poc": "lead"}
+    }"""
+    plugin = _make_plugin(tmp_path, "plugins/retail", content)
+    schema = m.load_plugin_schema()
+    diags = m.validate_plugin(plugin / "plugin.json", schema)
+    assert len(diags) == 1
+    assert diags[0].check == "plugin-schema"
+    assert "$schema" in diags[0].what
+
+
+def test_validate_plugin_invalid_name_pattern(tmp_path, monkeypatch):
+    monkeypatch.setattr(m, "REPO_ROOT", tmp_path)
+    content = """{
+      "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+      "name": "Retail_Ops_Invalid!",
+      "ownership": {"team": "Retail", "poc": "lead"}
+    }"""
+    plugin = _make_plugin(tmp_path, "plugins/retail", content)
+    schema = m.load_plugin_schema()
+    diags = m.validate_plugin(plugin / "plugin.json", schema)
+    assert len(diags) == 1
+    assert diags[0].check == "plugin-schema"
+    assert "name" in diags[0].what
+
+
+def test_validate_plugin_ownership_placeholders(tmp_path, monkeypatch):
+    monkeypatch.setattr(m, "REPO_ROOT", tmp_path)
+    content = """{
+      "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+      "name": "retail-ops",
+      "ownership": {
+        "team": "TODO: Replace with your team name",
+        "poc": "TODO: Replace with your GitHub user ID"
+      }
+    }"""
+    plugin = _make_plugin(tmp_path, "plugins/retail", content)
+    schema = m.load_plugin_schema()
+    diags = m.validate_plugin(plugin / "plugin.json", schema)
+    assert len(diags) == 2
+    assert all(d.check == "ownership-placeholder" for d in diags)
+
+
+def test_validate_plugin_description_placeholder(tmp_path, monkeypatch):
+    monkeypatch.setattr(m, "REPO_ROOT", tmp_path)
+    content = """{
+      "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+      "name": "retail-ops",
+      "description": "TODO: add description later",
+      "ownership": {"team": "Retail", "poc": "lead"}
+    }"""
+    plugin = _make_plugin(tmp_path, "plugins/retail", content)
+    schema = m.load_plugin_schema()
+    diags = m.validate_plugin(plugin / "plugin.json", schema)
+    assert len(diags) == 1
+    assert diags[0].check == "description-placeholder"
+
+
+def test_validate_plugin_unrecognised_properties(tmp_path, monkeypatch):
+    monkeypatch.setattr(m, "REPO_ROOT", tmp_path)
+    content = """{
+      "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+      "name": "retail-ops",
+      "extra_unsupported": 123,
+      "ownership": {"team": "Retail", "poc": "lead"}
+    }"""
+    plugin = _make_plugin(tmp_path, "plugins/retail", content)
+    schema = m.load_plugin_schema()
+    diags = m.validate_plugin(plugin / "plugin.json", schema)
+    assert len(diags) == 1
+    assert diags[0].check == "plugin-schema"
+    assert "extra_unsupported" in diags[0].what
+
+
+def test_collect_spec_compliant_plugin_container(tmp_path, monkeypatch):
+    monkeypatch.setattr(m, "REPO_ROOT", tmp_path)
+    _make_plugin(tmp_path, "plugins/retail")
+    dirs = m.collect_recipe_dirs("plugins")
+    assert [p.relative_to(tmp_path).as_posix() for p in dirs] == [
+        "plugins/retail"
+    ]
+
+    scoped = m.collect_recipe_dirs("plugins/retail")
+    assert [p.relative_to(tmp_path).as_posix() for p in scoped] == [
+        "plugins/retail"
+    ]
+
+    trailing = m.collect_recipe_dirs("plugins/")
+    assert [p.relative_to(tmp_path).as_posix() for p in trailing] == [
+        "plugins/retail"
+    ]
+
+
+def test_validate_plugin_non_object_json_reports_schema_error(tmp_path):
+    p = tmp_path / "plugins/retail/plugin.json"
+    p.parent.mkdir(parents=True)
+    p.write_text("[]", encoding="utf-8")
+    diags = m.validate_plugin(p, m.load_plugin_schema())
+    assert len(diags) == 1
+    assert diags[0].check == "plugin-schema"
+    assert "JSON object" in diags[0].what
