@@ -19,6 +19,8 @@ package main
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log"
 	"os"
 
@@ -31,19 +33,28 @@ func main() {
 	ctx := context.Background()
 	loadEnv()
 
-	modelName := os.Getenv("MODEL_NAME")
-	if modelName == "" {
-		log.Fatal("MODEL_NAME is not set. Copy .env.example to .env and fill it in, or export MODEL_NAME.")
-	}
-
-	rootAgent, err := newRootAgent(newLazyModel(ctx, modelName))
+	config, err := newLauncherConfig(ctx)
 	if err != nil {
-		log.Fatalf("Failed to create agent: %v", err)
+		log.Fatal(err)
 	}
 
-	config := &launcher.Config{AgentLoader: agent.NewSingleLoader(rootAgent)}
 	l := full.NewLauncher()
 	if err := l.Execute(ctx, config, os.Args[1:]); err != nil {
 		log.Fatalf("Run failed: %v\n\n%s", err, l.CommandLineSyntax())
 	}
+}
+
+// newLauncherConfig builds the agent from the environment and wraps it in the
+// configuration the ADK launcher serves.
+func newLauncherConfig(ctx context.Context) (*launcher.Config, error) {
+	modelName := os.Getenv("MODEL_NAME")
+	if modelName == "" {
+		return nil, errors.New("environment variable MODEL_NAME is not set; copy .env.example to .env and fill it in")
+	}
+
+	rootAgent, err := newRootAgent(newLazyModel(ctx, modelName))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create agent: %w", err)
+	}
+	return &launcher.Config{AgentLoader: agent.NewSingleLoader(rootAgent)}, nil
 }

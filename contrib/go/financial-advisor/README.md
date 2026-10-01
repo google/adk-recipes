@@ -90,8 +90,10 @@ to see a specialist's full output.
 go test ./...
 ```
 
-The tests build the agent graph and check that the coordinator gets the four
-specialist tools. They never call the model, so they need no credentials.
+`runnability_test.go` builds the launcher configuration `main` serves and
+checks that the ADK REST API lists `financial_coordinator` at `/list-apps`.
+`agent_test.go` checks that the coordinator gets the four specialist tools.
+Neither calls the model, so they need no credentials.
 
 ## Deployment
 
