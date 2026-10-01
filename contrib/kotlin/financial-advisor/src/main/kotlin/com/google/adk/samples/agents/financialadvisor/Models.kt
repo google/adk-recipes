@@ -37,7 +37,11 @@ internal object Models {
                 ?: error("MODEL_NAME is not set. Copy .env.example to .env and fill it in, or export MODEL_NAME.")
         return LazyModel(name) {
             if (env("GOOGLE_GENAI_USE_VERTEXAI").toBoolean()) {
-                Gemini(name, VertexCredentials(env("GOOGLE_CLOUD_PROJECT"), env("GOOGLE_CLOUD_LOCATION")))
+                val project =
+                    env("GOOGLE_CLOUD_PROJECT")
+                        ?: error("GOOGLE_CLOUD_PROJECT is not set. Set it in .env or the environment to use Vertex AI.")
+                // A null location lets the SDK use its default, "global".
+                Gemini(name, VertexCredentials(project, env("GOOGLE_CLOUD_LOCATION")))
             } else {
                 Gemini(name, env("GOOGLE_API_KEY"))
             }

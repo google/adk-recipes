@@ -14,7 +14,9 @@ walks the user through four steps and calls a specialist agent for each one:
 
 This is the ADK for Kotlin port of
 [`contrib/python/financial-advisor`](../../python/financial-advisor). The
-prompts are identical, and so is the agent graph.
+agent graph is the same, and so are the prompts apart from small fixes: typos,
+the subagent names the coordinator calls, and one shared copy of the legal
+disclaimer.
 
 <img src="financial-advisor.webp" alt="Financial Advisor architecture" width="800"/>
 
@@ -30,6 +32,7 @@ session state (for example `market_data_analysis_output`).
 | `FinancialAdvisorAgent.kt` | The coordinator, exposed as `FinancialAdvisorAgent.rootAgent` |
 | `DataAnalystAgent.kt` | The data analyst, the only agent with a tool (`GoogleSearchTool`) |
 | `TradingAnalystAgent.kt`, `ExecutionAnalystAgent.kt`, `RiskAnalystAgent.kt` | The other three specialists |
+| `LegalDisclaimer.kt` | The disclaimer those three specialists include in their output |
 | `Models.kt` | Reads the model settings from the environment or `.env` |
 | `Main.kt`, `WebMain.kt` | Terminal chat and the ADK dev server |
 
