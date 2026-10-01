@@ -44,7 +44,7 @@ tasks.test {
     useJUnitPlatform()
     // The test never calls the model; it only needs MODEL_NAME to build the
     // agent graph.
-    environment("MODEL_NAME", "gemini-3.5-flash")
+    environment("MODEL_NAME", "gemini-3.6-flash")
 }
 
 tasks.named<JavaExec>("run") {

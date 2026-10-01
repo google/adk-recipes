@@ -100,7 +100,7 @@ port 8080. To deploy it to Cloud Run:
 gcloud run deploy financial-advisor \
   --source . \
   --region us-central1 \
-  --set-env-vars GOOGLE_GENAI_USE_VERTEXAI=True,GOOGLE_CLOUD_PROJECT=<your-project-id>,GOOGLE_CLOUD_LOCATION=global
+  --set-env-vars GOOGLE_GENAI_USE_VERTEXAI=True,GOOGLE_CLOUD_PROJECT=$(gcloud config get-value project),GOOGLE_CLOUD_LOCATION=global
 ```
 
 The Cloud Run service account needs the Vertex AI User role
