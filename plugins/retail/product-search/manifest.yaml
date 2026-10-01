@@ -1,7 +1,6 @@
 type: standalone
 status: active
 language: python
-deployable: true
 description: Semantic product search agent using Vector Search on Gemini Enterprise Agent Platform and BigQuery, with ADK agent scaffolding and Cloud Run deployment.
 license: Apache-2.0
 

@@ -49,6 +49,11 @@ def _read_env(key: str) -> str:
     return ""
 
 
+def _read_bool(key: str) -> bool:
+    """Read a boolean environment variable, falling back to `.env.example`."""
+    return _read_env(key).strip().lower() in ("1", "true", "yes", "on")
+
+
 # Gemini Enterprise Agent Platform genai client bootstrap. Centralized so
 # downstream helpers can rely on it being set before the first genai call.
 if "GOOGLE_GENAI_USE_VERTEXAI" not in os.environ:
@@ -86,20 +91,12 @@ class _Config:
         return _read_env("EMBEDDING_MODEL")
 
     @property
-    def AGENT_VERSION(self) -> str:
-        return _read_env("AGENT_VERSION")
+    def SURFACE_LOCAL_SKILL(self) -> bool:
+        return _read_bool("SURFACE_LOCAL_SKILL")
 
     @property
-    def ALLOW_ORIGINS(self) -> str:
-        return _read_env("ALLOW_ORIGINS")
-
-    @property
-    def APP_URL(self) -> str:
-        return _read_env("APP_URL")
-
-    @property
-    def PORT(self) -> int:
-        return int(_read_env("PORT"))
+    def SURFACE_GOOGLE3_SKILL(self) -> bool:
+        return _read_bool("SURFACE_GOOGLE3_SKILL")
 
 
 config = _Config()

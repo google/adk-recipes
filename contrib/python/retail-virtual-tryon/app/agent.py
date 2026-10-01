@@ -22,8 +22,8 @@ import logging
 
 from google.adk import agents, apps, models
 
-from scripts.config import config
-from scripts.tryon_processor import generate_tryon_image, generate_tryon_video
+from app.config import config
+from app.tryon_processor import generate_tryon_image, generate_tryon_video
 
 logger = logging.getLogger(__name__)
 
@@ -111,18 +111,16 @@ def try_on_product_video(
         product_category,
     )
     try:
-        # Step 1: Generate the try-on image composite
         img_res = generate_tryon_image(
             person_image_path=user_photo_path,
             product_image_path=product_image_path,
             project_id=config.GOOGLE_CLOUD_PROJECT,
-            output_bucket=None,  # Keep temporary on disk
+            output_bucket=None,
             model_name=config.GEMINI_IMAGE_MODEL,
             product_category=product_category,
             product_description=product_description,
         )
 
-        # Step 2: Use the composite image as reference for video generation
         tryon_image_bytes = img_res["image_bytes"]
         video_res = generate_tryon_video(
             tryon_image_bytes=tryon_image_bytes,
@@ -158,9 +156,5 @@ root_agent = agents.Agent(
 
 app = apps.App(
     root_agent=root_agent,
-    # ADK's `adk web` auto-names the app from the agent module's parent
-    # directory. The agent lives at scripts/tryon_agent.py, so ADK names it
-    # "scripts". The App name MUST match the auto-discovered name or
-    # session creation fails.
-    name="scripts",
+    name="app",
 )

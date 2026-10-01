@@ -1,48 +1,46 @@
-# Retail Virtual Try-On
+# Retail Virtual Try-On (Skill Plugin)
 
-Virtual try-on agent using Gemini image generation (flash/pro tiers) for clothing, eyewear, jewelry, cosmetics, and footwear. Includes a pre-flight product-cutout classifier and configurable safety levels.
+Virtual try-on skill plugin using Gemini image generation (flash/pro tiers) and Veo on Gemini Enterprise Agent Platform for clothing, eyewear, jewelry, cosmetics, and footwear. Includes a pre-flight product-cutout classifier and configurable safety levels.
 
-## Supported Personas & Surfaces
+> **Looking for the standalone deployable cloud agent (Agent Engine, Gemini Enterprise App, Cloud Run, & Agent Garden)?**
+> See [`contrib/python/retail-virtual-tryon`](../../../contrib/python/retail-virtual-tryon/README.md).
 
-This plugin supports both **AI Coding Assistant / Desktop Skill** workflows and **Managed Cloud Agent** deployments:
+## Skill Surfacing Personas & Boolean Config
 
-| Persona / Surface | How it is used | Entrypoint / Tooling |
-|---|---|---|
-| **AI Coding Assistants** (Claude Code, Antigravity, Gemini CLI, Codex) | Conversational skill that provisions GCS buckets, validates Gemini/Veo access, and launches the local VTO sandbox or exports a web app | `SKILL.md` (`npx skills add` or `make install-skill-local`) |
-| **GE Desktop App** (Spark Beta, GoGo, Sobi) | Local skill in `~/.gemini/skills/retail-virtual-tryon` or synced to `google3` (`//third_party/skills/skills/`) | `make install-skill-local` / `make sync-google3-skill` |
-| **Gemini Enterprise Agent Platform (Agent Engine)** | Managed ADK Reasoning Engine runtime (`try_on_product_image`, `try_on_product_video`) on Google Cloud | `make deploy-agent-engine` (`agents-cli deploy`) |
-| **Gemini Enterprise (GE) App** | Registered ADK / A2A agent accessible in the Gemini Enterprise web/Sobi assistant | `make publish-gemini-enterprise` (`agents-cli publish`) |
-| **Cloud Run & Agent Garden** | Containerized FastAPI + A2A + Reasoning Engine HTTP server (`deployable: true`) or standalone exported web app | `make deploy-cloudrun`, `Dockerfile`, `agents-cli-manifest.yaml`, `scripts/export_app.py` |
+This plugin provides boolean configuration flags (`SURFACE_LOCAL_SKILL`, `SURFACE_GOOGLE3_SKILL`) in [`assets/design-spec.md`](assets/design-spec.md), [`.env.example`](.env.example), and [`Makefile`](Makefile) so you can choose which skill surfaces to enable:
+
+| Persona / Surface | Boolean Flag | Default | What It Does |
+|---|---|---|---|
+| **Local Skill Hosts & GE Desktop App** (Spark Beta, GoGo, Sobi, Antigravity, Claude Code, Gemini CLI) | `SURFACE_LOCAL_SKILL` (`surface_local_skill`) | `true` | Installs a clean skill folder to `~/.gemini/skills/retail-virtual-tryon` (validated for Spark Beta) and symlinks to `~/.gemini/config/skills` & `~/.agents/skills` |
+| **Google3 (`//third_party/skills`)** (CitC / Cloudtop GoGo & Sobi) | `SURFACE_GOOGLE3_SKILL` (`surface_google3_skill`) | `false` | Syncs the skill to `//third_party/skills/skills/retail-virtual-tryon` locally on Cloudtop or via `CLOUDTOP_HOST` over SSH |
 
 ## Install
 
-### 1. Skill Install (Coding Assistants & GE Desktop / Spark Beta)
+### Option 1: Install via Boolean Config (`make surface`)
+
+Toggle whichever skill personas you want to surface:
+
+```bash
+# Default: surface to local skill hosts & Spark Beta Desktop (SURFACE_LOCAL_SKILL=true, SURFACE_GOOGLE3_SKILL=false)
+make surface
+
+# Surface to both local skill hosts AND google3 CitC:
+make surface SURFACE_LOCAL_SKILL=true SURFACE_GOOGLE3_SKILL=true
+
+# Surface to remote Cloudtop google3 over SSH:
+make surface SURFACE_LOCAL_SKILL=true SURFACE_GOOGLE3_SKILL=true CLOUDTOP_HOST=<your-cloudtop>.c.googlers.com
+```
+
+### Option 2: Install via `npx skills add`
 
 Install directly into your AI coding assistant (Claude Code, Antigravity,
-Codex, ...) via `npx skills add`. The tool discovers `SKILL.md` from this
-recipe and registers `/retail-virtual-tryon` as an invocable skill:
+Codex, ...) via `npx skills add`:
 
 ```bash
 npx skills add google/adk-recipes --skill retail-virtual-tryon
 ```
 
-Or install locally across `~/.gemini/skills/retail-virtual-tryon` (validated for **Spark Beta**), `~/.gemini/config/skills`, and `~/.agents/skills`:
-
-```bash
-make install-skill-local
-```
-
-To sync the skill to a `google3` CitC client (`//third_party/skills/skills/retail-virtual-tryon`) for GoGo / Sobi:
-
-```bash
-make sync-google3-skill
-# Or from Mac to a remote Cloudtop over SSH:
-make sync-google3-skill CLOUDTOP_HOST=<your-cloudtop>.c.googlers.com
-```
-
-### 2. Developer / Agent Runtime Install
-
-If you're contributing to the recipe or deploying the agent directly:
+### Option 3: Developer Install
 
 ```bash
 git clone https://github.com/google/adk-recipes.git
@@ -62,9 +60,18 @@ uv sync
   `gemini-3.5-flash` (agent and catalog classifier)
 - For catwalk video only: access to Veo (`veo-3.1-generate-001`)
 
-## Run
+## Run Each Persona
 
-### Persona A: Run via Skill (Claude Code / Antigravity / Spark Beta)
+### Persona 1: GE Desktop App (Spark Beta / GoGo / Sobi)
+
+1. Run `make surface SURFACE_LOCAL_SKILL=true`.
+2. In **Spark Beta**, open **Settings → General → Skills Folders**, add `~/.gemini/skills`, and check the **Skills** tab (`retail-virtual-tryon` appears automatically).
+3. In chat, prompt:
+   ```
+   Use the retail-virtual-tryon skill to set up a virtual try-on app on Google Cloud.
+   ```
+
+### Persona 2: AI Coding Assistants (Claude Code / Antigravity / Gemini CLI)
 
 In a fresh workspace, launch your AI coding agent and trigger the skill.
 
@@ -74,7 +81,7 @@ In a fresh workspace, launch your AI coding agent and trigger the skill.
 /retail-virtual-tryon
 ```
 
-**Antigravity / Spark Beta / Sobi:**
+**Antigravity / Gemini CLI:**
 
 ```
 Use the retail-virtual-tryon skill to set up a virtual try-on app on Google Cloud.
@@ -85,7 +92,7 @@ The agent walks Q-MODE (4-5 questions Quick / 4 questions Export), runs
 provision GCS buckets, verify Gemini Enterprise Agent Platform access,
 and launch the local sandbox at [http://localhost:8080](http://localhost:8080).
 
-### Persona B: Direct CLI (No Coding Assistant)
+### Persona 3: Direct CLI (No Coding Assistant)
 
 ```bash
 uv sync                                       # or: pip install -e .
@@ -95,29 +102,16 @@ uv run python scripts/setup_tryon.py --project-id $PROJECT --model flash
 uv run python scripts/setup_tryon.py --project-id $PROJECT --model pro
 ```
 
-## Deploy to Agent Engine, Gemini Enterprise & Cloud Run
+### Persona 4: Managed Cloud Agent (Agent Engine, Gemini Enterprise, Cloud Run, Agent Garden)
 
-### Option 1: Managed Agent Runtime (Agent Engine + Gemini Enterprise + A2A Cloud Run)
+To deploy and surface the standalone ADK agent to **Gemini Enterprise Agent Platform (Agent Engine)**, **Gemini Enterprise (GE) App**, **Cloud Run**, or **Agent Garden**, use the companion agent recipe in [`contrib/python/retail-virtual-tryon`](../../../contrib/python/retail-virtual-tryon/README.md):
 
-Deploy the ADK agent (`scripts/agent.py` / `scripts/fast_api_app.py`) directly to Google Cloud using `google-agents-cli`:
+```bash
+cd ../../../contrib/python/retail-virtual-tryon
+make surface DEPLOY_AGENT_ENGINE=true PUBLISH_GEMINI_ENTERPRISE=true DEPLOY_CLOUD_RUN=false
+```
 
-1. **Deploy to Gemini Enterprise Agent Platform (Agent Engine):**
-   ```bash
-   make deploy-agent-engine PROJECT_ID=your-gcp-project-id REGION=us-central1
-   ```
-2. **Register with your Gemini Enterprise (GE) App:**
-   ```bash
-   make publish-gemini-enterprise \
-     PROJECT_ID=your-gcp-project-id \
-     GEMINI_ENTERPRISE_APP_ID="projects/<project-number>/locations/global/collections/default_collection/engines/<engine-id>" \
-     AGENT_ENGINE_ID="projects/<project-number>/locations/us-central1/reasoningEngines/<reasoning-engine-id>"
-   ```
-3. **Deploy Agent Service to Cloud Run (A2A + Reasoning Engine HTTP API):**
-   ```bash
-   make deploy-cloudrun PROJECT_ID=your-gcp-project-id REGION=us-central1
-   ```
-
-### Option 2: Export & Deploy Standalone Web App to Cloud Run
+## Export Standalone Sandbox Web App to Cloud Run
 
 The interactive VTO sandbox is a FastAPI app that can also be exported as a standalone web application.
 `scripts/export_app.py` generates a standalone codebase — it copies the

@@ -1,50 +1,48 @@
-# Retail Product Search
+# Retail Product Search (Skill Plugin)
 
-Semantic product search agent on Google Cloud (Vector Search on Gemini Enterprise Agent Platform,
+Semantic product search skill plugin on Google Cloud (Vector Search on Gemini Enterprise Agent Platform,
 BigQuery, embeddings). Use to build e-commerce search, catalog discovery, or
 shopping assistant agents.
 
-## Supported Personas & Surfaces
+> **Looking for the standalone deployable cloud agent (Agent Engine, Gemini Enterprise App, Cloud Run, & Agent Garden)?**
+> See [`contrib/python/retail-product-search`](../../../contrib/python/retail-product-search/README.md).
 
-This plugin supports both **AI Coding Assistant / Desktop Skill** workflows and **Managed Cloud Agent** deployments:
+## Skill Surfacing Personas & Boolean Config
 
-| Persona / Surface | How it is used | Entrypoint / Tooling |
-|---|---|---|
-| **AI Coding Assistants** (Claude Code, Antigravity, Gemini CLI, Codex) | Conversational skill that provisions BigQuery + Vector Search and scaffolds the agent in your workspace | `SKILL.md` (`npx skills add` or `make install-skill-local`) |
-| **GE Desktop App** (Spark Beta, GoGo, Sobi) | Local skill in `~/.gemini/skills/retail-product-search` or synced to `google3` (`//third_party/skills/skills/`) | `make install-skill-local` / `make sync-google3-skill` |
-| **Gemini Enterprise Agent Platform (Agent Engine)** | Managed ADK Reasoning Engine runtime on Google Cloud | `make deploy-agent-engine` (`agents-cli deploy`) |
-| **Gemini Enterprise (GE) App** | Registered ADK / A2A agent accessible in the Gemini Enterprise web/Sobi assistant | `make publish-gemini-enterprise` (`agents-cli publish`) |
-| **Cloud Run & Agent Garden** | Containerized FastAPI + A2A + Reasoning Engine HTTP server (`deployable: true`) | `make deploy-cloudrun`, `Dockerfile`, `agents-cli-manifest.yaml` |
+This plugin provides boolean configuration flags (`SURFACE_LOCAL_SKILL`, `SURFACE_GOOGLE3_SKILL`) in [`assets/design-spec.md`](assets/design-spec.md), [`.env.example`](.env.example), and [`Makefile`](Makefile) so you can choose which skill surfaces to enable:
+
+| Persona / Surface | Boolean Flag | Default | What It Does |
+|---|---|---|---|
+| **Local Skill Hosts & GE Desktop App** (Spark Beta, GoGo, Sobi, Antigravity, Claude Code, Gemini CLI) | `SURFACE_LOCAL_SKILL` (`surface_local_skill`) | `true` | Installs a clean skill folder to `~/.gemini/skills/retail-product-search` (validated for Spark Beta) and symlinks to `~/.gemini/config/skills` & `~/.agents/skills` |
+| **Google3 (`//third_party/skills`)** (CitC / Cloudtop GoGo & Sobi) | `SURFACE_GOOGLE3_SKILL` (`surface_google3_skill`) | `false` | Syncs the skill to `//third_party/skills/skills/retail-product-search` locally on Cloudtop or via `CLOUDTOP_HOST` over SSH |
 
 ## Install
 
-### 1. Skill Install (Coding Assistants & GE Desktop / Spark Beta)
+### Option 1: Install via Boolean Config (`make surface`)
+
+Toggle whichever skill personas you want to surface:
+
+```bash
+# Default: surface to local skill hosts & Spark Beta Desktop (SURFACE_LOCAL_SKILL=true, SURFACE_GOOGLE3_SKILL=false)
+make surface
+
+# Surface to both local skill hosts AND google3 CitC:
+make surface SURFACE_LOCAL_SKILL=true SURFACE_GOOGLE3_SKILL=true
+
+# Surface to remote Cloudtop google3 over SSH:
+make surface SURFACE_LOCAL_SKILL=true SURFACE_GOOGLE3_SKILL=true CLOUDTOP_HOST=<your-cloudtop>.c.googlers.com
+```
+
+### Option 2: Install via `npx skills add`
 
 Install directly into your AI coding assistant (Claude Code, Antigravity,
-Codex, ...) via `npx skills add`. The tool discovers `SKILL.md` from this
-recipe and registers `/retail-product-search` as an invocable skill:
+Codex, ...) via `npx skills add`:
 
 ```bash
 npx skills add google/adk-recipes --skill retail-product-search
 ```
 
-Or install locally across `~/.gemini/skills/retail-product-search` (validated for **Spark Beta**), `~/.gemini/config/skills`, and `~/.agents/skills`:
-
-```bash
-make install-skill-local
-```
-
-To sync the skill to a `google3` CitC client (`//third_party/skills/skills/retail-product-search`) for GoGo / Sobi:
-
-```bash
-make sync-google3-skill
-# Or from Mac to a remote Cloudtop over SSH:
-make sync-google3-skill CLOUDTOP_HOST=<your-cloudtop>.c.googlers.com
-```
-
-### 2. Developer / Agent Runtime Install
-
-If you're contributing to the recipe or deploying the agent directly:
+### Option 3: Developer Install
 
 ```bash
 git clone https://github.com/google/adk-recipes.git
@@ -62,9 +60,18 @@ uv sync
   gcloud services enable bigquery.googleapis.com aiplatform.googleapis.com vectorsearch.googleapis.com
   ```
 
-## Run
+## Run Each Persona
 
-### Persona A: Run via Skill (Claude Code / Antigravity / Spark Beta)
+### Persona 1: GE Desktop App (Spark Beta / GoGo / Sobi)
+
+1. Run `make surface SURFACE_LOCAL_SKILL=true`.
+2. In **Spark Beta**, open **Settings → General → Skills Folders**, add `~/.gemini/skills`, and check the **Skills** tab (`retail-product-search` appears automatically).
+3. In chat, prompt:
+   ```
+   Use the retail-product-search skill to set up a product search agent on Google Cloud.
+   ```
+
+### Persona 2: AI Coding Assistants (Claude Code / Antigravity / Gemini CLI)
 
 In a fresh workspace, launch your AI coding agent and trigger the skill.
 
@@ -74,7 +81,7 @@ In a fresh workspace, launch your AI coding agent and trigger the skill.
 /retail-product-search
 ```
 
-**Antigravity / Spark Beta / Sobi:**
+**Antigravity / Gemini CLI:**
 
 ```
 Use the retail-product-search skill to set up a product search agent on Google Cloud.
@@ -90,7 +97,7 @@ the Vector Search collection. Once setup finishes, launch the ADK web UI:
 
 Then open [http://localhost:8765](http://localhost:8765).
 
-### Persona B: Direct CLI Setup (No Coding Assistant)
+### Persona 3: Direct CLI Setup (No Coding Assistant)
 
 Provision the BigQuery dataset and Vector Search 2.0 collection directly using the `Makefile`:
 
@@ -98,25 +105,14 @@ Provision the BigQuery dataset and Vector Search 2.0 collection directly using t
 make setup PROJECT_ID=your-gcp-project-id REGION=us-central1
 ```
 
-### Persona C: Deploy to Agent Engine, Gemini Enterprise & Cloud Run
+### Persona 4: Managed Cloud Agent (Agent Engine, Gemini Enterprise, Cloud Run, Agent Garden)
 
-Once the catalog is ingested (`make setup`), deploy and surface the agent to managed Google Cloud runtimes:
+To deploy and surface the standalone agent to **Gemini Enterprise Agent Platform (Agent Engine)**, **Gemini Enterprise (GE) App**, **Cloud Run**, or **Agent Garden**, use the companion agent recipe in [`contrib/python/retail-product-search`](../../../contrib/python/retail-product-search/README.md):
 
-1. **Deploy to Gemini Enterprise Agent Platform (Agent Engine):**
-   ```bash
-   make deploy-agent-engine PROJECT_ID=your-gcp-project-id REGION=us-central1
-   ```
-2. **Register with your Gemini Enterprise (GE) App:**
-   ```bash
-   make publish-gemini-enterprise \
-     PROJECT_ID=your-gcp-project-id \
-     GEMINI_ENTERPRISE_APP_ID="projects/<project-number>/locations/global/collections/default_collection/engines/<engine-id>" \
-     AGENT_ENGINE_ID="projects/<project-number>/locations/us-central1/reasoningEngines/<reasoning-engine-id>"
-   ```
-3. **Deploy to Cloud Run (A2A + Reasoning Engine FastAPI Service):**
-   ```bash
-   make deploy-cloudrun PROJECT_ID=your-gcp-project-id REGION=us-central1
-   ```
+```bash
+cd ../../../contrib/python/retail-product-search
+make surface DEPLOY_AGENT_ENGINE=true PUBLISH_GEMINI_ENTERPRISE=true DEPLOY_CLOUD_RUN=false
+```
 
 ### Which mode?
 

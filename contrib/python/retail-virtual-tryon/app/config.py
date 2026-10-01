@@ -12,18 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Single source of truth for retail-virtual-tryon configuration.
+"""Single source of truth for retail-virtual-tryon agent configuration.
 
-Loads `.env` via `python-dotenv` at import and reads defaults from
-`.env.example`, then exposes every configurable value via the module-level
-`config` object. Reads are lazy — each attribute access calls `os.getenv()`
-— so that scripts which mutate `os.environ` (for example
-`setup_tryon._design_spec_to_env`) see their changes reflected on the very
-next read.
-
-`.env.example` at the recipe root documents every key below. When adding
-a new value, add it in three places: `.env.example`, this module, and
-the code that consumes it.
+Reads `.env` (loaded in `app/__init__.py`) and falls back to `.env.example`
+at the recipe root so defaults live in `.env.example` rather than hardcoded
+in Python calls.
 """
 
 from __future__ import annotations
@@ -31,9 +24,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from dotenv import dotenv_values, load_dotenv
+from dotenv import dotenv_values
 
-load_dotenv()
 _DEFAULTS = dotenv_values(
     Path(__file__).resolve().parent.parent / ".env.example"
 )
@@ -55,8 +47,6 @@ def _read_bool(key: str) -> bool:
     return _read_env(key).strip().lower() in ("1", "true", "yes", "on")
 
 
-# Gemini Enterprise Agent Platform genai client bootstrap. Centralized so
-# `_get_client` helpers can rely on it being set before the first genai call.
 if "GOOGLE_GENAI_USE_VERTEXAI" not in os.environ:
     os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = _read_env(
         "GOOGLE_GENAI_USE_VERTEXAI"
@@ -75,6 +65,10 @@ class _Config:
         return _read_env("GCP_REGION")
 
     @property
+    def GOOGLE_CLOUD_LOCATION(self) -> str:
+        return _read_env("GOOGLE_CLOUD_LOCATION") or _read_env("GCP_REGION")
+
+    @property
     def GEMINI_MODEL_LOCATION(self) -> str:
         return _read_env("GEMINI_MODEL_LOCATION")
 
@@ -83,12 +77,16 @@ class _Config:
         return _read_env("GEMINI_IMAGE_MODEL")
 
     @property
-    def GEMINI_MODEL(self) -> str:
-        return _read_env("GEMINI_MODEL")
+    def GEMINI_PRO_IMAGE_MODEL(self) -> str:
+        return _read_env("GEMINI_PRO_IMAGE_MODEL")
 
     @property
-    def GEMINI_TEXT_MODEL(self) -> str:
-        return _read_env("GEMINI_TEXT_MODEL")
+    def VEO_VIDEO_MODEL(self) -> str:
+        return _read_env("VEO_VIDEO_MODEL")
+
+    @property
+    def GEMINI_MODEL(self) -> str:
+        return _read_env("MODEL_NAME") or _read_env("GEMINI_MODEL")
 
     @property
     def TRYON_OUTPUT_BUCKET(self) -> str:
@@ -99,20 +97,40 @@ class _Config:
         return _read_env("TRYON_UPLOAD_BUCKET")
 
     @property
-    def TRYON_CATALOG_PATH(self) -> str:
-        return _read_env("TRYON_CATALOG_PATH")
+    def AGENT_VERSION(self) -> str:
+        return _read_env("AGENT_VERSION")
+
+    @property
+    def ALLOW_ORIGINS(self) -> str:
+        return _read_env("ALLOW_ORIGINS")
+
+    @property
+    def APP_URL(self) -> str:
+        return _read_env("APP_URL")
 
     @property
     def PORT(self) -> int:
         return int(_read_env("PORT"))
 
     @property
-    def SURFACE_LOCAL_SKILL(self) -> bool:
-        return _read_bool("SURFACE_LOCAL_SKILL")
+    def DEPLOY_AGENT_ENGINE(self) -> bool:
+        return _read_bool("DEPLOY_AGENT_ENGINE")
 
     @property
-    def SURFACE_GOOGLE3_SKILL(self) -> bool:
-        return _read_bool("SURFACE_GOOGLE3_SKILL")
+    def PUBLISH_GEMINI_ENTERPRISE(self) -> bool:
+        return _read_bool("PUBLISH_GEMINI_ENTERPRISE")
+
+    @property
+    def DEPLOY_CLOUD_RUN(self) -> bool:
+        return _read_bool("DEPLOY_CLOUD_RUN")
+
+    @property
+    def RUN_LOCAL_WEB(self) -> bool:
+        return _read_bool("RUN_LOCAL_WEB")
+
+    @property
+    def GEMINI_ENTERPRISE_APP_ID(self) -> str:
+        return _read_env("GEMINI_ENTERPRISE_APP_ID")
 
 
 config = _Config()

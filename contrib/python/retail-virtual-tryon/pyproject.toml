@@ -1,0 +1,44 @@
+[project]
+name = "retail-virtual-tryon"
+version = "0.2.0"
+requires-python = ">=3.11"
+license = {text = "Apache-2.0"}
+
+dependencies = [
+    "a2a-sdk>=0.3.22",
+    "fastapi>=0.115.0",
+    "google-adk[a2a]>=2.2.0",
+    "google-cloud-aiplatform[agent-engines]>=1.130.0",
+    "google-cloud-logging>=3.12.0",
+    "google-cloud-storage>=2.0.0",
+    "google-genai>=1.0.0",
+    "pillow>=9.0.0",
+    "pydantic>=2.10.0",
+    "python-dotenv>=1.0.0",
+    "pyyaml>=6.0",
+    "uvicorn>=0.34.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[[tool.uv.index]]
+url = "https://pypi.org/simple/"
+default = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-mock>=3.14",
+    "pytest-cov>=4.1",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-s -v"
+log_cli = true
+log_cli_level = "INFO"

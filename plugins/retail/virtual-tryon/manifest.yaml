@@ -1,7 +1,6 @@
 type: standalone
 status: active
 language: python
-deployable: true
 description: Virtual try-on agent supporting image and video (catwalk) try-ons via Gemini image models and Veo on Gemini Enterprise Agent Platform, with a pre-flight product-cutout classifier and configurable safety levels.
 license: Apache-2.0
 architecture:
