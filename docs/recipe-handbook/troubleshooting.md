@@ -168,7 +168,7 @@ and 2 MB (see [anatomy — Size limits](./anatomy.md#size-limits)).
 
 **Cause** — the required set is the union of every rule that applies to your
 recipe. Language rules use `manifest.language`, not the folder path: a
-vertical plugin at `plugins/retail/product-search` picks up the Python list
+vertical plugin at `plugins/retail/my-plugin` picks up the Python list
 because its manifest says `language: python`.
 
 | Rule | Applies to | Entries |
@@ -214,9 +214,9 @@ git add <recipe-path>/scripts/.gitkeep
 is mandatory.
 
 ```text
-plugins/retail/product-search/manifest.yaml    valid
-plugins/product-search/manifest.yaml           too shallow — no vertical
-plugins/retail/product-search/x/manifest.yaml  too deep
+plugins/retail/my-plugin/manifest.yaml    valid
+plugins/my-plugin/manifest.yaml           too shallow — no vertical
+plugins/retail/my-plugin/x/manifest.yaml  too deep
 ```
 
 **Fix**
@@ -427,8 +427,8 @@ yours does not match.
 # contrib/python/my-recipe
 name = "my-recipe"
 
-# plugins/retail/product-search
-name = "retail-product-search"
+# plugins/retail/my-plugin
+name = "retail-my-plugin"
 ```
 
 **Confirm**, from the repo root —

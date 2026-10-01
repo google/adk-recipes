@@ -100,14 +100,14 @@ recipe lives:
 
 | Location | `[project].name` | Example |
 | --- | --- | --- |
-| `core/<language>/<recipe>` | the folder name | `deep-search` |
-| `contrib/<language>/<recipe>` | the folder name | `financial-advisor` |
-| `plugins/<vertical>/<solution>` | `<vertical>-<solution>` | `retail-product-search` |
+| `core/<language>/<recipe>` | the folder name | `my-recipe` |
+| `contrib/<language>/<recipe>` | the folder name | `my-recipe` |
+| `plugins/<vertical>/<solution>` | `<vertical>-<solution>` | `retail-my-plugin` |
 
 Plugins prefix `[project].name` with the vertical (`<vertical>-<solution>`)
 because the folder name alone is not unique across verticals —
-`plugins/retail/product-search` and `plugins/grocery/product-search` would
-otherwise both claim the distribution name `product-search`. It also keeps the
+`plugins/retail/my-plugin` and `plugins/grocery/my-plugin` would
+otherwise both claim the distribution name `my-plugin`. It also keeps the
 package name aligned with the plugin's `SKILL.md` `name:` field.
 
 Optional: add `description` if you want it in your `pyproject.toml`

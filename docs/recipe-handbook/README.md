@@ -63,7 +63,7 @@ any new requirements automatically. Then check the
   automatically when you open this repo. Repo skills *build* the
   repo; they are never shipped to users.
 - **Plugin** — a recipe under
-  `plugins/<vertical>/<solution>/` (e.g. `plugins/retail/store-ops/`),
+  `plugins/<vertical>/<solution>/` (e.g. `plugins/retail/my-plugin/`),
   where the vertical names the business domain that owns it.
   Shipped to users like any other recipe. Unrelated to repo skills.
 - **Manifest** — `manifest.yaml`. Declares recipe metadata:
