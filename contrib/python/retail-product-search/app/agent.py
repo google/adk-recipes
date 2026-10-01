@@ -62,9 +62,7 @@ def _resolve_project_id() -> str:
 
 def _get_vector_search_collection() -> str:
     """Return the Vector Search collection resource path."""
-    project_id = _resolve_project_id()
     raw = config.VECTOR_SEARCH_COLLECTION
-    vs_location = config.VECTOR_SEARCH_LOCATION
     if raw and raw.strip():
         candidate = raw.strip()
         if not _COLLECTION_PATH_RE.match(candidate):
@@ -74,6 +72,8 @@ def _get_vector_search_collection() -> str:
                 "with no whitespace or newlines."
             )
         return candidate
+    project_id = _resolve_project_id()
+    vs_location = config.VECTOR_SEARCH_LOCATION
     return (
         f"projects/{project_id}/locations/{vs_location}"
         "/collections/retail-skill-products-collection"

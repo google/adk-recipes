@@ -16,6 +16,8 @@
 
 import inspect
 import json
+from collections.abc import Callable
+from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request, encoders, responses, status
 from vertexai.agent_engines.templates.adk import AdkApp
@@ -23,7 +25,7 @@ from vertexai.agent_engines.templates.adk import AdkApp
 from app.app_utils import services
 
 
-def _create_adk_app(app: FastAPI) -> AdkApp:
+def _create_adk_app() -> AdkApp:
     from app.agent import app as adk_agent_app
 
     return AdkApp(
@@ -36,7 +38,7 @@ def _create_adk_app(app: FastAPI) -> AdkApp:
 def _get_adk_app(app: FastAPI) -> AdkApp:
     adk_app: AdkApp | None = getattr(app.state, "reasoning_engine_app", None)
     if adk_app is None:
-        adk_app = _create_adk_app(app)
+        adk_app = _create_adk_app()
         app.state.reasoning_engine_app = adk_app
     return adk_app
 
@@ -49,7 +51,7 @@ def _allowed_methods(adk_app: AdkApp, *, streaming: bool) -> set[str]:
 
 async def _parse_request(
     request: Request, adk_app: AdkApp, *, streaming: bool
-) -> tuple[object, dict]:
+) -> tuple[Callable[..., Any], dict[str, Any]]:
     try:
         payload = await request.json()
     except Exception as exc:

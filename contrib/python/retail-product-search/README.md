@@ -77,7 +77,7 @@ Open [http://127.0.0.1:8000](http://127.0.0.1:8000), select `app`, and ask:
 make deploy-agent-engine PROJECT_ID=your-gcp-project-id REGION=us-central1
 ```
 
-#### 3. Register with Gemini Enterprise (GE) App (Sobi / Web Assistant)
+#### 3. Register with Gemini Enterprise (GE) App (Enterprise Search & Assistant)
 
 ```bash
 make publish-gemini-enterprise \

@@ -22,4 +22,3 @@ create_params:
   is_a2a: true
   cicd_runner: "skip"
   agent_gateway: false
-  agent_guidance_filename: "AGENTS.md"

@@ -62,7 +62,7 @@ def _get_client(project_id: str, location: str | None = None):
 def _load_image_bytes(
     image_path_or_uri: str, project_id: str | None = None
 ) -> bytes:
-    """Load image bytes from local file or GCS URI."""
+    """Load image bytes from local file, GCS URI, or base64 string."""
     if image_path_or_uri.startswith("gs://"):
         if not project_id:
             project_id = storage.Client().project
@@ -72,14 +72,19 @@ def _load_image_bytes(
         blob = bucket.blob(blob_path)
         return blob.download_as_bytes()
 
-    if len(image_path_or_uri) > 100 and not os.path.exists(image_path_or_uri):
-        try:
-            return base64.b64decode(image_path_or_uri)
-        except Exception:  # noqa: S110
-            pass
+    if os.path.exists(image_path_or_uri):
+        with open(image_path_or_uri, "rb") as f:
+            return f.read()
 
-    with open(image_path_or_uri, "rb") as f:
-        return f.read()
+    if len(image_path_or_uri) > 100:
+        try:
+            return base64.b64decode(image_path_or_uri, validate=True)
+        except Exception as exc:
+            raise ValueError(
+                "Input is neither an existing file path nor valid base64 image data."
+            ) from exc
+
+    raise FileNotFoundError(f"Image file not found: {image_path_or_uri}")
 
 
 def _upload_to_gcs(
@@ -331,6 +336,9 @@ def generate_tryon_video(
             raise RuntimeError("Veo video generation returned no video files.")
 
         video_bytes = result.generated_videos[0].video.video_bytes
+    except RuntimeError:
+        logger.error("VTO Video generation failed")
+        raise
     except Exception as e:
         logger.error("VTO Video generation failed: %s", e)
         raise RuntimeError(f"Veo video generation failed: {e}") from e

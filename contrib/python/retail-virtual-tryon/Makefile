@@ -15,7 +15,7 @@
 -include .env
 export
 
-PROJECT_ID ?= $(or $(GOOGLE_CLOUD_PROJECT),your-gcp-project-id)
+PROJECT_ID ?= $(GOOGLE_CLOUD_PROJECT)
 LOCATION ?= $(or $(GCP_REGION),us-central1)
 SERVICE_NAME ?= retail-virtual-tryon
 PORT ?= 8080

@@ -42,7 +42,7 @@ _DEFAULTS = dotenv_values(
 def _read_env(key: str) -> str:
     """Read an environment variable, falling back to `.env.example`."""
     val = os.getenv(key)
-    if val is not None and val != "":
+    if val is not None and val != "" and not val.startswith("<"):
         return val
     default_val = _DEFAULTS.get(key)
     if default_val and not default_val.startswith("<"):
@@ -104,7 +104,8 @@ class _Config:
 
     @property
     def PORT(self) -> int:
-        return int(_read_env("PORT"))
+        raw = _read_env("PORT")
+        return int(raw) if raw else 8080
 
     @property
     def SURFACE_GEMINI_SKILL(self) -> bool:

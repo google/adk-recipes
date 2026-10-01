@@ -18,11 +18,14 @@ RUN pip install --no-cache-dir uv==0.8.13
 
 WORKDIR /code
 
-COPY ./pyproject.toml ./uv.lock* ./
+COPY ./pyproject.toml ./README.md ./uv.lock* ./.env.example ./
+
+COPY ./app ./app
 
 RUN uv sync --frozen --no-dev
 
-COPY ./app ./app
+ARG AGENT_VERSION=0.0.0
+ENV AGENT_VERSION=${AGENT_VERSION}
 
 RUN useradd --create-home --uid 1000 appuser && chown -R appuser:appuser /code
 USER appuser

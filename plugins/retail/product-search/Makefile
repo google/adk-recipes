@@ -1,6 +1,6 @@
 SHELL := /bin/bash
 SKILL_NAME := retail-product-search
-PROJECT_ID ?= $(or $(GOOGLE_CLOUD_PROJECT),your-gcp-project-id)
+PROJECT_ID ?= $(GOOGLE_CLOUD_PROJECT)
 REGION ?= us-central1
 
 # Boolean config flags to toggle skill surfacing personas
@@ -27,7 +27,10 @@ install-gemini-skill:
 	@rsync -a --delete \
 		--include='SKILL.md' \
 		--include='README.md' \
-		--include='scripts/' --include='scripts/*.py' \
+		--include='pyproject.toml' \
+		--include='uv.lock' \
+		--include='.env.example' \
+		--include='scripts/' --include='scripts/*.py' --include='scripts/*.sh' \
 		--include='references/' --include='references/*.md' \
 		--include='assets/' --include='assets/*.csv' --include='assets/*.md' --include='assets/*.txt' \
 		--exclude='*' \
@@ -42,6 +45,7 @@ install-agents-skill:
 install-skill-local: install-gemini-skill install-agents-skill
 
 setup:
+	@test -n "$(PROJECT_ID)" || { echo "Error: Set PROJECT_ID or GOOGLE_CLOUD_PROJECT"; exit 1; }
 	@printf -- "---\ngcp_project_id: $(PROJECT_ID)\ngcp_region: $(REGION)\ndata_source: default\nproduct_fields: Extended\nsurface_gemini_skill: $(SURFACE_GEMINI_SKILL)\nsurface_agents_skill: $(SURFACE_AGENTS_SKILL)\n---\n" > design-spec.md
 	@trap 'rm -f design-spec.md' EXIT; \
 	uv run python scripts/setup.py --config design-spec.md
