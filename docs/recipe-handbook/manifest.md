@@ -1,4 +1,4 @@
-<!-- word count: 808 (target 700, cap 1000) -->
+<!-- word count: 819 (target 700, cap 1000) -->
 
 # The Manifest
 
@@ -74,7 +74,7 @@ eventually deprecated and removed from the repository. See
 
 | Field | Values | Meaning |
 |---|---|---|
-| `deployable` | `true`, `false` (default) | `true` if the recipe deploys with one click. |
+| `deployable` | `true`, `false` (default) | `true` if the recipe deploys with one click. Recipes under `contrib/` must set `true` and ship a root `Dockerfile`. |
 | `license` | SPDX identifier, e.g. `Apache-2.0` | Set only when the recipe declares a license. |
 | `tags` | List of text | Classification tags. |
 | `ownership.contributors` | List of GitHub user IDs | Additional contributors. |

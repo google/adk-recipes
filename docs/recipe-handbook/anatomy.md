@@ -1,4 +1,4 @@
-<!-- word count: 418 (target 800, cap 1200) -->
+<!-- word count: 443 (target 800, cap 1200) -->
 
 # Anatomy of a Recipe
 
@@ -15,7 +15,9 @@ Every recipe lives at `<root>/<lang>/<name>`, where `<root>` is
 Contributors submit new recipes to `contrib/`. The rest of this
 page covers what all recipes share. `core/` recipes have one additional file — `AGENTS.md` — written
 for coding agents: intent, key files to study, and reuse notes.
-Not required for `contrib/`.
+`contrib/` recipes don't need `AGENTS.md`, but every `contrib/`
+recipe must be deployable, which means it must have a `Dockerfile`
+at the recipe root and set `deployable: true` in `manifest.yaml`.
 
 ## Naming
 
