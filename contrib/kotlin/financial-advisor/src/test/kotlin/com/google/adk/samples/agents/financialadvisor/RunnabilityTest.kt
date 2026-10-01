@@ -16,12 +16,19 @@
 
 package com.google.adk.samples.agents.financialadvisor
 
+import com.google.adk.kt.webserver.dev.AdkDevServer
+import java.net.ServerSocket
+import java.net.URI
+import java.net.http.HttpClient
+import java.net.http.HttpRequest
+import java.net.http.HttpResponse
 import kotlin.test.Test
+import kotlin.test.assertContains
 import kotlin.test.assertEquals
 
 /**
- * Smoke test: the agent graph builds. It never calls the model, so it needs no network access or
- * credentials.
+ * Runnability tests: the agent graph builds, and the dev server WebMain starts serves it. Neither
+ * calls the model, so they need no network access or credentials.
  */
 class RunnabilityTest {
     @Test
@@ -33,5 +40,23 @@ class RunnabilityTest {
             listOf("data_analyst_agent", "trading_analyst_agent", "execution_analyst_agent", "risk_analyst_agent"),
             agent.tools.map { it.name },
         )
+    }
+
+    @Test
+    fun devServerServesTheAgent() {
+        val port = ServerSocket(0).use { it.localPort }
+        val server = AdkDevServer(devServerConfig { if (it == "PORT") port.toString() else null })
+        server.start(wait = false)
+        try {
+            val response =
+                HttpClient.newHttpClient().send(
+                    HttpRequest.newBuilder(URI.create("http://127.0.0.1:$port/list-apps")).build(),
+                    HttpResponse.BodyHandlers.ofString(),
+                )
+            assertEquals(200, response.statusCode())
+            assertContains(response.body(), "\"financial_coordinator\"")
+        } finally {
+            server.stop()
+        }
     }
 }

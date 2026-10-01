@@ -91,8 +91,10 @@ to see a specialist's full output.
 gradle test
 ```
 
-The test builds `rootAgent` and checks that the coordinator has the four
-specialist tools. It never calls the model, so it needs no credentials.
+`RunnabilityTest` checks that `rootAgent` builds with the four specialist tools,
+and starts the dev server from `WebMain`'s config to check that it lists
+`financial_coordinator` at `/list-apps`. Neither calls the model, so they need
+no credentials.
 
 ## Deployment
 
