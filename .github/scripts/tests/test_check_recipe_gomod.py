@@ -163,12 +163,12 @@ def test_valid_gomod_with_comments_and_quotes_passes(
     content = """// Package description comment
 module "github.com/google/adk-recipes/contrib/go/my-recipe" // inline comment
 
-/* Block comment */
 go 1.26 // go directive
 
 require (
     // Dependency
-    "github.com/joho/godotenv" v1.5.1
+    `github.com/joho/godotenv` v1.5.1
+    "example.com/escaped\\\"name" v1.0.0
 )
 """
     assert _run(recipe_dir, monkeypatch, content) == EXIT_OK

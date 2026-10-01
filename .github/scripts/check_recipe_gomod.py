@@ -1,3 +1,16 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 """
 Validates a Go recipe's go.mod against the repository's metadata rules.
 
@@ -32,7 +45,6 @@ check in validate_structure.py owns it), so that case exits 0 with a note.
 
 from __future__ import annotations
 
-import re
 import shlex
 import sys
 from dataclasses import dataclass, field
@@ -90,8 +102,6 @@ def expected_module_path(
         root = "core"
     elif "contrib" in parts:
         root = "contrib"
-    elif parts and parts[0] in ("core", "contrib"):
-        root = parts[0]
     else:
         root = "contrib"
     recipe = parts[-1] if parts else recipe_dir.name
@@ -123,14 +133,23 @@ class ParsedGoMod:
 
 
 def _strip_comment(line: str) -> str:
-    """Strip // and /* ... */ comments from a line, respecting quoted strings."""
-    # First handle any inline /* ... */ comments
-    line = re.sub(r"/\*.*?\*/", "", line)
+    """Strip // comments from a line, respecting quoted strings and escapes."""
     in_quote = False
     quote_char = ""
+    escaped = False
     i = 0
     while i < len(line):
         c = line[i]
+        if escaped:
+            escaped = False
+            i += 1
+            continue
+
+        if c == "\\" and in_quote and quote_char == '"':
+            escaped = True
+            i += 1
+            continue
+
         if c in ('"', "`"):
             if not in_quote:
                 in_quote = True
@@ -149,11 +168,65 @@ def _strip_comment(line: str) -> str:
 
 
 def _tokenize(line: str) -> list[str]:
-    """Split line into tokens, stripping surrounding quotes."""
+    """Split line into tokens, stripping surrounding quotes including backticks."""
     try:
-        return shlex.split(line)
+        lexer = shlex.shlex(line, posix=True)
+        lexer.quotes += "`"
+        lexer.whitespace_split = True
+        lexer.commenters = ""
+        return list(lexer)
     except ValueError:
         return line.split()
+
+
+def _parse_replace_tokens(
+    tokens: list[str],
+    lineno: int,
+    gomod_path: Path,
+    clean_line: str,
+) -> tuple[ReplaceDirective | None, Diagnostic | None]:
+    """Parse a single replace directive token list into ReplaceDirective or Diagnostic."""
+    if "=>" not in tokens:
+        return None, Diagnostic(
+            check="gomod-parse",
+            what=(
+                f"Malformed replace directive at line {lineno} in "
+                f"{gomod_path}: '{clean_line}'."
+            ),
+            why=(
+                "Replace directives must follow the syntax "
+                "'<old> [version] => <new> [version]'."
+            ),
+            how=f"Fix the syntax on line {lineno} of {gomod_path.name}.",
+            doc=Doc.PROJECT_NAME,
+            file=str(gomod_path),
+        )
+
+    arrow_idx = tokens.index("=>")
+    left = tokens[:arrow_idx]
+    right = tokens[arrow_idx + 1 :]
+    old_path = left[0] if left else ""
+    old_version = left[1] if len(left) > 1 else None
+    new_target = right[0] if right else ""
+    new_version = right[1] if len(right) > 1 else None
+
+    is_local = (
+        new_target.startswith(("./", "../", "/", "~", "\\"))
+        or new_target in (".", "..")
+        or new_version is None
+    )
+    return (
+        ReplaceDirective(
+            old_path=old_path,
+            old_version=old_version,
+            new_target=new_target,
+            new_version=new_version,
+            line_number=lineno,
+            raw_line=clean_line,
+            is_local_path=is_local,
+        ),
+        None,
+    )
 
 
 def parse_gomod(
@@ -181,51 +254,13 @@ def parse_gomod(
                     continue
 
         if in_block == "replace":
-            if "=>" not in tokens:
-                diagnostics.append(
-                    Diagnostic(
-                        check="gomod-parse",
-                        what=(
-                            f"Malformed replace directive at line {lineno} in "
-                            f"{gomod_path}: '{raw_line.strip()}'."
-                        ),
-                        why=(
-                            "Replace directives must follow the syntax "
-                            "'<old> [version] => <new> [version]'."
-                        ),
-                        how=(
-                            f"Fix the syntax on line {lineno} of "
-                            f"{gomod_path.name}."
-                        ),
-                        doc=Doc.PROJECT_NAME,
-                        file=str(gomod_path),
-                    )
-                )
-                continue
-            arrow_idx = tokens.index("=>")
-            left = tokens[:arrow_idx]
-            right = tokens[arrow_idx + 1 :]
-            old_path = left[0] if left else ""
-            old_version = left[1] if len(left) > 1 else None
-            new_target = right[0] if right else ""
-            new_version = right[1] if len(right) > 1 else None
-
-            is_local = (
-                new_target.startswith(("./", "../", "/", "~", "\\"))
-                or new_target in (".", "..")
-                or new_version is None
+            rep, diag = _parse_replace_tokens(
+                tokens, lineno, gomod_path, clean_line
             )
-            parsed.replaces.append(
-                ReplaceDirective(
-                    old_path=old_path,
-                    old_version=old_version,
-                    new_target=new_target,
-                    new_version=new_version,
-                    line_number=lineno,
-                    raw_line=clean_line,
-                    is_local_path=is_local,
-                )
-            )
+            if diag:
+                diagnostics.append(diag)
+            elif rep:
+                parsed.replaces.append(rep)
             continue
 
         if in_block == "module":
@@ -259,51 +294,13 @@ def parse_gomod(
             if len(tokens) > 1 and tokens[1] == "(":
                 in_block = "replace"
                 continue
-            if "=>" not in tokens:
-                diagnostics.append(
-                    Diagnostic(
-                        check="gomod-parse",
-                        what=(
-                            f"Malformed replace directive at line {lineno} in "
-                            f"{gomod_path}: '{raw_line.strip()}'."
-                        ),
-                        why=(
-                            "Replace directives must follow the syntax "
-                            "'replace <old> [version] => <new> [version]'."
-                        ),
-                        how=(
-                            f"Fix the syntax on line {lineno} of "
-                            f"{gomod_path.name}."
-                        ),
-                        doc=Doc.PROJECT_NAME,
-                        file=str(gomod_path),
-                    )
-                )
-                continue
-            arrow_idx = tokens.index("=>")
-            left = tokens[1:arrow_idx]
-            right = tokens[arrow_idx + 1 :]
-            old_path = left[0] if left else ""
-            old_version = left[1] if len(left) > 1 else None
-            new_target = right[0] if right else ""
-            new_version = right[1] if len(right) > 1 else None
-
-            is_local = (
-                new_target.startswith(("./", "../", "/", "~", "\\"))
-                or new_target in (".", "..")
-                or new_version is None
+            rep, diag = _parse_replace_tokens(
+                tokens[1:], lineno, gomod_path, clean_line
             )
-            parsed.replaces.append(
-                ReplaceDirective(
-                    old_path=old_path,
-                    old_version=old_version,
-                    new_target=new_target,
-                    new_version=new_version,
-                    line_number=lineno,
-                    raw_line=clean_line,
-                    is_local_path=is_local,
-                )
-            )
+            if diag:
+                diagnostics.append(diag)
+            elif rep:
+                parsed.replaces.append(rep)
         elif directive in ("require", "exclude", "retract"):
             if len(tokens) > 1 and tokens[1] == "(":
                 in_block = directive
@@ -381,8 +378,8 @@ def check_go_version(parsed: ParsedGoMod, gomod_path: Path) -> list[Diagnostic]:
                     f"requires. CI pins Go {CI_PINNED_GO_VERSION} (in "
                     f".github/workflows/go-tests.yml)."
                 ),
-                how=(f"Add to {gomod_path.name}:\n  go {CI_PINNED_GO_VERSION}"),
-                doc=Doc.REQUIRES_PYTHON,
+                how=f"Add to {gomod_path.name}:\n  go {CI_PINNED_GO_VERSION}",
+                doc=Doc.PROJECT_NAME,
                 file=str(gomod_path),
             )
         ]
@@ -404,7 +401,7 @@ def check_go_version(parsed: ParsedGoMod, gomod_path: Path) -> list[Diagnostic]:
                     f"Set a valid version in {gomod_path.name}:\n"
                     f"  go {CI_PINNED_GO_VERSION}"
                 ),
-                doc=Doc.REQUIRES_PYTHON,
+                doc=Doc.PROJECT_NAME,
                 file=str(gomod_path),
             )
         ]
@@ -428,7 +425,7 @@ def check_go_version(parsed: ParsedGoMod, gomod_path: Path) -> list[Diagnostic]:
                     f"{CI_PINNED_GO_VERSION} or below:\n"
                     f"  go {CI_PINNED_GO_VERSION}"
                 ),
-                doc=Doc.REQUIRES_PYTHON,
+                doc=Doc.PROJECT_NAME,
                 file=str(gomod_path),
             )
         ]
