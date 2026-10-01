@@ -85,8 +85,8 @@ Open a GitHub issue at
 Include the recipe path and the CI check name if you're
 reporting a failure.
 
-Pull requests are routed via [`.github/CODEOWNERS`](../../.github/CODEOWNERS)
-once all CI checks pass and automated review comments are resolved.
+Pull requests are routed to maintainers automatically once all CI checks pass
+and automated review comments are resolved.
 
 ---
 

@@ -1,8 +1,8 @@
 # Go Recipes
 
 `contrib/go/financial-advisor` is an active Go recipe in this repository. CI
-runs format/lint (`go-format.yml`, using the root `.golangci.yml`) and unit
-tests (`go-tests.yml`). There are no Go authoring repo skills yet.
+runs formatting, linting, and unit tests on Go recipes. There are no Go
+authoring repo skills yet.
 
 **Before contributing a new recipe:** open a
 [Propose a New Recipe](https://github.com/google/adk-recipes/issues/new?template=propose-a-new-recipe.md)

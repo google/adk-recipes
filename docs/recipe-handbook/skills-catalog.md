@@ -33,8 +33,7 @@ The assistant loads the skill on demand and runs it.
 ### `repo-oracle`
 
 Answers questions about how this repo works — CI and workflow behavior,
-the limits in [`.github/policy.yml`](../../.github/policy.yml) and why
-they are set that way, who reviews which paths, what the bots do, and
+repository size and file limits, who reviews which paths, what the bots do, and
 how a recipe is prepared and validated. It reads the repo and cites the
 file it answered from.
 
@@ -189,8 +188,6 @@ optional under `core/` and `plugins/`.
 - **Does not** deploy or write terraform. It builds an image only to
   check its own work and then deletes it; publishing belongs to Cloud
   Build and Artifact Registry.
-- **Standard lives in** [`.github/policy.yml`](../../.github/policy.yml)
-  under `deployability:`, not in the skill's code.
 - **Trigger:** "make contrib/python/my-recipe deployable".
 
 ## Go / Java / Kotlin / TypeScript skills

@@ -73,7 +73,6 @@ deprecated and removed from the repository. See
 
 | Field | Values | Meaning |
 |---|---|---|
-| `large` | `true`, `false` (default) | Opts into the relaxed size tier (`200 files / 10 MB` in `contrib/` and `plugins/`; see [anatomy](./anatomy.md#size-limits)). |
 | `license` | SPDX identifier, e.g. `Apache-2.0` | Set only when the recipe declares a license. |
 | `tags` | List of text | Classification tags. |
 | `ownership.contributors` | List of GitHub user IDs | Additional contributors. |

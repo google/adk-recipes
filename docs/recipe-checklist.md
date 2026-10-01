@@ -49,8 +49,7 @@ For detail on each skill, see the
       [anatomy](./recipe-handbook/anatomy.md)
 - [ ] Recipe name (folder name) ≤ 30 chars, lowercase + hyphens
       only
-- [ ] Under size limit: 70 files / 2 MB for `contrib/` (or 200 files / 10 MB
-      with `large: true` in `manifest.yaml`) — use WebP for doc-only
+- [ ] Under size limit: 70 files / 2 MB for `contrib/` — use WebP for doc-only
       screenshots/diagrams; [details](./recipe-handbook/anatomy.md#size-limits)
 - [ ] `.env.example` present at the recipe root declaring every environment
       variable the recipe reads
@@ -176,11 +175,10 @@ a PR.
 
 - CI failing on your PR? →
   [troubleshooting](./recipe-handbook/troubleshooting.md)
-- Fix `validate-recipe-structure` failures first — structural
-  errors can mask Python-specific checks downstream.
-- Some failures cascade: a stale `uv.lock` causes both
-  `python-dependency-policy` and `python-tests` to fail. Fix
-  the root cause before pushing again.
+- Fix structural validation failures (`uv run validate $RECIPE_PATH`) first —
+  structural errors can mask language-specific checks downstream.
+- Some failures cascade: a stale `uv.lock` causes both dependency and test
+  checks to fail. Fix the root cause before pushing again.
 - CI re-runs automatically on every push to your PR branch.
   No manual trigger is needed.
 - Want the full story? →

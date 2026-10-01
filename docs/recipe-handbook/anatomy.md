@@ -36,13 +36,11 @@ See the full rule matrix in
 
 ## Size limits
 
-| Root | Default (max files / max size) | `large: true` (max files / max size) |
+| Root | Max files | Max size |
 |---|---|---|
-| `contrib/` | 70 / 2 MB | 200 / 10 MB |
-| `plugins/` | 70 / 2 MB | 200 / 10 MB |
-| `core/` | 500 / 50 MB | 10,000 / 10 GB |
-
-Set `large: true` in `manifest.yaml` to opt into the relaxed tier.
+| `contrib/` | 70 | 2 MB |
+| `plugins/` | 70 | 2 MB |
+| `core/` | 500 | 50 MB |
 
 **Excluded from the count:** generated files and caches. Common
 exclusions:
@@ -87,7 +85,7 @@ Every recipe has one. Cover:
 4. Optional: architecture diagram, example prompts, screenshots (WebP —
    see [Size limits](#size-limits)).
 
-CI (`tools/validate_readme.py`) enforces the following content checks:
+CI enforces the following content checks:
 
 - No `TODO:` placeholders.
 - At least 100 words (description proxy).

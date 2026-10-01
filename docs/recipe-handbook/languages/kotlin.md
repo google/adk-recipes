@@ -1,8 +1,8 @@
 # Kotlin Recipes
 
 `core/kotlin/llm-auditor` and `contrib/kotlin/financial-advisor` are Kotlin
-recipes in this repository. CI runs format/lint (`kotlin-format.yml`) and unit
-tests (`kotlin-tests.yml`). There are no Kotlin authoring repo skills yet.
+recipes in this repository. CI runs formatting, linting, and unit tests on
+Kotlin recipes. There are no Kotlin authoring repo skills yet.
 
 **Before contributing a new recipe:** open a
 [Propose a New Recipe](https://github.com/google/adk-recipes/issues/new?template=propose-a-new-recipe.md)
