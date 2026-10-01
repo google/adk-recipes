@@ -111,7 +111,10 @@ final class Models {
    * unfilled .env.example placeholder.
    */
   private static String env(String key) {
-    String value = DOTENV.get(key);
+    String value = System.getenv(key);
+    if (value == null) {
+      value = DOTENV.get(key);
+    }
     if (value == null || value.isBlank() || value.startsWith("<TODO")) {
       return null;
     }

@@ -157,7 +157,7 @@
         <configuration>
           <!-- Tests must not depend on a .env file; a real env var wins over .env. -->
           <environmentVariables>
-            <MODEL_NAME>gemini-3.6-flash</MODEL_NAME>
+            <MODEL_NAME>gemini-3.5-flash</MODEL_NAME>
           </environmentVariables>
         </configuration>
       </plugin>

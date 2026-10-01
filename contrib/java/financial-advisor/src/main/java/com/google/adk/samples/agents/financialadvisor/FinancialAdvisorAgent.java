@@ -72,26 +72,26 @@ Ensure all state keys are correctly used to pass information between subagents.
 Here's the step-by-step breakdown.
 For each step, explicitly call the designated subagent and adhere strictly to the specified input and output formats:
 
-* Gather Market Data Analysis (Subagent: data_analyst)
+* Gather Market Data Analysis (Subagent: data_analyst_agent)
 
 Input: Prompt the user to provide the market ticker symbol they wish to analyze (e.g., AAPL, GOOGL, MSFT).
-Action: Call the data_analyst subagent, passing the user-provided market ticker.
-Expected Output: The data_analyst subagent MUST return a comprehensive data analysis for the specified market ticker.
+Action: Call the data_analyst_agent subagent, passing the user-provided market ticker.
+Expected Output: The data_analyst_agent subagent MUST return a comprehensive data analysis for the specified market ticker.
 
-* Develop Trading Strategies (Subagent: trading_analyst)
+* Develop Trading Strategies (Subagent: trading_analyst_agent)
 
 Input:
 Prompt the user to define their risk attitude (e.g., conservative, moderate, aggressive).
 Prompt the user to specify their investment period (e.g., short-term, medium-term, long-term).
-Action: Call the trading_analyst subagent, providing:
+Action: Call the trading_analyst_agent subagent, providing:
 The market_data_analysis_output (from state key).
 The user-selected risk attitude.
 The user-selected investment period.
-Expected Output: The trading_analyst subagent MUST generate one or more potential trading strategies tailored to the provided market analysis,
+Expected Output: The trading_analyst_agent subagent MUST generate one or more potential trading strategies tailored to the provided market analysis,
 risk attitude, and investment period.
 Output the generated extended version by visualizing the results as markdown
 
-* Define Optimal Execution Strategy (Subagent: execution_analyst)
+* Define Optimal Execution Strategy (Subagent: execution_analyst_agent)
 
 Input:
 The proposed_trading_strategies_output (from state key).
@@ -99,17 +99,17 @@ The user's risk attitude (previously provided).
 The user's investment period (previously provided).
 You may also need to ask the user if they have preferences for execution, such as preferred brokers or order types,
 if the subagent can utilize this information.
-Action: Call the execution_analyst subagent, providing:
-The proposed_trading_strategies_output (from state key)..
+Action: Call the execution_analyst_agent subagent, providing:
+The proposed_trading_strategies_output (from state key).
 The user's risk attitude.
 The user's investment period.
 (Optional: User's execution preferences).
-Expected Output: The execution_analyst subagent MUST generate a detailed execution plan for the selected trading strategy (or strategies).
+Expected Output: The execution_analyst_agent subagent MUST generate a detailed execution plan for the selected trading strategy (or strategies).
 This plan should consider factors like order types, timing, and potential cost implications,
 aligned with the user's risk profile and the market_data_analysis.
 Output the generated extended version by visualizing the results as markdown
 
-* Evaluate Overall Risk Profile (Subagent: risk_analyst)
+* Evaluate Overall Risk Profile (Subagent: risk_analyst_agent)
 
 Input:
 The market_data_analysis_output (from state key).
@@ -117,8 +117,8 @@ The proposed_trading_strategies_output (from state key).
 The execution_plan_output (from state key).
 The user's stated risk attitude.
 The user's stated investment period.
-Action: Call the risk_analyst subagent, providing all the listed inputs.
-Expected Output: The risk_analyst subagent MUST provide a comprehensive evaluation of the overall risk associated with the proposed financial plan
+Action: Call the risk_analyst_agent subagent, providing all the listed inputs.
+Expected Output: The risk_analyst_agent subagent MUST provide a comprehensive evaluation of the overall risk associated with the proposed financial plan
 (data, strategies, and execution). This evaluation should highlight consistency with the user's stated risk attitude and investment horizon,
 and point out any potential misalignments or concentrated risks.
 Output the generated extended version by visualizing the results as markdown

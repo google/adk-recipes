@@ -14,7 +14,9 @@ walks the user through four steps and calls a specialist agent for each one:
 
 This is the [ADK for Java](https://github.com/google/adk-java) port of
 [`contrib/python/financial-advisor`](../../python/financial-advisor). The
-prompts are identical, and so is the agent graph.
+agent graph is the same, and so are the prompts apart from small fixes: typos,
+the subagent names the coordinator calls, and one shared copy of the legal
+disclaimer.
 
 <img src="financial-advisor.webp" alt="Financial Advisor architecture" width="800"/>
 
@@ -30,6 +32,7 @@ session state (for example `market_data_analysis_output`).
 | `FinancialAdvisorAgent.java` | The coordinator and `ROOT_AGENT`, which the dev server discovers |
 | `DataAnalystAgent.java` | The data analyst, the only agent with a tool (`GoogleSearchTool`) |
 | `TradingAnalystAgent.java`, `ExecutionAnalystAgent.java`, `RiskAnalystAgent.java` | The other three specialists |
+| `LegalDisclaimer.java` | The disclaimer those three specialists include in their output |
 | `Models.java` | Reads the model settings from the environment or `.env` |
 
 **Legal disclaimer.** The information and trading strategy outlines provided
