@@ -128,6 +128,11 @@ COPY ./.env.example ./.env
 
 RUN uv sync --frozen
 
+RUN useradd --create-home --uid 1000 appuser && \
+    chown -R appuser:appuser /code /home/appuser
+
+USER appuser
+
 EXPOSE 8080
 
 CMD ["uv", "run", "uvicorn", "app.fast_api_app:app", "--host", "0.0.0.0", "--port", "8080"]
