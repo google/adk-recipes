@@ -45,3 +45,9 @@ All submissions, including submissions by project members, require review. We
 use GitHub pull requests for this purpose. Consult
 [GitHub Help](https://help.github.com/articles/about-pull-requests/) for more
 information on using pull requests.
+
+A review request only goes through once the pull request is ready: every check
+passes and every review comment left by a bot is resolved. If you request a
+review before then, a bot removes the request and comments with what needs
+fixing. You don't need to re-request anyone afterwards; the bot re-requests the
+same reviewers on its own once everything is green.

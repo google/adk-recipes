@@ -77,6 +77,10 @@ def test_normalize_path():
         ("/core/typescript/sample", "happyhuman"),
         ("core/kotlin/android-gemini", "happyhuman"),
         ("/core/kotlin/sample", "happyhuman"),
+        # A recipe owner beats its language folder
+        ("core/python/ambient-quality-agent", "maxgasztych"),
+        ("/core/python/ambient-quality-agent/agent.py", "maxgasztych"),
+        ("core/python/ambient-quality-agent-v2", "eliasecchig"),
         # Contrib directory assignments
         ("contrib/python/custom-tool", "happyhuman"),
         ("/contrib/python/recipe", "happyhuman"),
