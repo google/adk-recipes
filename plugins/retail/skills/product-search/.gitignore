@@ -1,0 +1,13 @@
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.env
+design-spec.md
+deployment_metadata.json
+deployment_metadata.json.lock
+.DS_Store

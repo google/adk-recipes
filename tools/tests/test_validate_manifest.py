@@ -409,8 +409,8 @@ def test_a_vertical_named_like_a_language_is_still_a_vertical(
         (["core"], False),
     ],
 )
-def test_is_namespace_path(parts, expected):
-    assert m.is_namespace_path(parts) is expected
+def test_is_namespace_path(tmp_path, parts, expected):
+    assert m.is_namespace_path(parts, repo_root=tmp_path) is expected
 
 
 def test_collect_invalid_recipe_dir_says_what_a_recipe_is(

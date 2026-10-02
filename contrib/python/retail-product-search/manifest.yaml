@@ -1,0 +1,48 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+type: standalone
+status: active
+language: python
+deployable: true
+description: Semantic product search agent using Vector Search on Gemini Enterprise Agent Platform and BigQuery, deployable to Agent Engine, Gemini Enterprise, Cloud Run, and Agent Garden.
+license: Apache-2.0
+
+architecture:
+  agent: single
+  stateful: false
+  datasources:
+    - external
+dependencies:
+  libraries:
+    - google-adk
+    - google-cloud-aiplatform
+    - google-cloud-bigquery
+    - google-cloud-storage
+    - google-cloud-vectorsearch
+    - google-genai
+  services:
+    - vertex-ai
+    - vector-search
+    - bigquery
+    - cloud-storage
+    - cloud-run
+ownership:
+  team: FDE/Blackbelt
+  poc: tanvisinghal-0105
+tags:
+  - retail
+  - search
+  - rag
+  - vector-search
