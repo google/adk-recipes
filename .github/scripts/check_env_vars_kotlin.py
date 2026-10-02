@@ -14,8 +14,8 @@
 """Checks that every environment variable read by a recipe's Kotlin source is
 declared in the recipe's .env.example.
 
-Detects calls to System.getenv() and System.getProperty(), including when
-followed by the Elvis operator (?:) or a default value argument.
+Detects calls to System.getenv(), System.getProperty(), env(), and dotenv reads,
+including when followed by the Elvis operator (?:) or a default value argument.
 Variable names constructed dynamically at runtime (e.g. System.getenv(myVar) or
 System::getenv method references) are not matched statically.
 
@@ -133,7 +133,7 @@ def _is_allowed(name: str) -> bool:
 
 @dataclass(frozen=True)
 class _Token:
-    kind: str  # "IDENT", "STRING", "DOT", "LPAREN", "RPAREN", "COMMA", "OTHER"
+    kind: str  # "IDENT", "STRING", "DOT", "LPAREN", "RPAREN", "LBRACKET", "RBRACKET", "COMMA", "OTHER"
     value: str
     lineno: int
 
@@ -205,6 +205,12 @@ def _tokenize_kotlin(source: str) -> list[_Token]:
                 i += 1
             elif c == ")":
                 tokens.append(_Token("RPAREN", ")", lineno))
+                i += 1
+            elif c == "[":
+                tokens.append(_Token("LBRACKET", "[", lineno))
+                i += 1
+            elif c == "]":
+                tokens.append(_Token("RBRACKET", "]", lineno))
                 i += 1
             elif c == ",":
                 tokens.append(_Token("COMMA", ",", lineno))
@@ -316,8 +322,24 @@ def _tokenize_kotlin(source: str) -> list[_Token]:
     return tokens
 
 
+_DECL_KEYWORDS: frozenset[str] = frozenset(
+    {"fun", "val", "var", "class", "object", "interface", "import", "package"}
+)
+_GET_METHODS: frozenset[str] = frozenset(
+    {"get", "getOrNull", "getOrDefault", "getOrElse"}
+)
+
+
 def _parse_kotlin_source(source_text: str) -> dict[str, int]:
     """Parse Kotlin source text and extract environment variable reads.
+
+    Detects:
+      - System.getenv("VAR")
+      - System.getProperty("VAR") / System.getProperty("VAR", "default")
+      - System.getenv()["VAR"] / System.getenv().get("VAR")
+      - env("VAR")
+      - dotenv["VAR"] / dotenv.get("VAR")
+      - Dotenv.load()["VAR"] / Dotenv.load().get("VAR") / dotenv()["VAR"]
 
     Returns:
         dict mapping var_name -> line_number of the first read in the file.
@@ -326,21 +348,155 @@ def _parse_kotlin_source(source_text: str) -> dict[str, int]:
     env_vars: dict[str, int] = {}
     n = len(tokens)
 
-    for i in range(n - 4):
-        # Look for: System . getenv ( STRING
-        # or:       System . getProperty ( STRING
-        if (
-            tokens[i].kind == "IDENT"
-            and tokens[i].value == "System"
-            and tokens[i + 1].kind == "DOT"
-            and tokens[i + 2].kind == "IDENT"
-            and tokens[i + 2].value in ("getenv", "getProperty")
-            and tokens[i + 3].kind == "LPAREN"
-            and tokens[i + 4].kind == "STRING"
-        ):
-            var_name = tokens[i + 4].value
-            lineno = tokens[i].lineno
-            env_vars.setdefault(var_name, lineno)
+    for i in range(n):
+        tok = tokens[i]
+        if tok.kind != "IDENT":
+            continue
+
+        lineno = tok.lineno
+
+        # 1. System.getenv(...) or System.getProperty(...)
+        if tok.value == "System" and i + 4 < n:
+            if (
+                tokens[i + 1].kind == "DOT"
+                and tokens[i + 2].kind == "IDENT"
+                and tokens[i + 2].value in ("getenv", "getProperty")
+            ):
+                # System.getenv("VAR") or System.getProperty("VAR")
+                if (
+                    tokens[i + 3].kind == "LPAREN"
+                    and tokens[i + 4].kind == "STRING"
+                ):
+                    var_name = tokens[i + 4].value.strip()
+                    if var_name:
+                        env_vars.setdefault(var_name, lineno)
+                # System.getenv()["VAR"]
+                elif (
+                    tokens[i + 2].value == "getenv"
+                    and i + 6 < n
+                    and tokens[i + 3].kind == "LPAREN"
+                    and tokens[i + 4].kind == "RPAREN"
+                    and tokens[i + 5].kind == "LBRACKET"
+                    and tokens[i + 6].kind == "STRING"
+                ):
+                    var_name = tokens[i + 6].value.strip()
+                    if var_name:
+                        env_vars.setdefault(var_name, lineno)
+                # System.getenv().get("VAR")
+                elif (
+                    tokens[i + 2].value == "getenv"
+                    and i + 8 < n
+                    and tokens[i + 3].kind == "LPAREN"
+                    and tokens[i + 4].kind == "RPAREN"
+                    and tokens[i + 5].kind == "DOT"
+                    and tokens[i + 6].kind == "IDENT"
+                    and tokens[i + 6].value in _GET_METHODS
+                    and tokens[i + 7].kind == "LPAREN"
+                    and tokens[i + 8].kind == "STRING"
+                ):
+                    var_name = tokens[i + 8].value.strip()
+                    if var_name:
+                        env_vars.setdefault(var_name, lineno)
+
+        # 2. env("VAR") function / parameter call
+        #    Make sure it's not a declaration like `fun env(...)` or `val env = ...`
+        elif tok.value == "env":
+            prev_tok = tokens[i - 1] if i > 0 else None
+            if prev_tok is None or (
+                prev_tok.kind != "IDENT" or prev_tok.value not in _DECL_KEYWORDS
+            ):
+                if (
+                    i + 2 < n
+                    and tokens[i + 1].kind == "LPAREN"
+                    and tokens[i + 2].kind == "STRING"
+                ):
+                    var_name = tokens[i + 2].value.strip()
+                    if var_name:
+                        env_vars.setdefault(var_name, lineno)
+
+        # 3. dotenv["VAR"] / Dotenv["VAR"] / dotenv.get("VAR")
+        elif tok.value in ("dotenv", "Dotenv"):
+            prev_tok = tokens[i - 1] if i > 0 else None
+            if prev_tok is None or (
+                prev_tok.kind != "IDENT" or prev_tok.value not in _DECL_KEYWORDS
+            ):
+                # dotenv["VAR"]
+                if (
+                    i + 2 < n
+                    and tokens[i + 1].kind == "LBRACKET"
+                    and tokens[i + 2].kind == "STRING"
+                ):
+                    var_name = tokens[i + 2].value.strip()
+                    if var_name:
+                        env_vars.setdefault(var_name, lineno)
+                # dotenv.get("VAR")
+                elif (
+                    i + 4 < n
+                    and tokens[i + 1].kind == "DOT"
+                    and tokens[i + 2].kind == "IDENT"
+                    and tokens[i + 2].value in _GET_METHODS
+                    and tokens[i + 3].kind == "LPAREN"
+                    and tokens[i + 4].kind == "STRING"
+                ):
+                    var_name = tokens[i + 4].value.strip()
+                    if var_name:
+                        env_vars.setdefault(var_name, lineno)
+                # dotenv()["VAR"]
+                elif (
+                    i + 4 < n
+                    and tokens[i + 1].kind == "LPAREN"
+                    and tokens[i + 2].kind == "RPAREN"
+                    and tokens[i + 3].kind == "LBRACKET"
+                    and tokens[i + 4].kind == "STRING"
+                ):
+                    var_name = tokens[i + 4].value.strip()
+                    if var_name:
+                        env_vars.setdefault(var_name, lineno)
+                # dotenv().get("VAR")
+                elif (
+                    i + 6 < n
+                    and tokens[i + 1].kind == "LPAREN"
+                    and tokens[i + 2].kind == "RPAREN"
+                    and tokens[i + 3].kind == "DOT"
+                    and tokens[i + 4].kind == "IDENT"
+                    and tokens[i + 4].value in _GET_METHODS
+                    and tokens[i + 5].kind == "LPAREN"
+                    and tokens[i + 6].kind == "STRING"
+                ):
+                    var_name = tokens[i + 6].value.strip()
+                    if var_name:
+                        env_vars.setdefault(var_name, lineno)
+                # Dotenv.load()["VAR"]
+                elif (
+                    i + 6 < n
+                    and tokens[i + 1].kind == "DOT"
+                    and tokens[i + 2].kind == "IDENT"
+                    and tokens[i + 2].value == "load"
+                    and tokens[i + 3].kind == "LPAREN"
+                    and tokens[i + 4].kind == "RPAREN"
+                    and tokens[i + 5].kind == "LBRACKET"
+                    and tokens[i + 6].kind == "STRING"
+                ):
+                    var_name = tokens[i + 6].value.strip()
+                    if var_name:
+                        env_vars.setdefault(var_name, lineno)
+                # Dotenv.load().get("VAR")
+                elif (
+                    i + 8 < n
+                    and tokens[i + 1].kind == "DOT"
+                    and tokens[i + 2].kind == "IDENT"
+                    and tokens[i + 2].value == "load"
+                    and tokens[i + 3].kind == "LPAREN"
+                    and tokens[i + 4].kind == "RPAREN"
+                    and tokens[i + 5].kind == "DOT"
+                    and tokens[i + 6].kind == "IDENT"
+                    and tokens[i + 6].value in _GET_METHODS
+                    and tokens[i + 7].kind == "LPAREN"
+                    and tokens[i + 8].kind == "STRING"
+                ):
+                    var_name = tokens[i + 8].value.strip()
+                    if var_name:
+                        env_vars.setdefault(var_name, lineno)
 
     return env_vars
 

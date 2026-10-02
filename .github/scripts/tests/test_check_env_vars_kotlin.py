@@ -281,6 +281,63 @@ def test_test_files_and_directories_are_ignored(tmp_path, monkeypatch, capsys):
     assert "::error" not in capsys.readouterr().out
 
 
+def test_env_helper_function_detected(tmp_path, monkeypatch, capsys):
+    _recipe(
+        tmp_path,
+        "MODEL_NAME=gemini-3.5-flash\n",
+        main=(
+            "package com.example\n\n"
+            "private fun env(key: String): String? = System.getenv(key)\n\n"
+            "fun main() {\n"
+            '    val model = env("MODEL_NAME")\n'
+            '    val missing = env("UNDECLARED_CONFIG")\n'
+            "}\n"
+        ),
+    )
+    assert _run(tmp_path, monkeypatch) == EXIT_VIOLATIONS
+    out = capsys.readouterr().out
+    assert "UNDECLARED_CONFIG" in out
+    assert "MODEL_NAME" not in out
+
+
+def test_dotenv_map_and_methods_detected(tmp_path, monkeypatch, capsys):
+    _recipe(
+        tmp_path,
+        "DB_HOST=localhost\nDB_PORT=5432\nCACHE_KEY=abc\n",
+        main=(
+            "package com.example\n\n"
+            "fun main() {\n"
+            '    val host = dotenv["DB_HOST"]\n'
+            '    val port = dotenv.get("DB_PORT")\n'
+            '    val key = Dotenv.load()["CACHE_KEY"]\n'
+            '    val secret = dotenv["UNDECLARED_SECRET"]\n'
+            "}\n"
+        ),
+    )
+    assert _run(tmp_path, monkeypatch) == EXIT_VIOLATIONS
+    out = capsys.readouterr().out
+    assert "UNDECLARED_SECRET" in out
+    assert "DB_HOST" not in out
+
+
+def test_system_getenv_map_indexing_detected(tmp_path, monkeypatch, capsys):
+    _recipe(
+        tmp_path,
+        "APP_KEY=secret\n",
+        main=(
+            "package com.example\n\n"
+            "fun main() {\n"
+            '    val key = System.getenv()["APP_KEY"]\n'
+            '    val missing = System.getenv().get("MISSING_KEY")\n'
+            "}\n"
+        ),
+    )
+    assert _run(tmp_path, monkeypatch) == EXIT_VIOLATIONS
+    out = capsys.readouterr().out
+    assert "MISSING_KEY" in out
+    assert "APP_KEY" not in out
+
+
 def test_specimen_llm_auditor_parses_clean(monkeypatch, capsys):
     repo_root = Path(__file__).resolve().parents[3]
     specimen = repo_root / "core" / "kotlin" / "llm-auditor"
@@ -290,6 +347,18 @@ def test_specimen_llm_auditor_parses_clean(monkeypatch, capsys):
     out = capsys.readouterr().out
     assert "[PASS]" in out
     assert "::error" not in out
+
+
+def test_specimen_financial_advisor_parses_clean(monkeypatch, capsys):
+    repo_root = Path(__file__).resolve().parents[3]
+    specimen = repo_root / "contrib" / "kotlin" / "financial-advisor"
+
+    assert specimen.exists(), f"Specimen not found at {specimen}"
+    assert _run(specimen, monkeypatch) == EXIT_OK
+    out = capsys.readouterr().out
+    assert "[PASS]" in out
+    assert "::error" not in out
+    assert "7 detected, 2 in the OS allowlist, 5 declared" in out
 
 
 def test_non_utf8_env_example_is_reported_not_crashed(
