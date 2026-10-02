@@ -827,7 +827,7 @@ def test_every_skip_path_records_why():
     anything — which is why it is asserted here.
     """
     code = _code(_guard_step()["run"])
-    skips = code.count("echo \"skip=true\"") + code.count("echo 'skip=true'")
+    skips = code.count('echo "skip=true"') + code.count("echo 'skip=true'")
     reasons = code.count("skip_reason=")
     assert skips >= 3, (
         f"expected the empty/files/lines skip paths, found {skips}"

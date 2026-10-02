@@ -1,4 +1,4 @@
-# Retail Virtual Try-On Agent (`contrib/python/retail-virtual-tryon`)
+# Retail Virtual Try-On Agent
 
 Deployable **Retail Virtual Try-On ADK Agent** supporting high-fidelity still-image try-on (`gemini-2.5-flash-image` / `gemini-2.5-pro-image`) and 8-second catwalk video generation (`veo-3.1-generate-001` Reference-to-Video) on **Gemini Enterprise Agent Platform**.
 

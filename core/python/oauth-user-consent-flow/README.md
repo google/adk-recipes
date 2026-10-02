@@ -376,7 +376,7 @@ The Google Agents CLI will prompt you to select deployment options and provides 
 
 ---
 
-## Makefile Reference
+## References
 
 
 - [Powering Up your Agent with ADK, OAuth and Gemini Enterprise](https://fmind.medium.com/powering-up-your-agent-in-production-with-adk-oauth-and-gemini-enterprise-a52b0716fcba) — The pattern this implementation follows
