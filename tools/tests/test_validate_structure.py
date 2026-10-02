@@ -1191,3 +1191,171 @@ def test_committed_policy_keeps_tool_read_files_case_strict():
         "tests/test_runnability.py",
     ):
         assert f not in lenient, f
+
+
+# ---------------------------------------------------------------------------
+# Spec-compliant Plugin Container Structure Tests
+# ---------------------------------------------------------------------------
+
+VALID_PLUGIN_JSON = """{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "retail-ops",
+  "version": "1.0.0",
+  "description": "Retail operations plugin for store management.",
+  "ownership": {
+    "team": "Retail AI",
+    "poc": "retail-lead"
+  }
+}"""
+
+VALID_SKILL_MD = """---
+name: product-search
+description: Search product catalog using semantic vectors.
+metadata:
+  author: Google
+  version: 1.0.0
+---
+
+# Product Search Skill
+
+Instructions here...
+"""
+
+
+def _make_spec_plugin(
+    root: Path,
+    rel: str = "plugins/retail",
+    *,
+    plugin_json: str = VALID_PLUGIN_JSON,
+    skills: dict[str, str] | None = None,
+) -> Path:
+    plugin_dir = root / rel
+    plugin_dir.mkdir(parents=True, exist_ok=True)
+    _write(plugin_dir / "plugin.json", plugin_json)
+    if skills is None:
+        skills = {
+            "product-search": VALID_SKILL_MD,
+            "virtual-tryon": VALID_SKILL_MD.replace(
+                "product-search", "virtual-tryon"
+            ),
+        }
+    for skill_name, skill_content in skills.items():
+        skill_dir = plugin_dir / "skills" / skill_name
+        skill_dir.mkdir(parents=True, exist_ok=True)
+        _write(skill_dir / "SKILL.md", skill_content)
+    return plugin_dir
+
+
+def test_validate_spec_compliant_plugin_passes(tmp_path, monkeypatch):
+    monkeypatch.setattr(m, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(vm, "REPO_ROOT", tmp_path)
+    plugin = _make_spec_plugin(tmp_path)
+    policy = m.load_policy()
+    schema = vm.load_schema()
+    plugin_schema = vm.load_plugin_schema()
+    assert m.validate_recipe(plugin, policy, schema, plugin_schema) == []
+
+
+def test_validate_spec_compliant_plugin_frontmatter_missing_delimiters(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(m, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(vm, "REPO_ROOT", tmp_path)
+    skills = {"product-search": "# Just markdown with no frontmatter\n"}
+    plugin = _make_spec_plugin(tmp_path, skills=skills)
+    policy = m.load_policy()
+    schema = vm.load_schema()
+    plugin_schema = vm.load_plugin_schema()
+    diags = m.validate_recipe(plugin, policy, schema, plugin_schema)
+    assert len(diags) == 1
+    assert diags[0].check == "skill-frontmatter"
+    assert "delimiters" in diags[0].what
+
+
+def test_validate_spec_compliant_plugin_frontmatter_missing_name_or_desc(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(m, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(vm, "REPO_ROOT", tmp_path)
+    skills = {"product-search": "---\nversion: 1.0\n---\n# Body\n"}
+    plugin = _make_spec_plugin(tmp_path, skills=skills)
+    policy = m.load_policy()
+    schema = vm.load_schema()
+    plugin_schema = vm.load_plugin_schema()
+    diags = m.validate_recipe(plugin, policy, schema, plugin_schema)
+    checks = [d.check for d in diags]
+    assert checks.count("skill-frontmatter") == 2
+    blob = _blob(diags)
+    assert "'name' is missing" in blob
+    assert "'description' is missing" in blob
+
+
+def test_validate_spec_compliant_plugin_missing_skills_dir(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(m, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(vm, "REPO_ROOT", tmp_path)
+    plugin = tmp_path / "plugins/retail"
+    plugin.mkdir(parents=True, exist_ok=True)
+    _write(plugin / "plugin.json", VALID_PLUGIN_JSON)
+    policy = m.load_policy()
+    schema = vm.load_schema()
+    plugin_schema = vm.load_plugin_schema()
+    diags = m.validate_recipe(plugin, policy, schema, plugin_schema)
+    assert any(
+        d.check == "required-dirs" and "skills/" in d.what for d in diags
+    )
+
+
+def test_validate_spec_compliant_plugin_missing_skill_md(tmp_path, monkeypatch):
+    monkeypatch.setattr(m, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(vm, "REPO_ROOT", tmp_path)
+    plugin = tmp_path / "plugins/retail"
+    plugin.mkdir(parents=True, exist_ok=True)
+    _write(plugin / "plugin.json", VALID_PLUGIN_JSON)
+    (plugin / "skills" / "product-search").mkdir(parents=True, exist_ok=True)
+    policy = m.load_policy()
+    schema = vm.load_schema()
+    plugin_schema = vm.load_plugin_schema()
+    diags = m.validate_recipe(plugin, policy, schema, plugin_schema)
+    assert any(
+        d.check == "required-files" and "SKILL.md" in d.what for d in diags
+    )
+
+
+def test_validate_spec_compliant_plugin_mixed_with_manifest_yaml(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(m, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(vm, "REPO_ROOT", tmp_path)
+    plugin = _make_spec_plugin(tmp_path)
+    _write(plugin / "manifest.yaml", "type: standalone\n")
+    policy = m.load_policy()
+    schema = vm.load_schema()
+    plugin_schema = vm.load_plugin_schema()
+    diags = m.validate_recipe(plugin, policy, schema, plugin_schema)
+    assert any(
+        d.check == "placement" and "mixes legacy" in d.what for d in diags
+    )
+
+
+def test_validate_skill_frontmatter_with_inline_triple_dashes(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(m, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(vm, "REPO_ROOT", tmp_path)
+    skills = {
+        "product-search": (
+            "---\n"
+            "name: product-search\n"
+            "# --- comment ---\n"
+            'description: "Step 1 --- Step 2"\n'
+            "---\n"
+            "# Body\n"
+        )
+    }
+    plugin = _make_spec_plugin(tmp_path, skills=skills)
+    policy = m.load_policy()
+    schema = vm.load_schema()
+    plugin_schema = vm.load_plugin_schema()
+    assert m.validate_recipe(plugin, policy, schema, plugin_schema) == []

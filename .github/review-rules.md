@@ -73,7 +73,7 @@ propose them, and do not treat their absence as a defect.
    `os.getenv("X", default="d")` · `os.environ.setdefault("X", "d")` ·
    `os.getenv("X") or "fallback"`. — review preference
 2. **H10** — Never suggest `gemini-2.0-flash` or `gemini-2.5-flash`. Both are
-   deprecated; the current default is `gemini-3.5-flash`. — `AGENTS.md:40`
+   deprecated; the current default is `gemini-3.7-flash`. — `AGENTS.md:40`
 3. **H1** — Never suggest a `[tool.ruff]` block or a `ruff.toml` inside a recipe.
    Ruff config lives only in the root `pyproject.toml`. — `AGENTS.md:50-52`
 4. **H28** — Never suggest `pip`, `requirements.txt` or `poetry`. The package

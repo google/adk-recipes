@@ -331,3 +331,13 @@ def test_main_footer_leads_with_the_authoring_docs(
     assert "docs/recipe-handbook/README.md" in out
     assert "docs/recipe-checklist.md" in out
     assert "docs/recipe-handbook/troubleshooting.md" in out
+
+
+def test_main_skips_spec_compliant_plugin_container(tmp_path, monkeypatch):
+    plugin_dir = tmp_path / "plugins/retail"
+    plugin_dir.mkdir(parents=True)
+    (plugin_dir / "plugin.json").write_text('{"name": "retail"}\n')
+    monkeypatch.setattr(m, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(r, "REPO_ROOT", tmp_path)
+    assert r.main("plugins/retail") == 0
+    assert r.main("plugins") == 0
