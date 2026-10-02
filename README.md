@@ -61,7 +61,8 @@ under `plugins/<vertical>/<solution>/`.
 ## Getting help
 
 Open a GitHub issue at
-[github.com/google/adk-recipes/issues](https://github.com/google/adk-recipes/issues).
+[github.com/google/adk-recipes/issues](https://github.com/google/adk-recipes/issues)
+— for bugs, questions, or to propose a new `contrib/` recipe.
 
 ## License
 
