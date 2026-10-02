@@ -112,8 +112,8 @@ def test_image_name_drops_the_root_segment(tmp_path: Path) -> None:
 
 
 def test_category_disambiguates_same_named_recipes(tmp_path: Path) -> None:
-    """core/kotlin/llm-auditor and contrib/python/llm-auditor coexist today."""
-    _recipe(tmp_path, "core/kotlin/llm-auditor")
+    """contrib/kotlin/llm-auditor and contrib/python/llm-auditor coexist today."""
+    _recipe(tmp_path, "contrib/kotlin/llm-auditor")
     _recipe(tmp_path, "contrib/python/llm-auditor")
     images = {f["image"] for f in m.discover(tmp_path)}
     assert images == {

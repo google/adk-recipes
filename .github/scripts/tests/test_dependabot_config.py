@@ -68,9 +68,8 @@ def config() -> dict:
 # This is a FLOOR, not the whole set. DETECTORS is scoped to
 # SCAN_ROOTS (core/, contrib/, plugins/) because it answers "which recipe
 # directories do the canary and orphan cleanup track". Dependabot's `**/*`
-# glob is scoped to the repository, so it also sees the legacy python/,
-# java/ and kotlin/ trees, and it parses manifest types no detector looks
-# for — requirements.txt and Dockerfiles both exist here. dependabot.yml
+# glob is scoped to the repository, and it parses manifest types no detector
+# looks for — requirements.txt and Dockerfiles both exist here. dependabot.yml
 # therefore suppresses more ecosystems than this set contains, and doing so
 # must stay legal.
 RECIPE_ECOSYSTEMS = {eco for eco, _ in rm.DETECTORS}

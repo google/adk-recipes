@@ -210,4 +210,4 @@ norecursedirs = [
 
 [tool.codespell]
 ignore-words-list = "rouge"
-skip = "./locust_env/*,uv.lock,.venv,./frontend,**/*.ipynb"
+skip = "uv.lock,.venv,**/*.ipynb"

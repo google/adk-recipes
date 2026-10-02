@@ -327,7 +327,7 @@ The classifier identifies 12 different shoe positions:
 
 ### Training Notebook
 
-See [`notebooks/train_shoe_classifier.ipynb`](notebooks/train_shoe_classifier.ipynb) for a complete end-to-end training pipeline that:
+See [`infra/model_training/`](../../../../../../infra/model_training/) (or run `make train-shoe-model` from the recipe root) for a complete end-to-end training pipeline that:
 
 1. **Loads training data** from a Parquet file with columns:
    - `uri_path`: GCS URI to the image
