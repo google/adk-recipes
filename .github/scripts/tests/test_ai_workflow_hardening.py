@@ -753,3 +753,151 @@ def test_review_job_holds_no_write_scope_other_than_id_token():
         if level == "write" and scope != "id-token"
     }
     assert not writes, f"review must not hold write scopes, found {writes}"
+
+
+# The diff API refuses a diff on EITHER of two independent limits, and both
+# refusals arrive as the same deterministic HTTP 406. #2535 (804 files) hit
+# the file limit; #2666 (216 files, 561225 lines) passed the file check and
+# hit the line limit, failing all four lanes on a PR that only deleted files.
+# Every assertion below is about the SECOND limit staying guarded, because
+# the first one already was and that did not save #2666.
+
+
+def _find_step(job: str, *, id: str | None = None, name: str | None = None):
+    """(index, step) for the one step matching an id or a name.
+
+    Raises rather than returning None: every caller is asserting something
+    ABOUT that step, and a silent None would turn "the step was renamed" into
+    an AttributeError several lines away from the cause.
+    """
+    for index, step in enumerate(_steps(PR_REVIEW, job)):
+        if (id is not None and step.get("id") == id) or (
+            name is not None and step.get("name") == name
+        ):
+            return index, step
+    wanted = f"id={id!r}" if id is not None else f"name={name!r}"
+    raise AssertionError(f"no step with {wanted} in job {job!r}")
+
+
+def _guard_step() -> dict:
+    """The step that forecasts an unservable diff."""
+    return _find_step("review", id="diff_size_guard")[1]
+
+
+def test_the_guard_forecasts_both_diff_api_limits():
+    """A file-count-only guard is what let #2666 through to the 406."""
+    code = _code(_guard_step()["run"])
+    assert "MAX_DIFF_FILES=300" in code, "the file limit stopped being checked"
+    assert "MAX_DIFF_LINES=20000" in code, (
+        "the 20000-line limit is unguarded; a PR under 300 files can still "
+        "406 and take every lane down with it (#2666)"
+    )
+    assert "TOTAL_LINES > MAX_DIFF_LINES" in code, (
+        "the line total is computed but never compared against the limit"
+    )
+
+
+def test_the_guard_aggregates_line_counts_per_file_not_per_page():
+    """`gh api --paginate --jq` runs the filter once PER PAGE.
+
+    An aggregating jq filter (`add`, `length`) therefore emits one number per
+    page, and `TOTAL_LINES` silently becomes the first page's subtotal —
+    under the limit on exactly the huge PRs this guard exists to catch.
+    """
+    code = _code(_guard_step()["run"])
+    assert "--jq '.[] | .changes'" in code, (
+        "the per-file changes filter changed shape; keep it emitting one "
+        "number per line so the sum below stays a real total"
+    )
+    assert "awk" in code, "the per-page values are no longer summed in the job"
+
+
+def test_the_guard_runs_before_the_diff_is_fetched():
+    """Forecasting a 406 after provoking it saves nothing."""
+    guard, _ = _find_step("review", id="diff_size_guard")
+    fetch, _ = _find_step("review", id="fetch_diff")
+    assert guard < fetch, "the guard must precede the fetch it protects"
+
+
+def test_every_skip_path_records_why():
+    """`post` picks its sentence from the reason.
+
+    A skip that sets no reason falls through to the generic message, so a
+    silently dropped `skip_reason` degrades the comment rather than failing
+    anything — which is why it is asserted here.
+    """
+    code = _code(_guard_step()["run"])
+    skips = code.count("echo \"skip=true\"") + code.count("echo 'skip=true'")
+    reasons = code.count("skip_reason=")
+    assert skips >= 3, (
+        f"expected the empty/files/lines skip paths, found {skips}"
+    )
+    assert reasons >= skips, (
+        f"{skips} skip paths but only {reasons} set a reason"
+    )
+
+
+def test_a_refused_diff_is_a_skip_and_not_a_failed_lane():
+    """`.changes` undercounts the diff text, so the guard can be wrong.
+
+    It sums added and removed lines; the API counts context rows and hunk
+    headers too. A PR just under 20000 therefore still 406s at the fetch, and
+    that must degrade the way the guard would have rather than failing the
+    lane with a red check the author cannot act on.
+    """
+    code = _code(_find_step("review", id="fetch_diff")[1]["run"])
+
+    assert "too_large" in code, (
+        "the fetch no longer distinguishes a refused diff from a broken one"
+    )
+    assert "skip_reason=api" in code, (
+        "a fetch-time refusal must reach `post` as a skip with a reason"
+    )
+    # The generic path must still be able to fail: a genuine transport
+    # failure is a CI fault and swallowing it would hide a broken pipeline.
+    assert "exit 1" in code, "a non-406 fetch failure must still fail the lane"
+
+
+def test_the_too_large_comment_is_posted_by_exactly_one_lane():
+    """Four lanes reach the same verdict about the same pull request.
+
+    Before the election every over-limit PR collected four identical
+    comments, which is the same pile-up the unguarded failure produced.
+    """
+    doc = _load(PR_REVIEW)
+    cond = " ".join(doc["jobs"]["post"]["if"].split())
+    assert "inputs.review_label == 'Correctness'" in cond, (
+        "the skip branch of `post` is not restricted to one lane, so an "
+        "over-limit PR gets one comment per lane"
+    )
+
+    _, step = _find_step("post", name="Report a PR too large to diff")
+    step_cond = " ".join(step["if"].split())
+    assert "inputs.review_label == 'Correctness'" in step_cond, (
+        "the job gate and the step gate must agree on the elected lane"
+    )
+
+
+def test_the_empty_pr_is_still_told_nothing():
+    """A 0-file PR is a legitimate state, not an oversize one.
+
+    #2600 (a draft with 0 changed files) mailed its author four times per
+    push. It must not be told it is above a size limit either.
+    """
+    doc = _load(PR_REVIEW)
+    cond = " ".join(doc["jobs"]["post"]["if"].split())
+    assert "needs.review.outputs.skip_reason != 'empty'" in cond, (
+        "an empty PR would spin a runner up to post a size complaint"
+    )
+
+
+def test_the_too_large_comment_names_the_limit_it_actually_hit():
+    """#2666 would otherwise be told it is 'above 300 files' at 216 files."""
+    _, step = _find_step("post", name="Report a PR too large to diff")
+    code = _code(step["run"])
+
+    assert "SKIP_REASON" in code, "the message does not depend on the reason"
+    assert "MAX_DIFF_LINES" in code, (
+        "no branch of the message can state the line limit, so a line-limit "
+        "skip is reported with a file count that is not why it was skipped"
+    )
