@@ -44,7 +44,6 @@ jobs:
         uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # ratchet:astral-sh/setup-uv@v10.2.0
         with:
           python-version: "3.11"
-          enable-cache: false
 
       - name: Install validation dependencies
         # affected_recipes.py imports validate_manifest and needs PyYAML;
@@ -116,19 +115,28 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Full-repo enumeration: list every path under core/, contrib/,
-          # and plugins/ (any depth), then feed it through the same helper
-          # the diff step uses — with --language go. This keeps one
+          # Full-repo enumeration: list every path under existing recipe roots
+          # (core/, contrib/, plugins/ at any depth), then feed it through the
+          # same helper the diff step uses — with --language go. This keeps one
           # source of truth for the layout matrix (path → recipe →
           # language) instead of re-implementing it in shell. `plugins/`
           # is included so that a Go plugin at
           # plugins/<vertical>/<solution>/ is picked up by the full scan.
           # Its language comes from manifest.language rather than the path:
           # the middle component under plugins/ is a vertical (retail/, hr/),
-          # not a language. Missing roots are tolerated via 2>/dev/null.
+          # not a language. Missing roots are tolerated via directory check.
           # NOT `--no-project`: see the notes on the sibling invocation
           # above.
-          ALL=$(find core contrib plugins -type f 2>/dev/null | uv run python tools/affected_recipes.py --language go)
+          EXISTING_ROOTS=()
+          for root in core contrib plugins; do
+            [ -d "$root" ] && EXISTING_ROOTS+=("$root")
+          done
+
+          if [ ${#EXISTING_ROOTS[@]} -gt 0 ]; then
+            ALL=$(find "${EXISTING_ROOTS[@]}" -type f 2>/dev/null | uv run python tools/affected_recipes.py --language go)
+          else
+            ALL=""
+          fi
 
           echo "All Go recipes:"
           echo "$ALL"
@@ -268,6 +276,10 @@ jobs:
               if [ "$CI_FAULT" -eq 1 ]; then
                 exit 2
               fi
+              # During advisory rollout, exit 1 from checkers does not set
+              # RECIPE_FAILED=1 so the job passes with notices. This check is
+              # preserved for when rollout completes and exit 1 is promoted to
+              # hard-failing.
               if [ "$RECIPE_FAILED" -eq 1 ]; then
                 exit 1
               fi
