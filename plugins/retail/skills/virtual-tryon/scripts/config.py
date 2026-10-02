@@ -40,7 +40,7 @@ if not _ENV_EXAMPLE.exists():
 _DEFAULTS = dotenv_values(_ENV_EXAMPLE) if _ENV_EXAMPLE.exists() else {}
 
 
-def _read_env(key: str, fallback: str = "") -> str:
+def _read_env(key: str) -> str:
     """Read an environment variable, falling back to `.env.example`."""
     val = os.getenv(key)
     if val is not None and val != "" and not val.startswith("<"):
@@ -48,7 +48,7 @@ def _read_env(key: str, fallback: str = "") -> str:
     default_val = _DEFAULTS.get(key)
     if default_val and not default_val.startswith("<"):
         return default_val
-    return fallback
+    return ""
 
 
 def _read_bool(key: str) -> bool:
@@ -60,7 +60,7 @@ def _read_bool(key: str) -> bool:
 # `_get_client` helpers can rely on it being set before the first genai call.
 if "GOOGLE_GENAI_USE_VERTEXAI" not in os.environ:
     os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = _read_env(
-        "GOOGLE_GENAI_USE_VERTEXAI", "True"
+        "GOOGLE_GENAI_USE_VERTEXAI"
     )
 
 
@@ -105,8 +105,7 @@ class _Config:
 
     @property
     def PORT(self) -> int:
-        raw = _read_env("PORT")
-        return int(raw) if raw else 8080
+        return int(_read_env("PORT"))
 
     @property
     def SURFACE_GEMINI_SKILL(self) -> bool:

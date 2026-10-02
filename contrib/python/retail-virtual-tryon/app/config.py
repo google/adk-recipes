@@ -114,8 +114,7 @@ class _Config:
 
     @property
     def PORT(self) -> int:
-        raw = _read_env("PORT")
-        return int(raw) if raw else 8080
+        return int(_read_env("PORT"))
 
     @property
     def DEPLOY_AGENT_ENGINE(self) -> bool:
