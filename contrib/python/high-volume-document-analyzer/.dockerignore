@@ -1,0 +1,18 @@
+# Build context exclusions. Keeping .venv/ out is not optional: every recipe
+# in this repo has one in-tree, and copying it into the image both bloats it
+# and can shadow the container's own site-packages.
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Never bake credentials into an image. .env.example is safe and stays.
+.env
+
+.git/
+.gitignore
+.DS_Store
