@@ -132,17 +132,21 @@ def _is_allowed(name: str) -> bool:
 _GO_LANGUAGE = tree_sitter.Language(tree_sitter_go.language())
 
 
+def _node_text(node: tree_sitter.Node | None) -> str:
+    """Decode a tree-sitter node's text as UTF-8."""
+    if node is None or node.text is None:
+        return ""
+    return node.text.decode("utf-8", errors="replace")
+
+
 def _extract_string_literal(node: tree_sitter.Node) -> str | None:
     """Extract string value from an interpreted or raw string literal node."""
-    if node.text is None:
-        return None
+    raw = _node_text(node)
     if node.type == "interpreted_string_literal":
-        raw = node.text.decode("utf-8", errors="replace")
         if len(raw) >= 2 and raw.startswith('"') and raw.endswith('"'):
             # Basic unescaping of standard quotes and backslashes
             return raw[1:-1]
     elif node.type == "raw_string_literal":
-        raw = node.text.decode("utf-8", errors="replace")
         if len(raw) >= 2 and raw.startswith("`") and raw.endswith("`"):
             return raw[1:-1]
     return None
@@ -208,8 +212,10 @@ def _parse_go_file(
 
         if name_node is None:
             os_aliases.add("os")
-        elif name_node.type == "package_identifier" and name_node.text:
-            os_aliases.add(name_node.text.decode("utf-8", errors="replace"))
+        elif name_node.type == "package_identifier":
+            name = _node_text(name_node)
+            if name:
+                os_aliases.add(name)
         elif name_node.type == "dot" or name_node.text == b".":
             os_dot_imported = True
 
@@ -254,29 +260,15 @@ def _parse_go_file(
                         if field is None and len(fn_node.children) > 2:
                             field = fn_node.children[2]
 
-                        if (
-                            operand is not None
-                            and field is not None
-                            and operand.text is not None
-                            and field.text is not None
+                        op_name = _node_text(operand)
+                        field_name = _node_text(field)
+                        if op_name in os_aliases and field_name in (
+                            "Getenv",
+                            "LookupEnv",
                         ):
-                            op_name = operand.text.decode(
-                                "utf-8", errors="replace"
-                            )
-                            field_name = field.text.decode(
-                                "utf-8", errors="replace"
-                            )
-                            if op_name in os_aliases and field_name in (
-                                "Getenv",
-                                "LookupEnv",
-                            ):
-                                is_env_call = True
-                    elif (
-                        os_dot_imported
-                        and fn_node.type == "identifier"
-                        and fn_node.text is not None
-                    ):
-                        fn_name = fn_node.text.decode("utf-8", errors="replace")
+                            is_env_call = True
+                    elif os_dot_imported and fn_node.type == "identifier":
+                        fn_name = _node_text(fn_node)
                         if fn_name in ("Getenv", "LookupEnv"):
                             is_env_call = True
 
