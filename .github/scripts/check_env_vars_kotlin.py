@@ -138,6 +138,19 @@ class _Token:
     lineno: int
 
 
+def _handle_string_interpolation(
+    chars: list[str],
+    start_line: int,
+    lineno: int,
+    tokens: list[_Token],
+    mode_stack: list[tuple[str, int]],
+) -> None:
+    if chars:
+        tokens.append(_Token("STRING", "".join(chars), start_line))
+    tokens.append(_Token("DOLLAR_LBRACE", "${", lineno))
+    mode_stack.append(("CODE", 0))
+
+
 def _tokenize_kotlin(source: str) -> list[_Token]:
     """Tokenize Kotlin source text into relevant tokens for AST-like inspection.
 
@@ -275,12 +288,9 @@ def _tokenize_kotlin(source: str) -> list[_Token]:
                         chars.append(source[i])
                         i += 1
                 elif source[i : i + 2] == "${":
-                    if chars:
-                        tokens.append(
-                            _Token("STRING", "".join(chars), start_line)
-                        )
-                    tokens.append(_Token("DOLLAR_LBRACE", "${", lineno))
-                    mode_stack.append(("CODE", 0))
+                    _handle_string_interpolation(
+                        chars, start_line, lineno, tokens, mode_stack
+                    )
                     i += 2
                     break
                 elif source[i] == '"':
@@ -303,12 +313,9 @@ def _tokenize_kotlin(source: str) -> list[_Token]:
                     i += 3
                     break
                 elif source[i : i + 2] == "${":
-                    if chars:
-                        tokens.append(
-                            _Token("STRING", "".join(chars), start_line)
-                        )
-                    tokens.append(_Token("DOLLAR_LBRACE", "${", lineno))
-                    mode_stack.append(("CODE", 0))
+                    _handle_string_interpolation(
+                        chars, start_line, lineno, tokens, mode_stack
+                    )
                     i += 2
                     break
                 elif source[i] == "\n":
@@ -328,6 +335,20 @@ _DECL_KEYWORDS: frozenset[str] = frozenset(
 _GET_METHODS: frozenset[str] = frozenset(
     {"get", "getOrNull", "getOrDefault", "getOrElse"}
 )
+
+
+def _is_call_site(tokens: list[_Token], idx: int) -> bool:
+    """True if tokens[idx] is a call site and not preceded by a declaration keyword."""
+    if idx <= 0:
+        return True
+    prev = tokens[idx - 1]
+    return prev.kind != "IDENT" or prev.value not in _DECL_KEYWORDS
+
+
+def _record_var(env_vars: dict[str, int], var_name: str, lineno: int) -> None:
+    cleaned = var_name.strip()
+    if cleaned:
+        env_vars.setdefault(cleaned, lineno)
 
 
 def _parse_kotlin_source(source_text: str) -> dict[str, int]:
@@ -367,9 +388,7 @@ def _parse_kotlin_source(source_text: str) -> dict[str, int]:
                     tokens[i + 3].kind == "LPAREN"
                     and tokens[i + 4].kind == "STRING"
                 ):
-                    var_name = tokens[i + 4].value.strip()
-                    if var_name:
-                        env_vars.setdefault(var_name, lineno)
+                    _record_var(env_vars, tokens[i + 4].value, lineno)
                 # System.getenv()["VAR"]
                 elif (
                     tokens[i + 2].value == "getenv"
@@ -379,9 +398,7 @@ def _parse_kotlin_source(source_text: str) -> dict[str, int]:
                     and tokens[i + 5].kind == "LBRACKET"
                     and tokens[i + 6].kind == "STRING"
                 ):
-                    var_name = tokens[i + 6].value.strip()
-                    if var_name:
-                        env_vars.setdefault(var_name, lineno)
+                    _record_var(env_vars, tokens[i + 6].value, lineno)
                 # System.getenv().get("VAR")
                 elif (
                     tokens[i + 2].value == "getenv"
@@ -394,109 +411,84 @@ def _parse_kotlin_source(source_text: str) -> dict[str, int]:
                     and tokens[i + 7].kind == "LPAREN"
                     and tokens[i + 8].kind == "STRING"
                 ):
-                    var_name = tokens[i + 8].value.strip()
-                    if var_name:
-                        env_vars.setdefault(var_name, lineno)
+                    _record_var(env_vars, tokens[i + 8].value, lineno)
 
         # 2. env("VAR") function / parameter call
-        #    Make sure it's not a declaration like `fun env(...)` or `val env = ...`
-        elif tok.value == "env":
-            prev_tok = tokens[i - 1] if i > 0 else None
-            if prev_tok is None or (
-                prev_tok.kind != "IDENT" or prev_tok.value not in _DECL_KEYWORDS
+        elif tok.value == "env" and _is_call_site(tokens, i):
+            if (
+                i + 2 < n
+                and tokens[i + 1].kind == "LPAREN"
+                and tokens[i + 2].kind == "STRING"
             ):
-                if (
-                    i + 2 < n
-                    and tokens[i + 1].kind == "LPAREN"
-                    and tokens[i + 2].kind == "STRING"
-                ):
-                    var_name = tokens[i + 2].value.strip()
-                    if var_name:
-                        env_vars.setdefault(var_name, lineno)
+                _record_var(env_vars, tokens[i + 2].value, lineno)
 
         # 3. dotenv["VAR"] / Dotenv["VAR"] / dotenv.get("VAR")
-        elif tok.value in ("dotenv", "Dotenv"):
-            prev_tok = tokens[i - 1] if i > 0 else None
-            if prev_tok is None or (
-                prev_tok.kind != "IDENT" or prev_tok.value not in _DECL_KEYWORDS
+        elif tok.value in ("dotenv", "Dotenv") and _is_call_site(tokens, i):
+            # dotenv["VAR"]
+            if (
+                i + 2 < n
+                and tokens[i + 1].kind == "LBRACKET"
+                and tokens[i + 2].kind == "STRING"
             ):
-                # dotenv["VAR"]
-                if (
-                    i + 2 < n
-                    and tokens[i + 1].kind == "LBRACKET"
-                    and tokens[i + 2].kind == "STRING"
-                ):
-                    var_name = tokens[i + 2].value.strip()
-                    if var_name:
-                        env_vars.setdefault(var_name, lineno)
-                # dotenv.get("VAR")
-                elif (
-                    i + 4 < n
-                    and tokens[i + 1].kind == "DOT"
-                    and tokens[i + 2].kind == "IDENT"
-                    and tokens[i + 2].value in _GET_METHODS
-                    and tokens[i + 3].kind == "LPAREN"
-                    and tokens[i + 4].kind == "STRING"
-                ):
-                    var_name = tokens[i + 4].value.strip()
-                    if var_name:
-                        env_vars.setdefault(var_name, lineno)
-                # dotenv()["VAR"]
-                elif (
-                    i + 4 < n
-                    and tokens[i + 1].kind == "LPAREN"
-                    and tokens[i + 2].kind == "RPAREN"
-                    and tokens[i + 3].kind == "LBRACKET"
-                    and tokens[i + 4].kind == "STRING"
-                ):
-                    var_name = tokens[i + 4].value.strip()
-                    if var_name:
-                        env_vars.setdefault(var_name, lineno)
-                # dotenv().get("VAR")
-                elif (
-                    i + 6 < n
-                    and tokens[i + 1].kind == "LPAREN"
-                    and tokens[i + 2].kind == "RPAREN"
-                    and tokens[i + 3].kind == "DOT"
-                    and tokens[i + 4].kind == "IDENT"
-                    and tokens[i + 4].value in _GET_METHODS
-                    and tokens[i + 5].kind == "LPAREN"
-                    and tokens[i + 6].kind == "STRING"
-                ):
-                    var_name = tokens[i + 6].value.strip()
-                    if var_name:
-                        env_vars.setdefault(var_name, lineno)
-                # Dotenv.load()["VAR"]
-                elif (
-                    i + 6 < n
-                    and tokens[i + 1].kind == "DOT"
-                    and tokens[i + 2].kind == "IDENT"
-                    and tokens[i + 2].value == "load"
-                    and tokens[i + 3].kind == "LPAREN"
-                    and tokens[i + 4].kind == "RPAREN"
-                    and tokens[i + 5].kind == "LBRACKET"
-                    and tokens[i + 6].kind == "STRING"
-                ):
-                    var_name = tokens[i + 6].value.strip()
-                    if var_name:
-                        env_vars.setdefault(var_name, lineno)
-                # Dotenv.load().get("VAR")
-                elif (
-                    i + 8 < n
-                    and tokens[i + 1].kind == "DOT"
-                    and tokens[i + 2].kind == "IDENT"
-                    and tokens[i + 2].value == "load"
-                    and tokens[i + 3].kind == "LPAREN"
-                    and tokens[i + 4].kind == "RPAREN"
-                    and tokens[i + 5].kind == "DOT"
-                    and tokens[i + 6].kind == "IDENT"
-                    and tokens[i + 6].value in _GET_METHODS
-                    and tokens[i + 7].kind == "LPAREN"
-                    and tokens[i + 8].kind == "STRING"
-                ):
-                    var_name = tokens[i + 8].value.strip()
-                    if var_name:
-                        env_vars.setdefault(var_name, lineno)
+                _record_var(env_vars, tokens[i + 2].value, lineno)
+            # dotenv.get("VAR")
+            elif (
+                i + 4 < n
+                and tokens[i + 1].kind == "DOT"
+                and tokens[i + 2].kind == "IDENT"
+                and tokens[i + 2].value in _GET_METHODS
+                and tokens[i + 3].kind == "LPAREN"
+                and tokens[i + 4].kind == "STRING"
+            ):
+                _record_var(env_vars, tokens[i + 4].value, lineno)
+            # dotenv()["VAR"]
+            elif (
+                i + 4 < n
+                and tokens[i + 1].kind == "LPAREN"
+                and tokens[i + 2].kind == "RPAREN"
+                and tokens[i + 3].kind == "LBRACKET"
+                and tokens[i + 4].kind == "STRING"
+            ):
+                _record_var(env_vars, tokens[i + 4].value, lineno)
+            # dotenv().get("VAR")
+            elif (
+                i + 6 < n
+                and tokens[i + 1].kind == "LPAREN"
+                and tokens[i + 2].kind == "RPAREN"
+                and tokens[i + 3].kind == "DOT"
+                and tokens[i + 4].kind == "IDENT"
+                and tokens[i + 4].value in _GET_METHODS
+                and tokens[i + 5].kind == "LPAREN"
+                and tokens[i + 6].kind == "STRING"
+            ):
+                _record_var(env_vars, tokens[i + 6].value, lineno)
+            # Dotenv.load()["VAR"]
+            elif (
+                i + 6 < n
+                and tokens[i + 1].kind == "DOT"
+                and tokens[i + 2].kind == "IDENT"
+                and tokens[i + 2].value == "load"
+                and tokens[i + 3].kind == "LPAREN"
+                and tokens[i + 4].kind == "RPAREN"
+                and tokens[i + 5].kind == "LBRACKET"
+                and tokens[i + 6].kind == "STRING"
+            ):
+                _record_var(env_vars, tokens[i + 6].value, lineno)
+            # Dotenv.load().get("VAR")
+            elif (
+                i + 8 < n
+                and tokens[i + 1].kind == "DOT"
+                and tokens[i + 2].kind == "IDENT"
+                and tokens[i + 2].value == "load"
+                and tokens[i + 3].kind == "LPAREN"
+                and tokens[i + 4].kind == "RPAREN"
+                and tokens[i + 5].kind == "DOT"
+                and tokens[i + 6].kind == "IDENT"
+                and tokens[i + 6].value in _GET_METHODS
+                and tokens[i + 7].kind == "LPAREN"
+                and tokens[i + 8].kind == "STRING"
+            ):
+                _record_var(env_vars, tokens[i + 8].value, lineno)
 
     return env_vars
 
@@ -542,6 +534,9 @@ def _unreadable_source(
     elif detail:
         what = f"{kt_file}:{lineno} is not valid Kotlin: {detail}."
         how = "Fix the syntax error, then re-run the build."
+    elif exc is not None:
+        what = f"{kt_file}:{lineno} could not be read as Kotlin source: {exc}."
+        how = "Open the file and check it is plain UTF-8 Kotlin source."
     else:
         what = f"{kt_file}:{lineno} could not be read as Kotlin source."
         how = "Open the file and check it is plain UTF-8 Kotlin source."

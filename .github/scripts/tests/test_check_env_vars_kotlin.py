@@ -396,7 +396,7 @@ def test_non_utf8_kotlin_source_is_reported(tmp_path, monkeypatch, capsys):
     assert f"::error file={kt_path}::" in out
 
 
-def test_missing_env_example_is_not_this_checkers_failure(
+def test_missing_env_example_is_not_this_checker_failure(
     tmp_path, monkeypatch, capsys
 ):
     _recipe(
