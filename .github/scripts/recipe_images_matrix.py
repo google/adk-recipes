@@ -47,8 +47,8 @@ Image naming: <language>/<recipe>, not <root>/<language>/<recipe>
 The root is deliberately dropped. A recipe promoted from contrib/ to core/ is
 the same recipe, and its published image name should not change underneath
 consumers who have pinned it. Language is kept because it disambiguates:
-contrib/kotlin/llm-auditor and contrib/python/llm-auditor coexist today, and
-the leaf name alone would collide.
+contrib/kotlin/financial-advisor and contrib/python/financial-advisor coexist
+today, and the leaf name alone would collide.
 
 Zero third-party dependencies, matching its callers.
 """
