@@ -170,7 +170,7 @@ The backend agent, defined in `app/agent.py`, follows a sophisticated workflow t
 
 The following diagram illustrates the agent's architecture and workflow:
 
-![ADK Gemini Fullstack Architecture](https://github.com/GoogleCloudPlatform/agent-starter-pack/blob/main/docs/images/adk_gemini_fullstack_architecture.webp?raw=true)
+![ADK Gemini Fullstack Architecture](https://github.com/GoogleCloudPlatform/agent-starter-pack/blob/main/docs/images/adk_gemini_fullstack_architecture.png?raw=true)
 
 This process is broken into two main phases:
 
