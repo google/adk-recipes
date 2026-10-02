@@ -20,7 +20,7 @@ Routing rules for Option 4:
   /contrib/java/**     -> @happyhuman
   /contrib/typescript/** -> @happyhuman
   /contrib/kotlin/**   -> @happyhuman
-  /skills/**           -> @happyhuman
+  /plugins/**          -> @happyhuman
 
 Usage:
   python3 process_issue_response.py \\
@@ -73,20 +73,22 @@ ROUTING_RULES: list[tuple[str, str]] = [
     ("core/java", "eliasecchig"),
     ("core/typescript", "happyhuman"),
     ("core/kotlin", "happyhuman"),
+    # Recipes owned by their authors
+    ("core/python/ambient-quality-agent", "maxgasztych"),
     # Contrib directory assignments
     ("contrib/python", "happyhuman"),
     ("contrib/go", "ToniCorinne"),
     ("contrib/java", "happyhuman"),
     ("contrib/typescript", "happyhuman"),
     ("contrib/kotlin", "happyhuman"),
-    # Skills directory assignments
-    ("skills", "happyhuman"),
+    # Plugins directory assignments
+    ("plugins", "happyhuman"),
 ]
 
 DEFAULT_ASSIGNEE = "happyhuman"
 
 # Known developer usernames (without @ prefix)
-VALID_ASSIGNEES = {"eliasecchig", "ToniCorinne", "happyhuman"}
+VALID_ASSIGNEES = {"eliasecchig", "ToniCorinne", "happyhuman", "maxgasztych"}
 
 FENCED_JSON = re.compile(
     r"```(?:json)?\s*(\{.*?\})\s*```", re.DOTALL | re.IGNORECASE
@@ -112,11 +114,20 @@ def resolve_assignee_from_path(path: str | None) -> str:
     if not normalized:
         return DEFAULT_ASSIGNEE
 
-    for prefix, assignee in ROUTING_RULES:
-        if normalized == prefix or normalized.startswith(prefix + "/"):
-            return assignee
-
-    return DEFAULT_ASSIGNEE
+    # The most specific (longest) matching prefix wins, so a recipe-level
+    # owner beats its language folder. This is what CODEOWNERS' "last match
+    # wins" produces for these rules, since each more specific line is listed
+    # after the folder line it narrows, while keeping this list in the same
+    # order as CODEOWNERS (test_routing_rules_sync_with_codeowners_and_workflow).
+    matches = [
+        (prefix, assignee)
+        for prefix, assignee in ROUTING_RULES
+        if normalized == prefix.lower()
+        or normalized.startswith(prefix.lower() + "/")
+    ]
+    if not matches:
+        return DEFAULT_ASSIGNEE
+    return max(matches, key=lambda rule: len(rule[0]))[1]
 
 
 def parse_option(raw_option: Any) -> Option:

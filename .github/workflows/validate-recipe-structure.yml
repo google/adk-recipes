@@ -1,7 +1,7 @@
 name: Validate Recipe Structure
 
 # Language-agnostic structural validation for every recipe under `core/`,
-# `contrib/`, and `skills/`: manifest presence + schema, folder name,
+# `contrib/`, and `plugins/`: manifest presence + schema, folder name,
 # size, file count, and required files (matrix from `.github/policy.yml`).
 
 on:
@@ -14,7 +14,7 @@ on:
     paths:
       - 'core/**'
       - 'contrib/**'
-      - 'skills/**'
+      - 'plugins/**'
       # Retired recipe roots (policy.yml `frozen_paths`). Without these the
       # workflow never fires for a PR that only touches a retired folder,
       # and the check below could never see it.
@@ -24,8 +24,12 @@ on:
       - 'kotlin/agents/**'
       - 'typescript/agents/**'
       - '.github/schemas/manifest-schema.json'
+      - '.github/schemas/plugin-schema.json'
       - '.github/policy.yml'
       - '.github/workflows/validate-recipe-structure.yml'
+      - '.github/scripts/check_model_literals.py'
+      - '.github/scripts/tests/test_check_model_literals.py'
+      - '.github/scripts/check_recipe_lint_config.py'
       - 'tools/validate.py'
       - 'tools/validate_manifest.py'
       - 'tools/validate_structure.py'
@@ -40,10 +44,14 @@ on:
     paths:
       - 'core/**'
       - 'contrib/**'
-      - 'skills/**'
+      - 'plugins/**'
       - '.github/schemas/manifest-schema.json'
+      - '.github/schemas/plugin-schema.json'
       - '.github/policy.yml'
       - '.github/workflows/validate-recipe-structure.yml'
+      - '.github/scripts/check_model_literals.py'
+      - '.github/scripts/tests/test_check_model_literals.py'
+      - '.github/scripts/check_recipe_lint_config.py'
       - 'tools/validate.py'
       - 'tools/validate_manifest.py'
       - 'tools/validate_structure.py'
@@ -68,9 +76,10 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Install uv
-        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # ratchet:astral-sh/setup-uv@v10.0.1
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # ratchet:astral-sh/setup-uv@v10.2.0
         with:
           # Pin explicitly for reproducibility and to match the sibling
           # python-validate-recipe.yml step. Structure checks only need
@@ -113,16 +122,6 @@ jobs:
           echo "Changed files:"
           echo "$CHANGED_FILES"
 
-          # If any infra file that controls this workflow's behaviour
-          # changed, validate ALL recipes so the new config applies across
-          # the board.
-          INFRA_CHANGED=$(echo "$CHANGED_FILES" | grep -E "^(\.github/(schemas/manifest-schema\.json|policy\.yml|workflows/validate-recipe-structure\.yml)|tools/(validate|validate_manifest|validate_structure|validate_readme|affected_recipes)\.py|pyproject\.toml)$" || true)
-          if [ -n "$INFRA_CHANGED" ]; then
-            echo "Schema, policy, workflow, or tool changed — will validate all recipes."
-            echo "validate_all=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
           # Map changed files → affected recipe directories via the shared
           # helper (also unit-tested in tools/tests/test_affected_recipes.py).
           # Runs against the project venv (created by `uv sync` above) —
@@ -138,10 +137,23 @@ jobs:
             echo "$CHANGED_RECIPES"
             echo "RECIPES_EOF"
           } >> "$GITHUB_OUTPUT"
+
+          # If any infra file that controls this workflow's behaviour
+          # changed, validate ALL recipes so the new config applies across
+          # the board.
+          INFRA_CHANGED=$(echo "$CHANGED_FILES" | grep -E "^(\.github/(schemas/(manifest|plugin)-schema\.json|policy\.yml|workflows/validate-recipe-structure\.yml|scripts/(check_model_literals|tests/test_check_model_literals|check_recipe_lint_config)\.py)|tools/(validate|validate_manifest|validate_structure|validate_readme|affected_recipes)\.py|pyproject\.toml)$" || true)
+          if [ -n "$INFRA_CHANGED" ]; then
+            echo "Schema, policy, workflow, or tool changed — will validate all recipes."
+            echo "validate_all=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           echo "validate_all=false" >> "$GITHUB_OUTPUT"
 
       - name: Validate affected recipes
         env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
           VALIDATE_ALL: ${{ steps.affected.outputs.validate_all }}
           CHANGED_RECIPES: ${{ steps.affected.outputs.changed_recipes }}
         run: |
@@ -152,8 +164,74 @@ jobs:
           # to flatten the two, so a tooling bug printed the "here is how to
           # fix your recipe" banner over a traceback.
           run_validator() {
+            local subcmd="$1"
+            shift
+            if [ "$VALIDATE_ALL" = "true" ] && [ "$EVENT_NAME" = "pull_request" ] && [ $# -eq 0 ]; then
+              local head_out
+              head_out=$(mktemp)
+              set +e
+              uv run validate "$subcmd" > "$head_out" 2>&1
+              local status=$?
+              set -e
+              if [ "$status" -eq 0 ]; then
+                cat "$head_out"
+                rm -f "$head_out"
+                return
+              elif [ "$status" -eq 1 ]; then
+                local base_wt="$RUNNER_TEMP/base_validate_wt"
+                local base_out
+                base_out=$(mktemp)
+                git worktree add --detach "$base_wt" "origin/$BASE_REF" >/dev/null 2>&1
+                set +e
+                PYTHONPATH="$base_wt/tools" .venv/bin/python "$base_wt/tools/validate_${subcmd}.py" > "$base_out" 2>&1
+                set -e
+                git worktree remove --force "$base_wt" >/dev/null 2>&1 || true
+
+                local new_errors
+                new_errors=$(python3 - "$head_out" "$base_out" "$CHANGED_RECIPES" <<'PY'
+          import sys
+          from pathlib import Path
+
+          head_lines = Path(sys.argv[1]).read_text(encoding="utf-8").splitlines()
+          base_lines = set(Path(sys.argv[2]).read_text(encoding="utf-8").splitlines())
+          changed = [r.strip() for r in sys.argv[3].splitlines() if r.strip()]
+
+          kept = []
+          for line in head_lines:
+              if not line.startswith("::error "):
+                  continue
+              in_changed = any(f"file={r}/" in line or f"file={r}:" in line for r in changed)
+              if in_changed or line not in base_lines:
+                  kept.append(line)
+          print("\n".join(kept))
+          PY
+                )
+                rm -f "$base_out"
+                if [ -z "$new_errors" ]; then
+                  grep -v "^::error " "$head_out" || true
+                  echo "[PASS] No new ${subcmd} problems introduced relative to origin/$BASE_REF."
+                  rm -f "$head_out"
+                  return
+                fi
+                grep -v "^::error " "$head_out" || true
+                echo "$new_errors"
+                rm -f "$head_out"
+                FAILED=1
+                return
+              fi
+              cat "$head_out"
+              rm -f "$head_out"
+              case "$status" in
+                2) CI_FAULT=1 ;;
+                *)
+                  echo "::error::'uv run validate $subcmd' exited with an undefined status ($status). This is a CI tooling bug, not a problem with your recipe."
+                  CI_FAULT=1
+                  ;;
+              esac
+              return
+            fi
             set +e
-            uv run validate "$@"
+            uv run validate "$subcmd" "$@"
             local status=$?
             set -e
             case "$status" in
@@ -161,7 +239,52 @@ jobs:
               1) FAILED=1 ;;
               2) CI_FAULT=1 ;;
               *)
-                echo "::error::'uv run validate $*' exited with an undefined status ($status). This is a CI tooling bug, not a problem with your recipe."
+                echo "::error::'uv run validate $subcmd $*' exited with an undefined status ($status). This is a CI tooling bug, not a problem with your recipe."
+                CI_FAULT=1
+                ;;
+            esac
+          }
+
+          # ------------------------------------------------------------
+          # Check: recipe-local lint and style configuration.
+          # Style & lint configs are centralized in the repo root.
+          # The rule is advisory during rollout: the checker reports its
+          # findings as warnings and exits 0 itself, so exit 1 only
+          # appears once the rule is made blocking in the script.
+          # ------------------------------------------------------------
+          run_lint_config_check() {
+            local recipe="$1"
+            set +e
+            python3 .github/scripts/check_recipe_lint_config.py "$recipe"
+            local status=$?
+            set -e
+            case "$status" in
+              0) ;;
+              1) FAILED=1 ;;
+              2) CI_FAULT=1 ;;
+              *)
+                echo "::error::check_recipe_lint_config.py exited with an undefined status ($status). This is a CI tooling bug, not a problem with your recipe."
+                CI_FAULT=1
+                ;;
+            esac
+          }
+
+          # ------------------------------------------------------------
+          # Notice: possible hardcoded model names in recipe source files.
+          # The checker emits ::notice lines and exits 0 whatever it finds;
+          # only exit 2 (the checker itself broke) affects the job.
+          # ------------------------------------------------------------
+          run_model_literal_check() {
+            local recipe="$1"
+            set +e
+            uv run --no-project python3 .github/scripts/check_model_literals.py "$recipe"
+            local status=$?
+            set -e
+            case "$status" in
+              0) ;;
+              2) CI_FAULT=1 ;;
+              *)
+                echo "::error::check_model_literals.py exited with an undefined status ($status). This is a CI tooling bug, not a problem with your recipe."
                 CI_FAULT=1
                 ;;
             esac
@@ -184,9 +307,15 @@ jobs:
           CI_FAULT=0
 
           if [ "$VALIDATE_ALL" = "true" ]; then
-            # Both validators walk core/, contrib/, and skills/ in one pass.
+            # Both validators walk core/, contrib/, and plugins/ in one pass.
             run_validator structure
             run_validator readme
+
+            while IFS= read -r recipe; do
+              [ -z "$recipe" ] && continue
+              run_lint_config_check "$recipe"
+              run_model_literal_check "$recipe"
+            done < <(find core contrib plugins -mindepth 1 -maxdepth 3 -type f -name manifest.yaml -exec dirname {} \;)
 
             if [ "$CI_FAULT" -eq 1 ]; then
               ci_fault_banner
@@ -232,6 +361,8 @@ jobs:
             [ -z "$recipe" ] && continue
             run_validator structure "$recipe"
             run_validator readme    "$recipe"
+            run_lint_config_check   "$recipe"
+            run_model_literal_check "$recipe"
           done <<< "$CHANGED_RECIPES"
 
           if [ "$CI_FAULT" -eq 1 ]; then
@@ -278,9 +409,10 @@ jobs:
         with:
           # Full history so the merge-base diff below resolves.
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Install uv
-        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # ratchet:astral-sh/setup-uv@v10.0.1
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # ratchet:astral-sh/setup-uv@v10.2.0
         with:
           python-version: "3.11"
           enable-cache: false
@@ -318,15 +450,17 @@ jobs:
     #
     # It cannot ride on the validate-structure job above: that runs the
     # validators per AFFECTED recipe, and affected_recipes.py maps a
-    # misplaced skill (skills/<solution> with no vertical) to None, so it
+    # misplaced plugin (plugins/<solution> with no vertical) to None, so it
     # would never appear in changed_recipes.
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Install uv
-        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # ratchet:astral-sh/setup-uv@v10.0.1
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # ratchet:astral-sh/setup-uv@v10.2.0
         with:
           python-version: "3.11"
           enable-cache: false

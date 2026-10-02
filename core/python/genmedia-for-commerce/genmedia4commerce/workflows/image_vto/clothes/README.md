@@ -105,13 +105,18 @@ def preprocess_face_image(client, face_bytes) -> tuple[bytes, bytes]:
     """Preprocess face image
     Returns: (reference_face_cropped_upscaled, preprocessed_face_no_bg)"""
 
+
 def preprocess_model_image(client, body_bytes) -> bytes:
     """Preprocess body image (background removal)
     Returns: preprocessed_body_bytes"""
 
-def generate_vto(client, scenario, garment_images, preprocessed_person_images) -> bytes:
+
+def generate_vto(
+    client, scenario, garment_images, preprocessed_person_images
+) -> bytes:
     """Generate VTO image
     Returns: result_image_bytes or None on failure"""
+
 
 def evaluate_vto_image(vto_image_bytes, reference_face_bytes) -> dict:
     """Evaluate face similarity
@@ -141,10 +146,10 @@ response = requests.post(
     files={
         "face_image": open("face.jpg", "rb"),
         "full_body_image": open("body.jpg", "rb"),
-        "garments": open("shirt.jpg", "rb")
+        "garments": open("shirt.jpg", "rb"),
     },
     data={"num_variations": 4, "scenario": "fashion studio"},
-    stream=True
+    stream=True,
 )
 
 # Process SSE events as they arrive
@@ -152,7 +157,9 @@ for line in response.iter_lines():
     if line and line.startswith(b"data: "):
         data = json.loads(line[6:])
         if data.get("status") == "ready":
-            print(f"Variation {data['index']}: {data['evaluation']['similarity_percentage']:.1f}%")
+            print(
+                f"Variation {data['index']}: {data['evaluation']['similarity_percentage']:.1f}%"
+            )
             # Save or display the image
             image_bytes = base64.b64decode(data["image_base64"])
         elif data.get("status") == "failed":
@@ -187,15 +194,18 @@ import json
 files = {
     "face_image": ("face.jpg", open("face.jpg", "rb"), "image/jpeg"),
     "full_body_image": ("body.jpg", open("body.jpg", "rb"), "image/jpeg"),
-    "garments": ("shirt.jpg", open("shirt.jpg", "rb"), "image/jpeg")
+    "garments": ("shirt.jpg", open("shirt.jpg", "rb"), "image/jpeg"),
 }
 
 # Generate VTO with SSE streaming
 response = requests.post(
     "http://localhost:8000/api/clothes/generate-vto",
     files=files,
-    data={"scenario": "a modern fashion studio with soft lighting", "num_variations": 4},
-    stream=True
+    data={
+        "scenario": "a modern fashion studio with soft lighting",
+        "num_variations": 4,
+    },
+    stream=True,
 )
 
 # Collect results as they stream
@@ -205,13 +215,17 @@ for line in response.iter_lines():
         data = json.loads(line[6:])
         if data.get("status") == "ready":
             results.append(data)
-            print(f"Variation {data['index']}: {data['evaluation']['similarity_percentage']:.1f}%")
+            print(
+                f"Variation {data['index']}: {data['evaluation']['similarity_percentage']:.1f}%"
+            )
 
 # Save best result (highest similarity)
 best = max(results, key=lambda x: x["evaluation"]["similarity_percentage"])
 with open("vto_result.png", "wb") as f:
     f.write(base64.b64decode(best["image_base64"]))
-print(f"Saved best result with {best['evaluation']['similarity_percentage']:.1f}% similarity")
+print(
+    f"Saved best result with {best['evaluation']['similarity_percentage']:.1f}% similarity"
+)
 ```
 
 ## Multiple Garments
@@ -222,7 +236,7 @@ You can combine multiple garment images:
 files = [
     ("garments", ("top.jpg", open("top.jpg", "rb"))),
     ("garments", ("pants.jpg", open("pants.jpg", "rb"))),
-    ("garments", ("shoes.jpg", open("shoes.jpg", "rb")))
+    ("garments", ("shoes.jpg", open("shoes.jpg", "rb"))),
 ]
 ```
 

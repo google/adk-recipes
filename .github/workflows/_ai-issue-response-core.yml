@@ -82,6 +82,8 @@ jobs:
     steps:
       - name: 'Checkout repository'
         uses: 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1' # ratchet:actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: 'Generate GitHub App Token'
         id: 'generate_token'
@@ -118,7 +120,7 @@ jobs:
       - name: 'Install Antigravity CLI (agy)'
         run: |-
           set -euo pipefail
-          curl -fsSL https://antigravity.google/cli/install.sh | bash
+          bash .github/scripts/install_agy.sh
           echo "${HOME}/.local/bin" >> "${GITHUB_PATH}"
 
       # SECURITY: the allowlist is EMPTY. The agent receives all context in
@@ -207,6 +209,7 @@ jobs:
             - /core/java/** -> eliasecchig
             - /core/typescript/** -> happyhuman
             - /core/kotlin/** -> happyhuman
+            - /core/python/ambient-quality-agent/** -> maxgasztych
 
             Contrib Directory Assignments:
             - /contrib/python/** -> happyhuman
@@ -215,8 +218,8 @@ jobs:
             - /contrib/typescript/** -> happyhuman
             - /contrib/kotlin/** -> happyhuman
 
-            Skills Directory Assignments:
-            - /skills/** -> happyhuman
+            Plugins Directory Assignments:
+            - /plugins/** -> happyhuman
 
             ## Repository Context & Knowledge
 
@@ -224,7 +227,7 @@ jobs:
             - Directory layout:
               - `core/<language>/<recipe-name>`: Curated reference recipes maintained by the core team.
               - `contrib/<language>/<recipe-name>`: Community-contributed recipes (default destination for new user contributions).
-              - `skills/<vertical>/<solution>`: Vertical recipes/skills shipped to users (e.g. `skills/retail/store-ops/`).
+              - `plugins/<vertical>/<solution>`: Vertical recipes/plugins shipped to users (e.g. `plugins/retail/store-ops/`).
 
             - Assistant Skills (Repo Skills in `.agents/skills/`):
               Contributors using an AI assistant (e.g. CloudCode) can invoke repo skills directly:

@@ -1,0 +1,46 @@
+# Review gate configuration — read by .github/scripts/review_gate.py, run by
+# .github/workflows/review-gate.yml.
+#
+# Kept out of .github/policy.yml on purpose. Any edit to policy.yml makes
+# validate-recipe-structure.yml re-validate every recipe, and none of these
+# settings affect recipes.
+#
+# A pull request should only sit in a reviewer's queue once it is ready:
+# no failing checks and no unresolved bot review threads. GitHub cannot stop
+# anyone requesting a review, so the gate corrects it afterwards. When a
+# review is requested on a PR that is not ready, the gate removes the
+# requested reviewers, applies `label`, and posts one comment saying why.
+# When the PR becomes ready it re-requests the same reviewers itself, so the
+# author never has to remember to come back.
+#
+# Checks that are still RUNNING never trigger a bounce. Only a definite
+# failure does; a PR whose checks are in flight is left alone and looked at
+# again by the next sweep.
+
+# Applied while the gate is holding a PR's review requests. Filter it out
+# of a review queue with `-label:status/not-ready-for-review`.
+#
+# The sweep finds a held PR through this label, so removing it by hand
+# cancels the hold WITHOUT re-requesting anyone. To let a review through
+# early, remove the label and request the reviewers yourself.
+label: status/not-ready-for-review
+
+# Review threads opened by these accounts must be resolved before a
+# review goes through. Threads from humans never block: a reviewer who
+# left comments and is being re-requested after a fix is the normal flow.
+# Compared without the `[bot]` suffix, since REST and GraphQL disagree on
+# whether it is part of the login.
+bot_logins:
+  - github-actions
+
+# Workflows (glob against the workflow NAME) whose checks are ignored.
+# The gate itself shows up as a check on the PR head. The four model
+# review lanes are excluded because a crash there is an infrastructure
+# problem the author cannot fix. House Rules is NOT excluded: it is
+# deterministic and it fails on real, author-fixable violations.
+ignored_workflows:
+  - "Review Gate"
+  - "*AI PR Review — Security"
+  - "*AI PR Review — Correctness"
+  - "*AI PR Review — Maintainability"
+  - "*AI PR Review — Hygiene"

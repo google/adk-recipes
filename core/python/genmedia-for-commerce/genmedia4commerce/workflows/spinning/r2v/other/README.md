@@ -90,6 +90,7 @@ def classify_product_images(client, images_bytes, model) -> dict:
     """Classify product type and view angle for each image.
     Returns: {product_type, classifications: [{index, view, quality}]}"""
 
+
 def select_best_images(client, images_bytes, model) -> list[bytes]:
     """Select the best 4 images ordered for stack_and_canvas_images.
     Layout depends on product type (3D vs flat objects)."""
@@ -103,6 +104,7 @@ VEO_R2V_PROMPT_TEMPLATE = """
 [Action]: One continuous, seamless, very fast 360-degree orbit around the stationary product...
 [Scene]: A completely white studio void...
 """
+
 
 def generate_product_description(client, gemini_model, all_images_bytes) -> str:
     """Generate a short product description (type + color).

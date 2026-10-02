@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from clause_agent.tools.document_search import search_documents
+from app.tools.document_search import search_documents
 
 
 def test_finds_payment_term_in_body_by_default():

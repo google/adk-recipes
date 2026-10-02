@@ -23,12 +23,12 @@ what `git branch --merged` does — would classify provably merged branches as
 unmerged orphans. At the time of writing that was 6 of 28 branches.
 """
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 import sweep_stale_branches as s
 
-NOW = datetime(2026, 8, 13, 12, 0, 0, tzinfo=timezone.utc)
+NOW = datetime(2026, 8, 13, 12, 0, 0, tzinfo=UTC)
 
 CFG = {
     "merged_after_days": 7,
@@ -480,7 +480,7 @@ def test_delete_branch_percent_encodes_the_ref(monkeypatch, name, expected_ref):
 
 def test_parse_ts_handles_github_zulu_timestamps():
     assert s.parse_ts("2026-07-23T23:45:43Z") == datetime(
-        2026, 7, 23, 23, 45, 43, tzinfo=timezone.utc
+        2026, 7, 23, 23, 45, 43, tzinfo=UTC
     )
 
 

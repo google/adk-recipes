@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from clause_agent.tools.memory_bank import (
+from app.tools.memory_bank import (
     memory_bank_create,
     memory_bank_search,
 )

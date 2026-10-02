@@ -17,7 +17,7 @@ from unittest.mock import MagicMock, patch
 
 from pptx.util import Pt
 
-from presentation_agent.shared_libraries.utils import (
+from app.shared_libraries.utils import (
     _apply_font,
     _decode_base64_to_bytes,
     _insert_image,
@@ -50,14 +50,14 @@ def test_apply_font():
 
     # Trigger exception
     with patch(
-        "presentation_agent.shared_libraries.utils.Pt",
+        "app.shared_libraries.utils.Pt",
         side_effect=Exception("Test Error"),
     ):
         _apply_font(run, "Arial", 12.0, (255, 0, 0))
 
 
-@patch("presentation_agent.shared_libraries.utils.get_gcs_client")
-@patch("presentation_agent.shared_libraries.utils.Image.open")
+@patch("app.shared_libraries.utils.get_gcs_client")
+@patch("app.shared_libraries.utils.Image.open")
 @patch("os.path.exists")
 @patch("builtins.open", new_callable=MagicMock)
 def test_insert_image(

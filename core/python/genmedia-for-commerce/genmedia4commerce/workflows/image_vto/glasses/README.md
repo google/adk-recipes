@@ -340,12 +340,12 @@ response = requests.post(
         "prompt": "A professional model wearing stylish sunglasses in a modern studio",
         "number_of_videos": 2,
         "background_color": "0,215,6,255",
-        "zoom_level": 3
+        "zoom_level": 3,
     },
     files={
         "model_image": ("model.jpg", model_data),
-        "product_image": ("glasses.png", glasses_data)
-    }
+        "product_image": ("glasses.png", glasses_data),
+    },
 )
 
 result = response.json()

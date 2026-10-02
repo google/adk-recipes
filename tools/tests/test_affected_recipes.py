@@ -31,20 +31,25 @@ import pytest
         ("contrib/python/bar/pyproject.toml", "contrib/python/bar"),
         ("core/java/hello/pom.xml", "core/java/hello"),
         ("contrib/go/example/main.go", "contrib/go/example"),
-        # Skills use a MANDATORY vertical namespace,
-        # skills/<vertical>/<solution>. The vertical is free-form, so the
+        # Plugins use a MANDATORY vertical namespace,
+        # plugins/<vertical>/<solution>. The vertical is free-form, so the
         # solution is identified by position rather than by name.
-        ("skills/retail/store-ops/SKILL.md", "skills/retail/store-ops"),
-        ("skills/hr/onboarding/scripts/run.py", "skills/hr/onboarding"),
-        ("skills/finance/close/eval/cases.jsonl", "skills/finance/close"),
-        # A solution placed directly under skills/, with no vertical, must
+        ("plugins/retail/store-ops/SKILL.md", "plugins/retail/store-ops"),
+        ("plugins/hr/onboarding/scripts/run.py", "plugins/hr/onboarding"),
+        ("plugins/finance/close/eval/cases.jsonl", "plugins/finance/close"),
+        # Spec-compliant plugins map to plugins/<plugin>.
+        ("plugins/retail/plugin.json", "plugins/retail"),
+        ("plugins/retail/mcp.json", "plugins/retail"),
+        ("plugins/retail/skills/product-search/SKILL.md", "plugins/retail"),
+        ("plugins/retail/com.example.extension/config.json", "plugins/retail"),
+        # A solution placed directly under plugins/, with no vertical, must
         # NOT be promoted to a recipe — mapping it would validate it at the
         # wrong depth and hide the misplacement. validate_placement.py is
         # what reports it.
-        ("skills/foo/SKILL.md", None),
-        ("skills/foo/manifest.yaml", None),
+        ("plugins/foo/SKILL.md", None),
+        ("plugins/foo/manifest.yaml", None),
         # A vertical-level file belongs to no solution.
-        ("skills/retail/README.md", None),
+        ("plugins/retail/README.md", None),
         # Paths that don't sit under a recipe root.
         ("README.md", None),
         (".github/workflows/x.yml", None),
@@ -161,20 +166,20 @@ def test_compute_skips_blank_and_whitespace_lines(tmp_path):
     ]
 
 
-def test_compute_handles_skills_root(tmp_path):
-    _make_recipe(tmp_path, "skills/retail/store-ops")
-    changed = ["skills/retail/store-ops/SKILL.md"]
+def test_compute_handles_plugins_root(tmp_path):
+    _make_recipe(tmp_path, "plugins/retail/store-ops")
+    changed = ["plugins/retail/store-ops/SKILL.md"]
     assert m.compute_affected_recipes(changed, repo_root=tmp_path) == [
-        "skills/retail/store-ops",
+        "plugins/retail/store-ops",
     ]
 
 
-def test_compute_ignores_a_skill_with_no_vertical(tmp_path):
-    """A solution dropped straight under skills/ is not collected here — it
+def test_compute_ignores_a_plugin_with_no_vertical(tmp_path):
+    """A solution dropped straight under plugins/ is not collected here — it
     would otherwise be validated at the vertical's depth. Reporting it is
     tools/validate_placement.py's job."""
-    _make_recipe(tmp_path, "skills/no-vertical")
-    changed = ["skills/no-vertical/SKILL.md"]
+    _make_recipe(tmp_path, "plugins/no-vertical")
+    changed = ["plugins/no-vertical/SKILL.md"]
     assert m.compute_affected_recipes(changed, repo_root=tmp_path) == []
 
 
@@ -240,7 +245,7 @@ def test_main_no_filter_flag(tmp_path, monkeypatch, capsys):
         # Flat recipes have no language namespace.
         ("core/foo", None),
         ("contrib/bar", None),
-        ("skills/baz", None),
+        ("plugins/baz", None),
         # Standard language namespace layer.
         ("core/python/foo", "python"),
         ("contrib/java/bar", "java"),
@@ -378,25 +383,25 @@ def test_language_filter_case_insensitive_argument(tmp_path):
     ) == ["core/flat-py"]
 
 
-def test_language_filter_skills_uses_the_manifest_not_the_path(tmp_path):
-    # A skill's namespace is a VERTICAL, not a language, so the path cannot
+def test_language_filter_plugins_uses_the_manifest_not_the_path(tmp_path):
+    # A plugin's namespace is a VERTICAL, not a language, so the path cannot
     # answer the language question the way core/python/<recipe> can. The
     # filter must fall through to manifest.language — which works because
-    # `language` stays a required manifest field for skills.
+    # `language` stays a required manifest field for plugins.
     _make_recipe_with_manifest(
-        tmp_path, "skills/retail/store-ops", manifest="language: python\n"
+        tmp_path, "plugins/retail/store-ops", manifest="language: python\n"
     )
-    changed = ["skills/retail/store-ops/SKILL.md"]
+    changed = ["plugins/retail/store-ops/SKILL.md"]
     assert m.compute_affected_recipes(
         changed, language="python", repo_root=tmp_path
-    ) == ["skills/retail/store-ops"]
+    ) == ["plugins/retail/store-ops"]
 
 
-def test_language_filter_skills_excludes_other_languages(tmp_path):
+def test_language_filter_plugins_excludes_other_languages(tmp_path):
     _make_recipe_with_manifest(
-        tmp_path, "skills/retail/store-ops", manifest="language: java\n"
+        tmp_path, "plugins/retail/store-ops", manifest="language: java\n"
     )
-    changed = ["skills/retail/store-ops/SKILL.md"]
+    changed = ["plugins/retail/store-ops/SKILL.md"]
     assert (
         m.compute_affected_recipes(
             changed, language="python", repo_root=tmp_path
@@ -450,3 +455,32 @@ def test_language_filter_via_cli(tmp_path, monkeypatch, capsys):
 
     assert m.main() == 0
     assert capsys.readouterr().out.splitlines() == ["core/flat-py"]
+
+
+def test_compute_affected_recipes_maps_any_file_in_spec_plugin_container(
+    tmp_path,
+):
+    plugin_dir = tmp_path / "plugins/retail"
+    (plugin_dir / "assets").mkdir(parents=True)
+    (plugin_dir / "plugin.json").write_text('{"name": "retail"}\n')
+    (plugin_dir / "README.md").write_text("# Retail\n")
+    (plugin_dir / "assets/diagram.png").write_text("png")
+
+    changed = [
+        "plugins/retail/README.md",
+        "plugins/retail/assets/diagram.png",
+    ]
+    assert m.compute_affected_recipes(changed, repo_root=tmp_path) == [
+        "plugins/retail"
+    ]
+
+
+def test_compute_affected_recipes_rejects_path_traversal(tmp_path):
+    (tmp_path / "plugin.json").write_text('{"name": "root"}\n')
+    changed = [
+        "plugins/../plugin.json",
+        "plugins/../skills/foo/SKILL.md",
+        "core/../secret/agent.py",
+    ]
+    assert m.compute_affected_recipes(changed, repo_root=tmp_path) == []
+    assert m.recipe_dir_for("plugins/../plugin.json") is None

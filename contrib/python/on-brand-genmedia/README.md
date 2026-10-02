@@ -99,7 +99,7 @@ Here are some example requests you may ask the Guidelines Driven Media Gen Agent
 You may talk to the agent using the CLI:
 
 ```bash
-adk run on_brand_genmedia
+adk run app
 ```
 
 Or on a web interface:
@@ -109,7 +109,7 @@ adk web
 ```
 
 The command `adk web` will start a web server on your machine and print the URL.
-You may open the URL, select "on_brand_genmedia" in the top-left drop-down menu, and
+You may open the URL, select "app" in the top-left drop-down menu, and
 a chatbot interface will appear on the right. The conversation is initially
 blank. 
 

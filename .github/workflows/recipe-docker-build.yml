@@ -9,10 +9,11 @@ on:
     paths:
       - 'core/**'
       - 'contrib/**'
-      - 'skills/**'
+      - 'plugins/**'
       - '.github/workflows/recipe-docker-build.yml'
       - '.github/scripts/check_recipe_docker.py'
       - 'tools/affected_recipes.py'
+      - 'tools/check_exemptions.py'
       - 'tools/validate_manifest.py'
       - 'pyproject.toml'
   push:
@@ -21,10 +22,11 @@ on:
     paths:
       - 'core/**'
       - 'contrib/**'
-      - 'skills/**'
+      - 'plugins/**'
       - '.github/workflows/recipe-docker-build.yml'
       - '.github/scripts/check_recipe_docker.py'
       - 'tools/affected_recipes.py'
+      - 'tools/check_exemptions.py'
       - 'tools/validate_manifest.py'
       - 'pyproject.toml'
   workflow_dispatch:
@@ -52,9 +54,10 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Install uv
-        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # ratchet:astral-sh/setup-uv@v10.0.1
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # ratchet:astral-sh/setup-uv@v10.2.0
         with:
           python-version: "3.11"
           enable-cache: false
@@ -72,7 +75,7 @@ jobs:
           set -euo pipefail
 
           find_all_docker_recipes() {
-            find core contrib skills -name "Dockerfile" 2>/dev/null | while IFS= read -r df; do
+            find core contrib plugins -name "Dockerfile" 2>/dev/null | while IFS= read -r df; do
               dir=$(dirname "$df")
               if [ -f "$dir/manifest.yaml" ]; then
                 echo "$dir"
@@ -114,7 +117,7 @@ jobs:
           echo "$CHANGED_FILES"
 
           # If workflow or validation tool changed, validate all recipes with root Dockerfiles
-          INFRA_CHANGED=$(echo "$CHANGED_FILES" | grep -E "^(\.github/workflows/recipe-docker-build\.yml|\.github/scripts/check_recipe_docker\.py|tools/affected_recipes\.py|tools/validate_manifest\.py|pyproject\.toml)$" || true)
+          INFRA_CHANGED=$(echo "$CHANGED_FILES" | grep -E "^(\.github/workflows/recipe-docker-build\.yml|\.github/scripts/check_recipe_docker\.py|tools/affected_recipes\.py|tools/check_exemptions\.py|tools/validate_manifest\.py|pyproject\.toml)$" || true)
           if [ -n "$INFRA_CHANGED" ]; then
             echo "Workflow or validation tooling changed — validating all recipes with root Dockerfiles."
             ALL_DOCKER_RECIPES=$(find_all_docker_recipes)
@@ -153,6 +156,10 @@ jobs:
           DOCKER_RECIPES: ${{ steps.affected.outputs.docker_recipes }}
         run: |
           set -euo pipefail
+
+          # Filter exempt recipes before validation to keep check scripts
+          # unchanged. Exemption notices are logged to stderr.
+          DOCKER_RECIPES=$(echo "$DOCKER_RECIPES" | uv run python tools/check_exemptions.py filter --check recipe-docker-build)
 
           if [ -z "$DOCKER_RECIPES" ]; then
             echo "[INFO] No affected recipes with root Dockerfiles to validate."

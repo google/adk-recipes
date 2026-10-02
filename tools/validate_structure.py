@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Validates the structural shell of every recipe under core/ and contrib/
-(and, once it lands, skills/) — the checks that are determined by folder
+(and plugins/) — the checks that are determined by folder
 location and the recipe's declared language, NOT by anything language-
 specific.
 
@@ -18,7 +18,7 @@ Checks performed, in order, for each recipe:
      manifest.yaml itself is NOT listed in policy.required_files; check 1
      is authoritative for it, and duplicating the rule would double-report.
   6. Required directories present — the same three-way union over
-     policy.required_dirs. Vertical skills use this for scripts/.
+     policy.required_dirs. Vertical plugins use this for scripts/.
      An empty directory passes.
 
 Name matching for checks 5 and 6 is done in Python rather than by asking
@@ -70,7 +70,7 @@ POLICY_PATH = REPO_ROOT / ".github" / "policy.yml"
 
 # Every folder that may hold recipes at the top level. Kept aligned with
 # validate_manifest.RECIPE_ROOTS but extensible: adding a new root here
-# (e.g. "skills") plus a matching `by_root:` entry in policy.yml is all
+# (e.g. "plugins") plus a matching `by_root:` entry in policy.yml is all
 # it takes to bring the new root under structural validation.
 RECIPE_ROOTS: list[str] = list(vm.RECIPE_ROOTS)
 
@@ -98,9 +98,13 @@ def load_policy() -> dict:
         return yaml.safe_load(f) or {}
 
 
+def _as_key(name: str | list[str]) -> str | tuple[str, ...]:
+    return tuple(name) if isinstance(name, list) else name
+
+
 def _resolve_required(
     policy: dict, section: str, root: str, language: str | None
-) -> list[tuple[str, str]]:
+) -> list[tuple[str | tuple[str, ...], str]]:
     """Union of `always`, `by_root[root]`, and `by_language[language]`
     from the named policy section, each entry paired with the rule that
     contributed it (`always`, `by_root.<root>`, `by_language.<language>`).
@@ -115,19 +119,19 @@ def _resolve_required(
     partial policy configs remain usable (e.g. a root with no entries yet).
     """
     config = policy.get(section) or {}
-    entries: list[tuple[str, str]] = []
+    entries: list[tuple[str | tuple[str, ...], str]] = []
     for name in config.get("always") or []:
-        entries.append((name, "always"))
+        entries.append((_as_key(name), "always"))
     for name in (config.get("by_root") or {}).get(root) or []:
-        entries.append((name, f"by_root.{root}"))
+        entries.append((_as_key(name), f"by_root.{root}"))
     if language:
         for name in (config.get("by_language") or {}).get(language) or []:
-            entries.append((name, f"by_language.{language}"))
+            entries.append((_as_key(name), f"by_language.{language}"))
     # Preserve order but drop duplicates — an entry could be listed under
     # multiple sources without meaning it's required twice. The FIRST
     # source wins, which keeps the reported rule stable as policy grows.
-    seen: set[str] = set()
-    deduped: list[tuple[str, str]] = []
+    seen: set[str | tuple[str, ...]] = set()
+    deduped: list[tuple[str | tuple[str, ...], str]] = []
     for name, source in entries:
         if name not in seen:
             seen.add(name)
@@ -137,14 +141,14 @@ def _resolve_required(
 
 def required_files_for(
     policy: dict, root: str, language: str | None
-) -> list[tuple[str, str]]:
+) -> list[tuple[str | tuple[str, ...], str]]:
     """(file, rule) pairs every recipe under this root/language must ship."""
     return _resolve_required(policy, "required_files", root, language)
 
 
 def required_dirs_for(
     policy: dict, root: str, language: str | None
-) -> list[tuple[str, str]]:
+) -> list[tuple[str | tuple[str, ...], str]]:
     """(directory, rule) pairs every recipe under this root/language ships.
 
     Separate from required_files because the two need different existence
@@ -196,22 +200,42 @@ _FILE_REMEDIATION: dict[str, str] = {
     ),
     "SKILL.md": (
         "Add a SKILL.md — the conversational installer for a vertical "
-        "skill: it runs the interview, writes the design spec, and "
+        "plugin: it runs the interview, writes the design spec, and "
         "performs setup."
     ),
     "EVAL.yaml": (
-        "Add an EVAL.yaml holding the eval rubrics that prove the skill "
+        "Add an EVAL.yaml holding the eval rubrics that prove the plugin "
         "performs — see docs/recipe-handbook/anatomy.md."
     ),
     "go.mod": (
         "Every Go recipe is its own module: run `go mod init` in the "
         "recipe directory."
     ),
+    "build.gradle.kts": "Add build.gradle.kts to the recipe.",
+    "package.json": "Add package.json to the recipe.",
+    "Dockerfile": (
+        "Add a Dockerfile to the recipe so it can be containerized and "
+        "deployed (for Python recipes, the `make-python-recipe-deployable` "
+        "AI skill can generate one)."
+    ),
 }
 
 
-def _file_remediation(rel: str, recipe_rel: str) -> str:
+def _file_remediation(rel: str | tuple[str, ...], recipe_rel: str) -> str:
     """The fix for one missing required file."""
+    if isinstance(rel, tuple):
+        if "pom.xml" in rel:
+            return (
+                "Add a build configuration file to the recipe: pom.xml (Maven), "
+                "build.gradle, or build.gradle.kts (Gradle)."
+            )
+        if "package-lock.json" in rel:
+            return (
+                "Add a lockfile (package-lock.json, pnpm-lock.yaml, yarn.lock, "
+                "bun.lockb, or bun.lock) to the recipe by running your package "
+                "manager's install/lock command."
+            )
+        return f"Add one of {', '.join(rel)} to the recipe."
     if rel == "uv.lock":
         # Needs the recipe path, so it cannot live in the static table.
         return f"cd {recipe_rel} && uv lock"
@@ -224,7 +248,7 @@ def _file_remediation(rel: str, recipe_rel: str) -> str:
     )
 
 
-def _dir_remediation(rel: str, recipe_rel: str) -> str:
+def _dir_remediation(rel: str | tuple[str, ...], recipe_rel: str) -> str:
     """The fix for a missing required directory.
 
     Always leads with the git detail: the overwhelmingly common report is
@@ -232,11 +256,12 @@ def _dir_remediation(rel: str, recipe_rel: str) -> str:
     never committed it, because git tracks files and an empty directory
     has none.
     """
+    target = rel[0] if isinstance(rel, tuple) else rel
     return (
         f"git cannot commit an empty directory, so a folder with nothing "
         f"in it never reaches CI. Add a placeholder and commit it:\n"
-        f"  touch {recipe_rel}/{rel}/.gitkeep && "
-        f"git add {recipe_rel}/{rel}/.gitkeep\n"
+        f"  touch {recipe_rel}/{target}/.gitkeep && "
+        f"git add {recipe_rel}/{target}/.gitkeep\n"
         f"If the directory should have content, add the content instead."
     )
 
@@ -455,9 +480,8 @@ def check_size_and_count(
     recipe_dir: Path, root: str, policy: dict, manifest_path: Path
 ) -> list[Diagnostic]:
     """Enforce the size (MB) and file-count tiers from policy.yml.
-    Tier is chosen by `root` (core vs contrib) then by manifest.large.
-    Recipes under roots not covered by recipe_size_limits (e.g. a
-    future 'skills' root without limits) skip these checks."""
+    Tier is chosen by `root` (core vs contrib vs plugins) then by manifest.large.
+    Recipes under roots not covered by recipe_size_limits skip these checks."""
     rel = vm.repo_relative(recipe_dir, REPO_ROOT)
     manifest_rel = vm.repo_relative(manifest_path, REPO_ROOT)
     limits_by_root = policy.get("recipe_size_limits") or {}
@@ -490,7 +514,7 @@ def check_size_and_count(
                         f"reported instead of quietly falling back."
                     ),
                     how=(
-                        f"Remove `large: true` from {vm.MANIFEST_FILENAME} "
+                        f"Remove `large: true` from {manifest_path.name} "
                         f"and stay within the default tier, or ask a "
                         f"maintainer to add a `{root}.large` block "
                         f"(max_files / max_size_mb) to .github/policy.yml."
@@ -527,7 +551,7 @@ def check_size_and_count(
         if is_large
         else (
             f"If the recipe genuinely needs the room, set `large: true` in "
-            f"{vm.MANIFEST_FILENAME} to opt into the relaxed tier "
+            f"{manifest_path.name} to opt into the relaxed tier "
             f"({_describe_tier(root_limits.get('large'))})."
         )
     )
@@ -661,46 +685,71 @@ def check_required_files(
 ) -> list[Diagnostic]:
     """Every path in the union list must exist as a file (not a dir).
     Paths are recipe-relative and may include subdirectories
-    (e.g. tests/test_runnability.py)."""
+    (e.g. tests/test_runnability.py). If an entry is a tuple of
+    alternatives, any ONE of the files is sufficient."""
     recipe_rel = vm.repo_relative(recipe_dir, REPO_ROOT)
     lenient = case_insensitive_entries(policy)
     diagnostics: list[Diagnostic] = []
     for rel, source in required_files_for(policy, root, language):
-        found, exact = _find_entry(
-            recipe_dir, rel, case_insensitive=rel in lenient
-        )
         why = _provenance("required_files", source, root, language)
         fix = _file_remediation(rel, recipe_rel)
-        if found is None:
-            diagnostics.append(
-                Diagnostic(
-                    check="required-files",
-                    what=f"Required file '{rel}' is missing.",
-                    why=why,
-                    how=fix,
-                    doc=Doc.REQUIRED_FILES,
-                    file=f"{recipe_rel}/{rel}",
+        if isinstance(rel, tuple):
+            matched_file = False
+            for alt in rel:
+                found, exact = _find_entry(
+                    recipe_dir, alt, case_insensitive=alt in lenient
                 )
-            )
-        elif not found.is_file():
-            diagnostics.append(
-                Diagnostic(
-                    check="required-files",
-                    what=(
-                        f"Required file '{rel}' exists but is a "
-                        f"{'directory' if found.is_dir() else 'non-file'}."
-                    ),
-                    why=why,
-                    how=(
-                        f"Remove or rename {recipe_rel}/{rel}, then add the "
-                        f"file.\n{fix}"
-                    ),
-                    doc=Doc.REQUIRED_FILES,
-                    file=f"{recipe_rel}/{rel}",
+                if found is not None and found.is_file():
+                    matched_file = True
+                    if not exact:
+                        _note_inexact(alt, found)
+                    break
+            if not matched_file:
+                alt_str = " OR ".join(rel)
+                diagnostics.append(
+                    Diagnostic(
+                        check="required-files",
+                        what=f"Required file '{alt_str}' is missing (any ONE is required).",
+                        why=why,
+                        how=fix,
+                        doc=Doc.REQUIRED_FILES,
+                        file=f"{recipe_rel}/{rel[0]}",
+                    )
                 )
+        else:
+            found, exact = _find_entry(
+                recipe_dir, rel, case_insensitive=rel in lenient
             )
-        elif not exact:
-            _note_inexact(rel, found)
+            if found is None:
+                diagnostics.append(
+                    Diagnostic(
+                        check="required-files",
+                        what=f"Required file '{rel}' is missing.",
+                        why=why,
+                        how=fix,
+                        doc=Doc.REQUIRED_FILES,
+                        file=f"{recipe_rel}/{rel}",
+                    )
+                )
+            elif not found.is_file():
+                diagnostics.append(
+                    Diagnostic(
+                        check="required-files",
+                        what=(
+                            f"Required file '{rel}' exists but is a "
+                            f"{'directory' if found.is_dir() else 'non-file'}."
+                        ),
+                        why=why,
+                        how=(
+                            f"Remove or rename {recipe_rel}/{rel}, then add the "
+                            f"file.\n{fix}"
+                        ),
+                        doc=Doc.REQUIRED_FILES,
+                        file=f"{recipe_rel}/{rel}",
+                    )
+                )
+            elif not exact:
+                _note_inexact(rel, found)
     return diagnostics
 
 
@@ -717,40 +766,305 @@ def check_required_dirs(
     lenient = case_insensitive_entries(policy)
     diagnostics: list[Diagnostic] = []
     for rel, source in required_dirs_for(policy, root, language):
-        found, exact = _find_entry(
-            recipe_dir, rel, case_insensitive=rel in lenient
-        )
         why = _provenance("required_dirs", source, root, language)
-        if found is None:
+        if isinstance(rel, tuple):
+            matched_dir = False
+            for alt in rel:
+                found, exact = _find_entry(
+                    recipe_dir, alt, case_insensitive=alt in lenient
+                )
+                if found is not None and found.is_dir():
+                    matched_dir = True
+                    if not exact:
+                        _note_inexact(alt, found)
+                    break
+            if not matched_dir:
+                alt_str = " OR ".join(f"{a}/" for a in rel)
+                diagnostics.append(
+                    Diagnostic(
+                        check="required-dirs",
+                        what=f"Required directory '{alt_str}' is missing.",
+                        why=why,
+                        how=_dir_remediation(rel, recipe_rel),
+                        doc=Doc.REQUIRED_FILES,
+                        file=f"{recipe_rel}/{rel[0]}",
+                    )
+                )
+        else:
+            found, exact = _find_entry(
+                recipe_dir, rel, case_insensitive=rel in lenient
+            )
+            if found is None:
+                diagnostics.append(
+                    Diagnostic(
+                        check="required-dirs",
+                        what=f"Required directory '{rel}/' is missing.",
+                        why=why,
+                        how=_dir_remediation(rel, recipe_rel),
+                        doc=Doc.REQUIRED_FILES,
+                        file=f"{recipe_rel}/{rel}",
+                    )
+                )
+            elif not found.is_dir():
+                # Reporting this as "missing" would send the author hunting
+                # for something that is right there under the wrong kind.
+                diagnostics.append(
+                    Diagnostic(
+                        check="required-dirs",
+                        what=f"Required directory '{rel}/' exists but is a file.",
+                        why=why,
+                        how=(
+                            f"Rename or delete the file at {recipe_rel}/{rel}, "
+                            f"then create a directory in its place:\n"
+                            f"  mkdir -p {recipe_rel}/{rel}"
+                        ),
+                        doc=Doc.REQUIRED_FILES,
+                        file=f"{recipe_rel}/{rel}",
+                    )
+                )
+            elif not exact:
+                _note_inexact(rel, found)
+    return diagnostics
+
+
+# ===========================================================================
+# Skill front-matter & Plugin Container Validation
+# ===========================================================================
+
+
+def validate_skill_frontmatter(skill_file: Path) -> list[Diagnostic]:
+    """Validate that SKILL.md starts with valid YAML front-matter containing
+    at minimum `name` and `description`."""
+    file = vm.repo_relative(skill_file, REPO_ROOT)
+    parent_rel = vm.repo_relative(skill_file.parent, REPO_ROOT)
+    skill_dir_name = skill_file.parent.name
+    try:
+        text = skill_file.read_text(encoding="utf-8")
+    except OSError as e:
+        return [
+            Diagnostic(
+                check="skill-frontmatter",
+                what=f"Cannot read {file}: {e}",
+                why="The skill file must be readable.",
+                how=f"Ensure {file} exists and has read permissions.",
+                doc=Doc.REQUIRED_FILES,
+                file=file,
+            )
+        ]
+
+    # Must start with front-matter delimiter
+    stripped = text.lstrip()
+    if not stripped.startswith("---"):
+        return [
+            Diagnostic(
+                check="skill-frontmatter",
+                what=f"SKILL.md in '{parent_rel}' does not contain YAML front-matter delimiters (---).",
+                why="SKILL.md must begin with a YAML front-matter block enclosed by '---' markers.",
+                how=f"Add front-matter at the top of {file}:\n---\nname: {skill_dir_name}\ndescription: <description>\n---\n",
+                doc=Doc.REQUIRED_FILES,
+                file=file,
+            )
+        ]
+
+    fm_match = re.match(
+        r"^---[ \t]*\r?\n(.*?\r?\n)?---[ \t]*(?:\r?\n|$)",
+        stripped,
+        re.DOTALL,
+    )
+    if fm_match is None:
+        return [
+            Diagnostic(
+                check="skill-frontmatter",
+                what=f"SKILL.md in '{parent_rel}' has an unclosed YAML front-matter block.",
+                why="The front-matter block must open and close with '---' delimiters.",
+                how=f"Add a closing '---' delimiter after the YAML front-matter in {file}.",
+                doc=Doc.REQUIRED_FILES,
+                file=file,
+            )
+        ]
+
+    try:
+        data = yaml.safe_load(fm_match.group(1) or "")
+    except yaml.YAMLError as e:
+        return [
+            Diagnostic(
+                check="skill-frontmatter",
+                what=f"SKILL.md front-matter in '{parent_rel}' is not valid YAML.",
+                why=f"YAML parser error: {e}",
+                how=f"Fix the YAML syntax error in the front-matter of {file}.",
+                doc=Doc.REQUIRED_FILES,
+                file=file,
+            )
+        ]
+
+    if not isinstance(data, dict):
+        return [
+            Diagnostic(
+                check="skill-frontmatter",
+                what=f"SKILL.md front-matter in '{parent_rel}' must be a YAML mapping.",
+                why="Front-matter must contain key-value pairs (name, description).",
+                how=f"Format the front-matter of {file} as key-value pairs:\nname: {skill_dir_name}\ndescription: ...",
+                doc=Doc.REQUIRED_FILES,
+                file=file,
+            )
+        ]
+
+    diagnostics: list[Diagnostic] = []
+    name = data.get("name")
+    if not isinstance(name, str) or not name.strip():
+        diagnostics.append(
+            Diagnostic(
+                check="skill-frontmatter",
+                what=f"Required field 'name' is missing or empty in SKILL.md front-matter for '{parent_rel}'.",
+                why="Every skill front-matter must declare a 'name' field.",
+                how=f"Add 'name: {skill_dir_name}' to the front-matter of {file}.",
+                doc=Doc.REQUIRED_FILES,
+                file=file,
+            )
+        )
+
+    description = data.get("description")
+    if not isinstance(description, str) or not description.strip():
+        diagnostics.append(
+            Diagnostic(
+                check="skill-frontmatter",
+                what=f"Required field 'description' is missing or empty in SKILL.md front-matter for '{parent_rel}'.",
+                why="Every skill front-matter must declare a 'description' field.",
+                how=f"Add 'description: ...' explaining what the skill does to {file}.",
+                doc=Doc.REQUIRED_FILES,
+                file=file,
+            )
+        )
+
+    if "metadata" in data and not isinstance(data.get("metadata"), dict):
+        diagnostics.append(
+            Diagnostic(
+                check="skill-frontmatter",
+                what=f"Field 'metadata' in SKILL.md front-matter for '{parent_rel}' must be a YAML mapping.",
+                why="If present, 'metadata' must be a key-value mapping.",
+                how=f"Format 'metadata' as a nested YAML object in {file}.",
+                doc=Doc.REQUIRED_FILES,
+                file=file,
+            )
+        )
+
+    return diagnostics
+
+
+def validate_plugin_container(
+    recipe_dir: Path, policy: dict, plugin_schema: dict
+) -> list[Diagnostic]:
+    """Validate a spec-compliant plugin container directory."""
+    diagnostics: list[Diagnostic] = []
+    rel = vm.repo_relative(recipe_dir, REPO_ROOT)
+    root = recipe_root_of(recipe_dir) or "plugins"
+
+    # Check 1: plugin.json presence and schema validation
+    plugin_json = recipe_dir / vm.PLUGIN_FILENAME
+    if not plugin_json.is_file():
+        diagnostics.append(
+            Diagnostic(
+                check="plugin-missing",
+                what=f"{vm.PLUGIN_FILENAME} is missing.",
+                why="A spec-compliant plugin container must have a plugin.json file at its root.",
+                how=f"Add plugin.json to {rel}/{vm.PLUGIN_FILENAME} with required fields ($schema, name, ownership).",
+                doc=Doc.MANIFEST,
+                file=f"{rel}/{vm.PLUGIN_FILENAME}",
+            )
+        )
+    else:
+        diagnostics.extend(vm.validate_plugin(plugin_json, plugin_schema))
+
+    # Check 2: Check for mixed layout (presence of manifest.yaml)
+    manifests = [
+        p
+        for p in recipe_dir.rglob(vm.MANIFEST_FILENAME)
+        if not any(
+            part
+            in {".git", ".venv", "node_modules", "__pycache__", ".ruff_cache"}
+            for part in p.parts
+        )
+    ]
+    if manifests:
+        diagnostics.append(
+            Diagnostic(
+                check="placement",
+                what=f"'{rel}' mixes legacy (manifest.yaml) and spec-compliant (plugin.json) layouts.",
+                why=(
+                    "A plugin directory under plugins/ must use either the "
+                    "legacy layout (plugins/<vertical>/<solution>/manifest.yaml) "
+                    "or the spec-compliant layout (plugins/<plugin>/plugin.json "
+                    "with skills/<skill>/SKILL.md), not both."
+                ),
+                how=(
+                    "Choose one layout: migrate fully to the spec-compliant "
+                    "layout (remove manifest.yaml and use plugin.json with skills/) "
+                    "or keep the legacy layout."
+                ),
+                doc=Doc.PLACEMENT,
+                file=rel,
+            )
+        )
+
+    # Check 3: folder name
+    naming = policy.get("recipe_naming") or {}
+    max_length = int(naming.get("max_folder_name_length", 30))
+    diagnostics.extend(check_folder_name(recipe_dir, max_length))
+
+    # Check 4: folder size + file count (keyed off plugin root)
+    diagnostics.extend(
+        check_size_and_count(recipe_dir, root, policy, plugin_json)
+    )
+
+    # Check 5: skills/ directory and SKILL.md structural validation
+    skills_dir = recipe_dir / "skills"
+    if not skills_dir.is_dir():
+        diagnostics.append(
+            Diagnostic(
+                check="required-dirs",
+                what=f"Required directory 'skills/' is missing from plugin '{rel}'.",
+                why="A spec-compliant plugin container must contain a 'skills/' directory holding one or more skill packages.",
+                how=f"Create the skills directory: mkdir -p {rel}/skills/<skill-name>",
+                doc=Doc.REQUIRED_FILES,
+                file=f"{rel}/skills",
+            )
+        )
+    else:
+        skill_dirs = [
+            d
+            for d in sorted(skills_dir.iterdir())
+            if d.is_dir() and not d.name.startswith(".")
+        ]
+        if not skill_dirs:
             diagnostics.append(
                 Diagnostic(
                     check="required-dirs",
-                    what=f"Required directory '{rel}/' is missing.",
-                    why=why,
-                    how=_dir_remediation(rel, recipe_rel),
+                    what=f"Plugin '{rel}/skills' contains no skill directories.",
+                    why="A plugin must contain at least one skill directory under skills/ (e.g. skills/<skill-name>/SKILL.md).",
+                    how=f"Add a skill directory with a SKILL.md: mkdir -p {rel}/skills/my-skill && touch {rel}/skills/my-skill/SKILL.md",
                     doc=Doc.REQUIRED_FILES,
-                    file=f"{recipe_rel}/{rel}",
+                    file=f"{rel}/skills",
                 )
             )
-        elif not found.is_dir():
-            # Reporting this as "missing" would send the author hunting
-            # for something that is right there under the wrong kind.
-            diagnostics.append(
-                Diagnostic(
-                    check="required-dirs",
-                    what=f"Required directory '{rel}/' exists but is a file.",
-                    why=why,
-                    how=(
-                        f"Rename or delete the file at {recipe_rel}/{rel}, "
-                        f"then create a directory in its place:\n"
-                        f"  mkdir -p {recipe_rel}/{rel}"
-                    ),
-                    doc=Doc.REQUIRED_FILES,
-                    file=f"{recipe_rel}/{rel}",
-                )
-            )
-        elif not exact:
-            _note_inexact(rel, found)
+        else:
+            for skill_dir in skill_dirs:
+                skill_rel = vm.repo_relative(skill_dir, REPO_ROOT)
+                diagnostics.extend(check_folder_name(skill_dir, max_length))
+                skill_md = skill_dir / "SKILL.md"
+                if not skill_md.is_file():
+                    diagnostics.append(
+                        Diagnostic(
+                            check="required-files",
+                            what=f"Required file 'SKILL.md' is missing from skill '{skill_rel}'.",
+                            why="Every skill inside a plugin must contain a SKILL.md file with YAML front-matter.",
+                            how=f"Add SKILL.md to {skill_rel}/SKILL.md with front-matter.",
+                            doc=Doc.REQUIRED_FILES,
+                            file=f"{skill_rel}/SKILL.md",
+                        )
+                    )
+                else:
+                    diagnostics.extend(validate_skill_frontmatter(skill_md))
+
     return diagnostics
 
 
@@ -760,11 +1074,13 @@ def check_required_dirs(
 
 
 def validate_recipe(
-    recipe_dir: Path, policy: dict, schema: dict
+    recipe_dir: Path,
+    policy: dict,
+    schema: dict,
+    plugin_schema: dict | None = None,
 ) -> list[Diagnostic]:
     """Run every applicable check on one recipe. Returns the list of
     diagnostics (empty list means everything passed)."""
-    diagnostics: list[Diagnostic] = []
     rel = vm.repo_relative(recipe_dir, REPO_ROOT)
 
     root = recipe_root_of(recipe_dir)
@@ -782,12 +1098,20 @@ def validate_recipe(
                 how=(
                     "Move it under one of them: core/ for curated recipes, "
                     "contrib/ for community ones, "
-                    "skills/<vertical>/<solution> for a vertical skill."
+                    "plugins/<vertical>/<solution> for a vertical plugin."
                 ),
                 doc=Doc.PLACEMENT,
                 file=rel,
             )
         ]
+
+    # If this is a spec-compliant plugin container (has plugin.json), validate it as such.
+    if (recipe_dir / vm.PLUGIN_FILENAME).is_file():
+        if plugin_schema is None:
+            plugin_schema = vm.load_plugin_schema()
+        return validate_plugin_container(recipe_dir, policy, plugin_schema)
+
+    diagnostics: list[Diagnostic] = []
 
     # Check 1: manifest.yaml presence.
     manifest_path = recipe_dir / vm.MANIFEST_FILENAME
@@ -836,13 +1160,16 @@ def validate_recipe(
 def main(scope: str | None = None) -> int:
     policy = load_policy()
     schema = vm.load_schema()
+    plugin_schema = vm.load_plugin_schema()
     recipe_dirs = vm.collect_recipe_dirs(scope)
     if vm.report_empty_scope(scope, recipe_dirs):
         return EXIT_VIOLATIONS
 
     diagnostics: list[Diagnostic] = []
     for recipe_dir in recipe_dirs:
-        diagnostics.extend(validate_recipe(recipe_dir, policy, schema))
+        diagnostics.extend(
+            validate_recipe(recipe_dir, policy, schema, plugin_schema)
+        )
 
     return report(
         diagnostics,

@@ -2,7 +2,7 @@
 name: prepare-python-recipe
 description: >
   End-to-end orchestration to prepare or update a Python recipe under
-  core/python/, contrib/python/, or skills/<vertical>/<solution>/ so it
+  core/python/, contrib/python/, or plugins/<vertical>/<solution>/ so it
   passes every check in .github/workflows/python-validate-recipe.yml.
   Runs eight phases in
   order on an already-in-place recipe: manifest.yaml generation,
@@ -58,7 +58,7 @@ The skill assumes the user has already:
 1. **Deactivated** any active Python virtual environment.
 2. **Pulled latest** from `origin` (`git pull` at the repo root).
 3. **Synced repo root deps** (`uv sync` at the repo root).
-4. **Placed the recipe at its target path** — either freshly scaffolded, moved from another location, or renamed to its final basename under `core/python/<name>/`, `contrib/python/<name>/`, or `skills/<vertical>/<solution>/`.
+4. **Placed the recipe at its target path** — either freshly scaffolded, moved from another location, or renamed to its final basename under `core/python/<name>/`, `contrib/python/<name>/`, or `plugins/<vertical>/<solution>/`.
 5. **Committed the original recipe** so `git diff` shows what the skill changed.
 
 If the user has NOT done these and asks you to run the skill anyway, tell them to complete the prerequisites first and stop. Do NOT run `git pull`, `git commit`, deactivate their venv, or move/rename directories on their behalf — those are deliberately out of scope.
@@ -76,7 +76,7 @@ Runs eight ordered phases against a target recipe. Each phase either invokes an 
 5. **Recipe `uv lock`** — regenerate `uv.lock` so it reflects the post-align `pyproject.toml`. Does NOT install into `.venv/` — that's a heavier step the user runs after they've reviewed the diff. `uv lock` just resolves and records; `uv sync` would download and install every wheel, which is scope-creep for a "prepare" pipeline.
 6. **Runnability test** — generate `tests/test_runnability.py` if missing (or ask before overwriting), plus a `tests/conftest.py` path shim when the recipe isn't installable.
 7. **Verify (compile + run)** — `py_compile` the runnability test, then run it with pytest. The compile step is a syntax check; running it is what proves the test's `import` can actually resolve (`--collect-only` would not — the guarded test shape puts the import inside the test function). The test is side-effect-free by construction.
-8. **Validate (repo validators)** — run `uv run validate manifest` and `uv run validate structure` on the recipe. This is the phase that catches everything the seven build phases don't model: required files, required directories (`tests/unit/` for vertical skills), size limits, naming.
+8. **Validate (repo validators)** — run `uv run validate manifest` and `uv run validate structure` on the recipe. This is the phase that catches everything the seven build phases don't model: required files, required directories (`tests/unit/` for plugins), size limits, naming.
 
 At the end, print a summary table and remind the user to `git diff` and commit — the skill never commits.
 
@@ -132,7 +132,7 @@ At the end, print a summary table and remind the user to `git diff` and commit �
 
 | Field | Required | Description |
 |---|---|---|
-| Recipe directory | Yes | Path to the recipe root (e.g. `core/python/cross-session-memory`, `contrib/python/my-recipe`, `skills/retail/store-ops`). Passed to every sub-script as `--recipe-dir`. |
+| Recipe directory | Yes | Path to the recipe root (e.g. `core/python/cross-session-memory`, `contrib/python/my-recipe`, `plugins/retail/store-ops`). Passed to every sub-script as `--recipe-dir`. |
 
 If the user has not specified the recipe directory, ask for it before proceeding.
 
@@ -164,7 +164,7 @@ The check exits 0 silently on a compliant name; on violation it exits 1 with the
 
 **Only proceed past this step if the folder-name check passed.**
 
-**Step 0c — For a recipe under `skills/`, check the required directories.** `.github/policy.yml` `required_dirs.by_root.skills` mandates a fixed shape for every vertical skill — `scripts/`, `assets/`, `references/`, and `tests/unit/`. None of the eight phases creates these, so a missing one survives the whole pipeline and fails `validate structure` in Phase 8 (and CI). Surfacing it here means the user can create the directory before anything else runs, rather than reading about it in the final summary.
+**Step 0c — For a recipe under `plugins/`, check the required directories.** `.github/policy.yml` `required_dirs.by_root.plugins` mandates a fixed shape for every vertical plugin — `scripts/`, `assets/`, `references/`, and `tests/unit/`. None of the eight phases creates these, so a missing one survives the whole pipeline and fails `validate structure` in Phase 8 (and CI). Surfacing it here means the user can create the directory before anything else runs, rather than reading about it in the final summary.
 
 Skip this step entirely for `core/` and `contrib/` recipes — `required_dirs.by_root` is empty for both.
 
@@ -173,7 +173,7 @@ uv run --no-project --with pyyaml python3 -c "
 import pathlib, sys, yaml
 recipe = pathlib.Path('<RECIPE_DIR>')
 policy = yaml.safe_load(open('.github/policy.yml'))
-needed = policy.get('required_dirs', {}).get('by_root', {}).get('skills', []) or []
+needed = policy.get('required_dirs', {}).get('by_root', {}).get('plugins', []) or []
 missing = [d for d in needed if not (recipe / d).is_dir()]
 print('MISSING_DIRS: ' + (', '.join(missing) if missing else '(none)'))
 "
@@ -210,7 +210,7 @@ Then flag the assumptions the pipeline is making and show the user the plan. Do 
 
 If Step 0c found missing required directories, add one line before "Nothing gets committed":
 
-> `<RECIPE_DIR>` is a vertical skill and is missing `tests/unit/`, which
+> `<RECIPE_DIR>` is a plugin and is missing `tests/unit/`, which
 > `.github/policy.yml` requires. Want me to create it with a `.gitkeep`?
 
 Get a yes-or-no. If no, stop.
@@ -462,7 +462,7 @@ Example:
 > - `manifest.yaml` (Phase 1)
 > - `tests/test_runnability.py` (Phase 6)
 > - `tests/conftest.py` (Phase 6 — sys.path shim; recipe has no `[build-system]`)
-> - `tests/unit/.gitkeep` (Phase 0c — required for `skills/` recipes)
+> - `tests/unit/.gitkeep` (Phase 0c — required for `plugins/` recipes)
 > - `uv.lock` (Phase 5)
 >
 > **Modified**

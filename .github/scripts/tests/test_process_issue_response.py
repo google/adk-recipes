@@ -59,7 +59,7 @@ def test_normalize_path():
     assert normalize_path("/core/python/my-recipe/") == "core/python/my-recipe"
     assert normalize_path("contrib\\go\\sample") == "contrib/go/sample"
     assert (
-        normalize_path("SKILLS/retail/store-ops") == "skills/retail/store-ops"
+        normalize_path("PLUGINS/retail/store-ops") == "plugins/retail/store-ops"
     )
 
 
@@ -77,6 +77,10 @@ def test_normalize_path():
         ("/core/typescript/sample", "happyhuman"),
         ("core/kotlin/android-gemini", "happyhuman"),
         ("/core/kotlin/sample", "happyhuman"),
+        # A recipe owner beats its language folder
+        ("core/python/ambient-quality-agent", "maxgasztych"),
+        ("/core/python/ambient-quality-agent/agent.py", "maxgasztych"),
+        ("core/python/ambient-quality-agent-v2", "eliasecchig"),
         # Contrib directory assignments
         ("contrib/python/custom-tool", "happyhuman"),
         ("/contrib/python/recipe", "happyhuman"),
@@ -88,10 +92,10 @@ def test_normalize_path():
         ("/contrib/typescript/sample", "happyhuman"),
         ("contrib/kotlin/kmp-recipe", "happyhuman"),
         ("/contrib/kotlin/sample", "happyhuman"),
-        # Skills directory assignments
-        ("skills/retail/store-ops", "happyhuman"),
-        ("/skills/finance/analyst", "happyhuman"),
-        ("skills/customer-service", "happyhuman"),
+        # Plugins directory assignments
+        ("plugins/retail/store-ops", "happyhuman"),
+        ("/plugins/finance/analyst", "happyhuman"),
+        ("plugins/customer-service", "happyhuman"),
         # Catch-all
         ("docs/recipe-handbook/README.md", "happyhuman"),
         (".github/workflows/ci.yml", "happyhuman"),
@@ -466,13 +470,13 @@ def test_process_response_option_4_with_path():
     assert assignee == "ToniCorinne"
     assert close_issue is False
 
-    # Option 4: Acknowledge and Assign with skills path
-    d4_skills = {
+    # Option 4: Acknowledge and Assign with plugins path
+    d4_plugins = {
         "option": 4,
-        "response": "Received. Routing to skills maintainer.",
-        "path": "skills/retail/store-ops",
+        "response": "Received. Routing to plugins maintainer.",
+        "path": "plugins/retail/store-ops",
     }
-    opt, _resp, assignee, close_issue = process_response(d4_skills)
+    opt, _resp, assignee, close_issue = process_response(d4_plugins)
     assert opt == Option.ACKNOWLEDGE_AND_ASSIGN
     assert assignee == "happyhuman"
     assert close_issue is False

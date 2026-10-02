@@ -26,9 +26,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[3]
 WORKFLOWS = ROOT / ".github" / "workflows"
 POLICY = ROOT / ".github" / "policy.yml"
-TEMPLATE = (
-    ROOT / ".github" / "ISSUE_TEMPLATE" / "propose-a-new-recipe.md"
-)
+TEMPLATE = ROOT / ".github" / "ISSUE_TEMPLATE" / "propose-a-new-recipe.md"
 MARKER = "[RECIPE PROPOSAL]"
 
 
@@ -131,7 +129,10 @@ def test_the_failure_notifier_stays_quiet_on_proposals():
     and `notify-failure` comments on whatever is in its `needs`. Without
     this guard that failure posts a bot comment on a recipe proposal, which
     is the symptom the lane was built to stop."""
-    for name in ("ai-issue-automated-triage.yml", "ai-issue-quick-response.yml"):
+    for name in (
+        "ai-issue-automated-triage.yml",
+        "ai-issue-quick-response.yml",
+    ):
         steps = _yaml(name)["jobs"]["notify-failure"]["steps"]
         script = "".join(
             str((s.get("with") or {}).get("script") or "") for s in steps

@@ -75,6 +75,7 @@ on:
       # Without these entries such a PR merges green and the failure only
       # surfaces later, on an unrelated PR that happens to touch tools/.
       - ".github/policy.yml"
+      - ".github/review-gate-config.yml"
       - ".github/schemas/**"
       - ".github/dependabot.yml"
       - ".github/workflows/**"
@@ -82,7 +83,7 @@ on:
       - ".github/review-voice.md"
       - "core/**/manifest.yaml"
       - "contrib/**/manifest.yaml"
-      - "skills/**/manifest.yaml"
+      - "plugins/**/manifest.yaml"
       - "pyproject.toml"
       - "uv.lock"
   push:
@@ -96,6 +97,7 @@ on:
       - ".agents/**"
       - ".github/scripts/**"
       - ".github/policy.yml"
+      - ".github/review-gate-config.yml"
       - ".github/schemas/**"
       - ".github/workflows/**"
       - ".github/review-rules.md"
@@ -103,7 +105,7 @@ on:
       - ".github/dependabot.yml"
       - "core/**/manifest.yaml"
       - "contrib/**/manifest.yaml"
-      - "skills/**/manifest.yaml"
+      - "plugins/**/manifest.yaml"
       - "pyproject.toml"
       - "uv.lock"
   workflow_dispatch:
@@ -130,9 +132,11 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Install uv
-        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # ratchet:astral-sh/setup-uv@v10.0.1
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # ratchet:astral-sh/setup-uv@v10.2.0
         with:
           # Test against the minimum supported Python version.
           python-version: "3.11"
