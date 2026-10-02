@@ -3,7 +3,7 @@
 Virtual try-on skill plugin using Gemini image generation (flash/pro tiers) and Veo on Gemini Enterprise Agent Platform for clothing, eyewear, jewelry, cosmetics, and footwear. Includes a pre-flight product-cutout classifier and configurable safety levels.
 
 > **Looking for the standalone deployable cloud agent (Agent Engine, Gemini Enterprise App, Cloud Run, & Agent Garden)?**
-> See [`contrib/python/retail-virtual-tryon`](../../../contrib/python/retail-virtual-tryon/README.md).
+> See [`contrib/python/retail-virtual-tryon`](../../../../contrib/python/retail-virtual-tryon/README.md).
 
 ## Skill Surfacing Personas & Boolean Config
 
@@ -44,7 +44,7 @@ npx skills add google/adk-recipes --skill retail-virtual-tryon
 
 ```bash
 git clone https://github.com/google/adk-recipes.git
-cd adk-recipes/plugins/retail/virtual-tryon
+cd adk-recipes/plugins/retail/skills/virtual-tryon
 uv sync
 ```
 
@@ -104,10 +104,10 @@ uv run python scripts/setup_tryon.py --project-id $PROJECT --model pro
 
 ### Persona 4: Managed Cloud Agent (Agent Engine, Gemini Enterprise, Cloud Run, Agent Garden)
 
-To deploy and surface the standalone ADK agent to **Gemini Enterprise Agent Platform (Agent Engine)**, **Gemini Enterprise (GE) App**, **Cloud Run**, or **Agent Garden**, use the companion agent recipe in [`contrib/python/retail-virtual-tryon`](../../../contrib/python/retail-virtual-tryon/README.md):
+To deploy and surface the standalone ADK agent to **Gemini Enterprise Agent Platform (Agent Engine)**, **Gemini Enterprise (GE) App**, **Cloud Run**, or **Agent Garden**, use the companion agent recipe in [`contrib/python/retail-virtual-tryon`](../../../../contrib/python/retail-virtual-tryon/README.md):
 
 ```bash
-cd ../../../contrib/python/retail-virtual-tryon
+cd ../../../../contrib/python/retail-virtual-tryon
 make surface DEPLOY_AGENT_ENGINE=true PUBLISH_GEMINI_ENTERPRISE=true PUBLISH_AGENT_GARDEN=true DEPLOY_CLOUD_RUN=false
 ```
 

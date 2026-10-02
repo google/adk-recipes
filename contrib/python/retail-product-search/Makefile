@@ -1,11 +1,14 @@
 SHELL := /bin/bash
+-include .env
+export
+
 SERVICE_NAME := retail-product-search
 DISPLAY_NAME ?= Retail Product Search
 DESCRIPTION ?= Hybrid semantic and keyword retail catalogue search agent
 PROJECT_ID ?= $(GOOGLE_CLOUD_PROJECT)
 REGION ?= us-central1
 APP_ID := $(or $(GEMINI_ENTERPRISE_APP_ID),$(GE_APP_ID))
-PORT ?= 8000
+PORT ?= 8080
 
 # Boolean config flags to toggle agent surfacing personas
 DEPLOY_AGENT_ENGINE ?= true

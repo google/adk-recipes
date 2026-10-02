@@ -62,7 +62,8 @@ app: FastAPI = get_fast_api_app(
     artifact_service_uri=services.ARTIFACT_SERVICE_URI,
     allow_origins=allow_origins,
     session_service_uri=services.SESSION_SERVICE_URI,
-    otel_to_cloud=project_id is not None and not os.getenv("INTEGRATION_TEST"),
+    otel_to_cloud=project_id is not None
+    and os.getenv("INTEGRATION_TEST", "").lower() not in ("1", "true", "yes"),
     lifespan=lifespan,
 )
 app.title = "retail-virtual-tryon"

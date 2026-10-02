@@ -90,12 +90,7 @@ def search_collection(
         return [{"content": f"Search error: {e}", "score": 0.0}]
 
     if not results:
-        return [
-            {
-                "content": "No relevant products found for your query.",
-                "score": 0.0,
-            }
-        ]
+        return []
 
     formatted = []
     for i, result in enumerate(results):

@@ -9,9 +9,9 @@
 #
 # Workspace bootstrap for retail-virtual-tryon.
 #
-# Discovers the skill's install dir, finds a Python 3.10+ interpreter,
-# creates .venv in the current directory, installs the skill editable
-# with the [adk] extras, and copies design-spec.md into the workspace.
+# Discovers the skill's install dir, finds a Python 3.11+ interpreter,
+# creates .venv in the current directory, installs the skill editable,
+# and copies design-spec.md into the workspace.
 #
 # Run from the workspace directory as a single shell invocation:
 #   bash /path/to/scripts/bootstrap.sh
@@ -45,14 +45,14 @@ if [ -z "$SKILL_DIR" ]; then
   exit 1
 fi
 
-# 2. Pick a Python 3.10+ interpreter.
+# 2. Pick a Python 3.11+ interpreter.
 #    Try PATH lookup first; fall back to absolute paths for sandboxed
 #    shells that launch with a stripped PATH.
 PYTHON_BIN=""
-for py in python3.13 python3.12 python3.11 python3.10 python3; do
+for py in python3.13 python3.12 python3.11 python3; do
   if command -v "$py" >/dev/null 2>&1; then
     ver=$("$py" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null)
-    case "$ver" in 3.10|3.11|3.12|3.13) PYTHON_BIN="$py"; break ;; esac
+    case "$ver" in 3.11|3.12|3.13) PYTHON_BIN="$py"; break ;; esac
   fi
 done
 
@@ -61,37 +61,33 @@ if [ -z "$PYTHON_BIN" ]; then
       /opt/homebrew/bin/python3.13 \
       /opt/homebrew/bin/python3.12 \
       /opt/homebrew/bin/python3.11 \
-      /opt/homebrew/bin/python3.10 \
       /usr/local/bin/python3.13 \
       /usr/local/bin/python3.12 \
       /usr/local/bin/python3.11 \
-      /usr/local/bin/python3.10 \
       "$HOME/.pyenv/shims/python3.13" \
       "$HOME/.pyenv/shims/python3.12" \
-      "$HOME/.pyenv/shims/python3.11" \
-      "$HOME/.pyenv/shims/python3.10"; do
+      "$HOME/.pyenv/shims/python3.11"; do
     if [ -x "$path" ]; then
       ver=$("$path" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null)
-      case "$ver" in 3.10|3.11|3.12|3.13) PYTHON_BIN="$path"; break ;; esac
+      case "$ver" in 3.11|3.12|3.13) PYTHON_BIN="$path"; break ;; esac
     fi
   done
 fi
 
 if [ -z "$PYTHON_BIN" ]; then
-  echo "ERROR: need Python 3.10+. Install one (brew install python@3.12) and retry." >&2
+  echo "ERROR: need Python 3.11+. Install one (brew install python@3.12) and retry." >&2
   exit 1
 fi
 
 echo "Using PYTHON_BIN=$PYTHON_BIN"
 echo "Using SKILL_DIR=$SKILL_DIR"
 
-# 3. Create venv, activate, install the skill with extras.
-#    bash -c around pip ensures the [adk] extras aren't glob-expanded by zsh.
+# 3. Create venv, activate, install the skill editable.
 if [ ! -d .venv ]; then
   "$PYTHON_BIN" -m venv .venv
 fi
 source .venv/bin/activate
-bash -c "pip install -e '${SKILL_DIR}[adk]'"
+pip install -e "${SKILL_DIR}"
 
 # 4. Copy the design-spec template into the workspace.
 if [ ! -f ./design-spec.md ]; then

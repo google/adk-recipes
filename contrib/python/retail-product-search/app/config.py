@@ -74,6 +74,10 @@ class _Config:
 
     @property
     def GEMINI_MODEL(self) -> str:
+        for key in ("MODEL_NAME", "GEMINI_MODEL"):
+            val = os.getenv(key)
+            if val is not None and val != "" and not val.startswith("<"):
+                return val
         return _read_env("MODEL_NAME") or _read_env("GEMINI_MODEL")
 
     @property
@@ -95,7 +99,7 @@ class _Config:
     @property
     def PORT(self) -> int:
         raw = _read_env("PORT")
-        return int(raw) if raw else 8000
+        return int(raw) if raw else 8080
 
     @property
     def DEPLOY_AGENT_ENGINE(self) -> bool:
@@ -116,6 +120,9 @@ class _Config:
     @property
     def RUN_LOCAL_WEB(self) -> bool:
         return _read_bool("RUN_LOCAL_WEB")
+
+    def __getattr__(self, name: str) -> str:
+        return _read_env(name)
 
 
 config = _Config()

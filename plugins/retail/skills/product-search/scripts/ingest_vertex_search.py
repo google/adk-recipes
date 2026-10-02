@@ -240,8 +240,8 @@ def create_collection_if_needed(  # pylint: disable=too-many-arguments
                 f"collection_id is {len(collection_id)} chars (max 63 per RFC1035). "
                 "Shorten it via the 'collection_id' key in design-spec.md."
             )
-        if not collection_id.islower() or any(
-            c.isupper() for c in collection_id
+        if not all(
+            c in "abcdefghijklmnopqrstuvwxyz0123456789-" for c in collection_id
         ):
             hints.append(
                 "collection_id must be all lowercase letters, digits, and dashes."

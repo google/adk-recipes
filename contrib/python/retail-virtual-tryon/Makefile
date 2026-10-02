@@ -68,7 +68,7 @@ deploy:
 		--source . \
 		--project $(PROJECT_ID) \
 		--region $(LOCATION) \
-		--allow-unauthenticated \
+		--no-allow-unauthenticated \
 		--set-env-vars GOOGLE_CLOUD_PROJECT=$(PROJECT_ID),GCP_REGION=$(LOCATION),GOOGLE_GENAI_USE_VERTEXAI=TRUE
 
 deploy-agent-engine:

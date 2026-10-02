@@ -12,13 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Single source of truth for retail-product-search configuration.
+"""Single source of truth for retail-virtual-tryon configuration.
 
 Loads `.env` via `python-dotenv` at import and reads defaults from
 `.env.example`, then exposes every configurable value via the module-level
 `config` object. Reads are lazy — each attribute access calls `os.getenv()`
 — so that scripts which mutate `os.environ` (for example
-`setup._design_spec_to_env`) see their changes reflected on the very next read.
+`setup_tryon._design_spec_to_env`) see their changes reflected on the very
+next read.
 
 `.env.example` at the recipe root documents every key below. When adding
 a new value, add it in three places: `.env.example`, this module, and
@@ -29,16 +30,17 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import Any
 
-from dotenv import dotenv_values, load_dotenv
+from dotenv import dotenv_values
 
-load_dotenv()
-_DEFAULTS = dotenv_values(
-    Path(__file__).resolve().parent.parent / ".env.example"
-)
+_ENV_EXAMPLE = Path(__file__).resolve().parent.parent / ".env.example"
+if not _ENV_EXAMPLE.exists():
+    _ENV_EXAMPLE = Path(__file__).resolve().parent / ".env.example"
+_DEFAULTS = dotenv_values(_ENV_EXAMPLE) if _ENV_EXAMPLE.exists() else {}
 
 
-def _read_env(key: str) -> str:
+def _read_env(key: str, fallback: str = "") -> str:
     """Read an environment variable, falling back to `.env.example`."""
     val = os.getenv(key)
     if val is not None and val != "" and not val.startswith("<"):
@@ -46,7 +48,7 @@ def _read_env(key: str) -> str:
     default_val = _DEFAULTS.get(key)
     if default_val and not default_val.startswith("<"):
         return default_val
-    return ""
+    return fallback
 
 
 def _read_bool(key: str) -> bool:
@@ -55,10 +57,10 @@ def _read_bool(key: str) -> bool:
 
 
 # Gemini Enterprise Agent Platform genai client bootstrap. Centralized so
-# downstream helpers can rely on it being set before the first genai call.
+# `_get_client` helpers can rely on it being set before the first genai call.
 if "GOOGLE_GENAI_USE_VERTEXAI" not in os.environ:
     os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = _read_env(
-        "GOOGLE_GENAI_USE_VERTEXAI"
+        "GOOGLE_GENAI_USE_VERTEXAI", "True"
     )
 
 
@@ -70,25 +72,41 @@ class _Config:
         return _read_env("GOOGLE_CLOUD_PROJECT")
 
     @property
-    def GOOGLE_CLOUD_LOCATION(self) -> str:
-        return _read_env("GOOGLE_CLOUD_LOCATION")
+    def GCP_REGION(self) -> str:
+        return _read_env("GCP_REGION")
 
     @property
-    def VECTOR_SEARCH_LOCATION(self) -> str:
-        return _read_env("VECTOR_SEARCH_LOCATION")
+    def GEMINI_MODEL_LOCATION(self) -> str:
+        return _read_env("GEMINI_MODEL_LOCATION")
 
     @property
-    def VECTOR_SEARCH_COLLECTION(self) -> str:
-        """Explicit collection path if set; empty string means 'derive from other config'."""
-        return _read_env("VECTOR_SEARCH_COLLECTION")
+    def GEMINI_IMAGE_MODEL(self) -> str:
+        return _read_env("GEMINI_IMAGE_MODEL")
 
     @property
     def GEMINI_MODEL(self) -> str:
         return _read_env("GEMINI_MODEL")
 
     @property
-    def EMBEDDING_MODEL(self) -> str:
-        return _read_env("EMBEDDING_MODEL")
+    def GEMINI_TEXT_MODEL(self) -> str:
+        return _read_env("GEMINI_TEXT_MODEL")
+
+    @property
+    def TRYON_OUTPUT_BUCKET(self) -> str:
+        return _read_env("TRYON_OUTPUT_BUCKET")
+
+    @property
+    def TRYON_UPLOAD_BUCKET(self) -> str:
+        return _read_env("TRYON_UPLOAD_BUCKET")
+
+    @property
+    def TRYON_CATALOG_PATH(self) -> str:
+        return _read_env("TRYON_CATALOG_PATH")
+
+    @property
+    def PORT(self) -> int:
+        raw = _read_env("PORT")
+        return int(raw) if raw else 8080
 
     @property
     def SURFACE_GEMINI_SKILL(self) -> bool:
@@ -97,6 +115,9 @@ class _Config:
     @property
     def SURFACE_AGENTS_SKILL(self) -> bool:
         return _read_bool("SURFACE_AGENTS_SKILL")
+
+    def __getattr__(self, name: str) -> Any:
+        return _read_env(name)
 
 
 config = _Config()

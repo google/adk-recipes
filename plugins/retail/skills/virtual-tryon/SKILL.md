@@ -14,9 +14,8 @@ metadata:
       - google-cloud-storage>=2.0
       - pillow>=9.0
       - pyyaml>=6.0
-    pip_optional:
       - google-adk>=2.2.0
-    install_hint: "From inside the workspace (see Workspace Setup section), run: pip install -e \"$SKILL_DIR[adk]\" -- this installs the skill's pyproject.toml; the [adk] extra pulls in google-adk for the agent runtime"
+    install_hint: "From inside the workspace (see Workspace Setup section), run: pip install -e \"$SKILL_DIR\" -- this installs the skill's pyproject.toml including google-adk for the agent runtime"
 ---
 
 # Virtual Try-On Agent
@@ -80,7 +79,7 @@ The skill has two locations:
 - **Workspace** -- the agent's cwd; design-spec.md, .venv, and per-run state live here
 
 By the end of this section the workspace must have `.venv/` (with the skill
-installed editable + `[adk]` extras), `design-spec.md`, and `SKILL_DIR`
+installed editable), `design-spec.md`, and `SKILL_DIR`
 exported in the shell.
 
 Run this as ONE shell command -- splitting it across tool calls loses state:
@@ -92,9 +91,9 @@ done)
 bash "$SKILL_DIR/scripts/bootstrap.sh"
 ```
 
-`bootstrap.sh` finds a Python 3.10+ interpreter (with absolute-path fallback
-for sandboxed shells), creates `.venv`, installs the skill editable with the
-`[adk]` extras, and copies `design-spec.md` into the workspace.
+`bootstrap.sh` finds a Python 3.11+ interpreter (with absolute-path fallback
+for sandboxed shells), creates `.venv`, installs the skill editable, and copies
+`design-spec.md` into the workspace.
 
 All scripts run from the install dir against the workspace config. **Use
 `.venv/bin/python`, not bare `python`** -- bare `python` may resolve to a

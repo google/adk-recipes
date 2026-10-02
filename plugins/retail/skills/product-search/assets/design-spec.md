@@ -33,7 +33,7 @@ used by ingestion scripts and agent scaffolding.
 ## How to Use
 
 1. Fill in `gcp_project_id` above (or let the coding agent do it conversationally).
-2. Pass this file to any script: `python scripts/ingest_bigquery.py --config assets/design-spec.md`.
+2. Pass this file to any script: `python scripts/ingest_bigquery.py --config assets/design-spec.md --local-file assets/sample-products.csv`.
 3. CLI args always override values from this file.
 
 ## Design Decisions

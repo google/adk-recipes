@@ -12,46 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-schema_version: "1.0"
-id: retail-virtual-tryon
-display_name: "Retail Virtual Try-On Agent"
-description: "Virtual try-on ADK agent supporting image and catwalk video try-ons via Gemini image models and Veo on Gemini Enterprise Agent Platform."
-version: "0.2.0"
-language: python
-framework: google-adk
-protocol: a2a
-entrypoint:
-  module: app.agent
-  root_agent: root_agent
-  app: app
-  fastapi_app: app.fast_api_app:app
-deployment:
-  targets:
-    - cloud-run
-    - vertex-ai-agent-engine
-    - gemini-enterprise
-  cloud_run:
-    port: 8080
-    dockerfile: Dockerfile
-  agent_engine:
-    display_name: "retail-virtual-tryon"
-    description: "Retail Virtual Try-On Agent (Gemini Image + Veo 3.1 Catwalk Video)"
-  gemini_enterprise:
-    display_name: "Retail Virtual Try-On Assistant"
-    tool_description: "Use this agent to virtually try on clothing, eyewear, shoes, or accessories in still images or catwalk videos."
-env:
-  required:
-    - GOOGLE_CLOUD_PROJECT
-  optional:
-    - GCP_REGION
-    - GEMINI_MODEL_LOCATION
-    - GEMINI_IMAGE_MODEL
-    - GEMINI_MODEL
-    - TRYON_OUTPUT_BUCKET
-    - TRYON_UPLOAD_BUCKET
-tags:
-  - retail
-  - virtual-tryon
-  - image-generation
-  - video-generation
-  - a2a
+name: "retail-virtual-tryon"
+agent_directory: "app"
+language: "python"
+region: "us-central1"
+create_params:
+  deployment_target: "cloud_run"
+  session_type: "in_memory"
+  is_a2a: true
+  cicd_runner: "skip"
+  agent_gateway: false

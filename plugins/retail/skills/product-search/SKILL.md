@@ -62,7 +62,7 @@ done)
 bash "$SKILL_DIR/scripts/bootstrap.sh"
 ```
 
-`bootstrap.sh` finds a Python 3.10+ interpreter (with absolute-path fallback
+`bootstrap.sh` finds a Python 3.11+ interpreter (with absolute-path fallback
 for sandboxed shells), creates `.venv`, installs the skill editable, and
 copies `design-spec.md` into the workspace.
 
@@ -197,8 +197,8 @@ For demo queries and how to add structured filtering, see
 ## Evaluate
 
 ```bash
-cd <repo-root>
-./vs eval retail-product-search --project-id $PROJECT
+cd "$SKILL_DIR"
+uv run pytest
 ```
 
 `EVAL.yaml` declares `rubric` (LLM-as-judge) + `assertions` (deterministic

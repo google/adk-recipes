@@ -5,7 +5,7 @@ BigQuery, embeddings). Use to build e-commerce search, catalog discovery, or
 shopping assistant agents.
 
 > **Looking for the standalone deployable cloud agent (Agent Engine, Gemini Enterprise App, Cloud Run, & Agent Garden)?**
-> See [`contrib/python/retail-product-search`](../../../contrib/python/retail-product-search/README.md).
+> See [`contrib/python/retail-product-search`](../../../../contrib/python/retail-product-search/README.md).
 
 ## Skill Surfacing Personas & Boolean Config
 
@@ -46,7 +46,7 @@ npx skills add google/adk-recipes --skill retail-product-search
 
 ```bash
 git clone https://github.com/google/adk-recipes.git
-cd adk-recipes/plugins/retail/product-search
+cd adk-recipes/plugins/retail/skills/product-search
 uv sync
 ```
 
@@ -107,10 +107,10 @@ make setup PROJECT_ID=your-gcp-project-id REGION=us-central1
 
 ### Persona 4: Managed Cloud Agent (Agent Engine, Gemini Enterprise, Cloud Run, Agent Garden)
 
-To deploy and surface the standalone agent to **Gemini Enterprise Agent Platform (Agent Engine)**, **Gemini Enterprise (GE) App**, **Cloud Run**, or **Agent Garden**, use the companion agent recipe in [`contrib/python/retail-product-search`](../../../contrib/python/retail-product-search/README.md):
+To deploy and surface the standalone agent to **Gemini Enterprise Agent Platform (Agent Engine)**, **Gemini Enterprise (GE) App**, **Cloud Run**, or **Agent Garden**, use the companion agent recipe in [`contrib/python/retail-product-search`](../../../../contrib/python/retail-product-search/README.md):
 
 ```bash
-cd ../../../contrib/python/retail-product-search
+cd ../../../../contrib/python/retail-product-search
 make surface DEPLOY_AGENT_ENGINE=true PUBLISH_GEMINI_ENTERPRISE=true PUBLISH_AGENT_GARDEN=true DEPLOY_CLOUD_RUN=false
 ```
 

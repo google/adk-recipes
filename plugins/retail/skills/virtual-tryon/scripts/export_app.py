@@ -233,6 +233,10 @@ def export_app(config_path: str, skill_dir: str):
     if not write_requirements(src_path, dest_dir):
         return False
 
+    env_example = src_path / ".env.example"
+    if env_example.exists():
+        shutil.copy2(env_example, dest_dir / ".env.example")
+
     logger.info("EXPORT COMPLETED SUCCESSFULLY. Standalone source generated.")
     return True
 

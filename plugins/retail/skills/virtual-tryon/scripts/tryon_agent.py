@@ -69,7 +69,12 @@ def try_on_product_image(
             product_category=product_category,
             product_description=product_description,
         )
-        return {"status": "success", "product_id": product_id, **res}
+        payload = {
+            k: v
+            for k, v in res.items()
+            if k not in ("image_bytes", "video_bytes")
+        }
+        return {"status": "success", "product_id": product_id, **payload}
     except Exception as e:
         logger.exception(
             "try_on_product_image failed for product_id=%s", product_id
@@ -131,7 +136,12 @@ def try_on_product_video(
             scene_description=scene_description,
         )
 
-        return {"status": "success", "product_id": product_id, **video_res}
+        payload = {
+            k: v
+            for k, v in video_res.items()
+            if k not in ("image_bytes", "video_bytes")
+        }
+        return {"status": "success", "product_id": product_id, **payload}
     except Exception as e:
         logger.exception(
             "try_on_product_video failed for product_id=%s", product_id

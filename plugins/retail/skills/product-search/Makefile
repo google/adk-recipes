@@ -1,5 +1,5 @@
 SHELL := /bin/bash
-SKILL_NAME := retail-virtual-tryon
+SKILL_NAME := retail-product-search
 PROJECT_ID ?= $(GOOGLE_CLOUD_PROJECT)
 REGION ?= us-central1
 
@@ -46,6 +46,6 @@ install-skill-local: install-gemini-skill install-agents-skill
 
 setup:
 	@test -n "$(PROJECT_ID)" || { echo "Error: Set PROJECT_ID or GOOGLE_CLOUD_PROJECT"; exit 1; }
-	@printf -- "---\ngcp_project_id: $(PROJECT_ID)\ngcp_region: $(REGION)\ntryon_categories: [Clothing]\ntryon_mode: image_and_video\nsurface_gemini_skill: $(SURFACE_GEMINI_SKILL)\nsurface_agents_skill: $(SURFACE_AGENTS_SKILL)\n---\n" > design-spec.md
+	@printf -- "---\ngcp_project_id: $(PROJECT_ID)\ngcp_region: $(REGION)\ndata_source: default\nproduct_fields: Extended\n---\n" > design-spec.md
 	@trap 'rm -f design-spec.md' EXIT; \
 	uv run python scripts/setup.py --config design-spec.md

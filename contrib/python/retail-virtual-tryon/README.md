@@ -2,7 +2,7 @@
 
 Deployable **Retail Virtual Try-On ADK Agent** supporting high-fidelity still-image try-on (`gemini-2.5-flash-image` / `gemini-2.5-pro-image`) and 8-second catwalk video generation (`veo-3.1-generate-001` Reference-to-Video) on **Gemini Enterprise Agent Platform**.
 
-> **Companion Skill Plugin:** The reusable agent skill (`SKILL.md`, `EVAL.yaml`, pre-flight product-cutout classifier, and evaluation scripts) lives in [`plugins/retail/virtual-tryon`](../../../plugins/retail/virtual-tryon/README.md). This folder contains the standalone deployable ADK + A2A agent service.
+> **Companion Skill Plugin:** The reusable agent skill (`SKILL.md`, `EVAL.yaml`, pre-flight product-cutout classifier, and evaluation scripts) lives in [`plugins/retail/skills/virtual-tryon`](../../../plugins/retail/skills/virtual-tryon/README.md). This folder contains the standalone deployable ADK + A2A agent service.
 
 ---
 
