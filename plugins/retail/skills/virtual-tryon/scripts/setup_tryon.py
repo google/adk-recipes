@@ -55,24 +55,24 @@ def _design_spec_to_env(design_spec_path: str) -> None:
     if not cfg:
         return
     project_id = cfg.get("gcp_project_id")
-    if project_id:
-        os.environ.setdefault("GOOGLE_CLOUD_PROJECT", project_id)
-    if cfg.get("gcp_region"):
-        os.environ.setdefault("GCP_REGION", cfg["gcp_region"])
-    if cfg.get("tryon_model"):
-        os.environ.setdefault("GEMINI_IMAGE_MODEL", cfg["tryon_model"])
+    if project_id and "GOOGLE_CLOUD_PROJECT" not in os.environ:
+        os.environ["GOOGLE_CLOUD_PROJECT"] = project_id
+    if cfg.get("gcp_region") and "GCP_REGION" not in os.environ:
+        os.environ["GCP_REGION"] = cfg["gcp_region"]
+    if cfg.get("tryon_model") and "GEMINI_IMAGE_MODEL" not in os.environ:
+        os.environ["GEMINI_IMAGE_MODEL"] = cfg["tryon_model"]
     output_bucket = cfg.get("tryon_output_bucket") or (
         f"{project_id}-tryon-output" if project_id else None
     )
-    if output_bucket:
-        os.environ.setdefault("TRYON_OUTPUT_BUCKET", output_bucket)
+    if output_bucket and "TRYON_OUTPUT_BUCKET" not in os.environ:
+        os.environ["TRYON_OUTPUT_BUCKET"] = output_bucket
     upload_bucket = cfg.get("tryon_upload_bucket") or (
         f"{project_id}-tryon-uploads" if project_id else None
     )
-    if upload_bucket:
-        os.environ.setdefault("TRYON_UPLOAD_BUCKET", upload_bucket)
-    if cfg.get("tryon_catalog_path"):
-        os.environ.setdefault("TRYON_CATALOG_PATH", cfg["tryon_catalog_path"])
+    if upload_bucket and "TRYON_UPLOAD_BUCKET" not in os.environ:
+        os.environ["TRYON_UPLOAD_BUCKET"] = upload_bucket
+    if cfg.get("tryon_catalog_path") and "TRYON_CATALOG_PATH" not in os.environ:
+        os.environ["TRYON_CATALOG_PATH"] = cfg["tryon_catalog_path"]
 
 
 # Models mapping for verification

@@ -36,7 +36,8 @@ from scripts.config import config
 from scripts.scan_catalog import scan_directory
 from scripts.tryon_processor import generate_tryon_image, generate_tryon_video
 
-os.environ.setdefault("GOOGLE_API_USE_CLIENT_CERTIFICATE", "false")
+if "GOOGLE_API_USE_CLIENT_CERTIFICATE" not in os.environ:
+    os.environ["GOOGLE_API_USE_CLIENT_CERTIFICATE"] = "false"
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
