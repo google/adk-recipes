@@ -1,0 +1,29 @@
+{
+  "name": "financial-advisor",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Multi-agent financial advisor built with ADK for TypeScript.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "web": "adk web",
+    "start": "adk run app/agent.ts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@google/adk": "2.2.0",
+    "@google/adk-devtools": "2.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.4",
+    "typescript": "~5.9.3",
+    "vitest": "^5.0.3"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "overrides": {
+    "uuid": "11.1.1"
+  }
+}

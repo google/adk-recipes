@@ -8,6 +8,8 @@ authors = [
 dependencies = [
   "pyyaml",
   "jsonschema",
+  "tree-sitter>=0.23",
+  "tree-sitter-go>=0.23",
 ]
 
 [project.scripts]

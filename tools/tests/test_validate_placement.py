@@ -246,3 +246,77 @@ def test_core_and_contrib_are_not_checked_yet():
     until that layout is retired."""
     assert "core" not in m.CHECKED_ROOTS
     assert "contrib" not in m.CHECKED_ROOTS
+
+
+# ---------------------------------------------------------------------------
+# Spec-compliant and mixed plugin layout placement tests
+# ---------------------------------------------------------------------------
+
+
+def _write_file(path: Path, content: str = "") -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+    return path
+
+
+def test_spec_compliant_plugin_placement_passes(tmp_path):
+    _write_file(tmp_path / "plugins/retail/plugin.json", "{}")
+    _write_file(
+        tmp_path / "plugins/retail/skills/product-search/SKILL.md", "# skill"
+    )
+    _write_file(
+        tmp_path / "plugins/retail/skills/virtual-tryon/SKILL.md", "# skill"
+    )
+    assert m.check_root("plugins", repo_root=tmp_path) == []
+
+
+def test_mixed_layout_in_same_plugin_dir_is_rejected(tmp_path):
+    _write_file(tmp_path / "plugins/retail/plugin.json", "{}")
+    _write_file(
+        tmp_path / "plugins/retail/store-ops/manifest.yaml", "type: standalone"
+    )
+    diags = m.check_root("plugins", repo_root=tmp_path)
+    assert len(diags) == 1
+    assert "mixes legacy" in diags[0].what
+    assert "spec-compliant" in diags[0].what
+    assert diags[0].file == "plugins/retail"
+
+
+def test_spec_plugin_json_nested_too_deeply(tmp_path):
+    _write_file(tmp_path / "plugins/retail/sub/plugin.json", "{}")
+    diags = m.check_root("plugins", repo_root=tmp_path)
+    assert len(diags) == 1
+    assert "nested too deeply" in diags[0].what
+
+
+def test_spec_skill_misplaced_at_plugin_root(tmp_path):
+    _write_file(tmp_path / "plugins/retail/plugin.json", "{}")
+    _write_file(tmp_path / "plugins/retail/SKILL.md", "# skill")
+    diags = m.check_root("plugins", repo_root=tmp_path)
+    assert len(diags) == 1
+    assert "invalid location" in diags[0].what
+    assert "plugins/retail/SKILL.md" in diags[0].what
+
+
+def test_spec_skill_misplaced_under_skills_root(tmp_path):
+    _write_file(tmp_path / "plugins/retail/plugin.json", "{}")
+    _write_file(tmp_path / "plugins/retail/skills/SKILL.md", "# skill")
+    diags = m.check_root("plugins", repo_root=tmp_path)
+    assert len(diags) == 1
+    assert "invalid location" in diags[0].what
+
+
+def test_missing_plugin_json_with_skills_directory(tmp_path):
+    _write_file(
+        tmp_path / "plugins/retail/skills/product-search/SKILL.md", "# skill"
+    )
+    diags = m.check_root("plugins", repo_root=tmp_path)
+    assert len(diags) == 1
+    assert "missing plugin.json" in diags[0].what
+
+
+def test_missing_plugin_json_with_shallow_skill_file(tmp_path):
+    _write_file(tmp_path / "plugins/retail/SKILL.md", "# skill")
+    diags = m.check_root("plugins", repo_root=tmp_path)
+    assert len(diags) == 1
+    assert "missing plugin.json" in diags[0].what

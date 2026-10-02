@@ -64,7 +64,7 @@ def recipe_dir_for(path: str) -> str | None:
     the results against the working tree separately (see main's
     --filter-existing flag)."""
     parts = path.split("/")
-    if len(parts) < 2:
+    if len(parts) < 2 or any(p in {".", ".."} for p in parts):
         return None
     root = parts[0]
     if root not in RECIPE_ROOTS:
@@ -80,14 +80,15 @@ def recipe_dir_for(path: str) -> str | None:
     if not part1:
         return None
 
-    # Roots where the namespace is mandatory (plugins/<vertical>/<solution>).
-    # The vertical is free-form, so it can only be recognised by position:
-    # a path identifies a solution only when there is something BELOW it,
-    # i.e. at least root/vertical/solution/<file>. Anything shallower —
-    # `plugins/foo/SKILL.md`, a solution placed directly under the root —
-    # deliberately maps to None rather than inventing a recipe at the wrong
-    # depth. tools/validate_placement.py reports those as misplaced.
+    # Roots where the namespace is mandatory (plugins/<vertical>/<solution> or
+    # plugins/<plugin> for spec-compliant plugins with plugin.json/skills/mcp/extensions).
     if root in vm.NAMESPACE_REQUIRED_ROOTS:
+        if (
+            part2 in {"skills", "mcp.json"}
+            or part2.startswith("com.")
+            or (len(parts) == 3 and part2 == vm.PLUGIN_FILENAME)
+        ):
+            return f"{root}/{part1}"
         if len(parts) >= 4 and part2:
             return f"{root}/{part1}/{part2}"
         return None
@@ -169,16 +170,33 @@ def compute_affected_recipes(
         match on manifest.language. Implies filter_existing (the manifest
         must exist to be read)."""
     candidates: set[str] = set()
+    check_disk = filter_existing or language is not None
     for line in changed_files:
         path = line.strip()
         if not path:
             continue
+        parts = path.split("/")
+        if any(p in {".", ".."} for p in parts):
+            continue
+        if (
+            check_disk
+            and len(parts) >= 3
+            and parts[0] in vm.NAMESPACE_REQUIRED_ROOTS
+            and parts[1]
+        ):
+            root_dir = (repo_root / parts[0]).resolve()
+            plugin_dir = (root_dir / parts[1]).resolve()
+            if plugin_dir.is_relative_to(root_dir) and vm.is_plugin_container(
+                plugin_dir
+            ):
+                candidates.add(f"{parts[0]}/{parts[1]}")
+                continue
         rd = recipe_dir_for(path)
         if rd is None:
             continue
         candidates.add(rd)
 
-    if filter_existing or language is not None:
+    if check_disk:
         candidates = {c for c in candidates if (repo_root / c).is_dir()}
 
     if language is not None:
