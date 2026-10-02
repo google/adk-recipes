@@ -26,9 +26,9 @@ Rules enforced:
     A recipe declaring a higher version than CI provides fails because CI
     cannot build or test it. Lower versions are permitted. If neither form is
     present, an error is reported.
-  - repositories: A `repositories { }` block, if present, must declare
-    `mavenCentral()` to resolve public dependencies, and must not reference
-    custom or private maven repositories (e.g. `maven(url = ...)` or
+  - repositories: A top-level `repositories { }` block, if present, must
+    declare `mavenCentral()` to resolve public dependencies, and must not
+    reference custom or private maven repositories (e.g. `maven(url = ...)` or
     `maven { ... }`).
   - root-project-name: If `settings.gradle.kts` exists, `rootProject.name` must
     equal the recipe folder basename (or "<vertical>-<solution>" for plugins).
@@ -74,7 +74,7 @@ CHECKER = "check_recipe_gradle_kts.py"
 # Maximum JDK version supported by CI (see .github/workflows/kotlin-tests.yml).
 CI_PINNED_JDK_VERSION = 17
 
-NAMESPACED_ROOTS = {"plugins": "vertical"}
+NAMESPACED_ROOTS = {"plugins"}
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
@@ -84,17 +84,19 @@ def _repo_relative_parts(
 ) -> tuple[str, ...]:
     """Path segments of `recipe_dir` relative to the repository root.
 
-    An absolute path is made relative to `repo_root` so that the position of
-    a segment is meaningful. A relative path is taken as already
-    repo-relative, which is what CI passes.
+    An absolute or relative path is resolved against `repo_root` so that
+    leading `./` or parent references are normalized before inspection.
     """
-    root = REPO_ROOT if repo_root is None else repo_root
-    if recipe_dir.is_absolute():
-        try:
-            return recipe_dir.resolve().relative_to(root.resolve()).parts
-        except ValueError:
-            return recipe_dir.parts
-    return recipe_dir.parts
+    root = (REPO_ROOT if repo_root is None else repo_root).resolve()
+    resolved_dir = (
+        (root / recipe_dir).resolve()
+        if not recipe_dir.is_absolute()
+        else recipe_dir.resolve()
+    )
+    try:
+        return resolved_dir.relative_to(root).parts
+    except ValueError:
+        return recipe_dir.parts
 
 
 def expected_project_name(
@@ -111,6 +113,22 @@ def expected_project_name(
     return recipe_dir.name
 
 
+def _scan_string(content: str, start: int, quote_char: str) -> int:
+    """Scan a single-line string and return the index after the closing quote."""
+    i = start + 1
+    n = len(content)
+    while i < n:
+        if content[i] == "\\":
+            i += 2
+            continue
+        if content[i] == quote_char:
+            return i + 1
+        if content[i] == "\n":
+            break
+        i += 1
+    return i
+
+
 def _strip_comments(content: str) -> str:
     """Strip single-line (//) and multi-line (/* */) comments from Kotlin code."""
     result: list[str] = []
@@ -125,35 +143,10 @@ def _strip_comments(content: str) -> str:
             result.append(content[i : end + 3])
             i = end + 3
             continue
-        if content[i] == '"':
-            start = i
-            i += 1
-            while i < n:
-                if content[i] == "\\":
-                    i += 2
-                    continue
-                if content[i] == '"':
-                    i += 1
-                    break
-                if content[i] == "\n":
-                    break
-                i += 1
-            result.append(content[start:i])
-            continue
-        if content[i] == "'":
-            start = i
-            i += 1
-            while i < n:
-                if content[i] == "\\":
-                    i += 2
-                    continue
-                if content[i] == "'":
-                    i += 1
-                    break
-                if content[i] == "\n":
-                    break
-                i += 1
-            result.append(content[start:i])
+        if content[i] in ('"', "'"):
+            end = _scan_string(content, i, content[i])
+            result.append(content[i:end])
+            i = end
             continue
         if content.startswith("//", i):
             end = content.find("\n", i + 2)
@@ -247,23 +240,57 @@ def check_jvm_toolchain(
     return diagnostics
 
 
-def _extract_repositories_blocks(content: str) -> list[str]:
-    """Extract the contents of all `repositories { ... }` blocks."""
+def _extract_top_level_repositories_blocks(content: str) -> list[str]:
+    """Extract contents of top-level `repositories { ... }` blocks.
+
+    Tracks string literals and braces so string contents with braces do not
+    corrupt depth, and blocks inside nested contexts (e.g. `publishing { ... }`)
+    are not treated as top-level dependency repositories.
+    """
     blocks: list[str] = []
-    pattern = re.compile(r"\brepositories\s*\{")
-    for match in pattern.finditer(content):
-        start = match.end()
-        depth = 1
-        i = start
-        n = len(content)
-        while i < n and depth > 0:
-            if content[i] == "{":
-                depth += 1
-            elif content[i] == "}":
-                depth -= 1
-            i += 1
+    i = 0
+    n = len(content)
+    depth = 0
+
+    while i < n:
+        if content.startswith('"""', i):
+            end = content.find('"""', i + 3)
+            i = n if end == -1 else end + 3
+            continue
+        if content[i] in ('"', "'"):
+            i = _scan_string(content, i, content[i])
+            continue
+
         if depth == 0:
-            blocks.append(content[start : i - 1])
+            match = re.match(r"repositories\s*\{", content[i:])
+            if match:
+                start = i + match.end()
+                block_depth = 1
+                curr = start
+                while curr < n and block_depth > 0:
+                    if content.startswith('"""', curr):
+                        end = content.find('"""', curr + 3)
+                        curr = n if end == -1 else end + 3
+                        continue
+                    if content[curr] in ('"', "'"):
+                        curr = _scan_string(content, curr, content[curr])
+                        continue
+                    if content[curr] == "{":
+                        block_depth += 1
+                    elif content[curr] == "}":
+                        block_depth -= 1
+                    curr += 1
+                if block_depth == 0:
+                    blocks.append(content[start : curr - 1])
+                i = curr
+                continue
+
+        if content[i] == "{":
+            depth += 1
+        elif content[i] == "}":
+            depth = max(0, depth - 1)
+        i += 1
+
     return blocks
 
 
@@ -275,8 +302,8 @@ def check_repositories(
     clean_content: str,
     build_gradle_path: Path,
 ) -> list[Diagnostic]:
-    """Check that repositories blocks reference mavenCentral() and no private maven repos."""
-    blocks = _extract_repositories_blocks(clean_content)
+    """Check that top-level repositories blocks reference mavenCentral() and no private maven repos."""
+    blocks = _extract_top_level_repositories_blocks(clean_content)
     if not blocks:
         return []
 

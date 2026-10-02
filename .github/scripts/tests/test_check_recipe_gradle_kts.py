@@ -29,11 +29,18 @@ from pathlib import Path
 import check_recipe_gradle_kts as m
 import pytest
 
-EXIT_OK = 0
+EXIT_OK = m.EXIT_OK
 EXIT_VIOLATIONS = 1
 EXIT_CI_FAULT = 2
 
-CI_CHECKOUT = "/home/runner/work/adk-recipes/adk-recipes"
+MOCK_CHECKOUT = "/mock/repo"
+
+
+def _write_file(target: Path, content: str | bytes) -> None:
+    if isinstance(content, bytes):
+        target.write_bytes(content)
+    else:
+        target.write_text(content, encoding="utf-8")
 
 
 def _recipe(
@@ -42,17 +49,9 @@ def _recipe(
     settings_gradle_kts: str | bytes | None = None,
 ) -> Path:
     if build_gradle_kts is not None:
-        target = tmp_path / "build.gradle.kts"
-        if isinstance(build_gradle_kts, bytes):
-            target.write_bytes(build_gradle_kts)
-        else:
-            target.write_text(build_gradle_kts, encoding="utf-8")
+        _write_file(tmp_path / "build.gradle.kts", build_gradle_kts)
     if settings_gradle_kts is not None:
-        target = tmp_path / "settings.gradle.kts"
-        if isinstance(settings_gradle_kts, bytes):
-            target.write_bytes(settings_gradle_kts)
-        else:
-            target.write_text(settings_gradle_kts, encoding="utf-8")
+        _write_file(tmp_path / "settings.gradle.kts", settings_gradle_kts)
     return tmp_path
 
 
@@ -72,7 +71,9 @@ def _run(tmp_path: Path, monkeypatch) -> int:
     ("path", "expected"),
     [
         ("core/kotlin/llm-auditor", "llm-auditor"),
+        ("./core/kotlin/llm-auditor", "llm-auditor"),
         ("contrib/kotlin/financial-advisor", "financial-advisor"),
+        ("./plugins/retail/store-ops", "retail-store-ops"),
         ("plugins/retail/store-ops", "retail-store-ops"),
         ("llm-auditor", "llm-auditor"),
     ],
@@ -85,22 +86,22 @@ def test_expected_project_name_for_repo_relative_paths(path, expected):
     ("path", "expected"),
     [
         (
-            f"{CI_CHECKOUT}/core/kotlin/llm-auditor",
+            f"{MOCK_CHECKOUT}/core/kotlin/llm-auditor",
             "llm-auditor",
         ),
         (
-            f"{CI_CHECKOUT}/contrib/kotlin/financial-advisor",
+            f"{MOCK_CHECKOUT}/contrib/kotlin/financial-advisor",
             "financial-advisor",
         ),
         (
-            f"{CI_CHECKOUT}/plugins/retail/store-ops",
+            f"{MOCK_CHECKOUT}/plugins/retail/store-ops",
             "retail-store-ops",
         ),
     ],
 )
 def test_expected_project_name_for_absolute_paths_inside_repo(path, expected):
     assert (
-        m.expected_project_name(Path(path), repo_root=Path(CI_CHECKOUT))
+        m.expected_project_name(Path(path), repo_root=Path(MOCK_CHECKOUT))
         == expected
     )
 
@@ -333,6 +334,44 @@ def test_commented_private_maven_passes(tmp_path, monkeypatch):
         /*
         maven { url = uri("https://private.repo.internal/maven") }
         */
+    }
+    kotlin {
+        jvmToolchain(17)
+    }
+    """
+    _recipe(tmp_path, build_gradle_kts=content)
+    assert _run(tmp_path, monkeypatch) == EXIT_OK
+
+
+def test_nested_publishing_repositories_allowed(tmp_path, monkeypatch):
+    content = """
+    repositories {
+        mavenCentral()
+    }
+
+    publishing {
+        repositories {
+            maven {
+                url = uri("https://internal.pkg.dev/company-registry")
+            }
+        }
+    }
+
+    kotlin {
+        jvmToolchain(17)
+    }
+    """
+    _recipe(tmp_path, build_gradle_kts=content)
+    assert _run(tmp_path, monkeypatch) == EXIT_OK
+
+
+def test_string_literal_with_braces_in_repositories_passes(
+    tmp_path, monkeypatch
+):
+    content = """
+    repositories {
+        mavenCentral()
+        val template = "nested { brace } in string"
     }
     kotlin {
         jvmToolchain(17)
