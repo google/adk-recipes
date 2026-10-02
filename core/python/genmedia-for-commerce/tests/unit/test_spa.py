@@ -19,27 +19,31 @@ from pathlib import Path
 from urllib.parse import quote
 
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, status
 from fastapi.testclient import TestClient
 
 from genmedia4commerce.app_utils.spa import attach_spa_routes
 
 INDEX_HTML = "<html>genmedia</html>"
+FAVICON_SVG = "<svg/>"
 SECRET = "must-never-be-served"
+SECRET_FILE = "secret.txt"
 
 
 @pytest.fixture
 def frontend_dir(tmp_path: Path) -> Path:
     """Create tmp_path/frontend/dist plus files that live outside of it."""
-    dist = tmp_path / "frontend" / "dist"
+    frontend = tmp_path / "frontend"
+    dist = frontend / "dist"
     dist.mkdir(parents=True)
     (dist / "index.html").write_text(INDEX_HTML)
-    (dist / "favicon.svg").write_text("<svg/>")
-    (tmp_path / "secret.txt").write_text(SECRET)
+    (dist / "favicon.svg").write_text(FAVICON_SVG)
+    (tmp_path / SECRET_FILE).write_text(SECRET)
     # A sibling whose name starts with "dist": a string-prefix containment
     # check would wrongly accept it as being inside dist/.
-    (tmp_path / "frontend" / "dist-private").mkdir()
-    (tmp_path / "frontend" / "dist-private" / "secret.txt").write_text(SECRET)
+    sibling = frontend / "dist-private"
+    sibling.mkdir()
+    (sibling / SECRET_FILE).write_text(SECRET)
     return dist
 
 
@@ -52,8 +56,8 @@ def client(frontend_dir: Path) -> TestClient:
 
 def test_serves_file_from_dist(client: TestClient) -> None:
     response = client.get("/favicon.svg")
-    assert response.status_code == 200
-    assert response.text == "<svg/>"
+    assert response.status_code == status.HTTP_200_OK
+    assert response.text == FAVICON_SVG
 
 
 @pytest.mark.parametrize("path", ["/", "/image-vto", "/spinning/shoes"])
@@ -61,12 +65,13 @@ def test_client_side_routes_fall_back_to_index(
     client: TestClient, path: str
 ) -> None:
     response = client.get(path)
-    assert response.status_code == 200
+    assert response.status_code == status.HTTP_200_OK
     assert response.text == INDEX_HTML
 
 
 def test_missing_asset_returns_404(client: TestClient) -> None:
-    assert client.get("/missing.js").status_code == 404
+    response = client.get("/missing.js")
+    assert response.status_code == status.HTTP_404_NOT_FOUND
 
 
 @pytest.mark.parametrize(
@@ -82,8 +87,8 @@ def test_rejects_absolute_path(
     client: TestClient, tmp_path: Path, make_url: Callable[[str], str]
 ) -> None:
     """An absolute full_path must not replace dist/ when joined to it."""
-    response = client.get(make_url(str(tmp_path / "secret.txt")))
-    assert response.status_code == 404
+    response = client.get(make_url(str(tmp_path / SECRET_FILE)))
+    assert response.status_code == status.HTTP_404_NOT_FOUND
     assert SECRET not in response.text
 
 
@@ -91,15 +96,16 @@ def test_rejects_absolute_path(
     "path",
     [
         # Encoded slashes keep the dot segments away from URL normalization.
-        "/..%2F..%2Fsecret.txt",
-        "/..%2Fdist-private%2Fsecret.txt",
+        f"/..%2F..%2F{SECRET_FILE}",
+        f"/..%2Fdist-private%2F{SECRET_FILE}",
     ],
 )
 def test_rejects_dot_dot_traversal(client: TestClient, path: str) -> None:
     response = client.get(path)
-    assert response.status_code == 404
+    assert response.status_code == status.HTTP_404_NOT_FOUND
     assert SECRET not in response.text
 
 
 def test_null_byte_returns_404(client: TestClient) -> None:
-    assert client.get("/%00").status_code == 404
+    response = client.get("/%00")
+    assert response.status_code == status.HTTP_404_NOT_FOUND
