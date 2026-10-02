@@ -1,0 +1,20 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "retail",
+  "version": "0.2.0",
+  "description": "Retail AI plugin bundling semantic product catalog search and generative image/video virtual try-on skills on Google Cloud.",
+  "license": "Apache-2.0",
+  "keywords": [
+    "retail",
+    "search",
+    "rag",
+    "vector-search",
+    "virtual-tryon",
+    "image-generation",
+    "video-generation"
+  ],
+  "ownership": {
+    "team": "FDE/Blackbelt",
+    "poc": "tanvisinghal-0105"
+  }
+}

@@ -1,0 +1,8 @@
+# Never bake credentials into an image. .env.example is safe and stays.
+.env
+
+.git/
+.gitignore
+.DS_Store
+.idea/
+.vscode/

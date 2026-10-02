@@ -1,24 +1,19 @@
-<!-- word count: 135 (target 100, cap 200) -->
-
 # Java Recipes
 
-Not currently active. No Java recipes have landed yet and no
-language-specific tooling (skills, CI, `pyproject`-equivalent
-checks) is in place.
+Java recipes live under `core/java/` and `contrib/java/`. CI runs formatting,
+linting, and unit tests on Java recipes. There are no Java authoring repo
+skills yet.
 
-**If you want to contribute one:** open a GitHub issue at
-[github.com/google/adk-recipes/issues](https://github.com/google/adk-recipes/issues)
-first so we can align on package manager, test runner, and file
-layout before you invest the work. Once accepted, this page will
-mirror the shape of the [Python page](./python.md).
+**Before contributing a new recipe:** open a
+[Propose a New Recipe](https://github.com/google/adk-recipes/issues/new?template=propose-a-new-recipe.md)
+issue first. Universal layout and size rules live in
+[anatomy](../anatomy.md).
 
-Structural checks apply to Java recipes today: every recipe must include
-`manifest.yaml`, `README.md`, `.env.example`, and one build configuration
-file (`pom.xml`, `build.gradle`, or `build.gradle.kts` — both Maven
-and Gradle are supported). No lockfile is required (Maven has no
-lockfile concept, and Gradle dependency locking is not used). You can
-submit a working `contrib/java/` recipe against those alone.
+Every Java recipe must include `manifest.yaml`, `README.md`, `.env.example`,
+and one build configuration file (`pom.xml`, `build.gradle`, or
+`build.gradle.kts`), plus `Dockerfile` (`deployable: true`) under `contrib/`
+or `AGENTS.md` under `core/`. No lockfile is required.
 
 ---
 
-← [Checklist](../../recipe-checklist.md) · [Handbook](../README.md)
+← [Docs home](../../README.md) · [Checklist](../../recipe-checklist.md) · [Handbook](../README.md) · [Anatomy](../anatomy.md)
