@@ -129,24 +129,26 @@ def _scan_string(content: str, start: int, quote_char: str) -> int:
     return i
 
 
+def _skip_string(content: str, i: int) -> int:
+    """If index `i` is at a string literal, return the index after it; else `i`."""
+    if content.startswith('"""', i):
+        end = content.find('"""', i + 3)
+        return len(content) if end == -1 else end + 3
+    if content[i] in ('"', "'"):
+        return _scan_string(content, i, content[i])
+    return i
+
+
 def _strip_comments(content: str) -> str:
     """Strip single-line (//) and multi-line (/* */) comments from Kotlin code."""
     result: list[str] = []
     i = 0
     n = len(content)
     while i < n:
-        if content.startswith('"""', i):
-            end = content.find('"""', i + 3)
-            if end == -1:
-                result.append(content[i:])
-                break
-            result.append(content[i : end + 3])
-            i = end + 3
-            continue
-        if content[i] in ('"', "'"):
-            end = _scan_string(content, i, content[i])
-            result.append(content[i:end])
-            i = end
+        next_i = _skip_string(content, i)
+        if next_i > i:
+            result.append(content[i:next_i])
+            i = next_i
             continue
         if content.startswith("//", i):
             end = content.find("\n", i + 2)
@@ -253,12 +255,9 @@ def _extract_top_level_repositories_blocks(content: str) -> list[str]:
     depth = 0
 
     while i < n:
-        if content.startswith('"""', i):
-            end = content.find('"""', i + 3)
-            i = n if end == -1 else end + 3
-            continue
-        if content[i] in ('"', "'"):
-            i = _scan_string(content, i, content[i])
+        next_i = _skip_string(content, i)
+        if next_i > i:
+            i = next_i
             continue
 
         if depth == 0:
@@ -268,12 +267,9 @@ def _extract_top_level_repositories_blocks(content: str) -> list[str]:
                 block_depth = 1
                 curr = start
                 while curr < n and block_depth > 0:
-                    if content.startswith('"""', curr):
-                        end = content.find('"""', curr + 3)
-                        curr = n if end == -1 else end + 3
-                        continue
-                    if content[curr] in ('"', "'"):
-                        curr = _scan_string(content, curr, content[curr])
+                    next_curr = _skip_string(content, curr)
+                    if next_curr > curr:
+                        curr = next_curr
                         continue
                     if content[curr] == "{":
                         block_depth += 1
