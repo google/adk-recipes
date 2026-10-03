@@ -29,9 +29,6 @@ from ..shared_libraries.config import (
 )
 from ..shared_libraries.models import DeckSpec
 
-# Define a safe base directory
-BASE_DIR = Path(".").resolve()
-
 
 async def list_available_artifacts(tool_context: ToolContext) -> list[str]:
     """Lists the filenames of all available artifacts in the session."""
@@ -151,16 +148,15 @@ async def save_presentation(
     log = get_logger("save_presentation")
     try:
         if not local_path:
-            return f"Error: The local file at '{local_path}' does not exist."
+            return "Error: No local file path provided."
 
+        base_dir = Path.cwd().resolve()
         target_path = Path(local_path).resolve()
-        if not target_path.is_relative_to(BASE_DIR):
-            raise ValueError(
-                f"Access denied: {local_path} is outside the allowed directory."
-            )
+        if not target_path.is_relative_to(base_dir):
+            return f"Error: Access denied: '{local_path}' is outside the allowed directory."
 
-        if not target_path.exists():
-            return f"Error: The local file at '{local_path}' does not exist."
+        if not target_path.is_file():
+            return f"Error: The local file at '{local_path}' does not exist or is not a file."
 
         if not new_artifact_name.lower().endswith(".pptx"):
             new_artifact_name += ".pptx"
@@ -189,9 +185,11 @@ async def save_presentation(
 
                 bucket = storage_client.bucket(gcs_bucket_name)
                 blob = bucket.blob(new_artifact_name)
-                # Run sync GCS upload in a thread
+                # Upload already-read file_bytes to GCS in a thread to prevent TOCTOU
                 await asyncio.to_thread(
-                    blob.upload_from_filename, str(target_path)
+                    blob.upload_from_string,
+                    file_bytes,
+                    content_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
                 )
                 gcs_message = (
                     f" It was also saved to GCS bucket '{gcs_bucket_name}'."
@@ -201,8 +199,6 @@ async def save_presentation(
                 gcs_message = f" However, the upload to GCS failed. Error: {e}"
 
         return f"Successfully saved the presentation as artifact '{new_artifact_name}'.{gcs_message} The user can now download it."
-    except ValueError:
-        raise
     except Exception as e:
         log.error(
             f"An unexpected error occurred during save: {e}", exc_info=True
