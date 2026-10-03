@@ -99,7 +99,7 @@ jobs:
           # NOT `--no-project`: affected_recipes.py imports PyYAML and the
           # `validate_manifest` package, both provided by the project venv
           # created by `uv sync` above.
-          CHANGED_RECIPES=$(echo "$CHANGED_FILES" | uv run python tools/affected_recipes.py --language kotlin)
+          CHANGED_RECIPES=$(echo "$CHANGED_FILES" | uv run python3 tools/affected_recipes.py --language kotlin)
 
           echo "Kotlin recipes to validate:"
           echo "$CHANGED_RECIPES"
@@ -135,7 +135,7 @@ jobs:
           done
 
           if [ ${#EXISTING_ROOTS[@]} -gt 0 ]; then
-            ALL=$(find "${EXISTING_ROOTS[@]}" -type f 2>/dev/null | uv run python tools/affected_recipes.py --language kotlin)
+            ALL=$(find "${EXISTING_ROOTS[@]}" -type f 2>/dev/null | uv run python3 tools/affected_recipes.py --language kotlin)
           else
             ALL=""
           fi
