@@ -40,11 +40,8 @@ try:
 except Exception:
     project_id = None
 
-allow_origins = (
-    os.getenv("ALLOW_ORIGINS").split(",")
-    if os.getenv("ALLOW_ORIGINS")
-    else None
-)
+raw_allow_origins = os.getenv("ALLOW_ORIGINS")
+allow_origins = raw_allow_origins.split(",") if raw_allow_origins else None
 
 AGENT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
