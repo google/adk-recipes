@@ -207,15 +207,12 @@ jobs:
               # ------------------------------------------------------------
               set +e
               uv run --no-project \
-                python3 .github/scripts/check_recipe_lint_config.py "$recipe" | sed 's/^::error file=/::notice file=/'
-              lint_cfg_exit="${PIPESTATUS[0]}"
+                python3 .github/scripts/check_recipe_lint_config.py "$recipe"
+              lint_cfg_exit=$?
               set -e
               case "$lint_cfg_exit" in
                 0) ;;
-                1)
-                  # Advisory during rollout: do NOT fail the job on exit 1.
-                  # The promotion task flips exit 1 to failing (RECIPE_FAILED=1).
-                  ;;
+                1) RECIPE_FAILED=1 ;;
                 2) CI_FAULT=1 ;;
                 *)
                   echo "::error::check_recipe_lint_config.py exited with an undefined status ($lint_cfg_exit). This is a CI tooling bug, not a problem with your recipe."
@@ -230,15 +227,12 @@ jobs:
               # ------------------------------------------------------------
               set +e
               uv run --no-project --with packaging \
-                python3 .github/scripts/check_recipe_gomod.py "$recipe" | sed 's/^::error file=/::notice file=/'
-              gomod_exit="${PIPESTATUS[0]}"
+                python3 .github/scripts/check_recipe_gomod.py "$recipe"
+              gomod_exit=$?
               set -e
               case "$gomod_exit" in
                 0) ;;
-                1)
-                  # Advisory during rollout: do NOT fail the job on exit 1.
-                  # The promotion task flips exit 1 to failing (RECIPE_FAILED=1).
-                  ;;
+                1) RECIPE_FAILED=1 ;;
                 2) CI_FAULT=1 ;;
                 *)
                   echo "::error::check_recipe_gomod.py exited with an undefined status ($gomod_exit). This is a CI tooling bug, not a problem with your recipe."
@@ -253,15 +247,12 @@ jobs:
               # ------------------------------------------------------------
               set +e
               uv run --no-project \
-                python3 .github/scripts/check_lockfile_gosum.py "$recipe" | sed 's/^::error file=/::notice file=/'
-              gosum_exit="${PIPESTATUS[0]}"
+                python3 .github/scripts/check_lockfile_gosum.py "$recipe"
+              gosum_exit=$?
               set -e
               case "$gosum_exit" in
                 0) ;;
-                1)
-                  # Advisory during rollout: do NOT fail the job on exit 1.
-                  # The promotion task flips exit 1 to failing (RECIPE_FAILED=1).
-                  ;;
+                1) RECIPE_FAILED=1 ;;
                 2) CI_FAULT=1 ;;
                 *)
                   echo "::error::check_lockfile_gosum.py exited with an undefined status ($gosum_exit). This is a CI tooling bug, not a problem with your recipe."
@@ -276,10 +267,6 @@ jobs:
               if [ "$CI_FAULT" -eq 1 ]; then
                 exit 2
               fi
-              # During advisory rollout, exit 1 from checkers does not set
-              # RECIPE_FAILED=1 so the job passes with notices. This check is
-              # preserved for when rollout completes and exit 1 is promoted to
-              # hard-failing.
               if [ "$RECIPE_FAILED" -eq 1 ]; then
                 exit 1
               fi
