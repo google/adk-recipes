@@ -20,6 +20,7 @@ from google.genai import types
 
 from app.tools.artifact_utils import (
     save_deck_spec,
+    save_presentation,
     update_slide_in_spec,
 )
 
@@ -194,3 +195,58 @@ async def test_update_slide_in_spec_not_found(mock_context):
     result = await update_slide_in_spec(mock_context, 0, {"title": "Fail"})
 
     assert result.startswith("Error: No active presentation plan found")
+
+
+# ==============================================================================
+# Tests for save_presentation
+# ==============================================================================
+
+
+async def test_save_presentation_path_traversal_restricted(mock_context):
+    """Test that path traversal attempts return access denied error."""
+    # Absolute path outside allowed directory
+    res_abs = await save_presentation(mock_context, "test.pptx", "/etc/passwd")
+    assert res_abs.startswith("Error: Access denied")
+
+    # Relative path traversal outside allowed directory
+    res_rel = await save_presentation(
+        mock_context, "test.pptx", "../../../../../etc/passwd"
+    )
+    assert res_rel.startswith("Error: Access denied")
+
+
+async def test_save_presentation_invalid_inputs(mock_context, tmp_path):
+    """Test that empty paths or directory paths return clear errors."""
+    res_empty = await save_presentation(mock_context, "test.pptx", "")
+    assert res_empty == "Error: No local file path provided."
+
+    # Subdirectory inside current directory (exists, but is not a file)
+    test_subdir = tmp_path / "subdir"
+    test_subdir.mkdir(parents=True, exist_ok=True)
+    from unittest.mock import patch
+
+    with patch("pathlib.Path.cwd", return_value=tmp_path):
+        res_dir = await save_presentation(
+            mock_context, "test.pptx", str(test_subdir)
+        )
+    assert "does not exist or is not a file" in res_dir
+
+
+async def test_save_presentation_valid_path(mock_context, tmp_path):
+    """Test save_presentation succeeds within safe directory and saves artifact."""
+    from unittest.mock import patch
+
+    test_file = tmp_path / "valid.pptx"
+    test_file.write_bytes(b"PK\x03\x04fake_presentation_content")
+
+    with patch("pathlib.Path.cwd", return_value=tmp_path):
+        result = await save_presentation(
+            mock_context, "output_deck", str(test_file)
+        )
+
+    assert "Successfully saved the presentation as artifact" in result
+    assert "output_deck.pptx" in mock_context.store
+    assert (
+        mock_context.store["output_deck.pptx"]
+        == b"PK\x03\x04fake_presentation_content"
+    )
