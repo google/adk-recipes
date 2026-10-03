@@ -20,6 +20,7 @@ from google.genai import types
 
 from app.tools.artifact_utils import (
     save_deck_spec,
+    save_presentation,
     update_slide_in_spec,
 )
 
@@ -194,3 +195,42 @@ async def test_update_slide_in_spec_not_found(mock_context):
     result = await update_slide_in_spec(mock_context, 0, {"title": "Fail"})
 
     assert result.startswith("Error: No active presentation plan found")
+
+
+# ==============================================================================
+# Tests for save_presentation
+# ==============================================================================
+
+
+async def test_save_presentation_path_traversal_restricted(mock_context):
+    """Test that path traversal attempts raise ValueError."""
+    # Absolute path outside allowed directory
+    with pytest.raises(ValueError, match="Access denied"):
+        await save_presentation(mock_context, "test.pptx", "/etc/passwd")
+
+    # Relative path traversal outside allowed directory
+    with pytest.raises(ValueError, match="Access denied"):
+        await save_presentation(
+            mock_context, "test.pptx", "../../../../../etc/passwd"
+        )
+
+
+async def test_save_presentation_valid_path(mock_context, tmp_path):
+    """Test save_presentation succeeds within safe directory and saves artifact."""
+    from unittest.mock import patch
+
+    # Use a dummy pptx in a subdirectory within the project root or patch BASE_DIR
+    test_file = tmp_path / "valid.pptx"
+    test_file.write_bytes(b"PK\x03\x04fake_presentation_content")
+
+    with patch("app.tools.artifact_utils.BASE_DIR", tmp_path):
+        result = await save_presentation(
+            mock_context, "output_deck", str(test_file)
+        )
+
+    assert "Successfully saved the presentation as artifact" in result
+    assert "output_deck.pptx" in mock_context.store
+    assert (
+        mock_context.store["output_deck.pptx"]
+        == b"PK\x03\x04fake_presentation_content"
+    )
