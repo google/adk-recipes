@@ -2,8 +2,8 @@
 
 The **Retail AI Plugin** bundles two end-to-end Google Cloud retail skills for AI coding assistants (Gemini CLI, Claude Code, Antigravity, Codex) following the [Google Agent Plugins v1.0.0 specification][spec] (`plugin.json` + `skills/<skill-name>/SKILL.md`):
 
-1. **[`retail-product-search`](./skills/product-search/)** — Semantic & hybrid e-commerce product catalog search powered by **Vector Search 2.0 on Gemini Enterprise Agent Platform**, **BigQuery**, `gemini-embedding-001` (768-dim embeddings), and `gemini-3.5-flash`.
-2. **[`retail-virtual-tryon`](./skills/virtual-tryon/)** — Generative **image and 360° catwalk video virtual try-on** across clothing, eyewear, footwear, jewelry, and cosmetics powered by **Gemini 2.5 Flash/Pro Image** (`gemini-2.5-flash-image` / `gemini-2.5-pro-image`) and **Veo 3.1** (`veo-3.1-generate-001`), with an automated pre-flight product-cutout catalog scanner.
+1. **[`retail-product-search`](./skills/product-search/)** — Semantic & hybrid e-commerce product catalog search powered by **Vector Search 2.0 on Gemini Enterprise Agent Platform**, **BigQuery**, `gemini-embedding-001` (768-dim embeddings), and `gemini-3.7-flash`.
+2. **[`retail-virtual-tryon`](./skills/virtual-tryon/)** — Generative **image and 360° catwalk video virtual try-on** across clothing, eyewear, footwear, jewelry, and cosmetics powered by **Gemini image generation models** and **Veo** (`gemini-3.7-flash` orchestration), with an automated pre-flight product-cutout catalog scanner.
 
 **Team:** `FDE/Blackbelt` · **Authors / Contributors:** Tanvi Singhal ([`@tanvisinghal-0105`](https://github.com/tanvisinghal-0105)), Gabriela ([`@gabrielahrlr`](https://github.com/gabrielahrlr)) · **License:** Apache-2.0
 
@@ -24,8 +24,8 @@ This repository provides the Retail capabilities in two complementary formats de
 
 | Skill | Directory | Key Capabilities | Google Cloud Services |
 |---|---|---|---|
-| **Retail Product Search** | [`skills/product-search/`](./skills/product-search/) | • Automated BigQuery dataset & Vector Search 2.0 collection setup (`scripts/setup.py`)<br>• Bundled 1,000-product sample catalog (`assets/sample-products.csv`) or custom CSV/BQ table ingestion<br>• Semantic, keyword, and hybrid RRF retrieval (`scripts/retrievers.py`)<br>• LLM-as-a-judge evaluation pipeline (`EVAL.yaml`) | Vector Search (Gemini Enterprise Agent Platform), BigQuery, Vertex AI (`gemini-3.5-flash`, `gemini-embedding-001`) |
-| **Retail Virtual Try-On** | [`skills/virtual-tryon/`](./skills/virtual-tryon/) | • Pre-flight Gemini vision catalog classifier (`scripts/scan_catalog.py`) that filters out model-worn photos and auto-tags clean product cutouts<br>• Multi-category still-image try-on + Veo catwalk video animation (`scripts/tryon_processor.py`)<br>• Local interactive Try-On Studio UI (`scripts/server.py`) + standalone Cloud Run app exporter (`scripts/export_app.py`) | Vertex AI (`gemini-2.5-flash-image`, `gemini-2.5-pro-image`, `veo-3.1-generate-001`, `gemini-3.5-flash`), Cloud Storage, Cloud Run |
+| **Retail Product Search** | [`skills/product-search/`](./skills/product-search/) | • Automated BigQuery dataset & Vector Search 2.0 collection setup (`scripts/setup.py`)<br>• Bundled 1,000-product sample catalog (`assets/sample-products.csv`) or custom CSV/BQ table ingestion<br>• Semantic, keyword, and hybrid RRF retrieval (`scripts/retrievers.py`)<br>• LLM-as-a-judge evaluation pipeline (`EVAL.yaml`) | Vector Search (Gemini Enterprise Agent Platform), BigQuery, Vertex AI (`gemini-3.7-flash`, `gemini-embedding-001`) |
+| **Retail Virtual Try-On** | [`skills/virtual-tryon/`](./skills/virtual-tryon/) | • Pre-flight Gemini vision catalog classifier (`scripts/scan_catalog.py`) that filters out model-worn photos and auto-tags clean product cutouts<br>• Multi-category still-image try-on + Veo catwalk video animation (`scripts/tryon_processor.py`)<br>• Local interactive Try-On Studio UI (`scripts/server.py`) + standalone Cloud Run app exporter (`scripts/export_app.py`) | Vertex AI (Gemini image models, Veo, `gemini-3.7-flash`), Cloud Storage, Cloud Run |
 
 ---
 
@@ -83,8 +83,8 @@ cd plugins/retail
 make test
 
 # Provision GCP resources for Product Search or Virtual Try-On:
-make setup-product-search PROJECT_ID=$GOOGLE_CLOUD_PROJECT
-make setup-virtual-tryon PROJECT_ID=$GOOGLE_CLOUD_PROJECT
+make setup-product-search PROJECT_ID="$GOOGLE_CLOUD_PROJECT"
+make setup-virtual-tryon PROJECT_ID="$GOOGLE_CLOUD_PROJECT"
 ```
 
 ---

@@ -24,19 +24,19 @@ surface: surface-product-search surface-virtual-tryon
 
 surface-product-search:
 	@$(MAKE) -C skills/product-search surface \
-		SURFACE_GEMINI_SKILL=$(SURFACE_GEMINI_SKILL) \
-		SURFACE_AGENTS_SKILL=$(SURFACE_AGENTS_SKILL)
+		SURFACE_GEMINI_SKILL="$(SURFACE_GEMINI_SKILL)" \
+		SURFACE_AGENTS_SKILL="$(SURFACE_AGENTS_SKILL)"
 
 surface-virtual-tryon:
 	@$(MAKE) -C skills/virtual-tryon surface \
-		SURFACE_GEMINI_SKILL=$(SURFACE_GEMINI_SKILL) \
-		SURFACE_AGENTS_SKILL=$(SURFACE_AGENTS_SKILL)
+		SURFACE_GEMINI_SKILL="$(SURFACE_GEMINI_SKILL)" \
+		SURFACE_AGENTS_SKILL="$(SURFACE_AGENTS_SKILL)"
 
 setup-product-search:
-	@$(MAKE) -C skills/product-search setup PROJECT_ID=$(PROJECT_ID) REGION=$(REGION)
+	@$(MAKE) -C skills/product-search setup PROJECT_ID="$(PROJECT_ID)" REGION="$(REGION)"
 
 setup-virtual-tryon:
-	@$(MAKE) -C skills/virtual-tryon setup PROJECT_ID=$(PROJECT_ID) REGION=$(REGION)
+	@$(MAKE) -C skills/virtual-tryon setup PROJECT_ID="$(PROJECT_ID)" REGION="$(REGION)"
 
 test:
 	cd skills/product-search && uv run pytest
