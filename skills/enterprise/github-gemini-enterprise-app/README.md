@@ -46,10 +46,21 @@ If you need to create a datastore first, see
 `core/python/rag-agent-search/infra/terraform` for a managed GCS connector
 example that provisions Agent Platform Search infrastructure.
 
+## Install the skill
+
+Install the conversational setup guide into a supported coding assistant:
+
+```bash
+npx skills add google/adk-samples --skill enterprise-github-gemini-enterprise-app
+```
+
+For the GitHub webhook service, clone the repository or use the installed
+skill's directory, then follow the configuration and running steps below.
+
 ## Installation
 
 ```bash
-cd contrib/python/github-gemini-enterprise-app
+cd skills/enterprise/github-gemini-enterprise-app
 uv sync
 cp .env.example .env
 ```
@@ -82,11 +93,12 @@ gcloud auth application-default set-quota-project "$GOOGLE_CLOUD_PROJECT"
 ## Running locally
 
 ```bash
-uv run uvicorn app.fast_api_app:app --reload --port 8080
+bash scripts/run_local.sh
 ```
 
-Expose the local server with a secure tunnel and set the GitHub App webhook URL
-to:
+The service binds to `127.0.0.1` by default. For local integration testing,
+expose it through an approved secure HTTPS tunnel and set the GitHub App
+webhook URL to:
 
 ```text
 https://<your-tunnel-host>/github/webhook
@@ -100,6 +112,10 @@ Then comment on an issue or pull request:
 
 The app verifies the webhook signature, runs the Gemini Enterprise-grounded
 agent, and posts a reply in the thread.
+
+Do not expose the service directly to the public internet. Keep the private key
+and webhook secret out of source control and configure them through protected
+environment variables or a secret manager.
 
 ## Supported events
 

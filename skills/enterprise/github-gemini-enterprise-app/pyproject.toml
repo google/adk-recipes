@@ -1,5 +1,5 @@
 [project]
-name = "github-gemini-enterprise-app"
+name = "enterprise-github-gemini-enterprise-app"
 version = "0.1.0"
 description = "A GitHub App webhook recipe that answers GitHub issue and pull-request comments with an ADK agent grounded in a Gemini Enterprise datastore through Agent Platform Search."
 authors = [{ name = "Google LLC" }]
