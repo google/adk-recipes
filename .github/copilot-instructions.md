@@ -1,4 +1,4 @@
-# Copilot instructions for `google/adk-samples`
+# Copilot instructions for `google/adk-recipes`
 
 ## Repository shape
 
@@ -10,17 +10,17 @@ audience:
   team.
 - `contrib/` contains community recipes and is the normal destination for new
   contributions.
-- `skills/<vertical>/<solution>/` contains vertical skills shipped to users.
+- `plugins/<vertical>/<solution>/` contains vertical solutions shipped to users.
   The vertical directory is required; do not flatten this path.
 
 The old language roots (`python/agents`, `java/agents`, `go/agents`,
 `kotlin/agents`, and `typescript/agents`) are retired/frozen. New or moved
-recipes belong under `core/`, `contrib/`, or `skills/`. Every active recipe
+recipes belong under `core/`, `contrib/`, or `plugins/`. Every active recipe
 has a `manifest.yaml` and `README.md`; the manifest declares its language,
 status, type, description, and real ownership team/point of contact.
 
 Repo skills in `.agents/skills/` are tooling for building and maintaining the
-repository. They are distinct from vertical skills under `skills/`; do not
+repository. They are distinct from vertical solutions under `plugins/`; do not
 mix changes to repo skills with recipe changes in one change set.
 
 ## Local setup and validation
