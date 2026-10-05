@@ -16,7 +16,6 @@
 
 import os
 
-from dotenv import load_dotenv
 from fastapi import FastAPI, Header, HTTPException, Request, status
 
 from .github_app import (
@@ -27,8 +26,6 @@ from .github_app import (
     verify_webhook_signature,
 )
 from .runner import run_agent
-
-load_dotenv()
 
 app = FastAPI(
     title="GitHub Gemini Enterprise App",
@@ -66,8 +63,8 @@ async def github_webhook(
 
     command = extract_comment_command(
         payload,
-        command_prefix=os.getenv("GITHUB_COMMAND_PREFIX", "@gemini-enterprise"),
-        app_slug=os.getenv("GITHUB_APP_SLUG"),
+        command_prefix=os.environ["GITHUB_COMMAND_PREFIX"],
+        app_slug=os.environ["GITHUB_APP_SLUG"],
     )
     if command is None:
         return {"status": "ignored"}

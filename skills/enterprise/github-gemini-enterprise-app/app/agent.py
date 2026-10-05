@@ -17,26 +17,18 @@
 import os
 from collections.abc import Callable
 
-from dotenv import load_dotenv
 from google.adk.agents import Agent
 from google.adk.apps import App
 from google.adk.models import Gemini
 from google.adk.tools import VertexAiSearchTool
 from google.genai import types
 
-load_dotenv()
-
-os.environ.setdefault("GOOGLE_GENAI_USE_VERTEXAI", "True")
-os.environ.setdefault("GOOGLE_CLOUD_LOCATION", "global")
-
 
 def build_data_store_path() -> str:
     """Build the Discovery Engine datastore path from environment values."""
     project_id = os.environ["GOOGLE_CLOUD_PROJECT"]
-    data_store_region = os.getenv("DATA_STORE_REGION", "global")
-    data_store_collection = os.getenv(
-        "DATA_STORE_COLLECTION", "default_collection"
-    )
+    data_store_region = os.environ["DATA_STORE_REGION"]
+    data_store_collection = os.environ["DATA_STORE_COLLECTION"]
     data_store_id = os.environ["DATA_STORE_ID"]
     return (
         f"projects/{project_id}/locations/{data_store_region}"
@@ -46,7 +38,7 @@ def build_data_store_path() -> str:
 
 def create_search_tool() -> VertexAiSearchTool | Callable[[str], str]:
     """Create the live datastore search tool or a deterministic test double."""
-    if os.getenv("INTEGRATION_TEST") == "TRUE":
+    if os.environ["INTEGRATION_TEST"] == "TRUE":
 
         def mock_search(query: str) -> str:
             """Return a deterministic search result for tests."""
@@ -74,7 +66,7 @@ Rules:
 root_agent = Agent(
     name="github_gemini_enterprise_agent",
     model=Gemini(
-        model=os.getenv("MODEL_NAME", "gemini-flash-latest"),
+        model=os.environ["MODEL_NAME"],
         retry_options=types.HttpRetryOptions(attempts=3),
     ),
     description=(

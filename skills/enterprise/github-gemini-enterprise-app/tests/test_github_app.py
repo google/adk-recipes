@@ -118,4 +118,5 @@ def test_comment_target_from_review_comment() -> None:
     )
 
     assert target.kind == "review"
+    assert target.number == 2
     assert target.comment_id == 456

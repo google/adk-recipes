@@ -13,3 +13,7 @@
 # limitations under the License.
 
 """GitHub App recipe grounded in a Gemini Enterprise datastore."""
+
+from dotenv import load_dotenv
+
+load_dotenv()

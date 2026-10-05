@@ -73,6 +73,7 @@ GITHUB_PRIVATE_KEY_PATH=/secure/path/github-app.private-key.pem
 GITHUB_WEBHOOK_SECRET=your-webhook-secret
 GITHUB_APP_SLUG=your-app-slug
 GITHUB_COMMAND_PREFIX=@gemini-enterprise
+GITHUB_API_URL=https://api.github.com
 
 GOOGLE_GENAI_USE_VERTEXAI=True
 GOOGLE_CLOUD_PROJECT=your-project-id
@@ -80,7 +81,7 @@ GOOGLE_CLOUD_LOCATION=global
 DATA_STORE_REGION=global
 DATA_STORE_COLLECTION=your-collection
 DATA_STORE_ID=your-data-store-id
-MODEL_NAME=gemini-flash-latest
+MODEL_NAME=gemini-3.5-flash
 ```
 
 Authenticate to Google Cloud for local development:

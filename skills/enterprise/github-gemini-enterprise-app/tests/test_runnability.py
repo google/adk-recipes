@@ -16,7 +16,12 @@
 import os
 
 os.environ.setdefault("GOOGLE_CLOUD_PROJECT", "test-project")
+os.environ.setdefault("GOOGLE_CLOUD_LOCATION", "global")
+os.environ.setdefault("GOOGLE_GENAI_USE_VERTEXAI", "True")
+os.environ.setdefault("DATA_STORE_REGION", "global")
+os.environ.setdefault("DATA_STORE_COLLECTION", "default_collection")
 os.environ.setdefault("DATA_STORE_ID", "test-data-store")
+os.environ.setdefault("MODEL_NAME", "gemini-3.5-flash")
 os.environ.setdefault("INTEGRATION_TEST", "TRUE")
 
 import app.agent

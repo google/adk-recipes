@@ -29,6 +29,7 @@ import jwt
 
 GITHUB_API_URL = "https://api.github.com"
 GITHUB_API_VERSION = "2022-11-28"
+GITHUB_HTTP_TIMEOUT_SECONDS = 30.0
 
 
 @dataclass(frozen=True)
@@ -55,7 +56,11 @@ class GitHubCommentTarget:
         if event_name == "issue_comment":
             return cls(kind="issue", number=payload["issue"]["number"])
         if event_name == "pull_request_review_comment":
-            return cls(kind="review", comment_id=payload["comment"]["id"])
+            return cls(
+                kind="review",
+                number=payload["pull_request"]["number"],
+                comment_id=payload["comment"]["id"],
+            )
         raise ValueError(f"Unsupported GitHub event: {event_name}")
 
 
@@ -154,7 +159,7 @@ class GitHubAppClient:
         return cls(
             app_id=os.environ["GITHUB_APP_ID"],
             private_key_pem=private_key,
-            api_url=os.getenv("GITHUB_API_URL", GITHUB_API_URL),
+            api_url=os.environ["GITHUB_API_URL"],
         )
 
     def _app_jwt(self) -> str:
@@ -170,17 +175,34 @@ class GitHubAppClient:
         url = (
             f"{self._api_url}/app/installations/{installation_id}/access_tokens"
         )
-        async with httpx.AsyncClient(timeout=30) as client:
+        response = await self._post_github_api(
+            url,
+            token=self._app_jwt(),
+        )
+        return str(response.json()["token"])
+
+    async def _post_github_api(
+        self,
+        url: str,
+        *,
+        token: str,
+        json_body: dict[str, str] | None = None,
+    ) -> httpx.Response:
+        """Send an authenticated POST to GitHub's API."""
+        async with httpx.AsyncClient(
+            timeout=GITHUB_HTTP_TIMEOUT_SECONDS
+        ) as client:
             response = await client.post(
                 url,
                 headers={
                     "Accept": "application/vnd.github+json",
-                    "Authorization": f"Bearer {self._app_jwt()}",
+                    "Authorization": f"Bearer {token}",
                     "X-GitHub-Api-Version": GITHUB_API_VERSION,
                 },
+                json=json_body,
             )
             response.raise_for_status()
-            return str(response.json()["token"])
+            return response
 
     async def post_comment(
         self,
@@ -200,21 +222,18 @@ class GitHubAppClient:
                 f"{target.number}/comments"
             )
         else:
-            if target.comment_id is None:
-                raise ValueError("Review reply target requires a comment ID.")
+            if target.number is None or target.comment_id is None:
+                raise ValueError(
+                    "Review reply target requires a pull request number and "
+                    "comment ID."
+                )
             url = (
-                f"{self._api_url}/repos/{repository_full_name}/pulls/comments/"
-                f"{target.comment_id}/replies"
+                f"{self._api_url}/repos/{repository_full_name}/pulls/"
+                f"{target.number}/comments/{target.comment_id}/replies"
             )
 
-        async with httpx.AsyncClient(timeout=30) as client:
-            response = await client.post(
-                url,
-                headers={
-                    "Accept": "application/vnd.github+json",
-                    "Authorization": f"Bearer {token}",
-                    "X-GitHub-Api-Version": GITHUB_API_VERSION,
-                },
-                json={"body": body},
-            )
-            response.raise_for_status()
+        await self._post_github_api(
+            url,
+            token=token,
+            json_body={"body": body},
+        )
