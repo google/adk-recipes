@@ -13,19 +13,25 @@
 # limitations under the License.
 """Runnability tests for the recipe."""
 
-import os
-from unittest.mock import MagicMock, patch
-
 
 def test_agent_runnability() -> None:
     """Verify agent.py imports and defines the expected globals."""
-    # provide a dummy GCP project and patch google.auth.default() so import-time
-    # credential lookups don't need ADC — the setup must happen before the import.
-    os.environ.setdefault("GOOGLE_CLOUD_PROJECT", "test-project")
+    import app.agent
 
-    with patch(
-        "google.auth.default", return_value=(MagicMock(), "test-project")
-    ):
-        import financial_advisor.agent
+    assert app.agent.root_agent is not None
+    assert app.agent.app is not None
 
-    assert financial_advisor.agent.root_agent is not None
+
+def test_fast_api_app_runnability() -> None:
+    """Verify fast_api_app boots and serves /list-apps and A2A agent card."""
+    from fastapi.testclient import TestClient
+
+    from app.fast_api_app import app
+
+    with TestClient(app) as client:
+        resp = client.get("/list-apps")
+        assert resp.status_code == 200
+        assert "app" in resp.json()
+
+        card_resp = client.get("/a2a/app/.well-known/agent-card.json")
+        assert card_resp.status_code == 200

@@ -36,9 +36,8 @@ import sys
 from pathlib import Path
 
 import backoff
-from kfp import compiler
-
 from data_ingestion_pipeline.pipeline import pipeline
+from kfp import compiler
 
 # Add project root to sys.path so that `import pipeline` and
 # `import utils` resolve to the shared packages at the repo root.

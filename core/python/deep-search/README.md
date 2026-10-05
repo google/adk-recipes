@@ -52,7 +52,7 @@ Use the [Google Agents CLI](https://github.com/google/agents-cli) to scaffold a 
 uvx google-agents-cli setup
 ```
 
-**Create the project from this sample** (replace `my-deep-search-agent` with your project name):
+**Create the project from this recipe** (replace `my-deep-search-agent` with your project name):
 
 ```bash
 agents-cli create my-deep-search-agent -a adk@deep-search
@@ -71,7 +71,7 @@ Your agent is now running at `http://localhost:5173`.
 ---
 
 <details>
-<summary>Alternative: Local development (run from this sample repo)</summary>
+<summary>Alternative: Local development (run from this recipe repo)</summary>
 
 ### Google AI Studio
 
@@ -81,8 +81,8 @@ You'll need a **[Google AI Studio API Key](https://aistudio.google.com/app/apike
 Clone the repository and `cd` into the project directory.
 
 ```bash
-git clone https://github.com/google/adk-samples.git
-cd adk-samples/python/agents/deep-search
+git clone https://github.com/google/adk-recipes.git
+cd adk-recipes/core/python/deep-search
 ```
 
 #### Step 2: Set Environment Variables
@@ -107,7 +107,7 @@ If you've already cloned the repository and want to use Vertex AI instead of AI 
 ```bash
 echo "GOOGLE_GENAI_USE_VERTEXAI=TRUE" >> app/.env
 echo "GOOGLE_CLOUD_PROJECT=YOUR_PROJECT_ID" >> app/.env
-echo "GOOGLE_CLOUD_LOCATION=us-central1" >> app/.env
+echo "GOOGLE_CLOUD_LOCATION=us-east1" >> app/.env
 ```
 
 Make sure you're authenticated with Google Cloud:
@@ -267,6 +267,6 @@ If you encounter issues while setting up or running this agent, here are some re
 
 ## Disclaimer
 
-This agent sample is provided for illustrative purposes only. It serves as a basic example of an agent and a foundational starting point for individuals or teams to develop their own agents.
+This agent recipe is provided for illustrative purposes only. It serves as a basic example of an agent and a foundational starting point for individuals or teams to develop their own agents.
 
-Users are solely responsible for any further development, testing, security hardening, and deployment of agents based on this sample. We recommend thorough review, testing, and the implementation of appropriate safeguards before using any derived agent in a live or critical system.
+Users are solely responsible for any further development, testing, security hardening, and deployment of agents based on this recipe. We recommend thorough review, testing, and the implementation of appropriate safeguards before using any derived agent in a live or critical system.

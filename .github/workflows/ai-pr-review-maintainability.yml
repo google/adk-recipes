@@ -45,8 +45,41 @@ on: # zizmor: ignore[dangerous-triggers]
         default: true
         type: 'boolean'
 
+# The trailing segment exists because `issue_comment` and
+# `pull_request_target` resolve the PR number to the SAME value, and so
+# without it produce the SAME group — which means ANY comment on a PR
+# cancels the review that the PR's own opening started. GitHub applies
+# `cancel-in-progress` when a run is CREATED, before the job-level `if:`
+# below is evaluated, so a comment run that goes on to skip has already
+# evicted the real one by then.
+#
+# That is not a rare race. `google-cla[bot]` comments on a first-time
+# contributor's PR within ~10 seconds of it opening, well inside the
+# ~90 seconds a review takes: on #2596 all four lanes were cancelled 13
+# seconds in, and three of them stayed that way until someone re-ran
+# them by hand. Same shape on #2577 twice and on #2582.
+#
+# So a comment run that will NOT start a review gets a group of its own,
+# keyed on its run id, where it can cancel nothing. A real invoke keeps
+# the shared group on purpose: re-invoking should supersede a review
+# that is already running, as should a synchronize.
+#
+# The condition below MUST stay the exact negation of the `issue_comment`
+# branch of the job's `if:`, all three operands of it. Testing only for
+# `@ai-review` is not a near-enough approximation: the association check
+# is what makes an invoke a maintainer's call, so without it ANY user can
+# put a comment run into the shared group — and cancel all four reviews
+# on any open PR, repeatably, by typing `@ai-review`. That hands an
+# outsider a switch for the Security lane, which is strictly worse than
+# the CLA-bot collision this segment was added to fix.
+#
+# `test_ai_workflow_hardening.py` pins the two conditions together, in
+# all four lanes. Between the `if:` and the group there are eight copies
+# of this gate in the repo, and nothing else would notice them drifting
+# apart.
 concurrency:
-  group: '${{ github.workflow }}-${{ github.event.pull_request.number || github.event.issue.number || github.event.inputs.pr_number || github.ref }}'
+  group: >-
+    ${{ github.workflow }}-${{ github.event.pull_request.number || github.event.issue.number || github.event.inputs.pr_number || github.ref }}-${{ (github.event_name == 'issue_comment' && !(github.event.issue.pull_request && contains(github.event.comment.body, '@ai-review') && contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association))) && github.run_id || '' }}
   cancel-in-progress: true
 
 permissions:
@@ -73,7 +106,11 @@ jobs:
         contains(github.event.comment.body, '@ai-review') &&
         contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association)
       )
-    uses: './.github/workflows/_ai-pr-review-core.yml'
+    # The `$/` self-repository form zizmor prefers here is unusable: the
+    # org-level `github_actions_scan.yml` runs zizmor v1.25.2, which predates
+    # `$/` support and hard-errors parsing it ("malformed `uses` ref"). Revisit
+    # once that scanner is on v1.30.0 or later.
+    uses: './.github/workflows/_ai-pr-review-core.yml' # zizmor: ignore[self-repository]
     with:
       review_label: 'Maintainability'
       event_name: '${{ github.event_name }}'
@@ -131,4 +168,3 @@ jobs:
         badly — most of all in test code.
     secrets:
       APP_PRIVATE_KEY: '${{ secrets.APP_PRIVATE_KEY }}'
-      GITHUB_TOKEN_SECRET: '${{ secrets.GITHUB_TOKEN }}'

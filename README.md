@@ -15,14 +15,19 @@ working foundation instead of a blank page.
 
 ## Try a recipe
 
-Recipes live in two places:
+Recipes live in three places:
 
 - **[`core/`](./core/)** — canonical patterns curated by the
   `agents-cli` team. Small, focused recipes that teach one thing
   well (OAuth flows, session memory, guardrails, RAG patterns).
-- **[`contrib/`](./contrib/)** — community-contributed recipes.
-  Broader in scope; each one is a self-contained example for a
-  specific use case or industry workflow.
+- **[`contrib/`](./contrib/)** — community-contributed and vertical
+  deployable agents (e.g., `contrib/python/retail-product-search`,
+  `contrib/python/retail-virtual-tryon`) that deploy to Gemini Enterprise Agent
+  Platform (Agent Engine), Gemini Enterprise (GE), Cloud Run, and Agent Garden.
+- **[`plugins/`](./plugins/)** — domain-specific vertical skill plugins
+  (e.g., `plugins/retail/skills/product-search`, `plugins/retail/skills/virtual-tryon`)
+  that ship as installable AI coding-assistant / GE Desktop skills (`SKILL.md`
+  and `EVAL.yaml`).
 
 Each recipe has its own `README.md` with setup and run
 instructions.
@@ -50,13 +55,14 @@ detail.
 **Repo skills** — the AI coding-assistant helpers used to build this
 repo (recipe scaffolding, manifest generation, pyproject alignment,
 and more) — live in [`.agents/skills/`](./.agents/skills/). Not to be
-confused with **vertical skills**, which are recipes shipped to users
-under `skills/<vertical>/<solution>/`.
+confused with **plugins**, which are recipes shipped to users
+under `plugins/<vertical>/<solution>/`.
 
 ## Getting help
 
 Open a GitHub issue at
-[github.com/google/adk-samples/issues](https://github.com/google/adk-samples/issues).
+[github.com/google/adk-recipes/issues](https://github.com/google/adk-recipes/issues)
+— for bugs, questions, or to propose a new `contrib/` recipe.
 
 ## License
 

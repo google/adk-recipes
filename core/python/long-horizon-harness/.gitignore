@@ -239,10 +239,10 @@ web/server/local-host.mjs
 # git worktrees (isolated feature workspaces)
 .worktrees/
 
-# npx skills CLI lockfiles (dev tooling, not part of the sample)
+# npx skills CLI lockfiles (dev tooling, not part of the recipe)
 skills-lock.json
 
-# Internal working notes — must never reach the public sample
+# Internal working notes — must never reach the public recipe
 /RFC.md
 /plans/
 /consolidate.py

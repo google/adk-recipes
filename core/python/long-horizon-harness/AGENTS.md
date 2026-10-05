@@ -2,7 +2,7 @@
 
 Self-improving long-horizon agent on Google ADK + Vertex AI.
 
-This file has two halves. **[Studying the sample](#what-this-sample-teaches)** is the
+This file has two halves. **[Studying the recipe](#what-this-recipe-teaches)** is the
 entry point: scan the recipe table, jump to the one pattern you want, and read the real
 function that implements it. **[Maintaining the code](#maintaining-the-code)** is the
 exhaustive view — conventions, callback order, state keys, env vars — for when you are
@@ -20,7 +20,7 @@ four bounds on context growth), and
 [`docs/security-model.md`](docs/security-model.md) (per-layer security). Don't duplicate
 those here — link to them.
 
-## What this sample teaches
+## What this recipe teaches
 
 Horizon leans on ADK + Vertex primitives; the **six interfaces** below are where custom code
 genuinely earns its keep — a real Protocol, ContextVar, or ordered callback chain, the
@@ -56,7 +56,7 @@ production code is the lesson.
 | 3-tier system prompt | `horizon/conversation/system_prompt.py` → `build_static_instruction()` (wired as `Agent(static_instruction=...)` in `horizon/agent.py`), context tier via `make_system_prompt_callback()` (volatile tail in `conversation/reminders.py`) | Copy: the constant tier rides ADK's own `Agent.static_instruction` — a pure function of `(tool_names, model_name, has_code_executor)`, built once at App-build time so ADK's request processor (`flows/llm_flows/instructions.py`) places it ahead of every callback, deterministically, instead of horizon hand-rolling a per-session `session.state` cache. The context tier (per-cwd project file) still rides a `before_model_callback` since it varies by session; the volatile tail (iteration/error/date + the env hint + secrets line) rides trailing `<system-reminder>` `Content` so the cached prefix stays byte-stable. Specific: the soul/skill tiers. | [`docs/context-budget.md`](docs/context-budget.md) |
 
 The interfaces above are taught by Horizon's **real code** — nothing to run, nothing
-that drifts. To run and adapt the sample rather than just study it, see
+that drifts. To run and adapt the recipe rather than just study it, see
 [`docs/quickstart.md`](docs/quickstart.md) (the smallest embeddable harness) and
 [`docs/extending.md`](docs/extending.md) (a custom `Environment` backend, and
 adding a route / tool / skill).
@@ -93,7 +93,7 @@ Still not exhaustive: [`docs/architecture.md`](docs/architecture.md)'s [Backend 
 3. Open its **real function** (the Start-here column); fan out to the supporting files the architecture map lists.
 4. Read its **deep-dive** doc.
 5. Only then read [Maintaining the code](#maintaining-the-code) below for exhaustive wiring (callback order, state keys).
-6. To run/adapt the sample in your own app, read [`docs/extending.md`](docs/extending.md) and [`docs/quickstart.md`](docs/quickstart.md).
+6. To run/adapt the recipe in your own app, read [`docs/extending.md`](docs/extending.md) and [`docs/quickstart.md`](docs/quickstart.md).
 
 ## What to ignore when studying
 
@@ -105,7 +105,7 @@ ADK harness interfaces this guide teaches. When studying the *interfaces*, you c
 - `tests/eval/` — LLM-behavior validation, not pattern source. (`tests/unit` + `tests/integration` show contracts.)
 - Generated/large files: `uv.lock`, `*.db`, `.venv/`, `node_modules/`.
 
-## agents-cli sample metadata
+## agents-cli recipe metadata
 
 - **name:** `horizon`
 - **one-liner:** Self-improving, long-horizon ADK agent on Google Agent Platform — per-user sandbox, cross-session memory, tool guardrails, and a between-turns self-improvement loop.

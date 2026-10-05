@@ -106,7 +106,7 @@ grep -rnE "[0-9]+ ?(files|MB|days)" docs/ .agents/skills/ --include="*.md"
 
 Review each hit: is it resolving the value from source, or asserting it? Known live
 example — `.agents/skills/generate-manifest/SKILL.md` inlines the size limits and states
-that `skills/` has none, while `policy.yml` defines them.
+that `plugins/` has none, while `policy.yml` defines them.
 
 ---
 
@@ -172,7 +172,7 @@ Neither case is CI-enforced.
 ## Check 6 — ownership that has gone stale
 
 ```bash
-grep -rn "TODO: Replace with your" --include="manifest.yaml" core/ contrib/ skills/
+grep -rn "TODO: Replace with your" --include="manifest.yaml" core/ contrib/ plugins/
 ```
 
 `tools/validate_manifest.py` already fails on the literal placeholder strings, so hits

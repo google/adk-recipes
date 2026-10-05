@@ -131,6 +131,8 @@ def pull_assets():
     Called automatically at import time. No-op when assets already exist
     (e.g. local dev with assets on disk, or Docker with COPY assets/).
     """
+    if os.getenv("INTEGRATION_TEST"):
+        return
     _pull_tar(_BACKEND_ASSETS_TAR, BACKEND_ASSETS_DIR, _BACKEND_REQUIRED)
     _pull_tar(_FRONTEND_ASSETS_TAR, FRONTEND_ASSETS_DIR, _FRONTEND_REQUIRED)
 
@@ -168,7 +170,7 @@ except Exception as e:
     logger.warning(f"Gemini client not available: {e}")
 
 # Test Vertex AI API availability at startup
-if genai_client is not None:
+if genai_client is not None and not os.getenv("INTEGRATION_TEST"):
     try:
         import google.auth
         import google.auth.transport.requests

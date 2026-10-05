@@ -4,7 +4,7 @@ version = "0.1.0"
 requires-python = ">=3.11,<3.13"
 
 dependencies = [
-    "google-adk>=1.8.0",
+    "google-adk>=2.9.0,<3.0.0",
     "python-dotenv>=1.0.0",
 ]
 

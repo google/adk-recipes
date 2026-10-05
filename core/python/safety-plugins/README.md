@@ -63,14 +63,14 @@ project with CI/CD, deployment scripts, and best practices built in.
 uvx google-agents-cli setup
 ```
 
-**Create the project from this sample** (replace `my-safety-plugins` with your project name):
+**Create the project from this recipe** (replace `my-safety-plugins` with your project name):
 
 ```bash
 agents-cli create my-safety-plugins -a adk@safety-plugins
 ```
 
 This will:
-- Copy the safety-plugins sample into a new project
+- Copy the safety-plugins recipe into a new project
 - Prompt you to select deployment options (Cloud Run, Agent Runtime, etc.)
 - Generate CI/CD pipelines and infrastructure-as-code
 - Set up a ready-to-deploy project structure
@@ -98,8 +98,8 @@ starter pack scaffolding, follow the steps below.
 
 ```bash
 # Clone this repository.
-git clone https://github.com/google/adk-samples.git
-cd adk-samples/python/agents/safety-plugins
+git clone https://github.com/google/adk-recipes.git
+cd adk-recipes/core/python/safety-plugins
 # Install the package and dependencies.
 uv sync
 ```
@@ -196,8 +196,8 @@ uv run pytest tests
 
 ## Disclaimer
 
-This agent sample is provided for illustrative purposes only and is not intended for production use. It serves as a basic example of an agent and a foundational starting point for individuals or teams to develop their own agents.
+This agent recipe is provided for illustrative purposes only and is not intended for production use. It serves as a basic example of an agent and a foundational starting point for individuals or teams to develop their own agents.
 
-This sample has not been rigorously tested, may contain bugs or limitations, and does not include features or optimizations typically required for a production environment (e.g., robust error handling, security measures, scalability, performance considerations, comprehensive logging, or advanced configuration options).
+This recipe has not been rigorously tested, may contain bugs or limitations, and does not include features or optimizations typically required for a production environment (e.g., robust error handling, security measures, scalability, performance considerations, comprehensive logging, or advanced configuration options).
 
-Users are solely responsible for any further development, testing, security hardening, and deployment of agents based on this sample. We recommend thorough review, testing, and the implementation of appropriate safeguards before using any derived agent in a live or critical system.
+Users are solely responsible for any further development, testing, security hardening, and deployment of agents based on this recipe. We recommend thorough review, testing, and the implementation of appropriate safeguards before using any derived agent in a live or critical system.

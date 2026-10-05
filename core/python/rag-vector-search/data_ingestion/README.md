@@ -9,7 +9,7 @@ You can trigger the pipeline for an initial data load or schedule it to run peri
 ## Prerequisites
 
 - `terraform` installed (for the infra step).
-- A copy of `.env.example` saved as `.env` (in the sample root) with your project, region, and collection id filled in.
+- A copy of `.env.example` saved as `.env` (in the recipe root) with your project, region, and collection id filled in.
 
 ```bash
 gcloud config set project YOUR_PROJECT_ID
@@ -17,7 +17,7 @@ gcloud config set project YOUR_PROJECT_ID
 
 ## Getting Started
 
-Run both steps from the sample root (`core/python/rag-vector-search`).
+Run both steps from the recipe root (`core/python/rag-vector-search`).
 
 1.  **Provision the collection:** Create the Vector Search 2.0 Collection (and pipeline bucket) and enable required APIs.
 

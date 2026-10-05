@@ -1,0 +1,133 @@
+name: Review Gate
+
+# Holds review requests until a pull request is ready: no failing checks and
+# no unresolved bot review threads. A reviewer requested on a PR that is not
+# ready is removed, the PR is labelled, and one comment says what to fix.
+# When the PR becomes ready, the same reviewers are re-requested
+# automatically. Checks that are still running never cause a bounce.
+#
+# All logic lives in .github/scripts/review_gate.py; the knobs live in
+# .github/review-gate-config.yml.
+#
+# WHY TWO TRIGGERS
+# ----------------
+# `pull_request_target` reacts the moment a review is requested. The
+# schedule does everything else: it notices when checks finish, when a
+# thread is resolved, and when a bounced PR turns green. Neither of the
+# obvious event triggers can do that job:
+#   - `check_suite` never fires for suites created by GitHub Actions, which
+#     is every check in this repository.
+#   - `workflow_run` needs every watched workflow listed by name, and a
+#     workflow added later without updating the list would silently never
+#     release anything.
+#   - resolving a review thread has no Actions trigger at all.
+#
+# SECURITY
+# --------
+# `pull_request_target` runs in the base repository with a write token, even
+# for fork PRs. That is required here: under `pull_request` a fork PR gets a
+# read-only token and could not have its reviewers removed. It is safe
+# because nothing from the PR is ever checked out or executed. The checkout
+# below is the base branch (the default for this event), and the script
+# reads the PR only through the API. Do not add `ref:` to the checkout.
+
+on: # zizmor: ignore[dangerous-triggers]
+  pull_request_target:
+    types: [review_requested, ready_for_review]
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: "Evaluate one PR number (blank sweeps every open PR)"
+        type: string
+        default: ""
+      dry_run:
+        description: "Report decisions without changing anything"
+        type: boolean
+        default: true
+
+permissions: {}
+
+# One run at a time across the whole repository. A sweep and a per-PR run
+# acting on the same PR concurrently could each post a first comment.
+# A queued run replaced by a newer one loses nothing: the next sweep
+# evaluates every open PR anyway.
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  gate:
+    name: Gate review requests on green CI
+    # The schedule would otherwise also run in every fork of this repository.
+    if: github.repository == 'google/adk-recipes'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      # Reading the config and the script from the base branch.
+      contents: read
+      # Removing and re-requesting reviewers.
+      pull-requests: write
+      # The gate comment and label go through the issues API.
+      issues: write
+      # Reading check runs and commit statuses on the PR head.
+      checks: read
+      statuses: read
+      # Resolving each check run to its workflow name.
+      actions: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # ratchet:astral-sh/setup-uv@v10.2.0
+        with:
+          python-version: "3.11"
+          enable-cache: false
+
+      # The repository is given the same way in both steps below: gh reads
+      # GH_REPO, and review_gate.py reads GITHUB_REPOSITORY, which Actions
+      # sets for every step. Set both explicitly so neither step depends on
+      # the checkout's git remote.
+      - name: Ensure the gate label exists
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          LABEL=$(uv run --no-project --with pyyaml python -c \
+            'import yaml; print(yaml.safe_load(open(".github/review-gate-config.yml"))["label"])')
+          gh label create "$LABEL" --force --color FBCA04 \
+            --description "Review requests held until checks pass and bot comments are resolved"
+
+      - name: Run the gate
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_PR: ${{ github.event.pull_request.number }}
+          INPUT_PR: ${{ inputs.pr }}
+          INPUT_DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          ARGS=()
+          case "$EVENT_NAME" in
+            pull_request_target) ARGS+=(--pr "$EVENT_PR") ;;
+            workflow_dispatch)
+              if [[ -n "$INPUT_PR" ]]; then
+                [[ "$INPUT_PR" =~ ^[0-9]+$ ]] || { echo "pr must be a number"; exit 1; }
+                ARGS+=(--pr "$INPUT_PR")
+              else
+                ARGS+=(--sweep)
+              fi
+              [[ "$INPUT_DRY_RUN" == "true" ]] && ARGS+=(--dry-run)
+              ;;
+            *) ARGS+=(--sweep) ;;
+          esac
+          uv run --no-project --with pyyaml python .github/scripts/review_gate.py "${ARGS[@]}"

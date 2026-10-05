@@ -1,509 +1,281 @@
-name: 🐳 Recipe Images
+name: 📦 Recipe Images
 
-# Builds the container image for every recipe declared in
-# `deployability.publish` in .github/policy.yml, and — once the registry is
-# configured — pushes it to a public Artifact Registry on merge to main.
+# Build a container image for every deployable recipe and publish it to
+# Artifact Registry.
 #
-# PUBLISHING IS INERT UNTIL THE REGISTRY VARS ARE SET
-# ---------------------------------------------------
-# The push half of this workflow is gated on three repository variables
-# (RECIPE_IMAGE_REGISTRY, RECIPE_IMAGE_WIF_PROVIDER, RECIPE_IMAGE_SA). None
-# of them exists yet: the hosting GCP project has not been chosen, and making
-# an Artifact Registry repository public needs an org-policy exception that
-# is still being sought.
+# Why this exists
+# ---------------
+# `.agents/skills/make-python-recipe-deployable` writes the files a recipe
+# needs in order to be served — Dockerfile, fast_api_app.py, and the
+# app_utils/ adapters that satisfy the Agent Engine container contract — and
+# then deliberately stops: "Image builds happen later via Cloud Build →
+# Artifact Registry." Nothing did that later step, so a recipe could be
+# marked deployable and still have no image anyone could deploy.
 #
-# So this lands and runs green doing the build half only. Turning publishing
-# on later is a repository-settings change, not a code change — which also
-# means the build path is exercised on every PR for weeks before it is first
-# asked to push anything.
+# The images matter beyond this repo. Agent Engine can deploy an agent
+# straight from a prebuilt image (`container_spec.image_uri`), which skips
+# the multi-minute per-deployment source build that App Design Center pays
+# today. That only works if a published image exists, which is what this
+# workflow guarantees.
 #
-# WHY BUILD ON PR AS WELL AS ON MERGE
-# -----------------------------------
-# If an image were only ever built after merge, every build failure would be
-# discovered on main, by someone who is no longer looking, and the
-# notification path would be the primary way anyone learned of it. Building
-# on the PR makes a merge-time failure rare and almost always
-# infrastructural.
+# Public registry, on purpose
+# ---------------------------
+# adk-recipes-registry grants roles/artifactregistry.reader to allUsers. A
+# consumer deploying one of these recipes into their own project has Agent
+# Engine pull the image with its own service agent, in a project we have
+# never heard of. Public read is what removes the otherwise unbounded set of
+# per-consumer IAM grants. These images contain only Apache-2.0 recipe code
+# already published in this repository — no secrets, no customer data.
 #
-# FORK PULL REQUESTS ARE SAFE BY CONSTRUCTION
-# -------------------------------------------
-# Nothing is pushed on a `pull_request` event, so no cloud credential is ever
-# requested for one, so a fork PR needs no secrets and can be built like any
-# other. This is `pull_request`, NOT `pull_request_target` — the latter would
-# run with repository credentials in scope of code the contributor wrote, and
-# must never be used here.
+# Three triggers, two different questions
+# ---------------------------------------
+# `push` asks "did this change break its own image?" and rebuilds only the
+# recipes the push touched. `schedule` asks a question no push can. Every one
+# of these Dockerfiles resolves its dependencies at build time, and they do
+# not even agree on a base: python:3.11-slim, python:3.12-slim,
+# python:3.13-slim and ghcr.io/astral-sh/uv:python3.11-bookworm-slim are all
+# in use today. An image that built cleanly last month can pick up a patched
+# base layer, or fail outright against a yanked release, without a single
+# commit landing. Weekly is frequent enough to surface that while it is still
+# someone's working memory, and cheap because the matrix is small.
+#
+# Images are never deleted here. Tag hygiene and retention belong to a
+# registry policy, not to the job that writes them.
 
 on:
-  pull_request:
-    paths:
-      # Recipes live under core/ and contrib/ (skills/ is out of scope for
-      # deployability). Narrower per-recipe filters are pointless: the
-      # detect job below works out which images a change actually affects,
-      # and these paths only decide whether it runs at all.
-      - "core/**"
-      - "contrib/**"
-      - ".github/policy.yml"
-      - ".github/scripts/publish_matrix.py"
-      - ".github/workflows/recipe-images.yml"
   push:
     branches:
       - main
     paths:
+      # Retired roots (python/agents, java/agents, ...) are absent on
+      # purpose; see `frozen_paths` in .github/policy.yml. They still contain
+      # Dockerfiles, and publishing from code that is closed to fixes would
+      # be worse than publishing nothing.
       - "core/**"
       - "contrib/**"
-      - ".github/policy.yml"
-      - ".github/scripts/publish_matrix.py"
+      - "plugins/**"
       - ".github/workflows/recipe-images.yml"
+      - ".github/scripts/recipe_images_matrix.py"
+  schedule:
+    # Weekly, Tuesday 04:23 UTC. Off the hour and off Monday: scheduled runs
+    # are best-effort and GitHub sheds them under scheduler load, and the
+    # contended slots are the top of the hour and the start of the week.
+    - cron: "23 4 * * 2"
   workflow_dispatch:
-    # A manual run builds every declared image. There is no meaningful diff
-    # base for one, so a "use the diff" option would be a control that
-    # silently did nothing — use `image` to narrow it instead.
     inputs:
-      image:
-        description: "Limit to one declared image name (default: all)"
+      recipe:
+        description: "Limit to one recipe path (e.g. core/python/ambient-expense-agent)"
         type: string
         required: false
+      dry_run:
+        description: "Build the images but do not push them"
+        type: boolean
+        default: false
 
-# Declared per job. At workflow level, `detect` and `gate` would inherit the
-# id-token grant that only `build` needs.
+# Declared per job. At workflow level every job would inherit `id-token:
+# write` purely because `build` needs it to mint a WIF token (zizmor
+# `excessive-permissions`).
 permissions: {}
 
 concurrency:
-  # Per PR, or per ref for push/dispatch.
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  # Superseding a PR build is free — the next push rebuilds it. Superseding a
-  # main build is not: that is the run that publishes, and cancelling it
-  # halfway could leave some images pushed and others not.
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  # Serialized per ref rather than cancelled: a half-finished matrix leaves
+  # some recipes published at the new commit and some at the old one, which
+  # is a worse state to debug than a queued run.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  WORKLOAD_IDENTITY_PROVIDER: projects/148460639759/locations/global/workloadIdentityPools/adk-samples-github-pool/providers/adk-samples-github-provider
+  SERVICE_ACCOUNT: wif-service-account@adk-samples-repo-gcp-support.iam.gserviceaccount.com
+  REGISTRY_HOST: us-west1-docker.pkg.dev
 
 jobs:
-  detect:
-    name: Detect affected images
+  matrix:
+    name: Build image matrix
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
       contents: read
     outputs:
-      matrix: ${{ steps.detect.outputs.matrix }}
-      count: ${{ steps.detect.outputs.count }}
+      matrix: ${{ steps.build.outputs.matrix }}
+      count: ${{ steps.build.outputs.count }}
+      # Computed once here rather than per matrix leg, so every image from a
+      # given run carries the same tag even if the legs straddle midnight UTC.
+      build_tag: ${{ steps.tag.outputs.value }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v4
         with:
-          # Full history so the diff below has a base commit to compare with.
-          fetch-depth: 0
           persist-credentials: false
+          # `--changed-from` diffs against the push's base commit, which has
+          # to be in the local history for the diff to mean anything.
+          fetch-depth: 0
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # ratchet:astral-sh/setup-uv@v10.0.1
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # ratchet:actions/setup-python@v7.0.0
         with:
-          python-version: "3.11"
+          python-version: "3.12"
 
-      - name: Work out which images this change affects
-        id: detect
+      - name: Compute build tag
+        id: tag
         env:
-          # Through `env:`, never interpolated into the script body. These
-          # particular values are controlled, but the rule that no `${{ }}`
-          # reaches a `run:` block is worth keeping unconditional.
-          EVENT_NAME: ${{ github.event_name }}
-          ONLY_IMAGE: ${{ github.event.inputs.image }}
-          BASE_REF: ${{ github.event.pull_request.base.ref }}
-          PUSH_BEFORE: ${{ github.event.before }}
+          SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
+          echo "value=$(date -u +%Y%m%d)-${SHA:0:12}" >> "${GITHUB_OUTPUT}"
 
-          # pipefail is load-bearing. Without it a failed `git diff` would
-          # produce an empty change list, which reads as "no images
-          # affected" — a silent green run that built nothing, on exactly
-          # the change that most needed building.
-
-          ARGS=()
-          # An explicit `if`, not `[ -n ... ] && ARGS+=(...)`. Under `set -e`
-          # a failing test in an && list is only exempt from exiting because
-          # it is not the final command — move that line to the end of the
-          # script during some later edit and it silently exits 1 on every
-          # run where the input is empty, which is every PR and every push.
-          if [ -n "${ONLY_IMAGE:-}" ]; then
-            ARGS+=(--image "$ONLY_IMAGE")
+      - name: Discover recipes with a root Dockerfile
+        id: build
+        env:
+          # A scheduled run rebuilds everything by design; only a push scopes
+          # itself to what it touched.
+          CHANGED_FROM: ${{ github.event_name == 'push' && github.event.before || '' }}
+          RECIPE: ${{ inputs.recipe }}
+        run: |
+          set -euo pipefail
+          args=()
+          if [ -n "${CHANGED_FROM}" ] && [ "${CHANGED_FROM}" != "0000000000000000000000000000000000000000" ]; then
+            args+=(--changed-from "${CHANGED_FROM}")
           fi
-
-          case "$EVENT_NAME" in
-            pull_request)
-              # NO --depth here. The checkout above used fetch-depth: 0, so
-              # every branch is already present and this only refreshes the
-              # ref. Adding --depth=1 would make the repository SHALLOW —
-              # verified, not theorised — and a shallow boundary is exactly
-              # what breaks `git merge-base` and `git diff` against a base
-              # commit that now sits beyond it.
-              git fetch --no-tags origin "$BASE_REF"
-              BASE="$(git merge-base HEAD "origin/$BASE_REF")"
-              ;;
-            push)
-              # `before` is all-zeros for a branch's first push, and points
-              # at a commit that no longer exists after a force push. Fall
-              # back rather than fail: rebuilding everything is the safe
-              # direction, building nothing is not.
-              if [ -n "${PUSH_BEFORE:-}" ] && \
-                 git cat-file -e "${PUSH_BEFORE}^{commit}" 2>/dev/null; then
-                BASE="$PUSH_BEFORE"
-              else
-                echo "No usable 'before' commit; treating as build-all."
-                BASE=""
-              fi
-              ;;
-            *)
-              # workflow_dispatch and anything added later: build everything.
-              echo "$EVENT_NAME — building every declared image."
-              BASE=""
-              ;;
-          esac
-
-          if [ -n "$BASE" ]; then
-            # Into RUNNER_TEMP, not the workspace. Scratch files written into
-            # a checkout have a way of ending up in a build context later,
-            # and this one would land next to the recipes.
-            CHANGED="$RUNNER_TEMP/changed.txt"
-            # core.quotePath=false is not cosmetic. By default git C-quotes
-            # any path with a non-ASCII byte — `core/python/x/café.md` comes
-            # out as `"core/python/x/caf\303\251.md"`, complete with the
-            # leading quote, so the prefix match against the recipe fails and
-            # the image is silently NOT rebuilt. Verified against real git.
-            git -c core.quotePath=false diff --name-only "$BASE" HEAD \
-              > "$CHANGED"
-            echo "Changed paths:"
-            sed 's/^/  /' "$CHANGED"
-            ARGS+=(--changed-from "$CHANGED")
+          if [ -n "${RECIPE}" ]; then
+            args+=(--recipe "${RECIPE}")
           fi
-
-          # The declaration is validated in full regardless of which images
-          # the diff selects, so a broken entry fails here even on a PR that
-          # does not touch it.
-          MATRIX="$(uv run --no-project --with pyyaml python3 \
-            .github/scripts/publish_matrix.py "${ARGS[@]}")"
-
-          COUNT="$(printf '%s' "$MATRIX" | python3 -c \
-            'import json,sys; print(len(json.load(sys.stdin)))')"
-
-          echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
-          echo "count=$COUNT" >> "$GITHUB_OUTPUT"
-          echo "$COUNT image(s) to build."
-          printf '%s' "$MATRIX" | python3 -m json.tool
+          matrix=$(python3 .github/scripts/recipe_images_matrix.py "${args[@]}")
+          count=$(printf '%s' "${matrix}" | python3 -c 'import json,sys; print(len(json.load(sys.stdin)["include"]))')
+          echo "matrix=${matrix}" >> "${GITHUB_OUTPUT}"
+          echo "count=${count}" >> "${GITHUB_OUTPUT}"
+          echo "Recipes to build: ${count}"
+          printf '%s' "${matrix}" | python3 -m json.tool
 
   build:
-    name: "build ${{ matrix.entry.image }}"
-    needs: detect
-    if: needs.detect.outputs.count != '0'
+    name: ${{ matrix.path }}
+    needs: matrix
+    if: needs.matrix.outputs.count != '0'
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 30
     permissions:
       contents: read
-      # For Workload Identity Federation on the publish step. Requested even
-      # when publishing is inert: the grant alone reaches nothing, and a
-      # permissions block that changes when the vars are set would make
-      # turning publishing on a code change, which is what this design
-      # exists to avoid.
+      # Minting the OIDC token that Workload Identity Federation exchanges
+      # for a short-lived Google credential. No JSON key exists anywhere.
       id-token: write
     strategy:
-      # One broken image must not hide the state of the others.
+      # One broken recipe should not hide the state of every other one.
       fail-fast: false
-      max-parallel: 3
-      matrix:
-        entry: ${{ fromJson(needs.detect.outputs.matrix) }}
+      max-parallel: 4
+      matrix: ${{ fromJSON(needs.matrix.outputs.matrix) }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v4
         with:
           persist-credentials: false
 
-      # Decided here rather than inline on each step, so the build log states
-      # plainly whether this run intends to publish. `vars` is not available
-      # in a job-level `if:`, which is the other reason this is a step.
-      - name: Decide whether this run publishes
-        id: mode
-        env:
-          REGISTRY: ${{ vars.RECIPE_IMAGE_REGISTRY }}
-          WIF_PROVIDER: ${{ vars.RECIPE_IMAGE_WIF_PROVIDER }}
-          SERVICE_ACCOUNT: ${{ vars.RECIPE_IMAGE_SA }}
-          EVENT_NAME: ${{ github.event_name }}
-          REF: ${{ github.ref }}
-        run: |
-          set -euo pipefail
-          PUBLISH=false
-          if [ -z "${REGISTRY:-}" ] || [ -z "${WIF_PROVIDER:-}" ] || \
-             [ -z "${SERVICE_ACCOUNT:-}" ]; then
-            echo "Registry variables are not set — build only."
-            echo "  (set RECIPE_IMAGE_REGISTRY, RECIPE_IMAGE_WIF_PROVIDER"
-            echo "   and RECIPE_IMAGE_SA to enable publishing)"
-          elif [ "$EVENT_NAME" != "push" ] || [ "$REF" != "refs/heads/main" ]; then
-            echo "Not a merge to main — build only."
-          else
-            echo "Publishing enabled for this run."
-            PUBLISH=true
-          fi
-          echo "publish=$PUBLISH" >> "$GITHUB_OUTPUT"
-
-      # BUILD BEFORE AUTH, deliberately.
-      #
-      # google-github-actions/auth writes a credential file into the
-      # workspace. Building first means no such file exists on disk while
-      # the build context is being read, so it cannot be captured by a
-      # `COPY` in any Dockerfile. Checkout still comes first because auth
-      # writes into the workspace that checkout would otherwise clobber.
-      - name: Build image
-        id: build
-        # The job must still go red when this fails — the "Fail the job" step
-        # below restores that. This only keeps the leg alive long enough to
-        # capture the log and classify it, which is the entire input to the
-        # report job.
-        continue-on-error: true
-        env:
-          IMAGE: ${{ matrix.entry.image }}
-          DOCKERFILE: ${{ matrix.entry.dockerfile }}
-          CONTEXT: ${{ matrix.entry.context }}
-          PLATFORMS: ${{ matrix.entry.platforms }}
-          COMMIT_SHA: ${{ github.sha }}
-          SOURCE_URL: ${{ github.server_url }}/${{ github.repository }}
-        run: |
-          # `set +e` is load-bearing — do not drop it. GitHub invokes `run:`
-          # as `bash -e {0}`, so errexit is ALREADY on and `set -uo pipefail`
-          # does not clear it. Without `set +e` a failing docker build kills
-          # the step where it stands, the `tail` below never runs, and the
-          # log tail is lost at exactly the moment it is worth reading. Same
-          # reasoning as the sync step in recipe-canary.yml.
-          set -uo pipefail
-          set +e
-
-          # Tagged with the commit SHA only. A moving tag is deliberately not
-          # produced: what a consumer should pin to is an open question with
-          # Agent Garden, and a tag published once is hard to withdraw.
-          #
-          # COMMIT_SHA is passed to every image. A Dockerfile that does not
-          # declare the ARG gets a warning from docker and nothing else,
-          # which is preferable to maintaining a per-image list of which
-          # build args each one happens to accept.
-          echo "Building $IMAGE for $PLATFORMS"
-          docker build \
-            --platform "$PLATFORMS" \
-            --file "$DOCKERFILE" \
-            --tag "local/$IMAGE:$COMMIT_SHA" \
-            --build-arg "COMMIT_SHA=$COMMIT_SHA" \
-            --label "org.opencontainers.image.source=$SOURCE_URL" \
-            --label "org.opencontainers.image.revision=$COMMIT_SHA" \
-            "$CONTEXT" > "$RUNNER_TEMP/build.log" 2>&1
-          rc=$?
-
-          # Echo it either way: on success this is the build output a reader
-          # expects to find in the job log, and on failure it is the evidence.
-          tail -80 "$RUNNER_TEMP/build.log"
-
-          if [ $rc -eq 0 ]; then
-            docker image inspect "local/$IMAGE:$COMMIT_SHA" \
-              --format 'built {{.RepoTags}} — {{.Size}} bytes'
-          fi
-          exit $rc
-
-      # Runs even when the build succeeded: the report job needs a result for
-      # every leg, not only the failing ones. A recipe absent from the results
-      # cannot be told apart from one that passed, and that is how a recovery
-      # goes unnoticed and its tracking issue stays open forever.
-      - name: Classify the result
-        if: always()
-        env:
-          IMAGE: ${{ matrix.entry.image }}
-          DOCKERFILE: ${{ matrix.entry.dockerfile }}
-          CONTEXT: ${{ matrix.entry.context }}
-          BUILD_OUTCOME: ${{ steps.build.outcome }}
-        run: |
-          set -euo pipefail
-          # Plain python3, no uv: the classify path is standard library only,
-          # so there is nothing to resolve and nothing to install.
-          python3 .github/scripts/image_build_report.py classify \
-            --image "$IMAGE" \
-            --dockerfile "$DOCKERFILE" \
-            --context "$CONTEXT" \
-            --outcome "$BUILD_OUTCOME" \
-            --log "$RUNNER_TEMP/build.log" \
-            --out "$RUNNER_TEMP/result.json"
-          cat "$RUNNER_TEMP/result.json"
-
-      - name: Upload result
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # ratchet:actions/upload-artifact@v7.0.1
-        with:
-          name: image-result-${{ strategy.job-index }}
-          path: ${{ runner.temp }}/result.json
-          retention-days: 7
-
-      # `token_format: access_token` rather than the default credential file,
-      # and no setup-gcloud step. Two reasons: the only cloud operation here
-      # is a registry login, which `docker login` does natively with an OAuth
-      # token; and a short-lived token held in the step environment never
-      # becomes a credential FILE sitting in the workspace, where a later
-      # `COPY` could sweep it into a published layer.
       - name: Authenticate to Google Cloud
         id: auth
-        if: steps.mode.outputs.publish == 'true'
-        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # ratchet:google-github-actions/auth@v3.0.0
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # ratchet:google-github-actions/auth@v3
         with:
-          workload_identity_provider: ${{ vars.RECIPE_IMAGE_WIF_PROVIDER }}
-          service_account: ${{ vars.RECIPE_IMAGE_SA }}
+          workload_identity_provider: ${{ env.WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ env.SERVICE_ACCOUNT }}
           token_format: access_token
-          create_credentials_file: false
 
-      - name: Push image
-        if: steps.mode.outputs.publish == 'true'
+      - name: Log in to Artifact Registry
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # ratchet:docker/login-action@v4.6.0
+        with:
+          registry: ${{ env.REGISTRY_HOST }}
+          username: oauth2accesstoken
+          password: ${{ steps.auth.outputs.access_token }}
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # ratchet:docker/setup-buildx-action@v4.4.1
+
+      - name: Build and push
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # ratchet:docker/build-push-action@v7.4.0
+        with:
+          context: ${{ matrix.path }}
+          file: ${{ matrix.path }}/Dockerfile
+          # Docker v2 media types, not OCI: Agent Engine fails to start an
+          # OCI-manifest image deployed through container_spec, while the same
+          # image as Docker v2 deploys. `outputs` replaces `push` to set this.
+          outputs: type=image,push=${{ !inputs.dry_run }},oci-mediatypes=false
+          # `latest` for humans and for docs that cannot chase a digest.
+          #
+          # The pinnable tag is date-and-commit, not commit alone. The weekly
+          # rebuild runs against an unchanged HEAD and produces a genuinely
+          # different image — that is the whole point of it, since these
+          # Dockerfiles resolve dependencies and base layers at build time —
+          # so a bare `:<sha>` would be rewritten every Tuesday and would not
+          # mean what a commit-shaped tag implies. Dating it keeps every
+          # published image immutable and still traceable to its source.
+          tags: |
+            ${{ matrix.image }}:latest
+            ${{ matrix.image }}:${{ needs.matrix.outputs.build_tag }}
+          build-args: |
+            AGENT_VERSION=${{ github.sha }}
+          # Must stay false with oci-mediatypes=false: BuildKit fails the build
+          # with "cannot export attestations with oci-mediatypes=false".
+          provenance: false
+          # Shared across runs of the same recipe, not across recipes: these
+          # images share a base layer but nothing above it, and a common
+          # scope would have them evicting each other's dependency layers.
+          cache-from: type=gha,scope=${{ matrix.path }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.path }}
+
+      # Only on a run that pushed. The build exports straight to the registry
+      # (`outputs: type=image`), so nothing is loaded into the local daemon
+      # and a dry run leaves Trivy with no image to resolve.
+      - name: Scan image with Trivy
+        if: ${{ !inputs.dry_run }}
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # ratchet:aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ${{ matrix.image }}:${{ needs.matrix.outputs.build_tag }}
+          format: table
+          output: ${{ runner.temp }}/trivy.txt
+          # Report, do not gate. These findings are overwhelmingly in the base
+          # image and not fixable by the recipe, and this job publishes to
+          # Artifact Registry — failing here would stop shipping a recipe over
+          # something its author cannot act on.
+          exit-code: 0
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: CRITICAL,HIGH
+
+      # Without this the scan reaches only the raw log of a scheduled run,
+      # which nobody opens. `exit-code: 0` means the table IS the whole output
+      # of the step, so it has to land somewhere a person will actually see.
+      - name: Publish Trivy findings to the run summary
+        if: ${{ !inputs.dry_run }}
         env:
-          IMAGE: ${{ matrix.entry.image }}
-          REGISTRY: ${{ vars.RECIPE_IMAGE_REGISTRY }}
-          COMMIT_SHA: ${{ github.sha }}
-          ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
+          IMAGE: ${{ matrix.image }}
+          BUILD_TAG: ${{ needs.matrix.outputs.build_tag }}
+          TRIVY_REPORT: ${{ runner.temp }}/trivy.txt
         run: |
           set -euo pipefail
-          # The registry host is the first path segment of the repository,
-          # e.g. us-central1-docker.pkg.dev from
-          # us-central1-docker.pkg.dev/<project>/<repo>.
-          HOST="${REGISTRY%%/*}"
-          # --password-stdin so the token never appears in a process listing
-          # or in the command echoed by `set -x`.
-          printf '%s' "$ACCESS_TOKEN" | \
-            docker login -u oauth2accesstoken --password-stdin "https://$HOST"
-          docker tag "local/$IMAGE:$COMMIT_SHA" "$REGISTRY/$IMAGE:$COMMIT_SHA"
-          docker push "$REGISTRY/$IMAGE:$COMMIT_SHA"
-          echo "Pushed $REGISTRY/$IMAGE:$COMMIT_SHA"
-
-      - name: Log out of the registry
-        if: always() && steps.mode.outputs.publish == 'true'
-        env:
-          REGISTRY: ${{ vars.RECIPE_IMAGE_REGISTRY }}
-        run: docker logout "https://${REGISTRY%%/*}" || true
-
-      - name: Summary
-        if: always()
-        env:
-          IMAGE: ${{ matrix.entry.image }}
-          DOCKERFILE: ${{ matrix.entry.dockerfile }}
-          PUBLISHED: ${{ steps.mode.outputs.publish }}
-        run: |
           {
-            echo "### $IMAGE"
+            echo "### Trivy — ${IMAGE}:${BUILD_TAG}"
             echo ""
-            echo "- Dockerfile: \`$DOCKERFILE\`"
-            if [ "${PUBLISHED:-false}" = "true" ]; then
-              echo "- Published: yes"
+            if [ ! -s "${TRIVY_REPORT}" ]; then
+              echo "Trivy produced no report file."
             else
-              echo "- Published: no (build only)"
+              echo '```'
+              cat "${TRIVY_REPORT}"
+              echo '```'
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
-      # Restores the failure that `continue-on-error` on the build step
-      # suppressed. Without this the leg reports success, the gate aggregates
-      # three successes, and a branch-protection check goes green over an
-      # image that did not build — the exact silent-green this pipeline is
-      # built to prevent. It runs last so the log, the classification and the
-      # artifact are all safely captured first.
-      - name: Fail the job if the build failed
-        if: always() && steps.build.outcome == 'failure'
-        env:
-          IMAGE: ${{ matrix.entry.image }}
-        run: |
-          echo "::error::$IMAGE failed to build. See the 'Build image' step."
-          exit 1
-
-  # Tells a human that a recipe image broke. Separate from the gate because
-  # the two answer different questions: the gate answers "is this branch
-  # healthy" for branch protection, this answers "who needs to know".
-  #
-  # Only on a merge to main. On a pull request the author is already looking
-  # at the failing check, and a bot comment repeating it is noise.
-  report:
-    name: Report build failures
-    needs: [detect, build]
-    # `needs.build.result != 'skipped'` is not redundant with the rest. Most
-    # merges that trigger this workflow affect NO declared image — a change
-    # under core/ to a recipe that publishes nothing is the common case — and
-    # then `build` is skipped, no artifacts exist, and this job would go red
-    # on an ordinary merge for having nothing to read. A reporter that cries
-    # wolf on healthy merges gets muted, taking the real reports with it.
-    if: >-
-      !cancelled()
-      && github.event_name == 'push'
-      && github.ref == 'refs/heads/main'
-      && needs.detect.result == 'success'
-      && needs.build.result != 'skipped'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      contents: read
-      # To comment on the merged pull request, and to open a tracking issue
-      # when the same image fails twice running. Deliberately the only job
-      # in this workflow that can write anything to the repository, and it
-      # takes no part in building — so nothing a Dockerfile does happens in
-      # a job holding these.
-      issues: write
-      pull-requests: write
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v4
-        with:
-          persist-credentials: false
-
-      - name: Download results
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # ratchet:actions/download-artifact@v8.0.1
-        with:
-          pattern: image-result-*
-          path: ${{ runner.temp }}/results
-          merge-multiple: false
-
       - name: Report
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          COMMIT_SHA: ${{ github.sha }}
-          RUN_ID: ${{ github.run_id }}
-          RUN_URL: >-
-            ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{
-            github.run_id }}
+          IMAGE: ${{ matrix.image }}
+          BUILD_TAG: ${{ needs.matrix.outputs.build_tag }}
+          DRY_RUN: ${{ inputs.dry_run }}
         run: |
           set -euo pipefail
-          python3 .github/scripts/image_build_report.py report \
-            --results "$RUNNER_TEMP/results" \
-            --run-url "$RUN_URL" \
-            --run-id "$RUN_ID" \
-            --sha "$COMMIT_SHA"
-
-  # Branch-protection gate. `if: always()` so the required check still
-  # reports when detect or build was skipped or cancelled — a skipped
-  # required check is often treated as passing, which is the silent-green
-  # failure this guards against.
-  gate:
-    name: Recipe image results
-    needs: [detect, build]
-    if: always()
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - name: Check results
-        env:
-          DETECT_RESULT: ${{ needs.detect.result }}
-          BUILD_RESULT: ${{ needs.build.result }}
-          COUNT: ${{ needs.detect.outputs.count }}
-        run: |
-          set -euo pipefail
-
-          if [ "$DETECT_RESULT" != "success" ]; then
-            echo "::error::Could not work out which recipe images this change affects (detect: $DETECT_RESULT), so nothing was built. Either the publish declaration in .github/policy.yml is invalid, or this is a CI tooling failure — the detect job log says which."
-            exit 1
-          fi
-
-          case "$BUILD_RESULT" in
-            success)
-              echo "All $COUNT recipe image(s) built."
-              ;;
-            skipped)
-              echo "No recipe images affected by this change — gate passes."
-              ;;
-            *)
-              echo "::error::One or more recipe images failed to build (build: $BUILD_RESULT). This gate reports the aggregate — open the red 'build <image>' job above for the actual docker output."
-              exit 1
-              ;;
-          esac
+          {
+            echo "### ${IMAGE}"
+            if [ "${DRY_RUN}" = "true" ]; then
+              echo "Built, not pushed (dry run)."
+            else
+              echo '```'
+              echo "${IMAGE}:latest"
+              echo "${IMAGE}:${BUILD_TAG}"
+              echo '```'
+            fi
+          } >> "${GITHUB_STEP_SUMMARY}"

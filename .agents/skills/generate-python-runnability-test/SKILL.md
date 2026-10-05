@@ -20,7 +20,7 @@ metadata:
 
 # Generate Python Runnability Test
 
-Use this skill to create the `tests/test_runnability.py` file that every Python recipe under `core/python/`, `contrib/python/`, or `skills/<vertical>/<solution>/` must ship (see `python-validate-recipe.yml` Check 4). The generated test is deliberately minimal — it just verifies the agent module imports and defines the expected globals. Business-logic testing lives elsewhere.
+Use this skill to create the `tests/test_runnability.py` file that every Python recipe under `core/python/`, `contrib/python/`, or `plugins/<vertical>/<solution>/` must ship (see `python-validate-recipe.yml` Check 4). The generated test is deliberately minimal — it just verifies the agent module imports and defines the expected globals. Business-logic testing lives elsewhere.
 
 ---
 
@@ -56,7 +56,7 @@ Runs `scripts/generate_runnability_test.py` against a recipe directory. Steps:
 
    A `tests/conftest.py` is judged by AST, not text search: it counts only if it really touches `sys.path`, so a comment or docstring that merely *mentions* `sys.path` cannot wrongly certify it.
 
-   **Historical bug closed by this:** the recipe root being importable was assumed rather than checked. A recipe with no `[build-system]` — common for vertical skills under `skills/`, where code lives in a plain `scripts/` directory rather than an installed package — got a test that always died with `ModuleNotFoundError`, while `prepare-python-recipe`'s `py_compile` verification still reported success.
+   **Historical bug closed by this:** the recipe root being importable was assumed rather than checked. A recipe with no `[build-system]` — common for vertical plugins under `plugins/`, where code lives in a plain `scripts/` directory rather than an installed package — got a test that always died with `ModuleNotFoundError`, while `prepare-python-recipe`'s `py_compile` verification still reported success.
 
    Adding a `[build-system]` is the better fix; the generated conftest says so and tells the maintainer to delete it once they do.
 
@@ -76,7 +76,7 @@ Runs `scripts/generate_runnability_test.py` against a recipe directory. Steps:
 
 1. **Always use the script — never hand-write `tests/test_runnability.py` yourself.** The skill exists to keep the boilerplate consistent across recipes.
 
-2. **Ask for the recipe directory** if the user hasn't given one. Recipe roots live under `core/python/<name>/`, `contrib/python/<name>/`, or `skills/<vertical>/<solution>/`.
+2. **Ask for the recipe directory** if the user hasn't given one. Recipe roots live under `core/python/<name>/`, `contrib/python/<name>/`, or `plugins/<vertical>/<solution>/`.
 
 3. **Always start with `--dry-run`** unless the user has explicitly said "apply", "generate it", "just do it", or equivalent. Show them what would land before writing.
 
@@ -102,7 +102,7 @@ Runs `scripts/generate_runnability_test.py` against a recipe directory. Steps:
 
 | Field | Required | Description |
 |---|---|---|
-| `--recipe-dir` | Yes | Path to the recipe root (e.g. `core/python/cross-session-memory`, `contrib/python/my-recipe`, `skills/retail/store-ops`). |
+| `--recipe-dir` | Yes | Path to the recipe root (e.g. `core/python/cross-session-memory`, `contrib/python/my-recipe`, `plugins/retail/store-ops`). |
 | `--dry-run` | No | Print the JSON report (with the generated content in `test_content`) without writing any file. |
 | `--overwrite` | No | Overwrite an existing `tests/test_runnability.py`. Default: refuse and exit 1. |
 | `--agent-file` | No | Override auto-detection of the entry-point file. Path is relative to `--recipe-dir` (or absolute). Use when the recipe uses a non-standard layout (rare — <2% of recipes). |

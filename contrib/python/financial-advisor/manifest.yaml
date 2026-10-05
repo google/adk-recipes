@@ -1,9 +1,9 @@
 type: "standalone"    # Options: [standalone | module]
 status: "active"      # Options: [active | inactive]
 language: "python"    # Options: [python | java | go | kotlin | typescript]
+deployable: true
 description: "Multi-agent financial advisor that analyzes tickers and proposes trading, execution, and risk plans."   # TODO: review and expand this draft description
 
-# deployable: true   # (optional) one-command deploy, no manual steps; omit if false (default)
 # large: true        # (optional) opt into the relaxed size tier; see .github/policy.yml (recipe_size_limits) for the exact numbers; omit if false (default)
 
 architecture:

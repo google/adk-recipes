@@ -32,6 +32,7 @@ from collections.abc import Callable
 logger = logging.getLogger(__name__)
 
 _TOKENINFO_URL = "https://oauth2.googleapis.com/tokeninfo"
+_TOKENINFO_TIMEOUT = 10.0  # seconds; tight timeout for synchronous per-request token verification
 _CACHE_MAX_TTL = (
     300.0  # cap cache entries at 5 min even if the token lives longer
 )
@@ -48,7 +49,7 @@ class OAuthVerifyError(Exception):
 
 
 def _default_get(url: str) -> dict:
-    with urllib.request.urlopen(url, timeout=10) as resp:
+    with urllib.request.urlopen(url, timeout=_TOKENINFO_TIMEOUT) as resp:  # noqa: S310 -- https URL with timeout
         return json.loads(resp.read())
 
 

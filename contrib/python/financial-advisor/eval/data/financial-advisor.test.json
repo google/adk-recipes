@@ -88,7 +88,7 @@
         }
       ],
       "session_input": {
-        "app_name": "financial_advisor",
+        "app_name": "app",
         "user_id": "user",
         "state": {}
       },

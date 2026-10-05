@@ -25,7 +25,7 @@ its own — the interpreter moves underneath it.
 
 Scope
 -----
-Python recipes under core/, contrib/ and skills/, discovered by manifest.yaml
+Python recipes under core/, contrib/ and plugins/, discovered by manifest.yaml
 declaring `language: python`. Recipes marked `status: inactive` are INCLUDED:
 a recipe on the retirement path still needs to be noticed if it starts
 passing again, and skipping it would make "fixed but never reactivated"
@@ -42,13 +42,12 @@ import argparse
 import json
 import re
 import sys
-from pathlib import Path
-
 import tomllib
+from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
-SCAN_ROOTS = ["core", "contrib", "skills"]
+SCAN_ROOTS = ["core", "contrib", "plugins"]
 
 SKIP_DIRS = {
     ".venv",
@@ -74,19 +73,10 @@ MAX_TESTABLE_MINOR = 13
 
 # Recipes the canary deliberately does not run.
 #
-# core/rag-agent-search and core/rag-vector-search are legacy flat-path
-# duplicates of their core/python/* counterparts — same recipe, maintained in
-# parallel, scheduled for deletion. Running both copies files two issues for
-# one problem and @-mentions the owner twice.
-#
-# REMOVE THESE ENTRIES when the duplicates are deleted. If the paths are gone
-# and these lines remain they are merely dead, but a stale skip that silently
-# matched a real recipe would not be, so the accompanying test asserts every
-# entry still exists.
-SKIP_RECIPES = {
-    "core/rag-agent-search",
-    "core/rag-vector-search",
-}
+# Empty since #2653 deleted the legacy flat-path duplicates it held. A stale
+# skip that silently matched a live recipe would hide it from the canary
+# forever, so the accompanying test asserts every entry still exists.
+SKIP_RECIPES: set[str] = set()
 
 # GitHub fails a workflow outright above 256 matrix jobs.
 MAX_MATRIX_JOBS = 256

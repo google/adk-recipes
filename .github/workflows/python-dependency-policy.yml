@@ -13,8 +13,8 @@ on:
       - 'core/**/pyproject.toml'
       - 'contrib/**/uv.lock'
       - 'contrib/**/pyproject.toml'
-      - 'skills/**/uv.lock'
-      - 'skills/**/pyproject.toml'
+      - 'plugins/**/uv.lock'
+      - 'plugins/**/pyproject.toml'
       - '.github/workflows/python-dependency-policy.yml'
       - '.github/scripts/check_lockfile_hashes.py'
   push:
@@ -27,8 +27,8 @@ on:
       - 'core/**/pyproject.toml'
       - 'contrib/**/uv.lock'
       - 'contrib/**/pyproject.toml'
-      - 'skills/**/uv.lock'
-      - 'skills/**/pyproject.toml'
+      - 'plugins/**/uv.lock'
+      - 'plugins/**/pyproject.toml'
       - '.github/workflows/python-dependency-policy.yml'
       - '.github/scripts/check_lockfile_hashes.py'
   workflow_dispatch:
@@ -55,18 +55,19 @@ jobs:
     # list) are derived from this one value.
     #
     # Deriving rather than duplicating is deliberate: this list was
-    # previously hardcoded at six separate sites, and when skills/ was
+    # previously hardcoded at six separate sites, and when plugins/ was
     # added to `on.paths` above, those six were missed. The result was a
-    # workflow that triggered on skills/ lockfiles and then validated
+    # workflow that triggered on plugins/ lockfiles and then validated
     # nothing while still reporting success.
     env:
-      RECIPE_ROOTS: "core contrib skills"
+      RECIPE_ROOTS: "core contrib plugins"
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Install uv
         # SHA-pinned for consistency with actions/checkout above; both actions
@@ -74,7 +75,7 @@ jobs:
         # python-version is set here so that `python3` in the hash-check step
         # (which uses stdlib tomllib, available since 3.11) always resolves to
         # a known-good interpreter.
-        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # ratchet:astral-sh/setup-uv@v10.0.1
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # ratchet:astral-sh/setup-uv@v10.2.0
         with:
           python-version: "3.11"
 
@@ -109,7 +110,7 @@ jobs:
           LOCKFILES_FILE="${RUNNER_TEMP}/lockfiles.txt"
 
           # Derive both matcher forms from the single RECIPE_ROOTS value.
-          ROOTS_RE="${RECIPE_ROOTS// /|}"      # core|contrib|skills
+          ROOTS_RE="${RECIPE_ROOTS// /|}"      # core|contrib|plugins
           read -ra ROOTS <<< "$RECIPE_ROOTS"
 
           # Only hand `find` roots that actually exist. find errors on a
@@ -195,14 +196,49 @@ jobs:
           set -euo pipefail
 
           FAILED=0
-          ALLOW_PATTERN='pypi\.org|files\.pythonhosted\.org'
 
           while IFS= read -r lockfile; do
-            # Two-stage grep: first find all url/registry lines with an HTTPS URL,
-            # then reject lines that match the allowlist.
-            MATCHES=$(grep -En "(url|registry)\s*=" "$lockfile" | \
-              grep -E "https?://" | \
-              grep -Ev "($ALLOW_PATTERN)" || true)
+            # Each URL is extracted and tested SEPARATELY, rather than
+            # accepting or rejecting a whole line.
+            #
+            # Two defects in the previous form, both of which let a
+            # non-public registry through:
+            #
+            #  1. The pattern was the bare alternation `pypi\.org|...`
+            #     matched anywhere on the line, so any URL that merely
+            #     CONTAINED an allowed string passed:
+            #       https://pypi.org.attacker.example/simple   (host prefix)
+            #       https://internal.example/?m=files.pythonhosted.org (query)
+            #     The fix is to anchor at the start of the URL token and
+            #     require a `:` or `/` delimiter (or end) after the host.
+            #
+            #  2. Anchoring alone is still not enough while the decision is
+            #     line-scoped, because `grep -Ev` drops a line as soon as
+            #     ANYTHING on it matches. A line carrying both a disallowed
+            #     and an allowed URL passes, and uv.lock is TOML, which takes
+            #     trailing comments:
+            #       url = "https://evil.example/x"  # https://pypi.org/simple
+            #     A hand-edited lockfile is exactly the threat model here —
+            #     uv would never emit that — so the per-URL loop matters.
+            #
+            # awk rather than a shell loop for speed: a `grep` per URL spawns
+            # hundreds of thousands of processes across the repo's 44
+            # lockfiles and does not finish inside the job timeout. This is
+            # one process per file and completes in about a second for all
+            # of them. \047 is a single quote, which keeps the whole program
+            # quotable in single quotes.
+            MATCHES=$(awk '
+              /(url|registry)[[:space:]]*=/ {
+                rest = $0
+                while (match(rest, /https?:\/\/[^"\047[:space:],]+/)) {
+                  url = substr(rest, RSTART, RLENGTH)
+                  if (url !~ /^https?:\/\/([^\/@]*@)?(pypi\.org|files\.pythonhosted\.org)([:\/]|$)/) {
+                    printf "%d:%s\n", FNR, url
+                  }
+                  rest = substr(rest, RSTART + RLENGTH)
+                }
+              }
+            ' "$lockfile")
             if [ -n "$MATCHES" ]; then
               echo "[FAIL] $lockfile contains non-PyPI registry URLs:"
               echo "$MATCHES" | sed 's/^/  /'

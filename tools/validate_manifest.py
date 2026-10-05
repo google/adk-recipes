@@ -19,7 +19,7 @@ Usage:
   python3 tools/validate_manifest.py contrib
 
   # Validate a single recipe:
-  python3 tools/validate_manifest.py core/rag-agent-search
+  python3 tools/validate_manifest.py core/python/rag-agent-search
 
   Dependencies are managed in pyproject.toml. Run `uv sync` once before using.
 
@@ -45,16 +45,16 @@ from ci_message import (
     guard,
     report,
 )
+from jsonschema.validators import validator_for
 
 REPO_ROOT = Path(__file__).parent.parent
 SCHEMA_PATH = REPO_ROOT / ".github" / "schemas" / "manifest-schema.json"
+PLUGIN_SCHEMA_PATH = REPO_ROOT / ".github" / "schemas" / "plugin-schema.json"
 MANIFEST_FILENAME = "manifest.yaml"
-# Top-level directories that may hold recipes. `skills/` is scaffolded ahead
-# of that folder actually existing on disk — _collect_root() prints a
-# harmless [SKIP] line when the directory is missing, so listing it here is
-# safe today and lets the validation tooling pick up skills the moment they
-# land without another code change.
-RECIPE_ROOTS = ["core", "contrib", "skills"]
+PLUGIN_FILENAME = "plugin.json"
+# Top-level directories that may hold recipes.
+RECIPE_ROOTS = ["core", "contrib", "plugins"]
+CONTRIB_ROOT = "contrib"
 
 OWNERSHIP_TEAM_PLACEHOLDER = "TODO: Replace with your team name"
 OWNERSHIP_POC_PLACEHOLDER = "TODO: Replace with your GitHub user ID"
@@ -74,25 +74,32 @@ AUTHORING_DOCS = (
 
 # Roots whose second path component is ALWAYS a namespace, whatever it is
 # called. core/ and contrib/ take an OPTIONAL language namespace, matched by
-# name against LANGUAGE_NAMESPACE_DIRS. skills/ takes a MANDATORY vertical
+# name against LANGUAGE_NAMESPACE_DIRS. plugins/ takes a MANDATORY vertical
 # (retail/, hr/, finance/ …) whose name is free-form, so it can only be
 # recognised by position:
 #
 #     core/<language>/<recipe>   or   core/<recipe>
-#     skills/<vertical>/<solution>
+#     plugins/<vertical>/<solution>
 #
 # The vertical surfaces ownership — it lets a team see its whole surface at
 # a glance — so it is part of the layout rather than a value we enumerate.
-NAMESPACE_REQUIRED_ROOTS = {"skills"}
+NAMESPACE_REQUIRED_ROOTS = {"plugins"}
 
 
-def is_namespace_path(parts: list[str]) -> bool:
+def is_plugin_container(path: Path) -> bool:
+    """Return True if path is a directory containing plugin.json."""
+    return path.is_dir() and (path / PLUGIN_FILENAME).is_file()
+
+
+def is_namespace_path(parts: list[str], repo_root: Path | None = None) -> bool:
     """True if these repo-relative path components identify a namespace
     directory — a container of recipes — rather than a recipe itself.
 
     Depth matters: only the component directly under a recipe root can be a
-    namespace, which is what keeps `skills/retail` (a vertical) distinct
-    from `skills/retail/store-ops` (a solution).
+    namespace, which is what keeps `plugins/retail` (a vertical) distinct
+    from `plugins/retail/store-ops` (a solution). If a directory under plugins/
+    has a plugin.json, it is a spec-compliant plugin container rather than a
+    namespace.
     """
     if len(parts) != 2:
         return False
@@ -100,6 +107,9 @@ def is_namespace_path(parts: list[str]) -> bool:
     if root not in RECIPE_ROOTS:
         return False
     if root in NAMESPACE_REQUIRED_ROOTS:
+        base = Path(repo_root) if repo_root is not None else REPO_ROOT
+        if is_plugin_container(base / root / name):
+            return False
         return True
     return name in LANGUAGE_NAMESPACE_DIRS
 
@@ -109,10 +119,15 @@ def is_recipe_dir(path: Path) -> bool:
     more than just a README.md, and is not a language namespace directory."""
     if not path.is_dir() or path.name.startswith("."):
         return False
+    # A spec-compliant plugin container is a valid recipe/plugin directory.
+    if (path / PLUGIN_FILENAME).is_file():
+        return True
     # Language namespace dirs (e.g. core/python/) are not recipes themselves;
     # they are containers whose children are the actual recipes.
     if path.name in LANGUAGE_NAMESPACE_DIRS:
         return False
+    if (path / MANIFEST_FILENAME).is_file():
+        return True
     children = [
         p
         for p in path.iterdir()
@@ -133,6 +148,11 @@ def is_recipe_dir(path: Path) -> bool:
 
 def load_schema() -> dict:
     with open(SCHEMA_PATH, encoding="utf-8") as f:
+        return json.load(f)
+
+
+def load_plugin_schema() -> dict:
+    with open(PLUGIN_SCHEMA_PATH, encoding="utf-8") as f:
         return json.load(f)
 
 
@@ -181,7 +201,9 @@ def _did_you_mean(name: str, candidates: list[str]) -> str:
     return f"Did you mean '{match[0]}'? " if match else ""
 
 
-def _additional_properties(err) -> tuple[str, str, str]:
+def _additional_properties(
+    err, filename: str = MANIFEST_FILENAME
+) -> tuple[str, str, str]:
     allowed = sorted((err.schema or {}).get("properties") or {})
     instance = err.instance if isinstance(err.instance, dict) else {}
     extras = [k for k in instance if k not in allowed] or ["(unknown)"]
@@ -189,7 +211,7 @@ def _additional_properties(err) -> tuple[str, str, str]:
     listed = ", ".join(f"'{k}'" for k in extras)
     what = (
         f"Unrecognised field{'s' if len(extras) > 1 else ''} "
-        f"{listed} at the {where} of {MANIFEST_FILENAME}."
+        f"{listed} at the {where} of {filename}."
     )
     why = (
         f"The manifest schema is closed (additionalProperties: false at "
@@ -204,7 +226,9 @@ def _additional_properties(err) -> tuple[str, str, str]:
     return what, why, how
 
 
-def _bound(err) -> tuple[str, str, str] | None:
+def _bound(
+    err, schema_name: str = SCHEMA_PATH.name
+) -> tuple[str, str, str] | None:
     """Threshold-style failures — the ones worth printing the number for."""
     label = _field_label(err.json_path)
     limit = err.validator_value
@@ -233,7 +257,7 @@ def _bound(err) -> tuple[str, str, str] | None:
         return None
 
     why = (
-        f"{SCHEMA_PATH.name} sets {kind}: {limit} on {label}. Current "
+        f"{schema_name} sets {kind}: {limit} on {label}. Current "
         f"value: {_quote(err.instance)}."
     )
     purpose = (err.schema or {}).get("description")
@@ -243,17 +267,14 @@ def _bound(err) -> tuple[str, str, str] | None:
     return what, why, how
 
 
-def _enum(err) -> tuple[str, str, str]:
+def _enum(err, schema_name: str = SCHEMA_PATH.name) -> tuple[str, str, str]:
     label = _field_label(err.json_path)
     allowed = [str(v) for v in (err.validator_value or [])]
     what = (
         f"Field '{label}' is {_quote(err.instance)}, which is not one of "
         f"the values the schema allows."
     )
-    why = (
-        f"{SCHEMA_PATH.name} restricts {label} to an enum: "
-        f"{', '.join(allowed)}."
-    )
+    why = f"{schema_name} restricts {label} to an enum: {', '.join(allowed)}."
     suggestion = (
         _did_you_mean(str(err.instance), allowed)
         if isinstance(err.instance, str)
@@ -263,7 +284,12 @@ def _enum(err) -> tuple[str, str, str]:
     return what, why, how
 
 
-def _required(err, schema: dict) -> tuple[str, str, str]:
+def _required(
+    err,
+    schema: dict,
+    schema_name: str = SCHEMA_PATH.name,
+    filename: str = MANIFEST_FILENAME,
+) -> tuple[str, str, str]:
     instance = err.instance if isinstance(err.instance, dict) else {}
     missing = [p for p in (err.validator_value or []) if p not in instance]
     label = _field_label(err.json_path)
@@ -272,10 +298,10 @@ def _required(err, schema: dict) -> tuple[str, str, str]:
     verb = "are" if len(missing) > 1 else "is"
     what = (
         f"Required field{'s' if len(missing) > 1 else ''} {named} {verb} "
-        f"missing from the {where} of {MANIFEST_FILENAME}."
+        f"missing from the {where} of {filename}."
     )
     why = (
-        f"{SCHEMA_PATH.name} lists {', '.join(err.validator_value or [])} "
+        f"{schema_name} lists {', '.join(err.validator_value or [])} "
         f"as required at {err.json_path}."
     )
     props = (err.schema or schema).get("properties") or {}
@@ -293,7 +319,7 @@ def _required(err, schema: dict) -> tuple[str, str, str]:
     )
 
 
-def _type(err) -> tuple[str, str, str]:
+def _type(err, schema_name: str = SCHEMA_PATH.name) -> tuple[str, str, str]:
     label = _field_label(err.json_path)
     expected = err.validator_value
     if isinstance(expected, list):
@@ -302,20 +328,60 @@ def _type(err) -> tuple[str, str, str]:
         f"Field '{label}' is {_quote(err.instance)}; the schema requires "
         f"a {expected}."
     )
-    why = f"{SCHEMA_PATH.name} declares {label} as type: {expected}."
+    why = f"{schema_name} declares {label} as type: {expected}."
     how = f"Change the value of {label} to a {expected}."
     return what, why, how
 
 
+def _const(
+    err, schema_name: str = SCHEMA_PATH.name, filename: str = MANIFEST_FILENAME
+) -> tuple[str, str, str]:
+    label = _field_label(err.json_path)
+    expected = err.validator_value
+    what = (
+        f"Field '{label}' in {filename} is {_quote(err.instance)}; the schema "
+        f"requires {_quote(expected)}."
+    )
+    why = f"{schema_name} requires {label} to match {_quote(expected)}."
+    how = f"Set {label} to {_quote(expected)}."
+    return what, why, how
+
+
+def _pattern(
+    err, schema_name: str = SCHEMA_PATH.name, filename: str = MANIFEST_FILENAME
+) -> tuple[str, str, str]:
+    label = _field_label(err.json_path)
+    what = (
+        f"Field '{label}' in {filename} is {_quote(err.instance)}, which does not "
+        f"match the required pattern."
+    )
+    why = (
+        f"{schema_name} requires {label} to match regex {err.validator_value}."
+    )
+    how = f"Update {label} to match the required naming format."
+    return what, why, how
+
+
 def _schema_diagnostic(err, schema: dict, file: str) -> Diagnostic:
-    """One jsonschema error, translated out of JSONPath and into YAML."""
+    """One jsonschema error, translated out of JSONPath and into YAML/JSON."""
+    filename = Path(file).name
+    schema_name = (
+        PLUGIN_SCHEMA_PATH.name
+        if filename == PLUGIN_FILENAME
+        else SCHEMA_PATH.name
+    )
+    check_name = (
+        "plugin-schema" if filename == PLUGIN_FILENAME else "manifest-schema"
+    )
     handlers = {
-        "additionalProperties": lambda: _additional_properties(err),
-        "enum": lambda: _enum(err),
-        "required": lambda: _required(err, schema),
-        "type": lambda: _type(err),
+        "additionalProperties": lambda: _additional_properties(err, filename),
+        "enum": lambda: _enum(err, schema_name),
+        "required": lambda: _required(err, schema, schema_name, filename),
+        "type": lambda: _type(err, schema_name),
+        "const": lambda: _const(err, schema_name, filename),
+        "pattern": lambda: _pattern(err, schema_name, filename),
     }
-    parts = _bound(err)
+    parts = _bound(err, schema_name)
     if parts is None:
         handler = handlers.get(err.validator)
         parts = (
@@ -323,16 +389,16 @@ def _schema_diagnostic(err, schema: dict, file: str) -> Diagnostic:
             if handler
             else (
                 f"Field '{_field_label(err.json_path)}' in "
-                f"{MANIFEST_FILENAME} is invalid: {err.message}",
-                f"{SCHEMA_PATH.name} applies the '{err.validator}' rule to "
+                f"{filename} is invalid: {err.message}",
+                f"{schema_name} applies the '{err.validator}' rule to "
                 f"{err.json_path}.",
-                f"Compare the field against {SCHEMA_PATH.name} and correct "
+                f"Compare the field against {schema_name} and correct "
                 f"the value.",
             )
         )
     what, why, how = parts
     return Diagnostic(
-        check="manifest-schema",
+        check=check_name,
         what=what,
         why=why,
         how=how,
@@ -472,6 +538,177 @@ def validate_manifest(manifest_path: Path, schema: dict) -> list[Diagnostic]:
                 )
             )
 
+        # Every recipe under contrib/ must be deployable (deployable: true).
+        # The matching root Dockerfile is required by policy.yml
+        # required_files.by_root.contrib and checked by validate_structure.
+        parts = Path(file).parts
+        if (
+            len(parts) > 1
+            and parts[0] == CONTRIB_ROOT
+            and data.get("deployable") is not True
+        ):
+            value = data.get("deployable")
+            if "deployable" not in data:
+                state = "is not set"
+            elif isinstance(value, bool):
+                state = f"is {str(value).lower()}"
+            else:
+                state = f"is {_quote(value)}"
+            diagnostics.append(
+                Diagnostic(
+                    check="manifest-deployable",
+                    what=(
+                        f"manifest.deployable {state}; every recipe in "
+                        "contrib/ must be deployable."
+                    ),
+                    why=(
+                        "Recipes under contrib/ must run as a container, so "
+                        "each needs a root Dockerfile and 'deployable: true' "
+                        "in manifest.yaml."
+                    ),
+                    how=(
+                        "Add a Dockerfile at the recipe root that builds and "
+                        "serves the agent, then set 'deployable: true' in "
+                        "manifest.yaml."
+                    ),
+                    doc=Doc.MANIFEST_DEPLOYABLE,
+                    file=file,
+                )
+            )
+
+    return diagnostics
+
+
+def validate_plugin(plugin_path: Path, schema: dict) -> list[Diagnostic]:
+    """Validate a plugin.json file against the Agent Plugins schema. Returns diagnostics."""
+    file = repo_relative(plugin_path)
+    try:
+        with open(plugin_path, encoding="utf-8") as f:
+            data = json.load(f)
+    except json.JSONDecodeError as e:
+        detail = str(e).replace(str(plugin_path), file)
+        return [
+            Diagnostic(
+                check="plugin-json",
+                what=f"{PLUGIN_FILENAME} is not valid JSON.",
+                why=(
+                    "Nothing else can be checked until the file parses — "
+                    "schema validation and structural rules all read the "
+                    "parsed JSON document."
+                ),
+                how=(
+                    f"Fix the syntax the parser reports below, then re-run "
+                    f"`uv run validate manifest`.\n"
+                    f"JSON parse error: {detail}"
+                ),
+                doc=Doc.MANIFEST,
+                file=file,
+            )
+        ]
+    except OSError as e:
+        return [
+            Diagnostic(
+                check="plugin-missing",
+                what=f"Cannot read {PLUGIN_FILENAME}: {e}",
+                why="The plugin manifest must be readable.",
+                how=f"Ensure {file} exists and has read permissions.",
+                doc=Doc.MANIFEST,
+                file=file,
+            )
+        ]
+
+    if not isinstance(data, dict):
+        return [
+            Diagnostic(
+                check="plugin-schema",
+                what=f"{PLUGIN_FILENAME} top-level must be a JSON object.",
+                why="The plugin manifest schema requires an object at the top level.",
+                how="Wrap the plugin manifest fields in a JSON object {...}.",
+                doc=Doc.MANIFEST,
+                file=file,
+            )
+        ]
+
+    if not data:
+        required = ", ".join(schema.get("required") or [])
+        return [
+            Diagnostic(
+                check="plugin-empty",
+                what=f"{PLUGIN_FILENAME} has no content — it is empty.",
+                why=(
+                    "A plugin manifest is how the tooling learns the plugin's "
+                    "name, schema and owners."
+                ),
+                how=f"Write the required top-level fields: {required}.",
+                doc=Doc.MANIFEST,
+                file=file,
+            )
+        ]
+
+    validator = validator_for(schema)(schema)
+    diagnostics = [
+        _schema_diagnostic(err, schema, file)
+        for err in sorted(validator.iter_errors(data), key=str)
+    ]
+
+    # Placeholder values check in ownership
+    ownership = data.get("ownership")
+    if isinstance(ownership, dict):
+        for field, placeholder, fix in (
+            (
+                "team",
+                OWNERSHIP_TEAM_PLACEHOLDER,
+                "the name of the team that owns this plugin",
+            ),
+            (
+                "poc",
+                OWNERSHIP_POC_PLACEHOLDER,
+                "the GitHub user ID of the person accountable for it",
+            ),
+        ):
+            if ownership.get(field) == placeholder:
+                diagnostics.append(
+                    Diagnostic(
+                        check="ownership-placeholder",
+                        what=(
+                            f"ownership.{field} is still the scaffold "
+                            f'placeholder "{placeholder}".'
+                        ),
+                        why=(
+                            "Ownership is how a question about this plugin "
+                            "reaches someone who can answer it; a "
+                            "placeholder routes it nowhere."
+                        ),
+                        how=f"Set ownership.{field} to {fix}.",
+                        doc=Doc.OWNERSHIP_PLACEHOLDER,
+                        file=file,
+                    )
+                )
+
+    description = data.get("description")
+    if isinstance(description, str) and description.strip().upper().startswith(
+        "TODO"
+    ):
+        diagnostics.append(
+            Diagnostic(
+                check="description-placeholder",
+                what=(
+                    f"plugin.description is still a TODO placeholder: "
+                    f"{_quote(description)}."
+                ),
+                why=(
+                    "The description is what the plugin catalog shows to someone "
+                    "deciding whether to use this plugin."
+                ),
+                how=(
+                    "Replace it with one or two sentences saying what the "
+                    "plugin provides."
+                ),
+                doc=Doc.MANIFEST,
+                file=file,
+            )
+        )
+
     return diagnostics
 
 
@@ -489,10 +726,12 @@ def _collect_scoped_path(scope: str) -> list[Path]:
     target = REPO_ROOT / scope
     if not target.exists():
         return []
-    # Namespace directory (e.g. core/python, skills/retail) — recurse one
+    if is_plugin_container(target):
+        return [target]
+    # Namespace directory (e.g. core/python, plugins/retail) — recurse one
     # level. Matched on the scope's own components rather than just the
-    # basename, so `skills/retail` is a namespace while the solution beneath
-    # it, `skills/retail/store-ops`, is not.
+    # basename, so `plugins/retail` is a namespace while the solution beneath
+    # it, `plugins/retail/store-ops`, is not.
     if is_namespace_path(scope.strip("/").split("/")):
         return sorted(c for c in target.iterdir() if is_recipe_dir(c))
     if not is_recipe_dir(target):
@@ -506,12 +745,13 @@ def _collect_root(root_name: str) -> list[Path]:
     Recognised layouts:
         <root>/<recipe>              — flat (core/, contrib/)
         <root>/<language>/<recipe>   — language-namespaced (core/, contrib/)
-        skills/<vertical>/<solution> — vertical-namespaced (skills/)
+        plugins/<vertical>/<solution> — vertical-namespaced (plugins/)
+        plugins/<plugin>             — spec-compliant plugin container (plugins/)
 
-    Under a NAMESPACE_REQUIRED_ROOTS root every child is a namespace, so a
-    solution placed directly at `skills/<solution>` is not collected here.
-    That misplacement is reported by tools/validate_placement.py rather
-    than silently validated at the wrong depth.
+    Under a NAMESPACE_REQUIRED_ROOTS root every child is a namespace or plugin,
+    so a solution placed directly at `plugins/<solution>` without vertical or
+    plugin.json is not collected here. That misplacement is reported by
+    tools/validate_placement.py rather than silently validated at the wrong depth.
     """
     root_path = REPO_ROOT / root_name
     if not root_path.exists():
@@ -522,8 +762,10 @@ def _collect_root(root_name: str) -> list[Path]:
     for p in sorted(root_path.iterdir()):
         if not p.is_dir():
             continue
-        if is_namespace_path([root_name, p.name]):
-            # <root>/<language>/<recipe> or skills/<vertical>/<solution>
+        if is_plugin_container(p):
+            recipe_dirs.append(p)
+        elif is_namespace_path([root_name, p.name]):
+            # <root>/<language>/<recipe> or plugins/<vertical>/<solution>
             recipe_dirs.extend(
                 sorted(c for c in p.iterdir() if is_recipe_dir(c))
             )
@@ -546,6 +788,8 @@ def collect_recipe_dirs(scope: str | None) -> list[Path]:
       "core/some-recipe"        — a single flat recipe directory
       "core/python/some-recipe" — a single namespaced recipe directory
     """
+    if scope is not None:
+        scope = scope.strip("/") or None
     if scope is None or scope == "all":
         roots_to_scan = RECIPE_ROOTS
     elif scope in RECIPE_ROOTS:
@@ -564,7 +808,7 @@ def empty_scope_diagnostic(
 ) -> Diagnostic | None:
     """Diagnostic for an EXPLICIT scope that matched no recipes, else None.
 
-    Without this, `uv run validate structure skills` prints
+    Without this, `uv run validate structure plugins` prints
     "[PASS] All 0 recipe(s) passed structural checks." and exits 0 — a
     green check for a run that validated nothing. A typo'd scope does the
     same. Both are far likelier to be a mistake than a deliberate request
@@ -572,7 +816,7 @@ def empty_scope_diagnostic(
     either.
 
     An unscoped (or "all") run is exempt: scanning a root that is
-    legitimately empty — `skills/` before the first vertical skill lands —
+    legitimately empty — `plugins/` before the first vertical plugin lands —
     is normal, and `_collect_root` already prints an [INFO] for it.
     """
     if recipe_dirs or scope is None or scope == "all":
@@ -582,7 +826,7 @@ def empty_scope_diagnostic(
     target = REPO_ROOT / rel
     shape = (
         f"A scope names a root ({', '.join(RECIPE_ROOTS)}), a namespace "
-        f"inside one (core/python, skills/retail), or one recipe directory."
+        f"inside one (core/python, plugins/retail), or one recipe directory."
     )
     drop_the_scope = (
         "Check the path for a typo, or drop the scope to run against the "
@@ -770,23 +1014,27 @@ def report_inactive(recipe_dirs: list[Path]) -> None:
 
 def main(scope: str | None = None) -> int:
     schema = load_schema()
+    plugin_schema = load_plugin_schema()
     recipe_dirs = collect_recipe_dirs(scope)
     if report_empty_scope(scope, recipe_dirs):
         return EXIT_VIOLATIONS
 
     diagnostics: list[Diagnostic] = []
     for recipe_dir in recipe_dirs:
+        plugin_path = recipe_dir / PLUGIN_FILENAME
         manifest_path = recipe_dir / MANIFEST_FILENAME
-        if not manifest_path.exists():
-            diagnostics.append(missing_manifest_diagnostic(manifest_path))
-        else:
+        if plugin_path.exists():
+            diagnostics.extend(validate_plugin(plugin_path, plugin_schema))
+        elif manifest_path.exists():
             diagnostics.extend(validate_manifest(manifest_path, schema))
+        else:
+            diagnostics.append(missing_manifest_diagnostic(manifest_path))
 
     report_inactive(recipe_dirs)
 
     return report(
         diagnostics,
-        header="manifest.yaml problems",
+        header="Manifest problems",
         passed_message=(
             f"All {len(recipe_dirs)} recipe manifest(s) are present and valid."
         ),
@@ -794,8 +1042,9 @@ def main(scope: str | None = None) -> int:
             f"{AUTHORING_DOCS}\n"
             f"\nRe-run locally:\n"
             f"  uv run validate manifest <recipe-path>\n"
-            f"\nThe rule itself lives in "
-            f".github/schemas/manifest-schema.json."
+            f"\nThe rules live in "
+            f".github/schemas/manifest-schema.json and "
+            f".github/schemas/plugin-schema.json."
         ),
     )
 
@@ -809,8 +1058,8 @@ if __name__ == "__main__":
         nargs="?",
         default=None,
         help=(
-            "What to validate: 'all' (default), 'core', 'contrib', "
-            "or a path to a single recipe (e.g. core/rag-agent-search)."
+            "What to validate: 'all' (default), 'core', 'contrib', 'plugins', "
+            "or a path to a single recipe (e.g. core/python/rag-agent-search)."
         ),
     )
     args = parser.parse_args()

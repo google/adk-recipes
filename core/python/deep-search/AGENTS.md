@@ -58,7 +58,7 @@ The loop stops early when `research_evaluator` grades `pass` (the custom
 ## Most interesting files to study (in order)
 
 ### Backend — the multi-agent orchestration (the bulk of the logic; read first)
-1. **`app/agent.py`** — **the heart of the recipe.** Unlike the RAG samples, this
+1. **`app/agent.py`** — **the heart of the recipe.** Unlike the RAG recipes, this
    is *not* a thin wrapper; it defines the whole graph and all the interesting
    behavior:
    - **`interactive_planner_agent`** (root `LlmAgent`) — the HITL entry point. It

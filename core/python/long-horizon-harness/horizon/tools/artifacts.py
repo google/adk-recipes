@@ -43,7 +43,7 @@ async def _save(path: str, tool_context: Any, inline: bool) -> dict[str, Any]:
     target, err = _resolve_under_env(path)
     if err is not None:
         return {"success": False, "error": err}
-    assert target is not None
+    assert target is not None  # noqa: S101 -- narrow type after error check
 
     env = active_environment()
     try:
@@ -107,7 +107,7 @@ async def _load(name: str, dest_path: str, tool_context: Any) -> dict[str, Any]:
     dest, err = _resolve_under_env(dest_path)
     if err is not None:
         return {"success": False, "error": err}
-    assert dest is not None
+    assert dest is not None  # noqa: S101 -- narrow type after error check
 
     try:
         await active_environment().write_file(dest, part.inline_data.data)

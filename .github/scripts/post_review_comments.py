@@ -79,11 +79,124 @@ from ci_message import (
     report_infra_fault,
 )
 
+# Imported, not re-implemented: prepare_review_diff already fixed this exact
+# defect on its side, with tests. Duplicating is how the two drifted apart.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from prepare_review_diff import (
+    _strip_side_prefix,
+    _unquote_git_path,
+)
+
 CHECKER = "post_review_comments.py"
+
+# Findings carrying this `source` came from house_rules_lane.py rather than
+# from a model, and skip the window check.
+#
+# A model's findings are its own JSON, so a model CAN emit this key — which
+# would let a prompt-injected reviewer waive the check that catches invented
+# source. main() strips `source` from everything that arrives via --result
+# before it is read, so the flag can only enter through --findings, a file no
+# model writes.
+TRUSTED_SOURCE = "checker"
+
+# ---------------------------------------------------------- severity tags
+#
+# Every posted comment is prefixed `[CRITICAL] `, `[MAJOR] ` or `[MINOR] `.
+# An inline comment does not show which lane produced it -- the lane name is
+# only in the review body header -- so without this the author cannot tell a
+# merge blocker from a nit without opening the review.
+#
+# The tag is derived from the LANE, never from a model's opinion of its own
+# finding. A model asked to grade its own severity inflates, and a confident,
+# precise, false "this is critical" is the most expensive comment this system
+# can produce. `review-voice.md` therefore still forbids the model to write a
+# severity label: it writes the prose, and the tag is prepended here.
+#
+# CRITICAL is reserved for the deterministic checker, and only for a finding
+# it marked CI-failing. Those are the only ones where "this blocks your merge"
+# is a fact rather than a guess.
+TAG_CRITICAL = "[CRITICAL]"
+TAG_MAJOR = "[MAJOR]"
+TAG_MINOR = "[MINOR]"
+
+# Lane name -> tag for anything the lane reports. Security and Correctness are
+# the `blocker_lanes` in policy.yml, so MAJOR here and blocker there are the
+# same judgement written twice; keep them in step.
+LANE_TAGS = {
+    "Security": TAG_MAJOR,
+    "Correctness": TAG_MAJOR,
+    "Maintainability": TAG_MINOR,
+    "Hygiene": TAG_MINOR,
+    "House Rules": TAG_MINOR,
+}
+# An unrecognised lane gets the tag that claims least.
+DEFAULT_TAG = TAG_MINOR
+
+# Any tag at the head of a body, with the space after it. Used to strip a tag
+# back off before comparison, so a comment posted BEFORE tagging shipped still
+# suppresses the tagged form of the same finding on the next push. Without it
+# every open PR collects one duplicate of every comment already on it.
+TAG_PREFIX = re.compile(r"^\s*\[(?:CRITICAL|MAJOR|MINOR)\]\s*", re.IGNORECASE)
+
+# The value a finding's `ci` field carries when the deterministic checker says
+# CI will fail on it. Must match `CI_FAIL` in
+# `.agents/skills/github-pr-review/scripts/check_house_rules.py`, which is
+# where the findings this reads are written. The two run in separate jobs, so
+# this is a literal rather than an import -- and a literal that drifts silently
+# downgrades every CI failure to a nit, which is why it is named here and the
+# coupling is written down.
+CI_FAIL = "fail"
+
+
+def severity_tag(label: str, ci: object = None) -> str:
+    """The tag for a finding from `label`, given its CI signal if it has one.
+
+    Only the deterministic lane sets `ci`; a model finding passes None and is
+    graded by its lane alone.
+    """
+    if str(ci or "").strip().lower() == CI_FAIL:
+        return TAG_CRITICAL
+    return LANE_TAGS.get(str(label or "").strip(), DEFAULT_TAG)
+
+
+def apply_tag(body: str, tag: str) -> str:
+    """`body` prefixed with `tag`, without stacking a second one."""
+    return f"{tag} {TAG_PREFIX.sub('', str(body or '')).lstrip()}"
+
+
+def _tagged(findings: list[dict], label: str) -> list[dict]:
+    """Each finding with its body tagged and the internal `_ci` dropped.
+
+    Comments and notes go through the same function on purpose. They differ in
+    where they are rendered -- a comment is posted as JSON, a note becomes a
+    bullet in the review body -- but neither should carry internal state, and
+    handling them separately is how one of them ends up keeping it.
+    """
+    return [
+        {
+            **{k: v for k, v in f.items() if k != "_ci"},
+            "body": apply_tag(
+                f.get("body", ""), severity_tag(label, f.get("_ci"))
+            ),
+        }
+        for f in findings
+    ]
+
+
+# The invisible signature every review we post carries, so a later run can
+# recognise its own work and know which round it is on. Defined in
+# review_budget.py, which is the reader; duplicated as a literal rather than
+# imported because these two scripts run in different jobs and one must not
+# start importing the other for a single constant.
+REVIEW_MARKER = "<!-- adk-ai-review -->"
 
 # Group 2 is the old-side length, groups 3/4 the new-side start and length.
 # A length is absent for a one-line side ("@@ -1 +1 @@"), which means 1.
-HUNK_HEADER = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
+# Digit runs bounded like every other int() on parsed text in this file: a
+# longer one is not a line count, and int() past 4300 digits raises.
+HUNK_HEADER = re.compile(
+    r"^@@ -(\d{1,12})(?:,(\d{1,12}))? \+(\d{1,12})(?:,(\d{1,12}))? @@"
+)
 
 # The fenced block, captured whole from its opening "[" to the closing
 # fence. Regex cannot find where the array ends: a "]" inside a comment body
@@ -92,9 +205,19 @@ HUNK_HEADER = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
 # json's own parser draws that boundary in extract_findings instead.
 FENCED_BLOCK = re.compile(r"```(?:json)?\s*(\[.*?)```", re.DOTALL)
 
+# An opening fence with NO closing fence: a response truncated mid-array.
+# Without this, FENCED_BLOCK cannot match and the bare-"[" fallback does not
+# fire either (the response starts with the fence), so extract_findings raised
+# and exited 2 -- a red check, discarding findings that had parsed fine. The
+# repair and salvage paths downstream already handle a block that stops
+# mid-object; nothing was reaching them.
+UNTERMINATED_FENCED_BLOCK = re.compile(r"```(?:json)?\s*(\[.*)", re.DOTALL)
+
 # A window row: "  42: os.system(cmd)". Both ":" and "|" are seen as the
 # separator, and the leading whitespace is the model aligning its numbers.
-WINDOW_LINE = re.compile(r"^\s*(\d+)\s*[:|]\s?(.*)$")
+# The digit run is bounded for the same reason as MAX_LINE_DIGITS: a longer
+# one is not a line number, and int() on it raises rather than returning.
+WINDOW_LINE = re.compile(r"^\s*(\d{1,12})\s*[:|]\s?(.*)$")
 
 # The keys a finding is built from. Used to find where a string value ENDS
 # when the model has left raw quotes inside it — see _repair_string_values.
@@ -169,6 +292,11 @@ NOT_CHEAP_MARKERS = re.compile(
 # say how many instances it covers.
 MAX_BODY_CHARS = 600
 
+# No file has 10^12 lines. The bound exists because int() on a string of more
+# than 4300 digits raises ValueError, which escapes as a CI fault and
+# discards every finding in the lane.
+MAX_LINE_DIGITS = 12
+
 # The longest unbroken non-whitespace run a body may contain. Calibrated
 # against real data, not guessed: the longest path in this repository is 123
 # characters (java/agents/time-series-forecasting/...ForecastingAgent.java),
@@ -192,6 +320,29 @@ PROXIMITY = 2
 # Token overlap above which two comments are saying the same thing.
 SIMILARITY = 0.55
 
+# How much of a note's vocabulary must already appear in an earlier review
+# body for it to count as already said. High, because a body carries every
+# note from its round and a low bar would swallow unrelated findings.
+NOTE_CONTAINMENT = 0.9
+
+# A verdict — a resolved thread, a hidden comment, a 👎 — is recorded and named
+# in the log, but it does NOT widen the suppression threshold.
+#
+# It used to, at 0.35. Two things were wrong with that. Anyone can react to a
+# public comment and a PR author can resolve threads on their own PR, so
+# "maintainer verdict" was not maintainer-only: the reviewed party could
+# switch off findings about their own code, which is precisely backwards for
+# the Security lane. And 0.35 against a containment metric is very wide — two
+# shared tokens out of four — so it suppressed genuinely new findings.
+#
+# The verdict still earns its keep: the reason string tells whoever reads the
+# log why a comment was dropped, and a resolved thread already blocks its own
+# line through the proximity zones.
+#
+# What none of this can do: a DELETED comment leaves nothing behind in either
+# API, so that finding can come back. Closing it needs stored state, which
+# this system deliberately does not have.
+
 _STOPWORDS = set(
     """a an the is are was were be been being this that these those it its of to
     in on for with from by at as and or not no any some all each every into out
@@ -210,6 +361,18 @@ def _strip_diff_prefix(path: str) -> str:
     if path.startswith(("a/", "b/")):
         return path[2:]
     return path
+
+
+def _header_path(target: str) -> str:
+    """A `+++ ` header's path, as GitHub will report it.
+
+    With `core.quotePath` on -- the default -- git quotes and C-escapes any
+    path holding a space, a quote or a non-ASCII byte: `+++ "b/my recipe/x.py"`.
+    The quotes then stay in the key AND the `b/` prefix sits inside them, so
+    the prefix strip never fires, and every finding in that file is dropped as
+    unanchorable. Unquote first, strip second -- the order is load-bearing.
+    """
+    return _strip_side_prefix(_unquote_git_path(target))
 
 
 def _resolve_path(reported: str, anchors: dict[str, set[int]]) -> str:
@@ -272,11 +435,7 @@ def walk_right_side(
             # Between hunks: the only place a row can be a file header.
             if row.startswith("+++ "):
                 target = row[4:].strip()
-                path = (
-                    None
-                    if target == "/dev/null"
-                    else _strip_diff_prefix(target)
-                )
+                path = None if target == "/dev/null" else _header_path(target)
                 continue
             header = HUNK_HEADER.match(row)
             if header:
@@ -312,6 +471,29 @@ def walk_right_side(
 def added_line_anchors(diff: str) -> dict[str, set[int]]:
     """The new-file lines each path adds. See walk_right_side."""
     return walk_right_side(diff)[0]
+
+
+def restrict_to_pr(
+    anchors: dict[str, set[int]], pr_diff: str
+) -> dict[str, set[int]]:
+    """Keep only the anchors the PR's own base...head diff also adds.
+
+    An incremental diff (last reviewed commit...head) taken across a merge of
+    the base branch marks everything that landed on base in between as
+    added. Those lines are not in the PR's diff, so GitHub rejects a comment
+    on one with HTTP 422, and when every comment in a run is such a line the
+    post job fails. Both diffs end at head, so new-file line numbers agree
+    and a plain intersection is enough. A dropped anchor is not lost: its
+    finding still verifies against the line text and goes in the review body.
+
+    Every path keeps its key, even with no anchors left, so path resolution
+    against the reviewed diff behaves as before.
+    """
+    pr_anchors = added_line_anchors(pr_diff)
+    return {
+        path: lines & pr_anchors.get(path, set())
+        for path, lines in anchors.items()
+    }
 
 
 def extract_findings(response: str) -> list:
@@ -358,11 +540,21 @@ def extract_findings(response: str) -> list:
     one malformed finding still costs only that finding.
     """
     matches = list(FENCED_BLOCK.finditer(response))
-    # Both branches guarantee a block starting at "[", so the scan below
+    # All three branches guarantee a block starting at "[", so the scan below
     # always decodes at least once.
     block = matches[-1].group(1) if matches else None
     if block is None and response.strip().startswith("["):
         block = response.strip()
+    if block is None:
+        # No closing fence: hand the unterminated remainder to the same
+        # salvage path a malformed block takes.
+        truncated = UNTERMINATED_FENCED_BLOCK.search(response)
+        if truncated is not None:
+            block = truncated.group(1)
+            print(
+                "  findings block has no closing fence (output was likely "
+                "truncated); attempting to recover complete findings from it"
+            )
     if block is None:
         raise ReviewerOutputError("response contained no JSON findings array")
 
@@ -374,7 +566,12 @@ def extract_findings(response: str) -> list:
     while (start := block.find("[", index)) != -1:
         try:
             array, index = decoder.raw_decode(block, start)
-        except json.JSONDecodeError as exc:
+        except ValueError as exc:
+            # ValueError, not JSONDecodeError: a bare integer literal of more
+            # than 4300 digits makes json's own number parser raise the base
+            # class, which slipped past the narrower handler and escaped as a
+            # CI fault before any validation had run. JSONDecodeError is a
+            # ValueError, so this still catches everything it did.
             if parsed_any:
                 break
             # Repair before salvage: it recovers every finding in the block,
@@ -522,7 +719,7 @@ def _repaired_findings(block: str) -> list | None:
     for candidate in _repair_readings(block, budget):
         try:
             array, _ = decoder.raw_decode(candidate, candidate.find("["))
-        except json.JSONDecodeError:
+        except ValueError:
             continue
         if isinstance(array, list) and array:
             readings.setdefault(json.dumps(array, sort_keys=True), array)
@@ -549,7 +746,10 @@ def _salvage_findings(block: str, decoder: json.JSONDecoder) -> list[dict]:
     while (start := block.find("{", index)) != -1:
         try:
             candidate, index = decoder.raw_decode(block, start)
-        except json.JSONDecodeError:
+        except ValueError:
+            # ValueError, like its two siblings: a >4300-digit integer
+            # literal makes json's number parser raise the base class, and
+            # this is the fallback path the other two hand off to.
             index = start + 1
             continue
         if (
@@ -571,7 +771,14 @@ def _coerce_line(value: object) -> int | None:
         return None
     if isinstance(value, int):
         return value
-    if isinstance(value, str) and value.strip().isdigit():
+    if (
+        isinstance(value, str)
+        and value.strip().isdecimal()
+        # Python 3.11 caps int(str) at 4300 digits and raises ValueError past
+        # it. A line number is never more than a handful; anything longer is
+        # not a line number, and letting int() decide costs the whole review.
+        and len(value.strip()) <= MAX_LINE_DIGITS
+    ):
         return int(value.strip())
     return None
 
@@ -736,12 +943,101 @@ def check_window(
     )
 
 
+def _similarity(a: set[str], b: set[str]) -> float:
+    """Jaccard, not containment.
+
+    `len(a & b) / min(len(a), len(b))` is containment: a short comment fully
+    contained in a longer one scores 1.0 however much more the longer one
+    says. That made a 5-defect comment "the same" as a 1-defect one, and let a
+    4-token finding be suppressed by any comment sharing two of its words.
+    Dividing by the union asks the question actually intended — are these two
+    comments about the same thing.
+    """
+    union = a | b
+    return len(a & b) / len(union) if union else 0.0
+
+
+# The suffix group_repeats appends. Stripped before any comparison: grouping
+# runs after the duplicate check, so the body that gets STORED carries five
+# extra tokens the next round's body does not, which dropped Jaccard under
+# the bar and re-posted the grouped comment on every push.
+_GROUP_NOTE = re.compile(
+    r"\n*\(Same thing in \d+ other places? in this review\.\)\s*$"
+)
+
+
+def _base_body(text: str) -> str:
+    """A comment body reduced to what the finding actually said.
+
+    Strips the grouping suffix and any leading severity tag. The tag matters
+    because it is added at post time, so the SAME finding is untagged in a
+    comment posted before tagging shipped and tagged in one posted after.
+    Comparing those two forms as written makes every comment already on an
+    open PR look new, and each one is posted a second time -- the convergence
+    failure the whole comment budget exists to prevent.
+    """
+    text = _GROUP_NOTE.sub("", str(text or ""))
+    return TAG_PREFIX.sub("", text).strip()
+
+
 def _tokens(text: str) -> set[str]:
     return {
         word
         for word in re.findall(r"[a-z_][a-z_0-9]{3,}", str(text).lower())
         if word not in _STOPWORDS
     }
+
+
+# A bullet in one of our review bodies, as build_payload renders it:
+#     - `path/to/file.py:42` — the finding text
+_NOTE_BULLET = re.compile(r"^- `([^`]+):(\d{1,12})` — (.*)$")
+
+
+def _notes_in(review_body) -> list[dict]:
+    """Our own notes, parsed back out of a review body we posted.
+
+    Each becomes an ordinary entry with its own path and text, so the
+    duplicate check compares like with like instead of hunting substrings in
+    one large string. That substring approach was the root of four
+    consecutive rounds of defects: the path and the body could be matched by
+    two DIFFERENT bullets, and every transformation applied on the way in
+    (defanging, whitespace flattening, path truncation) had to be replayed
+    exactly on the way out or a note repeated on every push forever.
+    """
+    notes = []
+    for raw in str(review_body or "").split("\n"):
+        match = _NOTE_BULLET.match(raw.strip())
+        if match:
+            notes.append(
+                {
+                    "kind": "note",
+                    "path": match.group(1),
+                    "line": int(match.group(2)),
+                    "body": match.group(3).strip(),
+                }
+            )
+    return notes
+
+
+def _our_review(item: dict) -> bool:
+    """A non-empty review body that WE posted.
+
+    The author check is the whole point. Review bodies are used for
+    containment matching — "did we already say this in an earlier round" — and
+    a body is large, so containment against an arbitrary one is easy to
+    satisfy. Without this filter a PR author could paste a wall of plausible
+    text into a review of their own PR and suppress most of what the next
+    round would have said: the same hole the 0.35 verdict threshold was
+    removed for, rebuilt wider.
+
+    Only an App or Actions token can post as an account of type Bot.
+    """
+    if not (item.get("body") or "").strip():
+        return False
+    if str((item.get("user") or {}).get("type") or "") != "Bot":
+        return False
+    body = str(item["body"]).lstrip()
+    return REVIEW_MARKER in body or body.startswith("Automated **")
 
 
 def fetch_existing_comments(repo: str, pr: int) -> list[dict]:
@@ -763,6 +1059,13 @@ def fetch_existing_comments(repo: str, pr: int) -> list[dict]:
     for endpoint, kind in (
         (f"repos/{repo}/pulls/{pr}/comments", "inline"),
         (f"repos/{repo}/issues/{pr}/comments", "top-level"),
+        # Review BODIES, which is where notes live — findings on lines the PR
+        # does not change. Without this endpoint `already_raised` cannot see a
+        # note it posted last round, so a lane that is never capped and never
+        # skipped (House Rules) repeats the identical body on every push
+        # forever. That is the non-convergence this whole change exists to
+        # end, hiding in the one class of finding nobody was deduplicating.
+        (f"repos/{repo}/pulls/{pr}/reviews", "review-body"),
     ):
         try:
             proc = subprocess.run(
@@ -789,17 +1092,139 @@ def fetch_existing_comments(repo: str, pr: int) -> list[dict]:
                 batch, index = decoder.raw_decode(text, start)
             except json.JSONDecodeError:
                 break
+            if kind == "review-body":
+                for item in batch:
+                    if not _our_review(item):
+                        continue
+                    existing.append(
+                        {"kind": "review-body", "body": item.get("body")}
+                    )
+                continue
             for item in batch:
+                # OUR review bodies only. This call site has now been the
+                # bug three times running: a review body is large, so
+                # containment against an arbitrary one is easy to satisfy,
+                # and a PR author pasting a wall of plausible text into a
+                # self-review suppresses most of what the next round would
+                # say. The helper without this line is decoration.
+                if kind == "review-body" and not _our_review(item):
+                    continue
                 existing.append(
                     {
                         "kind": kind,
+                        "id": item.get("id"),
+                        "user": item.get("user") or {},
                         "path": item.get("path"),
                         "line": item.get("line"),
                         "original_line": item.get("original_line"),
                         "body": item.get("body") or "",
                     }
                 )
+
+    verdicts = fetch_verdicts(repo, pr)
+    if verdicts:
+        judged = 0
+        for comment in existing:
+            verdict = verdicts.get(comment.get("id"))
+            if verdict:
+                comment["verdict"] = verdict
+                judged += 1
+        print(f"  {judged} of them carry a maintainer's verdict.")
     return existing
+
+
+# Resolution, minimisation and reactions are GraphQL-only: none of the three
+# appears on a REST review comment. Each is a maintainer saying something about
+# a comment rather than about the code, and that is the only durable record of
+# a rejected finding this system can read.
+_VERDICT_QUERY = """
+query($owner:String!, $name:String!, $pr:Int!) {
+  repository(owner:$owner, name:$name) {
+    pullRequest(number:$pr) {
+      reviewThreads(first:100) {
+        nodes {
+          isResolved
+          comments(first:50) {
+            nodes {
+              databaseId
+              isMinimized
+              reactions(first:1, content:THUMBS_DOWN) { totalCount }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+"""
+
+
+def fetch_verdicts(repo: str, pr: int) -> dict[int, str]:
+    """{comment id: what the maintainer did to it}.
+
+    Best-effort, exactly like fetch_existing_comments: an unreadable verdict
+    costs a slightly noisier review, and failing the whole run over it would
+    cost the review entirely.
+    """
+    owner, _, name = repo.partition("/")
+    try:
+        proc = subprocess.run(
+            [
+                "gh",
+                "api",
+                "graphql",
+                "-F",
+                f"owner={owner}",
+                "-F",
+                f"name={name}",
+                "-F",
+                f"pr={pr}",
+                "-f",
+                f"query={_VERDICT_QUERY}",
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=60,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        print(f"  could not read review verdicts: {exc}")
+        return {}
+    if proc.returncode != 0:
+        print(f"  could not read review verdicts: {proc.stderr.strip()[:200]}")
+        return {}
+    try:
+        threads = json.loads(proc.stdout)["data"]["repository"]["pullRequest"][
+            "reviewThreads"
+        ]["nodes"]
+    except (ValueError, KeyError, TypeError) as exc:
+        print(f"  could not read review verdicts: {exc}")
+        return {}
+
+    verdicts: dict[int, str] = {}
+    for thread in threads or []:
+        # GraphQL returns a null node for anything the token cannot see. The
+        # docstring above promises this is best-effort; an AttributeError here
+        # escapes to guard() and turns "slightly noisier review" into a CI
+        # fault on the contributor's PR.
+        if not isinstance(thread, dict):
+            continue
+        resolved = bool(thread.get("isResolved"))
+        for comment in (thread.get("comments") or {}).get("nodes") or []:
+            if not isinstance(comment, dict):
+                continue
+            cid = comment.get("databaseId")
+            if not cid:
+                continue
+            # Most specific verdict wins: a 👎 is someone saying the comment
+            # was wrong, where resolving can also mean it was acted on.
+            if (comment.get("reactions") or {}).get("totalCount"):
+                verdicts[cid] = "thumbed this down"
+            elif comment.get("isMinimized"):
+                verdicts[cid] = "hid"
+            elif resolved:
+                verdicts[cid] = "resolved"
+    return verdicts
 
 
 def build_exclusions(
@@ -808,9 +1233,24 @@ def build_exclusions(
     """(line zones, tokenised bodies) from comments already on the PR."""
     zones: dict[str, dict[int, dict]] = {}
     texts: list[tuple[set[str], dict]] = []
+    # Expand any review body into the notes it carries, so a caller that
+    # hands one over whole gets the same treatment as the fetch path. One
+    # place does the parsing; everything downstream sees individual notes
+    # with their own path and text.
+    expanded: list[dict] = []
     for comment in existing or []:
+        if comment.get("kind") == "review-body":
+            expanded.extend(_notes_in(comment.get("body")))
+        else:
+            expanded.append(comment)
+    for comment in expanded:
         if (comment.get("body") or "").strip():
-            texts.append((_tokens(comment["body"]), comment))
+            # Compared without the grouping suffix: grouping runs AFTER the
+            # duplicate check, so the stored body carries five tokens the
+            # next round's body will not, and the difference was enough to
+            # drop a short body under the bar and re-post it every push.
+            stripped = {**comment, "body": _base_body(comment["body"])}
+            texts.append((_tokens(stripped["body"]), stripped))
         if comment.get("kind") != "inline":
             continue
         path = comment.get("path")
@@ -827,26 +1267,277 @@ def build_exclusions(
     return zones, texts
 
 
+def _same_path(comment: dict, path: str) -> bool:
+    """Is this comment about `path`?
+
+    Compares the rendered spelling too: a note's path is recovered from the
+    bullet we wrote, which went through `_safe_span` — so a path carrying a
+    backtick, or longer than the 160-character cap, never matched itself and
+    its note repeated on every push.
+    """
+    stored = str(comment.get("path") or "")
+    return stored in (path, _safe_span(path))
+
+
 def already_raised(
     path: str,
     line: int,
     body: str,
     zones: dict[str, dict[int, dict]],
     texts: list[tuple[set[str], dict]],
+    trusted: bool = False,
 ) -> str:
     """Why this finding repeats something already on the PR, or ""."""
-    if zones.get(path, {}).get(line):
+    # Both sides of every comparison below go through `_base_body`, so the
+    # two are reduced the same way by construction rather than by two pieces
+    # of code that have to be kept in agreement.
+    #
+    # Callers pass an untagged body today, because tagging is the last step
+    # before the payload is written -- but that is an ordering guarantee, and
+    # if it ever stops holding the failure is silent: every comment already on
+    # the PR is posted a second time.
+    body = _base_body(body)
+    if zones.get(path, {}).get(line) and not trusted:
+        # Position is good evidence of repetition for a MODEL finding: two
+        # comments on one line are usually the same observation restated.
+        # For the deterministic lane it is not — several rules anchor at
+        # line 1 when they cannot locate their subject, so one posted
+        # comment there would silence every other rule for that file on
+        # every later round. Those findings are distinguished by their text
+        # below, which is exact for a checker.
         return "already commented on this line"
 
     mine = _tokens(body)
     if len(mine) < 4:
+        # Too few distinctive words for a similarity comparison, but an exact
+        # repeat is still a repeat. Both shapes have to be checked:
+        # `"api_key" is not UPPER_SNAKE_CASE` and `a committed private key`
+        # tokenise to three, and the exempt House Rules lane re-posts them on
+        # every push unless something stops it.
+        for _tokens_unused, comment in texts:
+            if not _same_path(comment, path):
+                continue
+            # Both spellings. A note is stored flattened by `_safe_line`; an
+            # inline comment is stored as written. Comparing only one of them
+            # fixed notes and broke comments, and a short body carrying a
+            # newline or a double space then repeated on every push.
+            if _base_body(comment.get("body")) in (
+                body.strip(),
+                _safe_line(body).strip(),
+            ):
+                return "identical to a comment already on this PR"
         return ""
-    for tokens, _comment in texts:
+    for tokens, comment in texts:
         if len(tokens) < 4:
             continue
-        if len(mine & tokens) / min(len(mine), len(tokens)) >= SIMILARITY:
+        # For a CHECKER finding, same file only. Its bodies come from one
+        # format string per rule, so `[build-system] missing or lacks
+        # requires / build-backend` is byte-identical for every recipe and
+        # CI-failing: path-blind, the first author was told and every one
+        # after them silenced.
+        #
+        # For a MODEL finding the opposite is wanted, and is why this leg
+        # exists: four lanes review the same PR with overlapping remits and
+        # phrase one defect four ways, so the same observation elsewhere
+        # SHOULD suppress. Prose bodies do not collide by construction the
+        # way a format string does.
+        if trusted and not _same_path(comment, path):
+            # Note the missing `comment.get("path") and`. An issue comment
+            # carries no path, so that clause skipped the guard for the one
+            # class an arbitrary user controls: a single top-level comment
+            # quoting a checker's message -- they are format strings in a
+            # public file -- silenced that rule on every file of every later
+            # push. A checker finding is only ever a repeat of a comment
+            # about the same file.
+            continue
+        if _similarity(mine, tokens) >= SIMILARITY:
+            verdict = comment.get("verdict")
+            if verdict:
+                return f"already on this PR, and somebody {verdict} it"
             return "very similar to a comment already on this PR"
     return ""
+
+
+# Three or more of one defect class is ONE comment. The prompt says so, and a
+# model that has just found five unused imports writes five comments anyway —
+# on PR #2373 twenty findings were five real classes. Five comments spend five
+# slots to say one thing; the other four buy distinct defects.
+GROUP_AT = 3
+# Jaccard overlap at which two findings are the same defect class.
+#
+# 0.5 under Jaccard, not the 0.6 this was under containment: for two bodies of
+# the same length, containment 0.6 is Jaccard ~0.43, so the old number was far
+# looser than it looked in one direction and far tighter in the other. Being
+# wrong here collapses real information rather than merely suppressing noise,
+# which is why it sits above the duplicate bar in spirit and is measured
+# symmetrically.
+# Equal to SIMILARITY on purpose. Below it, `group_repeats` collapses pairs
+# that `already_raised` cannot recognise next round -- the grouped comment
+# goes out again and the members it swallowed arrive one per push, each round
+# re-claiming "same thing in N other places" about the places it is about to
+# comment on. Anything grouped must be recognisable later.
+GROUP_SIMILARITY = SIMILARITY
+
+
+# Where a path's recipe begins. Two findings in different recipes are never
+# "the same thing in another place" — they are two recipes each needing a fix,
+# and collapsing them tells one author and silences the rest.
+_RECIPE_KEY = re.compile(r"^((?:core|contrib|plugins)/[^/]+(?:/[^/]+)?)")
+
+
+def _group_scope(path: str, trusted: bool = False) -> str:
+    """The recipe a comment belongs to, for grouping purposes.
+
+    Outside a recipe — repo tooling, a workflow, a root-level file — the scope
+    is the top-level directory, so ordinary grouping still works. Keying those
+    on the filename would give every file a scope of its own and disable
+    grouping wherever recipes are not involved.
+    """
+    text = str(path)
+    if trusted:
+        # A checker finding groups only with others in the SAME FILE.
+        # Grouping across files drops the other members with no record of
+        # them anywhere, and the path-aware suppression a checker gets cannot
+        # recognise them next round — so the class dripped one comment per
+        # push for N-1 pushes, each round re-claiming "same thing in N other
+        # places" about the places it was about to comment on. The
+        # deterministic lane is exempt from the comment budget, so there is
+        # nothing to save by collapsing them.
+        return text
+    match = _RECIPE_KEY.match(text)
+    if match:
+        return match.group(1)
+    return text.split("/", maxsplit=1)[0] if "/" in text else ""
+
+
+def _said_in_this_run(
+    path: str,
+    line: int,
+    body: str,
+    texts: list[tuple[set[str], dict]],
+) -> bool:
+    """Has this run already accepted this finding, for THIS file?
+
+    Deliberately narrower than `already_raised`: same path, and either the
+    same line or near-identical wording. Cross-file repetition inside one run
+    is what `group_repeats` is for, and it says "same thing in N other
+    places" rather than silently dropping the others.
+    """
+    # No line-zone leg. Many house rules fall back to line 1 when they cannot
+    # locate their subject, so distinct rules collide there constantly: a stub
+    # README produces four separate CI-failing H20 findings, all at line 1,
+    # and blocking on position alone told the author about one of them. What
+    # makes two findings the same finding is what they SAY.
+    # The exact-match leg runs FIRST, above the token floor: a two-token body
+    # repeated verbatim on one line is the clearest duplicate there is, and
+    # putting it below the floor made it unreachable for exactly the bodies
+    # the removed line-zone leg used to cover.
+    for _tokens_unused, accepted in texts:
+        if (
+            accepted.get("path") == path
+            and accepted.get("line") == line
+            and accepted.get("body") == body
+        ):
+            return True
+    # Exact repeats only. A similarity leg here dropped findings that are
+    # genuinely different and merely worded alike -- two H39 stub values in
+    # one .env.example differ only in the quoted value and score 0.77 -- and
+    # it dropped them SILENTLY, with no "(Same thing in N other places)" note
+    # and no way for the author to learn the others exist. Near-duplicates
+    # within one run are group_repeats' job, and grouping announces itself.
+    # The repo's own rule is that two instances stay two comments.
+    return False
+
+
+def group_repeats(comments: list[dict]) -> tuple[list[dict], list[str]]:
+    """Collapse 3+ comments of one class onto the first instance.
+
+    The kept comment's claim stays a claim about ITS OWN anchor; the count is
+    context the reader can ignore. That is why the note says "N other places"
+    instead of listing them — a list the reader must go and check is exactly
+    the expensive comment shape the rest of this file exists to prevent.
+    """
+    tokenised = [(c, _tokens(c["body"])) for c in comments]
+    kept: list[dict] = []
+    dropped: list[str] = []
+    used: set[int] = set()
+
+    for i, (comment, tokens) in enumerate(tokenised):
+        if i in used:
+            continue
+        members = [i]
+        if len(tokens) >= 4:
+            for j, (_other, other) in enumerate(
+                tokenised[i + 1 :], start=i + 1
+            ):
+                if j in used or len(other) < 4:
+                    continue
+                # Same recipe only. The deterministic lane builds each rule's
+                # body from one format string, so two recipes' findings for
+                # one rule are near-identical by construction and always
+                # cleared the threshold: three recipes with a deprecated model
+                # id produced ONE comment on the first of them, and the other
+                # two authors were told nothing.
+                if _group_scope(
+                    _other["path"], _other.get("trusted", False)
+                ) != _group_scope(
+                    comment["path"], comment.get("trusted", False)
+                ):
+                    continue
+                # Never group two findings at the SAME position. The note
+                # says "in N other places", and for these there is no other
+                # place -- it is the same place, N times. Several house rules
+                # fall back to line 1 when they cannot locate their subject,
+                # so three unknown manifest keys all land on manifest.yaml:1,
+                # and collapsing them posted one comment with a false count
+                # and dropped two real CI-failing findings.
+                # Against every member already in the group, not just the
+                # anchor: two members sharing a line with each OTHER still
+                # inflated "(Same thing in N other places)" and collapsed a
+                # real finding. Same class as the bug this guard fixed, one
+                # step removed.
+                if any(
+                    _other["path"] == tokenised[k][0]["path"]
+                    and _other["line"] == tokenised[k][0]["line"]
+                    for k in members
+                ):
+                    continue
+                if _similarity(tokens, other) >= GROUP_SIMILARITY:
+                    members.append(j)
+
+        if len(members) >= GROUP_AT:
+            others = len(members) - 1
+            grouped_body = (
+                f"{comment['body'].rstrip()}\n\n"
+                f"(Same thing in {others} other place"
+                f"{'s' if others != 1 else ''} in this review.)"
+            )
+            # The shape gate ran BEFORE grouping, and grouping is the one path
+            # that makes a body longer. A 600-char body plus the note is 643,
+            # over the cap that keeps this public channel narrow, and GitHub
+            # would reject the whole review for it.
+            #
+            # `used` is marked only once the group is going ahead. Marking it
+            # first and then bailing out left the other members flagged as
+            # consumed while nothing had consumed them: they were skipped by
+            # the outer loop and silently vanished. Found by the test written
+            # for the cap itself, which is the only reason it is not still
+            # here.
+            if implausible_body(grouped_body):
+                kept.append(comment)
+                continue
+            used.update(members)
+            for index in members[1:]:
+                victim = tokenised[index][0]
+                dropped.append(
+                    f"{victim['path']}:{victim['line']}: grouped into "
+                    f"{comment['path']}:{comment['line']}"
+                )
+            kept.append({**comment, "body": grouped_body})
+            continue
+        kept.append(comment)
+
+    return kept, dropped
 
 
 def build_comments(
@@ -872,6 +1563,8 @@ def build_comments(
     notes: list[dict] = []
     skipped: list[str] = []
     zones, texts = build_exclusions(existing or [])
+    # Accumulated as this run accepts findings.
+    run_texts: list[tuple[set[str], dict]] = []
 
     for finding in findings:
         if not isinstance(finding, dict):
@@ -888,6 +1581,12 @@ def build_comments(
         if not path or not body:
             skipped.append(f"{path or '<no path>'}:{line}: empty path or body")
             continue
+
+        # Defang FIRST, so every comparison below -- and the duplicate legs
+        # in particular -- sees the same string that will be stored and
+        # posted. Cleaning it later meant a short body containing image
+        # markup matched neither exact-match leg.
+        body = _defang_images(body)
 
         # Before anything that could promote this body onto the PR — inline or
         # as a note in the review body, both of which are public.
@@ -911,27 +1610,112 @@ def build_comments(
         verified, line, reason = check_window(
             finding, line, line_text.get(path, {})
         )
-        if not verified and finding.get("window"):
+        # A finding from the deterministic checker read the file itself, out
+        # of the same checkout this diff describes. The window check exists to
+        # catch a MODEL that invented a finding and invented the source to
+        # match it; there is no such claim to audit here. This has to be
+        # decided BEFORE the gate below, not after it — waiving a check that
+        # has already dropped the finding waives nothing.
+        trusted = finding.get("source") == TRUSTED_SOURCE
+        if not verified and finding.get("window") and not trusted:
             skipped.append(f"{path}:{line}: {reason}")
             continue
+        if not verified and not finding.get("window") and not trusted:
+            # DELIBERATE, and worth naming because it looks like a hole: a
+            # finding with no window at all is not dropped for fabrication.
+            # It still has to land on a line this PR adds, so the model
+            # cannot choose where it goes, and dropping these instead would
+            # discard a real finding whenever the model omits one field.
+            # Logged so the trade is visible in the job output rather than
+            # silent. test_a_finding_with_no_window_still_needs_a_real_added_line
+            # pins the behaviour.
+            print(f"  {path}:{line}: no window supplied; anchor not verified")
         if line != declared:
             print(f"  {path}: {reason}")
 
-        duplicate = already_raised(path, line, body, zones, texts)
+        # Without this, every house-rule finding whose subject is not an added
+        # line — a required file that is missing, a folder name, a lockfile
+        # source — is dropped as "not a line this PR adds" instead of reaching
+        # the author in the review body.
+        if trusted:
+            verified = True
+
+        duplicate = already_raised(path, line, body, zones, texts, trusted)
         if duplicate:
             skipped.append(f"{path}:{line}: {duplicate}")
             continue
 
+        # ...and against what THIS run has already accepted.
+        #
+        # A dedicated check, NOT already_raised: that helper's similarity leg
+        # ignores the path, which is right for "did we say this on the PR
+        # before" and catastrophic here. The deterministic lane builds each
+        # rule's body from one format string, so two recipes' findings for
+        # one rule are byte-identical -- and reusing it dropped 13 of 21
+        # findings on a three-recipe PR, telling two of the three authors
+        # nothing about their own recipe. Same file only.
+        if _said_in_this_run(path, line, body, run_texts):
+            skipped.append(f"{path}:{line}: already said in this review")
+            continue
+
+        accepted = {"kind": "inline", "path": path, "line": line, "body": body}
+
+        # Internal, and only ever present on a deterministic-lane finding: it
+        # is what separates CRITICAL from MAJOR, because "CI will fail on
+        # this" is a fact there and a guess anywhere else. Attached only when
+        # it has a value, so a model lane's comments keep exactly the shape
+        # they had before tagging existed. build_payload reads it and drops
+        # it; it never reaches GitHub.
+        _ci_value = finding.get("ci") or finding.get("_ci")
+        ci_key = {"_ci": _ci_value} if _ci_value else {}
+
         if line in anchors.get(path, frozenset()):
             comments.append(
-                {"path": path, "line": line, "side": "RIGHT", "body": body}
+                {
+                    "path": path,
+                    "line": line,
+                    "side": "RIGHT",
+                    "body": body,
+                    # Internal, stripped before the payload is written: tells
+                    # group_repeats that this body came from a format string
+                    # rather than from prose.
+                    "trusted": trusted,
+                    **ci_key,
+                }
             )
         elif verified:
-            notes.append({"path": path, "line": line, "body": body})
+            notes.append({"path": path, "line": line, "body": body, **ci_key})
         else:
             skipped.append(f"{path}:{line}: not a line this PR adds")
+            # NOT recorded, and this really is the ordering now: the previous
+            # commit claimed it and added only a comment saying so. Recorded
+            # before the classification, a finding dropped here suppressed a
+            # later one under the reason "already said in this review", when
+            # nothing had been said.
+            continue
 
+        run_texts.append((_tokens(body), accepted))
+
+    # Last, so grouping sees only what actually survived every filter above.
+    # Grouping first would collapse a class onto an instance that is then
+    # dropped as a duplicate, taking the whole class with it.
+    comments, grouped = group_repeats(comments)
+    skipped.extend(grouped)
+
+    # `trusted` is ours, not GitHub's.
+    comments = [
+        {k: v for k, v in c.items() if k != "trusted"} for c in comments
+    ]
     return comments, notes, skipped
+
+
+def _non_negative(value: str) -> int:
+    """An int >= 0. A negative ceiling is `comments[:-1]`, which drops ONE
+    comment and logs it as "over budget" — the opposite of what was asked."""
+    number = int(value)
+    if number < 0:
+        raise argparse.ArgumentTypeError(f"must be zero or more, got {number}")
+    return number
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -939,17 +1723,31 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Build a GitHub review payload from AI reviewer findings."
     )
-    parser.add_argument(
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument(
         "--result",
-        required=True,
         type=Path,
         help="agy result file (--output-format json)",
+    )
+    source.add_argument(
+        "--findings",
+        type=Path,
+        help="a JSON array of findings from house_rules_lane.py, in place of "
+        "a model response; these skip the window check (see TRUSTED_SOURCE)",
     )
     parser.add_argument(
         "--diff",
         required=True,
         type=Path,
         help="the exact diff the reviewer was shown",
+    )
+    parser.add_argument(
+        "--pr-diff",
+        type=Path,
+        default=None,
+        help="the PR's whole base...head diff, when --diff is an incremental "
+        "one. Inline anchors are limited to lines this diff adds, because "
+        "GitHub rejects a comment on any other line",
     )
     parser.add_argument(
         "--label", required=True, help="review type, e.g. Correctness"
@@ -971,33 +1769,200 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="PR number; with --repo, suppresses comments already on the PR",
     )
+    parser.add_argument(
+        "--max-comments",
+        type=_non_negative,
+        default=0,
+        help="hard ceiling on inline comments, from review_budget.py. 0 means "
+        "no ceiling. Until this existed the budget reached the model as prose "
+        "and nothing downstream checked it",
+    )
+    parser.add_argument(
+        "--commit-id",
+        default="",
+        help="the commit these findings are about. Recorded on the review so "
+        "a later run knows exactly what was reviewed, rather than inferring "
+        "it from whatever head happened to be at post time",
+    )
+    parser.add_argument(
+        "--progress",
+        default="",
+        help="one line telling the author which review round this is and how "
+        "much budget the PR has left",
+    )
+    parser.add_argument(
+        "--unreviewed",
+        type=Path,
+        default=None,
+        help="file of paths that fell outside the prompt budget; named in the "
+        "review body so silence on them is not read as approval",
+    )
     return parser
 
 
-def build_payload(label: str, comments: list[dict], notes: list[dict]) -> dict:
+# How many unreviewed paths to name before summarising the rest. Long enough
+# to be actionable, short enough not to bury the findings above it.
+MAX_UNREVIEWED_LISTED = 15
+
+# Notes are bullets in ONE review body, so they cannot be capped by
+# --max-comments without changing what that flag means. They still need a
+# bound: GitHub rejects a review body over ~65k characters, and the fallback
+# path then re-posts the same oversized body once per comment, so every retry
+# fails too and the contributor gets a red check. The House Rules lane is
+# exempt from the comment budget and produces mostly notes, which is exactly
+# the combination that gets there.
+MAX_NOTES_LISTED = 20
+
+
+# A path is fork-author-chosen text. Everything else on this channel goes
+# through a shape rule; this is the one part that did not, and a backtick in a
+# filename closes the code span and lets arbitrary markdown — a link, an
+# image, a fake instruction — into a body the review bot signs.
+_UNSAFE_IN_SPAN = re.compile(r"[`\r\n]")
+
+
+def _safe_span(text: str, limit: int = 160) -> str:
+    """A path, safe to drop inside a markdown code span.
+
+    Over-long paths are cut in the MIDDLE, not at the end. Paths differ at
+    the end -- that is where the filename is -- so head-truncation mapped two
+    files sharing a long directory prefix onto one span, and `_same_path`
+    then let one file's note suppress the other's.
+    """
+    cleaned = _UNSAFE_IN_SPAN.sub("", str(text))
+    if len(cleaned) <= limit:
+        return cleaned
+    head = (limit - 1) // 2
+    return cleaned[:head] + "…" + cleaned[-(limit - 1 - head) :]
+
+
+# Case-insensitive: HTML tag names are, and the parser lowercases the node
+# before GitHub's sanitiser allowlist is consulted, so `<IMG SRC=...>` is the
+# same element as `<img src=...>` and rendered the same remote request.
+_IMG_TAG = re.compile(r"<img", re.IGNORECASE)
+
+
+def _defang_images(text: str) -> str:
+    """Neutralise an inline image without touching anything else.
+
+    An image is a request the reader's browser makes to a URL the pull
+    request chose, fired merely by rendering the page. A link is fine; an
+    image is not. BOTH spellings have to go: `<img src=...>` is in GitHub's
+    markdown sanitiser allowlist, so closing only the `![]()` form left the
+    same request one tag away.
+    """
+    return _IMG_TAG.sub("&lt;img", text.replace("![", "!\u200b["))
+
+
+def _safe_line(text: str) -> str:
+    """A finding body, safe to splice into a bullet in the review body.
+
+    The path beside it is sanitised; this was not, and it is the wider
+    channel — 600 characters of model text derived from a fork-authored diff.
+    A newline plus `---` renders a horizontal rule, `![](url)` fires a remote
+    request on render, and an italic line forges a second progress footer
+    above the real one. All three reproduced.
+    """
+    return _defang_images(" ".join(str(text).split()))
+
+
+def build_payload(
+    label: str,
+    comments: list[dict],
+    notes: list[dict],
+    unreviewed: list[str] | None = None,
+    progress: str = "",
+    commit_id: str = "",
+) -> dict:
     """The review payload. `body` is required whenever `event` is COMMENT."""
+    # Tagging happens HERE, last, and deliberately so. Everything upstream --
+    # the duplicate check, grouping, the comment budget -- compares bodies,
+    # and a prefix on one side of those comparisons makes a finding look new.
+    # Tag at the end and every one of them still sees the prose alone.
+    comments = _tagged(comments, label)
+    notes = _tagged(notes, label)
     header = f"Automated **{label}** review — {len(comments)} finding(s)."
+    # An invisible signature, so a later run can recognise its own reviews and
+    # work out which round it is on. The header below is the fallback for
+    # reviews posted before this existed, but prose gets edited and a marker
+    # nobody reads does not. review_budget.py is the reader.
+    lines = [REVIEW_MARKER, header]
+
     if notes:
         # These sit on lines the PR does not add, so GitHub will not take them
         # inline. Listing them here is the only way they reach the author at
         # all, and on PR #2373 this class held all three hard CI failures.
-        lines = [
-            header,
+        lines += ["", "Also, on lines this PR does not change:", ""]
+        lines += [
+            f"- `{_safe_span(n['path'])}:{n['line']}` — {_safe_line(n['body'])}"
+            for n in notes[:MAX_NOTES_LISTED]
+        ]
+        if len(notes) > MAX_NOTES_LISTED:
+            lines.append(f"- …and {len(notes) - MAX_NOTES_LISTED} more")
+
+    if unreviewed:
+        # Silence on a file reads as approval of it. When the diff did not fit
+        # the prompt, that reading is wrong, and only the author can tell which
+        # of these actually needed looking at.
+        lines += [
             "",
-            "Also, on lines this PR does not change:",
+            f"⚠️ This PR's diff was too large to review in full, so "
+            f"**{len(unreviewed)} file(s) were not looked at** by this lane:",
             "",
         ]
-        lines += [f"- `{n['path']}:{n['line']}` — {n['body']}" for n in notes]
-        return {
-            "event": "COMMENT",
-            "body": "\n".join(lines),
-            "comments": comments,
-        }
-    return {"event": "COMMENT", "body": header, "comments": comments}
+        lines += [
+            f"- `{_safe_span(p)}`" for p in unreviewed[:MAX_UNREVIEWED_LISTED]
+        ]
+        if len(unreviewed) > MAX_UNREVIEWED_LISTED:
+            lines.append(
+                f"- …and {len(unreviewed) - MAX_UNREVIEWED_LISTED} more"
+            )
+        lines += ["", "Splitting the PR up would get them reviewed."]
+
+    if progress:
+        # Last, and set apart: the author has just read the findings and this
+        # is the answer to "is this ever going to stop".
+        lines += ["", "---", "", f"_{progress}_"]
+
+    payload = {
+        "event": "COMMENT",
+        "body": "\n".join(lines),
+        "comments": comments,
+    }
+    if commit_id:
+        # Without this GitHub records the review against whatever is head AT
+        # POST TIME, not the commit that was reviewed. A review job takes
+        # minutes, so a push landing inside that window makes the recorded
+        # commit one that nothing looked at — and review_budget.py reads that
+        # field to decide what has already been reviewed, so the next run
+        # skips every lane and that commit is never reviewed by anyone.
+        payload["commit_id"] = commit_id
+    return payload
+
+
+def _findings_from_file(path: Path) -> list:
+    """The deterministic lane's findings, tagged as trusted."""
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, list):
+        raise ValueError("findings file is not a JSON array")
+    return [
+        {**f, "source": TRUSTED_SOURCE} for f in data if isinstance(f, dict)
+    ]
 
 
 def main() -> int:
     args = build_parser().parse_args()
+
+    if args.findings is not None:
+        try:
+            findings = _findings_from_file(args.findings)
+        except (OSError, ValueError) as exc:
+            return report_infra_fault(
+                infra_fault(
+                    CHECKER, f"cannot read findings {args.findings}: {exc}"
+                )
+            )
+        return _post(args, findings)
 
     try:
         result = json.loads(args.result.read_text(encoding="utf-8"))
@@ -1024,6 +1989,18 @@ def main() -> int:
             infra_fault(CHECKER, f"reviewer output unusable: {exc}")
         )
 
+    # A model must not be able to waive its own window check by claiming to be
+    # the deterministic checker. The key is stripped here, before anything
+    # reads it, rather than trusted not to appear.
+    for finding in findings:
+        if isinstance(finding, dict):
+            finding.pop("source", None)
+
+    return _post(args, findings)
+
+
+def _post(args, findings: list) -> int:
+    """Anchor, filter and write the payload. Shared by both input paths."""
     # errors="replace", because the workflow trims the diff to a byte budget
     # with `head -c` and that cut lands inside a multi-byte character sooner
     # or later — any diff touching an em dash or an accent is a candidate.
@@ -1047,6 +2024,14 @@ def main() -> int:
         print(f"{len(existing)} comment(s) already on this PR.")
 
     anchors, line_text = walk_right_side(diff)
+    if args.pr_diff is not None:
+        try:
+            pr_diff = args.pr_diff.read_text(encoding="utf-8", errors="replace")
+        except OSError as exc:
+            return report_infra_fault(
+                infra_fault(CHECKER, f"cannot read diff {args.pr_diff}: {exc}")
+            )
+        anchors = restrict_to_pr(anchors, pr_diff)
     comments, notes, skipped = build_comments(
         findings, anchors, line_text, existing
     )
@@ -1060,11 +2045,54 @@ def main() -> int:
         f"{len(notes)} on unchanged lines."
     )
 
-    if not comments and not notes:
+    # The ceiling, applied last. Until this existed the per-run budget reached
+    # the model as prose ("Aim for that number") and nothing downstream ever
+    # checked it, so a lane that felt talkative simply was. The model is told
+    # to emit findings most serious first, so keeping the head of the list
+    # keeps the most serious ones.
+    #
+    # Notes are deliberately NOT capped: they are lines in one review body
+    # rather than separate comments, and they carry the findings that have
+    # nowhere else to go.
+    limit = getattr(args, "max_comments", 0) or 0
+    if limit and len(comments) > limit:
+        print(
+            f"  budget is {limit} comment(s); dropping "
+            f"{len(comments) - limit} past it"
+        )
+        for dropped in comments[limit:]:
+            print(f"  over budget — {dropped['path']}:{dropped['line']}")
+        comments = comments[:limit]
+
+    unreviewed: list[str] = []
+    if getattr(args, "unreviewed", None) and args.unreviewed.exists():
+        unreviewed = [
+            line.strip()
+            for line in args.unreviewed.read_text(
+                encoding="utf-8", errors="replace"
+            ).splitlines()
+            if line.strip()
+        ]
+        if unreviewed:
+            print(f"{len(unreviewed)} file(s) were outside the prompt budget.")
+
+    # An unreviewed list is worth posting even with nothing else to say: a
+    # lane that found nothing AND saw only half the diff is not the same
+    # result as a lane that found nothing.
+    if not comments and not notes and not unreviewed:
         return EXIT_OK
 
     args.out.write_text(
-        json.dumps(build_payload(args.label, comments, notes)),
+        json.dumps(
+            build_payload(
+                args.label,
+                comments,
+                notes,
+                unreviewed,
+                args.progress,
+                getattr(args, "commit_id", ""),
+            )
+        ),
         encoding="utf-8",
     )
     return EXIT_OK

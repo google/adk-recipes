@@ -18,5 +18,5 @@ them directly.
 
 ## Trying a recipe
 
-Browse the folders below. Each recipe has its own `README.md`
+Browse the language folders below (`<lang>/<recipe>/`). Each recipe has its own `README.md`
 with setup and run instructions.

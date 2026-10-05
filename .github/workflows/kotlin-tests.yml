@@ -25,14 +25,14 @@ on:
       - "contrib/**/settings.gradle"
       - "contrib/**/settings.gradle.kts"
       - "contrib/**/manifest.yaml"
-      - "skills/**/*.kt"
-      - "skills/**/*.kts"
-      - "skills/**/pom.xml"
-      - "skills/**/build.gradle"
-      - "skills/**/build.gradle.kts"
-      - "skills/**/settings.gradle"
-      - "skills/**/settings.gradle.kts"
-      - "skills/**/manifest.yaml"
+      - "plugins/**/*.kt"
+      - "plugins/**/*.kts"
+      - "plugins/**/pom.xml"
+      - "plugins/**/build.gradle"
+      - "plugins/**/build.gradle.kts"
+      - "plugins/**/settings.gradle"
+      - "plugins/**/settings.gradle.kts"
+      - "plugins/**/manifest.yaml"
       - ".github/workflows/kotlin-tests.yml"
   workflow_dispatch:
     inputs:
@@ -65,6 +65,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Detect Kotlin recipes to test
         id: detect
@@ -90,11 +91,11 @@ jobs:
             grep -qiE "^[[:space:]]*language:[[:space:]]*[\"']?kotlin[\"']?[[:space:]]*(#.*)?$" "$1"
           }
 
-          # Helper: collect all Kotlin recipe dirs under core/, contrib/, and skills/.
+          # Helper: collect all Kotlin recipe dirs under core/, contrib/, and plugins/.
           # A recipe dir is any directory that contains a manifest.yaml
           # declaring language: kotlin.
           all_kotlin_recipes() {
-            for root in core contrib skills; do
+            for root in core contrib plugins; do
               [ -d "$root" ] || continue
               while IFS= read -r manifest; do
                 if is_kotlin_recipe "$manifest"; then
@@ -155,7 +156,7 @@ jobs:
             while IFS= read -r file; do
               [ -z "$file" ] && continue
               case "$file" in
-                core/*|contrib/*|skills/*) ;;
+                core/*|contrib/*|plugins/*) ;;
                 *) continue ;;
               esac
               recipe_dir="$(find_recipe_dir "$file")"
@@ -202,9 +203,11 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Set up JDK 17
-        uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # ratchet:actions/setup-java@v6.0.0
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # ratchet:actions/setup-java@v6.0.1
         with:
           distribution: temurin
           java-version: "17"

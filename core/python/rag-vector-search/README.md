@@ -48,7 +48,7 @@ credentials the test is skipped.
 ## CI/CD
 
 `deployment/cloudbuild.yaml` schedules the data-ingestion pipeline on Vertex AI
-Pipelines via the sample's own `submit_pipeline.py` (it creates/updates a
+Pipelines via the recipe's own `submit_pipeline.py` (it creates/updates a
 recurring `PipelineJobSchedule` with `SCHEDULE_ONLY=TRUE`; it does not run the
 pipeline inline). Wire it to a Cloud Build trigger, or run `gcloud builds submit
 --config deployment/cloudbuild.yaml --substitutions=...` (see the file header
@@ -59,5 +59,5 @@ the deprecated agent-starter-pack tooling).
 ## Looking for something else?
 See [`rag-agent-search`](../rag-agent-search) for an Agent Platform Search
 (Discovery Engine) variant with a GCS data connector, or
-[`multiformat-hybrid-rag`](../../python/agents/multiformat-hybrid-rag) for a production hybrid
+[`multiformat-hybrid-rag`](../../../contrib/python/multiformat-hybrid-rag) for a production hybrid
 (semantic + keyword) system.

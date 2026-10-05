@@ -12,6 +12,11 @@
 #
 # Add new sections here rather than hardcoding constants in workflow files.
 
+# Default human for repository maintenance: the login automation assigns
+# or @-mentions when it needs one. Aliased below as `*repo_admin`. Must be
+# a GitHub login with write access.
+repo_admin: &repo_admin happyhuman
+
 # --------------------------------------------------------------------------
 # Recipe size limits — enforced by
 # .github/workflows/validate-recipe-structure.yml (language-agnostic).
@@ -19,16 +24,20 @@
 # Recipes live under core/<language>/<recipe> or contrib/<language>/<recipe>
 # (e.g. core/python/rag-agent-search, contrib/java/hello-agent).
 #
-# skills/ uses a VERTICAL rather than a language for its middle component:
-# skills/<vertical>/<solution> (e.g. skills/retail/store-ops). The vertical
-# surfaces ownership, so a team can see its whole surface at a glance, and
-# it is mandatory — tools/validate_placement.py rejects a solution placed
-# directly under skills/.
+# plugins/ supports two layouts during the migration window:
+#   1. Legacy (single-skill vertical): plugins/<vertical>/<solution>/manifest.yaml
+#      (e.g. plugins/retail/store-ops). The vertical surfaces ownership, and
+#      is mandatory for legacy recipes.
+#   2. Spec-compliant (Agent Plugins v1.0.0): plugins/<plugin-name>/plugin.json
+#      with nested skills/<skill-name>/SKILL.md (and optional mcp.json,
+#      com.<reverse-domain>/).
+# Both layouts are accepted during migration. Once all plugins migrate, the
+# repository will move to the spec-only end state.
 #
 # The applicable tier is chosen by:
 #   1. Top-level ancestor: core → `core` limits;  contrib → `contrib`
-#      limits;  skills → `skills` limits.
-#   2. `large:` field in the recipe's manifest.yaml (default: false):
+#      limits;  plugins → `plugins` limits.
+#   2. `large:` field in the recipe's manifest.yaml or plugin.json (default: false):
 #        false / omitted → `default` limits;  true → `large` limits.
 #
 # The `excluded_paths` section below lists files and directories that
@@ -52,10 +61,10 @@ recipe_size_limits:
     large:
       max_files: 200
       max_size_mb: 10
-  # skills/ deliberately mirrors contrib: a vertical skill is a focused
+  # plugins/ deliberately mirrors contrib: a vertical plugin is a focused
   # solution (SKILL.md + scripts + design spec + eval), not a full
   # application, so the tighter tier is the right default.
-  skills:
+  plugins:
     default:
       max_files: 70
       max_size_mb: 2
@@ -194,11 +203,11 @@ excluded_paths:
 # The required-file list applied to a recipe is the UNION of three sources,
 # resolved from the recipe's on-disk location and its manifest.language:
 #   1. `always`               — every recipe, regardless of anything
-#   2. `by_root[<root>]`      — where <root> is core / contrib / skills
+#   2. `by_root[<root>]`      — where <root> is core / contrib / plugins
 #                               (the top-level directory the recipe lives in)
 #   3. `by_language[<lang>]`  — where <lang> is the value of manifest.language
 #
-# Adding a new language, or a new folder-based rule (e.g. skills/*), is a
+# Adding a new language, or a new folder-based rule (e.g. plugins/*), is a
 # YAML edit here — no code change is required. Paths are recipe-relative
 # and may include subdirectories (e.g. tests/test_runnability.py).
 #
@@ -211,6 +220,7 @@ excluded_paths:
 required_files:
   always:
     - README.md
+    - .env.example
 
   by_root:
     # AGENTS.md is required for EVERY recipe under core/, regardless of
@@ -222,21 +232,29 @@ required_files:
     # validation — the fix is to add the file, not to loosen the policy.
     core:
       - AGENTS.md
-    contrib: []
-    # Vertical skills live at skills/<vertical>/<solution>.
+    contrib:
+      - Dockerfile
+    # Vertical plugins live at plugins/<vertical>/<solution> (legacy) or
+    # plugins/<plugin>/ (spec-compliant container).
+    #
+    # Legacy vertical plugins ship:
     #   SKILL.md  — the conversational installer: runs the interview,
     #               writes the design spec, performs setup.
     #   EVAL.yaml — self-verifying proof of performance (eval rubrics).
-    # The one directory a vertical skill must also ship (scripts/) is
+    # The one directory a legacy vertical plugin must also ship (scripts/) is
     # listed under `required_dirs` below — this section can only express
     # files.
     #
-    # A Python vertical skill additionally picks up
+    # Spec-compliant plugins follow Google's Agent Plugins v1.0.0 spec
+    # (plugin.json at root and skills/<skill>/SKILL.md) and are validated
+    # through dedicated container checks in tools/validate_structure.py.
+    #
+    # A Python vertical plugin additionally picks up
     # required_files.by_language.python (pyproject.toml, uv.lock,
-    # .env.example, tests/test_runnability.py) via manifest.language. The
+    # tests/test_runnability.py) via manifest.language. The
     # path does not encode the language for this root — the middle folder
     # is a vertical — so the manifest is what resolves it.
-    skills:
+    plugins:
       - SKILL.md
       - EVAL.yaml
 
@@ -244,7 +262,6 @@ required_files:
     python:
       - pyproject.toml
       - uv.lock
-      - .env.example
       - tests/test_runnability.py
     go:
       # Every Go recipe is its own module. go.mod is required for three
@@ -268,12 +285,24 @@ required_files:
       #
       # go.sum is deliberately NOT required: a recipe with no third-party
       # dependencies legitimately has none.
+      #
+      # Go gets no registry-pinning rule. Python pins [[tool.uv.index]] to
+      # public PyPI; Go's equivalent is GOPROXY, an environment variable
+      # with nothing in go.mod to inspect.
       - go.mod
-    # Placeholders for languages that don't have recipes yet. Filling these
-    # in later requires no workflow change.
-    java: []
-    kotlin: []
-    typescript: []
+    # Java and Kotlin recipes carry NO lockfile or supply-chain requirement,
+    # only a build file. Maven has no lockfile concept; Gradle dependency
+    # locking is opt-in and unused anywhere in this repo. Requiring it would
+    # mean every contributor runs --write-locks and commits gradle.lockfile.
+    java:
+      # Any ONE of Maven or Gradle build files (java-tests.yml supports both):
+      - [pom.xml, build.gradle, build.gradle.kts]
+    kotlin:
+      - build.gradle.kts
+    typescript:
+      - package.json
+      # Any ONE lockfile:
+      - [package-lock.json, pnpm-lock.yaml, yarn.lock, bun.lockb, bun.lock]
 
 # --------------------------------------------------------------------------
 # Required directories — enforced by
@@ -295,12 +324,12 @@ required_files:
 #
 # So the bar for listing a directory here is: the recipe is BROKEN without
 # it, not merely unconventional. assets/, references/ and tests/unit/ were
-# removed under that bar — plenty of vertical skills legitimately ship no
+# removed under that bar — plenty of plugins legitimately ship no
 # demo data and no deep-dive docs, and tests/unit/ implied a testing
 # discipline it could not enforce (an empty folder passed) while
 # tests/test_runnability.py already covers the real requirement as a FILE.
 #
-# They remain the convention, and the skills scaffold template still
+# They remain the convention, and the plugin scaffold template still
 # creates them — prompting an author to fill a folder is the scaffold's
 # job, not CI's. See docs/recipe-handbook/anatomy.md.
 # --------------------------------------------------------------------------
@@ -311,9 +340,9 @@ required_dirs:
     core: []
     contrib: []
     # scripts/ — functional code: ADK agents, model implementations,
-    #            one-shot GCP setup scripts. A vertical skill with no
+    #            one-shot GCP setup scripts. A vertical plugin with no
     #            scripts/ has nothing to run, so this one is load-bearing.
-    skills:
+    plugins:
       - scripts
 
   by_language:
@@ -349,6 +378,23 @@ required_dirs:
 # days of slack (60 becomes "60-67"). With a 30-day gap between the two
 # stages and a 7-day tick, nothing can skip a stage.
 # --------------------------------------------------------------------------
+
+# --------------------------------------------------------------------------
+# Recipe proposals — issues titled `[RECIPE PROPOSAL]`, reviewed by hand.
+# The AI issue workflows are gated off them, and recipe-proposal-intake.yml
+# applies what the issue template would have.
+#
+# ISSUE_TEMPLATE/propose-a-new-recipe.md names the same assignees and label,
+# but GitHub applies template front matter only to issues filed THROUGH the
+# template — one created via the REST API gets neither (issue #2660). Keep
+# the two in step; a test asserts they match.
+# --------------------------------------------------------------------------
+recipe_proposals:
+  assignees:
+    - pierpaolo28
+    - kgu-here
+  label: contribute
+
 stale_policy:
   # Applied to both pull requests and issues. Only users with write access
   # can apply labels, so `keep_open_label` is a maintainer override rather
@@ -370,7 +416,7 @@ stale_policy:
     # quiet are the ones Dependabot itself has abandoned, which is exactly
     # the set worth escalating.
     bot_label: dependencies
-    bot_escalation_mention: happyhuman
+    bot_escalation_mention: *repo_admin
 
   issues:
     # Deliberately triple the PR window, because the two cases are not
@@ -507,7 +553,7 @@ stale_policy:
       # orphan clock it is dead 90 days after its last image upload.
       #
       # What breaks: core/python/long-horizon-harness/README.md embeds
-      # https://raw.githubusercontent.com/google/adk-samples/assets/long-horizon-harness/horizon-demo.gif
+      # https://raw.githubusercontent.com/google/adk-recipes/assets/long-horizon-harness/horizon-demo.gif
       # where `assets` is the GIT REF. Delete the branch and that image 404s
       # in the recipe's README. Nothing in CI would catch it — docs-links.yml
       # checks links, and this failure is silent until someone looks.
@@ -595,6 +641,9 @@ deployability:
     - "gcsfs>=2024.11.0"
     - "google-adk[gcp,otel-gcp]>=2.6.0,<3.0.0"
     - "opentelemetry-resourcedetector-gcp<=1.12.0a0"
+    # Provides `agentplatform`, which app_utils/reasoning_engine_adapter.py
+    # imports. Same floor agents-cli uses for its agent_runtime target.
+    - "google-cloud-aiplatform[agent-engines]>=1.156.0,<2.0.0"
 
   # Files a deployable recipe must have. `<pkg>` is the recipe's agent
   # package directory (e.g. `app`, `horizon`, `expense_agent`).
@@ -743,109 +792,122 @@ deployability:
     # cloud resources nobody asked for. Add a recipe here only after
     # reading its agent package for import-time side effects.
     #
-    # Deployable recipes live under core/ or contrib/; vertical skills
-    # under skills/ are out of scope for deployability.
+    # Deployable recipes live under core/ or contrib/; plugins
+    # under plugins/ are out of scope for deployability.
     run_allowlist:
       - contrib/python/financial-advisor
       - core/python/rag-agent-search
       - core/python/rag-vector-search
 
-  # --------------------------------------------------------------------------
-  # PUBLISHING
-  #
-  # Which recipe container images are built and pushed to a public Artifact
-  # Registry. Read by .github/scripts/publish_matrix.py, which validates this
-  # block and turns it into the job matrix for the image build workflow.
-  #
-  # An ALLOWLIST, not a scan. Two reasons it is not derived from "the recipe
-  # has a Dockerfile":
-  #
-  #   1. `docker build` executes every RUN instruction it is handed, and these
-  #      images are published publicly under Google's name. Which Dockerfiles
-  #      earn that is an admin decision recorded here, not a side effect of a
-  #      contributor adding a file. Same reasoning as `run_allowlist` above.
-  #
-  #   2. Most Dockerfiles in the repo are not ready to publish. Several
-  #      re-resolve dependencies at build time rather than installing from a
-  #      committed lockfile, so two builds of one commit can produce different
-  #      images. Listing the conforming ones lets publishing start now instead
-  #      of blocking on every owner at once.
-  #
-  # `manifest.deployable` is deliberately NOT the selector. It means "can be
-  # deployed with one click" for ANY target, Agent Engine included, so it
-  # marks recipes that have no container at all (contrib/python/llm-auditor,
-  # core/python/oauth-user-consent-flow) while missing recipes that do have
-  # one (core/python/cross-session-memory, core/python/genmedia-for-commerce).
-  # Reconciling that field is a separate piece of work.
-  publish:
-    # Cloud Run runs amd64. Building for the target rather than for the
-    # runner keeps an arm64 host from producing an image the target cannot
-    # run — a no-op on x86, and the whole ballgame elsewhere.
-    #
-    # ADDING A SECOND PLATFORM IS NOT A ONE-LINE CHANGE. The classic docker
-    # builder rejects more than one outright, and under buildx a multi-
-    # platform build cannot be loaded into the local daemon — it has to go
-    # straight to a registry with `--push`. So a second entry here obliges
-    # the build workflow to switch to buildx and to give up anything that
-    # needs the image locally, such as probing it before publishing. Change
-    # the workflow first, this list second.
-    platforms:
-      - linux/amd64
+# --------------------------------------------------------------------------
+# Per-check recipe exemptions consumed by tools/check_exemptions.py.
+# Allows workflows to skip exempt recipes before running checks, keeping
+# check scripts decoupled from policy logic.
+#
+# Mapping structure:
+#   <check-id>:
+#     Check identifier matching either the workflow name without `.yml`
+#     (e.g., recipe-docker-build) or `<workflow>/<check>` when one workflow
+#     runs several checks. Some workflow must reference each key via
+#     `filter --check <id>`; tools/tests/test_check_exemptions.py enforces it.
+#
+#   path:
+#     Repo-relative path under core/, contrib/, or plugins/. Matches full path
+#     components hierarchically.
+#
+#   reason:
+#     Required explanation, logged to stderr with each skip.
+# --------------------------------------------------------------------------
+check_exemptions:
+  recipe-docker-build:
+    - path: core/python/ambient-quality-agent
+      reason: >-
+        Agent Runtime image built by `agents-cli deploy`; starts only as a
+        deployed engine with Application Default Credentials.
 
-    # One entry per published image. A recipe may declare more than one.
-    #
-    #   recipe       Repo-relative recipe directory. Must be under core/ or
-    #                contrib/ and contain a manifest.yaml. That constraint is
-    #                also what keeps the pre-migration python/agents/ and
-    #                java/agents/ trees, and skills/ (out of scope for
-    #                deployability, see above), unpublishable.
-    #
-    #   dockerfile   Path to the Dockerfile, relative to `recipe`.
-    #
-    #   context      Build context, relative to `recipe`. DECLARED, not
-    #                inferred from the Dockerfile's location: several
-    #                Dockerfiles here live in a subdirectory and COPY from the
-    #                recipe root, so `dirname(dockerfile)` is the wrong answer
-    #                often enough that guessing it would be a bug generator.
-    #
-    #   image        Published image name. Becomes part of the public pull
-    #                address, so it is expensive to change once anything
-    #                references it. The convention is the recipe directory's
-    #                basename, plus a qualifier suffix for a recipe's
-    #                secondary images. Uniqueness is ENFORCED rather than
-    #                assumed: two recipes in this repo already share a
-    #                basename (llm-auditor, in Python and Kotlin), so the
-    #                collision is real and would otherwise surface as one
-    #                image silently overwriting another.
-    #
-    #   serves_http  Whether the image serves HTTP. Recorded so a later probe
-    #                step knows what it may poll — not every publishable image
-    #                is a server. The KFP base image under
-    #                multiformat-hybrid-rag has no CMD at all, and probing it
-    #                would report a healthy image as broken.
-    #
-    # Registry coordinates (project, repository, region) are deliberately
-    # absent. They arrive as repository variables at build time, so choosing
-    # or moving the hosting project never means editing this file.
-    images:
-      - recipe: core/python/long-horizon-harness
-        dockerfile: Dockerfile
-        context: .
-        image: long-horizon-harness
-        serves_http: true
+# --------------------------------------------------------------------------
+# Automated PR review — read by .github/scripts/review_budget.py, which the
+# AI review lanes call to work out how much they may say on a given push.
+#
+# THE PROBLEM THESE NUMBERS SOLVE. Every push used to re-review the whole
+# PR, and duplicate suppression drops anything already said — so each round
+# was FORCED to return findings nobody had seen yet. On a large PR the pool
+# of available findings is far bigger than one round's budget, so the
+# reviewer dribbled out new comments indefinitely and authors reported the
+# process as endless: fix everything, push, receive a fresh batch.
+#
+# The fix has four parts, and every constant below belongs to one of them:
+#   1. a round only reads what changed since the last review
+#   2. the per-round allowance SHRINKS by `decay` each round
+#   3. a hard `lifetime_cap` on how many comments one PR can ever receive
+#   4. past `blocker_only_after_round`, only the blocker lanes run
+#
+# The deterministic house-rules lane is exempt from all of it: it cannot
+# invent a finding, it converges by itself (a violation is fixed or it is
+# not), and its comments are mostly things CI fails on.
+# --------------------------------------------------------------------------
+pr_review_budget:
+  # The most inline comments the model lanes may ever post on one pull
+  # request, across every round. This is the number that guarantees the
+  # process terminates; everything else only shapes how it gets there.
+  #
+  # 25 is roughly one full round on a large PR under the old per-push
+  # ceiling — enough for a substantial first pass and a couple of smaller
+  # follow-ups, and small enough that an author can see the end.
+  lifetime_cap: 25
 
-      # The sandbox the harness runs agent-authored code inside. Published
-      # because the recipe cannot be used without it: its quickstart makes
-      # every user build and push this image into their own project by hand
-      # before anything works (docs/quickstart.md, step 3 of 4).
-      - recipe: core/python/long-horizon-harness
-        dockerfile: horizon/sandbox/runtime/Dockerfile
-        context: horizon/sandbox/runtime
-        image: long-horizon-harness-sandbox-runtime
-        serves_http: true
+  # What fraction of the PREVIOUS round's actual comment count the next
+  # round may post. 12 comments in round 2 permits 7 in round 3.
+  #
+  # The point is the shape, not the arithmetic: an author should be able to
+  # watch the reviewer wind down. At 0.6 a 20-comment first round decays
+  # 20 -> 12 -> 7 -> 4 -> 2 -> 1, so the fifth push is nearly quiet.
+  # Raise it towards 1.0 to keep later rounds substantial; lower it to
+  # reach silence sooner.
+  decay: 0.6
 
-      - recipe: contrib/python/multiformat-hybrid-rag
-        dockerfile: Dockerfile
-        context: .
-        image: multiformat-hybrid-rag
-        serves_http: true
+  # The allowance never falls below this. At 0 the reviewer goes
+  # permanently silent once a round earns a single comment, which is wrong
+  # for a PR that later grows a large new commit — with incremental review
+  # that commit is genuinely unreviewed code. A floor of 1 keeps one slot
+  # available; `lifetime_cap` is what finally produces silence.
+  min_allowance: 1
+
+  # From this round on, only the lanes in `blocker_lanes` run. Round 1 and
+  # round 2 get the full set; a third round of naming nits is where the
+  # process starts to feel like nagging rather than review.
+  blocker_only_after_round: 2
+
+  # Lanes in PRIORITY ORDER. Two things read this list:
+  #
+  #   - allocation. The allowance is dealt out one comment at a time from
+  #     the top, so an allowance of 1 goes to Security ALONE. The lanes run
+  #     as concurrent jobs and cannot coordinate, so each computes the same
+  #     vector from this list and reads off its own slot. Dividing by four
+  #     and letting each lane round up would turn an allowance of 1 into
+  #     four comments.
+  #   - the blocker set. `blocker_lanes` must be a prefix of this list, so
+  #     the lanes that survive a shrinking budget are the same ones that
+  #     survive past `blocker_only_after_round`.
+  #
+  # Must match the `review_label` inputs in the ai-pr-review-*.yml lanes.
+  lanes:
+    - Security
+    - Correctness
+    - Maintainability
+    - Hygiene
+
+  # The lanes that keep running once the round limit is passed. A prefix of
+  # `lanes` — a crash on a reachable path and a security hole are what stop
+  # a merge; a shorter variable name is not.
+  blocker_lanes:
+    - Security
+    - Correctness
+
+  # Lanes exempt from every limit above: no decay, no lifetime cap, never
+  # skipped, and their comments are not counted against the model lanes'
+  # budget. Counting them would let a recipe with many rule violations
+  # consume the cap and silence the model lanes for a reason that has
+  # nothing to do with them.
+  exempt_lanes:
+    - House Rules

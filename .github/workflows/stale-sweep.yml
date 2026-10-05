@@ -130,7 +130,7 @@ jobs:
           persist-credentials: false
 
       - name: Install uv
-        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # ratchet:astral-sh/setup-uv@v10.0.1
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # ratchet:astral-sh/setup-uv@v10.2.0
         with:
           # Minimum supported Python version, as in tools-tests.yml.
           python-version: "3.11"
@@ -176,7 +176,7 @@ jobs:
           # `--no-project` matches dependabot-housekeeping.yml and
           # stale-branch-sweep.yml: load_policy.py imports the standard
           # library plus yaml, so there is nothing to sync. Without it uv
-          # resolves and builds the root `adk-samples-tools` project, making
+          # resolves and builds the root `adk-recipes-tools` project, making
           # a threshold lookup fail for reasons unrelated to the threshold.
           p() {
             uv run --no-project --with pyyaml python3 \

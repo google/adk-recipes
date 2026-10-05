@@ -82,11 +82,11 @@ def test_npm_tolerates_malformed_package_json(tmp_path):
 def test_scan_finds_all_roots_and_reports_repo_relative_paths(tmp_path):
     _touch(tmp_path / "core/python/alpha/uv.lock")
     _touch(tmp_path / "contrib/python/beta/uv.lock")
-    _touch(tmp_path / "skills/retail/gamma/uv.lock")
+    _touch(tmp_path / "plugins/retail/gamma/uv.lock")
     assert m.scan(tmp_path) == [
         ("uv", "/contrib/python/beta"),
         ("uv", "/core/python/alpha"),
-        ("uv", "/skills/retail/gamma"),
+        ("uv", "/plugins/retail/gamma"),
     ]
 
 
@@ -140,8 +140,8 @@ def test_scan_ignores_retired_and_unknown_roots(tmp_path):
 
 
 def test_scan_tolerates_missing_roots(tmp_path):
-    """A checkout need not contain every root — skills/ did not exist at all
-    until the first vertical skill landed."""
+    """A checkout need not contain every root — plugins/ did not exist at all
+    until the first vertical plugin landed."""
     _touch(tmp_path / "core/python/alpha/uv.lock")
     assert m.scan(tmp_path) == [("uv", "/core/python/alpha")]
 

@@ -366,7 +366,7 @@ async def run_glasses_vto(
                     face_score=item.get("face_score"),
                 )
 
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.error("[Glasses VTO] Variation timeout")
             yield VTOResult(status="failed", error="Timeout")
 

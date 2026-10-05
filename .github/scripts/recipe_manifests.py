@@ -2,7 +2,7 @@
 """
 Locate dependency manifests across the recipe tree.
 
-Answers one question: which directories under core/, contrib/, and skills/
+Answers one question: which directories under core/, contrib/, and plugins/
 contain a dependency manifest, and for which package ecosystem?
 
 Why this exists as its own module
@@ -44,7 +44,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 # java/agents, ... — see `frozen_paths` in .github/policy.yml) are
 # deliberately absent: they are closed to new work and are not dependency-
 # managed.
-SCAN_ROOTS = ["core", "contrib", "skills"]
+SCAN_ROOTS = ["core", "contrib", "plugins"]
 
 # Directory names that are never recipe roots — pruned during the walk.
 SKIP_DIRS = {

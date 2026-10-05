@@ -215,14 +215,14 @@ def extract_media(parsed, tool_name: str) -> list[bytes | str]:
                 if isinstance(v, str) and len(v) > 1000:
                     try:
                         media.append(base64.b64decode(v))
-                    except Exception:
+                    except Exception:  # noqa: S110
                         pass
                 elif isinstance(v, list):
                     for item in v:
                         if isinstance(item, str) and len(item) > 1000:
                             try:
                                 media.append(base64.b64decode(item))
-                            except Exception:
+                            except Exception:  # noqa: S110
                                 pass
             elif (
                 k == "img_path" and isinstance(v, str) and v.startswith("gs://")

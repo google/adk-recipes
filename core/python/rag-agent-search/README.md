@@ -49,7 +49,7 @@ credentials the test is skipped.
 
 ## CI/CD
 
-These samples don't bundle a deployment pipeline. Documents are kept fresh by
+These recipes don't bundle a deployment pipeline. Documents are kept fresh by
 the GCS Data Connector, which re-syncs on its `data_connector_refresh_interval`
 (default daily); call `make ingest` from CI (or locally) to force a sync. To
 deploy the agent, use the ADK-native path — e.g. `uv run adk deploy cloud_run .`
@@ -57,5 +57,5 @@ or `adk deploy agent_engine` (not the deprecated agent-starter-pack tooling).
 
 ## Looking for vector search instead?
 See [`rag-vector-search`](../rag-vector-search) for a Vector Search 2.0 variant,
-or [`multiformat-hybrid-rag`](../../python/agents/multiformat-hybrid-rag) for a production hybrid
+or [`multiformat-hybrid-rag`](../../../contrib/python/multiformat-hybrid-rag) for a production hybrid
 (semantic + keyword) system.

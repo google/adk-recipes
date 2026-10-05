@@ -80,7 +80,8 @@ app: FastAPI = get_fast_api_app(
     artifact_service_uri=artifact_service_uri,
     allow_origins=allow_origins or ["*"],
     session_service_uri=session_service_uri,
-    otel_to_cloud=True,
+    otel_to_cloud=not os.getenv("INTEGRATION_TEST")
+    and os.getenv("USE_IN_MEMORY_SESSION") not in ("true", "1", "True", "TRUE"),
 )
 app.title = "GenMedia for Commerce"
 app.description = "ADK Agent + REST API for GenMedia workflows"
@@ -118,6 +119,10 @@ from mcp_server.video_vto.glasses.glasses_api import (  # noqa: E402
     router as glasses_video_router,
 )
 
+from genmedia4commerce.app_utils.reasoning_engine_adapter import (  # noqa: E402
+    attach_reasoning_engine_routes,
+)
+
 app.include_router(product_fitting_router)
 app.include_router(clothes_image_router)
 app.include_router(glasses_image_router)
@@ -129,6 +134,11 @@ app.include_router(r2v_other_router)
 app.include_router(interpolation_other_router)
 app.include_router(catalog_router)
 app.include_router(chat_router)
+
+# Agent Engine forwards :query and :streamQuery to these routes; without them
+# a container deployed through container_spec starts but 404s every call.
+# Registered before the frontend so the SPA catch-all cannot shadow them.
+attach_reasoning_engine_routes(app)
 
 
 # --- Feedback endpoint (ASP standard) ---
@@ -222,23 +232,9 @@ def _mount_frontend():
             )
 
     # SPA catch-all: serve index.html for any path not matched by API routes or static files
-    from starlette.responses import FileResponse
+    from genmedia4commerce.app_utils.spa import attach_spa_routes
 
-    index_html = str(frontend_dir / "index.html")
-
-    @app.get("/{full_path:path}")
-    async def serve_spa(full_path: str):
-        # If the path matches an actual file in dist/, serve it
-        file_path = frontend_dir / full_path
-        if full_path and file_path.is_file():
-            return FileResponse(str(file_path))
-        # Only serve index.html for SPA routes (paths without file extensions)
-        # Asset requests (.json, .js, .css, etc.) that don't exist should 404
-        if "." in full_path.rsplit("/", maxsplit=1)[-1]:
-            from fastapi.responses import JSONResponse
-
-            return JSONResponse({"detail": "Not Found"}, status_code=404)
-        return FileResponse(index_html)
+    attach_spa_routes(app, frontend_dir)
 
 
 @app.get("/health")
@@ -301,4 +297,4 @@ _mount_frontend()
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=8000)  # noqa: S104 -- container entrypoint

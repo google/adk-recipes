@@ -27,6 +27,10 @@ from app.app_utils.typing import Feedback
 
 # Load environment variables from .env file at runtime
 load_dotenv()
+# .env.example declares this empty. AdkApp treats its mere presence as running
+# on Agent Engine and would build Vertex session/memory services with no id.
+if not os.environ.get("GOOGLE_CLOUD_AGENT_ENGINE_ID"):
+    os.environ.pop("GOOGLE_CLOUD_AGENT_ENGINE_ID", None)
 
 
 class AgentEngineApp(AdkApp):

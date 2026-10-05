@@ -1,0 +1,33 @@
+#vscode
+.vscode
+
+#python
+__pycache__
+.env
+.python-version
+.venv
+
+# Python standard
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# OS files
+.DS_Store
+
+# ---------------------------------------------
+# Gemini Demo & Local ADK Exclusions
+# ---------------------------------------------
+
+# Local ADK Database & Session artifacts
+.adk/
+app/.adk/
+
+
+# Registration config (contains deployment IDs)
+agent_registration/
+target/

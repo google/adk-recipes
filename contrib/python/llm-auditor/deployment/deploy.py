@@ -22,7 +22,7 @@ from dotenv import load_dotenv
 from vertexai import agent_engines
 from vertexai.preview.reasoning_engines import AdkApp
 
-from llm_auditor.agent import root_agent
+from app.agent import root_agent
 
 FLAGS = flags.FLAGS
 flags.DEFINE_string("project_id", None, "GCP project ID.")
@@ -55,7 +55,7 @@ def create() -> None:
             "pydantic (>=2.10.6,<3.0.0)",
             "absl-py (>=2.2.1,<3.0.0)",
         ],
-        extra_packages=["./llm_auditor"],
+        extra_packages=["./app"],
         env_vars={"MODEL_NAME": model_name},
     )
     print(f"Created remote agent: {remote_agent.resource_name}")

@@ -24,7 +24,9 @@ def test_agent_runnability() -> None:
     os.environ.setdefault("GOOGLE_CLOUD_PROJECT", "test-project")
     os.environ.setdefault("MODEL_NAME", "gemini-3.5-flash")
 
-    with patch("google.auth.default", return_value=(MagicMock(), "test-project")):
+    with patch(
+        "google.auth.default", return_value=(MagicMock(), "test-project")
+    ):
         import app.agent
 
     assert app.agent.root_agent is not None

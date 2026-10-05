@@ -44,9 +44,9 @@ COPY pyproject.toml README.md uv.lock* ./
 
 # Copy application code
 COPY genmedia4commerce/ ./genmedia4commerce/
-COPY assets/ ./assets/
 COPY frontend/ ./frontend/
-COPY config.env ./
+COPY config.env.example* config.env* ./
+RUN mkdir -p assets && if [ ! -f config.env ] && [ -f config.env.example ]; then cp config.env.example config.env; fi
 
 # Install Python dependencies from root pyproject.toml
 RUN rm -f uv.lock && uv sync --no-cache

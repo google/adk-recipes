@@ -366,7 +366,7 @@ You can also use the [Google Agents CLI](https://github.com/google/agents-cli) t
 uvx google-agents-cli setup
 ```
 
-**Create the project from this sample** (replace `my-adk-ae-oauth` with your project name):
+**Create the project from this recipe** (replace `my-adk-ae-oauth` with your project name):
 
 ```bash
 agents-cli create my-adk-ae-oauth -a adk@adk-ae-oauth
@@ -376,7 +376,7 @@ The Google Agents CLI will prompt you to select deployment options and provides 
 
 ---
 
-## Makefile Reference
+## References
 
 
 - [Powering Up your Agent with ADK, OAuth and Gemini Enterprise](https://fmind.medium.com/powering-up-your-agent-in-production-with-adk-oauth-and-gemini-enterprise-a52b0716fcba) — The pattern this implementation follows

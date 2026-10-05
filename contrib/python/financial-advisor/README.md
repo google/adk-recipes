@@ -67,8 +67,8 @@ to implement this workflow.
 
     ```bash
     # Clone this repository.
-    git clone https://github.com/google/adk-samples.git
-    cd adk-samples/python/agents/financial-advisor
+    git clone https://github.com/google/adk-recipes.git
+    cd adk-recipes/contrib/python/financial-advisor
     # Install the package and dependencies.
     uv sync
     ```
@@ -102,7 +102,7 @@ ADK provides convenient ways to bring up agents locally and interact with them.
 You may talk to the agent using the CLI:
 
 ```bash
-adk run financial_advisor
+adk run app
 ```
 
 Or on a web interface:
@@ -112,7 +112,7 @@ Or on a web interface:
 ```
 
 The command `adk web` will start a web server on your machine and print the URL.
-You may open the URL, select "financial_advisor" in the top-left drop-down menu, and
+You may open the URL, select "app" in the top-left drop-down menu, and
 a chatbot interface will appear on the right. The conversation is initially
 blank. Here are some example requests you may ask the Financial Advisor to verify:
 
@@ -783,7 +783,7 @@ You can also use the [Google Agents CLI](https://github.com/google/agents-cli) t
 uvx google-agents-cli setup
 ```
 
-**Create the project from this sample** (replace `my-financial-advisor` with your project name):
+**Create the project from this recipe** (replace `my-financial-advisor` with your project name):
 
 ```bash
 agents-cli create my-financial-advisor -a adk@financial-advisor

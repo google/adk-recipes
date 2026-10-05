@@ -1,0 +1,8 @@
+# osv-scanner reads this file for ./go.mod (the CVE scan in
+# .github/workflows/dependency-cve-scan.yml). Only vulnerabilities with
+# no fixed release belong here; remove each entry once a fix ships.
+
+[[IgnoredVulns]]
+id = "GO-2026-5932"
+ignoreUntil = 2026-12-31
+reason = "Covers the deprecated golang.org/x/crypto/openpgp packages, which have no fixed release. x/crypto is a transitive dependency of ADK Go, and this recipe never imports openpgp (go list -deps . finds none)."
