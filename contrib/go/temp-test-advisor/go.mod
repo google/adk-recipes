@@ -1,6 +1,6 @@
 module github.com/google/adk-recipes/contrib/go/temp-test-advisor
 
-go 1.996.0
+go 1.26.0
 
 require (
 	github.com/joho/godotenv v1.5.1
