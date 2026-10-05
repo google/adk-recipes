@@ -24,6 +24,8 @@ from unittest.mock import MagicMock, patch
 import check_github_dir_changes as m
 import pytest
 
+TEST_REPO = "google/adk-recipes"
+
 # ---------------------------------------------------------------------------
 # find_github_files
 # ---------------------------------------------------------------------------
@@ -116,7 +118,7 @@ def test_is_admin_api_permission_admin():
         assert (
             m.check_is_admin(
                 "admin_user",
-                repo="google/adk-samples",
+                repo=TEST_REPO,
                 token="test_token",
             )
             is True
@@ -135,7 +137,7 @@ def test_is_admin_api_role_name_admin():
         assert (
             m.check_is_admin(
                 "admin_user",
-                repo="google/adk-samples",
+                repo=TEST_REPO,
             )
             is True
         )
@@ -160,7 +162,7 @@ def test_is_admin_api_non_admin():
         assert (
             m.check_is_admin(
                 "collaborator",
-                repo="google/adk-samples",
+                repo=TEST_REPO,
             )
             is False
         )
@@ -188,7 +190,7 @@ def test_non_admin_association_resolves_after_lookups_fail(association):
         assert (
             m.check_is_admin(
                 "outsider",
-                repo="google/adk-samples",
+                repo=TEST_REPO,
                 author_association=association,
             )
             is False
@@ -206,7 +208,7 @@ def test_api_answer_overrules_the_association_inference():
         assert (
             m.check_is_admin(
                 "concealed_admin",
-                repo="google/adk-samples",
+                repo=TEST_REPO,
                 author_association="CONTRIBUTOR",
             )
             is True
@@ -225,7 +227,7 @@ def test_member_and_collaborator_still_query_the_api(association):
         assert (
             m.check_is_admin(
                 "someone",
-                repo="google/adk-samples",
+                repo=TEST_REPO,
                 author_association=association,
             )
             is True
@@ -247,7 +249,7 @@ def test_is_admin_undetermined_on_non_404_http_error(code):
         patch("urllib.request.urlopen", side_effect=http_error),
         patch("shutil.which", return_value=None),
     ):
-        assert m.check_is_admin("admin_user", repo="google/adk-samples") is None
+        assert m.check_is_admin("admin_user", repo=TEST_REPO) is None
 
 
 def test_is_admin_undetermined_when_network_and_cli_both_fail():
@@ -261,7 +263,7 @@ def test_is_admin_undetermined_when_network_and_cli_both_fail():
             "subprocess.run", return_value=MagicMock(returncode=1, stdout="")
         ),
     ):
-        assert m.check_is_admin("admin_user", repo="google/adk-samples") is None
+        assert m.check_is_admin("admin_user", repo=TEST_REPO) is None
 
 
 def test_is_admin_api_404_returns_false():
@@ -279,7 +281,7 @@ def test_is_admin_api_404_returns_false():
         assert (
             m.check_is_admin(
                 "outsider",
-                repo="google/adk-samples",
+                repo=TEST_REPO,
             )
             is False
         )
@@ -300,7 +302,7 @@ def test_is_admin_gh_cli_fallback():
         assert (
             m.check_is_admin(
                 "admin_user",
-                repo="google/adk-samples",
+                repo=TEST_REPO,
             )
             is True
         )
@@ -345,7 +347,7 @@ def test_main_passes_for_owner_association(monkeypatch, capsys):
             "--author-association",
             "OWNER",
             "--repo",
-            "google/adk-samples",
+            TEST_REPO,
         ]
     )
     assert code == 0
@@ -366,7 +368,7 @@ def test_main_fails_when_non_admin_modifies_github_files(monkeypatch, capsys):
             "--author-association",
             "CONTRIBUTOR",
             "--repo",
-            "google/adk-samples",
+            TEST_REPO,
             "--is-admin",
             "false",
         ]
@@ -460,7 +462,7 @@ def test_main_reports_ci_fault_when_admin_status_undetermined(
                 "--author-association",
                 "MEMBER",
                 "--repo",
-                "google/adk-samples",
+                TEST_REPO,
             ]
         )
 

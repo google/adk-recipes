@@ -12,18 +12,22 @@ Recipes live in one of three roots:
 
 - `core/<lang>/<name>` — curated by the `agents-cli` team.
 - `contrib/<lang>/<name>` — community contributions.
-- `plugins/<vertical>/<solution>` — domain-vertical solutions
-  (language is set in `manifest.language`).
+- `plugins/<plugin-name>` (Agent Plugins v1.0.0 container with `plugin.json` and
+  nested `skills/<skill-name>/SKILL.md`) or legacy `plugins/<vertical>/<solution>`
+  — domain-vertical skill plugins. See [Plugins](./plugins.md).
 
 Contributors submit new recipes to `contrib/`.
 
-Every recipe must include `manifest.yaml`, `README.md`, and `.env.example` at
-its root. Root-specific requirements:
+Every recipe in `core/` and `contrib/` (and legacy `plugins/<vertical>/<solution>`)
+must include `manifest.yaml`, `README.md`, and `.env.example` at its root.
+Root-specific requirements:
 
 - `core/` — requires `AGENTS.md` (intent, key files to study, reuse notes).
 - `contrib/` — requires a root `Dockerfile` and `deployable: true` in
   `manifest.yaml`.
-- `plugins/` — requires `SKILL.md`, `EVAL.yaml`, and `scripts/`.
+- `plugins/` — spec-compliant plugins require `plugin.json` at the container
+  root and `skills/<skill>/SKILL.md` (`EVAL.yaml` and `scripts/` per skill);
+  legacy vertical plugins require `SKILL.md`, `EVAL.yaml`, and `scripts/`.
 
 See the full rule matrix in
 [Required file or directory missing](./troubleshooting.md#required-file-or-directory-missing).

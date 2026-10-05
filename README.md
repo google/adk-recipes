@@ -25,7 +25,7 @@ Recipes live in three places:
   `contrib/python/retail-virtual-tryon`) that deploy to Gemini Enterprise Agent
   Platform (Agent Engine), Gemini Enterprise (GE), Cloud Run, and Agent Garden.
 - **[`plugins/`](./plugins/)** — domain-specific vertical skill plugins
-  (e.g., `plugins/retail/product-search`, `plugins/retail/virtual-tryon`)
+  (e.g., `plugins/retail/skills/product-search`, `plugins/retail/skills/virtual-tryon`)
   that ship as installable AI coding-assistant / GE Desktop skills (`SKILL.md`
   and `EVAL.yaml`).
 
@@ -61,7 +61,8 @@ under `plugins/<vertical>/<solution>/`.
 ## Getting help
 
 Open a GitHub issue at
-[github.com/google/adk-recipes/issues](https://github.com/google/adk-recipes/issues).
+[github.com/google/adk-recipes/issues](https://github.com/google/adk-recipes/issues)
+— for bugs, questions, or to propose a new `contrib/` recipe.
 
 ## License
 

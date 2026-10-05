@@ -1,0 +1,329 @@
+name: Validate Go Recipe
+
+# Go-specific validation for each affected Go recipe:
+# no-local-lint-config, `go.mod` metadata rules, and `go.sum` lockfile
+# checksum validation. Structural checks and model-literal notices live in
+# `validate-recipe-structure.yml`.
+
+on:
+  pull_request:
+    paths:
+      - 'core/**'
+      - 'contrib/**'
+      - 'plugins/**'
+      - 'skills/**'
+      - '.github/workflows/go-validate-recipe.yml'
+      - '.github/scripts/check_recipe_lint_config.py'
+      - '.github/scripts/check_recipe_gomod.py'
+      - '.github/scripts/check_lockfile_gosum.py'
+      - 'tools/affected_recipes.py'
+      - 'tools/validate_manifest.py'
+      - 'pyproject.toml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate-go-recipes:
+    name: Check Go-specific recipe constraints
+    runs-on: ubuntu-latest
+    # 20 minutes covers `uv sync` + a full-repo scan on the workflow_dispatch
+    # / infra-changed path, with headroom. Prevents the default 6-hour job
+    # ceiling from applying when a check hangs.
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # ratchet:astral-sh/setup-uv@v10.2.0
+        with:
+          python-version: "3.11"
+
+      - name: Install validation dependencies
+        # affected_recipes.py imports validate_manifest and needs PyYAML;
+        # `uv sync` installs both (same install step the sibling workflow
+        # validate-recipe-structure.yml uses).
+        run: uv sync
+
+      - name: Detect affected Go recipe directories
+        id: affected
+        env:
+          # Pass GitHub-controlled values through env vars rather than
+          # interpolating them into the shell body (expression injection
+          # hardening — see GitHub Actions security hardening guide).
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+
+          # workflow_dispatch has no PR base ref, so the diff-based
+          # detection can't run. Validate every Go recipe instead
+          # (mirrors the run_all path in python-tests.yml / go-tests.yml).
+          # Without this short-circuit, `git diff` below would fail loudly.
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            echo "workflow_dispatch — validating all Go recipes."
+            echo "validate_all=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          git fetch origin "$BASE_REF"
+          CHANGED_FILES=$(git diff --name-only "origin/$BASE_REF"...HEAD)
+
+          echo "Changed files:"
+          echo "$CHANGED_FILES"
+
+          # If any infrastructure file that controls this workflow's
+          # behaviour changed (the workflow itself, a checker script, or
+          # a shared tool), validate ALL Go recipes so the new
+          # configuration is applied everywhere and not only to recipes
+          # touched by the same PR.
+          INFRA_CHANGED=$(echo "$CHANGED_FILES" | grep -E "^(\.github/(workflows/go-validate-recipe\.yml|scripts/(check_recipe_lint_config|check_recipe_gomod|check_lockfile_gosum)\.py)|tools/(affected_recipes|validate_manifest)\.py|pyproject\.toml)$" || true)
+          if [ -n "$INFRA_CHANGED" ]; then
+            echo "Workflow or Go-specific tool changed — validating all Go recipes."
+            echo "validate_all=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Otherwise, translate the file diff into the set of Go
+          # recipes it touched via the shared helper (tested by
+          # tools/tests/test_affected_recipes.py — table-driven, so this
+          # workflow doesn't reimplement the layout matrix in bash).
+          # NOT `--no-project`: affected_recipes.py imports PyYAML and the
+          # `validate_manifest` package, both provided by the project venv
+          # created by `uv sync` above.
+          CHANGED_RECIPES=$(echo "$CHANGED_FILES" | uv run python tools/affected_recipes.py --language go)
+
+          echo "Go recipes to validate:"
+          echo "$CHANGED_RECIPES"
+
+          {
+            echo "changed_recipes<<RECIPES_EOF"
+            echo "$CHANGED_RECIPES"
+            echo "RECIPES_EOF"
+          } >> "$GITHUB_OUTPUT"
+          echo "validate_all=false" >> "$GITHUB_OUTPUT"
+
+      - name: Collect all Go recipe directories (workflow_dispatch or infra changed)
+        id: all_recipes
+        if: steps.affected.outputs.validate_all == 'true'
+        run: |
+          set -euo pipefail
+
+          # Full-repo enumeration: list every path under existing recipe roots
+          # (core/, contrib/, plugins/ at any depth), then feed it through the
+          # same helper the diff step uses — with --language go. This keeps one
+          # source of truth for the layout matrix (path → recipe →
+          # language) instead of re-implementing it in shell. `plugins/`
+          # is included so that a Go plugin at
+          # plugins/<vertical>/<solution>/ is picked up by the full scan.
+          # Its language comes from manifest.language rather than the path:
+          # the middle component under plugins/ is a vertical (retail/, hr/),
+          # not a language. Missing roots are tolerated via directory check.
+          # NOT `--no-project`: see the notes on the sibling invocation
+          # above.
+          EXISTING_ROOTS=()
+          for root in core contrib plugins; do
+            [ -d "$root" ] && EXISTING_ROOTS+=("$root")
+          done
+
+          if [ ${#EXISTING_ROOTS[@]} -gt 0 ]; then
+            ALL=$(find "${EXISTING_ROOTS[@]}" -type f 2>/dev/null | uv run python tools/affected_recipes.py --language go)
+          else
+            ALL=""
+          fi
+
+          echo "All Go recipes:"
+          echo "$ALL"
+
+          {
+            echo "all_recipes<<RECIPES_EOF"
+            echo "$ALL"
+            echo "RECIPES_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Run Go-specific checks per recipe
+        env:
+          VALIDATE_ALL: ${{ steps.affected.outputs.validate_all }}
+          ALL_RECIPES: ${{ steps.all_recipes.outputs.all_recipes }}
+          CHANGED_RECIPES: ${{ steps.affected.outputs.changed_recipes }}
+        run: |
+          set -euo pipefail
+
+          if [ "$VALIDATE_ALL" = "true" ]; then
+            RECIPES="$ALL_RECIPES"
+          else
+            RECIPES="$CHANGED_RECIPES"
+          fi
+
+          if [ -z "$RECIPES" ]; then
+            echo "[INFO] No Go recipe directories to validate."
+            exit 0
+          fi
+
+          FAILED=0
+          CI_FAULTS=0
+
+          # Each recipe is validated in a subshell so a transient failure
+          # inside one recipe (e.g. a `find` error) aborts only that
+          # recipe's checks, not the whole loop.
+          #
+          # The subshell's exit status carries WHOSE fault it was, because
+          # a subshell cannot write back to the parent's variables:
+          #   0 — recipe passed
+          #   1 — the recipe has problems the contributor must fix
+          #   2 — one of OUR checkers crashed or the CI environment broke
+          # Keeping 2 distinct is the point: a contributor should never be
+          # sent hunting through their own PR for a bug in our tooling.
+          while IFS= read -r recipe; do
+            [ -z "$recipe" ] && continue
+            echo ""
+            echo "========================================"
+            echo "Validating: $recipe"
+            echo "========================================"
+            # `set +e` here only so the parent can READ the subshell's exit
+            # status; without it `set -e` would abort this script the moment
+            # a recipe fails, before the case below can classify it. The
+            # subshell re-enables `set -e` for itself on its first line, so
+            # an unexpected failure mid-recipe still aborts that recipe's
+            # remaining checks exactly as before.
+            set +e
+            (
+              set -e
+              RECIPE_FAILED=0
+              CI_FAULT=0
+
+              # ------------------------------------------------------------
+              # Check 1: recipe-local lint or style configuration
+              # (check_recipe_lint_config.py).
+              # Style & lint configs (.golangci.yml) are centralized at the
+              # repo root. Recipe-local .golangci.yml/yaml/toml/json files
+              # are forbidden.
+              # ------------------------------------------------------------
+              set +e
+              uv run --no-project \
+                python3 .github/scripts/check_recipe_lint_config.py "$recipe" | sed 's/^::error file=/::notice file=/'
+              lint_cfg_exit="${PIPESTATUS[0]}"
+              set -e
+              case "$lint_cfg_exit" in
+                0) ;;
+                1)
+                  # Advisory during rollout: do NOT fail the job on exit 1.
+                  # The promotion task flips exit 1 to failing (RECIPE_FAILED=1).
+                  ;;
+                2) CI_FAULT=1 ;;
+                *)
+                  echo "::error::check_recipe_lint_config.py exited with an undefined status ($lint_cfg_exit). This is a CI tooling bug, not a problem with your recipe."
+                  CI_FAULT=1
+                  ;;
+              esac
+
+              # ------------------------------------------------------------
+              # Check 2: go.mod metadata rules (check_recipe_gomod.py).
+              # Module path canonical form, Go version ceiling (1.26), and
+              # forbidden local filesystem replace directives.
+              # ------------------------------------------------------------
+              set +e
+              uv run --no-project --with packaging \
+                python3 .github/scripts/check_recipe_gomod.py "$recipe" | sed 's/^::error file=/::notice file=/'
+              gomod_exit="${PIPESTATUS[0]}"
+              set -e
+              case "$gomod_exit" in
+                0) ;;
+                1)
+                  # Advisory during rollout: do NOT fail the job on exit 1.
+                  # The promotion task flips exit 1 to failing (RECIPE_FAILED=1).
+                  ;;
+                2) CI_FAULT=1 ;;
+                *)
+                  echo "::error::check_recipe_gomod.py exited with an undefined status ($gomod_exit). This is a CI tooling bug, not a problem with your recipe."
+                  CI_FAULT=1
+                  ;;
+              esac
+
+              # ------------------------------------------------------------
+              # Check 3: go.sum lockfile integrity (check_lockfile_gosum.py).
+              # Verifies that every required module in go.mod has a valid
+              # h1: checksum in go.sum when dependencies are declared.
+              # ------------------------------------------------------------
+              set +e
+              uv run --no-project \
+                python3 .github/scripts/check_lockfile_gosum.py "$recipe" | sed 's/^::error file=/::notice file=/'
+              gosum_exit="${PIPESTATUS[0]}"
+              set -e
+              case "$gosum_exit" in
+                0) ;;
+                1)
+                  # Advisory during rollout: do NOT fail the job on exit 1.
+                  # The promotion task flips exit 1 to failing (RECIPE_FAILED=1).
+                  ;;
+                2) CI_FAULT=1 ;;
+                *)
+                  echo "::error::check_lockfile_gosum.py exited with an undefined status ($gosum_exit). This is a CI tooling bug, not a problem with your recipe."
+                  CI_FAULT=1
+                  ;;
+              esac
+
+              # A CI fault outranks a recipe failure: if our own checker
+              # could not run, we do not actually know whether the recipe
+              # is valid, and saying "your recipe is broken" would be a
+              # guess.
+              if [ "$CI_FAULT" -eq 1 ]; then
+                exit 2
+              fi
+              # During advisory rollout, exit 1 from checkers does not set
+              # RECIPE_FAILED=1 so the job passes with notices. This check is
+              # preserved for when rollout completes and exit 1 is promoted to
+              # hard-failing.
+              if [ "$RECIPE_FAILED" -eq 1 ]; then
+                exit 1
+              fi
+              echo ""
+              echo "[PASS] All Go-specific checks passed for: $recipe"
+            )
+            recipe_status=$?
+            set -e
+            case "$recipe_status" in
+              0) ;;
+              2) CI_FAULTS=1 ;;
+              *) FAILED=1 ;;
+            esac
+          done <<< "$RECIPES"
+
+          if [ "$CI_FAULTS" -eq 1 ]; then
+            echo ""
+            echo "========================================"
+            echo "  CI TOOLING FAILURE — not your changes"
+            echo "========================================"
+            echo ""
+            echo "One of this repo's own checker scripts could not run, so"
+            echo "validation is inconclusive. Do not change your recipe to"
+            echo "work around this."
+            echo ""
+            echo "  1. Re-run this job — transient failures clear on retry."
+            echo "  2. If it fails again, open an issue with the [ci-fault]"
+            echo "     detail above and a link to this run."
+            echo ""
+            echo "See docs/recipe-handbook/troubleshooting.md#ci-infrastructure-failure"
+            exit 1
+          fi
+
+          if [ "$FAILED" -eq 1 ]; then
+            echo ""
+            echo "========================================"
+            echo "  ACTION REQUIRED: recipe validation failed"
+            echo "========================================"
+            echo ""
+            echo "Each problem above lists why the rule applies and how to"
+            echo "fix it. Every fix is documented in"
+            echo "docs/recipe-handbook/troubleshooting.md"
+            exit 1
+          fi
+
+          echo ""
+          echo "[PASS] All Go recipes passed Go-specific validation."

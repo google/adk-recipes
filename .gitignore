@@ -183,10 +183,6 @@ yarn-error.log
 # next.js
 .next/
 
-# Agent Data Files
-python/agents/personalized-shopping/personalized_shopping/shared_libraries/data/
-python/agents/personalized-shopping/personalized_shopping/shared_libraries/search_engine/**
-
 # Terraform
 .terraform/
 *.tfstate
@@ -214,9 +210,6 @@ GEMINI.md
 
 # ADK
 .adk/
-go/agents/sail-researcher/researcher
-go/agents/sail-researcher/vendor/*
-go/agents/sail-researcher/server
 
 # Temporary Files for Agent Engine Deployment
 **/*_tmp*/
