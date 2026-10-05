@@ -1,8 +1,10 @@
-name: Validate Go Recipe
+name: Validate Kotlin Recipe
 
-# Go-specific validation for each affected Go recipe:
-# no-local-lint-config, `go.mod` metadata rules, and `go.sum` lockfile
-# checksum validation. Structural checks and model-literal notices live in
+# Kotlin-specific validation for each affected Kotlin recipe:
+# recipe-local lint configuration (`check_recipe_lint_config.py`),
+# `build.gradle.kts` metadata rules (`check_recipe_gradle_kts.py`), and
+# environment variable declaration check (`check_env_vars_kotlin.py`).
+# Structural checks and model-literal notices live in
 # `validate-recipe-structure.yml`.
 
 on:
@@ -12,10 +14,10 @@ on:
       - 'contrib/**'
       - 'plugins/**'
       - 'skills/**'
-      - '.github/workflows/go-validate-recipe.yml'
+      - '.github/workflows/kotlin-validate-recipe.yml'
       - '.github/scripts/check_recipe_lint_config.py'
-      - '.github/scripts/check_recipe_gomod.py'
-      - '.github/scripts/check_lockfile_gosum.py'
+      - '.github/scripts/check_recipe_gradle_kts.py'
+      - '.github/scripts/check_env_vars_kotlin.py'
       - 'tools/affected_recipes.py'
       - 'tools/validate_manifest.py'
       - 'pyproject.toml'
@@ -25,8 +27,8 @@ permissions:
   contents: read
 
 jobs:
-  validate-go-recipes:
-    name: Check Go-specific recipe constraints
+  validate-kotlin-recipes:
+    name: Check Kotlin-specific recipe constraints
     runs-on: ubuntu-latest
     # 20 minutes covers `uv sync` + a full-repo scan on the workflow_dispatch
     # / infra-changed path, with headroom. Prevents the default 6-hour job
@@ -51,7 +53,7 @@ jobs:
         # validate-recipe-structure.yml uses).
         run: uv sync
 
-      - name: Detect affected Go recipe directories
+      - name: Detect affected Kotlin recipe directories
         id: affected
         env:
           # Pass GitHub-controlled values through env vars rather than
@@ -63,11 +65,11 @@ jobs:
           set -euo pipefail
 
           # workflow_dispatch has no PR base ref, so the diff-based
-          # detection can't run. Validate every Go recipe instead
-          # (mirrors the run_all path in python-tests.yml / go-tests.yml).
-          # Without this short-circuit, `git diff` below would fail loudly.
+          # detection can't run. Validate every Kotlin recipe instead
+          # (mirrors the run_all path in kotlin-tests.yml). Without this
+          # short-circuit, `git diff` below would fail loudly.
           if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
-            echo "workflow_dispatch — validating all Go recipes."
+            echo "workflow_dispatch — validating all Kotlin recipes."
             echo "validate_all=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -80,26 +82,26 @@ jobs:
 
           # If any infrastructure file that controls this workflow's
           # behaviour changed (the workflow itself, a checker script, or
-          # a shared tool), validate ALL Go recipes so the new
+          # a shared tool), validate ALL Kotlin recipes so the new
           # configuration is applied everywhere and not only to recipes
           # touched by the same PR.
-          INFRA_CHANGED=$(echo "$CHANGED_FILES" | grep -E "^(\.github/(workflows/go-validate-recipe\.yml|scripts/(check_recipe_lint_config|check_recipe_gomod|check_lockfile_gosum)\.py)|tools/(affected_recipes|validate_manifest)\.py|pyproject\.toml)$" || true)
+          INFRA_CHANGED=$(echo "$CHANGED_FILES" | grep -E "^(\.github/(workflows/kotlin-validate-recipe\.yml|scripts/(check_recipe_lint_config|check_recipe_gradle_kts|check_env_vars_kotlin)\.py)|tools/(affected_recipes|validate_manifest)\.py|pyproject\.toml)$" || true)
           if [ -n "$INFRA_CHANGED" ]; then
-            echo "Workflow or Go-specific tool changed — validating all Go recipes."
+            echo "Workflow or Kotlin-specific tool changed — validating all Kotlin recipes."
             echo "validate_all=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          # Otherwise, translate the file diff into the set of Go
+          # Otherwise, translate the file diff into the set of Kotlin
           # recipes it touched via the shared helper (tested by
           # tools/tests/test_affected_recipes.py — table-driven, so this
           # workflow doesn't reimplement the layout matrix in bash).
           # NOT `--no-project`: affected_recipes.py imports PyYAML and the
           # `validate_manifest` package, both provided by the project venv
           # created by `uv sync` above.
-          CHANGED_RECIPES=$(echo "$CHANGED_FILES" | uv run python tools/affected_recipes.py --language go)
+          CHANGED_RECIPES=$(echo "$CHANGED_FILES" | uv run python3 tools/affected_recipes.py --language kotlin)
 
-          echo "Go recipes to validate:"
+          echo "Kotlin recipes to validate:"
           echo "$CHANGED_RECIPES"
 
           {
@@ -109,7 +111,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
           echo "validate_all=false" >> "$GITHUB_OUTPUT"
 
-      - name: Collect all Go recipe directories (workflow_dispatch or infra changed)
+      - name: Collect all Kotlin recipe directories (workflow_dispatch or infra changed)
         id: all_recipes
         if: steps.affected.outputs.validate_all == 'true'
         run: |
@@ -117,10 +119,10 @@ jobs:
 
           # Full-repo enumeration: list every path under existing recipe roots
           # (core/, contrib/, plugins/ at any depth), then feed it through the
-          # same helper the diff step uses — with --language go. This keeps one
+          # same helper the diff step uses — with --language kotlin. This keeps one
           # source of truth for the layout matrix (path → recipe →
           # language) instead of re-implementing it in shell. `plugins/`
-          # is included so that a Go plugin at
+          # is included so that a Kotlin plugin at
           # plugins/<vertical>/<solution>/ is picked up by the full scan.
           # Its language comes from manifest.language rather than the path:
           # the middle component under plugins/ is a vertical (retail/, hr/),
@@ -133,12 +135,12 @@ jobs:
           done
 
           if [ ${#EXISTING_ROOTS[@]} -gt 0 ]; then
-            ALL=$(find "${EXISTING_ROOTS[@]}" -type f 2>/dev/null | uv run python tools/affected_recipes.py --language go)
+            ALL=$(find "${EXISTING_ROOTS[@]}" -type f 2>/dev/null | uv run python3 tools/affected_recipes.py --language kotlin)
           else
             ALL=""
           fi
 
-          echo "All Go recipes:"
+          echo "All Kotlin recipes:"
           echo "$ALL"
 
           {
@@ -147,7 +149,7 @@ jobs:
             echo "RECIPES_EOF"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Run Go-specific checks per recipe
+      - name: Run Kotlin-specific checks per recipe
         env:
           VALIDATE_ALL: ${{ steps.affected.outputs.validate_all }}
           ALL_RECIPES: ${{ steps.all_recipes.outputs.all_recipes }}
@@ -162,7 +164,7 @@ jobs:
           fi
 
           if [ -z "$RECIPES" ]; then
-            echo "[INFO] No Go recipe directories to validate."
+            echo "[INFO] No Kotlin recipe directories to validate."
             exit 0
           fi
 
@@ -201,18 +203,21 @@ jobs:
               # ------------------------------------------------------------
               # Check 1: recipe-local lint or style configuration
               # (check_recipe_lint_config.py).
-              # Style & lint configs (.golangci.yml) are centralized at the
-              # repo root. Recipe-local .golangci.yml/yaml/toml/json files
+              # Style & lint configs are centralized at the repo root.
+              # Recipe-local .editorconfig files configuring Kotlin style
               # are forbidden.
               # ------------------------------------------------------------
               set +e
               uv run --no-project \
-                python3 .github/scripts/check_recipe_lint_config.py "$recipe"
-              lint_cfg_exit=$?
+                python3 .github/scripts/check_recipe_lint_config.py "$recipe" | sed 's/^::error file=/::notice file=/'
+              lint_cfg_exit="${PIPESTATUS[0]}"
               set -e
               case "$lint_cfg_exit" in
                 0) ;;
-                1) RECIPE_FAILED=1 ;;
+                1)
+                  # Advisory during rollout: do NOT fail the job on exit 1.
+                  # The promotion task flips exit 1 to failing (RECIPE_FAILED=1).
+                  ;;
                 2) CI_FAULT=1 ;;
                 *)
                   echo "::error::check_recipe_lint_config.py exited with an undefined status ($lint_cfg_exit). This is a CI tooling bug, not a problem with your recipe."
@@ -221,44 +226,54 @@ jobs:
               esac
 
               # ------------------------------------------------------------
-              # Check 2: go.mod metadata rules (check_recipe_gomod.py).
-              # Module path canonical form, Go version ceiling (1.26), and
-              # forbidden local filesystem replace directives.
+              # Check 2: build.gradle.kts metadata rules
+              # (check_recipe_gradle_kts.py).
+              # JVM toolchain version <= 17, mavenCentral() repository,
+              # and matching rootProject.name in settings.gradle.kts.
               # ------------------------------------------------------------
               set +e
-              uv run --no-project --with packaging \
-                python3 .github/scripts/check_recipe_gomod.py "$recipe"
-              gomod_exit=$?
+              uv run --no-project \
+                python3 .github/scripts/check_recipe_gradle_kts.py "$recipe" | sed 's/^::error file=/::notice file=/'
+              gradle_kts_exit="${PIPESTATUS[0]}"
               set -e
-              case "$gomod_exit" in
+              case "$gradle_kts_exit" in
                 0) ;;
-                1) RECIPE_FAILED=1 ;;
+                1)
+                  # Advisory during rollout: do NOT fail the job on exit 1.
+                  # The promotion task flips exit 1 to failing (RECIPE_FAILED=1).
+                  ;;
                 2) CI_FAULT=1 ;;
                 *)
-                  echo "::error::check_recipe_gomod.py exited with an undefined status ($gomod_exit). This is a CI tooling bug, not a problem with your recipe."
+                  echo "::error::check_recipe_gradle_kts.py exited with an undefined status ($gradle_kts_exit). This is a CI tooling bug, not a problem with your recipe."
                   CI_FAULT=1
                   ;;
               esac
 
               # ------------------------------------------------------------
-              # Check 3: go.sum lockfile integrity (check_lockfile_gosum.py).
-              # Verifies that every required module in go.mod has a valid
-              # h1: checksum in go.sum when dependencies are declared.
+              # Check 3: env vars used in Kotlin source but missing from
+              # .env.example (check_env_vars_kotlin.py).
+              # Tokenizes and parses Kotlin source files to detect
+              # System.getenv, System.getProperty, env(), and dotenv reads.
               # ------------------------------------------------------------
-              set +e
-              uv run --no-project \
-                python3 .github/scripts/check_lockfile_gosum.py "$recipe"
-              gosum_exit=$?
-              set -e
-              case "$gosum_exit" in
-                0) ;;
-                1) RECIPE_FAILED=1 ;;
-                2) CI_FAULT=1 ;;
-                *)
-                  echo "::error::check_lockfile_gosum.py exited with an undefined status ($gosum_exit). This is a CI tooling bug, not a problem with your recipe."
-                  CI_FAULT=1
-                  ;;
-              esac
+              if [ -f "$recipe/.env.example" ]; then
+                set +e
+                uv run --no-project \
+                  python3 .github/scripts/check_env_vars_kotlin.py "$recipe" | sed 's/^::error file=/::notice file=/'
+                env_vars_exit="${PIPESTATUS[0]}"
+                set -e
+                case "$env_vars_exit" in
+                  0) ;;
+                  1)
+                    # Advisory during rollout: do NOT fail the job on exit 1.
+                    # The promotion task flips exit 1 to failing (RECIPE_FAILED=1).
+                    ;;
+                  2) CI_FAULT=1 ;;
+                  *)
+                    echo "::error::check_env_vars_kotlin.py exited with an undefined status ($env_vars_exit). This is a CI tooling bug, not a problem with your recipe."
+                    CI_FAULT=1
+                    ;;
+                esac
+              fi
 
               # A CI fault outranks a recipe failure: if our own checker
               # could not run, we do not actually know whether the recipe
@@ -267,11 +282,15 @@ jobs:
               if [ "$CI_FAULT" -eq 1 ]; then
                 exit 2
               fi
+              # During advisory rollout, exit 1 from checkers does not set
+              # RECIPE_FAILED=1 so the job passes with notices. This check is
+              # preserved for when rollout completes and exit 1 is promoted to
+              # hard-failing.
               if [ "$RECIPE_FAILED" -eq 1 ]; then
                 exit 1
               fi
               echo ""
-              echo "[PASS] All Go-specific checks passed for: $recipe"
+              echo "[PASS] All Kotlin-specific checks passed for: $recipe"
             )
             recipe_status=$?
             set -e
@@ -313,4 +332,4 @@ jobs:
           fi
 
           echo ""
-          echo "[PASS] All Go recipes passed Go-specific validation."
+          echo "[PASS] All Kotlin recipes passed Kotlin-specific validation."
