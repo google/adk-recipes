@@ -23,6 +23,8 @@ from google.adk.models import Gemini
 from google.adk.tools import VertexAiSearchTool
 from google.genai import types
 
+AGENT_RETRY_ATTEMPTS = 3
+
 
 def build_data_store_path() -> str:
     """Build the Discovery Engine datastore path from environment values."""
@@ -67,7 +69,7 @@ root_agent = Agent(
     name="github_gemini_enterprise_agent",
     model=Gemini(
         model=os.environ["MODEL_NAME"],
-        retry_options=types.HttpRetryOptions(attempts=3),
+        retry_options=types.HttpRetryOptions(attempts=AGENT_RETRY_ATTEMPTS),
     ),
     description=(
         "Answers GitHub comments using a Gemini Enterprise datastore through "
