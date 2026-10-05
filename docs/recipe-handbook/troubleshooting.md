@@ -176,7 +176,7 @@ because its manifest says `language: python`.
 | `always` | every recipe | `README.md`, `.env.example` |
 | `by_root.core` | anything under `core/` | `AGENTS.md` |
 | `by_root.contrib` | anything under `contrib/` | `Dockerfile` |
-| `by_root.plugins` | anything under `plugins/` | `SKILL.md`, `EVAL.yaml`, `scripts/` |
+| `by_root.plugins` | legacy `plugins/<vertical>/<solution>` | `SKILL.md`, `EVAL.yaml`, `scripts/` |
 | `by_language.python` | `manifest.language: python` | `pyproject.toml`, `uv.lock`, `tests/test_runnability.py` |
 | `by_language.go` | `manifest.language: go` | `go.mod` |
 | `by_language.java` | `manifest.language: java` | `pom.xml` / `build.gradle` / `build.gradle.kts` |
@@ -209,12 +209,14 @@ git add <recipe-path>/scripts/.gitkeep
 
 **Symptom** — `sits directly under` or `is nested too deeply`
 
-**Cause** — every recipe under `plugins/` must sit at
-`plugins/<vertical>/<solution>/`. The vertical (`retail/`, `hr/`, `finance/`)
-is mandatory.
+**Cause** — under `plugins/`, a spec-compliant container sits at
+`plugins/<plugin-name>/plugin.json` (with skills under
+`plugins/<plugin-name>/skills/<skill-name>/SKILL.md`), while a legacy
+vertical plugin must sit at `plugins/<vertical>/<solution>/manifest.yaml`.
 
 ```text
-plugins/retail/my-plugin/manifest.yaml    valid
+plugins/retail/plugin.json                valid (spec-compliant container)
+plugins/retail/my-plugin/manifest.yaml    valid (legacy vertical plugin)
 plugins/my-plugin/manifest.yaml           too shallow — no vertical
 plugins/retail/my-plugin/x/manifest.yaml  too deep
 ```

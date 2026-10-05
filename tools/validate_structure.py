@@ -43,8 +43,7 @@ Usage:
   uv run validate structure contrib
 
   # Validate a single recipe:
-  uv run validate structure core/rag-agent-search
-  uv run validate structure core/python/some-recipe
+  uv run validate structure core/python/rag-agent-search
 
 Exit codes:
   0 — every checked recipe passed every applicable check
@@ -1197,8 +1196,8 @@ if __name__ == "__main__":
         nargs="?",
         default=None,
         help=(
-            "What to validate: 'all' (default), 'core', 'contrib', "
-            "or a path to a single recipe (e.g. core/rag-agent-search)."
+            "What to validate: 'all' (default), 'core', 'contrib', 'plugins', "
+            "or a path to a single recipe (e.g. core/python/rag-agent-search)."
         ),
     )
     args = parser.parse_args()

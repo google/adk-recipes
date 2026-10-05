@@ -7,26 +7,27 @@ Usage:
 
 Both arguments are optional:
 
-  subcommand  — which check(s) to run; one of: manifest, structure, readme, all
-                (default: all)
+  subcommand  — which check(s) to run; one of: manifest, structure, readme,
+                placement, all (default: all)
   scope       — what to validate; one of:
-                  all            (default) validate core/ and contrib/
-                  core           validate core/ only
-                  contrib        validate contrib/ only
-                  core/<recipe>  validate a single recipe directory
+                  all                  (default) validate core/, contrib/, plugins/
+                  core                 validate core/ only
+                  contrib              validate contrib/ only
+                  plugins              validate plugins/ only
+                  core/<lang>/<recipe> validate a single recipe directory
 
 When only one argument is given and it looks like a path (contains '/') or
-is a known root ('core', 'contrib'), it is treated as the scope and all
-checks are run.
+is a known root ('core', 'contrib', 'plugins'), it is treated as the scope and
+all checks are run.
 
 Examples:
-  uv run validate core/rag-agent-search    # run all checks on one recipe
-  uv run validate core                     # run all checks on core/ only
-  uv run validate manifest                 # run manifest check on everything
-  uv run validate manifest core            # run manifest check on core/ only
-  uv run validate structure                # run structural check on everything
-  uv run validate structure core/rag-agent-search
-  uv run validate readme                   # run README check on everything
+  uv run validate core/python/rag-agent-search    # run all checks on one recipe
+  uv run validate core                            # run all checks on core/ only
+  uv run validate manifest                        # run manifest check on everything
+  uv run validate manifest core                   # run manifest check on core/ only
+  uv run validate structure                       # run structural check on everything
+  uv run validate structure core/python/rag-agent-search
+  uv run validate readme                          # run README check on everything
   uv run validate readme core/python/rag-agent-search
 
 Exit codes:
@@ -111,7 +112,7 @@ def _dispatch() -> int:
         scope = None
     elif len(args) == 1:
         if looks_like_scope(args[0]):
-            # e.g. "uv run validate core/rag-agent-search"
+            # e.g. "uv run validate core/python/rag-agent-search"
             subcommand = "all"
             scope = args[0]
         elif args[0] in VALID_SUBCOMMANDS:

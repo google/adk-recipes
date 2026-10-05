@@ -146,8 +146,8 @@ uv run validate placement $RECIPE_PATH
 - `validate readme` — checks README.md for a setup section,
   run section, code block, and minimum word count.
 - `validate placement` — checks that the recipe sits at a valid root
-  and depth (`core/<lang>/<name>`, `contrib/<lang>/<name>`, or
-  `plugins/<vertical>/<solution>`).
+  and depth (`core/<lang>/<name>`, `contrib/<lang>/<name>`,
+  `plugins/<plugin>/plugin.json`, or legacy `plugins/<vertical>/<solution>`).
 
 ### Format and lint (Python only)
 

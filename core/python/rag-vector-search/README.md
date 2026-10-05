@@ -59,5 +59,5 @@ the deprecated agent-starter-pack tooling).
 ## Looking for something else?
 See [`rag-agent-search`](../rag-agent-search) for an Agent Platform Search
 (Discovery Engine) variant with a GCS data connector, or
-[`multiformat-hybrid-rag`](../../python/agents/multiformat-hybrid-rag) for a production hybrid
+[`multiformat-hybrid-rag`](../../../contrib/python/multiformat-hybrid-rag) for a production hybrid
 (semantic + keyword) system.

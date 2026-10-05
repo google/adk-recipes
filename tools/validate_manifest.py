@@ -19,7 +19,7 @@ Usage:
   python3 tools/validate_manifest.py contrib
 
   # Validate a single recipe:
-  python3 tools/validate_manifest.py core/rag-agent-search
+  python3 tools/validate_manifest.py core/python/rag-agent-search
 
   Dependencies are managed in pyproject.toml. Run `uv sync` once before using.
 
@@ -1058,8 +1058,8 @@ if __name__ == "__main__":
         nargs="?",
         default=None,
         help=(
-            "What to validate: 'all' (default), 'core', 'contrib', "
-            "or a path to a single recipe (e.g. core/rag-agent-search)."
+            "What to validate: 'all' (default), 'core', 'contrib', 'plugins', "
+            "or a path to a single recipe (e.g. core/python/rag-agent-search)."
         ),
     )
     args = parser.parse_args()
