@@ -13,30 +13,26 @@
 # limitations under the License.
 
 SHELL := /bin/bash
-PROJECT_ID ?= $(GOOGLE_CLOUD_PROJECT)
-REGION ?= us-central1
+export PROJECT_ID ?= $(GOOGLE_CLOUD_PROJECT)
+export REGION ?= us-central1
 
 # Boolean config flags to toggle skill surfacing personas across both retail skills
-SURFACE_GEMINI_SKILL ?= true
-SURFACE_AGENTS_SKILL ?= true
+export SURFACE_GEMINI_SKILL ?= true
+export SURFACE_AGENTS_SKILL ?= true
 
 surface: surface-product-search surface-virtual-tryon
 
 surface-product-search:
-	@$(MAKE) -C skills/product-search surface \
-		SURFACE_GEMINI_SKILL="$(SURFACE_GEMINI_SKILL)" \
-		SURFACE_AGENTS_SKILL="$(SURFACE_AGENTS_SKILL)"
+	@$(MAKE) -C skills/product-search surface
 
 surface-virtual-tryon:
-	@$(MAKE) -C skills/virtual-tryon surface \
-		SURFACE_GEMINI_SKILL="$(SURFACE_GEMINI_SKILL)" \
-		SURFACE_AGENTS_SKILL="$(SURFACE_AGENTS_SKILL)"
+	@$(MAKE) -C skills/virtual-tryon surface
 
 setup-product-search:
-	@$(MAKE) -C skills/product-search setup PROJECT_ID="$(PROJECT_ID)" REGION="$(REGION)"
+	@$(MAKE) -C skills/product-search setup
 
 setup-virtual-tryon:
-	@$(MAKE) -C skills/virtual-tryon setup PROJECT_ID="$(PROJECT_ID)" REGION="$(REGION)"
+	@$(MAKE) -C skills/virtual-tryon setup
 
 test:
 	cd skills/product-search && uv run pytest
