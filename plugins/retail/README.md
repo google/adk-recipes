@@ -74,12 +74,12 @@ Once installed, open your coding assistant in any workspace directory and prompt
 - **For Product Search:** *"Use the retail-product-search skill to set up a semantic product search agent for my catalog."*
 - **For Virtual Try-On:** *"Use the retail-virtual-tryon skill to build a virtual try-on studio with image and catwalk video support."*
 
-Or provision the sample GCP resources and run unit tests directly from `plugins/retail/`:
+Or provision the sample GCP resources and run the runnability tests directly from `plugins/retail/`:
 
 ```bash
 cd plugins/retail
 
-# Run unit and runnability tests across both skills:
+# Run runnability tests (tests/test_runnability.py) across both skills:
 make test
 
 # Provision GCP resources for Product Search or Virtual Try-On:
@@ -104,17 +104,23 @@ plugins/retail/
     │   ├── README.md               # Detailed product-search skill guide
     │   ├── EVAL.yaml               # Evaluation rubrics
     │   ├── Makefile                # Skill-level surface & setup targets
+    │   ├── pyproject.toml          # Skill Python dependencies & project config
+    │   ├── uv.lock                 # Locked dependency graph
     │   ├── assets/                 # Design spec template & 1,000-product sample CSV
     │   ├── references/             # Deep-dive docs (architecture, ingestion, troubleshooting)
-    │   └── scripts/                # BigQuery + Vector Search ingestion, retrieval & ADK agent
+    │   ├── scripts/                # BigQuery + Vector Search ingestion, retrieval & ADK agent
+    │   └── tests/                  # Runnability smoke tests (test_runnability.py)
     └── virtual-tryon/              # retail-virtual-tryon skill
         ├── SKILL.md                # Conversational agent instructions (Q-MODE + setup workflow)
         ├── README.md               # Detailed virtual-tryon skill guide
         ├── EVAL.yaml               # Evaluation rubrics
         ├── Makefile                # Skill-level surface & setup targets
+        ├── pyproject.toml          # Skill Python dependencies & project config
+        ├── uv.lock                 # Locked dependency graph
         ├── assets/                 # Sample catalog cutouts, Studio web UI & Cloud Run export template
         ├── references/             # Virtual try-on architecture & safety reference
-        └── scripts/                # Catalog scanner, Gemini/Veo try-on processor, FastAPI server & exporter
+        ├── scripts/                # Catalog scanner, Gemini/Veo try-on processor, FastAPI server & exporter
+        └── tests/                  # Runnability smoke tests (test_runnability.py)
 ```
 
 ## Related Links
