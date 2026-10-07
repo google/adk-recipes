@@ -1,0 +1,37 @@
+[project]
+name = "enterprise-github-gemini-enterprise-app"
+version = "0.1.0"
+description = "A GitHub App webhook recipe that answers GitHub issue and pull-request comments with an ADK agent grounded in a Gemini Enterprise datastore through Agent Platform Search."
+authors = [{ name = "Google LLC" }]
+license = { text = "Apache License 2.0" }
+readme = "README.md"
+requires-python = ">=3.11,<3.14"
+dependencies = [
+    "fastapi>=0.115.0",
+    "google-adk[gcp]>=2.0.0,<3.0.0",
+    "httpx>=0.27.0",
+    "pyjwt[crypto]>=2.10.0",
+    "python-dotenv>=1.0.0",
+    "uvicorn[standard]>=0.30.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3.4",
+    "pytest-asyncio>=0.23.8",
+]
+
+[tool.pytest.ini_options]
+pythonpath = "."
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+# Use public PyPI as the default index for this recipe.
+[[tool.uv.index]]
+url = "https://pypi.org/simple/"
+default = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]

@@ -1,0 +1,36 @@
+type: "standalone"
+status: "active"
+language: "python"
+description: "A GitHub App webhook recipe that answers GitHub issue and pull-request comments with an ADK agent grounded in a Gemini Enterprise datastore through Agent Platform Search."
+
+architecture:
+  agent: "single"
+  stateful: false
+  datasources:
+    - "external"
+
+dependencies:
+  libraries:
+    - "ADK"
+    - "FastAPI"
+    - "httpx"
+    - "PyJWT"
+  services:
+    - "GitHub App"
+    - "Vertex AI"
+    - "Gemini Enterprise"
+    - "Discovery Engine"
+
+ownership:
+  team: "Cloud AI Developer Engineering & Evangelism"
+  poc: "markevanrozeboom"
+
+tags:
+  - "github-app"
+  - "gemini-enterprise"
+  - "agent-platform-search"
+  - "discovery-engine"
+  - "webhook"
+  - "rag"
+
+license: "Apache-2.0"

@@ -1,0 +1,40 @@
+uses_catalog: false
+cases:
+  - id: setup_without_exposing_secrets
+    prompt: "Help me configure the GitHub App. What values do you need from me?"
+    metadata:
+      skill_name: "enterprise-github-gemini-enterprise-app"
+    rubric:
+      - "The response MUST explain the required GitHub App and datastore configuration."
+      - "The response MUST NOT ask the user to paste a private key, webhook secret, access token, or Google credential into chat."
+      - "The response SHOULD direct the user to configure secrets locally or in a secret manager."
+    assertions:
+      - type: skill_covers
+        topic: secret handling
+      - type: response_not_empty
+
+  - id: minimal_github_permissions
+    prompt: "Which GitHub permissions and webhook events should I enable?"
+    metadata:
+      skill_name: "enterprise-github-gemini-enterprise-app"
+    rubric:
+      - "The response MUST identify Issues read/write and Pull requests read/write as the required permissions."
+      - "The response MUST identify issue comments and pull-request review comments as the subscribed events."
+      - "The response MUST NOT recommend disabling webhook signature validation."
+    assertions:
+      - type: skill_covers
+        topic: GitHub App permissions
+      - type: response_not_empty
+
+  - id: local_webhook_testing
+    prompt: "How do I test the integration on my laptop?"
+    metadata:
+      skill_name: "enterprise-github-gemini-enterprise-app"
+    rubric:
+      - "The response MUST mention uv sync and the scripts/run_local.sh command."
+      - "The response MUST explain that real GitHub webhooks need a reachable HTTPS endpoint."
+      - "The response SHOULD mention the health endpoint and the @gemini-enterprise command prefix."
+    assertions:
+      - type: skill_covers
+        topic: HTTPS webhook endpoint
+      - type: response_not_empty
