@@ -45,9 +45,12 @@ Exit codes:
 from __future__ import annotations
 
 import sys
-import xml.etree.ElementTree as ET
 from pathlib import Path
 from urllib.parse import urlparse
+from xml.etree.ElementTree import Element
+
+import defusedxml.ElementTree as ET
+from defusedxml.common import DefusedXmlException
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools"))
 from ci_message import (
@@ -115,14 +118,14 @@ def expected_project_name(
     return recipe_dir.name
 
 
-def _local_tag(elem: ET.Element) -> str:
+def _local_tag(elem: Element) -> str:
     """Return local tag name stripped of XML namespace."""
     if elem.tag.startswith("{") and "}" in elem.tag:
         return elem.tag.split("}", 1)[1]
     return elem.tag
 
 
-def _find_child(parent: ET.Element, tag_name: str) -> ET.Element | None:
+def _find_child(parent: Element, tag_name: str) -> Element | None:
     """Find first direct child matching tag_name (ignoring XML namespace)."""
     for child in parent:
         if _local_tag(child) == tag_name:
@@ -130,7 +133,7 @@ def _find_child(parent: ET.Element, tag_name: str) -> ET.Element | None:
     return None
 
 
-def _find_children(parent: ET.Element, tag_name: str) -> list[ET.Element]:
+def _find_children(parent: Element, tag_name: str) -> list[Element]:
     """Find all direct children matching tag_name (ignoring XML namespace)."""
     return [child for child in parent if _local_tag(child) == tag_name]
 
@@ -152,7 +155,7 @@ def _is_maven_central_url(url: str) -> bool:
 
 
 def check_artifact_id(
-    root: ET.Element,
+    root: Element,
     pom_path: Path,
     recipe_dir: Path,
     repo_root: Path | None = None,
@@ -201,7 +204,7 @@ def check_artifact_id(
 
 
 def check_java_version(
-    root: ET.Element,
+    root: Element,
     pom_path: Path,
 ) -> list[Diagnostic]:
     """Check that <maven.compiler.release> is declared in <properties> and <= CI pin."""
@@ -341,7 +344,7 @@ def check_java_version(
 
 
 def check_description(
-    root: ET.Element,
+    root: Element,
     pom_path: Path,
     recipe_dir: Path,
 ) -> list[Diagnostic]:
@@ -457,7 +460,7 @@ def check_description(
 
 
 def _check_repo_entries(
-    root: ET.Element,
+    root: Element,
     container_tag: str,
     entry_tag: str,
     label: str,
@@ -506,7 +509,7 @@ def _check_repo_entries(
 
 
 def check_repositories_and_mirrors(
-    root: ET.Element,
+    root: Element,
     pom_path: Path,
 ) -> list[Diagnostic]:
     """Check that declared repositories, pluginRepositories, and mirrors point to Maven Central."""
@@ -573,8 +576,8 @@ def _run(recipe_dir: Path, repo_root: Path | None = None) -> int:
         )
 
     try:
-        root = ET.fromstring(content)  # noqa: S314
-    except ET.ParseError as exc:
+        root = ET.fromstring(content)
+    except (ET.ParseError, DefusedXmlException) as exc:
         return _report(
             [
                 Diagnostic(

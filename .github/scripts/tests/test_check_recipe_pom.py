@@ -616,6 +616,22 @@ def test_invalid_xml_fails(tmp_path, monkeypatch, capsys):
     assert "::error" in out
 
 
+def test_xml_entity_expansion_fails(tmp_path, monkeypatch, capsys):
+    xml_bomb = """<?xml version="1.0"?>
+<!DOCTYPE lolz [
+ <!ENTITY lol "lol">
+ <!ELEMENT lolz (#PCDATA)>
+ <!ENTITY lol1 "&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;">
+]>
+<project><artifactId>&lol1;</artifactId></project>"""
+    _recipe(tmp_path, pom_xml=xml_bomb)
+    assert _run(tmp_path, monkeypatch) == EXIT_VIOLATIONS
+    out = capsys.readouterr().out
+    assert "[pom-parse]" in out
+    assert "EntitiesForbidden" in out or "not valid XML" in out
+    assert "::error" in out
+
+
 def test_invalid_utf8_fails(tmp_path, monkeypatch, capsys):
     _recipe(tmp_path, pom_xml=b"\xff\xfe\x00\x00")
     assert _run(tmp_path, monkeypatch) == EXIT_VIOLATIONS
