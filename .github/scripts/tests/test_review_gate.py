@@ -24,7 +24,6 @@ import review_gate as g
 
 CFG = g.Config(
     label="status/not-ready-for-review",
-    bot_logins=frozenset({"github-actions"}),
     ignored_workflows=("Review Gate", "*AI PR Review — Security"),
 )
 
@@ -51,15 +50,7 @@ def status(context, state="SUCCESS"):
     }
 
 
-def thread(resolved, author="github-actions", path="a.py"):
-    return {
-        "isResolved": resolved,
-        "path": path,
-        "comments": {"nodes": [{"author": {"login": author}, "url": "u"}]},
-    }
-
-
-def pr(contexts=(), threads=(), requests=1, labels=(), number=7, draft=False):
+def pr(contexts=(), requests=1, labels=(), number=7, draft=False):
     return {
         "number": number,
         "state": "OPEN",
@@ -77,7 +68,6 @@ def pr(contexts=(), threads=(), requests=1, labels=(), number=7, draft=False):
                 }
             ]
         },
-        "reviewThreads": {"nodes": list(threads)},
     }
 
 
@@ -177,58 +167,40 @@ def test_house_rules_is_not_ignored_by_the_real_config():
     ]
 
 
-# --- threads ---------------------------------------------------------------
-
-
-def test_only_unresolved_bot_threads_count():
-    found = g.unresolved_bot_threads(
-        [
-            thread(False),
-            thread(True),
-            thread(False, author="some-human"),
-            thread(False, author="github-actions[bot]", path="b.py"),
-        ],
-        CFG,
-    )
-    assert [t.path for t in found] == ["a.py", "b.py"]
-
-
-# --- the four scenarios, plus the in-flight case ----------------------------
+# --- the scenarios, plus the in-flight case --------------------------------
 
 
 def red(n):
     return [run(f"job{i}", conclusion="FAILURE") for i in range(n)]
 
 
-def unresolved(n):
-    return [thread(False, path=f"f{i}.py") for i in range(n)]
-
-
-def resolved(n):
-    return [thread(True) for _ in range(n)]
-
-
 @pytest.mark.parametrize(
-    ("contexts", "threads", "failing", "open_threads", "action"),
+    ("contexts", "failing", "action"),
     [
-        pytest.param(red(2), [], 2, 0, "bounce", id="PR1-2-broken"),
-        pytest.param(
-            [run("ok")],
-            resolved(2) + unresolved(4),
-            0,
-            4,
-            "bounce",
-            id="PR2-4-unresolved",
-        ),
-        pytest.param(red(3), unresolved(4), 3, 4, "bounce", id="PR3-both"),
-        pytest.param([run("ok")], resolved(1), 0, 0, "none", id="PR4-clean"),
+        pytest.param(red(2), 2, "bounce", id="broken"),
+        pytest.param([run("ok")], 0, "none", id="clean"),
     ],
 )
-def test_scenarios(contexts, threads, failing, open_threads, action):
-    ready = g.readiness(pr(contexts, threads), CFG)
+def test_scenarios(contexts, failing, action):
+    ready = g.readiness(pr(contexts), CFG)
     assert len(ready.failing) == failing
-    assert len(ready.unresolved) == open_threads
     assert g.decide(ready, has_requests=True, gate=None).action == action
+
+
+def test_unresolved_review_threads_never_hold_a_review():
+    # GitHub still returns review threads; the gate must ignore them.
+    unresolved = {
+        "isResolved": False,
+        "path": "a.py",
+        "comments": {
+            "nodes": [{"author": {"login": "github-actions"}, "url": "u"}]
+        },
+    }
+    ready = g.readiness(
+        {**pr([run("ok")]), "reviewThreads": {"nodes": [unresolved]}}, CFG
+    )
+    assert not ready.blocked
+    assert g.decide(ready, has_requests=True, gate=None).action == "none"
 
 
 def test_checks_still_running_hold_rather_than_bounce():
@@ -269,7 +241,7 @@ def test_red_pr_nobody_asked_about_is_left_alone():
 def test_marker_round_trips():
     stored = g.Reviewers(users=["alice", "bob"], teams=["devex"])
     body = g.blocked_body(
-        g.Readiness([g.Check("CI / a", None)], False, []), stored, CFG.label
+        g.Readiness([g.Check("CI / a", None)], False), stored, CFG.label
     )
     assert g.parse_marker(body) == ("blocked", stored)
 
@@ -277,7 +249,7 @@ def test_marker_round_trips():
 def test_the_comment_never_mentions_the_removed_reviewers():
     stored = g.Reviewers(users=["alice"], teams=["devex"])
     body = g.blocked_body(
-        g.Readiness([g.Check("CI / a", "u")], False, []), stored, CFG.label
+        g.Readiness([g.Check("CI / a", "u")], False), stored, CFG.label
     )
     assert "@alice" not in body and "@devex" not in body
     assert "`alice`" in body

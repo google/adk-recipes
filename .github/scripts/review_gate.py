@@ -15,8 +15,9 @@
 """
 Hold review requests until a pull request is ready for review.
 
-"Ready" means no failing checks and no unresolved review threads opened by a
-bot. Configured in .github/review-gate-config.yml. Invoked by
+"Ready" means no failing checks. Unresolved review threads, from bots or
+humans, never hold a review. Configured in .github/review-gate-config.yml.
+Invoked by
 .github/workflows/review-gate.yml, either for one PR (a review was just
 requested) or as a sweep over every open PR (on a schedule).
 
@@ -102,9 +103,9 @@ NOT_STARTED = "~"
 # query. Requested reviewers are read over REST instead, which returns team
 # slugs without that scope. Only the count is needed here.
 #
-# `first: 100` on contexts and threads is the connection maximum. A PR past
-# either limit is evaluated on what fits, which can only let a review through
-# that should have been held — the harmless direction.
+# `first: 100` on contexts is the connection maximum. A PR past that limit is
+# evaluated on what fits, which can only let a review through that should
+# have been held — the harmless direction.
 PR_FIELDS = """
   number
   state
@@ -136,13 +137,6 @@ PR_FIELDS = """
           }
         }
       }
-    }
-  }
-  reviewThreads(first: 100) {
-    nodes {
-      isResolved
-      path
-      comments(first: 1) { nodes { author { login } url } }
     }
   }
 """
@@ -187,19 +181,12 @@ class GhError(RuntimeError):
 @dataclass(frozen=True)
 class Config:
     label: str
-    bot_logins: frozenset[str]
     ignored_workflows: tuple[str, ...]
 
 
 @dataclass(frozen=True)
 class Check:
     name: str
-    url: str | None
-
-
-@dataclass(frozen=True)
-class Thread:
-    path: str
     url: str | None
 
 
@@ -222,11 +209,10 @@ class Reviewers:
 class Readiness:
     failing: list[Check]
     pending: bool
-    unresolved: list[Thread]
 
     @property
     def blocked(self) -> bool:
-        return bool(self.failing or self.unresolved)
+        return bool(self.failing)
 
 
 @dataclass
@@ -253,16 +239,8 @@ def load_config(path: Path = CONFIG_PATH) -> Config:
         section = yaml.safe_load(f)
     return Config(
         label=section["label"],
-        bot_logins=frozenset(
-            normalize_login(login) for login in section["bot_logins"]
-        ),
         ignored_workflows=tuple(section.get("ignored_workflows") or ()),
     )
-
-
-def normalize_login(login: str) -> str:
-    """REST says `github-actions[bot]`, GraphQL says `github-actions`."""
-    return login.lower().removesuffix("[bot]")
 
 
 def evaluate_checks(
@@ -316,22 +294,6 @@ def evaluate_checks(
     return failing, pending
 
 
-def unresolved_bot_threads(threads: list[dict], cfg: Config) -> list[Thread]:
-    found: list[Thread] = []
-    for thread in threads:
-        if thread.get("isResolved"):
-            continue
-        comments = (thread.get("comments") or {}).get("nodes") or []
-        if not comments:
-            continue
-        author = (comments[0].get("author") or {}).get("login") or ""
-        if normalize_login(author) in cfg.bot_logins:
-            found.append(
-                Thread(thread.get("path") or "", comments[0].get("url"))
-            )
-    return found
-
-
 def readiness(pr: dict, cfg: Config) -> Readiness:
     commits = (pr.get("commits") or {}).get("nodes") or []
     rollup = (
@@ -339,8 +301,7 @@ def readiness(pr: dict, cfg: Config) -> Readiness:
     ) or {}
     contexts = (rollup.get("contexts") or {}).get("nodes") or []
     failing, pending = evaluate_checks(contexts, cfg)
-    threads = (pr.get("reviewThreads") or {}).get("nodes") or []
-    return Readiness(failing, pending, unresolved_bot_threads(threads, cfg))
+    return Readiness(failing, pending)
 
 
 def decide(
@@ -413,19 +374,9 @@ def blocked_body(ready: Readiness, stored: Reviewers, label: str) -> str:
                 else f"- {check.name}"
             )
         lines.append("")
-    if ready.unresolved:
-        lines.append(
-            f"**Unresolved review comments ({len(ready.unresolved)})**"
-        )
-        for thread in ready.unresolved:
-            where = thread.path or "comment"
-            lines.append(
-                f"- [{where}]({thread.url})" if thread.url else f"- {where}"
-            )
-        lines.append("")
     lines += [
-        "Fix the checks and resolve the comments you have addressed. Once "
-        "everything is green I will re-request the review automatically, so "
+        "Fix the failing checks. Once everything is green I will re-request "
+        "the review automatically, so "
         "there is no need to ping anyone. This is re-checked every 15 minutes.",
         "",
         f"<sub>Applied by the review gate "
@@ -439,8 +390,7 @@ def blocked_body(ready: Readiness, stored: Reviewers, label: str) -> str:
 def released_body(requested: Reviewers, failed: Reviewers) -> str:
     lines = [
         marker("released", Reviewers()),
-        "**Ready for review.** All checks pass and the review comments are "
-        "resolved.",
+        "**Ready for review.** All checks pass.",
     ]
     if requested:
         lines += ["", f"Re-requested review from {_names(requested)}."]
@@ -611,8 +561,7 @@ def process(pr: dict, cfg: Config, dry_run: bool) -> str:
     decision = decide(ready, has_requests, gate)
     summary = (
         f"#{number}: {decision.action} ({decision.reason}; "
-        f"{len(ready.failing)} failing, {len(ready.unresolved)} unresolved, "
-        f"pending={ready.pending})"
+        f"{len(ready.failing)} failing, pending={ready.pending})"
     )
     if dry_run or decision.action == "none":
         return summary
