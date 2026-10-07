@@ -281,8 +281,9 @@ class TestUpscaleImageBytes:
     """Tests for upscale_image_bytes function with mocked Imagen client."""
 
     @pytest.fixture
-    def mock_imagen_client(self):
+    def mock_imagen_client(self, monkeypatch):
         """Create a mock Imagen client."""
+        monkeypatch.setenv("MODEL_NAME_GENERATED_8", "mock-upscale-model")
         client = Mock()
 
         def create_upscale_response(img_bytes):
@@ -307,6 +308,15 @@ class TestUpscaleImageBytes:
         )
 
         return client
+
+    def test_upscale_disabled_returns_original(
+        self, monkeypatch, mock_imagen_client, sample_image_bytes
+    ):
+        """Should return original image when MODEL_NAME_GENERATED_8 is None."""
+        monkeypatch.setenv("MODEL_NAME_GENERATED_8", "None")
+        result = upscale_image_bytes(mock_imagen_client, sample_image_bytes)
+        assert result == sample_image_bytes
+        mock_imagen_client.models.upscale_image.assert_not_called()
 
     @patch("workflows.shared.image_utils.save_debug_image")
     def test_upscales_image(

@@ -163,7 +163,7 @@ def glitch_detection(
     Args:
         client: Gemini client instance
         video_bytes: Video as bytes
-        model: Gemini model to use (default: "gemini-3.6-flash")
+        model: Gemini model to use (default: "gemini-3.8-flash")
 
     Returns:
         dict: {

@@ -176,7 +176,7 @@ Environment variables (in `config.env`):
 | `ethnicity` | No | `european` | Model preset: `african`, `asian`, `european` |
 | `scenario` | No | Pure white background | Background description |
 | `max_retries` | No | 3 | Maximum generation attempts per view |
-| `generation_model` | No | `gemini-3.1-flash-image` | Gemini model for generation |
+| `generation_model` | No | `gemini-nano-banana-2.1` | Gemini model for generation |
 | `product_id` | No | -- | Optional product identifier for logging |
 | `model_photos` | No | -- | Custom model photos (overrides ethnicity preset) |
 

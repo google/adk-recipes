@@ -116,7 +116,7 @@ async def interpolation_preprocess(images: list[UploadFile] = File(...)):  # noq
             client=client,
             upscale_client=veo_client,
             num_workers=4,
-            upscale_images=True,
+            upscale_images=False,
             create_canva=True,
         )
 

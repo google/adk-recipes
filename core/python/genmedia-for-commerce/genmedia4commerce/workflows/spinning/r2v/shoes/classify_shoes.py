@@ -141,7 +141,7 @@ def classify_shoe(image, client, model, mode="normal"):
 def classify_shoe_closure(
     image_bytes_list: list[bytes],
     client,
-    model=os.getenv("MODEL_NAME_GENERATED_2", "gemini-3.6-flash"),  # noqa: B008
+    model=os.getenv("MODEL_NAME_GENERATED_2", "gemini-3.5-flash-lite"),  # noqa: B008
 ):
     """Detect velcro/hook-and-loop fasteners in shoe images."""
     config = get_generate_content_config(

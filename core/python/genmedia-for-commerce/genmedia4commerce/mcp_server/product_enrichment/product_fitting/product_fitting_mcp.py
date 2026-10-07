@@ -111,7 +111,7 @@ async def run_product_fitting(
         scenario: Background description for the generated image.
             Default: pure white background.
         max_retries: Maximum generation attempts per view. Default: 3.
-        generation_model: Gemini model for generation. Default: gemini-3.1-flash-image.
+        generation_model: Gemini model for generation. Default: gemini-nano-banana-2.1.
         product_id: Optional product identifier for logging.
         model_photos: Optional dict mapping photo name to base64 string.
             Keys must be: front_top, front_bottom. If provided, ethnicity preset is ignored.
