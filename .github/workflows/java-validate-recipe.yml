@@ -1,0 +1,307 @@
+name: Validate Java Recipe
+
+# Java-specific validation for each affected Java recipe:
+# `pom.xml` metadata rules (`check_recipe_pom.py`) and
+# environment variable declaration check (`check_env_vars_java.py`).
+# Structural checks and model-literal notices live in
+# `validate-recipe-structure.yml`.
+
+on:
+  pull_request:
+    paths:
+      - 'core/**'
+      - 'contrib/**'
+      - 'plugins/**'
+      - 'skills/**'
+      - '.github/workflows/java-validate-recipe.yml'
+      - '.github/scripts/check_recipe_pom.py'
+      - '.github/scripts/check_env_vars_java.py'
+      - 'tools/affected_recipes.py'
+      - 'tools/validate_manifest.py'
+      - 'pyproject.toml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate-java-recipes:
+    name: Check Java-specific recipe constraints
+    runs-on: ubuntu-latest
+    # 20 minutes covers `uv sync` + a full-repo scan on the workflow_dispatch
+    # / infra-changed path, with headroom. Prevents the default 6-hour job
+    # ceiling from applying when a check hangs.
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # ratchet:astral-sh/setup-uv@v10.2.0
+        with:
+          python-version: "3.11"
+
+      - name: Install validation dependencies
+        # affected_recipes.py imports validate_manifest and needs PyYAML;
+        # `uv sync` installs both (same install step the sibling workflow
+        # validate-recipe-structure.yml uses).
+        run: uv sync
+
+      - name: Detect affected Java recipe directories
+        id: affected
+        env:
+          # Pass GitHub-controlled values through env vars rather than
+          # interpolating them into the shell body (expression injection
+          # hardening — see GitHub Actions security hardening guide).
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+
+          # workflow_dispatch has no PR base ref, so the diff-based
+          # detection can't run. Validate every Java recipe instead
+          # (mirrors the run_all path in java-tests.yml). Without this
+          # short-circuit, `git diff` below would fail loudly.
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            echo "workflow_dispatch — validating all Java recipes."
+            echo "validate_all=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          git fetch origin "$BASE_REF"
+          CHANGED_FILES=$(git diff --name-only "origin/$BASE_REF"...HEAD)
+
+          echo "Changed files:"
+          echo "$CHANGED_FILES"
+
+          # If any infrastructure file that controls this workflow's
+          # behaviour changed (the workflow itself, a checker script, or
+          # a shared tool), validate ALL Java recipes so the new
+          # configuration is applied everywhere and not only to recipes
+          # touched by the same PR.
+          INFRA_CHANGED=$(echo "$CHANGED_FILES" | grep -E "^(\.github/(workflows/java-validate-recipe\.yml|scripts/(check_recipe_pom|check_env_vars_java)\.py)|tools/(affected_recipes|validate_manifest)\.py|pyproject\.toml)$" || true)
+          if [ -n "$INFRA_CHANGED" ]; then
+            echo "Workflow or Java-specific tool changed — validating all Java recipes."
+            echo "validate_all=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Otherwise, translate the file diff into the set of Java
+          # recipes it touched via the shared helper (tested by
+          # tools/tests/test_affected_recipes.py — table-driven, so this
+          # workflow doesn't reimplement the layout matrix in bash).
+          # NOT `--no-project`: affected_recipes.py imports PyYAML and the
+          # `validate_manifest` package, both provided by the project venv
+          # created by `uv sync` above.
+          CHANGED_RECIPES=$(echo "$CHANGED_FILES" | uv run python3 tools/affected_recipes.py --language java)
+
+          echo "Java recipes to validate:"
+          echo "$CHANGED_RECIPES"
+
+          {
+            echo "changed_recipes<<RECIPES_EOF"
+            echo "$CHANGED_RECIPES"
+            echo "RECIPES_EOF"
+          } >> "$GITHUB_OUTPUT"
+          echo "validate_all=false" >> "$GITHUB_OUTPUT"
+
+      - name: Collect all Java recipe directories (workflow_dispatch or infra changed)
+        id: all_recipes
+        if: steps.affected.outputs.validate_all == 'true'
+        run: |
+          set -euo pipefail
+
+          # Full-repo enumeration: list every path under existing recipe roots
+          # (core/, contrib/, plugins/ at any depth), then feed it through the
+          # same helper the diff step uses — with --language java. This keeps one
+          # source of truth for the layout matrix (path → recipe →
+          # language) instead of re-implementing it in shell. `plugins/`
+          # is included so that a Java plugin at
+          # plugins/<vertical>/<solution>/ is picked up by the full scan.
+          # Its language comes from manifest.language rather than the path:
+          # the middle component under plugins/ is a vertical (retail/, hr/),
+          # not a language. Missing roots are tolerated via directory check.
+          # NOT `--no-project`: see the notes on the sibling invocation
+          # above.
+          EXISTING_ROOTS=()
+          for root in core contrib plugins; do
+            [ -d "$root" ] && EXISTING_ROOTS+=("$root")
+          done
+
+          if [ ${#EXISTING_ROOTS[@]} -gt 0 ]; then
+            ALL=$(find "${EXISTING_ROOTS[@]}" -type f 2>/dev/null | uv run python3 tools/affected_recipes.py --language java)
+          else
+            ALL=""
+          fi
+
+          echo "All Java recipes:"
+          echo "$ALL"
+
+          {
+            echo "all_recipes<<RECIPES_EOF"
+            echo "$ALL"
+            echo "RECIPES_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Run Java-specific checks per recipe
+        env:
+          VALIDATE_ALL: ${{ steps.affected.outputs.validate_all }}
+          ALL_RECIPES: ${{ steps.all_recipes.outputs.all_recipes }}
+          CHANGED_RECIPES: ${{ steps.affected.outputs.changed_recipes }}
+        run: |
+          set -euo pipefail
+
+          if [ "$VALIDATE_ALL" = "true" ]; then
+            RECIPES="$ALL_RECIPES"
+          else
+            RECIPES="$CHANGED_RECIPES"
+          fi
+
+          if [ -z "$RECIPES" ]; then
+            echo "[INFO] No Java recipe directories to validate."
+            exit 0
+          fi
+
+          FAILED=0
+          CI_FAULTS=0
+
+          # Each recipe is validated in a subshell so a transient failure
+          # inside one recipe (e.g. a `find` error) aborts only that
+          # recipe's checks, not the whole loop.
+          #
+          # The subshell's exit status carries WHOSE fault it was, because
+          # a subshell cannot write back to the parent's variables:
+          #   0 — recipe passed
+          #   1 — the recipe has problems the contributor must fix
+          #   2 — one of OUR checkers crashed or the CI environment broke
+          # Keeping 2 distinct is the point: a contributor should never be
+          # sent hunting through their own PR for a bug in our tooling.
+          while IFS= read -r recipe; do
+            [ -z "$recipe" ] && continue
+            echo ""
+            echo "========================================"
+            echo "Validating: $recipe"
+            echo "========================================"
+            # `set +e` here only so the parent can READ the subshell's exit
+            # status; without it `set -e` would abort this script the moment
+            # a recipe fails, before the case below can classify it. The
+            # subshell re-enables `set -e` for itself on its first line, so
+            # an unexpected failure mid-recipe still aborts that recipe's
+            # remaining checks exactly as before.
+            set +e
+            (
+              set -e
+              RECIPE_FAILED=0
+              CI_FAULT=0
+
+              # ------------------------------------------------------------
+              # Check 1: pom.xml metadata rules (check_recipe_pom.py).
+              # artifactId matches directory name, maven.compiler.release
+              # <= 17 in <properties>, matching description, and
+              # Maven Central repositories.
+              # ------------------------------------------------------------
+              set +e
+              uv run --no-project \
+                python3 .github/scripts/check_recipe_pom.py "$recipe" | sed 's/^::error file=/::notice file=/'
+              pom_exit="${PIPESTATUS[0]}"
+              set -e
+              case "$pom_exit" in
+                0) ;;
+                1)
+                  # Advisory during rollout: do NOT fail the job on exit 1.
+                  # The promotion task flips exit 1 to failing (RECIPE_FAILED=1).
+                  ;;
+                2) CI_FAULT=1 ;;
+                *)
+                  echo "::error::check_recipe_pom.py exited with an undefined status ($pom_exit). This is a CI tooling bug, not a problem with your recipe."
+                  CI_FAULT=1
+                  ;;
+              esac
+
+              # ------------------------------------------------------------
+              # Check 2: env vars used in Java source but missing from
+              # .env.example (check_env_vars_java.py).
+              # Tokenizes and parses Java source files to detect
+              # System.getenv, System.getProperty, helper functions, and
+              # Dotenv reads.
+              # ------------------------------------------------------------
+              set +e
+              uv run --no-project \
+                python3 .github/scripts/check_env_vars_java.py "$recipe" | sed 's/^::error file=/::notice file=/'
+              env_vars_exit="${PIPESTATUS[0]}"
+              set -e
+              case "$env_vars_exit" in
+                0) ;;
+                1)
+                  # Advisory during rollout: do NOT fail the job on exit 1.
+                  # The promotion task flips exit 1 to failing (RECIPE_FAILED=1).
+                  ;;
+                2) CI_FAULT=1 ;;
+                *)
+                  echo "::error::check_env_vars_java.py exited with an undefined status ($env_vars_exit). This is a CI tooling bug, not a problem with your recipe."
+                  CI_FAULT=1
+                  ;;
+              esac
+
+              # A CI fault outranks a recipe failure: if our own checker
+              # could not run, we do not actually know whether the recipe
+              # is valid, and saying "your recipe is broken" would be a
+              # guess.
+              if [ "$CI_FAULT" -eq 1 ]; then
+                exit 2
+              fi
+              # During advisory rollout, exit 1 from checkers does not set
+              # RECIPE_FAILED=1 so the job passes with notices. This check is
+              # preserved for when rollout completes and exit 1 is promoted to
+              # hard-failing.
+              if [ "$RECIPE_FAILED" -eq 1 ]; then
+                exit 1
+              fi
+              echo ""
+              echo "[PASS] All Java-specific checks passed for: $recipe"
+            )
+            recipe_status=$?
+            set -e
+            case "$recipe_status" in
+              0) ;;
+              2) CI_FAULTS=1 ;;
+              *) FAILED=1 ;;
+            esac
+          done <<< "$RECIPES"
+
+          if [ "$CI_FAULTS" -eq 1 ]; then
+            echo ""
+            echo "========================================"
+            echo "  CI TOOLING FAILURE — not your changes"
+            echo "========================================"
+            echo ""
+            echo "One of this repo's own checker scripts could not run, so"
+            echo "validation is inconclusive. Do not change your recipe to"
+            echo "work around this."
+            echo ""
+            echo "  1. Re-run this job — transient failures clear on retry."
+            echo "  2. If it fails again, open an issue with the [ci-fault]"
+            echo "     detail above and a link to this run."
+            echo ""
+            echo "See docs/recipe-handbook/troubleshooting.md#ci-infrastructure-failure"
+            exit 1
+          fi
+
+          if [ "$FAILED" -eq 1 ]; then
+            echo ""
+            echo "========================================"
+            echo "  ACTION REQUIRED: recipe validation failed"
+            echo "========================================"
+            echo ""
+            echo "Each problem above lists why the rule applies and how to"
+            echo "fix it. Every fix is documented in"
+            echo "docs/recipe-handbook/troubleshooting.md"
+            exit 1
+          fi
+
+          echo ""
+          echo "[PASS] All Java recipes passed Java-specific validation."
