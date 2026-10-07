@@ -337,7 +337,7 @@ def describe_garment_detailed(
         client: Gemini client instance
         front_images: Selected front garment images
         back_images: Selected back garment images
-        model: Gemini model to use (default: "gemini-3.6-flash")
+        model: Gemini model to use (default: "gemini-3.8-flash")
 
     Returns:
         dict with keys: general, front_details, back_details

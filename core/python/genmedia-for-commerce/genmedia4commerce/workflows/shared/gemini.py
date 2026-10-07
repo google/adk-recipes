@@ -45,7 +45,7 @@ def generate_gemini(
         client: Gemini client instance
         schema: Optional response schema for structured output
         config: Optional GenerateContentConfig (uses default if None)
-        model: Model to use (default: "gemini-3.6-flash")
+        model: Model to use (default: "gemini-3.8-flash")
         video_metadata: Optional VideoMetadata applied to bytes parts
                         (e.g. types.VideoMetadata(fps=2))
 

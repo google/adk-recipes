@@ -61,6 +61,7 @@ deploy-agent-engine: sync-config
 	source config.env && gcloud config set project $$PROJECT_ID --quiet && \
 	(uv export --no-hashes --no-header --no-dev --no-emit-project --no-annotate > genmedia4commerce/app_utils/.requirements.txt 2>/dev/null || \
 	uv export --no-hashes --no-header --no-dev --no-emit-project > genmedia4commerce/app_utils/.requirements.txt) && \
+	sed -i '/^insightface==/d' genmedia4commerce/app_utils/.requirements.txt && \
 	uv run -m genmedia4commerce.app_utils.deploy \
 		--project=$${PROJECT_ID} \
 		--location=$${DEFAULT_REGION:-us-central1} \
