@@ -475,17 +475,19 @@ def test_an_unexpected_crash_is_a_ci_fault_not_the_contributors_fault(
 
 
 @pytest.mark.parametrize(
-    "recipe_subpath",
+    "recipe_name",
     [
-        "contrib/java/financial-advisor",
-        "contrib/java/time-series-forecasting",
+        "financial-advisor",
+        "time-series-forecasting",
     ],
 )
-def test_specimen_java_recipes_parse_clean(recipe_subpath, monkeypatch, capsys):
+def test_specimen_java_recipes_parse_clean(recipe_name, monkeypatch, capsys):
     repo_root = Path(__file__).resolve().parents[3]
-    specimen = repo_root / recipe_subpath
+    specimen = repo_root / "contrib" / "java" / recipe_name
     if not specimen.is_dir():
-        pytest.skip(f"{recipe_subpath} not present in this workspace")
+        specimen = repo_root / "core" / "java" / recipe_name
+    if not specimen.is_dir():
+        pytest.skip(f"{recipe_name} not present in this workspace")
 
     assert _run(specimen, monkeypatch) == EXIT_OK
     out = capsys.readouterr().out
