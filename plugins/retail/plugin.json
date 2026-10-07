@@ -13,8 +13,14 @@
     "image-generation",
     "video-generation"
   ],
+  "author": {
+    "name": "Tanvi Singhal, Gabriela"
+  },
   "ownership": {
     "team": "FDE/Blackbelt",
-    "poc": "tanvisinghal-0105"
+    "poc": "tanvisinghal-0105",
+    "contributors": [
+      "gabrielahrlr"
+    ]
   }
 }

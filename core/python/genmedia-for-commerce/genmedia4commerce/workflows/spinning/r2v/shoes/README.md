@@ -365,7 +365,7 @@ Training parameters are configurable via environment variables in `config.env`:
 - `FINETUNE_LORA_RANK` (default: 2, options: 2, 4, 8)
 - `FINETUNE_LR_MULTIPLIER` (default: 0.5)
 - `FINETUNE_VERSION` (default: 1)
-- `FINETUNE_BASE_MODEL` (default: gemini-3.6-flash)
+- `FINETUNE_BASE_MODEL` (default: gemini-3.8-flash)
 
 ### Training Data Requirements
 

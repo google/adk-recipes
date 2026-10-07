@@ -41,6 +41,8 @@ dependencies:
 ownership:
   team: FDE/Blackbelt
   poc: tanvisinghal-0105
+  contributors:
+    - gabrielahrlr
 tags:
   - retail
   - search

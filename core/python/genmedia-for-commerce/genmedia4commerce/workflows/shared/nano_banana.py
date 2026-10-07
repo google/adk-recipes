@@ -56,7 +56,7 @@ class NanoTimeoutError(Exception):
 def generate_nano(
     client,
     text_images_pieces,
-    model=os.getenv("MODEL_NAME_GENERATED_5", "gemini-3.6-flash"),  # noqa: B008
+    model=os.getenv("MODEL_NAME_GENERATED_5", "gemini-nano-banana-2.1"),  # noqa: B008
     config=None,
     timeout=NANO_TIMEOUT_SECONDS,
 ):
@@ -65,7 +65,7 @@ def generate_nano(
     Args:
         client: Gemini client instance
         text_images_pieces: List of text strings and/or image bytes
-        model: Model to use (default: "gemini-3.1-flash-image")
+        model: Model to use (default: "gemini-nano-banana-2.1")
         config: Optional GenerateContentConfig (uses default if None)
         timeout: Timeout in seconds (default: 90). Set to None to disable.
 

@@ -69,7 +69,7 @@ class TestGenerateProductDescription:
         mock_client.models.generate_content.return_value = mock_response
 
         result = generate_product_description(
-            mock_client, "gemini-3.6-flash", [red_image_bytes]
+            mock_client, "gemini-3.8-flash", [red_image_bytes]
         )
 
         assert (
@@ -101,7 +101,7 @@ class TestGenerateProductDescription:
         mock_client.models.generate_content.return_value = mock_response
 
         images = [red_image_bytes, red_image_bytes, red_image_bytes]
-        generate_product_description(mock_client, "gemini-3.6-flash", images)
+        generate_product_description(mock_client, "gemini-3.8-flash", images)
 
         call_kwargs = mock_client.models.generate_content.call_args
         contents = call_kwargs.kwargs["contents"]

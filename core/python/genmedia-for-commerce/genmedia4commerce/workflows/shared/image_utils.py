@@ -309,26 +309,35 @@ def upscale_image_bytes(client, image_bytes, upscale_factor="x4"):
     img_hash = hashlib.md5(image_bytes).hexdigest()[:6]  # noqa: S324
     save_debug_image(image_bytes, f"upscale_input_{img_hash}", prefix="upscale")
 
-    input_image = types.Image(image_bytes=image_bytes)
+    model = os.getenv("MODEL_NAME_GENERATED_8")
+    if not model or model.lower() in ("none", "false", "disabled"):
+        logger.debug("Image upscaling is disabled. Returning original image.")
+        return image_bytes
 
-    response = client.models.upscale_image(
-        model=os.getenv("MODEL_NAME_GENERATED_8"),
-        image=input_image,
-        upscale_factor=upscale_factor,
-        config=types.UpscaleImageConfig(
-            include_rai_reason=False,
-            output_mime_type="image/png",
-        ),
-    )
+    try:
+        input_image = types.Image(image_bytes=image_bytes)
+        response = client.models.upscale_image(
+            model=model,
+            image=input_image,
+            upscale_factor=upscale_factor,
+            config=types.UpscaleImageConfig(
+                include_rai_reason=False,
+                output_mime_type="image/png",
+            ),
+        )
+        upscaled_bytes = response.generated_images[0].image.image_bytes
 
-    upscaled_bytes = response.generated_images[0].image.image_bytes
+        # Debug: save after upscaling
+        save_debug_image(
+            upscaled_bytes, f"upscale_output_{img_hash}", prefix="upscale"
+        )
 
-    # Debug: save after upscaling
-    save_debug_image(
-        upscaled_bytes, f"upscale_output_{img_hash}", prefix="upscale"
-    )
-
-    return upscaled_bytes
+        return upscaled_bytes
+    except Exception as e:
+        logger.warning(
+            f"Image upscaling failed ({e}); falling back to original image."
+        )
+        return image_bytes
 
 
 def replace_background(
@@ -1034,7 +1043,7 @@ def preprocess_images(
     client,
     upscale_client,
     num_workers=16,
-    upscale_images=True,
+    upscale_images=False,
     create_canva=True,
     skip_crop=False,
 ):

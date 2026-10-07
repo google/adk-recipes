@@ -141,7 +141,7 @@ This deploys the entire application stack, including the React frontend, FastAPI
 | **Interaction Type** | Workflow / API |
 | **Complexity** | Advanced |
 | **Agent Type** | Orchestrator |
-| **Components** | Veo 3.1, Gemini 2.5, Image Processing, Validation Loops |
+| **Components** | Veo 3.1, Gemini 3.8 Flash / 3.5 Flash-Lite / 3.1 Pro, Nano Banana 2.1, Image Processing, Validation Loops |
 | **Vertical** | Retail / Commerce |
 
 ### 1. Clothes Video VTO Pipeline

@@ -679,7 +679,7 @@ async def run_fitting_pipeline(
         garment_images_bytes,
         client=genai_client,
         upscale_client=genai_client,
-        upscale_images=True,
+        upscale_images=False,
         create_canva=False,
         skip_crop=True,
     )
