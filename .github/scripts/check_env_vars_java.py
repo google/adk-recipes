@@ -401,8 +401,6 @@ _EXCLUDED_DIRS: frozenset[str] = frozenset(
         ".gradle",
         "build",
         "target",
-        "tests",
-        "test",
         ".agent-tmp",
         ".git",
     }

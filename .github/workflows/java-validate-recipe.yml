@@ -206,12 +206,15 @@ jobs:
               # ------------------------------------------------------------
               set +e
               uv run --no-project \
-                python3 .github/scripts/check_recipe_pom.py "$recipe"
-              pom_exit=$?
+                python3 .github/scripts/check_recipe_pom.py "$recipe" | sed 's/^::error file=/::notice file=/'
+              pom_exit="${PIPESTATUS[0]}"
               set -e
               case "$pom_exit" in
                 0) ;;
-                1) RECIPE_FAILED=1 ;;
+                1)
+                  # Advisory during rollout: do NOT fail the job on exit 1.
+                  # The promotion task flips exit 1 to failing (RECIPE_FAILED=1).
+                  ;;
                 2) CI_FAULT=1 ;;
                 *)
                   echo "::error::check_recipe_pom.py exited with an undefined status ($pom_exit). This is a CI tooling bug, not a problem with your recipe."
@@ -226,22 +229,23 @@ jobs:
               # System.getenv, System.getProperty, helper functions, and
               # Dotenv reads.
               # ------------------------------------------------------------
-              if [ -f "$recipe/.env.example" ]; then
-                set +e
-                uv run --no-project \
-                  python3 .github/scripts/check_env_vars_java.py "$recipe"
-                env_vars_exit=$?
-                set -e
-                case "$env_vars_exit" in
-                  0) ;;
-                  1) RECIPE_FAILED=1 ;;
-                  2) CI_FAULT=1 ;;
-                  *)
-                    echo "::error::check_env_vars_java.py exited with an undefined status ($env_vars_exit). This is a CI tooling bug, not a problem with your recipe."
-                    CI_FAULT=1
-                    ;;
-                esac
-              fi
+              set +e
+              uv run --no-project \
+                python3 .github/scripts/check_env_vars_java.py "$recipe" | sed 's/^::error file=/::notice file=/'
+              env_vars_exit="${PIPESTATUS[0]}"
+              set -e
+              case "$env_vars_exit" in
+                0) ;;
+                1)
+                  # Advisory during rollout: do NOT fail the job on exit 1.
+                  # The promotion task flips exit 1 to failing (RECIPE_FAILED=1).
+                  ;;
+                2) CI_FAULT=1 ;;
+                *)
+                  echo "::error::check_env_vars_java.py exited with an undefined status ($env_vars_exit). This is a CI tooling bug, not a problem with your recipe."
+                  CI_FAULT=1
+                  ;;
+              esac
 
               # A CI fault outranks a recipe failure: if our own checker
               # could not run, we do not actually know whether the recipe
@@ -250,6 +254,10 @@ jobs:
               if [ "$CI_FAULT" -eq 1 ]; then
                 exit 2
               fi
+              # During advisory rollout, exit 1 from checkers does not set
+              # RECIPE_FAILED=1 so the job passes with notices. This check is
+              # preserved for when rollout completes and exit 1 is promoted to
+              # hard-failing.
               if [ "$RECIPE_FAILED" -eq 1 ]; then
                 exit 1
               fi
