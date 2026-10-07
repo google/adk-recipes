@@ -14,7 +14,7 @@
 """Checks that every environment variable read by a recipe's Java source is
 declared in the recipe's .env.example.
 
-Pure Python token/AST parser: understands System.getenv(), System.getenv().get(),
+Token-based scanner: understands System.getenv(), System.getenv().get(),
 System.getProperty(), static imports (import static java.lang.System.getenv),
 and Dotenv library reads, regardless of how the calls are formatted or split
 across lines. An allowlist of well-known OS/CI variables suppresses false
@@ -56,6 +56,20 @@ CHECKER = "check_env_vars_java.py"
 CHECK = "env-vars"
 
 PLACEHOLDER = "<TODO: update-this-value>"
+_DOTENV_LOOKAHEAD_LIMIT = 20
+
+_PUNCTUATION: dict[str, str] = {
+    ".": "DOT",
+    "(": "LPAREN",
+    ")": "RPAREN",
+    "[": "LBRACKET",
+    "]": "RBRACKET",
+    ",": "COMMA",
+    ";": "SEMI",
+    "{": "LBRACE",
+    "}": "RBRACE",
+    "=": "EQUALS",
+}
 
 # ---------------------------------------------------------------------------
 # Allowlist
@@ -185,6 +199,12 @@ def _tokenize_java(source: str) -> list[_Token]:
                 elif source[i : i + 2] == '\\"':
                     chars.append('"')
                     i += 2
+                elif source[i : i + 2] == "\\n":
+                    chars.append("\n")
+                    i += 2
+                elif source[i : i + 2] == "\\t":
+                    chars.append("\t")
+                    i += 2
                 else:
                     chars.append(source[i])
                     i += 1
@@ -232,35 +252,8 @@ def _tokenize_java(source: str) -> list[_Token]:
                 i += 1
             if i < n and source[i] == "'":
                 i += 1
-        elif c == ".":
-            tokens.append(_Token("DOT", ".", lineno))
-            i += 1
-        elif c == "(":
-            tokens.append(_Token("LPAREN", "(", lineno))
-            i += 1
-        elif c == ")":
-            tokens.append(_Token("RPAREN", ")", lineno))
-            i += 1
-        elif c == "[":
-            tokens.append(_Token("LBRACKET", "[", lineno))
-            i += 1
-        elif c == "]":
-            tokens.append(_Token("RBRACKET", "]", lineno))
-            i += 1
-        elif c == ",":
-            tokens.append(_Token("COMMA", ",", lineno))
-            i += 1
-        elif c == ";":
-            tokens.append(_Token("SEMI", ";", lineno))
-            i += 1
-        elif c == "{":
-            tokens.append(_Token("LBRACE", "{", lineno))
-            i += 1
-        elif c == "}":
-            tokens.append(_Token("RBRACE", "}", lineno))
-            i += 1
-        elif c == "=":
-            tokens.append(_Token("EQUALS", "=", lineno))
+        elif c in _PUNCTUATION:
+            tokens.append(_Token(_PUNCTUATION[c], c, lineno))
             i += 1
         elif c.isalpha() or c in "_$":
             start_line = lineno
@@ -273,6 +266,15 @@ def _tokenize_java(source: str) -> list[_Token]:
             i += 1
 
     return tokens
+
+
+def _is_direct_call(tokens: list[_Token], idx: int) -> bool:
+    """Return True if tokens[idx] is a direct call site not preceded by a dot."""
+    return (
+        (idx == 0 or tokens[idx - 1].kind != "DOT")
+        and idx + 1 < len(tokens)
+        and tokens[idx + 1].kind == "LPAREN"
+    )
 
 
 def _parse_java_source(source_text: str) -> dict[str, tuple[int, bool]]:
@@ -390,30 +392,31 @@ def _parse_java_source(source_text: str) -> dict[str, tuple[int, bool]]:
                             record_var(inner_val, lineno, is_prop=False)
 
         # Static imports: getenv("VAR") or getProperty("VAR")
-        elif tok.value == "getenv" and static_getenv and i + 2 < n:
-            if (i == 0 or tokens[i - 1].kind != "DOT") and tokens[
-                i + 1
-            ].kind == "LPAREN":
-                var_val = resolve_token(tokens[i + 2])
-                if var_val:
-                    record_var(var_val, lineno, is_prop=False)
+        elif (
+            tok.value == "getenv"
+            and static_getenv
+            and _is_direct_call(tokens, i)
+        ):
+            var_val = resolve_token(tokens[i + 2] if i + 2 < n else None)
+            if var_val:
+                record_var(var_val, lineno, is_prop=False)
 
-        elif tok.value == "getProperty" and static_getproperty and i + 2 < n:
-            if (i == 0 or tokens[i - 1].kind != "DOT") and tokens[
-                i + 1
-            ].kind == "LPAREN":
-                var_val = resolve_token(tokens[i + 2])
-                if var_val:
-                    record_var(var_val, lineno, is_prop=True)
+        elif (
+            tok.value == "getProperty"
+            and static_getproperty
+            and _is_direct_call(tokens, i)
+        ):
+            var_val = resolve_token(tokens[i + 2] if i + 2 < n else None)
+            if var_val:
+                record_var(var_val, lineno, is_prop=True)
 
         # Helper methods: env("VAR"), requireEnv("VAR"), getEnv("VAR")
-        elif tok.value in ("env", "requireEnv", "getEnv") and i + 2 < n:
-            if (i == 0 or tokens[i - 1].kind != "DOT") and tokens[
-                i + 1
-            ].kind == "LPAREN":
-                var_val = resolve_token(tokens[i + 2])
-                if var_val:
-                    record_var(var_val, lineno, is_prop=False)
+        elif tok.value in ("env", "requireEnv", "getEnv") and _is_direct_call(
+            tokens, i
+        ):
+            var_val = resolve_token(tokens[i + 2] if i + 2 < n else None)
+            if var_val:
+                record_var(var_val, lineno, is_prop=False)
 
         # Dotenv calls: dotenv.get("VAR"), DOTENV.get("VAR"), Dotenv.load().get("VAR")
         elif tok.value in ("dotenv", "DOTENV", "Dotenv") and i + 4 < n:
@@ -430,7 +433,7 @@ def _parse_java_source(source_text: str) -> dict[str, tuple[int, bool]]:
             # Dotenv.load().get("VAR") or Dotenv.configure().load().get("VAR")
             elif tokens[i + 1].kind == "DOT":
                 j = i + 1
-                while j < min(i + 20, n - 3):
+                while j < min(i + _DOTENV_LOOKAHEAD_LIMIT, n - 3):
                     if (
                         tokens[j].kind == "DOT"
                         and tokens[j + 1].kind == "IDENT"

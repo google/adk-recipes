@@ -28,7 +28,7 @@ validated against .env.example:
   - Test files (src/test/*, tests/*) are ignored.
   - Specimen Java recipes in the repository pass clean (exit 0).
   - Missing .env.example exits 0 (owned by a separate required-files check).
-  - Non-UTF8 files are reported (exit 1).
+  - Non-UTF-8 files are reported (exit 1).
   - CI faults (bad CLI arguments, missing paths, crashes) exit 2.
 """
 
@@ -474,32 +474,18 @@ def test_an_unexpected_crash_is_a_ci_fault_not_the_contributors_fault(
     assert "::error file=" not in out
 
 
-def test_specimen_financial_advisor_parses_clean(monkeypatch, capsys):
+@pytest.mark.parametrize(
+    "recipe_subpath",
+    [
+        "contrib/java/financial-advisor",
+        "contrib/java/time-series-forecasting",
+    ],
+)
+def test_specimen_java_recipes_parse_clean(recipe_subpath, monkeypatch, capsys):
     repo_root = Path(__file__).resolve().parents[3]
-    specimen = repo_root / "contrib" / "java" / "financial-advisor"
+    specimen = repo_root / recipe_subpath
     if not specimen.is_dir():
-        specimen = repo_root / "core" / "java" / "financial-advisor"
-    if not specimen.is_dir():
-        pytest.skip(
-            "contrib/java/financial-advisor not present in this workspace"
-        )
-
-    assert _run(specimen, monkeypatch) == EXIT_OK
-    out = capsys.readouterr().out
-    assert "[PASS]" in out
-    assert "::error" not in out
-    assert "5 detected, 0 in the OS allowlist, 5 declared" in out
-
-
-def test_specimen_time_series_forecasting_parses_clean(monkeypatch, capsys):
-    repo_root = Path(__file__).resolve().parents[3]
-    specimen = repo_root / "contrib" / "java" / "time-series-forecasting"
-    if not specimen.is_dir():
-        specimen = repo_root / "core" / "java" / "time-series-forecasting"
-    if not specimen.is_dir():
-        pytest.skip(
-            "contrib/java/time-series-forecasting not present in this workspace"
-        )
+        pytest.skip(f"{recipe_subpath} not present in this workspace")
 
     assert _run(specimen, monkeypatch) == EXIT_OK
     out = capsys.readouterr().out
