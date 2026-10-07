@@ -10,6 +10,7 @@ dependencies = [
   "jsonschema",
   "tree-sitter>=0.23",
   "tree-sitter-go>=0.23",
+  "defusedxml>=0.7",
 ]
 
 [project.scripts]
