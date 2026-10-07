@@ -477,6 +477,7 @@ def test_description_with_non_dict_manifest_fails(
     [
         "https://repo.maven.apache.org/maven2",
         "https://repo.maven.apache.org/maven2/",
+        "https://repo.maven.apache.org:443/maven2",
         "http://repo.maven.apache.org/maven2",
         "https://repo1.maven.org/maven2",
         "https://repo1.maven.org/maven2/",

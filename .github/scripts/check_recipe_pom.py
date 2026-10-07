@@ -67,7 +67,7 @@ CI_PINNED_JDK_VERSION = 17
 
 NAMESPACED_ROOTS = {"plugins"}
 
-REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 MAVEN_CENTRAL_HOSTS = {
     "repo.maven.apache.org",
@@ -89,14 +89,15 @@ def _repo_relative_parts(
     leading `./` or parent references are normalized before inspection.
     """
     root = (REPO_ROOT if repo_root is None else repo_root).resolve()
-    resolved_dir = (
-        (root / recipe_dir).resolve()
-        if not recipe_dir.is_absolute()
-        else recipe_dir.resolve()
-    )
+    resolved_dir = recipe_dir.resolve()
     try:
         return resolved_dir.relative_to(root).parts
     except ValueError:
+        if not recipe_dir.is_absolute():
+            try:
+                return (root / recipe_dir).resolve().relative_to(root).parts
+            except ValueError:
+                pass
         return recipe_dir.parts
 
 
@@ -145,7 +146,7 @@ def _is_maven_central_url(url: str) -> bool:
         return False
     if parsed.scheme not in ("http", "https"):
         return False
-    if parsed.netloc.lower() in MAVEN_CENTRAL_HOSTS:
+    if parsed.hostname and parsed.hostname.lower() in MAVEN_CENTRAL_HOSTS:
         return parsed.path.rstrip("/") in ("/maven2", "")
     return False
 
@@ -455,132 +456,74 @@ def check_description(
     return []
 
 
+def _check_repo_entries(
+    root: ET.Element,
+    container_tag: str,
+    entry_tag: str,
+    label: str,
+    pom_path: Path,
+) -> list[Diagnostic]:
+    diagnostics: list[Diagnostic] = []
+    for container in _find_children(root, container_tag):
+        for entry in _find_children(container, entry_tag):
+            id_elem = _find_child(entry, "id")
+            entry_id = (
+                id_elem.text.strip()
+                if id_elem is not None and id_elem.text
+                else "unknown"
+            )
+            url_elem = _find_child(entry, "url")
+            url_text = (
+                url_elem.text.strip()
+                if url_elem is not None and url_elem.text
+                else ""
+            )
+
+            if not _is_maven_central_url(url_text):
+                diagnostics.append(
+                    Diagnostic(
+                        check="pom-repositories",
+                        what=(
+                            f"{label} '{entry_id}' with URL '{url_text}' in "
+                            f"{pom_path} does not point to Maven Central."
+                        ),
+                        why=(
+                            f"Java recipes must not declare custom or private "
+                            f"Maven {label.lower()}s. All public dependencies "
+                            f"must resolve from Maven Central "
+                            f"(https://repo.maven.apache.org/maven2)."
+                        ),
+                        how=(
+                            f"Remove custom {label.lower()} declarations from "
+                            f"{pom_path.name} or use Maven Central "
+                            f"(https://repo.maven.apache.org/maven2)."
+                        ),
+                        doc=Doc.PROJECT_NAME,
+                        file=str(pom_path),
+                    )
+                )
+    return diagnostics
+
+
 def check_repositories_and_mirrors(
     root: ET.Element,
     pom_path: Path,
 ) -> list[Diagnostic]:
     """Check that declared repositories, pluginRepositories, and mirrors point to Maven Central."""
     diagnostics: list[Diagnostic] = []
-
-    # Check <repositories> -> <repository>
-    for repos_elem in _find_children(root, "repositories"):
-        for repo_elem in _find_children(repos_elem, "repository"):
-            id_elem = _find_child(repo_elem, "id")
-            repo_id = (
-                id_elem.text.strip()
-                if id_elem is not None and id_elem.text
-                else "unknown"
-            )
-            url_elem = _find_child(repo_elem, "url")
-            url_text = (
-                url_elem.text.strip()
-                if url_elem is not None and url_elem.text
-                else ""
-            )
-
-            if not _is_maven_central_url(url_text):
-                diagnostics.append(
-                    Diagnostic(
-                        check="pom-repositories",
-                        what=(
-                            f"Repository '{repo_id}' with URL '{url_text}' in "
-                            f"{pom_path} does not point to Maven Central."
-                        ),
-                        why=(
-                            "Java recipes must not declare custom or private "
-                            "Maven repositories. All public dependencies must "
-                            "resolve from Maven Central "
-                            "(https://repo.maven.apache.org/maven2)."
-                        ),
-                        how=(
-                            f"Remove custom repository declarations from "
-                            f"{pom_path.name} or use Maven Central "
-                            f"(https://repo.maven.apache.org/maven2)."
-                        ),
-                        doc=Doc.PROJECT_NAME,
-                        file=str(pom_path),
-                    )
-                )
-
-    # Check <pluginRepositories> -> <pluginRepository>
-    for repos_elem in _find_children(root, "pluginRepositories"):
-        for repo_elem in _find_children(repos_elem, "pluginRepository"):
-            id_elem = _find_child(repo_elem, "id")
-            repo_id = (
-                id_elem.text.strip()
-                if id_elem is not None and id_elem.text
-                else "unknown"
-            )
-            url_elem = _find_child(repo_elem, "url")
-            url_text = (
-                url_elem.text.strip()
-                if url_elem is not None and url_elem.text
-                else ""
-            )
-
-            if not _is_maven_central_url(url_text):
-                diagnostics.append(
-                    Diagnostic(
-                        check="pom-repositories",
-                        what=(
-                            f"Plugin repository '{repo_id}' with URL '{url_text}' in "
-                            f"{pom_path} does not point to Maven Central."
-                        ),
-                        why=(
-                            "Java recipes must not declare custom or private "
-                            "plugin repositories. All plugins must resolve from "
-                            "Maven Central (https://repo.maven.apache.org/maven2)."
-                        ),
-                        how=(
-                            f"Remove custom plugin repository declarations from "
-                            f"{pom_path.name} or use Maven Central "
-                            f"(https://repo.maven.apache.org/maven2)."
-                        ),
-                        doc=Doc.PROJECT_NAME,
-                        file=str(pom_path),
-                    )
-                )
-
-    # Check <mirrors> -> <mirror>
-    for mirrors_elem in _find_children(root, "mirrors"):
-        for mirror_elem in _find_children(mirrors_elem, "mirror"):
-            id_elem = _find_child(mirror_elem, "id")
-            mirror_id = (
-                id_elem.text.strip()
-                if id_elem is not None and id_elem.text
-                else "unknown"
-            )
-            url_elem = _find_child(mirror_elem, "url")
-            url_text = (
-                url_elem.text.strip()
-                if url_elem is not None and url_elem.text
-                else ""
-            )
-
-            if not _is_maven_central_url(url_text):
-                diagnostics.append(
-                    Diagnostic(
-                        check="pom-repositories",
-                        what=(
-                            f"Mirror '{mirror_id}' with URL '{url_text}' in "
-                            f"{pom_path} does not point to Maven Central."
-                        ),
-                        why=(
-                            "Java recipes must not declare custom or private "
-                            "Maven mirrors. All public dependencies must "
-                            "resolve from Maven Central "
-                            "(https://repo.maven.apache.org/maven2)."
-                        ),
-                        how=(
-                            f"Remove custom mirror declarations from "
-                            f"{pom_path.name} or use Maven Central "
-                            f"(https://repo.maven.apache.org/maven2)."
-                        ),
-                        doc=Doc.PROJECT_NAME,
-                        file=str(pom_path),
-                    )
-                )
-
+    diagnostics += _check_repo_entries(
+        root, "repositories", "repository", "Repository", pom_path
+    )
+    diagnostics += _check_repo_entries(
+        root,
+        "pluginRepositories",
+        "pluginRepository",
+        "Plugin repository",
+        pom_path,
+    )
+    diagnostics += _check_repo_entries(
+        root, "mirrors", "mirror", "Mirror", pom_path
+    )
     return diagnostics
 
 
