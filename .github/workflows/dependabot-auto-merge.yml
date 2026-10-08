@@ -31,23 +31,40 @@ on: # zizmor: ignore[dangerous-triggers]
       - reopened
   # Trigger when CI completes so auto-merge can evaluate and land the PR.
   # Lists every workflow whose completion should prompt a merge evaluation.
-  # "🐍 Python Tests" is the longest-running gate and fires last on most PRs.
-  # Add / remove names here if required checks change.
+  # Every gating workflow across all supported recipe languages (Python, Go,
+  # Java, Kotlin, TypeScript) plus recipe structure validation is listed here.
+  #
+  # Even though recipe ecosystems in .github/dependabot.yml currently set
+  # `open-pull-requests-limit: 0` (suppression), these triggers are maintained
+  # in full so any unsuppressed PR (e.g. root ecosystem) or future policy
+  # change is immediately and safely evaluated rather than silently failing to
+  # trigger auto-merge.
+  #
+  # tests/test_dependabot_config.py asserts this list stays in sync with all
+  # recipe gating workflows in .github/workflows/.
   workflow_run:
     workflows:
+      # Python
       - "🐍 Python Tests"
-      - "Validate Python Recipe"
-      - "Validate Recipe Structure"
       - "🐍 Python Format PR Checks"
+      - "Validate Python Recipe"
       - "Python Dependency Policy"
-      # Go. Fires on no Dependabot PR today. There is one go.mod in the tree
-      # (go/agents/financial-advisor), but .github/dependabot.yml gives
-      # `gomod` a suppression entry — no version updates and no security
-      # updates — so Dependabot opens nothing for it to react to. Listed in
-      # advance because lifting that suppression and forgetting this line
-      # would leave those PRs never re-evaluated for auto-merge, a silent
-      # failure rather than a loud one.
+      # Go
+      - "🐹 Go Tests"
       - "🐹 Go Format PR Checks"
+      - "Validate Go Recipe"
+      # Java
+      - "☕ Java Tests"
+      - "☕ Java Format PR Checks"
+      # Kotlin
+      - "🟣 Kotlin Tests"
+      - "🟣 Kotlin Format PR Checks"
+      - "Validate Kotlin Recipe"
+      # TypeScript
+      - "🟦 TypeScript Tests"
+      - "🟦 TypeScript Format PR Checks"
+      # Recipe structure
+      - "Validate Recipe Structure"
     types:
       - completed
 
