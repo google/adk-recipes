@@ -647,12 +647,18 @@ def load_auto_merge_workflow() -> dict:
     return data if isinstance(data, dict) else {}
 
 
+def get_workflow_on_block(data: dict) -> dict:
+    """Extract the `on` trigger block from a parsed workflow dict."""
+    if not isinstance(data, dict):
+        return {}
+    on_block = data.get("on") if "on" in data else data.get(True, {})
+    return on_block if isinstance(on_block, dict) else {}
+
+
 def auto_merge_trigger_workflows() -> list[str]:
     """The list of workflow names triggering dependabot-auto-merge.yml."""
     data = load_auto_merge_workflow()
-    on_block = data.get("on") if "on" in data else data.get(True, {})
-    if not isinstance(on_block, dict):
-        return []
+    on_block = get_workflow_on_block(data)
     workflow_run = on_block.get("workflow_run", {})
     if not isinstance(workflow_run, dict):
         return []
@@ -682,7 +688,9 @@ def discover_recipe_gating_workflows() -> dict[str, str]:
             "validate-recipe-structure.yml",
         ):
             data = yaml.safe_load(path.read_text(encoding="utf-8"))
-            assert "name" in data, f"{name} is missing a `name:` field"
+            assert isinstance(data, dict) and "name" in data, (
+                f"{name} is missing a `name:` field"
+            )
             gating[name] = data["name"]
     return gating
 
@@ -756,17 +764,12 @@ def test_auto_merge_workflow_trigger_names_match_real_workflows():
 def test_auto_merge_workflow_run_trigger_types():
     """Assert dependabot-auto-merge.yml listens for completed workflow runs."""
     data = load_auto_merge_workflow()
-    on_block = data.get("on") if "on" in data else data.get(True, {})
-    if not isinstance(on_block, dict):
-        types = []
-    else:
-        workflow_run = on_block.get("workflow_run", {})
-        types = (
-            workflow_run.get("types", [])
-            if isinstance(workflow_run, dict)
-            else []
-        )
-    assert "completed" in types, (
+    on_block = get_workflow_on_block(data)
+    workflow_run = on_block.get("workflow_run", {})
+    trigger_types = (
+        workflow_run.get("types", []) if isinstance(workflow_run, dict) else []
+    )
+    assert "completed" in trigger_types, (
         "dependabot-auto-merge.yml must listen for `types: [completed]` "
         "under `workflow_run` so it evaluates PRs after checks finish."
     )
