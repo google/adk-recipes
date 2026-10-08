@@ -199,6 +199,16 @@ def _is_env_object(node: tree_sitter.Node | None) -> bool:
     return False
 
 
+def _extract_default_value(node: tree_sitter.Node | None) -> str | None:
+    """Extract a default value from an AST node (string literal or raw text)."""
+    if node is None:
+        return None
+    str_val = _extract_string_literal(node)
+    if str_val is not None:
+        return str_val
+    return _node_text(node).strip() or None
+
+
 def _extract_default_from_parent(node: tree_sitter.Node) -> str | None:
     """Extract fallback default if the read is part of a `??` or `||` binary expression."""
     parent = node.parent
@@ -225,10 +235,7 @@ def _extract_default_from_parent(node: tree_sitter.Node) -> str | None:
             and _node_text(op) in ("??", "||")
             and right is not None
         ):
-            str_val = _extract_string_literal(right)
-            if str_val is not None:
-                return str_val
-            return _node_text(right).strip()
+            return _extract_default_value(right)
 
     return None
 
@@ -250,13 +257,7 @@ def _extract_from_object_pattern(
                 and left.type == "shorthand_property_identifier_pattern"
             ):
                 var_name = _node_text(left)
-                def_val = (
-                    _extract_string_literal(right)
-                    if right is not None
-                    else None
-                )
-                if def_val is None and right is not None:
-                    def_val = _node_text(right).strip()
+                def_val = _extract_default_value(right)
                 extracted.append((var_name, left.start_point.row + 1, def_val))
         elif child.type == "pair_pattern":
             key = child.child_by_field_name("key")
@@ -272,10 +273,7 @@ def _extract_from_object_pattern(
                 def_val = None
                 if val is not None and val.type == "assignment_pattern":
                     right = val.child_by_field_name("right")
-                    if right is not None:
-                        def_val = _extract_string_literal(right)
-                        if def_val is None:
-                            def_val = _node_text(right).strip()
+                    def_val = _extract_default_value(right)
                 extracted.append((var_name, key.start_point.row + 1, def_val))
     return extracted
 
@@ -317,9 +315,8 @@ def _parse_typescript_file(
         if cleaned not in env_vars:
             env_vars[cleaned] = (lineno, def_val)
         elif env_vars[cleaned][1] is None and def_val is not None:
-            # Upgrade to include default if first read didn't have one
-            orig_lineno = env_vars[cleaned][0]
-            env_vars[cleaned] = (orig_lineno, def_val)
+            # Upgrade to include default and point to the read site carrying it
+            env_vars[cleaned] = (lineno, def_val)
 
     def visit(node: tree_sitter.Node) -> None:
         if node.type == "member_expression":
@@ -512,8 +509,7 @@ def _collect_used_vars(
             if name not in used:
                 used[name] = (file_path, lineno, def_val)
             elif used[name][2] is None and def_val is not None:
-                orig_path, orig_lineno, _ = used[name]
-                used[name] = (orig_path, orig_lineno, def_val)
+                used[name] = (file_path, lineno, def_val)
 
     return used, unreadable
 

@@ -171,6 +171,26 @@ def test_nullish_coalescing_default_is_surfaced(tmp_path, monkeypatch, capsys):
     assert "MODEL_NAME=gemini-3.5-flash" in out
 
 
+def test_upgrade_line_number_when_default_found_later(
+    tmp_path, monkeypatch, capsys
+):
+    _recipe(
+        tmp_path,
+        "# nothing declared\n",
+        main=(
+            "const a = process.env.MODEL_NAME;\n"
+            "\n"
+            'const b = process.env.MODEL_NAME ?? "gemini-3.5-flash";\n'
+            "export { a, b };\n"
+        ),
+    )
+    assert _run(tmp_path, monkeypatch) == EXIT_VIOLATIONS
+    out = capsys.readouterr().out
+    assert "MODEL_NAME" in out
+    assert f"{tmp_path / 'main.ts'}:3" in out
+    assert "MODEL_NAME=gemini-3.5-flash" in out
+
+
 def test_logical_or_default_is_surfaced(tmp_path, monkeypatch, capsys):
     _recipe(
         tmp_path,
