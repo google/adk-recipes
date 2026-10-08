@@ -257,12 +257,13 @@ def python_targets(recipe_dir: Path) -> list[str]:
     return targets
 
 
-def kotlin_targets(recipe_dir: Path) -> list[str]:
+def kotlin_targets(recipe_dir: Path | None = None) -> list[str]:
     """The JDK versions the canary should run for one Kotlin recipe.
 
-    Sweeps only the JDK CI pins (JDK 17). No version sweep is done across
-    dynamic floors/ceilings because Kotlin recipes declare no version floor
-    in their manifests or build files.
+    Sweeps only the JDK CI pins (JDK 17). `recipe_dir` is accepted for
+    interface symmetry with `python_targets`. No dynamic version sweep is done
+    because Kotlin recipes declare no version floor in their manifests or
+    build files.
     """
     return list(KOTLIN_JDK_TARGETS)
 

@@ -239,7 +239,7 @@ jobs:
               mvn test -B > test.log 2>&1
             fi
           else
-            echo "::error file=${RECIPE}::No supported Kotlin build system (Gradle or Maven) found in ${RECIPE}." > test.log 2>&1
+            echo "::error file=${RECIPE}::No supported Kotlin build system (Gradle or Maven) found in ${RECIPE}." | tee test.log
             exit 1
           fi
           rc=$?
@@ -518,7 +518,10 @@ jobs:
               print('Failing:')
               for r in bad:
                   recipe_jobs = [x for x in e if x['recipe'] == r and x['outcome'] == 'fail']
-                  vers = ', '.join(sorted(f\"{'jdk' if x.get('language') == 'kotlin' else 'py'} {x.get('version') or x.get('python', '')}\" for x in recipe_jobs))
+                  vers = ', '.join(sorted(
+                      ('jdk ' if x.get('language') == 'kotlin' else 'py ') + str(x.get('version') or x.get('python') or '')
+                      for x in recipe_jobs
+                  ))
                   print(f'- \`{r}\` ({vers})')
           else:
               print('All recipes install from their lockfiles and pass.')

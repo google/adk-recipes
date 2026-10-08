@@ -327,11 +327,13 @@ def build_body(recipe: str, jobs: list[dict], run_url: str) -> str:
 
     if is_kotlin:
         versions = ", ".join(
-            sorted({str(j.get("version") or j.get("python")) for j in failed})
+            sorted(
+                {str(j.get("version") or j.get("python") or "") for j in failed}
+            )
         )
         passing = sorted(
             {
-                str(j.get("version") or j.get("python"))
+                str(j.get("version") or j.get("python") or "")
                 for j in jobs
                 if j.get("outcome") == "pass"
             }
@@ -355,9 +357,9 @@ def build_body(recipe: str, jobs: list[dict], run_url: str) -> str:
             ]
         lines += ["", "| JDK | step | detail |", "|---|---|---|"]
         for job in sorted(
-            failed, key=lambda j: str(j.get("version") or j.get("python"))
+            failed, key=lambda j: str(j.get("version") or j.get("python") or "")
         ):
-            ver = str(job.get("version") or job.get("python"))
+            ver = str(job.get("version") or job.get("python") or "")
             detail = (job.get("detail") or "").replace("|", "\\|")[:300]
             lines.append(f"| {ver} | {job.get('step', '?')} | {detail} |")
 
@@ -397,11 +399,11 @@ def build_body(recipe: str, jobs: list[dict], run_url: str) -> str:
         return "\n".join(lines)
 
     versions = ", ".join(
-        sorted({j.get("version", j.get("python", "")) for j in failed})
+        sorted({str(j.get("version") or j.get("python") or "") for j in failed})
     )
     passing = sorted(
         {
-            j.get("version", j.get("python", ""))
+            str(j.get("version") or j.get("python") or "")
             for j in jobs
             if j.get("outcome") == "pass"
         }
@@ -426,9 +428,9 @@ def build_body(recipe: str, jobs: list[dict], run_url: str) -> str:
         ]
     lines += ["", "| Python | step | detail |", "|---|---|---|"]
     for job in sorted(
-        failed, key=lambda j: j.get("version", j.get("python", ""))
+        failed, key=lambda j: str(j.get("version") or j.get("python") or "")
     ):
-        ver = job.get("version", job.get("python", ""))
+        ver = str(job.get("version") or job.get("python") or "")
         detail = (job.get("detail") or "").replace("|", "\\|")[:300]
         lines.append(f"| {ver} | {job.get('step', '?')} | {detail} |")
 
