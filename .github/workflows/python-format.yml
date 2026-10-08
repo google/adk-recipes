@@ -123,7 +123,7 @@ jobs:
           echo "Formatting files: ${CHANGED_FILES[*]}"
 
           # 3. Format ONLY the modified python files (rules come from pyproject.toml)
-          uvx ruff@${{ env.RUFF_VERSION }} format --force-exclude "${CHANGED_FILES[@]}"
+          uvx ruff@"$RUFF_VERSION" format --force-exclude "${CHANGED_FILES[@]}"
 
           # 4. Print the findings BEFORE handing them to reviewdog.
           #
@@ -239,7 +239,7 @@ jobs:
           # 3. Apply auto-fixes ONLY to the modified python files.
           #    `|| true` absorbs ruff's non-zero exit on fixable violations —
           #    we WANT the diff to survive so reviewdog can suggest it.
-          uvx ruff@${{ env.RUFF_VERSION }} check --force-exclude --fix "${CHANGED_FILES[@]}" || true
+          uvx ruff@"$RUFF_VERSION" check --force-exclude --fix "${CHANGED_FILES[@]}" || true
 
           # 4. Post auto-fix suggestion comments strictly targeting modified files.
           #    Best-effort only — see step 6 for why the log is authoritative.
@@ -272,7 +272,7 @@ jobs:
           #    >=2 ruff itself failed to run (bad file, unreadable config) —
           #    which must be surfaced, never mistaken for "clean".
           LINT_STATUS=0
-          LINT_OUTPUT=$(uvx ruff@${{ env.RUFF_VERSION }} check \
+          LINT_OUTPUT=$(uvx ruff@"$RUFF_VERSION" check \
             --force-exclude \
             --quiet \
             --output-format=concise \
@@ -310,7 +310,7 @@ jobs:
           #    --exit-zero keeps ruff quiet about violations so reviewdog gets
           #    the full JSON; `set -o pipefail` still catches a ruff CRASH
           #    (bad file, missing dep), which must not be mistaken for "clean".
-          uvx ruff@${{ env.RUFF_VERSION }} check \
+          uvx ruff@"$RUFF_VERSION" check \
             --force-exclude \
             --output-format=rdjson \
             --exit-zero "${CHANGED_FILES[@]}" | reviewdog -f=rdjson \
