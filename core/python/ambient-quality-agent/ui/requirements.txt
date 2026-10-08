@@ -1,0 +1,28 @@
+# FastAPI dashboard — pinned dependencies.
+#
+# This is the SAME web stack `adk web` ships (FastAPI + Starlette + uvicorn),
+# so if google-adk is already installed these add little/nothing new.
+# fastapi 0.136.3 is the floor that supports starlette 1.3.1 (older pins cap
+# starlette <0.47); bumped together to clear the starlette CVEs below.
+fastapi==0.136.3
+uvicorn[standard]==0.34.0
+
+# The Agent Runtime backend needs google-auth (ADC bearer token) with the
+# requests transport it uses to refresh creds, plus httpx for the engine calls
+# and for proxying A2A. The A2A proxy forwards bytes without decoding the
+# protocol, and the SSE it relays is Starlette's own StreamingResponse, so
+# neither a2a-sdk nor sse-starlette is needed.
+google-auth==2.35.0
+requests==2.34.2
+httpx==0.28.1
+# 1.3.1 patches CVE-2025-62727, CVE-2026-48710/48817/48818, CVE-2026-54282/54283.
+starlette==1.3.1
+
+# `task_reader` lists and reads the chat transcripts the agent writes to the
+# jobs bucket. Pinned to the version pyproject.toml resolves for the agent, so
+# both halves of that contract run against one library.
+google-cloud-storage==3.13.1
+
+# NOTE: no frontend build step and no npm — static/ is plain HTML/CSS/JS.
+# marked + DOMPurify are loaded from a CDN at runtime (see static/index.html);
+# vendor them locally for a fully offline/air-gapped deployment.

@@ -1,0 +1,14 @@
+# Generated from pyproject.toml [project.dependencies]. Do not edit by hand;
+# edit pyproject.toml and re-run `make lint`.
+a2a-sdk[http-server]>=1.0,<2
+google-adk>=2.6.3
+google-cloud-aiplatform[evaluation]>=1.163.0
+google-cloud-bigquery>=3.43.0
+google-cloud-logging>=3.16.2
+google-cloud-storage>=3.13.1
+google-cloud-tasks>=2.24.0
+opentelemetry-api>=1.42.1
+opentelemetry-sdk>=1.42.1
+pydantic==2.12.5
+python-dotenv>=1.2.0
+pyyaml>=6

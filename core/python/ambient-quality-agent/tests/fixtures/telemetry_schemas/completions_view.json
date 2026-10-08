@@ -1,0 +1,102 @@
+{
+  "source": "agents-cli @ 1678f3704, src/google/agents/cli/scaffold/base_templates/python/deployment/terraform/shared/completions.sql: the final SELECT, in order. telemetry.tf creates the view from it.",
+  "table": "completions_view",
+  "columns": [
+    {
+      "name": "timestamp",
+      "type": "TIMESTAMP"
+    },
+    {
+      "name": "insert_id",
+      "type": "STRING"
+    },
+    {
+      "name": "trace",
+      "type": "STRING"
+    },
+    {
+      "name": "span_id",
+      "type": "STRING"
+    },
+    {
+      "name": "conversation_id",
+      "type": "STRING"
+    },
+    {
+      "name": "api_call_id",
+      "type": "STRING"
+    },
+    {
+      "name": "message_type",
+      "type": "STRING"
+    },
+    {
+      "name": "role",
+      "type": "STRING"
+    },
+    {
+      "name": "message_idx",
+      "type": "INTEGER"
+    },
+    {
+      "name": "part_idx",
+      "type": "INTEGER"
+    },
+    {
+      "name": "content",
+      "type": "STRING"
+    },
+    {
+      "name": "part_type",
+      "type": "STRING"
+    },
+    {
+      "name": "tool_name",
+      "type": "STRING"
+    },
+    {
+      "name": "tool_args",
+      "type": "JSON"
+    },
+    {
+      "name": "tool_response",
+      "type": "JSON"
+    },
+    {
+      "name": "usage_input_tokens",
+      "type": "STRING"
+    },
+    {
+      "name": "usage_output_tokens",
+      "type": "STRING"
+    },
+    {
+      "name": "agent_name",
+      "type": "STRING"
+    },
+    {
+      "name": "finish_reasons",
+      "type": "STRING"
+    },
+    {
+      "name": "service_version",
+      "type": "STRING"
+    },
+    {
+      "name": "uri",
+      "type": "STRING"
+    },
+    {
+      "name": "mime_type",
+      "type": "STRING"
+    },
+    {
+      "name": "data_md5_hex",
+      "type": "STRING"
+    },
+    {
+      "name": "messages_ref_uri",
+      "type": "STRING"
+    }
+  ]
+}

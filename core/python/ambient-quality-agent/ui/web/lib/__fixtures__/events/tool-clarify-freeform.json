@@ -1,0 +1,43 @@
+{
+  "description": "Clarify call with no choices — free-form answer. The UI should render a textarea + Send rather than a button row.",
+  "event": {
+    "payload": {
+      "$case": "statusUpdate",
+      "value": {
+        "taskId": "task-1",
+        "contextId": "ctx-1",
+        "status": {
+          "state": 2,
+          "message": {
+            "messageId": "msg-1",
+            "contextId": "ctx-1",
+            "taskId": "task-1",
+            "role": 2,
+            "parts": [
+              {
+                "content": {
+                  "$case": "data",
+                  "value": {
+                    "id": "adk-call-clarify-2",
+                    "name": "clarify",
+                    "args": {
+                      "question": "What's the dataset URL?"
+                    }
+                  }
+                },
+                "metadata": { "adk_type": "function_call" },
+                "filename": "",
+                "mediaType": ""
+              }
+            ],
+            "metadata": null,
+            "extensions": [],
+            "referenceTaskIds": []
+          },
+          "timestamp": null
+        },
+        "metadata": null
+      }
+    }
+  }
+}

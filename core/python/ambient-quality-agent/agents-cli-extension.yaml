@@ -1,0 +1,83 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# yaml-language-server: $schema=https://raw.githubusercontent.com/google/agents-cli/main/schemas/agents-cli-extension-v1alpha1.schema.json
+#
+# Makes this repository an `agents-cli` extension, so AQuA can be added to an
+# existing agent with `agents-cli extension add` instead of a fork of the CLI.
+# README.md shows the install command. Use `local@<checkout>` to install a local
+# working tree for testing unmerged branches.
+#
+# The wrappers live in extension/ and are documented in extension/_acli.py. They
+# execute via `uv run --no-project` using standard library dependencies only,
+# allowing them to run within non-Python host projects.
+
+schema: agents-cli-extension/v1alpha1
+name: aqua
+description: Deploy and operate the Ambient Quality Agent alongside an observed agent.
+
+requires:
+  # 1.6 is the first release with everything the wrappers use: they call
+  # `deploy --update-only` and `infra show`, and read
+  # `create_params.root_agent_name` from the manifest.
+  agents_cli: ">=1.6,<2"
+  on_incompatible: warn
+
+commands:
+  # TODO: use `before:`/`after:` hooks instead of `override:` once they become
+  # available for extensions. Each wrapper only wants to run *after* the
+  # built-in, and expressing that as a replacement costs three things: `--help`
+  # shows the description below instead of the built-in's own flags, a second
+  # extension overriding the same command is dropped, and the wrapper's inner
+  # `agents-cli` call bypasses every other extension too.
+  override:
+    infra.single-project:
+      run: ["uv", "run", "--no-project", "python", "extension/acli_infra.py"]
+      description: >-
+        With --apply-aqua, provisions AQuA's own infrastructure along with your
+        agent's. To destroy AQuA's infrastructure, run with --destroy --apply.
+        The built-in command behaves as before; to see its help, run agents-cli
+        with AGENTS_CLI_DISABLE_OVERRIDES=1.
+    deploy:
+      run: ["uv", "run", "--no-project", "python", "extension/acli_deploy.py"]
+      description: >-
+        With --deploy-aqua, deploys the AQuA agent and its dashboard along with
+        your agent. To skip only the dashboard, run with --skip-aqua-ui.
+        The built-in command behaves as before; to see its help, run agents-cli
+        with AGENTS_CLI_DISABLE_OVERRIDES=1.
+
+  add:
+    aqua:
+      # AQuA's CLI needs six third-party imports, and none of them is a
+      # declared dependency of this project -- they arrive transitively through
+      # google-adk and the google-cloud clients, which are far too heavy to
+      # resolve for a CLI call. Named here so the command runs in an observed
+      # project whose own environment has none of them.
+      #
+      # `pyyaml` parses the eval config, so `metrics publish` can refuse a
+      # library that would not load rather than let a sweep discover it.
+      #
+      # `pathspec` reads the project's `.gcloudignore`, so `publish-source`
+      # snapshots the files `agents-cli deploy` packages. `acli_deploy.py` runs
+      # `publish-source` with this same list.
+      #
+      # `requests` is not imported anywhere here, and is needed anyway:
+      # `google.auth.transport.requests` is what mints the ADC token, and it
+      # raises ImportError without it. Every authenticated command needs it, so
+      # omitting it fails them all in a project that does not happen to have it.
+      run: ["uv", "run", "--no-project",
+            "--with", "click", "--with", "google-auth", "--with", "httpx",
+            "--with", "pathspec", "--with", "pyyaml", "--with", "requests",
+            "python", "extension/acli_aqua.py"]
+      description: Query AQuA investigations, insights and configuration.

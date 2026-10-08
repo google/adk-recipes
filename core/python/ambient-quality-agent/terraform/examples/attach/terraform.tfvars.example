@@ -1,0 +1,24 @@
+# Copy to terraform.tfvars and fill in. terraform.tfvars is gitignored.
+# `agents-cli aqua attach --apply` passes all of these itself.
+
+# The AQuA instance: the `trigger_target` its engine reports from the attach
+# route.
+region               = "us-central1"
+aqua_engine          = "projects/my-project/locations/us-central1/reasoningEngines/1234567890"
+ambient_topic        = "projects/my-project/topics/my-agent-aqua-ambient"
+ambient_caller_email = "my-agent-aqua-caller@my-project.iam.gserviceaccount.com"
+
+# The attached agent, as ADK names it.
+observed_agent_name = "my_agent"
+
+# Numeric id of the Agent Runtime agent whose updates trigger an investigation.
+# Omit it and AQuA runs on its schedule alone.
+# observed_engine_id = "9876543210"
+
+# The project that engine is in, where its audit log sink is created. Omit it
+# when the engine is in AQuA's project.
+# observed_project_id = "my-agent-project"
+
+# The investigation runs at midday UTC by default, one investigation per run.
+# investigation_schedule    = "0 12 * * *"
+# scheduled_trigger_enabled = false

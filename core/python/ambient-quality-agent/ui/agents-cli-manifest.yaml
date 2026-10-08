@@ -1,0 +1,36 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# What `agents-cli` reads to find this project. It is a second manifest in this
+# repository: the one at the root describes AQuA itself, this one describes its
+# dashboard. `find_project_root` walks up from the working directory, so which
+# of the two applies is decided by where the command runs -- `agents-cli deploy`
+# from `ui/` deploys the dashboard, from the root it deploys AQuA.
+#
+# `cloud_run`, not `agent_runtime`: the dashboard is a FastAPI service, not an
+# ADK agent, and it holds no sessions of its own.
+#
+# Two values a deploy has to override to reach the Terraform-created service:
+# `--service-name <observed agent>-aqua-ui` for the name below, and the region if
+# the AQuA module was applied outside `us-central1`.
+name: ambient-quality-ui
+# Unused on the cloud_run path -- `deploy` builds from the project root, which
+# is this directory -- but the field has a default (`app`) that would name a
+# directory this project does not have.
+agent_directory: .
+region: us-central1
+language: python
+create_params:
+  deployment_target: cloud_run
+  session_type: none

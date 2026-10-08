@@ -1,0 +1,13 @@
+{
+  "schema": [
+    { "name": "run_id", "type": "STRING", "mode": "REQUIRED",
+      "description": "The investigation that emitted the event." },
+    { "name": "created_at", "type": "TIMESTAMP", "mode": "REQUIRED",
+      "description": "When the emitting node wrote it; also the order they are read back in." },
+    { "name": "text", "type": "STRING", "mode": "NULLABLE",
+      "description": "Markdown progress snippet emitted by a workflow node." },
+    { "name": "source", "type": "STRING", "mode": "NULLABLE",
+      "description": "Workflow node that emitted the event." }
+  ],
+  "clustering": ["run_id"]
+}
