@@ -81,7 +81,7 @@ def _parse_semver_part(
 
 
 def _eval_single_condition(
-    cond: str, target: tuple[int, int, int] = (22, 0, 0)
+    cond: str, target: tuple[int, int, int] = (CI_PINNED_NODE_VERSION, 0, 0)
 ) -> bool | None:
     cond = cond.strip()
     if not cond or cond in ("*", "x", "X", "latest"):

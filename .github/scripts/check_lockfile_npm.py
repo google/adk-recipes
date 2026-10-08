@@ -215,7 +215,7 @@ def _check_entry(
                 diagnostics.append(
                     Diagnostic(
                         check=CHECK,
-                        what=f"{label} has an unrecognised or malformed integrity hash: {integrity_str!r}",
+                        what=f"{label} has an unrecognized or malformed integrity hash: {integrity_str!r}",
                         why=(
                             "Integrity hashes must use a standard algorithm prefix "
                             "(sha512-, sha384-, or sha256-) followed by base64-encoded digest."
