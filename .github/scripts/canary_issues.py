@@ -285,7 +285,9 @@ def recovered_recipes(results: list[dict]) -> set[str]:
     """
     outcomes: dict[str, set[str]] = {}
     for entry in results:
-        outcomes.setdefault(entry["recipe"], set()).add(entry.get("outcome"))
+        outcome = entry.get("outcome")
+        if outcome:
+            outcomes.setdefault(entry["recipe"], set()).add(outcome)
     return {
         recipe
         for recipe, seen in outcomes.items()
@@ -319,8 +321,93 @@ def build_body(recipe: str, jobs: list[dict], run_url: str) -> str:
     owner = read_owner(recipe)
     mention, note = _mention(owner)
     failed = [j for j in jobs if j.get("outcome") == "fail"]
-    versions = ", ".join(sorted({j["python"] for j in failed}))
-    passing = sorted({j["python"] for j in jobs if j.get("outcome") == "pass"})
+    is_kotlin = (
+        any(j.get("language") == "kotlin" for j in jobs) or "/kotlin/" in recipe
+    )
+
+    if is_kotlin:
+        versions = ", ".join(
+            sorted(
+                {str(j.get("version") or j.get("python") or "") for j in failed}
+            )
+        )
+        passing = sorted(
+            {
+                str(j.get("version") or j.get("python") or "")
+                for j in jobs
+                if j.get("outcome") == "pass"
+            }
+        )
+
+        lines = [
+            f"{mention} — the monthly recipe canary could not get "
+            f"`{recipe}` working.",
+            "",
+            note,
+            "",
+            "## What failed",
+            "",
+            f"JDK {versions}.",
+        ]
+        if passing:
+            lines += [
+                "",
+                f"It still passes on JDK {', '.join(passing)} — so this is a "
+                f"version-specific break, not a wholesale one.",
+            ]
+        lines += ["", "| JDK | step | detail |", "|---|---|---|"]
+        for job in sorted(
+            failed, key=lambda j: str(j.get("version") or j.get("python") or "")
+        ):
+            ver = str(job.get("version") or job.get("python") or "")
+            detail = (job.get("detail") or "").replace("|", "\\|")[:300]
+            lines.append(f"| {ver} | {job.get('step', '?')} | {detail} |")
+
+        lines += [
+            "",
+            f"[Full logs]({run_url})",
+            "",
+            "## What this means",
+            "",
+            "The canary runs each Kotlin recipe's test suite "
+            "(`./gradlew test` / `gradle test` or `./mvnw test` / `mvn test`) "
+            "and verifies its build. It does not update dependencies and "
+            "never opens version-bump PRs — this repo leaves dependency "
+            "freshness to recipe owners. So this is not a stale-"
+            "dependency nag: as far as the canary can tell, the recipe does not "
+            "work for someone who clones it today.",
+            "",
+            "## What happens if nobody acts",
+            "",
+            "The canary runs monthly. Each run that still fails advances one "
+            "stage — so this is roughly a month per step, and the schedule only "
+            "ever slips later, never sooner.",
+            "",
+            "| next failing run | then |",
+            "|---|---|",
+            "| 1st | a reminder comment here |",
+            "| 2nd | the recipe should be marked `status: inactive` |",
+            "| 3rd | notice that deletion is scheduled |",
+            f"| 4th | removal of the recipe proposed, for @{MAINTAINER} to decide |",
+            "",
+            "Fix the recipe and this issue closes itself on the next run.",
+            "",
+            "---",
+            "<sub>Opened by `.github/workflows/recipe-canary.yml`. Reply here if "
+            "the canary is wrong — that is a bug worth fixing.</sub>",
+        ]
+        return "\n".join(lines)
+
+    versions = ", ".join(
+        sorted({str(j.get("version") or j.get("python") or "") for j in failed})
+    )
+    passing = sorted(
+        {
+            str(j.get("version") or j.get("python") or "")
+            for j in jobs
+            if j.get("outcome") == "pass"
+        }
+    )
 
     lines = [
         f"{mention} — the monthly recipe canary could not get "
@@ -340,9 +427,12 @@ def build_body(recipe: str, jobs: list[dict], run_url: str) -> str:
             f"`requires-python` claims support for the failing version.",
         ]
     lines += ["", "| Python | step | detail |", "|---|---|---|"]
-    for job in sorted(failed, key=lambda j: j["python"]):
+    for job in sorted(
+        failed, key=lambda j: str(j.get("version") or j.get("python") or "")
+    ):
+        ver = str(job.get("version") or job.get("python") or "")
         detail = (job.get("detail") or "").replace("|", "\\|")[:300]
-        lines.append(f"| {job['python']} | {job.get('step', '?')} | {detail} |")
+        lines.append(f"| {ver} | {job.get('step', '?')} | {detail} |")
 
     lines += [
         "",

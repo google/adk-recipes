@@ -1,0 +1,36 @@
+# Copy to terraform.tfvars and fill in. terraform.tfvars is gitignored.
+
+project_id = "my-project"
+region     = "us-central1"
+
+# The deployment this AQA watches. Everything is named after it, so a second
+# deployment in the same project needs nothing but a different value here.
+observed_deployment_name = "my-agent"
+
+# The agent inside it, as ADK names it -- what AQA matches its telemetry on.
+# Defaults to `observed_deployment_name` with underscores, which is what
+# agents-cli scaffolds. Set it only if the root agent was renamed by hand.
+# observed_agent_name = "my_agent"
+
+# Numeric id of the Agent Runtime agent to watch. Omit it and AQA runs on its
+# schedule alone.
+# observed_engine_id = "1234567890"
+
+# Where that agent exports its telemetry. Defaults to `<deployment>_telemetry`,
+# which is what an agents-cli project has.
+# telemetry_dataset = "my_agent_telemetry"
+
+# The investigation runs at midday UTC by default, one investigation per run.
+# Each run checks everything since the last run that finished, so the schedule
+# can be irregular.
+# scheduled_trigger_enabled = false
+# investigation_schedule          = "0 12 * * *"
+
+# Addresses notified when an investigation fails or finds a new defect. Empty
+# sends none.
+# notification_emails = ["aqa-alerts@example.com"]
+
+# Engine sizing, defaulting to 4 vCPU and 8Gi. The cpu bounds the memory: 4
+# allows up to 16Gi. Raising either only affects an engine being created.
+# engine_cpu    = "4"
+# engine_memory = "8Gi"

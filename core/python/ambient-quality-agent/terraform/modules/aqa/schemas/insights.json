@@ -1,0 +1,20 @@
+{
+  "schema": [
+    { "name": "insight_id", "type": "STRING", "mode": "REQUIRED" },
+    { "name": "agent_name", "type": "STRING", "mode": "REQUIRED" },
+    { "name": "label", "type": "STRING", "mode": "NULLABLE" },
+    { "name": "status", "type": "STRING", "mode": "REQUIRED",
+      "description": "NEW, RECURRING or RESOLVED." },
+    { "name": "created_at", "type": "TIMESTAMP", "mode": "REQUIRED" },
+    { "name": "updated_at", "type": "TIMESTAMP", "mode": "REQUIRED" },
+    { "name": "resolved_at", "type": "TIMESTAMP", "mode": "NULLABLE",
+      "description": "When a sweep found this insight stale and resolved it. NULL while it is open, and on rows resolved before this column existed." },
+    { "name": "dismissed_at", "type": "TIMESTAMP", "mode": "NULLABLE",
+      "description": "When an operator dismissed this insight. NULL means nobody has. Separate from status, which is what the pipeline decided rather than what a human did." },
+    { "name": "merged_into_insight_id", "type": "STRING", "mode": "NULLABLE",
+      "description": "The insight an operator judged this one a duplicate of. Always names a row whose own pointer is NULL: merges flatten as they are written, so the depth is never more than one." },
+    { "name": "merged_at", "type": "TIMESTAMP", "mode": "NULLABLE",
+      "description": "When that judgement was made. NULL alongside a NULL merged_into_insight_id." }
+  ],
+  "clustering": ["agent_name"]
+}

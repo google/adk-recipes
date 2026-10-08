@@ -1,0 +1,22 @@
+{
+  "schema": [
+    { "name": "run_id", "type": "STRING", "mode": "REQUIRED",
+      "description": "The sweep that evaluated this trajectory; also the retry cleanup key." },
+    { "name": "agent_name", "type": "STRING", "mode": "REQUIRED",
+      "description": "Observed agent. Every read filters on it." },
+    { "name": "trajectory_id", "type": "STRING", "mode": "REQUIRED",
+      "description": "The conversation this row is about: a session id where the sweep judged a whole session, an invocation/trace id where it judged one turn. The same value the findings and their occurrences carry." },
+    { "name": "created_at", "type": "TIMESTAMP", "mode": "REQUIRED",
+      "description": "When the sweep recorded it. Partition column." },
+    { "name": "source", "type": "STRING", "mode": "NULLABLE",
+      "description": "Telemetry source the trajectory was ingested from: big_query, cloud_ops or cloud_logging." },
+    { "name": "source_session_id", "type": "STRING", "mode": "NULLABLE",
+      "description": "Session a single-turn trajectory belongs to, so a reader can walk from one turn to the conversation around it." },
+    { "name": "source_trace_ids", "type": "STRING", "mode": "REPEATED",
+      "description": "Cloud Trace ids this trajectory is made of, in chronological order -- one per turn for a whole session, one in total for a single turn. The first is the conversation's opening turn, which is what a console link uses. Empty for big_query, which carries no trace ids." },
+    { "name": "ingest_status", "type": "STRING", "mode": "REQUIRED",
+      "description": "What ingestion made of it: ingested (assembled whole), partial (built from incomplete telemetry, so weaker as evidence), or not_ingested (sampled but unusable -- unparseable telemetry, or no conversation content). The last is what explains a sample smaller than the run's budget." }
+  ],
+  "clustering": ["agent_name", "run_id"],
+  "partitioning": { "type": "DAY", "field": "created_at" }
+}
