@@ -1,0 +1,18 @@
+# Staging filter for `adk deploy agent_engine`, which copies this package with
+# shutil.copytree(ignore=shutil.ignore_patterns(*lines)).
+#
+# This is NOT gitignore syntax and none of the anchoring in .gcloudignore
+# applies: each line is fnmatched against a bare basename, so there are no
+# leading slashes, no directory semantics, and no negation. ADK does not strip
+# comment lines either -- they are harmless only because a pattern has to match
+# an entire basename to hit.
+#
+# .env is excluded deliberately. ADK reads it from the *source* directory to
+# build the deployment's env_vars (cli_deploy.py `env_file`), so its values
+# still reach the engine as real environment variables; excluding it here just
+# keeps them from also being baked into the uploaded source.
+__pycache__
+*.pyc
+*.pyo
+.adk
+.env

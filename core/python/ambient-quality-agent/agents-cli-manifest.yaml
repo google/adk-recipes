@@ -1,0 +1,28 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# What `agents-cli` reads to find the agent. Without it, `deploy` refuses to run.
+#
+# A deploy has to override two values to reach a Terraform-created deployment:
+# `--service-name <observed agent>-aqua` for the name below, and the region if
+# the module was applied outside `us-central1`.
+name: ambient-quality-agent
+agent_directory: src/ambient_quality_agent
+region: us-central1
+language: python
+create_params:
+  # `agent_runtime` lets Agent Runtime build the image; cloud_run and gke would
+  # need one built and pushed.
+  deployment_target: agent_runtime
+  session_type: none

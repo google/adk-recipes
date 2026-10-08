@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48" role="img" aria-label="Long Horizon Harness">
+  <defs>
+    <!-- warp = vertical threads: violet -> blue (top to bottom) -->
+    <linearGradient id="warp" gradientUnits="userSpaceOnUse" x1="24" y1="9" x2="24" y2="39">
+      <stop offset="0" stop-color="#8A5BF0"/>
+      <stop offset="1" stop-color="#4D86F0"/>
+    </linearGradient>
+    <!-- weft = horizontal threads: lavender -> violet (left to right) -->
+    <linearGradient id="weft" gradientUnits="userSpaceOnUse" x1="9" y1="24" x2="39" y2="24">
+      <stop offset="0" stop-color="#CE84EE"/>
+      <stop offset="1" stop-color="#7A4CE5"/>
+    </linearGradient>
+    <linearGradient id="tile" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="48" y2="48">
+      <stop offset="0" stop-color="#1c1c24"/>
+      <stop offset="1" stop-color="#111116"/>
+    </linearGradient>
+  </defs>
+
+  <!-- rounded dark tile -->
+  <rect x="0.75" y="0.75" width="46.5" height="46.5" rx="11.5" fill="url(#tile)"
+        stroke="#ffffff" stroke-opacity="0.09" stroke-width="1.5"/>
+
+  <!-- pass 1: warp (vertical) capsules -->
+  <g fill="url(#warp)">
+    <rect x="12" y="9" width="8" height="30" rx="4"/>
+    <rect x="28" y="9" width="8" height="30" rx="4"/>
+  </g>
+
+  <!-- pass 2: weft (horizontal) capsules, on top -->
+  <g fill="url(#weft)">
+    <rect x="9" y="12" width="30" height="8" rx="4"/>
+    <rect x="9" y="28" width="30" height="8" rx="4"/>
+  </g>
+
+  <!-- pass 3: re-assert warp over the weft at the warp-on-top crossings -->
+  <g fill="url(#warp)">
+    <rect x="12" y="9"  width="8" height="14"/>
+    <rect x="28" y="25" width="8" height="14"/>
+  </g>
+</svg>

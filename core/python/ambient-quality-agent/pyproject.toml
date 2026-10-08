@@ -1,0 +1,137 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "ambient-quality-agent"
+dynamic = ["version"]
+description = "On-demand production intelligence sidecar agent built with Google Agent Development Kit (ADK)."
+readme = "README.md"
+requires-python = ">=3.11,<3.14"
+authors = [
+    { name = "Google LLC" }
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+dependencies = [
+    # Direct rather than via `google-adk[a2a]`, which floors at 0.3.4: the 0.3
+    # wire dialect renders blank in the dashboard's A2A client, with no error.
+    # `[http-server]` adds sse-starlette; without it `import a2a.server.routes`
+    # fails, and so does `adk deploy agent_engine`'s unconditional `--a2a` CMD.
+    "a2a-sdk[http-server]>=1.0,<2",
+    "google-adk>=2.6.3",
+    "google-cloud-aiplatform[evaluation]>=1.163.0",
+    "google-cloud-bigquery>=3.43.0",
+    "google-cloud-logging>=3.16.2",
+    "google-cloud-storage>=3.13.1",
+    "google-cloud-tasks>=2.24.0",
+    # Direct: the GCS span exporter builds on the tracing API and SDK (tracer
+    # provider, batch processor, `SpanExporter`). Available transitively today,
+    # which is not a contract.
+    "opentelemetry-api>=1.42.1",
+    "opentelemetry-sdk>=1.42.1",
+    "pydantic==2.12.5",
+    # Direct: the package loads its `.env` with it. Available transitively
+    # today, which is not a contract. 1.2 is the first release that honors
+    # `PYTHON_DOTENV_DISABLED`, which the tests and dev scripts set.
+    "python-dotenv>=1.2.0",
+    # Direct: the code-metric library reads its `eval_config.yaml` with it.
+    # Available transitively today, which is not a contract.
+    "pyyaml>=6",
+]
+
+[project.optional-dependencies]
+lint = [
+    "ruff",
+    "ty",
+]
+
+[project.urls]
+Homepage = "https://github.com/google/adk-recipes/tree/main/core/python/ambient-quality-agent"
+Repository = "https://github.com/google/adk-recipes/tree/main/core/python/ambient-quality-agent"
+
+[tool.hatch.version]
+path = "src/ambient_quality_agent/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ambient_quality_agent"]
+
+[tool.uv]
+# Lifts upstream caps that hold known CVEs in the lock:
+# `google-cloud-aiplatform[evaluation]` caps litellm below 1.86 (CVE-2026-84377
+# is fixed in 1.88.6), and `google-agents-cli` caps pyopenssl below 26.2, which
+# caps cryptography below 48 (CVE-2026-69247 is fixed in 50.0.0, which needs
+# pyopenssl 26.4). Only uv applies overrides: the Dockerfile's `uv sync` gets
+# them, a pip install of `requirements.txt` does not. The upper bounds stand in
+# for the dropped upstream caps; litellm's is the one aiplatform sets for
+# Python 3.14. Remove each entry once its upstream cap admits the fix.
+override-dependencies = [
+    "litellm>=1.88.6,<1.97",
+    "pyopenssl>=26.4,<27",
+]
+
+[[tool.uv.index]]
+url = "https://pypi.org/simple"
+default = true
+
+[dependency-groups]
+dev = [
+    "cloudpickle>=3.1.2",
+    "google-agents-cli>=1.6",
+    "pytest>=8.0",
+    "pytest-xdist>=3.6",
+]
+
+[tool.pytest.ini_options]
+# Discovers directory-specific test suites, allowing trees omitting optional
+# directories to run `tests` alone.
+testpaths = ["tests", "quality", "tools", "tools_internal"]
+# Restricts collection to `test_*.py` so that modules named `*_test.py`, such
+# as load generators, are not executed as tests.
+python_files = ["test_*.py"]
+addopts = "-v"
+markers = [
+    # Tests that assert the installed `google-agents-cli` still behaves as this
+    # repo's two validators assume. They fail when upstream changes a rule,
+    # which is the point, so the marker exists to name them in that report.
+    "parity: checks this repo against the installed agents-cli",
+]
+# Only `ambient_quality_agent` is installed.
+#
+# "ui" is where the dashboard's app.py lives, and it is imported as a top-level
+# `app` module because the image flattens it to the root; the UI tests import it
+# the same way.
+# "extension" allows `tests/test_acli_extension.py` to import standalone
+# extension wrappers as top-level modules.
+# "." makes the repo-root `quality` prompt-tuning harness importable.
+pythonpath = ["src", "ui", "extension", "."]
+
+[tool.ty]
+# ty is Astral's Rust-based type checker (same team as ruff/uv).
+# See: https://docs.astral.sh/ty/
+
+[tool.ty.environment]
+python-version = "3.11"
+
+[tool.ty.rules]
+# Ignore missing third-party type stubs.
+unresolved-import = "ignore"
+
+[[tool.ty.overrides]]
+# Relax type checking for tests (pytest fixtures with yield have complex types).
+# Tests also assert on optional SDK eval-case fields (Content | None,
+# list | None) right after constructing them, where narrowing every access
+# would only add noise.
+include = ["tests/**", "quality/test_*.py", "tools/test_*.py"]
+
+[tool.ty.overrides.rules]
+invalid-return-type = "ignore"
+not-subscriptable = "ignore"
+not-iterable = "ignore"
+unresolved-attribute = "ignore"
+invalid-argument-type = "ignore"

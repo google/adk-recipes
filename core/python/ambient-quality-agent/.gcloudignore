@@ -1,0 +1,42 @@
+# Bounds what is uploaded as build context when this repository is deployed to
+# Agent Runtime.
+#
+# Load-bearing: without this file the deploy falls back to .gitignore, which
+# excludes `.terraform/` but not the `terraform/` tree around it -- so provider
+# binaries and state would be packaged into every image build.
+#
+# A .gcloudignore *replaces* .gitignore rather than extending it, so the
+# include below is required: without it, everything .gitignore covers and this
+# file does not (.cache/, .config/, .adk/ session databases, .env) silently
+# re-enters the build context.
+
+#!include:.gitignore
+
+.git
+.gcloudignore
+.gitignore
+
+# Python environments and caches
+.venv
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.github/
+
+# Provisioning inputs, not runtime inputs: Terraform is applied by
+# `agents-cli infra`, and its state and providers have no place in the image.
+terraform/
+.terraform.d/
+
+# Not part of the orchestrator image.
+/ui/
+/src/ambient_quality_cli/
+/tests/
+/tools/
+/scratch/
+/skills/
+/extension/
+
+# Written beside the sources by a previous deploy.
+deployment_metadata.json

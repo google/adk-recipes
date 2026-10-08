@@ -1,0 +1,299 @@
+{
+  "source": "Cloud Trace linked dataset view _AllSpans, from `bq show --schema` on a live linked dataset (2026-09-24). src/ambient_quality_cli/all_spans.schema.json is the narrower schema of AQuA's own span export and is not this view's definition.",
+  "table": "_AllSpans",
+  "columns": [
+    {
+      "name": "trace_id",
+      "type": "STRING",
+      "mode": "NULLABLE"
+    },
+    {
+      "name": "span_id",
+      "type": "STRING",
+      "mode": "NULLABLE"
+    },
+    {
+      "name": "trace_state",
+      "type": "STRING",
+      "mode": "NULLABLE"
+    },
+    {
+      "name": "parent_span_id",
+      "type": "STRING",
+      "mode": "NULLABLE"
+    },
+    {
+      "name": "name",
+      "type": "STRING",
+      "mode": "NULLABLE"
+    },
+    {
+      "name": "kind",
+      "type": "INTEGER",
+      "mode": "NULLABLE"
+    },
+    {
+      "name": "start_time",
+      "type": "TIMESTAMP",
+      "mode": "NULLABLE"
+    },
+    {
+      "name": "start_time_unix_nano",
+      "type": "INTEGER",
+      "mode": "NULLABLE"
+    },
+    {
+      "name": "end_time",
+      "type": "TIMESTAMP",
+      "mode": "NULLABLE"
+    },
+    {
+      "name": "end_time_unix_nano",
+      "type": "INTEGER",
+      "mode": "NULLABLE"
+    },
+    {
+      "name": "receive_time",
+      "type": "TIMESTAMP",
+      "mode": "NULLABLE"
+    },
+    {
+      "name": "receive_time_unix_nano",
+      "type": "INTEGER",
+      "mode": "NULLABLE"
+    },
+    {
+      "name": "duration_nano",
+      "type": "INTEGER",
+      "mode": "NULLABLE"
+    },
+    {
+      "name": "attributes",
+      "type": "JSON",
+      "mode": "NULLABLE"
+    },
+    {
+      "name": "dropped_attributes_count",
+      "type": "INTEGER",
+      "mode": "NULLABLE"
+    },
+    {
+      "name": "events",
+      "type": "RECORD",
+      "mode": "REPEATED",
+      "fields": [
+        {
+          "name": "time",
+          "type": "TIMESTAMP",
+          "mode": "NULLABLE"
+        },
+        {
+          "name": "time_unix_nano",
+          "type": "INTEGER",
+          "mode": "NULLABLE"
+        },
+        {
+          "name": "name",
+          "type": "STRING",
+          "mode": "NULLABLE"
+        },
+        {
+          "name": "attributes",
+          "type": "JSON",
+          "mode": "NULLABLE"
+        },
+        {
+          "name": "dropped_attributes_count",
+          "type": "INTEGER",
+          "mode": "NULLABLE"
+        }
+      ]
+    },
+    {
+      "name": "dropped_events_count",
+      "type": "INTEGER",
+      "mode": "NULLABLE"
+    },
+    {
+      "name": "links",
+      "type": "RECORD",
+      "mode": "REPEATED",
+      "fields": [
+        {
+          "name": "trace_id",
+          "type": "STRING",
+          "mode": "NULLABLE"
+        },
+        {
+          "name": "span_id",
+          "type": "STRING",
+          "mode": "NULLABLE"
+        },
+        {
+          "name": "trace_state",
+          "type": "STRING",
+          "mode": "NULLABLE"
+        },
+        {
+          "name": "attributes",
+          "type": "JSON",
+          "mode": "NULLABLE"
+        },
+        {
+          "name": "dropped_attributes_count",
+          "type": "INTEGER",
+          "mode": "NULLABLE"
+        }
+      ]
+    },
+    {
+      "name": "dropped_links_count",
+      "type": "INTEGER",
+      "mode": "NULLABLE"
+    },
+    {
+      "name": "status",
+      "type": "RECORD",
+      "mode": "NULLABLE",
+      "fields": [
+        {
+          "name": "code",
+          "type": "INTEGER",
+          "mode": "NULLABLE"
+        },
+        {
+          "name": "message",
+          "type": "STRING",
+          "mode": "NULLABLE"
+        }
+      ]
+    },
+    {
+      "name": "resource",
+      "type": "RECORD",
+      "mode": "NULLABLE",
+      "fields": [
+        {
+          "name": "attributes",
+          "type": "JSON",
+          "mode": "NULLABLE"
+        },
+        {
+          "name": "dropped_attributes_count",
+          "type": "INTEGER",
+          "mode": "NULLABLE"
+        }
+      ]
+    },
+    {
+      "name": "resource_schema_url",
+      "type": "STRING",
+      "mode": "NULLABLE"
+    },
+    {
+      "name": "instrumentation_scope",
+      "type": "RECORD",
+      "mode": "NULLABLE",
+      "fields": [
+        {
+          "name": "name",
+          "type": "STRING",
+          "mode": "NULLABLE"
+        },
+        {
+          "name": "version",
+          "type": "STRING",
+          "mode": "NULLABLE"
+        },
+        {
+          "name": "attributes",
+          "type": "JSON",
+          "mode": "NULLABLE"
+        },
+        {
+          "name": "dropped_attributes_count",
+          "type": "INTEGER",
+          "mode": "NULLABLE"
+        }
+      ]
+    },
+    {
+      "name": "scope_schema_url",
+      "type": "STRING",
+      "mode": "NULLABLE"
+    },
+    {
+      "name": "apphub",
+      "type": "RECORD",
+      "mode": "NULLABLE",
+      "fields": [
+        {
+          "name": "application",
+          "type": "RECORD",
+          "mode": "NULLABLE",
+          "fields": [
+            {
+              "name": "container",
+              "type": "STRING",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "location",
+              "type": "STRING",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "id",
+              "type": "STRING",
+              "mode": "NULLABLE"
+            }
+          ]
+        },
+        {
+          "name": "service",
+          "type": "RECORD",
+          "mode": "NULLABLE",
+          "fields": [
+            {
+              "name": "id",
+              "type": "STRING",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "environment_type",
+              "type": "STRING",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "criticality_type",
+              "type": "STRING",
+              "mode": "NULLABLE"
+            }
+          ]
+        },
+        {
+          "name": "workload",
+          "type": "RECORD",
+          "mode": "NULLABLE",
+          "fields": [
+            {
+              "name": "id",
+              "type": "STRING",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "environment_type",
+              "type": "STRING",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "criticality_type",
+              "type": "STRING",
+              "mode": "NULLABLE"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

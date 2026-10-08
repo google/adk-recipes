@@ -24,6 +24,11 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
+env:
+  # Pinned rather than `latest` so a Ruff release cannot turn every open PR
+  # red without warning. Bump deliberately, and match what uv.lock resolves.
+  RUFF_VERSION: 0.16.8
+
 # Ruff configuration (line length, selected rules, ignored rules, per-file
 # ignores, formatter options) is the repo's single source of truth for Python
 # style and lives in the root pyproject.toml under [tool.ruff]. This workflow
@@ -71,22 +76,54 @@ jobs:
         run: |
           set -euo pipefail
 
+          WORK="$(mktemp -d)"
+          trap 'rm -rf "$WORK"' EXIT
+
           # 1. Fetch the target branch reference commits
           git fetch origin "$BASE_REF"
 
-          # 2. Resolve Python files modified in this PR diff. Use an array so
-          #    filenames with spaces or globs stay intact when passed to ruff.
-          mapfile -t CHANGED_FILES < <(git diff --name-only --diff-filter=d "origin/$BASE_REF...HEAD" -- core contrib plugins | grep '\.py$' || true)
+          # 2. Resolve Python files modified in this PR diff.
+          #
+          #    Redirect to a file rather than `< <(git … | grep … || true)`.
+          #    That idiom loses git's exit status twice over — `mapfile` never
+          #    inspects a process substitution's status, and the `|| true`
+          #    needed for grep's exit-1-on-no-match also swallows git's 128 —
+          #    so a failed diff (no merge base, unreachable base tip) read as
+          #    "no Python files changed" and reported a GREEN job having checked
+          #    nothing. Here `set -e` sees the failure.
+          #
+          #    `-z` rather than a newline scan: git C-quotes any path with a
+          #    non-ASCII byte, a quote, a backslash or a tab (core.quotePath),
+          #    and the resulting trailing `"` made such a file invisible to a
+          #    `grep '\.py$'` filter — silently never formatted, never
+          #    reported. NUL-delimited output is never quoted.
+          #
+          #    `-- core contrib plugins` is load-bearing: `on.paths` above
+          #    controls only whether this workflow RUNS. Without this scope a
+          #    triggered run also collects the retired `python/agents/**` roots,
+          #    and would format files in a frozen path.
+          git diff -z --name-only --diff-filter=d "origin/$BASE_REF...HEAD" \
+            -- core contrib plugins > "$WORK/changed"
+
+          ALL_CHANGED=()
+          mapfile -d '' -t ALL_CHANGED < "$WORK/changed"
+
+          CHANGED_FILES=()
+          for f in "${ALL_CHANGED[@]}"; do
+            if [[ "$f" == *.py ]]; then
+              CHANGED_FILES+=("$f")
+            fi
+          done
 
           if [ ${#CHANGED_FILES[@]} -eq 0 ]; then
-            echo "No Python files were modified in this pull request. Skipping formatting."
+            echo "No Python files were modified under core/, contrib/ or plugins/. Skipping formatting."
             exit 0
           fi
 
           echo "Formatting files: ${CHANGED_FILES[*]}"
 
           # 3. Format ONLY the modified python files (rules come from pyproject.toml)
-          uvx ruff format --force-exclude "${CHANGED_FILES[@]}"
+          uvx ruff@"$RUFF_VERSION" format --force-exclude "${CHANGED_FILES[@]}"
 
           # 4. Print the findings BEFORE handing them to reviewdog.
           #
@@ -101,14 +138,14 @@ jobs:
           #    --no-color is defensive: CI git doesn't colorize by default,
           #    but a self-hosted runner or global git config could break the
           #    diff parser.
-          FORMAT_DIFF=$(git diff --no-color "${CHANGED_FILES[@]}")
+          FORMAT_DIFF=$(git diff --no-color -- "${CHANGED_FILES[@]}")
 
           if [ -z "$FORMAT_DIFF" ]; then
             echo "[PASS] All modified Python files are already formatted."
             exit 0
           fi
 
-          mapfile -t UNFORMATTED < <(git diff --name-only "${CHANGED_FILES[@]}")
+          mapfile -t UNFORMATTED < <(git diff --name-only -- "${CHANGED_FILES[@]}")
 
           echo "::group::Reformatting diff (what ruff would change)"
           echo "$FORMAT_DIFF"
@@ -172,14 +209,28 @@ jobs:
         run: |
           set -euo pipefail
 
+          WORK="$(mktemp -d)"
+          trap 'rm -rf "$WORK"' EXIT
+
           # 1. Fetch the target branch reference commits
           git fetch origin "$BASE_REF"
 
           # 2. Resolve Python files modified in this PR diff
-          mapfile -t CHANGED_FILES < <(git diff --name-only --diff-filter=d "origin/$BASE_REF...HEAD" -- core contrib plugins | grep '\.py$' || true)
+          git diff -z --name-only --diff-filter=d "origin/$BASE_REF...HEAD" \
+            -- core contrib plugins > "$WORK/changed"
+
+          ALL_CHANGED=()
+          mapfile -d '' -t ALL_CHANGED < "$WORK/changed"
+
+          CHANGED_FILES=()
+          for f in "${ALL_CHANGED[@]}"; do
+            if [[ "$f" == *.py ]]; then
+              CHANGED_FILES+=("$f")
+            fi
+          done
 
           if [ ${#CHANGED_FILES[@]} -eq 0 ]; then
-            echo "No Python files were modified in this pull request. Skipping lint."
+            echo "No Python files were modified under core/, contrib/ or plugins/. Skipping lint."
             exit 0
           fi
 
@@ -188,11 +239,11 @@ jobs:
           # 3. Apply auto-fixes ONLY to the modified python files.
           #    `|| true` absorbs ruff's non-zero exit on fixable violations —
           #    we WANT the diff to survive so reviewdog can suggest it.
-          uvx ruff check --force-exclude --fix "${CHANGED_FILES[@]}" || true
+          uvx ruff@"$RUFF_VERSION" check --force-exclude --fix "${CHANGED_FILES[@]}" || true
 
           # 4. Post auto-fix suggestion comments strictly targeting modified files.
           #    Best-effort only — see step 6 for why the log is authoritative.
-          git diff --no-color "${CHANGED_FILES[@]}" | reviewdog -f=diff \
+          git diff --no-color -- "${CHANGED_FILES[@]}" | reviewdog -f=diff \
                                                                 -name="ruff-linter-suggestions" \
                                                                 -reporter=github-pr-review \
                                                                 -filter-mode=added \
@@ -221,7 +272,7 @@ jobs:
           #    >=2 ruff itself failed to run (bad file, unreadable config) —
           #    which must be surfaced, never mistaken for "clean".
           LINT_STATUS=0
-          LINT_OUTPUT=$(uvx ruff check \
+          LINT_OUTPUT=$(uvx ruff@"$RUFF_VERSION" check \
             --force-exclude \
             --quiet \
             --output-format=concise \
@@ -259,7 +310,7 @@ jobs:
           #    --exit-zero keeps ruff quiet about violations so reviewdog gets
           #    the full JSON; `set -o pipefail` still catches a ruff CRASH
           #    (bad file, missing dep), which must not be mistaken for "clean".
-          uvx ruff check \
+          uvx ruff@"$RUFF_VERSION" check \
             --force-exclude \
             --output-format=rdjson \
             --exit-zero "${CHANGED_FILES[@]}" | reviewdog -f=rdjson \
@@ -309,14 +360,28 @@ jobs:
         run: |
           set -euo pipefail
 
+          WORK="$(mktemp -d)"
+          trap 'rm -rf "$WORK"' EXIT
+
           # 1. Fetch the target branch reference commits
           git fetch origin "$BASE_REF"
 
           # 2. Resolve Python files modified in this PR diff
-          mapfile -t CHANGED_FILES < <(git diff --name-only --diff-filter=d "origin/$BASE_REF...HEAD" -- core contrib plugins | grep '\.py$' || true)
+          git diff -z --name-only --diff-filter=d "origin/$BASE_REF...HEAD" \
+            -- core contrib plugins > "$WORK/changed"
+
+          ALL_CHANGED=()
+          mapfile -d '' -t ALL_CHANGED < "$WORK/changed"
+
+          CHANGED_FILES=()
+          for f in "${ALL_CHANGED[@]}"; do
+            if [[ "$f" == *.py ]]; then
+              CHANGED_FILES+=("$f")
+            fi
+          done
 
           if [ ${#CHANGED_FILES[@]} -eq 0 ]; then
-            echo "No Python files were modified in this pull request. Skipping type check."
+            echo "No Python files were modified under core/, contrib/ or plugins/. Skipping type check."
             exit 0
           fi
 
@@ -357,8 +422,8 @@ jobs:
             printf '%s' "$name"
           }
 
-          BATCH_DIR=$(mktemp -d)
-          trap 'rm -rf "$BATCH_DIR"' EXIT
+          BATCH_DIR="$WORK/batches"
+          mkdir -p "$BATCH_DIR"
           declare -A MODULE_TAKEN
           BATCH_COUNT=0
           for f in "${CHANGED_FILES[@]}"; do
