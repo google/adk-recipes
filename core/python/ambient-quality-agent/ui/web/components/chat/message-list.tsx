@@ -48,6 +48,7 @@ function MessageListInner({
     setStickToBottom(distanceFromBottom < STICK_THRESHOLD_PX);
   }, []);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies(messages): scroll to bottom when messages arrive or stream.
   useEffect(() => {
     if (!stickToBottom) return;
     const el = viewportRef.current;

@@ -37,6 +37,7 @@ export const FilterTabs = forwardRef(function FilterTabs<T>(
   ref: React.ForwardedRef<HTMLDivElement>,
 ) {
   return (
+    // biome-ignore lint/a11y/useSemanticElements: a fieldset brings UA min-inline-size into this flex row, and the ref type is part of the component's API.
     <div
       ref={ref}
       role="group"

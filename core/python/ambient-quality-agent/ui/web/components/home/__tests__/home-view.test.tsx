@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// biome-ignore-all lint/style/noNonNullAssertion: a missing value fails the test either way; the assertion only narrows the type.
+
 /**
  * Loading, empty and failed are three states.
  *
@@ -60,7 +62,7 @@ function renderHome(fetchImpl: typeof fetch) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={qc}>
-      {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+      {/* biome-ignore lint/suspicious/noExplicitAny: the test router is not the app's registered router type. */}
       <RouterProvider router={router as any} />
     </QueryClientProvider>,
   );

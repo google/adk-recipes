@@ -164,13 +164,13 @@ out.push([
 // ---- 1 + 2: three turns -> three rows, each opens its own transcript
 await newChat();
 await send("Say only the word ALPHA.");
-const rA = await T();
+await T();
 await newChat();
 await send("Say only the word BRAVO.");
-const rB = await T();
+await T();
 await newChat();
 await send("Say only the word CHARLIE.");
-const rC = await T();
+await T();
 
 await p.waitForTimeout(1000);
 const listed = await p.evaluate(() => {

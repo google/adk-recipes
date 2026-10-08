@@ -79,10 +79,10 @@ export function useChatTitleControls({
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Reset on session switch only — a refetch of the same session must not clobber an in-progress edit.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: sessionId is the trigger, and title is left out so a refetch does not reset the edit.
   useEffect(() => {
     setEditing(false);
     setDraft(title);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId]);
 
   useEffect(() => {

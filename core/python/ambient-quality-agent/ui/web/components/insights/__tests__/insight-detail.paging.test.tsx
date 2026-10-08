@@ -106,7 +106,7 @@ function renderDetail(
   });
   return render(
     <QueryClientProvider client={queryClient}>
-      {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+      {/* biome-ignore lint/suspicious/noExplicitAny: the test router is not the app's registered router type. */}
       <RouterProvider router={router as any} />
     </QueryClientProvider>,
   );

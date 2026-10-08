@@ -30,7 +30,6 @@ import { mono, textStyle } from "@/lib/typography";
 import { cn } from "@/lib/utils";
 import { useResolvedTheme } from "@/lib/use-appearance";
 import { CopyButton } from "./copy-button";
-import { useViewerOptional } from "./artifact-viewer/viewer-context";
 
 const EXT_TO_LANG: Record<string, Language> = {
   py: "python",
@@ -180,6 +179,7 @@ export function CodeBlock({
           {tokens.map((line, i) => {
             const { key: lineKey, ...lineProps } = getLineProps({ line });
             return (
+              // biome-ignore lint/suspicious/noArrayIndexKey: the lines of a highlighted block have no identity beyond their position.
               <div key={i} {...lineProps}>
                 <span
                   aria-hidden
@@ -191,6 +191,7 @@ export function CodeBlock({
                 </span>
                 {line.map((token, j) => {
                   const { key: tokKey, ...tokProps } = getTokenProps({ token });
+                  // biome-ignore lint/suspicious/noArrayIndexKey: the tokens of a line have no identity beyond their position.
                   return <span key={j} {...tokProps} />;
                 })}
               </div>
@@ -237,6 +238,7 @@ export function DiffBlock({
               ? "text-zinc-400"
               : "text-zinc-500";
         return lines.map((ln, li) => (
+          // biome-ignore lint/suspicious/noArrayIndexKey: diff lines have no identity beyond their position in the diff.
           <div key={`${pi}-${li}`} className={cn("px-1", cls)}>
             <span aria-hidden className="mr-2 select-none opacity-60">
               {prefix}
@@ -308,6 +310,7 @@ export function PatchView({
       </div>
       {edits.map((e, i) => (
         <DiffBlock
+          // biome-ignore lint/suspicious/noArrayIndexKey: the edits come from the tool's arguments in order, with no ids.
           key={i}
           oldString={asString(e.oldText)}
           newString={asString(e.newText)}

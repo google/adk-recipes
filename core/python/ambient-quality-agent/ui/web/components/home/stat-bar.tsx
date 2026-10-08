@@ -74,9 +74,10 @@ function Cell({
   return (
     <div className="min-w-0 flex-1 px-5 py-4 first:pl-0 last:pr-0">
       {to ? (
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         <Link
+          // biome-ignore lint/suspicious/noExplicitAny: `to` and `params` are typed per route, and this cell links to any route.
           to={to as any}
+          // biome-ignore lint/suspicious/noExplicitAny: `to` and `params` are typed per route, and this cell links to any route.
           params={params as any}
           className="block hover:opacity-80"
         >
@@ -129,9 +130,8 @@ export function StatBar() {
   const healthy = data.verdict === "watching";
 
   return (
-    <div
+    <section
       aria-label="Ambient health"
-      role="region"
       className={cn(
         "flex flex-wrap divide-x divide-border/60 rounded-xl border px-5",
         !healthy && "border-amber-500/30 bg-amber-500/[0.03]",
@@ -174,6 +174,6 @@ export function StatBar() {
           ? { to: "/investigations/$runId", params: { runId: run.run_id } }
           : {})}
       />
-    </div>
+    </section>
   );
 }

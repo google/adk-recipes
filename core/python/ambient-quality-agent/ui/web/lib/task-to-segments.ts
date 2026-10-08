@@ -246,10 +246,9 @@ export function taskToChatMessages(
   // persisted Task has no shared sort key across these two channels, so all
   // artifact text renders after the turn's tool chips on reload. Live rendering
   // keeps true arrival order; only reload reorders.
-  const artifactParts: Part[] = [];
-  (task.artifacts ?? []).forEach((a) => {
-    (a.parts ?? []).forEach((p) => artifactParts.push(p));
-  });
+  const artifactParts: Part[] = (task.artifacts ?? []).flatMap(
+    (a) => a.parts ?? [],
+  );
   foldIntoTurn(
     artifactParts,
     `${task.id}:artifacts`,

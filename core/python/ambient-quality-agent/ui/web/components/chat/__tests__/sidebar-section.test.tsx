@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// biome-ignore-all lint/style/noNonNullAssertion: a missing value fails the test either way; the assertion only narrows the type.
+
 /**
  * The sidebar stacks these sections in a fixed-height flex column. Flex items
  * default to `min-height: auto`, so a section that does not opt out is exactly

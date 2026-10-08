@@ -44,6 +44,7 @@ export function Row({
   onSelect: (id: string) => void;
 }) {
   return (
+    // biome-ignore lint/a11y/useSemanticElements: a button is not full-width by default, so the swap would shrink the row to its content.
     <div
       className={cn(
         "flex items-center gap-2 rounded-md px-2.5 py-1.5 transition-colors cursor-pointer select-none",

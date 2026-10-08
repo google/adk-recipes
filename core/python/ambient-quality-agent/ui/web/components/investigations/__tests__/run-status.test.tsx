@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// biome-ignore-all lint/style/noNonNullAssertion: a missing value fails the test either way; the assertion only narrows the type.
+
 /**
  * The runs table used to read `rca_status`, which nothing has written since
  * RCA was removed in #77, so every row fell through to "done" -- including the
@@ -75,7 +77,7 @@ function serve(runs: Record<string, unknown>[]) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={qc}>
-      {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+      {/* biome-ignore lint/suspicious/noExplicitAny: the test router is not the app's registered router type. */}
       <RouterProvider router={router as any} />
     </QueryClientProvider>,
   );

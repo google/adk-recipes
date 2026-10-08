@@ -127,6 +127,7 @@ export function useChatStream({
   // A context switch (or any client rebuild) means the in-flight stream is
   // for a session we no longer care about — kill it so its `finally` block
   // doesn't flip busy/segments on the next session.
+  // biome-ignore lint/correctness/useExhaustiveDependencies(client): abort the in-flight stream when the client changes.
   useEffect(() => {
     return () => {
       abortRef.current?.abort();

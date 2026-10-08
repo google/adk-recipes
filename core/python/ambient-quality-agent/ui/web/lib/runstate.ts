@@ -61,9 +61,7 @@ export function startedAt(run: RunLike | null | undefined): number | null {
 }
 
 function isUnsettled(run: RunLike | null | undefined): boolean {
-  return IN_FLIGHT_STATUSES.includes(
-    String((run && run.status) || "").toLowerCase(),
-  );
+  return IN_FLIGHT_STATUSES.includes(String(run?.status || "").toLowerCase());
 }
 
 /** A run we are still waiting on: unsettled status, and not so old that the

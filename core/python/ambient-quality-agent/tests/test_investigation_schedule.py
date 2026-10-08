@@ -387,7 +387,8 @@ def test_launch_investigation_scheduled_derives_a_clock_key(
     )
     r2 = asyncio.run(schedule._launch_investigation(ctx, ambient=True))
     assert (
-        get_run(ctx.state, r2["run_id"]).idempotency_key == rec1.idempotency_key
+        get_run(ctx.state, r2["run_id"]).idempotency_key
+        == rec1.idempotency_key  # gitleaks:allow
     )
 
     monkeypatch.setattr(

@@ -172,6 +172,7 @@ function AudioView({ tab }: { tab: ArtifactTab }) {
   if (!src) return <Unavailable text="Audio not available." />;
   return (
     <div className="flex items-center justify-center p-4">
+      {/* biome-ignore lint/a11y/useMediaCaption: workspace audio files come with no caption track to offer. */}
       <audio controls src={src} className="w-full max-w-md" />
     </div>
   );

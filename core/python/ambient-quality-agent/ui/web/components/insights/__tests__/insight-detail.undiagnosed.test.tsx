@@ -95,7 +95,7 @@ function renderDetail(payload: unknown) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={qc}>
-      {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+      {/* biome-ignore lint/suspicious/noExplicitAny: the test router is not the app's registered router type. */}
       <RouterProvider router={router as any} />
     </QueryClientProvider>,
   );

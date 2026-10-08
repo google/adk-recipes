@@ -70,6 +70,7 @@ export function SidebarSkeleton({
       <span className="sr-only">{label}…</span>
       {Array.from({ length: 3 }).map((_, i) => (
         <div
+          // biome-ignore lint/suspicious/noArrayIndexKey: the placeholder rows are a fixed count with nothing to tell them apart.
           key={i}
           aria-hidden="true"
           className={cn(

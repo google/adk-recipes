@@ -113,6 +113,7 @@ export function SidebarRail({
   // so they leave the tab order and the accessibility tree with it. React 18
   // does not know `inert`, hence the attribute is set by hand, again on the
   // new rail that widening the window past md mounts.
+  // biome-ignore lint/correctness/useExhaustiveDependencies(isDesktop): crossing the md breakpoint mounts a new rail that needs the inert attribute reapplied.
   useEffect(() => {
     const content = railContent.current;
     if (!content) return;

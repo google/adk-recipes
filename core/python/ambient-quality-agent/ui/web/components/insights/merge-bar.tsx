@@ -38,8 +38,7 @@ export function MergeBar({
   const canMerge = selectedInsights.length >= 2;
 
   return (
-    <div
-      role="region"
+    <section
       aria-label="Merge duplicate insights"
       className="flex flex-col gap-3 rounded-lg border border-accent/40 bg-card p-4"
     >
@@ -87,6 +86,6 @@ export function MergeBar({
           </ul>
         </div>
       )}
-    </div>
+    </section>
   );
 }

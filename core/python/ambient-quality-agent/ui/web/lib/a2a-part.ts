@@ -26,7 +26,7 @@ function caseOf(p: unknown): PartCase | null {
   return (c as PartCase) ?? null;
 }
 
-function valueOf(p: unknown): unknown {
+function extractPartValue(p: unknown): unknown {
   return (p as { content?: { value?: unknown } } | null)?.content?.value;
 }
 
@@ -35,7 +35,7 @@ export function isTextPart(p: Part): boolean {
 }
 
 export function partText(p: Part): string | null {
-  return caseOf(p) === "text" ? String(valueOf(p)) : null;
+  return caseOf(p) === "text" ? String(extractPartValue(p)) : null;
 }
 
 export function isDataPart(p: Part): boolean {
@@ -44,13 +44,13 @@ export function isDataPart(p: Part): boolean {
 
 export function dataPartDict(p: Part): Record<string, unknown> | null {
   if (caseOf(p) !== "data") return null;
-  const v = valueOf(p);
+  const v = extractPartValue(p);
   return v && typeof v === "object" ? (v as Record<string, unknown>) : null;
 }
 
 /** The data payload is a protobuf Value, so a scalar or array is also valid. */
 export function dataPartValue(p: Part): unknown {
-  return caseOf(p) === "data" ? valueOf(p) : null;
+  return caseOf(p) === "data" ? extractPartValue(p) : null;
 }
 
 // A file part carries either inline bytes or a URL, never both.
@@ -60,7 +60,7 @@ export function isFilePart(p: Part): boolean {
 }
 
 export function fileUrl(p: Part): string | null {
-  return caseOf(p) === "url" ? String(valueOf(p)) : null;
+  return caseOf(p) === "url" ? String(extractPartValue(p)) : null;
 }
 
 // `raw` is typed Buffer by the SDK; Buffer must not escape this module.
@@ -81,7 +81,7 @@ const encodedBytes = new WeakMap<object, string>();
 
 export function fileBytes(p: Part): string | null {
   if (caseOf(p) !== "raw") return null;
-  const v = valueOf(p);
+  const v = extractPartValue(p);
   if (v == null) return null;
   if (typeof v === "string") return v;
   const cached = encodedBytes.get(v as object);

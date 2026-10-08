@@ -53,12 +53,13 @@
       // globals.css. The system preference has
       // to be resolved here rather than left to React: by the time a component
       // mounts, the wrong scheme has already been painted.
-      (function () {
+      (() => {
         var root = document.documentElement;
         var dark = true,
-          skin = null;
+          skin = null,
+          t;
         try {
-          var t = localStorage.getItem("lha.theme");
+          t = localStorage.getItem("lha.theme");
           if (t === "dark" || t === "light") {
             dark = t === "dark";
           } else if (window.matchMedia) {
@@ -67,7 +68,7 @@
             dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
           }
           skin = localStorage.getItem("lha.skin") || "slate";
-        } catch (e) {}
+        } catch {}
         root.classList.toggle("dark", dark);
         if (skin && skin !== "default") root.dataset.skin = skin;
         var meta = document.getElementById("lha-theme-color");

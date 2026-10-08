@@ -68,9 +68,13 @@ called from nowhere in this tree.
 
 ```bash
 npm ci
-npm run check     # tsc --noEmit && vitest run   (93 files, 500 tests)
+npm run check     # tsc --noEmit, vitest run, Biome format check and Biome lint
 npm run build     # → ../static_v2, not ./dist
 ```
+
+`package.json` overrides `postcss-selector-parser` to 7.x for
+GHSA-rj75-hqrm-r3gf, because tailwindcss 3 and `@tailwindcss/typography` still
+ask for 6.x. Remove the override once both accept 7.x.
 
 `vite.config.ts` sets `base: "/"` and `outDir: "../static_v2"`: the app is
 served from the root of the UI service, and its bundle is written *beside* this
@@ -152,6 +156,14 @@ something the tour points at, update `tour-steps.ts` with it.
 `npm run check` is the gate, and it is what CI runs (`frontend-tests.yml`),
 followed by `npm run build` — `tsc` and vitest do not run Vite's transform, so
 a build failure passes both.
+
+`npm run lint` runs Biome with the same version, rules and
+`--error-on-warnings` as adk-recipes CI, which lints the TypeScript and
+JavaScript files that each change to the exported recipe touches, and allows no
+recipe-local Biome config. A finding is fixed in the code, or suppressed with a
+`biome-ignore` comment that gives the reason. The CSS linter is off, as the
+CSS formatter is for `format`: Biome's CSS parser rejects Tailwind's `@apply`
+unless a config option enables it, and adk-recipes does not lint CSS.
 
 **The `e2e/` suite is not wired up.** All nine `*.spec.mjs` files sit in
 Playwright's `testDir`, but not one declares a `test()`: they are plain Node

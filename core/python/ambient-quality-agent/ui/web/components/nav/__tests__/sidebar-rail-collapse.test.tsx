@@ -25,7 +25,8 @@
  */
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { act, render, screen, fireEvent } from "@testing-library/react";
-import React, { forwardRef, useImperativeHandle } from "react";
+import type React from "react";
+import { forwardRef, useImperativeHandle } from "react";
 
 vi.mock("@/components/chat/chat-list-sidebar", () => ({
   ChatListSidebar: ({ onCollapse }: { onCollapse?: () => void }) => (
@@ -69,6 +70,8 @@ vi.mock("@/components/ui/resizable", () => {
       return <div {...domProps}>{children}</div>;
     }),
     ResizableHandle: ({ tabIndex }: { tabIndex?: number }) => (
+      // biome-ignore lint/a11y/useSemanticElements: mirrors the focusable div that react-resizable-panels renders as its handle.
+      // biome-ignore lint/a11y/useAriaPropsForRole: the stub carries only the role and tabIndex that the collapse tests assert on.
       <div role="separator" tabIndex={tabIndex ?? 0} />
     ),
   };
@@ -109,7 +112,9 @@ const mediaListeners = new Set<() => void>();
  *  answer changes, as a resize across md does. */
 function setDesktop(next: boolean) {
   desktop = next;
-  act(() => mediaListeners.forEach((listener) => listener()));
+  act(() => {
+    for (const listener of mediaListeners) listener();
+  });
 }
 
 beforeEach(() => {

@@ -61,6 +61,20 @@ path = "src/ambient_quality_agent/__init__.py"
 [tool.hatch.build.targets.wheel]
 packages = ["src/ambient_quality_agent"]
 
+[tool.uv]
+# Lifts upstream caps that hold known CVEs in the lock:
+# `google-cloud-aiplatform[evaluation]` caps litellm below 1.86 (CVE-2026-84377
+# is fixed in 1.88.6), and `google-agents-cli` caps pyopenssl below 26.2, which
+# caps cryptography below 48 (CVE-2026-69247 is fixed in 50.0.0, which needs
+# pyopenssl 26.4). Only uv applies overrides: the Dockerfile's `uv sync` gets
+# them, a pip install of `requirements.txt` does not. The upper bounds stand in
+# for the dropped upstream caps; litellm's is the one aiplatform sets for
+# Python 3.14. Remove each entry once its upstream cap admits the fix.
+override-dependencies = [
+    "litellm>=1.88.6,<1.97",
+    "pyopenssl>=26.4,<27",
+]
+
 [[tool.uv.index]]
 url = "https://pypi.org/simple"
 default = true

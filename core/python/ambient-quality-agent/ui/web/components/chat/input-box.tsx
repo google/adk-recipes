@@ -37,7 +37,6 @@ import {
 import { textStyle } from "@/lib/typography";
 import { cn, formatBytes } from "@/lib/utils";
 import { onFocusComposer } from "@/lib/composer-focus";
-import {} from "./workspace-href";
 
 export interface InputAttachment {
   /** Stable per-attachment id used as React key + remove handle. */
@@ -135,6 +134,7 @@ function InputBoxInner({
   // Autosize on every value change — typing and programmatic alike (e.g. the
   // queue restored into the composer on Stop). Coalesce the scrollHeight read
   // (a sync layout) into one rAF so fast typists measure once per paint.
+  // biome-ignore lint/correctness/useExhaustiveDependencies(value): re-measure textarea height whenever value changes.
   useEffect(() => {
     const el = textareaRef.current;
     if (!el) return;
@@ -248,6 +248,7 @@ function InputBoxInner({
             <div className="flex flex-col gap-1 px-1.5 pt-1">
               {queued.map((q, i) => (
                 <div
+                  // biome-ignore lint/suspicious/noArrayIndexKey: queued messages are plain strings that may repeat, so the position is part of their identity.
                   key={`${i}:${q}`}
                   className={cn(
                     textStyle.meta,

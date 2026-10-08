@@ -124,6 +124,7 @@ export function DayChart({
 
       <div className={cn(textStyle.meta, "flex flex-wrap items-center gap-4")}>
         {legend.map((item, i) => (
+          // biome-ignore lint/suspicious/noArrayIndexKey: legend labels are React nodes, and each chart passes a fixed list.
           <span key={i} className="flex items-center gap-1.5">
             {item.swatch && (
               <span
@@ -178,6 +179,7 @@ function Column({
           height is a percentage, and a percentage of an auto-height parent is
           zero. */}
       <div className={cn("flex w-full items-end", height)}>
+        {/* biome-ignore lint/a11y/useAriaPropsSupportedByRole: the label is set only together with role="img"; a linked day drops both. */}
         <div
           className="flex w-full flex-col justify-end"
           style={{
@@ -204,6 +206,7 @@ function Column({
             >
               {day.segments.map((s, i) => (
                 <span
+                  // biome-ignore lint/suspicious/noArrayIndexKey: a day's segments are a fixed stack with no ids.
                   key={i}
                   className={cn("w-full", s.className)}
                   style={{ flexGrow: s.value, minHeight: s.value ? 2 : 0 }}

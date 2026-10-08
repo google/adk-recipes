@@ -100,19 +100,19 @@ function mount(at: string) {
     [ConfigRoute, "/config"],
   ] as const;
   const routes = pages.map(([route, path]) =>
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    // biome-ignore lint/suspicious/noExplicitAny: the test route tree is not the app's registered route tree.
     route.update({ id: path, path, getParentRoute: () => root } as any),
   );
   const chat = createRoute({ getParentRoute: () => root, path: "/c" });
   const router = createRouter({
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    // biome-ignore lint/suspicious/noExplicitAny: the test route tree is not the app's registered route tree.
     routeTree: root.addChildren([...(routes as any[]), chat]),
     history: createMemoryHistory({ initialEntries: [at] }),
   });
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
-      {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+      {/* biome-ignore lint/suspicious/noExplicitAny: the test router is not the app's registered router type. */}
       <RouterProvider router={router as any} />
     </QueryClientProvider>,
   );

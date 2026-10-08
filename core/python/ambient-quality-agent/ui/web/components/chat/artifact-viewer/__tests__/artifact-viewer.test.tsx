@@ -28,8 +28,12 @@ function Opener() {
   const { openArtifact } = useViewer();
   return (
     <>
-      <button onClick={() => openArtifact(md)}>open-md</button>
-      <button onClick={() => openArtifact(png)}>open-png</button>
+      <button type="button" onClick={() => openArtifact(md)}>
+        open-md
+      </button>
+      <button type="button" onClick={() => openArtifact(png)}>
+        open-png
+      </button>
     </>
   );
 }

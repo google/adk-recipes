@@ -30,7 +30,11 @@ let onDisk = "# Cats";
 
 function Opener() {
   const { openArtifact } = useViewer();
-  return <button onClick={() => openArtifact(wsFile)}>open</button>;
+  return (
+    <button type="button" onClick={() => openArtifact(wsFile)}>
+      open
+    </button>
+  );
 }
 
 function setup(busy: boolean) {
@@ -151,7 +155,9 @@ describe("ArtifactViewer under StrictMode", () => {
       const { tabs, openArtifact } = useViewer();
       return (
         <>
-          <button onClick={() => openArtifact(wsFile)}>open</button>
+          <button type="button" onClick={() => openArtifact(wsFile)}>
+            open
+          </button>
           {tabs.length > 0 && <ArtifactViewer />}
         </>
       );

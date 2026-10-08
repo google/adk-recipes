@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// biome-ignore-all lint/style/noNonNullAssertion: a missing value fails the test either way; the assertion only narrows the type.
+
 /**
  * "Evaluated" has one meaning across the dashboard. These pin the number the
  * lists print to the number the funnel's Evaluated bar draws.

@@ -79,7 +79,10 @@ export function MarkdownToolbar({
       className="flex shrink-0 flex-wrap items-center gap-0.5 border-b border-border/60 px-2 py-1"
     >
       {GROUPS.map((group, gi) => (
-        <div key={gi} className="flex items-center gap-0.5">
+        <div
+          key={group.map(({ cmd }) => cmd).join()}
+          className="flex items-center gap-0.5"
+        >
           {gi > 0 && <span className="mx-1 h-4 w-px bg-border/60" />}
           {group.map(({ cmd, label, Icon }) => (
             <button

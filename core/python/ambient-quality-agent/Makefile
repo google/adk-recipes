@@ -1,4 +1,4 @@
-.PHONY: install lint lint-check test demo standalone build clean tf-fmt tf-check format-ui format-ui-check
+.PHONY: install lint lint-check test demo standalone build clean tf-fmt tf-check format-ui format-ui-check lint-ui
 
 install:
 	uv sync --dev --extra lint --frozen
@@ -32,13 +32,16 @@ lint-check:
 	@echo "$(MYPY) <$(words $(MYPY_PATHS)) exported files>"
 	@$(MYPY) $(MYPY_PATHS)
 
-# Formats the dashboard frontend with Biome; the scripts in ui/web/package.json
-# define the version and file coverage.
+# Formats and lints the dashboard frontend with Biome; the scripts in
+# ui/web/package.json define the version and file coverage.
 format-ui:
 	npm --prefix ui/web run format
 
 format-ui-check:
 	npm --prefix ui/web run format:check
+
+lint-ui:
+	npm --prefix ui/web run lint
 
 # Discovers tests using `testpaths` configured in pyproject.toml.
 test:

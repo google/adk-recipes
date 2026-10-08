@@ -29,7 +29,11 @@ const wsFile = {
 
 function Opener() {
   const { openArtifact } = useViewer();
-  return <button onClick={() => openArtifact(wsFile)}>open</button>;
+  return (
+    <button type="button" onClick={() => openArtifact(wsFile)}>
+      open
+    </button>
+  );
 }
 
 function setup(onSelectionChange: (s: unknown) => void) {
@@ -105,6 +109,7 @@ describe("ViewerProvider selection forwarding", () => {
       const { setPendingSelection } = useViewer();
       return (
         <button
+          type="button"
           onClick={() =>
             setPendingSelection({
               path: "/workspace/cats.md",

@@ -78,6 +78,7 @@ export function ViewerProvider({
   const onSelectionRef = useRef(onSelectionChange);
   onSelectionRef.current = onSelectionChange;
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies(resetKey): clear open tabs when switching chats.
   useEffect(() => {
     dispatch({ type: "clear" });
     // A selection scoped to the old chat's file must not leak into the next.

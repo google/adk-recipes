@@ -145,9 +145,9 @@ export function useAppearance(): {
 
   // Repairs any disagreement between the boot script and this model on mount,
   // so the class, the meta tag and `theme` cannot drift apart. Idempotent.
+  // biome-ignore lint/correctness/useExhaustiveDependencies(themeChoice): runs on mount only; setTheme applies later choices itself.
   useEffect(() => {
     applyTheme(themeChoice);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {

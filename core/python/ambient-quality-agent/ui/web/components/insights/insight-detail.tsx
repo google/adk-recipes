@@ -365,7 +365,6 @@ export function InsightDetailView({ insightId }: { insightId: string }) {
 
 export function Occurrence({
   occurrence,
-  runId,
   heading,
   compact,
 }: {
@@ -447,6 +446,7 @@ export function Occurrence({
       {occurrence.rubrics && occurrence.rubrics.length > 0 && (
         <ul className="space-y-2">
           {occurrence.rubrics.map((r, idx) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: rubric findings carry no ids and render in the order the sweep stored them.
             <li key={idx}>
               <Finding finding={rubricFinding(r)} />
             </li>

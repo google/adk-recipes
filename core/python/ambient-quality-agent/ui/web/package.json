@@ -14,7 +14,8 @@
     "test:e2e:install": "playwright install chromium",
     "format": "npx --yes @biomejs/biome@2.5.10 format --css-formatter-enabled=false --write .",
     "format:check": "npx --yes @biomejs/biome@2.5.10 format --css-formatter-enabled=false .",
-    "check": "tsc --noEmit && vitest run && npm run format:check"
+    "lint": "npx --yes @biomejs/biome@2.5.10 lint --css-linter-enabled=false --error-on-warnings .",
+    "check": "tsc --noEmit && vitest run && npm run format:check && npm run lint"
   },
   "dependencies": {
     "@a2a-js/sdk": "^1.0.1",
@@ -66,6 +67,7 @@
     "vitest": "^4.1.11"
   },
   "overrides": {
-    "postcss": "^8.5.28"
+    "postcss": "^8.5.28",
+    "postcss-selector-parser": "^7.1.6"
   }
 }

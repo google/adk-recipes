@@ -22,11 +22,17 @@ const flush = async () => {
   for (let i = 0; i < 5; i++) await Promise.resolve();
 };
 
+// Returns a stream whose first read rejects with `err`, matching the SDK when
+// the server refuses a resubscribe.
+function buildRejectingStream(err: Error): AsyncIterable<never> {
+  return {
+    [Symbol.asyncIterator]: () => ({ next: () => Promise.reject(err) }),
+  };
+}
+
 function clientThatThrows(err: Error): HorizonClient {
   return {
-    resubscribeTask: async function* () {
-      throw err;
-    },
+    resubscribeTask: () => buildRejectingStream(err),
   } as unknown as HorizonClient;
 }
 

@@ -127,6 +127,7 @@ function OpenTour({ index }: { index: number }) {
     else showTourStep(Math.max(0, to));
   };
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: runs once per step; step and go follow from index, the pathname is read when the step opens, and the router and query client live as long as the app.
   useEffect(() => {
     let current = true;
     const timers: number[] = [];
@@ -167,11 +168,9 @@ function OpenTour({ index }: { index: number }) {
     })();
     return () => {
       current = false;
-      timers.forEach((timer) => window.clearTimeout(timer));
+      for (const timer of timers) window.clearTimeout(timer);
       setVia(null);
     };
-    // Once per step: `step` follows from `index`, and the router and the
-    // query client live as long as the app.
   }, [index]);
 
   // Escape ends the tour from anywhere, including while the pointer is on

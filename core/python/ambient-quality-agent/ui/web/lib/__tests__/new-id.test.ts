@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { readFileSync, readdirSync } from "node:fs";
+import { type Dirent, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { newId } from "@/lib/new-id";
@@ -25,7 +25,7 @@ const SOURCE_DIRS = ["lib", "components", "app", "src", "routes"];
 const SKIP_DIRS = new Set(["node_modules", "dist", "__tests__"]);
 
 function sourceFiles(dir: string): string[] {
-  let entries;
+  let entries: Dirent[];
   try {
     entries = readdirSync(dir, { withFileTypes: true });
   } catch {

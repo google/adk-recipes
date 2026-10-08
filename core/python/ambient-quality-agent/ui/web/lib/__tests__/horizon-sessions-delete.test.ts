@@ -98,7 +98,7 @@ afterEach(() => {
  * @returns Mock fetch function.
  */
 function stubFetch(contexts: unknown[], deleteStatus = 200) {
-  const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+  const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
     if ((init?.method ?? "GET") === "GET") {
       return { ok: true, status: 200, json: async () => ({ contexts }) };
     }

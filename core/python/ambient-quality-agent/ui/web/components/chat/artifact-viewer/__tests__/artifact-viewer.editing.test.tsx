@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// biome-ignore-all lint/style/noNonNullAssertion: a missing value fails the test either way; the assertion only narrows the type.
+
 import { render, screen, fireEvent, act } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ArtifactViewer } from "../artifact-viewer";
@@ -35,10 +37,15 @@ function Opener({ file }: { file?: object } = {}) {
   const { openArtifact } = useViewer();
   return (
     <>
-      <button onClick={() => openArtifact((file ?? wsFile) as never)}>
+      <button
+        type="button"
+        onClick={() => openArtifact((file ?? wsFile) as never)}
+      >
         open-ws
       </button>
-      <button onClick={() => openArtifact(snapshot)}>open-snapshot</button>
+      <button type="button" onClick={() => openArtifact(snapshot)}>
+        open-snapshot
+      </button>
     </>
   );
 }

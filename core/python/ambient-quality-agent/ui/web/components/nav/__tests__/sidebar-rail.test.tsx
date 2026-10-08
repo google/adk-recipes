@@ -117,7 +117,9 @@ function setViewportWidth(width: number) {
       mediaListeners.delete(listener);
     },
   })) as unknown as typeof window.matchMedia;
-  act(() => mediaListeners.forEach((listener) => listener()));
+  act(() => {
+    for (const listener of mediaListeners) listener();
+  });
 }
 
 beforeEach(() => {

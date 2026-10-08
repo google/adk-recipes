@@ -250,11 +250,8 @@ function partsOf(event: unknown): Part[] {
     }
 
     if (sc === "task") {
-      const out: Part[] = [];
-      (sv.artifacts as Array<{ parts?: Part[] }> | undefined)?.forEach(
-        (a) => a.parts && out.push(...a.parts),
-      );
-      return out;
+      const artifacts = sv.artifacts as Array<{ parts?: Part[] }> | undefined;
+      return artifacts?.flatMap((a) => a.parts ?? []) ?? [];
     }
 
     // TaskStatusUpdateEvent — the first submitted event echoes the user's input
@@ -284,11 +281,9 @@ function partsOf(event: unknown): Part[] {
   if (event && typeof event === "object") {
     const e = event as Record<string, unknown>;
     if (Array.isArray(e.artifacts)) {
-      const out: Part[] = [];
-      (e.artifacts as Array<{ parts?: Part[] }>).forEach(
-        (a) => a.parts && out.push(...a.parts),
+      return (e.artifacts as Array<{ parts?: Part[] }>).flatMap(
+        (a) => a.parts ?? [],
       );
-      return out;
     }
     // Raw Message object (from task.history iteration).
     if (Array.isArray(e.parts)) {

@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// biome-ignore-all lint/style/noNonNullAssertion: a missing value fails the test either way; the assertion only narrows the type.
+
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen } from "@testing-library/react";
@@ -130,7 +132,7 @@ describe("GoalCard", () => {
   });
 
   it("shows why a save was refused, not just its status", async () => {
-    renderCard((async (input: RequestInfo | URL, init?: RequestInit) => {
+    renderCard((async (_input: RequestInfo | URL, init?: RequestInit) => {
       if (init?.method === "PUT") {
         return new Response(
           JSON.stringify({
@@ -160,7 +162,7 @@ describe("GoalCard", () => {
       const url = typeof input === "string" ? input : input.toString();
       if (
         url.includes("/api/goal") &&
-        (!init || !init.method || init.method === "GET")
+        (!init?.method || init.method === "GET")
       ) {
         return new Response(
           JSON.stringify({

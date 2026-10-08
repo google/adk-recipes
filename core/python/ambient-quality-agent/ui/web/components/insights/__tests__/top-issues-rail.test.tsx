@@ -191,7 +191,7 @@ describe("TopIssuesRail", () => {
     const long = "https://example.com/" + "x".repeat(200);
     renderRail({ insights: [insight({ label: long })] });
 
-    const row = await rowLink(new RegExp("example"));
+    const row = await rowLink(/example/);
     const title = within(row).getByText(long);
     expect(title).toHaveAttribute("title", long);
     expect(title).toHaveAttribute("dir", "auto");

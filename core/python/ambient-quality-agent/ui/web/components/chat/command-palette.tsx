@@ -67,9 +67,8 @@ export function CommandPalette({
     }
   }, [open]);
 
-  const close = () => onOpenChange(false);
-
   const items = useMemo<Item[]>(() => {
+    const close = () => onOpenChange(false);
     const q = query.trim().toLowerCase();
     const actions: Item[] = [
       {
@@ -134,6 +133,7 @@ export function CommandPalette({
     sessions,
     activeContextId,
     onNewChat,
+    onOpenChange,
     navigate,
     canExport,
     onExport,
@@ -181,6 +181,7 @@ export function CommandPalette({
           <div className="flex items-center gap-2 border-b px-3">
             <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
             <input
+              // biome-ignore lint/a11y/noAutofocus: opening the palette is a request to type a search.
               autoFocus
               type="text"
               value={query}

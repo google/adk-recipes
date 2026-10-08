@@ -74,17 +74,14 @@ import {
 import {
   Brain,
   CalendarClock,
-  Files,
   LineChart,
   ListFilter,
   Play,
-  List,
   Newspaper,
   PanelLeft,
   PanelRight,
   PanelRightClose,
   PanelRightOpen,
-  Sparkles,
   type LucideIcon,
 } from "lucide-react";
 
@@ -108,7 +105,6 @@ import { BusyProvider } from "./busy-context";
 import { NowProvider } from "@/lib/now-context";
 import { DormantActionsGate } from "./dormant-actions";
 import { Wordmark } from "@/components/brand/wordmark";
-import { readErrorDetail } from "@/lib/read-error-detail";
 import { CommandPalette } from "./command-palette";
 import { FindBar } from "./find-bar";
 import { ImageLightboxProvider } from "./image-lightbox";
@@ -300,10 +296,12 @@ export function ChatShell({
     },
     [client],
   );
+  // biome-ignore lint/correctness/useExhaustiveDependencies(contextIdProp): live task IDs are scoped to the active chat.
   useEffect(() => {
     liveTaskIdsRef.current = new Set();
   }, [contextIdProp]);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies(contextIdProp): dismissal state is scoped to the active chat.
   useEffect(() => {
     setDormantActionsDismissed(false);
   }, [contextIdProp]);
@@ -444,6 +442,7 @@ export function ChatShell({
   // Boot or rebuild the A2A client whenever the URL contextId changes.
   // No prop → generate a fresh contextId for a new chat; on first send we lock
   // ?id={contextId} into the URL so it becomes bookmarkable.
+  // biome-ignore lint/correctness/useExhaustiveDependencies(resetKey): clicking New chat on an unsent chat bumps resetKey to boot a fresh client.
   useEffect(() => {
     const desired = contextIdProp ?? null;
     // First send locks the URL to the contextId the live client already owns
@@ -575,12 +574,10 @@ export function ChatShell({
   // then runs on the next history refetch after the turn ends — by which point
   // history includes the completed turn — rather than firing on the busy→idle
   // transition with still-stale history.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: busy is read from the closure on purpose (see above), and activeTaskId triggers a merge when a turn settles.
   useEffect(() => {
     if (!historyMessages || busy) return;
     setMessages((prev) => mergeHistoryWithLive(prev, historyMessages));
-    // activeTaskId stays in deps as a refetch trigger (it changes when a turn
-    // settles); the merge itself no longer reads it.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [historyMessages, activeTaskId, setMessages]);
 
   const addFiles = useCallback((files: File[]) => {
@@ -650,6 +647,7 @@ export function ChatShell({
     [contextIdProp],
   );
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies(contextIdProp): contextIdProp is only a fallback while no client exists, and the client dep rebuilds this callback when the chat switches.
   const handleSend = useCallback(
     (
       text: string,

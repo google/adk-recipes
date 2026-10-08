@@ -97,7 +97,7 @@ function mount(
   });
   render(
     <QueryClientProvider client={queryClient}>
-      {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+      {/* biome-ignore lint/suspicious/noExplicitAny: the test router is not the app's registered router type. */}
       <RouterProvider router={router as any} />
     </QueryClientProvider>,
   );
@@ -111,7 +111,7 @@ function mountPage(at: string) {
     id: "/insights/",
     path: "/insights/",
     getParentRoute: () => root,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    // biome-ignore lint/suspicious/noExplicitAny: the test route tree is not the app's registered route tree.
   } as any);
   const detail = createRoute({
     getParentRoute: () => root,

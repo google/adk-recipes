@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// biome-ignore-all lint/style/noNonNullAssertion: a missing value fails the test either way; the assertion only narrows the type.
+
 /**
  * The runs table Home's recent investigations and the investigations page
  * share. What each column says is pinned through the pages that draw it; these
@@ -27,7 +29,7 @@ import {
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { type Run } from "@/lib/aqua-api";
+import type { Run } from "@/lib/aqua-api";
 import { counters } from "@/lib/__fixtures__/counters";
 import { RunsTable, runOutcome, runOutcomeTone } from "../runs-table";
 
@@ -69,7 +71,7 @@ function renderTable(runs: Run[], history?: Run[]) {
     ]),
     history: createMemoryHistory({ initialEntries: ["/"] }),
   });
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  // biome-ignore lint/suspicious/noExplicitAny: the test router is not the app's registered router type.
   render(<RouterProvider router={router as any} />);
   return router;
 }

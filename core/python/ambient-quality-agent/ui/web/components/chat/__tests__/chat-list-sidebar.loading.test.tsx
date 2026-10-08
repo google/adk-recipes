@@ -16,11 +16,14 @@ import { describe, expect, it, vi, afterEach, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import React, { type ComponentProps } from "react";
+import type React from "react";
+import type { ComponentProps } from "react";
 
 vi.mock("@tanstack/react-router", () => ({
   useNavigate: () => vi.fn(),
-  Link: ({ children }: { children: React.ReactNode }) => <a>{children}</a>,
+  Link: ({ children, to }: { children: React.ReactNode; to: string }) => (
+    <a href={to}>{children}</a>
+  ),
 }));
 // Each rail runs its own queries; their contents have their own tests.
 vi.mock("@/components/insights/top-issues-rail", () => ({

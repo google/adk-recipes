@@ -41,18 +41,23 @@ function sdkResubscribeThrow(
   );
 }
 
+// Returns a stream whose first read rejects with `err`, matching the SDK when
+// the server refuses a resubscribe.
+function buildRejectingStream(err: Error): AsyncIterable<never> {
+  return {
+    [Symbol.asyncIterator]: () => ({ next: () => Promise.reject(err) }),
+  };
+}
+
 // Client whose resubscribe stream THROWS the SDK-shaped "task not active here"
 // error on first iteration (the real SDK behavior), and whose getTask returns a
 // completed task with text.
 function clientThrowsNotActive(): HorizonClient {
   return {
-    resubscribeTask: async function* (): AsyncGenerator<unknown, void, void> {
-      throw sdkResubscribeThrow(
-        -32001,
-        "Task not found",
-        new TaskNotFoundError(),
-      );
-    },
+    resubscribeTask: () =>
+      buildRejectingStream(
+        sdkResubscribeThrow(-32001, "Task not found", new TaskNotFoundError()),
+      ),
     getTask: async () => ({
       id: "t1",
       status: { state: "completed" },
@@ -80,9 +85,10 @@ function clientThrowsInternal(
   getTask: ReturnType<typeof vi.fn>,
 ): HorizonClient {
   return {
-    resubscribeTask: async function* (): AsyncGenerator<unknown, void, void> {
-      throw sdkResubscribeThrow(-32603, "boom", new Error("internal"));
-    },
+    resubscribeTask: () =>
+      buildRejectingStream(
+        sdkResubscribeThrow(-32603, "boom", new Error("internal")),
+      ),
     getTask,
   } as unknown as HorizonClient;
 }

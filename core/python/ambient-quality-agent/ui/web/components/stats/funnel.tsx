@@ -103,6 +103,7 @@ export function Funnel({
     const next: Geometry = {
       height: container.clientHeight,
       bounds: tracks.map((track) => {
+        // biome-ignore lint/style/noNonNullAssertion: the guard above returns when any track is missing.
         const rect = track!.getBoundingClientRect();
         return [rect.top - origin, rect.bottom - origin] as [number, number];
       }),

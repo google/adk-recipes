@@ -29,7 +29,6 @@ import {
   createRouter,
   createMemoryHistory,
 } from "@tanstack/react-router";
-import React from "react";
 
 import { CaseBackLink, PREVIEW_RUN_SEGMENT } from "../case-back-link";
 

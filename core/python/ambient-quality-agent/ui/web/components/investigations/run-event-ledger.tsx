@@ -35,6 +35,7 @@ export function RunEventLedger({ events }: { events?: InvestigationEvent[] }) {
 
         return (
           <li
+            // biome-ignore lint/suspicious/noArrayIndexKey: events carry no ids and created_at can repeat; the ledger only appends, so the position is stable.
             key={`${event.created_at}-${i}`}
             className="flex flex-col gap-1.5 py-3 first:pt-0 last:pb-0"
           >

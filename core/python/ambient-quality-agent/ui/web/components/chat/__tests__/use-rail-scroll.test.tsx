@@ -42,6 +42,7 @@ function Rows({
     <div ref={scrollRef} data-testid="list">
       {Array.from({ length: 20 }, (_, i) => {
         const current = i === activeIndex ? "page" : undefined;
+        // biome-ignore-start lint/suspicious/noArrayIndexKey: the rows are generated from their index, which is their only identity.
         return nested ? (
           <li key={i} data-index={i}>
             <button type="button" aria-current={current}>
@@ -49,10 +50,11 @@ function Rows({
             </button>
           </li>
         ) : (
-          <a key={i} aria-current={current} data-index={i}>
+          <a key={i} href={`#row-${i}`} aria-current={current} data-index={i}>
             row {i}
           </a>
         );
+        // biome-ignore-end lint/suspicious/noArrayIndexKey: the rows are generated from their index, which is their only identity.
       })}
     </div>
   );

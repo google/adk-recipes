@@ -13,7 +13,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import React, { useEffect, useId, useMemo, useState } from "react";
+import React, { useEffect, useId, useState } from "react";
 import {
   BookOpen,
   Check,
@@ -81,6 +81,7 @@ function MessageBubbleInner({
         {message.segments.map((seg, i) =>
           seg.kind === "text" ? (
             <div
+              // biome-ignore lint/suspicious/noArrayIndexKey: segments carry no ids, and a message only appends to them, so the position is stable.
               key={`sys-${i}-${seg.text.slice(0, 24)}`}
               className={cn(
                 "rounded-md border border-dashed bg-muted/30 px-3 py-1.5",
@@ -106,10 +107,12 @@ function MessageBubbleInner({
     >
       {grouped.map((group, gi) => {
         if (group.kind === "toolGroup") {
+          // biome-ignore lint/suspicious/noArrayIndexKey: segment groups carry no ids, and a message only appends to them, so the position is stable.
           return <ToolGroup key={`tg-${gi}`} tools={group.tools} />;
         }
         if (group.kind === "confirmGroup") {
           return (
+            // biome-ignore lint/suspicious/noArrayIndexKey: segment groups carry no ids, and a message only appends to them, so the position is stable.
             <CombinedPermissionCard key={`cg-${gi}`} items={group.items} />
           );
         }
@@ -315,6 +318,7 @@ function UserTextSegment({
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           rows={Math.min(8, Math.max(2, draft.split("\n").length))}
+          // biome-ignore lint/a11y/noAutofocus: choosing Edit is a request to type in the message.
           autoFocus
           className={cn(
             "w-full resize-y rounded-md border bg-background px-2 py-1.5 placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
@@ -840,6 +844,7 @@ function GoalPreview({ goal }: { goal: string }) {
   }
   return (
     // A div, not a pre: the goal is prose, and pre takes the mono family.
+    // biome-ignore lint/a11y/useAriaPropsSupportedByRole: the label lets tests find the preview; a role to support it would change what screen readers announce.
     <div
       aria-label="Goal to save"
       className={cn(
@@ -1018,6 +1023,7 @@ function CombinedPermissionCard({ items }: { items: ConfirmItem[] }) {
       })),
     );
   return (
+    // biome-ignore lint/a11y/useSemanticElements: a fieldset brings UA min-inline-size and legend handling into this flex card.
     <div
       role="group"
       className="flex max-w-[88%] flex-col gap-2 rounded-lg border border-l-4 border-l-primary bg-card px-3.5 py-2.5"

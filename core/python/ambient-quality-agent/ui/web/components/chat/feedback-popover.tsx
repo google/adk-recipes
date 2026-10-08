@@ -22,7 +22,7 @@ interface FeedbackPopoverProps {
   sessionId?: string;
 }
 
-export function FeedbackPopover(_props: { sessionId?: string }) {
+export function FeedbackPopover(_props: FeedbackPopoverProps) {
   // The /feedback endpoint returns 501, so the button links directly to the
   // issue tracker configured for the deployment in app-config.json.
   return (

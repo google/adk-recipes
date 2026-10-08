@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// biome-ignore-all lint/style/noNonNullAssertion: a missing value fails the test either way; the assertion only narrows the type.
+
 /**
  * Every sighting carries its own rubrics -- what failed in that sweep. The
  * History cards render them; only the conclusion drawn across sightings, and
@@ -107,7 +109,7 @@ function renderDetail(occurrences: unknown[]) {
   });
   return render(
     <QueryClientProvider client={queryClient}>
-      {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+      {/* biome-ignore lint/suspicious/noExplicitAny: the test router is not the app's registered router type. */}
       <RouterProvider router={router as any} />
     </QueryClientProvider>,
   );

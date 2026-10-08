@@ -73,7 +73,9 @@ function resetDom() {
   const root = document.documentElement;
   root.classList.remove("dark");
   delete root.dataset.skin;
-  document.head.querySelectorAll("#lha-theme-color").forEach((n) => n.remove());
+  for (const n of document.head.querySelectorAll("#lha-theme-color")) {
+    n.remove();
+  }
 }
 
 beforeEach(resetDom);

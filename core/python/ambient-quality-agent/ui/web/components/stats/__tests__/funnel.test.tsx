@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// biome-ignore-all lint/style/noNonNullAssertion: a missing value fails the test either way; the assertion only narrows the type.
+
 import {
   RouterProvider,
   createMemoryHistory,
@@ -260,7 +262,7 @@ async function renderInRouter(ui: React.ReactElement) {
     routeTree: root.addChildren(routes),
     history: createMemoryHistory({ initialEntries: ["/"] }),
   });
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  // biome-ignore lint/suspicious/noExplicitAny: the test router is not the app's registered router type.
   render(<RouterProvider router={router as any} />);
   await screen.findAllByRole("img");
 }

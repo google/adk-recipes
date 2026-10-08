@@ -33,7 +33,7 @@ import { Funnel } from "@/components/stats/funnel";
 import { InsightTrend } from "@/components/stats/insight-trend";
 import { TracesPerDay } from "@/components/stats/traces-per-day";
 import { DASHBOARD_DAYS, HORIZON_LABEL } from "@/lib/day-buckets";
-import { type ListPage } from "@/lib/funnel";
+import type { ListPage } from "@/lib/funnel";
 import { buildTrend, resolvedNote } from "@/lib/insight-trend";
 import { newestFirst } from "@/lib/runstate";
 import { cn, formatSentenceCase } from "@/lib/utils";
@@ -273,6 +273,7 @@ function AskBar() {
         ].map((s) => (
           <button
             key={s}
+            type="button"
             onClick={() => ask(s)}
             className={cn(
               textStyle.meta,

@@ -46,7 +46,11 @@ describe("ImageLightbox", () => {
     // useImageLightbox falls back to a no-op so consumers never throw.
     function Bare() {
       const open = useImageLightbox();
-      return <button onClick={() => open("x")}>ok</button>;
+      return (
+        <button type="button" onClick={() => open("x")}>
+          ok
+        </button>
+      );
     }
     render(<Bare />);
     expect(screen.getByText("ok")).toBeInTheDocument();

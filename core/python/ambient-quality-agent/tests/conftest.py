@@ -21,7 +21,7 @@ import datetime as dt
 import os
 import pathlib
 import types
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from types import SimpleNamespace
 from typing import Any
 
@@ -34,7 +34,9 @@ os.environ.setdefault("GOOGLE_CLOUD_PROJECT", "test-project")
 os.environ.setdefault("GOOGLE_CLOUD_LOCATION", "us-central1")
 
 # Imported after env defaults so module-level config construction succeeds.
+import google.auth
 import pytest
+import vertexai
 from agentplatform._genai.types import (
     EvalCase,
     EvaluationDataset,
@@ -62,7 +64,66 @@ from ambient_quality_agent.tools.investigations.models import (
     RunStatus,
 )
 from ambient_quality_agent.tools.investigations.store import DEFAULT_LIST_LIMIT
+from google.auth.credentials import AnonymousCredentials, Credentials
 from google.genai import types as gt
+
+REAL_GOOGLE_AUTH_DEFAULT = google.auth.default
+"""The unpatched `google.auth.default`, for opt-in tests against live services."""
+
+_credentials_patch = pytest.MonkeyPatch()
+
+
+def _build_anonymous_default_credentials(
+    scopes: Sequence[str] | None = None,
+    request: Any = None,
+    quota_project_id: str | None = None,
+    default_scopes: Sequence[str] | None = None,
+) -> tuple[Credentials, str | None]:
+    """Stands in for `google.auth.default` so no test reads real credentials.
+
+    Importing `fast_api_app` builds the ADK app, which calls
+    `google.auth.default()` for the project; CI has no Application Default
+    Credentials. Tests that exercise credential lookup patch it themselves.
+
+    Args:
+        scopes: Ignored; anonymous credentials carry no scopes.
+        request: Ignored; nothing is fetched.
+        quota_project_id: Ignored; anonymous credentials bill no project.
+        default_scopes: Ignored; anonymous credentials carry no scopes.
+
+    Returns:
+        Anonymous credentials and the test project ID, if set.
+    """
+    return AnonymousCredentials(), os.environ.get("GOOGLE_CLOUD_PROJECT")
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    """Keeps credential lookup off the network before collection imports tests.
+
+    Test modules import `fast_api_app` during collection, before any fixture
+    runs, so the stub is installed here.
+
+    Args:
+        config: The pytest configuration.
+    """
+    del config
+    _credentials_patch.setattr(
+        google.auth, "default", _build_anonymous_default_credentials
+    )
+    # With only GOOGLE_CLOUD_PROJECT set, Vertex AI looks the project up in
+    # Resource Manager; an explicit project skips that call.
+    vertexai.init(project=os.environ["GOOGLE_CLOUD_PROJECT"])
+
+
+def pytest_unconfigure(config: pytest.Config) -> None:
+    """Restores the real `google.auth.default`.
+
+    Args:
+        config: The pytest configuration.
+    """
+    del config
+    _credentials_patch.undo()
+
 
 # Canned clustering response; a test that cares sets its own.
 FAKE_CLUSTER_RESPONSE = '{"clusters": []}'

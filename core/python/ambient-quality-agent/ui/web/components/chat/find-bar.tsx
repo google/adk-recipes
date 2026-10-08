@@ -37,6 +37,7 @@ export function FindBar({
   const [index, setIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies(focusSignal): re-focus the input on each Cmd/Ctrl+F.
   useEffect(() => {
     inputRef.current?.focus();
     inputRef.current?.select();
@@ -82,6 +83,7 @@ export function FindBar({
         <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
         <input
           ref={inputRef}
+          // biome-ignore lint/a11y/noAutofocus: opening the find bar is a request to type a query.
           autoFocus
           type="text"
           aria-label="Find in chat"

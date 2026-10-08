@@ -34,7 +34,7 @@ export interface UseTaskResubscribeArgs {
   // Invalidator from useLhaTasks — called on terminal status so the task list
   // refetches, the active flag clears, and useTaskHistory pulls the now-complete
   // task into history.
-  onTerminal: () => Promise<unknown> | void;
+  onTerminal: () => Promise<unknown> | undefined;
   // Fired when resubscribe fails with a transport-layer error (backend gone,
   // offline). Caller swaps the inline error trailer for a top-level banner.
   onSessionLost?: () => void;

@@ -45,6 +45,7 @@ const TEAL = "text-teal-700 dark:text-teal-400";
 
 /** One segment of a funnel stage, for its colour and name. */
 function segment(stage: StageId, key: string) {
+  // biome-ignore lint/style/noNonNullAssertion: called only at module load with stages and keys that STAGES defines.
   return STAGES.find((s) => s.id === stage)!.segments.find(
     (seg) => seg.key === key,
   )!;
@@ -345,6 +346,7 @@ function previousPassRates(history: readonly Run[]): Map<string, number> {
     const agent = agentLabel(run);
     const before = latestRate.get(agent);
     if (before !== undefined) previous.set(run.run_id, before);
+    // biome-ignore lint/style/noNonNullAssertion: `rated` keeps only runs whose pass rate is not null.
     latestRate.set(agent, passRate(run)!);
   }
   return previous;

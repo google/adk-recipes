@@ -101,6 +101,7 @@ const STYLE_KEYS = new Set([
 /** The role to suggest for a line's offending classes. */
 function suggestRole(tokens: string[]): string {
   const hasUtility = (re: RegExp) =>
+    // biome-ignore lint/style/noNonNullAssertion: split() returns at least one element, so pop() is never undefined.
     tokens.some((t) => re.test(t.split(":").pop()!));
   if (hasUtility(/^(underline|decoration-|underline-offset-)/))
     return "link.inline or link.standalone";

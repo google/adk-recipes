@@ -112,6 +112,7 @@ export function ConversationView({
           const isUser = item.author === "user";
           return (
             <article
+              // biome-ignore lint/suspicious/noArrayIndexKey: conversation items carry no ids; the list is rebuilt from the same turns in the same order.
               key={`text-${item.turnIndex}-${i}`}
               className={cn(
                 textStyle.body,
@@ -131,6 +132,7 @@ export function ConversationView({
         if (item.kind === "emptyResponse") {
           return (
             <article
+              // biome-ignore lint/suspicious/noArrayIndexKey: conversation items carry no ids; the list is rebuilt from the same turns in the same order.
               key={`empty-${item.turnIndex}-${i}`}
               className="flex flex-col gap-1 rounded-lg border border-destructive/30 bg-destructive/5 p-3 self-start max-w-[90%]"
             >
@@ -144,6 +146,7 @@ export function ConversationView({
           );
         }
         return (
+          // biome-ignore lint/suspicious/noArrayIndexKey: conversation items carry no ids; the list is rebuilt from the same turns in the same order.
           <ToolGroup key={`tools-${item.turnIndex}-${i}`} calls={item.calls} />
         );
       })}

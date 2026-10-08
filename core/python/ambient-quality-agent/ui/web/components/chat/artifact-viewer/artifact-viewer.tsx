@@ -113,6 +113,7 @@ export function ArtifactViewer() {
   // flip false the moment the effect starts, and the next unrelated re-render
   // (a turn ending re-renders this tree constantly) would tear down the
   // in-flight request and drop its response.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: hasBytes and revision only guard the first run of a fetchKey, and fetchKey already encodes the revision.
   useEffect(() => {
     if (!activeId || !activePath || !fetchKey) return;
     if (loadedKey.current === fetchKey) return;
@@ -161,9 +162,6 @@ export function ArtifactViewer() {
     return () => {
       cancelled = true;
     };
-    // hasBytes/revision are read-through guards for the first run of a given
-    // fetchKey, which already encodes the revision.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeId, activePath, fetchKey, setBytes, closeTab]);
 
   // Autosave is fire-and-forget, so it can't close over render state: a tab
@@ -219,6 +217,7 @@ export function ArtifactViewer() {
 
   // Debounced autosave. The cleanup cancels the timer on every keystroke and
   // flushes on tab switch/unmount, so the trailing edit is never dropped.
+  // biome-ignore lint/correctness/useExhaustiveDependencies(draft): each draft change must restart the debounce timer.
   useEffect(() => {
     if (!pendingRef.current) return;
     const t = setTimeout(() => void flush(), AUTOSAVE_DEBOUNCE_MS);
@@ -229,6 +228,7 @@ export function ArtifactViewer() {
 
   // A freshly-activated tab opens in its rendered view. Flush first: the
   // draft we're about to drop belongs to the tab we're leaving.
+  // biome-ignore lint/correctness/useExhaustiveDependencies(activeId): a change of activeId must run the cleanup, which flushes the tab being left.
   useEffect(() => {
     return () => {
       void flush();
@@ -253,6 +253,7 @@ export function ArtifactViewer() {
     }
   }, [busy, reloadTab]);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies(activeId): reset to preview with no draft when switching tabs.
   useEffect(() => {
     setMode("preview");
     setDraft(null);

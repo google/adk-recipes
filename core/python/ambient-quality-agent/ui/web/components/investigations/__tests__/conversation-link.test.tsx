@@ -29,7 +29,6 @@ import {
   createRouter,
   createMemoryHistory,
 } from "@tanstack/react-router";
-import React from "react";
 
 import { ConversationLink } from "../conversation-link";
 

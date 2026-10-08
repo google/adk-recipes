@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// biome-ignore-all lint/style/noNonNullAssertion: a missing value fails the test either way; the assertion only narrows the type.
+
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { renderHook, waitFor, act } from "@testing-library/react";
 import type { Task } from "@a2a-js/sdk";
@@ -123,7 +125,7 @@ describe("useTaskHistory refresh while a task is in flight", () => {
   it("never starts a second fetch while one is in flight", async () => {
     let release: (t: Task) => void = () => {};
     const client = clientReturning(
-      (id) =>
+      () =>
         new Promise<Task>((res) => {
           release = res;
         }),
@@ -155,7 +157,7 @@ describe("useTaskHistory refresh while a task is in flight", () => {
   it("still renders a fetch slower than the tick interval (starvation case)", async () => {
     let release: (t: Task) => void = () => {};
     const client = clientReturning(
-      (id) =>
+      () =>
         new Promise<Task>((res) => {
           release = res;
         }),

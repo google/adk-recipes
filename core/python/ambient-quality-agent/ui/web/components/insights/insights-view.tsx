@@ -324,8 +324,10 @@ export function InsightsView({
   );
 
   return (
+    // biome-ignore lint/a11y/noStaticElementInteractions: the list takes focus as a keyboard scope for its j/k/x/Enter shortcuts.
     <div
       className="outline-none"
+      // biome-ignore lint/a11y/noNoninteractiveTabindex: the list takes focus as a keyboard scope for its j/k/x/Enter shortcuts.
       tabIndex={0}
       onKeyDown={onKeyDown}
       data-testid="issues-list"
@@ -566,6 +568,8 @@ export function IssueCard({
 
   if (picking) {
     return (
+      // biome-ignore lint/a11y/noStaticElementInteractions: the checkbox inside the card is the keyboard path; the card click only enlarges the pointer target.
+      // biome-ignore lint/a11y/useKeyWithClickEvents: the checkbox inside the card is the keyboard path; the card click only enlarges the pointer target.
       <div
         onClick={onToggleSelect}
         className={cn(

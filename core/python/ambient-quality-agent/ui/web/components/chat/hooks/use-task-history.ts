@@ -106,6 +106,7 @@ export function useTaskHistory({
   const retainedRef = useRef<Map<string, Task>>(new Map());
   const didFirstLoadRef = useRef(false);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies(contextId): clear history state when switching chats.
   useEffect(() => {
     retainedRef.current.clear();
     didFirstLoadRef.current = false;
@@ -114,6 +115,7 @@ export function useTaskHistory({
     setHistoryLoading(false);
   }, [contextId]);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: signature stands in for tasks, whose identity changes on every poll, and the poll timer reads progressRef live rather than as a trigger.
   useEffect(() => {
     if (tasks === undefined) {
       // tasks undefined = query still loading. Don't clobber a previous render
@@ -312,8 +314,6 @@ export function useTaskHistory({
       if (timer) clearInterval(timer);
       if (staleTimer) clearTimeout(staleTimer);
     };
-    // signature captures task changes; contextId/client capture chat + boot.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [signature, contextId, client]);
 
   return { historyMessages, historyLoading };

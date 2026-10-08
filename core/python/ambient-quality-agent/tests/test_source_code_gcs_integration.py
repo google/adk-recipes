@@ -46,7 +46,7 @@ from ambient_quality_agent.tools.source_code.reader import (
     SourceSnapshotReader,
 )
 
-from tests.conftest import ToolContext
+from tests.conftest import REAL_GOOGLE_AUTH_DEFAULT, ToolContext
 
 # Skip integration tests unless explicitly enabled via environment variable.
 pytestmark = pytest.mark.skipif(
@@ -95,12 +95,27 @@ def _manifest(revision: str) -> bytes:
     ).encode("utf-8")
 
 
+def _create_storage_client() -> Any:
+    """Creates a Cloud Storage client with the real Application Default Credentials.
+
+    `conftest.py` replaces `google.auth.default` with anonymous credentials,
+    which cannot create a bucket.
+
+    Returns:
+        A `google.cloud.storage.Client` for `GOOGLE_CLOUD_PROJECT`.
+    """
+    from google.cloud import storage
+
+    credentials, _ = REAL_GOOGLE_AUTH_DEFAULT()
+    return storage.Client(
+        project=os.environ["GOOGLE_CLOUD_PROJECT"], credentials=credentials
+    )
+
+
 @pytest.fixture(scope="module")
 def bucket() -> Iterator[Any]:
     """Creates a temporary GCS bucket with sample revisions, ensuring cleanup on teardown."""
-    from google.cloud import storage
-
-    client = storage.Client(project=os.environ["GOOGLE_CLOUD_PROJECT"])
+    client = _create_storage_client()
     created = client.create_bucket(
         f"aqa-rca-itest-{uuid.uuid4().hex[:12]}", location=REGION
     )
@@ -124,9 +139,7 @@ def bucket() -> Iterator[Any]:
 @pytest.fixture(autouse=True)
 def wired(bucket: Any) -> Iterator[None]:
     """Points reader factory and tools at the temporary integration test bucket."""
-    from google.cloud import storage
-
-    client = storage.Client(project=os.environ["GOOGLE_CLOUD_PROJECT"])
+    client = _create_storage_client()
     original = reader_module.reader_factory
     store = GcsObjectStore(bucket.name, client_factory=lambda: client)
     reader_module.reader_factory = lambda state: SourceSnapshotReader(

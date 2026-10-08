@@ -22,7 +22,9 @@ const { navigate } = vi.hoisted(() => ({ navigate: vi.fn() }));
 
 vi.mock("@tanstack/react-router", () => ({
   useNavigate: () => navigate,
-  Link: ({ children }: { children: ReactNode }) => <a>{children}</a>,
+  Link: ({ children, to }: { children: ReactNode; to: string }) => (
+    <a href={to}>{children}</a>
+  ),
 }));
 // Each rail runs its own queries; their contents have their own tests.
 vi.mock("@/components/insights/top-issues-rail", () => ({
