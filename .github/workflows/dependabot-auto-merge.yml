@@ -63,6 +63,7 @@ on: # zizmor: ignore[dangerous-triggers]
       # TypeScript
       - "🟦 TypeScript Tests"
       - "🟦 TypeScript Format PR Checks"
+      - "Validate TypeScript Recipe"
       # Recipe structure
       - "Validate Recipe Structure"
     types:
