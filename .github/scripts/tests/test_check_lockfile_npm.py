@@ -413,6 +413,10 @@ def test_bad_integrity_is_reported(tmp_path, monkeypatch, capsys):
                     "resolved": "https://registry.npmjs.org/foo/-/foo-1.0.0.tgz",
                     "integrity": "md5:deadbeef",
                 },
+                "node_modules/bar": {
+                    "version": "1.0.0",
+                    "integrity": None,
+                },
             },
         }
     )
@@ -420,6 +424,7 @@ def test_bad_integrity_is_reported(tmp_path, monkeypatch, capsys):
     assert _run(path, monkeypatch) == EXIT_VIOLATIONS
     out = capsys.readouterr().out
     assert "has an unrecognised integrity hash: 'md5:deadbeef'" in out
+    assert "has an unrecognised integrity hash: 'None'" in out
 
 
 # ---------------------------------------------------------------------------

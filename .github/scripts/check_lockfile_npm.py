@@ -269,16 +269,31 @@ def _get_pkg_label(pkg_path: str, pkg_info: dict) -> str:
     return pkg_path or "<root>"
 
 
+def _validate_integrity_value(
+    label: str,
+    integrity_val: object,
+    lockfile: str,
+) -> Diagnostic | None:
+    """Validate format and type of an integrity value."""
+    if not isinstance(integrity_val, str) or not _is_valid_integrity(
+        integrity_val
+    ):
+        return _bad_integrity(lockfile, label, str(integrity_val))
+    return None
+
+
 def _check_resolved_and_integrity(
     label: str,
-    resolved_val: object,
-    integrity_val: object,
+    pkg_entry: dict,
     lockfile: str,
 ) -> list[Diagnostic]:
     """Validate the resolved URL and integrity hash of a package entry."""
     diagnostics: list[Diagnostic] = []
+    has_resolved = "resolved" in pkg_entry
+    has_integrity = "integrity" in pkg_entry
 
-    if resolved_val is not None:
+    if has_resolved:
+        resolved_val = pkg_entry["resolved"]
         if not isinstance(resolved_val, str):
             diagnostics.append(
                 _shape_error(
@@ -296,25 +311,24 @@ def _check_resolved_and_integrity(
                 diagnostics.append(
                     _non_npm_registry(lockfile, label, resolved_val)
                 )
-            elif not integrity_val:
+            elif not has_integrity or not pkg_entry["integrity"]:
                 diagnostics.append(
                     _missing_integrity(lockfile, label, resolved_val)
                 )
-            elif not isinstance(integrity_val, str) or not _is_valid_integrity(
-                integrity_val
-            ):
-                diagnostics.append(
-                    _bad_integrity(lockfile, label, str(integrity_val))
+            else:
+                diag = _validate_integrity_value(
+                    label, pkg_entry["integrity"], lockfile
                 )
+                if diag is not None:
+                    diagnostics.append(diag)
         else:
             diagnostics.append(_non_npm_registry(lockfile, label, resolved_val))
-    elif integrity_val is not None:
-        if not isinstance(integrity_val, str) or not _is_valid_integrity(
-            integrity_val
-        ):
-            diagnostics.append(
-                _bad_integrity(lockfile, label, str(integrity_val))
-            )
+    elif has_integrity:
+        diag = _validate_integrity_value(
+            label, pkg_entry["integrity"], lockfile
+        )
+        if diag is not None:
+            diagnostics.append(diag)
 
     return diagnostics
 
@@ -368,8 +382,7 @@ def _check_package_entry(
     diagnostics.extend(
         _check_resolved_and_integrity(
             label,
-            pkg_info.get("resolved"),
-            pkg_info.get("integrity"),
+            pkg_info,
             lockfile,
         )
     )
@@ -413,8 +426,7 @@ def _check_v1_dependencies(
         diagnostics.extend(
             _check_resolved_and_integrity(
                 pkg_label,
-                info.get("resolved"),
-                info.get("integrity"),
+                info,
                 lockfile,
             )
         )
