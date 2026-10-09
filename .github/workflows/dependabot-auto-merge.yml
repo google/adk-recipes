@@ -56,6 +56,7 @@ on: # zizmor: ignore[dangerous-triggers]
       # Java
       - "☕ Java Tests"
       - "☕ Java Format PR Checks"
+      - "Validate Java Recipe"
       # Kotlin
       - "🟣 Kotlin Tests"
       - "🟣 Kotlin Format PR Checks"
