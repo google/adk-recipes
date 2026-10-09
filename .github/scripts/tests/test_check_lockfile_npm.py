@@ -142,7 +142,7 @@ def test_valid_v1_package_lock_passes(tmp_path, monkeypatch, capsys):
     assert "::error" not in capsys.readouterr().out
 
 
-def test_npm_shrinkwrap_passes(tmp_path, monkeypatch, capsys):
+def test_npm_shrinkwrap_passes(tmp_path, monkeypatch):
     content = json.dumps(
         {
             "name": "my-recipe",

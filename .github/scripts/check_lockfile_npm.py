@@ -66,6 +66,13 @@ from ci_message import (
 CHECKER = "check_lockfile_npm.py"
 CHECK = "lockfile-npm"
 
+_PACKAGE_LOCK_JSON = "package-lock.json"
+_SHRINKWRAP_JSON = "npm-shrinkwrap.json"
+_REGENERATE_COMMAND = "npm install --package-lock-only"
+
+_MAX_DESCRIBE_LEN = 60
+_TRUNCATE_DESCRIBE_LEN = 57
+
 # Public npm registry URL pattern anchored per-URL.
 # Rejects subdomains/suffixes such as registry.npmjs.org.attacker.example.
 _NPM_REGISTRY_RE = re.compile(
@@ -80,11 +87,18 @@ _INTEGRITY_PART_RE = re.compile(
 _VCS_PREFIXES = ("git://", "git+", "github:")
 _PATH_PREFIXES = ("file:", "link:")
 
+_UNSUPPORTED_FORMATS: dict[str, str] = {
+    "pnpm-lock.yaml": "pnpm (pnpm-lock.yaml)",
+    "yarn.lock": "Yarn (yarn.lock)",
+    "bun.lockb": "Bun (bun.lockb)",
+    "bun.lock": "Bun (bun.lock)",
+}
+
 _REGENERATE_HINT = (
-    "Regenerate package-lock.json from the recipe directory:\n"
-    "  rm package-lock.json\n"
-    "  npm install --package-lock-only\n"
-    "Commit the updated package-lock.json."
+    f"Regenerate {_PACKAGE_LOCK_JSON} from the recipe directory:\n"
+    f"  rm {_PACKAGE_LOCK_JSON}\n"
+    f"  {_REGENERATE_COMMAND}\n"
+    f"Commit the updated {_PACKAGE_LOCK_JSON}."
 )
 
 
@@ -99,8 +113,8 @@ def _is_valid_integrity(integrity: str) -> bool:
 def _describe(value: object) -> str:
     """`list ['a', 'b']` — the type first, because the type is the bug."""
     text = repr(value)
-    if len(text) > 60:
-        text = text[:57] + "..."
+    if len(text) > _MAX_DESCRIBE_LEN:
+        text = text[:_TRUNCATE_DESCRIBE_LEN] + "..."
     return f"{type(value).__name__} {text}"
 
 
@@ -109,7 +123,7 @@ def _shape_error(lockfile: str, what: str) -> Diagnostic:
         check=CHECK,
         what=what,
         why=(
-            "package-lock.json is a generated file. A malformed structure means "
+            f"{_PACKAGE_LOCK_JSON} is a generated file. A malformed structure means "
             "this lockfile was hand-edited, truncated, or written by an "
             "incompatible tool, so its dependencies and integrity hashes "
             "cannot be verified."
@@ -125,7 +139,7 @@ def _non_npm_registry(lockfile: str, label: str, url: str) -> Diagnostic:
         check=CHECK,
         what=f"{label} resolves from a non-public registry: {url}",
         why=(
-            "Every dependency in package-lock.json must resolve from the public "
+            f"Every dependency in {_PACKAGE_LOCK_JSON} must resolve from the public "
             "npm registry (registry.npmjs.org). Private registries, internal "
             "mirrors, and custom registry URLs are not allowed in recipes."
         ),
@@ -147,8 +161,8 @@ def _vcs_dependency(lockfile: str, label: str, source: str) -> Diagnostic:
         how=(
             f"Replace the VCS dependency {label} with a published npm package, "
             f"then regenerate the lockfile:\n"
-            f"  npm install --package-lock-only\n"
-            f"Commit the updated package-lock.json."
+            f"  {_REGENERATE_COMMAND}\n"
+            f"Commit the updated {_PACKAGE_LOCK_JSON}."
         ),
         doc=Doc.LOCK_VCS,
         file=lockfile,
@@ -167,8 +181,8 @@ def _path_dependency(lockfile: str, label: str, source: str) -> Diagnostic:
         how=(
             f"Replace the local dependency {label} with a published npm "
             f"package, then regenerate the lockfile:\n"
-            f"  npm install --package-lock-only\n"
-            f"Commit the updated package-lock.json."
+            f"  {_REGENERATE_COMMAND}\n"
+            f"Commit the updated {_PACKAGE_LOCK_JSON}."
         ),
         doc=Doc.LOCK_PATH,
         file=lockfile,
@@ -180,7 +194,7 @@ def _missing_integrity(lockfile: str, label: str, url: str) -> Diagnostic:
         check=CHECK,
         what=f"{label} has a resolved URL but no `integrity` hash: {url}",
         why=(
-            "Every resolved package entry in package-lock.json must carry an "
+            f"Every resolved package entry in {_PACKAGE_LOCK_JSON} must carry an "
             "integrity hash (sha512 or sha256) so downloaded artifacts can be "
             "verified against supply-chain tampering."
         ),
@@ -210,13 +224,13 @@ def _unsupported_format(lockfile: str, format_name: str) -> Diagnostic:
         check=CHECK,
         what=f"{lockfile} uses an unsupported lockfile format: {format_name}.",
         why=(
-            f"Supply-chain policy currently verifies npm package-lock.json. "
+            f"Supply-chain policy currently verifies npm {_PACKAGE_LOCK_JSON}. "
             f"{format_name} is detected but cannot be verified yet."
         ),
         how=(
-            "Generate an npm package-lock.json for this recipe:\n"
-            "  npm install --package-lock-only\n"
-            "Commit package-lock.json."
+            f"Generate an npm {_PACKAGE_LOCK_JSON} for this recipe:\n"
+            f"  {_REGENERATE_COMMAND}\n"
+            f"Commit {_PACKAGE_LOCK_JSON}."
         ),
         doc=Doc.LOCK_HASH,
         file=lockfile,
@@ -224,20 +238,20 @@ def _unsupported_format(lockfile: str, format_name: str) -> Diagnostic:
 
 
 def _missing_lockfile(recipe_dir: str) -> Diagnostic:
-    target_lock = str(Path(recipe_dir) / "package-lock.json")
+    target_lock = str(Path(recipe_dir) / _PACKAGE_LOCK_JSON)
     return Diagnostic(
         check=CHECK,
         what=f"No lockfile found in {recipe_dir}.",
         why=(
             "Every TypeScript recipe with dependencies must commit a lockfile "
-            "(package-lock.json) so dependency versions and hashes can be "
+            f"({_PACKAGE_LOCK_JSON}) so dependency versions and hashes can be "
             "verified for supply-chain integrity."
         ),
         how=(
-            f"Generate and commit a package-lock.json from the recipe directory:\n"
+            f"Generate and commit a {_PACKAGE_LOCK_JSON} from the recipe directory:\n"
             f"  cd {recipe_dir}\n"
-            f"  npm install --package-lock-only\n"
-            f"Commit the package-lock.json file."
+            f"  {_REGENERATE_COMMAND}\n"
+            f"Commit the {_PACKAGE_LOCK_JSON} file."
         ),
         doc=Doc.REQUIRED_FILES,
         file=target_lock,
@@ -253,6 +267,56 @@ def _get_pkg_label(pkg_path: str, pkg_info: dict) -> str:
         derived = pkg_path.rsplit("node_modules/", maxsplit=1)[-1]
         return f"{derived}@{version}" if version else derived
     return pkg_path or "<root>"
+
+
+def _check_resolved_and_integrity(
+    label: str,
+    resolved_val: object,
+    integrity_val: object,
+    lockfile: str,
+) -> list[Diagnostic]:
+    """Validate the resolved URL and integrity hash of a package entry."""
+    diagnostics: list[Diagnostic] = []
+
+    if resolved_val is not None:
+        if not isinstance(resolved_val, str):
+            diagnostics.append(
+                _shape_error(
+                    lockfile,
+                    f"{label} has a `resolved` value that is a "
+                    f"{_describe(resolved_val)}, not a string.",
+                )
+            )
+        elif resolved_val.startswith(_VCS_PREFIXES):
+            diagnostics.append(_vcs_dependency(lockfile, label, resolved_val))
+        elif resolved_val.startswith(_PATH_PREFIXES):
+            diagnostics.append(_path_dependency(lockfile, label, resolved_val))
+        elif resolved_val.startswith(("http://", "https://")):
+            if not _NPM_REGISTRY_RE.match(resolved_val):
+                diagnostics.append(
+                    _non_npm_registry(lockfile, label, resolved_val)
+                )
+            elif not integrity_val:
+                diagnostics.append(
+                    _missing_integrity(lockfile, label, resolved_val)
+                )
+            elif not isinstance(integrity_val, str) or not _is_valid_integrity(
+                integrity_val
+            ):
+                diagnostics.append(
+                    _bad_integrity(lockfile, label, str(integrity_val))
+                )
+        else:
+            diagnostics.append(_non_npm_registry(lockfile, label, resolved_val))
+    elif integrity_val is not None:
+        if not isinstance(integrity_val, str) or not _is_valid_integrity(
+            integrity_val
+        ):
+            diagnostics.append(
+                _bad_integrity(lockfile, label, str(integrity_val))
+            )
+
+    return diagnostics
 
 
 def _check_package_entry(
@@ -301,48 +365,14 @@ def _check_package_entry(
         elif ver_val.startswith(_PATH_PREFIXES):
             diagnostics.append(_path_dependency(lockfile, label, ver_val))
 
-    resolved_val = pkg_info.get("resolved")
-    if resolved_val is not None:
-        if not isinstance(resolved_val, str):
-            diagnostics.append(
-                _shape_error(
-                    lockfile,
-                    f"{label} has a `resolved` value that is a "
-                    f"{_describe(resolved_val)}, not a string.",
-                )
-            )
-        elif resolved_val.startswith(_VCS_PREFIXES):
-            diagnostics.append(_vcs_dependency(lockfile, label, resolved_val))
-        elif resolved_val.startswith(_PATH_PREFIXES):
-            diagnostics.append(_path_dependency(lockfile, label, resolved_val))
-        elif resolved_val.startswith(("http://", "https://")):
-            if not _NPM_REGISTRY_RE.match(resolved_val):
-                diagnostics.append(
-                    _non_npm_registry(lockfile, label, resolved_val)
-                )
-            else:
-                integrity_val = pkg_info.get("integrity")
-                if not integrity_val:
-                    diagnostics.append(
-                        _missing_integrity(lockfile, label, resolved_val)
-                    )
-                elif not isinstance(
-                    integrity_val, str
-                ) or not _is_valid_integrity(integrity_val):
-                    diagnostics.append(
-                        _bad_integrity(lockfile, label, str(integrity_val))
-                    )
-        else:
-            diagnostics.append(_non_npm_registry(lockfile, label, resolved_val))
-    elif "integrity" in pkg_info:
-        # No resolved URL. If integrity is present, check its format.
-        integrity_val = pkg_info["integrity"]
-        if not isinstance(integrity_val, str) or not _is_valid_integrity(
-            integrity_val
-        ):
-            diagnostics.append(
-                _bad_integrity(lockfile, label, str(integrity_val))
-            )
+    diagnostics.extend(
+        _check_resolved_and_integrity(
+            label,
+            pkg_info.get("resolved"),
+            pkg_info.get("integrity"),
+            lockfile,
+        )
+    )
 
     return diagnostics
 
@@ -380,53 +410,14 @@ def _check_v1_dependencies(
             elif ver.startswith(_PATH_PREFIXES):
                 diagnostics.append(_path_dependency(lockfile, pkg_label, ver))
 
-        resolved = info.get("resolved")
-        if resolved is not None:
-            if not isinstance(resolved, str):
-                diagnostics.append(
-                    _shape_error(
-                        lockfile,
-                        f"{pkg_label} has a `resolved` value that is a "
-                        f"{_describe(resolved)}, not a string.",
-                    )
-                )
-            elif resolved.startswith(_VCS_PREFIXES):
-                diagnostics.append(
-                    _vcs_dependency(lockfile, pkg_label, resolved)
-                )
-            elif resolved.startswith(_PATH_PREFIXES):
-                diagnostics.append(
-                    _path_dependency(lockfile, pkg_label, resolved)
-                )
-            elif resolved.startswith(("http://", "https://")):
-                if not _NPM_REGISTRY_RE.match(resolved):
-                    diagnostics.append(
-                        _non_npm_registry(lockfile, pkg_label, resolved)
-                    )
-                else:
-                    integrity = info.get("integrity")
-                    if not integrity:
-                        diagnostics.append(
-                            _missing_integrity(lockfile, pkg_label, resolved)
-                        )
-                    elif not isinstance(
-                        integrity, str
-                    ) or not _is_valid_integrity(integrity):
-                        diagnostics.append(
-                            _bad_integrity(lockfile, pkg_label, str(integrity))
-                        )
-            else:
-                diagnostics.append(
-                    _non_npm_registry(lockfile, pkg_label, resolved)
-                )
-        elif "integrity" in info:
-            integrity = info["integrity"]
-            if not isinstance(integrity, str) or not _is_valid_integrity(
-                integrity
-            ):
-                diagnostics.append(
-                    _bad_integrity(lockfile, pkg_label, str(integrity))
-                )
+        diagnostics.extend(
+            _check_resolved_and_integrity(
+                pkg_label,
+                info.get("resolved"),
+                info.get("integrity"),
+                lockfile,
+            )
+        )
 
         if "dependencies" in info:
             diagnostics.extend(
@@ -439,20 +430,10 @@ def _check_v1_dependencies(
 
 
 def _check_file(lockfile_path: Path) -> int:
-    name = lockfile_path.name
-    if name == "pnpm-lock.yaml":
+    unsupported_format = _UNSUPPORTED_FORMATS.get(lockfile_path.name)
+    if unsupported_format:
         return _report(
-            [_unsupported_format(str(lockfile_path), "pnpm (pnpm-lock.yaml)")],
-            str(lockfile_path),
-        )
-    if name == "yarn.lock":
-        return _report(
-            [_unsupported_format(str(lockfile_path), "Yarn (yarn.lock)")],
-            str(lockfile_path),
-        )
-    if name in ("bun.lockb", "bun.lock"):
-        return _report(
-            [_unsupported_format(str(lockfile_path), f"Bun ({name})")],
+            [_unsupported_format(str(lockfile_path), unsupported_format)],
             str(lockfile_path),
         )
 
@@ -576,37 +557,21 @@ def _run(target_str: str) -> int:
         )
 
     if target.is_dir():
-        pkg_lock = target / "package-lock.json"
-        shrinkwrap = target / "npm-shrinkwrap.json"
-        pnpm_lock = target / "pnpm-lock.yaml"
-        yarn_lock = target / "yarn.lock"
-        bun_lockb = target / "bun.lockb"
-        bun_lock = target / "bun.lock"
+        pkg_lock = target / _PACKAGE_LOCK_JSON
+        shrinkwrap = target / _SHRINKWRAP_JSON
 
         if pkg_lock.exists():
             return _check_file(pkg_lock)
         if shrinkwrap.exists():
             return _check_file(shrinkwrap)
-        if pnpm_lock.exists():
-            return _report(
-                [_unsupported_format(str(pnpm_lock), "pnpm (pnpm-lock.yaml)")],
-                str(pnpm_lock),
-            )
-        if yarn_lock.exists():
-            return _report(
-                [_unsupported_format(str(yarn_lock), "Yarn (yarn.lock)")],
-                str(yarn_lock),
-            )
-        if bun_lockb.exists():
-            return _report(
-                [_unsupported_format(str(bun_lockb), "Bun (bun.lockb)")],
-                str(bun_lockb),
-            )
-        if bun_lock.exists():
-            return _report(
-                [_unsupported_format(str(bun_lock), "Bun (bun.lock)")],
-                str(bun_lock),
-            )
+
+        for filename, format_label in _UNSUPPORTED_FORMATS.items():
+            candidate = target / filename
+            if candidate.exists():
+                return _report(
+                    [_unsupported_format(str(candidate), format_label)],
+                    str(candidate),
+                )
 
         pkg_json = target / "package.json"
         if pkg_json.exists():
