@@ -69,17 +69,6 @@ CI_PINNED_NODE_VERSION = 22
 
 NAMESPACED_ROOTS = {"plugins": "vertical"}
 
-PUBLIC_NPM_REGISTRIES = frozenset(
-    {
-        "https://registry.npmjs.org",
-        "https://registry.npmjs.org/",
-        "http://registry.npmjs.org",
-        "http://registry.npmjs.org/",
-        "https://registry.npmjs.com",
-        "https://registry.npmjs.com/",
-    }
-)
-
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
 
@@ -91,13 +80,16 @@ def _repo_relative_parts(
     recipe_dir: Path, repo_root: Path | None = None
 ) -> tuple[str, ...]:
     """Path segments of `recipe_dir` relative to the repository root."""
-    root = REPO_ROOT if repo_root is None else repo_root
-    if recipe_dir.is_absolute():
-        try:
-            return recipe_dir.resolve().relative_to(root.resolve()).parts
-        except ValueError:
-            return recipe_dir.parts
-    return recipe_dir.parts
+    root = (REPO_ROOT if repo_root is None else repo_root).resolve()
+    resolved_dir = (
+        (root / recipe_dir).resolve()
+        if not recipe_dir.is_absolute()
+        else recipe_dir.resolve()
+    )
+    try:
+        return resolved_dir.relative_to(root).parts
+    except ValueError:
+        return recipe_dir.parts
 
 
 def expected_project_name(
@@ -127,6 +119,8 @@ def _is_public_npm_registry(url: str) -> bool:
     cleaned = url.strip().rstrip("/")
     if not cleaned:
         return False
+    if cleaned.startswith("//"):
+        cleaned = "https:" + cleaned
     try:
         parsed = urlparse(cleaned)
         return (
@@ -189,7 +183,7 @@ def _comparator_accepts_node(
     if ver_str in ("*", "x", "X"):
         return True
 
-    maj, _, _ = _parse_semver_parts(ver_str)
+    maj, minor, _ = _parse_semver_parts(ver_str)
     if maj is None:
         return False
 
@@ -203,8 +197,8 @@ def _comparator_accepts_node(
         if maj < node_major:
             return True
         if maj == node_major:
-            # >22 means >=23 in npm semver; >22.0.0 accepts 22.x
-            return ver_str.count(".") >= 1
+            # >22 or >22.x means >=23.0.0 (excludes 22); >22.0.0 accepts 22.x
+            return minor is not None
         return False
     if op == "<=":
         return maj >= node_major
@@ -271,13 +265,36 @@ def _strip_jsonc(text: str) -> str:
             while i + 1 < n and not (text[i] == "*" and text[i + 1] == "/"):
                 i += 1
             i += 2
+        elif c == ",":
+            j = i + 1
+            is_trailing = False
+            while j < n:
+                if text[j] in " \t\r\n":
+                    j += 1
+                elif text[j] == "/" and j + 1 < n and text[j + 1] == "/":
+                    j += 2
+                    while j < n and text[j] != "\n":
+                        j += 1
+                elif text[j] == "/" and j + 1 < n and text[j + 1] == "*":
+                    j += 2
+                    while j + 1 < n and not (
+                        text[j] == "*" and text[j + 1] == "/"
+                    ):
+                        j += 1
+                    j += 2
+                elif text[j] in ("}", "]"):
+                    is_trailing = True
+                    break
+                else:
+                    break
+            if not is_trailing:
+                result.append(c)
+            i += 1
         else:
             result.append(c)
             i += 1
 
-    cleaned = "".join(result)
-    cleaned = re.sub(r",\s*([}\]])", r"\1", cleaned)
-    return cleaned
+    return "".join(result)
 
 
 # ---------------------------------------------------------------------------

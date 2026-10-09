@@ -88,6 +88,7 @@ def _run(tmp_path: Path, monkeypatch) -> int:
         ("contrib/typescript/financial-advisor", "financial-advisor"),
         ("./plugins/retail/store-ops", "retail-store-ops"),
         ("plugins/retail/store-ops", "retail-store-ops"),
+        ("core/../plugins/retail/store-ops", "retail-store-ops"),
         ("financial-advisor", "financial-advisor"),
     ],
 )
@@ -399,6 +400,8 @@ def test_missing_node_in_engines_fails(tmp_path, monkeypatch, capsys):
     [
         ">=22",
         ">=22.0.0",
+        ">22.0.0",
+        ">21",
         ">=20",
         ">=18.0.0",
         "^22.0.0",
@@ -431,6 +434,9 @@ def test_valid_engines_node_ranges_pass(node_range, tmp_path, monkeypatch):
     "node_range",
     [
         "20.x",
+        ">22.x",
+        ">22.*",
+        ">22",
         "<22",
         "<=21",
         ">=20 <22",
@@ -474,6 +480,8 @@ def test_valid_npmrc_registry_passes(tmp_path, monkeypatch):
         "# Public npm registry\n"
         "registry=https://registry.npmjs.org/\n"
         "@google:registry=https://registry.npmjs.org\n"
+        "@scoped:registry=//registry.npmjs.org/\n"
+        "@other:registry=//registry.npmjs.org\n"
         "save-exact=true\n"
     )
     _recipe(recipe_dir, package_json=pkg, npmrc=npmrc_content)
@@ -495,6 +503,24 @@ def test_custom_npmrc_registry_fails(tmp_path, monkeypatch, capsys):
     out = capsys.readouterr().out
     assert "configures a non-public npm registry" in out
     assert "https://npm.pkg.github.com/" in out
+
+
+def test_protocol_relative_custom_npmrc_registry_fails(
+    tmp_path, monkeypatch, capsys
+):
+    recipe_dir = tmp_path / "financial-advisor"
+    recipe_dir.mkdir(parents=True)
+    pkg = {
+        "name": "financial-advisor",
+        "engines": {"node": ">=22"},
+    }
+    npmrc_content = "registry=//npm.pkg.github.com/\n"
+    _recipe(recipe_dir, package_json=pkg, npmrc=npmrc_content)
+
+    assert _run(recipe_dir, monkeypatch) == EXIT_VIOLATIONS
+    out = capsys.readouterr().out
+    assert "configures a non-public npm registry" in out
+    assert "//npm.pkg.github.com/" in out
 
 
 def test_scoped_custom_npmrc_registry_fails(tmp_path, monkeypatch, capsys):
@@ -549,6 +575,7 @@ def test_valid_tsconfig_passes(tmp_path, monkeypatch):
         /* multi-line comment */
         "target": "ES2022",
         "module": "ESNext",
+        "pattern": "some, } and [foo, ] inside string",
         "types": ["node",],
       },
       "include": ["app", "tests"],
