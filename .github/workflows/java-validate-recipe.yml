@@ -13,12 +13,14 @@ on:
       - 'contrib/**'
       - 'plugins/**'
       - 'skills/**'
+      - '.agents/**'
       - '.github/workflows/java-validate-recipe.yml'
       - '.github/scripts/check_recipe_pom.py'
       - '.github/scripts/check_env_vars_java.py'
       - 'tools/affected_recipes.py'
       - 'tools/validate_manifest.py'
       - 'pyproject.toml'
+      - 'uv.lock'
   workflow_dispatch:
 
 permissions:
@@ -83,7 +85,7 @@ jobs:
           # a shared tool), validate ALL Java recipes so the new
           # configuration is applied everywhere and not only to recipes
           # touched by the same PR.
-          INFRA_CHANGED=$(echo "$CHANGED_FILES" | grep -E "^(\.github/(workflows/java-validate-recipe\.yml|scripts/(check_recipe_pom|check_env_vars_java)\.py)|tools/(affected_recipes|validate_manifest)\.py|pyproject\.toml)$" || true)
+          INFRA_CHANGED=$(echo "$CHANGED_FILES" | grep -E "^(\.github/(workflows/java-validate-recipe\.yml|scripts/(check_recipe_pom|check_env_vars_java)\.py)|tools/(affected_recipes|validate_manifest)\.py|pyproject\.toml|uv\.lock)$" || true)
           if [ -n "$INFRA_CHANGED" ]; then
             echo "Workflow or Java-specific tool changed — validating all Java recipes."
             echo "validate_all=true" >> "$GITHUB_OUTPUT"
