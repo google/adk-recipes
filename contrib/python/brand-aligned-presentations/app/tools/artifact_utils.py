@@ -15,6 +15,8 @@
 import asyncio
 import os
 import tempfile
+import zipfile
+from pathlib import Path
 from typing import Any
 
 from google.adk.tools.tool_context import ToolContext
@@ -147,14 +149,28 @@ async def save_presentation(
     """
     log = get_logger("save_presentation")
     try:
-        if not local_path or not os.path.exists(local_path):
+        if not local_path or not os.path.isfile(local_path):
             return f"Error: The local file at '{local_path}' does not exist."
+
+        resolved_path = Path(local_path).resolve()
+        allowed_dirs = [
+            Path(tempfile.gettempdir()).resolve(),
+            Path.cwd().resolve(),
+        ]
+        if not any(resolved_path.is_relative_to(d) for d in allowed_dirs):
+            return f"Error: Access to path '{local_path}' is outside allowed directories."
+
+        if not local_path.lower().endswith(".pptx"):
+            return f"Error: '{local_path}' is not a presentation (.pptx) file."
+
+        if not zipfile.is_zipfile(resolved_path):
+            return f"Error: '{local_path}' is not a valid presentation (.pptx) file."
 
         if not new_artifact_name.lower().endswith(".pptx"):
             new_artifact_name += ".pptx"
 
         # 1. Save to ADK Artifact Store
-        with open(local_path, "rb") as f:
+        with open(resolved_path, "rb") as f:
             file_bytes = f.read()
             ppt_artifact = types.Part(
                 inline_data=types.Blob(
@@ -178,7 +194,7 @@ async def save_presentation(
                 bucket = storage_client.bucket(gcs_bucket_name)
                 blob = bucket.blob(new_artifact_name)
                 # Run sync GCS upload in a thread
-                await asyncio.to_thread(blob.upload_from_filename, local_path)
+                await asyncio.to_thread(blob.upload_from_filename, str(resolved_path))
                 gcs_message = (
                     f" It was also saved to GCS bucket '{gcs_bucket_name}'."
                 )
