@@ -329,7 +329,10 @@ jobs:
                   exit 1
                 fi
               elif [ -f "package.json" ]; then
-                echo "::error file=$dir::No lockfile found in $dir. Add a lockfile (package-lock.json, pnpm-lock.yaml, yarn.lock, bun.lockb, or bun.lock) to the project by running your package manager's install/lock command."
+                echo "::error file=$dir::No lockfile found in $dir. Add a lockfile (package-lock.json, pnpm-lock.yaml, yarn.lock, bun.lockb, or bun.lock) to the recipe by running your package manager's install/lock command."
+                exit 1
+              else
+                echo "::error file=$dir::No package.json found in $dir."
                 exit 1
               fi
               npx tsc --noEmit
