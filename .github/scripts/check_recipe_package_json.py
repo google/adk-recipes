@@ -231,6 +231,25 @@ def accepts_node_version(
     return False
 
 
+def _skip_whitespace_and_comments(text: str, i: int, n: int) -> int:
+    """Skip whitespace and JSONC comments starting from index i."""
+    while i < n:
+        if text[i] in " \t\r\n":
+            i += 1
+        elif text[i] == "/" and i + 1 < n and text[i + 1] == "/":
+            i += 2
+            while i < n and text[i] != "\n":
+                i += 1
+        elif text[i] == "/" and i + 1 < n and text[i + 1] == "*":
+            i += 2
+            while i + 1 < n and not (text[i] == "*" and text[i + 1] == "/"):
+                i += 1
+            i += 2
+        else:
+            break
+    return i
+
+
 def _strip_jsonc(text: str) -> str:
     """Strip comments and trailing commas from JSON with comments (JSONC)."""
     result: list[str] = []
@@ -256,38 +275,11 @@ def _strip_jsonc(text: str) -> str:
             string_char = c
             result.append(c)
             i += 1
-        elif c == "/" and i + 1 < n and text[i + 1] == "/":
-            i += 2
-            while i < n and text[i] != "\n":
-                i += 1
-        elif c == "/" and i + 1 < n and text[i + 1] == "*":
-            i += 2
-            while i + 1 < n and not (text[i] == "*" and text[i + 1] == "/"):
-                i += 1
-            i += 2
+        elif c == "/" and i + 1 < n and text[i + 1] in ("/", "*"):
+            i = _skip_whitespace_and_comments(text, i, n)
         elif c == ",":
-            j = i + 1
-            is_trailing = False
-            while j < n:
-                if text[j] in " \t\r\n":
-                    j += 1
-                elif text[j] == "/" and j + 1 < n and text[j + 1] == "/":
-                    j += 2
-                    while j < n and text[j] != "\n":
-                        j += 1
-                elif text[j] == "/" and j + 1 < n and text[j + 1] == "*":
-                    j += 2
-                    while j + 1 < n and not (
-                        text[j] == "*" and text[j + 1] == "/"
-                    ):
-                        j += 1
-                    j += 2
-                elif text[j] in ("}", "]"):
-                    is_trailing = True
-                    break
-                else:
-                    break
-            if not is_trailing:
+            next_idx = _skip_whitespace_and_comments(text, i + 1, n)
+            if next_idx >= n or text[next_idx] not in ("}", "]"):
                 result.append(c)
             i += 1
         else:
