@@ -250,6 +250,8 @@ skills-lock.json
 /ge-tool-call-wire-sample.json
 
 # Runtime + tooling artifacts (never source)
+# `agents-cli eval` writes traces + grade results here.
+artifacts/
 lha-skills-mirror/
 pytest-of-*/
 .eval-review/

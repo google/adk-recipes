@@ -1,0 +1,401 @@
+{
+  "description": "Behavioral evals for the model's tool-picking judgment across the SURVIVING root_agent roster (after scaffold cleanup). The roster this evalset commits to: bash, read, write, edit, search_files, memory, google_search. (PreloadMemoryTool is auto-wired before each turn and is not directly callable by the model, so it is not graded here.) The scaffold-provided sample tools `get_weather` and `get_current_time` are deliberately NOT exercised here \u2014 grading against tools we are cutting would lock in noise. Each case grades two axes via rubrics: (a) the RIGHT tool is chosen (named explicitly), and (b) a specific WRONG tool is NOT chosen (the trap the case targets). For tool-using cases a third anti-fabrication rubric is added where applicable. Arg VALUES are deliberately NOT graded \u2014 they are too LLM-dependent \u2014 with one exception: the `scope` arg of `memory` is a discrete typed choice ('user' vs 'agent') and IS pinned. NOTE: project eval_config.json grades via rubric_based_final_response_quality_v1 only (no tool_trajectory_avg_score), so 'right tool / not the wrong tool' assertions are encoded via rubric text reading the model's final response and any tool calls observable in it. The intermediate_data.tool_uses field is included as declarative documentation of the expected trajectory. Traps covered: (1) local-tool-vs-web-search for repo listing, (2) local-file-read-vs-web-search for code Q&A, (3) no-tool-for-knowledge-question, (4) durable-preference-picks-memory, (5) web-search-IS-correct-for-current-events, (6) bash-vs-fabrication for command execution.",
+  "eval_cases": [
+    {
+      "eval_case_id": "list_directory_picks_local_tool_not_web_search",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "List the files in app/tools."
+          }
+        ]
+      },
+      "rubric_groups": {
+        "horizon": {
+          "group_id": "horizon",
+          "rubrics": [
+            {
+              "rubric_id": "tool_picks_local_listing",
+              "content": {
+                "property": {
+                  "description": "The response is produced by calling either `search_files` (with a glob like `**` or `*` rooted at `app/tools`) or `bash` (with a command like `ls app/tools` or `ls -la app/tools`). Both are acceptable for a directory listing \u2014 the rubric grades that the model picked a LOCAL tool, not which of the two. A response that uses one of these passes."
+                }
+              }
+            },
+            {
+              "rubric_id": "tool_does_not_use_google_search_for_local_listing",
+              "content": {
+                "property": {
+                  "description": "The response does NOT invoke `google_search` for this question. The user's own repo cannot be listed via web search \u2014 reaching for `google_search` to enumerate local files is exactly the trap this case targets. Any FunctionCall to `google_search` fails this rubric."
+                }
+              }
+            },
+            {
+              "rubric_id": "tool_does_not_fabricate_directory_contents",
+              "content": {
+                "property": {
+                  "description": "The response does NOT fabricate filenames in `app/tools` without an actual local tool call. Inventing a plausible list ('file_ops.py, terminal.py, ...') with no `search_files` or `bash` invocation fails \u2014 the model must consult the filesystem, not guess."
+                }
+              }
+            },
+            {
+              "rubric_id": "relevance",
+              "content": {
+                "property": {
+                  "description": "The response addresses what the user is asking and does not fabricate. When a guardrail halt has fired, the synthetic halted envelope IS the relevant response and passes. Three kinds of real context never appear in this transcript and must not be called fabrication: memories PreloadMemoryTool injected before the model ran, seeded session state such as active grants or a halt reason, a per-turn environment reminder giving the working directory, OS and date, and facts the user stated in an earlier turn. Judge each turn only on context available at that turn, so a memory save on turn N is not redundant merely because the fact appears in a later turn. Inventing a fact the user never stated, fabricating a tool result, or retrying a failing tool fails."
+                }
+              }
+            },
+            {
+              "rubric_id": "helpfulness",
+              "content": {
+                "property": {
+                  "description": "The response is useful given the real constraints of the turn. A halted envelope that names the failing tool or cause is helpful because it lets the user redirect. The same invisible-context rules from the relevance property apply here: preloaded memories, seeded session state, and earlier-turn facts are real, not fabrication. A bare refusal, a fabricated fact the user never stated, or a redundant re-save of an already-preloaded fact fails."
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "eval_case_id": "read_file_question_picks_read_file_not_web_search",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "What does the file app/agent.py do?"
+          }
+        ]
+      },
+      "rubric_groups": {
+        "horizon": {
+          "group_id": "horizon",
+          "rubrics": [
+            {
+              "rubric_id": "tool_picks_read_file_for_local_file_question",
+              "content": {
+                "property": {
+                  "description": "The response is produced by calling the `read` tool with `app/agent.py` as the path argument. The user is asking about a specific local file in the repo \u2014 `read` is the purpose-built tool for that. A response that invokes `read('app/agent.py')` (with or without an absolute path prefix) passes."
+                }
+              }
+            },
+            {
+              "rubric_id": "tool_does_not_use_google_search_for_local_file_question",
+              "content": {
+                "property": {
+                  "description": "The response does NOT invoke `google_search` for this question. The user's own file cannot be answered by web search \u2014 `app/agent.py` is private to this repo, not indexed publicly. Any FunctionCall to `google_search` fails this rubric."
+                }
+              }
+            },
+            {
+              "rubric_id": "tool_does_not_fabricate_file_contents_for_explanation",
+              "content": {
+                "property": {
+                  "description": "The response does NOT explain what `app/agent.py` does by inventing plausible-sounding contents without actually calling `read`. Producing a confident-sounding 'it defines the root_agent with these tools...' summary with no tool call fails \u2014 the model must actually read the file."
+                }
+              }
+            },
+            {
+              "rubric_id": "relevance",
+              "content": {
+                "property": {
+                  "description": "The response addresses what the user is asking and does not fabricate. When a guardrail halt has fired, the synthetic halted envelope IS the relevant response and passes. Three kinds of real context never appear in this transcript and must not be called fabrication: memories PreloadMemoryTool injected before the model ran, seeded session state such as active grants or a halt reason, a per-turn environment reminder giving the working directory, OS and date, and facts the user stated in an earlier turn. Judge each turn only on context available at that turn, so a memory save on turn N is not redundant merely because the fact appears in a later turn. Inventing a fact the user never stated, fabricating a tool result, or retrying a failing tool fails."
+                }
+              }
+            },
+            {
+              "rubric_id": "helpfulness",
+              "content": {
+                "property": {
+                  "description": "The response is useful given the real constraints of the turn. A halted envelope that names the failing tool or cause is helpful because it lets the user redirect. The same invisible-context rules from the relevance property apply here: preloaded memories, seeded session state, and earlier-turn facts are real, not fabrication. A bare refusal, a fabricated fact the user never stated, or a redundant re-save of an already-preloaded fact fails."
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "eval_case_id": "knowledge_question_picks_no_tool",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "Why does a Python script raise ImportError when running a module that exists?"
+          }
+        ]
+      },
+      "rubric_groups": {
+        "horizon": {
+          "group_id": "horizon",
+          "rubrics": [
+            {
+              "rubric_id": "tool_answers_knowledge_question_directly",
+              "content": {
+                "property": {
+                  "description": "The response answers the conceptual question directly from the model's own knowledge, without invoking ANY tool. This is a general Python knowledge question (covers sys.path, __init__.py, circular imports, virtualenv issues, namespace packages, etc.) \u2014 it does not require running code, reading the user's files, or searching the web. Any FunctionCall in the response fails this rubric."
+                }
+              }
+            },
+            {
+              "rubric_id": "tool_does_not_use_terminal_for_knowledge_question",
+              "content": {
+                "property": {
+                  "description": "The response specifically does NOT invoke `bash` to run a Python command or shell command. The user did not provide a specific script or environment \u2014 there is nothing to actually execute. Spawning `python -c '...'` to 'reproduce' a hypothetical error fails."
+                }
+              }
+            },
+            {
+              "rubric_id": "relevance",
+              "content": {
+                "property": {
+                  "description": "The response addresses what the user is asking and does not fabricate. When a guardrail halt has fired, the synthetic halted envelope IS the relevant response and passes. Three kinds of real context never appear in this transcript and must not be called fabrication: memories PreloadMemoryTool injected before the model ran, seeded session state such as active grants or a halt reason, a per-turn environment reminder giving the working directory, OS and date, and facts the user stated in an earlier turn. Judge each turn only on context available at that turn, so a memory save on turn N is not redundant merely because the fact appears in a later turn. Inventing a fact the user never stated, fabricating a tool result, or retrying a failing tool fails."
+                }
+              }
+            },
+            {
+              "rubric_id": "helpfulness",
+              "content": {
+                "property": {
+                  "description": "The response is useful given the real constraints of the turn. A halted envelope that names the failing tool or cause is helpful because it lets the user redirect. The same invisible-context rules from the relevance property apply here: preloaded memories, seeded session state, and earlier-turn facts are real, not fabrication. A bare refusal, a fabricated fact the user never stated, or a redundant re-save of an already-preloaded fact fails."
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "eval_case_id": "durable_preference_picks_add_memory",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "Remember that I prefer concise answers."
+          }
+        ]
+      },
+      "rubric_groups": {
+        "horizon": {
+          "group_id": "horizon",
+          "rubrics": [
+            {
+              "rubric_id": "tool_picks_add_memory_for_preference",
+              "content": {
+                "property": {
+                  "description": "The response invokes the `memory` tool to persist the user's preference for concise answers. The agent's instruction explicitly says: 'when you learn something durable, call memory to save it (scope=\"user\" for facts about who the user is)'. A response that just acknowledges in text ('Got it, I'll be concise!') without calling `memory` fails \u2014 that preference would be lost across sessions."
+                }
+              }
+            },
+            {
+              "rubric_id": "tool_add_memory_uses_user_scope_for_preference",
+              "content": {
+                "property": {
+                  "description": "The `memory` call passes `scope='user'` (not 'agent'). A preference about communication style is a fact ABOUT the user, not a self-note for the agent. If the call uses `scope='agent'` or omits the scope (defaulting to 'agent'), the rubric fails. This is the ONE arg value this evalset pins, because scope is a discrete typed choice."
+                }
+              }
+            },
+            {
+              "rubric_id": "relevance",
+              "content": {
+                "property": {
+                  "description": "The response addresses what the user is asking and does not fabricate. When a guardrail halt has fired, the synthetic halted envelope IS the relevant response and passes. Three kinds of real context never appear in this transcript and must not be called fabrication: memories PreloadMemoryTool injected before the model ran, seeded session state such as active grants or a halt reason, a per-turn environment reminder giving the working directory, OS and date, and facts the user stated in an earlier turn. Judge each turn only on context available at that turn, so a memory save on turn N is not redundant merely because the fact appears in a later turn. Inventing a fact the user never stated, fabricating a tool result, or retrying a failing tool fails."
+                }
+              }
+            },
+            {
+              "rubric_id": "helpfulness",
+              "content": {
+                "property": {
+                  "description": "The response is useful given the real constraints of the turn. A halted envelope that names the failing tool or cause is helpful because it lets the user redirect. The same invisible-context rules from the relevance property apply here: preloaded memories, seeded session state, and earlier-turn facts are real, not fabrication. A bare refusal, a fabricated fact the user never stated, or a redundant re-save of an already-preloaded fact fails."
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "eval_case_id": "current_events_picks_google_search",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "What's the latest version of the google-adk package on PyPI?"
+          }
+        ]
+      },
+      "rubric_groups": {
+        "horizon": {
+          "group_id": "horizon",
+          "rubrics": [
+            {
+              "rubric_id": "tool_picks_google_search_for_current_events",
+              "content": {
+                "property": {
+                  "description": "The response invokes the `google_search` tool with a query that references google-adk and PyPI (e.g. 'google-adk pypi latest version', 'google-adk package version'). 'Latest version on PyPI' is a current-events question \u2014 the model cannot know the answer from its training cutoff and must consult the web. A response that invokes `google_search` here passes."
+                }
+              }
+            },
+            {
+              "rubric_id": "tool_does_not_use_local_tools_for_pypi_version",
+              "content": {
+                "property": {
+                  "description": "The response does NOT invoke `read` (e.g. trying to read a local `pyproject.toml` or `uv.lock`) or `bash` (e.g. `pip show google-adk`, `uv pip show google-adk`) to answer this question. The user asked about PyPI's current latest version \u2014 not what's installed locally, and not what's pinned in the repo. Reaching for a local tool for a 'what's on PyPI right now' question gives the wrong answer."
+                }
+              }
+            },
+            {
+              "rubric_id": "tool_does_not_fabricate_pypi_version",
+              "content": {
+                "property": {
+                  "description": "The response does NOT state a specific version number ('1.15.0', '0.5.2', etc.) without an actual `google_search` call surfacing it. The model's training cutoff makes any specific version it confidently states without a web lookup likely to be stale."
+                }
+              }
+            },
+            {
+              "rubric_id": "relevance",
+              "content": {
+                "property": {
+                  "description": "The response addresses what the user is asking and does not fabricate. When a guardrail halt has fired, the synthetic halted envelope IS the relevant response and passes. Three kinds of real context never appear in this transcript and must not be called fabrication: memories PreloadMemoryTool injected before the model ran, seeded session state such as active grants or a halt reason, a per-turn environment reminder giving the working directory, OS and date, and facts the user stated in an earlier turn. Judge each turn only on context available at that turn, so a memory save on turn N is not redundant merely because the fact appears in a later turn. Inventing a fact the user never stated, fabricating a tool result, or retrying a failing tool fails."
+                }
+              }
+            },
+            {
+              "rubric_id": "helpfulness",
+              "content": {
+                "property": {
+                  "description": "The response is useful given the real constraints of the turn. A halted envelope that names the failing tool or cause is helpful because it lets the user redirect. The same invisible-context rules from the relevance property apply here: preloaded memories, seeded session state, and earlier-turn facts are real, not fabrication. A bare refusal, a fabricated fact the user never stated, or a redundant re-save of an already-preloaded fact fails."
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "eval_case_id": "two_edits_same_file_folded_into_one_call",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "In /tmp/lha_double_edit_probe.txt, change the word 'alpha' to 'beta' and also change the word 'gamma' to 'delta'. Both substrings are unique in the file."
+          }
+        ]
+      },
+      "rubric_groups": {
+        "horizon": {
+          "group_id": "horizon",
+          "rubrics": [
+            {
+              "rubric_id": "no_double_patch_on_same_file_in_one_turn",
+              "content": {
+                "property": {
+                  "description": "The response contains AT MOST ONE write operation against /tmp/lha_double_edit_probe.txt in this single turn. Acceptable patterns: (a) one `read` followed by one `write` with both substitutions baked into the new content; (b) one `edit` call that handles both changes (only possible if both substrings collapse to a shared anchor \u2014 not the case here). Producing TWO separate `edit` FunctionCalls against the same path in the same response fails \u2014 that is exactly the no-double-edit rule the safety guidance forbids. The reason: the second edit reasons over stale content the model assembled before the first edit landed. Read once, change once."
+                }
+              }
+            },
+            {
+              "rubric_id": "edits_actually_planned_via_read_first",
+              "content": {
+                "property": {
+                  "description": "Before producing the write, the response either calls `read` against /tmp/lha_double_edit_probe.txt OR uses a single `edit` call. A turn that calls `write` blindly without ever reading the existing file fails \u2014 that would overwrite whatever else is in the file. A turn that calls `read` then `write` (with the folded edits) passes. A turn that uses a single `edit` invocation also passes (the edit tool reads internally)."
+                }
+              }
+            },
+            {
+              "rubric_id": "relevance",
+              "content": {
+                "property": {
+                  "description": "The response addresses what the user is asking and does not fabricate. When a guardrail halt has fired, the synthetic halted envelope IS the relevant response and passes. Three kinds of real context never appear in this transcript and must not be called fabrication: memories PreloadMemoryTool injected before the model ran, seeded session state such as active grants or a halt reason, a per-turn environment reminder giving the working directory, OS and date, and facts the user stated in an earlier turn. Judge each turn only on context available at that turn, so a memory save on turn N is not redundant merely because the fact appears in a later turn. Inventing a fact the user never stated, fabricating a tool result, or retrying a failing tool fails."
+                }
+              }
+            },
+            {
+              "rubric_id": "helpfulness",
+              "content": {
+                "property": {
+                  "description": "The response is useful given the real constraints of the turn. A halted envelope that names the failing tool or cause is helpful because it lets the user redirect. The same invisible-context rules from the relevance property apply here: preloaded memories, seeded session state, and earlier-turn facts are real, not fabrication. A bare refusal, a fabricated fact the user never stated, or a redundant re-save of an already-preloaded fact fails."
+                }
+              }
+            }
+          ]
+        }
+      },
+      "expected_tool_uses": [
+        {
+          "name": "read",
+          "args": {
+            "path": "/tmp/lha_double_edit_probe.txt"
+          }
+        },
+        {
+          "name": "write",
+          "args": {
+            "path": "/tmp/lha_double_edit_probe.txt"
+          }
+        }
+      ]
+    },
+    {
+      "eval_case_id": "run_command_picks_terminal_not_fakery",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "Run `pytest -q` and report the results."
+          }
+        ]
+      },
+      "rubric_groups": {
+        "horizon": {
+          "group_id": "horizon",
+          "rubrics": [
+            {
+              "rubric_id": "tool_picks_terminal_for_run_command",
+              "content": {
+                "property": {
+                  "description": "The response invokes the `bash` tool with a command that runs pytest (e.g. `pytest -q`, `uv run pytest -q`). The user explicitly asked to RUN a command \u2014 `bash` is the only tool capable of doing that. A response that invokes `bash` with a pytest invocation passes."
+                }
+              }
+            },
+            {
+              "rubric_id": "tool_does_not_fabricate_pytest_output",
+              "content": {
+                "property": {
+                  "description": "The response does NOT invent pytest output (passing test counts, traceback excerpts, '5 passed in 0.42s', etc.) without an actual `bash` call surfacing it. Reporting results the model imagined \u2014 without ever invoking `bash` \u2014 is the trap this case targets. The model MUST actually run the command, not perform 'code-execution-fakery'."
+                }
+              }
+            },
+            {
+              "rubric_id": "tool_does_not_use_unrelated_tools_for_run_command",
+              "content": {
+                "property": {
+                  "description": "The response does NOT invoke `google_search` (e.g. 'pytest -q output format'), `read` (e.g. reading test files to predict what would happen), or any other non-execution tool in place of actually running the command. The user asked for execution; substituting any other tool fails."
+                }
+              }
+            },
+            {
+              "rubric_id": "relevance",
+              "content": {
+                "property": {
+                  "description": "The response addresses what the user is asking and does not fabricate. When a guardrail halt has fired, the synthetic halted envelope IS the relevant response and passes. Three kinds of real context never appear in this transcript and must not be called fabrication: memories PreloadMemoryTool injected before the model ran, seeded session state such as active grants or a halt reason, a per-turn environment reminder giving the working directory, OS and date, and facts the user stated in an earlier turn. Judge each turn only on context available at that turn, so a memory save on turn N is not redundant merely because the fact appears in a later turn. Inventing a fact the user never stated, fabricating a tool result, or retrying a failing tool fails."
+                }
+              }
+            },
+            {
+              "rubric_id": "helpfulness",
+              "content": {
+                "property": {
+                  "description": "The response is useful given the real constraints of the turn. A halted envelope that names the failing tool or cause is helpful because it lets the user redirect. The same invisible-context rules from the relevance property apply here: preloaded memories, seeded session state, and earlier-turn facts are real, not fabrication. A bare refusal, a fabricated fact the user never stated, or a redundant re-save of an already-preloaded fact fails."
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

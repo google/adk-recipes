@@ -1,0 +1,89 @@
+{
+  "description": "Sample evaluation set for testing core agent functionality. Customize these cases to match your agent's actual capabilities.",
+  "eval_cases": [
+    {
+      "eval_case_id": "greeting",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "Hello, what can you help me with?"
+          }
+        ]
+      },
+      "rubric_groups": {
+        "horizon": {
+          "group_id": "horizon",
+          "rubrics": [
+            {
+              "rubric_id": "greeting_conversational_reply",
+              "content": {
+                "property": {
+                  "description": "The response is a conversational reply that introduces the agent's capabilities to the user. Plain text describing what the agent can help with passes. A bare reflexive acknowledgement ('Hi!') with no description of capabilities fails."
+                }
+              }
+            },
+            {
+              "rubric_id": "greeting_no_tool_calls",
+              "content": {
+                "property": {
+                  "description": "The response does NOT invoke any tool. A greeting or open-ended 'what can you help with' is small talk \u2014 the agent should reply conversationally instead of reaching for `bash`, `read`, `web_search`, or any other tool to inspect the environment. Any FunctionCall in the response fails this rubric (this pins the system-prompt gate that tells the agent not to run tools unprompted)."
+                }
+              }
+            },
+            {
+              "rubric_id": "relevance",
+              "content": {
+                "property": {
+                  "description": "The response addresses what the user is asking and does not fabricate. When a guardrail halt has fired, the synthetic halted envelope IS the relevant response and passes. Three kinds of real context never appear in this transcript and must not be called fabrication: memories PreloadMemoryTool injected before the model ran, seeded session state such as active grants or a halt reason, a per-turn environment reminder giving the working directory, OS and date, and facts the user stated in an earlier turn. Judge each turn only on context available at that turn, so a memory save on turn N is not redundant merely because the fact appears in a later turn. Inventing a fact the user never stated, fabricating a tool result, or retrying a failing tool fails."
+                }
+              }
+            },
+            {
+              "rubric_id": "helpfulness",
+              "content": {
+                "property": {
+                  "description": "The response is useful given the real constraints of the turn. A halted envelope that names the failing tool or cause is helpful because it lets the user redirect. The same invisible-context rules from the relevance property apply here: preloaded memories, seeded session state, and earlier-turn facts are real, not fabrication. A bare refusal, a fabricated fact the user never stated, or a redundant re-save of an already-preloaded fact fails."
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "eval_case_id": "weather_query",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "What's the weather like in San Francisco?"
+          }
+        ]
+      },
+      "rubric_groups": {
+        "horizon": {
+          "group_id": "horizon",
+          "rubrics": [
+            {
+              "rubric_id": "relevance",
+              "content": {
+                "property": {
+                  "description": "The response addresses what the user is asking and does not fabricate. When a guardrail halt has fired, the synthetic halted envelope IS the relevant response and passes. Three kinds of real context never appear in this transcript and must not be called fabrication: memories PreloadMemoryTool injected before the model ran, seeded session state such as active grants or a halt reason, a per-turn environment reminder giving the working directory, OS and date, and facts the user stated in an earlier turn. Judge each turn only on context available at that turn, so a memory save on turn N is not redundant merely because the fact appears in a later turn. Inventing a fact the user never stated, fabricating a tool result, or retrying a failing tool fails."
+                }
+              }
+            },
+            {
+              "rubric_id": "helpfulness",
+              "content": {
+                "property": {
+                  "description": "The response is useful given the real constraints of the turn. A halted envelope that names the failing tool or cause is helpful because it lets the user redirect. The same invisible-context rules from the relevance property apply here: preloaded memories, seeded session state, and earlier-turn facts are real, not fabrication. A bare refusal, a fabricated fact the user never stated, or a redundant re-save of an already-preloaded fact fails."
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  ]
+}
