@@ -1,0 +1,17 @@
+type: "standalone"
+status: "active"
+language: "python"
+description: "Visual quality assurance agent that evaluates images against a strictly defined JSON scoring rubric."
+large: true
+
+architecture:
+  agent: "single"
+  stateful: false
+  datasources:
+    - "local"
+
+ownership:
+  team: "community"
+  poc: "honeyn"
+
+license: "Apache-2.0"
