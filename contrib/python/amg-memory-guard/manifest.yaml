@@ -1,0 +1,27 @@
+type: "standalone"
+status: "active"
+language: "python"
+description: "A Google ADK recipe that screens external observations before they are committed to durable session state."
+
+architecture:
+  agent: "single"
+  stateful: true
+  datasources:
+    - "hardcoded"
+
+dependencies:
+  libraries:
+    - "Google ADK"
+    - "OWASP Agent Memory Guard"
+
+ownership:
+  team: "community"
+  poc: "vgudur-dev"
+
+tags:
+  - "security"
+  - "memory"
+  - "guardrails"
+  - "agentic-ai"
+
+license: "Apache-2.0"
