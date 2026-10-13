@@ -1,3 +1,17 @@
+// Copyright 2026 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 import {
   Card,
   CardContent,
@@ -22,6 +36,7 @@ import ReactMarkdown from "react-markdown";
 
 export interface ProcessedEvent {
   title: string;
+  // biome-ignore lint/suspicious/noExplicitAny: event payload is dynamic
   data: any;
 }
 
@@ -39,28 +54,37 @@ export function ActivityTimeline({
   const [isTimelineCollapsed, setIsTimelineCollapsed] =
     useState<boolean>(false);
 
+  // biome-ignore lint/suspicious/noExplicitAny: event payload is dynamic
   const formatEventData = (data: any): string => {
     // Handle new structured data types
     if (typeof data === "object" && data !== null && data.type) {
       switch (data.type) {
-        case 'functionCall':
+        case "functionCall":
           return `Calling function: ${data.name}\nArguments: ${JSON.stringify(data.args, null, 2)}`;
-        case 'functionResponse':
+        case "functionResponse":
           return `Function ${data.name} response:\n${JSON.stringify(data.response, null, 2)}`;
-        case 'text':
+        case "text":
           return data.content;
-        case 'sources':
-          const sources = data.content as Record<string, { title: string; url: string }>;
+        case "sources": {
+          const sources = data.content as Record<
+            string,
+            { title: string; url: string }
+          >;
           if (Object.keys(sources).length === 0) {
             return "No sources found.";
           }
           return Object.values(sources)
-            .map(source => `[${source.title || 'Untitled Source'}](${source.url})`).join(', ');
+            .map(
+              (source) =>
+                `[${source.title || "Untitled Source"}](${source.url})`,
+            )
+            .join(", ");
+        }
         default:
           return JSON.stringify(data, null, 2);
       }
     }
-    
+
     // Existing logic for backward compatibility
     if (typeof data === "string") {
       // Try to parse as JSON first
@@ -79,15 +103,16 @@ export function ActivityTimeline({
     return String(data);
   };
 
+  // biome-ignore lint/suspicious/noExplicitAny: event payload is dynamic
   const isJsonData = (data: any): boolean => {
     // Handle new structured data types
     if (typeof data === "object" && data !== null && data.type) {
-      if (data.type === 'sources') {
+      if (data.type === "sources") {
         return false; // Let ReactMarkdown handle this
       }
-      return data.type === 'functionCall' || data.type === 'functionResponse';
+      return data.type === "functionCall" || data.type === "functionResponse";
     }
-    
+
     // Existing logic
     if (typeof data === "string") {
       try {
@@ -129,11 +154,14 @@ export function ActivityTimeline({
     }
   }, [isLoading, processedEvents]);
   return (
-    <Card className={`border-none rounded-lg bg-neutral-700 ${isTimelineCollapsed ? "h-10 py-2" : "max-h-96 py-2"}`}>
+    <Card
+      className={`border-none rounded-lg bg-neutral-700 ${isTimelineCollapsed ? "h-10 py-2" : "max-h-96 py-2"}`}
+    >
       <CardHeader className="py-0">
         <CardDescription className="flex items-center justify-between">
-          <div
-            className="flex items-center justify-start text-sm w-full cursor-pointer gap-2 text-neutral-100"
+          <button
+            type="button"
+            className="flex items-center justify-start text-sm w-full cursor-pointer gap-2 text-neutral-100 bg-transparent border-0 p-0 text-left"
             onClick={() => setIsTimelineCollapsed(!isTimelineCollapsed)}
           >
             <span>Research</span>
@@ -147,7 +175,7 @@ export function ActivityTimeline({
             ) : (
               <ChevronUp className="h-4 w-4 mr-2" />
             )}
-          </div>
+          </button>
         </CardDescription>
       </CardHeader>
       {!isTimelineCollapsed && (
@@ -169,6 +197,7 @@ export function ActivityTimeline({
             {processedEvents.length > 0 ? (
               <div className="space-y-0">
                 {processedEvents.map((eventItem, index) => (
+                  // biome-ignore lint/suspicious/noArrayIndexKey: events are append-only without unique IDs
                   <div key={index} className="relative pl-8 pb-4">
                     {index < processedEvents.length - 1 ||
                     (isLoading && index === processedEvents.length - 1) ? (
