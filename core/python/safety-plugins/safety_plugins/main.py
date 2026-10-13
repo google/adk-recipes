@@ -58,31 +58,31 @@ async def main():
         print("No plugin activated.")
 
     # Initialize plugins based on the command-line argument.
-    runner = InMemoryRunner(
+    async with InMemoryRunner(
         agent=root_agent,
         app_name=APP_NAME,
         plugins=plugins,
-    )
-    session = await runner.session_service.create_session(
-        user_id=USER_ID,
-        app_name=APP_NAME,
-    )
-
-    user_input = input(f"[{USER_ID}]: ")
-
-    while user_input != "exit":
-        author, message = await util.run_prompt(
-            USER_ID,
-            APP_NAME,
-            runner,
-            types.Content(
-                role="user", parts=[types.Part.from_text(text=user_input)]
-            ),
-            session_id=session.id,
+    ) as runner:
+        session = await runner.session_service.create_session(
+            user_id=USER_ID,
+            app_name=APP_NAME,
         )
-        print(f"[{author}]: {message}")
 
         user_input = input(f"[{USER_ID}]: ")
+
+        while user_input != "exit":
+            author, message = await util.run_prompt(
+                USER_ID,
+                APP_NAME,
+                runner,
+                types.Content(
+                    role="user", parts=[types.Part.from_text(text=user_input)]
+                ),
+                session_id=session.id,
+            )
+            print(f"[{author}]: {message}")
+
+            user_input = input(f"[{USER_ID}]: ")
 
 
 if __name__ == "__main__":
