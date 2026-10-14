@@ -13,8 +13,8 @@
 # limitations under the License.
 
 import asyncio
-import os
 import tempfile
+from pathlib import Path
 from typing import Any
 
 from google.adk.tools.tool_context import ToolContext
@@ -147,14 +147,22 @@ async def save_presentation(
     """
     log = get_logger("save_presentation")
     try:
-        if not local_path or not os.path.exists(local_path):
-            return f"Error: The local file at '{local_path}' does not exist."
+        if not local_path:
+            return "Error: No local file path provided."
+
+        base_dir = Path.cwd().resolve()
+        target_path = Path(local_path).resolve()
+        if not target_path.is_relative_to(base_dir):
+            return f"Error: Access denied: '{local_path}' is outside the allowed directory."
+
+        if not target_path.is_file():
+            return f"Error: The local file at '{local_path}' does not exist or is not a file."
 
         if not new_artifact_name.lower().endswith(".pptx"):
             new_artifact_name += ".pptx"
 
         # 1. Save to ADK Artifact Store
-        with open(local_path, "rb") as f:
+        with open(target_path, "rb") as f:
             file_bytes = f.read()
             ppt_artifact = types.Part(
                 inline_data=types.Blob(
@@ -177,8 +185,12 @@ async def save_presentation(
 
                 bucket = storage_client.bucket(gcs_bucket_name)
                 blob = bucket.blob(new_artifact_name)
-                # Run sync GCS upload in a thread
-                await asyncio.to_thread(blob.upload_from_filename, local_path)
+                # Upload already-read file_bytes to GCS in a thread to prevent TOCTOU
+                await asyncio.to_thread(
+                    blob.upload_from_string,
+                    file_bytes,
+                    content_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                )
                 gcs_message = (
                     f" It was also saved to GCS bucket '{gcs_bucket_name}'."
                 )

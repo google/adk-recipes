@@ -26,7 +26,7 @@ license = "Apache-2.0"
 requires-python = ">=3.11,<3.14"
 
 dependencies = [
-    "google-adk>=2.0.0",
+    "google-adk[gcp,otel-gcp]>=2.0.0",
     "google-auth>=2.45.0",
     "google-cloud-aiplatform[agent-engines]>=1.142.0",
     "google-cloud-modelarmor>=0.4.0",
@@ -39,6 +39,10 @@ dependencies = [
     "google-cloud-storage>=2.19.0",
     "google-genai>=1.68.0",
     "opentelemetry-instrumentation-google-genai",
+    "a2a-sdk[http-server]>=1.0,<2",
+    "aiohttp>=3.13.4",
+    "gcsfs>=2024.11.0",
+    "opentelemetry-resourcedetector-gcp<=1.12.0a0",
 ]
 
 [project.optional-dependencies]
