@@ -1,0 +1,498 @@
+IncidentID,AlertType,Status,Severity,PrimaryHost,PrimaryUser,Summary,CreationTimestamp
+INC-20250912-0470,IOC_MATCH,Closed - False Positive,Low,winws0135,j.doe,Benign indicator match (research activity),2025-09-12 21:25:33.987654 UTC
+INC-20250913-0398,IOC_MATCH,Closed - False Positive,Low,winws1277,m.chen,Benign indicator match (research activity),2025-09-13 06:25:33.987654 UTC
+INC-20250914-0108,IOC_MATCH,Closed - False Positive,Low,winws1219,p.patel,Benign indicator match (research activity),2025-09-14 18:40:05.789012 UTC
+INC-20250915-0050,IOC_MATCH,Closed - False Positive,Low,winws0093,p.patel,Benign indicator match (research activity),2025-09-15 01:55:33.234567 UTC
+INC-20250913-0260,IOC_MATCH,Closed - False Positive,Low,winws0114,d.kim,Benign indicator match (research activity),2025-09-13 23:40:05.123456 UTC
+INC-20250913-0440,IOC_MATCH,Closed - False Positive,Low,winws0132,m.chen,Benign indicator match (research activity),2025-09-13 01:10:05.123456 UTC
+INC-20250914-0150,IOC_MATCH,Closed - False Positive,Low,winws0103,p.patel,Benign indicator match (research activity),2025-09-14 13:25:33.876543 UTC
+INC-20250914-0188,IOC_MATCH,Closed - False Positive,Low,winws1235,a.smith,Benign indicator match (research activity),2025-09-14 08:40:05.123456 UTC
+INC-20250913-0298,IOC_MATCH,Closed - False Positive,Low,winws1257,m.chen,Benign indicator match (research activity),2025-09-13 18:55:33.456789 UTC
+INC-20250913-0340,IOC_MATCH,Closed - False Positive,Low,winws0122,m.chen,Benign indicator match (research activity),2025-09-13 13:40:05.56789 UTC
+INC-20250914-0210,IOC_MATCH,Closed - False Positive,Low,winws0109,d.kim,Benign indicator match (research activity),2025-09-14 05:55:33.345678 UTC
+INC-20250913-0370,IOC_MATCH,Closed - False Positive,Low,winws0125,j.doe,Benign indicator match (research activity),2025-09-13 09:55:33.456789 UTC
+INC-20250915-0029,IOC_MATCH,Closed - False Positive,Low,linsrv0302,system,Benign indicator match (research activity),2025-09-15 04:30:00.987654 UTC
+INC-20250914-0130,IOC_MATCH,Closed - False Positive,Low,winws0101,a.smith,Benign indicator match (research activity),2025-09-14 15:55:33.765432 UTC
+INC-20250913-0280,IOC_MATCH,Closed - False Positive,Low,winws0116,a.smith,Benign indicator match (research activity),2025-09-13 21:10:05.456789 UTC
+INC-20250912-0498,IOC_MATCH,Closed - False Positive,Low,winws1297,m.chen,Benign indicator match (research activity),2025-09-12 17:55:33.345678 UTC
+INC-20250914-0170,IOC_MATCH,Closed - False Positive,Low,winws0105,j.doe,Benign indicator match (research activity),2025-09-14 10:55:33.123456 UTC
+INC-20250914-0090,IOC_MATCH,Closed - False Positive,Low,winws0097,m.chen,Benign indicator match (research activity),2025-09-14 20:55:33.789012 UTC
+INC-20250914-0220,IOC_MATCH,Closed - False Positive,Medium,winws0110,j.doe,False positive: Traffic to known scanner IP,2025-09-14 04:40:05.765432 UTC
+INC-20250913-0350,IOC_MATCH,Closed - False Positive,Medium,winws0123,p.patel,False positive: Traffic to known scanner IP,2025-09-13 12:25:33.123456 UTC
+INC-20250915-0060,IOC_MATCH,Closed - False Positive,Medium,winws0094,d.kim,False positive: Traffic to known scanner IP,2025-09-15 00:40:05.876543 UTC
+INC-20250913-0433,IOC_MATCH,Closed - False Positive,Medium,linapp0145,svc_api,False positive: Traffic to known scanner IP,2025-09-13 02:02:45.456789 UTC
+INC-20250913-0363,IOC_MATCH,Closed - False Positive,Medium,linapp0138,svc_api,False positive: Traffic to known scanner IP,2025-09-13 10:48:19.345678 UTC
+INC-20250913-0263,IOC_MATCH,Closed - False Positive,Medium,linapp0128,svc_api,False positive: Traffic to known scanner IP,2025-09-13 23:18:19.987654 UTC
+INC-20250914-0203,IOC_MATCH,Closed - False Positive,Medium,linapp0122,svc_api,False positive: Traffic to known scanner IP,2025-09-14 06:48:19.234567 UTC
+INC-20250913-0285,IOC_MATCH,Closed - False Positive,Medium,winws1074,d.kim,False positive: Traffic to known scanner IP,2025-09-13 20:33:45.876543 UTC
+INC-20250914-0073,IOC_MATCH,Closed - False Positive,Medium,linapp0109,svc_api,False positive: Traffic to known scanner IP,2025-09-14 23:02:45.456789 UTC
+INC-20250914-0123,IOC_MATCH,Closed - False Positive,Medium,linapp0114,svc_api,False positive: Traffic to known scanner IP,2025-09-14 16:48:19.876543 UTC
+INC-20250915-0018,IOC_MATCH,Closed - False Positive,Medium,winws1201,d.kim,False positive: Traffic to known scanner IP,2025-09-15 05:50:44.789012 UTC
+INC-20250915-0042,IOC_MATCH,Closed - False Positive,Medium,winws0157,d.kim,False positive: Traffic to known scanner IP,2025-09-15 02:55:33.876543 UTC
+INC-20250913-0413,IOC_MATCH,Closed - False Positive,Medium,linapp0143,svc_api,False positive: Traffic to known scanner IP,2025-09-13 04:33:45.123456 UTC
+INC-20250914-0233,IOC_MATCH,Closed - False Positive,Medium,linapp0125,svc_api,False positive: Traffic to known scanner IP,2025-09-14 03:02:45.123456 UTC
+INC-20250915-0006,IOC_MATCH,Closed - False Positive,Medium,lindb0040,svc_prod_db,False positive: Traffic to known scanner IP,2025-09-15 07:22:11.456789 UTC
+INC-20250913-0313,IOC_MATCH,Closed - False Positive,Medium,linapp0133,svc_api,False positive: Traffic to known scanner IP,2025-09-13 17:02:45.56789 UTC
+INC-20250914-0250,IOC_MATCH,Closed - False Positive,Medium,winws0113,p.patel,False positive: Traffic to known scanner IP,2025-09-14 00:55:33.56789 UTC
+INC-20250914-0140,IOC_MATCH,Closed - False Positive,Medium,winws0102,m.chen,False positive: Traffic to known scanner IP,2025-09-14 14:40:05.234567 UTC
+INC-20250913-0380,IOC_MATCH,Closed - False Positive,Medium,winws0126,a.smith,False positive: Traffic to known scanner IP,2025-09-13 08:40:05.987654 UTC
+INC-20250914-0163,IOC_MATCH,Closed - False Positive,Medium,linapp0118,svc_api,False positive: Traffic to known scanner IP,2025-09-14 11:48:19.456789 UTC
+INC-20250912-0480,IOC_MATCH,Closed - False Positive,Medium,winws0136,a.smith,False positive: Traffic to known scanner IP,2025-09-12 20:10:05.345678 UTC
+INC-20250914-0095,IOC_MATCH,Closed - False Positive,Medium,winws1055,j.doe,False positive: Traffic to known scanner IP,2025-09-14 20:18:19.234567 UTC
+INC-20250912-0485,IOC_MATCH,Closed - False Positive,Medium,winws1094,d.kim,False positive: Traffic to known scanner IP,2025-09-12 19:33:45.123456 UTC
+INC-20250913-0333,IOC_MATCH,Closed - False Positive,Medium,linapp0135,svc_api,False positive: Traffic to known scanner IP,2025-09-13 14:33:45.789012 UTC
+INC-20250912-0463,IOC_MATCH,Closed - False Positive,Medium,linapp0148,svc_api,False positive: Traffic to known scanner IP,2025-09-12 22:18:19.765432 UTC
+INC-20250914-0070,IOC_MATCH,Closed - Remediated,Low,winws0095,j.doe,Benign indicator match (research activity),2025-09-14 23:25:33.56789 UTC
+INC-20250913-0418,IOC_MATCH,Closed - Remediated,Low,winws1281,d.kim,Benign indicator match (research activity),2025-09-13 03:55:33.765432 UTC
+INC-20250914-0230,IOC_MATCH,Closed - Remediated,Low,winws0111,a.smith,Benign indicator match (research activity),2025-09-14 03:25:33.234567 UTC
+INC-20250915-0005,IOC_MATCH,Closed - Remediated,Low,winws1045,m.chen,Benign indicator match (research activity),2025-09-15 07:30:55.678901 UTC
+INC-20250913-0318,IOC_MATCH,Closed - Remediated,Low,winws1261,d.kim,Benign indicator match (research activity),2025-09-13 16:25:33.345678 UTC
+INC-20250913-0320,IOC_MATCH,Closed - Remediated,Medium,winws0120,j.doe,False positive: Traffic to known scanner IP,2025-09-13 16:10:05.234567 UTC
+INC-20250913-0300,IOC_MATCH,Closed - Remediated,Medium,winws0118,p.patel,False positive: Traffic to known scanner IP,2025-09-13 18:40:05.345678 UTC
+INC-20250913-0420,IOC_MATCH,Closed - Remediated,Medium,winws0130,j.doe,False positive: Traffic to known scanner IP,2025-09-13 03:40:05.876543 UTC
+INC-20250914-0175,IOC_MATCH,Closed - Remediated,Medium,winws1063,p.patel,False positive: Traffic to known scanner IP,2025-09-14 10:18:19.765432 UTC
+INC-20250913-0400,IOC_MATCH,Closed - Remediated,Medium,winws0128,p.patel,False positive: Traffic to known scanner IP,2025-09-13 06:10:05.765432 UTC
+INC-20250912-0500,IOC_MATCH,Closed - Remediated,Medium,winws0138,p.patel,False positive: Traffic to known scanner IP,2025-09-12 17:40:05.234567 UTC
+INC-20250914-0110,IOC_MATCH,Closed - Remediated,Medium,winws0099,d.kim,False positive: Traffic to known scanner IP,2025-09-14 18:25:33.987654 UTC
+INC-20250914-0190,IOC_MATCH,Closed - Remediated,Medium,winws0107,m.chen,False positive: Traffic to known scanner IP,2025-09-14 08:25:33.456789 UTC
+INC-20250915-0030,IOC_MATCH,Closed - Remediated,Medium,winws0091,a.smith,False positive: Traffic to known scanner IP,2025-09-15 04:22:50.345678 UTC
+INC-20250913-0328,PHISHING_EMAIL,Closed - Remediated,Medium,winws1263,j.doe,Malicious URL clicked by j.doe,2025-09-13 15:10:05.765432 UTC
+INC-20250914-0102,PHISHING_EMAIL,Closed - Remediated,Medium,winws0169,j.doe,Malicious URL clicked by j.doe,2025-09-14 19:25:33.345678 UTC
+INC-20250913-0428,PHISHING_EMAIL,Closed - Remediated,Medium,winws1283,j.doe,Malicious URL clicked by j.doe,2025-09-13 02:40:05.234567 UTC
+INC-20250914-0072,PHISHING_EMAIL,Closed - Remediated,Medium,winws0163,m.chen,Malicious URL clicked by m.chen,2025-09-14 23:10:05.789012 UTC
+INC-20250915-0023,PHISHING_EMAIL,Closed - Remediated,Medium,linapp0104,svc_api,Malicious URL clicked by svc_api,2025-09-15 05:15:09.234567 UTC
+INC-20250914-0246,PHISHING_EMAIL,Closed - Remediated,Medium,lindb0064,svc_prod_db,Malicious URL clicked by svc_prod_db,2025-09-14 01:25:33.345678 UTC
+INC-20250915-0009,IOC_MATCH,Closed - Remediated,High,winws0089,d.kim,Network traffic detected to C2 Domain,2025-09-15 06:59:58.789012 UTC
+INC-20250914-0248,IOC_MATCH,Closed - Remediated,Medium,winws1247,m.chen,Network traffic detected to known malicious indicator,2025-09-14 01:10:05.234567 UTC
+INC-20250914-0218,IOC_MATCH,Closed - Remediated,Medium,winws1241,d.kim,Network traffic detected to known malicious indicator,2025-09-14 04:55:33.987654 UTC
+INC-20250912-0478,IOC_MATCH,Closed - Remediated,Medium,winws1293,j.doe,Network traffic detected to known malicious indicator,2025-09-12 20:25:33.456789 UTC
+INC-20250914-0168,IOC_MATCH,Closed - Remediated,Medium,winws1231,d.kim,Network traffic detected to known malicious indicator,2025-09-14 11:10:05.876543 UTC
+INC-20250914-0088,IOC_MATCH,Closed - Remediated,Medium,winws1215,a.smith,Network traffic detected to known malicious indicator,2025-09-14 21:10:05.56789 UTC
+INC-20250912-0460,IOC_MATCH,Closed - Remediated,Medium,winws0134,d.kim,Network traffic detected to known malicious indicator,2025-09-12 22:40:05.456789 UTC
+INC-20250913-0278,IOC_MATCH,Closed - Remediated,Medium,winws1253,j.doe,Network traffic detected to known malicious indicator,2025-09-13 21:25:33.123456 UTC
+INC-20250913-0448,IOC_MATCH,Closed - Remediated,Medium,winws1287,m.chen,Network traffic detected to known malicious indicator,2025-09-13 00:10:05.56789 UTC
+INC-20250914-0138,IOC_MATCH,Closed - Remediated,Medium,winws1225,a.smith,Network traffic detected to known malicious indicator,2025-09-14 14:55:33.345678 UTC
+INC-20250915-0037,IOC_MATCH,Closed - Remediated,Medium,winws0156,j.doe,Network traffic detected to known malicious indicator,2025-09-15 03:33:45.456789 UTC
+INC-20250915-0058,IOC_MATCH,Closed - Remediated,Medium,winws1209,p.patel,Network traffic detected to known malicious indicator,2025-09-15 00:55:33.765432 UTC
+INC-20250913-0348,IOC_MATCH,Closed - Remediated,Medium,winws1267,m.chen,Network traffic detected to known malicious indicator,2025-09-13 12:40:05.876543 UTC
+INC-20250913-0378,IOC_MATCH,Closed - Remediated,Medium,winws1273,j.doe,Network traffic detected to known malicious indicator,2025-09-13 08:55:33.789012 UTC
+INC-20250913-0449,PHISHING_EMAIL,Closed - Remediated,Low,linsrv0344,system,Phishing email reported by user,2025-09-13 00:02:45.123456 UTC
+INC-20250913-0302,PHISHING_EMAIL,Closed - Remediated,Medium,winws0209,j.doe,Phishing email reported by user,2025-09-13 18:25:33.234567 UTC
+INC-20250912-0479,PHISHING_EMAIL,Closed - Remediated,Low,linsrv0347,system,Phishing email reported by user,2025-09-12 20:18:19.987654 UTC
+INC-20250913-0272,PHISHING_EMAIL,Closed - Remediated,Medium,winws0203,m.chen,Phishing email reported by user,2025-09-13 22:10:05.987654 UTC
+INC-20250914-0219,PHISHING_EMAIL,Closed - Remediated,Medium,linsrv0321,system,Phishing email reported by user,2025-09-14 04:48:19.345678 UTC
+INC-20250914-0122,PHISHING_EMAIL,Closed - Remediated,Medium,winws0173,m.chen,Phishing email reported by user,2025-09-14 16:55:33.234567 UTC
+INC-20250914-0139,PHISHING_EMAIL,Closed - Remediated,Medium,linsrv0313,system,Phishing email reported by user,2025-09-14 14:48:19.765432 UTC
+INC-20250914-0162,PHISHING_EMAIL,Closed - Remediated,Medium,winws0181,a.smith,Phishing email reported by user,2025-09-14 11:55:33.789012 UTC
+INC-20250914-0192,PHISHING_EMAIL,Closed - Remediated,Medium,winws0187,d.kim,Phishing email reported by user,2025-09-14 08:10:05.345678 UTC
+INC-20250913-0379,PHISHING_EMAIL,Closed - Remediated,Medium,linsrv0337,system,Phishing email reported by user,2025-09-13 08:48:19.456789 UTC
+INC-20250913-0349,PHISHING_EMAIL,Closed - Remediated,Low,linsrv0334,system,Phishing email reported by user,2025-09-13 12:33:45.56789 UTC
+INC-20250915-0040,PHISHING_EMAIL,Closed - Remediated,Low,winws0092,m.chen,Phishing email reported by user,2025-09-15 03:10:00.765432 UTC
+INC-20250913-0402,PHISHING_EMAIL,Closed - Remediated,Medium,winws0228,j.doe,Phishing email reported by user,2025-09-13 05:55:33.876543 UTC
+INC-20250914-0069,EDR_DETECTION,Closed - Remediated,High,linsrv0306,system,Suspicious powershell execution detected,2025-09-14 23:33:45.876543 UTC
+INC-20250914-0229,EDR_DETECTION,Closed - Remediated,High,linsrv0322,system,Suspicious powershell execution detected,2025-09-14 03:33:45.765432 UTC
+INC-20250913-0367,EDR_DETECTION,Closed - Remediated,High,winws0221,p.patel,Suspicious powershell execution detected,2025-09-13 10:18:19.56789 UTC
+INC-20250914-0149,EDR_DETECTION,Closed - Remediated,High,linsrv0314,system,Suspicious powershell execution detected,2025-09-14 13:33:45.234567 UTC
+INC-20250913-0259,EDR_DETECTION,Closed - Remediated,High,linsrv0325,system,Suspicious powershell execution detected,2025-09-13 23:48:19.56789 UTC
+INC-20250912-0459,EDR_DETECTION,Closed - Remediated,High,linsrv0345,system,Suspicious powershell execution detected,2025-09-12 22:48:19.789012 UTC
+INC-20250914-0087,EDR_DETECTION,Closed - Remediated,High,winws0166,j.doe,Suspicious powershell execution detected,2025-09-14 21:18:19.876543 UTC
+INC-20250914-0207,EDR_DETECTION,Closed - Remediated,High,winws0190,m.chen,Suspicious powershell execution detected,2025-09-14 06:18:19.789012 UTC
+INC-20250914-0119,EDR_DETECTION,Closed - Remediated,High,linsrv0311,system,Suspicious powershell execution detected,2025-09-14 17:18:19.987654 UTC
+INC-20250913-0317,EDR_DETECTION,Closed - Remediated,High,winws0211,p.patel,Suspicious powershell execution detected,2025-09-13 16:33:45.987654 UTC
+INC-20250915-0016,EDR_DETECTION,Closed - Remediated,High,lindb0041,svc_prod_db,Suspicious powershell execution detected,2025-09-15 06:10:05.56789 UTC
+INC-20250915-0048,EDR_DETECTION,Closed - Remediated,High,winws1207,m.chen,Suspicious powershell execution detected,2025-09-15 02:10:05.345678 UTC
+INC-20250913-0417,EDR_DETECTION,Closed - Remediated,High,winws0231,p.patel,Suspicious powershell execution detected,2025-09-13 04:02:45.345678 UTC
+INC-20250914-0174,EDR_DETECTION,Closed - Remediated,High,winsrv0237,system,Suspicious process execution chain detected on host,2025-09-14 10:25:33.345678 UTC
+INC-20250913-0384,EDR_DETECTION,Closed - Remediated,High,winsrv0258,system,Suspicious process execution chain detected on host,2025-09-13 08:10:05.876543 UTC
+INC-20250913-0284,EDR_DETECTION,Closed - Remediated,High,winsrv0248,system,Suspicious process execution chain detected on host,2025-09-13 20:40:05.234567 UTC
+INC-20250915-0003,PHISHING_EMAIL,Investigation,Medium,winws0030,a.smith,Malicious URL clicked by a.smith,2025-09-15 07:55:04.887654 UTC
+INC-20250913-0362,PHISHING_EMAIL,Investigation,Medium,winws0220,a.smith,Malicious URL clicked by a.smith,2025-09-13 10:55:33.987654 UTC
+INC-20250914-0118,PHISHING_EMAIL,Investigation,Medium,winws1221,d.kim,Malicious URL clicked by d.kim,2025-09-14 17:25:33.456789 UTC
+INC-20250914-0198,PHISHING_EMAIL,Investigation,Medium,winws1237,m.chen,Malicious URL clicked by m.chen,2025-09-14 07:25:33.789012 UTC
+INC-20250913-0308,PHISHING_EMAIL,Investigation,Medium,winws1259,p.patel,Malicious URL clicked by p.patel,2025-09-13 17:40:05.987654 UTC
+INC-20250913-0408,PHISHING_EMAIL,Investigation,Medium,winws1279,p.patel,Malicious URL clicked by p.patel,2025-09-13 05:10:05.345678 UTC
+INC-20250914-0086,PHISHING_EMAIL,Investigation,Medium,lindb0048,svc_prod_db,Malicious URL clicked by svc_prod_db,2025-09-14 21:25:33.234567 UTC
+INC-20250914-0166,PHISHING_EMAIL,Investigation,Medium,lindb0056,svc_prod_db,Malicious URL clicked by svc_prod_db,2025-09-14 11:25:33.765432 UTC
+INC-20250912-0476,PHISHING_EMAIL,Investigation,Medium,lindb0087,svc_prod_db,Malicious URL clicked by svc_prod_db,2025-09-12 20:40:05.123456 UTC
+INC-20250914-0136,PHISHING_EMAIL,Investigation,Medium,lindb0053,svc_prod_db,Malicious URL clicked by svc_prod_db,2025-09-14 15:10:05.456789 UTC
+INC-20250913-0276,PHISHING_EMAIL,Investigation,Medium,lindb0067,svc_prod_db,Malicious URL clicked by svc_prod_db,2025-09-13 21:40:05.876543 UTC
+INC-20250915-0036,PHISHING_EMAIL,Investigation,Medium,lindb0043,svc_prod_db,Malicious URL clicked by svc_prod_db,2025-09-15 03:40:05.789012 UTC
+INC-20250913-0376,PHISHING_EMAIL,Investigation,Medium,lindb0077,svc_prod_db,Malicious URL clicked by svc_prod_db,2025-09-13 09:10:05.56789 UTC
+INC-20250914-0216,PHISHING_EMAIL,Investigation,Medium,lindb0061,svc_prod_db,Malicious URL clicked by svc_prod_db,2025-09-14 05:10:05.789012 UTC
+INC-20250913-0446,PHISHING_EMAIL,Investigation,Medium,lindb0084,svc_prod_db,Malicious URL clicked by svc_prod_db,2025-09-13 00:25:33.234567 UTC
+INC-20250915-0056,PHISHING_EMAIL,Investigation,Medium,lindb0045,svc_prod_db,Malicious URL clicked by svc_prod_db,2025-09-15 01:10:05.987654 UTC
+INC-20250914-0093,IOC_MATCH,Investigation,High,linapp0111,svc_api,Network traffic detected to C2 Domain,2025-09-14 20:33:45.345678 UTC
+INC-20250913-0303,IOC_MATCH,Investigation,High,linapp0132,svc_api,Network traffic detected to C2 Domain,2025-09-13 18:18:19.876543 UTC
+INC-20250913-0403,IOC_MATCH,Investigation,High,linapp0142,svc_api,Network traffic detected to C2 Domain,2025-09-13 05:48:19.56789 UTC
+INC-20250912-0483,IOC_MATCH,Investigation,High,linapp0150,svc_api,Network traffic detected to C2 Domain,2025-09-12 19:48:19.876543 UTC
+INC-20250914-0113,IOC_MATCH,Investigation,High,linapp0113,svc_api,Network traffic detected to C2 Domain,2025-09-14 18:02:45.234567 UTC
+INC-20250913-0283,IOC_MATCH,Investigation,High,linapp0130,svc_api,Network traffic detected to C2 Domain,2025-09-13 20:48:19.765432 UTC
+INC-20250913-0383,IOC_MATCH,Investigation,High,linapp0140,svc_api,Network traffic detected to C2 Domain,2025-09-13 08:18:19.234567 UTC
+INC-20250913-0323,IOC_MATCH,Investigation,High,linapp0134,svc_api,Network traffic detected to C2 Domain,2025-09-13 15:48:19.123456 UTC
+INC-20250914-0238,IOC_MATCH,Investigation,High,winws1245,a.smith,Network traffic detected to C2 Domain,2025-09-14 02:25:33.765432 UTC
+INC-20250913-0268,IOC_MATCH,Investigation,High,winws1251,d.kim,Network traffic detected to C2 Domain,2025-09-13 22:40:05.56789 UTC
+INC-20250914-0173,IOC_MATCH,Investigation,High,linapp0119,svc_api,Network traffic detected to C2 Domain,2025-09-14 10:33:45.987654 UTC
+INC-20250913-0353,IOC_MATCH,Investigation,High,linapp0137,svc_api,Network traffic detected to C2 Domain,2025-09-13 12:02:45.987654 UTC
+INC-20250915-0033,IOC_MATCH,Investigation,High,linapp0105,svc_api,Network traffic detected to C2 Domain,2025-09-15 04:00:44.876543 UTC
+INC-20250913-0275,IOC_MATCH,Investigation,Medium,winws1073,p.patel,Network traffic detected to known malicious indicator,2025-09-13 21:48:19.234567 UTC
+INC-20250915-0021,IOC_MATCH,Investigation,Medium,winws1202,a.smith,Network traffic detected to known malicious indicator,2025-09-15 05:30:11.345678 UTC
+INC-20250914-0120,IOC_MATCH,Investigation,Medium,winws0100,j.doe,Network traffic detected to known malicious indicator,2025-09-14 17:10:05.345678 UTC
+INC-20250912-0495,IOC_MATCH,Investigation,Medium,winws1095,j.doe,Network traffic detected to known malicious indicator,2025-09-12 18:18:19.789012 UTC
+INC-20250915-0015,IOC_MATCH,Investigation,Medium,winws1047,m.chen,Network traffic detected to known malicious indicator,2025-09-15 06:19:19.876543 UTC
+INC-20250914-0067,IOC_MATCH,Investigation,Medium,winws0162,p.patel,Network traffic detected to known malicious indicator,2025-09-14 23:48:19.765432 UTC
+INC-20250912-0465,IOC_MATCH,Investigation,Medium,winws1092,m.chen,Network traffic detected to known malicious indicator,2025-09-12 22:02:45.876543 UTC
+INC-20250913-0427,IOC_MATCH,Investigation,Medium,winws0233,d.kim,Network traffic detected to known malicious indicator,2025-09-13 02:48:19.765432 UTC
+INC-20250914-0100,IOC_MATCH,Investigation,Medium,winws0098,p.patel,Network traffic detected to known malicious indicator,2025-09-14 19:40:05.456789 UTC
+INC-20250914-0205,IOC_MATCH,Investigation,Medium,winws1066,a.smith,Network traffic detected to known malicious indicator,2025-09-14 06:33:45.56789 UTC
+INC-20250913-0295,IOC_MATCH,Investigation,Medium,winws1075,j.doe,Network traffic detected to known malicious indicator,2025-09-13 19:18:19.56789 UTC
+INC-20250915-0046,IOC_MATCH,Investigation,Medium,lindb0044,svc_prod_db,Network traffic detected to known malicious indicator,2025-09-15 02:25:33.456789 UTC
+INC-20250913-0365,IOC_MATCH,Investigation,Medium,winws1082,m.chen,Network traffic detected to known malicious indicator,2025-09-13 10:33:45.234567 UTC
+INC-20250914-0227,IOC_MATCH,Investigation,Medium,winws0194,d.kim,Network traffic detected to known malicious indicator,2025-09-14 03:48:19.987654 UTC
+INC-20250913-0410,IOC_MATCH,Investigation,Medium,winws0129,d.kim,Network traffic detected to known malicious indicator,2025-09-13 04:55:33.234567 UTC
+INC-20250914-0257,IOC_MATCH,Investigation,Medium,winws0200,m.chen,Network traffic detected to known malicious indicator,2025-09-14 00:02:45.234567 UTC
+INC-20250914-0180,IOC_MATCH,Investigation,Medium,winws0106,a.smith,Network traffic detected to known malicious indicator,2025-09-14 09:40:05.789012 UTC
+INC-20250915-0012,IOC_MATCH,Investigation,Medium,winws0151,a.smith,Network traffic detected to known malicious indicator,2025-09-15 06:40:22.345678 UTC
+INC-20250913-0395,IOC_MATCH,Investigation,Medium,winws1085,j.doe,Network traffic detected to known malicious indicator,2025-09-13 06:48:19.123456 UTC
+INC-20250913-0310,IOC_MATCH,Investigation,Medium,winws0119,d.kim,Network traffic detected to known malicious indicator,2025-09-13 17:25:33.765432 UTC
+INC-20250913-0445,IOC_MATCH,Investigation,Medium,winws1090,j.doe,Network traffic detected to known malicious indicator,2025-09-13 00:33:45.765432 UTC
+INC-20250913-0345,IOC_MATCH,Investigation,Medium,winws1080,j.doe,Network traffic detected to known malicious indicator,2025-09-13 13:02:45.345678 UTC
+INC-20250914-0075,IOC_MATCH,Investigation,Medium,winws1053,p.patel,Network traffic detected to known malicious indicator,2025-09-14 22:48:19.345678 UTC
+INC-20250914-0155,IOC_MATCH,Investigation,Medium,winws1061,a.smith,Network traffic detected to known malicious indicator,2025-09-14 12:48:19.987654 UTC
+INC-20250914-0135,IOC_MATCH,Investigation,Medium,winws1059,d.kim,Network traffic detected to known malicious indicator,2025-09-14 15:18:19.789012 UTC
+INC-20250913-0336,PHISHING_EMAIL,Investigation,Medium,lindb0073,svc_prod_db,Phishing email reported by user,2025-09-13 14:10:05.345678 UTC
+INC-20250913-0288,PHISHING_EMAIL,Investigation,Medium,winws1255,a.smith,Phishing email reported by user,2025-09-13 20:10:05.789012 UTC
+INC-20250914-0112,PHISHING_EMAIL,Investigation,Medium,winws0171,a.smith,Phishing email reported by user,2025-09-14 18:10:05.765432 UTC
+INC-20250913-0436,PHISHING_EMAIL,Investigation,Medium,lindb0083,svc_prod_db,Phishing email reported by user,2025-09-13 01:40:05.765432 UTC
+INC-20250913-0299,PHISHING_EMAIL,Investigation,Medium,linsrv0329,system,Phishing email reported by user,2025-09-13 18:48:19.987654 UTC
+INC-20250913-0442,PHISHING_EMAIL,Investigation,Medium,winws0236,d.kim,Phishing email reported by user,2025-09-13 00:55:33.456789 UTC
+INC-20250914-0212,PHISHING_EMAIL,Investigation,Medium,winws0191,a.smith,Phishing email reported by user,2025-09-14 05:40:05.234567 UTC
+INC-20250914-0068,PHISHING_EMAIL,Investigation,Medium,winws1211,d.kim,Phishing email reported by user,2025-09-14 23:40:05.234567 UTC
+INC-20250914-0132,PHISHING_EMAIL,Investigation,Medium,winws0175,p.patel,Phishing email reported by user,2025-09-14 15:40:05.876543 UTC
+INC-20250915-0047,PHISHING_EMAIL,Investigation,Medium,winws0158,a.smith,Phishing email reported by user,2025-09-15 02:18:19.987654 UTC
+INC-20250913-0342,PHISHING_EMAIL,Investigation,Medium,winws0216,d.kim,Phishing email reported by user,2025-09-13 13:25:33.789012 UTC
+INC-20250913-0399,PHISHING_EMAIL,Investigation,Medium,linsrv0339,system,Phishing email reported by user,2025-09-13 06:18:19.345678 UTC
+INC-20250914-0098,PHISHING_EMAIL,Investigation,Medium,winws1217,m.chen,Phishing email reported by user,2025-09-14 19:55:33.123456 UTC
+INC-20250914-0159,PHISHING_EMAIL,Investigation,Low,linsrv0315,system,Phishing email reported by user,2025-09-14 12:18:19.876543 UTC
+INC-20250912-0472,PHISHING_EMAIL,Investigation,Medium,winws0242,m.chen,Phishing email reported by user,2025-09-12 21:10:05.765432 UTC
+INC-20250913-0269,PHISHING_EMAIL,Investigation,Low,linsrv0326,system,Phishing email reported by user,2025-09-13 22:33:45.123456 UTC
+INC-20250913-0388,PHISHING_EMAIL,Investigation,Medium,winws1275,a.smith,Phishing email reported by user,2025-09-13 07:40:05.456789 UTC
+INC-20250912-0499,PHISHING_EMAIL,Investigation,Medium,linsrv0349,system,Phishing email reported by user,2025-09-12 17:48:19.765432 UTC
+INC-20250914-0178,PHISHING_EMAIL,Investigation,Medium,winws1233,j.doe,Phishing email reported by user,2025-09-14 09:55:33.56789 UTC
+INC-20250914-0082,PHISHING_EMAIL,Investigation,Medium,winws0165,p.patel,Phishing email reported by user,2025-09-14 21:55:33.456789 UTC
+INC-20250914-0189,PHISHING_EMAIL,Investigation,Medium,linsrv0318,system,Phishing email reported by user,2025-09-14 08:33:45.789012 UTC
+INC-20250914-0239,PHISHING_EMAIL,Investigation,Medium,linsrv0323,system,Phishing email reported by user,2025-09-14 02:18:19.234567 UTC
+INC-20250913-0358,PHISHING_EMAIL,Investigation,Medium,winws1269,p.patel,Phishing email reported by user,2025-09-13 11:25:33.56789 UTC
+INC-20250912-0458,PHISHING_EMAIL,Investigation,Medium,winws1289,p.patel,Phishing email reported by user,2025-09-12 22:55:33.123456 UTC
+INC-20250913-0322,PHISHING_EMAIL,Investigation,Medium,winws0212,m.chen,Phishing email reported by user,2025-09-13 15:55:33.56789 UTC
+INC-20250914-0242,PHISHING_EMAIL,Investigation,Medium,winws0197,d.kim,Phishing email reported by user,2025-09-14 01:55:33.123456 UTC
+INC-20250912-0488,PHISHING_EMAIL,Investigation,Medium,winws1295,a.smith,Phishing email reported by user,2025-09-12 19:10:05.987654 UTC
+INC-20250915-0008,PHISHING_EMAIL,Investigation,Medium,linapp0102,svc_api,Phishing email reported by user,2025-09-15 07:05:02.123456 UTC
+INC-20250914-0228,PHISHING_EMAIL,Investigation,Medium,winws1243,j.doe,Phishing email reported by user,2025-09-14 03:40:05.345678 UTC
+INC-20250913-0422,PHISHING_EMAIL,Investigation,Medium,winws0232,m.chen,Phishing email reported by user,2025-09-13 03:25:33.123456 UTC
+INC-20250914-0148,PHISHING_EMAIL,Investigation,Medium,winws1227,m.chen,Phishing email reported by user,2025-09-14 13:40:05.765432 UTC
+INC-20250915-0019,EDR_DETECTION,Investigation,Critical,linsrv0301,system,Potential ransomware activity detected (file enumeration),2025-09-15 05:45:00.456789 UTC
+INC-20250914-0131,EDR_DETECTION,Investigation,Critical,winws1224,m.chen,Potential ransomware activity detected (file enumeration),2025-09-14 15:48:19.234567 UTC
+INC-20250913-0441,EDR_DETECTION,Investigation,Critical,winws1286,p.patel,Potential ransomware activity detected (file enumeration),2025-09-13 01:02:45.789012 UTC
+INC-20250915-0061,EDR_DETECTION,Investigation,Critical,winws1210,j.doe,Potential ransomware activity detected (file enumeration),2025-09-15 00:33:45.56789 UTC
+INC-20250913-0371,EDR_DETECTION,Investigation,Critical,winws1272,a.smith,Potential ransomware activity detected (file enumeration),2025-09-13 09:48:19.987654 UTC
+INC-20250913-0311,EDR_DETECTION,Investigation,Critical,winws1260,j.doe,Potential ransomware activity detected (file enumeration),2025-09-13 17:18:19.234567 UTC
+INC-20250914-0161,EDR_DETECTION,Investigation,Critical,winws1230,j.doe,Potential ransomware activity detected (file enumeration),2025-09-14 12:02:45.123456 UTC
+INC-20250914-0201,EDR_DETECTION,Investigation,Critical,winws1238,d.kim,Potential ransomware activity detected (file enumeration),2025-09-14 07:02:45.345678 UTC
+INC-20250914-0101,EDR_DETECTION,Investigation,Critical,winws1218,d.kim,Potential ransomware activity detected (file enumeration),2025-09-14 19:33:45.987654 UTC
+INC-20250912-0471,EDR_DETECTION,Investigation,Critical,winws1292,a.smith,Potential ransomware activity detected (file enumeration),2025-09-12 21:18:19.345678 UTC
+INC-20250913-0291,EDR_DETECTION,Investigation,Critical,winws1256,p.patel,Potential ransomware activity detected (file enumeration),2025-09-13 19:48:19.345678 UTC
+INC-20250913-0341,EDR_DETECTION,Investigation,Critical,winws1266,p.patel,Potential ransomware activity detected (file enumeration),2025-09-13 13:33:45.123456 UTC
+INC-20250913-0271,EDR_DETECTION,Investigation,Critical,winws1252,a.smith,Potential ransomware activity detected (file enumeration),2025-09-13 22:18:19.456789 UTC
+INC-20250915-0041,EDR_DETECTION,Investigation,Critical,winws1206,p.patel,Potential ransomware activity detected (file enumeration),2025-09-15 03:02:45.234567 UTC
+INC-20250914-0241,EDR_DETECTION,Investigation,Critical,winws1246,p.patel,Potential ransomware activity detected (file enumeration),2025-09-14 02:02:45.56789 UTC
+INC-20250914-0081,EDR_DETECTION,Investigation,Critical,winws1214,m.chen,Potential ransomware activity detected (file enumeration),2025-09-14 22:02:45.789012 UTC
+INC-20250914-0195,IOC_MATCH,Investigation,High,winws1065,j.doe,Server traffic to known malware IP,2025-09-14 07:48:19.876543 UTC
+INC-20250914-0153,IOC_MATCH,Investigation,High,linapp0117,svc_api,Server traffic to known malware IP,2025-09-14 13:02:45.789012 UTC
+INC-20250913-0325,IOC_MATCH,Investigation,High,winws1078,p.patel,Server traffic to known malware IP,2025-09-13 15:33:45.456789 UTC
+INC-20250913-0273,IOC_MATCH,Investigation,High,linapp0129,svc_api,Server traffic to known malware IP,2025-09-14 22:02:45.345678 UTC
+INC-20250914-0243,IOC_MATCH,Investigation,High,linapp0126,svc_api,Server traffic to known malware IP,2025-09-14 01:48:19.789012 UTC
+INC-20250913-0443,IOC_MATCH,Investigation,High,linapp0146,svc_api,Server traffic to known malware IP,2025-09-13 00:48:19.987654 UTC
+INC-20250913-0385,IOC_MATCH,Investigation,High,winws1084,d.kim,Server traffic to known malware IP,2025-09-13 08:02:45.56789 UTC
+INC-20250914-0083,IOC_MATCH,Investigation,High,linapp0110,svc_api,Server traffic to known malware IP,2025-09-14 21:48:19.987654 UTC
+INC-20250914-0133,IOC_MATCH,Investigation,High,linapp0115,svc_api,Server traffic to known malware IP,2025-09-14 15:33:45.56789 UTC
+INC-20250914-0213,IOC_MATCH,Investigation,High,linapp0123,svc_api,Server traffic to known malware IP,2025-09-14 05:33:45.876543 UTC
+INC-20250913-0425,IOC_MATCH,Investigation,High,winws1088,p.patel,Server traffic to known malware IP,2025-09-13 03:02:45.987654 UTC
+INC-20250915-0053,IOC_MATCH,Investigation,High,linapp0107,svc_api,Server traffic to known malware IP,2025-09-15 01:33:45.123456 UTC
+INC-20250914-0157,EDR_DETECTION,Investigation,High,winws0180,m.chen,Suspicious powershell execution detected,2025-09-14 12:33:45.765432 UTC
+INC-20250913-0267,EDR_DETECTION,Investigation,High,winws0202,p.patel,Suspicious powershell execution detected,2025-09-13 22:48:19.876543 UTC
+INC-20250913-0329,EDR_DETECTION,Investigation,High,linsrv0332,system,Suspicious powershell execution detected,2025-09-13 15:02:45.234567 UTC
+INC-20250914-0187,EDR_DETECTION,Investigation,High,winws0186,j.doe,Suspicious powershell execution detected,2025-09-14 08:48:19.56789 UTC
+INC-20250912-0477,EDR_DETECTION,Investigation,High,winws0243,d.kim,Suspicious powershell execution detected,2025-09-12 20:33:45.789012 UTC
+INC-20250912-0497,EDR_DETECTION,Investigation,High,winws0247,a.smith,Suspicious powershell execution detected,2025-09-12 18:02:45.987654 UTC
+INC-20250913-0297,EDR_DETECTION,Investigation,High,winws0208,a.smith,Suspicious powershell execution detected,2025-09-13 19:02:45.789012 UTC
+INC-20250914-0127,EDR_DETECTION,Investigation,High,winws0174,d.kim,Suspicious powershell execution detected,2025-09-14 16:18:19.456789 UTC
+INC-20250913-0397,EDR_DETECTION,Investigation,High,winws0227,a.smith,Suspicious powershell execution detected,2025-09-13 06:33:45.456789 UTC
+INC-20250914-0237,EDR_DETECTION,Investigation,High,winws0196,j.doe,Suspicious powershell execution detected,2025-09-14 02:33:45.345678 UTC
+INC-20250915-0004,EDR_DETECTION,Investigation,High,winsrv0220,system,Suspicious powershell execution detected,2025-09-15 07:42:19.334576 UTC
+INC-20250914-0217,EDR_DETECTION,Investigation,High,winws0192,p.patel,Suspicious powershell execution detected,2025-09-14 05:02:45.456789 UTC
+INC-20250914-0077,EDR_DETECTION,Investigation,High,winws0164,d.kim,Suspicious powershell execution detected,2025-09-14 22:33:45.234567 UTC
+INC-20250913-0347,EDR_DETECTION,Investigation,High,winws0217,a.smith,Suspicious powershell execution detected,2025-09-13 12:48:19.234567 UTC
+INC-20250913-0437,EDR_DETECTION,Investigation,High,winws0235,j.doe,Suspicious powershell execution detected,2025-09-13 01:33:45.234567 UTC
+INC-20250915-0028,EDR_DETECTION,Investigation,High,winws1203,j.doe,Suspicious powershell execution detected,2025-09-15 04:38:11.456789 UTC
+INC-20250914-0107,EDR_DETECTION,Investigation,High,winws0170,m.chen,Suspicious powershell execution detected,2025-09-14 18:48:19.123456 UTC
+INC-20250913-0344,EDR_DETECTION,Investigation,Critical,winsrv0254,system,Suspicious process execution chain detected on host,2025-09-13 13:10:05.987654 UTC
+INC-20250913-0356,EDR_DETECTION,Investigation,High,lindb0075,svc_prod_db,Suspicious process execution chain detected on host,2025-09-13 11:40:05.234567 UTC
+INC-20250914-0176,EDR_DETECTION,Investigation,High,lindb0057,svc_prod_db,Suspicious process execution chain detected on host,2025-09-14 10:10:05.234567 UTC
+INC-20250914-0244,EDR_DETECTION,Investigation,Critical,winsrv0244,system,Suspicious process execution chain detected on host,2025-09-14 01:40:05.456789 UTC
+INC-20250914-0256,EDR_DETECTION,Investigation,Critical,lindb0065,svc_prod_db,Suspicious process execution chain detected on host,2025-09-14 00:10:05.765432 UTC
+INC-20250915-0054,EDR_DETECTION,Investigation,Critical,winsrv0225,system,Suspicious process execution chain detected on host,2025-09-15 01:25:33.789012 UTC
+INC-20250914-0094,EDR_DETECTION,Investigation,High,winsrv0229,system,Suspicious process execution chain detected on host,2025-09-14 20:25:33.765432 UTC
+INC-20250914-0184,EDR_DETECTION,Investigation,Critical,winsrv0238,system,Suspicious process execution chain detected on host,2025-09-14 09:10:05.765432 UTC
+INC-20250914-0114,EDR_DETECTION,Investigation,High,winsrv0231,system,Suspicious process execution chain detected on host,2025-09-14 17:55:33.876543 UTC
+INC-20250912-0456,EDR_DETECTION,Investigation,Critical,lindb0085,svc_prod_db,Suspicious process execution chain detected on host,2025-09-12 23:10:05.876543 UTC
+INC-20250914-0204,EDR_DETECTION,Investigation,Critical,winsrv0240,system,Suspicious process execution chain detected on host,2025-09-14 06:40:05.876543 UTC
+INC-20250914-0224,EDR_DETECTION,Investigation,High,winsrv0242,system,Suspicious process execution chain detected on host,2025-09-14 04:10:05.123456 UTC
+INC-20250914-0134,EDR_DETECTION,Investigation,Critical,winsrv0233,system,Suspicious process execution chain detected on host,2025-09-14 15:25:33.123456 UTC
+INC-20250913-0364,EDR_DETECTION,Investigation,Critical,winsrv0256,system,Suspicious process execution chain detected on host,2025-09-13 10:40:05.765432 UTC
+INC-20250914-0164,EDR_DETECTION,Investigation,Critical,winsrv0236,system,Suspicious process execution chain detected on host,2025-09-14 11:40:05.987654 UTC
+INC-20250912-0474,EDR_DETECTION,Investigation,Critical,winsrv0267,system,Suspicious process execution chain detected on host,2025-09-12 20:55:33.876543 UTC
+INC-20250912-0494,EDR_DETECTION,Investigation,Critical,winsrv0269,system,Suspicious process execution chain detected on host,2025-09-12 18:25:33.123456 UTC
+INC-20250913-0286,EDR_DETECTION,Investigation,High,lindb0068,svc_prod_db,Suspicious process execution chain detected on host,2025-09-13 20:25:33.56789 UTC
+INC-20250913-0304,EDR_DETECTION,Investigation,High,winsrv0250,system,Suspicious process execution chain detected on host,2025-09-13 18:10:05.56789 UTC
+INC-20250913-0444,EDR_DETECTION,Investigation,Critical,winsrv0264,system,Suspicious process execution chain detected on host,2025-09-13 00:40:05.345678 UTC
+INC-20250915-0064,EDR_DETECTION,Investigation,High,winsrv0226,system,Suspicious process execution chain detected on host,2025-09-15 00:10:05.456789 UTC
+INC-20250915-0035,EDR_DETECTION,Investigation,Critical,winws1049,d.kim,Suspicious process execution chain detected on host,2025-09-15 03:48:19.123456 UTC
+INC-20250914-0146,EDR_DETECTION,Investigation,Critical,lindb0054,svc_prod_db,Suspicious process execution chain detected on host,2025-09-14 13:55:33.987654 UTC
+INC-20250913-0414,EDR_DETECTION,Investigation,Critical,winsrv0261,system,Suspicious process execution chain detected on host,2025-09-13 04:25:33.789012 UTC
+INC-20250913-0386,EDR_DETECTION,Investigation,Critical,lindb0078,svc_prod_db,Suspicious process execution chain detected on host,2025-09-13 07:55:33.123456 UTC
+INC-20250915-0025,EDR_DETECTION,Investigation,Critical,winws1048,p.patel,Suspicious process execution chain detected on host,2025-09-15 05:00:01.56789 UTC
+INC-20250913-0262,PHISHING_EMAIL,New,Medium,winws0201,a.smith,Malicious URL clicked by a.smith,2025-09-13 23:25:33.456789 UTC
+INC-20250912-0462,PHISHING_EMAIL,New,Medium,winws0240,a.smith,Malicious URL clicked by a.smith,2025-09-12 22:25:33.345678 UTC
+INC-20250913-0292,PHISHING_EMAIL,New,Low,winws0207,d.kim,Malicious URL clicked by d.kim,2025-09-13 19:40:05.765432 UTC
+INC-20250913-0392,PHISHING_EMAIL,New,Medium,winws0226,d.kim,Malicious URL clicked by d.kim,2025-09-13 07:10:05.234567 UTC
+INC-20250912-0492,PHISHING_EMAIL,New,Low,winws0246,d.kim,Malicious URL clicked by d.kim,2025-09-12 18:40:05.876543 UTC
+INC-20250914-0152,PHISHING_EMAIL,New,Medium,winws0179,j.doe,Malicious URL clicked by j.doe,2025-09-14 13:10:05.123456 UTC
+INC-20250914-0232,PHISHING_EMAIL,New,Low,winws0195,p.patel,Malicious URL clicked by p.patel,2025-09-14 03:10:05.56789 UTC
+INC-20250914-0182,PHISHING_EMAIL,New,Low,winws0185,p.patel,Malicious URL clicked by p.patel,2025-09-14 09:25:33.987654 UTC
+INC-20250913-0346,PHISHING_EMAIL,New,Medium,lindb0074,svc_prod_db,Malicious URL clicked by svc_prod_db,2025-09-13 12:55:33.765432 UTC
+INC-20250914-0142,PHISHING_EMAIL,New,Medium,winws0177,d.kim,Multiple users reported phishing email,2025-09-14 14:25:33.56789 UTC
+INC-20250913-0266,PHISHING_EMAIL,New,Medium,lindb0066,svc_prod_db,Multiple users reported phishing email,2025-09-13 22:55:33.234567 UTC
+INC-20250913-0396,PHISHING_EMAIL,New,Medium,lindb0079,svc_prod_db,Multiple users reported phishing email,2025-09-13 06:40:05.789012 UTC
+INC-20250913-0332,PHISHING_EMAIL,New,Medium,winws0214,p.patel,Multiple users reported phishing email,2025-09-13 14:40:05.123456 UTC
+INC-20250912-0466,PHISHING_EMAIL,New,Medium,lindb0086,svc_prod_db,Multiple users reported phishing email,2025-09-12 21:55:33.56789 UTC
+INC-20250913-0432,PHISHING_EMAIL,New,Medium,winws0234,p.patel,Multiple users reported phishing email,2025-09-13 02:10:05.789012 UTC
+INC-20250912-0482,PHISHING_EMAIL,New,Medium,winws0244,p.patel,Multiple users reported phishing email,2025-09-12 19:55:33.234567 UTC
+INC-20250913-0366,PHISHING_EMAIL,New,Medium,lindb0076,svc_prod_db,Multiple users reported phishing email,2025-09-13 10:25:33.876543 UTC
+INC-20250913-0312,PHISHING_EMAIL,New,Medium,winws0210,a.smith,Multiple users reported phishing email,2025-09-13 17:10:05.876543 UTC
+INC-20250914-0156,PHISHING_EMAIL,New,Medium,lindb0055,svc_prod_db,Multiple users reported phishing email,2025-09-14 12:40:05.345678 UTC
+INC-20250915-0062,PHISHING_EMAIL,New,Medium,winws0161,a.smith,Multiple users reported phishing email,2025-09-15 00:25:33.123456 UTC
+INC-20250914-0106,PHISHING_EMAIL,New,Medium,lindb0050,svc_prod_db,Multiple users reported phishing email,2025-09-14 18:55:33.56789 UTC
+INC-20250914-0092,PHISHING_EMAIL,New,Medium,winws0167,d.kim,Multiple users reported phishing email,2025-09-14 20:40:05.987654 UTC
+INC-20250914-0252,PHISHING_EMAIL,New,Medium,winws0199,j.doe,Multiple users reported phishing email,2025-09-14 00:40:05.789012 UTC
+INC-20250912-0452,PHISHING_EMAIL,New,Medium,winws0238,j.doe,Multiple users reported phishing email,2025-09-12 23:40:05.987654 UTC
+INC-20250912-0496,PHISHING_EMAIL,New,Medium,lindb0089,svc_prod_db,Multiple users reported phishing email,2025-09-12 18:10:05.456789 UTC
+INC-20250914-0076,PHISHING_EMAIL,New,Medium,lindb0047,svc_prod_db,Multiple users reported phishing email,2025-09-14 22:40:05.765432 UTC
+INC-20250913-0296,PHISHING_EMAIL,New,Medium,lindb0069,svc_prod_db,Multiple users reported phishing email,2025-09-13 19:10:05.123456 UTC
+INC-20250914-0222,PHISHING_EMAIL,New,Medium,winws0193,m.chen,Multiple users reported phishing email,2025-09-14 04:25:33.876543 UTC
+INC-20250913-0382,PHISHING_EMAIL,New,Medium,winws0224,p.patel,Multiple users reported phishing email,2025-09-13 08:25:33.765432 UTC
+INC-20250915-0027,PHISHING_EMAIL,New,Medium,winws0154,d.kim,Multiple users reported phishing email,2025-09-15 04:45:30.789012 UTC
+INC-20250914-0186,PHISHING_EMAIL,New,Medium,lindb0058,svc_prod_db,Multiple users reported phishing email,2025-09-14 08:55:33.876543 UTC
+INC-20250913-0412,PHISHING_EMAIL,New,Medium,winws0230,a.smith,Multiple users reported phishing email,2025-09-13 04:40:05.56789 UTC
+INC-20250915-0011,PHISHING_EMAIL,New,Medium,winws0150,j.doe,Multiple users reported phishing email,2025-09-15 06:45:12.987654 UTC
+INC-20250914-0202,PHISHING_EMAIL,New,Medium,winws0189,j.doe,Multiple users reported phishing email,2025-09-14 06:55:33.765432 UTC
+INC-20250914-0126,PHISHING_EMAIL,New,Medium,lindb0052,svc_prod_db,Multiple users reported phishing email,2025-09-14 16:25:33.789012 UTC
+INC-20250913-0282,PHISHING_EMAIL,New,Medium,winws0205,p.patel,Multiple users reported phishing email,2025-09-13 20:55:33.345678 UTC
+INC-20250914-0172,PHISHING_EMAIL,New,Medium,winws0183,m.chen,Multiple users reported phishing email,2025-09-14 10:40:05.456789 UTC
+INC-20250914-0236,PHISHING_EMAIL,New,Medium,lindb0063,svc_prod_db,Multiple users reported phishing email,2025-09-14 02:40:05.987654 UTC
+INC-20250913-0352,PHISHING_EMAIL,New,Medium,winws0218,j.doe,Multiple users reported phishing email,2025-09-13 12:10:05.456789 UTC
+INC-20250915-0043,PHISHING_EMAIL,New,Medium,linapp0106,svc_api,Multiple users reported phishing email,2025-09-15 02:48:19.56789 UTC
+INC-20250914-0253,IOC_MATCH,New,High,linapp0127,svc_api,Network traffic detected to C2 Domain,2025-09-14 00:33:45.456789 UTC
+INC-20250915-0020,IOC_MATCH,New,High,winws0090,j.doe,Network traffic detected to C2 Domain,2025-09-15 05:38:22.987654 UTC
+INC-20250915-0063,IOC_MATCH,New,High,linapp0108,svc_api,Network traffic detected to C2 Domain,2025-09-15 00:18:19.789012 UTC
+INC-20250914-0078,IOC_MATCH,New,High,winws1213,j.doe,Network traffic detected to C2 Domain,2025-09-14 22:25:33.876543 UTC
+INC-20250914-0208,IOC_MATCH,New,High,winws1239,p.patel,Network traffic detected to C2 Domain,2025-09-14 06:10:05.456789 UTC
+INC-20250913-0368,IOC_MATCH,New,High,winws1271,d.kim,Network traffic detected to C2 Domain,2025-09-13 10:10:05.123456 UTC
+INC-20250913-0423,IOC_MATCH,New,High,linapp0144,svc_api,Network traffic detected to C2 Domain,2025-09-13 03:18:19.789012 UTC
+INC-20250915-0049,IOC_MATCH,New,High,linsrv0304,system,Network traffic detected to C2 Domain,2025-09-15 02:02:45.765432 UTC
+INC-20250914-0143,IOC_MATCH,New,High,linapp0116,svc_api,Network traffic detected to C2 Domain,2025-09-14 14:18:19.123456 UTC
+INC-20250914-0158,IOC_MATCH,New,High,winws1229,p.patel,Network traffic detected to C2 Domain,2025-09-14 12:25:33.234567 UTC
+INC-20250914-0223,IOC_MATCH,New,High,linapp0124,svc_api,Network traffic detected to C2 Domain,2025-09-14 04:18:19.56789 UTC
+INC-20250914-0193,IOC_MATCH,New,High,linapp0121,svc_api,Network traffic detected to C2 Domain,2025-09-14 08:02:45.765432 UTC
+INC-20250913-0438,IOC_MATCH,New,High,winws1285,a.smith,Network traffic detected to C2 Domain,2025-09-13 01:25:33.876543 UTC
+INC-20250912-0468,IOC_MATCH,New,High,winws1291,d.kim,Network traffic detected to C2 Domain,2025-09-12 21:40:05.789012 UTC
+INC-20250912-0453,IOC_MATCH,New,High,linapp0147,svc_api,Network traffic detected to C2 Domain,2025-09-12 23:33:45.345678 UTC
+INC-20250914-0128,IOC_MATCH,New,High,winws1223,j.doe,Network traffic detected to C2 Domain,2025-09-14 16:10:05.987654 UTC
+INC-20250913-0338,IOC_MATCH,New,High,winws1265,a.smith,Network traffic detected to C2 Domain,2025-09-13 13:55:33.234567 UTC
+INC-20250913-0307,IOC_MATCH,New,Medium,winws0209,m.chen,Network traffic detected to known malicious indicator,2025-09-13 17:48:19.456789 UTC
+INC-20250913-0327,IOC_MATCH,New,Medium,winws0213,d.kim,Network traffic detected to known malicious indicator,2025-09-13 15:18:19.345678 UTC
+INC-20250913-0357,IOC_MATCH,New,Medium,winws0219,m.chen,Network traffic detected to known malicious indicator,2025-09-13 11:33:45.876543 UTC
+INC-20250913-0330,IOC_MATCH,New,Medium,winws0121,a.smith,Network traffic detected to known malicious indicator,2025-09-13 14:55:33.876543 UTC
+INC-20250914-0097,IOC_MATCH,New,Medium,winws0168,a.smith,Network traffic detected to known malicious indicator,2025-09-14 20:02:45.56789 UTC
+INC-20250913-0290,IOC_MATCH,New,Medium,winws0117,m.chen,Network traffic detected to known malicious indicator,2025-09-13 19:55:33.987654 UTC
+INC-20250914-0177,IOC_MATCH,New,Medium,winws0184,d.kim,Network traffic detected to known malicious indicator,2025-09-14 10:02:45.876543 UTC
+INC-20250913-0315,IOC_MATCH,New,Medium,winws1077,m.chen,Network traffic detected to known malicious indicator,2025-09-13 16:48:19.789012 UTC
+INC-20250912-0490,IOC_MATCH,New,Medium,winws0137,m.chen,Network traffic detected to known malicious indicator,2025-09-12 18:55:33.765432 UTC
+INC-20250915-0002,IOC_MATCH,New,High,linapp0101,svc_api,Network traffic detected to known malicious indicator,2025-09-15 08:01:30.112987 UTC
+INC-20250913-0435,IOC_MATCH,New,Medium,winws1089,d.kim,Network traffic detected to known malicious indicator,2025-09-13 01:48:19.345678 UTC
+INC-20250913-0407,IOC_MATCH,New,Medium,winws0229,m.chen,Network traffic detected to known malicious indicator,2025-09-13 05:18:19.987654 UTC
+INC-20250914-0125,IOC_MATCH,New,Medium,winws1058,p.patel,Network traffic detected to known malicious indicator,2025-09-14 16:33:45.123456 UTC
+INC-20250914-0235,IOC_MATCH,New,Medium,winws1069,d.kim,Network traffic detected to known malicious indicator,2025-09-14 02:48:19.456789 UTC
+INC-20250914-0085,IOC_MATCH,New,Medium,winws1054,d.kim,Network traffic detected to known malicious indicator,2025-09-14 21:33:45.765432 UTC
+INC-20250915-0055,IOC_MATCH,New,Medium,winws1051,a.smith,Network traffic detected to known malicious indicator,2025-09-15 01:18:19.456789 UTC
+INC-20250914-0185,IOC_MATCH,New,Medium,winws1064,d.kim,Network traffic detected to known malicious indicator,2025-09-14 09:02:45.234567 UTC
+INC-20250914-0165,IOC_MATCH,New,Medium,winws1062,m.chen,Network traffic detected to known malicious indicator,2025-09-14 11:33:45.345678 UTC
+INC-20250914-0245,IOC_MATCH,New,Medium,winws1070,j.doe,Network traffic detected to known malicious indicator,2025-09-14 01:33:45.987654 UTC
+INC-20250913-0415,IOC_MATCH,New,Medium,winws1087,m.chen,Network traffic detected to known malicious indicator,2025-09-13 04:18:19.456789 UTC
+INC-20250912-0475,IOC_MATCH,New,Medium,winws1093,p.patel,Network traffic detected to known malicious indicator,2025-09-12 20:48:19.56789 UTC
+INC-20250915-0026,IOC_MATCH,New,Medium,lindb0042,svc_prod_db,Network traffic detected to known malicious indicator,2025-09-15 04:52:19.123456 UTC
+INC-20250914-0105,IOC_MATCH,New,Medium,winws1056,a.smith,Network traffic detected to known malicious indicator,2025-09-14 19:02:45.876543 UTC
+INC-20250913-0375,IOC_MATCH,New,Medium,winws1083,p.patel,Network traffic detected to known malicious indicator,2025-09-13 09:18:19.876543 UTC
+INC-20250914-0147,IOC_MATCH,New,Medium,winws0178,a.smith,Network traffic detected to known malicious indicator,2025-09-14 13:48:19.345678 UTC
+INC-20250913-0335,IOC_MATCH,New,Medium,winws1079,d.kim,Network traffic detected to known malicious indicator,2025-09-13 14:18:19.987654 UTC
+INC-20250914-0215,IOC_MATCH,New,Medium,winws1067,m.chen,Network traffic detected to known malicious indicator,2025-09-14 05:18:19.123456 UTC
+INC-20250913-0390,IOC_MATCH,New,Medium,winws0127,m.chen,Network traffic detected to known malicious indicator,2025-09-13 07:25:33.345678 UTC
+INC-20250914-0200,IOC_MATCH,New,Medium,winws0108,p.patel,Network traffic detected to known malicious indicator,2025-09-14 07:10:05.987654 UTC
+INC-20250913-0265,IOC_MATCH,New,Medium,winws1072,m.chen,Network traffic detected to known malicious indicator,2025-09-13 23:02:45.765432 UTC
+INC-20250915-0039,IOC_MATCH,New,Medium,linsrv0303,system,Network traffic detected to known malicious indicator,2025-09-15 03:18:11.345678 UTC
+INC-20250912-0487,IOC_MATCH,New,Medium,winws0245,j.doe,Network traffic detected to known malicious indicator,2025-09-12 19:18:19.456789 UTC
+INC-20250913-0360,IOC_MATCH,New,Medium,winws0124,d.kim,Network traffic detected to known malicious indicator,2025-09-13 11:10:05.789012 UTC
+INC-20250913-0287,IOC_MATCH,New,Medium,winws0206,j.doe,Network traffic detected to known malicious indicator,2025-09-13 20:18:19.123456 UTC
+INC-20250914-0197,IOC_MATCH,New,Medium,winws0188,a.smith,Network traffic detected to known malicious indicator,2025-09-14 07:33:45.123456 UTC
+INC-20250912-0457,IOC_MATCH,New,Medium,winws0239,m.chen,Network traffic detected to known malicious indicator,2025-09-12 23:02:45.56789 UTC
+INC-20250913-0430,IOC_MATCH,New,Medium,winws0131,a.smith,Network traffic detected to known malicious indicator,2025-09-13 02:25:33.56789 UTC
+INC-20250914-0117,IOC_MATCH,New,Medium,winws0172,p.patel,Network traffic detected to known malicious indicator,2025-09-14 17:33:45.789012 UTC
+INC-20250913-0387,IOC_MATCH,New,Medium,winws0225,j.doe,Network traffic detected to known malicious indicator,2025-09-13 07:48:19.789012 UTC
+INC-20250914-0079,PHISHING_EMAIL,New,Low,linsrv0307,system,Phishing email reported by user,2025-09-14 22:18:19.56789 UTC
+INC-20250913-0372,PHISHING_EMAIL,New,Medium,winws0222,m.chen,Phishing email reported by user,2025-09-13 09:40:05.345678 UTC
+INC-20250913-0419,PHISHING_EMAIL,New,Low,linsrv0341,system,Phishing email reported by user,2025-09-13 03:48:19.234567 UTC
+INC-20250913-0439,PHISHING_EMAIL,New,Low,linsrv0343,system,Phishing email reported by user,2025-09-13 01:18:19.56789 UTC
+INC-20250913-0339,PHISHING_EMAIL,New,Low,linsrv0333,system,Phishing email reported by user,2025-09-13 13:48:19.876543 UTC
+INC-20250914-0169,PHISHING_EMAIL,New,Medium,linsrv0316,system,Phishing email reported by user,2025-09-14 11:02:45.56789 UTC
+INC-20250914-0249,PHISHING_EMAIL,New,Low,linsrv0324,system,Phishing email reported by user,2025-09-14 01:02:45.876543 UTC
+INC-20250913-0319,PHISHING_EMAIL,New,Low,linsrv0331,system,Phishing email reported by user,2025-09-13 16:18:19.765432 UTC
+INC-20250913-0279,PHISHING_EMAIL,New,Medium,linsrv0327,system,Phishing email reported by user,2025-09-13 21:18:19.789012 UTC
+INC-20250915-0017,PHISHING_EMAIL,New,Low,winws0152,p.patel,Phishing email reported by user,2025-09-15 06:01:39.123456 UTC
+INC-20250914-0109,PHISHING_EMAIL,New,Low,linsrv0310,system,Phishing email reported by user,2025-09-14 18:33:45.456789 UTC
+INC-20250912-0469,PHISHING_EMAIL,New,Low,linsrv0346,system,Phishing email reported by user,2025-09-12 21:33:45.456789 UTC
+INC-20250915-0032,PHISHING_EMAIL,New,Medium,winws0155,p.patel,Phishing email reported by user,2025-09-15 04:08:08.234567 UTC
+INC-20250914-0129,PHISHING_EMAIL,New,Low,linsrv0312,system,Phishing email reported by user,2025-09-14 16:02:45.345678 UTC
+INC-20250915-0052,PHISHING_EMAIL,New,Medium,winws0159,j.doe,Phishing email reported by user,2025-09-15 01:40:05.56789 UTC
+INC-20250915-0059,PHISHING_EMAIL,New,Low,linsrv0305,system,Phishing email reported by user,2025-09-15 00:48:19.234567 UTC
+INC-20250914-0206,PHISHING_EMAIL,New,Medium,lindb0060,svc_prod_db,Phishing email reported by user,2025-09-14 06:25:33.123456 UTC
+INC-20250914-0209,PHISHING_EMAIL,New,Low,linsrv0320,system,Phishing email reported by user,2025-09-14 06:02:45.987654 UTC
+INC-20250914-0089,PHISHING_EMAIL,New,Medium,linsrv0308,system,Phishing email reported by user,2025-09-14 21:02:45.123456 UTC
+INC-20250913-0316,PHISHING_EMAIL,New,Medium,lindb0071,svc_prod_db,Phishing email reported by user,2025-09-13 16:40:05.456789 UTC
+INC-20250913-0369,PHISHING_EMAIL,New,Low,linsrv0336,system,Phishing email reported by user,2025-09-13 10:02:45.789012 UTC
+INC-20250913-0416,PHISHING_EMAIL,New,Medium,lindb0081,svc_prod_db,Phishing email reported by user,2025-09-13 04:10:05.987654 UTC
+INC-20250914-0141,EDR_DETECTION,New,Critical,winws1226,p.patel,Potential ransomware activity detected (file enumeration),2025-09-14 14:33:45.876543 UTC
+INC-20250913-0301,EDR_DETECTION,New,Critical,winws1258,d.kim,Potential ransomware activity detected (file enumeration),2025-09-13 18:33:45.765432 UTC
+INC-20250913-0331,EDR_DETECTION,New,Critical,winws1264,m.chen,Potential ransomware activity detected (file enumeration),2025-09-13 14:48:19.56789 UTC
+INC-20250912-0451,EDR_DETECTION,New,Critical,winws1288,d.kim,Potential ransomware activity detected (file enumeration),2025-09-12 23:48:19.456789 UTC
+INC-20250913-0351,EDR_DETECTION,New,Critical,winws1268,d.kim,Potential ransomware activity detected (file enumeration),2025-09-13 12:18:19.789012 UTC
+INC-20250914-0121,EDR_DETECTION,New,Critical,winws1222,a.smith,Potential ransomware activity detected (file enumeration),2025-09-14 17:02:45.765432 UTC
+INC-20250914-0111,EDR_DETECTION,New,Critical,winws1220,j.doe,Potential ransomware activity detected (file enumeration),2025-09-14 18:18:19.345678 UTC
+INC-20250914-0091,EDR_DETECTION,New,Critical,winws1216,p.patel,Potential ransomware activity detected (file enumeration),2025-09-14 20:48:19.456789 UTC
+INC-20250913-0401,EDR_DETECTION,New,Critical,winws1278,d.kim,Potential ransomware activity detected (file enumeration),2025-09-13 06:02:45.234567 UTC
+INC-20250914-0211,EDR_DETECTION,New,Critical,winws1240,j.doe,Potential ransomware activity detected (file enumeration),2025-09-14 05:48:19.765432 UTC
+INC-20250914-0221,EDR_DETECTION,New,Critical,winws1242,a.smith,Potential ransomware activity detected (file enumeration),2025-09-14 04:33:45.234567 UTC
+INC-20250915-0051,EDR_DETECTION,New,Critical,winws1208,d.kim,Potential ransomware activity detected (file enumeration),2025-09-15 01:48:19.876543 UTC
+INC-20250913-0281,EDR_DETECTION,New,Critical,winws1254,m.chen,Potential ransomware activity detected (file enumeration),2025-09-13 21:02:45.987654 UTC
+INC-20250915-0031,EDR_DETECTION,New,Critical,winws1204,m.chen,Potential ransomware activity detected (file enumeration),2025-09-15 04:15:15.765432 UTC
+INC-20250912-0491,EDR_DETECTION,New,Critical,winws1296,p.patel,Potential ransomware activity detected (file enumeration),2025-09-12 18:48:19.234567 UTC
+INC-20250913-0391,EDR_DETECTION,New,Critical,winws1276,p.patel,Potential ransomware activity detected (file enumeration),2025-09-13 07:18:19.765432 UTC
+INC-20250915-0007,EDR_DETECTION,New,Critical,winws1046,p.patel,Potential ransomware activity detected (file enumeration),2025-09-15 07:15:45.998765 UTC
+INC-20250914-0181,EDR_DETECTION,New,Critical,winws1234,m.chen,Potential ransomware activity detected (file enumeration),2025-09-14 09:33:45.456789 UTC
+INC-20250913-0421,EDR_DETECTION,New,Critical,winws1282,a.smith,Potential ransomware activity detected (file enumeration),2025-09-13 03:33:45.56789 UTC
+INC-20250914-0171,EDR_DETECTION,New,Critical,winws1232,a.smith,Potential ransomware activity detected (file enumeration),2025-09-14 10:48:19.789012 UTC
+INC-20250914-0231,EDR_DETECTION,New,Critical,winws1244,m.chen,Potential ransomware activity detected (file enumeration),2025-09-14 03:18:19.876543 UTC
+INC-20250913-0361,EDR_DETECTION,New,Critical,winws1270,j.doe,Potential ransomware activity detected (file enumeration),2025-09-13 11:02:45.456789 UTC
+INC-20250913-0261,EDR_DETECTION,New,Critical,winws1250,j.doe,Potential ransomware activity detected (file enumeration),2025-09-13 23:33:45.789012 UTC
+INC-20250913-0321,EDR_DETECTION,New,Critical,winws1262,a.smith,Potential ransomware activity detected (file enumeration),2025-09-13 16:02:45.876543 UTC
+INC-20250913-0431,EDR_DETECTION,New,Critical,winws1284,m.chen,Potential ransomware activity detected (file enumeration),2025-09-13 02:18:19.123456 UTC
+INC-20250914-0151,EDR_DETECTION,New,Critical,winws1228,d.kim,Potential ransomware activity detected (file enumeration),2025-09-14 13:18:19.56789 UTC
+INC-20250914-0071,EDR_DETECTION,New,Critical,winws1212,a.smith,Potential ransomware activity detected (file enumeration),2025-09-14 23:18:19.123456 UTC
+INC-20250914-0251,EDR_DETECTION,New,Critical,winws1248,d.kim,Potential ransomware activity detected (file enumeration),2025-09-14 00:48:19.123456 UTC
+INC-20250912-0481,EDR_DETECTION,New,Critical,winws1294,m.chen,Potential ransomware activity detected (file enumeration),2025-09-12 20:02:45.765432 UTC
+INC-20250913-0411,EDR_DETECTION,New,Critical,winws1280,j.doe,Potential ransomware activity detected (file enumeration),2025-09-13 04:48:19.876543 UTC
+INC-20250912-0461,EDR_DETECTION,New,Critical,winws1290,j.doe,Potential ransomware activity detected (file enumeration),2025-09-12 22:33:45.987654 UTC
+INC-20250914-0191,EDR_DETECTION,New,Critical,winws1236,p.patel,Potential ransomware activity detected (file enumeration),2025-09-14 08:18:19.987654 UTC
+INC-20250913-0381,EDR_DETECTION,New,Critical,winws1274,m.chen,Potential ransomware activity detected (file enumeration),2025-09-13 08:33:45.345678 UTC
+INC-20250914-0103,IOC_MATCH,New,High,linapp0112,svc_api,Server traffic to known malware IP,2025-09-14 19:18:19.765432 UTC
+INC-20250913-0355,IOC_MATCH,New,High,winws1081,a.smith,Server traffic to known malware IP,2025-09-13 11:48:19.765432 UTC
+INC-20250913-0270,IOC_MATCH,New,High,winws0115,j.doe,Server traffic to known malware IP,2025-09-13 22:25:33.789012 UTC
+INC-20250913-0405,IOC_MATCH,New,High,winws1086,a.smith,Server traffic to known malware IP,2025-09-13 05:33:45.789012 UTC
+INC-20250915-0044,IOC_MATCH,New,High,winsrv0224,system,Server traffic to known malware IP,2025-09-15 02:40:05.123456 UTC
+INC-20250914-0183,IOC_MATCH,New,High,linapp0120,svc_api,Server traffic to known malware IP,2025-09-14 09:18:19.345678 UTC
+INC-20250912-0473,IOC_MATCH,New,High,linapp0149,svc_api,Server traffic to known malware IP,2025-09-12 21:02:45.234567 UTC
+INC-20250914-0255,IOC_MATCH,New,High,winws1071,a.smith,Server traffic to known malware IP,2025-09-14 00:18:19.345678 UTC
+INC-20250914-0160,IOC_MATCH,New,High,winws0104,d.kim,Server traffic to known malware IP,2025-09-14 12:10:05.56789 UTC
+INC-20250914-0240,IOC_MATCH,New,High,winws0112,m.chen,Server traffic to known malware IP,2025-09-14 02:10:05.876543 UTC
+INC-20250914-0115,IOC_MATCH,New,High,winws1057,m.chen,Server traffic to known malware IP,2025-09-14 17:48:19.56789 UTC
+INC-20250915-0034,IOC_MATCH,New,High,winsrv0223,system,Server traffic to known malware IP,2025-09-15 03:55:30.56789 UTC
+INC-20250912-0455,IOC_MATCH,New,High,winws1091,a.smith,Server traffic to known malware IP,2025-09-12 23:18:19.234567 UTC
+INC-20250913-0343,IOC_MATCH,New,High,linapp0136,svc_api,Server traffic to known malware IP,2025-09-13 13:18:19.456789 UTC
+INC-20250915-0065,IOC_MATCH,New,High,winws1052,m.chen,Server traffic to known malware IP,2025-09-15 00:02:45.987654 UTC
+INC-20250913-0305,IOC_MATCH,New,High,winws1076,a.smith,Server traffic to known malware IP,2025-09-13 18:02:45.123456 UTC
+INC-20250913-0293,IOC_MATCH,New,High,linapp0131,svc_api,Server traffic to known malware IP,2025-09-13 19:33:45.234567 UTC
+INC-20250914-0225,IOC_MATCH,New,High,winws1068,p.patel,Server traffic to known malware IP,2025-09-14 04:02:45.789012 UTC
+INC-20250914-0145,IOC_MATCH,New,High,winws1060,j.doe,Server traffic to known malware IP,2025-09-14 14:02:45.456789 UTC
+INC-20250915-0024,IOC_MATCH,New,High,winsrv0222,system,Server traffic to known malware IP,2025-09-15 05:08:33.876543 UTC
+INC-20250914-0080,IOC_MATCH,New,High,winws0096,a.smith,Server traffic to known malware IP,2025-09-14 22:10:05.123456 UTC
+INC-20250913-0393,IOC_MATCH,New,High,linapp0141,svc_api,Server traffic to known malware IP,2025-09-13 07:02:45.876543 UTC
+INC-20250912-0493,IOC_MATCH,New,High,linapp0151,svc_api,Server traffic to known malware IP,2025-09-12 18:33:45.56789 UTC
+INC-20250915-0013,IOC_MATCH,New,High,winsrv0221,system,Server traffic to known malware IP,2025-09-15 06:33:01.765432 UTC
+INC-20250913-0373,IOC_MATCH,New,High,linapp0139,svc_api,Server traffic to known malware IP,2025-09-13 09:33:45.765432 UTC
+INC-20250914-0137,EDR_DETECTION,New,High,winws0176,j.doe,Suspicious powershell execution detected,2025-09-14 15:02:45.987654 UTC
+INC-20250914-0167,EDR_DETECTION,New,High,winws0182,p.patel,Suspicious powershell execution detected,2025-09-14 11:18:19.234567 UTC
+INC-20250913-0389,EDR_DETECTION,New,High,linsrv0338,system,Suspicious powershell execution detected,2025-09-13 07:33:45.987654 UTC
+INC-20250913-0277,EDR_DETECTION,New,High,winws0204,d.kim,Suspicious powershell execution detected,2025-09-13 21:33:45.56789 UTC
+INC-20250914-0179,EDR_DETECTION,New,High,linsrv0317,system,Suspicious powershell execution detected,2025-09-14 09:48:19.123456 UTC
+INC-20250913-0359,EDR_DETECTION,New,High,linsrv0335,system,Suspicious powershell execution detected,2025-09-13 11:18:19.123456 UTC
+INC-20250913-0409,EDR_DETECTION,New,High,linsrv0340,system,Suspicious powershell execution detected,2025-09-13 05:02:45.765432 UTC
+INC-20250913-0289,EDR_DETECTION,New,High,linsrv0328,system,Suspicious powershell execution detected,2025-09-13 20:02:45.456789 UTC
+INC-20250914-0199,EDR_DETECTION,New,High,linsrv0319,system,Suspicious powershell execution detected,2025-09-14 07:18:19.456789 UTC
+INC-20250912-0489,EDR_DETECTION,New,High,linsrv0348,system,Suspicious powershell execution detected,2025-09-12 19:02:45.345678 UTC
+INC-20250913-0429,EDR_DETECTION,New,High,linsrv0342,system,Suspicious powershell execution detected,2025-09-13 02:33:45.876543 UTC
+INC-20250914-0099,EDR_DETECTION,New,High,linsrv0309,system,Suspicious powershell execution detected,2025-09-14 19:48:19.789012 UTC
+INC-20250912-0467,EDR_DETECTION,New,High,winws0241,p.patel,Suspicious powershell execution detected,2025-09-12 21:48:19.123456 UTC
+INC-20250913-0377,EDR_DETECTION,New,High,winws0223,d.kim,Suspicious powershell execution detected,2025-09-13 09:02:45.123456 UTC
+INC-20250913-0337,EDR_DETECTION,New,High,winws0215,j.doe,Suspicious powershell execution detected,2025-09-13 14:02:45.765432 UTC
+INC-20250915-0022,EDR_DETECTION,New,High,winws0153,m.chen,Suspicious powershell execution detected,2025-09-15 05:22:45.765432 UTC
+INC-20250913-0447,EDR_DETECTION,New,High,winws0237,a.smith,Suspicious powershell execution detected,2025-09-13 00:18:19.876543 UTC
+INC-20250915-0038,EDR_DETECTION,New,High,winws1205,a.smith,Suspicious powershell execution detected,2025-09-15 03:25:33.987654 UTC
+INC-20250914-0247,EDR_DETECTION,New,High,winws0198,a.smith,Suspicious powershell execution detected,2025-09-14 01:18:19.765432 UTC
+INC-20250915-0057,EDR_DETECTION,New,High,winws0160,m.chen,Suspicious powershell execution detected,2025-09-15 01:02:45.345678 UTC
+INC-20250913-0309,EDR_DETECTION,New,High,linsrv0330,system,Suspicious powershell execution detected,2025-09-13 17:33:45.345678 UTC
+INC-20250915-0010,EDR_DETECTION,New,High,linsrv0300,system,Suspicious process execution chain detected on host,2025-09-15 06:48:33.445566 UTC
+INC-20250914-0194,EDR_DETECTION,New,High,winsrv0239,system,Suspicious process execution chain detected on host,2025-09-14 07:55:33.234567 UTC
+INC-20250913-0394,EDR_DETECTION,New,Critical,winsrv0259,system,Suspicious process execution chain detected on host,2025-09-13 06:55:33.56789 UTC
+INC-20250914-0074,EDR_DETECTION,New,High,winsrv0227,system,Suspicious process execution chain detected on host,2025-09-14 22:55:33.987654 UTC
+INC-20250914-0254,EDR_DETECTION,New,High,winsrv0245,system,Suspicious process execution chain detected on host,2025-09-14 00:25:33.987654 UTC
+INC-20250914-0124,EDR_DETECTION,New,Critical,winsrv0232,system,Suspicious process execution chain detected on host,2025-09-14 16:40:05.56789 UTC
+INC-20250913-0324,EDR_DETECTION,New,High,winsrv0252,system,Suspicious process execution chain detected on host,2025-09-13 15:40:05.789012 UTC
+INC-20250914-0226,EDR_DETECTION,New,High,lindb0062,svc_prod_db,Suspicious process execution chain detected on host,2025-09-14 03:55:33.456789 UTC
+INC-20250913-0274,EDR_DETECTION,New,Critical,winsrv0247,system,Suspicious process execution chain detected on host,2025-09-13 21:55:33.765432 UTC
+INC-20250913-0406,EDR_DETECTION,New,Critical,lindb0080,svc_prod_db,Suspicious process execution chain detected on host,2025-09-13 05:25:33.456789 UTC
+INC-20250913-0354,EDR_DETECTION,New,High,winsrv0255,system,Suspicious process execution chain detected on host,2025-09-13 11:55:33.345678 UTC
+INC-20250914-0144,EDR_DETECTION,New,High,winsrv0234,system,Suspicious process execution chain detected on host,2025-09-14 14:10:05.789012 UTC
+INC-20250913-0334,EDR_DETECTION,New,Critical,winsrv0253,system,Suspicious process execution chain detected on host,2025-09-13 14:25:33.456789 UTC
+INC-20250913-0424,EDR_DETECTION,New,High,winsrv0262,system,Suspicious process execution chain detected on host,2025-09-13 03:10:05.456789 UTC
+INC-20250912-0484,EDR_DETECTION,New,High,winsrv0268,system,Suspicious process execution chain detected on host,2025-09-12 19:40:05.56789 UTC
+INC-20250915-0001,EDR_DETECTION,New,Critical,winws0012,j.doe,Suspicious process execution chain detected on host,2025-09-15 08:02:14.521345 UTC
+INC-20250913-0426,EDR_DETECTION,New,Critical,lindb0082,svc_prod_db,Suspicious process execution chain detected on host,2025-09-13 02:55:33.345678 UTC
+INC-20250913-0434,EDR_DETECTION,New,Critical,winsrv0263,system,Suspicious process execution chain detected on host,2025-09-13 01:55:33.987654 UTC
+INC-20250914-0096,EDR_DETECTION,New,High,lindb0049,svc_prod_db,Suspicious process execution chain detected on host,2025-09-14 20:10:05.876543 UTC
+INC-20250913-0326,EDR_DETECTION,New,Critical,lindb0072,svc_prod_db,Suspicious process execution chain detected on host,2025-09-13 15:25:33.987654 UTC
+INC-20250914-0084,EDR_DETECTION,New,Critical,winsrv0228,system,Suspicious process execution chain detected on host,2025-09-14 21:40:05.345678 UTC
+INC-20250915-0014,EDR_DETECTION,New,Critical,linapp0103,svc_api,Suspicious process execution chain detected on host,2025-09-15 06:25:50.234567 UTC
+INC-20250913-0374,EDR_DETECTION,New,Critical,winsrv0257,system,Suspicious process execution chain detected on host,2025-09-13 09:25:33.234567 UTC
+INC-20250912-0486,EDR_DETECTION,New,High,lindb0088,svc_prod_db,Suspicious process execution chain detected on host,2025-09-12 19:25:33.789012 UTC
+INC-20250912-0454,EDR_DETECTION,New,High,winsrv0265,system,Suspicious process execution chain detected on host,2025-09-12 23:25:33.765432 UTC
+INC-20250913-0306,EDR_DETECTION,New,High,lindb0070,svc_prod_db,Suspicious process execution chain detected on host,2025-09-13 17:55:33.789012 UTC
+INC-20250914-0116,EDR_DETECTION,New,High,lindb0051,svc_prod_db,Suspicious process execution chain detected on host,2025-09-14 17:40:05.123456 UTC
+INC-20250913-0264,EDR_DETECTION,New,Critical,winsrv0246,system,Suspicious process execution chain detected on host,2025-09-13 23:10:05.345678 UTC
+INC-20250914-0154,EDR_DETECTION,New,Critical,winsrv0235,system,Suspicious process execution chain detected on host,2025-09-14 12:55:33.456789 UTC
+INC-20250912-0464,EDR_DETECTION,New,Critical,winsrv0266,system,Suspicious process execution chain detected on host,2025-09-12 22:10:05.234567 UTC
+INC-20250914-0234,EDR_DETECTION,New,Critical,winsrv0243,system,Suspicious process execution chain detected on host,2025-09-14 02:55:33.789012 UTC
+INC-20250914-0214,EDR_DETECTION,New,Critical,winsrv0241,system,Suspicious process execution chain detected on host,2025-09-14 05:25:33.56789 UTC
+INC-20250913-0314,EDR_DETECTION,New,Critical,winsrv0251,system,Suspicious process execution chain detected on host,2025-09-13 16:55:33.123456 UTC
+INC-20250914-0196,EDR_DETECTION,New,High,lindb0059,svc_prod_db,Suspicious process execution chain detected on host,2025-09-14 07:40:05.56789 UTC
+INC-20250913-0294,EDR_DETECTION,New,Critical,winsrv0249,system,Suspicious process execution chain detected on host,2025-09-13 19:25:33.876543 UTC
+INC-20250915-0045,EDR_DETECTION,New,High,winws1050,j.doe,Suspicious process execution chain detected on host,2025-09-15 02:33:44.789012 UTC
+INC-20250914-0104,EDR_DETECTION,New,Critical,winsrv0230,system,Suspicious process execution chain detected on host,2025-09-14 19:10:05.234567 UTC
+INC-20250913-0404,EDR_DETECTION,New,High,winsrv0260,system,Suspicious process execution chain detected on host,2025-09-13 05:40:05.123456 UTC
