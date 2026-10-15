@@ -1,0 +1,55 @@
+[project]
+name = "sdlc-workflow-suite"
+version = "0.1.0"
+description = "End-to-end SDLC workflow suite combining user story refinement, technical design, and task planning with SequentialAgent."
+authors = [
+    { name = "Agata Golebiowska", email = "gagata@google.com" },
+    { name = "Tomasz Switon", email = "switon@google.com" },
+]
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "google-cloud-aiplatform[adk,agent-engines]>=1.93.0",
+    "google-genai>=1.9.0",
+    "pydantic>=2.10.6",
+    "pydantic-settings>=2.7.1",
+    "python-dotenv>=1.0.1",
+    "google-adk>=1.31.0",
+    "sqlalchemy>=2.0.38",
+    "google-cloud-spanner>=3.49.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3.2",
+    "pytest-asyncio>=0.23.7",
+    "nest-asyncio>=1.6.0",
+    "agent-starter-pack>=0.14.1",
+    "python-dotenv>=1.0.1",
+]
+
+deployment = [
+    "absl-py>=2.2.1",
+]
+
+[tool.pytest.ini_options]
+pythonpath = "."
+testpaths = ["tests"]
+asyncio_default_fixture_loop_scope = "function"
+
+[tool.hatch.build.targets.wheel]
+packages = ["sdlc_workflow_suite"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.agent-starter-pack]
+example_question = "I want to implement a secure webhook event delivery system. Please run through the SDLC workflow."
+
+[tool.agent-starter-pack.settings]
+agent_directory = "sdlc_workflow_suite"
+
+[[tool.uv.index]]
+url = "https://pypi.org/simple"
+default = true
