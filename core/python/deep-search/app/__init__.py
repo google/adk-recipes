@@ -24,12 +24,15 @@ from dotenv import load_dotenv
 # .env is expected and not an error.
 load_dotenv()
 
-_, project_id = google.auth.default()
-os.environ.setdefault("GOOGLE_CLOUD_PROJECT", project_id or "")
-os.environ.setdefault("GOOGLE_CLOUD_LOCATION", "global")
-# This entry-point is Vertex AI only; set explicitly so a stale env value
-# cannot silently override the detected auth mode.
-os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "True"
+if os.getenv("GOOGLE_API_KEY"):
+    # Match config.py: AI Studio mode needs no application-default credentials.
+    os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "False"
+else:
+    _, project_id = google.auth.default()
+    os.environ.setdefault("GOOGLE_CLOUD_PROJECT", project_id or "")
+    os.environ.setdefault("GOOGLE_CLOUD_LOCATION", "global")
+    # Vertex AI mode: set explicitly so a stale env value cannot override it.
+    os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "True"
 
 # Env bootstrap above must run before importing the agent (which reads env
 # vars at import time), so this import is intentionally not at the top.

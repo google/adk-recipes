@@ -14,7 +14,50 @@
 """Runnability tests for the recipe."""
 
 import os
+import subprocess
+import sys
+from pathlib import Path
 from unittest.mock import MagicMock, patch
+
+
+def test_ai_studio_import_does_not_request_adc() -> None:
+    """AI Studio startup must not require application-default credentials."""
+    script = """
+import os
+import sys
+from types import ModuleType
+import google.auth
+
+def unexpected_adc_lookup():
+    raise AssertionError("AI Studio startup must not request ADC")
+
+google.auth.default = unexpected_adc_lookup
+agent = ModuleType("app.agent")
+agent.root_agent = None
+sys.modules["app.agent"] = agent
+import app
+assert os.environ["GOOGLE_GENAI_USE_VERTEXAI"] == "False"
+"""
+    env = os.environ.copy()
+    for key in (
+        "GOOGLE_CLOUD_PROJECT",
+        "GOOGLE_CLOUD_LOCATION",
+        "GOOGLE_APPLICATION_CREDENTIALS",
+        "GOOGLE_GENAI_USE_VERTEXAI",
+    ):
+        env.pop(key, None)
+    env["GOOGLE_API_KEY"] = "test-key"
+    env["MODEL_NAME"] = "gemini-3.5-flash"
+
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=Path(__file__).resolve().parents[1],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 def test_agent_runnability() -> None:
