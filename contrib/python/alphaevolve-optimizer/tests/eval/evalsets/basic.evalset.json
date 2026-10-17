@@ -1,0 +1,37 @@
+{
+  "eval_set_id": "basic_eval",
+  "name": "AlphaEvolve Optimizer Evaluation",
+  "description": "Checks that the agent explains what it does and runs a verified node-cost optimization that reports measured savings.",
+  "eval_cases": [
+    {
+      "eval_id": "explain_capabilities",
+      "conversation": [
+        {
+          "user_content": {
+            "parts": [{"text": "Hello, what can you help me with?"}]
+          }
+        }
+      ],
+      "session_input": {
+        "app_name": "app",
+        "user_id": "eval_user",
+        "state": {}
+      }
+    },
+    {
+      "eval_id": "run_optimization",
+      "conversation": [
+        {
+          "user_content": {
+            "parts": [{"text": "Find the cheapest node plan for my clusters and report the monthly savings."}]
+          }
+        }
+      ],
+      "session_input": {
+        "app_name": "app",
+        "user_id": "eval_user",
+        "state": {}
+      }
+    }
+  ]
+}
