@@ -1,0 +1,45 @@
+{
+  "description": "Illustrative wind-farm sites for the bundled sample. Coordinates are representative of each region, not of a specific operating wind farm.",
+  "sites": [
+    {
+      "site_id": "prairie-ridge",
+      "name": "Prairie Ridge (onshore, Texas Panhandle)",
+      "latitude": 35.2,
+      "longitude": -101.8,
+      "utc_offset_hours": -5,
+      "hub_height_m": 90,
+      "turbines": 120,
+      "type": "onshore"
+    },
+    {
+      "site_id": "highland-moor",
+      "name": "Highland Moor (onshore, Scottish Highlands)",
+      "latitude": 57.4,
+      "longitude": -4.3,
+      "utc_offset_hours": 1,
+      "hub_height_m": 85,
+      "turbines": 48,
+      "type": "onshore"
+    },
+    {
+      "site_id": "elbe-marsh",
+      "name": "Elbe Marsh (onshore, northern Germany)",
+      "latitude": 53.9,
+      "longitude": 9.2,
+      "utc_offset_hours": 2,
+      "hub_height_m": 120,
+      "turbines": 36,
+      "type": "onshore"
+    },
+    {
+      "site_id": "dogger-offshore",
+      "name": "Dogger Offshore (offshore, North Sea)",
+      "latitude": 54.8,
+      "longitude": 2.0,
+      "utc_offset_hours": 1,
+      "hub_height_m": 110,
+      "turbines": 80,
+      "type": "offshore"
+    }
+  ]
+}

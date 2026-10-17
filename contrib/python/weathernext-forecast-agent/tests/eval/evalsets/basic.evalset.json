@@ -1,0 +1,52 @@
+{
+  "eval_set_id": "basic_eval",
+  "name": "WeatherNext Maintenance Planner Evaluation",
+  "description": "Checks that the agent explains what it does, finds a grounded maintenance window for one site, and plans crews across sites with explicit uncertainty.",
+  "eval_cases": [
+    {
+      "eval_id": "explain_capabilities",
+      "conversation": [
+        {
+          "user_content": {
+            "parts": [{"text": "Hello, what can you help me with?"}]
+          }
+        }
+      ],
+      "session_input": {
+        "app_name": "app",
+        "user_id": "eval_user",
+        "state": {}
+      }
+    },
+    {
+      "eval_id": "single_site_window",
+      "conversation": [
+        {
+          "user_content": {
+            "parts": [{"text": "When can we do blade repairs at Elbe Marsh in the next five days, and how confident are you?"}]
+          }
+        }
+      ],
+      "session_input": {
+        "app_name": "app",
+        "user_id": "eval_user",
+        "state": {}
+      }
+    },
+    {
+      "eval_id": "crew_plan",
+      "conversation": [
+        {
+          "user_content": {
+            "parts": [{"text": "We have 2 crane crews this week for main component lifts. Which sites should they go to and when?"}]
+          }
+        }
+      ],
+      "session_input": {
+        "app_name": "app",
+        "user_id": "eval_user",
+        "state": {}
+      }
+    }
+  ]
+}
