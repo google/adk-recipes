@@ -1,0 +1,4 @@
+Invoice INV-1003
+Customer: globex
+Order: ORD-1003
+Total: 780.00 USD

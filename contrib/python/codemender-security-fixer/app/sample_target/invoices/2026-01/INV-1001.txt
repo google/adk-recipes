@@ -1,0 +1,4 @@
+Invoice INV-1001
+Customer: acme
+Order: ORD-1001
+Total: 1299.00 USD
