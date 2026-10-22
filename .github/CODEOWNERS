@@ -35,6 +35,7 @@
 # Recipes owned by their authors. Listed after the language lines above,
 # because the last matching rule wins.
 /core/python/ambient-quality-agent/** @maxgasztych @google/adlc-devex
+/core/python/genmedia-for-commerce/** @lspataroG @giuliosalierno @eliasecchig
 
 # --- contrib/ ---
 /contrib/python/**     @tommywagz
