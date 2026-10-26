@@ -251,9 +251,9 @@ class MockBrowserComputer(BaseComputer):
 
     async def type_text_at(
         self,
-        text: str = "",
         x: int | None = None,
         y: int | None = None,
+        text: str = "",
         press_enter: bool = True,
         clear_before_typing: bool = True,
     ) -> ComputerState:
@@ -270,9 +270,9 @@ class MockBrowserComputer(BaseComputer):
 
     async def scroll_at(
         self,
-        direction: Literal["up", "down", "left", "right"] = "down",
         x: int | None = None,
         y: int | None = None,
+        direction: Literal["up", "down", "left", "right"] = "down",
         magnitude: int = DEFAULT_SCROLL_OFFSET,
     ) -> ComputerState:
         return await self.current_state()
@@ -425,9 +425,9 @@ class PlaywrightBrowserComputer(BaseComputer):
 
     async def type_text_at(
         self,
-        text: str = "",
         x: int | None = None,
         y: int | None = None,
+        text: str = "",
         press_enter: bool = True,
         clear_before_typing: bool = True,
     ) -> ComputerState:
@@ -463,9 +463,9 @@ class PlaywrightBrowserComputer(BaseComputer):
 
     async def scroll_at(
         self,
-        direction: Literal["up", "down", "left", "right"] = "down",
         x: int | None = None,
         y: int | None = None,
+        direction: Literal["up", "down", "left", "right"] = "down",
         magnitude: int = DEFAULT_SCROLL_OFFSET,
     ) -> ComputerState:
         await self._ensure_browser()
