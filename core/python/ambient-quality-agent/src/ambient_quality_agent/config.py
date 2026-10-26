@@ -14,14 +14,16 @@
 
 """Process-wide configuration loaded once at startup.
 
-All AQA runtime parameters that come from the environment (set by
-agents-cli at deploy time, or by the developer for local runs) live
-here. The module exports a single frozen `config` object that the
-rest of the codebase imports.
+All AQA runtime parameters live here. The module exports a single frozen
+`config` object that the rest of the codebase imports, loaded from the
+environment (set by Terraform at deploy time, or by the developer for local
+runs).
 
-Add new fields here as new env vars are introduced. A field belongs either to
-AQuA's own deployment or to the agent being observed; the latter are also named
-by `ObservedAgentConfig`, and a test fails until a new field lands on one side.
+A field belongs either to AQuA's own deployment or to the agent being observed;
+the latter are also named by `ObservedAgentConfig`, and a test fails until a new
+field lands on one side. Only AQuA's own fields come from the environment. An
+observed agent's fields keep their defaults here, and `effective_config` layers
+on the ones `agents-cli aqua attach` stored for the agent a request is about.
 """
 
 from __future__ import annotations
@@ -32,6 +34,7 @@ import logging
 import os
 from collections.abc import Collection
 from dataclasses import dataclass, field
+from typing import Any
 
 from ambient_quality_agent.tools.evaluation.models import (
     MULTI_TURN_METRICS,
@@ -82,8 +85,10 @@ DEFAULT_TELEMETRY_TABLES = {
 MAX_DATA_EVALUATION_CAP = 1000
 """Upper bound (and default) for `data_evaluation_cap`."""
 
-MAX_DATA_LOOKBACK_WINDOW = 64
-"""Upper bound for `data_lookback_window`, in days."""
+MAX_DATA_LOOKBACK_WINDOW = 36500
+"""Upper bound for `data_lookback_window`, in days (100 years). Prevents
+`datetime` overflow when computing the window start while covering any
+historical telemetry."""
 
 DEFAULT_AGENT_REVISION_TRIGGER_DELAY_SECONDS = 900
 """Default wait after an observed-agent update before investigating, so the
@@ -134,10 +139,8 @@ class Config:
 
     observed_agent_name: str
     """Name of the watched agent — matches `Agent(name=...)` in the
-    observed agent's code. Set by agents-cli via
-    `AQA_OBSERVED_AGENT_NAME` at deploy time. Empty in a deployment that names
-    no agent, where `effective_config` takes it from the default attached
-    agent."""
+    observed agent's code. Empty in the environment's configuration;
+    `effective_config` takes it from the attached agent a request is about."""
 
     project_id: str
     """Google Cloud project that hosts the watched agent. Set via
@@ -146,6 +149,15 @@ class Config:
     location: str
     """Google Cloud region for the evaluation client and the Agent Runtime agent
     (set via `GOOGLE_CLOUD_LOCATION`). Also the BigQuery-location fallback."""
+
+    agent_key: str = ""
+    """What the agent's attachment, triggers and AQuA's own rows are stored
+    under: its key, `<project id>__<agent name>`
+    (`ambient_quality_shared.agent_key`), or the bare agent name an agent in
+    AQuA's own project keeps (`observed_agent_config.keys`).
+    `observed_agent_name` stays the telemetry filter. Set by
+    `effective_config`, never by the environment; empty when no agent is
+    attached. Read it through `resolve_agent_key`."""
 
     base_model: Model = field(default_factory=Model)
     """Base model."""
@@ -182,20 +194,20 @@ class Config:
 
     insights_auto_resolve_days: int = 14
     """Resolve an insight after this many days without a sighting; `0` disables
-    auto-resolution. Set via `AQA_INSIGHTS_AUTO_RESOLVE_DAYS`."""
+    auto-resolution. Set by `aqua attach`."""
 
     insights_verification_enabled: bool | None = None
     """Whether to check each candidate issue against its own traces before it
     becomes an insight -- one model call per candidate, and the sweep's most
     expensive step. ``None``, the default, means on, and is preserved as-is
     through every override and round trip so an explicit ``False`` stays
-    distinguishable from it. Set via `AQA_INSIGHTS_VERIFICATION_ENABLED`."""
+    distinguishable from it. Set by `aqua attach`."""
 
     insights_verification_enforced: bool | None = None
     """Whether a negative verdict withholds the candidate rather than being
     recorded against it. ``None``, the default, means off, and is preserved
-    as-is on the same terms as `insights_verification_enabled`. Set via
-    `AQA_INSIGHTS_VERIFICATION_ENFORCED`."""
+    as-is on the same terms as `insights_verification_enabled`. Set by
+    `aqua attach`."""
 
     aqa_engine_id: str = ""
     """AQA's *own* reasoning-engine id, used to submit the durable self-query.
@@ -227,7 +239,7 @@ class Config:
     quality_analysis_mode: str = DEFAULT_QUALITY_ANALYSIS_MODE
     """Quality analysis strategy: ``session_review`` reviews each session with
     one LLM call, and ``eval_service`` scores it against eval metrics in Gemini platform.
-    Set via `AQA_QUALITY_ANALYSIS_MODE`."""
+    Set by `aqua attach`."""
 
     metrics_gcs_bucket: str = ""
     """GCS bucket holding the code-metric library. Set via
@@ -240,13 +252,13 @@ class Config:
     Write access is equivalent to deploying AQuA."""
 
     telemetry_ingestion_source: str = "big_query"
-    """Where to pull telemetry from (``big_query`` or ``cloud_ops``). Set
-    via `TELEMETRY_INGESTION_SOURCE`."""
+    """Where to pull telemetry from (``big_query``, ``cloud_ops`` or
+    ``cloud_logging``). Set by `aqua attach`."""
 
     observed_project_id: str = ""
     """Project the observed agent runs in: on Agent Runtime, Cloud Run or GKE.
     It owns `telemetry_dataset` and, for ``cloud_ops``, the logs message
-    content is read from, and `aqua attach --apply` puts the audit sink on the
+    content is read from, and `aqua attach` puts the audit sink on the
     agent's updates there. Empty means `project_id`. Set by `aqua attach` only;
     read it through `resolve_observed_project_id`.
 
@@ -256,21 +268,20 @@ class Config:
 
     telemetry_dataset: str = DEFAULT_TELEMETRY_DATASETS["big_query"]
     """BigQuery dataset holding the telemetry `telemetry_ingestion_source`
-    reads. Set via `AQA_TELEMETRY_DATASET`; defaults per source
-    from `DEFAULT_TELEMETRY_DATASETS`."""
+    reads. Set by `aqua attach`; defaults per source from
+    `DEFAULT_TELEMETRY_DATASETS`."""
 
     telemetry_table: str = DEFAULT_TELEMETRY_TABLES["big_query"]
-    """BigQuery table or view within `telemetry_dataset`. Set via
-    `AQA_TELEMETRY_TABLE`; defaults per source from
-    `DEFAULT_TELEMETRY_TABLES`."""
+    """BigQuery table or view within `telemetry_dataset`. Set by `aqua attach`;
+    defaults per source from `DEFAULT_TELEMETRY_TABLES`."""
 
     telemetry_location: str = DEFAULT_BIGQUERY_LOCATION
     """BigQuery location of `telemetry_dataset`, and the location ingestion
-    jobs run in (e.g. ``"us-central1"``). Resolved by `_resolve_bigquery_location`."""
+    jobs run in (e.g. ``"us-central1"``). Set by `aqua attach`."""
 
     data_evaluation_cap: int = 1000
     """Maximum number of records to pull into a single evaluation run.
-    Set via `DATA_EVALUATION_CAP`."""
+    Set by `aqua attach`."""
 
     multi_turn_metrics: list[str] = field(
         default_factory=lambda: [
@@ -279,16 +290,15 @@ class Config:
             "trajectory_quality",
         ]
     )
-    """Metrics evaluated over a multi-turn conversation. Set via the
-    comma-separated `MULTI_TURN_METRICS` env var."""
+    """Metrics evaluated over a multi-turn conversation. Set by
+    `aqua attach`."""
 
     single_turn_metrics: list[str] = field(default_factory=list)
-    """Metrics evaluated over a single turn. Set via the
-    comma-separated `SINGLE_TURN_METRICS` env var (empty by default)."""
+    """Metrics evaluated over a single turn (none by default). Set by
+    `aqua attach`."""
 
     data_lookback_window: int = 7
-    """How many days of telemetry to consider. Set via
-    `DATA_LOOKBACK_WINDOW`."""
+    """How many days of telemetry to consider. Set by `aqua attach`."""
 
     sync_investigation: bool = False
     """Whether to run the investigation synchronously inline (for local dev).
@@ -321,8 +331,7 @@ class Config:
     )
     """Seconds to wait after an observed-agent update before investigating
     (0 = investigate immediately). The delay lets traces for the new revision
-    accumulate before the investigation runs. Set via
-    `AQA_AGENT_REVISION_TRIGGER_DELAY_SECONDS`, or by `aqua attach`."""
+    accumulate before the investigation runs. Set by `aqua attach`."""
 
     delay_task_queue: str = ""
     """Full Cloud Tasks queue path
@@ -336,9 +345,8 @@ class Config:
 
     ambient_topic: str = ""
     """Pub/Sub topic (`projects/{p}/topics/{t}`) an attached agent's update
-    sink publishes to. Reported to `aqua attach --apply`, which wires the
-    agent's triggers from it; empty in a deployment that runs its observed
-    agent's triggers itself. Set via `AQA_AMBIENT_TOPIC`."""
+    sink publishes to. Reported to `aqua attach`, which wires the agent's
+    update trigger to it; empty in a local run. Set via `AQA_AMBIENT_TOPIC`."""
 
     def _apply_standalone_overrides(self) -> None:
         """Make the rest of the configuration agree with `standalone`.
@@ -353,7 +361,8 @@ class Config:
         - **AQuA's own buckets are off.** Standalone writes nothing to a Cloud
           project. Without them, chat transcripts stay in memory and AQuA's
           spans are not exported. The goal, the memories and the attached
-          agent's configuration are files under `.aqua/job/` instead.
+          agent's configuration are files under `.aqua/job/` instead, and the
+          code-metric library is under `.aqua/metrics/`.
 
         Anything overridden is logged by name. Nothing here raises: a standalone
         run is what somebody asked for, and it should start.
@@ -365,6 +374,7 @@ class Config:
             "ambient_caller_sa": "there is no engine for the delayed update path",
             "jobs_gcs_bucket": "standalone writes nothing to a Cloud project",
             "traces_gcs_bucket": "standalone writes nothing to a Cloud project",
+            "metrics_gcs_bucket": "the metric library is kept under .aqua/metrics/",
         }
         for name, reason in ignored.items():
             if getattr(self, name):
@@ -430,7 +440,6 @@ class Config:
         _require_non_negative(
             "agent_revision_trigger_delay_seconds",
             self.agent_revision_trigger_delay_seconds,
-            "AQA_AGENT_REVISION_TRIGGER_DELAY_SECONDS",
         )
         # Standalone implies the rest of its own mode, here rather than in
         # `load()`, so a Config rebuilt from a dict -- which is how the durable
@@ -480,6 +489,40 @@ class Config:
         """
         return self.observed_project_id or self.project_id
 
+    def resolve_aqua_project_id(self) -> str:
+        """Resolves AQuA's own project by id, which agent keys are built from.
+
+        On Agent Runtime, `GOOGLE_CLOUD_PROJECT` is the project number. The
+        Terraform that provisions the engine names its topic and its queue by
+        project id, so a number is replaced with the id they carry.
+
+        Returns:
+            `project_id` when it is an id; otherwise the project of
+            `ambient_topic` or `delay_task_queue` when one names it by id;
+            otherwise `project_id`, the number.
+        """
+        if not self.project_id.isdigit():
+            return self.project_id
+        for path in (self.ambient_topic, self.delay_task_queue):
+            parts = path.split("/")
+            if (
+                len(parts) > 1
+                and parts[0] == "projects"
+                and parts[1]
+                and not parts[1].isdigit()
+            ):
+                return parts[1]
+        return self.project_id
+
+    def resolve_agent_key(self) -> str:
+        """Resolves the key AQuA's own rows for the agent are written under.
+
+        Returns:
+            `agent_key`, or `observed_agent_name` when it is empty, as in a
+            run snapshot taken without a key.
+        """
+        return self.agent_key or self.observed_agent_name
+
     def copy_with_agent(self, agent: ObservedAgentConfig) -> Config:
         """Returns a copy with observed-agent fields updated from `agent`.
 
@@ -523,6 +566,9 @@ class ObservedAgentConfig:
 
     observed_agent_name: str
     """Name of the watched agent."""
+
+    agent_key: str = ""
+    """What its attachment is stored under."""
 
     telemetry_ingestion_source: str = "big_query"
     """Where its telemetry is pulled from."""
@@ -592,6 +638,21 @@ def extract_agent_config(config: Config) -> ObservedAgentConfig:
             for f in dataclasses.fields(ObservedAgentConfig)
         }
     )
+
+
+def extract_agent_key(state: Any) -> str:
+    """Extracts the key AQuA's rows are written under from a run's flat state.
+
+    The workflow runs on `dataclasses.asdict(Config)` rather than on a
+    `Config`, so this is `Config.resolve_agent_key` for that shape.
+
+    Args:
+        state: Workflow state, or any mapping holding a run's configuration.
+
+    Returns:
+        `agent_key`, or `observed_agent_name` for a run snapshot without a key.
+    """
+    return str(state.get("agent_key") or state.get("observed_agent_name") or "")
 
 
 def is_verification_enabled(setting: bool | None) -> bool:
@@ -701,7 +762,7 @@ def _clamp_min0(field_name: str, value: int) -> int:
     return value
 
 
-def _require_non_negative(field_name: str, value: int, env_var: str) -> None:
+def _require_non_negative(field_name: str, value: int) -> None:
     """Validates that `value` is non-negative.
 
     0 is an allowed sentinel representing immediate execution or disabled delay.
@@ -709,13 +770,12 @@ def _require_non_negative(field_name: str, value: int, env_var: str) -> None:
     Args:
         field_name: Name of the configuration field.
         value: Value to validate.
-        env_var: Corresponding environment variable name.
 
     Raises:
         ValueError: If `value` is negative.
     """
     if value < 0:
-        raise ValueError(f"{field_name} must be >= 0 (set {env_var})")
+        raise ValueError(f"{field_name} must be >= 0")
 
 
 def _filter_metrics(
@@ -767,43 +827,6 @@ def _read_required_env(env_var: str) -> str:
     if not value:
         raise RuntimeError(f"{env_var} is not set.")
     return value
-
-
-def _parse_csv(env_var: str, default: list[str]) -> list[str]:
-    """Parses a comma-separated environment variable into a list of strings.
-
-    Returns `default` when the var is unset. An explicitly empty value
-    yields an empty list.
-
-    Args:
-        env_var: Environment variable name.
-        default: Fallback list when the variable is unset.
-
-    Returns:
-        List of trimmed strings, or `default` when unset.
-    """
-    raw = os.environ.get(env_var)
-    if raw is None:
-        return list(default)
-    return [item.strip() for item in raw.split(",") if item.strip()]
-
-
-def _parse_optional_bool(env_var: str) -> bool | None:
-    """Parses a boolean environment variable, returning None when unset or blank.
-
-    A field whose default is derived rather than fixed has to tell an explicit
-    ``false`` from an absent value. Anything but ``true``/``1`` is false.
-
-    Args:
-        env_var: Environment variable name.
-
-    Returns:
-        Boolean value if set, or None if unset/empty.
-    """
-    raw = os.environ.get(env_var, "").strip()
-    if not raw:
-        return None
-    return raw.lower() in ("true", "1")
 
 
 def _parse_int(env_var: str, default: int) -> int:
@@ -904,15 +927,17 @@ def _resolve_model(env_prefix: str, default_model: str) -> Model:
 
 
 def load() -> Config:
-    """Reads all environment variables and returns a resolved `Config` instance.
+    """Reads AQuA's own settings from the environment into a `Config`.
+
+    The observed agent's fields keep their defaults: an agent is configured by
+    its attachment, which `effective_config` layers on.
 
     Returns:
         Populated Config object.
     """
     jobs_gcs_bucket = os.environ.get("AQA_JOBS_GCS_BUCKET", "")
-    telemetry_source = os.environ.get("TELEMETRY_INGESTION_SOURCE", "big_query")
     return Config(
-        observed_agent_name=os.environ.get("AQA_OBSERVED_AGENT_NAME", ""),
+        observed_agent_name="",
         project_id=_read_required_env("GOOGLE_CLOUD_PROJECT"),
         location=_resolve_engine_location(),
         base_model=_resolve_model("AQA_BASE", DEFAULT_BASE_MODEL),
@@ -927,15 +952,6 @@ def load() -> Config:
             "AQA_SELECTOR_AI_MODEL", DEFAULT_SELECTOR_AI_MODEL
         ),
         aqa_dataset=os.environ.get("AQA_DATASET", "aqua_insights"),
-        insights_auto_resolve_days=_parse_int(
-            "AQA_INSIGHTS_AUTO_RESOLVE_DAYS", 14
-        ),
-        insights_verification_enabled=_parse_optional_bool(
-            "AQA_INSIGHTS_VERIFICATION_ENABLED"
-        ),
-        insights_verification_enforced=_parse_optional_bool(
-            "AQA_INSIGHTS_VERIFICATION_ENFORCED"
-        ),
         aqa_engine_id=os.environ.get("GOOGLE_CLOUD_AGENT_ENGINE_ID", ""),
         jobs_gcs_bucket=jobs_gcs_bucket,
         source_gcs_bucket=os.environ.get("AQA_SOURCE_GCS_BUCKET", ""),
@@ -944,34 +960,14 @@ def load() -> Config:
         content_capture_mode=os.environ.get(
             "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT", ""
         ),
-        quality_analysis_mode=os.environ.get(
-            "AQA_QUALITY_ANALYSIS_MODE", DEFAULT_QUALITY_ANALYSIS_MODE
-        ),
         metrics_gcs_bucket=os.environ.get("AQA_METRICS_GCS_BUCKET", ""),
-        telemetry_ingestion_source=telemetry_source,
-        telemetry_dataset=os.environ.get("AQA_TELEMETRY_DATASET")
-        or DEFAULT_TELEMETRY_DATASETS.get(telemetry_source, ""),
-        telemetry_table=os.environ.get("AQA_TELEMETRY_TABLE")
-        or DEFAULT_TELEMETRY_TABLES.get(telemetry_source, ""),
-        telemetry_location=_resolve_bigquery_location("AQA_TELEMETRY_LOCATION"),
         aqa_dataset_location=_resolve_bigquery_location("AQA_DATASET_LOCATION"),
-        data_evaluation_cap=_parse_int("DATA_EVALUATION_CAP", 1000),
-        multi_turn_metrics=_parse_csv(
-            "MULTI_TURN_METRICS",
-            ["task_success", "tool_use_quality", "trajectory_quality"],
-        ),
-        single_turn_metrics=_parse_csv("SINGLE_TURN_METRICS", []),
-        data_lookback_window=_parse_int("DATA_LOOKBACK_WINDOW", 7),
         sync_investigation=os.environ.get("AQA_SYNC_INVESTIGATION", "").lower()
         in ("true", "1"),
         standalone=os.environ.get("AQA_STANDALONE", "").lower()
         in ("true", "1"),
         pending_run_lease_minutes=_parse_int(
             "AQA_PENDING_RUN_LEASE_MINUTES", 0
-        ),
-        agent_revision_trigger_delay_seconds=_parse_int(
-            "AQA_AGENT_REVISION_TRIGGER_DELAY_SECONDS",
-            DEFAULT_AGENT_REVISION_TRIGGER_DELAY_SECONDS,
         ),
         delay_task_queue=os.environ.get("AQA_DELAY_TASK_QUEUE", ""),
         ambient_caller_sa=os.environ.get("AQA_AMBIENT_CALLER_SA", ""),

@@ -37,6 +37,7 @@ import { TopIssuesRail } from "@/components/insights/top-issues-rail";
 import { RecentRunsRail } from "@/components/investigations/recent-runs-rail";
 import { textStyle } from "@/lib/typography";
 import { forgetLastChat } from "@/lib/last-chat";
+import { useAgentKey, useAgentSelection } from "@/lib/agent-selection";
 import { cn } from "@/lib/utils";
 import { DAY_MS } from "./chat-row";
 import { NewConversationMenu } from "./new-conversation-menu";
@@ -129,6 +130,7 @@ function ChatListSidebarInner({
   reserveHeaderRight,
 }: ChatListSidebarProps) {
   const navigate = useNavigate();
+  const selectedKey = useAgentKey();
 
   // Chat search filters the user's stored conversations; an empty query reuses
   // the parent's list (same query key).
@@ -156,7 +158,7 @@ function ChatListSidebarInner({
       onNewChat();
     } else {
       // A bare /c reopens the last chat, which is not what New chat asks for.
-      forgetLastChat();
+      forgetLastChat(selectedKey);
       navigate({ to: "/c", search: {} });
     }
     onNavigate?.();
@@ -304,12 +306,13 @@ function DeleteAllChatsButton({
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const selection = useAgentSelection();
 
   const handleConfirm = async () => {
     setBusy(true);
     setError(null);
     try {
-      const { failed } = await deleteAllLhaSessions();
+      const { failed } = await deleteAllLhaSessions(selection);
       // Keep the confirmation dialog open on partial failure to display the error.
       if (failed > 0) {
         setError(

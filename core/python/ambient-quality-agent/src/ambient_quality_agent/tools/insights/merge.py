@@ -16,13 +16,16 @@
 
 Because `clustering.cluster_and_label` evaluates findings in separate chunks,
 identical or overlapping defect clusters can emerge across chunks. This pass
-consolidates them into canonical clusters.
+consolidates them into canonical clusters, one agent at a time: candidates of
+different agents are never shown to the model together, so a look-alike defect
+in two agents stays two candidates.
 """
 
 from __future__ import annotations
 
 import json
 import logging
+from concurrent import futures
 from typing import TYPE_CHECKING, Any
 
 from ambient_quality_agent.tools.genai_json import call_gemini
@@ -32,6 +35,9 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
 logger = logging.getLogger(__name__)
+
+MERGE_CONCURRENCY = 4
+"""Maximum number of agents whose candidates are merged concurrently."""
 
 
 _MERGE_INSTRUCTIONS = """\
@@ -68,8 +74,10 @@ def merge_clusters(
 ) -> list[Cluster]:
     """Merge candidates that describe one defect into one candidate using LLM.
 
-    Each group keeps its first candidate. A candidate the model omitted is kept
-    as is.
+    Candidates are grouped by `Cluster.agent_id`, and each agent with two or
+    more candidates gets its own merge call. Within each merge group, the first
+    candidate is kept. Omitted candidates are kept as is, and a failed call
+    leaves that agent's candidates unmerged.
 
     Args:
         clusters: Candidate clusters to consolidate.
@@ -77,13 +85,50 @@ def merge_clusters(
             omitted.
 
     Returns:
-        Consolidated list of clusters.
+        Consolidated list of clusters, ordered by the input position of each
+        kept candidate.
     """
-    if len(clusters) < 2:
-        return list(clusters)
     call = model_call or call_merge_model
+    by_agent: dict[str, list[tuple[int, Cluster]]] = {}
+    for position, cluster in enumerate(clusters):
+        by_agent.setdefault(cluster.agent_id, []).append((position, cluster))
+    to_merge = [members for members in by_agent.values() if len(members) >= 2]
+    kept: list[tuple[int, Cluster]] = [
+        member
+        for members in by_agent.values()
+        if len(members) < 2
+        for member in members
+    ]
+    if to_merge:
+        with futures.ThreadPoolExecutor(max_workers=MERGE_CONCURRENCY) as pool:
+            for merged in pool.map(
+                lambda members: _merge_agent_candidates(members, call),
+                to_merge,
+            ):
+                kept.extend(merged)
+    # Sort by input position so the output order does not depend on thread
+    # completion order.
+    return [cluster for _, cluster in sorted(kept, key=lambda item: item[0])]
+
+
+def _merge_agent_candidates(
+    members: Sequence[tuple[int, Cluster]], call: Any
+) -> list[tuple[int, Cluster]]:
+    """Merge one agent's candidates in a single model call.
+
+    Args:
+        members: The agent's candidates, each paired with its index in the
+            input `clusters` sequence.
+        call: Prompt-to-text callable.
+
+    Returns:
+        Kept candidates, each paired with the input index of the primary
+        candidate in its merge group.
+    """
+    candidates = [cluster for _, cluster in members]
+    agent_id = candidates[0].agent_id
     payload = json.dumps(
-        [{"id": c.cluster_id, "label": c.label} for c in clusters],
+        [{"id": c.cluster_id, "label": c.label} for c in candidates],
         ensure_ascii=False,
     )
     try:
@@ -91,28 +136,33 @@ def merge_clusters(
     except Exception as exc:
         # Fall back to unmerged candidates if the model call fails.
         logger.warning(
-            "insights: merge call failed; keeping every candidate unmerged: %s",
+            "insights: merge call for agent %r failed; keeping its candidates "
+            "unmerged: %s",
+            agent_id,
             exc,
         )
-        return list(clusters)
+        return list(members)
 
-    group_of_cluster = _parse_cluster_groups(response, clusters)
-    kept_by_group: dict[int, Cluster] = {}
+    group_of_cluster = _parse_cluster_groups(response, candidates)
+    kept_by_group: dict[int, tuple[int, Cluster]] = {}
     # Walked in the input's order, so which candidate a group keeps -- and the
     # order the groups come back in -- does not depend on the order the model
     # answered in.
-    for position, candidate in enumerate(clusters):
+    for position, candidate in members:
         # An unclaimed candidate takes a group of its own, keyed negative so it
         # cannot collide with a model group index and fold two findings together.
         group_ord = group_of_cluster.get(candidate.cluster_id, -1 - position)
         kept = kept_by_group.get(group_ord)
         kept_by_group[group_ord] = (
-            candidate if kept is None else _fold(kept, candidate)
+            (position, candidate)
+            if kept is None
+            else (kept[0], _fold(kept[1], candidate))
         )
 
     logger.info(
-        "insights: merged %d candidate(s) into %d.",
-        len(clusters),
+        "insights: merged %d candidate(s) of agent %r into %d.",
+        len(candidates),
+        agent_id,
         len(kept_by_group),
     )
     return list(kept_by_group.values())
@@ -121,6 +171,9 @@ def merge_clusters(
 def _fold(kept: Cluster, folded: Cluster) -> Cluster:
     """Merge `folded` into `kept`, combining item counts, finding IDs, and the
     unique trace IDs and deployment revisions the two were seen on.
+
+    Preserves `kept.agent_id` because only candidates from the same agent are
+    folded together.
 
     Args:
         kept: Primary cluster that absorbs the duplicate.

@@ -20,10 +20,10 @@
 # the machine that built it -- which is nothing, in CI and in Cloud Build. The
 # front end's own tests would keep passing all the while.
 #
-# node:22 to match web/.nvmrc and the version frontend-tests.yml type-checks
+# The Node major matches web/.nvmrc, the version frontend-tests.yml type-checks
 # with: the version that builds the code should be the version it was checked
-# against.
-FROM node:22-slim AS web-builder
+# against. tools/ci/check_conventions.py enforces this.
+FROM node:26-slim AS web-builder
 
 WORKDIR /build
 
@@ -38,7 +38,7 @@ RUN cd web && npm run build
 
 # --- the service -------------------------------------------------------------- #
 # FastAPI dashboard — single, compact Cloud Run image.
-FROM python:3.12-slim
+FROM python:3.15-slim
 
 ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
@@ -49,7 +49,28 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install -r requirements.txt
 
-COPY . .
+# Serve as an unprivileged user, so a compromised server does not hold root
+# inside the container.
+#
+# The dependencies above stay owned by root; pip installs them world-readable.
+#
+# UID/GID are explicit because image-assigned IDs are non-deterministic across
+# rebuilds; --no-log-init avoids the Go archive/tar sparse-file blowup that can
+# exhaust disk when creating users.
+RUN groupadd --system --gid 1001 dashboard \
+ && useradd --system --uid 1001 --gid 1001 --no-log-init \
+      --create-home --home-dir /home/dashboard dashboard
+
+# USER does not update HOME, which would leave anything that resolves `~`
+# pointing at the root-owned /root.
+ENV HOME=/home/dashboard
+
+USER 1001:1001
+
+# COPY writes as UID 0 regardless of USER, and keeps the file modes of the build
+# context, which follow the deploying user's umask. Under a umask such as 027
+# root-owned files would be unreadable to the server, so they are handed to it.
+COPY --chown=dashboard:dashboard . .
 
 # The build context combines this directory and the sibling `ambient_quality_shared`
 # package via `extension/acli_ui.py` or `ui/deploy_ui_cloud_run.sh`. Building directly
@@ -70,7 +91,7 @@ RUN test -d ambient_quality_shared || { \
 # Beside app.py, which is where it looks for it. It is the only thing `/`
 # serves, so an image missing this layer answers 503 there. See the module
 # docstring in app.py.
-COPY --from=web-builder /build/static_v2 ./static_v2
+COPY --chown=dashboard:dashboard --from=web-builder /build/static_v2 ./static_v2
 
 EXPOSE 8080
 

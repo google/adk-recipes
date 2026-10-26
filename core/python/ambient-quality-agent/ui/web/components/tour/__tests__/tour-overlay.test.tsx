@@ -30,6 +30,7 @@ import {
   Outlet,
   RouterProvider,
 } from "@tanstack/react-router";
+import { AgentSelectionProvider } from "@/lib/agent-selection";
 import { endTour, showTourStep, startTour } from "@/lib/tour-state";
 import { placeCallout, TourOverlay } from "../tour-overlay";
 import { HOME_SIDE_BY_SIDE, TOUR_STEPS } from "../tour-steps";
@@ -92,7 +93,7 @@ function renderDashboard({
   });
   const rootRoute = createRootRoute({
     component: () => (
-      <>
+      <AgentSelectionProvider>
         <button type="button" data-tour="tour-button">
           Take the tour
         </button>
@@ -114,7 +115,7 @@ function renderDashboard({
           <Outlet />
         </main>
         <TourOverlay />
-      </>
+      </AgentSelectionProvider>
     ),
   });
   const page = (path: string, targets: string[], extra?: () => JSX.Element) =>
@@ -313,6 +314,47 @@ describe("TourOverlay", () => {
     expect(
       await screen.findByRole("dialog", { name: titleOf("insights-triage") }),
     ).toBeInTheDocument();
+  });
+
+  // Counting the skipped steps made the counter jump past numbers it never
+  // showed, which read as a broken tour.
+  it("counts only the steps it will show", async () => {
+    const user = userEvent.setup();
+    renderDashboard({ insights: false });
+    // The two insight steps have no insight to open.
+    const shown = TOUR_STEPS.length - 2;
+    const triage = stepAt("insights-triage") + 1;
+
+    act(() => startTour());
+    expect(
+      await screen.findByRole("dialog", { name: titleOf("health") }),
+    ).toHaveTextContent(`1 of ${shown}`);
+
+    act(() => showTourStep(stepAt("insights-triage")));
+    expect(
+      await screen.findByRole("dialog", { name: titleOf("insights-triage") }),
+    ).toHaveTextContent(`${triage} of ${shown}`);
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    expect(
+      await screen.findByRole("dialog", { name: titleOf("run-header") }),
+    ).toHaveTextContent(`${triage + 1} of ${shown}`);
+  });
+
+  // The tour stays open when the reader selects another agent, and the pages
+  // found for the first one would lead to an insight the other does not have.
+  it("counts the steps again for an agent selected while it is open", async () => {
+    const router = renderDashboard({ insights: false });
+    act(() => startTour());
+    expect(
+      await screen.findByRole("dialog", { name: titleOf("health") }),
+    ).toHaveTextContent(`1 of ${TOUR_STEPS.length - 2}`);
+
+    // The other agent has an insight to open.
+    vi.stubGlobal("fetch", stubApi({ insights: true }));
+    await act(() => router.navigate({ href: "/?agent=other" }));
+    await waitFor(() =>
+      expect(callout()).toHaveTextContent(`1 of ${TOUR_STEPS.length}`),
+    );
   });
 
   // Changing pages without showing how left the reader no way to get back

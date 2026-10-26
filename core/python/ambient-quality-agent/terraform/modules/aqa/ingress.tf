@@ -17,59 +17,12 @@ locals {
   aiplatform_host = "https://${var.region}-aiplatform.googleapis.com"
 
   engine_api_path = "reasoningEngines/v1/${google_vertex_ai_reasoning_engine.aqa.id}/api"
-
-  # Whether this module runs the observed agent's triggers. Only when it names
-  # that agent itself: an attached agent's triggers are in
-  # `../../examples/attach`, applied by `agents-cli aqua attach --apply` from
-  # what the engine reports, and running both would investigate every window
-  # twice.
-  own_triggers = var.configure_observed_agent
-
-  # Whether to watch the observed engine for updates. Off when no engine id was
-  # given: the sink's filter names one deployment, and a sink without it would
-  # match every engine in the project and buy an investigation per update.
-  # The scheduled tick is unaffected -- a time window needs no engine.
-  observe_updates = local.own_triggers && var.observed_engine_id != null
-
-  observed_engine_name = var.observed_engine_id == null ? "" : join("/", [
-    "projects", data.google_project.this.number,
-    "locations", var.region,
-    "reasoningEngines", var.observed_engine_id,
-  ])
 }
 
 resource "google_pubsub_topic" "ambient" {
   project = var.project_id
   name    = local.ambient_name
   labels  = local.common_labels
-}
-
-resource "google_logging_project_sink" "ambient_updates" {
-  count = local.observe_updates ? 1 : 0
-
-  project     = var.project_id
-  name        = "${local.ambient_name}-updates"
-  destination = "pubsub.googleapis.com/${google_pubsub_topic.ambient.id}"
-
-  # Leaving this false breaks the sink: the next plan proposes true to false,
-  # which `UpdateSink` rejects.
-  unique_writer_identity = true
-
-  filter = join(" AND ", [
-    "protoPayload.serviceName=\"aiplatform.googleapis.com\"",
-
-    # Substring match to capture all API versions (e.g. v1, v1beta1).
-    "protoPayload.methodName:\"ReasoningEngineService.UpdateReasoningEngine\"",
-
-    # Otherwise every engine update in the project matches, AQA's own redeploys
-    # included, and each match buys an investigation.
-    "protoPayload.resourceName=\"${local.observed_engine_name}\"",
-
-    # Filter to the completion entry, whose revision is live and has traces.
-    "operation.last=\"true\"",
-
-    "NOT protoPayload.status.code>0",
-  ])
 }
 
 resource "google_pubsub_topic" "ambient_dead_letter" {
@@ -125,17 +78,23 @@ resource "google_pubsub_subscription" "ambient_push" {
   }
 }
 
+# Calls the engine on a fixed period, whatever agent is investigated. The engine
+# reads the agent's schedule from its attachment on each tick and investigates
+# when that schedule fell due since the tick before, so the period bounds how
+# late a scheduled investigation starts. A tick that is not due costs one
+# request and no model spend.
 resource "google_cloud_scheduler_job" "ambient_tick" {
-  count = local.own_triggers ? 1 : 0
-
   depends_on = [time_sleep.ambient_caller]
 
-  project  = var.project_id
-  region   = var.region
-  name     = "${local.ambient_name}-tick"
-  schedule = var.investigation_schedule
+  project = var.project_id
+  region  = var.region
+  name    = "${local.ambient_name}-tick"
 
-  # Running this costs one investigation per window.
+  # `TICK_PERIOD` in `ambient_quality_agent.tools.observed_agent_config.schedule`,
+  # which a test pins.
+  schedule  = "*/15 * * * *"
+  time_zone = "Etc/UTC"
+
   paused = !var.scheduled_trigger_enabled
 
   http_target {
@@ -159,11 +118,11 @@ resource "google_cloud_scheduler_job" "ambient_tick" {
   }
 }
 
-# State written without `count` addresses the job unindexed; this maps it to
-# `[0]`, so the job is kept.
+# Maps state that addresses the job as `[0]` to the unindexed address, so the
+# job is kept.
 moved {
-  from = google_cloud_scheduler_job.ambient_tick
-  to   = google_cloud_scheduler_job.ambient_tick[0]
+  from = google_cloud_scheduler_job.ambient_tick[0]
+  to   = google_cloud_scheduler_job.ambient_tick
 }
 
 # Delays triggers until the new revision has traces. Tasks are named after the

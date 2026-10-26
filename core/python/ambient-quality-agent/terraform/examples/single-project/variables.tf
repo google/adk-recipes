@@ -28,81 +28,14 @@ variable "observed_deployment_name" {
   type        = string
 }
 
-variable "observed_agent_name" {
-  description = <<-EOT
-    The agent AQA watches, as ADK names it. Its telemetry carries this as
-    `gen_ai.agent.name` and AQA filters on it; the engine sees it as
-    `AQA_OBSERVED_AGENT_NAME`. Distinct from `observed_deployment_name`, which
-    names infrastructure and so cannot hold the underscores an ADK name has.
-    Null derives `observed_deployment_name` with hyphens replaced by
-    underscores.
-  EOT
-  type        = string
-  default     = null
-}
-
-variable "configure_observed_agent" {
-  description = <<-EOT
-    Whether AQuA is deployed with an observed agent.
-
-    - true: the engine's environment names the observed agent and its telemetry
-      settings. AQuA's service account gets read access to the agent's
-      telemetry, and the deployment creates the agent's scheduled tick and
-      update sink.
-    - false: AQuA is deployed with no observed agent. The engine's environment
-      has no agent name and no telemetry settings. No telemetry access is
-      granted. Attach the agent later with `agents-cli aqua attach`, whose
-      `--apply` creates its scheduled tick and update sink from `../attach`,
-      and grant the telemetry access by hand. `observed_agent_name`, the
-      `telemetry_*` inputs, `agent_revision_trigger_delay_seconds`,
-      `observed_engine_id`, `investigation_schedule` and
-      `scheduled_trigger_enabled` are ignored.
-  EOT
-  type        = bool
-  default     = true
-}
-
-variable "observed_engine_id" {
-  description = <<-EOT
-    Numeric id of the Agent Runtime agent to watch, as `1234567890` -- the last
-    segment of its resource name. Null turns update triggering off: neither the
-    audit sink nor its publish grant is created. Null is the setting before
-    first deployment, and when the observed agent is not on Agent Runtime.
-    A Cloud Run or GKE deployment emits no `UpdateReasoningEngine` audit entry.
-  EOT
-  type        = string
-  default     = null
-}
-
-# Kept so a caller that still sets it keeps working.
-# TODO: temporary. Delete once no caller sets it, meaning `agents-cli` passes
-# `observed_engine_id` and no fetched `terraform.tfvars` names this.
-variable "observed_engine_resource_name" {
-  description = "Deprecated. Use `observed_engine_id`. Only the last segment is read."
-  type        = string
-  default     = null
-}
-
-variable "investigation_schedule" {
-  description = "The schedule for the periodic investigation, as a crontab entry. Midday UTC each day by default. Each run checks everything since the last run that finished."
-  type        = string
-  default     = "0 12 * * *"
-}
-
 variable "task_queue_name" {
   description = "Cloud Tasks queue name. Defaults to `<observed_deployment_name>-aqua-delay`. Use a unique name if rebuilding within 7 days of deletion."
   type        = string
   default     = null
 }
 
-variable "agent_revision_trigger_delay_seconds" {
-  description = "Wait after an observed-agent revision update before investigating, so the new revision's traces have time to accumulate."
-  type        = number
-  default     = 900
-}
-
 variable "scheduled_trigger_enabled" {
-  description = "Whether the periodic investigation runs. On by default, and each run costs one investigation in model spend."
+  description = "Whether the scheduler tick runs. Off pauses every scheduled investigation of this instance; an agent's own schedule is set and paused with `agents-cli aqua attach`."
   type        = bool
   default     = true
 }
@@ -118,46 +51,6 @@ variable "act_as_grant_scope" {
   EOT
   type        = string
   default     = "service_account"
-}
-
-variable "telemetry_dataset" {
-  description = <<-EOT
-    Dataset holding the OTel export that `agents-cli` configures for the
-    observed agent, which AQA reads to find its work. Not the BigQuery
-    Analytics dataset. Null derives `<observed_deployment_name>_telemetry`.
-  EOT
-  type        = string
-  default     = null
-}
-
-variable "telemetry_table" {
-  description = <<-EOT
-    Table name in the telemetry dataset, passed into the module. Null defaults
-    to the `agent_runtime` table; override for other targets.
-  EOT
-  type        = string
-  default     = null
-}
-
-variable "telemetry_ingestion_source" {
-  description = <<-EOT
-    Telemetry store AQA reads: `cloud_logging` (default export sink table),
-    `cloud_ops` (Cloud Trace linked dataset), or `big_query`. For `cloud_ops`,
-    `telemetry_dataset`, `telemetry_table`, and `telemetry_location` must also
-    be set; see the module variable for details.
-  EOT
-  type        = string
-  default     = "cloud_logging"
-}
-
-variable "telemetry_location" {
-  description = <<-EOT
-    BigQuery location for telemetry queries. Null defaults to `region`. Set
-    when the dataset is in a different location, such as the `US` multi-region
-    commonly used by Cloud Trace linked datasets.
-  EOT
-  type        = string
-  default     = null
 }
 
 variable "ui_iap_enabled" {
@@ -183,7 +76,7 @@ variable "ui_iap_members" {
 variable "force_destroy" {
   description = <<-EOT
     Whether a `terraform destroy` may take down the buckets, the insight tables
-    and the rest of their dataset.
+    and the rest of their dataset, and the Cloud SQL instance.
   EOT
   type        = bool
   default     = true
@@ -235,5 +128,19 @@ variable "engine_memory" {
   description = "Memory for the engine, passed into the module, from 1Gi to 32Gi."
   type        = string
   default     = "8Gi"
+  nullable    = false
+}
+
+variable "storage_backend" {
+  description = "Where AQuA keeps its own state, `bigquery` or `cloudsql`, passed into the module. Changing it replaces the engine."
+  type        = string
+  default     = "bigquery"
+  nullable    = false
+}
+
+variable "cloudsql_tier" {
+  description = "Cloud SQL machine tier, passed into the module. Used only with `storage_backend = \"cloudsql\"`."
+  type        = string
+  default     = "db-g1-small"
   nullable    = false
 }

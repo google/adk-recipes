@@ -39,9 +39,9 @@ def create_storage_client() -> storage.Client:
     Returns:
         storage.Client instance.
     """
-    from google.cloud import storage
+    from ambient_quality_agent import clients
 
-    return storage.Client()
+    return clients.create_storage_client()
 
 
 def build_per_thread_client_factory() -> Callable[[], storage.Client]:

@@ -18,7 +18,6 @@ import pytest
 from ambient_quality_agent import config as config_module
 
 _REQUIRED_ENV = {
-    "AQA_OBSERVED_AGENT_NAME": "watched-agent",
     "GOOGLE_CLOUD_PROJECT": "my-project",
 }
 

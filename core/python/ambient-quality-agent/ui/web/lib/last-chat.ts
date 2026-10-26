@@ -13,15 +13,23 @@
 // limitations under the License.
 
 /**
- * The conversation a bare /c opens: the last one this browser had open.
+ * The conversation a bare /c opens: the last one this browser had open for
+ * the selected agent.
  *
  * A closed-then-reopened tab lands back on it, so useLhaTasks can spot a turn
  * still running there and useTaskResubscribe can reattach to it. Only a
  * conversation that exists is worth returning to: a new chat counts once
- * something has been sent in it, and a deleted one is forgotten.
+ * something has been sent in it, and a deleted one is forgotten. Each agent
+ * has its own, so switching agents never reopens another agent's chat.
  */
 
 const KEY = "lha:lastContextId";
+
+/** The storage key for an agent's last chat. The default agent's is the
+ *  unsuffixed key, beside the conversations that name no agent. */
+function buildKey(agentKey?: string): string {
+  return agentKey ? `${KEY}:${agentKey}` : KEY;
+}
 
 function runOnStorage<T>(op: (storage: Storage) => T): T | null {
   try {
@@ -33,24 +41,33 @@ function runOnStorage<T>(op: (storage: Storage) => T): T | null {
   }
 }
 
-/** Returns the id of the conversation a bare /c opens, or null for none. */
-export function readLastChat(): string | null {
-  return runOnStorage((s) => s.getItem(KEY));
+/** Returns the id of the conversation a bare /c opens for the selected
+ *  agent, or null for none. */
+export function readLastChat(agentKey?: string): string | null {
+  return runOnStorage((s) => s.getItem(buildKey(agentKey)));
 }
 
-/** Makes `contextId` the conversation a bare /c opens. */
-export function rememberLastChat(contextId: string): void {
-  runOnStorage((s) => s.setItem(KEY, contextId));
+/** Makes `contextId` the conversation a bare /c opens for the agent. */
+export function rememberLastChat(contextId: string, agentKey?: string): void {
+  runOnStorage((s) => s.setItem(buildKey(agentKey), contextId));
 }
 
-/**
- * Forgets the conversation a bare /c opens, so it opens a new chat. Given a
- * `contextId`, forgets it only if it is that conversation.
- */
-export function forgetLastChat(contextId?: string): void {
+/** Forgets the conversation a bare /c opens for the agent, so it opens a
+ *  new chat. */
+export function forgetLastChat(agentKey?: string): void {
+  runOnStorage((s) => s.removeItem(buildKey(agentKey)));
+}
+
+/** Forgets a deleted conversation wherever it is some agent's last chat. */
+export function forgetDeletedChat(contextId: string): void {
   runOnStorage((s) => {
-    if (contextId === undefined || s.getItem(KEY) === contextId) {
-      s.removeItem(KEY);
+    const keys: string[] = [];
+    for (let i = 0; i < s.length; i++) {
+      const key = s.key(i);
+      if (key === KEY || key?.startsWith(`${KEY}:`)) keys.push(key);
+    }
+    for (const key of keys) {
+      if (s.getItem(key) === contextId) s.removeItem(key);
     }
   });
 }

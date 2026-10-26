@@ -251,3 +251,26 @@ describe("InvestigationDetailView", () => {
     expect(screen.queryByText(/Review focus:/)).not.toBeInTheDocument();
   });
 });
+
+describe("InvestigationDetailView trigger badge", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("badges a run a user started, keeping the raw trigger in the tooltip", async () => {
+    renderDetail({ ...RECORD, trigger_type: "custom" });
+
+    const badge = await screen.findByText("Custom");
+    expect(badge).toHaveAttribute("title", expect.stringContaining("custom"));
+  });
+
+  it("badges an ambient sweep as scheduled, whichever trigger fired it", async () => {
+    renderDetail({ ...RECORD, trigger_type: "task_fire" });
+
+    const badge = await screen.findByText("Scheduled");
+    expect(badge).toHaveAttribute(
+      "title",
+      expect.stringContaining("task_fire"),
+    );
+  });
+});

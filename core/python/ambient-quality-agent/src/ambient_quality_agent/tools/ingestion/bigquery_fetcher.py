@@ -150,6 +150,22 @@ _OBSERVED_AGENT_NAME_SQL = (
     "COALESCE(JSON_VALUE(attributes, '$.root_agent_name'), agent)"
 )
 
+# The agent that authored each event. The plugin logs AGENT_RESPONSE from the
+# Runner's event callback, whose context holds the agent the invocation started
+# at, so `agent` names that agent even when a sub-agent wrote the reply. The
+# real author is in `attributes.source_event_author`. An AGENT_RESPONSE logged
+# when a final response tool completes has no such key, and its `agent` already
+# names the tool's agent. HITL request and A2A_INTERACTION rows come from the
+# same callback without an author attribute, so they keep `agent`.
+_EVENT_AUTHOR_SQL = """COALESCE(
+        IF(
+          e.event_type = 'AGENT_RESPONSE',
+          JSON_VALUE(e.attributes, '$.source_event_author'),
+          NULL
+        ),
+        e.agent
+      )"""
+
 _MULTI_TURN_TARGETS = f"""
   SELECT session_id
   FROM `{{table_ref}}`
@@ -230,9 +246,8 @@ SELECT
     STRUCT(
       e.invocation_id,
       e.event_type,
-      e.agent,
+      {_EVENT_AUTHOR_SQL} AS agent,
       IF(e.event_type = 'LLM_REQUEST', NULL, e.content) AS content,
-      IF(e.event_type = 'LLM_REQUEST', NULL, e.content_parts) AS content_parts,
       e.error_message,
       IF(
         e.event_type = 'LLM_REQUEST',
@@ -287,9 +302,8 @@ SELECT
   ARRAY_AGG(
     STRUCT(
       e.event_type,
-      e.agent,
+      {_EVENT_AUTHOR_SQL} AS agent,
       IF(e.event_type = 'LLM_REQUEST', NULL, e.content) AS content,
-      IF(e.event_type = 'LLM_REQUEST', NULL, e.content_parts) AS content_parts,
       e.error_message,
       IF(
         e.event_type = 'LLM_REQUEST',
@@ -338,6 +352,7 @@ class BigQueryFetcher(BigQueryJobFetcher):
     """
 
     TELEMETRY_SOURCE = selector.BIG_QUERY_SOURCE
+    SCHEMA_FILE = "agent_events.schema.json"
 
     def _build_ingestion_sql(self, metric_type: MetricType) -> str:
         if metric_type is MetricType.MULTI_TURN:

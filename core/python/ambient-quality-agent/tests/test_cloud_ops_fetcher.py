@@ -21,6 +21,7 @@ import dataclasses
 import datetime as dt
 import hashlib
 import json
+import re
 from typing import Any
 from unittest import mock
 
@@ -31,6 +32,7 @@ from ambient_quality_agent.tools.ingestion.cloud_ops_fetcher import (
     CloudOpsFetcher,
     _decode_spans,
 )
+from ambient_quality_agent.tools.telemetry.schema import load_required_schema
 from ambient_quality_agent.tools.trajectories.models import IngestStatus
 from google.cloud import bigquery
 
@@ -102,6 +104,19 @@ def _turn_spans(user: str = "hi", model: str = "hello") -> list[dict[str, Any]]:
     ]
 
 
+def _make_time(day: int, hour: int, minute: int = 0) -> dt.datetime:
+    return dt.datetime(2026, 1, day, hour, minute, tzinfo=dt.UTC)
+
+
+_TRACE_9_LOG_WINDOWS = [
+    {
+        "trace_ids": ["trace-9"],
+        "start_time": _make_time(1, 12),
+        "end_time": _make_time(1, 12, 5),
+    }
+]
+
+
 def _make_fetcher(
     client: mock.MagicMock,
     log_fetcher: Any | None = None,
@@ -136,14 +151,12 @@ class _FakeLogFetcher:
 
     def __init__(self, entries: dict[str, list[Any]] | None = None) -> None:
         self._entries = entries or {}
-        self.requested: list[str] = []
-        self.window: tuple[Any, Any] = (None, None)
+        self.calls: list[tuple[list[str], Any, Any]] = []
 
     def fetch_entries_by_span(
         self, trace_ids: Any, *, start: Any = None, end: Any = None
     ) -> dict[str, list[Any]]:
-        self.requested = list(trace_ids)
-        self.window = (start, end)
+        self.calls.append((list(trace_ids), start, end))
         return self._entries
 
 
@@ -271,6 +284,45 @@ def test_fetch_page_maps_multi_turn_session_row() -> None:
     assert case.agent_data.turns[0].events[0].content.parts[0].text == "hi"
     assert page.next_page_token == "tok-2"
     assert page.is_exhausted is False
+
+
+def test_fetch_page_reads_logs_once_per_log_window_of_the_row() -> None:
+    client = mock.MagicMock()
+    _configure_paging(
+        client,
+        page_rows=[
+            {
+                "session_id": "sess-1",
+                "traces": [
+                    {"trace_id": "t1", "spans": _turn_spans()},
+                    {"trace_id": "t2", "spans": _turn_spans("hi", "hello")},
+                    {"trace_id": "t3", "spans": _turn_spans("bye", "goodbye")},
+                ],
+                "log_windows": [
+                    {
+                        "trace_ids": ["t1", "t2"],
+                        "start_time": _make_time(1, 12),
+                        "end_time": _make_time(1, 12, 50),
+                    },
+                    {
+                        "trace_ids": ["t3"],
+                        "start_time": _make_time(3, 9),
+                        "end_time": _make_time(3, 9, 20),
+                    },
+                ],
+            }
+        ],
+        next_page_token=None,
+    )
+    log_fetcher = _FakeLogFetcher()
+    fetcher = _make_fetcher(client, log_fetcher=log_fetcher)
+
+    fetcher.fetch_page("job-1", MetricType.MULTI_TURN)
+
+    assert log_fetcher.calls == [
+        (["t1", "t2"], _make_time(1, 12), _make_time(1, 12, 50)),
+        (["t3"], _make_time(3, 9), _make_time(3, 9, 20)),
+    ]
 
 
 def _build_instructed_turn_spans(
@@ -429,7 +481,13 @@ def test_fetch_page_merges_message_content_from_logs() -> None:
     client = mock.MagicMock()
     _configure_paging(
         client,
-        page_rows=[{"trace_id": "trace-9", "spans": _metadata_only_spans()}],
+        page_rows=[
+            {
+                "trace_id": "trace-9",
+                "spans": _metadata_only_spans(),
+                "log_windows": _TRACE_9_LOG_WINDOWS,
+            }
+        ],
         next_page_token=None,
     )
     log_fetcher = _FakeLogFetcher(
@@ -450,8 +508,9 @@ def test_fetch_page_merges_message_content_from_logs() -> None:
 
     page = fetcher.fetch_page("job-1", MetricType.SINGLE_TURN)
 
-    # The trace id was forwarded to the log fetcher.
-    assert log_fetcher.requested == ["trace-9"]
+    assert log_fetcher.calls == [
+        (["trace-9"], _make_time(1, 12), _make_time(1, 12, 5))
+    ]
     events = page.dataset.eval_cases[0].agent_data.turns[0].events
     texts = [e.content.parts[0].text for e in events]
     assert texts == ["from logs", "logged reply"]
@@ -465,7 +524,13 @@ def test_fetch_page_maps_attachments_in_log_label_messages() -> None:
     client = mock.MagicMock()
     _configure_paging(
         client,
-        page_rows=[{"trace_id": "trace-9", "spans": _metadata_only_spans()}],
+        page_rows=[
+            {
+                "trace_id": "trace-9",
+                "spans": _metadata_only_spans(),
+                "log_windows": _TRACE_9_LOG_WINDOWS,
+            }
+        ],
         next_page_token=None,
     )
     messages = [
@@ -517,7 +582,13 @@ def test_fetch_page_joins_a_structured_system_message_from_logs() -> None:
     client = mock.MagicMock()
     _configure_paging(
         client,
-        page_rows=[{"trace_id": "trace-9", "spans": _metadata_only_spans()}],
+        page_rows=[
+            {
+                "trace_id": "trace-9",
+                "spans": _metadata_only_spans(),
+                "log_windows": _TRACE_9_LOG_WINDOWS,
+            }
+        ],
         next_page_token=None,
     )
     log_fetcher = _FakeLogFetcher(
@@ -998,6 +1069,44 @@ def test_multi_turn_query_takes_the_session_s_latest_revision() -> None:
     assert (
         "ARRAY_AGG( agent_revision IGNORE NULLS ORDER BY trace_start DESC LIMIT 1 "
         ")[SAFE_OFFSET(0)] AS agent_revision" in sql
+    )
+
+
+def test_multi_turn_query_reads_logs_one_active_hour_at_a_time() -> None:
+    """A session spread over days is never read from Cloud Logging as one long
+    time range."""
+    client = mock.MagicMock()
+    client.query.return_value.job_id = "job-1"
+    fetcher = _make_fetcher(client)
+
+    fetcher.submit_query(
+        "agent-a", MetricType.MULTI_TURN, _START, _END, limit=5
+    )
+
+    sql = _sql_words(client.query.call_args.args[0])
+    assert (
+        "MIN(s.start_time) AS trace_start, MAX(s.end_time) AS trace_end," in sql
+    )
+    assert (
+        "FROM UNNEST(traces) AS trace "
+        "GROUP BY TIMESTAMP_TRUNC(trace.trace_start, HOUR)" in sql
+    )
+    assert ") AS log_windows FROM Sessions" in sql
+
+
+def test_single_turn_query_reads_logs_over_the_trace_s_own_range() -> None:
+    client = mock.MagicMock()
+    client.query.return_value.job_id = "job-1"
+    fetcher = _make_fetcher(client)
+
+    fetcher.submit_query(
+        "agent-a", MetricType.SINGLE_TURN, _START, _END, limit=5
+    )
+
+    sql = _sql_words(client.query.call_args.args[0])
+    assert (
+        "[STRUCT( [s.trace_id] AS trace_ids, MIN(s.start_time) AS start_time, "
+        "MAX(s.end_time) AS end_time )] AS log_windows" in sql
     )
 
 
@@ -1650,3 +1759,26 @@ def test_the_observed_project_owns_the_table_and_the_logs_and_jobs_stay_home() -
     assert fetcher.table_ref == f"agent-project.{_DATASET}.{_TABLE}"
     assert ctor.call_args.kwargs["project"] == _PROJECT
     log_fetcher.assert_called_once_with("agent-project")
+
+
+def test_every_column_the_schema_file_lists_is_read() -> None:
+    """A listed column the queries do not read would refuse tables that
+    ingest fine."""
+    fetcher = _make_fetcher(mock.MagicMock())
+    sql = "\n".join(
+        build(metric_type)
+        for build in (
+            fetcher._build_ingestion_sql,
+            fetcher._build_count_sql,
+            fetcher._build_count_by_agent_sql,
+        )
+        for metric_type in (MetricType.MULTI_TURN, MetricType.SINGLE_TURN)
+    )
+
+    unread = [
+        column.name
+        for column in load_required_schema(CloudOpsFetcher.SCHEMA_FILE)
+        if not re.search(rf"\b{column.name}\b", sql)
+    ]
+
+    assert unread == []

@@ -1,5 +1,5 @@
 {
-  "source": "Cloud Trace linked dataset view _AllSpans, from `bq show --schema` on a live linked dataset (2026-09-24). src/ambient_quality_cli/all_spans.schema.json is the narrower schema of AQuA's own span export and is not this view's definition.",
+  "source": "Cloud Trace linked dataset view _AllSpans, from `bq show --schema` on a live linked dataset (2026-09-24). src/ambient_quality_shared/schemas/all_spans.schema.json is the narrower schema of AQuA's own span export and is not this view's definition.",
   "table": "_AllSpans",
   "columns": [
     {

@@ -133,8 +133,9 @@ const ITALIC_UNDERSCORE = /(?<!\w)_(?!\s)([^_\n]+?)(?<!\s)_(?!\w)/g;
 const CODE_SPAN = /`([^`]+)`/g;
 
 /**
- * Reduces markdown to one line of plain text for a ledger row summary.
- * Fenced code blocks are dropped, since a one-line row has no room for them.
+ * Reduces markdown to one line of plain text, for a ledger row summary or for
+ * text that cannot hold markup: a tooltip, an accessible name, a caption.
+ * Fenced code blocks are dropped, since one line has no room for them.
  */
 export function stripMarkdownForSummary(text: string): string {
   return text

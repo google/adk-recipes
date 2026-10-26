@@ -92,7 +92,7 @@ tf-fmt:
 # keeps it credential-free: validate needs the provider schema, not state.
 tf-check:
 	terraform fmt -check -recursive terraform
-	@for dir in terraform/bootstrap terraform/modules/aqa terraform/examples/single-project terraform/examples/attach; do \
+	@for dir in terraform/bootstrap terraform/modules/aqa terraform/examples/single-project; do \
 		echo "==> $$dir"; \
 		terraform -chdir=$$dir init -backend=false -input=false >/dev/null || exit 1; \
 		terraform -chdir=$$dir validate || exit 1; \
