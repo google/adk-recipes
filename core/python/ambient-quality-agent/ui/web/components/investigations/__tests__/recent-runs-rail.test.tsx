@@ -31,6 +31,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { resetRailScrollForTest } from "@/components/chat/use-rail-scroll";
+import { runsQuery } from "@/lib/aqua-api";
 import { RecentRunsRail } from "../recent-runs-rail";
 
 /** Twelve runs, one per hour, oldest first in the payload. */
@@ -256,12 +257,14 @@ describe("RecentRunsRail", () => {
       vi.fn(async () => new Response("{}", { status: 500 })),
     );
     await act(async () => {
-      await client.refetchQueries({ queryKey: ["aqua", "runs"] });
+      await client.refetchQueries({ queryKey: runsQuery(undefined).queryKey });
       // react-query notifies observers on a later tick.
       await new Promise((resolve) => setTimeout(resolve, 10));
     });
 
-    expect(client.getQueryState(["aqua", "runs"])?.status).toBe("error");
+    expect(client.getQueryState(runsQuery(undefined).queryKey)?.status).toBe(
+      "error",
+    );
     expect(runRows()).toHaveLength(10);
     expect(
       screen.queryByRole("button", { name: "Retry" }),
@@ -277,5 +280,28 @@ describe("RecentRunsRail", () => {
     );
     expect(active).toHaveAttribute("href", "/investigations/run05");
     expect(active?.className).toContain("bg-accent");
+  });
+});
+
+describe("RecentRunsRail trigger icons", () => {
+  beforeEach(() => resetRailScrollForTest());
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("marks a run a user started, and leaves a sweep unmarked", async () => {
+    renderRail(
+      ok([
+        { ...RUNS[0], run_id: "custom01", trigger_type: "custom" },
+        { ...RUNS[1], run_id: "sweep001", trigger_type: "scheduled" },
+      ]),
+    );
+
+    const rows = await waitFor(() => {
+      const r = runRows();
+      expect(r).toHaveLength(2);
+      return r;
+    });
+    const [sweep, custom] = rows;
+    expect(within(custom).getByText("Custom")).toHaveClass("sr-only");
+    expect(within(sweep).queryByText("Scheduled")).toBeNull();
   });
 });

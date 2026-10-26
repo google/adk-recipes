@@ -315,6 +315,81 @@ def test_a_match_comes_back_as_the_insight_id(
     }
 
 
+def _match_equal_labels(
+    candidates: Sequence[str], existing: Sequence[str]
+) -> dict[int, int | None]:
+    """Mock matcher that matches a candidate to the first identical label.
+
+    Args:
+        candidates: Candidate issue labels to match.
+        existing: Existing insight labels to compare against.
+
+    Returns:
+        Mapping of candidate indices to the matching existing index, or None.
+    """
+    return {
+        i: existing.index(label) if label in existing else None
+        for i, label in enumerate(candidates)
+    }
+
+
+def test_a_candidate_never_matches_another_agents_insight(
+    backing: InMemoryStore,
+) -> None:
+    """One wording in two agents is two defects with two fixes."""
+    _seed(
+        backing,
+        [
+            _insight("i-root", "same", agent_id=_AGENT),
+            _insight("i-sub", "same", agent_id="sub_agent"),
+        ],
+    )
+    store = InMemoryInsightStore(
+        backing, agent_name=_AGENT, matcher=_match_equal_labels
+    )
+
+    result = store.find_existing_insights(
+        [
+            Cluster(label="same", agent_id="sub_agent"),
+            Cluster(label="same", agent_id=_AGENT),
+            Cluster(label="same", agent_id="other_agent"),
+        ]
+    )
+
+    assert result == {0: "i-sub", 1: "i-root", 2: None}
+
+
+def test_an_unattributed_insight_matches_root_candidates_only(
+    backing: InMemoryStore,
+) -> None:
+    """An insight with no `agent_id` is the root agent's, as is a candidate
+    with none."""
+    _seed(backing, [_insight("i-legacy", "same")])
+    store = InMemoryInsightStore(
+        backing, agent_name=_AGENT, matcher=_match_equal_labels
+    )
+
+    result = store.find_existing_insights(
+        [
+            Cluster(label="same", agent_id=_AGENT),
+            Cluster(label="same"),
+            Cluster(label="same", agent_id="sub_agent"),
+        ]
+    )
+
+    assert result == {0: "i-legacy", 1: "i-legacy", 2: None}
+
+
+def test_a_minted_insight_keeps_its_agent(
+    store: InMemoryInsightStore, backing: InMemoryStore
+) -> None:
+    store.save_investigation_result(
+        [_insight("i1", agent_id="sub_agent")], [], [], [], _NOW
+    )
+
+    assert backing.insights["i1"].agent_id == "sub_agent"
+
+
 # --- what a sweep records --------------------------------------------------- #
 
 

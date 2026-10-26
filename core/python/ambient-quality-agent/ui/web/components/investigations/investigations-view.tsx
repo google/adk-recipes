@@ -19,13 +19,14 @@ import { FailureNote } from "@/components/ui/failure-note";
 import { Loading } from "@/components/ui/loading";
 import { RefreshButton } from "@/components/ui/refresh-button";
 import { DayFilterChip } from "@/components/ui/day-filter-chip";
+import { FilterTabs } from "@/components/ui/filter-tabs";
 import { RunInvestigationButton } from "@/components/run-investigation-button";
 import { Funnel } from "@/components/stats/funnel";
 import { TracesPerDay } from "@/components/stats/traces-per-day";
 import { PageHeader } from "@/components/nav/page-header";
 import { RunsTable } from "./runs-table";
 import { HORIZON_LABEL } from "@/lib/day-buckets";
-import { hasFailures } from "@/lib/run-summary";
+import { hasFailures, isAmbient } from "@/lib/run-summary";
 import { newestFirst } from "@/lib/runstate";
 import { isNoData } from "@/lib/failure";
 import { textStyle } from "@/lib/typography";
@@ -38,12 +39,45 @@ import {
   type Day,
   type Run,
 } from "@/lib/aqua-api";
+import { useAgentKey } from "@/lib/agent-selection";
+
+/** Which runs the list shows by who started them: all of them, the ones a
+ *  user asked for (custom or manual), or the scheduled sweeps. */
+export type TriggerFilter = "all" | "user" | "scheduled";
+
+export const TRIGGER_FILTERS: Record<
+  TriggerFilter,
+  { label: string; noun: string }
+> = {
+  all: { label: "All", noun: "" },
+  user: { label: "User-initiated", noun: "user-initiated " },
+  scheduled: { label: "Scheduled", noun: "scheduled " },
+};
+export const TRIGGER_FILTER_NAMES = Object.keys(
+  TRIGGER_FILTERS,
+) as TriggerFilter[];
+
+/** Whether `run` belongs in the list under `filter`.
+ *
+ * Args:
+ *   run: The run to test.
+ *   filter: The trigger filter the list is under.
+ *
+ * Returns:
+ *   True for every run under `all`; otherwise true when the run's trigger is
+ *   of the kind the filter names.
+ */
+export function matchesTrigger(run: Run, filter: TriggerFilter): boolean {
+  if (filter === "all") return true;
+  return isAmbient(run) === (filter === "scheduled");
+}
 
 /**
  * The investigations page: totals, the per-day chart and the newest runs.
  *
- * "Only with failures" is the caller's when it passes `onFailuresOnlyChange`,
- * and the page's own otherwise, as `InsightsView` does with its status.
+ * "Only with failures" and the trigger filter are the caller's when it passes
+ * `onFailuresOnlyChange` and `onTriggerChange`, and the page's own otherwise,
+ * as `InsightsView` does with its status.
  *
  * `day` swaps the newest runs for the runs one column of the per-day chart
  * counts, and `onDayClear` is how the chip naming it takes it off.
@@ -51,21 +85,26 @@ import {
 export function InvestigationsView({
   failuresOnly,
   onFailuresOnlyChange,
+  trigger,
+  onTriggerChange,
   day,
   onDayClear,
 }: {
   failuresOnly?: boolean;
   onFailuresOnlyChange?: (only: boolean) => void;
+  trigger?: TriggerFilter;
+  onTriggerChange?: (trigger: TriggerFilter) => void;
   day?: string;
   onDayClear?: () => void;
 } = {}) {
-  const stats = useQuery(statsQuery());
-  const daily = useQuery(dailyQuery());
-  const runs = useQuery(runsQuery(day));
+  const agentKey = useAgentKey();
+  const stats = useQuery(statsQuery(agentKey));
+  const daily = useQuery(dailyQuery(agentKey));
+  const runs = useQuery(runsQuery(agentKey, day));
   // What the rows are compared with, unfiltered: a day's first sweep was
   // preceded by one the day leaves out. Without a day this is `runs` itself,
   // one query under one key.
-  const allRuns = useQuery(runsQuery());
+  const allRuns = useQuery(runsQuery(agentKey));
 
   // All of these describe the same sweeps, over different spans, so refreshing
   // one and not the others would leave the page describing two moments as
@@ -147,6 +186,8 @@ export function InvestigationsView({
         refreshing={refreshing}
         failuresOnly={failuresOnly}
         onFailuresOnlyChange={onFailuresOnlyChange}
+        trigger={trigger}
+        onTriggerChange={onTriggerChange}
         day={day}
         dayTotal={
           day
@@ -182,6 +223,8 @@ function RunsSection({
   refreshing,
   failuresOnly: ownedFailuresOnly,
   onFailuresOnlyChange,
+  trigger: ownedTrigger,
+  onTriggerChange,
   day,
   dayTotal,
   onDayClear,
@@ -195,6 +238,8 @@ function RunsSection({
   refreshing: boolean;
   failuresOnly?: boolean;
   onFailuresOnlyChange?: (only: boolean) => void;
+  trigger?: TriggerFilter;
+  onTriggerChange?: (trigger: TriggerFilter) => void;
   day?: string;
   /** How many runs the per-day chart counts on `day`, when it has said. */
   dayTotal?: number;
@@ -209,7 +254,12 @@ function RunsSection({
     ? (ownedFailuresOnly ?? false)
     : localFailuresOnly;
   const setFailuresOnly = onFailuresOnlyChange ?? setLocalFailuresOnly;
-  const visible = failuresOnly ? runs.filter(hasFailures) : runs;
+  const [localTrigger, setLocalTrigger] = useState<TriggerFilter>("all");
+  const trigger = onTriggerChange ? (ownedTrigger ?? "all") : localTrigger;
+  const setTrigger = onTriggerChange ?? setLocalTrigger;
+  const byTrigger = runs.filter((run) => matchesTrigger(run, trigger));
+  const visible = failuresOnly ? byTrigger.filter(hasFailures) : byTrigger;
+  const noun = TRIGGER_FILTERS[trigger].noun;
   const checkboxRef = useRef<HTMLInputElement>(null);
   // The chip unmounts with the day, so focus goes to the control beside it.
   const clearDay = () => {
@@ -235,8 +285,15 @@ function RunsSection({
             </span>
           )}
         </h2>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {day && onDayClear && <DayFilterChip day={day} onClear={clearDay} />}
+          <FilterTabs
+            label="Started by"
+            options={TRIGGER_FILTER_NAMES}
+            value={trigger}
+            onSelect={setTrigger}
+            labelOf={(name) => TRIGGER_FILTERS[name].label}
+          />
           <label
             className={cn(
               textStyle.label,
@@ -292,12 +349,20 @@ function RunsSection({
             ? `No investigations on ${day} (UTC).`
             : "No investigations yet."}
         </p>
+      ) : byTrigger.length === 0 ? (
+        <p className={textStyle.description}>
+          {day
+            ? `No ${noun}investigations on ${day} (UTC).`
+            : `No ${noun}investigations among the most recent.`}
+        </p>
       ) : visible.length === 0 ? (
         // Named apart from "nothing here": every sweep passing or idling is not
         // an empty deployment, and reading it as an empty account would be the
         // wrong conclusion.
         <p className={textStyle.description}>
-          {day ? `All investigations on ${day} (UTC)` : "All investigations"}{" "}
+          {day
+            ? `All ${noun}investigations on ${day} (UTC)`
+            : `All ${noun}investigations`}{" "}
           passed every metric. Uncheck “Only with failures” to see clean and
           idle investigations.
         </p>

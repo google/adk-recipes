@@ -363,6 +363,9 @@ class CloudLoggingFetcher(BigQueryJobFetcher):
     """Fetches and shapes agent telemetry from a Cloud Logging export table."""
 
     TELEMETRY_SOURCE = selector.CLOUD_LOGGING_SOURCE
+    # Omits `labels`: missing `labels` fields are read as NULL until the sink
+    # creates them.
+    SCHEMA_FILE = "gen_ai_client_inference_operation_details.schema.json"
     FOLLOWS_PAYLOAD_REFS = True
 
     def __init__(

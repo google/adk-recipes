@@ -26,17 +26,44 @@ read from the engine's own project, which is reported by id: a grant, a table
 reference and the audit sink's project take the id, and a resource name may
 carry the project number.
 
+Cloud Trace stores an agent's OpenTelemetry spans in the project's
+observability bucket `_Trace`, and `cloud_ops` ingestion reads them through a
+BigQuery link on its `Spans` dataset (:mod:`ambient_quality_cli.trace_link`).
+Discovery prefers those spans over a logging sink that exports the agent's
+inference events, notes the sinks it passed over, and reports the link as
+:attr:`Discovery.trace_link`; `attach` enables the Observability API
+and creates the bucket and the link when they do not exist yet. Discovery
+selects a sink's table when `--telemetry-dataset` matches the sink's dataset
+or when the Observability API cannot be used (either because the user cannot
+enable it or a lookup fails).
+
+An agent that records with ADK's BigQuery Agent Analytics plugin is read by
+`big_query` ingestion. Discovery does not choose `big_query` itself: the
+engine's `BQ_ANALYTICS_*` variables say where the plugin would write, not that
+the agent's code loads it, and an agents-cli project has the logging sink as
+well. Given `--telemetry-source big_query`, discovery skips the sinks and spans
+and reads the plugin's dataset from the engine's environment. The plugin
+creates its table on the first event, so the table need not exist.
+
 The calls go through :mod:`ambient_quality_cli.rest_client`::
 
     discover_observed_agent
-      ├── GET  aiplatform  v1/<engine>                  displayName, payload bucket
+      ├── GET  aiplatform  v1/<engine>                  displayName, env
       ├── GET  aiplatform  reasoningEngines/v1/<engine>/api/list-apps
       ├── GET  cloudresourcemanager  v3/projects/<p>    project id
+      ├── given big_query, the plugin's table:
+      │     GET  bigquery  datasets/<d>/tables/<t>      location, label
+      │     GET  bigquery  datasets/<d>                 location, with no table
       ├── GET  logging     v2/projects/<p>/sinks
-      └── per sink into BigQuery:
-            GET  bigquery  datasets/<d>                 location
-            GET  bigquery  datasets/<d>/tables[/<t>]    tables, schemas
-            POST bigquery  queries                      rows per engine, agent
+      ├── per sink into BigQuery:
+      │     GET  bigquery  datasets/<d>                 location
+      │     GET  bigquery  datasets/<d>/tables[/<t>]    tables, schemas
+      │     POST bigquery  queries                      rows per engine, agent
+      └── Cloud Trace, preferred to the sinks, through trace_link:
+            GET  observability  locations/-/buckets     the _Trace bucket
+            GET  observability  .../datasets/Spans/links
+            GET  bigquery  datasets/<link>              location
+            POST bigquery  queries                      the agent's traces
 """
 
 from __future__ import annotations
@@ -47,10 +74,19 @@ import re
 from collections.abc import Mapping
 from typing import Any
 
+from ambient_quality_cli import trace_link as trace_link_lib
 from ambient_quality_cli.rest_client import (
     DEFAULT_TIMEOUT_SECONDS,
     ApiError,
     JsonApi,
+)
+from ambient_quality_cli.trace_link import (  # noqa: F401 - DEFAULT_TRACE_LINK is part of this module's interface
+    DEFAULT_TRACE_LINK,
+    SPANS_VIEW,
+    TRACE_BUCKET,
+    TRACE_DATASET,
+    TraceLink,
+    TraceLinkError,
 )
 
 # The event agents emit for each model call. A sink whose filter selects it
@@ -63,7 +99,35 @@ _INFERENCE_EVENT = "gen_ai.client.inference.operation.details"
 _UPLOAD_BASE_PATH = "OTEL_INSTRUMENTATION_GENAI_UPLOAD_BASE_PATH"
 _GCS_URI_RE = re.compile(r"^gs://(?P<bucket>[a-z0-9][a-z0-9._-]*)(?:/.*)?$")
 
+# Without that upload, message content reaches the `cloud_logging` and
+# `cloud_ops` sources only through the google-genai instrumentation, which
+# writes it into its log events and spans. Under the experimental GenAI
+# conventions it reads the capture mode and rejects `true`; under the default
+# ones it records content for `true` alone. Content ADK writes into its own
+# `call_llm` spans does not count, because ingestion drops it there.
+_CAPTURE_MODE = "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT"
+_SEMCONV_OPT_IN = "OTEL_SEMCONV_STABILITY_OPT_IN"
+_EXPERIMENTAL_GENAI = "gen_ai_latest_experimental"
+_EXPERIMENTAL_CONTENT_MODES = frozenset(
+    {"EVENT_ONLY", "SPAN_ONLY", "SPAN_AND_EVENT"}
+)
+
 _CLOUD_LOGGING = "cloud_logging"
+_CLOUD_OPS = "cloud_ops"
+_BIG_QUERY = "big_query"
+
+# Where the BigQuery Agent Analytics plugin writes, as the agent code
+# agents-cli renders for `--bq-analytics` configures it: the dataset from this
+# variable, which agents-cli's Terraform sets on the engine, else the default
+# that code falls back to; the table is the plugin's default. The plugin labels
+# a table it creates with its schema version.
+_ANALYTICS_DATASET_VAR = "BQ_ANALYTICS_DATASET_ID"
+_DEFAULT_ANALYTICS_DATASET = "adk_agent_analytics"
+_ANALYTICS_TABLE = "agent_events"
+_ANALYTICS_SCHEMA_LABEL = "adk_schema_version"
+
+# The span attribute `cloud_ops` ingestion selects an agent's traces by.
+_SPAN_AGENT_ATTRIBUTE = "gen_ai.agent.name"
 
 # Where an Agent Runtime engine's stdout lands when a sink exports it: the
 # table is named after the log id
@@ -145,6 +209,9 @@ class Discovery:
         default_factory=list
     )
     chosen: TelemetryCandidate | None = None
+    trace_link: TraceLink | None = None
+    """The Cloud Trace link the discovered `cloud_ops` telemetry is read
+    through, when that is what discovery chose."""
     notes: list[str] = dataclasses.field(default_factory=list)
 
 
@@ -195,14 +262,23 @@ def discover_observed_agent(
     2. Ask its ADK server's `list-apps` for the root agent's name.
     3. Resolve the engine's project to its id: the observed agent's project,
        unless ``given`` names it.
-    4. List that project's logging sinks exporting inference events to a
-       BigQuery dataset in the same project, and count each of their tables'
-       rows by engine and agent.
-    5. Without a name from `list-apps`, take the one this engine's rows carry.
-    6. Choose the table holding the agent's rows.
+    4. Given a `big_query` source, find the analytics plugin's table in that
+       project and stop.
+    5. List the project's logging sinks that export inference events to a
+       BigQuery dataset in the same project, and count rows in their tables by
+       engine and agent.
+    6. If `list-apps` did not return an agent name, use the name from this
+       engine's rows.
+    7. Read the agent's spans through the BigQuery link on the project's
+       Cloud Trace bucket, plan any missing resources, and note the sinks
+       passed over.
+    8. If spans are not selected, choose the sink table holding the agent's
+       rows.
 
-    Fields in ``given`` are not discovered. A given telemetry source other than
-    `cloud_logging` skips the sinks, and a given dataset or table narrows them.
+    Fields in ``given`` are not discovered. A given `big_query` source skips
+    sinks and spans, `cloud_ops` skips sinks, `cloud_logging` skips spans, and
+    a given dataset or table filters the candidates. A given dataset matching a
+    sink also skips spans.
 
     Args:
         resource: The observed engine's resource name.
@@ -232,7 +308,8 @@ def discover_observed_agent(
         )
     # Recorded empty when the engine names no bucket, so that re-attaching
     # forgets one an earlier attach found and the check stops offering it.
-    bucket = _extract_payload_bucket(body)
+    env = _extract_engine_env(body)
+    bucket = _extract_payload_bucket(env)
     found["telemetry_payload_bucket"] = DiscoveredValue(
         bucket,
         f"{_UPLOAD_BASE_PATH} of the observed engine"
@@ -247,6 +324,9 @@ def discover_observed_agent(
             found["observed_agent_name"] = DiscoveredValue(
                 agent_name, "rootAgentName from list-apps"
             )
+    # The analytics plugin behind `big_query` records content on its own.
+    if given.get("telemetry_ingestion_source") != _BIG_QUERY:
+        _check_content_capture(env, bucket, discovery)
 
     # A given project is the one sinks are matched against, and needs no
     # lookup of the engine's.
@@ -258,43 +338,141 @@ def discover_observed_agent(
     )
 
     source = given.get("telemetry_ingestion_source")
-    if source not in (None, _CLOUD_LOGGING):
+    if source == _BIG_QUERY:
+        _resolve_analytics_table(api, project, env, given, discovery)
         return _drop_given(discovery, given)
-    tables = _list_telemetry_tables(
-        api, engine, project, given, window_days, discovery
-    )
-
-    if not agent_name:
-        agent_name = _resolve_agent_from_rows(engine, tables, discovery)
-
-    discovery.candidates = [
-        _build_candidate(counts, engine.engine_id, agent_name)
-        for counts in tables
-    ]
-    _resolve_telemetry(discovery, agent_name, window_days)
+    if source not in (None, _CLOUD_LOGGING, _CLOUD_OPS):
+        return _drop_given(discovery, given)
+    # List sinks even when spans win: their rows provide the agent name if
+    # `list-apps` did not, and the plan reports which sinks were passed over.
+    tables: list[_TableCounts] = []
+    if source != _CLOUD_OPS:
+        tables = _list_telemetry_tables(
+            api, engine, project, given, window_days, discovery
+        )
+        if not agent_name:
+            agent_name = _resolve_agent_from_rows(engine, tables, discovery)
+    # If the given dataset matches a sink, use the sink and skip spans.
+    names_sink = bool(given.get("telemetry_dataset")) and bool(tables)
+    if source != _CLOUD_LOGGING and not names_sink:
+        _resolve_trace_link(
+            api,
+            project,
+            given,
+            agent_name,
+            window_days,
+            discovery,
+            explicit=source == _CLOUD_OPS,
+        )
+    if source == _CLOUD_OPS:
+        return _drop_given(discovery, given)
+    if discovery.trace_link is not None:
+        _record_sinks_passed_over(tables, discovery)
+    elif tables:
+        discovery.candidates = [
+            _build_candidate(counts, engine.engine_id, agent_name)
+            for counts in tables
+        ]
+        _resolve_telemetry(discovery, agent_name, window_days)
+    else:
+        discovery.notes.append(
+            f"No logging sink in {engine.project} exports {_INFERENCE_EVENT} "
+            "to BigQuery, so the telemetry fields keep their values."
+        )
     return _drop_given(discovery, given)
 
 
-def _extract_payload_bucket(engine: Mapping[str, Any]) -> str:
-    """Extracts the bucket the agent uploads message content to.
+def _record_sinks_passed_over(
+    tables: list[_TableCounts], discovery: Discovery
+) -> None:
+    """Records a note listing the logging sinks passed over in favor of spans.
+
+    Args:
+        tables: The sink tables found.
+        discovery: Receives the note.
+    """
+    sinks = list(dict.fromkeys(t.sink for t in tables))
+    if not sinks:
+        return
+    listed = ", ".join(sinks)
+    subject = (
+        f"Logging sink {listed} exports"
+        if len(sinks) == 1
+        else f"Logging sinks {listed} export"
+    )
+    discovery.notes.append(
+        f"{subject} {_INFERENCE_EVENT} as well. The spans are preferred; "
+        "--telemetry-source cloud_logging reads the sink's table instead."
+    )
+
+
+def _extract_engine_env(engine: Mapping[str, Any]) -> dict[str, str]:
+    """Extracts the plain environment variables of an engine's deployment.
 
     Args:
         engine: The engine, as the aiplatform GET returns it.
 
     Returns:
+        Values by name; a secret, which carries no value, is left out.
+    """
+    spec = engine.get("spec") or {}
+    return {
+        str(variable["name"]): str(variable.get("value") or "")
+        for variable in (spec.get("deploymentSpec") or {}).get("env") or []
+        if isinstance(variable, dict) and variable.get("name")
+    }
+
+
+def _extract_payload_bucket(env: Mapping[str, str]) -> str:
+    """Extracts the bucket the agent uploads message content to.
+
+    Args:
+        env: The engine's environment variables.
+
+    Returns:
         The bucket's name, or an empty string when the engine's environment
         names none, as for an agent that inlines content.
     """
-    spec = engine.get("spec") or {}
-    env = (spec.get("deploymentSpec") or {}).get("env") or []
-    for variable in env:
-        if (
-            isinstance(variable, dict)
-            and variable.get("name") == _UPLOAD_BASE_PATH
-        ):
-            match = _GCS_URI_RE.match(str(variable.get("value") or ""))
-            return match["bucket"] if match else ""
-    return ""
+    match = _GCS_URI_RE.match(env.get(_UPLOAD_BASE_PATH, ""))
+    return match["bucket"] if match else ""
+
+
+def _check_content_capture(
+    env: Mapping[str, str], bucket: str, discovery: Discovery
+) -> None:
+    """Notes an engine whose telemetry carries no message content.
+
+    Without content, `cloud_logging` and `cloud_ops` ingestion finds no
+    conversation turns and drops every session, however its reads are granted.
+
+    Args:
+        env: The engine's environment variables.
+        bucket: The bucket the agent uploads content to; empty if none.
+        discovery: Receives the note.
+    """
+    mode = env.get(_CAPTURE_MODE, "").strip()
+    experimental = _EXPERIMENTAL_GENAI in (
+        token.strip() for token in env.get(_SEMCONV_OPT_IN, "").split(",")
+    )
+    if bucket or (
+        mode.upper() in _EXPERIMENTAL_CONTENT_MODES
+        if experimental
+        else mode.lower() == "true"
+    ):
+        return
+    reason = (
+        f"{_CAPTURE_MODE}={mode}, which records content only under "
+        f"{_SEMCONV_OPT_IN}={_EXPERIMENTAL_GENAI}"
+        if mode.upper() in _EXPERIMENTAL_CONTENT_MODES
+        else f"{_CAPTURE_MODE}={mode or '(unset)'}"
+    )
+    discovery.notes.append(
+        f"The observed engine records no message content ({reason}, and no "
+        f"gs:// {_UPLOAD_BASE_PATH}), so investigations drop every "
+        "conversation. Redeploy the agent with `agents-cli deploy "
+        f"--update-env-vars {_SEMCONV_OPT_IN}={_EXPERIMENTAL_GENAI},"
+        f"{_CAPTURE_MODE}=EVENT_ONLY`, then send it new traffic."
+    )
 
 
 def _drop_given(discovery: Discovery, given: Mapping[str, Any]) -> Discovery:
@@ -377,6 +555,106 @@ def _resolve_project_id(
     return str(body.get("projectId") or project)
 
 
+def _resolve_analytics_table(
+    api: JsonApi,
+    project_id: str,
+    env: Mapping[str, str],
+    given: Mapping[str, Any],
+    discovery: Discovery,
+) -> None:
+    """Records the table the BigQuery Agent Analytics plugin writes to.
+
+    The plugin creates its table on the agent's first event, so a new agent may
+    not have one: the names are recorded either way, and only the location
+    needs the table or its dataset to exist.
+
+    1. Take the dataset from the engine's `BQ_ANALYTICS_DATASET_ID`, else the
+       agents-cli default, and the plugin's default table.
+    2. GET the table for its location, and note one the plugin did not create
+       or a given one that does not exist.
+    3. Without the table's location or a given one, GET the dataset for its
+       location.
+
+    Args:
+        api: Google REST client.
+        project_id: The engine's project, by id, which the plugin writes to.
+        env: The engine's environment variables.
+        given: Fields the operator set; a given dataset or table is the one
+            looked up.
+        discovery: Receives the values and notes.
+    """
+    found = discovery.values
+    dataset = str(given.get("telemetry_dataset") or "")
+    if not dataset:
+        dataset = env.get(_ANALYTICS_DATASET_VAR, "").strip()
+        dataset_source = f"{_ANALYTICS_DATASET_VAR} of the observed engine"
+        if not dataset:
+            dataset = _DEFAULT_ANALYTICS_DATASET
+            dataset_source = (
+                "the default of agents-cli's analytics code; the observed "
+                f"engine sets no {_ANALYTICS_DATASET_VAR}"
+            )
+        found["telemetry_dataset"] = DiscoveredValue(dataset, dataset_source)
+    given_table = str(given.get("telemetry_table") or "")
+    table = given_table or _ANALYTICS_TABLE
+    base = f"{_BIGQUERY}/projects/{project_id}/datasets/{dataset}"
+    table_ref = f"{project_id}.{dataset}.{table}"
+
+    try:
+        body = api.get_json(f"{base}/tables/{table}")
+    except ApiError as exc:
+        table_source = "the plugin's default table"
+        if exc.status != 404:
+            discovery.notes.append(f"Cannot read table {table_ref} ({exc}).")
+        elif given_table:
+            # The plugin creates its default table on its own; a table named
+            # otherwise exists only if the agent's code configures the plugin
+            # with that name.
+            discovery.notes.append(
+                f"Table {table_ref} does not exist. The plugin creates it on "
+                "the agent's first event only if the agent's code names it."
+            )
+        else:
+            table_source = (
+                "the plugin's default table; not created yet, the plugin "
+                "creates it on the agent's first event"
+            )
+        if not given_table:
+            found["telemetry_table"] = DiscoveredValue(table, table_source)
+    else:
+        if not given_table:
+            found["telemetry_table"] = DiscoveredValue(
+                table, "the plugin's default table, which exists"
+            )
+        if _ANALYTICS_SCHEMA_LABEL not in (body.get("labels") or {}):
+            discovery.notes.append(
+                f"{table_ref} has no {_ANALYTICS_SCHEMA_LABEL} label, so the "
+                "BigQuery Agent Analytics plugin did not create it, and "
+                "big_query ingestion expects the plugin's columns."
+            )
+        if location := str(body.get("location") or ""):
+            found["telemetry_location"] = DiscoveredValue(
+                location, f"location of table {dataset}.{table}"
+            )
+            return
+    if given.get("telemetry_location"):
+        return
+
+    try:
+        location = str(api.get_json(base).get("location") or "")
+    except ApiError as exc:
+        discovery.notes.append(
+            f"Cannot read dataset {project_id}.{dataset} ({exc}), so its "
+            "location is not known. agents-cli's analytics code creates the "
+            "dataset when the agent starts; --telemetry-location names it."
+        )
+        return
+    if location:
+        found["telemetry_location"] = DiscoveredValue(
+            location, f"location of dataset {dataset}"
+        )
+
+
 def _list_telemetry_tables(
     api: JsonApi,
     engine: EngineResource,
@@ -404,8 +682,7 @@ def _list_telemetry_tables(
         body = api.get_json(f"{_LOGGING}/projects/{engine.project}/sinks")
     except ApiError as exc:
         discovery.notes.append(
-            f"Cannot list the logging sinks of {engine.project} ({exc}), so the "
-            "telemetry fields keep their values."
+            f"Cannot list the logging sinks of {engine.project} ({exc})."
         )
         return []
 
@@ -432,12 +709,6 @@ def _list_telemetry_tables(
             _list_sink_tables(
                 api, name, project, dataset, given, window_days, discovery
             )
-        )
-    if not tables:
-        discovery.notes.append(
-            f"No logging sink in {engine.project} exports {_INFERENCE_EVENT} "
-            "to BigQuery, so the telemetry fields keep their values. "
-            "`agents-cli infra single-project --apply` creates one."
         )
     return tables
 
@@ -554,6 +825,45 @@ FROM `{project}.{dataset}.{table}`
 WHERE timestamp > TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL @days DAY)
 GROUP BY engine, agent
 """  # noqa: S608 - identifiers from the BigQuery API; values are parameterized
+    rows = _run_query(
+        api,
+        project,
+        location,
+        query,
+        {"days": ("INT64", str(window_days))},
+        f"{dataset}.{table}",
+        discovery,
+    )
+    return tuple(
+        (cells[0]["v"], cells[1]["v"], int(cells[2]["v"] or 0))
+        for cells in rows or []
+    )
+
+
+def _run_query(
+    api: JsonApi,
+    project: str,
+    location: str,
+    query: str,
+    parameters: Mapping[str, tuple[str, str]],
+    table_ref: str,
+    discovery: Discovery,
+) -> list[list[dict[str, Any]]] | None:
+    """Runs a counting query and waits for its rows.
+
+    Args:
+        api: Google REST client.
+        project: Project the query runs in.
+        location: BigQuery location of the table it reads.
+        query: GoogleSQL with named parameters.
+        parameters: `(type, value)` per parameter name.
+        table_ref: The table counted, for the notes.
+        discovery: Collects a note when the query fails or runs too long.
+
+    Returns:
+        Each row's cells, as `jobs.query` returns them; None when the query
+        failed or did not finish in time.
+    """
     try:
         body = api.post_json(
             f"{_BIGQUERY}/projects/{project}/queries",
@@ -567,27 +877,23 @@ GROUP BY engine, agent
                 "parameterMode": "NAMED",
                 "queryParameters": [
                     {
-                        "name": "days",
-                        "parameterType": {"type": "INT64"},
-                        "parameterValue": {"value": str(window_days)},
+                        "name": name,
+                        "parameterType": {"type": kind},
+                        "parameterValue": {"value": value},
                     }
+                    for name, (kind, value) in parameters.items()
                 ],
             },
         )
     except ApiError as exc:
-        discovery.notes.append(
-            f"Cannot count rows in {dataset}.{table} ({exc})."
-        )
-        return ()
+        discovery.notes.append(f"Cannot count rows in {table_ref} ({exc}).")
+        return None
     if not body.get("jobComplete", False):
         discovery.notes.append(
-            f"Counting rows in {dataset}.{table} did not finish in time."
+            f"Counting rows in {table_ref} did not finish in time."
         )
-        return ()
-    return tuple(
-        (cells[0]["v"], cells[1]["v"], int(cells[2]["v"] or 0))
-        for cells in (row["f"] for row in body.get("rows") or [])
-    )
+        return None
+    return [row["f"] for row in body.get("rows") or []]
 
 
 def _list_subfields(field: Mapping[str, Any] | None) -> set[str]:
@@ -734,6 +1040,172 @@ def _resolve_telemetry(
             ),
         }
     )
+
+
+def _resolve_trace_link(
+    api: JsonApi,
+    project_id: str,
+    given: Mapping[str, Any],
+    agent_name: str,
+    window_days: int,
+    discovery: Discovery,
+    *,
+    explicit: bool,
+) -> bool:
+    """Takes the agent's Cloud Trace spans as its telemetry.
+
+    1. Look up the project's `_Trace` bucket and the BigQuery links on its
+       `Spans` dataset. If the Observability API is disabled, plan to enable it,
+       or skip spans if the user lacks permission.
+    2. Select the link matching the given dataset, or the single existing link.
+       If none exists, plan a new link named after the given dataset or
+       `DEFAULT_TRACE_LINK`.
+    3. If the link exists, count the agent's traces in it.
+    4. Record the four telemetry fields and the link.
+
+    Args:
+        api: Google REST client.
+        project_id: The observed engine's project, by id.
+        given: Explicit flag values from the caller.
+        agent_name: The observed agent's name, or empty if unknown.
+        window_days: How far back to count traces.
+        discovery: Receives the values, the link and notes.
+        explicit: Whether the operator gave `cloud_ops` as the source. Only
+            then does an unlinked given dataset name a link to create;
+            otherwise it names a sink dataset.
+
+    Returns:
+        True if the spans were selected as telemetry; False otherwise (with a
+        reason recorded in `discovery.notes`).
+    """
+
+    def record_no_spans(reason: str) -> bool:
+        """Records why spans were not selected and returns False.
+
+        Args:
+            reason: The reason, with or without a trailing period.
+
+        Returns:
+            Always False.
+        """
+        reason = reason.rstrip(".")
+        if explicit:
+            discovery.notes.append(f"{reason}.")
+        else:
+            discovery.notes.append(f"{reason}; looking for a logging sink.")
+        return False
+
+    try:
+        link = trace_link_lib.resolve_trace_link(api, project_id)
+    except TraceLinkError as exc:
+        return record_no_spans(str(exc))
+    if link.api_disabled and not link.can_enable_api:
+        return record_no_spans(" ".join(link.notes))
+    discovery.notes.extend(link.notes)
+    spans = f"{TRACE_BUCKET}/{TRACE_DATASET}"
+    wanted = given.get("telemetry_dataset")
+    if wanted and wanted != link.link_id:
+        if link.exists:
+            # An observability dataset takes one link, so no second can be made.
+            return record_no_spans(
+                f"{spans} is linked to BigQuery as {link.link_id}, not "
+                f"{wanted}; --telemetry-dataset {link.link_id} reads it"
+            )
+        if not explicit:
+            return record_no_spans(f"{spans} has no BigQuery link {wanted}")
+        link = dataclasses.replace(link, link_id=wanted)
+
+    discovery.trace_link = link
+    via = f"Cloud Trace bucket {TRACE_BUCKET} in {link.location}"
+    if link.exists:
+        table_source = _count_agent_traces(
+            api,
+            link,
+            given.get("telemetry_table") or SPANS_VIEW,
+            link.bigquery_location,
+            agent_name,
+            window_days,
+            discovery,
+        )
+        dataset_source = f"BigQuery link on {spans}"
+        location_source = f"location of dataset {link.link_id}"
+    else:
+        dataset_source = "not linked yet; attach creates the link"
+        table_source = "the span view of the linked dataset"
+        location_source = f"location of {via}"
+        discovery.notes.append(
+            f"{spans} in {project_id} has no BigQuery link yet, so there are "
+            "no traces to count."
+        )
+    discovery.values.update(
+        {
+            "telemetry_ingestion_source": DiscoveredValue(_CLOUD_OPS, via),
+            "telemetry_dataset": DiscoveredValue(link.link_id, dataset_source),
+            "telemetry_table": DiscoveredValue(SPANS_VIEW, table_source),
+            "telemetry_location": DiscoveredValue(
+                link.bigquery_location, location_source
+            ),
+        }
+    )
+    return True
+
+
+def _count_agent_traces(
+    api: JsonApi,
+    link: TraceLink,
+    table: str,
+    location: str,
+    agent_name: str,
+    window_days: int,
+    discovery: Discovery,
+) -> str:
+    """Counts the agent's traces in a trace link's span view.
+
+    Args:
+        api: Google REST client.
+        link: An existing link.
+        table: The span view in the linked dataset.
+        location: The linked dataset's BigQuery location.
+        agent_name: The observed agent's name, or empty if unknown.
+        window_days: How far back to count.
+        discovery: Collects notes.
+
+    Returns:
+        The source shown for the table: the count, or what the view is when
+        there is nothing to count by or the count fails.
+    """
+    view_source = "the view Cloud Trace spans land in"
+    if not agent_name:
+        return view_source
+    query = f"""
+SELECT COUNT(DISTINCT trace_id) AS n
+FROM `{link.project}.{link.link_id}.{table}`
+WHERE start_time > TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL @days DAY)
+  AND JSON_VALUE(attributes, '$."{_SPAN_AGENT_ATTRIBUTE}"') = @agent
+"""  # noqa: S608 - identifiers from the Observability API; values are parameterized
+    table_ref = f"{link.link_id}.{table}"
+    rows = _run_query(
+        api,
+        link.project,
+        location,
+        query,
+        {"days": ("INT64", str(window_days)), "agent": ("STRING", agent_name)},
+        table_ref,
+        discovery,
+    )
+    if rows is None:
+        return view_source
+    traces = int(rows[0][0]["v"] or 0) if rows else 0
+    window = f"in the last {window_days} days"
+    if traces:
+        return f"{traces} traces for {agent_name} {window}"
+    discovery.notes.append(
+        f"{table_ref} has no traces for {agent_name} {window}. The fetcher "
+        f"selects spans by {_SPAN_AGENT_ATTRIBUTE}. The spans stay the "
+        "telemetry; --telemetry-source cloud_logging reads a logging sink "
+        "instead."
+    )
+    return f"no traces for {agent_name} {window}; {view_source}"
 
 
 def parse_hints(text: str) -> dict[str, DiscoveredValue]:

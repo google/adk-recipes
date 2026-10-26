@@ -20,6 +20,7 @@ import { Loading } from "@/components/ui/loading";
 import { RawJson } from "@/components/ui/raw-json";
 import { textStyle } from "@/lib/typography";
 import { cn } from "@/lib/utils";
+import { useAgentKey } from "@/lib/agent-selection";
 
 /**
  * The effective runtime configuration, read from the running agent.
@@ -34,7 +35,8 @@ import { cn } from "@/lib/utils";
  * and the raw record underneath for the question the labels do not answer.
  */
 export function EffectiveConfigCard() {
-  const { data, isLoading, error } = useQuery(effectiveConfigQuery());
+  const agentKey = useAgentKey();
+  const { data, isLoading, error } = useQuery(effectiveConfigQuery(agentKey));
 
   if (isLoading) {
     return (

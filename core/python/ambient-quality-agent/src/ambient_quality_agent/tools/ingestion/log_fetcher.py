@@ -22,17 +22,17 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from typing import Any
 
+from ambient_quality_agent import clients
 from ambient_quality_agent.tools.ingestion.trace_converter import (
     ATTR_AGENT_NAME,
 )
 from ambient_quality_agent.tools.ingestion.trace_models import LogEntryView
+from google.api_core import exceptions as api_exceptions
+from google.api_core import retry as api_retry
 from google.cloud import logging_v2
-from google.cloud.logging_v2.services.logging_service_v2 import (
-    LoggingServiceV2Client,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +48,26 @@ _TRACES_PER_REQUEST = 100
 # Absorbs clock skew and ingestion delay around the span time window.
 _TIME_BUFFER = dt.timedelta(minutes=5)
 
+# Cloud Logging allows 60 read requests per minute per project by default,
+# shared with every other reader of the project, and answers a burst over it
+# with RESOURCE_EXHAUSTED. The client's default retry covers only the other
+# three errors here, so one such answer would fail the whole investigation.
+# Each wait is random up to a cap that doubles from 1 s to 32 s, and retries go
+# on for up to 180 s, which spans several one-minute quota windows. The pager
+# reuses this retry for every later page.
+_READ_RETRY = api_retry.Retry(
+    predicate=api_retry.if_exception_type(
+        api_exceptions.ResourceExhausted,
+        api_exceptions.DeadlineExceeded,
+        api_exceptions.InternalServerError,
+        api_exceptions.ServiceUnavailable,
+    ),
+    initial=1.0,
+    maximum=32.0,
+    multiplier=2.0,
+    timeout=180.0,
+)
+
 
 class LogFetcher:
     """Reads raw log entries from Cloud Logging, grouped by span id."""
@@ -61,7 +81,7 @@ class LogFetcher:
             client: Optional `LoggingServiceV2Client`.
         """
         self._project_id = project_id
-        self._client = client or LoggingServiceV2Client()
+        self._client = client or clients.create_logging_client()
 
     def fetch_entries_by_span(
         self,
@@ -122,9 +142,7 @@ class LogFetcher:
             filter=f'timestamp>="{start.isoformat()}"',
             page_size=1,
         )
-        first_page = next(
-            iter(self._client.list_log_entries(request=request).pages), None
-        )
+        first_page = next(iter(self._list_pages(request)), None)
         return bool(first_page and first_page.entries)
 
     def get_payload_ref(
@@ -160,9 +178,7 @@ class LogFetcher:
             ),
             page_size=1,
         )
-        first_page = next(
-            iter(self._client.list_log_entries(request=request).pages), None
-        )
+        first_page = next(iter(self._list_pages(request)), None)
         for entry in first_page.entries if first_page else []:
             labels = dict(entry.labels)
             for key in ref_keys:
@@ -229,22 +245,44 @@ class LogFetcher:
             clauses.append(f'timestamp<="{upper}"')
         clauses.append(f"({traces})")
         log_filter = " AND ".join(clauses)
+        # Read newest first, so when `_MAX_PAGES` truncates a request the
+        # oldest entries are the ones dropped; the result is reversed back into
+        # chronological order below.
         request = logging_v2.types.ListLogEntriesRequest(
             resource_names=[f"projects/{self._project_id}"],
             filter=log_filter,
-            order_by="timestamp asc",
+            order_by="timestamp desc",
             page_size=_PAGE_SIZE,
         )
         entries: list[Any] = []
-        pages = self._client.list_log_entries(request=request).pages
-        for page_count, page in enumerate(pages):
+        for page_count, page in enumerate(self._list_pages(request)):
             entries.extend(page.entries)
             if page_count + 1 >= _MAX_PAGES:
                 logger.warning(
-                    "Reached log page cap (%d); truncating.", _MAX_PAGES
+                    "Reached log page cap (%d) for %d trace(s); dropping their "
+                    "oldest log entries.",
+                    _MAX_PAGES,
+                    len(trace_ids),
                 )
                 break
+        entries.reverse()
         return entries
+
+    def _list_pages(
+        self, request: logging_v2.types.ListLogEntriesRequest
+    ) -> Iterable[Any]:
+        """Lists the pages of log entries a request matches, retrying transient errors.
+
+        Args:
+            request: The `ListLogEntriesRequest` to send.
+
+        Returns:
+            The response's pages, fetched lazily; each fetch retries
+            `_READ_RETRY`'s errors.
+        """
+        return self._client.list_log_entries(
+            request=request, retry=_READ_RETRY
+        ).pages
 
 
 def _quote_filter_value(value: str) -> str:

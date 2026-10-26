@@ -64,6 +64,7 @@ from typing import TYPE_CHECKING, Any
 
 from ambient_quality_agent import providers
 from ambient_quality_agent.core.investigation.job_scheduling import (
+    NO_AGENT_ATTACHED,
     derive_window_and_budget,
     iso_instant_to_utc,
 )
@@ -406,10 +407,12 @@ def _load_selector_config(context: LaunchContext, selector_sql: str) -> Config:
         The effective `Config`.
 
     Raises:
-        ValueError: If the quality analysis mode is not ``session_review`` or
-            the selector SQL is empty.
+        ValueError: If no agent is attached, the quality analysis mode is not
+            ``session_review``, or the selector SQL is empty.
     """
     config = effective_config.load(context.state)
+    if not config.observed_agent_name:
+        raise ValueError(NO_AGENT_ATTACHED)
     if config.quality_analysis_mode != SESSION_REVIEW_MODE:
         raise ValueError(
             f"selectors are offered only in {SESSION_REVIEW_MODE!r} mode; this "
@@ -512,7 +515,9 @@ def _preview_on_this_thread(
     Returns:
         A `SelectorPreview` instance.
     """
-    collector = _ArchiveCollector(agent_name=config.observed_agent_name)
+    # The archive is AQuA's own row, keyed by the agent's key; the fetcher
+    # filters telemetry by the agent's name.
+    collector = _ArchiveCollector(agent_name=config.resolve_agent_key())
     fetcher = fetcher_factory(config, selector_sql, recorder=collector)
 
     precheck = fetcher.precheck_selector(

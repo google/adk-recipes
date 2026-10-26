@@ -16,7 +16,9 @@
 
 The same-issue judge, and the only place the question is worded.
 
-Called by `InsightStore.find_existing_insights` on the sweep's write path.
+Called by `InsightStore.find_existing_insights` on the sweep's write path,
+through `match_candidates_by_scope`, so a candidate is only ever compared with
+insights of the agent it is attributed to.
 
 ## One choice among many, not many yes/no questions
 
@@ -303,3 +305,81 @@ def match_candidates(
         if len(failures) == len(candidates):
             raise failures[0]
     return {index: hit for index, (hit, _) in enumerate(results)}
+
+
+def match_candidates_by_scope(
+    candidates: Sequence[tuple[str, str]],
+    existing: Sequence[tuple[str, str]],
+    matcher: Matcher,
+) -> dict[int, int | None]:
+    """Judge each candidate only against existing labels of its own scope.
+
+    A scope is the agent a defect is attributed to. Two agents can show the same
+    symptom from different causes, so a candidate is never compared against
+    another agent's insight.
+
+    Failure policy, matching `match_candidates`:
+
+    - If a scope's matcher call raises, its candidates are reported as new
+      (`None`).
+    - If every invoked scope raises, the first exception is re-raised.
+
+    Args:
+        candidates: ``(scope, label)`` per candidate, keyed by position in the
+            result.
+        existing: ``(scope, label)`` per open insight, most recently updated
+            first. Each scope keeps this relative order.
+        matcher: The same-issue judge, called once per scope that has both
+            candidates and existing labels.
+
+    Returns:
+        ``{candidate index: index into existing, or None}``.
+
+    Raises:
+        Exception: The exception raised by `matcher`, if every invoked scope
+            failed.
+    """
+    hits: dict[int, int | None] = dict.fromkeys(range(len(candidates)))
+    candidates_by_scope: dict[str, list[int]] = {}
+    for index, (scope, _) in enumerate(candidates):
+        candidates_by_scope.setdefault(scope, []).append(index)
+    existing_by_scope: dict[str, list[int]] = {}
+    for index, (scope, _) in enumerate(existing):
+        existing_by_scope.setdefault(scope, []).append(index)
+
+    failures: list[Exception] = []
+    called = 0
+    # Run one scope at a time because each matcher call already parallelizes up
+    # to `MATCH_CONCURRENCY` candidates; running scopes concurrently would
+    # exceed that limit.
+    for scope, candidate_indices in candidates_by_scope.items():
+        existing_indices = existing_by_scope.get(scope)
+        if not existing_indices:
+            continue
+        called += 1
+        try:
+            scoped_hits = matcher(
+                [candidates[i][1] for i in candidate_indices],
+                [existing[i][1] for i in existing_indices],
+            )
+        except Exception as exc:
+            logger.warning(
+                "insights: matching failed for the %d candidate(s) of scope %r: %s",
+                len(candidate_indices),
+                scope,
+                exc,
+            )
+            failures.append(exc)
+            continue
+        for local, hit in scoped_hits.items():
+            # Guard against `NO_MATCH` (-1) or out-of-range indices from an
+            # injected matcher so negative indexing cannot wrap around into
+            # `existing_indices`.
+            hits[candidate_indices[local]] = (
+                existing_indices[hit]
+                if hit is not None and 0 <= hit < len(existing_indices)
+                else None
+            )
+    if failures and len(failures) == called:
+        raise failures[0]
+    return hits

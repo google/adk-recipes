@@ -304,8 +304,9 @@ WITH owned AS (
         # LEFT JOIN's unmatched (occurrence-less) insights.
         sql = f"""{self._build_owned_occurrences_cte()}
 SELECT
-  i.insight_id, i.agent_name, i.label, i.status, i.created_at, i.updated_at,
-  i.resolved_at, i.dismissed_at, i.merged_into_insight_id, i.merged_at,
+  i.insight_id, i.agent_name, i.agent_id, i.label, i.status, i.created_at,
+  i.updated_at, i.resolved_at, i.dismissed_at, i.merged_into_insight_id,
+  i.merged_at,
   COUNT(owned.occurrence_id) AS occurrence_count,
   SUM(owned.trace_count) AS trace_count,
   MAX(owned.created_at) AS last_run_at,
@@ -316,9 +317,9 @@ FROM `{self._build_table_ref(_INSIGHTS_TABLE)}` i
 LEFT JOIN owned
   ON owned.owner_id = i.insight_id AND owned.agent_name = i.agent_name
 WHERE {where}
-GROUP BY i.insight_id, i.agent_name, i.label, i.status, i.created_at,
-  i.updated_at, i.resolved_at, i.dismissed_at, i.merged_into_insight_id,
-  i.merged_at
+GROUP BY i.insight_id, i.agent_name, i.agent_id, i.label, i.status,
+  i.created_at, i.updated_at, i.resolved_at, i.dismissed_at,
+  i.merged_into_insight_id, i.merged_at
 ORDER BY {_ORDER_CLAUSES[order_by]}
 LIMIT @limit OFFSET @offset
 """  # noqa: S608 - trusted identifiers and fixed SQL; values are parameterized
@@ -408,8 +409,9 @@ WHERE {where}
         ]
         sql = f"""{self._build_owned_occurrences_cte()}
 SELECT
-  i.insight_id, i.agent_name, i.label, i.status, i.created_at, i.updated_at,
-  i.resolved_at, i.dismissed_at, i.merged_into_insight_id, i.merged_at,
+  i.insight_id, i.agent_name, i.agent_id, i.label, i.status, i.created_at,
+  i.updated_at, i.resolved_at, i.dismissed_at, i.merged_into_insight_id,
+  i.merged_at,
   COUNT(owned.occurrence_id) AS occurrence_count,
   SUM(owned.trace_count) AS trace_count,
   MAX(owned.created_at) AS last_run_at,
@@ -420,9 +422,9 @@ FROM `{self._build_table_ref(_INSIGHTS_TABLE)}` i
 LEFT JOIN owned
   ON owned.owner_id = i.insight_id AND owned.agent_name = i.agent_name
 WHERE i.agent_name = @agent_name AND i.insight_id = @insight_id
-GROUP BY i.insight_id, i.agent_name, i.label, i.status, i.created_at,
-  i.updated_at, i.resolved_at, i.dismissed_at, i.merged_into_insight_id,
-  i.merged_at
+GROUP BY i.insight_id, i.agent_name, i.agent_id, i.label, i.status,
+  i.created_at, i.updated_at, i.resolved_at, i.dismissed_at,
+  i.merged_into_insight_id, i.merged_at
 """  # noqa: S608 - trusted identifiers and fixed SQL; values are parameterized
         rows = list(self._run(sql, params))
         return _row_to_view(rows[0]) if rows else None
@@ -751,6 +753,8 @@ def _row_to_view(row: Any) -> InsightView:
     return InsightView(
         insight_id=row["insight_id"],
         agent_name=row["agent_name"],
+        # Unattributed rows store NULL in BigQuery; normalize to "" for the model.
+        agent_id=row.get("agent_id") or "",
         label=row["label"],
         status=InsightStatus(row["status"]),
         created_at=row["created_at"],

@@ -52,6 +52,7 @@ from typing import Any, ClassVar
 from urllib.parse import urlparse
 
 from agentplatform._genai.types import EvalCase, EvaluationDataset
+from ambient_quality_agent import clients
 from ambient_quality_agent.core._memory import MemoryGuard
 from ambient_quality_agent.core.labels import build_request_labels
 from ambient_quality_agent.tools.evaluation.models import MetricType
@@ -92,7 +93,7 @@ class GcsClientReader:
     """Reads ``gs://`` URIs through one reused, injected `storage.Client`."""
 
     def __init__(self, client: storage.Client | None = None) -> None:
-        self._client = client or storage.Client()
+        self._client = client or clients.create_storage_client()
 
     def __call__(self, gcs_uri: str) -> str:
         parsed = urlparse(gcs_uri)
@@ -279,12 +280,17 @@ class BigQueryJobFetcher(BaseFetcher):
     binding, and the destination-table paging behind `fetch_page`.
 
     Subclasses supply only the parts that reflect their schema: the telemetry
-    source they serve (`TELEMETRY_SOURCE`), the SQL pairs (`_build_ingestion_sql` and
-    `_build_count_sql`) and the row-to-case mapping (`_map_row`).
+    source they serve (`TELEMETRY_SOURCE`), the SQL (`_build_ingestion_sql`,
+    `_build_count_sql` and `_build_count_by_agent_sql`), the required table
+    schema (`SCHEMA_FILE`), and the row-to-case mapping (`_map_row`).
     """
 
     TELEMETRY_SOURCE: ClassVar[str]
     """Telemetry source key for this fetcher, determining its selector table."""
+
+    SCHEMA_FILE: ClassVar[str]
+    """File in `ambient_quality_shared.schemas` listing the columns this
+    fetcher's queries require; update it when they change."""
 
     FOLLOWS_PAYLOAD_REFS: ClassVar[bool] = False
     """Whether ingestion reads message content from ``gs://`` objects the
@@ -338,7 +344,7 @@ class BigQueryJobFetcher(BaseFetcher):
         self._dataset = dataset
         self._table = table
         self._location = location
-        self._client = bigquery.Client(project=project_id, location=location)
+        self._client = clients.create_bigquery_client(project_id, location)
         self._memory_guard: Callable[[], bool] = (
             memory_guard or MemoryGuard().should_stop
         )

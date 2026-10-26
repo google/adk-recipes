@@ -27,7 +27,9 @@ import {
   agentLabel,
   formatInstant,
   hasFailures,
+  extractReviewFocus,
   isAmbient,
+  resolveTriggerKind,
   isPastDue,
   metricsAllPassed,
   noCountsText,
@@ -460,5 +462,38 @@ describe("a scheduled run", () => {
 
   it("has no counts because it has not started", () => {
     expect(noCountsText(run)).toContain("has not started");
+  });
+});
+
+describe("resolveTriggerKind", () => {
+  it("tells custom and manual runs apart, whatever their case", () => {
+    expect(resolveTriggerKind({ trigger_type: "Custom" })).toBe("custom");
+    expect(resolveTriggerKind({ trigger_type: "MANUAL" })).toBe("manual");
+  });
+
+  it("calls every other trigger ambient, an absent one included", () => {
+    for (const trigger_type of ["scheduled", "task_fire", "update", "", null]) {
+      expect(resolveTriggerKind({ trigger_type }), String(trigger_type)).toBe(
+        "ambient",
+      );
+    }
+  });
+});
+
+describe("extractReviewFocus", () => {
+  it("gives the trimmed focus a custom run was started with", () => {
+    expect(
+      extractReviewFocus({
+        custom_overrides: { session_review_focus: "  refunds  " },
+      }),
+    ).toBe("refunds");
+  });
+
+  it("gives null for a run with no focus or no overrides", () => {
+    expect(
+      extractReviewFocus({ custom_overrides: { session_review_focus: " " } }),
+    ).toBeNull();
+    expect(extractReviewFocus({ custom_overrides: null })).toBeNull();
+    expect(extractReviewFocus({})).toBeNull();
   });
 });

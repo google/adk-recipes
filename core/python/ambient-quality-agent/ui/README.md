@@ -25,7 +25,7 @@ ui/
 
 `npm run build` writes the bundle to `../static_v2` — beside this file, not
 inside `web/` — which is why the root `.gitignore` has an entry for it. The
-Dockerfile's `node:22-slim` stage builds it during the image build, so the
+Dockerfile's Node build stage builds it during the image build, so the
 bundle in the image is always the one that matches the source beside it, never
 whatever was last compiled on someone's laptop.
 

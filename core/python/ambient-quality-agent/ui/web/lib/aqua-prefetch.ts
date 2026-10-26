@@ -15,6 +15,7 @@
 import { useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { prefetchAgentCard } from "./a2a-client";
+import { useAgentKey } from "./agent-selection";
 import {
   dailyQuery,
   effectiveConfigQuery,
@@ -26,7 +27,7 @@ import {
   statsQuery,
 } from "./aqua-api";
 
-/** Warm every tab's data once, at boot.
+/** Warm every tab's data for the selected agent, at boot and on a switch.
  *
  * Each of these is one HTTP call the dashboard makes anyway the moment you
  * open the tab; doing them up front means switching tabs renders from cache
@@ -40,22 +41,29 @@ import {
  */
 export function usePrefetchAqua(): void {
   const queryClient = useQueryClient();
+  const agentKey = useAgentKey();
 
   useEffect(() => {
     prefetchAgentCard();
+  }, []);
+
+  useEffect(() => {
     // The issue list's own first page, argument for argument: a page warmed
     // under any other size or order is a page it will never ask for.
     void queryClient.prefetchQuery(
-      insightsQuery({ orderBy: "impact", pageSize: INSIGHTS_PAGE_SIZE }),
+      insightsQuery(agentKey, {
+        orderBy: "impact",
+        pageSize: INSIGHTS_PAGE_SIZE,
+      }),
     );
-    void queryClient.prefetchQuery(statsQuery());
-    void queryClient.prefetchQuery(dailyQuery());
-    void queryClient.prefetchQuery(runsQuery());
+    void queryClient.prefetchQuery(statsQuery(agentKey));
+    void queryClient.prefetchQuery(dailyQuery(agentKey));
+    void queryClient.prefetchQuery(runsQuery(agentKey));
     // The config page's three reads. They are the slowest in the app (each is
     // a GCS or agent round trip) and the page is small, so warming them here
     // is the difference between it opening instantly and taking seconds.
-    void queryClient.prefetchQuery(goalQuery());
-    void queryClient.prefetchQuery(memoriesQuery());
-    void queryClient.prefetchQuery(effectiveConfigQuery());
-  }, [queryClient]);
+    void queryClient.prefetchQuery(goalQuery(agentKey));
+    void queryClient.prefetchQuery(memoriesQuery(agentKey));
+    void queryClient.prefetchQuery(effectiveConfigQuery(agentKey));
+  }, [queryClient, agentKey]);
 }

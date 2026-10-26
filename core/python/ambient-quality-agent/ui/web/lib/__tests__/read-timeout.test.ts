@@ -44,7 +44,7 @@ describe("the read timeout", () => {
       ),
     );
 
-    const pending = runsQuery().queryFn();
+    const pending = runsQuery(undefined).queryFn();
     const assertion = expect(pending).rejects.toBeInstanceOf(ReadTimeoutError);
     await vi.advanceTimersByTimeAsync(READ_TIMEOUT_MS + 1);
     await assertion;
@@ -57,6 +57,6 @@ describe("the read timeout", () => {
         async () => new Response(JSON.stringify({ runs: [] }), { status: 200 }),
       ),
     );
-    await expect(runsQuery().queryFn()).resolves.toEqual([]);
+    await expect(runsQuery(undefined).queryFn()).resolves.toEqual([]);
   });
 });

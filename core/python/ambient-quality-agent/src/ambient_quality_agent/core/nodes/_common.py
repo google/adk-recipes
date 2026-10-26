@@ -20,10 +20,12 @@ import datetime as dt
 import logging
 from collections.abc import Callable
 
-from ambient_quality_agent import providers
+from ambient_quality_agent import clients, providers
+from ambient_quality_agent import config as config_module
 from ambient_quality_agent.core._memory import MemoryGuard
 from ambient_quality_agent.core.session_state import ADKStateLike, LaunchContext
 from ambient_quality_agent.core.state import add_counts
+from ambient_quality_agent.tools.documents import agent_scope
 from ambient_quality_agent.tools.documents import goal as goal_doc
 from ambient_quality_agent.tools.evaluation.agent_platform_eval import (
     AgentPlatformEvalService,
@@ -51,9 +53,7 @@ from ambient_quality_agent.tools.insights import (
     verification,
 )
 from ambient_quality_agent.tools.insights.store import InsightWriter
-from ambient_quality_agent.tools.metrics.gcs_library import (
-    load_library_from_gcs,
-)
+from ambient_quality_agent.tools.metrics import publishing
 from ambient_quality_agent.tools.metrics.library import MetricLibrary
 from ambient_quality_agent.tools.objects import store as objects
 from ambient_quality_agent.tools.review import session_review
@@ -62,7 +62,6 @@ from ambient_quality_agent.tools.trajectories.recorder import (
     TrajectoryRecorder,
 )
 from google.adk.agents.context import Context
-from google.cloud import storage
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +72,7 @@ def _build_gcs_reader() -> CachingGcsReader:
     Returns:
         CachingGcsReader instance.
     """
-    return CachingGcsReader(GcsClientReader(storage.Client()))
+    return CachingGcsReader(GcsClientReader(clients.create_storage_client()))
 
 
 def _build_memory_guard(ctx: LaunchContext) -> Callable[[], bool]:
@@ -141,7 +140,8 @@ def build_fetcher(
     if not dataset:
         raise ValueError(
             f"telemetry_ingestion_source {source!r} requires "
-            "telemetry_dataset (AQA_TELEMETRY_DATASET) to be set."
+            "telemetry_dataset to be set; set it with `agents-cli aqua attach "
+            "--telemetry-dataset`."
         )
     table = state.get("telemetry_table", "")
     location = state.get("telemetry_location", "us-central1")
@@ -227,7 +227,7 @@ def _create_default_reviewer(ctx: Context) -> Callable[[str], str]:
 
 
 def _load_default_goal(ctx: Context) -> goal_doc.InvestigationGoal:
-    """Loads the developer's goal from the jobs store.
+    """Loads the developer's goal for the run's agent from the jobs store.
 
     Args:
         ctx: Workflow context.
@@ -236,8 +236,18 @@ def _load_default_goal(ctx: Context) -> goal_doc.InvestigationGoal:
         The goal the session review uses. Never raises: a goal that cannot be
         read gives no goal.
     """
-    del ctx  # The jobs store is the deployment's, not the run's.
-    return goal_doc.load_investigation_goal(objects.jobs_store_factory())
+    try:
+        store = agent_scope.resolve_document_store(
+            config_module.extract_agent_key(ctx.state)
+        )
+    except Exception:
+        # Read as the default agent's or not, the goal could be the wrong one.
+        logger.exception(
+            "goal: could not tell whether the run's agent is the default "
+            "agent; reviewing without a goal."
+        )
+        return goal_doc.InvestigationGoal(source="unreadable")
+    return goal_doc.load_investigation_goal(store)
 
 
 def _create_default_model_call(ctx: Context) -> Callable[[str], str]:
@@ -453,23 +463,24 @@ trajectory_recorder_factory: Callable[[LaunchContext], TrajectoryRecorder] = (
 
 
 def _create_default_metric_library(ctx: Context) -> tuple[MetricLibrary, str]:
-    """Load the code-metric library from GCS, returning `(library, warning)`.
+    """Load the run's agent's metric library, returning `(library, warning)`.
 
     Read errors return a markdown warning instead of raising. Because the
     window only advances on completion, raising would wedge future sweeps on
     user upload errors.
 
     Args:
-        ctx: Workflow context providing GCS bucket configuration.
+        ctx: Workflow context, whose state names the run's agent.
 
     Returns:
         Tuple of (loaded `MetricLibrary`, markdown warning string if errors occurred).
     """
-    bucket = ctx.state.get("metrics_gcs_bucket", "")
-    if not bucket:
+    store = objects.metrics_store_factory()
+    if store is None:
         return MetricLibrary(), ""
+    agent_key = config_module.extract_agent_key(ctx.state)
     try:
-        library = load_library_from_gcs(bucket)
+        library = publishing.load_published_library(store, agent_key)
         # Report load failures in warning text so surviving metrics proceed without appearing
         # as a complete library execution.
         if library.failures:
@@ -483,12 +494,16 @@ def _create_default_metric_library(ctx: Context) -> tuple[MetricLibrary, str]:
         return library, ""
     # Catch SystemExit to isolate scripts calling sys.exit or argparse at module import scope.
     except (Exception, SystemExit) as exc:
+        # Either the agent's own library or the instance's it inherits may be
+        # the one that failed, so the warning names the agent.
         logger.exception(
-            "Could not read the metric library from gs://%s.", bucket
+            "Could not read the metric library of %s from %s.",
+            agent_key or "the instance",
+            store.uri(""),
         )
         return MetricLibrary(), (
-            f" **The metric library at `gs://{bucket}` could not be read** "
-            f"({type(exc).__name__}); no session was scored."
+            f" **The metric library of `{agent_key or 'the instance'}` could "
+            f"not be read** ({type(exc).__name__}); no session was scored."
         )
 
 

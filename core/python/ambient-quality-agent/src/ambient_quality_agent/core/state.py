@@ -89,7 +89,12 @@ class WorkflowState(BaseModel):
     # --- Configuration inputs (copied from Config) ---
 
     observed_agent_name: str
-    """Name of the watched agent under evaluation."""
+    """Name of the watched agent under evaluation, which telemetry is filtered
+    by."""
+
+    agent_key: str = ""
+    """Key of the watched agent, which AQuA's own rows are written under
+    (`config.extract_agent_key`)."""
 
     project_id: str
     """Google Cloud project that hosts the watched agent."""
@@ -100,12 +105,6 @@ class WorkflowState(BaseModel):
     quality_analysis_mode: str = DEFAULT_QUALITY_ANALYSIS_MODE
     """Quality analysis strategy (``session_review`` or ``eval_service``);
     also emitted by `init` to route to the appropriate producer branch."""
-
-    metrics_gcs_bucket: str = ""
-    """GCS bucket holding the code-metric library.
-
-    Empty, or holding no metric, leaves session review running on its own.
-    """
 
     jobs_gcs_bucket: str = ""
     """GCS bucket holding the developer's goal (`goal.md`), which the session
@@ -281,10 +280,10 @@ class WorkflowState(BaseModel):
             cfg = config
         return cls(
             observed_agent_name=cfg.observed_agent_name,
+            agent_key=cfg.agent_key,
             project_id=cfg.project_id,
             location=cfg.location,
             quality_analysis_mode=cfg.quality_analysis_mode,
-            metrics_gcs_bucket=cfg.metrics_gcs_bucket,
             jobs_gcs_bucket=cfg.jobs_gcs_bucket,
             telemetry_ingestion_source=cfg.telemetry_ingestion_source,
             observed_project_id=cfg.observed_project_id,

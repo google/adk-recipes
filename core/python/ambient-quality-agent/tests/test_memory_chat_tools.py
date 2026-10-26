@@ -20,9 +20,12 @@ import asyncio
 
 import pytest
 from ambient_quality_agent.core import memory_chat_tools
+from ambient_quality_agent.tools.documents import agent_scope
 from ambient_quality_agent.tools.documents import memories as memories_doc
 from ambient_quality_agent.tools.objects import store as objects
 from ambient_quality_agent.tools.objects.gcs_store import GcsObjectStore
+from ambient_quality_agent.tools.objects.store import ObjectStore
+from ambient_quality_agent.tools.observed_agent_config import effective_config
 
 from tests.conftest import CallbackContext, FakeGcsClient, ToolContext
 
@@ -30,11 +33,14 @@ _TEXT = "The agent's system prompt is in app/prompts/system.md."
 
 
 @pytest.fixture
-def jobs(monkeypatch: pytest.MonkeyPatch) -> GcsObjectStore:
+def jobs(monkeypatch: pytest.MonkeyPatch) -> ObjectStore:
+    """The default agent's documents, which a chat that selects no agent uses."""
     client = FakeGcsClient()
     bound = GcsObjectStore("jobs-bkt", client_factory=lambda: client)
     monkeypatch.setattr(objects, "jobs_store_factory", lambda: bound)
-    return bound
+    return agent_scope.resolve_document_store(
+        effective_config.resolve_default_agent_key()
+    )
 
 
 def _remember(
@@ -145,3 +151,25 @@ def test_get_memories_turns_a_storage_failure_into_a_payload(
     assert result["available"] is False
     assert result["memories"] == []
     assert "bucket gone" in result["reason"]
+
+
+def test_a_chat_that_selects_an_agent_remembers_for_that_agent(jobs) -> None:
+    from ambient_quality_agent.tools.documents.agent_scope import (
+        AgentDocumentStore,
+    )
+
+    context = CallbackContext(
+        "Please remember where the prompt is.", session_id="chat-1"
+    )
+    context.state[effective_config.AGENT_KEY_STATE] = "acme-prod__support"
+
+    result = asyncio.run(
+        memory_chat_tools.remember(text=_TEXT, tool_context=context)
+    )
+
+    assert result["saved"] is True
+    assert memories_doc.load_memories(jobs) == []
+    [stored] = memories_doc.load_memories(
+        AgentDocumentStore(objects.jobs_store_factory(), "acme-prod__support")
+    )
+    assert stored.text == _TEXT

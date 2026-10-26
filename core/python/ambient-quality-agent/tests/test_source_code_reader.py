@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import json
+import threading
 from collections.abc import Iterator
 from typing import Any
 
@@ -25,7 +26,7 @@ from ambient_quality_agent.tools.objects.gcs_store import GcsObjectStore
 from ambient_quality_agent.tools.source_code import snapshot
 from ambient_quality_agent.tools.source_code.reader import SourceSnapshotReader
 from ambient_quality_agent.tools.source_code.reader import (
-    clear_manifest_cache as reset_manifests,
+    clear_snapshot_cache as reset_snapshots,
 )
 
 from .conftest import FakeGcsClient as FakeStorageClient
@@ -34,19 +35,20 @@ BUCKET = "test-project-observed-aqua-source"
 
 
 def build_reader(
-    client: FakeStorageClient, agent_name: str = ""
+    client: FakeStorageClient, agent_key: str = ""
 ) -> SourceSnapshotReader:
     """Builds a reader over the source bucket of a fake client.
 
     Args:
         client: Fake storage client holding the bucket's objects.
-        agent_name: Agent whose snapshots to read; empty for unprefixed ones.
+        agent_key: Key of the agent whose snapshots to read; empty for
+            unprefixed ones.
 
     Returns:
         The reader.
     """
     store = GcsObjectStore(BUCKET, client_factory=lambda: client)
-    return SourceSnapshotReader(store=store, agent_name=agent_name)
+    return SourceSnapshotReader(store=store, agent_key=agent_key)
 
 
 def publish_snapshot(
@@ -55,10 +57,11 @@ def publish_snapshot(
     files: dict[str, str],
     *,
     bucket: str = BUCKET,
-    agent_name: str = "",
+    agent_key: str = "",
     ignore_patterns: list[str] | None = None,
     with_manifest: bool = True,
     truncated: set[str] | None = None,
+    created_at: str = "2026-09-11T13:43:00Z",
 ) -> None:
     """Populates an in-memory GCS client with files and manifest for a single revision snapshot.
 
@@ -67,17 +70,19 @@ def publish_snapshot(
         revision: Revision identifier string.
         files: Mapping of repository-relative file paths to file contents.
         bucket: Target GCS bucket name.
-        agent_name: Agent prefix to publish under; empty for an unprefixed
+        agent_key: Agent key to publish under; empty for an unprefixed
             snapshot.
         ignore_patterns: Optional list of ignore pattern strings for the manifest.
         with_manifest: Whether to generate and store a manifest.json object.
         truncated: Optional set of file paths marked as truncated in the manifest.
+        created_at: Publish time the manifest records; a republished revision
+            records a later one.
 
     Returns:
         None.
     """
     truncated = truncated or set()
-    root = snapshot.build_agent_root(agent_name)
+    root = snapshot.build_agent_root(agent_key)
     for path, body in files.items():
         key = (bucket, snapshot.build_file_object_name(revision, path, root))
         client.contents[key] = body.encode("utf-8")
@@ -87,7 +92,7 @@ def publish_snapshot(
         "schema_version": 1,
         "revision": revision,
         "engine": f"projects/p/locations/us-east1/reasoningEngines/{revision}",
-        "created_at": "2026-09-11T13:43:00Z",
+        "created_at": created_at,
         "agent_directory": "app",
         "ignore_patterns": ignore_patterns or [".git", "terraform/", "/tests/"],
         "files": [
@@ -114,11 +119,11 @@ TOOL_PY = (
 
 
 @pytest.fixture(autouse=True)
-def _isolated_manifest_cache() -> Iterator[None]:
-    """Resets the process-wide manifest cache before and after each test."""
-    reset_manifests()
+def _isolated_snapshot_cache() -> Iterator[None]:
+    """Resets the process-wide snapshot cache before and after each test."""
+    reset_snapshots()
     yield
-    reset_manifests()
+    reset_snapshots()
 
 
 @pytest.fixture
@@ -339,6 +344,109 @@ def test_line_numbering_follows_the_editor_not_unicode_line_breaks(
     assert found.lines == ("first\x0csame line", "second")
 
 
+def _list_file_downloads(client: FakeStorageClient) -> list[tuple[str, str]]:
+    """Lists the file bodies a fake client has served, leaving out manifests.
+
+    Args:
+        client: Fake storage client that recorded its downloads.
+
+    Returns:
+        The `(bucket, object_name)` key of each file download, in order.
+    """
+    return [key for key in client.downloads if "/files/" in key[1]]
+
+
+def test_a_file_read_once_is_not_read_again_by_a_later_reader(
+    client: FakeStorageClient,
+) -> None:
+    """Every tool call builds its own reader, so the files outlive a reader."""
+    build_reader(client).search("10", pattern="def ")
+    first_search = len(_list_file_downloads(client))
+
+    build_reader(client).search("10", pattern="return")
+    found = build_reader(client).read_file("10", "app/tool.py")
+
+    assert first_search == 2
+    assert len(_list_file_downloads(client)) == first_search
+    assert found is not None and found.lines[0] == "def lookup_user(uid):"
+
+
+def test_files_stay_cached_until_a_republish_replaces_the_manifest(
+    client: FakeStorageClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from ambient_quality_agent.tools.source_code import reader as reader_module
+
+    # Every read goes back to the manifest, as another replica's does once its
+    # cached copy expires.
+    monkeypatch.setattr(reader_module, "MANIFEST_CACHE_TTL_SECONDS", 0.0)
+    build_reader(client).search("10", pattern="def ")
+    build_reader(client).search("10", pattern="def ")
+    same_publish = len(_list_file_downloads(client))
+    publish_snapshot(
+        client,
+        "10",
+        {"app/agent.py": "def changed():\n"},
+        created_at="2026-09-12T08:00:00Z",
+    )
+
+    matches, _, _ = build_reader(client).search("10", pattern="def ")
+
+    assert same_publish == 2
+    assert [match.line for match in matches] == ["def changed():"]
+
+
+def test_forgetting_a_snapshot_drops_its_files(
+    client: FakeStorageClient,
+) -> None:
+    """A republish within one second records the same `created_at`."""
+    from ambient_quality_agent.tools.source_code import reader as reader_module
+
+    build_reader(client).search("10", pattern="def ")
+    publish_snapshot(client, "10", {"app/agent.py": "def changed():\n"})
+    reader_module.forget_cached_snapshot(f"gs://{BUCKET}/", "10")
+
+    matches, _, _ = build_reader(client).search("10", pattern="def ")
+
+    assert [match.line for match in matches] == ["def changed():"]
+
+
+def test_files_stay_cached_for_the_most_recently_read_revisions_only(
+    client: FakeStorageClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from ambient_quality_agent.tools.source_code import reader as reader_module
+
+    monkeypatch.setattr(reader_module, "MAX_CACHED_REVISIONS", 1)
+    build_reader(client).search("10", pattern="def ")
+    build_reader(client).search("8", pattern="def ")
+    before = len(_list_file_downloads(client))
+
+    build_reader(client).search("10", pattern="def ")
+
+    assert len(_list_file_downloads(client)) == before + 2
+
+
+def test_files_missing_from_the_cache_are_read_concurrently(
+    client: FakeStorageClient,
+) -> None:
+    """Read one after another, a snapshot of 2,000 files takes minutes."""
+    both_in_flight = threading.Barrier(2, timeout=5)
+
+    class GatedStore(GcsObjectStore):
+        def read_bytes(self, name: str) -> bytes | None:
+            if "/files/" in name:
+                both_in_flight.wait()
+            return super().read_bytes(name)
+
+    store = GatedStore(BUCKET, client_factory=lambda: client)
+
+    matches, searched, _ = SourceSnapshotReader(store=store).search(
+        "10", pattern="def "
+    )
+
+    assert searched == 2
+    assert len(matches) == 2
+
+
 # --- the agent prefix ----------------------------------------------------- #
 
 
@@ -346,8 +454,8 @@ def test_an_agent_reads_its_own_snapshots_and_the_unprefixed_ones(
     client: FakeStorageClient,
 ) -> None:
     """Unprefixed snapshots stay readable beside the agent's own."""
-    publish_snapshot(client, "12", {"app/agent.py": "mine\n"}, agent_name="a")
-    publish_snapshot(client, "3", {"app/agent.py": "other\n"}, agent_name="b")
+    publish_snapshot(client, "12", {"app/agent.py": "mine\n"}, agent_key="a")
+    publish_snapshot(client, "3", {"app/agent.py": "other\n"}, agent_key="b")
 
     reader = build_reader(client, "a")
 
@@ -365,7 +473,7 @@ def test_an_agent_reads_its_own_snapshots_and_the_unprefixed_ones(
 def test_the_agents_own_snapshot_wins_over_an_unprefixed_one(
     client: FakeStorageClient,
 ) -> None:
-    publish_snapshot(client, "10", {"app/agent.py": "mine\n"}, agent_name="a")
+    publish_snapshot(client, "10", {"app/agent.py": "mine\n"}, agent_key="a")
 
     reader = build_reader(client, "a")
 
@@ -376,9 +484,64 @@ def test_the_agents_own_snapshot_wins_over_an_unprefixed_one(
     assert [f.path for f in manifest.files] == ["app/agent.py"]
 
 
+def test_a_keyed_agent_never_reads_its_bare_names_snapshots() -> None:
+    """The bare name can be the key of the same agent in AQuA's own project."""
+    client = FakeStorageClient()
+    key = "acme-prod__travel_agent"
+    publish_snapshot(client, "12", {"a.py": "prod\n"}, agent_key=key)
+    publish_snapshot(client, "40", {"a.py": "own\n"}, agent_key="travel_agent")
+    publish_snapshot(
+        client,
+        "30",
+        {"a.py": "staging\n"},
+        agent_key="acme-staging__travel_agent",
+    )
+    publish_snapshot(client, "5", {"a.py": "unprefixed\n"})
+
+    reader = build_reader(client, key)
+
+    assert reader.list_revisions() == ["12", "5"]
+    assert reader.get_latest_complete_revision() == "12"
+    assert reader.read_file("40", "a.py") is None
+    prod = reader.read_file("12", "a.py")
+    assert prod is not None and prod.lines == ("prod",)
+    assert reader.location == f"gs://{BUCKET}/{key}/"
+
+
+def test_an_agents_cached_manifest_is_not_another_agents() -> None:
+    """Two agents' snapshots of one revision number are cached apart.
+
+    Both the manifests and the file bodies, which share a path here.
+    """
+    client = FakeStorageClient()
+    publish_snapshot(
+        client, "7", {"prod.py": "x\n", "agent.py": "prod\n"}, agent_key="p__a"
+    )
+    publish_snapshot(
+        client,
+        "7",
+        {"staging.py": "x\n", "agent.py": "staging\n"},
+        agent_key="s__a",
+    )
+    prod_reader = build_reader(client, "p__a")
+    staging_reader = build_reader(client, "s__a")
+
+    prod = prod_reader.load_manifest("7")
+    staging = staging_reader.load_manifest("7")
+    prod_file = prod_reader.read_file("7", "agent.py")
+    staging_file = staging_reader.read_file("7", "agent.py")
+
+    assert prod is not None
+    assert sorted(f.path for f in prod.files) == ["agent.py", "prod.py"]
+    assert staging is not None
+    assert sorted(f.path for f in staging.files) == ["agent.py", "staging.py"]
+    assert prod_file is not None and prod_file.lines == ("prod",)
+    assert staging_file is not None and staging_file.lines == ("staging",)
+
+
 def test_another_agents_prefix_is_not_a_revision() -> None:
     client = FakeStorageClient()
-    publish_snapshot(client, "5", {"a.py": "x\n"}, agent_name="other_agent")
+    publish_snapshot(client, "5", {"a.py": "x\n"}, agent_key="other_agent")
 
     assert build_reader(client, "a").list_revisions() == []
     assert build_reader(client).list_revisions() == []
@@ -392,7 +555,7 @@ def test_a_path_leaving_the_snapshot_reads_as_absent_from_a_directory(
 
     store = FileObjectStore(tmp_path)
     store.write_bytes("a/10/files/app/agent.py", b"x\n")
-    reader = SourceSnapshotReader(store=store, agent_name="a")
+    reader = SourceSnapshotReader(store=store, agent_key="a")
 
     assert reader.read_file("10", "../../../secret") is None
     found = reader.read_file("10", "app/agent.py")

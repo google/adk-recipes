@@ -170,12 +170,12 @@ def test_a_merged_value_is_validated_like_an_environment_one() -> None:
     merged = config.copy_with_agent(
         ObservedAgentConfig(
             observed_agent_name="other-agent",
-            data_lookback_window=9999,
+            data_evaluation_cap=9999,
             multi_turn_metrics=["task_success", "not_a_metric"],
         )
     )
 
-    assert merged.data_lookback_window == 64
+    assert merged.data_evaluation_cap == 1000
     assert merged.multi_turn_metrics == ["task_success"]
 
     with pytest.raises(

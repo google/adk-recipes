@@ -27,14 +27,14 @@ metadata:
 
 # AQuA with agents-cli
 
-AQuA watches one deployed agent, reviews its production conversations, and
-records each distinct defect it finds as an **insight**. With the AQuA
-extension, `agents-cli infra single-project --apply-aqua` and
-`agents-cli deploy --deploy-aqua` also provision and deploy AQuA, and
-`agents-cli aqua` queries it. Without those two flags, both commands work on the
-agent alone. Alternatively, `agents-cli aqua attach` connects the agent to an
-AQuA deployed elsewhere (see
-[Attach](#attach-an-agent-to-aqua-deployed-elsewhere)).
+AQuA watches deployed agents, reviews their production conversations, and
+records each distinct defect it finds as an **insight**. AQuA is deployed on
+its own, and `agents-cli aqua attach` tells it which agent to watch and how
+(see [Deploy AQuA on its own and attach the agent](#deploy-aqua-on-its-own-and-attach-the-agent)).
+`agents-cli aqua` queries it. With the AQuA extension,
+`agents-cli infra single-project --apply-aqua` and
+`agents-cli deploy --deploy-aqua` can also provision and deploy AQuA beside the
+agent; without those two flags, both commands work on the agent alone.
 
 Run every command from the agent's project root, the directory with
 `agents-cli-manifest.yaml`, or from AQuA's checkout if AQuA was deployed from
@@ -72,12 +72,124 @@ deployment record and dashboard URL, or one value with `--resource`,
 If `agents-cli aqua info --resource` prints `projects/…/reasoningEngines/…`,
 AQuA is deployed. Otherwise, pick one of two ways:
 
-- **Augment the agent** (the default): deploy AQuA beside the agent in this agents-cli based
-  project. Each agent deploy then publishes the source snapshot AQuA diagnoses
-  from.
-- **Attach the agent** when AQuA is already deployed elsewhere, or the user
-  wants one AQuA kept separate from the agent. See
-  [Attach an agent to AQuA deployed elsewhere](#attach-an-agent-to-aqua-deployed-elsewhere).
+- **Deploy AQuA on its own and attach the agent** (recommended). One AQuA can
+  watch several agents, also in other projects. See
+  [Deploy AQuA on its own and attach the agent](#deploy-aqua-on-its-own-and-attach-the-agent).
+- **Augment the agent**: deploy AQuA beside the agent in this agents-cli based
+  project. See
+  [Augment your agents-cli agent with AQuA](#augment-your-agents-cli-agent-with-aqua).
+
+### Deploy AQuA on its own and attach the agent
+
+1. **Deploy AQuA on its own**, unless it is already deployed, from a checkout of
+   AQuA's repository and with no `--observed-*` flags. Its engine is
+   `aqua-solo-aqua`, which `agents-cli aqua info --resource` prints there; it
+   investigates nothing until an agent is attached.
+
+   ```bash
+   agents-cli infra single-project --project="$GOOGLE_CLOUD_PROJECT"          # plan
+   agents-cli infra single-project --project="$GOOGLE_CLOUD_PROJECT" --apply
+   agents-cli deploy --project="$GOOGLE_CLOUD_PROJECT"
+   ```
+
+2. **Attach the agent** from one of the places below. Run the `--dry-run`
+   command first: it shows the plan and the gcloud and bq commands, and stores,
+   grants or creates nothing. Without `--dry-run`, attach runs those commands
+   with your credentials: it grants each read AQuA's service account is denied
+   and creates the agent's update trigger, an audit log sink named
+   `<AQuA's topic>-<agent key>-updates`, where the key is
+   `<project id>__<agent name>`, or the bare agent name for an agent in AQuA's
+   own project. That changes IAM, so get the user's go-ahead on the dry run's
+   plan, then repeat with `--yes`; without it, attach asks on the terminal.
+
+   From AQuA's checkout (clone the AQuA repository first if not already
+   cloned), naming the agent's engine. Attach reads the agent's name,
+   deployment name and telemetry table from it:
+
+   ```bash
+   agents-cli aqua attach --dry-run \
+     --observed-agent-resource projects/<project>/locations/<region>/reasoningEngines/<id>
+   agents-cli aqua attach --yes \
+     --observed-agent-resource projects/<project>/locations/<region>/reasoningEngines/<id>
+   ```
+
+   A Cloud Run or GKE agent has no engine, so name it and its telemetry, then
+   repeat with `--yes`. `agents-cli infra show` in the agent's project prints
+   `telemetry_dataset_id`:
+
+   ```bash
+   agents-cli aqua attach <agent_name> --dry-run \
+     --deployment-name <deployment> \
+     --telemetry-source cloud_logging \
+     --telemetry-dataset <telemetry_dataset_id> \
+     --telemetry-table gen_ai_client_inference_operation_details \
+     --telemetry-location <region>
+   ```
+
+   From the agent's project, naming AQuA's engine. The project's files supply
+   the agent's settings, and AQuA's engine is recorded in
+   `.aqua/attached_aqua.json`, so later `agents-cli aqua` commands here reach it
+   with no flag:
+
+   ```bash
+   agents-cli aqua attach --dry-run \
+     --aqua-resource projects/<project>/locations/<region>/reasoningEngines/<aqua-id>
+   agents-cli aqua attach --yes \
+     --aqua-resource projects/<project>/locations/<region>/reasoningEngines/<aqua-id>
+   ```
+
+   From any other directory, name both:
+
+   ```bash
+   agents-cli aqua attach --dry-run \
+     --aqua-resource projects/<project>/locations/<region>/reasoningEngines/<aqua-id> \
+     --observed-agent-resource projects/<project>/locations/<region>/reasoningEngines/<id>
+   agents-cli aqua attach --yes \
+     --aqua-resource projects/<project>/locations/<region>/reasoningEngines/<aqua-id> \
+     --observed-agent-resource projects/<project>/locations/<region>/reasoningEngines/<id>
+   ```
+
+3. **Confirm** that AQuA lists the agent and reads its settings back:
+
+   ```bash
+   agents-cli aqua list-agents
+   agents-cli aqua show-config
+   ```
+
+   Then check that AQuA sees traffic. Send the agent some traffic, for example
+   with `agents-cli run "<prompt>" --url <endpoint> --mode adk`. Telemetry
+   reaches BigQuery several minutes after a turn ends. Read `telemetry_dataset`,
+   `telemetry_table` and `observed_agent_name` from
+   `agents-cli aqua show-config | jq .config`, then check that `agent` below
+   equals `observed_agent_name`:
+
+   ```bash
+   bq --project_id="$GOOGLE_CLOUD_PROJECT" query --nouse_legacy_sql \
+     'SELECT JSON_VALUE(attributes, "$.\"gen_ai.agent.name\"") AS agent,
+             COUNT(DISTINCT trace_id) AS traces
+      FROM `<telemetry_dataset>.<telemetry_table>`
+      WHERE start_time > TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 1 HOUR)
+      GROUP BY agent'
+   ```
+
+   Then run `agents-cli aqua schedule-investigation --wait` and expect exit `0`
+   with `counters.traces_scanned` above zero.
+
+- `agents-cli aqua detach <agent key> --yes` deletes the attachment, revokes the
+  grants `attach` recorded and removes the update trigger, from any directory.
+  `--keep-grants` leaves the grants in place.
+- `attach` reads the agent's Cloud Trace spans, and creates what its plan lists
+  as missing for that.
+- The agent may run in another Cloud project than AQuA. `attach` reads that
+  project from `--observed-agent-resource`; for a Cloud Run or GKE agent, pass
+  `--observed-project`. `attach` then needs rights to grant access to that
+  project's telemetry dataset and bucket, and to create a log sink there.
+- Without `--apply-aqua` and `--deploy-aqua`, `infra single-project` and
+  `deploy` in the agent's project leave AQuA out, which is what an attached
+  agent uses.
+- `attach` from the agent's project, and each later `agents-cli deploy` there,
+  publish the source snapshot root-cause analysis reads. To publish one by
+  hand, run `agents-cli aqua publish-source`.
 
 ### Augment your agents-cli agent with AQuA
 
@@ -100,27 +212,13 @@ AQuA is deployed. Otherwise, pick one of two ways:
 
    Export the same `TF_VAR_*` values for the plan and the apply. The variables
    are defined in `extensions/aqua/terraform/examples/single-project/variables.tf`.
-   If the agent's Agent Runtime engine did not exist at the first `--apply`,
-   run `--apply-aqua --apply` again after the first `deploy`. Until then, redeploys trigger
-   no investigation.
-3. **Confirm that AQuA sees traffic.** Send the agent some traffic, for example
-   with `agents-cli run "<prompt>" --url <endpoint> --mode adk`. Telemetry
-   reaches BigQuery several minutes after a turn ends. Read `telemetry_dataset`,
-   `telemetry_table` and `observed_agent_name` from
-   `agents-cli aqua show-config | jq .config`, then check that `agent` below
-   equals `observed_agent_name`:
 
-   ```bash
-   bq --project_id="$GOOGLE_CLOUD_PROJECT" query --nouse_legacy_sql \
-     'SELECT labels.gen_ai_agent_name AS agent,
-             COUNT(DISTINCT labels.gen_ai_conversation_id) AS sessions
-      FROM `<telemetry_dataset>.<telemetry_table>`
-      WHERE timestamp > TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 1 HOUR)
-      GROUP BY agent'
-   ```
-
-   Then run `agents-cli aqua schedule-investigation --wait` and expect exit `0`
-   with `counters.traces_scanned` above zero.
+   The deploy attaches the agent with `agents-cli aqua attach --yes` until an
+   attachment records its engine, so `attach` does the work described in
+   [Deploy AQuA on its own and attach the agent](#deploy-aqua-on-its-own-and-attach-the-agent).
+   Change a setting afterwards with `agents-cli aqua attach`.
+3. **Confirm that AQuA sees traffic**, as in step 3 of
+   [Deploy AQuA on its own and attach the agent](#deploy-aqua-on-its-own-and-attach-the-agent).
 
 | Failure | Fix |
 |---|---|
@@ -128,99 +226,9 @@ AQuA is deployed. Otherwise, pick one of two ways:
 | `constraints/run.allowedIngress violated` creating the dashboard | The project needs an org policy exception for the dashboard's Cloud Run service. |
 | Cloud Tasks rejects the queue name | A recent teardown reserved it for several days. `export TF_VAR_task_queue_name="<deployment>-aqua-delay-$(date -u +%Y%m%d%H%M)"`. |
 | `deploy` fails updating `<name>-aqua` because the engine does not exist | Run `agents-cli infra single-project --apply-aqua --apply` first. |
-| `No AQuA deployment recorded for this project` | Run `agents-cli deploy --deploy-aqua`, [attach the agent](#attach-an-agent-to-aqua-deployed-elsewhere) to an AQuA deployed elsewhere, or set `AGENT_ENGINE_RESOURCE_ID=projects/…/reasoningEngines/…`. |
+| `No AQuA deployment recorded for this project` | Run `agents-cli deploy --deploy-aqua`, [attach the agent](#deploy-aqua-on-its-own-and-attach-the-agent) to an AQuA deployed elsewhere, or set `AGENT_ENGINE_RESOURCE_ID=projects/…/reasoningEngines/…`. |
 | `AQuA: could not publish the source snapshot` or `AQuA: source snapshot skipped` | AQuA cannot diagnose this revision. Fix the cause the output names and deploy again. After `--no-wait`, run the publish command the message prints. |
 | `counters.traces_scanned` is zero | The agent name does not match, or the window had no traffic. |
-
-### Attach an agent to AQuA deployed elsewhere
-
-1. **Deploy AQuA on its own**, if needed and the user wants to, from a checkout of
-   AQuA's repository and with no `--observed-*` flags. Its engine is
-   `aqua-solo-aqua`, which `agents-cli aqua info --resource` prints there; it
-   investigates nothing until an agent is attached.
-
-   ```bash
-   agents-cli infra single-project --project="$GOOGLE_CLOUD_PROJECT"          # plan
-   agents-cli infra single-project --project="$GOOGLE_CLOUD_PROJECT" --apply
-   agents-cli deploy --project="$GOOGLE_CLOUD_PROJECT"
-   ```
-
-2. **Attach the agent** from one of the places below. Run the `--dry-run`
-   command first: it shows the plan and stores or grants nothing. `--apply`
-   changes IAM, so get the user's go-ahead before running it. It grants each
-   read AQuA's service account is denied, using your credentials, and applies
-   the agent's Cloud Scheduler job and update trigger with Terraform (state in
-   `./.aqua/attach-<agent>.tfstate`).
-
-   From AQuA's checkout (clone the AQuA repository first if not already
-   cloned), naming the agent's engine. Attach reads the agent's name,
-   deployment name and telemetry table from it:
-
-   ```bash
-   agents-cli aqua attach --dry-run \
-     --observed-agent-resource projects/<project>/locations/<region>/reasoningEngines/<id>
-   agents-cli aqua attach --apply \
-     --observed-agent-resource projects/<project>/locations/<region>/reasoningEngines/<id>
-   ```
-
-   A Cloud Run or GKE agent has no engine, so name it and its telemetry, then
-   repeat with `--apply`. `agents-cli infra show` in the agent's project prints
-   `telemetry_dataset_id`:
-
-   ```bash
-   agents-cli aqua attach <agent_name> --dry-run \
-     --deployment-name <deployment> \
-     --telemetry-source cloud_logging \
-     --telemetry-dataset <telemetry_dataset_id> \
-     --telemetry-table gen_ai_client_inference_operation_details \
-     --telemetry-location <region>
-   ```
-
-   From the agent's project, naming AQuA's engine. The project's files supply
-   the agent's settings, and AQuA's engine is recorded in
-   `.aqua/attached_aqua.json`, so later `agents-cli aqua` commands here reach it
-   with no flag:
-
-   ```bash
-   agents-cli aqua attach --dry-run \
-     --aqua-resource projects/<project>/locations/<region>/reasoningEngines/<aqua-id>
-   agents-cli aqua attach --apply \
-     --aqua-resource projects/<project>/locations/<region>/reasoningEngines/<aqua-id>
-   ```
-
-   From any other directory, name both:
-
-   ```bash
-   agents-cli aqua attach --dry-run \
-     --aqua-resource projects/<project>/locations/<region>/reasoningEngines/<aqua-id> \
-     --observed-agent-resource projects/<project>/locations/<region>/reasoningEngines/<id>
-   agents-cli aqua attach --apply \
-     --aqua-resource projects/<project>/locations/<region>/reasoningEngines/<aqua-id> \
-     --observed-agent-resource projects/<project>/locations/<region>/reasoningEngines/<id>
-   ```
-
-3. **Confirm** that AQuA lists the agent and reads its settings back, then run
-   the traffic check in step 3 of
-   [Augment your agents-cli agent with AQuA](#augment-your-agents-cli-agent-with-aqua):
-
-   ```bash
-   agents-cli aqua list-agents
-   agents-cli aqua show-config
-   ```
-
-- `agents-cli aqua detach <agent> --apply` deletes the attachment, revokes the
-  grants `attach --apply` recorded and destroys the triggers. Run it from the
-  directory you ran `attach --apply` in, which holds the Terraform state.
-- The agent may run in another Cloud project than AQuA. `attach` reads that
-  project from `--observed-agent-resource`; for a Cloud Run or GKE agent, pass
-  `--observed-project`. `attach --apply` then needs rights to grant access to
-  that project's telemetry dataset and bucket, and to create a log sink there.
-- Without `--apply-aqua` and `--deploy-aqua`, `infra single-project` and
-  `deploy` in the agent's project leave AQuA out, which is what an attached
-  agent uses.
-- `attach` from the agent's project, and each later `agents-cli deploy` there,
-  publish the source snapshot root-cause analysis reads. To publish one by
-  hand, run `agents-cli aqua publish-source`.
 
 ## Dashboard
 
@@ -374,10 +382,11 @@ conversations that …"`. Approve its preview with
 | Redeploy only the agent | `agents-cli deploy`, which still publishes the source snapshot AQuA diagnoses from. Add `--deploy-aqua` to redeploy AQuA and its dashboard too |
 | Score sessions with deterministic Python metrics | `agents-cli aqua metrics publish tests/eval --dry-run`, then again without `--dry-run`. Published code runs inside AQuA with its credentials, and a metric that calls a model costs one call per session per investigation |
 | Change a setting the user asked for | `agents-cli aqua attach --dry-run <flag>`, show the plan, then repeat with `--yes`. `show-config` reads the settings back |
-| Change the schedule, failure emails or trace readers | Set `TF_VAR_investigation_schedule` (cron, UTC), `TF_VAR_scheduled_trigger_enabled`, `TF_VAR_notification_emails` or `TF_VAR_trace_readers`, then run `agents-cli infra single-project --apply-aqua --apply`. Keep them exported for later applies, which otherwise restore the defaults. `attach --schedule` has no effect |
-| Stop observing an attached agent | `agents-cli aqua detach <agent> --apply`, which revokes the grants `attach --apply` made and destroys its triggers |
+| Change the schedule | `agents-cli aqua attach --dry-run --schedule "<cron, UTC>"` (or `--no-scheduled-trigger` to pause it), show the plan, then repeat with `--yes`. The dashboard's Configuration page edits the same two settings for the agent AQuA investigates. AQuA runs the schedule of the agent it investigates, from its next 15-minute tick |
+| Change failure emails or trace readers | Set `TF_VAR_notification_emails` or `TF_VAR_trace_readers`, then run `agents-cli infra single-project --apply-aqua --apply`. Keep them exported for later applies, which otherwise restore the defaults |
+| Stop observing an attached agent | `agents-cli aqua detach <agent key> --yes` (the key `list-agents` shows) once the user confirms, which revokes the grants `attach` made and removes its update trigger |
 | Package AQuA's own spans for a bug report | `agents-cli aqua dump-traces --since 36h`. The spans hold conversations verbatim, so prefer adding the reader to `TF_VAR_trace_readers` over sending the zip |
-| Remove AQuA | `agents-cli infra single-project --destroy` (plan), then add `--apply` once the user confirms. This deletes AQuA's insights and buckets but leaves the agent's infrastructure and project APIs. Then run `agents-cli extension remove aqua` and delete `.agents/skills/agents-cli-aqua/` and `.aqua/` |
+| Remove AQuA | `agents-cli infra single-project --destroy` (plan), then add `--apply` once the user confirms. This deletes AQuA's insights and buckets but leaves the agent's infrastructure and project APIs. Then run `agents-cli extension remove aqua`, which also deletes `.agents/skills/agents-cli-aqua/`, and delete `.aqua/` |
 
 ## Rules
 
@@ -400,7 +409,7 @@ conversations that …"`. Approve its preview with
   `agents-cli aqua info --resource` shows which engine commands reach.
 - **Commit AQuA's files, but don't edit them.** Commit
   `agents-cli-extensions.yaml`, `extensions/aqua/` and
-  `.agents/skills/agents-cli-aqua/`. `agents-cli install` replaces
-  `extensions/aqua/`. Never commit `.aqua/`, and delete it only after a
-  destroy: it holds AQuA's Terraform state, and deleting it orphans the
-  deployment.
+  `.agents/skills/agents-cli-aqua/`. `agents-cli install` and
+  `agents-cli extension update` replace both directories. Never commit
+  `.aqua/`, and delete it only after a destroy: it holds AQuA's Terraform
+  state, and deleting it orphans the deployment.

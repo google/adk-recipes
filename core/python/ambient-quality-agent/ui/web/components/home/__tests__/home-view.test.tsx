@@ -79,6 +79,25 @@ describe("HomeView", () => {
   beforeEach(() => vi.unstubAllGlobals());
   afterEach(() => vi.unstubAllGlobals());
 
+  it("re-reads its figures from the refresh button in its header", async () => {
+    let statsReads = 0;
+    renderHome((async (input: RequestInfo | URL) => {
+      const url = new URL(String(input), "http://x");
+      if (url.pathname === "/api/stats") statsReads += 1;
+      return new Response(JSON.stringify({}), { status: 200 });
+    }) as typeof fetch);
+    const header = (
+      await screen.findByRole("heading", { level: 1, name: "Home" })
+    ).closest("header")!;
+    await vi.waitFor(() => expect(statsReads).toBe(1));
+
+    await userEvent.click(
+      within(header).getByRole("button", { name: "Refresh the data" }),
+    );
+
+    await vi.waitFor(() => expect(statsReads).toBe(2));
+  });
+
   it("does not claim there is nothing while it is still loading", async () => {
     renderHome(never);
 
@@ -146,6 +165,31 @@ describe("HomeView", () => {
       "href",
       "/insights?status=recurring",
     );
+  });
+
+  it("renders code spans in a listed insight's label and diagnosis as code", async () => {
+    const listed = {
+      insight_id: "i-1",
+      label: "failed to call `create_ticket`",
+      diagnosis: "The `book_shift` declaration lists no parameters.",
+      trace_count: 3,
+    };
+    renderHome((async (input: RequestInfo | URL) => {
+      const url = new URL(String(input), "http://x");
+      const insights = url.searchParams.get("pageSize") === "5" ? [listed] : [];
+      return new Response(
+        JSON.stringify({
+          insights,
+          total: insights.length,
+          runs: [],
+          days: [],
+        }),
+        { status: 200 },
+      );
+    }) as typeof fetch);
+
+    expect((await screen.findByText("create_ticket")).tagName).toBe("CODE");
+    expect(screen.getByText("book_shift").tagName).toBe("CODE");
   });
 
   it("says a section is empty once it knows that it is", async () => {
@@ -562,6 +606,87 @@ describe("HomeView", () => {
         await screen.findAllByText(/No investigations have run/),
       ).not.toHaveLength(0);
       expect(screen.queryByText(/most recent/)).toBeNull();
+    });
+  });
+
+  describe("Recent investigations trigger filter", () => {
+    const run = (id: string, day: number, trigger_type: string) => ({
+      run_id: id,
+      observed_agent_name: "travel_desk_agent",
+      status: "done",
+      trigger_type,
+      created_at: new Date(Date.UTC(2026, 8, day, 8)).toISOString(),
+      error: null,
+      counters: { traces_eval_passed: 3, traces_eval_failed: 1 },
+    });
+    const home = (runs: unknown[]) =>
+      renderHome(
+        answers({ insights: [], total: 0, days: [], stats: {}, runs }),
+      );
+    const section = async () =>
+      (
+        await screen.findByRole("heading", { name: "Recent investigations" })
+      ).closest("section")!;
+    const ids = (el: HTMLElement) =>
+      within(el)
+        .queryAllByText(/^\w{3}-\d\d$/)
+        .map((node) => node.textContent);
+
+    it("adds no section of its own for user-initiated runs", async () => {
+      home([run("cus-01", 1, "custom")]);
+
+      await section();
+      expect(
+        screen.queryByRole("heading", {
+          name: "User-initiated investigations",
+        }),
+      ).toBeNull();
+    });
+
+    it("shows the newest five of the kind picked, and links View all to it", async () => {
+      home([
+        run("cus-01", 1, "custom"),
+        run("man-02", 2, "manual"),
+        ...[3, 4, 5, 6, 7, 8].map((d) => run(`swp-0${d}`, d, "scheduled")),
+      ]);
+      const recent = await section();
+      await within(recent).findByText("swp-08");
+      expect(ids(recent)).toEqual([
+        "swp-08",
+        "swp-07",
+        "swp-06",
+        "swp-05",
+        "swp-04",
+      ]);
+
+      await userEvent.click(
+        within(recent).getByRole("button", { name: "User-initiated" }),
+      );
+      expect(ids(recent)).toEqual(["man-02", "cus-01"]);
+      expect(
+        within(recent).getByRole("link", { name: /view all/i }),
+      ).toHaveAttribute("href", "/investigations?trigger=user");
+
+      await userEvent.click(
+        within(recent).getByRole("button", { name: "Scheduled" }),
+      );
+      expect(ids(recent)).toHaveLength(5);
+      expect(ids(recent)).not.toContain("cus-01");
+    });
+
+    it("says so when no recent run is of the kind picked", async () => {
+      home([run("swp-01", 1, "scheduled")]);
+      const recent = await section();
+      await within(recent).findByText("swp-01");
+
+      await userEvent.click(
+        within(recent).getByRole("button", { name: "User-initiated" }),
+      );
+      expect(
+        within(recent).getByText(
+          "No user-initiated investigations among the most recent.",
+        ),
+      ).toBeInTheDocument();
     });
   });
 });

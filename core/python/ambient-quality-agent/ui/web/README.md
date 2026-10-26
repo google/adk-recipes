@@ -60,7 +60,10 @@ serve HTML to a `fetch`: 200 plus a `<!doctype html>` reads as success and fails
 somewhere unrelated. The prefixes are listed explicitly so that whichever change
 adds the real routes cannot regress it by registering them in the wrong place.
 
-`/lha/contexts` is the exception: a real endpoint over the chat task store.
+`/lha/contexts` is the exception: a real endpoint over the chat task store. It
+lists every stored conversation with the name saved for it and its first
+message, and `PUT /lha/contexts/{id}/title` saves a name, so a chat keeps its
+name in any browser.
 `/feedback` and `/lha/sandbox/*` appear in the dev proxy's forward list but are
 called from nowhere in this tree.
 
@@ -141,7 +144,10 @@ the address opens it on load, so a link can hand someone the tour —
 
 The steps are in `components/tour/tour-steps.ts`. Each points at an element
 marked `data-tour="<name>"`, and a step whose page needs an id out of the data
-(an insight, an investigation) is skipped when the deployment has none.
+(an insight, an investigation) is skipped when the deployment has none. The
+tour resolves those pages when it opens and again when another agent is
+selected, and counts only the steps it will show, so its counter never skips
+a number.
 A step whose element is gone still opens, centered and pointing at nothing, so
 two tests guard against it. `components/tour/__tests__/tour-steps.test.ts`
 fails when no component marks a step's element any more.

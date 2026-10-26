@@ -23,15 +23,21 @@ from collections.abc import Iterator
 from unittest import mock
 
 import pytest
+from ambient_quality_agent.config import ObservedAgentConfig
 from ambient_quality_agent.core.ambient import handler, routes
 from ambient_quality_agent.tools import cloudtasks
-from ambient_quality_agent.tools.observed_agent_config import effective_config
+from ambient_quality_agent.tools.observed_agent_config import (
+    effective_config,
+    store,
+)
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from .conftest import make_config
 
 _RESOURCE = "projects/p/locations/l/reasoningEngines/1"
+
+_CLOCK = dt.datetime(2026, 1, 2, 3, 30, tzinfo=dt.UTC)
 
 
 @pytest.fixture
@@ -60,7 +66,11 @@ def mock_enqueue(monkeypatch: pytest.MonkeyPatch) -> mock.Mock:
 
 @pytest.fixture(autouse=True)
 def pinned_config(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Pin the config both the route and the handler load."""
+    """Pin the config both the route and the handler load, for one agent.
+
+    The attachment's schedule falls due every minute, so that every tick here
+    starts an investigation, whatever instant it is anchored on.
+    """
     cfg = make_config(
         observed_agent_name="agent-x",
         project_id="p",
@@ -71,6 +81,25 @@ def pinned_config(monkeypatch: pytest.MonkeyPatch) -> None:
         ambient_caller_sa="caller@p.iam.gserviceaccount.com",
     )
     monkeypatch.setattr(effective_config, "load", lambda state: cfg)
+    monkeypatch.setattr(
+        effective_config, "load_fresh_agent_config", lambda agent_key: cfg
+    )
+    monkeypatch.setattr(
+        effective_config, "list_agent_keys", lambda: ["agent-x"]
+    )
+    monkeypatch.setattr(
+        effective_config,
+        "resolve_engine_agent_key",
+        lambda engine_id: "agent-x",
+    )
+    record = store.AgentRecord(
+        config=ObservedAgentConfig(observed_agent_name="agent-x"),
+        investigation_schedule="* * * * *",
+    )
+    monkeypatch.setattr(
+        effective_config, "load_selected_agent_record", lambda state: record
+    )
+    monkeypatch.setattr(handler, "_read_utc_clock", lambda: _CLOCK)
 
 
 def _log_entry(resource_name: str | None, operation_id: str | None) -> dict:
@@ -101,7 +130,7 @@ def test_scheduled_without_the_header_anchors_on_the_receiver_clock(
     assert response.status_code == 200
     assert "r1" in response.json()["note"]
     kwargs = mock_schedule.call_args.kwargs
-    assert kwargs["anchor"] is None
+    assert kwargs["anchor"] == _CLOCK
     assert kwargs["idempotency_key"] is None
     assert kwargs["ambient"] is True
 
@@ -112,11 +141,11 @@ def test_schedule_time_header_becomes_the_anchor(
     client.post(
         "/ambient/trigger",
         json={"type": "scheduled"},
-        headers={routes.SCHEDULE_TIME_HEADER: "2026-01-02T03:30:00Z"},
+        headers={routes.SCHEDULE_TIME_HEADER: "2026-01-02T04:45:00Z"},
     )
 
     anchor = mock_schedule.call_args.kwargs["anchor"]
-    assert anchor == dt.datetime(2026, 1, 2, 3, 30, tzinfo=dt.UTC)
+    assert anchor == dt.datetime(2026, 1, 2, 4, 45, tzinfo=dt.UTC)
 
 
 def test_schedule_time_offset_is_honoured(
@@ -133,7 +162,7 @@ def test_schedule_time_offset_is_honoured(
     assert anchor == dt.datetime(2026, 1, 2, 5, 0, tzinfo=dt.UTC)
 
 
-def test_unparseable_schedule_time_leaves_the_anchor_unset(
+def test_unparseable_schedule_time_anchors_on_the_receiver_clock(
     client: TestClient,
     mock_schedule: mock.AsyncMock,
     caplog: pytest.LogCaptureFixture,
@@ -146,7 +175,7 @@ def test_unparseable_schedule_time_leaves_the_anchor_unset(
         )
 
     assert response.status_code == 200
-    assert mock_schedule.call_args.kwargs["anchor"] is None
+    assert mock_schedule.call_args.kwargs["anchor"] == _CLOCK
     assert any(routes.SCHEDULE_TIME_HEADER in r.message for r in caplog.records)
 
 
@@ -234,14 +263,14 @@ def test_naive_schedule_time_is_read_as_utc(
         client.post(
             "/ambient/trigger",
             json={"type": "scheduled"},
-            headers={routes.SCHEDULE_TIME_HEADER: "2026-01-02T03:30:00"},
+            headers={routes.SCHEDULE_TIME_HEADER: "2026-01-02T04:45:00"},
         )
     finally:
         monkeypatch.delenv("TZ", raising=False)
         time.tzset()
 
     anchor = mock_schedule.call_args.kwargs["anchor"]
-    assert anchor == dt.datetime(2026, 1, 2, 3, 30, tzinfo=dt.UTC)
+    assert anchor == dt.datetime(2026, 1, 2, 4, 45, tzinfo=dt.UTC)
 
 
 def test_body_that_is_not_an_object_is_rejected(

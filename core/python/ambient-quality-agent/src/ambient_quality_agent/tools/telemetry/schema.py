@@ -12,22 +12,39 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Live column definitions of a telemetry table.
+"""Column definitions of a telemetry table: those it has, and those ingestion needs.
 
-Reads table metadata on every call without caching because the observed agent's
-schema depends on its plugin or exporter version, and `aqua attach` can switch
-the target table at runtime. Metadata reads run no queries and incur no cost.
+`load_telemetry_schema` reads a table's live columns on every call, without
+caching, because the observed agent's schema depends on its plugin or exporter
+version, and `aqua attach` can switch the target table at runtime. Metadata reads
+run no queries and incur no cost.
+
+`load_required_schema` loads a telemetry source's required columns from
+`ambient_quality_shared.schemas`, and `list_schema_mismatches` checks a table's
+columns against them.
 """
 
 from __future__ import annotations
 
 import dataclasses
+import functools
+import json
 from typing import TYPE_CHECKING, Any
 
+from ambient_quality_shared.schemas import SCHEMA_DIR
 from google.cloud import bigquery
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
+
+_LEGACY_TYPE_NAMES = {
+    "BOOL": "BOOLEAN",
+    "FLOAT64": "FLOAT",
+    "INT64": "INTEGER",
+    "STRUCT": "RECORD",
+}
+"""Standard SQL type names mapped to their legacy BigQuery equivalents, so
+columns compare equal under either spelling."""
 
 
 @dataclasses.dataclass(frozen=True)
@@ -121,3 +138,65 @@ def _schema_fields_to_columns(
         )
         for field in fields
     ]
+
+
+@functools.cache
+def load_required_schema(file_name: str) -> tuple[bigquery.SchemaField, ...]:
+    """Reads a schema file from `ambient_quality_shared.schemas`.
+
+    Args:
+        file_name: Schema file name, such as ``agent_events.schema.json``.
+
+    Returns:
+        The columns the file lists, in order.
+
+    Raises:
+        FileNotFoundError: If no schema file has that name.
+    """
+    fields = json.loads((SCHEMA_DIR / file_name).read_text(encoding="utf-8"))
+    return tuple(bigquery.SchemaField.from_api_repr(field) for field in fields)
+
+
+def list_schema_mismatches(
+    have: Iterable[bigquery.SchemaField], want: Iterable[bigquery.SchemaField]
+) -> dict[str, str]:
+    """Lists the columns of `want` that `have` lacks or holds in another shape.
+
+    Names compare case-insensitively, standard SQL type names match their legacy
+    equivalents (such as ``INT64`` and ``INTEGER``), and NULLABLE matches
+    REQUIRED, while REPEATED must match exactly. Extra columns in `have` are
+    ignored, and RECORD fields are compared recursively.
+
+    Args:
+        have: Columns of the table.
+        want: Required columns.
+
+    Returns:
+        Mismatch description per column path (such as ``status.code``) in `want`
+        order: ``"missing"``, ``"<held>, expected <wanted>"``, ``"REPEATED"``,
+        or ``"not REPEATED"``. Empty when `have` satisfies `want`.
+    """
+    held_by_name = {field.name.lower(): field for field in have}
+    mismatches: dict[str, str] = {}
+    for wanted in want:
+        held = held_by_name.get(wanted.name.lower())
+        if held is None:
+            mismatches[wanted.name] = "missing"
+            continue
+        held_type = _LEGACY_TYPE_NAMES.get(held.field_type, held.field_type)
+        wanted_type = _LEGACY_TYPE_NAMES.get(
+            wanted.field_type, wanted.field_type
+        )
+        if held_type != wanted_type:
+            mismatches[wanted.name] = (
+                f"{held.field_type}, expected {wanted.field_type}"
+            )
+        elif (held.mode == "REPEATED") != (wanted.mode == "REPEATED"):
+            mismatches[wanted.name] = (
+                "REPEATED" if held.mode == "REPEATED" else "not REPEATED"
+            )
+        else:
+            nested = list_schema_mismatches(held.fields, wanted.fields)
+            for path, mismatch in nested.items():
+                mismatches[f"{wanted.name}.{path}"] = mismatch
+    return mismatches

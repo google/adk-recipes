@@ -24,9 +24,11 @@ from __future__ import annotations
 import asyncio
 
 import pytest
+from ambient_quality_agent.tools.documents import agent_scope
 from ambient_quality_agent.tools.documents import memories as memories_doc
 from ambient_quality_agent.tools.objects import store as objects
 from ambient_quality_agent.tools.objects.gcs_store import GcsObjectStore
+from ambient_quality_agent.tools.objects.store import ObjectStore
 from ambient_quality_agent.tools.orchestrator import document_tools
 
 from tests.conftest import FakeGcsClient, ToolContext
@@ -34,8 +36,16 @@ from tests.conftest import FakeGcsClient, ToolContext
 
 @pytest.fixture
 def store(monkeypatch: pytest.MonkeyPatch) -> GcsObjectStore:
+    """A jobs store whose default agent is `support`.
+
+    The default is set directly because no bucket backs this store to read
+    attachments from; the goal functions it is passed to are replaced.
+    """
     bound = GcsObjectStore("jobs-bkt")
     monkeypatch.setattr(objects, "jobs_store_factory", lambda: bound)
+    monkeypatch.setattr(
+        agent_scope, "resolve_default_agent_key", lambda: "support"
+    )
     return bound
 
 
@@ -51,7 +61,7 @@ def test_get_goal_returns_the_document(
     assert result == {
         "goal": "## priority\nP",
         "available": True,
-        "uri": "gs://jobs-bkt/goal.md",
+        "uri": "gs://jobs-bkt/agents/support/goal.md",
         "version": document_tools.goal_doc.compute_goal_version(
             "## priority\nP"
         ),
@@ -90,10 +100,10 @@ def test_get_goal_turns_a_storage_failure_into_a_payload(
 def test_set_goal_answers_with_the_version_it_stored(
     monkeypatch: pytest.MonkeyPatch, store: GcsObjectStore
 ) -> None:
-    written: list[tuple[GcsObjectStore, str]] = []
+    written: list[tuple[str, str]] = []
 
-    def _write(b: GcsObjectStore, text: str) -> str:
-        written.append((b, text))
+    def _write(b: ObjectStore, text: str) -> str:
+        written.append((b.uri("goal.md"), text))
         return text.strip()
 
     monkeypatch.setattr(document_tools.goal_doc, "save_goal", _write)
@@ -102,7 +112,7 @@ def test_set_goal_answers_with_the_version_it_stored(
         document_tools.set_goal(ToolContext(), goal=" Be terse. ")
     )
 
-    assert written == [(store, " Be terse. ")]
+    assert written == [("gs://jobs-bkt/agents/support/goal.md", " Be terse. ")]
     assert result == {
         "goal": "Be terse.",
         "version": document_tools.goal_doc.compute_goal_version("Be terse."),

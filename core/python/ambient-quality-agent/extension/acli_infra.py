@@ -21,10 +21,8 @@ then, with `--apply-aqua`, this provisions AQuA beside it from
 AQuA is left out, as for an agent attached to an AQuA deployed elsewhere.
 
 Run from AQuA's own checkout, only the second half happens, flag or not: the
-observed agent is another project, so there is no built-in step to wrap and `--observed-*`
-names the agent the roots are applied for. Without `--observed-agent-name`,
-AQuA is provisioned with no observed agent, and one is attached later with
-`agents-cli aqua attach`.
+observed agent is another project, so there is no built-in step to wrap, and
+`--observed-deployment-name` names AQuA's resources.
 
 Two roots because an enabled API is project-scoped and has to outlive any single
 deployment: separate state is what stops a `terraform destroy` of one AQuA from
@@ -36,17 +34,19 @@ They are applied separately rather than sharing one variable set, because
 Terraform rejects a value for a variable a root does not declare and `bootstrap`
 declares `project_id` alone.
 
-AQuA provisioned with no observed agent leaves out the agent's triggers -- the
-scheduled tick and the audit sink on its updates. They are a third root,
-`terraform/examples/attach`, applied once per attached agent by `agents-cli aqua
-attach --apply`, since its values are the ones `attach` stored, which only the
-deployed engine can say.
+The agents AQuA watches are configured by `agents-cli aqua attach`, not by
+these roots. It stores each agent's settings where the engine reads them,
+checks and grants AQuA's access to its telemetry, and creates its update
+trigger with gcloud. In the observed
+agent's project, `agents-cli deploy --deploy-aqua` runs that attach once AQuA
+is deployed; see `acli_deploy.py`.
 
-`--destroy` takes AQuA back down again; see :func:`destroy_aqua`.
+An engine whose environment names its observed agent is replaced by this
+root, since the environment it writes names none. Before the deployment root
+is applied, that agent's settings are copied from the engine into an
+attachment, which outlives the engine; see :func:`attach_environment_agent`.
 
-In vendored layouts, provisioning infrastructure also installs AQuA's
-coding-agent skill into the observed project; see
-:func:`_acli.install_skill_best_effort`.
+`--destroy` takes AQuA down; see :func:`destroy_aqua`.
 """
 
 from __future__ import annotations
@@ -57,29 +57,23 @@ from pathlib import Path
 
 from _acli import (
     APPLY_AQUA,
-    ATTACH_INSTANCE_OUTPUT,
-    ATTACH_ROOT,
+    AQUA_CLI_COMMAND,
     BOOTSTRAP_KEY,
     DEPLOYMENT_KEY,
     METADATA_FILE,
     ObservedOptions,
-    build_attach_key,
     build_state_path,
     die,
     echo,
     ensure_aqua_state_dir,
     extract_option_value,
-    install_skill_best_effort,
     is_aqua_own_checkout,
-    list_attached_agents,
-    load_infra_outputs,
     load_project_info,
     read_state_outputs,
     resolve_extension_root,
     resolve_observed_deployment_name,
-    resolve_observed_identity,
-    resolve_observed_telemetry_table,
     resolve_project,
+    run,
     run_builtin,
     run_terraform,
     take_aqua_flag,
@@ -90,58 +84,29 @@ from _acli import (
 _AQUA_LEFT_OUT = (
     f"\nAQuA: its Terraform is left alone. Pass {APPLY_AQUA} to provision AQuA "
     "beside this agent, or attach the agent to an AQuA deployed elsewhere:\n"
-    "    agents-cli aqua attach --apply --aqua-resource "
+    "    agents-cli aqua attach --aqua-resource "
     "projects/…/reasoningEngines/…"
 )
 
 BOOTSTRAP_ROOT = Path("terraform") / "bootstrap"
 DEPLOYMENT_ROOT = Path("terraform") / "examples" / "single-project"
 
-_NO_OBSERVED_AGENT = (
-    "\nAQuA: no --observed-agent-name, so AQuA is provisioned without an "
-    "observed agent.\n"
-    "  Attach one, which also grants AQuA read access to its telemetry and "
-    "applies its scheduled investigation and update trigger:\n"
-    "    agents-cli aqua attach --apply --observed-agent-resource "
-    "projects/…/reasoningEngines/…\n"
-    "  Remove its triggers, before AQuA is destroyed, with `agents-cli aqua "
-    "detach --apply` from the same directory."
+# The deployment root's output naming the engine it manages.
+_ENGINE_OUTPUT = "engine_resource_name"
+
+_ATTACH_IN_DEPLOY = (
+    "\nAQuA: `agents-cli deploy --deploy-aqua` attaches this agent once AQuA "
+    "is deployed, which also grants AQuA read access to its telemetry and "
+    "creates its update trigger."
 )
 
-# Where the agent's own root publishes the engine it created. AQuA matches the
-# composed resource name against `protoPayload.resourceName` in the audit log,
-# which carries the project *id*, so the id is what gets composed in below.
-_AGENT_ENGINE_OUTPUT = "agent_runtime_resource_name"
-
-
-def read_observed_engine_resource_name(
-    project: str | None, region: str
-) -> str | None:
-    """Resource name of the engine the agent's own root just created, or None.
-
-    None whenever there is nothing to name, which is a normal state rather than
-    an error: a plan before the first apply has created no engine, and a
-    Cloud Run or GKE agent never will. AQuA's variable is optional and a missing
-    one means "watch no engine, keep the schedule", so the caller omits it.
-
-    `infra show` reports no outputs when the root has no state yet, which is
-    exactly the not-created-yet case.
-
-    Args:
-        project: GCP project ID, or None.
-        region: GCP region string.
-
-    Returns:
-        Full engine resource name string, or None if unavailable.
-    """
-    if not project:
-        return None
-    raw = str(load_infra_outputs().get(_AGENT_ENGINE_OUTPUT) or "").strip()
-    if not raw:
-        return None
-    # Normalize bare IDs or full resource names to the canonical resource name format.
-    engine_id = raw.rstrip("/").rsplit("/", 1)[-1]
-    return f"projects/{project}/locations/{region}/reasoningEngines/{engine_id}"
+_ATTACH_BY_HAND = (
+    "\nAQuA: once it is deployed, attach the agents it watches, which also "
+    "grants AQuA read access to their telemetry and creates their update "
+    "triggers:\n"
+    "    agents-cli aqua attach --observed-agent-resource "
+    "projects/…/reasoningEngines/…"
+)
 
 
 def require_sources(root: Path, *tf_roots: Path) -> None:
@@ -171,7 +136,7 @@ def destroy_aqua(
     observed agent's infrastructure is left untouched, and so is
     `terraform/bootstrap`, which enables project APIs that outlive any single
     deployment and are shared with everything else in the project. The
-    triggers of every agent attached from this directory go first.
+    update trigger of every attached agent goes first.
 
     Plan-by-default, like the command it overrides: `--destroy` reports what
     would be removed, `--destroy --apply` performs the teardown.
@@ -208,7 +173,7 @@ def destroy_aqua(
     if project:
         tf_vars["project_id"] = project
 
-    destroy_attached_triggers(root, state_root, apply=apply)
+    delete_attached_triggers(state_root, apply=apply)
     echo(
         f"\n{'Destroying' if apply else 'Planning the teardown of'} AQuA, from "
         f"{root / DEPLOYMENT_ROOT}\n"
@@ -230,15 +195,15 @@ def destroy_aqua(
     return 0
 
 
-def read_destroyed_engine_id(state_root: Path) -> str | None:
-    """Read the id of the engine `--destroy` is about to delete.
+def read_destroyed_engine(state_root: Path) -> str | None:
+    """Read the resource name of the engine `--destroy` is about to delete.
 
     Args:
         state_root: Directory storing relocated state files.
 
     Returns:
-        The numeric id from the `deployment_metadata.json` the deploy recorded,
-        or None when no deploy recorded one.
+        The engine's resource name from the `deployment_metadata.json` the
+        deploy recorded, or None when no deploy recorded one.
     """
     try:
         record = json.loads(
@@ -251,81 +216,134 @@ def read_destroyed_engine_id(state_root: Path) -> str | None:
         if isinstance(record, dict)
         else ""
     )
-    return engine.rstrip("/").rsplit("/", 1)[-1] or None
+    return engine.rstrip("/") or None
 
 
-def destroy_attached_triggers(
-    root: Path, state_root: Path, *, apply: bool
-) -> None:
-    """Tear down every attached agent's triggers, before the instance they call.
+def delete_attached_triggers(state_root: Path, *, apply: bool) -> None:
+    """Remove every attached agent's update trigger, before the topic it publishes to.
 
-    Left behind, a scheduler job would call a deleted engine on every tick, and
-    a sink would export to a deleted topic. Each agent's state came from
-    `agents-cli aqua attach --apply` in this directory, and records the instance
-    it was applied against; states for another instance are left alone.
-    Triggers applied from another directory have their state there, and are
-    named in a note rather than destroyed.
+    Left behind, a sink would export to a deleted topic. `agents-cli aqua
+    delete-triggers` asks the AQuA being destroyed which agents are attached,
+    and plans or removes each one's sink by its name, so it finds the triggers
+    `attach` wired from any directory. With no engine recorded there is no
+    AQuA to ask, and a failure is reported rather than blocking the teardown.
 
     Args:
-        root: Extension root path.
         state_root: Directory storing relocated state files.
-        apply: If True, destroys; if False, plans the teardown only.
-
-    Raises:
-        SystemExit: If an agent's state does not record its instance, the attach
-            root's sources are missing, or Terraform fails.
+        apply: If True, removes the triggers; if False, plans their removal.
     """
-    echo(
-        "\nAQuA: triggers applied with `agents-cli aqua attach --apply` from "
-        "another directory are not destroyed here; remove them first with "
-        "`agents-cli aqua detach <agent> --apply` from there."
-    )
-    agents = list_attached_agents(state_root)
-    if not agents:
-        return
-    require_sources(root, ATTACH_ROOT)
-    engine = read_destroyed_engine_id(state_root)
-    for agent in agents:
-        key = build_attach_key(agent)
-        instance = read_state_outputs(state_root, key).get(
-            ATTACH_INSTANCE_OUTPUT
-        )
-        if (
-            isinstance(instance, dict)
-            and engine
-            and (
-                str(instance.get("aqua_engine", "")).rsplit("/", 1)[-1]
-                != engine
-            )
-        ):
-            echo(
-                f"\nAQuA: the triggers of {agent} here call "
-                f"{instance.get('aqua_engine')}, not this AQuA, so they stay."
-            )
-            continue
-        if not isinstance(instance, dict):
-            die(
-                f"{build_state_path(state_root, key)} does not say which AQuA "
-                f"the triggers of {agent} call, so they cannot be destroyed "
-                "before it.\n"
-                "  Delete them by hand, then remove that file."
-            )
+    engine = read_destroyed_engine(state_root)
+    if not engine:
         echo(
-            f"\n{'Destroying' if apply else 'Planning the teardown of'} the "
-            f"triggers of {agent}, from {root / ATTACH_ROOT}"
+            "\nAQuA: no deployed engine is recorded here, so no attached "
+            "agent's update trigger is looked for. Remove each one with "
+            "`agents-cli aqua detach <agent key>` while AQuA still runs."
         )
-        run_terraform(
-            root / ATTACH_ROOT,
-            state_key=key,
-            state_root=state_root,
-            apply=apply,
-            destroy=True,
-            tf_vars={**instance, "observed_agent_name": agent},
+        return
+    command = [
+        *AQUA_CLI_COMMAND,
+        "delete-triggers",
+        f"--aqua-resource={engine}",
+    ]
+    if apply:
+        command.append("--apply")
+    echo(
+        f"\n{'Removing' if apply else 'Planning the removal of'} the update "
+        f"triggers of the agents attached to {engine}"
+    )
+    if run(command).returncode != 0:
+        echo(
+            "\nAQuA: the attached agents' update triggers could not be "
+            "removed, and a sink left behind exports to a deleted topic. "
+            "Delete each sink named `<topic>-<agent key>-updates` in its "
+            "agent's project by hand."
         )
-        if apply:
-            # An agent is listed by its state file alone, so one left behind
-            # would make the next teardown look for triggers that are gone.
-            build_state_path(state_root, key).unlink(missing_ok=True)
+
+
+def attach_environment_agent(
+    state_root: Path, *, apply: bool, standalone: bool
+) -> None:
+    """Copy the agent the deployed engine's environment names into an attachment.
+
+    The deployment root writes no agent into the engine's environment, so
+    applying it replaces an engine whose environment names one. A first attach
+    of that agent copies the environment's settings into an attachment, which
+    is kept in the jobs bucket and outlives the engine, so the revision delay
+    and the schedule survive the replacement. The telemetry settings are
+    discovered again by the attach that `deploy --deploy-aqua` runs.
+
+    Runs `agents-cli aqua list-agents` against the engine in AQuA's Terraform
+    state, and `attach <agent> --no-discover` when its environment names an
+    agent that is not attached. Nothing happens on a first apply, which has no
+    engine, or when the engine names no agent. A failure is reported rather
+    than raised: the apply goes on, and the settings are set again with
+    `attach`.
+
+    Args:
+        state_root: Directory storing relocated state files.
+        apply: If True, attaches the agent; if False, only says that it would.
+        standalone: True if running from AQuA's own checkout, where no deploy
+            attaches the agent with its update trigger afterwards.
+    """
+    engine = str(
+        read_state_outputs(state_root, DEPLOYMENT_KEY).get(_ENGINE_OUTPUT) or ""
+    )
+    if not engine:
+        return
+    target = {"AGENT_ENGINE_RESOURCE_ID": engine}
+    listing = run(
+        [*AQUA_CLI_COMMAND, "list-agents"], env=target, capture_stdout=True
+    )
+    try:
+        agents = (
+            json.loads(listing.stdout or "") if listing.returncode == 0 else {}
+        )
+    except json.JSONDecodeError:
+        agents = {}
+    if not isinstance(agents, dict) or not agents:
+        echo(
+            f"\nAQuA: could not list the agents attached to {engine}, so no "
+            "settings are copied from its environment. If it names its observed "
+            "agent, set any setting you customized again with "
+            "`agents-cli aqua attach` once AQuA is deployed."
+        )
+        return
+    name = str(agents.get("environment_agent") or "")
+    key = str(agents.get("environment_agent_key") or name)
+    attached = {
+        str(entry.get("agent_key"))
+        for entry in agents.get("agents") or []
+        if isinstance(entry, dict)
+    }
+    if not name or key in attached:
+        return
+    if not apply:
+        echo(
+            f"\nAQuA: {engine} names {name} in its environment. With --apply, "
+            "its settings are first copied into an attachment, since the engine "
+            "is replaced with one that names no agent."
+        )
+        return
+    echo(
+        f"\nAQuA: copying the settings of {name} from the environment of {engine} "
+        "into an attachment, before the engine is replaced with one that names "
+        "no agent"
+    )
+    attach = [*AQUA_CLI_COMMAND, "attach", name, "--no-discover"]
+    if run(attach, env=target).returncode != 0:
+        # The CLI has already said why.
+        echo(
+            f"\nAQuA: {name} was not attached, so its settings are not copied. "
+            "Once AQuA is deployed, set any setting you customized with "
+            "`agents-cli aqua attach`."
+        )
+    elif standalone:
+        echo(
+            f"\nAQuA: once AQuA is deployed, create the update trigger of {name} "
+            "with:\n"
+            f"    agents-cli aqua attach {name} --no-discover "
+            "--observed-agent-resource projects/…/reasoningEngines/…"
+        )
 
 
 def main(argv: list[str]) -> int:
@@ -350,21 +368,8 @@ def main(argv: list[str]) -> int:
             return 0
 
     info = load_project_info()
-    if not standalone:
-        install_skill_best_effort(Path(info["project_root"]))
-    # Only AQuA's own checkout can leave the agent out: a vendored install is
-    # always in the observed agent's project, which names it.
-    observed = (
-        resolve_observed_identity(options, info, standalone=standalone)
-        if not standalone or options.agent_name
-        else None
-    )
-    deployment_name = (
-        observed.deployment_name
-        if observed
-        else resolve_observed_deployment_name(
-            options, info, standalone=standalone
-        )
+    deployment_name = resolve_observed_deployment_name(
+        options, info, standalone=standalone
     )
     root = resolve_extension_root()
     require_sources(root, BOOTSTRAP_ROOT, DEPLOYMENT_ROOT)
@@ -383,44 +388,10 @@ def main(argv: list[str]) -> int:
         # per observed deployment.
         "observed_deployment_name": deployment_name,
     }
-    if observed:
-        aqua_vars["observed_agent_name"] = observed.agent_name
-    else:
-        aqua_vars["configure_observed_agent"] = "false"
-        echo(_NO_OBSERVED_AGENT)
-    if not standalone:
-        # Follows the observed agent's deployment target, which only its own
-        # project knows. Left to the root's default and `TF_VAR_telemetry_table`.
-        aqua_vars["telemetry_table"] = resolve_observed_telemetry_table(
-            info["deployment_target"]
-        )
     if project:
         bootstrap_vars["project_id"] = project
         aqua_vars["project_id"] = project
-
-    # Turns AQuA's update trigger on: an audit sink fires an investigation when
-    # the observed engine is redeployed. `infra show` reads the observed agent's
-    # own Terraform root, which is out of reach standalone.
-    engine = (
-        None
-        if standalone
-        else read_observed_engine_resource_name(project, region)
-    )
-    if engine:
-        aqua_vars["observed_engine_resource_name"] = engine
-    elif standalone and observed:
-        echo(
-            "\nAQuA: set TF_VAR_observed_engine_id to the numeric id of the "
-            "engine to watch, or update triggering stays off and investigations "
-            "run on AQuA's schedule alone."
-        )
-    elif not standalone:
-        echo(
-            "\nAQuA: no observed engine to watch yet, so update triggering stays "
-            "off and investigations run on AQuA's schedule alone.\n"
-            "  It is switched on by the next `--apply` once the agent's engine "
-            "exists."
-        )
+    echo(_ATTACH_BY_HAND if standalone else _ATTACH_IN_DEPLOY)
 
     echo(
         f"\nEnabling AQuA's project APIs and Cloud Build grant from {root / BOOTSTRAP_ROOT}"
@@ -433,6 +404,7 @@ def main(argv: list[str]) -> int:
         tf_vars=bootstrap_vars,
     )
 
+    attach_environment_agent(state_root, apply=apply, standalone=standalone)
     echo(f"\nProvisioning AQuA from {root / DEPLOYMENT_ROOT}")
     run_terraform(
         root / DEPLOYMENT_ROOT,

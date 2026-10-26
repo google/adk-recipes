@@ -49,7 +49,15 @@ processes do not permanently block concurrency limits.
 
 
 class InvestigationStore(Protocol):
-    """One deployment's investigations, and the events they emitted."""
+    """One agent's investigations, and the events they emitted.
+
+    A store is bound to one agent's key when it is built. `list_recent`,
+    `sum_counters` and `sum_counters_by_day` cover only the runs whose
+    `observed_agent_name` holds that key. `get`, `list_stale_pending` and
+    `list_overdue_scheduled` cover every agent: a run id is unique across
+    agents, and every agent's runs share one lease. A store bound to no key,
+    for a deployment with no agent, lists every run.
+    """
 
     def append(self, record: InvestigationRecord) -> InvestigationRecord:
         """Persists a new snapshot of an investigation run.
@@ -142,7 +150,8 @@ class InvestigationStore(Protocol):
         telemetry watermark.
 
         Args:
-            observed_agent_name: Name of the observed agent.
+            observed_agent_name: The agent's key, which runs record in
+                `observed_agent_name`.
 
         Returns:
             ISO 8601 timestamp of the latest completed window end, or None if no
@@ -158,7 +167,8 @@ class InvestigationStore(Protocol):
         run is not counted: nothing runs for it until its trigger fires.
 
         Args:
-            observed_agent_name: Name of the observed agent.
+            observed_agent_name: The agent's key, which runs record in
+                `observed_agent_name`.
 
         Returns:
             Number of in-flight investigations.

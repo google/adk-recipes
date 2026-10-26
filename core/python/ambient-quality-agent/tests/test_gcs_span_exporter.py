@@ -23,7 +23,6 @@ from __future__ import annotations
 import datetime as dt
 import gzip
 import json
-import pathlib
 from typing import Any
 
 import pytest
@@ -35,17 +34,13 @@ from ambient_quality_agent.tools.ingestion.cloud_ops_fetcher import (
 from ambient_quality_agent.tools.ingestion.trace_converter import (
     TraceAgentDataConverter,
 )
+from ambient_quality_shared.schemas import SCHEMA_DIR
 from opentelemetry.sdk.trace import Event, ReadableSpan
 from opentelemetry.sdk.trace.export import SpanExportResult
 from opentelemetry.trace import SpanContext, TraceFlags
 from opentelemetry.trace.status import Status, StatusCode
 
-_SCHEMA_PATH = (
-    pathlib.Path(__file__).resolve().parents[1]
-    / "src"
-    / "ambient_quality_cli"
-    / "all_spans.schema.json"
-)
+_SCHEMA_PATH = SCHEMA_DIR / "all_spans.schema.json"
 
 _TRACE_ID = 0x0123456789ABCDEF0123456789ABCDEF
 _RESOURCE_ATTRIBUTES = {

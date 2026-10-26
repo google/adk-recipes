@@ -19,19 +19,27 @@ Provides blocking read operations against the source store
 `.aqua/source/` in a standalone run, intended to be run in worker threads via
 `asyncio.to_thread` by async callers.
 
-A reader reads one agent's snapshots: those under `<agent_name>/` first, then
-any unprefixed `<revision>/` ones.
+A reader reads one agent's snapshots: those under `<agent key>/` first, then
+any unprefixed `<revision>/` ones. An agent keyed by its project never reads
+the prefix of its bare name, which can be another attachment's key, such as
+the same agent in AQuA's own project.
 
 Manifests are cached per (store location, revision) in memory for
 `MANIFEST_CACHE_TTL_SECONDS`, to avoid repeated fetches while a model browses a
-snapshot.
+snapshot. File bodies are cached per published manifest for the
+`MAX_CACHED_REVISIONS` most recently read revisions: a search reads every file
+of the snapshot, one store object each, and the files of a revision change only
+when it is published again.
 """
 
 from __future__ import annotations
 
 import logging
 import re
+import threading
 import time
+from collections import OrderedDict
+from concurrent import futures
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -42,7 +50,7 @@ from google.api_core import exceptions as api_exceptions
 from google.auth import exceptions as auth_exceptions
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable, Sequence
+    from collections.abc import Callable, Sequence
 
     from ambient_quality_agent.core.session_state import ADKStateLike
     from ambient_quality_agent.tools.objects.store import ObjectStore
@@ -74,24 +82,55 @@ A revision published again replaces its manifest, and another replica's
 cached copy would otherwise outlive it; this bounds how long it does.
 """
 
+MAX_CACHED_REVISIONS = 4
+"""Revisions whose file bodies stay in memory, the least recently read dropped first.
+
+A snapshot is at most `snapshot.MAX_SNAPSHOT_BYTES`, so the cached bodies take
+at most four times that.
+"""
+
+READ_CONCURRENCY = 16
+"""Most file reads in flight at once in this process, for files not cached yet."""
+
 _manifest_cache: dict[
     tuple[str, str], tuple[float, snapshot.SourceManifest]
 ] = {}
 
+# Keyed by (store location, revision, manifest `created_at`), then by object
+# name. A republished revision has a new `created_at`, so the replica that loads
+# its new manifest reads the new files rather than serving the replaced ones.
+_file_cache: OrderedDict[tuple[str, str, str], dict[str, bytes | None]] = (
+    OrderedDict()
+)
+_file_cache_lock = threading.Lock()
 
-def clear_manifest_cache() -> None:
-    """Clears all cached manifests across all stores."""
+# One pool for the process, so that its threads, and the storage client each
+# thread holds (`gcs.build_per_thread_client_factory`), outlive one search.
+_read_pool = futures.ThreadPoolExecutor(
+    max_workers=READ_CONCURRENCY, thread_name_prefix="source-snapshot-read"
+)
+
+
+def clear_snapshot_cache() -> None:
+    """Clears all cached manifests and file bodies across all stores."""
     _manifest_cache.clear()
+    with _file_cache_lock:
+        _file_cache.clear()
 
 
-def forget_cached_manifest(location: str, revision: str) -> None:
-    """Drops this process's cached manifest of one revision, once it is replaced.
+def forget_cached_snapshot(location: str, revision: str) -> None:
+    """Drops this process's cached manifest and files of one revision, once it is replaced.
 
     Args:
         location: The store location of the agent's prefix, `store.uri(root)`.
         revision: Deployment revision identifier.
     """
     _manifest_cache.pop((location, revision), None)
+    with _file_cache_lock:
+        for key in [
+            key for key in _file_cache if key[:2] == (location, revision)
+        ]:
+            del _file_cache[key]
 
 
 @dataclass(frozen=True)
@@ -144,16 +183,16 @@ class FileSlice:
 class SourceSnapshotReader:
     """Provides read access to one agent's source snapshots in a store."""
 
-    def __init__(self, *, store: ObjectStore, agent_name: str = "") -> None:
+    def __init__(self, *, store: ObjectStore, agent_key: str = "") -> None:
         """Initializes a reader for an agent's snapshots.
 
         Args:
             store: The source store.
-            agent_name: Observed agent whose snapshots to read. Empty reads only
-                the unprefixed snapshots.
+            agent_key: Key of the observed agent whose snapshots to read. Empty
+                reads only the unprefixed snapshots.
         """
         self._store = store
-        root = snapshot.build_agent_root(agent_name)
+        root = snapshot.build_agent_root(agent_key)
         # The agent's own prefix first, so that it wins over an unprefixed
         # snapshot of the same revision.
         self._roots = (root, "") if root else ("",)
@@ -285,14 +324,13 @@ class SourceSnapshotReader:
             does not exist. When `offset` exceeds total lines, returns an empty
             FileSlice (`is_empty == True`).
         """
-        root = self._resolve_root(revision)
-        body = self._read(snapshot.build_file_object_name(revision, path, root))
+        manifest = self.load_manifest(revision)
+        [body] = self._read_bodies(revision, manifest, [path])
         if body is None:
             return None
         lines = _split_lines(body)
         start = max(1, offset)
         window = tuple(lines[start - 1 : start - 1 + max(1, limit)])
-        manifest = self.load_manifest(revision)
         entry = manifest.get_entry(path) if manifest else None
         return FileSlice(
             path=snapshot.normalize_path(path),
@@ -329,14 +367,14 @@ class SourceSnapshotReader:
         manifest = self.load_manifest(revision)
         if manifest is None:
             return [], 0, False
-        root = self._resolve_root(revision)
         context = min(max(0, context_lines), MAX_CONTEXT_LINES)
+        entries = self._filter_entries(manifest.files, path_contains)
+        bodies = self._read_bodies(
+            revision, manifest, [entry.path for entry in entries]
+        )
         matches: list[SearchMatch] = []
         searched = 0
-        for entry in self._filter_entries(manifest.files, path_contains):
-            body = self._read(
-                snapshot.build_file_object_name(revision, entry.path, root)
-            )
+        for entry, body in zip(entries, bodies, strict=True):
             if body is None:
                 continue
             searched += 1
@@ -356,6 +394,49 @@ class SourceSnapshotReader:
                 if len(matches) >= MAX_SEARCH_MATCHES:
                     return matches, searched, True
         return matches, searched, False
+
+    def _read_bodies(
+        self,
+        revision: str,
+        manifest: snapshot.SourceManifest | None,
+        paths: Sequence[str],
+    ) -> list[bytes | None]:
+        """Reads files of a revision's snapshot, from this process's cache where it can.
+
+        Files not cached yet are read concurrently and cached under the
+        manifest. Without a manifest the upload may still be in progress, so
+        nothing is cached.
+
+        Args:
+            revision: Deployment revision identifier.
+            manifest: The revision's manifest, or None if it has none.
+            paths: Repository-relative paths of the files to read.
+
+        Returns:
+            Each file's bytes in the order of `paths`, or None for a file with
+            no object in the store.
+        """
+        root = self._resolve_root(revision)
+        names = [
+            snapshot.build_file_object_name(revision, path, root)
+            for path in paths
+        ]
+        if manifest is None:
+            return [self._read(name) for name in names]
+        key = (self._store.uri(root), revision, manifest.created_at)
+        with _file_cache_lock:
+            cached = _file_cache.get(key)
+            if cached is None:
+                cached = _file_cache[key] = {}
+                while len(_file_cache) > MAX_CACHED_REVISIONS:
+                    _file_cache.popitem(last=False)
+            else:
+                _file_cache.move_to_end(key)
+            missing = [name for name in names if name not in cached]
+        fetched = list(_read_pool.map(self._read, missing))
+        with _file_cache_lock:
+            cached.update(zip(missing, fetched, strict=True))
+            return [cached[name] for name in names]
 
     def _read(self, name: str) -> bytes | None:
         """Reads an object, treating a name no object can have as absent.
@@ -378,7 +459,7 @@ class SourceSnapshotReader:
     @staticmethod
     def _filter_entries(
         entries: Sequence[snapshot.SnapshotFileEntry], path_contains: str
-    ) -> Iterable[snapshot.SnapshotFileEntry]:
+    ) -> Sequence[snapshot.SnapshotFileEntry]:
         """Filters manifest entries by an optional case-insensitive path substring.
 
         Args:
@@ -386,7 +467,7 @@ class SourceSnapshotReader:
             path_contains: Substring to filter paths by; returns all entries if empty.
 
         Returns:
-            Iterable of matching SnapshotFileEntry objects.
+            Sequence of matching SnapshotFileEntry objects.
         """
         if not path_contains:
             return entries
@@ -414,7 +495,7 @@ def _split_lines(body: bytes) -> list[str]:
 
 
 def _create_default_reader(state: ADKStateLike) -> SourceSnapshotReader | None:
-    """Creates a reader of the watched agent's snapshots in the source store.
+    """Creates a reader of the snapshots of the agent the state selects.
 
     Args:
         state: ADK session state containing effective configuration.
@@ -426,7 +507,7 @@ def _create_default_reader(state: ADKStateLike) -> SourceSnapshotReader | None:
     if store is None:
         return None
     return SourceSnapshotReader(
-        store=store, agent_name=effective_config.load(state).observed_agent_name
+        store=store, agent_key=effective_config.load(state).resolve_agent_key()
     )
 
 

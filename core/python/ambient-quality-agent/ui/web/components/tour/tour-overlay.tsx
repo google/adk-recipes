@@ -31,6 +31,8 @@ import {
   useTourStep,
 } from "@/lib/tour-state";
 import { HOME_SIDE_BY_SIDE, tourSteps, type TourStep } from "./tour-steps";
+import type { AgentKey } from "@/lib/aqua-api";
+import { useAgentKey } from "@/lib/agent-selection";
 
 /** How far the spotlight's ring stands off the element it frames, in px. */
 const RING_GAP = 6;
@@ -107,6 +109,7 @@ function OpenTour({ index }: { index: number }) {
   const step = steps[index];
   const router = useRouter();
   const client = useQueryClient();
+  const agentKey = useAgentKey();
   const titleId = useId();
   const bodyId = useId();
   const primary = useRef<HTMLButtonElement>(null);
@@ -118,6 +121,23 @@ function OpenTour({ index }: { index: number }) {
   const [arrivedAt, setArrivedAt] = useState<number | null>(null);
   const [via, setVia] = useState<Via | null>(null);
   const onPage = arrivedAt === index;
+  // Every step's page, resolved when the tour opens and again when the reader
+  // selects another agent, so the steps it skips and the count it shows agree:
+  // a step whose page is null is skipped and not counted.
+  const [pages, setPages] = useState<(string | null | undefined)[] | null>(
+    null,
+  );
+  useEffect(() => {
+    let current = true;
+    void Promise.all(
+      steps.map((each) => resolvePage(each, client, agentKey)),
+    ).then((resolved) => {
+      if (current) setPages(resolved);
+    });
+    return () => {
+      current = false;
+    };
+  }, [steps, client, agentKey]);
 
   const go = (to: number, from?: Element | null) => {
     pressed.current =
@@ -127,16 +147,16 @@ function OpenTour({ index }: { index: number }) {
     else showTourStep(Math.max(0, to));
   };
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: runs once per step; step and go follow from index, the pathname is read when the step opens, and the router and query client live as long as the app.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: runs once per step once the pages are resolved, and again when they are resolved for another agent; go follows from index, the pathname is read when the step opens, and the router lives as long as the app.
   useEffect(() => {
+    if (pages === null) return;
     let current = true;
     const timers: number[] = [];
     const wait = (ms: number) =>
       new Promise((resolve) => timers.push(window.setTimeout(resolve, ms)));
     const arrive = () => setArrivedAt(index);
     void (async () => {
-      const page = await resolvePage(step, client);
-      if (!current) return;
+      const page = pages[index];
       if (page === null) {
         go(index + direction.current);
         return;
@@ -171,7 +191,7 @@ function OpenTour({ index }: { index: number }) {
       for (const timer of timers) window.clearTimeout(timer);
       setVia(null);
     };
-  }, [index]);
+  }, [index, pages]);
 
   // Escape ends the tour from anywhere, including while the pointer is on
   // its way and the callout is not there to hear it.
@@ -208,6 +228,10 @@ function OpenTour({ index }: { index: number }) {
   const [shownIndex, setShownIndex] = useState(index);
   if (!hidden && shownIndex !== index) setShownIndex(index);
   const shown = steps[shownIndex];
+  const counted = (pages ?? []).filter((page) => page !== null).length;
+  const position = (pages ?? [])
+    .slice(0, shownIndex + 1)
+    .filter((page) => page !== null).length;
   const { hole } = spotlight;
 
   return (
@@ -285,7 +309,7 @@ function OpenTour({ index }: { index: number }) {
           </p>
           <div className="mt-4 flex items-center justify-between gap-3">
             <span className={textStyle.meta}>
-              {shownIndex + 1} of {steps.length}
+              {position} of {counted}
             </span>
             <div className="flex items-center gap-2">
               {shownIndex > 0 && (
@@ -400,10 +424,11 @@ function TourPointer({ via }: { via: Via }) {
 async function resolvePage(
   step: TourStep,
   client: QueryClient,
+  agentKey: AgentKey,
 ): Promise<string | null | undefined> {
   if (typeof step.page !== "function") return step.page;
   try {
-    return await step.page(client);
+    return await step.page(client, agentKey);
   } catch {
     return null;
   }
@@ -411,13 +436,14 @@ async function resolvePage(
 
 /** The link a reader would press to reach `page`: one on screen, looked for
  *  first in the page's content and then anywhere, so a link the page offers
- *  wins over the same one in the sidebar. Null when the open page has no such
- *  link. */
+ *  wins over the same one in the sidebar. A link with a query string matches
+ *  too, as every link carries the selected agent. Null when the open page has
+ *  no such link. */
 function findLinkTo(page: string): HTMLElement | null {
   const scopes = [document.querySelector("main"), document];
   for (const scope of scopes) {
     for (const link of scope?.querySelectorAll<HTMLElement>(
-      `a[href="${page}"]`,
+      `a[href="${page}"], a[href^="${page}?"]`,
     ) ?? []) {
       const rect = link.getBoundingClientRect();
       if (rect.width > 0 && rect.height > 0) return link;

@@ -87,3 +87,22 @@ def test_the_per_thread_factory_reuses_a_client_within_a_thread_only(
 
     assert factory() is factory()
     assert other[0] is not factory()
+
+
+def test_the_default_client_comes_from_the_shared_factory(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The shared factory is what attaches AQuA's client info to the requests.
+    from ambient_quality_agent import clients
+
+    calls: list[str | None] = []
+    client = FakeGcsClient()
+
+    def create(project: str | None = None) -> FakeGcsClient:
+        calls.append(project)
+        return client
+
+    monkeypatch.setattr(clients, "create_storage_client", create)
+
+    assert gcs.create_storage_client() is client
+    assert calls == [None]

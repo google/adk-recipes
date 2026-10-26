@@ -18,10 +18,12 @@ from __future__ import annotations
 
 import json
 import logging
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
 from agentplatform._genai.types import EvalCase
+from ambient_quality_agent.tools import genai_json
 from ambient_quality_agent.tools.agent_revision import AgentRevisionCache
 from ambient_quality_agent.tools.ingestion.message_parts import (
     RUNTIME_ERROR_RESPONSES,
@@ -861,3 +863,29 @@ def test_the_rules_name_every_runtime_error_response() -> None:
 
 def test_every_prompt_carries_the_runtime_error_rule() -> None:
     assert _prompt().count(_RUNTIME_ERROR_RULE) == 1
+
+
+def test_a_review_call_gets_the_default_per_attempt_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A review page waits for all its calls, so one call stalled with no
+    timeout hangs the whole investigation."""
+    from .conftest import make_config
+
+    captured: dict[str, Any] = {}
+
+    class _FakeClient:
+        def __init__(self, **kwargs: Any) -> None:
+            captured["http_options"] = kwargs.get("http_options")
+            self.models = SimpleNamespace(
+                generate_content=lambda **kw: SimpleNamespace(text="{}")
+            )
+
+    monkeypatch.setattr("ambient_quality_agent.config.config", make_config())
+    monkeypatch.setattr("google.genai.Client", _FakeClient)
+
+    session_review.call_review_model("prompt")
+
+    http_options = captured["http_options"]
+    assert http_options.timeout == genai_json.CALL_TIMEOUT_MS
+    assert http_options.retry_options.attempts == genai_json.CHUNK_ATTEMPTS

@@ -35,7 +35,6 @@ from unittest import mock
 import pytest
 from ambient_quality_agent import backends
 from ambient_quality_agent.core import nodes
-from ambient_quality_agent.core.nodes import _common
 from ambient_quality_agent.core.state import WorkflowState
 from ambient_quality_agent.tools.evaluation.models import MetricType
 from ambient_quality_agent.tools.ingestion.bigquery_fetcher import (
@@ -194,7 +193,7 @@ def test_the_fetcher_factory_binds_the_run_to_the_recorder() -> None:
     state = _state()
     with (
         mock.patch.object(backends.bigquery, "Client"),
-        mock.patch.object(_common, "storage"),
+        mock.patch("google.cloud.storage.Client"),
     ):
         recorder = backends.build_bigquery_bindings()["trajectory_recorder"](
             _ctx(state)
@@ -213,7 +212,7 @@ def test_one_store_covers_the_index_and_the_conversations() -> None:
     state = _state()
     with (
         mock.patch.object(backends.bigquery, "Client"),
-        mock.patch.object(_common, "storage"),
+        mock.patch("google.cloud.storage.Client"),
     ):
         recorder = backends.build_bigquery_bindings()["trajectory_recorder"](
             _ctx(state)

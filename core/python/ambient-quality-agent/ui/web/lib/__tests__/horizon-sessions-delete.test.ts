@@ -221,7 +221,9 @@ describe("deleteAllLhaSessions", () => {
       [],
     );
 
-    await expect(deleteAllLhaSessions()).resolves.toEqual({
+    await expect(
+      deleteAllLhaSessions({ shownKey: undefined, defaultKey: undefined }),
+    ).resolves.toEqual({
       deleted: 2,
       failed: 0,
     });
@@ -240,7 +242,7 @@ describe("deleteAllLhaSessions", () => {
     rememberLastChat("ctx-a");
     stubFetchRefusing([], []);
 
-    await deleteAllLhaSessions();
+    await deleteAllLhaSessions({ shownKey: undefined, defaultKey: undefined });
 
     expect(readLastChat()).toBeNull();
   });
@@ -250,7 +252,9 @@ describe("deleteAllLhaSessions", () => {
     rememberConversation("ctx-b", "stays");
     stubFetchRefusing([], ["ctx-b"]);
 
-    await expect(deleteAllLhaSessions()).resolves.toEqual({
+    await expect(
+      deleteAllLhaSessions({ shownKey: undefined, defaultKey: undefined }),
+    ).resolves.toEqual({
       deleted: 1,
       failed: 1,
     });

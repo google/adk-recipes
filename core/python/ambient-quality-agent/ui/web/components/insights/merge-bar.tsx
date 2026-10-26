@@ -14,6 +14,7 @@
 
 import type { InsightView } from "@/lib/aqua-api";
 import { Button } from "@/components/ui/button";
+import { InlineMarkdown } from "@/components/ui/inline-markdown";
 import { textStyle } from "@/lib/typography";
 import { cn } from "@/lib/utils";
 
@@ -78,7 +79,7 @@ export function MergeBar({
                 >
                   <span className="font-medium text-primary mr-1.5">Keep:</span>{" "}
                   <span className="truncate">
-                    {insight.diagnosis || insight.label}
+                    <InlineMarkdown text={insight.diagnosis || insight.label} />
                   </span>
                 </Button>
               </li>

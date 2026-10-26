@@ -16,7 +16,7 @@
 
 Uses direct REST calls to avoid a `google-cloud-storage` dependency.
 Accepts caller-defined :class:`Remediation` instructions to provide context-specific
-error guidance (e.g. for metrics publishing vs. trace dumping) on 403 or 404 responses.
+error guidance (e.g. for trace dumping) on 403 or 404 responses.
 """
 
 from __future__ import annotations
@@ -26,6 +26,8 @@ import dataclasses
 import json
 import urllib.parse
 from typing import TYPE_CHECKING, Any
+
+from ambient_quality_shared.usage_headers import build_usage_headers
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -66,6 +68,18 @@ def _translate_transport_errors(bucket: str) -> Iterator[None]:
         raise GcsError(
             f"could not reach gs://{bucket}: {type(exc).__name__}: {exc}"
         ) from exc
+
+
+def _build_headers(token: str) -> dict[str, str]:
+    """Builds a request's authorization and usage analytics headers.
+
+    Args:
+        token: OAuth2 access token.
+
+    Returns:
+        The headers, with AQuA's product token (see `build_usage_headers`).
+    """
+    return {"Authorization": f"Bearer {token}", **build_usage_headers()}
 
 
 @dataclasses.dataclass(frozen=True)
@@ -110,7 +124,7 @@ def list_objects(
             response = httpx.get(
                 f"{_BASE}/{urllib.parse.quote(bucket, safe='')}/o",
                 params=params,
-                headers={"Authorization": f"Bearer {token}"},
+                headers=_build_headers(token),
                 timeout=_READ_TIMEOUT,
             )
         raise_for_status(response, bucket, remediation)
@@ -142,7 +156,7 @@ def read(bucket: str, token: str, name: str, remediation: Remediation) -> bytes:
         response = httpx.get(
             _build_object_url(bucket, name),
             params={"alt": "media"},
-            headers={"Authorization": f"Bearer {token}"},
+            headers=_build_headers(token),
             timeout=_READ_TIMEOUT,
         )
     raise_for_status(response, bucket, remediation)
@@ -176,7 +190,7 @@ def stream(
             "GET",
             _build_object_url(bucket, name),
             params={"alt": "media"},
-            headers={"Authorization": f"Bearer {token}"},
+            headers=_build_headers(token),
             timeout=_READ_TIMEOUT,
         ) as response,
     ):
@@ -209,7 +223,7 @@ def upload(
             f"{_UPLOAD}/{urllib.parse.quote(bucket, safe='')}/o",
             params={"uploadType": "media", "name": name},
             headers={
-                "Authorization": f"Bearer {token}",
+                **_build_headers(token),
                 "Content-Type": "application/octet-stream",
             },
             content=body,
@@ -237,7 +251,7 @@ def delete(
     with _translate_transport_errors(bucket):
         response = httpx.delete(
             _build_object_url(bucket, name),
-            headers={"Authorization": f"Bearer {token}"},
+            headers=_build_headers(token),
             timeout=_READ_TIMEOUT,
         )
     if response.status_code == 404:

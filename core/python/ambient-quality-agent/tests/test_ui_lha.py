@@ -30,6 +30,7 @@ from typing import Any
 import httpx
 import pytest
 import task_reader
+from google.api_core.exceptions import NotFound
 
 # The UI is not a package -- it is flattened to the image root -- so `app` and
 # `task_reader` are top-level modules. `pythonpath` in pyproject.toml puts both
@@ -54,10 +55,17 @@ class _Blob:
             raise RuntimeError("503 backend error")
         return str(payload).encode("utf-8")
 
+    def upload_from_string(self, payload: str, content_type: str = "") -> None:
+        del content_type
+        self._store[self.name] = payload
+
     def delete(self) -> None:
         if self.name in self._undeletable:
             raise RuntimeError("403 forbidden")
-        self._store.pop(self.name, None)
+        if self.name not in self._store:
+            # Matches Cloud Storage, which refuses to delete a missing object.
+            raise NotFound(self.name)
+        del self._store[self.name]
 
 
 _UNREADABLE = object()
@@ -84,6 +92,15 @@ class _Client:
             for name in sorted(self._store)
             if name.startswith(prefix)
         ]
+
+    def bucket(self, _name: str) -> Any:
+        store, undeletable = self._store, self._undeletable
+
+        class _Bucket:
+            def blob(self, name: str) -> _Blob:
+                return _Blob(store, name, undeletable)
+
+        return _Bucket()
 
 
 @pytest.fixture
@@ -128,6 +145,60 @@ async def _delete(path: str) -> httpx.Response:
         transport=transport, base_url="http://test"
     ) as client:
         return await client.delete(path)
+
+
+async def _put(path: str, **kwargs: Any) -> httpx.Response:
+    transport = httpx.ASGITransport(app=ui_app.app)
+    async with httpx.AsyncClient(
+        transport=transport, base_url="http://test"
+    ) as client:
+        return await client.put(path, **kwargs)
+
+
+def _write_with_message(
+    store: dict[str, Any],
+    task_id: str,
+    context_id: str,
+    stamp: str,
+    history: list[dict[str, Any]],
+) -> None:
+    """Encodes a task with a history in proto JSON format.
+
+    Args:
+        store: Storage mapping where the task object will be written.
+        task_id: Unique task identifier.
+        context_id: Context identifier grouping conversation tasks.
+        stamp: Completion timestamp string in RFC 3339 format.
+        history: Messages in proto JSON form, oldest first.
+    """
+    _write(store, task_id, context_id, stamp)
+    task = json.loads(store[f"tasks/{task_id}.json"])
+    task["history"] = history
+    store[f"tasks/{task_id}.json"] = json.dumps(task)
+
+
+def _build_user_message(*texts: str) -> dict[str, Any]:
+    """Builds a user message in proto JSON form.
+
+    Args:
+        *texts: Text of each part, in order.
+
+    Returns:
+        The message dictionary.
+    """
+    return {"role": "ROLE_USER", "parts": [{"text": t} for t in texts]}
+
+
+def _build_agent_message(text: str) -> dict[str, Any]:
+    """Builds an agent message in proto JSON form.
+
+    Args:
+        text: Text of the message's one part.
+
+    Returns:
+        The message dictionary.
+    """
+    return {"role": "ROLE_AGENT", "parts": [{"text": text}]}
 
 
 # --- the surfaces AQuA does not have --------------------------------------- #
@@ -404,6 +475,312 @@ def test_a_partial_erase_is_never_reported_as_a_clean_one(
     assert sorted(objects) == ["tasks/t2.json"]
 
 
+# --- the first message --------------------------------------------------------- #
+
+
+def test_contexts_report_the_first_user_message_of_the_oldest_task(
+    objects: dict[str, Any],
+) -> None:
+    """A browser that never saw the chat builds its name from this field, so it
+    must hold the opening message rather than a later turn."""
+    _write_with_message(
+        objects,
+        "t-new",
+        "ctx-a",
+        "2026-09-02T10:00:00Z",
+        [_build_user_message("a later question")],
+    )
+    _write_with_message(
+        objects,
+        "t-old",
+        "ctx-a",
+        "2026-09-01T10:00:00Z",
+        [
+            _build_agent_message("hello"),
+            _build_user_message("why did", "  create_ticket\n fail?"),
+            _build_user_message("x"),
+        ],
+    )
+
+    contexts = asyncio.run(_get("/lha/contexts")).json()["contexts"]
+
+    assert contexts[0]["first_message"] == "why did create_ticket fail?"
+
+
+def test_a_conversation_with_no_user_text_has_no_first_message(
+    objects: dict[str, Any],
+) -> None:
+    _write(objects, "t1", "ctx-a", "2026-09-01T10:00:00Z")
+    _write_with_message(
+        objects,
+        "t2",
+        "ctx-b",
+        "2026-09-02T10:00:00Z",
+        [
+            {"role": "ROLE_USER", "parts": [{"url": "gs://x"}]},
+            _build_agent_message("hi"),
+        ],
+    )
+
+    contexts = asyncio.run(_get("/lha/contexts")).json()["contexts"]
+
+    assert [c["first_message"] for c in contexts] == [None, None]
+
+
+def test_contexts_report_the_agent_the_first_user_message_names(
+    objects: dict[str, Any],
+) -> None:
+    """The dashboard lists each agent's conversations apart, by this field."""
+    _write_with_message(
+        objects,
+        "t1",
+        "ctx-a",
+        "2026-09-01T10:00:00Z",
+        [
+            _build_user_message("no key on this one"),
+            {
+                **_build_user_message("why?"),
+                "metadata": {"agent_key": "acme-prod__support"},
+            },
+        ],
+    )
+
+    contexts = asyncio.run(_get("/lha/contexts")).json()["contexts"]
+
+    assert contexts[0]["agent_key"] == "acme-prod__support"
+
+
+def test_a_conversation_whose_messages_name_no_agent_has_no_agent_key(
+    objects: dict[str, Any],
+) -> None:
+    _write(objects, "t1", "ctx-a", "2026-09-01T10:00:00Z")
+    _write_with_message(
+        objects,
+        "t2",
+        "ctx-b",
+        "2026-09-02T10:00:00Z",
+        [
+            {**_build_user_message("hi"), "metadata": {"agent_key": "  "}},
+            {**_build_agent_message("hi"), "metadata": {"agent_key": "x"}},
+        ],
+    )
+
+    contexts = asyncio.run(_get("/lha/contexts")).json()["contexts"]
+
+    assert [c["agent_key"] for c in contexts] == [None, None]
+
+
+def test_the_first_message_is_bounded(objects: dict[str, Any]) -> None:
+    _write_with_message(
+        objects,
+        "t1",
+        "ctx-a",
+        "2026-09-01T10:00:00Z",
+        [_build_user_message("y" * 5000)],
+    )
+
+    contexts = asyncio.run(_get("/lha/contexts")).json()["contexts"]
+
+    assert contexts[0]["first_message"] == (
+        "y" * task_reader.FIRST_MESSAGE_MAX_LENGTH
+    )
+
+
+# --- chat names ------------------------------------------------------------------ #
+
+
+def test_a_saved_name_is_listed_with_its_conversation(
+    objects: dict[str, Any],
+) -> None:
+    """The server must return the saved name so other browsers do not fall back
+    to the first message or "Untitled chat"."""
+    _write(objects, "t1", "ctx-a", "2026-09-01T10:00:00Z")
+    _write(objects, "t2", "ctx-b", "2026-09-02T10:00:00Z")
+
+    resp = asyncio.run(
+        _put("/lha/contexts/ctx-a/title", json={"title": "  Ticket bug  "})
+    )
+
+    assert resp.status_code == 200
+    assert resp.json() == {"title": "Ticket bug"}
+    assert json.loads(objects["chat-titles/ctx-a.json"]) == {
+        "title": "Ticket bug"
+    }
+    contexts = asyncio.run(_get("/lha/contexts")).json()["contexts"]
+    assert {c["context_id"]: c["title"] for c in contexts} == {
+        "ctx-a": "Ticket bug",
+        "ctx-b": None,
+    }
+
+
+def test_a_second_rename_replaces_the_first(objects: dict[str, Any]) -> None:
+    _write(objects, "t1", "ctx-a", "2026-09-01T10:00:00Z")
+
+    asyncio.run(_put("/lha/contexts/ctx-a/title", json={"title": "one"}))
+    asyncio.run(_put("/lha/contexts/ctx-a/title", json={"title": "two"}))
+
+    contexts = asyncio.run(_get("/lha/contexts")).json()["contexts"]
+    assert contexts[0]["title"] == "two"
+
+
+def test_a_name_for_an_unknown_conversation_is_not_listed(
+    objects: dict[str, Any],
+) -> None:
+    """The listing includes only conversations that have tasks; a saved name
+    alone does not create a conversation entry."""
+    _write(objects, "t1", "ctx-a", "2026-09-01T10:00:00Z")
+    objects["chat-titles/ctx-gone.json"] = json.dumps({"title": "orphan"})
+
+    contexts = asyncio.run(_get("/lha/contexts")).json()["contexts"]
+
+    assert [(c["context_id"], c["title"]) for c in contexts] == [
+        ("ctx-a", None)
+    ]
+
+
+def test_one_unreadable_name_does_not_fail_the_listing(
+    objects: dict[str, Any],
+) -> None:
+    _write(objects, "t1", "ctx-a", "2026-09-01T10:00:00Z")
+    _write(objects, "t2", "ctx-b", "2026-09-02T10:00:00Z")
+    objects["chat-titles/ctx-a.json"] = _UNREADABLE
+    objects["chat-titles/ctx-b.json"] = json.dumps({"title": "kept"})
+
+    resp = asyncio.run(_get("/lha/contexts"))
+
+    assert resp.status_code == 200
+    assert {c["context_id"]: c["title"] for c in resp.json()["contexts"]} == {
+        "ctx-a": None,
+        "ctx-b": "kept",
+    }
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"title": ""},
+        {"title": "   "},
+        {"title": None},
+        {"title": 7},
+        {},
+        ["title"],
+        {"title": "x" * 201},
+    ],
+)
+def test_a_blank_or_oversized_name_is_refused(
+    objects: dict[str, Any], body: Any
+) -> None:
+    resp = asyncio.run(_put("/lha/contexts/ctx-a/title", json=body))
+
+    assert resp.status_code == 400
+    assert resp.json()["error"]
+    assert not [name for name in objects if name.startswith("chat-titles/")]
+
+
+def test_a_name_at_the_cap_is_saved(objects: dict[str, Any]) -> None:
+    resp = asyncio.run(
+        _put("/lha/contexts/ctx-a/title", json={"title": "x" * 200})
+    )
+
+    assert resp.status_code == 200
+
+
+def test_a_non_json_rename_is_refused(objects: dict[str, Any]) -> None:
+    resp = asyncio.run(
+        _put(
+            "/lha/contexts/ctx-a/title",
+            content=b"not json",
+            headers={"content-type": "application/json"},
+        )
+    )
+
+    assert resp.status_code == 400
+    assert resp.json()["error"] == "Expected a JSON body."
+
+
+def test_a_rename_without_a_bucket_says_so(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The client falls back to a local rename on HTTP 501."""
+    monkeypatch.setenv("AQA_JOBS_GCS_BUCKET", "")
+
+    resp = asyncio.run(_put("/lha/contexts/ctx-a/title", json={"title": "x"}))
+
+    assert resp.status_code == 501
+    assert resp.json()["error"] == "not available in AQuA"
+
+
+def test_a_failed_save_is_an_error(
+    objects: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def raise_forbidden() -> Any:
+        raise RuntimeError("403 forbidden")
+
+    monkeypatch.setattr(task_reader, "_create_storage_client", raise_forbidden)
+
+    resp = asyncio.run(_put("/lha/contexts/ctx-a/title", json={"title": "x"}))
+
+    assert resp.status_code == 502
+    assert resp.json()["error"] == "RuntimeError: 403 forbidden"
+
+
+def test_the_rename_route_is_not_shadowed_by_the_lha_catch_all(
+    objects: dict[str, Any],
+) -> None:
+    """FastAPI matches in registration order, so a rename registered after
+    `/lha/{area}/{rest:path}` would answer 501 in every deployment."""
+    resp = asyncio.run(_put("/lha/contexts/ctx-a/title", json={"title": "x"}))
+
+    assert resp.status_code == 200
+    assert "chat-titles/ctx-a.json" in objects
+
+
+def test_a_context_id_with_a_slash_stays_under_the_titles_prefix(
+    objects: dict[str, Any],
+) -> None:
+    """A slash would otherwise let a name overwrite a task transcript or an
+    investigation artifact in the same bucket."""
+    asyncio.run(task_reader.save_context_title("jobs", "../tasks/t1", "x"))
+
+    assert sorted(objects) == ["chat-titles/.._tasks_t1.json"]
+
+
+def test_an_empty_context_id_cannot_be_named(objects: dict[str, Any]) -> None:
+    """Tasks without a `contextId` all read as `""`, so one name would label
+    every malformed conversation."""
+    with pytest.raises(ValueError):
+        asyncio.run(task_reader.save_context_title("jobs", "", "x"))
+
+    assert objects == {}
+
+
+def test_deleting_a_conversation_removes_its_saved_name(
+    objects: dict[str, Any],
+) -> None:
+    _write(objects, "t1", "ctx-a", "2026-09-01T10:00:00Z")
+    objects["chat-titles/ctx-a.json"] = json.dumps({"title": "gone"})
+    objects["chat-titles/ctx-b.json"] = json.dumps({"title": "kept"})
+
+    resp = asyncio.run(_delete("/lha/contexts/ctx-a"))
+
+    assert resp.status_code == 200
+    # The count includes only task blobs, not the saved name.
+    assert resp.json() == {"deleted": 1}
+    assert sorted(objects) == ["chat-titles/ctx-b.json"]
+
+
+def test_deleting_a_conversation_with_no_saved_name_is_not_an_error(
+    objects: dict[str, Any],
+) -> None:
+    _write(objects, "t1", "ctx-a", "2026-09-01T10:00:00Z")
+
+    resp = asyncio.run(_delete("/lha/contexts/ctx-a"))
+
+    assert resp.status_code == 200
+    assert resp.json() == {"deleted": 1}
+    assert objects == {}
+
+
 # --- the contract with the agent's writer ------------------------------------ #
 
 
@@ -416,7 +793,8 @@ def test_the_reader_parses_what_the_agents_writer_produces(
     its bytes back through the UI's reader.
 
     This is what pins `contextId` as lowerCamelCase, the `tasks/<id>.json`
-    layout, and the RFC 3339 timestamp the sort depends on.
+    layout, the RFC 3339 timestamp the sort depends on, and the `history`
+    role, text and metadata encoding the first message is read from.
     """
     from a2a.types import a2a_pb2
     from ambient_quality_agent.app_utils.task_store import GcsTaskStore
@@ -442,6 +820,13 @@ def test_the_reader_parses_what_the_agents_writer_produces(
     task.context_id = "ctx-real"
     task.status.state = a2a_pb2.TaskState.Value("TASK_STATE_COMPLETED")
     task.status.timestamp.FromJsonString("2026-09-07T12:00:00Z")
+    question = task.history.add()
+    question.role = a2a_pb2.Role.Value("ROLE_USER")
+    question.parts.add().text = "why did create_ticket fail?"
+    question.metadata.update({"agent_key": "acme-prod__support"})
+    answer = task.history.add()
+    answer.role = a2a_pb2.Role.Value("ROLE_AGENT")
+    answer.parts.add().text = "It timed out."
 
     monkeypatch.setattr(gcs, "create_storage_client", _WriterClient)
     asyncio.run(GcsTaskStore("jobs").save(task, None))
@@ -456,5 +841,53 @@ def test_the_reader_parses_what_the_agents_writer_produces(
             "context_id": "ctx-real",
             "task_ids": ["t-real"],
             "updated_at": "2026-09-07T12:00:00Z",
+            "title": None,
+            "first_message": "why did create_ticket fail?",
+            "agent_key": "acme-prod__support",
         }
     ]
+
+
+def _use_anonymous_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Lets the storage client build without real credentials.
+
+    Args:
+        monkeypatch: Replaces `google.auth.default` for the calling test.
+    """
+    import google.auth
+    from google.auth.credentials import AnonymousCredentials
+
+    monkeypatch.setattr(
+        google.auth,
+        "default",
+        lambda *a, **k: (AnonymousCredentials(), "test-project"),
+    )
+
+
+def test_the_storage_client_sends_the_product_token(
+    monkeypatch: pytest.MonkeyPatch, usage_analytics_on
+) -> None:
+    from ambient_quality_shared.usage_headers import build_product_token
+
+    _use_anonymous_credentials(monkeypatch)
+
+    client = task_reader._create_storage_client()
+
+    assert client._connection.user_agent.startswith(f"{build_product_token()} ")
+
+
+def test_the_storage_client_is_the_librarys_with_the_switch_off(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from ambient_quality_shared import usage_headers
+    from google.cloud import storage
+
+    monkeypatch.setattr(usage_headers, "USAGE_ANALYTICS_ENABLED", False)
+    _use_anonymous_credentials(monkeypatch)
+
+    client = task_reader._create_storage_client()
+
+    assert (
+        client._connection.user_agent
+        == storage.Client(project="test-project")._connection.user_agent
+    )

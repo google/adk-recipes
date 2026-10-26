@@ -36,8 +36,9 @@ reads.
 - **Goal, memories and attached agent configuration**: Files under
   `files.JOBS_DIR` in place of the jobs bucket, laid out as the bucket is. They
   outlive the process, unlike the in-memory store.
-- **Source snapshot and metric library**: Degrade gracefully when cloud storage
-  is unavailable.
+- **Source snapshots and the metric library**: Files under `.aqua/source/` and
+  `.aqua/metrics/`, beside `files.JOBS_DIR`, in place of the source and metrics
+  buckets.
 """
 
 from __future__ import annotations
@@ -45,8 +46,10 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from ambient_quality_agent import config as config_module
 from ambient_quality_agent.standalone.files import (
     JOBS_DIR,
+    METRICS_DIR_NAME,
     SOURCE_DIR_NAME,
     FileObjectStore,
 )
@@ -104,22 +107,25 @@ def build_bindings(
         callables.
     """
 
-    def resolve_observed_agent_name(state: Any) -> str:
-        """Resolves the observed agent name from the effective configuration.
+    def resolve_agent_key(state: Any) -> str:
+        """Resolves the key the agent's rows are stored under.
 
         Args:
             state: Request or execution state containing configuration.
 
         Returns:
-            The configured observed agent name.
+            The agent's key (`Config.resolve_agent_key`).
         """
-        return effective_config.load(state).observed_agent_name
+        return effective_config.load(state).resolve_agent_key()
 
     jobs = FileObjectStore(jobs_dir)
     source = FileObjectStore(jobs_dir.parent / SOURCE_DIR_NAME)
+    metrics = FileObjectStore(jobs_dir.parent / METRICS_DIR_NAME)
     return {
         # Investigation lifecycle tracking and run metadata.
-        "investigation_store": lambda state: InMemoryInvestigationStore(store),
+        "investigation_store": lambda state: InMemoryInvestigationStore(
+            store, agent_name=resolve_agent_key(state)
+        ),
         # Appends workflow progress events to the investigation store.
         "event_writer": lambda state, text, source: InMemoryInvestigationStore(
             store
@@ -127,37 +133,39 @@ def build_bindings(
         # Writes sweep insights to memory while preserving model-based matching.
         "insight_writer": lambda ctx: InMemoryInsightStore(
             store,
-            agent_name=ctx.state["observed_agent_name"],
+            agent_name=config_module.extract_agent_key(ctx.state),
             matcher=_build_matcher(ctx),
         ),
         "trajectory_recorder": lambda ctx: TrajectoryRecorder(
             store=InMemoryTrajectoryStore(
-                store, agent_name=ctx.state["observed_agent_name"]
+                store, agent_name=config_module.extract_agent_key(ctx.state)
             ),
             run_id=ctx.state.get("run_id", ""),
-            agent_name=ctx.state["observed_agent_name"],
+            agent_name=config_module.extract_agent_key(ctx.state),
             source=ctx.state.get("telemetry_ingestion_source", ""),
         ),
         "root_cause_writer": lambda state: InMemoryRootCauseStore(store),
         # Read-only and interactive interfaces for dashboard and chat tools.
         "insight_reader": lambda state: InMemoryInsightReader(
-            store, agent_name=resolve_observed_agent_name(state)
+            store, agent_name=resolve_agent_key(state)
         ),
         "insight_store": lambda state: InMemoryInsightStore(
-            store, agent_name=resolve_observed_agent_name(state)
+            store, agent_name=resolve_agent_key(state)
         ),
         "trajectory_reader": lambda state: InMemoryTrajectoryReader(
-            store, agent_name=resolve_observed_agent_name(state)
+            store, agent_name=resolve_agent_key(state)
         ),
         # A preview's conversations join the sweeps' in the one archive, as they
         # do in BigQuery's `trajectory_payloads`.
         "preview_trajectory_store": lambda config: InMemoryTrajectoryStore(
-            store, agent_name=config.observed_agent_name
+            store, agent_name=config.resolve_agent_key()
         ),
         # The goal, the memories and the attached agents' configurations.
         "jobs_store": lambda: jobs,
         # The observed agents' source snapshots, beside the jobs directory.
         "source_store": lambda: source,
+        # The published code-metric library, beside the jobs directory.
+        "metrics_store": lambda: metrics,
     }
 
 

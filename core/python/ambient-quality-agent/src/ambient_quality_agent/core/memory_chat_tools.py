@@ -28,7 +28,7 @@ import re
 from typing import Any
 
 from ambient_quality_agent.tools.documents import memories as memories_doc
-from ambient_quality_agent.tools.objects import store as objects
+from ambient_quality_agent.tools.orchestrator import document_tools
 from google.adk.tools import ToolContext
 
 logger = logging.getLogger(__name__)
@@ -80,10 +80,11 @@ async def remember(text: str, tool_context: ToolContext) -> dict[str, Any]:
         }
     try:
         memory, created = await asyncio.to_thread(
-            memories_doc.record_memory,
-            objects.jobs_store_factory(),
-            text,
-            source=tool_context.session.id,
+            lambda: memories_doc.record_memory(
+                document_tools.resolve_selected_document_store(tool_context),
+                text,
+                source=tool_context.session.id,
+            )
         )
     except ValueError as exc:
         return {"error": str(exc)}
@@ -109,10 +110,11 @@ async def get_memories(tool_context: ToolContext) -> dict[str, Any]:
         on how to read them, and ``available``; or ``available`` False with a
         ``reason``.
     """
-    del tool_context
     try:
         found = await asyncio.to_thread(
-            memories_doc.load_memories, objects.jobs_store_factory()
+            lambda: memories_doc.load_memories(
+                document_tools.resolve_selected_document_store(tool_context)
+            )
         )
     except Exception as exc:
         logger.warning("memory: reading failed: %s", exc)

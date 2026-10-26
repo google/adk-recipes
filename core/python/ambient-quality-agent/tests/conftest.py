@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import datetime as dt
+import json
 import os
 import pathlib
 import types
@@ -29,7 +30,6 @@ from typing import Any
 # when `ambient_quality_agent` calls `load_dotenv()`.
 os.environ["PYTHON_DOTENV_DISABLED"] = "1"
 
-os.environ.setdefault("AQA_OBSERVED_AGENT_NAME", "test-observed-agent")
 os.environ.setdefault("GOOGLE_CLOUD_PROJECT", "test-project")
 os.environ.setdefault("GOOGLE_CLOUD_LOCATION", "us-central1")
 
@@ -65,6 +65,7 @@ from ambient_quality_agent.tools.investigations.models import (
 )
 from ambient_quality_agent.tools.investigations.store import DEFAULT_LIST_LIMIT
 from google.auth.credentials import AnonymousCredentials, Credentials
+from google.cloud import bigquery
 from google.genai import types as gt
 
 REAL_GOOGLE_AUTH_DEFAULT = google.auth.default
@@ -776,6 +777,24 @@ def jobs_store(tmp_path: pathlib.Path) -> Iterator[FileObjectStore]:
 
 
 @pytest.fixture(autouse=True)
+def metrics_store(tmp_path: pathlib.Path) -> Iterator[FileObjectStore]:
+    """Point the metrics store at an empty directory of this test's own.
+
+    Autouse for the reason `jobs_store` is: a published library is executed,
+    so no test may read one from a real bucket by omission.
+    """
+    from ambient_quality_agent.tools.objects import store as objects
+
+    store = FileObjectStore(tmp_path / "metrics")
+    original = objects.metrics_store_factory
+    objects.metrics_store_factory = lambda: store
+    try:
+        yield store
+    finally:
+        objects.metrics_store_factory = original
+
+
+@pytest.fixture(autouse=True)
 def _no_cached_agent_config() -> Iterator[None]:
     """Start and finish each test with an empty agent-config cache.
 
@@ -1153,3 +1172,27 @@ def make_code_metric(
         return outcome
 
     return CodeMetric(name=name, expected=expected, evaluate=evaluate)
+
+
+def load_schema_fixture(name: str) -> list[bigquery.SchemaField]:
+    """Loads the columns of a table captured in `tests/fixtures/telemetry_schemas`.
+
+    Args:
+        name: The fixture's file name, such as ``all_spans_view.json``.
+
+    Returns:
+        The table's columns, in order.
+    """
+    path = (
+        pathlib.Path(__file__).parent / "fixtures" / "telemetry_schemas" / name
+    )
+    columns = json.loads(path.read_text(encoding="utf-8"))["columns"]
+    return [bigquery.SchemaField.from_api_repr(column) for column in columns]
+
+
+@pytest.fixture
+def usage_analytics_on(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Turns on the usage analytics headers, whatever the release's default."""
+    from ambient_quality_shared import usage_headers
+
+    monkeypatch.setattr(usage_headers, "USAGE_ANALYTICS_ENABLED", True)

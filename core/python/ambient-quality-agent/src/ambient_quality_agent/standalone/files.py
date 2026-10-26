@@ -40,6 +40,11 @@ SOURCE_DIR_NAME = "source"
 """Where a standalone run keeps the source snapshots: `.aqua/source/`, beside
 the jobs directory, as the source bucket is beside the jobs bucket."""
 
+METRICS_DIR_NAME = "metrics"
+"""Where a standalone run keeps the published code-metric library:
+`.aqua/metrics/`, beside the jobs directory, as the metrics bucket is beside
+the jobs bucket."""
+
 
 class FileObjectStore:
     """Objects at `<root>/<name>`."""

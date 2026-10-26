@@ -647,3 +647,66 @@ def test_the_store_starts_empty() -> None:
 
     assert store.runs == {}
     assert store.list_run_events("anything") == ()
+
+
+# --- one agent's runs (standalone) ------------------------------------------ #
+# The BigQuery side's scoping is SQL, which `test_investigation_store` covers;
+# `FakeInvestigationStore` replaces those reads, so it cannot be held to it here.
+
+
+def test_the_standalone_store_lists_only_its_agents_runs() -> None:
+    backing = InMemoryStore()
+    staging = InMemoryInvestigationStore(
+        backing, agent_name="acme-staging__it_support_agent"
+    )
+    prod = InMemoryInvestigationStore(
+        backing, agent_name="acme-prod__it_support_agent"
+    )
+    for store, run_id in ((staging, "s1"), (prod, "p1")):
+        store.append(
+            InvestigationRecord(
+                run_id=run_id,
+                status=RunStatus.DONE,
+                observed_agent_name=store._agent_name,
+                window_end="2026-06-01T00:00:00+00:00",
+            )
+        )
+
+    assert [r.run_id for r in staging.list_recent()] == ["s1"]
+    assert staging.sum_counters()[0]["investigations"] == 1
+    assert [d["investigations"] for d in staging.sum_counters_by_day()] == [1]
+
+
+def test_the_standalone_store_reads_any_agents_run_by_its_id() -> None:
+    """Run ids are unique across agents, so a job that selects no agent still
+    finds the run it was started for."""
+    backing = InMemoryStore()
+    staging = InMemoryInvestigationStore(backing, agent_name="staging")
+    staging.append(
+        InvestigationRecord(run_id="s1", observed_agent_name="staging")
+    )
+    staging.append_event("s1", "step\n")
+
+    record = InMemoryInvestigationStore(backing, agent_name="prod").get("s1")
+
+    assert record is not None
+    assert [e.text for e in record.events] == ["step\n"]
+
+
+def test_the_standalone_store_fails_every_agents_lost_runs() -> None:
+    """Every agent's runs share one grace period, so any launch clears them
+    all."""
+    backing = InMemoryStore()
+    for agent in ("a", "b"):
+        InMemoryInvestigationStore(backing, agent_name=agent).append(
+            InvestigationRecord(
+                run_id=f"{agent}1",
+                status=RunStatus.SCHEDULED,
+                observed_agent_name=agent,
+                due_at="2026-01-01T00:00:00+00:00",
+            )
+        )
+
+    store = InMemoryInvestigationStore(backing, agent_name="a")
+
+    assert sorted(store.list_overdue_scheduled(grace_minutes=1)) == ["a1", "b1"]

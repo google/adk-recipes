@@ -24,6 +24,8 @@ import contextlib
 import datetime as dt
 import json
 import pathlib
+import subprocess
+import sys
 import zipfile
 from typing import Any
 
@@ -32,6 +34,7 @@ from ambient_quality_agent.telemetry import gcs_span_exporter
 from ambient_quality_agent.telemetry.gcs_span_exporter import GcsSpanExporter
 from ambient_quality_cli import aqua_cli, traces
 from ambient_quality_cli import gcs as gcs_lib
+from ambient_quality_shared.schemas import SCHEMA_DIR
 from ambient_quality_shared.telemetry import SPAN_OBJECT_PREFIX
 from ambient_quality_shared.terraform_state import (
     DEPLOYMENT_KEY,
@@ -45,12 +48,7 @@ from opentelemetry.trace.status import Status, StatusCode
 _BUCKET = "observed-agent-aqua-jobs"
 _TRACE_ID = 0x0123456789ABCDEF0123456789ABCDEF
 
-_SCHEMA_PATH = (
-    pathlib.Path(__file__).resolve().parents[1]
-    / "src"
-    / "ambient_quality_cli"
-    / "all_spans.schema.json"
-)
+_SCHEMA_PATH = SCHEMA_DIR / "all_spans.schema.json"
 
 
 # --------------------------------------------------------------------------- #
@@ -436,8 +434,8 @@ def test_the_archive_carries_spans_schema_manifest_and_readme(
         assert archive.read(traces.SCHEMA_ENTRY) == _SCHEMA_PATH.read_bytes()
         readme = archive.read(traces.README_ENTRY).decode()
     assert "bq load" in readme
-    assert "TELEMETRY_INGESTION_SOURCE=cloud_ops" in readme
-    assert "AQA_TELEMETRY_TABLE=all_spans" in readme
+    assert "--telemetry-source cloud_ops" in readme
+    assert "--telemetry-table all_spans" in readme
 
 
 def test_every_row_lands_in_one_span_entry(tmp_path, fake_gcs) -> None:
@@ -848,7 +846,7 @@ def test_an_inverted_range_is_refused(project) -> None:
 
 
 # --------------------------------------------------------------------------- #
-# Shared bucket access: one implementation, two remediations                   #
+# Bucket access errors name the grant to ask for                               #
 # --------------------------------------------------------------------------- #
 class _Response:
     def __init__(self, status: int) -> None:
@@ -859,15 +857,9 @@ class _Response:
         return {}
 
 
-def test_each_caller_gets_its_own_remediation() -> None:
-    # Verifies each caller provides its own context-specific remediation for GCS errors.
+def test_a_403_names_the_trace_readers_grant() -> None:
     with pytest.raises(gcs_lib.GcsError, match="trace_readers"):
         gcs_lib.raise_for_status(_Response(403), _BUCKET, traces.REMEDIATION)
-
-    from ambient_quality_cli import metrics as metrics_lib
-
-    with pytest.raises(metrics_lib.ValidationError, match="metrics_writers"):
-        metrics_lib._raise_for_gcs(_Response(403), _BUCKET)
 
 
 def test_the_manifest_records_the_config_without_nesting_it_twice(
@@ -935,3 +927,22 @@ def test_the_engine_location_is_read_off_the_resource_name() -> None:
         == "europe-west4"
     )
     assert aqua_cli._extract_engine_location("not-a-resource-name") == ""
+
+
+def test_the_cli_imports_the_schemas_without_agent_dependencies() -> None:
+    """The vendored CLI runs with few dependencies, and the trace dump imports
+    the shared schema package."""
+    code = (
+        "import sys\n"
+        "before = set(sys.modules)\n"
+        "import ambient_quality_cli.traces, ambient_quality_shared.schemas\n"
+        "loaded = set(sys.modules) - before\n"
+        "print(sorted(m for m in loaded if m.startswith(("
+        "'google.cloud', 'google.adk', 'ambient_quality_agent'))))"
+    )
+
+    result = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, check=True
+    )
+
+    assert result.stdout.strip() == "[]"

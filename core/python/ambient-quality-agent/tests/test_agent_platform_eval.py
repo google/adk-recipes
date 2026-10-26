@@ -30,7 +30,7 @@ from ambient_quality_agent.tools.evaluation.models import MetricType
 _PROJECT = "test-project"
 _LOCATION = "us-central1"
 
-_CLIENT_PATH = "ambient_quality_agent.tools.evaluation.agent_platform_eval.agentplatform.Client"
+_CLIENT_PATH = "agentplatform.Client"
 
 
 @pytest.fixture

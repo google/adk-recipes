@@ -199,7 +199,7 @@ def _install(
 ) -> None:
     """Patch effective_config.load to return test configuration with overrides."""
     config = make_config(
-        observed_agent_name=_AGENT, project_id=_PROJECT, **overrides
+        **{"observed_agent_name": _AGENT, "project_id": _PROJECT, **overrides}
     )
     monkeypatch.setattr(preview.effective_config, "load", lambda _state: config)
 
@@ -548,6 +548,18 @@ def test_an_eval_service_deployment_is_refused(
     _install(harness, monkeypatch, quality_analysis_mode="eval_service")
 
     with pytest.raises(ValueError, match="session_review"):
+        asyncio.run(_preview(harness))
+
+    assert harness.fetcher.calls == []
+
+
+def test_a_deployment_with_no_agent_attached_is_refused(
+    harness: Harness, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With no agent the selector would filter on an empty name and match nothing."""
+    _install(harness, monkeypatch, observed_agent_name="")
+
+    with pytest.raises(ValueError, match="agents-cli aqua attach"):
         asyncio.run(_preview(harness))
 
     assert harness.fetcher.calls == []
