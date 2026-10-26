@@ -45,7 +45,7 @@ describe("insightQuery", () => {
       ],
     });
 
-    const detail = await insightQuery("ins-1").queryFn();
+    const detail = await insightQuery(undefined, "ins-1").queryFn();
     const [occurrence] = detail.occurrences;
 
     // `occurrence.evidence_case_ids.length` is read with no guard; undefined
@@ -59,7 +59,7 @@ describe("insightQuery", () => {
   it("fills the insight fields too, which this query used to skip", async () => {
     respondWith({ insight: { insight_id: "ins-1" }, occurrences: [] });
 
-    const { insight } = await insightQuery("ins-1").queryFn();
+    const { insight } = await insightQuery(undefined, "ins-1").queryFn();
 
     expect(insight.diagnosis).toBe("");
     expect(insight.impact).toBe(0);
@@ -73,7 +73,7 @@ describe("insightQuery", () => {
       ],
     });
 
-    const detail = await insightQuery("ins-1").queryFn();
+    const detail = await insightQuery(undefined, "ins-1").queryFn();
 
     expect(detail.insight.diagnosis).toBe("drops the tenant id");
     expect(detail.occurrences[0].evidence_case_ids).toEqual(["t-1"]);
@@ -82,7 +82,7 @@ describe("insightQuery", () => {
 
   it("survives a payload with neither half", async () => {
     respondWith({});
-    const detail = await insightQuery("ins-1").queryFn();
+    const detail = await insightQuery(undefined, "ins-1").queryFn();
     expect(detail.occurrences).toEqual([]);
   });
 });

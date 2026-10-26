@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import re
 from typing import Any
 from unittest import mock
 
@@ -34,6 +35,7 @@ from ambient_quality_agent.tools.ingestion.cloud_logging_fetcher import (
     CloudLoggingFetcher,
     _rows_to_spans,
 )
+from ambient_quality_agent.tools.telemetry.schema import load_required_schema
 from ambient_quality_agent.tools.trajectories.models import IngestStatus
 from google.cloud import bigquery
 
@@ -1607,3 +1609,26 @@ def test_counting_query_ignores_the_inline_labels(
     sql = client.query.call_args.args[0]
     for label in _INLINE_LABELS:
         assert label not in sql
+
+
+def test_every_column_the_schema_file_lists_is_read() -> None:
+    """A listed column the queries do not read would refuse tables that
+    ingest fine."""
+    fetcher = _make_fetcher(mock.MagicMock())
+    sql = "\n".join(
+        build(metric_type)
+        for build in (
+            fetcher._build_ingestion_sql,
+            fetcher._build_count_sql,
+            fetcher._build_count_by_agent_sql,
+        )
+        for metric_type in (MetricType.MULTI_TURN, MetricType.SINGLE_TURN)
+    )
+
+    unread = [
+        column.name
+        for column in load_required_schema(CloudLoggingFetcher.SCHEMA_FILE)
+        if not re.search(rf"\b{column.name}\b", sql)
+    ]
+
+    assert unread == []

@@ -252,7 +252,7 @@ def test_a_window_holding_nothing_names_the_agent_the_window_and_the_source(
 ) -> None:
     """The one line a reader gets for the plan's two indistinguishable faults.
 
-    An idle agent and a misconfigured `AQA_OBSERVED_AGENT_NAME` produce the same
+    An idle agent and one attached under the wrong name produce the same
     clean run over nothing, and AQuA cannot tell them apart without a second
     query. So the line states what it filtered on, which is enough for someone
     who knows their own agent to recognise which of the two they are looking at.
@@ -269,7 +269,7 @@ def test_a_window_holding_nothing_names_the_agent_the_window_and_the_source(
     assert "`cloud_logging`" in line, "the telemetry source it read"
     assert ctx.state["window_start"][:16] in line
     assert ctx.state["window_end"][:16] in line
-    assert "AQA_OBSERVED_AGENT_NAME" in line
+    assert "`agents-cli aqua attach` sets the name" in line
 
 
 def test_a_selection_that_matched_nothing_does_not_blame_the_agent_name(
@@ -287,7 +287,7 @@ def test_a_selection_that_matched_nothing_does_not_blame_the_agent_name(
     assert "the selection matched no sessions" in line
     assert ctx.state["window_start"][:16] in line
     assert ctx.state["window_end"][:16] in line
-    assert "AQA_OBSERVED_AGENT_NAME" not in line
+    assert "agents-cli aqua attach" not in line
 
 
 def test_a_window_that_held_traces_and_yielded_none_is_not_called_empty(
@@ -366,7 +366,7 @@ def test_a_standalone_window_holding_nothing_fails_and_names_the_agents_present(
     assert "'watched'" in message, "the name it filtered on"
     assert "big_query (agent_analytics.agent_events)" in message
     assert "'it_support_agent' (12), 'other_agent' (3)" in message
-    assert "AQA_OBSERVED_AGENT_NAME" in message
+    assert "agents-cli aqua attach <agent name>" in message
     assert ctx.state["window_start"][:16] in message
     assert "busiest" not in message
     assert not only.finished
@@ -405,7 +405,7 @@ def test_a_standalone_window_no_agent_wrote_to_points_at_the_telemetry_settings(
     message = str(raised.value)
     assert "No agent recorded any traces there" in message
     assert "dataset" in message
-    assert "AQA_OBSERVED_AGENT_NAME" not in message
+    assert "agents-cli aqua attach" not in message
 
 
 def test_a_failed_per_agent_count_still_fails_the_standalone_run(

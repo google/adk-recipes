@@ -31,3 +31,13 @@ output "ui_service_uri" {
   description = "URL of the Insights UI service. Private: calling it requires auth."
   value       = google_cloud_run_v2_service.ui.uri
 }
+
+output "engine_resource_name" {
+  description = "Resource name of the AQuA engine, projects/P/locations/L/reasoningEngines/ID."
+  value       = google_vertex_ai_reasoning_engine.aqa.id
+}
+
+output "cloudsql_instance" {
+  description = "Connection name of the Cloud SQL instance, project:region:instance. Null unless `storage_backend` is `cloudsql`."
+  value       = local.cloudsql ? google_sql_database_instance.aqa[0].connection_name : null
+}

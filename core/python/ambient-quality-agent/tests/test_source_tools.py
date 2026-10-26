@@ -52,12 +52,12 @@ def snapshot_of(client: FakeStorageClient) -> dict[str, Any]:
 
 
 @pytest.fixture(autouse=True)
-def _isolated_manifest_cache() -> Iterator[None]:
-    """The manifest cache is process-wide; a leak across tests would serve one
+def _isolated_snapshot_cache() -> Iterator[None]:
+    """The snapshot cache is process-wide; a leak across tests would serve one
     test's revision to another."""
-    reader_module.clear_manifest_cache()
+    reader_module.clear_snapshot_cache()
     yield
-    reader_module.clear_manifest_cache()
+    reader_module.clear_snapshot_cache()
 
 
 @pytest.fixture

@@ -28,6 +28,11 @@ snapshot, append an event, read one run, list the recent ones, and total every
 run's counters. What a run's lifecycle *is* -- who may create one, what a status
 transition implies -- belongs to `core.investigation.model`, which drives this.
 
+A store is bound to one agent's key. Its run list and counter totals cover only
+the runs whose `observed_agent_name` holds it, so one agent's runs never show
+among another's. Reading one run, and finding the stale pending and overdue
+scheduled runs to fail, cover every agent: run ids are unique across agents.
+
 Nothing here updates or deletes a row. A run changes by gaining a newer
 snapshot, and a crashed run that retries simply appends more; every read takes
 the newest. Rows are written with load jobs rather than the streaming API,
@@ -41,6 +46,8 @@ import json
 import logging
 from typing import TYPE_CHECKING, Any
 
+from ambient_quality_agent import clients
+from ambient_quality_agent import config as config_module
 from ambient_quality_agent.core.session_state import ADKStateLike
 from ambient_quality_agent.tools.investigations.models import (
     EVENTS_FIELD,
@@ -133,7 +140,7 @@ def _build_window_conditions(
 
 
 class BigQueryInvestigationStore:
-    """Appends and reads one deployment's investigations and their events."""
+    """Appends and reads one agent's investigations and their events."""
 
     def __init__(
         self,
@@ -141,17 +148,22 @@ class BigQueryInvestigationStore:
         client: bigquery.Client,
         project_id: str,
         dataset: str,
+        agent_name: str = "",
     ) -> None:
-        """Bind the store to the investigation tables.
+        """Bind the store to the investigation tables and one agent.
 
         Args:
             client: BigQuery client; its location fixes the job region.
             project_id: GCP project owning the dataset, for table references.
             dataset: BigQuery dataset holding the tables (`Config.aqa_dataset`).
+            agent_name: Key of the agent whose runs the run list and counter
+                totals cover. Empty for a deployment with no agent, whose
+                list and totals are not scoped.
         """
         self._client = client
         self._project_id = project_id
         self._dataset = dataset
+        self._agent_name = agent_name
 
     @classmethod
     def from_config(cls, config: Config) -> BigQueryInvestigationStore:
@@ -164,11 +176,12 @@ class BigQueryInvestigationStore:
             Configured BigQueryInvestigationStore instance.
         """
         return cls(
-            client=bigquery.Client(
-                project=config.project_id, location=config.aqa_dataset_location
+            client=clients.create_bigquery_client(
+                config.project_id, config.aqa_dataset_location
             ),
             project_id=config.project_id,
             dataset=config.aqa_dataset,
+            agent_name=config.resolve_agent_key(),
         )
 
     @classmethod
@@ -184,12 +197,13 @@ class BigQueryInvestigationStore:
             Configured BigQueryInvestigationStore instance.
         """
         return cls(
-            client=bigquery.Client(
-                project=state["project_id"],
-                location=state.get("aqa_dataset_location", "us-central1"),
+            client=clients.create_bigquery_client(
+                state["project_id"],
+                state.get("aqa_dataset_location", "us-central1"),
             ),
             project_id=state["project_id"],
             dataset=state.get("aqa_dataset", "aqua_insights"),
+            agent_name=config_module.extract_agent_key(state),
         )
 
     # --- Writes ------------------------------------------------------------ #
@@ -275,9 +289,8 @@ class BigQueryInvestigationStore:
             List of recent investigation records ordered chronologically.
         """
         columns = [c for c in list_snapshot_columns() if c not in _LIST_SKIPS]
-        params: list[Any] = [
-            bigquery.ScalarQueryParameter("limit", "INT64", limit)
-        ]
+        agent, params = self._build_agent_filter()
+        params.append(bigquery.ScalarQueryParameter("limit", "INT64", limit))
         conditions: list[str] = []
         if status is not None:
             conditions.append("status = @status")
@@ -294,7 +307,7 @@ class BigQueryInvestigationStore:
             f"""
 SELECT * FROM (
   SELECT {_build_select_list(columns)}
-  FROM `{self._build_table_ref(INVESTIGATIONS_TABLE)}`
+  FROM `{self._build_table_ref(INVESTIGATIONS_TABLE)}`{agent}
   QUALIFY ROW_NUMBER() OVER (PARTITION BY run_id ORDER BY updated_at DESC) = 1)
 {where}
 ORDER BY created_at DESC
@@ -325,6 +338,8 @@ LIMIT @limit
         )
         conditions, params = _build_window_conditions(window_start, window_end)
         where = f"\nWHERE {' AND '.join(conditions)}" if conditions else ""
+        agent, agent_params = self._build_agent_filter()
+        params += agent_params
         rows = self._run(
             f"""
 SELECT
@@ -334,7 +349,7 @@ SELECT
   {sums}
 FROM (
   SELECT run_id, window_end, {_UNWRAPPED_COUNTERS} AS counters
-  FROM `{self._build_table_ref(INVESTIGATIONS_TABLE)}`
+  FROM `{self._build_table_ref(INVESTIGATIONS_TABLE)}`{agent}
   QUALIFY ROW_NUMBER() OVER (PARTITION BY run_id ORDER BY updated_at DESC) = 1){where}
 """,  # noqa: S608 - trusted identifiers and fixed SQL; values are parameterized
             params,
@@ -423,7 +438,8 @@ WHERE status = @status AND due_at < @deadline
         telemetry watermark.
 
         Args:
-            observed_agent_name: Name of the observed agent.
+            observed_agent_name: The agent's key, which runs record in
+                `observed_agent_name`.
 
         Returns:
             ISO 8601 timestamp of the latest completed window end, or None if no
@@ -468,7 +484,8 @@ WHERE status = @status
         processes do not permanently consume concurrency capacity.
 
         Args:
-            observed_agent_name: Name of the observed agent.
+            observed_agent_name: The agent's key, which runs record in
+                `observed_agent_name`.
 
         Returns:
             Number of pending or running runs updated within the horizon.
@@ -528,6 +545,8 @@ WHERE observed_agent_name = @agent
         # A run with no window cannot be filed under a day at all, so it is out
         # of this read entirely rather than bucketed under a guess.
         conditions.insert(0, "window_end IS NOT NULL")
+        agent, agent_params = self._build_agent_filter()
+        params += agent_params
         rows = self._run(
             f"""
 SELECT
@@ -537,7 +556,7 @@ SELECT
   {sums}
 FROM (
   SELECT run_id, window_end, {_UNWRAPPED_COUNTERS} AS counters
-  FROM `{self._build_table_ref(INVESTIGATIONS_TABLE)}`
+  FROM `{self._build_table_ref(INVESTIGATIONS_TABLE)}`{agent}
   QUALIFY ROW_NUMBER() OVER (PARTITION BY run_id ORDER BY updated_at DESC) = 1)
 WHERE {" AND ".join(conditions)}
 GROUP BY day
@@ -597,6 +616,19 @@ ORDER BY day
         return [name for name in list_snapshot_columns() if name not in have]
 
     # --- Plumbing ---------------------------------------------------------- #
+
+    def _build_agent_filter(self) -> tuple[str, list[Any]]:
+        """Builds the condition that scopes a list of runs to the store's agent.
+
+        Returns:
+            Tuple of (SQL fragment with a leading space, or empty when the
+            store has no agent; its query parameters).
+        """
+        if not self._agent_name:
+            return "", []
+        return " WHERE observed_agent_name = @agent", [
+            bigquery.ScalarQueryParameter("agent", "STRING", self._agent_name)
+        ]
 
     def _build_table_ref(self, table: str) -> str:
         """Constructs a fully qualified `project.dataset.table` reference.

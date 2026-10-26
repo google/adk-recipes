@@ -42,7 +42,7 @@ Two ways to use it
       aqua_cli.py list-memories
       aqua_cli.py list-agents
       aqua_cli.py dump-traces [--since 7d] [--until ...] [--output FILE]
-      aqua_cli.py publish-source [AGENT_NAME] [--source-root DIR] [--dry-run]
+      aqua_cli.py publish-source [AGENT_KEY] [--source-root DIR] [--dry-run]
 
 * **Attaching an agent** -- how the deployment observes it. Interactive: each
   prints a plan and asks before it overwrites or deletes (``--yes`` skips)::
@@ -53,21 +53,27 @@ Two ways to use it
       aqua_cli.py detach AGENT_NAME
 
   With ``--observed-agent-resource``, the settings no flag gives are discovered
-  from the observed engine (:mod:`ambient_quality_cli.discovery`). For each
-  read the deployment is denied, ``attach`` prints the command that grants it,
-  and ``--apply`` runs those commands, then the ones a re-check calls for
-  once a skipped read becomes possible (:mod:`ambient_quality_cli.grants`),
-  and records them on the attachment; ``detach --apply`` revokes those it
-  recorded.
+  from the observed engine (:mod:`ambient_quality_cli.discovery`); an attached
+  agent keeps its stored values over discovered ones. Every change outside AQuA
+  is a gcloud or bq command that ``attach`` prints, then runs with the user's
+  credentials once confirmed:
+
+  - for each read the deployment is denied, the command that grants it, then
+    the ones a re-check calls for once a skipped read becomes possible
+    (:mod:`ambient_quality_shared.grant_commands`), recorded on the attachment for
+    ``detach`` to revoke;
+  - when discovery reads the agent's Cloud Trace spans through a BigQuery link
+    that does not exist yet, the commands that enable the Observability API
+    and create the ``_Trace`` bucket and the link, whichever are missing
+    (:mod:`ambient_quality_cli.trace_link`); ``detach`` leaves them;
+  - the agent's update trigger -- the audit sink on its updates and its
+    publisher binding on AQuA's topic -- wired to the engine as it reports
+    itself (:mod:`ambient_quality_cli.update_trigger`); ``detach`` removes it.
 
   With ``--source-root``, ``attach`` also publishes the agent's source for
   the engine's newest revision, as ``publish-source`` does
-  (:mod:`ambient_quality_cli.source_snapshot`).
-
-  ``--apply`` on ``attach`` also applies the agent's triggers -- the scheduled
-  investigation and the audit sink on its updates -- with Terraform, wired to the
-  engine as it reports itself, with their state in ``./.aqua/``; on ``detach``
-  it destroys them.
+  (:mod:`ambient_quality_cli.source_snapshot`). The engine reads the schedule
+  from the attachment on every scheduler tick.
 
 * **Free-form turn** (`run`): send one natural-language turn to the chat agent
   and stream the reply. ``--session-id`` continues a conversation::
@@ -87,6 +93,17 @@ env-configured backend is used
 (``ambient_quality_agent.fast_api_app``) via ``AGENT_ADK_BASE_URL`` +
 ``AQA_BACKEND=adk``). Auth is Application Default
 Credentials.
+
+Agent selection
+---------------
+The commands that read one agent's investigations, insights, configuration,
+memories or code metrics take ``--agent-key``, the key ``list-agents`` shows.
+Without it, they take the key ``attach`` last recorded in
+``./.aqua/attached_aqua.json`` for the AQuA the command reaches, so that the
+observed agent's own directory needs no flag; ``attach`` records none in
+AQuA's own checkout. With neither, or with ``--agent-key ''``, AQuA answers
+for its default agent. ``run`` always reaches the default agent: ``agents-cli
+run`` sends no A2A metadata to select another.
 
 Exit codes
 ----------
@@ -110,12 +127,14 @@ import json
 import os
 import pathlib
 import re
+import shlex
 import shutil
 import signal
 import subprocess
 import sys
 import time
-from typing import Any
+from collections.abc import Callable
+from typing import Any, TypeVar
 
 import click
 
@@ -132,12 +151,23 @@ from ambient_quality_cli import grants as grants_lib
 from ambient_quality_cli import metrics as metrics_lib
 from ambient_quality_cli import rest_client as rest_client_lib
 from ambient_quality_cli import source_snapshot as source_snapshot_lib
+from ambient_quality_cli import trace_link as trace_link_lib
 from ambient_quality_cli import traces as traces_lib
+from ambient_quality_cli import update_trigger as update_trigger_lib
+from ambient_quality_shared import grant_commands
 from ambient_quality_shared.agent_client import (
+    AdkHttpClient,
     AgentRuntimeClient,
     build_client_from_env,
     get_adc_token,
     resolve_a2a_base_url,
+)
+from ambient_quality_shared.agent_key import AGENT_KEY_RE, is_storage_key
+from ambient_quality_shared.attached_aqua import (
+    ATTACHED_AQUA_FILE,
+    normalize_target,
+    resolve_recorded_agent_key,
+    save_attached_aqua_fields,
 )
 from ambient_quality_shared.protocol import (
     AGENTS_APPLIED_ROUTE,
@@ -153,19 +183,29 @@ from ambient_quality_shared.protocol import (
     INVESTIGATIONS_SCHEDULE_ROUTE,
     INVESTIGATIONS_STATS_ROUTE,
     MEMORIES_LIST_ROUTE,
+    METRICS_DESTROY_ROUTE,
+    METRICS_LIST_ROUTE,
+    METRICS_PUBLISH_ROUTE,
     SOURCE_COMMIT_ROUTE,
     SOURCE_ROUTE,
     SOURCE_UPLOAD_ROUTE,
+    AgentKeyArgs,
+    AgentSelector,
+    AttachAgentArgs,
+    DestroyMetricsArgs,
+    GetInsightArgs,
+    GetInvestigationArgs,
+    GetSourceSnapshotArgs,
+    ListInsightsArgs,
+    PublishMetricsArgs,
+    RecordAppliedArgs,
+    Route,
+    WindowArgs,
 )
-from ambient_quality_shared.terraform_state import (
-    ATTACH_INSTANCE_OUTPUT,
-    ATTACH_ROOT,
-    STATE_DIR_NAME,
-    build_attach_key,
-    build_state_path,
-    read_state_outputs,
-    run_terraform,
-)
+from ambient_quality_shared.terraform_state import STATE_DIR_NAME
+
+ArgsT = TypeVar("ArgsT")
+_AgentArgsT = TypeVar("_AgentArgsT", bound=AgentKeyArgs)
 
 # Stable exit codes for caller branching without parsing output.
 EXIT_OK = 0
@@ -184,7 +224,9 @@ _RUN_STATUSES = _TERMINAL_STATUSES | {"scheduled", "pending", "running"}
 # --------------------------------------------------------------------------- #
 # Client construction                                                          #
 # --------------------------------------------------------------------------- #
-def _build_client(url: str | None, resource: str | None):
+def _build_client(
+    url: str | None, resource: str | None
+) -> AgentRuntimeClient | AdkHttpClient:
     """Creates a client for the requested target.
 
     Args:
@@ -216,20 +258,35 @@ def _build_client(url: str | None, resource: str | None):
         ) from exc
 
 
-def _echo_target(url: str | None, resource: str | None) -> None:
+def _resolve_target_name(url: str | None, resource: str | None) -> str:
+    """Resolves the name of the AQuA a command reaches.
+
+    Args:
+        url: Explicit engine endpoint URL, if provided.
+        resource: Explicit engine resource name, if provided.
+
+    Returns:
+        The URL or engine resource name, or an empty string when the target is
+        configured by other environment variables.
+    """
+    return url or resource or os.getenv("AGENT_ENGINE_RESOURCE_ID") or ""
+
+
+def _echo_target(
+    url: str | None, resource: str | None, agent_key: str = ""
+) -> None:
     """Prints the resolved target to stderr to keep stdout reserved for JSON output.
 
     Args:
         url: Explicit engine endpoint URL, if provided.
         resource: Explicit engine resource name, if provided.
+        agent_key: The agent the command acts on; empty for AQuA's default
+            agent.
     """
-    target = (
-        url
-        or resource
-        or os.getenv("AGENT_ENGINE_RESOURCE_ID")
-        or "(env-configured)"
-    )
-    click.echo(f"Querying agent: {target}", err=True)
+    target = _resolve_target_name(url, resource) or "(env-configured)"
+    # A key recorded by attach selects the agent with no flag, so name it.
+    selected = f" (agent key {agent_key})" if agent_key else ""
+    click.echo(f"Querying agent: {target}{selected}", err=True)
 
 
 def _extract_status(payload: Any) -> str | None:
@@ -282,14 +339,91 @@ def _add_target_options(func):
     return func
 
 
-def _fetch_command_result(*, url, resource, path, payload=None) -> Any:
+def _add_agent_option(func):
+    """Attaches the --agent-key option to a Click command that acts on one agent.
+
+    Args:
+        func: Click command callback to wrap.
+
+    Returns:
+        Wrapped command callback with the option attached.
+    """
+    return click.option(
+        "--agent-key",
+        default=None,
+        help=(
+            "The attached agent to act on, by the key list-agents shows. "
+            "Default: the agent attach last recorded in ./.aqua/ for this AQuA, "
+            "else AQuA's default agent, which --agent-key '' also selects."
+        ),
+    )(func)
+
+
+def _resolve_agent_key(agent_key: str | None, *, url, resource) -> str:
+    """Resolves the agent a command acts on.
+
+    1. `--agent-key`, when given, even empty.
+    2. The key `attach` recorded in `./.aqua/attached_aqua.json`, if it was
+       recorded for the AQuA this command reaches: a key names an attachment
+       on one AQuA only.
+    3. No key, which leaves AQuA to answer for its default agent.
+
+    Args:
+        agent_key: The `--agent-key` value; None when not given.
+        url: Explicit engine endpoint URL.
+        resource: Explicit engine resource name.
+
+    Returns:
+        The agent key, or an empty string for AQuA's default agent.
+    """
+    if agent_key is not None:
+        return agent_key.strip()
+    return resolve_recorded_agent_key(
+        pathlib.Path.cwd() / STATE_DIR_NAME, _resolve_target_name(url, resource)
+    )
+
+
+def _build_agent_args(args: _AgentArgsT, agent_key: str) -> _AgentArgsT:
+    """Adds the selected agent to a route's request body.
+
+    Args:
+        args: The request body, of a route that takes `agent_key`.
+        agent_key: The agent to act on; empty for AQuA's default agent.
+
+    Returns:
+        `args`, with `agent_key` set when an agent is selected.
+    """
+    if agent_key:
+        args["agent_key"] = agent_key
+    return args
+
+
+def _build_agent_key_args(
+    args_type: type[_AgentArgsT], agent_key: str
+) -> _AgentArgsT | None:
+    """Builds the body of a route called with nothing but the agent.
+
+    Args:
+        args_type: The route's request body type.
+        agent_key: The agent to act on; empty for AQuA's default agent.
+
+    Returns:
+        The body naming the agent, or None when no agent is selected, which
+        sends no body.
+    """
+    return args_type(agent_key=agent_key) if agent_key else None
+
+
+def _fetch_command_result(
+    *, url, resource, path: Route[ArgsT], payload: ArgsT | None = None
+) -> Any:
     """Posts to an agent command route and returns the parsed JSON response.
 
     Args:
         url: Explicit engine endpoint URL.
         resource: Explicit engine resource name.
-        path: Relative command route path.
-        payload: Optional JSON request body.
+        path: Command route.
+        payload: Optional request body, of the route's `TypedDict`.
 
     Returns:
         Decoded JSON response from the command endpoint.
@@ -298,7 +432,8 @@ def _fetch_command_result(*, url, resource, path, payload=None) -> Any:
         click.ClickException: If the network request fails or authentication errors occur.
     """
     client = _build_client(url, resource)
-    _echo_target(url, resource)
+    selected = payload.get("agent_key", "") if isinstance(payload, dict) else ""
+    _echo_target(url, resource, str(selected))
     try:
         return asyncio.run(client.post_command(path, payload))
     except Exception as exc:  # Surface auth, network, and agent errors as user-facing CLI exceptions.
@@ -355,7 +490,12 @@ def _emit_run_record(payload: Any, *, timed_out: bool = False) -> None:
 # Polling (used by --wait)                                                     #
 # --------------------------------------------------------------------------- #
 async def _poll_until_terminal(
-    client, run_id: str, *, interval: float, timeout: float
+    client: AgentRuntimeClient | AdkHttpClient,
+    run_id: str,
+    *,
+    interval: float,
+    timeout: float,
+    agent_key: str = "",
 ) -> tuple[Any, bool]:
     """Polls the investigation status endpoint until a terminal state or timeout is reached.
 
@@ -364,6 +504,8 @@ async def _poll_until_terminal(
         run_id: Unique identifier of the investigation run.
         interval: Delay in seconds between polling attempts.
         timeout: Maximum duration in seconds to wait before giving up.
+        agent_key: The agent the run belongs to; empty for AQuA's default
+            agent.
 
     Returns:
         Tuple of (latest_payload, timed_out_boolean).
@@ -371,7 +513,8 @@ async def _poll_until_terminal(
     deadline = time.monotonic() + timeout
     while True:
         payload = await client.post_command(
-            INVESTIGATIONS_GET_ROUTE, {"run_id": run_id}
+            INVESTIGATIONS_GET_ROUTE,
+            _build_agent_args(GetInvestigationArgs(run_id=run_id), agent_key),
         )
         # Treat error envelopes as terminal to fail immediately on permanent errors such as invalid IDs.
         if (
@@ -532,7 +675,8 @@ def run_prompt_cmd(
 
 @cli.command("list-investigations")
 @_add_target_options
-def list_investigations_cmd(*, url, resource) -> None:
+@_add_agent_option
+def list_investigations_cmd(*, url, resource, agent_key) -> None:
     """List the 50 most recent runs as JSON (``{"runs": [...]}``), newest last.
 
     The ``events`` field in each entry is empty; see
@@ -543,13 +687,18 @@ def list_investigations_cmd(*, url, resource) -> None:
             url=url,
             resource=resource,
             path=INVESTIGATIONS_LIST_ROUTE,
+            payload=_build_agent_key_args(
+                WindowArgs,
+                _resolve_agent_key(agent_key, url=url, resource=resource),
+            ),
         )
     )
 
 
 @cli.command("investigation-stats")
 @_add_target_options
-def get_investigation_stats_cmd(*, url, resource) -> None:
+@_add_agent_option
+def get_investigation_stats_cmd(*, url, resource, agent_key) -> None:
     """Total every run's counters as JSON (``{"stats": {...}}``).
 
     Unlike ``list-investigations``, which returns one capped page, this is
@@ -560,6 +709,10 @@ def get_investigation_stats_cmd(*, url, resource) -> None:
             url=url,
             resource=resource,
             path=INVESTIGATIONS_STATS_ROUTE,
+            payload=_build_agent_key_args(
+                WindowArgs,
+                _resolve_agent_key(agent_key, url=url, resource=resource),
+            ),
         )
     )
 
@@ -567,9 +720,10 @@ def get_investigation_stats_cmd(*, url, resource) -> None:
 @cli.command("get-investigation")
 @click.argument("run_id")
 @_add_target_options
+@_add_agent_option
 @_add_wait_options
 def get_investigation_cmd(
-    run_id: str, *, url, resource, wait, interval, timeout
+    run_id: str, *, url, resource, agent_key, wait, interval, timeout
 ) -> None:
     """Look up one run by RUN_ID as JSON; with --wait, poll until terminal.
 
@@ -586,19 +740,27 @@ def get_investigation_cmd(
     A run writes no report. To view findings from a finished run, call:
       list-insights --run-id RUN_ID
     """
+    agent_key = _resolve_agent_key(agent_key, url=url, resource=resource)
     client = _build_client(url, resource)
-    _echo_target(url, resource)
+    _echo_target(url, resource, agent_key)
     try:
         if wait:
             payload, timed_out = asyncio.run(
                 _poll_until_terminal(
-                    client, run_id, interval=interval, timeout=timeout
+                    client,
+                    run_id,
+                    interval=interval,
+                    timeout=timeout,
+                    agent_key=agent_key,
                 )
             )
         else:
             payload = asyncio.run(
                 client.post_command(
-                    INVESTIGATIONS_GET_ROUTE, {"run_id": run_id}
+                    INVESTIGATIONS_GET_ROUTE,
+                    _build_agent_args(
+                        GetInvestigationArgs(run_id=run_id), agent_key
+                    ),
                 )
             )
             timed_out = False
@@ -609,27 +771,36 @@ def get_investigation_cmd(
 
 @cli.command("schedule-investigation")
 @_add_target_options
+@_add_agent_option
 @_add_wait_options
 def schedule_investigation_cmd(
-    *, url, resource, wait, interval, timeout
+    *, url, resource, agent_key, wait, interval, timeout
 ) -> None:
     """Start a run and print the new run record as JSON.
 
     With --wait, poll the new run_id until it reaches a terminal status. See
     ``get-investigation --help`` for run record fields.
     """
+    agent_key = _resolve_agent_key(agent_key, url=url, resource=resource)
     client = _build_client(url, resource)
-    _echo_target(url, resource)
+    _echo_target(url, resource, agent_key)
     try:
         payload = asyncio.run(
-            client.post_command(INVESTIGATIONS_SCHEDULE_ROUTE)
+            client.post_command(
+                INVESTIGATIONS_SCHEDULE_ROUTE,
+                _build_agent_key_args(AgentKeyArgs, agent_key),
+            )
         )
         timed_out = False
         run_id = payload.get("run_id") if isinstance(payload, dict) else None
         if wait and run_id:
             payload, timed_out = asyncio.run(
                 _poll_until_terminal(
-                    client, run_id, interval=interval, timeout=timeout
+                    client,
+                    run_id,
+                    interval=interval,
+                    timeout=timeout,
+                    agent_key=agent_key,
                 )
             )
     except Exception as exc:
@@ -659,8 +830,9 @@ def schedule_investigation_cmd(
     help="Token from a prior call's next_page_token.",
 )
 @_add_target_options
+@_add_agent_option
 def list_insights_cmd(
-    *, status, run_id, root_cause, page_token, url, resource
+    *, status, run_id, root_cause, page_token, url, resource, agent_key
 ) -> None:
     """List durable quality insights as JSON (``{"insights": [...], ...}``).
 
@@ -676,7 +848,7 @@ def list_insights_cmd(
     conversation observed in two runs counts twice. With ``--run-id``, an
     entry's summary fields still describe the insight's full history.
     """
-    args: dict[str, Any] = {}
+    args = ListInsightsArgs()
     if status:
         args["status"] = status
     if run_id:
@@ -690,7 +862,9 @@ def list_insights_cmd(
             url=url,
             resource=resource,
             path=INSIGHTS_LIST_ROUTE,
-            payload=args,
+            payload=_build_agent_args(
+                args, _resolve_agent_key(agent_key, url=url, resource=resource)
+            ),
         )
     )
 
@@ -717,6 +891,7 @@ def list_insights_cmd(
     help="Token from a prior call's next_page_token.",
 )
 @_add_target_options
+@_add_agent_option
 def get_insight_cmd(
     insight_id: str,
     *,
@@ -725,6 +900,7 @@ def get_insight_cmd(
     page_token,
     url,
     resource,
+    agent_key,
 ) -> None:
     """Get one insight's occurrences and rubric evidence as JSON.
 
@@ -745,7 +921,7 @@ def get_insight_cmd(
     Line numbers and ``before`` refer to the root cause's ``agent_revision``
     snapshot.
     """
-    args: dict[str, Any] = {"insight_id": insight_id}
+    args = GetInsightArgs(insight_id=insight_id)
     if run_id:
         args["run_id"] = run_id
     if no_traces:
@@ -757,23 +933,35 @@ def get_insight_cmd(
             url=url,
             resource=resource,
             path=INSIGHTS_GET_ROUTE,
-            payload=args,
+            payload=_build_agent_args(
+                args, _resolve_agent_key(agent_key, url=url, resource=resource)
+            ),
         )
     )
 
 
 @cli.command("show-config")
 @_add_target_options
-def show_config_cmd(*, url, resource) -> None:
+@_add_agent_option
+def show_config_cmd(*, url, resource, agent_key) -> None:
     """Show the effective AQA configuration as JSON."""
     _emit_result(
-        _fetch_command_result(url=url, resource=resource, path=CONFIG_ROUTE)
+        _fetch_command_result(
+            url=url,
+            resource=resource,
+            path=CONFIG_ROUTE,
+            payload=_build_agent_key_args(
+                AgentKeyArgs,
+                _resolve_agent_key(agent_key, url=url, resource=resource),
+            ),
+        )
     )
 
 
 @cli.command("list-memories")
 @_add_target_options
-def list_memories_cmd(*, url, resource) -> None:
+@_add_agent_option
+def list_memories_cmd(*, url, resource, agent_key) -> None:
     """List what the developer asked AQuA to remember about the agent, newest first.
 
     Read-only: memories are created only by the developer, in AQuA's chat.
@@ -781,7 +969,13 @@ def list_memories_cmd(*, url, resource) -> None:
     always means nothing is remembered.
     """
     payload = _fetch_command_result(
-        url=url, resource=resource, path=MEMORIES_LIST_ROUTE
+        url=url,
+        resource=resource,
+        path=MEMORIES_LIST_ROUTE,
+        payload=_build_agent_key_args(
+            AgentKeyArgs,
+            _resolve_agent_key(agent_key, url=url, resource=resource),
+        ),
     )
     _emit_result(payload)
     if not isinstance(payload, dict) or payload.get("available") is not True:
@@ -793,87 +987,32 @@ def list_memories_cmd(*, url, resource) -> None:
 # --------------------------------------------------------------------------
 
 
-def _resolve_metrics_bucket(bucket: str, *, url, resource) -> str:
-    """Resolves the GCS bucket for metric publishing from CLI flags or deployment configuration.
+def _post_metrics_route(
+    path: Route[ArgsT], payload: ArgsT | None, *, url, resource
+) -> dict[str, Any]:
+    """Posts to a metrics route and returns its answer, refusing an error envelope.
 
     Args:
-        bucket: Explicit bucket name from CLI flag, if provided.
+        path: The metrics route.
+        payload: Request body, of the route's `TypedDict`.
         url: Deployment HTTP endpoint, if connecting directly.
         resource: Agent Runtime resource name.
 
     Returns:
-        Resolved GCS bucket name.
+        The route's answer.
 
     Raises:
-        click.ClickException: If no bucket is specified and the deployment does not configure one.
+        click.ClickException: If the request fails or the engine answers with
+            an error, such as a library it refuses or no metrics bucket.
     """
-    if bucket:
-        return bucket
-    payload = _fetch_command_result(
-        url=url, resource=resource, path=CONFIG_ROUTE
+    result = _fetch_command_result(
+        url=url, resource=resource, path=path, payload=payload
     )
-    name = ""
-    if isinstance(payload, dict):
-        inner = payload.get("config")
-        config = inner if isinstance(inner, dict) else payload
-        name = str(config.get("metrics_gcs_bucket") or "")
-    if not name:
-        raise click.ClickException(
-            "This deployment reports no metrics_gcs_bucket. Apply the Terraform "
-            "that creates it, or pass --bucket."
-        )
-    return name
-
-
-def _render_report_lines(report: metrics_lib.Report) -> list[str]:
-    """Formats summary lines for a validated metric library report.
-
-    Args:
-        report: Validation report containing runnable, skipped, and costly metrics.
-
-    Returns:
-        List of formatted display strings for terminal output.
-    """
-    lines = [f"{len(report.metrics)} metric(s) AQuA will run:"]
-    lines += [
-        f"  {m.name}  ({m.source_path})  {m.expected}" for m in report.metrics
-    ]
-    if report.skipped:
-        lines.append(f"{len(report.skipped)} skipped, which AQuA cannot run:")
-        lines += [f"  {name}: {why}" for name, why in report.skipped]
-    costly = report.list_costly_metrics()
-    if costly:
-        lines.append(
-            f"WARNING: {len(costly)} metric(s) import a model client. Each costs "
-            "one model call per session per sweep, on the deployment's "
-            "credentials, up to DATA_EVALUATION_CAP sessions:"
-        )
-        lines += [f"  {m.name}: {', '.join(m.model_modules)}" for m in costly]
-    judged = report.list_judged_metrics()
-    if judged:
-        calls = sum(m.judge_samples for m in judged)
-        names = ", ".join(
-            m.name
-            if m.judge_samples == 1
-            else f"{m.name} ({m.judge_samples} samples)"
-            for m in judged
-        )
-        lines.append(
-            f"{len(judged)} metric(s) are judged by the eval service's model, "
-            f"{calls} model call(s) per session per sweep: {names}"
-        )
-        lines += [
-            f"  {m.name}: reads {{prompt}}, which is set only on single-turn "
-            "sessions, as in agents-cli; it errors on multi-turn ones"
-            for m in judged
-            if m.reads_prompt
-        ]
-        lines += [
-            f"  {m.name}: scores only -- no threshold, so it files no findings"
-            for m in judged
-            if m.scores_only
-        ]
-    return lines
+    if not isinstance(result, dict):
+        raise click.ClickException(f"Unexpected answer from {path}: {result!r}")
+    if error := _extract_error(result):
+        raise click.ClickException(error)
+    return result
 
 
 @cli.group("metrics")
@@ -888,38 +1027,49 @@ def metrics_group() -> None:
     type=click.Path(file_okay=False, path_type=pathlib.Path),
 )
 @click.option(
-    "--bucket", default="", help="Target bucket, else ask the deployment."
-)
-@click.option(
     "--dry-run", is_flag=True, help="Validate and plan, upload nothing."
 )
 @click.option("--yes", is_flag=True, help="Do not ask before deleting.")
 @_add_target_options
+@_add_agent_option
 def publish_metrics_cmd(
-    directory, bucket, dry_run, yes, *, url, resource
+    directory, dry_run, yes, *, url, resource, agent_key
 ) -> None:
-    """Validate DIRECTORY and mirror it into the deployment's metrics bucket."""
+    """Validate DIRECTORY on the deployment and mirror it into its metric library.
+
+    The deployment validates the library with the loader that runs it, and
+    writes it with its own credentials.
+    """
     try:
-        local = metrics_lib.read_directory(directory)
-        report = metrics_lib.validate(local)
+        files = metrics_lib.encode_files(metrics_lib.read_directory(directory))
     except metrics_lib.ValidationError as exc:
         raise click.ClickException(f"Refusing to publish: {exc}") from exc
 
-    for line in _render_report_lines(report):
+    agent_key = _resolve_agent_key(agent_key, url=url, resource=resource)
+    plan = _post_metrics_route(
+        METRICS_PUBLISH_ROUTE,
+        _build_agent_args(
+            PublishMetricsArgs(files=files, dry_run=True), agent_key
+        ),
+        url=url,
+        resource=resource,
+    )
+    for line in metrics_lib.render_report_lines(plan.get("report") or {}):
         click.echo(line)
-
-    name = _resolve_metrics_bucket(bucket, url=url, resource=resource)
-    token = get_adc_token()
-    try:
-        uploads, deletions = metrics_lib.compute_mirror_plan(
-            local, metrics_lib.list_objects(name, token)
-        )
-    except metrics_lib.ValidationError as exc:
-        raise click.ClickException(str(exc)) from exc
-    click.echo(f"\ngs://{name}/{metrics_lib.LIBRARY_PREFIX}")
-    for relative in uploads:
+    click.echo(f"\n{plan.get('location', '')}")
+    for relative in plan.get("uploads") or []:
         click.echo(f"  upload  {relative}")
+    deletions = plan.get("deletions") or []
     for obsolete in deletions:
+        click.echo(f"  delete  {obsolete}")
+    # The default agent's publish replaces the instance's library it read.
+    inherited = plan.get("inherited_deletions") or []
+    if inherited:
+        click.echo(
+            "The instance's library, which this agent scores with while its "
+            "own is empty:"
+        )
+    for obsolete in inherited:
         click.echo(f"  delete  {obsolete}")
     if dry_run:
         click.echo("\nDry run: nothing was uploaded.")
@@ -931,96 +1081,102 @@ def publish_metrics_cmd(
             f"\nDelete {len(deletions)} object(s) not present in {directory}?",
             abort=True,
         )
+    if inherited and not yes:
+        click.confirm(
+            f"\nDelete the instance's library ({len(inherited)} object(s)), "
+            "which this agent's replaces?",
+            abort=True,
+        )
 
-    try:
-        # Upload modules before configuration so partial failures leave a working configuration referencing existing files.
-        for relative in uploads:
-            metrics_lib.upload(name, token, relative, local[relative])
-        # Delete after upload so a partial failure leaves the previous library intact.
-        for obsolete in deletions:
-            metrics_lib.delete(name, token, obsolete)
-    except metrics_lib.ValidationError as exc:
-        raise click.ClickException(str(exc)) from exc
+    published = _post_metrics_route(
+        METRICS_PUBLISH_ROUTE,
+        _build_agent_args(
+            PublishMetricsArgs(files=files, dry_run=False), agent_key
+        ),
+        url=url,
+        resource=resource,
+    )
+    deleted = [
+        *(published.get("deletions") or []),
+        *(published.get("inherited_deletions") or []),
+    ]
     click.echo(
-        f"\nPublished {len(uploads)} object(s), deleted {len(deletions)}."
+        f"\nPublished {len(published.get('uploads') or [])} object(s), "
+        f"deleted {len(deleted)}."
     )
 
 
 @metrics_group.command("list")
-@click.option(
-    "--bucket", default="", help="Target bucket, else ask the deployment."
-)
 @_add_target_options
-def list_metrics_cmd(bucket, *, url, resource) -> None:
-    """List and validate metrics currently published in the deployment bucket."""
-    name = _resolve_metrics_bucket(bucket, url=url, resource=resource)
-    token = get_adc_token()
-    try:
-        items = metrics_lib.list_objects(name, token)
-    except metrics_lib.ValidationError as exc:
-        raise click.ClickException(str(exc)) from exc
-    click.echo(f"gs://{name}/{metrics_lib.LIBRARY_PREFIX}")
-    if not items:
+@_add_agent_option
+def list_metrics_cmd(*, url, resource, agent_key) -> None:
+    """List and validate the metrics the deployment scores with."""
+    result = _fetch_command_result(
+        url=url,
+        resource=resource,
+        path=METRICS_LIST_ROUTE,
+        payload=_build_agent_key_args(
+            AgentKeyArgs,
+            _resolve_agent_key(agent_key, url=url, resource=resource),
+        ),
+    )
+    if not isinstance(result, dict):
+        raise click.ClickException(f"Unexpected answer: {result!r}")
+    if "location" not in result and (error := _extract_error(result)):
+        raise click.ClickException(error)
+    click.echo(str(result.get("location", "")))
+    if result.get("inherited"):
+        click.echo(
+            "  (the instance's library, which the default agent scores with "
+            "while its own is empty)"
+        )
+    files = result.get("files") or []
+    if not files:
         click.echo("  (empty -- this deployment has nothing to score with)")
         return
-    for item in items:
-        click.echo(
-            f"  {item['name']}  {item.get('size', '?')}B  {item.get('updated', '')}"
-        )
-
-    try:
-        report = metrics_lib.validate(
-            metrics_lib.download(name, token, [i["name"] for i in items])
-        )
-    except metrics_lib.ValidationError as exc:
-        raise click.ClickException(
-            f"The published library is broken: {exc}"
-        ) from exc
+    for item in files:
+        click.echo(f"  {item.get('path', '')}  {item.get('size', '?')}B")
+    # A broken library still lists its files, then says why it does not load.
+    if error := _extract_error(result):
+        raise click.ClickException(error)
     click.echo("")
-    for line in _render_report_lines(report):
+    for line in metrics_lib.render_report_lines(result.get("report") or {}):
         click.echo(line)
 
 
 @metrics_group.command("destroy")
 @click.option(
-    "--bucket", default="", help="Target bucket, else ask the deployment."
-)
-@click.option(
     "--apply", "apply_", is_flag=True, help="Delete. Plans otherwise."
 )
 @_add_target_options
-def destroy_metrics_cmd(bucket, apply_, *, url, resource) -> None:
-    """Delete the published metric library from GCS. Plans by default."""
-    name = _resolve_metrics_bucket(bucket, url=url, resource=resource)
-    token = get_adc_token()
-    try:
-        items = metrics_lib.list_objects(name, token)
-    except metrics_lib.ValidationError as exc:
-        raise click.ClickException(str(exc)) from exc
-    if not items:
-        # Treat an already-empty bucket as successfully destroyed.
-        click.echo(
-            f"gs://{name}/{metrics_lib.LIBRARY_PREFIX} is already empty."
-        )
+@_add_agent_option
+def destroy_metrics_cmd(apply_, *, url, resource, agent_key) -> None:
+    """Delete the published metric library. Plans by default."""
+    result = _post_metrics_route(
+        METRICS_DESTROY_ROUTE,
+        _build_agent_args(
+            DestroyMetricsArgs(dry_run=not apply_),
+            _resolve_agent_key(agent_key, url=url, resource=resource),
+        ),
+        url=url,
+        resource=resource,
+    )
+    deletions = result.get("deletions") or []
+    if not deletions:
+        # Treat an already-empty library as successfully destroyed.
+        click.echo(f"{result.get('location', '')} is already empty.")
         return
-    for item in items:
-        click.echo(
-            f"  {'delete' if apply_ else 'would delete'}  {item['name']}"
-        )
+    for name in deletions:
+        click.echo(f"  {'delete' if apply_ else 'would delete'}  {name}")
     if not apply_:
         click.echo(
-            f"\n{len(items)} object(s). Re-run with --apply to delete them."
+            f"\n{len(deletions)} object(s). Re-run with --apply to delete them."
         )
         return
-    try:
-        for item in items:
-            metrics_lib.delete(name, token, item["name"])
-    except metrics_lib.ValidationError as exc:
-        raise click.ClickException(str(exc)) from exc
     click.echo(
-        f"\nDeleted {len(items)} object(s). This deployment now has nothing to "
-        "score with, so investigations run session review alone until you "
-        "publish again."
+        f"\nDeleted {len(deletions)} object(s). This deployment now has "
+        "nothing to score with, so investigations run session review alone "
+        "until you publish again."
     )
 
 
@@ -1329,12 +1485,11 @@ def _format_timestamp(moment: dt.datetime) -> str:
 # access to the jobs bucket and carries no copy of the allowed values or the
 # defaults.
 #
-# `--apply` is the one step that is not an API call. Cloud Scheduler and the
-# audit log sink act on three of the stored fields, and they are Terraform
-# resources in `terraform/examples/attach`, applied once per agent with its own
-# state in `./.aqua/`. The engine says both which values to apply and which
-# instance to wire them to -- its region, resource name, topic and caller
-# account -- so `--apply` needs nothing of AQuA but the resource name it called.
+# The update trigger is the one part that lives outside the engine: an audit
+# log sink in the observed agent's project that acts on two of the stored
+# fields. The engine says both which values to wire and the topic to wire them
+# to, so `attach` needs nothing of AQuA but the resource name it called, and
+# runs the gcloud commands of `update_trigger` with the user's credentials.
 
 
 def _add_attach_options(func):
@@ -1365,7 +1520,11 @@ def _add_attach_options(func):
         click.option(
             "--telemetry-source",
             default=None,
-            help="Where the telemetry is read from: big_query, cloud_ops or cloud_logging.",
+            help=(
+                "Where the telemetry is read from: big_query, cloud_ops or "
+                "cloud_logging. Without it, a table in only one source's "
+                "format is read as that source."
+            ),
         ),
         click.option(
             "--telemetry-dataset", default=None, help="BigQuery dataset."
@@ -1374,7 +1533,12 @@ def _add_attach_options(func):
             "--telemetry-table", default=None, help="Table or view in it."
         ),
         click.option(
-            "--telemetry-location", default=None, help="Its BigQuery location."
+            "--telemetry-location",
+            default=None,
+            help=(
+                "Its BigQuery location. Without it, the table's, once AQuA "
+                "can read the table."
+            ),
         ),
         click.option(
             "--telemetry-payload-bucket",
@@ -1450,13 +1614,17 @@ def _add_attach_options(func):
         click.option(
             "--schedule",
             default=None,
-            help="Cron for the scheduled sweep. Takes effect when Terraform is applied.",
+            help=(
+                "Cron for the scheduled sweep, in UTC; daily at 12:00 by "
+                "default. Run for the agent the deployment investigates, up "
+                "to 15 minutes late, from the next 15-minute tick."
+            ),
         ),
         click.option(
             "--scheduled-trigger/--no-scheduled-trigger",
             "scheduled_trigger_enabled",
             default=None,
-            help="Whether that schedule is live. Takes effect when Terraform is applied.",
+            help="Whether that schedule is live, from the next 15-minute tick.",
         ),
         click.option(
             "--observed-project",
@@ -1473,7 +1641,7 @@ def _add_attach_options(func):
             help=(
                 "The observed engine, projects/P/locations/L/reasoningEngines/ID. "
                 "Discovery reads the agent's settings from it, and its updates "
-                "trigger a sweep once Terraform is applied."
+                "trigger an investigation."
             ),
         ),
     ]
@@ -1540,13 +1708,13 @@ def _extract_requested_fields(flags: dict[str, Any]) -> dict[str, Any]:
 
 
 def _fetch_agents_result(
-    path: str, payload: Any, *, url, resource
+    path: Route[ArgsT], payload: ArgsT | None, *, url, resource
 ) -> dict[str, Any]:
     """Posts to an `agents/*` route and fails the command on an error envelope.
 
     Args:
-        path: Relative command route path.
-        payload: Optional JSON request body.
+        path: Command route.
+        payload: Optional request body, of the route's `TypedDict`.
         url: Explicit engine endpoint URL.
         resource: Explicit engine resource name.
 
@@ -1585,63 +1753,70 @@ def _format_value(value: Any) -> str:
 
 
 def _render_plan_lines(
-    plan: dict[str, Any], *, apply: bool = False, watched_agent: str = ""
+    plan: dict[str, Any], *, default_agent: str = ""
 ) -> list[str]:
     """Renders an attach plan as the lines shown before confirming.
 
     Args:
         plan: Dry-run response from the attach route.
-        apply: Whether the triggers are applied in the same run, which puts
-            the Terraform-backed fields into effect.
-        watched_agent: The agent the deployment investigates, when the plan's
-            agent is not it.
+        default_agent: The agent an engine that investigates only its default
+            agent investigates, when the plan's agent is not it.
 
     Returns:
         Lines to print, in order.
     """
     lines = [str(plan.get("object", ""))]
     if not plan.get("attached"):
-        base = (
-            "the engine's environment"
-            if plan.get("watched")
-            else "the defaults"
-        )
-        lines.append(f"  (not attached yet -- starting from {base})")
+        lines.append("  (not attached yet -- starting from the defaults)")
     changes = plan.get("changes") or []
     if not changes:
         lines.append("  (no change)")
+    reasons = {f["field"]: f["reason"] for f in plan.get("filled") or []}
     for change in changes:
-        lines.append(
+        line = (
             f"  {change['field']}: {_format_value(change['before'])} -> "
             f"{_format_value(change['after'])}"
         )
+        if reason := reasons.get(change["field"]):
+            line += f" ({reason})"
+        lines.append(line)
     for adjusted in plan.get("adjusted") or []:
         lines.append(
             f"\n{adjusted['field']}: asked for {_format_value(adjusted['requested'])}, "
             f"the deployment stores {_format_value(adjusted['stored'])}."
         )
-    if (needs_apply := plan.get("needs_apply")) and not apply:
+    if _is_ignored_by_triggers(plan):
         lines.append(
-            f"\nStored, but not yet in effect: {', '.join(needs_apply)}.\n"
-            "Cloud Scheduler and the audit log sink act on those, so they take "
-            "effect when attach --apply applies them with Terraform."
-        )
-    # With --apply, the refusal explains this instead.
-    if not plan.get("watched") and not apply:
-        lines.append(
-            f"\nThis deployment investigates {watched_agent or 'another agent'}, "
+            f"\nThis deployment investigates {default_agent or 'another agent'}, "
             f"not {plan.get('agent_name')}. An attachment for any other agent is "
-            "stored, but not read until one AQuA can watch several.\n"
-            f"{_render_watch_remedy(plan, watched_agent)}"
+            "stored, but this engine does not read it.\n"
+            f"{_render_watch_remedy(plan, default_agent)}"
         )
     return lines
 
 
-def _fetch_watched_agent(target: dict[str, Any]) -> str:
-    """Fetches the agent the deployment investigates, from its agent listing.
+def _is_ignored_by_triggers(plan: dict[str, Any]) -> bool:
+    """Checks whether no trigger of the deployment investigates the plan's agent.
 
-    The engine's environment names it, or else it is the default attached
-    agent; the listing reports both.
+    An engine that reports `triggers_name_agent` investigates each agent by
+    its own triggers. One that does not investigates its default agent whatever
+    trigger fires, and reads no other attachment.
+
+    Args:
+        plan: Dry-run response from the attach route.
+
+    Returns:
+        Whether the engine investigates only its default agent, and the plan's
+        agent is not it.
+    """
+    return not plan.get("triggers_name_agent") and not plan.get("watched")
+
+
+def _fetch_default_agent(target: dict[str, Any]) -> str:
+    """Fetches the default agent, from the deployment's agent listing.
+
+    An engine that investigates only its default agent investigates this one,
+    the default attached agent.
 
     Args:
         target: The `url`, `resource` and `user_id` of the deployment.
@@ -1654,35 +1829,33 @@ def _fetch_watched_agent(target: dict[str, Any]) -> str:
         listing = _fetch_agents_result(AGENTS_LIST_ROUTE, None, **target)
     except click.ClickException:
         return ""
-    return str(
-        listing.get("environment_agent") or listing.get("default_agent") or ""
-    )
+    return str(listing.get("default_agent") or "")
 
 
-def _render_watch_remedy(plan: dict[str, Any], watched_agent: str) -> str:
-    """Renders how to make the deployment investigate the planned agent.
+def _render_watch_remedy(plan: dict[str, Any], default_agent: str) -> str:
+    """Renders how to make an engine that ignores the agent investigate it.
 
-    An agent the engine's environment names cannot be displaced by an attach.
-    Otherwise the deployment investigates its default attached agent, which
+    An engine that reports `triggers_name_agent` investigates every attached
+    agent. One that does not investigates its default attached agent, which
     `--default` changes.
 
     Args:
         plan: Dry-run response from the attach route.
-        watched_agent: The agent the deployment investigates; empty if unknown.
+        default_agent: The agent the deployment investigates; empty if unknown.
 
     Returns:
         One sentence, without a trailing newline.
     """
     name = plan.get("agent_name")
-    watched = watched_agent or "the agent it investigates now"
-    if plan.get("environment_agent"):
-        return (
-            f"The engine's environment names {watched}, so only a separate AQuA "
-            f"deployment can investigate {name}."
-        )
+    watched = default_agent or "the agent it investigates now"
+    upgrade = (
+        "Upgrading AQuA to a release that investigates every attached agent "
+        f"lets it investigate {name} beside {watched}."
+    )
     return (
-        f"To investigate {name} here instead, attach it with --default; "
-        f"{watched} stays attached, but is no longer investigated."
+        f"{upgrade} Otherwise, to investigate {name} here instead, attach it "
+        f"with --default; {watched} stays attached, but is no longer "
+        "investigated."
     )
 
 
@@ -1690,11 +1863,12 @@ _ACCESS_STATUS_LABELS = {
     "passed": "ok",
     "empty": "empty",
     "missing": "MISSING",
+    "mismatch": "MISMATCH",
     "denied": "DENIED",
     "error": "error",
     "skipped": "skipped",
 }
-"""How each access check status is shown; the capitals are the two that need
+"""How each access check status is shown; the capitals are the ones that need
 the operator to act."""
 
 
@@ -1733,11 +1907,35 @@ def _render_access_lines(access: dict[str, Any]) -> list[str]:
     return lines
 
 
+def _echo_access_check(
+    access: dict[str, Any],
+) -> tuple[list[grant_commands.Grant], list[str]]:
+    """Prints the access check and the grant commands for its denied reads.
+
+    Args:
+        access: The plan's `access` section; empty when nothing was checked.
+
+    Returns:
+        Tuple of (the grant commands printed, the denied targets with no
+        command).
+    """
+    for line in _render_access_lines(access) if access else []:
+        click.echo(line)
+    grants, ungranted = grant_commands.build_grants(access)
+    for line in grants_lib.render_grant_lines(
+        grants, ungranted, account=str(access.get("service_account") or "")
+    ):
+        click.echo(line)
+    return grants, ungranted
+
+
 def _validate_access(access: dict[str, Any]) -> str:
-    """Checks that the telemetry an attach points at exists.
+    """Checks that the telemetry an attach points at exists and can be queried.
 
     A table with no rows, or one AQuA may not read yet, does not stop the attach:
-    a new agent may have had no traffic, and a grant can follow.
+    a new agent may have had no traffic, and a grant can follow. A schema
+    mismatch, or a `table` or `rows` read that fails otherwise, does:
+    investigations run the same queries, so they would fail the same way.
 
     Args:
         access: The plan's `access` section.
@@ -1745,27 +1943,154 @@ def _validate_access(access: dict[str, Any]) -> str:
     Returns:
         The reason the attach is refused, or an empty string if it is not.
     """
-    missing = [
-        c for c in access.get("checks") or [] if c.get("status") == "missing"
+    checks = access.get("checks") or []
+    missing = [c for c in checks if c.get("status") == "missing"]
+    if missing:
+        targets = ", ".join(
+            str(c.get("target") or c.get("name")) for c in missing
+        )
+        return (
+            f"Not attaching: {targets} does not exist, so there is nothing to "
+            "investigate. For an agents-cli project, `agents-cli infra "
+            "single-project --apply` creates the telemetry sink and dataset; "
+            "`agents-cli deploy` alone creates neither."
+        )
+    mismatch = next((c for c in checks if c.get("status") == "mismatch"), None)
+    if mismatch is not None:
+        # With no other source that fits, another --telemetry-source would
+        # only mismatch again, so the hint names the table instead.
+        sources = mismatch.get("matching_sources") or []
+        if len(sources) == 1:
+            hint = f"Pass --telemetry-source {sources[0]} to read it as {sources[0]}."
+        elif sources:
+            hint = f"Pass --telemetry-source with one of {', '.join(sources)}."
+        else:
+            hint = (
+                "Name a table in that format with --telemetry-dataset and "
+                "--telemetry-table, or fix what writes this one."
+            )
+        return (
+            f"Not attaching: {mismatch.get('target') or mismatch.get('name')} is "
+            "not in the telemetry source's format, as the schema check above "
+            f"shows. {hint}"
+        )
+    failed = [
+        c
+        for c in checks
+        if c.get("status") == "error" and c.get("name") in ("table", "rows")
     ]
-    if not missing:
+    if not failed:
         return ""
-    targets = ", ".join(str(c.get("target") or c.get("name")) for c in missing)
-    return (
-        f"Not attaching: {targets} does not exist, so there is nothing to investigate. "
-        "For an agents-cli project, `agents-cli infra single-project --apply` creates "
-        "the telemetry sink and dataset; `agents-cli deploy` alone creates neither."
+    targets = ", ".join(
+        sorted({str(c.get("target") or c.get("name")) for c in failed})
     )
+    return (
+        f"Not attaching: reading {targets} failed, and investigations would run "
+        "the same query. If the table holds another source's telemetry, pass "
+        "--telemetry-source (big_query, cloud_logging or cloud_ops) to match it; "
+        "the error is in the reads above."
+    )
+
+
+def _render_link_lines(link: discovery_lib.TraceLink) -> list[str]:
+    """Renders the commands that create a Cloud Trace link.
+
+    Args:
+        link: A link that does not exist yet.
+
+    Returns:
+        Lines to print, in order.
+    """
+    return [
+        f"{discovery_lib.TRACE_BUCKET}/{discovery_lib.TRACE_DATASET} in "
+        f"{link.project} needs a BigQuery link for AQuA to read the agent's "
+        "spans. To create it and what it needs, run with your own credentials:",
+        *(f"  {shlex.join(argv)}" for argv in link.build_needed_argvs()),
+    ]
+
+
+def _create_trace_link(
+    link: discovery_lib.TraceLink,
+    *,
+    run_command: Callable[[list[str]], int] | None = None,
+    echo: Callable[[str], None] = click.echo,
+    location: str | None = None,
+    link_id: str | None = None,
+) -> tuple[discovery_lib.TraceLink, list[list[str]]]:
+    """Creates a Cloud Trace link, and what it needs, with the user's credentials.
+
+    Args:
+        link: A link that does not exist yet.
+        run_command: Runs one command and returns its exit status;
+            :func:`_run_command` if None.
+        echo: Prints a progress line.
+        location: The bucket location the operator gave, if any.
+        link_id: The link id the operator gave, if any.
+
+    Returns:
+        The link as created, and the commands that ran.
+
+    Raises:
+        click.ClickException: If gcloud is not on PATH or a step fails.
+    """
+    if shutil.which("gcloud") is None:
+        raise click.ClickException(
+            "Not on PATH: gcloud. Install the Google Cloud CLI, or run the "
+            "commands above wherever it is installed."
+        )
+    try:
+        return trace_link_lib.create_trace_link(
+            link,
+            api=rest_client_lib.RestClient(get_adc_token),
+            run_command=run_command or _run_command,
+            echo=echo,
+            location=location,
+            link_id=link_id,
+        )
+    except trace_link_lib.TraceLinkError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+def _run_command(argv: list[str]) -> int:
+    """Runs one command with no shell, its output going to the terminal.
+
+    Args:
+        argv: Command-line arguments vector.
+
+    Returns:
+        The command's exit status.
+    """
+    return subprocess.run(argv, check=False).returncode  # noqa: S603 - explicit argument list without shell execution
+
+
+def _run_command_to_stderr(argv: list[str]) -> int:
+    """Runs one command with no shell, keeping its output off stdout.
+
+    For commands whose stdout carries only their JSON result: the command's
+    stdout is captured and written to stderr once it exits.
+
+    Args:
+        argv: Command-line arguments vector.
+
+    Returns:
+        The command's exit status.
+    """
+    result = subprocess.run(  # noqa: S603 - explicit argument list without shell execution
+        argv, check=False, stdout=subprocess.PIPE, text=True
+    )
+    if result.stdout:
+        click.echo(result.stdout.rstrip("\n"), err=True)
+    return result.returncode
 
 
 _RECHECK_DELAYS_SECONDS = (0, 15, 45, 60, 60)
 """How long to wait before each access check after the grants run. A new IAM
 binding can take a minute or more to reach every service that enforces it, and
 while it has not, the checks behind it stay skipped and their grants unknown;
-three minutes in all gives a single `--apply` room to reach them."""
+three minutes in all gives a single `attach` room to reach them."""
 
 _MAX_GRANT_ROUNDS = 3
-"""How many rounds of grants one `attach --apply` runs. A check that needs an
+"""How many rounds of grants one `attach` runs. A check that needs an
 earlier read is skipped until that read is allowed, so its grant only shows up
 after the earlier grant: the payload check waits for the rows check, which
 waits for the table check, unless the attachment names the payload bucket. The
@@ -1775,12 +2100,12 @@ grants."""
 
 
 def _apply_grants(
-    grants: list[grants_lib.Grant],
-    request: dict[str, Any],
+    grants: list[grant_commands.Grant],
+    request: AttachAgentArgs,
     *,
     yes: bool,
     target: dict[str, Any],
-    agent_name: str,
+    agent_key: str,
 ) -> None:
     """Runs the grant commands the plan printed, then checks access again.
 
@@ -1796,28 +2121,32 @@ def _apply_grants(
        each one that ran, even when a later one failed.
     3. Ask the deployment to check again, waiting between tries while a
        denied read still needs a grant that already ran.
-    4. If the check calls for grants none of the rounds made, print them and
+    4. If the check filled in settings from a table the grants made readable,
+       store them once confirmed, so that any further round grants for them.
+    5. If the check calls for grants none of the rounds made, print them and
        start the next round with them, up to `_MAX_GRANT_ROUNDS`.
-    5. Show the last check's result, the grants still denied, any grant left
+    6. Show the last check's result, the grants still denied, any grant left
        unrun, and the denied reads no command covers.
 
     Args:
         grants: Commands the plan printed, already confirmed.
-        request: The attach request, without `dry_run`.
-        yes: Whether to skip the confirmation of later rounds.
+        request: The attach request, without `dry_run`; storing adds the
+            filled-in settings to its fields.
+        yes: Whether to skip the confirmation of later rounds and of storing.
         target: Engine target options for the route call.
-        agent_name: The attached agent, as the plan resolved it.
+        agent_key: Key of the attached agent, as the plan resolved it.
 
     Raises:
         click.ClickException: If a command cannot run or fails.
-        click.Abort: If the user declines a later round.
+        click.Abort: If the user declines a later round, or storing.
     """
     ran: set[tuple[str, str]] = set()
     pending = grants
+    plan: dict[str, Any] = {}
     access: dict[str, Any] = {}
-    needed: list[grants_lib.Grant] = []
+    needed: list[grant_commands.Grant] = []
     ungranted: list[str] = []
-    new: list[grants_lib.Grant] = []
+    new: list[grant_commands.Grant] = []
     for round_number in range(1, _MAX_GRANT_ROUNDS + 1):
         if round_number > 1 and not yes:
             click.confirm(
@@ -1828,11 +2157,13 @@ def _apply_grants(
         try:
             grants_lib.run_grants(pending, echo=click.echo)
         except grants_lib.GrantError as exc:
-            made = [g for g in exc.completed if isinstance(g, grants_lib.Grant)]
+            made = [
+                g for g in exc.completed if isinstance(g, grant_commands.Grant)
+            ]
             if made:
-                _record_grants(agent_name, made, target)
+                _record_grants(agent_key, made, target)
             raise click.ClickException(str(exc)) from exc
-        _record_grants(agent_name, pending, target)
+        _record_grants(agent_key, pending, target)
         ran.update(grant.key for grant in pending)
 
         for delay in _RECHECK_DELAYS_SECONDS:
@@ -1844,13 +2175,20 @@ def _apply_grants(
                 time.sleep(delay)
             plan = _fetch_agents_result(
                 AGENTS_ATTACH_ROUTE,
-                {**request, "dry_run": True, "check_access": True},
+                AttachAgentArgs(
+                    **request,
+                    dry_run=True,
+                    check_access=True,
+                    fill_from_table=True,
+                ),
                 **target,
             )
             access = plan.get("access") or {}
-            needed, ungranted = grants_lib.build_grants(access)
+            needed, ungranted = grant_commands.build_grants(access)
             if not any(grant.key in ran for grant in needed):
                 break
+        if plan.get("filled"):
+            _store_filled(plan, request, yes=yes, target=target)
 
         new = [grant for grant in needed if grant.key not in ran]
         if not new or round_number == _MAX_GRANT_ROUNDS:
@@ -1880,7 +2218,7 @@ def _apply_grants(
             click.echo(
                 f"\nStill denied after the grants: {', '.join(still_denied)}, "
                 f"so {', '.join(skipped)} could not be checked yet. Once the "
-                "binding has propagated, run attach --apply again to grant "
+                "binding has propagated, run attach again to grant "
                 "what they need."
             )
         else:
@@ -1900,39 +2238,189 @@ def _apply_grants(
     for line in lines:
         click.echo(line)
     if new:
-        click.echo("Or run attach --apply again to run them.")
+        click.echo("Or run attach again to run them.")
+
+
+def _extract_filled(plan: dict[str, Any]) -> dict[str, Any]:
+    """Extracts what an attach plan filled in from the telemetry table.
+
+    Args:
+        plan: Dry-run response from the attach route.
+
+    Returns:
+        The filled-in values keyed by field name; empty when the deployment
+        filled in nothing, as one that predates `fill_from_table` does.
+    """
+    return {f["field"]: f["value"] for f in plan.get("filled") or []}
+
+
+def _store_filled(
+    plan: dict[str, Any],
+    request: AttachAgentArgs,
+    *,
+    yes: bool,
+    target: dict[str, Any],
+) -> None:
+    """Stores what a check after grants filled in from the telemetry table.
+
+    The attachment is stored before any grant runs, while AQuA may not read
+    the table yet, so a check after the grants can be the first to fill
+    anything in.
+
+    Args:
+        plan: That check's plan, which filled something in.
+        request: The attach request; the filled-in values join its fields,
+            so later checks send them as given.
+        yes: Whether to store them without asking.
+        target: Engine target options for the route call.
+
+    Raises:
+        click.Abort: If the user declines.
+    """
+    filled = plan["filled"]
+    click.echo("\nNow that AQuA can read the telemetry table, it fills in:")
+    for setting in filled:
+        click.echo(
+            f"  {setting['field']}: {_format_value(setting['value'])} "
+            f"({setting['reason']})"
+        )
+    if not yes:
+        click.confirm(f"\nStore {len(filled)} setting(s)?", abort=True)
+    request["fields"] = {**request.get("fields", {}), **_extract_filled(plan)}
+    _fetch_agents_result(
+        AGENTS_ATTACH_ROUTE, AttachAgentArgs(**request, dry_run=False), **target
+    )
+    click.echo("Stored them.")
+
+
+def _build_agent_selector(agent_key: str) -> AgentSelector:
+    """Builds the fields that name an attachment to the `agents/*` routes.
+
+    An engine that takes no `agent_key` reads `agent_name`, and every
+    attachment such an engine holds is stored under its bare name, which is
+    the key.
+
+    Args:
+        agent_key: What the attachment is stored under.
+
+    Returns:
+        `{"agent_key", "agent_name"}`, both the key.
+    """
+    return AgentSelector(agent_key=agent_key, agent_name=agent_key)
+
+
+def _is_aqua_own_checkout() -> bool:
+    """Checks whether the working directory is the source tree this CLI runs from.
+
+    In AQuA's own checkout, it is. agents-cli runs the copy it vendors into a
+    subdirectory of the observed agent's project, from the project root above
+    that copy.
+
+    Returns:
+        Whether the working directory is in this CLI's source tree.
+    """
+    source_root = pathlib.Path(__file__).resolve().parents[2]
+    return pathlib.Path.cwd().resolve().is_relative_to(source_root)
+
+
+def _save_agent_key(agent_key: str, target: dict[str, Any]) -> None:
+    """Records the attached agent in the project, for later commands here.
+
+    Commands then act on this agent with no `--agent-key`, on the AQuA it was
+    attached to. Not in AQuA's own checkout, where an operator attaches one
+    agent after another and commands act on AQuA's default agent; nor for a
+    target only other environment variables configure, which has no name to
+    record the key for. A failure to write is reported, not raised: the
+    attachment is already stored.
+
+    Args:
+        agent_key: Key of the attached agent.
+        target: AQuA's `url` and `resource`.
+    """
+    aqua = _resolve_target_name(target["url"], target["resource"])
+    state_root = pathlib.Path.cwd() / STATE_DIR_NAME
+    if (
+        not aqua
+        or _is_aqua_own_checkout()
+        or resolve_recorded_agent_key(state_root, aqua) == agent_key
+    ):
+        return
+    try:
+        save_attached_aqua_fields(
+            state_root,
+            agent_key=agent_key,
+            agent_key_target=normalize_target(aqua),
+        )
+    except OSError as exc:
+        click.echo(
+            f"\nCould not record {agent_key} in {STATE_DIR_NAME}/"
+            f"{ATTACHED_AQUA_FILE} ({exc}); pass --agent-key {agent_key} to "
+            "later commands."
+        )
+        return
+    click.echo(
+        f"\nRecorded {agent_key} in {STATE_DIR_NAME}/{ATTACHED_AQUA_FILE}; "
+        "later commands here act on it without --agent-key."
+    )
+
+
+def _delete_agent_key(agent_key: str, target: dict[str, Any]) -> None:
+    """Removes a detached agent from the project's record, if it is the one there.
+
+    Args:
+        agent_key: Key of the detached agent.
+        target: AQuA's `url` and `resource`.
+    """
+    aqua = _resolve_target_name(target["url"], target["resource"])
+    state_root = pathlib.Path.cwd() / STATE_DIR_NAME
+    if not aqua or resolve_recorded_agent_key(state_root, aqua) != agent_key:
+        return
+    try:
+        save_attached_aqua_fields(
+            state_root, agent_key=None, agent_key_target=None
+        )
+    except OSError as exc:
+        click.echo(
+            f"Could not remove {agent_key} from {STATE_DIR_NAME}/"
+            f"{ATTACHED_AQUA_FILE} ({exc}); pass --agent-key to later commands."
+        )
+        return
+    click.echo(
+        f"Removed {agent_key} from {STATE_DIR_NAME}/{ATTACHED_AQUA_FILE}; later "
+        "commands here act on AQuA's default agent."
+    )
 
 
 def _record_grants(
-    agent_name: str, grants: list[grants_lib.Grant], target: dict[str, Any]
+    agent_key: str, grants: list[grant_commands.Grant], target: dict[str, Any]
 ) -> None:
-    """Records grants that ran on the attachment, for `detach --apply` to revoke.
+    """Records grants that ran on the attachment, for `detach` to revoke.
 
     A refused record does not fail the command: the grants are already made,
-    and the rest of `--apply` still has to run. The user is shown how to
-    revoke them instead, since `detach --apply` will not.
+    and the rest of `attach` still has to run. The user is shown how to
+    revoke them instead, since `detach` will not.
 
     Args:
-        agent_name: Attached agent.
+        agent_key: Key of the attached agent.
         grants: Grants that ran.
         target: Engine target options for the route call.
     """
     try:
         _fetch_agents_result(
             AGENTS_APPLIED_ROUTE,
-            {
-                "agent_name": agent_name,
-                "granted": [g.to_record() for g in grants],
-            },
+            RecordAppliedArgs(
+                **_build_agent_selector(agent_key),
+                granted=[g.to_record() for g in grants],
+            ),
             **target,
         )
     except click.ClickException as exc:
-        revocations, _ = grants_lib.build_revocations(
+        revocations, _ = grant_commands.build_revocations(
             [g.to_record() for g in grants]
         )
         click.echo(
             f"\nCould not record the grants on the attachment: "
-            f"{exc.format_message()}\ndetach --apply will not revoke them; "
+            f"{exc.format_message()}\ndetach will not revoke them; "
             "to revoke them by hand:"
         )
         for revocation in revocations:
@@ -1940,8 +2428,95 @@ def _record_grants(
         return
     click.echo(
         f"\nRecorded {len(grants)} grant(s) on the attachment; "
-        "detach --apply revokes them."
+        "detach revokes them."
     )
+
+
+_KEY_FIELDS = frozenset({"observed_project_id"})
+"""Fields whose discovered value is always sent: the attachment's key is built
+from them, and the deployment refuses a change."""
+
+_FIELDS_DISCOVERED_FOR = {
+    "telemetry_ingestion_source": frozenset(
+        {"telemetry_dataset", "telemetry_table", "telemetry_location"}
+    ),
+    "telemetry_dataset": frozenset({"telemetry_location"}),
+}
+"""For each field, the fields discovery resolves from its value.
+
+When a flag changes the field, their stored values describe the old value: a
+dataset of the old source, or the location of the old dataset."""
+
+
+def _list_kept_stored_values(
+    agent_name: str,
+    fields: dict[str, Any],
+    *,
+    discovered: list[str],
+    target: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Lists the discovered values an attached agent keeps its stored ones over.
+
+    Discovery reads the observed agent's project, which does not know what the
+    attachment stores, so on an attached agent a discovered value fills only a
+    setting stored empty. A flag that changes a field lets discovery
+    replace the fields resolved for it (`_FIELDS_DISCOVERED_FOR`).
+
+    Args:
+        agent_name: The agent's name, as resolved.
+        fields: Fields to send: the flags' and the discovered ones.
+        discovered: Which of ``fields`` discovery or a hint filled in.
+        target: The `url` and `resource` of the deployment.
+
+    Returns:
+        The plan's `{field, before, after}` change of each discovered field to
+        leave out; empty when the agent is not attached yet.
+
+    Raises:
+        click.ClickException: If the deployment refuses the plan.
+    """
+    plan = _fetch_agents_result(
+        AGENTS_ATTACH_ROUTE,
+        AttachAgentArgs(agent_name=agent_name, fields=fields, dry_run=True),
+        **target,
+    )
+    if not plan.get("attached"):
+        return []
+    changes = {c["field"]: c for c in plan.get("changes") or []}
+    replaceable = set(_KEY_FIELDS)
+    for field, resolved in _FIELDS_DISCOVERED_FOR.items():
+        if field in changes and field not in discovered:
+            replaceable |= resolved
+    return [
+        changes[field]
+        for field in discovered
+        if field in changes
+        and field not in replaceable
+        and changes[field]["before"] not in (None, "")
+    ]
+
+
+def _render_kept_lines(kept: list[dict[str, Any]]) -> list[str]:
+    """Renders the stored values an attached agent keeps over discovered ones.
+
+    Args:
+        kept: The plan's change of each discovered field left out.
+
+    Returns:
+        Lines to print; empty when nothing was kept.
+    """
+    if not kept:
+        return []
+    width = max(len(c["field"]) for c in kept)
+    return [
+        "Stored values kept over discovered ones (set a flag to change one, or "
+        "pass --rediscover to take them all):",
+        *(
+            f"  {c['field']:<{width}}  {_format_value(c['before'])}  "
+            f"(discovered {_format_value(c['after'])})"
+            for c in kept
+        ),
+    ]
 
 
 def _resolve_discovered_fields(
@@ -1951,8 +2526,14 @@ def _resolve_discovered_fields(
     observed_agent_resource: str | None,
     hints: dict[str, discovery_lib.DiscoveredValue],
     window_days: int,
-) -> tuple[str, dict[str, Any], list[str]]:
+    target: dict[str, Any],
+    keep_stored: bool,
+) -> tuple[str, dict[str, Any], list[str], discovery_lib.TraceLink | None]:
     """Fills in the attach fields no flag set: from the engine, then hints.
+
+    With ``keep_stored``, an attached agent keeps the stored value of each
+    field filled in, except where `_list_kept_stored_values` lets the
+    discovered one replace it.
 
     Args:
         agent_name: AGENT_NAME as given; empty if not.
@@ -1960,12 +2541,19 @@ def _resolve_discovered_fields(
         observed_agent_resource: The observed engine, if given.
         hints: Values a wrapper read from the project's own files.
         window_days: How far back discovery counts telemetry rows.
+        target: The `url` and `resource` of the deployment, which says what
+            an attached agent stores.
+        keep_stored: Whether an attached agent's stored values outrank
+            discovered ones; false for --rediscover.
 
     Returns:
-        Tuple of (agent name, fields to send, lines to show before the plan).
+        Tuple of (agent name, fields to send, lines to show before the plan,
+        the Cloud Trace link those fields read through when it does not exist
+        yet).
 
     Raises:
-        click.ClickException: If discovery cannot go on.
+        click.ClickException: If discovery cannot go on, or the deployment
+            refuses the plan.
     """
     given = dict(fields)
     if agent_name:
@@ -1992,173 +2580,196 @@ def _resolve_discovered_fields(
             agent_name = str(value.value)
         else:
             filled[value.field] = value.value
+    discovered = [field for field in filled if field not in fields]
+    kept = (
+        _list_kept_stored_values(
+            agent_name, filled, discovered=discovered, target=target
+        )
+        if keep_stored and set(discovered) - _KEY_FIELDS
+        else []
+    )
+    kept_fields = {change["field"] for change in kept}
+    filled = {f: v for f, v in filled.items() if f not in kept_fields}
+    resolved = [value for value in resolved if value.field not in kept_fields]
     lines = discovery_lib.render_discovery_lines(
         observed_agent_resource, resolved, discovery
     )
-    return agent_name, filled, lines
+    lines.extend(_render_kept_lines(kept))
+    link = discovery.trace_link if discovery else None
+    if (
+        link is None
+        or not link.build_needed_argvs()
+        or filled.get("telemetry_ingestion_source") != "cloud_ops"
+        or filled.get("telemetry_dataset") != link.link_id
+    ):
+        link = None
+    return agent_name, filled, lines, link
 
 
-def _resolve_attach_root() -> pathlib.Path:
-    """Resolves the Terraform root holding one agent's triggers.
-
-    This file sits at `src/ambient_quality_cli/` in AQuA's checkout and in the
-    copy agents-cli vendors, so the root is at the same place relative to it in
-    both.
-
-    Returns:
-        The root directory.
-
-    Raises:
-        click.ClickException: If the root is not there.
-    """
-    root = pathlib.Path(__file__).resolve().parents[2] / ATTACH_ROOT
-    if not root.is_dir():
-        raise click.ClickException(
-            f"AQuA's Terraform for the triggers is not at {root}."
-        )
-    return root
-
-
-_TRIGGER_TARGET_KEYS = frozenset(
-    {"region", "aqua_engine", "ambient_topic", "ambient_caller_email"}
+_NO_TRIGGER_TOPIC = (
+    "This AQuA reports no topic for update triggers, so attach wires none: it "
+    "runs locally, its engine predates triggers wired by attach, or it is not "
+    "deployed on Agent Runtime."
 )
-"""What the engine reports as its trigger target: the attach root's instance
-variables."""
 
 
-def _validate_trigger_target(target: Any) -> dict[str, str]:
-    """Checks the trigger target an engine reported.
+def _resolve_trigger_topic(response: dict[str, Any]) -> str:
+    """Resolves the topic an attached agent's update trigger publishes to.
 
     Args:
-        target: The `trigger_target` of an attach or list response.
+        response: An attach or list response, with the `trigger_target` the
+            engine reports.
 
     Returns:
-        The target, keyed by the attach root's instance variables.
+        The topic id, or an empty string when the engine reports none.
+    """
+    target = response.get("trigger_target")
+    if not isinstance(target, dict):
+        return ""
+    return str(target.get("ambient_topic") or "")
+
+
+def _resolve_sink_project(
+    observed_project: str, agent_key: str, topic: str
+) -> str:
+    """Resolves the project holding an agent's update sink: the observed engine's.
+
+    Args:
+        observed_project: The attachment's `observed_project_id`; empty when
+            unknown or unset.
+        agent_key: What the attachment is stored under. A key names the
+            project the agent runs in; a bare name, AQuA's own.
+        topic: AQuA's topic id, whose project is AQuA's.
+
+    Returns:
+        The project.
 
     Raises:
-        click.ClickException: If the engine reported none, or not all of it.
+        update_trigger_lib.TriggerError: If the topic is not a topic id.
     """
-    if not isinstance(target, dict) or set(target) != _TRIGGER_TARGET_KEYS:
-        raise click.ClickException(
-            "This AQuA reports nothing to wire triggers to. Either:\n"
-            "  - it names its observed agent, and its own Terraform runs that "
-            "agent's schedule and update trigger: change them with "
-            "`agents-cli infra single-project --apply`;\n"
-            "  - its engine predates attach --apply: re-apply its Terraform with "
-            "`agents-cli infra single-project --apply`, then `agents-cli deploy`;\n"
-            "    in the agent's project, add --apply-aqua and --deploy-aqua;\n"
-            "  - or it is not deployed on Agent Runtime."
-        )
-    return {key: str(value) for key, value in target.items()}
+    if observed_project:
+        return observed_project
+    if match := AGENT_KEY_RE.fullmatch(agent_key):
+        return match["project"]
+    return update_trigger_lib.parse_topic(topic)[0]
 
 
-def _build_trigger_vars(
-    agent_name: str, triggers: dict[str, Any]
-) -> dict[str, str]:
-    """Builds the attach root's agent variables from the values to apply.
-
-    A field the object leaves empty is left to the root's default.
+def _plan_update_trigger(
+    *, topic: str, agent_key: str, observed_project: str, engine_id: str
+) -> update_trigger_lib.TriggerPlan:
+    """Plans an agent's update trigger from what exists, with the user's credentials.
 
     Args:
-        agent_name: Attached agent.
-        triggers: Terraform-backed field values, as the attach route returns.
+        topic: AQuA's topic id.
+        agent_key: What the attachment is stored under.
+        observed_project: The attachment's `observed_project_id`, if known.
+        engine_id: The observed engine's id; empty to remove the trigger.
 
     Returns:
-        Variables keyed by name, as strings for `-var`.
+        The plan.
+
+    Raises:
+        click.ClickException: If the trigger cannot be read or planned.
     """
-    tf_vars = {
-        "observed_agent_name": agent_name,
-        "scheduled_trigger_enabled": (
-            "true"
-            if triggers.get("scheduled_trigger_enabled", True)
-            else "false"
-        ),
-    }
-    if triggers.get("investigation_schedule"):
-        tf_vars["investigation_schedule"] = str(
-            triggers["investigation_schedule"]
+    try:
+        return update_trigger_lib.plan_trigger(
+            rest_client_lib.RestClient(get_adc_token),
+            topic=topic,
+            agent_key=agent_key,
+            project=_resolve_sink_project(observed_project, agent_key, topic),
+            engine_id=engine_id,
         )
-    if triggers.get("observed_engine_id"):
-        tf_vars["observed_engine_id"] = str(triggers["observed_engine_id"])
-    if triggers.get("observed_project_id"):
-        tf_vars["observed_project_id"] = str(triggers["observed_project_id"])
-    return tf_vars
+    except update_trigger_lib.TriggerError as exc:
+        raise click.ClickException(f"{exc}\nNothing was changed.") from exc
 
 
-class _TriggerInstance:
-    """The attach root and the AQuA instance one agent's triggers are wired to."""
+def _apply_update_trigger(plan: update_trigger_lib.TriggerPlan) -> None:
+    """Runs the commands of an update trigger plan with the user's credentials.
 
-    def __init__(self, target: dict[str, str]) -> None:
-        """Resolves both before anything is stored or applied.
+    Args:
+        plan: The plan, as printed.
 
-        Args:
-            target: The instance variables, as the engine reports them or as an
-                earlier apply recorded them.
-
-        Raises:
-            click.ClickException: If the root is missing.
-        """
-        self.root = _resolve_attach_root()
-        self.target = target
-        self.state_root = pathlib.Path.cwd() / STATE_DIR_NAME
-
-    def run(
-        self,
-        agent_name: str,
-        triggers: dict[str, Any],
-        *,
-        apply: bool,
-        destroy: bool = False,
-    ) -> None:
-        """Plans, applies or destroys one agent's triggers with Terraform.
-
-        Args:
-            agent_name: Attached agent; names its state.
-            triggers: Terraform-backed field values to apply.
-            apply: If True, applies or destroys; if False, plans.
-            destroy: If True, removes the triggers instead.
-
-        Raises:
-            SystemExit: If Terraform fails.
-        """
-        self.state_root.mkdir(parents=True, exist_ok=True)
-        run_terraform(
-            self.root,
-            state_key=build_attach_key(agent_name),
-            state_root=self.state_root,
-            apply=apply,
-            destroy=destroy,
-            tf_vars={
-                **self.target,
-                **_build_trigger_vars(agent_name, triggers),
-            },
+    Raises:
+        click.ClickException: If gcloud is missing or a command fails.
+    """
+    try:
+        update_trigger_lib.apply_trigger(
+            plan,
+            api=rest_client_lib.RestClient(get_adc_token),
+            runner=_run_command,
+            echo=click.echo,
         )
+    except update_trigger_lib.TriggerError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+def _plan_attach_trigger(
+    plan: dict[str, Any], agent_key: str, default_agent: str
+) -> update_trigger_lib.TriggerPlan | None:
+    """Plans the update trigger an attach wires, or says why it wires none.
+
+    Args:
+        plan: Dry-run response from the attach route.
+        agent_key: Key of the attached agent, as the plan resolved it.
+        default_agent: The agent an engine that investigates only its default
+            agent investigates, when the plan's agent is not it.
+
+    Returns:
+        The plan, or None when the engine reports no topic, or investigates
+        only its default agent and the plan's agent is not it: that agent's
+        updates would investigate the default one again.
+
+    Raises:
+        click.ClickException: If the trigger cannot be read or planned.
+    """
+    triggers = plan.get("triggers") or {}
+    engine_id = str(triggers.get("observed_engine_id") or "")
+    topic = _resolve_trigger_topic(plan)
+    if not topic:
+        if engine_id:
+            click.echo(f"\n{_NO_TRIGGER_TOPIC}")
+        return None
+    if _is_ignored_by_triggers(plan):
+        if engine_id:
+            watched = default_agent or "another agent"
+            click.echo(
+                f"\nNo update trigger for {plan.get('agent_name')}: this "
+                f"deployment investigates {watched} whatever trigger fires, "
+                f"so its updates would investigate {watched} again."
+            )
+        return None
+    return _plan_update_trigger(
+        topic=topic,
+        agent_key=agent_key,
+        observed_project=str(triggers.get("observed_project_id") or ""),
+        engine_id=engine_id,
+    )
 
 
 @cli.command("attach")
 @click.argument("agent_name", default="")
 @click.option(
-    "--dry-run", is_flag=True, help="Show the plan, write and grant nothing."
-)
-@click.option(
-    "--apply",
-    "apply_",
+    "--dry-run",
     is_flag=True,
-    help=(
-        "Also run the grant commands the plan prints, with your credentials, "
-        "and apply the schedule and the update trigger with Terraform. With "
-        "--dry-run, plan the triggers and grant nothing."
-    ),
+    help="Show the plan and its commands; write, grant and create nothing.",
 )
 @click.option(
     "--yes",
     is_flag=True,
-    help="Do not ask before changing a setting or running a grant.",
+    help="Do not ask before changing a setting or running a command.",
 )
 @click.option(
     "--no-discover",
     is_flag=True,
     help="Store only the settings given, discovering none.",
+)
+@click.option(
+    "--rediscover",
+    is_flag=True,
+    help=(
+        "On an attached agent, let every discovered value replace the stored "
+        "one, for example after redeploying the observed agent to its engine."
+    ),
 )
 @click.option(
     "--source-root",
@@ -2184,9 +2795,9 @@ class _TriggerInstance:
 def attach_agent_cmd(
     agent_name,
     dry_run,
-    apply_,
     yes,
     no_discover,
+    rediscover,
     source_root,
     hints,
     *,
@@ -2194,53 +2805,96 @@ def attach_agent_cmd(
     resource,
     **flags,
 ) -> None:
-    """Record how AQuA observes AGENT_NAME.
+    """Record how AQuA observes AGENT_NAME, and set up what that needs.
 
     The deployment validates the settings and stores them; investigations read
     them from the next run on. Only the settings given change, and everything
-    else keeps its current value. Without AGENT_NAME, the agent the deployment
-    already watches.
+    else keeps its current value. Without AGENT_NAME, the name is discovered
+    from --observed-agent-resource.
 
     With --observed-agent-resource, every setting no flag gives is discovered
     from the observed engine with your credentials: the agent's name from its
-    ADK server, its deployment's name, and the telemetry table a logging sink
-    exports its inference events to. The plan names each value's source.
+    ADK server, its deployment's name, and its telemetry: the agent's spans in
+    Cloud Trace, read through a BigQuery link on the project's `_Trace`
+    bucket. When the bucket or the link does not exist, attach enables the
+    Observability API and creates them, and detach leaves them in place.
+    Discovery selects a logging sink's table only if --telemetry-dataset names
+    the sink's dataset or the Observability API is unavailable; otherwise, the
+    plan notes any sinks passed over. The plan names each value's source.
+
+    On an attached agent, each stored value is kept over a discovered one,
+    including a default stored by the first attach, and the plan lists them; a
+    discovered value fills only a setting stored empty. A flag that changes
+    --telemetry-source lets discovery replace the telemetry dataset, table and
+    location, and one that changes --telemetry-dataset, the location, since
+    the stored ones describe the old source or dataset. With --rediscover,
+    every discovered value replaces the stored one, for example to take the
+    deployment name or payload bucket of an agent redeployed to its engine.
 
     The observed agent may be in another project than AQuA. Its telemetry is
-    read there, the grant commands name that project's dataset, and --apply
-    creates the audit sink on the agent's updates there, so your credentials
-    need to reach both projects.
+    read there, the grant commands name that project's dataset, and the audit
+    sink on the agent's updates is created there, so your credentials need to
+    reach both projects.
 
-    First, the deployment tries the reads an investigation makes, as its own
-    service account, and the plan shows each result. Telemetry that does not
-    exist refuses the attach. For each read it is denied, the plan prints the
-    command that grants it; with --apply, those commands run with your
-    credentials, and the reads are tried again. A read that was skipped
-    behind a denied one and turns out denied gets its grant printed and run
-    in the same --apply. --apply also applies the agent's schedule and update
-    trigger with Terraform.
+    The attachment is keyed <project id>__<agent name>, with the project the
+    agent runs in, so the same agent in a staging and a prod project is two
+    attachments. An agent in AQuA's own project keeps its bare name as its key.
+    detach and the update sink's name name the attachment by its key.
+
+    First, the deployment reads from the telemetry table what no flag or
+    discovery gives -- the table's location, and its source when the table is
+    in only one source's format -- and the plan names the table beside each.
+    It then tries the reads an investigation makes, as its own service
+    account, and the plan shows each result. Telemetry that does not
+    exist, or that the telemetry query fails on, refuses the attach. For each
+    read it is denied, the plan prints the command that grants it; those
+    commands run with your credentials, and the reads are tried again. A read
+    that was skipped behind a denied one and turns out denied gets its grant
+    printed and run in the same attach.
+
+    The plan also prints the gcloud commands that create or update the agent's
+    update trigger: an audit log sink on the observed engine's updates, and its
+    permission to publish to AQuA's topic. Every command runs once you confirm
+    it, or with --yes.
 
     With --source-root, the project's source is then published to AQuA for the
     engine's newest revision, unless it already is.
+
+    Unless this is AQuA's own checkout, or AQuA's engine is configured by
+    environment variables other than AGENT_ENGINE_RESOURCE_ID, the agent's key
+    is recorded in ./.aqua/attached_aqua.json, and later commands in this
+    directory that reach the same AQuA act on the agent without --agent-key.
     """
     # 1. Fill in what no flag gave: discovered from the observed engine, then
-    #    the wrapper's hints, unless --no-discover.
+    #    the wrapper's hints, unless --no-discover. An attached agent keeps
+    #    its stored values, unless --rediscover.
     # 2. Ask the deployment for the plan and its access check, and show both,
-    #    with a grant command for each denied read.
-    # 3. With --apply, refuse an agent the deployment does not watch, and
-    #    resolve the AQuA instance, so one that cannot be applied to stores
-    #    nothing.
-    # 4. Refuse telemetry that does not exist.
-    # 5. Stop for a dry run, after planning the triggers with --apply.
-    # 6. Confirm any change and any grant, unless --yes.
-    # 7. Store the change.
-    # 8. With --apply, run the grant commands, record those that ran, and
-    #    check again, with further confirmed rounds for the grants it reveals.
-    # 9. With --source-root, publish the source of the engine's newest
-    #    revision, unless AQuA already has it.
-    # 10. With --apply, apply the triggers and record what was applied.
+    #    with a grant command for each denied read. A Cloud Trace link still
+    #    to be created leaves the access check for after it. What the plan
+    #    filled in from the table is sent from then on as if a flag gave it.
+    # 3. Unless --dry-run, create the Cloud Trace link, and check access again.
+    # 4. Refuse telemetry that does not exist or that the telemetry query fails
+    #    on.
+    # 5. Plan the update trigger from what exists, and show its commands.
+    # 6. Stop for a dry run.
+    # 7. Confirm any change, any grant and the trigger commands, unless --yes.
+    # 8. Store the change.
+    # 9. Record the agent in ./.aqua/, for later commands here.
+    # 10. Run the grant commands, record those that ran, and check again, with
+    #     further confirmed rounds for the grants it reveals. What a check
+    #     fills in from a table AQuA could not read before the grants is
+    #     stored, once confirmed, before any further round.
+    # 11. With --source-root, publish the source of the engine's newest
+    #     revision, unless AQuA already has it.
+    # 12. Run the trigger commands and record what is in effect.
     target = {"url": url, "resource": resource}
+    if no_discover and rediscover:
+        raise click.UsageError(
+            "--rediscover needs discovery; it cannot be combined with "
+            "--no-discover."
+        )
     fields = _extract_requested_fields(flags)
+    pending_link: discovery_lib.TraceLink | None = None
     if not no_discover:
         try:
             parsed_hints = discovery_lib.parse_hints(hints)
@@ -2252,17 +2906,22 @@ def attach_agent_cmd(
         window_days = (
             max(lookback, 1) if lookback is not None else _DISCOVERY_WINDOW_DAYS
         )
-        agent_name, fields, lines = _resolve_discovered_fields(
+        agent_name, fields, lines, pending_link = _resolve_discovered_fields(
             agent_name,
             fields,
             observed_agent_resource=flags.get("observed_agent_resource"),
             hints=parsed_hints,
             window_days=window_days,
+            target=target,
+            keep_stored=not rediscover,
         )
+        if pending_link:
+            lines.extend(_render_link_lines(pending_link))
         for line in lines:
             click.echo(line)
         if lines:
             click.echo()
+    creating_link = pending_link is not None and not dry_run
     if observed := flags.get("observed_agent_resource"):
         # Discovery resolves a project number to the id; without it, the
         # resource name's own spelling is what there is.
@@ -2270,126 +2929,152 @@ def attach_agent_cmd(
             "observed_project_id",
             discovery_lib.parse_engine_resource(observed).project,
         )
-    request = {"agent_name": agent_name, "fields": fields}
+    request = AttachAgentArgs(agent_name=agent_name, fields=fields)
 
     plan = _fetch_agents_result(
         AGENTS_ATTACH_ROUTE,
-        {**request, "dry_run": True, "check_access": True},
+        AttachAgentArgs(
+            **request, dry_run=True, check_access=True, fill_from_table=True
+        ),
         **target,
     )
-    # The plan names the agent the environment names; only the default
-    # attached agent takes a listing to name.
-    watched_agent = (
-        ""
-        if plan.get("watched")
-        else str(plan.get("environment_agent") or "")
-        or _fetch_watched_agent(target)
+    fields.update(_extract_filled(plan))
+    default_agent = (
+        _fetch_default_agent(target) if _is_ignored_by_triggers(plan) else ""
     )
-    for line in _render_plan_lines(
-        plan, apply=apply_, watched_agent=watched_agent
-    ):
+    for line in _render_plan_lines(plan, default_agent=default_agent):
         click.echo(line)
     access = plan.get("access") or {}
-    for line in _render_access_lines(access) if access else []:
-        click.echo(line)
-    grants, ungranted = grants_lib.build_grants(access)
-    for line in grants_lib.render_grant_lines(
-        grants, ungranted, account=str(access.get("service_account") or "")
-    ):
-        click.echo(line)
+    # Before the link exists, its table is missing and every read behind it
+    # is skipped, so the check is shown once the link is created.
+    grants, _ = ([], []) if creating_link else _echo_access_check(access)
     name = str(plan.get("agent_name") or agent_name)
-    triggers = plan.get("triggers") or {}
-    if apply_ and not plan.get("watched"):
-        # A trigger names no agent, and the deployment investigates the one it
-        # watches, so this agent's triggers would investigate that one again.
-        watched = watched_agent or "another agent"
-        raise click.ClickException(
-            f"Not attaching {name} with --apply: this deployment investigates "
-            f"{watched}, whatever trigger fires, so {name}'s triggers would "
-            f"investigate {watched} again. Nothing was granted, stored or "
-            f"applied.\n{_render_watch_remedy(plan, watched_agent)}"
+    key = str(plan.get("agent_key") or name)
+
+    if creating_link and pending_link is not None:
+        if not yes:
+            click.confirm(
+                "\nRun the commands above with your credentials?", abort=True
+            )
+        click.echo()
+        try:
+            created, _ = _create_trace_link(
+                pending_link, link_id=flags.get("telemetry_dataset")
+            )
+        except click.ClickException as exc:
+            raise click.ClickException(
+                f"{exc.format_message()}\nNothing was stored or granted."
+            ) from exc
+        pending_link = None
+        # When the API was disabled, the initial plan used default values; update
+        # the request with the actual dataset ID and location resolved after
+        # enabling the API.
+        for field, value in (
+            ("telemetry_dataset", created.link_id),
+            ("telemetry_location", created.bigquery_location),
+        ):
+            if flags.get(field) is None:
+                fields[field] = value
+        request["fields"] = fields
+        plan = _fetch_agents_result(
+            AGENTS_ATTACH_ROUTE,
+            AttachAgentArgs(**request, dry_run=True, check_access=True),
+            **target,
         )
-    # Resolved first, so that an --apply that cannot run stores nothing.
-    instance = (
-        _TriggerInstance(_validate_trigger_target(plan.get("trigger_target")))
-        if apply_
-        else None
-    )
+        access = plan.get("access") or {}
+        grants, _ = _echo_access_check(access)
 
-    refusal = _validate_access(access)
-    if grants and not refusal:
-        if not apply_:
-            click.echo("Or run attach with --apply to run them.")
-        elif dry_run:
-            click.echo("Without --dry-run, --apply runs them.")
-
-    if refusal:
+    if pending_link is not None:
+        # Only a dry run gets here with the link still to create, and the
+        # table the check found missing is the one the link creates.
+        click.echo(
+            "\nWithout --dry-run, attach creates the link first, then checks "
+            "the reads again."
+        )
+    elif refusal := _validate_access(access):
         raise click.ClickException(refusal)
+    trigger = _plan_attach_trigger(plan, key, default_agent)
+    for line in trigger.render_lines() if trigger else []:
+        click.echo(line)
     if dry_run:
-        if instance:
-            click.echo(f"\nPlanning the triggers of {name}:")
-            instance.run(name, triggers, apply=False)
-        click.echo("\nDry run: nothing was written or granted.")
+        click.echo("\nDry run: nothing was written, granted or created.")
         return
 
     changes = plan.get("changes") or []
     # A first attach is stored even when it changes nothing: storing it is what
-    # moves the agent's settings from the engine's environment into the object.
+    # attaches the agent.
     storing = not plan.get("attached") or bool(changes)
-    granting = apply_ and bool(grants)
+    trigger_commands = trigger.commands if trigger else ()
     if not yes:
         if storing and changes:
             click.confirm(f"\nChange {len(changes)} setting(s)?", abort=True)
-        if granting:
+        if grants:
             click.confirm(
                 f"\nRun {len(grants)} grant command(s) with your credentials?",
+                abort=True,
+            )
+        if trigger_commands:
+            click.confirm(
+                f"\nRun {len(trigger_commands)} update trigger command(s) "
+                "with your credentials?",
                 abort=True,
             )
     # Stored before any grant runs, so that every grant that runs, even in a
     # run that then fails, has an attachment to be recorded on.
     if storing:
         result = _fetch_agents_result(
-            AGENTS_ATTACH_ROUTE, {**request, "dry_run": False}, **target
+            AGENTS_ATTACH_ROUTE,
+            AttachAgentArgs(**request, dry_run=False),
+            **target,
         )
-        click.echo(f"\nAttached {result.get('agent_name', name)}.")
-    if granting:
-        _apply_grants(grants, request, yes=yes, target=target, agent_name=name)
-    elif apply_ and not access:
+        click.echo(f"\nAttached {result.get('agent_name', name)} as {key}.")
+    # Every later call names the attachment by its key, which the plan built.
+    request["agent_key"] = key
+    _save_agent_key(key, target)
+    if grants:
+        _apply_grants(grants, request, yes=yes, target=target, agent_key=key)
+    elif not access:
         click.echo(
             "\nThis deployment checked no reads, so there is nothing to grant."
         )
-    elif apply_ and not ungranted:
-        click.echo("\nNothing to grant.")
     if source_root:
         _publish_first_snapshot(
             source_root.resolve(),
-            name,
+            key,
             flags.get("observed_agent_resource"),
             target,
         )
-    if not instance:
+    if trigger is None:
         return
 
-    click.echo(f"\nApplying the triggers of {name}:")
-    instance.run(name, triggers, apply=True)
+    if trigger_commands:
+        click.echo(f"\nWiring the update trigger of {key}:")
+        _apply_update_trigger(trigger)
+    # An engine that does not report `unapplied_fields` gets a record every
+    # time, which only rewrites what it holds.
+    if not trigger_commands and plan.get("unapplied_fields", True) == []:
+        return
     recorded = _fetch_agents_result(
         AGENTS_APPLIED_ROUTE,
-        {"agent_name": name, "applied": triggers},
+        RecordAppliedArgs(
+            **_build_agent_selector(key), applied=plan.get("triggers") or {}
+        ),
         **target,
     )
-    click.echo(f"\nApplied the triggers of {name}.")
+    if trigger_commands:
+        click.echo(f"\nWired the update trigger of {key}.")
     if unapplied := recorded.get("unapplied_fields"):
-        # Another attach landed while Terraform ran.
+        # Another attach landed while the commands ran.
         click.echo(
-            f"Changed since this apply began: {', '.join(unapplied)}. "
-            "Run attach --apply again."
+            f"Changed since this attach began: {', '.join(unapplied)}. "
+            "Run attach again."
         )
 
 
 @cli.command("list-agents")
 @_add_target_options
 def list_agents_cmd(*, url, resource) -> None:
-    """List the attached agents as JSON, with which one is the default."""
+    """List the attached agents as JSON, by key, with which one is the default."""
     _emit_result(
         _fetch_command_result(
             url=url, resource=resource, path=AGENTS_LIST_ROUTE
@@ -2397,67 +3082,26 @@ def list_agents_cmd(*, url, resource) -> None:
     )
 
 
-def _load_applied_target(
-    state_root: pathlib.Path, agent_name: str, reported: Any
-) -> dict[str, str]:
-    """Loads the instance an agent's triggers were applied against, to destroy them.
-
-    The triggers' own state holds it, and it has to be the engine this command
-    reached: detaching from one AQuA must not destroy what calls another.
-
-    Args:
-        state_root: Directory holding the agent's attach state.
-        agent_name: Attached agent.
-        reported: The trigger target the engine reports now, if any.
-
-    Returns:
-        The instance variables the triggers were applied with.
-
-    Raises:
-        click.ClickException: If the state records none, the reached engine
-            reports no trigger target, or the triggers call a different engine.
-    """
-    state = build_state_path(state_root, build_attach_key(agent_name))
-    recorded = read_state_outputs(state_root, build_attach_key(agent_name)).get(
-        ATTACH_INSTANCE_OUTPUT
-    )
-    if not isinstance(recorded, dict):
-        raise click.ClickException(
-            f"{state} does not say which AQuA its triggers call, so they cannot "
-            "be destroyed from here."
-        )
-    reported_engine = (
-        reported.get("aqua_engine") if isinstance(reported, dict) else None
-    )
-    if reported_engine != recorded.get("aqua_engine"):
-        reached = reported_engine or "which reports no trigger target"
-        raise click.ClickException(
-            f"The triggers in {state} call {recorded.get('aqua_engine')}, not "
-            f"the AQuA this command reached ({reached})."
-        )
-    return {key: str(value) for key, value in recorded.items()}
-
-
 def _revoke_grants(
-    agent_name: str,
-    revocations: list[grants_lib.Revocation],
+    agent_key: str,
+    revocations: list[grant_commands.Revocation],
     target: dict[str, Any],
 ) -> None:
-    """Revokes the grants `attach --apply` recorded, and records them revoked.
+    """Revokes the grants `attach` recorded, and records them revoked.
 
     Every revocation is tried, and each that succeeded is recorded before a
-    failure is reported, so that running `detach --apply` again retries only
-    the ones that failed.
+    failure is reported, so that running `detach` again retries only the ones
+    that failed.
 
     Args:
-        agent_name: Attached agent.
+        agent_key: Key of the attached agent.
         revocations: Commands for the recorded grants.
         target: Engine target options for the route call.
 
     Raises:
         click.ClickException: If a command cannot run or fails.
     """
-    click.echo(f"\nRevoking the grants attach --apply made for {agent_name}:")
+    click.echo(f"\nRevoking the grants attach made for {agent_key}:")
     failure = None
     try:
         grants_lib.run_revocations(revocations, echo=click.echo)
@@ -2465,68 +3109,73 @@ def _revoke_grants(
     except grants_lib.GrantError as exc:
         failure = exc
         done = [
-            r for r in exc.completed if isinstance(r, grants_lib.Revocation)
+            r for r in exc.completed if isinstance(r, grant_commands.Revocation)
         ]
     if done:
         _fetch_agents_result(
             AGENTS_APPLIED_ROUTE,
-            {
-                "agent_name": agent_name,
-                "revoked": [r.to_record() for r in done],
-            },
+            RecordAppliedArgs(
+                **_build_agent_selector(agent_key),
+                revoked=[r.to_record() for r in done],
+            ),
             **target,
         )
     if failure is not None:
         raise click.ClickException(
-            f"{failure}\n{agent_name} stays attached, with the failed grants "
-            "still recorded; detach --apply again retries them. If those "
-            "bindings are already gone, detach without --apply forgets them, "
-            "and detach --apply then destroys the triggers."
+            f"{failure}\n{agent_key} stays attached, with the failed grants "
+            "still recorded; detach again retries them. If those bindings are "
+            "already gone, detach --keep-grants forgets them and removes the "
+            "update trigger."
         ) from failure
 
 
 @cli.command("detach")
-@click.argument("agent_name")
+@click.argument("agent_key")
 @click.option("--yes", is_flag=True, help="Do not ask before detaching.")
 @click.option(
-    "--apply",
-    "apply_",
+    "--keep-grants",
     is_flag=True,
     help=(
-        "Also revoke the grants attach --apply made, with your credentials, "
-        "and destroy the schedule and the update trigger with Terraform."
+        "Leave the grants attach made in place. They are forgotten with the "
+        "attachment."
     ),
 )
 @_add_target_options
-def detach_agent_cmd(agent_name, yes, apply_, *, url, resource) -> None:
-    """Forget how AQuA observes AGENT_NAME.
+def detach_agent_cmd(agent_key, yes, keep_grants, *, url, resource) -> None:
+    """Forget how AQuA observes the agent AGENT_KEY, and undo what attach set up.
 
-    For the agent the deployment watches, its settings then come from the
-    engine's environment. With --apply, the grants attach --apply recorded on
-    the attachment are revoked, and no others.
+    The grants attach recorded on the attachment are revoked with your
+    credentials, and no others, unless --keep-grants. The agent's update
+    trigger is removed, even when the attachment is already gone.
+    `list-agents` lists the keys.
     """
-    # 1. Read the attachment and the grants recorded on it.
-    # 2. Show the revoke commands: run with --apply, left in place without.
-    # 3. Resolve the instance the triggers here call, then confirm.
-    # 4. With --apply, revoke the grants, then destroy the triggers.
+    # 1. Read the attachment, the grants recorded on it and AQuA's topic.
+    # 2. Show the revoke commands, and the commands that remove the update
+    #    trigger, planned from what exists.
+    # 3. Confirm.
+    # 4. Revoke the grants unless --keep-grants, then remove the trigger.
     # 5. Delete the attachment.
+    # 6. Remove it from ./.aqua/ if attach recorded it there.
     target = {"url": url, "resource": resource}
     listing = _fetch_agents_result(AGENTS_LIST_ROUTE, None, **target)
-    entries = {a.get("agent_name"): a for a in listing.get("agents") or []}
-    attached = set(entries)
-    revocations, unrevocable = grants_lib.build_revocations(
-        entries.get(agent_name, {}).get("grants") or []
+    # An engine that lists no `agent_key` stores each attachment under its
+    # bare name, which is then the key.
+    entries = {
+        a.get("agent_key") or a.get("agent_name"): a
+        for a in listing.get("agents") or []
+    }
+    attached = agent_key in entries
+    entry = entries.get(agent_key, {})
+    revocations, unrevocable = grant_commands.build_revocations(
+        entry.get("grants") or []
     )
     if revocations:
-        if apply_:
+        if keep_grants:
             click.echo(
-                "Grants attach --apply made, revoked with your credentials:"
+                "Grants attach made, left in place and forgotten once detached:"
             )
         else:
-            click.echo(
-                "Grants attach --apply made, left in place and forgotten once "
-                "detached; detach --apply revokes them:"
-            )
+            click.echo("Grants attach made, revoked with your credentials:")
         for revocation in revocations:
             click.echo(f"  {revocation.render()}")
     if unrevocable:
@@ -2535,59 +3184,170 @@ def detach_agent_cmd(agent_name, yes, apply_, *, url, resource) -> None:
             f"{', '.join(unrevocable)}: revoke it by hand if it is no longer "
             "needed."
         )
-    revoke = apply_ and bool(revocations)
-    state = build_state_path(
-        pathlib.Path.cwd() / STATE_DIR_NAME, build_attach_key(agent_name)
-    )
-    # Triggers applied from here outlive a detach that forgot to remove them,
-    # so `--apply` removes them even when the object is already gone.
-    destroy = apply_ and state.is_file()
-    if apply_ and not destroy:
-        click.echo(f"No triggers of {agent_name} were applied from here.")
-    if agent_name not in attached and not destroy:
-        click.echo(f"{agent_name} is not attached.")
-        return
-    instance = (
-        _TriggerInstance(
-            _load_applied_target(
-                state.parent, agent_name, listing.get("trigger_target")
-            )
+    revoke = bool(revocations) and not keep_grants
+    topic = _resolve_trigger_topic(listing)
+    trigger = (
+        _plan_update_trigger(
+            topic=topic,
+            agent_key=agent_key,
+            observed_project=str(entry.get("observed_project_id") or ""),
+            engine_id="",
         )
-        if destroy
+        if topic and is_storage_key(agent_key)
         else None
     )
+    removing = bool(trigger and trigger.commands)
+    for line in trigger.render_lines() if trigger else []:
+        click.echo(line)
+    if not attached and not removing:
+        click.echo(f"{agent_key} is not attached.")
+        _delete_agent_key(agent_key, target)
+        return
     if not yes:
-        if agent_name not in attached:
-            question = f"Destroy the triggers of {agent_name}?"
+        if not attached:
+            question = f"Remove the update trigger of {agent_key}?"
         else:
             also = [
                 *([f"revoke {len(revocations)} grant(s)"] if revoke else []),
-                *(["destroy its triggers"] if destroy else []),
+                *(["remove its update trigger"] if removing else []),
             ]
             question = (
-                f"Detach {agent_name} from {listing.get('prefix', '')}"
+                f"Detach {agent_key} from {listing.get('prefix', '')}"
                 f"{''.join(f' and {a}' for a in also)}?"
             )
-        click.confirm(question, abort=True)
+        click.confirm(f"\n{question}", abort=True)
 
     if revoke:
-        _revoke_grants(agent_name, revocations, target)
-    if instance:
-        click.echo(f"\nDestroying the triggers of {agent_name}:")
-        instance.run(agent_name, {}, apply=True, destroy=True)
-        state.unlink(missing_ok=True)
-    if agent_name not in attached:
+        _revoke_grants(agent_key, revocations, target)
+    if trigger and removing:
+        click.echo(f"\nRemoving the update trigger of {agent_key}:")
+        _apply_update_trigger(trigger)
+    if not attached:
+        _delete_agent_key(agent_key, target)
         return
 
-    result = _fetch_agents_result(
-        AGENTS_DETACH_ROUTE, {"agent_name": agent_name}, **target
+    _fetch_agents_result(
+        AGENTS_DETACH_ROUTE, _build_agent_selector(agent_key), **target
     )
-    if result.get("watched"):
+    click.echo(f"Detached {agent_key}.")
+    _delete_agent_key(agent_key, target)
+
+
+@cli.command("delete-triggers", hidden=True)
+@click.option(
+    "--apply",
+    "apply_",
+    is_flag=True,
+    help="Remove them, with your credentials. Plans otherwise.",
+)
+@_add_target_options
+def delete_triggers_cmd(apply_, *, url, resource) -> None:
+    """Remove the update trigger of every attached agent, keeping the attachments.
+
+    Hidden because `agents-cli infra single-project --destroy` runs it before
+    it deletes the topic the triggers publish to, which would leave each sink
+    exporting to nothing. `detach` removes one agent's trigger.
+    """
+    target = {"url": url, "resource": resource}
+    listing = _fetch_agents_result(AGENTS_LIST_ROUTE, None, **target)
+    topic = _resolve_trigger_topic(listing)
+    if not topic:
         click.echo(
-            f"Detached {agent_name}. Its settings come from the engine's environment."
+            "This AQuA reports no topic for update triggers, so attach wired "
+            "none to it."
         )
+        return
+    planned = 0
+    for entry in listing.get("agents") or []:
+        key = str(entry.get("agent_key") or entry.get("agent_name") or "")
+        if not is_storage_key(key):
+            continue
+        trigger = _plan_update_trigger(
+            topic=topic,
+            agent_key=key,
+            observed_project=str(entry.get("observed_project_id") or ""),
+            engine_id="",
+        )
+        for line in trigger.render_lines():
+            click.echo(line)
+        planned += len(trigger.commands)
+        if apply_ and trigger.commands:
+            _apply_update_trigger(trigger)
+    if not planned:
+        click.echo("No attached agent has an update trigger to remove.")
+    elif not apply_:
+        click.echo("\nRe-run with --apply to run them.")
+
+
+# --------------------------------------------------------------------------- #
+# Cloud Trace spans                                                            #
+# --------------------------------------------------------------------------- #
+@cli.command("link-traces", hidden=True)
+@click.option(
+    "--project",
+    envvar="GOOGLE_CLOUD_PROJECT",
+    required=True,
+    help="The project whose spans to link (default: GOOGLE_CLOUD_PROJECT).",
+)
+@click.option(
+    "--location",
+    default=None,
+    help=(
+        "Where to create the _Trace bucket when there is none (default: the "
+        "project's default storage location, else us). Ignored when the "
+        "bucket exists."
+    ),
+)
+@click.option(
+    "--apply",
+    "apply_",
+    is_flag=True,
+    help="Create the bucket and the link, with your credentials.",
+)
+def link_traces_cmd(project, location, apply_) -> None:
+    """Make a project's Cloud Trace spans readable from BigQuery.
+
+    Prints the gcloud commands that enable the Observability API and create
+    the `_Trace` bucket and its BigQuery link, whichever are missing; --apply
+    runs them with your credentials, which needs roles/observability.editor,
+    bigquery.datasets.get and gcloud 586.0.0 or later. Nothing is ever
+    deleted: the bucket and the link are project-wide.
+
+    Hidden because `attach` links traces for its agent directly. Requires no
+    AQuA deployment.
+    Progress goes to stderr; stdout carries only the JSON result: the link id,
+    span view and BigQuery location AQuA reads, and the commands run or
+    planned.
+    """
+    api = rest_client_lib.RestClient(get_adc_token)
+    try:
+        link = trace_link_lib.resolve_trace_link(
+            api, project, location=location
+        )
+    except trace_link_lib.TraceLinkError as exc:
+        raise click.ClickException(str(exc)) from exc
+    for note in link.notes:
+        click.echo(note, err=True)
+    commands = link.build_needed_argvs()
+    if apply_ and commands:
+        link, commands = _create_trace_link(
+            link,
+            run_command=_run_command_to_stderr,
+            echo=lambda line: click.echo(line, err=True),
+            location=location,
+        )
+    elif commands:
+        for line in _render_link_lines(link):
+            click.echo(line, err=True)
     else:
-        click.echo(f"Detached {agent_name}.")
+        click.echo(
+            f"{trace_link_lib.TRACE_BUCKET} in {link.location} is linked to "
+            f"BigQuery as {link.link_id}.",
+            err=True,
+        )
+    _emit_json(
+        trace_link_lib.format_trace_link_report(link, commands, applied=apply_)
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -2596,7 +3356,7 @@ def detach_agent_cmd(agent_name, yes, apply_, *, url, resource) -> None:
 def _publish_source(
     *,
     root: pathlib.Path,
-    agent_name: str,
+    agent_key: str,
     observed_agent_resource: str | None,
     revision: str,
     force: bool,
@@ -2610,8 +3370,9 @@ def _publish_source(
        `deployment_metadata.json`.
     2. Resolve the revision with the user's credentials: the newest one the
        engine reports, unless given.
-    3. Find the agent the snapshot belongs to, unless given: the attachment
-       that records the engine, else the agent the deployment watches.
+    3. Find the key of the agent the snapshot belongs to, unless given: the
+       attachment that records the engine, else the agent the deployment
+       watches.
     4. Ask the deployment whether that revision is already published, and stop
        if it is, unless forced.
     5. Pack the files and upload them, manifest last. A dry run stops before.
@@ -2620,7 +3381,7 @@ def _publish_source(
 
     Args:
         root: The observed agent's project root.
-        agent_name: Agent the snapshot belongs to; empty to find it.
+        agent_key: Key of the agent the snapshot belongs to; empty to find it.
         observed_agent_resource: The observed engine; None to read it from the
             project's deployment metadata.
         revision: Revision to publish as; empty for the newest one.
@@ -2629,7 +3390,7 @@ def _publish_source(
         target: AQuA's `url` and `resource`.
 
     Returns:
-        `{"agent_name", "revision", "published", ...}`: the stored snapshot's
+        `{"agent_key", "revision", "published", ...}`: the stored snapshot's
         summary when it was uploaded or already there, else what would be.
 
     Raises:
@@ -2661,21 +3422,24 @@ def _publish_source(
             raise source_snapshot_lib.SnapshotError(
                 f"could not list the runtime revisions of {engine}: {exc}"
             ) from exc
-    if not agent_name:
+    if not agent_key:
         listing = _fetch_agents_result(AGENTS_LIST_ROUTE, None, **target)
-        agent_name = source_snapshot_lib.resolve_agent_for_engine(
+        agent_key = source_snapshot_lib.resolve_agent_for_engine(
             listing, engine
         )
-        if not agent_name:
+        if not agent_key:
             raise source_snapshot_lib.SnapshotError(
                 f"no attached agent observes {engine}; attach it first, or "
-                "name the agent"
+                "name the agent's key"
             )
 
     if not force and not dry_run:
         status = _fetch_command_result(
             path=SOURCE_ROUTE,
-            payload={"agent_name": agent_name, "revision": revision},
+            payload=GetSourceSnapshotArgs(
+                **source_snapshot_lib.build_agent_selector(agent_key),
+                revision=revision,
+            ),
             **target,
         )
         # The revision is compared too: an engine that predates `revision`
@@ -2686,12 +3450,12 @@ def _publish_source(
             and status.get("revision") == revision
         ):
             click.echo(
-                f"AQuA: revision {revision} of {agent_name} is already "
+                f"AQuA: revision {revision} of {agent_key} is already "
                 f"published at {status.get('uri', '')}; --force uploads it again.",
                 err=True,
             )
             return {
-                "agent_name": agent_name,
+                "agent_key": agent_key,
                 "revision": revision,
                 "published": False,
                 **status,
@@ -2703,7 +3467,7 @@ def _publish_source(
         agent_directory=str(metadata.get("agent_directory") or ""),
     )
     click.echo(
-        f"AQuA: snapshotting {engine} revision {revision} as {agent_name}: "
+        f"AQuA: snapshotting {engine} revision {revision} as {agent_key}: "
         f"{len(snapshot.files)} files, {snapshot.total_bytes} bytes "
         f"({snapshot.truncated_files} truncated, "
         f"{snapshot.manifest['omitted_files']} omitted, "
@@ -2712,7 +3476,7 @@ def _publish_source(
     )
     if dry_run:
         return {
-            "agent_name": agent_name,
+            "agent_key": agent_key,
             "revision": revision,
             "published": False,
             "file_count": len(snapshot.files),
@@ -2724,7 +3488,7 @@ def _publish_source(
 
     client = _build_client(target["url"], target["resource"])
 
-    def post(route: str, body: dict[str, Any]) -> dict[str, Any]:
+    def post(route: Route[ArgsT], body: ArgsT) -> dict[str, Any]:
         try:
             return asyncio.run(client.post_command(route, body))
         except Exception as exc:  # Surface auth, network, and agent errors as user-facing CLI exceptions.
@@ -2735,7 +3499,7 @@ def _publish_source(
 
     result = source_snapshot_lib.upload(
         post,
-        agent_name=agent_name,
+        agent_key=agent_key,
         revision=revision,
         snapshot=snapshot,
         upload_route=SOURCE_UPLOAD_ROUTE,
@@ -2748,7 +3512,7 @@ def _publish_source(
 
 def _publish_first_snapshot(
     root: pathlib.Path,
-    agent_name: str,
+    agent_key: str,
     observed_agent_resource: str | None,
     target: dict[str, Any],
 ) -> None:
@@ -2760,15 +3524,15 @@ def _publish_first_snapshot(
 
     Args:
         root: The observed agent's project root.
-        agent_name: The agent just attached.
+        agent_key: Key of the agent just attached.
         observed_agent_resource: The observed engine, if given.
         target: AQuA's `url` and `resource`.
     """
-    click.echo(f"\nPublishing the source of {agent_name} from {root}:")
+    click.echo(f"\nPublishing the source of {agent_key} from {root}:")
     try:
         _publish_source(
             root=root,
-            agent_name=agent_name,
+            agent_key=agent_key,
             observed_agent_resource=observed_agent_resource,
             revision="",
             force=False,
@@ -2789,7 +3553,7 @@ def _publish_first_snapshot(
 
 
 @cli.command("publish-source")
-@click.argument("agent_name", default="")
+@click.argument("agent_key", default="")
 @click.option(
     "--source-root",
     type=click.Path(file_okay=False, path_type=pathlib.Path),
@@ -2819,7 +3583,7 @@ def _publish_first_snapshot(
 )
 @_add_target_options
 def publish_source_cmd(
-    agent_name,
+    agent_key,
     source_root,
     observed_agent_resource,
     revision,
@@ -2834,8 +3598,9 @@ def publish_source_cmd(
     Root-cause analysis cites the source of the revision that ran. This packs
     the source files -- code, configuration and prompts -- among those
     `agents-cli deploy` packages, and AQuA stores them under
-    AGENT_NAME and the engine's newest revision. Without AGENT_NAME, the
+    AGENT_KEY and the engine's newest revision. Without AGENT_KEY, the
     attached agent that observes the engine, else the one AQuA watches.
+    `list-agents` shows each attached agent's key.
 
     `agents-cli deploy` and `agents-cli aqua attach` run this in a project
     with AQuA added; run it by hand to publish what they did not.
@@ -2843,7 +3608,7 @@ def publish_source_cmd(
     try:
         result = _publish_source(
             root=source_root.resolve(),
-            agent_name=agent_name,
+            agent_key=agent_key,
             observed_agent_resource=observed_agent_resource,
             revision=revision,
             force=force,

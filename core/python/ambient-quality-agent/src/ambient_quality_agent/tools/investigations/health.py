@@ -34,11 +34,9 @@ loop that is turning and failing is worse news than one that is merely late, so
    the interval this deployment actually runs at, and nothing is in flight.
 4. ``watching`` -- none of the above.
 
-**Where the expected interval comes from.** Not from configuration: the cron
-lives in the Cloud Scheduler job (`var.investigation_schedule`) and is never
-handed to the engine, so this service cannot read its own schedule. It is
-inferred instead, from the gaps between recent scheduled runs -- the median, so
-one long outage does not redefine "normal".
+**Where the expected interval comes from.** The gaps between recent scheduled
+runs -- the median, so one long outage does not redefine "normal". The cron the
+caller passes as `schedule` is shown beside the verdict, not used to judge it.
 
 That has a consequence worth stating: **with fewer than
 `MIN_INTERVALS_FOR_OVERDUE` scheduled runs to measure, `overdue` is not

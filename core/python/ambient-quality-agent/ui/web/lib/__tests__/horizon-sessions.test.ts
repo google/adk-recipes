@@ -227,19 +227,97 @@ describe("prefix invalidation after a mutation", () => {
     rememberConversation("a", "one");
     rememberConversation("b", "two");
 
-    await expect(deleteAllLhaSessions()).resolves.toEqual({
+    await expect(
+      deleteAllLhaSessions({ shownKey: undefined, defaultKey: undefined }),
+    ).resolves.toEqual({
       deleted: 2,
       failed: 0,
     });
     expect(listConversations()).toEqual([]);
   });
+});
 
-  it("renames a chat locally", async () => {
+describe("renameLhaSession", () => {
+  const CONTEXTS_KEY = ["lha", "contexts"];
+
+  /**
+   * Stubs `fetch` to return a JSON response with `status`.
+   *
+   * @param status - HTTP status code for the mocked response.
+   * @returns The `fetch` mock spy.
+   */
+  function stubRename(status: number) {
+    const stub = vi
+      .fn()
+      .mockImplementation(() =>
+        Promise.resolve(
+          new Response(JSON.stringify({ error: "boom" }), { status }),
+        ),
+      );
+    vi.stubGlobal("fetch", stub);
+    return stub;
+  }
+
+  beforeEach(() => {
+    queryClient.clear();
     resetConversationsForTest();
     rememberConversation("r1", "original");
+    queryClient.setQueryData(CONTEXTS_KEY, [
+      {
+        context_id: "r1",
+        task_ids: ["t1"],
+        updated_at: "2026-09-01T10:00:00Z",
+        title: null,
+        first_message: "original",
+      },
+    ]);
+  });
+
+  it("sends the name to the server, with the id encoded", async () => {
+    const stub = stubRename(200);
+
+    await renameLhaSession("r1/x", "renamed");
+
+    expect(stub).toHaveBeenCalledWith("/lha/contexts/r1%2Fx/title", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ title: "renamed" }),
+    });
+  });
+
+  it("renames locally and in the cached server list on success", async () => {
+    stubRename(200);
 
     await renameLhaSession("r1", "renamed");
 
     expect(listConversations()[0].title).toBe("renamed");
+    const cached =
+      queryClient.getQueryData<{ context_id: string; title?: string | null }[]>(
+        CONTEXTS_KEY,
+      );
+    expect(cached?.[0].title).toBe("renamed");
+  });
+
+  it("renames locally only when the deployment has no jobs bucket", async () => {
+    stubRename(501);
+
+    await expect(renameLhaSession("r1", "renamed")).resolves.toBeUndefined();
+
+    expect(listConversations()[0].title).toBe("renamed");
+  });
+
+  it("throws on a server failure and keeps the old name", async () => {
+    stubRename(500);
+
+    await expect(renameLhaSession("r1", "renamed")).rejects.toThrow(
+      /rename-chat 500/,
+    );
+
+    expect(listConversations()[0].title).toBe("original");
+    const cached =
+      queryClient.getQueryData<{ context_id: string; title?: string | null }[]>(
+        CONTEXTS_KEY,
+      );
+    expect(cached?.[0].title).toBeNull();
   });
 });

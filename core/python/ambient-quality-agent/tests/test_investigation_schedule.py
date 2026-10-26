@@ -24,8 +24,14 @@ import threading
 from typing import Any
 from unittest import mock
 
+import agentplatform
 import pytest
-from ambient_quality_agent.config import Config, ObservedAgentConfig
+from agentplatform._genai.runtimes import Runtimes
+from ambient_quality_agent.config import (
+    MAX_DATA_LOOKBACK_WINDOW,
+    Config,
+    ObservedAgentConfig,
+)
 from ambient_quality_agent.core.investigation import job_scheduling as schedule
 from ambient_quality_agent.core.investigation import locking
 from ambient_quality_agent.core.investigation import model as runs
@@ -67,6 +73,25 @@ def test_derive_window_and_budget_splits_cap() -> None:
     assert budget == 50
     span = dt.datetime.fromisoformat(end) - dt.datetime.fromisoformat(start)
     assert span == dt.timedelta(days=7)
+
+
+def test_derive_window_and_budget_spans_a_long_lookback_in_full() -> None:
+    start, end, _ = schedule.derive_window_and_budget(
+        _eval_config(data_lookback_window=365)
+    )
+    span = dt.datetime.fromisoformat(end) - dt.datetime.fromisoformat(start)
+    assert span == dt.timedelta(days=365)
+
+
+def test_derive_window_and_budget_spans_the_max_for_an_oversized_lookback() -> (
+    None
+):
+    """Config validation caps the window so subtracting it from `now` cannot overflow."""
+    start, end, _ = schedule.derive_window_and_budget(
+        _eval_config(data_lookback_window=999999)
+    )
+    span = dt.datetime.fromisoformat(end) - dt.datetime.fromisoformat(start)
+    assert span == dt.timedelta(days=MAX_DATA_LOOKBACK_WINDOW)
 
 
 def test_derive_window_and_budget_zero_without_metrics() -> None:
@@ -178,26 +203,56 @@ def mock_submit(monkeypatch: pytest.MonkeyPatch) -> mock.MagicMock:
     return fake
 
 
+_WATCHED = "test-observed-agent"
+
+
+def _attach_agent(
+    jobs_store: Any,
+    name: str,
+    *,
+    key: str = "",
+    default: bool = False,
+    **config_fields: Any,
+) -> None:
+    """Stores an attachment the way `agents-cli aqua attach` does.
+
+    Args:
+        jobs_store: The test's jobs store.
+        name: The agent's name, which its telemetry is filtered by.
+        key: What the attachment is stored under; the bare name if empty.
+        default: Whether the agent serves requests that select none.
+        **config_fields: `ObservedAgentConfig` fields to set.
+    """
+    store.save_agent_record(
+        jobs_store,
+        store.AgentRecord(
+            config=ObservedAgentConfig(
+                observed_agent_name=name,
+                agent_key=key or name,
+                **config_fields,
+            ),
+            default=default,
+        ),
+    )
+    effective_config.clear_cache()
+
+
+@pytest.fixture(autouse=True)
+def watched_agent(jobs_store: Any) -> None:
+    """Attach the agent the runs here are about, so that a request selecting
+    none has an agent to investigate."""
+    _attach_agent(jobs_store, _WATCHED)
+
+
 def test_a_run_is_scheduled_with_the_attached_agents_settings(
     mock_submit: mock.MagicMock,
     investigation_store: Any,
     jobs_store: Any,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The scheduling turn is where a run reads the configuration, and what it
     reads it snapshots -- so re-attaching mid-run cannot change a run already in
     flight."""
-    monkeypatch.setattr(
-        effective_config,
-        "env_config",
-        make_config(observed_agent_name="watched-agent"),
-    )
-    jobs_store.write_text(
-        store.build_object_name("watched-agent"),
-        json.dumps(
-            {"schema_version": 1, "agent": {"data_lookback_window": 14}}
-        ),
-    )
+    _attach_agent(jobs_store, _WATCHED, data_lookback_window=14)
 
     tc = StateContext()
     run_id = asyncio.run(schedule.schedule_investigation(tc))["run_id"]
@@ -210,14 +265,111 @@ def test_a_run_is_scheduled_with_the_attached_agents_settings(
     assert span == dt.timedelta(days=14)
 
 
+_STAGING_KEY = "acme-staging__it_support_agent"
+
+
+def _attach_staging_agent(
+    jobs_store: Any, *, keep_watched: bool = False
+) -> None:
+    """Attaches an agent in another project.
+
+    Args:
+        jobs_store: The test's jobs store.
+        keep_watched: Whether to keep the watched agent attached; otherwise it
+            is detached, and the staging agent, the only one attached, is the
+            default.
+    """
+    if not keep_watched:
+        store.delete_agent_record(jobs_store, _WATCHED)
+    _attach_agent(
+        jobs_store,
+        "it_support_agent",
+        key=_STAGING_KEY,
+        observed_project_id="acme-staging",
+    )
+
+
+def test_a_run_and_its_dedup_key_are_keyed_by_the_agent_key(
+    mock_submit: mock.MagicMock,
+    investigation_store: Any,
+    jobs_store: Any,
+) -> None:
+    """Staging and prod share the agent's name, so its runs are recorded
+    under the key; its telemetry is still filtered by the name."""
+    _attach_staging_agent(jobs_store)
+    ctx = StateContext()
+
+    run_id = asyncio.run(schedule._launch_investigation(ctx, ambient=True))[
+        "run_id"
+    ]
+
+    record = get_run(ctx.state, run_id)
+    assert record.observed_agent_name == _STAGING_KEY
+    assert record.idempotency_key.startswith(f"{_STAGING_KEY}:")
+    assert record.effective_config["observed_agent_name"] == "it_support_agent"
+    assert record.effective_config["agent_key"] == _STAGING_KEY
+
+
+def test_an_ambient_run_starts_where_the_agent_keys_last_run_ended(
+    mock_submit: mock.MagicMock,
+    investigation_store: Any,
+    jobs_store: Any,
+) -> None:
+    """A run under the bare name belongs to the agent in AQuA's own project,
+    and does not move this agent's window."""
+    _attach_staging_agent(jobs_store)
+    ctx = StateContext()
+    ended = dt.datetime.now(dt.UTC) - dt.timedelta(hours=1)
+    for agent, window_end in (
+        (_STAGING_KEY, ended),
+        ("it_support_agent", ended + dt.timedelta(minutes=30)),
+    ):
+        create_run(
+            ctx.state,
+            runs.InvestigationRecord(
+                status=runs.RunStatus.DONE,
+                observed_agent_name=agent,
+                trigger_type="scheduled",
+                window_start=(window_end - dt.timedelta(hours=1)).isoformat(),
+                window_end=window_end.isoformat(),
+            ),
+        )
+
+    run_id = asyncio.run(schedule._launch_investigation(ctx, ambient=True))[
+        "run_id"
+    ]
+
+    record = get_run(ctx.state, run_id)
+    assert dt.datetime.fromisoformat(record.window_start) == ended
+
+
+def test_a_run_for_the_selected_agent_is_its_own(
+    mock_submit: mock.MagicMock,
+    investigation_store: Any,
+    jobs_store: Any,
+) -> None:
+    """A request selects an agent besides the default; the run and its
+    settings are that agent's."""
+    _attach_agent(jobs_store, _WATCHED, default=True)
+    _attach_staging_agent(jobs_store, keep_watched=True)
+    ctx = StateContext({effective_config.AGENT_KEY_STATE: _STAGING_KEY})
+
+    run_id = asyncio.run(schedule._launch_investigation(ctx, ambient=True))[
+        "run_id"
+    ]
+
+    record = get_run(ctx.state, run_id)
+    assert record.observed_agent_name == _STAGING_KEY
+    assert record.effective_config["observed_agent_name"] == "it_support_agent"
+
+
 def test_a_deployment_with_no_agent_starts_no_run(
     mock_submit: mock.MagicMock,
     investigation_store: Any,
-    monkeypatch: pytest.MonkeyPatch,
+    jobs_store: Any,
 ) -> None:
-    monkeypatch.setattr(
-        effective_config, "env_config", make_config(observed_agent_name="")
-    )
+    store.delete_agent_record(jobs_store, _WATCHED)
+    effective_config.clear_cache()
 
     result = asyncio.run(schedule.schedule_investigation(StateContext()))
 
@@ -471,15 +623,26 @@ def _session_tool_context() -> ToolContext:
 
 
 @pytest.fixture
-def fake_agentplatform(monkeypatch: pytest.MonkeyPatch) -> mock.MagicMock:
-    """Stub `agentplatform.Client` so submit() makes no real calls."""
-    job = mock.MagicMock()
-    job.job_name = "projects/p/locations/us-central1/operations/op-1"
-    client = mock.MagicMock()
-    client.agent_engines.run_query_job.return_value = job
+def fake_agentplatform(
+    monkeypatch: pytest.MonkeyPatch,
+) -> mock.NonCallableMagicMock:
+    """Stub `agentplatform.Client` so submit() makes no real calls.
+
+    The stub is spec'd against the real classes, so a call to an attribute or
+    keyword the installed SDK lacks fails here as it would in production.
+    """
+    job = agentplatform.types.RunQueryJobResult(
+        job_name="projects/p/locations/us-central1/operations/op-1"
+    )
+    client = mock.create_autospec(agentplatform.Client, instance=True)
+    # Autospec leaves a property's value unspec'd, so spec it explicitly.
+    client.runtimes = mock.create_autospec(Runtimes, instance=True)
+    client.runtimes.run_query_job.return_value = job
 
     monkeypatch.setattr(
-        schedule.agentplatform, "Client", mock.MagicMock(return_value=client)
+        agentplatform,
+        "Client",
+        mock.create_autospec(agentplatform.Client, return_value=client),
     )
     monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "p")
     monkeypatch.setenv("GOOGLE_CLOUD_LOCATION", "us-central1")
@@ -487,14 +650,23 @@ def fake_agentplatform(monkeypatch: pytest.MonkeyPatch) -> mock.MagicMock:
     return client
 
 
+def test_fake_client_rejects_the_attributes_the_sdk_lacks(
+    fake_agentplatform: mock.NonCallableMagicMock,
+) -> None:
+    # Guards the spec: a bare MagicMock would accept `agent_engines`, which the
+    # installed `agentplatform.Client` does not have.
+    with pytest.raises(AttributeError):
+        _ = fake_agentplatform.agent_engines
+
+
 def test_submit_builds_self_query_with_keyword(
-    fake_agentplatform: mock.MagicMock,
+    fake_agentplatform: mock.NonCallableMagicMock,
 ) -> None:
     tc = _session_tool_context()
     result = schedule.submit_investigation("abcd1234", tc)
 
     assert result["job_name"].endswith("op-1")
-    call = fake_agentplatform.agent_engines.run_query_job.call_args
+    call = fake_agentplatform.runtimes.run_query_job.call_args
     # Targets THIS engine (self-query) using the injected engine id.
     assert call.kwargs["name"].endswith("/reasoningEngines/12345")
     query = json.loads(call.kwargs["config"]["query"])
@@ -506,25 +678,24 @@ def test_submit_builds_self_query_with_keyword(
 
 
 def test_submit_falls_back_to_session_app_name(
-    fake_agentplatform: mock.MagicMock, monkeypatch: pytest.MonkeyPatch
+    fake_agentplatform: mock.NonCallableMagicMock,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.delenv("GOOGLE_CLOUD_AGENT_ENGINE_ID", raising=False)
     schedule.submit_investigation("r1", _session_tool_context())
-    name = fake_agentplatform.agent_engines.run_query_job.call_args.kwargs[
-        "name"
-    ]
+    name = fake_agentplatform.runtimes.run_query_job.call_args.kwargs["name"]
     assert name.endswith("/reasoningEngines/engine-from-session")
 
 
 def test_submit_without_a_session_lets_the_job_open_one(
-    fake_agentplatform: mock.MagicMock,
+    fake_agentplatform: mock.NonCallableMagicMock,
 ) -> None:
     # An HTTP trigger has no session to reuse. Omitting `session_id` leaves
     # `async_stream_query` to create one; naming a session that does not exist
     # would let this call succeed and kill the job later.
     schedule.submit_investigation("abcd1234", RouteContext())
 
-    call = fake_agentplatform.agent_engines.run_query_job.call_args
+    call = fake_agentplatform.runtimes.run_query_job.call_args
     query = json.loads(call.kwargs["config"]["query"])
     assert query["input"] == {
         "message": f"{schedule.RUN_KEYWORD} abcd1234",
@@ -534,7 +705,7 @@ def test_submit_without_a_session_lets_the_job_open_one(
 
 
 def test_submit_reads_session_from_callback_context(
-    fake_agentplatform: mock.MagicMock,
+    fake_agentplatform: mock.NonCallableMagicMock,
 ) -> None:
     # The scheduling tool and `before_agent` both reach the session via the
     # public `.session` accessor, exactly as for a ToolContext (both are the
@@ -545,7 +716,7 @@ def test_submit_reads_session_from_callback_context(
     result = schedule.submit_investigation("abcd1234", cc)
 
     assert result["job_name"].endswith("op-1")
-    call = fake_agentplatform.agent_engines.run_query_job.call_args
+    call = fake_agentplatform.runtimes.run_query_job.call_args
     query = json.loads(call.kwargs["config"]["query"])
     assert query["input"]["message"] == f"{schedule.RUN_KEYWORD} abcd1234"
     assert query["input"]["session_id"] == "sess-1"
@@ -732,6 +903,32 @@ def _shared_lock(
     return lock
 
 
+def test_the_lock_is_keyed_by_the_agent_key(
+    mock_submit: mock.MagicMock,
+    investigation_store: Any,
+    jobs_store: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A sweep of the same agent in AQuA's own project holds its bare name,
+    which leaves the staging agent free to sweep."""
+    _attach_staging_agent(jobs_store)
+    lock = _shared_lock(monkeypatch)
+    lock.acquire("it_support_agent", "other-run")
+    seen: list[str | None] = []
+
+    def _probe(run_id: str, context: Any) -> dict[str, Any]:
+        seen.append(lock.acquire(_STAGING_KEY, "probe"))
+        return {}
+
+    monkeypatch.setattr(schedule, "submit_investigation", _probe)
+
+    result = asyncio.run(schedule._launch_investigation(StateContext()))
+
+    assert result["status"] == runs.RunStatus.PENDING
+    # The launch holds the key while it submits.
+    assert seen == [result["run_id"]]
+
+
 def test_a_second_sweep_is_refused_and_answers_with_the_running_one(
     monkeypatch: pytest.MonkeyPatch, investigation_store: Any
 ) -> None:
@@ -852,7 +1049,7 @@ def _seed_run(state: dict, **fields: object) -> None:
     """
     defaults = {
         "status": runs.RunStatus.DONE,
-        "observed_agent_name": "test-observed-agent",
+        "observed_agent_name": _WATCHED,
         "trigger_type": "scheduled",
         "window_end": "2026-01-01T00:00:00+00:00",
     }
@@ -1104,7 +1301,7 @@ def test_a_custom_run_is_refused_once_too_many_are_in_flight(
             ctx.state,
             runs.InvestigationRecord(
                 status=runs.RunStatus.RUNNING,
-                observed_agent_name="test-observed-agent",
+                observed_agent_name=_WATCHED,
             ),
         )
 
@@ -1124,7 +1321,7 @@ def test_finished_runs_do_not_count_against_the_limit(
             ctx.state,
             runs.InvestigationRecord(
                 status=runs.RunStatus.DONE,
-                observed_agent_name="test-observed-agent",
+                observed_agent_name=_WATCHED,
             ),
         )
 
@@ -1141,7 +1338,7 @@ def test_an_ambient_run_is_never_refused_for_being_busy(
             ctx.state,
             runs.InvestigationRecord(
                 status=runs.RunStatus.RUNNING,
-                observed_agent_name="test-observed-agent",
+                observed_agent_name=_WATCHED,
             ),
         )
 
@@ -1172,7 +1369,7 @@ def _seed_scheduled_run(
         runs.InvestigationRecord(
             run_id=run_id,
             status=runs.RunStatus.SCHEDULED,
-            observed_agent_name="test-observed-agent",
+            observed_agent_name=_WATCHED,
             trigger_type="task_fire",
             idempotency_key="op-1",
             due_at=due.isoformat(),
@@ -1273,7 +1470,7 @@ def test_a_scheduled_run_whose_trigger_finds_a_sweep_running_is_skipped(
 ) -> None:
     """Left scheduled, it would wait for a trigger that has come and gone."""
     lock = _shared_lock(monkeypatch)
-    lock.acquire("test-observed-agent", "holder01")
+    lock.acquire(_WATCHED, "holder01")
     ctx = CallbackContext(state={})
     _seed_scheduled_run(ctx, "sched01")
 

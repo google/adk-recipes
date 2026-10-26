@@ -48,7 +48,7 @@ or [`agents-cli` default telemetry](https://google.github.io/agents-cli/guide/ob
 
 - Python 3.11 to 3.13
 - [`uv`](https://docs.astral.sh/uv/) and `npm`
-- [agents-cli](https://google.github.io/agents-cli/) 1.6 or later
+- [agents-cli](https://google.github.io/agents-cli/) 1.10 or later
 - Terraform
 - A Google Cloud project that belongs to an organization, with
   `GOOGLE_CLOUD_PROJECT` set to it and Application Default Credentials
@@ -63,7 +63,7 @@ Run these commands in your agent's agents-cli project:
 
 ```sh
 agents-cli extension add google/adk-recipes#core/python/ambient-quality-agent \
-  --ref ambient-quality-agent/v0.1.0
+  --ref ambient-quality-agent/v0.2.0
 agents-cli install
 ```
 
@@ -93,8 +93,18 @@ agents-cli aqua info --ui-url   # prints the dashboard URL
 The dashboard runs on Cloud Run behind IAP. Nobody can open it until they are
 listed in `TF_VAR_ui_iap_members` or granted `roles/iap.httpsResourceAccessor`.
 
+`agents-cli deploy --deploy-aqua` attaches your agent to AQuA the first time it
+deploys AQuA. AQuA reads your agent's Cloud Trace spans (`cloud_ops`) through a
+BigQuery link on the project's `_Trace` bucket, and the attach creates the bucket
+and the link with gcloud when they do not exist. The user running it needs
+`roles/observability.editor`, `bigquery.datasets.get` (for example
+`roles/bigquery.metadataViewer`) to see the new linked dataset, and gcloud
+586.0.0 or later. To read the `agents-cli` logging sink instead, run
+`agents-cli aqua attach --telemetry-source cloud_logging`.
+
 To remove AQuA, run the same `infra` command with `--destroy --apply`. Your
-agent's own infrastructure is left in place.
+agent's own infrastructure is left in place, and so are the `_Trace` bucket and
+its BigQuery link, which other readers of the project's spans may use.
 
 ## Usage
 
@@ -121,14 +131,40 @@ into).
 
 ```sh
 make install
-cp .env.example src/ambient_quality_agent/.env
-# Set AQA_OBSERVED_AGENT_NAME, GOOGLE_CLOUD_PROJECT, and the telemetry source,
-# dataset and table your agent writes to.
+cp .env.example src/ambient_quality_agent/.env   # set GOOGLE_CLOUD_PROJECT
 make standalone
 ```
 
+Then attach your agent to it once, from a second terminal, as "Run AQuA
+standalone" in [docs/index.md](docs/index.md) shows.
+
 `make demo` shows the dashboard on a generated month of data, with no Google
 Cloud project needed.
+
+## Usage analytics
+
+AQuA adds a product token, `google-agents-cli-aqua/VERSION`, to the
+`User-Agent` and `X-Goog-Api-Client` headers of the Google Cloud API requests it
+already makes from its engine, CLI (`agents-cli aqua`), and dashboard, alongside
+the Google Cloud client libraries' own tokens without replacing them. Engine
+requests append `+agent_runtime` on Agent Runtime or `+local` elsewhere,
+based only on whether Agent Runtime set its engine ID variable; the engine ID
+itself is never sent:
+
+```text
+google-agents-cli-aqua/0.1.0                # CLI, dashboard
+google-agents-cli-aqua/0.1.0+agent_runtime  # engine on Agent Runtime
+google-agents-cli-aqua/0.1.0+local          # engine elsewhere
+```
+
+The token adds no requests, is identical for everyone on a given release, and
+carries no user, project, or engine identifier, prompts, model output, other
+content, command names, or anything you type. Google uses it to measure how much
+AQuA is used by release and where the engine runs, the same way the Google Cloud
+client libraries, ADK, and `agents-cli` identify themselves in these headers.
+Like those tokens, it identifies the software making the request, not you, and
+has no separate opt-out. `agents-cli aqua show-config` reports whether the
+running release sends it as `usage_analytics.enabled` in its JSON output.
 
 ## Feedback
 

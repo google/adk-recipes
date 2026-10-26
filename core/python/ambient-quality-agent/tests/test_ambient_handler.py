@@ -22,17 +22,29 @@ import asyncio
 import datetime as dt
 import json
 import re
+from typing import Any
 from unittest import mock
 
 import pytest
+from ambient_quality_agent.config import ObservedAgentConfig
 from ambient_quality_agent.core.ambient import handler
 from ambient_quality_agent.core.investigation import model
 from ambient_quality_agent.tools import cloudtasks
-from ambient_quality_agent.tools.observed_agent_config import effective_config
+from ambient_quality_agent.tools.investigations.models import (
+    InvestigationRecord,
+    RunStatus,
+)
+from ambient_quality_agent.tools.observed_agent_config import (
+    effective_config,
+    store,
+)
 
 from .conftest import CallbackContext, get_run, make_config
 
 _RESOURCE = "projects/p/locations/l/reasoningEngines/1"
+
+# The tick the default schedule, daily at 12:00 UTC, falls due in.
+_DUE_TICK = dt.datetime(2026, 10, 13, 12, 0, tzinfo=dt.UTC)
 
 
 def _message(**payload: object) -> dict[str, object]:
@@ -195,31 +207,88 @@ def mock_enqueue(monkeypatch: pytest.MonkeyPatch) -> mock.Mock:
     return fake
 
 
-def _use_config(monkeypatch: pytest.MonkeyPatch, **overrides: object) -> None:
-    """Pins the effective config the handler loads.
+def _use_config(
+    monkeypatch: pytest.MonkeyPatch,
+    record: store.AgentRecord | None = None,
+    **overrides: object,
+) -> None:
+    """Pins one agent: the config the handler loads, and its attachment.
+
+    It is the only agent a tick is for, and every engine's update is its.
 
     Args:
         monkeypatch: Pytest monkeypatch fixture.
+        record: The agent's attachment; None runs it on the default schedule.
         **overrides: Configuration field overrides.
     """
     cfg = make_config(**overrides)
+    agent_keys = [cfg.resolve_agent_key()] if cfg.observed_agent_name else []
     monkeypatch.setattr(effective_config, "load", lambda state: cfg)
+    monkeypatch.setattr(
+        effective_config, "load_fresh_agent_config", lambda agent_key: cfg
+    )
+    monkeypatch.setattr(
+        effective_config, "load_selected_agent_record", lambda state: record
+    )
+    monkeypatch.setattr(effective_config, "list_agent_keys", lambda: agent_keys)
+    monkeypatch.setattr(
+        effective_config,
+        "resolve_engine_agent_key",
+        lambda engine_id: agent_keys[0] if agent_keys else None,
+    )
+
+
+def _build_record(
+    schedule: str = store.DEFAULT_INVESTIGATION_SCHEDULE,
+    *,
+    enabled: bool = True,
+) -> store.AgentRecord:
+    """Builds the attachment of `agent-x` with a schedule.
+
+    Args:
+        schedule: Its cron.
+        enabled: Whether the schedule runs.
+
+    Returns:
+        The record.
+    """
+    return store.AgentRecord(
+        config=ObservedAgentConfig(observed_agent_name="agent-x"),
+        investigation_schedule=schedule,
+        scheduled_trigger_enabled=enabled,
+    )
+
+
+def _dispatch_tick(tick: dt.datetime | None = _DUE_TICK) -> str:
+    """Dispatches a scheduler tick scheduled for `tick`.
+
+    Args:
+        tick: The tick's `X-CloudScheduler-ScheduleTime`; None for none.
+
+    Returns:
+        The dispatch note.
+    """
+    return asyncio.run(
+        handler.dispatch_ambient_trigger(
+            CallbackContext(state={}),
+            handler.AmbientTrigger(type="scheduled", resource_name=_RESOURCE),
+            anchor=tick,
+        )
+    )
 
 
 def test_handle_scheduled_schedules_without_a_key(
     monkeypatch: pytest.MonkeyPatch, mock_schedule: mock.AsyncMock
 ) -> None:
     _use_config(monkeypatch, observed_agent_name="agent-x")
-    trigger = handler.AmbientTrigger(type="scheduled", resource_name=_RESOURCE)
 
-    note = asyncio.run(
-        handler.dispatch_ambient_trigger(CallbackContext(state={}), trigger)
-    )
+    note = _dispatch_tick()
 
     mock_schedule.assert_awaited_once()
     kwargs = mock_schedule.call_args.kwargs
     assert kwargs["idempotency_key"] is None
     assert kwargs["ambient"] is True
+    assert kwargs["anchor"] == _DUE_TICK
     # A tick advances no scheduled record: none was made for it.
     assert kwargs["scheduled_run_id"] is None
     assert "r1" in note and "pending" in note
@@ -233,8 +302,13 @@ def test_handle_with_no_agent_attached_does_nothing(
     mock_enqueue: mock.Mock,
     trigger_type: str,
 ) -> None:
-    """A tick before anything is attached is a normal state, not a failure."""
+    """A tick before anything is attached is a normal state, not a failure,
+    and no attachment is read for a schedule."""
     _use_config(monkeypatch, observed_agent_name="")
+    load_record = mock.Mock()
+    monkeypatch.setattr(
+        effective_config, "load_selected_agent_record", load_record
+    )
     trigger = handler.AmbientTrigger(
         type=trigger_type, resource_name=_RESOURCE, dedup_id="d1"
     )
@@ -245,6 +319,7 @@ def test_handle_with_no_agent_attached_does_nothing(
 
     mock_schedule.assert_not_awaited()
     mock_enqueue.assert_not_called()
+    load_record.assert_not_called()
     assert "agents-cli aqua attach" in note
 
 
@@ -432,14 +507,449 @@ def test_a_launch_that_starts_nothing_is_reported_not_raised(
     _use_config(monkeypatch, observed_agent_name="agent-x")
     mock_schedule.return_value = {"error": "busy"}
 
-    note = asyncio.run(
+    note = _dispatch_tick()
+
+    assert "no investigation started" in note and "busy" in note
+
+
+# --- the schedule a tick is checked against -------------------------------- #
+
+
+def test_a_tick_the_schedule_is_not_due_in_starts_nothing(
+    monkeypatch: pytest.MonkeyPatch, mock_schedule: mock.AsyncMock
+) -> None:
+    _use_config(monkeypatch, observed_agent_name="agent-x")
+
+    note = _dispatch_tick(_DUE_TICK + dt.timedelta(minutes=15))
+
+    mock_schedule.assert_not_awaited()
+    assert "not due" in note and "0 12 * * *" in note
+
+
+def test_a_tick_is_checked_against_the_attachments_schedule(
+    monkeypatch: pytest.MonkeyPatch, mock_schedule: mock.AsyncMock
+) -> None:
+    _use_config(
+        monkeypatch, _build_record("10 9 * * *"), observed_agent_name="agent-x"
+    )
+
+    _dispatch_tick(_DUE_TICK)
+    mock_schedule.assert_not_awaited()
+    # 09:10 falls in the tick period (09:00, 09:15].
+    _dispatch_tick(_DUE_TICK.replace(hour=9, minute=15))
+    mock_schedule.assert_awaited_once()
+
+
+def test_a_paused_schedule_starts_nothing(
+    monkeypatch: pytest.MonkeyPatch, mock_schedule: mock.AsyncMock
+) -> None:
+    _use_config(
+        monkeypatch, _build_record(enabled=False), observed_agent_name="agent-x"
+    )
+
+    note = _dispatch_tick()
+
+    mock_schedule.assert_not_awaited()
+    assert "paused" in note
+
+
+def test_an_unreadable_schedule_starts_nothing_and_warns(
+    monkeypatch: pytest.MonkeyPatch,
+    mock_schedule: mock.AsyncMock,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    _use_config(
+        monkeypatch, _build_record("@daily"), observed_agent_name="agent-x"
+    )
+
+    with caplog.at_level("WARNING", logger=handler.__name__):
+        note = _dispatch_tick()
+
+    mock_schedule.assert_not_awaited()
+    assert "cannot read its schedule" in note
+    assert any(r.levelname == "WARNING" for r in caplog.records)
+
+
+def test_an_unreadable_attachment_starts_nothing_and_warns(
+    monkeypatch: pytest.MonkeyPatch,
+    mock_schedule: mock.AsyncMock,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Read as no attachment, a paused agent would run on the default."""
+    _use_config(monkeypatch, observed_agent_name="agent-x")
+
+    def fail(state: Any) -> None:
+        raise OSError("bucket unreachable")
+
+    monkeypatch.setattr(effective_config, "load_selected_agent_record", fail)
+
+    with caplog.at_level("WARNING", logger=handler.__name__):
+        note = _dispatch_tick()
+
+    mock_schedule.assert_not_awaited()
+    assert "cannot read its attachment" in note
+    assert any(r.levelname == "WARNING" for r in caplog.records)
+
+
+def test_a_call_off_the_grid_counts_as_the_tick_before_it(
+    monkeypatch: pytest.MonkeyPatch, mock_schedule: mock.AsyncMock
+) -> None:
+    """A per-agent job left from an earlier attach fires at its cron, 09:10;
+    the instance's 09:15 tick already starts that investigation."""
+    _use_config(
+        monkeypatch, _build_record("10 9 * * *"), observed_agent_name="agent-x"
+    )
+
+    _dispatch_tick(_DUE_TICK.replace(hour=9, minute=10))
+    mock_schedule.assert_not_awaited()
+
+    _use_config(monkeypatch, observed_agent_name="agent-x")
+    _dispatch_tick(_DUE_TICK + dt.timedelta(minutes=7))
+    assert mock_schedule.call_args.kwargs["anchor"] == _DUE_TICK
+
+
+def test_a_tick_without_a_schedule_time_is_checked_at_the_clock(
+    monkeypatch: pytest.MonkeyPatch, mock_schedule: mock.AsyncMock
+) -> None:
+    """The run is keyed on the instant it was checked at, so the two agree."""
+    _use_config(monkeypatch, observed_agent_name="agent-x")
+    monkeypatch.setattr(
+        handler, "_read_utc_clock", lambda: _DUE_TICK + dt.timedelta(minutes=3)
+    )
+
+    _dispatch_tick(None)
+
+    assert mock_schedule.call_args.kwargs["anchor"] == _DUE_TICK
+
+
+def test_a_task_fire_ignores_the_schedule(
+    monkeypatch: pytest.MonkeyPatch, mock_schedule: mock.AsyncMock
+) -> None:
+    _use_config(
+        monkeypatch, _build_record(enabled=False), observed_agent_name="agent-x"
+    )
+
+    asyncio.run(
         handler.dispatch_ambient_trigger(
             CallbackContext(state={}),
-            handler.AmbientTrigger(type="scheduled", resource_name=_RESOURCE),
+            handler.AmbientTrigger(
+                type="task_fire", resource_name=_RESOURCE, dedup_id="d3"
+            ),
         )
     )
 
-    assert "no investigation started" in note and "busy" in note
+    mock_schedule.assert_awaited_once()
+
+
+# --- the agent each trigger is for ------------------------------------------ #
+
+_STAGING = "acme-staging__bot"
+_PROD = "acme-prod__bot"
+
+
+def _use_agents(
+    monkeypatch: pytest.MonkeyPatch,
+    records: dict[str, store.AgentRecord | None],
+    **overrides: object,
+) -> None:
+    """Pins several attached agents, each loaded by its key.
+
+    Args:
+        monkeypatch: Pytest monkeypatch fixture.
+        records: Each agent's attachment by key; None for the default schedule.
+        **overrides: Configuration field overrides shared by every agent.
+    """
+    _use_config(monkeypatch, observed_agent_name="bot", **overrides)
+
+    def _load_agent(key: str) -> object:
+        if key not in records:
+            raise effective_config.UnknownAgentError(f"{key} is not attached.")
+        return make_config(
+            observed_agent_name="bot", agent_key=key, **overrides
+        )
+
+    monkeypatch.setattr(
+        effective_config,
+        "load",
+        lambda state: _load_agent(
+            state.get(effective_config.AGENT_KEY_STATE) or _PROD
+        ),
+    )
+    monkeypatch.setattr(
+        effective_config, "load_fresh_agent_config", _load_agent
+    )
+    monkeypatch.setattr(
+        effective_config,
+        "load_selected_agent_record",
+        lambda state: records[state[effective_config.AGENT_KEY_STATE]],
+    )
+    monkeypatch.setattr(
+        effective_config, "list_agent_keys", lambda: sorted(records)
+    )
+
+
+def _list_launched_agents(mock_schedule: mock.AsyncMock) -> list[str]:
+    """Lists the agent each launch's state selected, in launch order.
+
+    Args:
+        mock_schedule: The patched `_launch_investigation`.
+
+    Returns:
+        The selected agent keys.
+    """
+    return [
+        call.args[0].state[effective_config.AGENT_KEY_STATE]
+        for call in mock_schedule.call_args_list
+    ]
+
+
+def test_a_tick_investigates_every_agent_that_is_due(
+    monkeypatch: pytest.MonkeyPatch, mock_schedule: mock.AsyncMock
+) -> None:
+    _use_agents(monkeypatch, {_PROD: None, _STAGING: None})
+
+    note = _dispatch_tick()
+
+    assert _list_launched_agents(mock_schedule) == [_PROD, _STAGING]
+    assert _PROD in note and _STAGING in note
+    # One tick, so one dedup instant for every agent.
+    assert {c.kwargs["anchor"] for c in mock_schedule.call_args_list} == {
+        _DUE_TICK
+    }
+
+
+def test_a_tick_does_not_depend_on_the_default_agent_being_readable(
+    monkeypatch: pytest.MonkeyPatch, mock_schedule: mock.AsyncMock
+) -> None:
+    """A request with no agent selected may resolve none, as when the default's
+    attachment cannot be read; the tick goes by the listing alone."""
+    _use_agents(monkeypatch, {_PROD: None, _STAGING: None})
+    loaded = effective_config.load
+    monkeypatch.setattr(
+        effective_config,
+        "load",
+        lambda state: (
+            loaded(state)
+            if state.get(effective_config.AGENT_KEY_STATE)
+            else make_config(observed_agent_name="")
+        ),
+    )
+
+    _dispatch_tick()
+
+    assert _list_launched_agents(mock_schedule) == [_PROD, _STAGING]
+
+
+def test_a_tick_checks_each_agents_own_schedule(
+    monkeypatch: pytest.MonkeyPatch, mock_schedule: mock.AsyncMock
+) -> None:
+    _use_agents(
+        monkeypatch,
+        {_PROD: _build_record(), _STAGING: _build_record(enabled=False)},
+    )
+
+    note = _dispatch_tick()
+
+    assert _list_launched_agents(mock_schedule) == [_PROD]
+    assert f"{_STAGING}: its schedule is paused" in note
+
+
+def test_an_agent_detached_since_the_listing_does_not_stop_the_others(
+    monkeypatch: pytest.MonkeyPatch, mock_schedule: mock.AsyncMock
+) -> None:
+    _use_agents(monkeypatch, {_PROD: None})
+    monkeypatch.setattr(
+        effective_config, "list_agent_keys", lambda: ["acme-gone__bot", _PROD]
+    )
+
+    note = _dispatch_tick()
+
+    assert _list_launched_agents(mock_schedule) == [_PROD]
+    assert "acme-gone__bot is not attached" in note
+
+
+def test_a_launch_that_raises_is_raised_after_every_agent_is_tried(
+    monkeypatch: pytest.MonkeyPatch, mock_schedule: mock.AsyncMock
+) -> None:
+    """Cloud Scheduler retries the tick; the agents already started are
+    deduplicated by the key the tick derives."""
+    _use_agents(monkeypatch, {_PROD: None, _STAGING: None})
+    mock_schedule.side_effect = [
+        RuntimeError("store down"),
+        {"run_id": "r2", "status": "pending"},
+    ]
+
+    with pytest.raises(RuntimeError, match="store down"):
+        _dispatch_tick()
+
+    assert _list_launched_agents(mock_schedule) == [_PROD, _STAGING]
+
+
+def test_a_tick_that_cannot_list_the_agents_starts_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+    mock_schedule: mock.AsyncMock,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    _use_agents(monkeypatch, {_PROD: None})
+
+    def fail() -> list[str]:
+        raise OSError("bucket unreachable")
+
+    monkeypatch.setattr(effective_config, "list_agent_keys", fail)
+
+    with caplog.at_level("WARNING", logger=handler.__name__):
+        note = _dispatch_tick()
+
+    mock_schedule.assert_not_awaited()
+    assert "cannot list the attached agents" in note
+    assert any(r.levelname == "WARNING" for r in caplog.records)
+
+
+def test_an_update_is_for_the_agent_that_records_its_engine(
+    monkeypatch: pytest.MonkeyPatch, mock_enqueue: mock.Mock
+) -> None:
+    _use_agents(
+        monkeypatch,
+        {_PROD: None, _STAGING: None},
+        project_id="p",
+        aqa_engine_id="99",
+        delay_task_queue="projects/p/locations/l/queues/updates",
+        ambient_caller_sa="caller@p.iam.gserviceaccount.com",
+    )
+    engines: list[str] = []
+
+    def _resolve(engine_id: str) -> str:
+        engines.append(engine_id)
+        return _STAGING
+
+    monkeypatch.setattr(effective_config, "resolve_engine_agent_key", _resolve)
+
+    note = _dispatch_update("op-1")
+
+    assert engines == ["1"]
+    record = get_run({}, handler.compute_scheduled_run_id("op-1"))
+    assert record is not None
+    assert record.observed_agent_name == _STAGING
+    assert _STAGING in note
+    # The delayed trigger finds its agent through that record, so its body
+    # stays as it was.
+    body = json.loads(mock_enqueue.call_args.kwargs["body"].decode())
+    assert "agent_key" not in body
+
+
+def test_an_update_no_agent_observes_schedules_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+    mock_schedule: mock.AsyncMock,
+    mock_enqueue: mock.Mock,
+) -> None:
+    _update_config(monkeypatch)
+    monkeypatch.setattr(
+        effective_config, "resolve_engine_agent_key", lambda engine_id: None
+    )
+
+    note = _dispatch_update()
+
+    mock_enqueue.assert_not_called()
+    mock_schedule.assert_not_called()
+    assert "no attached agent observes it" in note and _RESOURCE in note
+
+
+def _dispatch_task_fire(dedup_id: str = "op-1") -> str:
+    """Dispatches the `task_fire` an update with `dedup_id` leaves.
+
+    Args:
+        dedup_id: The audit event's operation id.
+
+    Returns:
+        The dispatch note.
+    """
+    return asyncio.run(
+        handler.dispatch_ambient_trigger(
+            CallbackContext(state={}),
+            handler.AmbientTrigger(
+                type="task_fire", resource_name=_RESOURCE, dedup_id=dedup_id
+            ),
+        )
+    )
+
+
+def test_a_task_fire_is_for_the_agent_of_its_scheduled_record(
+    monkeypatch: pytest.MonkeyPatch, mock_schedule: mock.AsyncMock
+) -> None:
+    """The engine's attachment may have moved since the update arrived."""
+    _use_agents(monkeypatch, {_PROD: None, _STAGING: None})
+    monkeypatch.setattr(
+        effective_config, "resolve_engine_agent_key", lambda engine_id: _PROD
+    )
+    asyncio.run(
+        model.create_run(
+            {},
+            InvestigationRecord(
+                run_id=handler.compute_scheduled_run_id("op-1"),
+                status=RunStatus.SCHEDULED,
+                observed_agent_name=_STAGING,
+                trigger_type="task_fire",
+            ),
+        )
+    )
+
+    note = _dispatch_task_fire("op-1")
+
+    assert _list_launched_agents(mock_schedule) == [_STAGING]
+    assert _STAGING in note
+
+
+def test_a_task_fire_without_its_record_is_for_the_engines_agent(
+    monkeypatch: pytest.MonkeyPatch, mock_schedule: mock.AsyncMock
+) -> None:
+    """The record is only best-effort; the trigger still carries the engine."""
+    _use_agents(monkeypatch, {_PROD: None, _STAGING: None})
+    monkeypatch.setattr(
+        effective_config,
+        "resolve_engine_agent_key",
+        lambda engine_id: _STAGING if engine_id == "1" else None,
+    )
+
+    _dispatch_task_fire("op-2")
+
+    assert _list_launched_agents(mock_schedule) == [_STAGING]
+
+
+def test_a_task_fire_for_a_detached_agent_starts_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+    mock_schedule: mock.AsyncMock,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Answered, not retried: retrying would not attach the agent again."""
+    _use_agents(monkeypatch, {_PROD: None})
+    monkeypatch.setattr(
+        effective_config, "resolve_engine_agent_key", lambda engine_id: _STAGING
+    )
+
+    with caplog.at_level("WARNING", logger=handler.__name__):
+        note = _dispatch_task_fire()
+
+    mock_schedule.assert_not_awaited()
+    assert f"{_STAGING} is not attached" in note
+    assert "No investigation started" in note
+
+
+def test_a_task_fire_whose_attachment_cannot_be_read_is_delivered_again(
+    monkeypatch: pytest.MonkeyPatch, mock_schedule: mock.AsyncMock
+) -> None:
+    """Answered as an agent that is not attached, the redeploy would never
+    be investigated."""
+    _use_agents(monkeypatch, {_PROD: None})
+
+    def fail(agent_key: str) -> object:
+        raise OSError("bucket unreachable")
+
+    monkeypatch.setattr(effective_config, "load_fresh_agent_config", fail)
+
+    with pytest.raises(OSError, match="bucket unreachable"):
+        _dispatch_task_fire()
+
+    mock_schedule.assert_not_awaited()
 
 
 # --- the scheduled record an update leaves --------------------------------- #
@@ -488,6 +998,24 @@ def test_an_update_records_a_scheduled_run_due_with_its_task(
     # The window is left to the fire, so it holds the new revision's traces.
     assert record.window_start is None and record.window_end is None
     assert run_id in note
+
+
+def test_the_scheduled_record_is_keyed_by_the_agent_key(
+    monkeypatch: pytest.MonkeyPatch, mock_enqueue: mock.Mock
+) -> None:
+    _use_config(
+        monkeypatch,
+        observed_agent_name="agent-x",
+        agent_key="acme-staging__agent-x",
+        aqa_engine_id="99",
+        delay_task_queue="projects/p/locations/l/queues/updates",
+        ambient_caller_sa="caller@p.iam.gserviceaccount.com",
+    )
+
+    _dispatch_update("op-1")
+
+    record = get_run({}, handler.compute_scheduled_run_id("op-1"))
+    assert record.observed_agent_name == "acme-staging__agent-x"
 
 
 def test_a_redelivered_update_keeps_the_first_due_time(
@@ -606,4 +1134,6 @@ def test_the_scheduled_run_id_is_stable_and_shaped_like_a_generated_one() -> (
 
     assert first == handler.compute_scheduled_run_id("projects/1/operations/2")
     assert first != handler.compute_scheduled_run_id("projects/1/operations/3")
-    assert re.fullmatch(r"[0-9a-f]{8}", first)
+    assert re.fullmatch(r"[0-9a-f]{32}", first)
+    # As long as a generated one, so it is as unique across agents.
+    assert len(first) == len(model.InvestigationRecord().run_id)

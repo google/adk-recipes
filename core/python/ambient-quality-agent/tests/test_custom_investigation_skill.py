@@ -98,6 +98,7 @@ _JSON_KEYS = {
         "usage_metadata",
         "model_version",
         "root_agent_name",
+        "source_event_author",
         "session_metadata",
         "adk",
         "total_ms",
@@ -316,7 +317,11 @@ def _parse_adk_plugin_schema() -> _PluginSchema:
     hitl_map = _module_assignment(tree, "_HITL_EVENT_MAP")
     assert isinstance(view_defs, ast.Dict)
     assert isinstance(hitl_map, ast.Call)
-    hitl_events = ast.literal_eval(hitl_map.args[0]).values()
+    hitl_dict = hitl_map.args[0]
+    assert isinstance(hitl_dict, ast.Dict)
+    # Only the values are evaluated: the keys are ADK's function-call name
+    # constants, which `literal_eval` cannot resolve.
+    hitl_events = [ast.literal_eval(value) for value in hitl_dict.values]
     return _PluginSchema(
         columns=[_schema_field(item) for item in returned.value.elts],
         event_types=frozenset(

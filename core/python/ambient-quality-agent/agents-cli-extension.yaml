@@ -28,11 +28,17 @@ name: aqua
 description: Deploy and operate the Ambient Quality Agent alongside an observed agent.
 
 requires:
-  # 1.6 is the first release with everything the wrappers use: they call
-  # `deploy --update-only` and `infra show`, and read
-  # `create_params.root_agent_name` from the manifest.
-  agents_cli: ">=1.6,<2"
+  # 1.10 adds support for the `skills:` key (earlier releases reject it).
+  # Wrappers also depend on `deploy --update-only`, `infra show`, and
+  # `create_params.root_agent_name` in the manifest.
+  agents_cli: ">=1.10,<2"
   on_incompatible: warn
+
+# agents-cli manages `.agents/skills/agents-cli-aqua/` in the host project:
+# `agents-cli install` and `extension update` overwrite local edits.
+skills:
+  agents-cli-aqua:
+    path: skills/agents-cli-aqua
 
 commands:
   # TODO: use `before:`/`after:` hooks instead of `override:` once they become
@@ -59,14 +65,11 @@ commands:
 
   add:
     aqua:
-      # AQuA's CLI needs six third-party imports, and none of them is a
+      # AQuA's CLI needs five third-party imports, and none of them is a
       # declared dependency of this project -- they arrive transitively through
       # google-adk and the google-cloud clients, which are far too heavy to
       # resolve for a CLI call. Named here so the command runs in an observed
       # project whose own environment has none of them.
-      #
-      # `pyyaml` parses the eval config, so `metrics publish` can refuse a
-      # library that would not load rather than let a sweep discover it.
       #
       # `pathspec` reads the project's `.gcloudignore`, so `publish-source`
       # snapshots the files `agents-cli deploy` packages. `acli_deploy.py` runs
@@ -78,6 +81,6 @@ commands:
       # omitting it fails them all in a project that does not happen to have it.
       run: ["uv", "run", "--no-project",
             "--with", "click", "--with", "google-auth", "--with", "httpx",
-            "--with", "pathspec", "--with", "pyyaml", "--with", "requests",
+            "--with", "pathspec", "--with", "requests",
             "python", "extension/acli_aqua.py"]
       description: Query AQuA investigations, insights and configuration.

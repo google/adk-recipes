@@ -15,14 +15,15 @@
 """Source snapshot layout, manifest models, size limits, and ignore rules.
 
 Each snapshot represents a single deployment revision of an observed agent's
-repository, kept under that agent's name in the source store
-(`objects.store.source_store_factory`):
+repository, kept under that agent's key (`Config.resolve_agent_key`) in the
+source store (`objects.store.source_store_factory`):
 
-    <agent_name>/<revision>/manifest.json
-    <agent_name>/<revision>/files/<repo-relative-path>
+    <agent key>/<revision>/manifest.json
+    <agent key>/<revision>/files/<repo-relative-path>
 
-so that one store holds several agents apart. Snapshots may also sit
-unprefixed at `<revision>/`; the reader falls back to them.
+so that one store holds several agents apart, the same agent in two projects
+included. Snapshots may also sit unprefixed at `<revision>/`; the reader falls
+back to them.
 
 The manifest is uploaded last. Its presence indicates a complete upload; a missing
 manifest indicates an interrupted upload that must be treated as unavailable.
@@ -135,13 +136,13 @@ _KEY_SEGMENT = re.compile(r"[A-Za-z0-9_][A-Za-z0-9._-]*")
 
 
 def validate_key_segment(value: str, what: str) -> str:
-    """Checks that an agent name or a revision can be one segment of an object name.
+    """Checks that an agent key or a revision can be one segment of an object name.
 
     Both reach here from a command route, so a value like `../x` or `a/b` must
     not become a name outside its agent's prefix.
 
     Args:
-        value: The agent name or revision.
+        value: The agent key or revision.
         what: What the value is, for the error message.
 
     Returns:
@@ -158,38 +159,37 @@ def validate_key_segment(value: str, what: str) -> str:
     return value
 
 
-def validate_agent_name(agent_name: str) -> str:
-    """Checks that an agent name can be the prefix of its snapshots.
+def validate_agent_key(agent_key: str) -> str:
+    """Checks that an agent key can be the prefix of its snapshots.
 
     Args:
-        agent_name: The observed agent's name.
+        agent_key: The observed agent's key.
 
     Returns:
-        The name, unchanged.
+        The key, unchanged.
 
     Raises:
         ValueError: If it is not a valid key segment, or is all digits, which
             the reader would take for an unprefixed revision.
     """
-    validate_key_segment(agent_name, "agent name")
-    if agent_name.isdecimal():
+    validate_key_segment(agent_key, "agent key")
+    if agent_key.isdecimal():
         raise ValueError(
-            f"agent name {agent_name!r} is all digits, like a revision"
+            f"agent key {agent_key!r} is all digits, like a revision"
         )
-    return agent_name
+    return agent_key
 
 
-def build_agent_root(agent_name: str) -> str:
+def build_agent_root(agent_key: str) -> str:
     """Returns the prefix an agent's snapshots live under.
 
     Args:
-        agent_name: Observed agent's name; empty for the unprefixed
-            snapshots.
+        agent_key: Observed agent's key; empty for the unprefixed snapshots.
 
     Returns:
-        `<agent_name>/`, or the empty string.
+        `<agent_key>/`, or the empty string.
     """
-    return f"{agent_name}/" if agent_name else ""
+    return f"{agent_key}/" if agent_key else ""
 
 
 def build_manifest_object_name(revision: str, root: str = "") -> str:

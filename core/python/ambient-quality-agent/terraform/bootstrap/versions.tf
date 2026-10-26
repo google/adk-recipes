@@ -25,7 +25,7 @@ terraform {
   required_providers {
     google = {
       source  = "hashicorp/google"
-      version = ">= 7.13, < 8.0"
+      version = ">= 7.13, < 9.0"
     }
     # Waits out the delay between enabling an API and being able to call it;
     # see services.tf.

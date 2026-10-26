@@ -145,12 +145,12 @@ def wired(bucket: Any) -> Iterator[None]:
     reader_module.reader_factory = lambda state: SourceSnapshotReader(
         store=store
     )
-    reader_module.clear_manifest_cache()
+    reader_module.clear_snapshot_cache()
     try:
         yield
     finally:
         reader_module.reader_factory = original
-        reader_module.clear_manifest_cache()
+        reader_module.clear_snapshot_cache()
 
 
 def run(coro: Any) -> dict[str, Any]:

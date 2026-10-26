@@ -121,8 +121,9 @@ bring its own id scheme, and id length is one of the things being measured.
 checks that plumbing in seconds and measures nothing about the model, so its
 rows are marked `fake`.
 
-`cluster_and_label` splits a sweep into `clustering.CHUNK_SIZE`-rubric chunks and
-clusters them `CHUNK_CONCURRENCY` at a time (each retried up to `CHUNK_ATTEMPTS`),
+`cluster_and_label` splits each agent's rubrics into `clustering.CHUNK_SIZE`-rubric
+chunks and clusters them `CHUNK_CONCURRENCY` at a time (each retried up to
+`CHUNK_ATTEMPTS`),
 so a response only ever has to echo back its own chunk's ids — the thing that
 used to truncate a whole sweep. What that costs is deduplication: a chunk cannot
 see the others, so one defect comes back once per chunk under its own wording,

@@ -26,8 +26,16 @@ import {
 } from "@/lib/aqua-api";
 import { FailureNote } from "@/components/ui/failure-note";
 import { FilterTabs } from "@/components/ui/filter-tabs";
+import { PageRefreshButton } from "@/components/ui/refresh-button";
 import { HelpPopover } from "@/components/ui/help-popover";
+import { InlineMarkdown } from "@/components/ui/inline-markdown";
 import { RunsTable } from "@/components/investigations/runs-table";
+import {
+  matchesTrigger,
+  TRIGGER_FILTER_NAMES,
+  TRIGGER_FILTERS,
+  type TriggerFilter,
+} from "@/components/investigations/investigations-view";
 import { RunInvestigationButton } from "@/components/run-investigation-button";
 import { Funnel } from "@/components/stats/funnel";
 import { InsightTrend } from "@/components/stats/insight-trend";
@@ -40,6 +48,7 @@ import { cn, formatSentenceCase } from "@/lib/utils";
 import { PageHeader } from "@/components/nav/page-header";
 import { link, textStyle } from "@/lib/typography";
 import { StatBar } from "./stat-bar";
+import { useAgentKey } from "@/lib/agent-selection";
 
 /** How many investigations the Recent investigations list shows, of the
  *  capped page `runsQuery` returns. Few, so Home stays short; "View all"
@@ -153,7 +162,7 @@ function SectionLink({
   children,
 }: {
   to: ListPage;
-  search?: { status?: "recurring" };
+  search?: { status?: "recurring"; trigger?: Exclude<TriggerFilter, "all"> };
   children: React.ReactNode;
 }) {
   return (
@@ -295,29 +304,37 @@ function AskBar() {
  * at an empty prompt made you ask before you could see anything.
  */
 export function HomeView() {
-  const stats = useQuery(statsQuery());
+  const agentKey = useAgentKey();
+  const stats = useQuery(statsQuery(agentKey));
   const [stripView, setStripView] = useState<StripView>("top");
   const view = STRIP_VIEWS[stripView];
   // Five, ordered and filtered by the engine: the strip shows the first five
   // of the whole list, not the first of a page it happened to be sent.
   const insights = useQuery(
-    insightsQuery({ ...view.query, pageSize: TOP_ISSUES }),
+    insightsQuery(agentKey, { ...view.query, pageSize: TOP_ISSUES }),
   );
-  const runs = useQuery(runsQuery());
-  const daily = useQuery(dailyQuery());
+  const runs = useQuery(runsQuery(agentKey));
+  const [runTrigger, setRunTrigger] = useState<TriggerFilter>("all");
+  const daily = useQuery(dailyQuery(agentKey));
   // Resolved issues are fetched on their own rather than filtered out of the
   // list above: that list is impact-ordered and five rows long, so the resolved
   // ones it happens to carry are not the resolved ones, and the chart would be
   // drawn from whatever those five held.
-  const resolvedInsights = useQuery(insightsQuery({ status: "RESOLVED" }));
+  const resolvedInsights = useQuery(
+    insightsQuery(agentKey, { status: "RESOLVED" }),
+  );
   // Only for dating the rows resolved before `resolved_at` existed.
-  const config = useQuery(effectiveConfigQuery());
+  const config = useQuery(effectiveConfigQuery(agentKey));
 
   const s = stats.data;
   const evaluated = s?.traces_evaluated ?? 0;
   const top = insights.data?.insights ?? [];
   // The API returns runs oldest-first; a "recent" list reads the other way.
-  const recentRuns = newestFirst(runs.data ?? []).slice(0, RECENT_RUNS);
+  // Filtered before the cut, so "User-initiated" shows the five newest runs a
+  // user started rather than whichever of the five newest runs they started.
+  const recentRuns = newestFirst(runs.data ?? [])
+    .filter((run) => matchesTrigger(run, runTrigger))
+    .slice(0, RECENT_RUNS);
 
   const autoResolveDays = autoResolveWindow(config.data?.config);
   const resolved = resolvedInsights.data?.insights ?? [];
@@ -334,6 +351,7 @@ export function HomeView() {
       <PageHeader
         title="Home"
         description="What AQuA has found in the observed agent."
+        aside={<PageRefreshButton />}
       />
 
       <div data-tour="health">
@@ -429,7 +447,9 @@ export function HomeView() {
                     className="block rounded-lg border p-3 hover:bg-muted/30"
                   >
                     <div className="flex items-start justify-between gap-3">
-                      <p className={textStyle.itemTitle}>{i.label}</p>
+                      <p className={textStyle.itemTitle}>
+                        <InlineMarkdown text={i.label} />
+                      </p>
                       <span className={cn(textStyle.meta, "shrink-0")}>
                         {i.trace_count}{" "}
                         {i.trace_count === 1 ? "trajectory" : "trajectories"}
@@ -437,7 +457,7 @@ export function HomeView() {
                     </div>
                     {i.diagnosis && (
                       <p className={cn(textStyle.meta, "mt-1.5 line-clamp-2")}>
-                        {i.diagnosis}
+                        <InlineMarkdown text={i.diagnosis} />
                       </p>
                     )}
                   </Link>
@@ -506,9 +526,24 @@ export function HomeView() {
         }
         tour="recent-runs"
         action={
-          <div className="flex shrink-0 items-center gap-4">
+          <div className="flex shrink-0 flex-wrap items-center gap-4">
+            <FilterTabs
+              label="Started by"
+              options={TRIGGER_FILTER_NAMES}
+              value={runTrigger}
+              onSelect={setRunTrigger}
+              labelOf={(name) => TRIGGER_FILTERS[name].label}
+            />
             <RunInvestigationButton />
-            <SectionLink to="/investigations">View all</SectionLink>
+            {/* Opens the investigations page on the same tab. */}
+            <SectionLink
+              to="/investigations"
+              search={
+                runTrigger === "all" ? undefined : { trigger: runTrigger }
+              }
+            >
+              View all
+            </SectionLink>
           </div>
         }
       >
@@ -518,7 +553,14 @@ export function HomeView() {
           isEmpty={(runs.data?.length ?? 0) === 0}
           empty="No investigations have run."
         >
-          <RunsTable runs={recentRuns} history={runs.data} />
+          {recentRuns.length > 0 ? (
+            <RunsTable runs={recentRuns} history={runs.data} />
+          ) : (
+            <Empty>
+              No {TRIGGER_FILTERS[runTrigger].noun}investigations among the most
+              recent.
+            </Empty>
+          )}
         </Pane>
       </Section>
     </div>

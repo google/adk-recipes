@@ -28,8 +28,10 @@ The save path is the same whoever calls it -- the dashboard route, the chat's
 lives here. Every investigation reads it once, through
 `load_investigation_goal`.
 
-Every function takes the `ObjectStore` the documents live in: the jobs bucket in
-a deployment, `.aqua/job/` in a standalone run.
+Every function takes the `ObjectStore` the documents live in: one agent's
+prefix of the jobs store (`agent_scope.AgentDocumentStore`), which is the jobs
+bucket in a deployment and `.aqua/job/` in a standalone run. Names here are
+relative to it.
 """
 
 from __future__ import annotations
@@ -47,7 +49,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 GOAL_OBJECT = "goal.md"
-"""The active goal, at the root of the jobs store."""
+"""The active goal, at the root of the store."""
 
 VERSIONS_PREFIX = "goals/"
 ACTIVATIONS_PREFIX = "goals/activations/"

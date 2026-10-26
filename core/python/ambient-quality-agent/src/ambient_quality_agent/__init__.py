@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from ambient_quality_shared import __version__
 from dotenv import load_dotenv
 
 # Submodules read environment configuration at import time. Existing
@@ -23,5 +24,4 @@ from .core.workflow import investigation_workflow  # noqa: E402
 
 root_agent = build_orchestrator()
 
-__version__ = "0.1.0"
 __all__ = ["__version__", "investigation_workflow", "root_agent"]

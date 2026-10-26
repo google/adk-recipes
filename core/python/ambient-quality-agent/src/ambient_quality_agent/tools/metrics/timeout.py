@@ -24,8 +24,8 @@ not cooperating, so a timed-out metric keeps running on a daemon thread until
 the process exits. That is the honest trade: one leaked thread per hung metric,
 against an investigation that never completes. It is a guard against a mistake,
 not against hostile code -- code published here executes in this process with
-this process's credentials either way, and the gate for that is IAM on the
-bucket.
+this process's credentials either way, and the gate for that is who can call
+AQuA's API to publish it.
 """
 
 from __future__ import annotations
