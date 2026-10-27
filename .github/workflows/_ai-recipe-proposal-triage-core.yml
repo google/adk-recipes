@@ -1,0 +1,364 @@
+name: 'AI Recipe Proposal Triage — Core (reusable)'
+
+# Reusable core invoked via `workflow_call` by `recipe-proposal-intake.yml`.
+# Evaluates newly opened or reopened recipe proposals against the decision rubric
+# defined in `.agents/skills/triage-recipe-proposal/SKILL.md` (Gates A-G and Accept vs Defer),
+# drafts a maintainer first-pass response in Pier's voice, posts the comment,
+# and closes the issue if declining.
+#
+# DESIGN: the model returns a structured JSON decision. Tool permissions
+# for agy are empty. Downstream processing via `process_recipe_proposal_response.py`
+# validates the decision, formats the comment, and determines whether to close the issue.
+
+on:
+  workflow_call:
+    inputs:
+      issue_number:
+        description: 'GitHub issue number'
+        required: true
+        type: 'string'
+      issue_title:
+        description: 'Issue title'
+        required: true
+        type: 'string'
+      issue_body:
+        description: 'Issue body text'
+        required: true
+        type: 'string'
+      issue_author:
+        description: 'Issue author login'
+        required: false
+        type: 'string'
+        default: ''
+      model:
+        description: 'agy model id'
+        required: false
+        type: 'string'
+        default: 'gemini-3.5-flash'
+      effort:
+        description: 'Reasoning effort (low|medium|high)'
+        required: false
+        type: 'string'
+        default: 'medium'
+      print_timeout:
+        description: 'How long agy may take for the single model call'
+        required: false
+        type: 'string'
+        default: '5m'
+      app_id:
+        description: 'GitHub App ID — used to conditionally generate an app token'
+        required: false
+        type: 'string'
+        default: ''
+    secrets:
+      APP_PRIVATE_KEY:
+        required: false
+    outputs:
+      decision:
+        description: 'Selected decision (ACCEPT, DECLINE, DEFER, REDIRECT, PARTIAL_ACCEPT)'
+        value: '${{ jobs.triage.outputs.decision }}'
+      close_issue:
+        description: 'Whether the issue was closed'
+        value: '${{ jobs.triage.outputs.close_issue }}'
+
+permissions:
+  contents: 'read'
+  id-token: 'write'
+  issues: 'write'
+
+jobs:
+  triage:
+    timeout-minutes: 15
+    runs-on: 'ubuntu-latest'
+    outputs:
+      decision: '${{ steps.process.outputs.decision }}'
+      close_issue: '${{ steps.process.outputs.close_issue }}'
+
+    steps:
+      - name: 'Checkout repository'
+        uses: 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1' # ratchet:actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: 'Generate GitHub App Token'
+        id: 'generate_token'
+        if: |-
+          ${{ inputs.app_id != '' }}
+        uses: 'actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1' # ratchet:actions/create-github-app-token@v2
+        with:
+          app-id: '${{ inputs.app_id }}'
+          private-key: '${{ secrets.APP_PRIVATE_KEY }}'
+          permission-contents: 'read'
+          permission-issues: 'write'
+
+      # agy authenticates headlessly through Application Default Credentials.
+      - name: 'Authenticate to Google Cloud (Workload Identity Federation)'
+        id: 'auth'
+        uses: 'google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093' # ratchet:google-github-actions/auth@v3.0.0
+        with:
+          project_id: '${{ vars.GOOGLE_CLOUD_PROJECT }}'
+          workload_identity_provider: '${{ vars.GCP_WIF_PROVIDER }}'
+          service_account: '${{ vars.SERVICE_ACCOUNT_EMAIL }}'
+
+      # REQUIRED. agy reads `quota_project_id` from the ADC JSON.
+      - name: 'Add the quota project to the ADC credential'
+        env:
+          GOOGLE_CLOUD_PROJECT: '${{ vars.GOOGLE_CLOUD_PROJECT }}'
+        run: |-
+          set -euo pipefail
+
+          jq --arg p "${GOOGLE_CLOUD_PROJECT}" '. + {quota_project_id: $p}' \
+            "${GOOGLE_APPLICATION_CREDENTIALS}" > "${RUNNER_TEMP}/adc.json"
+          echo "GOOGLE_APPLICATION_CREDENTIALS=${RUNNER_TEMP}/adc.json" >> "${GITHUB_ENV}"
+
+      # Install Antigravity CLI.
+      - name: 'Install Antigravity CLI (agy)'
+        run: |-
+          set -euo pipefail
+          bash .github/scripts/install_agy.sh
+          echo "${HOME}/.local/bin" >> "${GITHUB_PATH}"
+
+      # SECURITY: the allowlist is EMPTY. The agent receives all context in
+      # the prompt and returns a JSON decision object.
+      - name: 'Configure agy (tool permissions)'
+        run: |-
+          set -euo pipefail
+
+          mkdir -p "${HOME}/.gemini/antigravity-cli"
+
+          cat > "${HOME}/.gemini/antigravity-cli/settings.json" <<'SETTINGS_EOF'
+          {
+            "enableTelemetry": false,
+            "permissions": {
+              "allow": []
+            }
+          }
+          SETTINGS_EOF
+
+      - name: 'Collect existing recipes catalog'
+        id: 'catalog'
+        run: |-
+          set -euo pipefail
+          {
+            echo "EXISTING_RECIPES<<EOF"
+            find core contrib plugins -mindepth 2 -maxdepth 3 -type d 2>/dev/null | sort || true
+            echo "EOF"
+          } >> "${GITHUB_ENV}"
+
+      - name: 'Ask agy to evaluate recipe proposal'
+        id: 'evaluate'
+        env:
+          AGY_ADC_AUTH: 'true'
+          GOOGLE_CLOUD_PROJECT: '${{ vars.GOOGLE_CLOUD_PROJECT }}'
+          GOOGLE_CLOUD_LOCATION: '${{ vars.GOOGLE_CLOUD_LOCATION }}'
+          ISSUE_NUMBER: '${{ inputs.issue_number }}'
+          ISSUE_TITLE: '${{ inputs.issue_title }}'
+          ISSUE_BODY: '${{ inputs.issue_body }}'
+          ISSUE_AUTHOR: '${{ inputs.issue_author }}'
+          AGY_MODEL: '${{ inputs.model }}'
+          AGY_EFFORT: '${{ inputs.effort }}'
+          PRINT_TIMEOUT: '${{ inputs.print_timeout }}'
+          PROMPT: |-
+            ## Role & Goal
+
+            You are an automated assistant helping Pier (@pierpaolo28) give a first-pass triage review to recipe proposals submitted to google/adk-recipes.
+            You must run the historical accept/decline rubric and draft a concise maintainer reply in Pier's voice.
+            Do not call any tools.
+
+            ## Repository Context
+
+            In this repository:
+            - Code samples are called recipes.
+            - Directory layout:
+              - `core/<language>/<recipe-name>`: Curated reference recipes maintained by the core team.
+              - `contrib/<language>/<recipe-name>`: Community-contributed recipes (default destination for new proposals).
+              - `plugins/<vertical>/<solution>`: Vertical solutions shipped to users (e.g. `plugins/retail/store-ops/`).
+            - Existing recipes in repository:
+            ${EXISTING_RECIPES}
+
+            ## Decision Rubric — Walk the gates in order (hard gates first)
+
+            The first gate that triggers determines the outcome:
+
+            ### Gate A — Template completeness
+            Reject-as-not-actionable if the body is empty, is only boilerplate, or leaves the six template questions unanswered ((1) intent, (2) language, (3) deployable Y/N, (4) GCP services / 3rd-party APIs, (5) owner, (6) extras).
+            - Decision: DECLINE, Gate: "A", close_issue: true
+            - Comment:
+              "Thanks for opening this. The proposal body is empty — every template question is unanswered, so we don't have enough to triage.\n\nClosing as not actionable. If this was submitted by mistake, please open a new issue with the template filled in (purpose, language, deployability plan, dependencies, maintainer)."
+
+            ### Gate B — Wrong root (core/ scope creep)
+            If the proposal is requesting to add a recipe to `core/` rather than `contrib/`, redirect — `core/` follows a separate internal process and the template explicitly says "contrib/ recipes only".
+            - Decision: REDIRECT, Gate: "B", close_issue: true
+            - Comment:
+              "Thanks for proposing this. The `[RECIPE PROPOSAL]` template is for `contrib/` recipes; `core/` recipes are curated by the agents-cli team through a separate internal process.\n\nClosing here — if you'd like this considered for `core/`, reach out through the agents-cli channel directly, or re-scope the proposal as a `contrib/` submission."
+
+            ### Gate C — Deployability
+            Decline if the proposal says explicitly that the initial scope will not include a Dockerfile or will not be deployable. The Recipe Checklist §1 requires every `contrib/` recipe to have a root Dockerfile and `deployable: true` in `manifest.yaml`.
+            (Note: if the proposer says "I will add the Dockerfile after approval" — that is fine, not a decline).
+            - Decision: DECLINE, Gate: "C", close_issue: true
+            - Comment:
+              "Thanks for the detailed proposal. Declining this one: the Recipe Checklist §1 requires every `contrib/` recipe to be deployable (root `Dockerfile` and `deployable: true` in `manifest.yaml`), and the proposal says the initial scope would not include a Dockerfile.\n\nHappy to revisit once a deployable path is in scope.\n\nClosing as not planned."
+
+            ### Gate D — Scope fit (GCP enterprise agent)
+            Decline if the recipe's primary subject sits outside Google Cloud enterprise agent patterns (BigQuery / Vertex AI / Cloud Run / Memory Bank / Agent Engine / ADK-native patterns, plus retail in `plugins/`). Non-GCP infra (crypto, L2 blockchains, other clouds) does not fit.
+            - Decision: DECLINE, Gate: "D", close_issue: true
+            - Cite scope fit and close as not planned.
+
+            ### Gate E — Vendor-dependency as primary pattern
+            Decline if the recipe's core teaching value depends on a single external SaaS/gateway owned by the proposer.
+            - Decision: DECLINE, Gate: "E", close_issue: true
+            - Cite vendor dependency and close as not planned.
+
+            ### Gate F — Scope overlap
+            Decline if an existing recipe (see list above) or an already-accepted proposal covers the same pattern.
+            - Decision: DECLINE, Gate: "F", close_issue: true
+            - Note the overlapping recipe and suggest contributing there instead.
+
+            ### Gate G — Differentiation / coverage-gap
+            Decline if the pattern is already well-covered by existing GCP docs or ADK samples without a differentiated angle.
+            - Decision: DECLINE, Gate: "G", close_issue: true
+            - Cite lack of differentiation and close as not planned.
+
+            ### Accept vs. Defer to Katherine (@kgu-here)
+            If none of Gates A-G fires:
+            1. Clear customer value (vertical / finance / retail / support / customer-facing agent with obvious scenario):
+               - Decision: ACCEPT, Gate: null, close_issue: false
+               - Comment:
+                 "Thanks for the proposal — this fills a real gap in <coverage area> and the <GCP service / ADK pattern> framing is a good fit for `contrib/`. Approved from my side.\n\nWe can work together on meeting the onboarding standards. Feel free to start the PR and have the first review with @happyhuman. Please leave a link to the PR here as a reference."
+                 (Add a brief "cc @kgu-here for Agent Garden coordination" if relevant to enterprise catalog).
+            2. Technically clean but customer value unclear (infra / plumbing / safety / developer-tool patterns with no obvious customer surface):
+               - Decision: DEFER, Gate: null, close_issue: false
+               - Comment:
+                 "Thanks for the proposal — this is well-scoped.\n\nBefore accepting, I want to defer this to @kgu-here. The pattern is technically clean, but if there isn't a clear customer-facing / Agent Garden angle for it, we don't think it earns its place in `contrib/` on infra merit alone.\n\n@kgu-here — could you weigh in on whether <one-sentence description of the recipe> is something you'd want to surface in Agent Garden? If yes, I'll approve and route the PR; if the use case doesn't resonate, I'll close."
+            3. Close-but-not-quite (soft-gate adjustment):
+               - Decision: PARTIAL_ACCEPT, Gate: null, close_issue: false
+               - Ask for re-scoping while keeping the issue open.
+
+            ## Voice & Style Guidelines
+            - Speak directly as Pier (@pierpaolo28).
+            - Replies are short (2-5 sentences), cordial, cite the specific rule/precedent, and never pad with apologies, fluff, or boilerplate.
+
+            ## Output Format
+            Respond ONLY with a single JSON object. No preambles, no Markdown fences around the response if possible, just the JSON object:
+            {
+              "decision": "ACCEPT" | "DECLINE" | "DEFER" | "REDIRECT" | "PARTIAL_ACCEPT",
+              "gate": "A" | "B" | "C" | "D" | "E" | "F" | "G" | null,
+              "close_issue": true | false,
+              "response": "<the markdown reply comment>"
+            }
+        run: |-
+          set -euo pipefail
+
+          {
+            printf '%s\n\n' "${PROMPT}"
+            printf '## Proposal Issue #%s to evaluate\n\n' "${ISSUE_NUMBER}"
+            printf 'Author: %s\n' "${ISSUE_AUTHOR}"
+            printf 'Title: %s\n\n' "${ISSUE_TITLE}"
+            printf 'Body:\n%s\n' "${ISSUE_BODY}"
+          } > full_prompt.txt
+
+          MAX_PROMPT_BYTES=125000
+          PROMPT_BYTES="$(wc -c < full_prompt.txt)"
+          echo "prompt bytes: ${PROMPT_BYTES}"
+          if [[ "${PROMPT_BYTES}" -gt "${MAX_PROMPT_BYTES}" ]]; then
+            echo "::error::Assembled prompt is ${PROMPT_BYTES} bytes, over the ${MAX_PROMPT_BYTES}-byte budget."
+            exit 1
+          fi
+
+          # SECURITY: extract credential material to scan agy output.
+          NEEDLES="${RUNNER_TEMP}/credential_needles.txt"
+          {
+            if [[ -n "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]]; then
+              printf '%s\n' "${ACTIONS_ID_TOKEN_REQUEST_TOKEN}"
+            fi
+            jq -r '[.credential_source?, .private_key?, .refresh_token?, .client_secret?] | .. | strings' \
+              "${GOOGLE_APPLICATION_CREDENTIALS:-/dev/null}" 2>/dev/null || true
+          } | awk 'length($0) >= 32' | sort -u > "${NEEDLES}"
+
+          if [[ ! -s "${NEEDLES}" ]]; then
+            echo "::error::Could not build credential scan needle list; refusing to run."
+            exit 1
+          fi
+
+          MAX_ATTEMPTS=2
+          RESPONSE=''
+          for attempt in $(seq 1 "${MAX_ATTEMPTS}"); do
+            set +e
+            agy -p "$(cat full_prompt.txt)" \
+              --model "${AGY_MODEL}" \
+              --effort "${AGY_EFFORT}" \
+              --output-format json \
+              --print-timeout "${PRINT_TIMEOUT}" > agy_result.json 2>/dev/null
+            AGY_EXIT=$?
+            set -e
+
+            echo "--- agy envelope (attempt ${attempt}) ---"
+            jq -r '{status, error} | tostring' agy_result.json 2>/dev/null \
+              || echo 'agy_result.json is not JSON'
+            echo "------------------"
+
+            STATUS="$(jq -r '.status // "MISSING"' agy_result.json 2>/dev/null || echo 'MISSING')"
+            RESPONSE="$(jq -r '.response // ""' agy_result.json 2>/dev/null || echo '')"
+
+            if [[ -n "${RESPONSE}" ]]; then
+              break
+            fi
+
+            echo "::warning::agy attempt ${attempt} produced no response (exit ${AGY_EXIT}, status=${STATUS})"
+          done
+
+          if [[ -z "${RESPONSE}" ]]; then
+            echo "::error::agy produced no response after ${MAX_ATTEMPTS} attempts."
+            exit 1
+          fi
+
+          if grep -qFf "${NEEDLES}" agy_result.json; then
+            echo "::error::The response contains credential material. Refusing to emit it."
+            rm -f agy_result.json
+            exit 1
+          fi
+
+          rm -f "${NEEDLES}"
+
+      - name: 'Process response and determine action'
+        id: 'process'
+        env:
+          ISSUE_NUMBER: '${{ inputs.issue_number }}'
+        run: |-
+          set -euo pipefail
+
+          TAMPER="$(git status --porcelain -- .github/scripts)"
+          if [[ -n "${TAMPER}" ]]; then
+            echo "::error::.github/scripts changed after checkout; refusing to execute it."
+            printf '%s\n' "${TAMPER}" | cut -c1-120
+            exit 1
+          fi
+
+          python3 .github/scripts/process_recipe_proposal_response.py \
+            --result agy_result.json \
+            --issue-number "${ISSUE_NUMBER}" \
+            --comment-out comment.md \
+            --close-out close.txt \
+            --github-output "${GITHUB_OUTPUT}"
+
+      - name: 'Post comment and optionally close issue'
+        id: 'apply'
+        env:
+          GH_TOKEN: '${{ steps.generate_token.outputs.token || secrets.GITHUB_TOKEN }}'
+          GH_REPO: '${{ github.repository }}'
+          ISSUE_NUMBER: '${{ inputs.issue_number }}'
+        run: |-
+          set -euo pipefail
+
+          if [[ -s comment.md ]]; then
+            echo "Posting first-pass triage comment to #${ISSUE_NUMBER}..."
+            gh issue comment "${ISSUE_NUMBER}" --body-file comment.md
+          fi
+
+          if [[ -s close.txt ]]; then
+            SHOULD_CLOSE="$(cat close.txt | tr -d '[:space:]')"
+            if [[ "${SHOULD_CLOSE}" == "true" ]]; then
+              echo "Closing #${ISSUE_NUMBER} as not planned..."
+              gh issue close "${ISSUE_NUMBER}" --reason "not planned"
+            fi
+          fi
