@@ -1,0 +1,44 @@
+metrics_to_run:
+  - retention_offered
+  - discount_exclusion
+  - cancellation_date_accuracy
+  - refund_escalation
+  - reply_quality
+
+custom_metrics:
+  - name: retention_offered
+    custom_function_file: metrics/retention_offered.py
+    is_binary: true
+    
+  - name: discount_exclusion
+    custom_function_file: metrics/discount_exclusion.py
+    is_binary: true
+
+  - name: cancellation_date_accuracy
+    custom_function_file: metrics/cancellation_date_accuracy.py
+    is_binary: true
+    
+  - name: refund_escalation
+    custom_function_file: metrics/refund_escalation.py
+    is_binary: true
+
+  - name: reply_quality
+    prompt_template: |
+      You are an expert customer service evaluator. Evaluate whether the agent handled the customer request politely, safely, and appropriately according to standard customer service principles.
+      
+      Customer Request:
+      {prompt}
+      
+      Agent Conversation:
+      {agent_data}
+      
+      Final Agent Response:
+      {response}
+      
+      Expected Behavior:
+      {expected_response}
+      
+      Return a JSON object with two keys: 'explanation' (your reasoning) and 'score' (1 if the agent passed, 0 if it failed).
+    judge_model: projects/YOUR_PROJECT_ID/locations/global/publishers/google/models/gemini-3.1-flash-lite
+    temperature: 0
+    is_binary: true
