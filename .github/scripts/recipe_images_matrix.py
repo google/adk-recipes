@@ -25,8 +25,8 @@ first Dockerfile it finds down each path.
 
 A Dockerfile is not by itself evidence of a recipe
 --------------------------------------------------
-plugins/retail/virtual-tryon/assets/export-template carries one, and it is a
-build asset shipped by a plugin rather than an agent anybody deploys. The
+plugins/retail/skills/virtual-tryon/assets/export-template carries one, and it
+is a build asset shipped by a plugin rather than an agent anybody deploys. The
 manifest is what makes a directory a recipe — the schema at
 .github/schemas/manifest-schema.json is the same thing `deployable` is
 declared in — so a root Dockerfile earns an image only when a manifest.yaml
@@ -38,18 +38,17 @@ Live roots only
 ---------------
 SCAN_ROOTS and SKIP_DIRS are imported from recipe_manifests rather than
 restated, because the retired roots (python/agents, java/agents, ... — see
-`frozen_paths` in .github/policy.yml) still contain Dockerfiles. Those paths
-are closed to new work; images built from them would be published from code
-nobody is allowed to fix. Importing means this module cannot drift out of
-agreement with the rest of the tooling about what "live" means.
+`frozen_paths` in .github/policy.yml) are excluded from active recipe discovery.
+Importing means this module cannot drift out of agreement with the rest of the
+tooling about what "live" means.
 
 Image naming: <language>/<recipe>, not <root>/<language>/<recipe>
 -----------------------------------------------------------------
 The root is deliberately dropped. A recipe promoted from contrib/ to core/ is
 the same recipe, and its published image name should not change underneath
 consumers who have pinned it. Language is kept because it disambiguates:
-core/kotlin/llm-auditor and contrib/python/llm-auditor coexist today, and the
-leaf name alone would collide.
+contrib/kotlin/financial-advisor and contrib/python/financial-advisor coexist
+today, and the leaf name alone would collide.
 
 Zero third-party dependencies, matching its callers.
 """

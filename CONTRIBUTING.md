@@ -6,9 +6,10 @@ recipes — small, runnable agents built with the
 
 ## Contribute a recipe
 
-Recipes live in two roots: [`core/`](./core/), curated by the
-`agents-cli` team, and [`contrib/`](./contrib/), the community
-root. Send new work to `contrib/`.
+Recipes live in three roots: [`core/`](./core/) (curated by the
+`agents-cli` team), [`contrib/`](./contrib/) (the community
+root), and [`plugins/`](./plugins/) (domain-specific vertical
+skill plugins). Send new community recipes to `contrib/`.
 
 Start with the [contributor guide](./docs/README.md). It routes
 you to the [recipe checklist](./docs/recipe-checklist.md) — the

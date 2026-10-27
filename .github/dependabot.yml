@@ -126,21 +126,15 @@
 # SCAN_ROOTS = core/, contrib/, plugins/. Dependabot's `**/*` glob is scoped
 # to the repository. The two disagree in both directions:
 #
-#   - The legacy python/, java/ and kotlin/ trees are closed to new work and
-#     excluded from SCAN_ROOTS, but their manifests are very much still
-#     here and Dependabot still sees them. `java/agents/*/pom.xml` and
-#     `kotlin/agents/llm-auditor/build.gradle.kts` are real, and maven has
-#     already opened a PR against one of them (#2163). The maven and gradle
-#     entries below are load-bearing today, not placeholders for a future
-#     Java recipe.
+#   - DETECTORS only checks recipe-level manifests (pyproject.toml, go.mod,
+#     pom.xml, build.gradle[.kts], package.json). Dependabot's `**/*` glob
+#     covers every manifest anywhere in the repository, including sub-service
+#     and asset directories.
 #
 #   - pip and docker are not in DETECTORS at all, because no detector looks
-#     for requirements.txt or a Dockerfile. Both exist in the tree: six
-#     tracked requirements.txt under python/agents/, and Dockerfiles across
-#     core/ and java/. Neither has ever opened a PR here — the
-#     requirements.txt files pin loosely (`>=`, `~=`), which is probably why
-#     pip has never alerted — but that is luck rather than design, and it is
-#     one tightened pin away from changing.
+#     for requirements.txt or a Dockerfile. Both exist in the tree (e.g.
+#     sub-service requirements.txt files under contrib/python/multiformat-
+#     hybrid-rag, and Dockerfiles across core/, contrib/, and plugins/).
 #
 # So the list below is every ecosystem Dependabot can find a manifest for in
 # this repository, which is a superset of DETECTORS. The test enforces
@@ -268,10 +262,7 @@ updates:
     ignore:
       - dependency-name: "*"
 
-  # maven and gradle cover the legacy java/ and kotlin/ trees, which are
-  # outside recipe_manifests.SCAN_ROOTS but well inside Dependabot's `**/*`.
-  # Not placeholders: maven opened #2163 against
-  # java/agents/software-bug-assistant before this entry existed.
+  # maven and gradle cover Java and Kotlin recipes under core/ and contrib/.
   - package-ecosystem: "maven" # zizmor: ignore[dependabot-cooldown]
     directories:
       - "/"
@@ -303,9 +294,10 @@ updates:
       - dependency-name: "*"
 
   # pip and docker have no detector in recipe_manifests, so neither is in
-  # DETECTORS — but both have manifests here: six requirements.txt under
-  # python/agents/, and Dockerfiles across core/ and java/. Suppressed for
-  # the same reason as the rest, before they get a chance to fire.
+  # DETECTORS — but both have manifests in the tree (sub-service
+  # requirements.txt files and Dockerfiles across core/, contrib/, and
+  # plugins/). Suppressed for the same reason as the rest, before they get a
+  # chance to fire.
   - package-ecosystem: "pip" # zizmor: ignore[dependabot-cooldown]
     directories:
       - "/"

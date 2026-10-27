@@ -200,26 +200,29 @@ jobs:
 
             When Option 4 is chosen, identify the primary affected path or component and assign the ticket according to these ownership paths (if multiple paths are touched, default to the most specific matching path or assign based on the primary file type):
 
-            Catch-all (docs, CI workflows, root configs, or anything not matched below):
-            Assign to: happyhuman
+            Catch-all (docs, root configs, or anything not matched below):
+            Assign to: tommywagz
+
+            Repository Governance (CI workflows, policy, CODEOWNERS):
+            - /.github/** -> happyhuman
 
             Core Directory Assignments:
             - /core/python/** -> eliasecchig
             - /core/go/** -> ToniCorinne
             - /core/java/** -> eliasecchig
-            - /core/typescript/** -> happyhuman
-            - /core/kotlin/** -> happyhuman
+            - /core/typescript/** -> tommywagz
+            - /core/kotlin/** -> tommywagz
             - /core/python/ambient-quality-agent/** -> maxgasztych
 
             Contrib Directory Assignments:
-            - /contrib/python/** -> happyhuman
+            - /contrib/python/** -> tommywagz
             - /contrib/go/** -> ToniCorinne
-            - /contrib/java/** -> happyhuman
-            - /contrib/typescript/** -> happyhuman
-            - /contrib/kotlin/** -> happyhuman
+            - /contrib/java/** -> tommywagz
+            - /contrib/typescript/** -> tommywagz
+            - /contrib/kotlin/** -> tommywagz
 
             Plugins Directory Assignments:
-            - /plugins/** -> happyhuman
+            - /plugins/** -> tommywagz
 
             ## Repository Context & Knowledge
 
@@ -277,7 +280,7 @@ jobs:
             Fields:
             - "option": integer 1, 2, 3, or 4
             - "path": string, the affected repository path or recipe directory (e.g. "core/python/foo", "contrib/go/bar", "docs", or null)
-            - "assignee": string, the GitHub username for Option 4 without the '@' prefix (e.g. "eliasecchig", "ToniCorinne", "happyhuman"), or null for Options 1-3
+            - "assignee": string, the GitHub username for Option 4 without the '@' prefix (e.g. "eliasecchig", "ToniCorinne", "tommywagz"), or null for Options 1-3
             - "close_issue": boolean (true or false). Set to true if the response completely answers the question and resolves the issue; false otherwise (always false for Options 1 and 4).
             - "response": string, the complete, friendly, human-sounding markdown response to post on the issue.
 

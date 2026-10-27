@@ -96,7 +96,7 @@ def generate_single_clip_r2v(
         reference_images_unstacked: Unstacked reference image bytes for consistency validation
         reference_labels_unstacked: Labels for unstacked reference images
         disable_logging: If True, disables all logging output (default: True)
-        product_consistency_model: Model to use for product consistency validation (default: "gemini-3.6-flash")
+        product_consistency_model: Model to use for product consistency validation (default: "gemini-3.8-flash")
 
     Returns:
         dict: Metadata about the generated clip
@@ -261,7 +261,7 @@ def preprocess_classify_images(
     upscale_client,
     shoe_classifier_model,
     num_workers=32,
-    upscale_images=True,
+    upscale_images=False,
     create_canva=True,
 ):
     """Preprocess and classify input images.
@@ -483,7 +483,7 @@ def run_video_gen_pipeline_r2v(
     gcs_bucket: str | None = None,
     gcs_destination_prefix: str = "shoe_spinning_outputs",
     gcs_project_id: str | None = None,
-    upscale_images: bool = True,
+    upscale_images: bool = False,
     disable_logging: bool = True,
 ):
     """Reference-to-Video (R2V) pipeline that generates a single spinning video using reference images.
@@ -504,7 +504,7 @@ def run_video_gen_pipeline_r2v(
         max_retries: Maximum retries for video generation (default: 5)
         veo_model: Veo model to use for video generation (default: "veo-3.1-generate-001")
         reference_type: Type of reference images ("asset", "style", etc.) (default: "asset")
-        product_consistency_model: Model for product consistency validation (default: "gemini-3.6-flash
+        product_consistency_model: Model for product consistency validation (default: "gemini-3.8-flash
         -preview")
         product_id: Product identifier for GCS uploads (required if gcs_bucket is set)
         gcs_bucket: GCS bucket name. If provided, uploads results to GCS (default: None)

@@ -9,18 +9,19 @@ selected, determines whether to close the issue when a complete solution is
 provided, and prepares the response comment.
 
 Routing rules for Option 4:
-  Catch-all (docs, CI workflows, root configs, unmatched): @happyhuman
+  Catch-all (docs, root configs, unmatched): @tommywagz
+  /.github/**          -> @happyhuman
   /core/python/**      -> @eliasecchig
   /core/go/**          -> @ToniCorinne
   /core/java/**        -> @eliasecchig
-  /core/typescript/**  -> @happyhuman
-  /core/kotlin/**      -> @happyhuman
-  /contrib/python/**   -> @happyhuman
+  /core/typescript/**  -> @tommywagz
+  /core/kotlin/**      -> @tommywagz
+  /contrib/python/**   -> @tommywagz
   /contrib/go/**       -> @ToniCorinne
-  /contrib/java/**     -> @happyhuman
-  /contrib/typescript/** -> @happyhuman
-  /contrib/kotlin/**   -> @happyhuman
-  /plugins/**          -> @happyhuman
+  /contrib/java/**     -> @tommywagz
+  /contrib/typescript/** -> @tommywagz
+  /contrib/kotlin/**   -> @tommywagz
+  /plugins/**          -> @tommywagz
 
 Usage:
   python3 process_issue_response.py \\
@@ -67,28 +68,36 @@ class Option(IntEnum):
 
 
 ROUTING_RULES: list[tuple[str, str]] = [
+    # Repository governance stays with the repo admin
+    (".github", "happyhuman"),
     # Core directory assignments
     ("core/python", "eliasecchig"),
     ("core/go", "ToniCorinne"),
     ("core/java", "eliasecchig"),
-    ("core/typescript", "happyhuman"),
-    ("core/kotlin", "happyhuman"),
+    ("core/typescript", "tommywagz"),
+    ("core/kotlin", "tommywagz"),
     # Recipes owned by their authors
     ("core/python/ambient-quality-agent", "maxgasztych"),
     # Contrib directory assignments
-    ("contrib/python", "happyhuman"),
+    ("contrib/python", "tommywagz"),
     ("contrib/go", "ToniCorinne"),
-    ("contrib/java", "happyhuman"),
-    ("contrib/typescript", "happyhuman"),
-    ("contrib/kotlin", "happyhuman"),
+    ("contrib/java", "tommywagz"),
+    ("contrib/typescript", "tommywagz"),
+    ("contrib/kotlin", "tommywagz"),
     # Plugins directory assignments
-    ("plugins", "happyhuman"),
+    ("plugins", "tommywagz"),
 ]
 
-DEFAULT_ASSIGNEE = "happyhuman"
+DEFAULT_ASSIGNEE = "tommywagz"
 
 # Known developer usernames (without @ prefix)
-VALID_ASSIGNEES = {"eliasecchig", "ToniCorinne", "happyhuman", "maxgasztych"}
+VALID_ASSIGNEES = {
+    "eliasecchig",
+    "ToniCorinne",
+    "tommywagz",
+    "happyhuman",
+    "maxgasztych",
+}
 
 FENCED_JSON = re.compile(
     r"```(?:json)?\s*(\{.*?\})\s*```", re.DOTALL | re.IGNORECASE

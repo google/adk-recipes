@@ -29,11 +29,6 @@ on:
       # whether the workflow RUNS, not which files the diff below returns.
       # The job therefore also scopes `git diff` to `-- core contrib
       # plugins`. Keep the two in sync.
-      #
-      # Both Java files in the repo today live under java/agents, so this
-      # workflow is forward-looking: it goes green with nothing to do until
-      # the first core/java, contrib/java or Java plugin recipe
-      # lands. That mirrors go-format.yml, which shipped the same way.
 
 # Declared per job rather than here. `pull-requests: write` at the workflow
 # level is inherited by EVERY job, including any added later that only need

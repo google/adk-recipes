@@ -369,14 +369,14 @@ uvx google-agents-cli setup
 **Create the project from this recipe** (replace `my-adk-ae-oauth` with your project name):
 
 ```bash
-agents-cli create my-adk-ae-oauth -a adk@adk-ae-oauth
+agents-cli create my-adk-ae-oauth -a https://github.com/google/adk-recipes/tree/main/core/python/oauth-user-consent-flow
 ```
 
 The Google Agents CLI will prompt you to select deployment options and provides additional production-ready features including automated CI/CD deployment scripts.
 
 ---
 
-## Makefile Reference
+## References
 
 
 - [Powering Up your Agent with ADK, OAuth and Gemini Enterprise](https://fmind.medium.com/powering-up-your-agent-in-production-with-adk-oauth-and-gemini-enterprise-a52b0716fcba) — The pattern this implementation follows

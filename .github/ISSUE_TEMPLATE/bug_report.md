@@ -3,7 +3,7 @@ name: Bug Report
 about: Create a report to help us identify and fix a problem.
 title: "[BUG]: A brief, descriptive title"
 labels: bug
-assignees: happyhuman
+assignees: tommywagz
 
 ---
 

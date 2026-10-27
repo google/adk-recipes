@@ -6,7 +6,8 @@
 # settings affect recipes.
 #
 # A pull request should only sit in a reviewer's queue once it is ready:
-# no failing checks and no unresolved bot review threads. GitHub cannot stop
+# no failing checks. Unresolved review threads, from bots or humans, never
+# hold a review. GitHub cannot stop
 # anyone requesting a review, so the gate corrects it afterwards. When a
 # review is requested on a PR that is not ready, the gate removes the
 # requested reviewers, applies `label`, and posts one comment saying why.
@@ -24,14 +25,6 @@
 # cancels the hold WITHOUT re-requesting anyone. To let a review through
 # early, remove the label and request the reviewers yourself.
 label: status/not-ready-for-review
-
-# Review threads opened by these accounts must be resolved before a
-# review goes through. Threads from humans never block: a reviewer who
-# left comments and is being re-requested after a fix is the normal flow.
-# Compared without the `[bot]` suffix, since REST and GraphQL disagree on
-# whether it is part of the login.
-bot_logins:
-  - github-actions
 
 # Workflows (glob against the workflow NAME) whose checks are ignored.
 # The gate itself shows up as a check on the PR head. The four model

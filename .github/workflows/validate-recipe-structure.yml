@@ -24,6 +24,7 @@ on:
       - 'kotlin/agents/**'
       - 'typescript/agents/**'
       - '.github/schemas/manifest-schema.json'
+      - '.github/schemas/plugin-schema.json'
       - '.github/policy.yml'
       - '.github/workflows/validate-recipe-structure.yml'
       - '.github/scripts/check_model_literals.py'
@@ -45,6 +46,7 @@ on:
       - 'contrib/**'
       - 'plugins/**'
       - '.github/schemas/manifest-schema.json'
+      - '.github/schemas/plugin-schema.json'
       - '.github/policy.yml'
       - '.github/workflows/validate-recipe-structure.yml'
       - '.github/scripts/check_model_literals.py'
@@ -120,16 +122,6 @@ jobs:
           echo "Changed files:"
           echo "$CHANGED_FILES"
 
-          # If any infra file that controls this workflow's behaviour
-          # changed, validate ALL recipes so the new config applies across
-          # the board.
-          INFRA_CHANGED=$(echo "$CHANGED_FILES" | grep -E "^(\.github/(schemas/manifest-schema\.json|policy\.yml|workflows/validate-recipe-structure\.yml|scripts/(check_model_literals|tests/test_check_model_literals|check_recipe_lint_config)\.py)|tools/(validate|validate_manifest|validate_structure|validate_readme|affected_recipes)\.py|pyproject\.toml)$" || true)
-          if [ -n "$INFRA_CHANGED" ]; then
-            echo "Schema, policy, workflow, or tool changed — will validate all recipes."
-            echo "validate_all=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
           # Map changed files → affected recipe directories via the shared
           # helper (also unit-tested in tools/tests/test_affected_recipes.py).
           # Runs against the project venv (created by `uv sync` above) —
@@ -145,10 +137,23 @@ jobs:
             echo "$CHANGED_RECIPES"
             echo "RECIPES_EOF"
           } >> "$GITHUB_OUTPUT"
+
+          # If any infra file that controls this workflow's behaviour
+          # changed, validate ALL recipes so the new config applies across
+          # the board.
+          INFRA_CHANGED=$(echo "$CHANGED_FILES" | grep -E "^(\.github/(schemas/(manifest|plugin)-schema\.json|policy\.yml|workflows/validate-recipe-structure\.yml|scripts/(check_model_literals|tests/test_check_model_literals|check_recipe_lint_config)\.py)|tools/(validate|validate_manifest|validate_structure|validate_readme|affected_recipes)\.py|pyproject\.toml)$" || true)
+          if [ -n "$INFRA_CHANGED" ]; then
+            echo "Schema, policy, workflow, or tool changed — will validate all recipes."
+            echo "validate_all=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           echo "validate_all=false" >> "$GITHUB_OUTPUT"
 
       - name: Validate affected recipes
         env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
           VALIDATE_ALL: ${{ steps.affected.outputs.validate_all }}
           CHANGED_RECIPES: ${{ steps.affected.outputs.changed_recipes }}
         run: |
@@ -159,8 +164,74 @@ jobs:
           # to flatten the two, so a tooling bug printed the "here is how to
           # fix your recipe" banner over a traceback.
           run_validator() {
+            local subcmd="$1"
+            shift
+            if [ "$VALIDATE_ALL" = "true" ] && [ "$EVENT_NAME" = "pull_request" ] && [ $# -eq 0 ]; then
+              local head_out
+              head_out=$(mktemp)
+              set +e
+              uv run validate "$subcmd" > "$head_out" 2>&1
+              local status=$?
+              set -e
+              if [ "$status" -eq 0 ]; then
+                cat "$head_out"
+                rm -f "$head_out"
+                return
+              elif [ "$status" -eq 1 ]; then
+                local base_wt="$RUNNER_TEMP/base_validate_wt"
+                local base_out
+                base_out=$(mktemp)
+                git worktree add --detach "$base_wt" "origin/$BASE_REF" >/dev/null 2>&1
+                set +e
+                PYTHONPATH="$base_wt/tools" .venv/bin/python "$base_wt/tools/validate_${subcmd}.py" > "$base_out" 2>&1
+                set -e
+                git worktree remove --force "$base_wt" >/dev/null 2>&1 || true
+
+                local new_errors
+                new_errors=$(python3 - "$head_out" "$base_out" "$CHANGED_RECIPES" <<'PY'
+          import sys
+          from pathlib import Path
+
+          head_lines = Path(sys.argv[1]).read_text(encoding="utf-8").splitlines()
+          base_lines = set(Path(sys.argv[2]).read_text(encoding="utf-8").splitlines())
+          changed = [r.strip() for r in sys.argv[3].splitlines() if r.strip()]
+
+          kept = []
+          for line in head_lines:
+              if not line.startswith("::error "):
+                  continue
+              in_changed = any(f"file={r}/" in line or f"file={r}:" in line for r in changed)
+              if in_changed or line not in base_lines:
+                  kept.append(line)
+          print("\n".join(kept))
+          PY
+                )
+                rm -f "$base_out"
+                if [ -z "$new_errors" ]; then
+                  grep -v "^::error " "$head_out" || true
+                  echo "[PASS] No new ${subcmd} problems introduced relative to origin/$BASE_REF."
+                  rm -f "$head_out"
+                  return
+                fi
+                grep -v "^::error " "$head_out" || true
+                echo "$new_errors"
+                rm -f "$head_out"
+                FAILED=1
+                return
+              fi
+              cat "$head_out"
+              rm -f "$head_out"
+              case "$status" in
+                2) CI_FAULT=1 ;;
+                *)
+                  echo "::error::'uv run validate $subcmd' exited with an undefined status ($status). This is a CI tooling bug, not a problem with your recipe."
+                  CI_FAULT=1
+                  ;;
+              esac
+              return
+            fi
             set +e
-            uv run validate "$@"
+            uv run validate "$subcmd" "$@"
             local status=$?
             set -e
             case "$status" in
@@ -168,7 +239,7 @@ jobs:
               1) FAILED=1 ;;
               2) CI_FAULT=1 ;;
               *)
-                echo "::error::'uv run validate $*' exited with an undefined status ($status). This is a CI tooling bug, not a problem with your recipe."
+                echo "::error::'uv run validate $subcmd $*' exited with an undefined status ($status). This is a CI tooling bug, not a problem with your recipe."
                 CI_FAULT=1
                 ;;
             esac

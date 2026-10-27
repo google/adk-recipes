@@ -43,12 +43,6 @@ on:
       # whether the workflow RUNS, not which files the diff below returns.
       # The job therefore also scopes `git diff` to `-- core contrib
       # plugins`. Keep the two in sync.
-      #
-      # Every Kotlin file in the repo today lives under kotlin/agents, so
-      # this workflow is forward-looking: it goes green with nothing to do
-      # until the first core/kotlin, contrib/kotlin or Kotlin
-      # plugin recipe lands. That mirrors java-format.yml and
-      # go-format.yml, both of which shipped the same way.
 
 # Declared per job rather than here. `pull-requests: write` at the workflow
 # level is inherited by EVERY job, including any added later that only need

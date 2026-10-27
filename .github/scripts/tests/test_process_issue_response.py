@@ -73,35 +73,36 @@ def test_normalize_path():
         ("/core/go/tool-calling", "ToniCorinne"),
         ("core/java/spring-ai", "eliasecchig"),
         ("/core/java/sample", "eliasecchig"),
-        ("core/typescript/express-agent", "happyhuman"),
-        ("/core/typescript/sample", "happyhuman"),
-        ("core/kotlin/android-gemini", "happyhuman"),
-        ("/core/kotlin/sample", "happyhuman"),
+        ("core/typescript/express-agent", "tommywagz"),
+        ("/core/typescript/sample", "tommywagz"),
+        ("core/kotlin/android-gemini", "tommywagz"),
+        ("/core/kotlin/sample", "tommywagz"),
         # A recipe owner beats its language folder
         ("core/python/ambient-quality-agent", "maxgasztych"),
         ("/core/python/ambient-quality-agent/agent.py", "maxgasztych"),
         ("core/python/ambient-quality-agent-v2", "eliasecchig"),
         # Contrib directory assignments
-        ("contrib/python/custom-tool", "happyhuman"),
-        ("/contrib/python/recipe", "happyhuman"),
+        ("contrib/python/custom-tool", "tommywagz"),
+        ("/contrib/python/recipe", "tommywagz"),
         ("contrib/go/rag-search", "ToniCorinne"),
         ("/contrib/go/sample", "ToniCorinne"),
-        ("contrib/java/micronaut", "happyhuman"),
-        ("/contrib/java/sample", "happyhuman"),
-        ("contrib/typescript/nextjs", "happyhuman"),
-        ("/contrib/typescript/sample", "happyhuman"),
-        ("contrib/kotlin/kmp-recipe", "happyhuman"),
-        ("/contrib/kotlin/sample", "happyhuman"),
+        ("contrib/java/micronaut", "tommywagz"),
+        ("/contrib/java/sample", "tommywagz"),
+        ("contrib/typescript/nextjs", "tommywagz"),
+        ("/contrib/typescript/sample", "tommywagz"),
+        ("contrib/kotlin/kmp-recipe", "tommywagz"),
+        ("/contrib/kotlin/sample", "tommywagz"),
         # Plugins directory assignments
-        ("plugins/retail/store-ops", "happyhuman"),
-        ("/plugins/finance/analyst", "happyhuman"),
-        ("plugins/customer-service", "happyhuman"),
+        ("plugins/retail/store-ops", "tommywagz"),
+        ("/plugins/finance/analyst", "tommywagz"),
+        ("plugins/customer-service", "tommywagz"),
         # Catch-all
-        ("docs/recipe-handbook/README.md", "happyhuman"),
+        ("docs/recipe-handbook/README.md", "tommywagz"),
+        ("pyproject.toml", "tommywagz"),
+        # Repository governance
         (".github/workflows/ci.yml", "happyhuman"),
-        ("pyproject.toml", "happyhuman"),
-        ("", "happyhuman"),
-        (None, "happyhuman"),
+        ("", "tommywagz"),
+        (None, "tommywagz"),
     ],
 )
 def test_resolve_assignee_from_path(path, expected_assignee):
@@ -478,7 +479,7 @@ def test_process_response_option_4_with_path():
     }
     opt, _resp, assignee, close_issue = process_response(d4_plugins)
     assert opt == Option.ACKNOWLEDGE_AND_ASSIGN
-    assert assignee == "happyhuman"
+    assert assignee == "tommywagz"
     assert close_issue is False
 
 
@@ -502,7 +503,7 @@ def test_process_response_option_4_fallback():
     }
     opt, _resp, assignee, close_issue = process_response(d4_unknown)
     assert opt == Option.ACKNOWLEDGE_AND_ASSIGN
-    assert assignee == "happyhuman"
+    assert assignee == "tommywagz"
     assert close_issue is False
 
 

@@ -42,7 +42,7 @@ async def run_spinning_shoes_r2v(
     max_retries: int = 5,
     veo_model: str = "veo-3.1-generate-001",
     reference_type: str = "asset",
-    upscale_images: bool = True,
+    upscale_images: bool = False,
     product_consistency_model: str = os.getenv("MODEL_NAME_GENERATED_4"),
     product_id: str = "",
     gcs_bucket: str = "",

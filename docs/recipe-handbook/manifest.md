@@ -1,5 +1,3 @@
-<!-- word count: 819 (target 700, cap 1000) -->
-
 # The Manifest
 
 Every recipe has a `manifest.yaml` at its root. It declares what the
@@ -13,7 +11,7 @@ Don't write the file by hand. The
 skill reads your recipe and writes a valid `manifest.yaml`. Ask your
 AI coding assistant:
 
-```
+```text
 "generate manifest.yaml for contrib/python/my-recipe"
 ```
 
@@ -38,6 +36,7 @@ uv run validate manifest <recipe-path>
 | `description` | Text, at least 10 characters | What the recipe does and the value it provides. |
 | `ownership.team` | Text | The real team that owns the recipe. See [Ownership is a commitment](#ownership-is-a-commitment). |
 | `ownership.poc` | GitHub user ID | The one person accountable for the recipe's upkeep. See [Ownership is a commitment](#ownership-is-a-commitment). |
+| `deployable` | `true`, `false` (default) | Required (`true`) for every `contrib/` recipe, along with a root `Dockerfile`. Optional under `core/` and `plugins/`. |
 
 ### Recipe type
 
@@ -59,7 +58,7 @@ person maintainers go to when the recipe breaks, falls behind a new
 ADK release, or needs a security or dependency fix. Name yourself only
 if you will watch for those requests and act on them. A recipe whose
 problems go unanswered is set to `inactive`, and one left inactive is
-eventually deprecated and removed from the repository. See
+deprecated and removed from the repository. See
 [Recipe is marked inactive](./troubleshooting.md#recipe-is-marked-inactive).
 
 - **`ownership.poc`** — one GitHub user ID: the accountable person,
@@ -74,14 +73,13 @@ eventually deprecated and removed from the repository. See
 
 | Field | Values | Meaning |
 |---|---|---|
-| `deployable` | `true`, `false` (default) | `true` if the recipe deploys with one click. Recipes under `contrib/` must set `true` and ship a root `Dockerfile`. |
 | `license` | SPDX identifier, e.g. `Apache-2.0` | Set only when the recipe declares a license. |
 | `tags` | List of text | Classification tags. |
 | `ownership.contributors` | List of GitHub user IDs | Additional contributors. |
 | `architecture.agent` | `single`, `multi` | One agent or several. |
 | `architecture.stateful` | `true`, `false` | `true` if the agent keeps state or memory across sessions, or writes transactionally to external systems. |
 | `architecture.datasources` | List of `hardcoded`, `local`, `external` | Where data comes from: the source code, files bundled with the recipe, or a live system at runtime. Each value at most once. |
-| `dependencies.libraries` | List of text | Libraries used, e.g. `adk`, `langgraph`. |
+| `dependencies.libraries` | List of text | Libraries used, e.g. `ADK`, `LangGraph`. |
 | `dependencies.services` | List of text | GCP or external services used, e.g. `vertex-ai`, `bigquery`. |
 
 ## CI rejects more than wrong types
@@ -119,7 +117,7 @@ architecture:
   stateful: true
   datasources: [local, external]
 dependencies:
-  libraries: [adk]
+  libraries: [ADK]
   services: [vertex-ai, firestore]
 ownership:
   team: support-agents
@@ -132,4 +130,4 @@ The smallest valid manifest is in the
 
 ---
 
-← [Checklist](../recipe-checklist.md) · [Handbook](./README.md)
+← [Docs home](../README.md) · [Checklist](../recipe-checklist.md) · [Handbook](./README.md)

@@ -1,9 +1,9 @@
 name: Review Gate
 
-# Holds review requests until a pull request is ready: no failing checks and
-# no unresolved bot review threads. A reviewer requested on a PR that is not
-# ready is removed, the PR is labelled, and one comment says what to fix.
-# When the PR becomes ready, the same reviewers are re-requested
+# Holds review requests until a pull request is ready: no failing checks.
+# Unresolved review threads never hold a review. A reviewer requested on a PR
+# that is not ready is removed, the PR is labelled, and one comment says what
+# to fix. When the PR becomes ready, the same reviewers are re-requested
 # automatically. Checks that are still running never cause a bounce.
 #
 # All logic lives in .github/scripts/review_gate.py; the knobs live in
@@ -12,15 +12,14 @@ name: Review Gate
 # WHY TWO TRIGGERS
 # ----------------
 # `pull_request_target` reacts the moment a review is requested. The
-# schedule does everything else: it notices when checks finish, when a
-# thread is resolved, and when a bounced PR turns green. Neither of the
-# obvious event triggers can do that job:
+# schedule does everything else: it notices when checks finish and when a
+# bounced PR turns green. Neither of the obvious event triggers can do that
+# job:
 #   - `check_suite` never fires for suites created by GitHub Actions, which
 #     is every check in this repository.
 #   - `workflow_run` needs every watched workflow listed by name, and a
 #     workflow added later without updating the list would silently never
 #     release anything.
-#   - resolving a review thread has no Actions trigger at all.
 #
 # SECURITY
 # --------

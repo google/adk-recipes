@@ -97,7 +97,7 @@ async def run_spinning_interpolation(
             client=client,
             upscale_client=veo_client,
             num_workers=4,
-            upscale_images=True,
+            upscale_images=False,
             create_canva=True,
         ),
     )
