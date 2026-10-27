@@ -80,8 +80,12 @@ async def test_save_presentation_accepts_valid_pptx(mock_context):
         valid_pptx = f.name
 
     try:
-        result = await save_presentation(mock_context, "output.pptx", valid_pptx)
-        assert result.startswith("Successfully saved the presentation as artifact")
+        result = await save_presentation(
+            mock_context, "output.pptx", valid_pptx
+        )
+        assert result.startswith(
+            "Successfully saved the presentation as artifact"
+        )
         assert "output.pptx" in mock_context.store
     finally:
         Path(valid_pptx).unlink(missing_ok=True)
