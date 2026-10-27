@@ -34,7 +34,6 @@ import logging
 from typing import Any
 
 from ambient_quality_agent.core.session_state import LaunchContext
-from ambient_quality_agent.tools.objects import store as objects_store
 from ambient_quality_agent.tools.source_code import reader as source_reader
 
 logger = logging.getLogger(__name__)
@@ -66,7 +65,7 @@ def _render_unpublished_reason(location: str) -> str:
 
 
 async def get_source_snapshot(
-    tool_context: LaunchContext, *, agent_name: str = "", revision: str = ""
+    tool_context: LaunchContext, *, revision: str = ""
 ) -> dict[str, Any]:
     """Checks whether an observed agent's source code is available.
 
@@ -74,9 +73,7 @@ async def get_source_snapshot(
     display citation status gracefully.
 
     Args:
-        tool_context: Launch context containing runtime state and configuration.
-        agent_name: Agent whose snapshots to report; empty for the agent the
-            deployment watches.
+        tool_context: Launch context whose state selects the agent.
         revision: Revision to report; empty for the newest complete one.
 
     Returns:
@@ -84,11 +81,7 @@ async def get_source_snapshot(
         snapshot's manifest summary, or ``{"available": False, "reason": ...}``
         when source code is inaccessible.
     """
-    reader = (
-        source_reader.reader_factory(tool_context.state)
-        if not agent_name
-        else _create_agent_reader(agent_name)
-    )
+    reader = source_reader.reader_factory(tool_context.state)
     if reader is None:
         return {"available": False, "reason": SOURCE_UNCONFIGURED}
 
@@ -108,25 +101,6 @@ async def get_source_snapshot(
             "reason": _render_unpublished_reason(reader.location),
         }
     return summary
-
-
-def _create_agent_reader(
-    agent_name: str,
-) -> source_reader.SourceSnapshotReader | None:
-    """Creates a reader of a named agent's snapshots in the source store.
-
-    Args:
-        agent_name: Observed agent whose snapshots to read.
-
-    Returns:
-        The reader, or None if there is no source store.
-    """
-    store = objects_store.source_store_factory()
-    if store is None:
-        return None
-    return source_reader.SourceSnapshotReader(
-        store=store, agent_name=agent_name
-    )
 
 
 def _summarize_snapshot(

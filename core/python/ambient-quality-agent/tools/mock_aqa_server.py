@@ -90,6 +90,8 @@ from fastapi.responses import JSONResponse, StreamingResponse
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "src"))
 
 from ambient_quality_shared.protocol import (
+    AGENTS_ATTACH_ROUTE,
+    AGENTS_LIST_ROUTE,
     CONFIG_ROUTE,
     GOAL_GET_ROUTE,
     GOAL_SET_ROUTE,
@@ -149,11 +151,22 @@ No such bucket exists; the documents live in the dataset."""
 
 GOAL_OBJECT = "goal.md"
 MEMORIES_PREFIX = "memories/"
-"""Where the two documents live in a real deployment. Hand-copies of
+"""Where the two documents live in a real deployment, below
+`AGENTS_PREFIX` and the agent's key. Hand-copies of
 `tools.documents.goal` and `tools.documents.memories`, which this server
 deliberately does not import --
 `tools/test_mock_aqa.py` holds the two level, so a rename cannot leave the
 config page linking at a path nothing is stored under."""
+
+AGENTS_PREFIX = "agents/"
+"""Mirrors `observed_agent_config.store.AGENTS_PREFIX`."""
+
+DEFAULT_INVESTIGATION_SCHEDULE = "0 12 * * *"
+"""Mirrors `observed_agent_config.store.DEFAULT_INVESTIGATION_SCHEDULE`."""
+
+SCHEDULE_FIELDS = ("investigation_schedule", "scheduled_trigger_enabled")
+"""The attachment fields `agents/attach` changes here. The dashboard edits only
+these; every other field is `aqua attach`'s, which has no mock."""
 
 MOCK_SOURCE_BUCKET = "mock-source"
 """Stands in for the source-snapshot bucket in the `gs://` link the Source card
@@ -245,6 +258,12 @@ class Dataset:
         )
         self.source: dict[str, Any] | None = payload.get("source") or None
         """The published snapshot's manifest summary, or None if none was."""
+        # The one attachment, of the agent the data is about. Its bare name is
+        # its key, as for an agent in AQuA's own project.
+        self.agent_key: str = str(self.config.get("observed_agent_name") or "")
+        self.investigation_schedule: str = DEFAULT_INVESTIGATION_SCHEDULE
+        self.scheduled_trigger_enabled: bool = True
+        self.agent_updated_at: str = self.anchor.isoformat()
         self._queue_fixture_settles()
 
     def _queue_fixture_settles(self) -> None:
@@ -643,7 +662,7 @@ def _schedule_investigation(data: Dataset) -> dict[str, Any]:
     )
     run = {
         **template,
-        "run_id": uuid.uuid4().hex[:8],
+        "run_id": uuid.uuid4().hex,
         "status": "pending",
         "trigger_type": "adhoc",
         "created_at": now.isoformat(),
@@ -730,11 +749,23 @@ def _compute_goal_version(text: str) -> str:
     return hashlib.sha256(text.strip().encode("utf-8")).hexdigest()[:12]
 
 
+def _build_documents_uri(data: Dataset) -> str:
+    """Builds where the agent's documents live in a real deployment.
+
+    Args:
+        data: The dataset, whose one attached agent the documents belong to.
+
+    Returns:
+        ``gs://<jobs bucket>/agents/<agent key>/``.
+    """
+    return f"gs://{MOCK_JOBS_BUCKET}/{AGENTS_PREFIX}{data.agent_key}/"
+
+
 def _get_goal(data: Dataset) -> dict[str, Any]:
     return {
         "goal": data.goal or None,
         "available": True,
-        "uri": f"gs://{MOCK_JOBS_BUCKET}/{GOAL_OBJECT}",
+        "uri": f"{_build_documents_uri(data)}{GOAL_OBJECT}",
         "version": _compute_goal_version(data.goal) if data.goal else None,
     }
 
@@ -837,7 +868,7 @@ def _list_memories(data: Dataset) -> dict[str, Any]:
             for x in ordered
         ],
         "available": True,
-        "uri": f"gs://{MOCK_JOBS_BUCKET}/{MEMORIES_PREFIX}",
+        "uri": f"{_build_documents_uri(data)}{MEMORIES_PREFIX}",
     }
 
 
@@ -859,6 +890,119 @@ def _delete_memory(data: Dataset, args: dict[str, Any]) -> dict[str, Any]:
         return {"error": f"No memory with id {memory_id!r}."}
     data.memories = remaining
     return {"deleted": True}
+
+
+def _list_agents(data: Dataset) -> dict[str, Any]:
+    """Lists the dataset's one attachment, as `agents/list` lists attachments.
+
+    Args:
+        data: Active mock dataset.
+
+    Returns:
+        Dictionary matching the `agents/list` response, with the dataset's
+        agent as the default and investigated one.
+    """
+    return {
+        "prefix": f"gs://{MOCK_JOBS_BUCKET}/{AGENTS_PREFIX}",
+        "agents": [
+            {
+                "agent_key": data.agent_key,
+                "agent_name": data.agent_key,
+                "default": True,
+                "observed_deployment_name": "",
+                "observed_engine_id": "",
+                "observed_project_id": "",
+                "investigation_schedule": data.investigation_schedule,
+                "scheduled_trigger_enabled": data.scheduled_trigger_enabled,
+                "updated_at": data.agent_updated_at,
+                "unapplied_fields": [],
+                "grants": [],
+                "watched": True,
+            }
+        ],
+        "default_agent": data.agent_key,
+        "trigger_target": {},
+    }
+
+
+def _show_config(data: Dataset) -> dict[str, Any]:
+    """Returns the configuration of the dataset's agent, matching `config`.
+
+    Args:
+        data: Active mock dataset.
+
+    Returns:
+        Dictionary matching the `config` response: the generated configuration
+        including the attachment's key, which the engine sets from the
+        attachment.
+    """
+    return {"config": {**data.config, "agent_key": data.agent_key}}
+
+
+def _attach_agent(data: Dataset, args: dict[str, Any]) -> dict[str, Any]:
+    """Changes the schedule of the dataset's attachment.
+
+    Covers what the dashboard sends: an existing key, the schedule fields and
+    no dry run. The cron check is the field count only; the engine also refuses
+    syntax beyond unix-cron and a cron that names no real date.
+
+    Args:
+        data: Active mock dataset.
+        args: Command arguments with `agent_key`, `fields` and `dry_run`.
+
+    Returns:
+        The changes and whether they were stored, or an error envelope.
+    """
+    key = str(args.get("agent_key") or "")
+    if key != data.agent_key:
+        return {"error": f"No agent is attached as {key!r}."}
+    fields = args.get("fields") or {}
+    unknown = sorted(set(fields) - set(SCHEDULE_FIELDS))
+    if unknown or args.get("dry_run"):
+        return {
+            "error": "The mock changes only "
+            f"{' and '.join(SCHEDULE_FIELDS)}, and never as a dry run."
+        }
+    cron = fields.get("investigation_schedule", data.investigation_schedule)
+    enabled = fields.get(
+        "scheduled_trigger_enabled", data.scheduled_trigger_enabled
+    )
+    if not isinstance(cron, str) or len(cron.split()) != 5:
+        return {
+            "error": "investigation_schedule must be a five-field cron "
+            f"expression in UTC that names a real date, got {cron!r}; the "
+            f"default is {DEFAULT_INVESTIGATION_SCHEDULE!r}"
+        }
+    if not isinstance(enabled, bool):
+        return {
+            "error": f"scheduled_trigger_enabled must be bool, got {enabled!r}"
+        }
+    changes = [
+        {"field": field, "before": before, "after": after}
+        for field, before, after in (
+            ("investigation_schedule", data.investigation_schedule, cron),
+            (
+                "scheduled_trigger_enabled",
+                data.scheduled_trigger_enabled,
+                enabled,
+            ),
+        )
+        if before != after
+    ]
+    result: dict[str, Any] = {
+        "agent_key": key,
+        "agent_name": key,
+        "attached": True,
+        "watched": True,
+        "changes": changes,
+        "written": False,
+    }
+    if not changes:
+        return result
+    data.investigation_schedule = cron
+    data.scheduled_trigger_enabled = enabled
+    data.agent_updated_at = dt.datetime.now(tz=dt.UTC).isoformat()
+    return {**result, "written": True, "updated_at": data.agent_updated_at}
 
 
 def _get_ambient_health(data: Dataset) -> dict[str, Any]:
@@ -893,9 +1037,10 @@ def _get_ambient_health(data: Dataset) -> dict[str, Any]:
     return {
         "verdict": verdict,
         "reason": reason,
-        # Null for the same reason the deployment reports null: the cron lives
-        # in the Cloud Scheduler job, and no server can read its own schedule.
-        "schedule": None,
+        # What the engine checks its ticks against: none while paused.
+        "schedule": data.investigation_schedule
+        if data.scheduled_trigger_enabled
+        else None,
         "max_age_hours": None,
         "last_scheduled_finish": last_run.get("finished_at")
         if last_run
@@ -955,7 +1100,6 @@ def _format_last_run(run: dict[str, Any]) -> dict[str, Any]:
 def _list_insights(data: Dataset, args: dict[str, Any]) -> dict[str, Any]:
     status = str(args.get("status") or "").strip()
     run_id = str(args.get("run_id") or "").strip()
-    offset = _decode_page_token(str(args.get("page_token") or ""))
     order_by = str(args.get("order_by") or "").strip().lower() or "recent"
     if order_by not in INSIGHT_ORDERS:
         return {
@@ -963,6 +1107,12 @@ def _list_insights(data: Dataset, args: dict[str, Any]) -> dict[str, Any]:
             f"{', '.join(INSIGHT_ORDERS)}."
         }
     page_size = _resolve_page_size(args.get("page_size"))
+    page_token = str(args.get("page_token") or "")
+    offset = (
+        _decode_page_token(page_token)
+        if page_token
+        else max(0, _parse_page_number(args.get("page")) - 1) * page_size
+    )
     day = str(args.get("day") or "").strip()
 
     insights = data.list_visible_insights()
@@ -1088,6 +1238,23 @@ def _resolve_page_size(requested: Any) -> int:
     if size <= 0:
         return INSIGHTS_PAGE_SIZE
     return min(size, MAX_INSIGHTS_PAGE_SIZE)
+
+
+def _parse_page_number(requested: Any) -> int:
+    """Parses a 1-based page number, as the deployment's command route does.
+
+    Args:
+        requested: Requested page number value.
+
+    Returns:
+        The page number, or 0 when it is missing or unreadable.
+    """
+    if isinstance(requested, bool):
+        return 0
+    try:
+        return int(requested or 0)
+    except (TypeError, ValueError):
+        return 0
 
 
 def _sort_insight_views(
@@ -2289,13 +2456,21 @@ def build_app(data: Dataset, *, app_name: str, latency_ms: int) -> FastAPI:
     async def get_ambient_health() -> dict[str, Any]:
         return _get_ambient_health(data)
 
+    @app.post(f"/{AGENTS_LIST_ROUTE}")
+    async def list_agents() -> dict[str, Any]:
+        return _list_agents(data)
+
+    @app.post(f"/{AGENTS_ATTACH_ROUTE}")
+    async def attach_agent(request: Request) -> dict[str, Any]:
+        return _attach_agent(data, await _read_route_args(request))
+
     @app.post(f"/{SOURCE_ROUTE}")
     async def get_source_snapshot() -> dict[str, Any]:
         return _get_source_snapshot(data)
 
     @app.post(f"/{CONFIG_ROUTE}")
     async def show_config() -> dict[str, Any]:
-        return {"config": data.config}
+        return _show_config(data)
 
     # The chat agent's name is its callers' business, not this server's, so it
     # is a path parameter rather than a hand-copy of `CHAT_A2A_APP`.
@@ -2384,6 +2559,8 @@ def build_app(data: Dataset, *, app_name: str, latency_ms: int) -> FastAPI:
                     "/insights/...",
                     "/documents/...",
                     "/config",
+                    "/agents/list",
+                    "/agents/attach",
                     "/a2a/<chat app>",
                     "/a2a/<chat app>/.well-known/agent-card.json",
                     "/healthz",

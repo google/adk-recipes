@@ -117,7 +117,7 @@ describe("the insights list's paging", () => {
     const first = listReads(urls)[0];
     expect(first).toContain(`pageSize=${INSIGHTS_PAGE_SIZE}`);
     expect(first).toContain("orderBy=impact");
-    expect(first).not.toContain("pageToken");
+    expect(first).not.toContain("page=");
   });
 
   it("counts the pages off the engine's total, not the rows in hand", async () => {
@@ -133,7 +133,7 @@ describe("the insights list's paging", () => {
     const { urls } = renderList((async (input: RequestInfo | URL) => {
       const url = typeof input === "string" ? input : input.toString();
       return new Response(
-        url.includes("pageToken=t2")
+        url.includes("page=2")
           ? page(11, INSIGHTS_PAGE_SIZE, 87, "t3")
           : page(1, INSIGHTS_PAGE_SIZE, 87, "t2"),
         { status: 200 },
@@ -146,14 +146,14 @@ describe("the insights list's paging", () => {
     expect(await screen.findByText("issue 11")).toBeInTheDocument();
     expect(screen.queryByText("issue 1")).toBeNull();
     expect(screen.getByText(/Page 2 of 9/)).toBeInTheDocument();
-    expect(listReads(urls).some((u) => u.includes("pageToken=t2"))).toBe(true);
+    expect(listReads(urls).some((u) => u.includes("page=2"))).toBe(true);
   });
 
   it("walks back to the page it came from", async () => {
     renderList((async (input: RequestInfo | URL) => {
       const url = typeof input === "string" ? input : input.toString();
       return new Response(
-        url.includes("pageToken=t2")
+        url.includes("page=2")
           ? page(11, INSIGHTS_PAGE_SIZE, 87, "t3")
           : page(1, INSIGHTS_PAGE_SIZE, 87, "t2"),
         { status: 200 },
@@ -184,9 +184,9 @@ describe("the insights list's paging", () => {
     const total = 3 * INSIGHTS_PAGE_SIZE;
     renderList((async (input: RequestInfo | URL) => {
       const url = typeof input === "string" ? input : input.toString();
-      const offset = url.includes("pageToken=t3")
+      const offset = url.includes("page=3")
         ? 2 * INSIGHTS_PAGE_SIZE
-        : url.includes("pageToken=t2")
+        : url.includes("page=2")
           ? INSIGHTS_PAGE_SIZE
           : 0;
       const reached = offset + INSIGHTS_PAGE_SIZE;
@@ -219,7 +219,7 @@ describe("the insights list's paging", () => {
     renderList((async (input: RequestInfo | URL) => {
       const url = typeof input === "string" ? input : input.toString();
       return new Response(
-        url.includes("pageToken=t2")
+        url.includes("page=2")
           ? page(1, 0, 10, null)
           : page(1, INSIGHTS_PAGE_SIZE, 87, "t2"),
         { status: 200 },
@@ -250,7 +250,7 @@ describe("the insights list's paging", () => {
     const { urls } = renderList((async (input: RequestInfo | URL) => {
       const url = typeof input === "string" ? input : input.toString();
       return new Response(
-        url.includes("pageToken=t2")
+        url.includes("page=2")
           ? page(11, INSIGHTS_PAGE_SIZE, 87, "t3")
           : page(1, INSIGHTS_PAGE_SIZE, 87, "t2"),
         { status: 200 },
@@ -272,6 +272,6 @@ describe("the insights list's paging", () => {
     const filtered = listReads(urls).filter((u) =>
       u.includes("status=RECURRING"),
     );
-    expect(filtered.every((u) => !u.includes("pageToken"))).toBe(true);
+    expect(filtered.every((u) => !u.includes("page="))).toBe(true);
   });
 });

@@ -18,7 +18,6 @@ drives the graph end to end (schedule -> keyword dispatch -> execute)."""
 from __future__ import annotations
 
 import asyncio
-import dataclasses
 import datetime as dt
 import hashlib
 import json
@@ -43,7 +42,7 @@ from agentplatform._genai.types import (
     RubricVerdict,
 )
 from ambient_quality_agent import backends
-from ambient_quality_agent.config import Config
+from ambient_quality_agent.config import Config, ObservedAgentConfig
 from ambient_quality_agent.core import nodes, orchestrator
 from ambient_quality_agent.core.investigation import job_scheduling as schedule
 from ambient_quality_agent.core.investigation.model import RunStatus
@@ -70,7 +69,10 @@ from ambient_quality_agent.tools.metrics.library import (
     RemoteCodeMetric,
     RemoteJudgeMetric,
 )
-from ambient_quality_agent.tools.observed_agent_config import effective_config
+from ambient_quality_agent.tools.observed_agent_config import (
+    effective_config,
+    store,
+)
 from ambient_quality_agent.tools.review import session_review
 from google.adk import Runner
 from google.adk.sessions import InMemorySessionService
@@ -594,7 +596,7 @@ def test_an_empty_window_explains_itself_in_the_run_event(
 
     event = "\n".join(state["progress_log"])
     assert "no traces at all" in event
-    assert "AQA_OBSERVED_AGENT_NAME" in event
+    assert "agents-cli aqua attach" in event
     assert state["counters"]["traces_scanned"] == 0
 
 
@@ -615,7 +617,7 @@ def test_a_window_that_dropped_every_trace_is_not_blamed_on_the_agent_name(
 
     event = "\n".join(state["progress_log"])
     assert "no traces at all" not in event
-    assert "AQA_OBSERVED_AGENT_NAME" not in event
+    assert "agents-cli aqua attach" not in event
 
 
 def test_eval_counts_nothing_when_the_scope_is_skipped(
@@ -1219,6 +1221,24 @@ def test_the_default_goal_loader_reads_the_jobs_store(
     assert stores == [jobs_store]
 
 
+def test_the_default_goal_loader_reads_the_runs_agents_goal(
+    monkeypatch: pytest.MonkeyPatch, jobs_store: Any
+) -> None:
+    from ambient_quality_agent.tools.documents import agent_scope
+
+    goal_doc.save_goal(
+        agent_scope.AgentDocumentStore(jobs_store, "acme-prod__support"),
+        "Prod's goal.",
+    )
+    goal_doc.save_goal(jobs_store, "The instance's goal.")
+
+    loaded = _common._load_default_goal(
+        _ctx({"jobs_gcs_bucket": "aqa-jobs", "agent_key": "acme-prod__support"})
+    )
+
+    assert loaded.text == "Prod's goal."
+
+
 def test_full_workflow_runs_through_adk(
     patched_factories: dict[str, Any],
     monkeypatch: pytest.MonkeyPatch,
@@ -1356,13 +1376,17 @@ def test_review_mode_workflow_runs_the_review_branch_only(
 
 @pytest.fixture
 def mocked_telemetry(
-    patched_factories: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+    patched_factories: dict[str, Any],
+    monkeypatch: pytest.MonkeyPatch,
+    jobs_store: Any,
 ) -> Iterator[None]:
     """Wire fakes through the node factories and stub the self-query submit.
 
     Reuses the graph-level `FakeFetcher`/`FakeEvaluator`; the background run
-    invocation is simulated by `_dispatch_run` via the keyword route.
+    invocation is simulated by `_dispatch_run` via the keyword route. Attaches
+    an agent with default settings, since a deployment with none starts no run.
     """
+    _attach_watched_agent(jobs_store)
     one_page = Page(
         dataset=EvaluationDataset(eval_cases=[EvalCase(), EvalCase()]),
         next_page_token=None,
@@ -1392,31 +1416,37 @@ def _dispatch_run(state: dict[str, Any], run_id: str) -> Any:
     return asyncio.run(orchestrator.before_agent(cb))
 
 
-def _configure(monkeypatch: pytest.MonkeyPatch, **fields: Any) -> None:
-    """Pins the deploy-time configuration the run reads.
+def _attach_watched_agent(jobs_store: Any, **fields: Any) -> None:
+    """Attaches the agent the run is about, with the settings it reads.
 
     The only way in: nothing in a session can change what a run is scheduled
     with, so a test that needs a non-default setting states it here.
 
     Args:
-        monkeypatch: Pytest monkeypatch fixture.
-        **fields: Config field overrides to set on env_config.
+        jobs_store: The test's jobs store.
+        **fields: `ObservedAgentConfig` fields to set.
     """
-    monkeypatch.setattr(
-        effective_config,
-        "env_config",
-        dataclasses.replace(effective_config.env_config, **fields),
+    store.save_agent_record(
+        jobs_store,
+        store.AgentRecord(
+            config=ObservedAgentConfig(
+                observed_agent_name="watched-agent",
+                agent_key="watched-agent",
+                **fields,
+            )
+        ),
     )
+    effective_config.clear_cache()
 
 
 def test_investigation_end_to_end(
     mocked_telemetry: None,
     investigation_store: Any,
-    monkeypatch: pytest.MonkeyPatch,
+    jobs_store: Any,
 ) -> None:
     # Metric scoring, so the run walks both evaluation scopes and the event
     # sources below name all four nodes.
-    _configure(monkeypatch, quality_analysis_mode="eval_service")
+    _attach_watched_agent(jobs_store, quality_analysis_mode="eval_service")
     tc = ToolContext()
 
     # 1. Submit -> pending, returns immediately. The scheduled inputs are the
@@ -1505,11 +1535,11 @@ def test_investigation_end_to_end_on_code_metrics(
 
 
 def test_the_configured_window_sets_the_runs_window(
-    mocked_telemetry: None, monkeypatch: pytest.MonkeyPatch
+    mocked_telemetry: None, jobs_store: Any
 ) -> None:
     """The lookback window is the observed agent's setting, and it reaches the
     run through the config the scheduling turn reads."""
-    _configure(monkeypatch, data_lookback_window=14)
+    _attach_watched_agent(jobs_store, data_lookback_window=14)
     tc = ToolContext()
 
     result = asyncio.run(orchestrator.schedule_investigation(tc))
@@ -1549,7 +1579,7 @@ def test_fetcher_factory_builds_each_source_from_unified_config(
     }
     with (
         mock.patch.object(backends.bigquery, "Client") as bq_client,
-        mock.patch.object(_common.storage, "Client"),
+        mock.patch("google.cloud.storage.Client"),
     ):
         fetcher = _common._create_default_fetcher(StateContext(state))
 
@@ -1559,13 +1589,15 @@ def test_fetcher_factory_builds_each_source_from_unified_config(
 
 
 def test_fetcher_factory_requires_a_dataset() -> None:
-    """A source with no dataset default fails naming the unified setting."""
+    """A source with no dataset default fails naming the attach flag that sets it."""
     state = {
         "project_id": "p",
         "telemetry_ingestion_source": "cloud_logging",
         "telemetry_dataset": "",
     }
-    with pytest.raises(ValueError, match="AQA_TELEMETRY_DATASET"):
+    with pytest.raises(
+        ValueError, match="agents-cli aqua attach --telemetry-dataset"
+    ):
         _common._create_default_fetcher(StateContext(state))
 
 

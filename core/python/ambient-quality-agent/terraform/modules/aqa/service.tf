@@ -18,13 +18,18 @@ locals {
   # `tar --sort=name --owner=0 --group=0 --numeric-owner --mtime='UTC 2020-01-01' -czf - Dockerfile | base64 -w0`.
   dummy_source_b64 = "H4sIAAAAAAAAA+3STWrDMBAFYK99ioFsG1uOgw3ZFdruSktPECFNbRFFCvpJ6e2rGEqh+6RdvG8zoCc0w6AHrw4c3o3l6mpEMWzFUovfVfRdV3X9IDbjILbL+Thu+orE9Ub6kWOSgegWrf6jFb1aqXj2VnMgc5QTN3Q/sUv06CbjmD6MteR8IhVYJibpiL+TNJeEos9B8V1JdL2iNJtIR6+zZZplvFxQXjMlT5M5M5m0o728dIhrZQ1pPln/uadQapkkLg809dPbyzPluNbLB21Oh6nRfG6V9VmH7FrlXZJlitDObK2v/3qRAAAAAAAAAAAAAAAAAAAAAAAAN/YFegdMYwAoAAA="
 
-  # What the agent cannot work out for itself. The observed agent's part is
-  # left out when `configure_observed_agent` is false, and the engine then reads
-  # it from the agent attached with `agents-cli aqua attach`.
-  engine_env = merge(
-    local.aqua_env,
-    var.configure_observed_agent ? local.observed_agent_env : local.attach_env,
-  )
+  # What the engine cannot work out for itself: AQuA's own resources. The
+  # agents it watches are stored by `agents-cli aqua attach` where the engine
+  # reads them, so attaching or changing one never replaces the engine.
+  engine_env = merge(local.aqua_env, local.storage_env)
+
+  # Empty for BigQuery, the default, so that choosing it adds nothing to the
+  # environment.
+  storage_env = local.cloudsql ? {
+    AQA_STORAGE_BACKEND   = "cloudsql"
+    AQA_CLOUDSQL_INSTANCE = google_sql_database_instance.aqa[0].connection_name
+    AQA_CLOUDSQL_DATABASE = google_sql_database.aqa[0].name
+  } : {}
 
   aqua_env = {
     AQA_JOBS_GCS_BUCKET    = google_storage_bucket.jobs.name
@@ -40,41 +45,24 @@ locals {
     # The agent requires both of these, or neither.
     AQA_DELAY_TASK_QUEUE  = google_cloud_tasks_queue.delay.id
     AQA_AMBIENT_CALLER_SA = google_service_account.ambient_caller.email
-  }
 
-  # What `agents-cli aqua attach --apply` needs to wire an attached agent's
-  # triggers to this engine, which reports it from the attach route along with
-  # the caller account, so that attaching takes no more than the engine's
-  # resource name. Left out when the deployment names its observed agent and
-  # runs that agent's triggers itself.
-  attach_env = {
+    # What `agents-cli aqua attach` wires an attached agent's update trigger
+    # to. The engine reports it from the attach route along with the caller
+    # account, so that attaching takes no more than the engine's resource name.
     AQA_AMBIENT_TOPIC = google_pubsub_topic.ambient.id
-  }
-
-  observed_agent_env = {
-    # The ADK agent name rather than `observed_deployment_name`: this is matched
-    # against the `gen_ai.agent.name` label on each telemetry row, and the
-    # infrastructure identity beside it is hyphenated where that label is not.
-    AQA_OBSERVED_AGENT_NAME = local.observed_agent_name
-
-    # Without these, the agent defaults to the ADK `agent_analytics` dataset,
-    # which `agents-cli` projects do not create. `cloud_ops` reads a linked
-    # dataset, requiring the `roles/logging.viewAccessor` grant in `iam.tf`.
-    TELEMETRY_INGESTION_SOURCE = var.telemetry_ingestion_source
-    AQA_TELEMETRY_DATASET      = local.telemetry_dataset
-    AQA_TELEMETRY_LOCATION     = local.telemetry_location
-    AQA_TELEMETRY_TABLE        = local.telemetry_table
-
-    # Wait duration for new traces before triggering.
-    AQA_AGENT_REVISION_TRIGGER_DELAY_SECONDS = tostring(var.agent_revision_trigger_delay_seconds)
   }
 }
 
 # Tracks the environment itself. Ignoring `spec` below means Terraform can never
 # update a running engine's environment, so a change that cannot be applied has
 # to replace the engine rather than be dropped in silence.
+#
+# The network attachment is tracked beside it, since the platform cannot move a
+# running engine to another attachment. Null for BigQuery, which leaves the
+# existing deployments' state unchanged.
 resource "terraform_data" "engine_identity" {
-  input = local.engine_env
+  input            = local.engine_env
+  triggers_replace = local.cloudsql ? google_compute_network_attachment.engine[0].id : null
 }
 
 # Terraform owns the engine's configuration, `agents-cli deploy` owns its code.
@@ -84,8 +72,12 @@ resource "terraform_data" "engine_identity" {
 # The deploy finds the engine to update by `display_name`, so it has to be given
 # the same one, with `--service-name`.
 resource "google_vertex_ai_reasoning_engine" "aqa" {
-  # Cannot start before the service agent may mint a token for its account.
-  depends_on = [time_sleep.engine_token_creator]
+  # Cannot start before the service agent may mint a token for its account,
+  # nor, with Cloud SQL, before it may accept the network attachment.
+  depends_on = [
+    time_sleep.engine_token_creator,
+    google_project_iam_member.network_attachment_user,
+  ]
 
   project      = var.project_id
   region       = var.region
@@ -105,6 +97,16 @@ resource "google_vertex_ai_reasoning_engine" "aqa" {
       resource_limits = {
         cpu    = var.engine_cpu
         memory = var.engine_memory
+      }
+
+      # The connector reaches the instance by its private IP, which the Admin
+      # API reports, so the interface needs no DNS peering.
+      dynamic "psc_interface_config" {
+        for_each = local.cloudsql ? [google_compute_network_attachment.engine[0].id] : []
+
+        content {
+          network_attachment = psc_interface_config.value
+        }
       }
 
       dynamic "env" {

@@ -26,6 +26,7 @@ from __future__ import annotations
 import json
 import signal
 import types
+from typing import Any
 
 import pytest
 from ambient_quality_cli import aqua_cli
@@ -480,6 +481,127 @@ def test_schedule_wait_polls_new_run_id(monkeypatch, runner):
 
 
 # --------------------------------------------------------------------------- #
+# --agent-key and the key attach recorded                                      #
+# --------------------------------------------------------------------------- #
+_ANY_RESULT = {"run_id": "x", "status": "done", "available": True}
+"""Satisfies every per-agent command: a terminal run, and memories read."""
+
+_PER_AGENT_COMMANDS = [
+    ["list-investigations"],
+    ["investigation-stats"],
+    ["get-investigation", "x"],
+    ["get-investigation", "x", "--wait", "--interval", "0"],
+    ["schedule-investigation"],
+    ["schedule-investigation", "--wait", "--interval", "0"],
+    ["list-insights"],
+    ["get-insight", "i"],
+    ["show-config"],
+    ["list-memories"],
+]
+
+
+def _write_agent_record(directory, agent_key, target):
+    """Writes `.aqua/attached_aqua.json` as `attach` leaves it.
+
+    Args:
+        directory: The project directory.
+        agent_key: The recorded key.
+        target: The AQuA it was recorded for.
+    """
+    state = directory / ".aqua"
+    state.mkdir()
+    (state / "attached_aqua.json").write_text(
+        json.dumps({"agent_key": agent_key, "agent_key_target": target}),
+        encoding="utf-8",
+    )
+
+
+@pytest.mark.parametrize("command", _PER_AGENT_COMMANDS)
+def test_every_per_agent_command_sends_the_agent_key(
+    monkeypatch, runner, tmp_path, command
+):
+    monkeypatch.chdir(tmp_path)
+    client = _FakeCommandClient(lambda path, payload, n: _ANY_RESULT)
+    _patch_client(monkeypatch, client)
+
+    res = runner.invoke(
+        aqua_cli.cli, [*command, "--resource", "r", "--agent-key", "p__bot"]
+    )
+
+    assert res.exit_code == 0, res.output
+    assert client.calls
+    assert all(payload["agent_key"] == "p__bot" for _, payload in client.calls)
+    assert "(agent key p__bot)" in res.stderr
+
+
+@pytest.mark.parametrize("command", _PER_AGENT_COMMANDS)
+def test_the_key_attach_recorded_here_is_sent_without_the_flag(
+    monkeypatch, runner, tmp_path, command
+):
+    monkeypatch.chdir(tmp_path)
+    _write_agent_record(tmp_path, "p__bot", "r/")
+    client = _FakeCommandClient(lambda path, payload, n: _ANY_RESULT)
+    _patch_client(monkeypatch, client)
+
+    res = runner.invoke(aqua_cli.cli, [*command, "--resource", "r"])
+
+    assert res.exit_code == 0, res.output
+    assert all(payload["agent_key"] == "p__bot" for _, payload in client.calls)
+
+
+def test_the_key_recorded_for_the_env_configured_aqua_is_sent(
+    monkeypatch, runner, tmp_path
+):
+    """agents-cli names the AQuA it recorded in AGENT_ENGINE_RESOURCE_ID."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("AGENT_ENGINE_RESOURCE_ID", "projects/p/x")
+    _write_agent_record(tmp_path, "p__bot", "projects/p/x")
+    client = _FakeCommandClient(lambda path, payload, n: _ANY_RESULT)
+    _patch_client(monkeypatch, client)
+
+    res = runner.invoke(aqua_cli.cli, ["show-config"])
+
+    assert res.exit_code == 0, res.output
+    assert client.calls == [("config", {"agent_key": "p__bot"})]
+
+
+def test_a_key_recorded_for_another_aqua_is_not_sent(
+    monkeypatch, runner, tmp_path
+):
+    """A key names an attachment on one AQuA only."""
+    monkeypatch.chdir(tmp_path)
+    _write_agent_record(tmp_path, "p__bot", "another")
+    client = _FakeCommandClient(lambda path, payload, n: _ANY_RESULT)
+    _patch_client(monkeypatch, client)
+
+    res = runner.invoke(aqua_cli.cli, ["show-config", "--resource", "r"])
+
+    assert res.exit_code == 0, res.output
+    assert client.calls == [("config", None)]
+    assert "agent key" not in res.stderr
+
+
+@pytest.mark.parametrize(
+    ("flag", "sent"), [("other_bot", {"agent_key": "other_bot"}), ("", None)]
+)
+def test_the_flag_wins_over_the_recorded_key(
+    monkeypatch, runner, tmp_path, flag, sent
+):
+    """`--agent-key ''` selects AQuA's default agent."""
+    monkeypatch.chdir(tmp_path)
+    _write_agent_record(tmp_path, "p__bot", "r")
+    client = _FakeCommandClient(lambda path, payload, n: _ANY_RESULT)
+    _patch_client(monkeypatch, client)
+
+    res = runner.invoke(
+        aqua_cli.cli, ["show-config", "--resource", "r", "--agent-key", flag]
+    )
+
+    assert res.exit_code == 0, res.output
+    assert client.calls == [("config", sent)]
+
+
+# --------------------------------------------------------------------------- #
 # list-insights --root-cause                                                   #
 # --------------------------------------------------------------------------- #
 def test_list_insights_asks_for_diagnosed_issues(monkeypatch, runner):
@@ -901,28 +1023,45 @@ def test_run_rejects_json(agents_cli_calls, runner):
 # --------------------------------------------------------------------------- #
 # publish summary
 # --------------------------------------------------------------------------- #
+def _build_judged_metric(name: str, **fields: Any) -> dict[str, Any]:
+    """Builds a judged metric as the engine's report carries it.
+
+    Args:
+        name: The metric's name.
+        **fields: Report fields to add, such as `judge_samples`.
+
+    Returns:
+        The metric's report entry.
+    """
+    return {
+        "name": name,
+        "source_path": f"<prompt_template:{name}>",
+        "expected": "Polite.",
+        "model_modules": [],
+        "judged": True,
+        **fields,
+    }
+
+
 def test_the_publish_summary_prices_a_judged_metric():
     """A judged metric costs a model call per session, so the summary says so.
 
     The line sits beside the model-client warning because it is the same
     caveat -- one call per session per sweep -- from a different payer.
     """
-    judged = aqua_cli.metrics_lib.Metric(
-        name="reply_is_polite",
-        source_path="<prompt_template:reply_is_polite>",
-        expected="The reply is polite.",
-        model_modules=(),
-        judged=True,
-    )
-    code = aqua_cli.metrics_lib.Metric(
-        name="reply_is_short",
-        source_path="short.py",
-        expected="Short.",
-        model_modules=(),
-    )
-    report = aqua_cli.metrics_lib.Report((code, judged), ())
+    code = {
+        "name": "reply_is_short",
+        "source_path": "short.py",
+        "expected": "Short.",
+        "model_modules": [],
+        "judged": False,
+    }
+    report = {
+        "metrics": [code, _build_judged_metric("reply_is_polite")],
+        "skipped": [],
+    }
 
-    lines = aqua_cli._render_report_lines(report)
+    lines = aqua_cli.metrics_lib.render_report_lines(report)
 
     assert "2 metric(s) AQuA will run:" == lines[0]
     assert (
@@ -933,47 +1072,22 @@ def test_the_publish_summary_prices_a_judged_metric():
 
 
 def test_the_publish_summary_counts_each_judge_sample_as_a_call():
-    def judged(name: str, samples: int) -> aqua_cli.metrics_lib.Metric:
-        return aqua_cli.metrics_lib.Metric(
-            name=name,
-            source_path=f"<prompt_template:{name}>",
-            expected="Polite.",
-            model_modules=(),
-            judged=True,
-            judge_samples=samples,
-        )
+    render = aqua_cli.metrics_lib.render_report_lines
+    report = {
+        "metrics": [
+            _build_judged_metric("once", judge_samples=1),
+            _build_judged_metric("thrice", judge_samples=3),
+        ]
+    }
 
-    report = aqua_cli.metrics_lib.Report(
-        (judged("once", 1), judged("thrice", 3)), ()
-    )
-    rated = aqua_cli.metrics_lib.Metric(
-        name="rated",
-        source_path="<prompt_template:rated>",
-        expected="Rated.",
-        model_modules=(),
-        judged=True,
-        scores_only=True,
-    )
-    asks = aqua_cli.metrics_lib.Metric(
-        name="asks",
-        source_path="<prompt_template:asks>",
-        expected="Answers.",
-        model_modules=(),
-        judged=True,
-        reads_prompt=True,
-    )
     assert (
         "  asks: reads {prompt}, which is set only on single-turn sessions, as in "
         "agents-cli; it errors on multi-turn ones"
-    ) in aqua_cli._render_report_lines(aqua_cli.metrics_lib.Report((asks,), ()))
-    assert (
-        "  rated: scores only -- no threshold, so it files no findings"
-        in aqua_cli._render_report_lines(
-            aqua_cli.metrics_lib.Report((rated,), ())
-        )
+    ) in render({"metrics": [_build_judged_metric("asks", reads_prompt=True)]})
+    assert "  rated: scores only -- no threshold, so it files no findings" in (
+        render({"metrics": [_build_judged_metric("rated", scores_only=True)]})
     )
-
     assert (
         "2 metric(s) are judged by the eval service's model, 4 model call(s) per "
         "session per sweep: once, thrice (3 samples)"
-    ) in aqua_cli._render_report_lines(report)
+    ) in render(report)

@@ -18,10 +18,13 @@
 Currently enforces:
   - Apache 2.0 license headers on git-tracked source files (via addlicense).
   - src/ambient_quality_agent/requirements.txt matches pyproject.toml.
+  - Lockfiles resolve packages from public registries, not Artifact Registry.
+  - ui/Dockerfile builds the front end with the Node major in ui/web/.nvmrc.
 """
 
 import argparse
 import pathlib
+import re
 import subprocess
 import sys
 import tomllib
@@ -79,6 +82,163 @@ def check_requirements_txt(fix: bool) -> bool:
         file=sys.stderr,
     )
     return False
+
+
+# Corp workstations route pip, uv and npm through an Airlock mirror on Artifact
+# Registry (*.pkg.dev). A lockfile regenerated there records the mirror's URLs,
+# and every build without corp credentials (Cloud Build, GitHub runners, users
+# outside Google) then fails the install with 401.
+_LOCKFILE_NAMES = frozenset({"uv.lock", "package-lock.json"})
+_MIRROR_URL = re.compile(r"https?://[^\s\"']*\.pkg\.dev/[^\s\"']*")
+_MAX_REPORTED_MIRROR_URLS = 5
+
+
+def list_mirror_urls(text: str) -> list[tuple[int, str]]:
+    """List the Artifact Registry URLs in a lockfile.
+
+    Args:
+        text: Contents of the lockfile.
+
+    Returns:
+        (1-based line number, URL) for every *.pkg.dev URL, in file order.
+    """
+    return [
+        (lineno, match.group(0))
+        for lineno, line in enumerate(text.splitlines(), start=1)
+        for match in _MIRROR_URL.finditer(line)
+    ]
+
+
+def check_lockfile_registries(lockfiles: list[pathlib.Path]) -> bool:
+    """Check that no lockfile resolves packages from an Artifact Registry mirror.
+
+    There is no fix mode: rewriting the host is only safe when the mirror path
+    maps onto the public one, which differs between npm and PyPI. Regenerating
+    the lockfile against the public index is the fix.
+
+    Args:
+        lockfiles: Lockfiles to scan.
+
+    Returns:
+        True if no lockfile contains a *.pkg.dev URL.
+    """
+    ok = True
+    for lockfile in lockfiles:
+        urls = list_mirror_urls(lockfile.read_text(encoding="utf-8"))
+        if not urls:
+            continue
+        ok = False
+        print(
+            f"\n{lockfile} resolves {len(urls)} package(s) from an Artifact"
+            " Registry mirror, which builds without corp credentials cannot"
+            " reach:",
+            file=sys.stderr,
+        )
+        for lineno, url in urls[:_MAX_REPORTED_MIRROR_URLS]:
+            print(f"  {lockfile}:{lineno}: {url}", file=sys.stderr)
+        if len(urls) > _MAX_REPORTED_MIRROR_URLS:
+            print(
+                f"  ... and {len(urls) - _MAX_REPORTED_MIRROR_URLS} more",
+                file=sys.stderr,
+            )
+        print(
+            "For uv.lock, regenerate it with"
+            ' UV_INDEX_URL="https://pypi.org/simple" uv lock. For'
+            " package-lock.json, replace the mirror prefix up to the package"
+            " name with https://registry.npmjs.org/ and check that npm ci"
+            " still passes the recorded integrity hashes.",
+            file=sys.stderr,
+        )
+    if ok:
+        print("Lockfiles resolve packages from public registries.")
+    return ok
+
+
+def list_tracked_lockfiles() -> list[pathlib.Path]:
+    """List the git-tracked lockfiles that exist in the working tree.
+
+    Returns:
+        Paths of every tracked file named in _LOCKFILE_NAMES.
+    """
+    output = subprocess.check_output(
+        ["git", "ls-files"]  # noqa: S607 - standard tool resolved from PATH
+    ).decode("utf-8")
+    return [
+        path
+        for path in map(pathlib.Path, output.splitlines())
+        if path.name in _LOCKFILE_NAMES and path.is_file()
+    ]
+
+
+# The front end is type-checked and tested by frontend-tests.yml on the Node
+# version in .nvmrc, and built into the dashboard image by ui/Dockerfile. The
+# version that builds the bundle has to be the one it was checked against.
+UI_DOCKERFILE = pathlib.Path("ui/Dockerfile")
+NVMRC = pathlib.Path("ui/web/.nvmrc")
+_NODE_FROM = re.compile(r"^FROM\s+(?:\S+/)?node:v?(\d+)\b", re.MULTILINE)
+
+
+def extract_dockerfile_node_major(text: str) -> str | None:
+    """Extract the Node major version from a Dockerfile's node base image.
+
+    Args:
+        text: Contents of the Dockerfile.
+
+    Returns:
+        The major version of the first `FROM node:<version>` stage, or None
+        if no stage uses a versioned node image.
+    """
+    match = _NODE_FROM.search(text)
+    return match.group(1) if match else None
+
+
+def extract_nvmrc_node_major(text: str) -> str | None:
+    """Extract the Node major version from an .nvmrc file.
+
+    Args:
+        text: Contents of the .nvmrc file, e.g. "22", "v22.11.0".
+
+    Returns:
+        The major version, or None if the file does not name a numeric version
+        (for example an alias such as "lts/*").
+    """
+    match = re.fullmatch(r"v?(\d+)(?:\.\d+){0,2}", text.strip())
+    return match.group(1) if match else None
+
+
+def check_ui_node_version(
+    dockerfile: pathlib.Path = UI_DOCKERFILE, nvmrc: pathlib.Path = NVMRC
+) -> bool:
+    """Check that ui/Dockerfile builds the front end on the .nvmrc Node major.
+
+    Args:
+        dockerfile: The dashboard Dockerfile.
+        nvmrc: The front end's .nvmrc.
+
+    Returns:
+        True if both name the same Node major version.
+    """
+    image_major = extract_dockerfile_node_major(
+        dockerfile.read_text(encoding="utf-8")
+    )
+    nvmrc_major = extract_nvmrc_node_major(nvmrc.read_text(encoding="utf-8"))
+    if image_major is None or nvmrc_major is None:
+        print(
+            f"\nCould not read a Node major version from"
+            f" {dockerfile if image_major is None else nvmrc}.",
+            file=sys.stderr,
+        )
+        return False
+    if image_major != nvmrc_major:
+        print(
+            f"\n{dockerfile} builds the front end on node:{image_major}, but"
+            f" {nvmrc} (which frontend-tests.yml runs on) says {nvmrc_major}."
+            " Change both together.",
+            file=sys.stderr,
+        )
+        return False
+    print(f"{dockerfile} and {nvmrc} both use Node {image_major}.")
+    return True
 
 
 def check_license_headers(fix: bool) -> bool:
@@ -183,11 +343,13 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    # Both run before the verdict so one invocation reports every violation
+    # All run before the verdict so one invocation reports every violation
     # rather than making the caller re-run to discover the next one.
     checks = [
         check_license_headers(args.fix),
         check_requirements_txt(args.fix),
+        check_lockfile_registries(list_tracked_lockfiles()),
+        check_ui_node_version(),
     ]
 
     if not all(checks):

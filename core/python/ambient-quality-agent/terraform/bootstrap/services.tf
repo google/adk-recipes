@@ -33,11 +33,24 @@ locals {
     "logging.googleapis.com",
     "monitoring.googleapis.com",
 
+    # The `_Trace` bucket and its BigQuery link, through which `cloud_ops`
+    # ingestion reads the agent's spans. `agents-cli aqua attach` creates them
+    # when they do not exist.
+    "observability.googleapis.com",
+
     # The UI Cloud Run service, and the source-deploy that builds its image with
     # Cloud Build and stores it in Artifact Registry.
     "run.googleapis.com",
     "cloudbuild.googleapis.com",
     "artifactregistry.googleapis.com",
+
+    # The Cloud SQL backend: the instance, the private services access peering
+    # that gives it a private IP, and the VPC and network attachment that the
+    # engine's PSC interface joins. Enabled whatever the backend, since this
+    # root does not know which one its deployments choose.
+    "sqladmin.googleapis.com",
+    "servicenetworking.googleapis.com",
+    "compute.googleapis.com",
   ]
 }
 

@@ -36,9 +36,9 @@ def _create_tasks_client() -> tasks_v2.CloudTasksClient:
     Returns:
         CloudTasksClient instance.
     """
-    from google.cloud import tasks_v2
+    from ambient_quality_agent import clients
 
-    return tasks_v2.CloudTasksClient()
+    return clients.create_cloud_tasks_client()
 
 
 def enqueue_http_task(

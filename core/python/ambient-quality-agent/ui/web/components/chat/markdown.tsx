@@ -19,6 +19,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { themes } from "prism-react-renderer";
 import { cn } from "@/lib/utils";
+import { useAgentKey, buildAgentHref } from "@/lib/agent-selection";
 import { useResolvedTheme } from "@/lib/use-appearance";
 import { CopyButton } from "./copy-button";
 import { useImageLightbox } from "./image-lightbox";
@@ -57,11 +58,19 @@ const ANCHOR_COMPONENT = ({
   href?: string;
   children?: React.ReactNode;
 }) => {
+  const agentKey = useAgentKey();
+  const resolved = resolveHref(href);
   return (
     // overflow-wrap:anywhere lets long bare URLs break mid-string instead of
     // forcing the bubble wider than a phone viewport.
     <a
-      href={resolveHref(href)}
+      // A link into the dashboard opens in a new tab, so it has to name the
+      // agent the conversation is about to open on it.
+      href={
+        resolved?.startsWith("/") && !resolved.startsWith("//")
+          ? buildAgentHref(resolved, agentKey)
+          : resolved
+      }
       target="_blank"
       rel="noreferrer noopener"
       className="[overflow-wrap:anywhere]"

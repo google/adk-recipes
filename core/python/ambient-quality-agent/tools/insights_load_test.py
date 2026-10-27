@@ -103,7 +103,6 @@ from typing import Any
 # Disable `.env` loading from the agent package so the run uses only
 # explicitly exported environment variables and the defaults below.
 os.environ.setdefault("PYTHON_DOTENV_DISABLED", "1")
-os.environ.setdefault("AQA_OBSERVED_AGENT_NAME", "insights-load-test")
 os.environ.setdefault("GOOGLE_CLOUD_PROJECT", "local-dev-project")
 
 from agentplatform._genai.types import (
@@ -958,7 +957,12 @@ def run_clustering(
         else _build_instrumented_model_call(attempt)
     )
     try:
-        parsed, _ = clustering.cluster_and_label(findings, model_call=call)
+        # The corpus does not set `Finding.agent_id`. Passing `root_agent_id=""`
+        # keeps all findings in a single partition and leaves `Cluster.agent_id`
+        # empty, so the correlation store defaults them to its throwaway agent.
+        parsed, _ = clustering.cluster_and_label(
+            findings, root_agent_id="", model_call=call
+        )
     except Exception as exc:
         attempt.error = f"{type(exc).__name__}: {exc}"
         return attempt, []

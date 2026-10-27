@@ -45,22 +45,22 @@ from ambient_quality_agent.config import Config
 class InvestigationLock(Protocol):
     """A claim on the right to sweep one observed agent."""
 
-    def acquire(self, agent_name: str, run_id: str) -> str | None:
-        """Claim the right to sweep `agent_name` as `run_id`.
+    def acquire(self, agent_key: str, run_id: str) -> str | None:
+        """Claim the right to sweep `agent_key` as `run_id`.
 
         Args:
-            agent_name: Name of the observed agent.
+            agent_key: Key of the observed agent.
             run_id: Unique identifier of the requesting run.
 
         Returns:
             `None` when the claim is granted, or the ID of the run already holding it.
         """
 
-    def release(self, agent_name: str, run_id: str) -> None:
+    def release(self, agent_key: str, run_id: str) -> None:
         """Release the claim granted by `acquire`.
 
         Args:
-            agent_name: Name of the observed agent.
+            agent_key: Key of the observed agent.
             run_id: Unique identifier of the holding run.
         """
 
@@ -74,10 +74,10 @@ class UnguardedInvestigationLock:
     wanted nor a subset of it.
     """
 
-    def acquire(self, agent_name: str, run_id: str) -> str | None:
+    def acquire(self, agent_key: str, run_id: str) -> str | None:
         return None
 
-    def release(self, agent_name: str, run_id: str) -> None:
+    def release(self, agent_key: str, run_id: str) -> None:
         return None
 
 
@@ -94,18 +94,18 @@ class InProcessInvestigationLock:
         self._guard = threading.Lock()
         self._holders: dict[str, str] = {}
 
-    def acquire(self, agent_name: str, run_id: str) -> str | None:
+    def acquire(self, agent_key: str, run_id: str) -> str | None:
         with self._guard:
-            holder = self._holders.get(agent_name)
+            holder = self._holders.get(agent_key)
             if holder is not None:
                 return holder
-            self._holders[agent_name] = run_id
+            self._holders[agent_key] = run_id
             return None
 
-    def release(self, agent_name: str, run_id: str) -> None:
+    def release(self, agent_key: str, run_id: str) -> None:
         with self._guard:
-            if self._holders.get(agent_name) == run_id:
-                del self._holders[agent_name]
+            if self._holders.get(agent_key) == run_id:
+                del self._holders[agent_key]
 
 
 _UNGUARDED = UnguardedInvestigationLock()

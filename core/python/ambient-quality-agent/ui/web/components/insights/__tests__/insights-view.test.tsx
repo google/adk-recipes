@@ -116,6 +116,30 @@ describe("InsightsView", () => {
     expect(screen.queryByText(/137/)).toBeNull();
   });
 
+  it("re-reads the list from the refresh button on the title's line", async () => {
+    let reads = 0;
+    renderPage((() => {
+      reads += 1;
+      return Promise.resolve(
+        new Response(JSON.stringify({ insights: [INSIGHT_HIGH], total: 1 }), {
+          status: 200,
+        }),
+      );
+    }) as typeof fetch);
+    const title = await screen.findByRole("heading", {
+      level: 1,
+      name: "it_support_agent",
+    });
+    const button = screen.getByRole("button", { name: "Refresh the data" });
+    // The title's row, not the filter row under it.
+    expect(title.parentElement).toContainElement(button);
+    expect(screen.getAllByRole("button", { name: /Refresh/ })).toHaveLength(1);
+
+    await userEvent.click(button);
+
+    await vi.waitFor(() => expect(reads).toBe(2));
+  });
+
   it("claims no reach when the agent sent no count", async () => {
     // An agent deployed before the field. No figure beats a zero stated as a
     // fact, and beats the page sum this replaced.
@@ -148,6 +172,33 @@ describe("InsightsView", () => {
 
     expect(
       await screen.findByText(/1 trajectory affected/),
+    ).toBeInTheDocument();
+  });
+
+  it("renders a code span in a card's headline as code, and names its actions in plain text", async () => {
+    renderPage((() =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify({
+            insights: [
+              { ...INSIGHT_LOW, label: "failed to call `create_ticket`" },
+            ],
+            total: 1,
+          }),
+          { status: 200 },
+        ),
+      )) as typeof fetch);
+
+    expect((await screen.findByText("create_ticket")).tagName).toBe("CODE");
+    expect(
+      screen.getByRole("button", {
+        name: "Diagnose insight in chat: failed to call create_ticket",
+      }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", {
+        name: "Dismiss insight: failed to call create_ticket",
+      }),
     ).toBeInTheDocument();
   });
 

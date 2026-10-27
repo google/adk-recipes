@@ -30,7 +30,8 @@ Wiring::
       │     get_adc_token(), _forward(), _stream_a2a()
       │
       ├─ /lha/contexts ──► task_reader ──► GCS
-      │     list_contexts(), list_context_tasks(), delete_context()
+      │     list_contexts(), list_context_tasks(), delete_context(),
+      │     save_context_title()
       │
       └─ other /lha/*, /feedback ──► _build_lha_unavailable_response()
 
@@ -61,9 +62,20 @@ GET  /api/insights/{id}         -> {insight: {...}, occurrences: [...], next_pag
 POST /api/insights/{id}/dismiss -> the agent's reply -- hide it from the list
 POST /api/insights/{id}/merge   -> the agent's reply -- record it as a duplicate
 GET  /api/health                -> {verdict, reason, ...} -- is the loop turning
+GET  /api/agents                -> {agents: [...], default_agent_key} -- for the selector
+GET  /api/schedule              -> {available, agent_key, investigation_schedule, ...}
+PUT  /api/schedule              -> the agent's reply -- change an attached agent's schedule
+POST /api/telemetry/check       -> {checks, filled, grants, refusal, ...} -- check a table
+PUT  /api/telemetry             -> the agent's reply -- change an attached agent's table
+POST /api/telemetry/grants      -> {recorded} -- record grants on an attachment
 GET  /api/source                -> {available, reason} -- can findings cite code
 GET  /api/investigations/{id}/cases/{case} -> {case: {...}} -- one conversation
 GET  /healthz                   -> liveness probe
+
+Every ``/api/*`` route but ``/api/agents`` reads the agent the dashboard has
+selected from an ``?agent_key=`` query parameter and passes it on in its
+command body (``PUT /api/schedule`` and the ``/api/telemetry`` routes take it
+in the request body). Without one, the agent answers for its default agent.
 
 ``/`` serves the dashboard: ``/assets/*`` and any other file in the bundle are
 served beside it, every unclaimed path falls through to the shell so the
@@ -77,16 +89,23 @@ import json
 import logging
 import os
 from collections.abc import AsyncIterator
-from typing import Any
+from typing import Any, TypeVar
 
 import httpx
 import task_reader
+from ambient_quality_shared import grant_commands
 from ambient_quality_shared.agent_client import (
+    AdkHttpClient,
+    AgentRuntimeClient,
     build_client_from_env,
     get_adc_token,
     resolve_a2a_base_url,
 )
+from ambient_quality_shared.agent_key import AGENT_KEY_RE
 from ambient_quality_shared.protocol import (
+    AGENTS_APPLIED_ROUTE,
+    AGENTS_ATTACH_ROUTE,
+    AGENTS_LIST_ROUTE,
     CHAT_A2A_APP,
     CONFIG_ROUTE,
     GOAL_GET_ROUTE,
@@ -106,7 +125,21 @@ from ambient_quality_shared.protocol import (
     MEMORIES_LIST_ROUTE,
     SOURCE_ROUTE,
     TRAJECTORIES_CASE_ROUTE,
+    AgentKeyArgs,
+    AttachAgentArgs,
+    DeleteMemoryArgs,
+    DismissInsightArgs,
+    GetCaseConversationArgs,
+    GetInsightArgs,
+    GetInvestigationArgs,
+    GetSourceSnapshotArgs,
+    ListInsightsArgs,
+    MergeInsightArgs,
+    RecordAppliedArgs,
+    SetGoalArgs,
+    WindowArgs,
 )
+from ambient_quality_shared.usage_headers import build_usage_headers
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import (
     FileResponse,
@@ -151,7 +184,7 @@ app = FastAPI(title="AQA FastAPI dashboard")
 # one client serves every request.
 # --------------------------------------------------------------------------- #
 @functools.cache
-def _get_backend_client() -> Any:
+def _get_backend_client() -> AgentRuntimeClient | AdkHttpClient:
     """Returns the backend client for a deployed engine or a local agent server.
 
     Returns:
@@ -160,7 +193,7 @@ def _get_backend_client() -> Any:
     return build_client_from_env()
 
 
-def _extract_window_args(request: Request) -> dict[str, str]:
+def _extract_window_args(request: Request) -> WindowArgs:
     """Reads telemetry time window parameters from the request query.
 
     Normalizes query parameter names into agent arguments. Absent parameters
@@ -173,11 +206,45 @@ def _extract_window_args(request: Request) -> dict[str, str]:
         Mapping containing non-empty `window_start` and `window_end` bounds.
     """
     params = request.query_params
-    window = {
-        "window_start": params.get("windowStart") or "",
-        "window_end": params.get("windowEnd") or "",
-    }
-    return {k: v for k, v in window.items() if v}
+    window = WindowArgs()
+    if start := params.get("windowStart"):
+        window["window_start"] = start
+    if end := params.get("windowEnd"):
+        window["window_end"] = end
+    return window
+
+
+_AgentArgsT = TypeVar("_AgentArgsT", bound=AgentKeyArgs)
+
+
+def _read_selected_agent(request: Request) -> str:
+    """Reads the agent the dashboard has selected from the request query.
+
+    Every command route takes the key in its body, so each `/api/*` route
+    passes it through. Without one, the agent answers for its default agent.
+
+    Args:
+        request: Incoming HTTP request, with an optional `agent_key` parameter.
+
+    Returns:
+        The selected agent's key, or an empty string when none is selected.
+    """
+    return (request.query_params.get("agent_key") or "").strip()
+
+
+def _add_selected_agent(args: _AgentArgsT, request: Request) -> _AgentArgsT:
+    """Adds the agent the dashboard has selected to a command's body.
+
+    Args:
+        args: The command's body.
+        request: Incoming HTTP request, with an optional `agent_key` parameter.
+
+    Returns:
+        `args`, with `agent_key` set when the request selects an agent.
+    """
+    if agent_key := _read_selected_agent(request):
+        args["agent_key"] = agent_key
+    return args
 
 
 def _encode_tri_state(value: str | None) -> str:
@@ -292,7 +359,33 @@ def _format_error(exc: BaseException) -> str:
     """
     if _is_not_deployed(exc):
         return _NOT_DEPLOYED
+    if detail := _extract_rejection_detail(exc):
+        return detail
     return f"{type(exc).__name__}: {exc}"
+
+
+def _extract_rejection_detail(exc: BaseException) -> str:
+    """Extracts the reason a command route gave for refusing a request.
+
+    A route answers a request it refuses, such as one that selects an agent
+    that is not attached, with a 400 and the reason as FastAPI's `detail`.
+    That reason says what to fix; the status line alone does not.
+
+    Args:
+        exc: Exception caught during command execution.
+
+    Returns:
+        The route's `detail` text, or an empty string when the exception
+        carries none.
+    """
+    response = getattr(exc, "response", None)
+    if response is None or getattr(response, "status_code", None) != 400:
+        return ""
+    try:
+        detail = response.json().get("detail")
+    except Exception:
+        return ""
+    return detail if isinstance(detail, str) else ""
 
 
 @app.get("/api/config")
@@ -306,7 +399,9 @@ async def get_effective_config(request: Request) -> dict:
         Dictionary containing the configuration object or an error message.
     """
     try:
-        result = await _get_backend_client().post_command(CONFIG_ROUTE)
+        result = await _get_backend_client().post_command(
+            CONFIG_ROUTE, _add_selected_agent(AgentKeyArgs(), request) or None
+        )
     except Exception as exc:
         return {"error": _format_error(exc)}
     config = (result or {}).get("config")
@@ -329,12 +424,434 @@ async def get_ambient_health(request: Request) -> dict:
         Dictionary containing the health verdict or an error message.
     """
     try:
-        result = await _get_backend_client().post_command(HEALTH_ROUTE)
+        result = await _get_backend_client().post_command(
+            HEALTH_ROUTE, _add_selected_agent(AgentKeyArgs(), request) or None
+        )
     except Exception as exc:
         return {"error": _format_error(exc)}
     if not result:
         return {"error": "The agent returned no health verdict."}
     return result
+
+
+@app.get("/api/agents")
+async def list_agents() -> dict:
+    """Lists the agents attached to AQuA, for the dashboard's agent selector.
+
+    Returns:
+        Dictionary with one entry per attached agent (its key, name, project
+        and whether it is the default), and the key of the agent a request
+        that selects none gets; or an error message.
+    """
+    try:
+        result = await _get_backend_client().post_command(AGENTS_LIST_ROUTE)
+    except Exception as exc:
+        return {"agents": [], "error": _format_error(exc)}
+    if not result:
+        return {"agents": [], "error": "The agent returned no attached agents."}
+    if result.get("error"):
+        return {"agents": [], "error": result["error"]}
+    agents = [
+        {
+            "agent_key": entry.get("agent_key"),
+            "agent_name": entry.get("agent_name"),
+            "project_id": _extract_key_project(entry.get("agent_key")),
+            "default": bool(entry.get("watched")),
+            **({"error": entry["error"]} if entry.get("error") else {}),
+        }
+        for entry in result.get("agents") or []
+        if entry.get("agent_key")
+    ]
+    default_key = next((a["agent_key"] for a in agents if a["default"]), None)
+    return {"agents": agents, "default_agent_key": default_key}
+
+
+def _extract_key_project(agent_key: Any) -> str | None:
+    """Extracts the project an agent key names.
+
+    Args:
+        agent_key: An agent key, `<project id>__<agent name>`, or the bare
+            name an agent in AQuA's own project keeps.
+
+    Returns:
+        The project id, or None for a bare name, whose agent runs in AQuA's
+        own project.
+    """
+    if not isinstance(agent_key, str):
+        return None
+    match = AGENT_KEY_RE.match(agent_key)
+    return match["project"] if match else None
+
+
+_SCHEDULE_FIELDS = ("investigation_schedule", "scheduled_trigger_enabled")
+"""The attachment fields the schedule card changes."""
+
+_CHECKED_FIELDS = (
+    "telemetry_dataset",
+    "telemetry_table",
+    "telemetry_payload_bucket",
+)
+"""The telemetry fields a user enters: the dataset and table in the agent's
+project, and the payload bucket for message content."""
+
+_TELEMETRY_FIELDS = (
+    *_CHECKED_FIELDS,
+    "telemetry_location",
+    "telemetry_ingestion_source",
+)
+"""The attachment fields the telemetry card changes: the fields a user enters,
+plus the location and source filled in from the table.
+
+The dashboard changes only these and the schedule fields. Every other field is
+left to `aqua attach`, which discovers and checks them before storing them."""
+
+_BINDING_FIELDS = frozenset({"resource", "role", "member"})
+"""The keys of a grant recorded on an attachment."""
+
+
+@app.get("/api/schedule")
+async def get_schedule(request: Request) -> dict:
+    """Fetches the schedule of the selected agent.
+
+    Args:
+        request: Incoming HTTP request, with the selected agent in its query.
+            Without one, the schedule is the default agent's.
+
+    Returns:
+        Dictionary with `available`, and the agent's key, name, cron, whether
+        its scheduled runs are on and when its attachment was last saved; or
+        `available: false` with the reason; or an error message when the agent
+        cannot be reached.
+    """
+    try:
+        result = await _get_backend_client().post_command(AGENTS_LIST_ROUTE)
+    except Exception as exc:
+        return {"error": _format_error(exc)}
+    if not result:
+        return {"error": "The agent returned no attached agents."}
+    if result.get("error"):
+        return {"available": False, "reason": result["error"]}
+    agents = result.get("agents") or []
+    selected_key = _read_selected_agent(request)
+    if selected_key:
+        selected = next(
+            (a for a in agents if a.get("agent_key") == selected_key), None
+        )
+        if selected is None:
+            return {"error": f"Agent {selected_key!r} is not attached."}
+    else:
+        selected = next((a for a in agents if a.get("watched")), None)
+    if selected is None:
+        return {
+            "available": False,
+            "reason": (
+                "No agent is attached. Attach one with `agents-cli aqua attach`."
+            ),
+        }
+    if selected.get("error"):
+        return {
+            "error": f"Could not read the attachment of "
+            f"{selected.get('agent_key')}: {selected['error']}"
+        }
+    return {
+        "available": True,
+        "agent_key": selected.get("agent_key"),
+        "agent_name": selected.get("agent_name"),
+        "investigation_schedule": selected.get("investigation_schedule"),
+        "scheduled_trigger_enabled": selected.get("scheduled_trigger_enabled"),
+        "updated_at": selected.get("updated_at"),
+    }
+
+
+@app.put("/api/schedule")
+async def save_schedule(request: Request) -> Any:
+    """Changes the schedule of an attached agent.
+
+    Args:
+        request: Incoming HTTP request with a JSON body holding `agent_key`,
+            and `investigation_schedule`, `scheduled_trigger_enabled` or both.
+
+    Returns:
+        The changes, whether they were stored and when; a 400 with the agent's
+        message when the body is refused or the agent returns an error; or a
+        502 when the agent cannot be reached or sends nothing back.
+    """
+    body = await _read_change(request)
+    if isinstance(body, JSONResponse):
+        return body
+    fields = {f: body[f] for f in _SCHEDULE_FIELDS if f in body}
+    if not fields:
+        return JSONResponse(
+            {
+                "error": f"Nothing to change: send {' or '.join(_SCHEDULE_FIELDS)}."
+            },
+            status_code=400,
+        )
+    return await _store_fields(body["agent_key"], fields)
+
+
+@app.post("/api/telemetry/check")
+async def check_telemetry(request: Request) -> Any:
+    """Checks whether investigations of an agent can read a telemetry table.
+
+    Asks the agent for the `aqua attach` dry-run plan: fills in the location
+    and source from the table, and tries every read an investigation makes as
+    AQuA's service account. Nothing is stored.
+
+    Args:
+        request: Incoming HTTP request with a JSON body holding `agent_key`,
+            `telemetry_dataset`, `telemetry_table`, and optionally
+            `telemetry_payload_bucket`.
+
+    Returns:
+        The read checks (`checks`), the service account that ran them
+        (`service_account`), the fields filled in from the table (`filled`),
+        the changes a save would make, the grant command for each denied read
+        (`grants`), denied reads without a grant command (`ungranted`), and why
+        the table cannot be saved (`refusal`, empty when it can). Returns 400
+        with the reason when the body or the agent refuses, or 502 when the
+        agent cannot be reached.
+    """
+    body = await _read_change(request)
+    if isinstance(body, JSONResponse):
+        return body
+    fields = {f: body[f] for f in _CHECKED_FIELDS if f in body}
+    if refusal := _validate_table(fields):
+        return JSONResponse({"error": refusal}, status_code=400)
+    try:
+        plan = await _get_backend_client().post_command(
+            AGENTS_ATTACH_ROUTE,
+            AttachAgentArgs(
+                agent_key=body["agent_key"],
+                fields=fields,
+                dry_run=True,
+                check_access=True,
+                fill_from_table=True,
+            ),
+        )
+    except Exception as exc:
+        return JSONResponse({"error": _format_error(exc)}, status_code=502)
+    if not plan:
+        return JSONResponse(
+            {"error": "The agent returned no plan."}, status_code=502
+        )
+    if plan.get("error"):
+        return JSONResponse({"error": plan["error"]}, status_code=400)
+    access = plan.get("access") or {}
+    checks = access.get("checks") or []
+    grants, ungranted = grant_commands.build_grants(access)
+    return {
+        "service_account": access.get("service_account") or "",
+        "checks": checks,
+        "filled": plan.get("filled") or [],
+        "changes": plan.get("changes") or [],
+        "grants": [
+            {
+                "resource": grant.resource,
+                "role": grant.role,
+                "member": grant.member,
+                "checks": list(grant.checks),
+                "command": grant.render(),
+            }
+            for grant in grants
+        ],
+        "ungranted": ungranted,
+        "refusal": _find_refusal(checks),
+    }
+
+
+@app.put("/api/telemetry")
+async def save_telemetry(request: Request) -> Any:
+    """Saves a telemetry table on an attached agent.
+
+    Args:
+        request: Incoming HTTP request with a JSON body holding `agent_key`,
+            `telemetry_dataset`, `telemetry_table`, and optionally
+            `telemetry_payload_bucket`, `telemetry_location`, and
+            `telemetry_ingestion_source`. Other attachment fields are left
+            unchanged.
+
+    Returns:
+        The changes, whether they were stored, and when; a 400 with the reason
+        when the body or the agent refuses; or a 502 when the agent cannot be
+        reached or sends nothing back.
+    """
+    body = await _read_change(request)
+    if isinstance(body, JSONResponse):
+        return body
+    fields = {f: body[f] for f in _TELEMETRY_FIELDS if f in body}
+    if refusal := _validate_table(fields):
+        return JSONResponse({"error": refusal}, status_code=400)
+    return await _store_fields(body["agent_key"], fields)
+
+
+@app.post("/api/telemetry/grants")
+async def record_telemetry_grants(request: Request) -> Any:
+    """Records grants on an agent's attachment so `detach` revokes them.
+
+    When a re-check confirms that a denied read is now allowed, the telemetry
+    card records the grant here so `detach` revokes it along with grants from
+    `aqua attach`.
+
+    Args:
+        request: Incoming HTTP request with a JSON body holding `agent_key`
+            and `granted`, a list of `{resource, role, member}`.
+
+    Returns:
+        `{recorded}` with the count of recorded grants; a 400 with the reason
+        when the body or the agent refuses; or a 502 when the agent cannot be
+        reached or sends nothing back.
+    """
+    body = await _read_change(request)
+    if isinstance(body, JSONResponse):
+        return body
+    granted = body.get("granted")
+    if not (
+        isinstance(granted, list)
+        and granted
+        and all(
+            isinstance(grant, dict)
+            and set(grant) == _BINDING_FIELDS
+            and all(isinstance(v, str) and v for v in grant.values())
+            for grant in granted
+        )
+    ):
+        return JSONResponse(
+            {
+                "error": "granted must list bindings as {resource, role, member}."
+            },
+            status_code=400,
+        )
+    try:
+        result = await _get_backend_client().post_command(
+            AGENTS_APPLIED_ROUTE,
+            RecordAppliedArgs(agent_key=body["agent_key"], granted=granted),
+        )
+    except Exception as exc:
+        return JSONResponse({"error": _format_error(exc)}, status_code=502)
+    if not result:
+        return JSONResponse(
+            {"error": "The agent returned no reply to the record."},
+            status_code=502,
+        )
+    if result.get("error"):
+        return JSONResponse({"error": result["error"]}, status_code=400)
+    return {"recorded": len(granted)}
+
+
+async def _read_change(request: Request) -> dict[str, Any] | JSONResponse:
+    """Reads the JSON body of a change to an attached agent.
+
+    Args:
+        request: Incoming HTTP request whose body names the agent in
+            `agent_key`.
+
+    Returns:
+        The body, or a 400 response saying what it lacks.
+    """
+    try:
+        body = await request.json()
+    except ValueError:
+        return JSONResponse({"error": "Expected a JSON body."}, status_code=400)
+    if not isinstance(body, dict):
+        return JSONResponse(
+            {"error": "Expected a JSON object."}, status_code=400
+        )
+    agent_key = body.get("agent_key")
+    if not isinstance(agent_key, str) or not agent_key.strip():
+        # Without a key the change has no attachment to apply to.
+        return JSONResponse(
+            {"error": "agent_key is required."}, status_code=400
+        )
+    return body
+
+
+async def _store_fields(agent_key: str, fields: dict[str, Any]) -> Any:
+    """Stores fields on an attached agent through the attach route.
+
+    Args:
+        agent_key: The attachment to change.
+        fields: Settable fields to change, keyed by field name.
+
+    Returns:
+        The changes, whether they were stored and when; a 400 with the agent's
+        message when it refuses; or a 502 when it cannot be reached or sends
+        nothing back.
+    """
+    try:
+        result = await _get_backend_client().post_command(
+            AGENTS_ATTACH_ROUTE,
+            AttachAgentArgs(agent_key=agent_key, fields=fields, dry_run=False),
+        )
+    except Exception as exc:
+        return JSONResponse({"error": _format_error(exc)}, status_code=502)
+    if not result:
+        return JSONResponse(
+            {"error": "The agent returned no reply to the change."},
+            status_code=502,
+        )
+    if result.get("error"):
+        # The agent's refusals (a cron it cannot run, a detached key) and its
+        # storage failures carry no kind to tell them apart, so all are 400;
+        # the message says which.
+        return JSONResponse({"error": result["error"]}, status_code=400)
+    # Not the trigger target or the object path the reply also carries, which
+    # name the engine's resources.
+    return {
+        "written": bool(result.get("written")),
+        "changes": result.get("changes") or [],
+        "updated_at": result.get("updated_at"),
+    }
+
+
+def _validate_table(fields: dict[str, Any]) -> str:
+    """Checks that a telemetry change names the table to read.
+
+    Args:
+        fields: The telemetry fields of the change.
+
+    Returns:
+        The reason the change is refused, or an empty string if it is not.
+    """
+    for name in ("telemetry_dataset", "telemetry_table"):
+        value = fields.get(name)
+        if not isinstance(value, str) or not value.strip():
+            return f"{name} is required."
+    return ""
+
+
+def _find_refusal(checks: list[dict[str, Any]]) -> str:
+    """Returns why a checked table cannot be saved, using `aqua attach`'s rule.
+
+    Refuses a table when it does not exist, its columns match no source, or its
+    `table` or `rows` check fails for a reason other than an empty table or a
+    missing permission. An empty table (a new agent may have no traffic yet) or
+    a denied read (a grant can follow) does not refuse a save.
+
+    Args:
+        checks: The access check results, in order.
+
+    Returns:
+        The refusal reason, or an empty string when the table can be saved.
+    """
+    missing = next((c for c in checks if c.get("status") == "missing"), None)
+    if missing is not None:
+        return f"{missing.get('target') or missing.get('name')} does not exist."
+    mismatch = next((c for c in checks if c.get("status") == "mismatch"), None)
+    if mismatch is not None:
+        return str(mismatch.get("detail") or "The table is in another format.")
+    failed = next(
+        (
+            c
+            for c in checks
+            if c.get("status") == "error" and c.get("name") in ("table", "rows")
+        ),
+        None,
+    )
+    if failed is not None:
+        target = failed.get("target") or failed.get("name")
+        return f"Reading {target} failed: {failed.get('detail')}"
+    return ""
 
 
 @app.get("/api/source")
@@ -348,13 +865,30 @@ async def get_source_snapshot(request: Request) -> dict:
         Dictionary indicating source availability and status details.
     """
     try:
-        result = await _get_backend_client().post_command(SOURCE_ROUTE)
+        result = await _get_backend_client().post_command(
+            SOURCE_ROUTE, _build_source_args(request) or None
+        )
     except Exception as exc:
         return {"available": False, "reason": _format_error(exc)}
     return result or {
         "available": False,
         "reason": "The agent returned nothing.",
     }
+
+
+def _build_source_args(request: Request) -> GetSourceSnapshotArgs:
+    """Builds the `source` command's body for the selected agent.
+
+    Args:
+        request: Incoming HTTP request, with an optional `agent_key` parameter.
+
+    Returns:
+        The body, naming the selected agent when the request selects one.
+    """
+    args = GetSourceSnapshotArgs()
+    if agent_key := _read_selected_agent(request):
+        args["agent_key"] = agent_key
+    return args
 
 
 @app.get("/api/investigations/{run_id}/cases/{case_id}")
@@ -376,7 +910,10 @@ async def get_case_conversation(
     try:
         result = await _get_backend_client().post_command(
             TRAJECTORIES_CASE_ROUTE,
-            {"trajectory_id": case_id, "run_id": run_id},
+            _add_selected_agent(
+                GetCaseConversationArgs(trajectory_id=case_id, run_id=run_id),
+                request,
+            ),
         )
     except Exception as exc:
         return {"error": _format_error(exc)}
@@ -402,7 +939,8 @@ async def list_investigations(request: Request) -> dict:
     """
     try:
         result = await _get_backend_client().post_command(
-            INVESTIGATIONS_LIST_ROUTE, _extract_window_args(request) or None
+            INVESTIGATIONS_LIST_ROUTE,
+            _add_selected_agent(_extract_window_args(request), request) or None,
         )
     except Exception as exc:
         return {"runs": [], "error": _format_error(exc)}
@@ -428,7 +966,8 @@ async def start_investigation(request: Request) -> dict:
     """
     try:
         result = await _get_backend_client().post_command(
-            INVESTIGATIONS_SCHEDULE_ROUTE
+            INVESTIGATIONS_SCHEDULE_ROUTE,
+            _add_selected_agent(AgentKeyArgs(), request) or None,
         )
     except Exception as exc:
         return {"error": _format_error(exc)}
@@ -451,7 +990,8 @@ async def get_investigation_stats(request: Request) -> dict:
     """
     try:
         result = await _get_backend_client().post_command(
-            INVESTIGATIONS_STATS_ROUTE, _extract_window_args(request) or None
+            INVESTIGATIONS_STATS_ROUTE,
+            _add_selected_agent(_extract_window_args(request), request) or None,
         )
     except Exception as exc:
         return {"stats": {}, "window": {}, "error": _format_error(exc)}
@@ -476,7 +1016,8 @@ async def get_investigation_record(run_id: str, request: Request) -> dict:
     """
     try:
         result = await _get_backend_client().post_command(
-            INVESTIGATIONS_GET_ROUTE, {"run_id": run_id}
+            INVESTIGATIONS_GET_ROUTE,
+            _add_selected_agent(GetInvestigationArgs(run_id=run_id), request),
         )
     except Exception as exc:
         return {"error": _format_error(exc)}
@@ -502,7 +1043,8 @@ async def get_daily_trends(request: Request) -> dict:
     """
     try:
         result = await _get_backend_client().post_command(
-            INVESTIGATIONS_DAILY_ROUTE, _extract_window_args(request) or None
+            INVESTIGATIONS_DAILY_ROUTE,
+            _add_selected_agent(_extract_window_args(request), request) or None,
         )
     except Exception as exc:
         return {"days": [], "error": _format_error(exc)}
@@ -519,24 +1061,33 @@ async def list_insights(request: Request) -> dict:
 
     Args:
         request: Incoming HTTP request with optional query filters (status,
-            runId, hasRootCause, pageToken, orderBy, pageSize, day, window).
+            runId, hasRootCause, pageToken, page, orderBy, pageSize, day,
+            window).
 
     Returns:
         Dictionary containing formatted insights, total count, affected
         conversation counts, and next page token.
     """
     params = request.query_params
-    args = {
-        "status": params.get("status") or "",
-        "run_id": params.get("runId") or "",
-        "has_root_cause": _encode_tri_state(params.get("hasRootCause")),
-        "page_token": params.get("pageToken") or "",
-        "order_by": params.get("orderBy") or "",
-        "page_size": _parse_count(params.get("pageSize")),
-        "day": params.get("day") or "",
-        **_extract_window_args(request),
-    }
-    args = {key: value for key, value in args.items() if value}
+    args = _add_selected_agent(
+        ListInsightsArgs(**_extract_window_args(request)), request
+    )
+    if status := params.get("status"):
+        args["status"] = status
+    if run_id := params.get("runId"):
+        args["run_id"] = run_id
+    if has_root_cause := _encode_tri_state(params.get("hasRootCause")):
+        args["has_root_cause"] = has_root_cause
+    if page_token := params.get("pageToken"):
+        args["page_token"] = page_token
+    if page := _parse_count(params.get("page")):
+        args["page"] = page
+    if order_by := params.get("orderBy"):
+        args["order_by"] = order_by
+    if page_size := _parse_count(params.get("pageSize")):
+        args["page_size"] = page_size
+    if day := params.get("day"):
+        args["day"] = day
     try:
         result = await _get_backend_client().post_command(
             INSIGHTS_LIST_ROUTE, args
@@ -745,17 +1296,18 @@ async def get_insight_detail(insight_id: str, request: Request) -> dict:
         and next page token.
     """
     params = request.query_params
-    args: dict[str, Any] = {
-        "insight_id": insight_id,
-        "run_id": params.get("runId") or "",
-        "page_token": params.get("pageToken") or "",
-        "include_traces": params.get("includeTraces") in ("1", "true"),
+    args = GetInsightArgs(
+        insight_id=insight_id,
+        run_id=params.get("runId") or "",
+        page_token=params.get("pageToken") or "",
+        include_traces=params.get("includeTraces") in ("1", "true"),
         # The links, without the conversations they link to. The panel shows
         # each failing rubric's expected/actual behavior and offers a way out
         # to the trace; the rubric's own conversation copy is the heavy payload
         # a harness wants, and stays behind `includeTraces`.
-        "include_trajectories": True,
-    }
+        include_trajectories=True,
+    )
+    _add_selected_agent(args, request)
     try:
         result = await _get_backend_client().post_command(
             INSIGHTS_GET_ROUTE, args
@@ -798,18 +1350,22 @@ async def get_insight_detail(insight_id: str, request: Request) -> dict:
 
 
 @app.post("/api/insights/{insight_id}/dismiss")
-async def dismiss_insight(insight_id: str) -> Any:
+async def dismiss_insight(insight_id: str, request: Request) -> Any:
     """Dismisses an insight, hiding it from default active listings.
 
     Args:
         insight_id: Identifier of the insight to dismiss.
+        request: Incoming HTTP request, with the selected agent in its query.
 
     Returns:
         JSON response with the backend result or HTTP error status.
     """
     try:
         result = await _get_backend_client().post_command(
-            INSIGHTS_DISMISS_ROUTE, {"insight_id": insight_id}
+            INSIGHTS_DISMISS_ROUTE,
+            _add_selected_agent(
+                DismissInsightArgs(insight_id=insight_id), request
+            ),
         )
     except Exception as exc:
         return JSONResponse({"error": _format_error(exc)}, status_code=502)
@@ -841,7 +1397,12 @@ async def merge_insight(insight_id: str, request: Request) -> Any:
     try:
         result = await _get_backend_client().post_command(
             INSIGHTS_MERGE_ROUTE,
-            {"insight_id": insight_id, "target_insight_id": target},
+            _add_selected_agent(
+                MergeInsightArgs(
+                    insight_id=insight_id, target_insight_id=target
+                ),
+                request,
+            ),
         )
     except Exception as exc:
         return JSONResponse({"error": _format_error(exc)}, status_code=502)
@@ -897,7 +1458,9 @@ async def _forward(
     Returns:
         httpx.Response from the upstream server.
     """
-    async with httpx.AsyncClient(timeout=httpx.Timeout(60.0)) as http:
+    async with httpx.AsyncClient(
+        timeout=httpx.Timeout(60.0), headers=build_usage_headers()
+    ) as http:
         return await http.request(method, url, content=content, headers=headers)
 
 
@@ -907,7 +1470,9 @@ def _create_streaming_client() -> Any:
     Returns:
         Configured `httpx.AsyncClient` instance.
     """
-    return httpx.AsyncClient(timeout=httpx.Timeout(300.0))
+    return httpx.AsyncClient(
+        timeout=httpx.Timeout(300.0), headers=build_usage_headers()
+    )
 
 
 def _build_json_error(status_code: int, message: str) -> Response:
@@ -1322,8 +1887,8 @@ def _rewrite_card_to_same_origin(content: bytes, base: str) -> bytes:
 # "nothing here", which is indistinguishable from a real empty state and is a
 # lie about a surface that does not exist; the client also short-circuits on
 # 501 and would otherwise retry a route that will never appear. Two exceptions:
-# `/lha/sessions`, whose list genuinely is client-side, and `/lha/contexts`,
-# which is real and backed by the task store.
+# `/lha/sessions`, which answers an empty list, and `/lha/contexts`, which is
+# backed by the task store and saved chat names.
 # --------------------------------------------------------------------------- #
 
 # `/lha` originates from the Long Horizon Agent implementation:
@@ -1368,14 +1933,19 @@ def _build_lha_unavailable_response(area: str) -> JSONResponse:
 
 
 @app.get("/api/goal")
-async def get_goal() -> dict:
+async def get_goal(request: Request) -> dict:
     """Retrieves the active quality goal and version for the observed agent.
+
+    Args:
+        request: Incoming HTTP request, with the selected agent in its query.
 
     Returns:
         Dictionary containing the goal text and active version or error details.
     """
     try:
-        result = await _get_backend_client().post_command(GOAL_GET_ROUTE, {})
+        result = await _get_backend_client().post_command(
+            GOAL_GET_ROUTE, _add_selected_agent(AgentKeyArgs(), request)
+        )
     except Exception as exc:
         return {
             "goal": None,
@@ -1407,7 +1977,10 @@ async def put_goal(request: Request) -> Any:
         return JSONResponse({"error": "Expected a JSON body."}, status_code=400)
     try:
         result = await _get_backend_client().post_command(
-            GOAL_SET_ROUTE, {"goal": str((body or {}).get("goal") or "")}
+            GOAL_SET_ROUTE,
+            _add_selected_agent(
+                SetGoalArgs(goal=str((body or {}).get("goal") or "")), request
+            ),
         )
     except Exception as exc:
         return JSONResponse({"error": _format_error(exc)}, status_code=502)
@@ -1419,17 +1992,20 @@ async def put_goal(request: Request) -> Any:
 
 
 @app.get("/api/goal/versions")
-async def get_goal_versions() -> dict:
+async def get_goal_versions(request: Request) -> dict:
     """Lists every saved version of the goal, most recently active first.
 
     Restoring one is a PUT of its text to /api/goal.
+
+    Args:
+        request: Incoming HTTP request, with the selected agent in its query.
 
     Returns:
         Dictionary containing the versions or error details.
     """
     try:
         result = await _get_backend_client().post_command(
-            GOAL_VERSIONS_ROUTE, {}
+            GOAL_VERSIONS_ROUTE, _add_selected_agent(AgentKeyArgs(), request)
         )
     except Exception as exc:
         return {
@@ -1447,15 +2023,18 @@ async def get_goal_versions() -> dict:
 
 
 @app.get("/api/memories")
-async def list_memories() -> dict:
+async def list_memories(request: Request) -> dict:
     """Lists the memories the developer asked the chat to keep, newest first.
+
+    Args:
+        request: Incoming HTTP request, with the selected agent in its query.
 
     Returns:
         Dictionary containing the memories or error details.
     """
     try:
         result = await _get_backend_client().post_command(
-            MEMORIES_LIST_ROUTE, {}
+            MEMORIES_LIST_ROUTE, _add_selected_agent(AgentKeyArgs(), request)
         )
     except Exception as exc:
         return {
@@ -1473,18 +2052,20 @@ async def list_memories() -> dict:
 
 
 @app.delete("/api/memories/{memory_id}")
-async def delete_memory(memory_id: str) -> Any:
+async def delete_memory(memory_id: str, request: Request) -> Any:
     """Deletes a memory by identifier.
 
     Args:
         memory_id: Identifier of the memory to delete.
+        request: Incoming HTTP request, with the selected agent in its query.
 
     Returns:
         JSON response confirming deletion or HTTP error.
     """
     try:
         result = await _get_backend_client().post_command(
-            MEMORIES_DELETE_ROUTE, {"memory_id": memory_id}
+            MEMORIES_DELETE_ROUTE,
+            _add_selected_agent(DeleteMemoryArgs(memory_id=memory_id), request),
         )
     except Exception as exc:
         return JSONResponse({"error": _format_error(exc)}, status_code=502)
@@ -1552,7 +2133,7 @@ async def list_lha_context_tasks(context_id: str) -> Any:
 
 @app.delete("/lha/contexts/{context_id}")
 async def delete_lha_context(context_id: str) -> Any:
-    """Deletes all task blobs associated with a conversation context from storage.
+    """Deletes a conversation context's task blobs and saved name from storage.
 
     Removing the underlying task blobs ensures the deleted conversation is not
     resurfaced during subsequent context listings.
@@ -1561,8 +2142,8 @@ async def delete_lha_context(context_id: str) -> Any:
         context_id: Identifier of the conversation context to delete.
 
     Returns:
-        Dict mapping "deleted" to the number of erased task blobs, or an HTTP
-        501/502 JSONResponse on failure.
+        Dict mapping "deleted" to the number of erased task blobs (the saved
+        name is not counted), or an HTTP 501/502 JSONResponse on failure.
     """
     bucket = _read_jobs_bucket()
     if not bucket:
@@ -1575,6 +2156,67 @@ async def delete_lha_context(context_id: str) -> Any:
             {"error": f"{type(exc).__name__}: {exc}"}, status_code=502
         )
     return {"deleted": deleted}
+
+
+# The dashboard caps a name at 80 UTF-16 code units, so this limit only rejects
+# requests from other callers.
+_CONTEXT_TITLE_MAX_LENGTH = 200
+
+
+def _extract_context_title(body: Any) -> str:
+    """Extracts and validates the chat name from a rename request body.
+
+    Args:
+        body: Decoded JSON request body.
+
+    Returns:
+        The name with surrounding whitespace removed.
+
+    Raises:
+        ValueError: If the name is missing, blank, or exceeds
+            `_CONTEXT_TITLE_MAX_LENGTH` characters.
+    """
+    title = body.get("title") if isinstance(body, dict) else None
+    if not isinstance(title, str) or not title.strip():
+        raise ValueError("Expected a non-empty string `title`.")
+    title = title.strip()
+    if len(title) > _CONTEXT_TITLE_MAX_LENGTH:
+        raise ValueError(
+            f"`title` is longer than {_CONTEXT_TITLE_MAX_LENGTH} characters."
+        )
+    return title
+
+
+@app.put("/lha/contexts/{context_id}/title")
+async def save_lha_context_title(context_id: str, request: Request) -> Any:
+    """Saves the name a user gave a conversation, so every browser shows it.
+
+    Args:
+        context_id: Conversation context identifier.
+        request: Incoming HTTP request with JSON body containing `title`.
+
+    Returns:
+        Dict mapping "title" to the saved name, or an HTTP 400/501/502
+        JSONResponse on failure.
+    """
+    bucket = _read_jobs_bucket()
+    if not bucket:
+        return _build_lha_unavailable_response("contexts")
+    try:
+        body = await request.json()
+    except ValueError:
+        return JSONResponse({"error": "Expected a JSON body."}, status_code=400)
+    try:
+        title = _extract_context_title(body)
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+    try:
+        await task_reader.save_context_title(bucket, context_id, title)
+    except Exception as exc:
+        return JSONResponse(
+            {"error": f"{type(exc).__name__}: {exc}"}, status_code=502
+        )
+    return {"title": title}
 
 
 @app.api_route(

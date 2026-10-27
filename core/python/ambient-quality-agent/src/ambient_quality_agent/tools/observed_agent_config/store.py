@@ -14,31 +14,39 @@
 
 """How an observed agent is watched, stored in the jobs store.
 
-One object per attached agent is stored at `agents/<name>.json` in the
+One object per attached agent is stored at `agents/<agent key>.json` in the
 `ObjectStore` that `objects.store.jobs_store_factory` returns: the jobs bucket in
-a deployment, `.aqua/job/` in a standalone run. The jobs bucket is reused because
+a deployment, `.aqua/job/` in a standalone run. The agent key
+(`ambient_quality_shared.agent_key`) is `<project id>__<agent name>`, so the same
+agent in two projects has two objects; an agent in AQuA's own project keeps its
+bare name (`keys`).
+The jobs bucket is reused because
 the engine service account has read/write permissions and the UI service account
 has read permissions. Only the engine writes these objects: `aqua attach` sends
 its changes to the command routes backed by `commands`, so no other principal
 needs write access to the bucket.
 
 The configuration object is authoritative for an attached agent. Omitted keys
-fall back to `ObservedAgentConfig` defaults rather than environment variables,
-preventing hybrid configurations where settings implicitly combine environment
-and object values.
+fall back to `ObservedAgentConfig` defaults.
 
 The envelope schema is versioned and forward-tolerant. Deployments read objects
 written by various CLI versions, so unrecognized keys are logged as warnings and
 omitted rather than raising errors that would disrupt requests.
 
-Infrastructure fields (`investigation_schedule`, `scheduled_trigger_enabled`,
-`observed_engine_id` and the agent's `observed_project_id`) are applied to
-Cloud Scheduler and audit log sinks via `attach --apply`. The `applied` section records values
-pushed during the last apply to distinguish desired configuration from active
-infrastructure state.
+Infrastructure fields (`observed_engine_id` and the agent's
+`observed_project_id`) are wired into the audit log sink by `attach`.
+The `applied` section records values pushed during the last apply to
+distinguish desired configuration from active infrastructure state.
 
-The `applied` section also lists the IAM grants `attach --apply` ran on the
-observed agent's resources, so that `detach --apply` revokes only bindings
+The schedule (`investigation_schedule`, `scheduled_trigger_enabled`) is read
+from this object by the engine on every scheduler tick (`schedule`), for every
+attached agent, so a write takes effect on the next tick. It is always a cron
+expression, never empty, so that a reader of the object knows when the agent
+is investigated. A schedule stored empty reads as
+`DEFAULT_INVESTIGATION_SCHEDULE`, the schedule of an agent with no object.
+
+The `applied` section also lists the IAM grants `attach` ran on the
+observed agent's resources, so that `detach` revokes only bindings
 that a grant command of `attach` was run for.
 """
 
@@ -52,6 +60,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from ambient_quality_agent.config import ObservedAgentConfig
+from ambient_quality_shared.agent_key import SEPARATOR, extract_agent_name
 
 if TYPE_CHECKING:
     from ambient_quality_agent.tools.objects.store import ObjectStore
@@ -64,13 +73,14 @@ AGENTS_PREFIX = "agents/"
 SCHEMA_VERSION = 1
 """Schema version of the agent configuration envelope."""
 
-TERRAFORM_BACKED_FIELDS = (
-    "investigation_schedule",
-    "scheduled_trigger_enabled",
+DEFAULT_INVESTIGATION_SCHEDULE = "0 12 * * *"
+"""The scheduled sweep's cron when none is set: daily at 12:00 UTC."""
+
+TRIGGER_FIELDS = (
     "observed_engine_id",
     "observed_project_id",
 )
-"""Fields synchronized with external infrastructure during `attach --apply`.
+"""Fields the update trigger acts on, which `attach` wires with gcloud.
 
 `observed_project_id` is a runtime field of `ObservedAgentConfig` as well,
 since ingestion reads the agent's telemetry from that project."""
@@ -78,7 +88,7 @@ since ingestion reads the agent's telemetry from that project."""
 
 @dataclass(frozen=True)
 class AppliedGrant:
-    """One IAM binding `attach --apply` made for AQuA's service account."""
+    """One IAM binding `attach` made for AQuA's service account."""
 
     resource: str
     """What it grants access to, as the CLI names it: `project:dataset`,
@@ -119,24 +129,22 @@ def is_grant_record(fields: Any) -> bool:
 
 @dataclass(frozen=True)
 class Applied:
-    """Configuration values applied to external infrastructure by `attach --apply`.
+    """Configuration values `attach` applied outside the engine.
 
     Serves as an advisory record of applied state rather than reading back
-    from Terraform directly.
+    from the audit sink directly.
     """
 
     at: str = ""
     """When the triggers were last applied, in ISO 8601 format. Empty when
-    only grants are recorded: an apply whose Terraform step failed still ran
+    only grants are recorded: an attach whose trigger commands failed still ran
     its grants."""
 
-    investigation_schedule: str = ""
-    scheduled_trigger_enabled: bool = True
     observed_engine_id: str = ""
     observed_project_id: str = ""
 
     grants: tuple[AppliedGrant, ...] = ()
-    """The grants `attach --apply` ran and no `detach --apply` has revoked."""
+    """The grants `attach` ran and no `detach` has revoked."""
 
 
 @dataclass(frozen=True)
@@ -152,14 +160,16 @@ class AgentRecord:
     observed_deployment_name: str = ""
     """Deployment name of the observed agent in agents-cli."""
 
-    investigation_schedule: str = ""
-    """Cron expression for scheduled sweeps, applied via `attach --apply`."""
+    investigation_schedule: str = DEFAULT_INVESTIGATION_SCHEDULE
+    """Cron expression for scheduled sweeps, in UTC. The engine reads it on
+    every scheduler tick."""
 
     scheduled_trigger_enabled: bool = True
-    """Whether the scheduled sweep trigger is enabled in infrastructure."""
+    """Whether scheduled sweeps run. Updates to the observed agent trigger an
+    investigation either way."""
 
     observed_engine_id: str = ""
-    """Engine ID whose events trigger investigations, applied via `attach --apply`."""
+    """Engine ID whose events trigger investigations, wired by `attach`."""
 
     telemetry_payload_bucket: str = ""
     """Bucket the agent uploads message content to, which its telemetry rows
@@ -173,41 +183,47 @@ class AgentRecord:
     """Timestamp of the last record write in ISO 8601 format."""
 
     applied: Applied | None = None
-    """Applied infrastructure state, or `None` if `attach --apply` has not run."""
+    """Applied infrastructure state, or `None` if `attach` has wired nothing."""
 
     @property
     def agent_name(self) -> str:
+        """The agent's root agent name, which its telemetry is filtered by."""
         return self.config.observed_agent_name
 
+    @property
+    def agent_key(self) -> str:
+        """The key the record is stored under."""
+        return self.config.agent_key
+
     def list_unapplied_fields(self) -> list[str]:
-        """Lists Terraform-backed fields whose configured value differs from the applied state.
+        """Lists update trigger fields whose configured value differs from the applied state.
 
         All fields are considered pending until the first apply of the
         triggers completes, distinguishing desired configuration from active
         infrastructure.
 
         Returns:
-            Names of fields pending synchronization via `attach --apply`.
+            Names of fields pending synchronization by `attach`.
         """
         if self.applied is None or not self.applied.at:
-            return list(TERRAFORM_BACKED_FIELDS)
-        configured = self.extract_terraform_values()
+            return list(TRIGGER_FIELDS)
+        configured = self.extract_trigger_values()
         return [
             name
-            for name in TERRAFORM_BACKED_FIELDS
+            for name in TRIGGER_FIELDS
             if configured[name] != getattr(self.applied, name)
         ]
 
-    def extract_terraform_values(self) -> dict[str, Any]:
-        """Extracts the values `attach --apply` hands to Terraform.
+    def extract_trigger_values(self) -> dict[str, Any]:
+        """Extracts the values `attach` wires the update trigger with.
 
         Returns:
-            Each of `TERRAFORM_BACKED_FIELDS`, from the record or from its
+            Each of `TRIGGER_FIELDS`, from the record or from its
             runtime configuration.
         """
         return {
             name: getattr(self.config if name in _CONFIG_FIELDS else self, name)
-            for name in TERRAFORM_BACKED_FIELDS
+            for name in TRIGGER_FIELDS
         }
 
 
@@ -228,23 +244,31 @@ RECORD_FIELDS: frozenset[str] = frozenset(
 
 _APPLIED_FIELDS = frozenset(f.name for f in dataclasses.fields(Applied))
 
+_IGNORED_APPLIED_FIELDS = frozenset(
+    {"investigation_schedule", "scheduled_trigger_enabled"}
+)
+"""Schedule keys an `applied` section may carry.
 
-def build_object_name(agent_name: str) -> str:
+Read without a warning and dropped: the schedule in effect is the one in the
+`agent` section."""
+
+
+def build_object_name(agent_key: str) -> str:
     """Builds the object name for an agent.
 
     Slashes are replaced with underscores to prevent escaping the agents
     prefix and overwriting unrelated objects in the store.
 
     Args:
-        agent_name: Name of the agent.
+        agent_key: Key of the agent.
 
     Returns:
         The object name.
     """
-    return f"{AGENTS_PREFIX}{agent_name.replace('/', '_')}.json"
+    return f"{AGENTS_PREFIX}{agent_key.replace('/', '_')}.json"
 
 
-def get_agent_record(store: ObjectStore, agent_name: str) -> AgentRecord | None:
+def get_agent_record(store: ObjectStore, agent_key: str) -> AgentRecord | None:
     """Fetches the configuration record for an attached agent.
 
     Missing objects return `None` because unattached agents are expected in normal
@@ -252,15 +276,15 @@ def get_agent_record(store: ObjectStore, agent_name: str) -> AgentRecord | None:
 
     Args:
         store: Store containing agent configurations.
-        agent_name: Name of the agent to look up.
+        agent_key: Key of the agent to look up.
 
     Returns:
         The parsed agent record, or `None` if the agent is not attached.
     """
-    raw = store.read_text(build_object_name(agent_name))
+    raw = store.read_text(build_object_name(agent_key))
     if raw is None:
         return None
-    return parse_agent_record(raw, agent_name)
+    return parse_agent_record(raw, agent_key)
 
 
 def save_agent_record(store: ObjectStore, record: AgentRecord) -> AgentRecord:
@@ -275,43 +299,49 @@ def save_agent_record(store: ObjectStore, record: AgentRecord) -> AgentRecord:
 
     Returns:
         The saved agent record with its updated timestamp.
+
+    Raises:
+        ValueError: If the record has no agent key to be stored under.
     """
+    if not record.agent_key:
+        raise ValueError(f"the record for {record.agent_name!r} has no key")
     stamped = dataclasses.replace(
         record, updated_at=dt.datetime.now(dt.UTC).isoformat()
     )
     store.write_text(
-        build_object_name(stamped.agent_name),
+        build_object_name(stamped.agent_key),
         json.dumps(agent_record_to_json(stamped), indent=2),
     )
     return stamped
 
 
-def delete_agent_record(store: ObjectStore, agent_name: str) -> bool:
+def delete_agent_record(store: ObjectStore, agent_key: str) -> bool:
     """Deletes the configuration object for an agent.
 
     An absent object is the state the caller asks for, so it is not an error.
 
     Args:
         store: Store where the configuration is kept.
-        agent_name: Name of the observed agent.
+        agent_key: Key of the observed agent.
 
     Returns:
         True if an object was deleted, False if none existed.
     """
-    return store.delete(build_object_name(agent_name))
+    return store.delete(build_object_name(agent_key))
 
 
 def list_agents(store: ObjectStore) -> list[str]:
-    """Lists all attached agent names in alphabetical order.
+    """Lists all attached agent keys in alphabetical order.
 
-    Extracts names from object keys without downloading contents, keeping
-    the listing to a single storage request.
+    Extracts keys from object names without downloading contents, keeping
+    the listing to a single storage request. An object stored under a bare
+    agent name is listed under it.
 
     Args:
         store: Store containing agent configurations.
 
     Returns:
-        Sorted list of attached agent names.
+        Sorted list of attached agent keys.
     """
     names = []
     for object_name in store.list_names(AGENTS_PREFIX):
@@ -324,7 +354,7 @@ def list_agents(store: ObjectStore) -> list[str]:
 def resolve_default(
     store: ObjectStore, pending: AgentRecord | None = None
 ) -> str | None:
-    """Resolves the default agent for requests that specify no agent name.
+    """Resolves the default agent for requests that specify no agent.
 
     Resolution order:
     1. Filter attached agents whose `default` flag is true.
@@ -338,14 +368,14 @@ def resolve_default(
             stored record.
 
     Returns:
-        The resolved agent name, or `None` if no agents are attached.
+        The resolved agent key, or `None` if no agents are attached.
     """
     names = list_agents(store)
-    if pending is not None and pending.agent_name not in names:
-        names = sorted([*names, pending.agent_name])
+    if pending is not None and pending.agent_key not in names:
+        names = sorted([*names, pending.agent_key])
     flagged = []
     for name in names:
-        if pending is not None and name == pending.agent_name:
+        if pending is not None and name == pending.agent_key:
             record: AgentRecord | None = pending
         else:
             record = get_agent_record(store, name)
@@ -358,7 +388,7 @@ def resolve_default(
 def agent_record_to_json(record: AgentRecord) -> dict[str, Any]:
     """Serializes an agent record into storage dictionary format.
 
-    The `agent` section flattens runtime and Terraform-backed fields together
+    The `agent` section flattens runtime and update trigger fields together
     so callers inspect a unified configuration without distinguishing backends.
 
     Args:
@@ -381,20 +411,21 @@ def agent_record_to_json(record: AgentRecord) -> dict[str, Any]:
     return payload
 
 
-def parse_agent_record(raw: bytes | str, agent_name: str) -> AgentRecord:
+def parse_agent_record(raw: bytes | str, agent_key: str) -> AgentRecord:
     """Parses a stored configuration object into an AgentRecord.
 
     Parsing sequence:
     1. Validate that the payload is a valid JSON dictionary.
     2. Warn if the schema version is newer than supported.
-    3. Extract recognized fields, enforcing `agent_name` from the storage key
-       to prevent identity mismatches.
-    4. Parse optional applied Terraform state.
+    3. Extract recognized fields, enforcing `agent_key` and the agent's name
+       from the storage key to prevent identity mismatches. An object stored
+       under a bare agent name is named by it.
+    4. Parse the optional applied state.
     5. Construct and return the `AgentRecord`.
 
     Args:
         raw: Raw JSON payload as bytes or string.
-        agent_name: Agent name derived from the storage key.
+        agent_key: Agent key derived from the storage key.
 
     Returns:
         Parsed `AgentRecord` containing known fields.
@@ -404,43 +435,47 @@ def parse_agent_record(raw: bytes | str, agent_name: str) -> AgentRecord:
     """
     payload = json.loads(raw)
     if not isinstance(payload, dict):
-        raise ValueError(
-            f"agent config for {agent_name!r} is not a JSON object"
-        )
+        raise ValueError(f"agent config for {agent_key!r} is not a JSON object")
 
     version = payload.get("schema_version", SCHEMA_VERSION)
     if isinstance(version, int) and version > SCHEMA_VERSION:
         logger.warning(
             "agent config for %s is schema version %d, newer than the %d this "
             "build knows; reading the fields it recognizes.",
-            agent_name,
+            agent_key,
             version,
             SCHEMA_VERSION,
         )
 
     agent = payload.get("agent")
     if not isinstance(agent, dict):
-        raise ValueError(
-            f"agent config for {agent_name!r} has no agent section"
-        )
+        raise ValueError(f"agent config for {agent_key!r} has no agent section")
 
     # The `agent` section holds both field sets side by side, so its unknown
     # keys are the ones outside their union. Checking each set on its own would
     # report every field of the other set as unknown.
     _warn_unknown_fields(
-        agent, _CONFIG_FIELDS | RECORD_FIELDS, agent_name, "agent"
+        agent, _CONFIG_FIELDS | RECORD_FIELDS, agent_key, "agent"
     )
     config_fields = _extract_fields(agent, _CONFIG_FIELDS)
-    config_fields["observed_agent_name"] = agent_name
-    record_fields = _extract_fields(agent, RECORD_FIELDS)
+    config_fields["agent_key"] = agent_key
+    config_fields["observed_agent_name"] = _resolve_agent_name(
+        str(config_fields.get("observed_agent_name") or ""), agent_key
+    )
+    record_fields = _resolve_schedule(_extract_fields(agent, RECORD_FIELDS))
 
     applied = payload.get("applied")
     applied_state = None
     if isinstance(applied, dict):
-        _warn_unknown_fields(applied, _APPLIED_FIELDS, agent_name, "applied")
+        _warn_unknown_fields(
+            applied,
+            _APPLIED_FIELDS | _IGNORED_APPLIED_FIELDS,
+            agent_key,
+            "applied",
+        )
         applied_fields = _extract_fields(applied, _APPLIED_FIELDS)
         applied_fields["grants"] = _parse_grants(
-            applied_fields.get("grants"), agent_name
+            applied_fields.get("grants"), agent_key
         )
         applied_state = Applied(**applied_fields)
 
@@ -452,7 +487,51 @@ def parse_agent_record(raw: bytes | str, agent_name: str) -> AgentRecord:
     )
 
 
-def _parse_grants(raw: Any, agent_name: str) -> tuple[AppliedGrant, ...]:
+def _resolve_schedule(fields: dict[str, Any]) -> dict[str, Any]:
+    """Resolves an empty stored schedule to the default one.
+
+    The engine runs an object that stores an empty schedule on the default,
+    so the object reads as storing it.
+
+    Args:
+        fields: Fields read from one section of the object.
+
+    Returns:
+        `fields`, with `DEFAULT_INVESTIGATION_SCHEDULE` in place of an empty
+        `investigation_schedule`.
+    """
+    if fields.get("investigation_schedule") == "":
+        return {
+            **fields,
+            "investigation_schedule": DEFAULT_INVESTIGATION_SCHEDULE,
+        }
+    return fields
+
+
+def _resolve_agent_name(stored_name: str, agent_key: str) -> str:
+    """Resolves an attachment's agent name from its object and its key.
+
+    The key decides, so that an object cannot claim another agent. A bare name
+    may itself contain `__` (`support__bot`), so the name the object records
+    is taken whenever the key is that name, or ends with it.
+
+    Args:
+        stored_name: The `observed_agent_name` the object records; empty if
+            none.
+        agent_key: The key the object is stored under.
+
+    Returns:
+        The agent's name.
+    """
+    if stored_name and (
+        agent_key == stored_name
+        or agent_key.endswith(f"{SEPARATOR}{stored_name}")
+    ):
+        return stored_name
+    return extract_agent_name(agent_key)
+
+
+def _parse_grants(raw: Any, agent_key: str) -> tuple[AppliedGrant, ...]:
     """Parses the recorded grants, dropping any entry that is not one.
 
     A dropped entry is logged rather than raised: the rest of the object still
@@ -461,7 +540,7 @@ def _parse_grants(raw: Any, agent_name: str) -> tuple[AppliedGrant, ...]:
 
     Args:
         raw: The `applied.grants` value as stored; absent is None.
-        agent_name: Agent name for diagnostic log messages.
+        agent_key: Agent key for diagnostic log messages.
 
     Returns:
         The grants, in the order they were recorded.
@@ -472,7 +551,7 @@ def _parse_grants(raw: Any, agent_name: str) -> tuple[AppliedGrant, ...]:
         logger.warning(
             "agent config for %s has applied.grants that is not a list; "
             "ignoring it.",
-            agent_name,
+            agent_key,
         )
         return ()
     grants = []
@@ -490,7 +569,7 @@ def _parse_grants(raw: Any, agent_name: str) -> tuple[AppliedGrant, ...]:
             logger.warning(
                 "agent config for %s has a recorded grant this build cannot "
                 "read: %r; ignoring it.",
-                agent_name,
+                agent_key,
                 entry,
             )
     return tuple(grants)
@@ -514,7 +593,7 @@ def _extract_fields(
 def _warn_unknown_fields(
     section: dict[str, Any],
     recognized: frozenset[str],
-    agent_name: str,
+    agent_key: str,
     where: str,
 ) -> None:
     """Logs a warning naming the keys of `section` that this build ignores.
@@ -527,7 +606,7 @@ def _warn_unknown_fields(
     Args:
         section: Source dictionary of configuration fields.
         recognized: Every field name the section may carry.
-        agent_name: Agent name for diagnostic log messages.
+        agent_key: Agent key for diagnostic log messages.
         where: Section name in the configuration object for diagnostic log messages.
     """
     unknown = sorted(set(section) - recognized)
@@ -535,7 +614,7 @@ def _warn_unknown_fields(
         logger.warning(
             "agent config for %s has %s key(s) this build does not know: %s; "
             "ignoring them.",
-            agent_name,
+            agent_key,
             where,
             ", ".join(unknown),
         )

@@ -16,9 +16,10 @@
 
 `gcs_store.GcsObjectStore` is the deployed implementation, over a bucket;
 `standalone.files.FileObjectStore` keeps the same names as files under a
-directory. Two stores are laid out this way: the jobs store, holding the goal,
-the memories and the attached agents' configurations, and the source store,
-holding the observed agents' source snapshots. Every rule about a layout lives
+directory. Three stores are laid out this way: the jobs store, holding the goal,
+the memories and the attached agents' configurations; the source store,
+holding the observed agents' source snapshots; and the metrics store, holding
+the published code-metric library. Every rule about a layout lives
 with what it lays out rather than here.
 
 Names are `/`-separated paths relative to the store's root, as in GCS. Both
@@ -180,4 +181,14 @@ source_store_factory: Callable[[], ObjectStore | None] = (
 Bound by `backends.configure_providers`: the source bucket in a deployment, or
 None when the deployment names none; a directory in a standalone run. Laid out
 by `source_code.snapshot`.
+"""
+
+metrics_store_factory: Callable[[], ObjectStore | None] = (
+    providers.build_unbound_provider("metrics_store_factory")
+)
+"""The store holding the published code-metric library, or None without one.
+
+Bound by `backends.configure_providers`: the metrics bucket in a deployment, or
+None when the deployment names none; a directory in a standalone run. Laid out
+by `metrics.publishing`. Whatever it holds runs inside the engine.
 """

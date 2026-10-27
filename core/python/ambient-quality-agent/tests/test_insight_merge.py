@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import json
+import time
 from typing import Any
 
 import pytest
@@ -221,3 +222,106 @@ def test_merge_unions_the_revisions_of_the_folded_candidates() -> None:
     (merged,) = merge.merge_clusters(clusters, model_call=call)
 
     assert merged.agent_revisions == ["2", "4"]
+
+
+# --- per-agent merging ---------------------------------------------------------
+
+
+def _read_merge_ids(prompt: str) -> list[int]:
+    """Extract the candidate cluster IDs from a rendered merge prompt.
+
+    Args:
+        prompt: Rendered merge prompt string.
+
+    Returns:
+        Cluster IDs in the order they appear in the prompt payload.
+    """
+    payload = prompt.rsplit(merge._MERGE_INSTRUCTIONS, maxsplit=1)[-1]
+    return [entry["id"] for entry in json.loads(payload)]
+
+
+def test_candidates_of_different_agents_never_share_a_merge_call() -> None:
+    """One wording in two agents is two defects with two fixes, so the model
+    is never given the chance to fold them together."""
+    clusters = [
+        Cluster(
+            cluster_id=0, label="failed to call create_ticket", agent_id="a"
+        ),
+        Cluster(
+            cluster_id=1, label="failed to call create_ticket", agent_id="b"
+        ),
+        Cluster(cluster_id=2, label="did not call create_ticket", agent_id="a"),
+        Cluster(cluster_id=3, label="did not call create_ticket", agent_id="b"),
+    ]
+    prompts: list[str] = []
+
+    def call(prompt: str) -> str:
+        prompts.append(prompt)
+        return json.dumps({"groups": [{"ids": _read_merge_ids(prompt)}]})
+
+    merged = merge.merge_clusters(clusters, model_call=call)
+
+    assert sorted(_read_merge_ids(p) for p in prompts) == [[0, 2], [1, 3]]
+    # Each agent's pair folds onto its first candidate, and the result keeps
+    # the input order of the candidates that were kept.
+    assert [(c.cluster_id, c.agent_id) for c in merged] == [(0, "a"), (1, "b")]
+
+
+def test_an_agent_with_one_candidate_costs_no_merge_call() -> None:
+    """Nothing to fold, so nothing to ask, while the other agent still merges."""
+    clusters = [
+        Cluster(cluster_id=0, label="x", agent_id="a"),
+        Cluster(cluster_id=1, label="y", agent_id="lonely"),
+        Cluster(cluster_id=2, label="x again", agent_id="a"),
+    ]
+    call = _fake_call({"groups": [{"ids": [0, 2]}]})
+
+    merged = merge.merge_clusters(clusters, model_call=call)
+
+    assert len(call.prompts) == 1
+    assert _read_merge_ids(call.prompts[0]) == [0, 2]
+    assert [c.cluster_id for c in merged] == [0, 1]
+    assert merged[0].agent_id == "a"
+
+
+def test_a_failed_merge_call_keeps_only_that_agents_candidates_unmerged() -> (
+    None
+):
+    clusters = [
+        Cluster(cluster_id=0, label="x", agent_id="a"),
+        Cluster(cluster_id=1, label="y", agent_id="b"),
+        Cluster(cluster_id=2, label="x again", agent_id="a"),
+        Cluster(cluster_id=3, label="y again", agent_id="b"),
+    ]
+
+    def call(prompt: str) -> str:
+        ids = _read_merge_ids(prompt)
+        if ids == [0, 2]:
+            raise RuntimeError("503 UNAVAILABLE")
+        return json.dumps({"groups": [{"ids": ids}]})
+
+    merged = merge.merge_clusters(clusters, model_call=call)
+
+    assert [c.cluster_id for c in merged] == [0, 1, 2]
+
+
+def test_merged_candidates_keep_the_input_order_whichever_call_finishes_first() -> (
+    None
+):
+    """The per-agent calls run concurrently, so the result must not depend on
+    which one answered first."""
+    clusters = [
+        Cluster(cluster_id=0, label="x", agent_id="slow"),
+        Cluster(cluster_id=1, label="y", agent_id="fast"),
+        Cluster(cluster_id=2, label="x again", agent_id="slow"),
+        Cluster(cluster_id=3, label="y again", agent_id="fast"),
+    ]
+
+    def call(prompt: str) -> str:
+        ids = _read_merge_ids(prompt)
+        time.sleep(0.05 if ids[0] == 0 else 0.0)
+        return json.dumps({"groups": [{"ids": [i]} for i in ids]})
+
+    merged = merge.merge_clusters(clusters, model_call=call)
+
+    assert [c.cluster_id for c in merged] == [0, 1, 2, 3]

@@ -15,7 +15,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Play } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { runsQuery, startInvestigation } from "@/lib/aqua-api";
+import { buildAgentScope, runsQuery, startInvestigation } from "@/lib/aqua-api";
 import {
   POLL_INTERVAL_MS,
   inFlightAge,
@@ -26,6 +26,7 @@ import {
 } from "@/lib/runstate";
 import { textStyle } from "@/lib/typography";
 import { cn } from "@/lib/utils";
+import { useAgentKey } from "@/lib/agent-selection";
 
 /** What the note says, and why. Composed from state rather than written at each
  *  turn, so a refresh landing after a failed start cannot quietly wipe the
@@ -76,15 +77,16 @@ function note(
  */
 export function RunInvestigationButton({ className }: { className?: string }) {
   const queryClient = useQueryClient();
+  const agentKey = useAgentKey();
   const [error, setError] = useState("");
-  const runs = useQuery(runsQuery());
+  const runs = useQuery(runsQuery(agentKey));
 
   const live = inFlightRuns(runs.data);
   const inFlight = live.length;
   const stalled = stalledRuns(runs.data);
 
   const start = useMutation({
-    mutationFn: startInvestigation,
+    mutationFn: () => startInvestigation(agentKey),
     onMutate: () => setError(""), // this click supersedes whatever the last said
     onSuccess: (body) => {
       if (body.error) setError(`Couldn't start it: ${body.error}`);
@@ -92,14 +94,16 @@ export function RunInvestigationButton({ className }: { className?: string }) {
     onError: () => setError("Couldn't start it — the agent didn't answer."),
     // Clean or refused, the list is what says whether a sweep is really going.
     onSettled: () =>
-      queryClient.invalidateQueries({ queryKey: runsQuery().queryKey }),
+      queryClient.invalidateQueries({
+        queryKey: runsQuery(agentKey).queryKey,
+      }),
   });
 
   // Poll only while there is something to wait for. `refetchInterval` is set on
   // the shared runs key, so the table on the same page refreshes with it rather
   // than keeping a second timer of its own.
   useQuery({
-    ...runsQuery(),
+    ...runsQuery(agentKey),
     refetchInterval: inFlight > 0 ? POLL_INTERVAL_MS : false,
   });
 
@@ -119,9 +123,11 @@ export function RunInvestigationButton({ className }: { className?: string }) {
     if (!watching.current) return;
     watching.current = false;
     for (const key of ["stats", "daily", "insights", "health"]) {
-      void queryClient.invalidateQueries({ queryKey: ["aqua", key] });
+      void queryClient.invalidateQueries({
+        queryKey: [...buildAgentScope(agentKey), key],
+      });
     }
-  }, [inFlight, queryClient]);
+  }, [inFlight, queryClient, agentKey]);
 
   const starting = start.isPending;
   const label =
