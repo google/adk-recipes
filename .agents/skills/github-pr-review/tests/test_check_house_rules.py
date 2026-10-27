@@ -1137,25 +1137,25 @@ def test_a_mistyped_pyproject_does_not_crash_the_rule_that_catches_it(
         (
             "contrib/typescript/ts-thing",
             "typescript",
-            {"README.md"},
-            {"pyproject.toml", "uv.lock", ".env.example"},
+            {"README.md", ".env.example", "package.json"},
+            {"pyproject.toml", "uv.lock"},
         ),
         (
             "contrib/go/go-thing",
             "go",
-            {"README.md", "go.mod"},
+            {"README.md", ".env.example", "go.mod"},
             {"pyproject.toml", "uv.lock"},
         ),
         (
             "contrib/python/py-thing",
             "python",
-            {"README.md", "pyproject.toml", "uv.lock", ".env.example"},
+            {"README.md", ".env.example", "pyproject.toml", "uv.lock"},
             set(),
         ),
         (
             "plugins/retail/store-ops",
             "typescript",
-            {"README.md", "SKILL.md", "EVAL.yaml"},
+            {"README.md", ".env.example", "SKILL.md", "EVAL.yaml"},
             {"pyproject.toml", "uv.lock"},
         ),
     ],
@@ -1179,6 +1179,53 @@ def test_h21_asks_each_language_for_its_own_files(
     assert not (forbidden & asked), (
         f"{language}: wrongly asked for {forbidden & asked}"
     )
+
+
+@pytest.mark.parametrize(
+    ("language", "present", "missing_group"),
+    [
+        ("java", "build.gradle", None),
+        ("java", None, "pom.xml"),
+        ("typescript", "yarn.lock", None),
+        ("typescript", None, "package-lock.json"),
+    ],
+)
+def test_h21_any_one_alternative_satisfies_the_group(
+    tmp_path, language, present, missing_group
+):
+    """A list entry in policy.yml means any ONE file will do. One file from
+    the group must silence H21 for it; none must raise a single finding
+    naming every alternative, not one per file."""
+    rel = f"contrib/{language}/thing"
+    (tmp_path / rel).mkdir(parents=True)
+    (tmp_path / rel / "manifest.yaml").write_text(
+        f'type: standalone\nlanguage: "{language}"\n'
+    )
+    if present:
+        (tmp_path / rel / present).write_text("")
+    out = []
+    chr.check_layout(out, str(tmp_path), rel, "thing")
+    group = [f for f in out if f["rule"] == "H21" and "any of" in f["what"]]
+    if missing_group is None:
+        assert group == []
+    else:
+        assert len(group) == 1
+        assert group[0]["path"].endswith("/" + missing_group)
+
+
+def test_h21_alternative_under_always_does_not_crash(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        chr,
+        "_load_policy_required_files",
+        lambda root: {"always": ["README.md", ["LICENSE", "COPYING"]]},
+    )
+    rel = "contrib/go/thing"
+    (tmp_path / rel).mkdir(parents=True)
+    (tmp_path / rel / "manifest.yaml").write_text('language: "go"\n')
+    (tmp_path / rel / "COPYING").write_text("")
+    out = []
+    chr.check_layout(out, str(tmp_path), rel, "thing")
+    assert not [f for f in out if f["rule"] == "H21" and "any of" in f["what"]]
 
 
 @pytest.mark.parametrize(

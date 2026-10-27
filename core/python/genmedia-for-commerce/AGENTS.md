@@ -153,9 +153,11 @@ user (React frontend / ADK web / Gemini Enterprise)
   `genmedia4commerce/config.env` (a gitignored build artifact). The root
   `config.env` is the source of truth — `make sync-config` copies it in, and
   most targets depend on it. Copy `config.env.example` → `config.env` first.
-- **`.env.example` model literals are deprecated.** `MODEL_NAME_GENERATED_*`
-  captures the original recipe (`gemini-3.6-flash`, …). Per the repo `AGENTS.md`
-  model policy, review/replace with `gemini-3.6-flash` before use.
+- **Model names must be in `config.env`.** Many call sites read
+  `MODEL_NAME_GENERATED_*` with no fallback, and `.env.example` is never
+  loaded. `config.env.example` defines them: flash `gemini-3.8-flash`, lite
+  `gemini-3.5-flash-lite`, pro `gemini-3.1-pro-preview`, image
+  `gemini-nano-banana-2.1`.
 - **The `eval` extra is intentionally empty.** `google-adk[eval]` /
   `aiplatform[evaluation]` cap `scikit-learn<=1.5.2`, which conflicts with the
   image code's `scikit-learn>=1.7.2`. `make eval` works via the base

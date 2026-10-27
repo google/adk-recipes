@@ -246,7 +246,15 @@ async def build_conversational_history(
         )
 
     history = retrieve_from_history(global_session_id=global_session_id)
-    llm_request.contents = history
+    if history:
+        llm_request.contents = history
+    else:
+        # GCS history unavailable (e.g. media bucket missing): keep the
+        # contents ADK built from the session rather than sending none.
+        logger.warning(
+            f"[before_model] Empty GCS history for {global_session_id}; "
+            "falling back to session contents"
+        )
 
 
 async def inject_uploaded_images(

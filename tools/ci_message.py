@@ -78,6 +78,7 @@ class Doc(StrEnum):
 
     MANIFEST = "manifestyaml-missing-or-invalid"
     OWNERSHIP_PLACEHOLDER = "ownershipteam-or-poc-is-a-placeholder"
+    MANIFEST_DEPLOYABLE = "contrib-recipe-is-not-deployable"
     FOLDER_NAME = "directory-name-too-long-or-invalid"
     SIZE_LIMIT = "recipe-exceeds-size-or-file-limit"
     REQUIRED_FILES = "required-file-or-directory-missing"

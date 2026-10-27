@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Fine-tune Gemini 2.5 Flash with LoRA for shoe side classification."""
+"""Fine-tune Gemini 3.8 Flash with LoRA for shoe side classification."""
 
 import hashlib
 import os

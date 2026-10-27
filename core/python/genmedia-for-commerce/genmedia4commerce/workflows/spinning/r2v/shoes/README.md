@@ -327,7 +327,7 @@ The classifier identifies 12 different shoe positions:
 
 ### Training Notebook
 
-See [`notebooks/train_shoe_classifier.ipynb`](notebooks/train_shoe_classifier.ipynb) for a complete end-to-end training pipeline that:
+See [`infra/model_training/`](../../../../../../infra/model_training/) (or run `make train-shoe-model` from the recipe root) for a complete end-to-end training pipeline that:
 
 1. **Loads training data** from a Parquet file with columns:
    - `uri_path`: GCS URI to the image
@@ -365,7 +365,7 @@ Training parameters are configurable via environment variables in `config.env`:
 - `FINETUNE_LORA_RANK` (default: 2, options: 2, 4, 8)
 - `FINETUNE_LR_MULTIPLIER` (default: 0.5)
 - `FINETUNE_VERSION` (default: 1)
-- `FINETUNE_BASE_MODEL` (default: gemini-3.6-flash)
+- `FINETUNE_BASE_MODEL` (default: gemini-3.8-flash)
 
 ### Training Data Requirements
 

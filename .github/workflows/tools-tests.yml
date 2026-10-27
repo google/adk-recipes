@@ -75,6 +75,7 @@ on:
       # Without these entries such a PR merges green and the failure only
       # surfaces later, on an unrelated PR that happens to touch tools/.
       - ".github/policy.yml"
+      - ".github/review-gate-config.yml"
       - ".github/schemas/**"
       - ".github/dependabot.yml"
       - ".github/workflows/**"
@@ -96,6 +97,7 @@ on:
       - ".agents/**"
       - ".github/scripts/**"
       - ".github/policy.yml"
+      - ".github/review-gate-config.yml"
       - ".github/schemas/**"
       - ".github/workflows/**"
       - ".github/review-rules.md"
@@ -134,7 +136,7 @@ jobs:
           persist-credentials: false
 
       - name: Install uv
-        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # ratchet:astral-sh/setup-uv@v10.0.1
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # ratchet:astral-sh/setup-uv@v10.2.0
         with:
           # Test against the minimum supported Python version.
           python-version: "3.11"

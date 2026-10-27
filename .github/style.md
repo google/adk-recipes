@@ -1,4 +1,4 @@
-<!-- word count: 620 (target 500, cap 800) -->
+<!-- word count: 619 (target 500, cap 800) -->
 
 # Docs Style
 
@@ -64,6 +64,7 @@ does not mean the doc is underdeveloped.
 | `recipe-checklist.md` | 400 | 600 |
 | `recipe-handbook/README.md` | 500 | 800 |
 | `recipe-handbook/anatomy.md` | 800 | 1200 |
+| `recipe-handbook/manifest.md` | 700 | 1000 |
 | `recipe-handbook/languages/python.md` | 700 | 1000 |
 | `recipe-handbook/skills-catalog.md` | 800 | 1200 |
 | `recipe-handbook/troubleshooting.md` | 500+, grows | no cap |
@@ -78,7 +79,9 @@ does not mean the doc is underdeveloped.
 
 Every handbook page ends with a two-link footer:
 
-    ← [Checklist](../recipe-checklist.md) · [Handbook](./README.md)
+```markdown
+← [Checklist](../recipe-checklist.md) · [Handbook](./README.md)
+```
 
 Adjust the relative paths for pages under subdirectories
 (e.g. `languages/` uses `../../recipe-checklist.md` and
@@ -93,11 +96,11 @@ handbook README self-links to itself for symmetry.
 
 - Never include `.md` in visible link text.
 - In prose, use natural language:
-  "the [anatomy](./anatomy.md) page shows the shape of a recipe."
+  `"the [anatomy](./anatomy.md) page shows the shape of a recipe."`
 - In table-of-contents style bullet lists, use the page's title
   as the link text: `- [Anatomy of a recipe](./anatomy.md) — ...`
 - For anchor links, name the section:
-  the [size limits](./anatomy.md#size-limits) section of anatomy.
+  `the [size limits](./anatomy.md#size-limits) section of anatomy.`
 - Back-link footers use bare nouns: `← [Checklist] · [Handbook]`.
 
 ## Handbook page structure

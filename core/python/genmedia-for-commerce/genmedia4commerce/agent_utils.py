@@ -287,7 +287,7 @@ def describe_input_attachment(
     parts = [get_part(prompt), get_part(img_bytes)]
     contents = [types.Content(role="user", parts=parts)]
     result = genai_client.models.generate_content(
-        model=os.getenv("MODEL_NAME_GENERATED_2"),
+        model=os.getenv("MODEL_NAME_GENERATED_2", "gemini-3.5-flash-lite"),
         contents=contents,
         config=config,
     )
@@ -297,7 +297,11 @@ def describe_input_attachment(
 def describe_input_attachments_parallel(
     attachments: list[bytes], conversation_context: str
 ) -> list[str]:
-    """Describe multiple attachments in parallel."""
+    """Describe multiple attachments in parallel.
+
+    A failed description falls back to a placeholder instead of raising, so
+    the upload is still stored and referenced by filename.
+    """
     if not attachments:
         return []
 
@@ -308,7 +312,14 @@ def describe_input_attachments_parallel(
             )
             for img in attachments
         ]
-        return [f.result() for f in futures]
+        descriptions = []
+        for i, future in enumerate(futures):
+            try:
+                descriptions.append(future.result())
+            except Exception as e:
+                logger.warning(f"Failed to describe attachment {i}: {e}")
+                descriptions.append("description unavailable")
+        return descriptions
 
 
 def _download_from_gcs(gcs_uri: str) -> bytes | None:
@@ -394,7 +405,7 @@ def test_vertex_connection(project: str, token: str) -> bool:
     """
     try:
         response = http_requests.post(
-            f"https://us-central1-aiplatform.googleapis.com/v1beta1/projects/{project}/locations/global/publishers/google/models/gemini-3.6-flash:countTokens",
+            f"https://us-central1-aiplatform.googleapis.com/v1beta1/projects/{project}/locations/global/publishers/google/models/gemini-3.8-flash:countTokens",
             headers={
                 "Authorization": f"Bearer {token}",
                 "Content-Type": "application/json",

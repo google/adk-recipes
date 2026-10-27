@@ -1,0 +1,51 @@
+{
+  "description": "Synthesized adk_request_confirmation for a non-clarify tool (bash). UI should render a yes/no confirmation card (hint + Approve/Decline) since there are no choices in the payload.",
+  "event": {
+    "payload": {
+      "$case": "statusUpdate",
+      "value": {
+        "taskId": "task-1",
+        "contextId": "ctx-1",
+        "status": {
+          "state": 2,
+          "message": {
+            "messageId": "msg-1",
+            "contextId": "ctx-1",
+            "taskId": "task-1",
+            "role": 2,
+            "parts": [
+              {
+                "content": {
+                  "$case": "data",
+                  "value": {
+                    "id": "adk-conf-2",
+                    "name": "adk_request_confirmation",
+                    "args": {
+                      "originalFunctionCall": {
+                        "id": "adk-call-bash-1",
+                        "name": "bash",
+                        "args": { "command": "ls /tmp" }
+                      },
+                      "toolConfirmation": {
+                        "hint": "Run shell command: ls /tmp ?",
+                        "payload": null
+                      }
+                    }
+                  }
+                },
+                "metadata": { "adk_type": "function_call" },
+                "filename": "",
+                "mediaType": ""
+              }
+            ],
+            "metadata": null,
+            "extensions": [],
+            "referenceTaskIds": []
+          },
+          "timestamp": null
+        },
+        "metadata": null
+      }
+    }
+  }
+}

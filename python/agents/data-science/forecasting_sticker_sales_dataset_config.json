@@ -1,9 +1,0 @@
-{
-  "datasets": [
-    {
-      "type": "bigquery",
-      "name": "forecasting_sticker_sales",
-      "description": "This dataset was designed as part of the 2025 Kaggle Playground Series. The challenge for this dataset is to forecast sticker sales in each country. It is a lightweight, synthetically generated dataset that provides an opportunity to quickly iterate through various model and feature engineering ideas, create visualizations, etc. "
-    }
-  ]
-}

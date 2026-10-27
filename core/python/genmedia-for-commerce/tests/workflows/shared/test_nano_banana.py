@@ -167,7 +167,7 @@ class TestGenerateNano:
             mock_gemini_client.models.generate_content.call_args.kwargs
         )
         assert call_kwargs["model"] == os.getenv(
-            "MODEL_NAME_GENERATED_5", "gemini-3.6-flash"
+            "MODEL_NAME_GENERATED_5", "gemini-nano-banana-2.1"
         )
 
     def test_uses_provided_config(

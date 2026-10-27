@@ -75,7 +75,7 @@ jobs:
         # python-version is set here so that `python3` in the hash-check step
         # (which uses stdlib tomllib, available since 3.11) always resolves to
         # a known-good interpreter.
-        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # ratchet:astral-sh/setup-uv@v10.0.1
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # ratchet:astral-sh/setup-uv@v10.2.0
         with:
           python-version: "3.11"
 

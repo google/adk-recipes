@@ -2,7 +2,7 @@
 # Routing is by language folder. Last matching rule wins.
 #
 # HOW TO CHANGE THE CATCH-ALL REVIEWER:
-#   Edit the `*` line below and replace @happyhuman with any GitHub username.
+#   Edit the `*` line below and replace @tommywagz with any GitHub username.
 #   Submit a PR — it will require approval from the current catch-all reviewer.
 #
 # HOW TO ADD A NEW LANGUAGE FOLDER:
@@ -19,22 +19,30 @@
 #   live on the Go lines until #2605. Verify a change with:
 #     gh api repos/google/adk-recipes/codeowners/errors
 
-# Catch-all: docs, CI workflows, root configs, anything not matched below
-* @happyhuman
+# Catch-all: docs, root configs, anything not matched below
+* @tommywagz
+
+# Repository governance (CI, policy, this file) stays with the repo admin.
+/.github/**            @happyhuman
 
 # --- core/ ---
 /core/python/**        @eliasecchig
 /core/go/**            @ToniCorinne
 /core/java/**          @eliasecchig
-/core/typescript/**    @happyhuman
-/core/kotlin/**        @happyhuman
+/core/typescript/**    @tommywagz
+/core/kotlin/**        @tommywagz
+
+# Recipes owned by their authors. Listed after the language lines above,
+# because the last matching rule wins.
+/core/python/ambient-quality-agent/** @maxgasztych @google/adlc-devex
+/core/python/genmedia-for-commerce/** @lspataroG @giuliosalierno @eliasecchig
 
 # --- contrib/ ---
-/contrib/python/**     @happyhuman
+/contrib/python/**     @tommywagz
 /contrib/go/**         @ToniCorinne
-/contrib/java/**       @happyhuman
-/contrib/typescript/** @happyhuman
-/contrib/kotlin/**     @happyhuman
+/contrib/java/**       @tommywagz
+/contrib/typescript/** @tommywagz
+/contrib/kotlin/**     @tommywagz
 
 # --- plugins/ ---
-/plugins/**            @happyhuman
+/plugins/**            @tommywagz

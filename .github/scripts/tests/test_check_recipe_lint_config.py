@@ -329,9 +329,11 @@ def test_clean_kotlin_recipe_passes(tmp_path, monkeypatch, capsys):
 
 
 def test_real_kotlin_recipe_passes_clean(monkeypatch, capsys):
-    kotlin_recipe = REPO_ROOT / "core" / "kotlin" / "llm-auditor"
+    kotlin_recipe = REPO_ROOT / "contrib" / "kotlin" / "financial-advisor"
     if not kotlin_recipe.is_dir():
-        pytest.skip("core/kotlin/llm-auditor not present in this workspace")
+        pytest.skip(
+            "contrib/kotlin/financial-advisor not present in this workspace"
+        )
     assert _run(kotlin_recipe, monkeypatch) == EXIT_OK
     out = capsys.readouterr().out
     assert "[PASS]" in out

@@ -1,9 +1,0 @@
-export ALLOYDB_POSTGRES_PROJECT=<project_id>
-export ALLOYDB_POSTGRES_REGION=<region>
-export ALLOYDB_POSTGRES_CLUSTER=<cluster>
-export ALLOYDB_POSTGRES_INSTANCE=<instance>
-export ALLOYDB_POSTGRES_DATABASE=<database>
-export ALLOYDB_POSTGRES_USER=<user>
-export ALLOYDB_POSTGRES_PASSWORD=<password>
-export ALLOYDB_POSTGRES_HOST=<host>
-export ALLOYDB_POSTGRES_PORT=<port>

@@ -1418,7 +1418,7 @@ def _rule_sources(root):
 # Mirrors .github/policy.yml `required_files`. Read from policy.yml when it is
 # present in the tree under review, so the two cannot drift; these are the
 # fallback for a checkout that predates a key.
-_REQUIRED_ALWAYS = ["README.md"]
+_REQUIRED_ALWAYS = ["README.md", ".env.example"]
 _REQUIRED_BY_ROOT = {
     "core": ["AGENTS.md"],
     "contrib": [],
@@ -1428,10 +1428,21 @@ _REQUIRED_BY_LANGUAGE = {
     "python": [
         "pyproject.toml",
         "uv.lock",
-        ".env.example",
         "tests/test_runnability.py",
     ],
     "go": ["go.mod"],
+    "java": [("pom.xml", "build.gradle", "build.gradle.kts")],
+    "kotlin": ["build.gradle.kts"],
+    "typescript": [
+        "package.json",
+        (
+            "package-lock.json",
+            "pnpm-lock.yaml",
+            "yarn.lock",
+            "bun.lockb",
+            "bun.lock",
+        ),
+    ],
 }
 
 
@@ -1495,7 +1506,17 @@ def _required_files(root, rel, recipe_abs):
         if area in ("core", "contrib") and len(parts) >= 2:
             language = parts[1].lower()
     required += list(by_language.get(language) or [])
-    return sorted(set(required))
+    # A YAML list entry means "any one of these"; tuples keep it hashable for
+    # the dedupe below. Converted for every source, as validate_structure.py
+    # does, so an alternative added under `always` or `by_root` cannot crash.
+    required = [tuple(i) if isinstance(i, list) else i for i in required]
+    seen = set()
+    deduped = []
+    for item in required:
+        if item not in seen:
+            seen.add(item)
+            deduped.append(item)
+    return deduped
 
 
 # This file lives at <repo>/.agents/skills/github-pr-review/scripts/, so the
@@ -1594,7 +1615,19 @@ def check_layout(out, root, rel, recipe_name):
     # recipe. policy.yml has scoped these under `by_language` all along.
     lenient = _case_insensitive_files(root)
     for f in _required_files(root, rel, recipe_abs):
-        if _missing(recipe_abs, f, lenient):
+        if isinstance(f, tuple):
+            if all(_missing(recipe_abs, alt, lenient) for alt in f):
+                find(
+                    out,
+                    "H21",
+                    CI_FAIL,
+                    os.path.join(rel, f[0]),
+                    1,
+                    f"required file missing: any of {', '.join(f)}",
+                    ".github/policy.yml required_files",
+                    "check one of the files exists",
+                )
+        elif _missing(recipe_abs, f, lenient):
             find(
                 out,
                 "H21",
