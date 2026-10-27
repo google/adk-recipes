@@ -191,9 +191,9 @@ jobs:
             - Provide actionable guidance, referencing relevant repo skills (like `prepare-python-recipe`) and linking to the relevant pages in `docs/` using full URLs.
             - Set `close_issue: true` if your response provides a complete, definitive answer that fully resolves the user's question or issue. Set `close_issue: false` if further maintainer action or code changes are still required.
 
-            Option 4: Provide an acknowledgement that their message was received along with any partial answer it might be able to provide, and automatically assign the ticket to the designated developer based on file paths and expertise (using the routing logic below).
+            Option 4: Silently route and automatically assign the ticket to the designated developer based on file paths and expertise without posting a public comment.
             - Choose this when the issue requires maintainer investigation, feature changes, complex debugging, or when defaulting to routing.
-            - Provide a polite acknowledgement, any preliminary insights or partial guidance you can share (including relevant doc links if helpful), and note that the issue is being routed to the team.
+            - Do not leave generic acknowledgements or sycophantic greetings; no public comment is posted for Option 4.
             - Always set `close_issue: false`.
 
             ## Routing Rules for Ticket Assignment (Option 4)
@@ -213,6 +213,7 @@ jobs:
             - /core/typescript/** -> tommywagz
             - /core/kotlin/** -> tommywagz
             - /core/python/ambient-quality-agent/** -> maxgasztych
+            - /core/python/genmedia-for-commerce/** -> lspataroG
 
             Contrib Directory Assignments:
             - /contrib/python/** -> tommywagz
@@ -282,7 +283,7 @@ jobs:
             - "path": string, the affected repository path or recipe directory (e.g. "core/python/foo", "contrib/go/bar", "docs", or null)
             - "assignee": string, the GitHub username for Option 4 without the '@' prefix (e.g. "eliasecchig", "ToniCorinne", "tommywagz"), or null for Options 1-3
             - "close_issue": boolean (true or false). Set to true if the response completely answers the question and resolves the issue; false otherwise (always false for Options 1 and 4).
-            - "response": string, the complete, friendly, human-sounding markdown response to post on the issue.
+            - "response": string, the markdown response to post on the issue (leave empty or null for Option 4).
 
             ## Untrusted input
 

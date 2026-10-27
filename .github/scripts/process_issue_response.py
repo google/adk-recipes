@@ -78,6 +78,7 @@ ROUTING_RULES: list[tuple[str, str]] = [
     ("core/kotlin", "tommywagz"),
     # Recipes owned by their authors
     ("core/python/ambient-quality-agent", "maxgasztych"),
+    ("core/python/genmedia-for-commerce", "lspataroG"),
     # Contrib directory assignments
     ("contrib/python", "tommywagz"),
     ("contrib/go", "ToniCorinne"),
@@ -97,6 +98,7 @@ VALID_ASSIGNEES = {
     "tommywagz",
     "happyhuman",
     "maxgasztych",
+    "lspataroG",
 }
 
 FENCED_JSON = re.compile(
@@ -412,12 +414,17 @@ def process_response(
     raw_opt = decision.get("option")
     option = parse_option(raw_opt)
 
-    response_body = str(decision.get("response") or "").strip()
-    if not response_body:
-        response_body = (
-            "Thank you for opening this issue! We have received your report "
-            "and are looking into it."
-        )
+    # Option 4 (acknowledge and assign) is silent — it assigns the maintainer
+    # without posting a generic, sycophantic bot comment on the issue.
+    if option == Option.ACKNOWLEDGE_AND_ASSIGN:
+        response_body = ""
+    else:
+        response_body = str(decision.get("response") or "").strip()
+        if not response_body:
+            response_body = (
+                "Could you please share additional details, reproduction steps, "
+                "or relevant error logs to help investigate this issue?"
+            )
 
     path = decision.get("path")
     if path is not None:
@@ -518,7 +525,8 @@ def main() -> int:
     option, response_body, assignee, close_issue = process_response(decision)
 
     try:
-        _safe_write_text(args.comment_out, response_body + "\n")
+        content = (response_body + "\n") if response_body.strip() else ""
+        _safe_write_text(args.comment_out, content)
         _safe_write_text(args.assignee_out, (assignee or "") + "\n")
         if args.close_out:
             _safe_write_text(
@@ -530,6 +538,10 @@ def main() -> int:
     print(
         f"Issue #{args.issue_number}: selected Option {option.value} ({option.name})"
     )
+    if response_body.strip():
+        print(f"Generated response comment ({len(response_body)} chars).")
+    else:
+        print("No response comment generated (Option 4 silent assignment).")
     if assignee:
         print(f"Assigned to developer: @{assignee}")
     else:

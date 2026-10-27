@@ -561,9 +561,8 @@ def test_cli_execution_option_4(tmp_path):
     assert res.returncode == 0, res.stderr
     assert "eliasecchig" in res.stdout
 
-    assert comment_out.read_text(encoding="utf-8").strip() == (
-        "Thank you! Routing this to the Python maintainer."
-    )
+    # Option 4 does not generate a comment (silent maintainer assignment)
+    assert comment_out.read_text(encoding="utf-8").strip() == ""
     assert assignee_out.read_text(encoding="utf-8").strip() == "eliasecchig"
     assert close_out.read_text(encoding="utf-8").strip() == "false"
 
