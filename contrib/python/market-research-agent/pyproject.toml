@@ -33,6 +33,16 @@ packages = ["app"]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[tool.uv]
+# Lifts an upstream cap that holds a known CVE in the lock:
+# `google-cloud-aiplatform[evaluation]` caps litellm below 1.86
+# (GHSA-3cv6-jpf6-8222 is fixed in 1.88.6). Only uv applies overrides, so the
+# Dockerfile's `uv sync` gets it. The upper bound is the one aiplatform sets
+# for Python 3.14. Remove once the upstream cap admits the fix.
+override-dependencies = [
+    "litellm>=1.88.6,<1.97",
+]
+
 [[tool.uv.index]]
 url = "https://pypi.org/simple/"
 default = true
