@@ -194,7 +194,9 @@ async def save_presentation(
                 bucket = storage_client.bucket(gcs_bucket_name)
                 blob = bucket.blob(new_artifact_name)
                 # Run sync GCS upload in a thread
-                await asyncio.to_thread(blob.upload_from_filename, str(resolved_path))
+                await asyncio.to_thread(
+                    blob.upload_from_filename, str(resolved_path)
+                )
                 gcs_message = (
                     f" It was also saved to GCS bucket '{gcs_bucket_name}'."
                 )
