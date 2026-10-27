@@ -3,11 +3,6 @@
 # no fixed release belong here; remove each entry once a fix ships.
 
 [[IgnoredVulns]]
-id = "GHSA-xcq7-p3pf-p88h"
-ignoreUntil = 2026-12-31
-reason = "google-adk pins opentelemetry-api<=1.42.1, preventing upgrade to fixed version 1.45.1. Transitive dependency; not called by this recipe's code."
-
-[[IgnoredVulns]]
 id = "CVE-2026-114603"
 ignoreUntil = 2026-12-31
 reason = "google-adk pins opentelemetry-api<=1.42.1, preventing upgrade to fixed version 1.45.1. Transitive dependency; not called by this recipe's code."
