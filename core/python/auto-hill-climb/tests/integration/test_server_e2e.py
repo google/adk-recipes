@@ -92,12 +92,16 @@ def start_server() -> subprocess.Popen[str]:
     return process
 
 
+REQUEST_TIMEOUT_S = 60
+HEALTH_TIMEOUT_S = 10
+
+
 def wait_for_server(timeout: int = 90, interval: int = 1) -> bool:
     """Wait for the server to be ready (agent card requires the lifespan to run)."""
     start_time = time.time()
     while time.time() - start_time < timeout:
         try:
-            response = requests.get(AGENT_CARD_URL, timeout=10)
+            response = requests.get(AGENT_CARD_URL, timeout=HEALTH_TIMEOUT_S)
             if response.status_code == 200:
                 logger.info("Server is ready")
                 return True
@@ -131,13 +135,15 @@ def test_adk_run_sse(server_fixture: subprocess.Popen[str]) -> None:
     """Test the native ADK route (/run_sse) end to end."""
     logger.info("Starting ADK /run_sse test")
     user_id = f"user_{uuid.uuid4()}"
-    session_data = {"state": {"preferred_language": "English", "visit_count": 1}}
+    session_data = {
+        "state": {"preferred_language": "English", "visit_count": 1}
+    }
 
     session_response = requests.post(
         f"{BASE_URL}/apps/app/users/{user_id}/sessions",
         headers=HEADERS,
         json=session_data,
-        timeout=60,
+        timeout=REQUEST_TIMEOUT_S,
     )
     assert session_response.status_code == 200
     session_id = session_response.json()["id"]
@@ -150,7 +156,11 @@ def test_adk_run_sse(server_fixture: subprocess.Popen[str]) -> None:
         "streaming": True,
     }
     response = requests.post(
-        RUN_SSE_URL, headers=HEADERS, json=data, stream=True, timeout=60
+        RUN_SSE_URL,
+        headers=HEADERS,
+        json=data,
+        stream=True,
+        timeout=REQUEST_TIMEOUT_S,
     )
     assert response.status_code == 200
 
@@ -178,7 +188,7 @@ def test_a2a_chat_stream(server_fixture: subprocess.Popen[str]) -> None:
     async def _stream() -> list[StreamResponse]:
         config = ClientConfig(
             streaming=True,
-            httpx_client=httpx.AsyncClient(timeout=60.0),
+            httpx_client=httpx.AsyncClient(timeout=float(REQUEST_TIMEOUT_S)),
         )
         client = await create_client(A2A_RPC_URL.rstrip("/"), config)
         message = Message(
@@ -188,7 +198,9 @@ def test_a2a_chat_stream(server_fixture: subprocess.Popen[str]) -> None:
         )
         return [
             chunk
-            async for chunk in client.send_message(SendMessageRequest(message=message))
+            async for chunk in client.send_message(
+                SendMessageRequest(message=message)
+            )
         ]
 
     responses = asyncio.run(_stream())
@@ -196,7 +208,10 @@ def test_a2a_chat_stream(server_fixture: subprocess.Popen[str]) -> None:
 
     def _is_completed(chunk: StreamResponse) -> bool:
         if chunk.HasField("status_update"):
-            return chunk.status_update.status.state == TaskState.TASK_STATE_COMPLETED
+            return (
+                chunk.status_update.status.state
+                == TaskState.TASK_STATE_COMPLETED
+            )
         if chunk.HasField("task"):
             return chunk.task.status.state == TaskState.TASK_STATE_COMPLETED
         return False
@@ -209,7 +224,7 @@ def test_a2a_chat_stream(server_fixture: subprocess.Popen[str]) -> None:
 def test_agent_card(server_fixture: subprocess.Popen[str]) -> None:
     """Test that the A2A agent card is served at the well-known URI."""
     for _ in range(3):
-        response = requests.get(AGENT_CARD_URL, timeout=10)
+        response = requests.get(AGENT_CARD_URL, timeout=HEALTH_TIMEOUT_S)
         assert response.status_code == 200, (
             f"A2A endpoint returned {response.status_code}"
         )
@@ -224,7 +239,9 @@ def test_agent_card(server_fixture: subprocess.Popen[str]) -> None:
             "version",
             "supportedInterfaces",
         ):
-            assert field in served_agent_card, f"Missing field in agent card: {field}"
+            assert field in served_agent_card, (
+                f"Missing field in agent card: {field}"
+            )
 
         interfaces = served_agent_card.get("supportedInterfaces", [])
         v03_interfaces = [

@@ -22,6 +22,8 @@ from google.adk.apps import App
 def test_agent_runnability() -> None:
     """agent.py imports and builds the agent without calling a model."""
     os.environ.setdefault("GOOGLE_CLOUD_PROJECT", "test-project")
+    os.environ.setdefault("GOOGLE_CLOUD_LOCATION", "global")
+    os.environ.setdefault("MODEL_NAME", "gemini-3.8-flash")
     import app.agent
 
     assert isinstance(app.agent.root_agent, Agent)

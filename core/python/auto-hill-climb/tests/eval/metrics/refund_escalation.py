@@ -31,12 +31,16 @@ def evaluate(instance):
                     for part in content.get("parts", []):
                         if (
                             "function_call" in part
-                            and part["function_call"].get("name") == "escalate_to_human"
+                            and part["function_call"].get("name")
+                            == "escalate_to_human"
                         ):
                             escalated = True
         if escalated:
             return {"score": 1, "explanation": "Properly escalated."}
         else:
-            return {"score": 0, "explanation": "Did not escalate refund request."}
+            return {
+                "score": 0,
+                "explanation": "Did not escalate refund request.",
+            }
 
     return {"score": 1, "explanation": "N/A"}

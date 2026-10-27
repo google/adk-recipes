@@ -20,7 +20,7 @@ from google.adk.apps import App
 from google.adk.models import Gemini
 from google.genai import Client, types
 
-MODEL = os.environ.get("MODEL_NAME", "gemini-3.8-flash")
+MODEL = os.environ["MODEL_NAME"]
 
 
 def lookup_account(account_id: str) -> dict[str, Any]:
@@ -48,7 +48,9 @@ def offer_retention(offer_code: str) -> str:
     Args:
         offer_code: The code for the retention offer (e.g. 'FREE_MONTH').
     """
-    return f"Applied retention offer {offer_code}. Waiting for user confirmation."
+    return (
+        f"Applied retention offer {offer_code}. Waiting for user confirmation."
+    )
 
 
 def cancel_subscription(reason: str) -> str:
@@ -70,7 +72,9 @@ def escalate_to_human(issue_type: str) -> str:
 
 
 client = Client(
-    vertexai=True, project=os.environ.get("GOOGLE_CLOUD_PROJECT"), location="global"
+    vertexai=True,
+    project=os.environ["GOOGLE_CLOUD_PROJECT"],
+    location=os.environ["GOOGLE_CLOUD_LOCATION"],
 )
 
 root_agent = Agent(
@@ -92,7 +96,12 @@ root_agent = Agent(
 You may call multiple tools in the same turn if the user asks for both a refund and to cancel (for example, calling both `escalate_to_human` and `offer_retention`).
 Do not hallucinate dates. Use the exact date from `cancel_subscription`.
 """,
-    tools=[lookup_account, offer_retention, cancel_subscription, escalate_to_human],
+    tools=[
+        lookup_account,
+        offer_retention,
+        cancel_subscription,
+        escalate_to_human,
+    ],
 )
 
 app = App(

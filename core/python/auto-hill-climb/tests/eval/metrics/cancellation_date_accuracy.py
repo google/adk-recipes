@@ -22,7 +22,8 @@ def evaluate(instance):
                 for part in content.get("parts", []):
                     if (
                         "function_call" in part
-                        and part["function_call"].get("name") == "cancel_subscription"
+                        and part["function_call"].get("name")
+                        == "cancel_subscription"
                     ):
                         cancelled = True
 

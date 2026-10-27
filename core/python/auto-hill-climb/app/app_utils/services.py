@@ -26,7 +26,9 @@ import os
 
 from google.adk.artifacts import GcsArtifactService, InMemoryArtifactService
 from google.adk.cli.service_registry import get_service_registry
-from google.adk.cli.utils.service_factory import create_session_service_from_options
+from google.adk.cli.utils.service_factory import (
+    create_session_service_from_options,
+)
 
 SESSION_SERVICE_URI = "shared://session"
 ARTIFACT_SERVICE_URI = "shared://artifact"
@@ -44,7 +46,9 @@ def get_session_service():
             base_dir=_AGENT_DIR, session_service_uri=uri
         )
     if agent_engine_id := os.environ.get("GOOGLE_CLOUD_AGENT_ENGINE_ID"):
-        from google.adk.sessions.vertex_ai_session_service import VertexAiSessionService
+        from google.adk.sessions.vertex_ai_session_service import (
+            VertexAiSessionService,
+        )
 
         return VertexAiSessionService(
             project=os.environ.get("GOOGLE_CLOUD_PROJECT"),
@@ -54,7 +58,9 @@ def get_session_service():
             or os.environ.get("GOOGLE_CLOUD_LOCATION"),
             agent_engine_id=agent_engine_id,
         )
-    from google.adk.sessions.in_memory_session_service import InMemorySessionService
+    from google.adk.sessions.in_memory_session_service import (
+        InMemorySessionService,
+    )
 
     return InMemorySessionService()
 
@@ -68,5 +74,9 @@ def get_artifact_service():
 
 
 _registry = get_service_registry()
-_registry.register_session_service("shared", lambda uri, **kw: get_session_service())
-_registry.register_artifact_service("shared", lambda uri, **kw: get_artifact_service())
+_registry.register_session_service(
+    "shared", lambda uri, **kw: get_session_service()
+)
+_registry.register_artifact_service(
+    "shared", lambda uri, **kw: get_artifact_service()
+)

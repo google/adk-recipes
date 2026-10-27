@@ -36,7 +36,8 @@ def evaluate(instance):
                     for part in content.get("parts", []):
                         if (
                             "function_call" in part
-                            and part["function_call"].get("name") == "offer_retention"
+                            and part["function_call"].get("name")
+                            == "offer_retention"
                         ):
                             offered = True
         if offered:

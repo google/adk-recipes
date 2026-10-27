@@ -17,7 +17,6 @@ import os
 from collections.abc import AsyncIterator
 
 from a2a.server.tasks import InMemoryTaskStore
-from dotenv import load_dotenv
 from fastapi import FastAPI
 from google.adk.cli.fast_api import get_fast_api_app
 from google.adk.runners import Runner
@@ -25,10 +24,8 @@ from google.adk.runners import Runner
 from app.app_utils import services
 from app.app_utils.a2a import attach_a2a_routes
 
-load_dotenv()
-allow_origins = (
-    os.getenv("ALLOW_ORIGINS", "").split(",") if os.getenv("ALLOW_ORIGINS") else None
-)
+_origins = os.getenv("ALLOW_ORIGINS")
+allow_origins = _origins.split(",") if _origins else None
 otel_to_cloud = True
 
 AGENT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -74,4 +71,4 @@ app.description = "API for interacting with the Agent support-agent"
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="127.0.0.1", port=8000)
