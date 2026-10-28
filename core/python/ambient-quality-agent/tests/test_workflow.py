@@ -1888,4 +1888,3 @@ def test_a_library_that_will_not_read_warns_without_failing_the_review(
     event = nodes.review_node._func(_ctx(state))
 
     assert "could not be read" in event.content.parts[0].text
-    

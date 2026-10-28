@@ -892,4 +892,3 @@ def test_a_review_call_gets_the_default_per_attempt_timeout(
     http_options = captured["http_options"]
     assert http_options.timeout == genai_json.CALL_TIMEOUT_MS
     assert http_options.retry_options.attempts == genai_json.CHUNK_ATTEMPTS
-    

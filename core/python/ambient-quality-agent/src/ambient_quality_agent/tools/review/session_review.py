@@ -549,4 +549,3 @@ def call_review_model(prompt: str) -> str:
         genai_json.call_gemini(prompt, _build_review_response_schema()).text
         or ""
     )
-    
