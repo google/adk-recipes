@@ -141,21 +141,19 @@ async def list_runs(
 
 
 async def get_last_finished_window_end(
-    state: ADKStateLike, observed_agent_name: str
+    state: ADKStateLike, agent_key: str
 ) -> str | None:
     """Return window end timestamp of the most recent finished ambient run.
 
     Args:
         state: State dictionary to access the investigation store.
-        observed_agent_name: Name of the observed target agent.
+        agent_key: Key the agent's runs are recorded under.
 
     Returns:
         ISO-8601 window end timestamp string, or None if no completed runs exist.
     """
     return await asyncio.to_thread(
-        lambda: store_factory(state).get_last_finished_window_end(
-            observed_agent_name
-        )
+        lambda: store_factory(state).get_last_finished_window_end(agent_key)
     )
 
 

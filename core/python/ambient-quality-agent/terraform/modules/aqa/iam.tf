@@ -121,32 +121,14 @@ resource "google_storage_bucket_iam_member" "jobs_writer" {
   member = local.engine_member
 }
 
-# Read-only: the agent executes this code and must not rewrite its own checks.
-#
-# Needs two roles: `objectViewer` reads objects, but `list_blobs` also performs
-# a bucket lookup (`storage.buckets.get`) that `objectViewer` lacks.
-resource "google_storage_bucket_iam_member" "metrics_reader" {
-  bucket = google_storage_bucket.metrics.name
-  role   = "roles/storage.objectViewer"
-  member = local.engine_member
-}
-
-# Provides `storage.buckets.get` for `list_blobs`. Cannot read object bodies,
-# so both reader roles are required.
-resource "google_storage_bucket_iam_member" "metrics_bucket_reader" {
-  bucket = google_storage_bucket.metrics.name
-  role   = "roles/storage.legacyBucketReader"
-  member = local.engine_member
-}
-
-# Requires `objectAdmin` because `metrics publish` mirrors the directory and
-# must delete removed metrics.
-resource "google_storage_bucket_iam_member" "metrics_writers" {
-  for_each = toset(var.metrics_writers)
-
+# `objectAdmin`: `aqua metrics publish` sends the library to the engine's API,
+# and the engine mirrors it into this bucket, deleting the metrics missing from
+# the library. Whoever can call that API can therefore run code in the
+# engine: the accepted cost of publishing without a grant on the bucket.
+resource "google_storage_bucket_iam_member" "metrics_writer" {
   bucket = google_storage_bucket.metrics.name
   role   = "roles/storage.objectAdmin"
-  member = each.value
+  member = local.engine_member
 }
 
 # Grants read-only access for trace dumps from `aqa-telemetry/` without granting
@@ -162,17 +144,6 @@ resource "google_storage_bucket_iam_member" "trace_readers" {
   bucket = google_storage_bucket.jobs.name
   role   = "roles/storage.objectViewer"
   member = each.value
-}
-
-# The telemetry rows hold `gs://` pointers, not content. With no observed agent
-# configured there is no bucket to name, and the grant is made by hand once one
-# is attached.
-resource "google_storage_bucket_iam_member" "telemetry_payload_reader" {
-  count = var.configure_observed_agent ? 1 : 0
-
-  bucket = local.telemetry_payload_bucket
-  role   = "roles/storage.objectViewer"
-  member = local.engine_member
 }
 
 # The SDK calls `bucket.exists()` before it submits a query job, which needs
@@ -225,32 +196,6 @@ resource "google_project_iam_member" "service_usage_consumer" {
   member  = local.engine_member
 }
 
-# The observed agent's telemetry, which AQA reads to find its work. The dataset
-# belongs to that agent's own root, so this adds one access entry instead of
-# rewriting the list and dropping their authorized views.
-resource "google_bigquery_dataset_access" "telemetry_reader" {
-  count = var.configure_observed_agent ? 1 : 0
-
-  project       = var.project_id
-  dataset_id    = local.telemetry_dataset
-  role          = "roles/bigquery.dataViewer"
-  user_by_email = google_service_account.engine.email
-}
-
-# A `cloud_ops` linked dataset is backed by Cloud Logging log views, which
-# dataset-level access does not cover: queries fail with `403 Permission
-# denied for all log views` without `roles/logging.viewAccessor`. This grant is
-# project-wide because the module does not name the underlying log view,
-# allowing the engine to read any log view in the project. Only created for
-# `cloud_ops` deployments.
-resource "google_project_iam_member" "engine_log_view_reader" {
-  count = var.configure_observed_agent && var.telemetry_ingestion_source == "cloud_ops" ? 1 : 0
-
-  project = var.project_id
-  role    = "roles/logging.viewAccessor"
-  member  = local.engine_member
-}
-
 resource "google_cloud_tasks_queue_iam_member" "engine_enqueuer" {
   project  = var.project_id
   location = google_cloud_tasks_queue.delay.location
@@ -290,26 +235,30 @@ resource "google_project_iam_member" "ambient_caller_aiplatform_user" {
   member  = "serviceAccount:${google_service_account.ambient_caller.email}"
 }
 
-# Reading the identity off the sink is what orders this correctly, and what ties
-# the grant to the sink's own presence: no sink, no identity to grant.
-resource "google_pubsub_topic_iam_member" "sink_publisher" {
-  count = local.observe_updates ? 1 : 0
-
-  project = var.project_id
-  topic   = google_pubsub_topic.ambient.name
-  role    = "roles/pubsub.publisher"
-  member  = google_logging_project_sink.ambient_updates[0].writer_identity
-}
-
-# The addresses the two telemetry grants have in a deployment applied without
-# their `count`, so that such a deployment keeps its grants instead of having
-# them destroyed and recreated.
-moved {
-  from = google_storage_bucket_iam_member.telemetry_payload_reader
-  to   = google_storage_bucket_iam_member.telemetry_payload_reader[0]
-}
-
-moved {
+# Bindings for the engine's read access to an observed agent's telemetry that a
+# state may hold. `agents-cli aqua attach` owns that access, checking it and
+# granting what is missing, so Terraform drops these from its state without
+# revoking them, and the engine keeps reading.
+removed {
   from = google_bigquery_dataset_access.telemetry_reader
-  to   = google_bigquery_dataset_access.telemetry_reader[0]
+
+  lifecycle {
+    destroy = false
+  }
+}
+
+removed {
+  from = google_storage_bucket_iam_member.telemetry_payload_reader
+
+  lifecycle {
+    destroy = false
+  }
+}
+
+removed {
+  from = google_project_iam_member.engine_log_view_reader
+
+  lifecycle {
+    destroy = false
+  }
 }

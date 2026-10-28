@@ -18,14 +18,16 @@ This mirrors how Agent Runtime drives the deployed workflow, but uses
 ADK's `InMemoryRunner` so you can exercise the pipeline end-to-end on
 your machine without deploying.
 
-The AQA `config` module reads its inputs from the environment at import
-time (see `ambient_quality_agent.config`). This script sets sensible
-local defaults for the required vars before importing the agent, so a
-bare `uv run python tools/local_run.py` works out of the box. Override
-any of them by exporting the matching env var first, for example:
+AQuA's own settings come from the environment at import time (see
+`ambient_quality_agent.config`); this script sets local defaults for the
+required ones before importing the agent. The observed agent comes from its
+attachment, as in a deployment: the default attached agent, or the one
+`--agent-key` names. In a standalone run (`AQA_STANDALONE=1`) attachments are
+files under `.aqua/job/`, written by `agents-cli aqua attach` against the
+local server (see "Run AQuA standalone" in docs/index.md):
 
-    AQA_OBSERVED_AGENT_NAME=my-agent GOOGLE_CLOUD_PROJECT=my-project \
-        uv run python tools/local_run.py
+    AQA_STANDALONE=1 GOOGLE_CLOUD_PROJECT=my-project \
+        uv run python tools/local_run.py --agent-key my_agent
 
 This drives the ``investigation_workflow`` graph directly (the same graph
 the deployed agent runs in its durable background job via
@@ -46,6 +48,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import dataclasses
 import json
 import os
 import pathlib
@@ -62,7 +65,6 @@ if TYPE_CHECKING:
 # Disable `.env` loading from the agent package so the run uses only
 # explicitly exported environment variables and the defaults below.
 os.environ.setdefault("PYTHON_DOTENV_DISABLED", "1")
-os.environ.setdefault("AQA_OBSERVED_AGENT_NAME", "local-observed-agent")
 os.environ.setdefault("GOOGLE_CLOUD_PROJECT", "local-dev-project")
 
 # `config.location` is the single region used for BOTH BigQuery jobs and
@@ -77,15 +79,6 @@ _location = os.environ.get("GOOGLE_CLOUD_LOCATION", "")
 if not _location or _location.lower() == "global":
     os.environ["GOOGLE_CLOUD_LOCATION"] = _DEFAULT_LOCATION
 
-# Keep local runs fast and cheap. Each fetched session/turn is scored by
-# the judge model once per metric, so a large pull makes a local
-# run take many minutes. `DATA_EVALUATION_CAP` bounds the total records
-# pulled per run (budget_per_metric = cap // active_metric_count), and
-# `DATA_LOOKBACK_WINDOW` bounds the telemetry window in days. Override
-# either by exporting the matching env var.
-os.environ.setdefault("DATA_EVALUATION_CAP", "10")
-os.environ.setdefault("DATA_LOOKBACK_WINDOW", "7")
-
 _APP_NAME = "aqa-local-run"
 _USER_ID = "local-user"
 _SESSION_ID = "local-session"
@@ -98,6 +91,33 @@ def _parse_args() -> argparse.Namespace:
         Parsed arguments namespace.
     """
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--agent-key",
+        default="",
+        help="The attached agent to investigate; the default attached agent if unset.",
+    )
+    parser.add_argument(
+        "--agent-name",
+        default="",
+        help=(
+            "Telemetry agent name to investigate in place of the attachment's,"
+            " for a replay that records its traces under a name of its own."
+        ),
+    )
+    parser.add_argument(
+        "--lookback-days",
+        type=int,
+        default=0,
+        help="Days of telemetry to consider, in place of the attachment's.",
+    )
+    # Each fetched session or turn is scored by the judge model once per
+    # metric, so the attachment's cap would make a local run take many minutes.
+    parser.add_argument(
+        "--evaluation-cap",
+        type=int,
+        default=10,
+        help="Most records the run pulls in, in place of the attachment's.",
+    )
     parser.add_argument(
         "--dump-dir",
         help=(
@@ -187,17 +207,20 @@ def _dump_intermediates(
 
 
 async def main() -> None:
-    """Seed state from `config` and run one workflow invocation."""
+    """Seed state from the attached agent's configuration and run the workflow."""
     args = _parse_args()
     # Imported here (not at module top) so the env defaults above are in
     # place before `ambient_quality_agent.config` is evaluated.
     from ambient_quality_agent import backends
-    from ambient_quality_agent.config import config
+    from ambient_quality_agent.config import extract_agent_config
     from ambient_quality_agent.core.investigation.job_scheduling import (
         derive_window_and_budget,
     )
     from ambient_quality_agent.core.state import WorkflowState
     from ambient_quality_agent.core.workflow import investigation_workflow
+    from ambient_quality_agent.tools.observed_agent_config import (
+        effective_config,
+    )
     from google.adk import Runner
     from google.adk.sessions import InMemorySessionService
     from google.genai import types as genai_types
@@ -205,6 +228,27 @@ async def main() -> None:
     # Storage is chosen here, as in every entry point. Without it the seams
     # stay unset and the first write raises.
     backends.configure_providers()
+    config = effective_config.load(
+        {effective_config.AGENT_KEY_STATE: args.agent_key}
+    )
+    if not config.observed_agent_name:
+        raise SystemExit(
+            "No agent is attached in the jobs store: .aqua/job/ with "
+            "AQA_STANDALONE=1, else AQA_JOBS_GCS_BUCKET. Attach one with "
+            "`agents-cli aqua attach`."
+        )
+    # Through `copy_with_agent`, so the overrides are validated and clamped
+    # like an attached value.
+    agent = extract_agent_config(config)
+    config = config.copy_with_agent(
+        dataclasses.replace(
+            agent,
+            observed_agent_name=args.agent_name or agent.observed_agent_name,
+            data_lookback_window=args.lookback_days
+            or agent.data_lookback_window,
+            data_evaluation_cap=args.evaluation_cap,
+        )
+    )
 
     # Patch the reviewer seam before the graph runs; the node resolves
     # `reviewer_factory` per call, so this reaches every review.
@@ -225,7 +269,7 @@ async def main() -> None:
     )
 
     # The AQA workflow is state-driven: seed the typed WorkflowState from
-    # the process config rather than sending a chat message. Nodes bind
+    # the effective config rather than sending a chat message. Nodes bind
     # their parameters from session state, so the state must be set on the
     # session at creation time. Derive the window and budget here (matching
     # orchestrator submission) and seed them alongside config inputs.

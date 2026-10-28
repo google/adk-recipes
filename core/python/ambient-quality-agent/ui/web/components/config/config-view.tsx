@@ -16,17 +16,23 @@ import { GoalCard } from "./goal-card";
 import { EffectiveConfigCard } from "@/components/config/effective-config-card";
 import { SourceCard } from "@/components/config/source-card";
 import { MemoryCard } from "./memory-card";
+import { ScheduleCard } from "./schedule-card";
+import { TelemetryCard } from "./telemetry-card";
 import { PageHeader } from "@/components/nav/page-header";
+import { PageRefreshButton } from "@/components/ui/refresh-button";
 
 export function ConfigView() {
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
         title="Configuration"
-        description="Long-term guidance and procedural memory for AQuA investigations."
+        description="Long-term guidance, the schedule, the telemetry table and procedural memory for AQuA investigations."
+        aside={<PageRefreshButton />}
       />
 
       <GoalCard />
+      <ScheduleCard />
+      <TelemetryCard />
       <SourceCard />
       <MemoryCard />
       <EffectiveConfigCard />

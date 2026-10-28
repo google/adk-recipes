@@ -19,8 +19,8 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-import agentplatform
 from agentplatform._genai.types import EvaluationResult, Metric
+from ambient_quality_agent import clients
 from ambient_quality_agent.tools.evaluation.models import (
     MULTI_TURN_METRICS,
     SINGLE_TURN_METRICS,
@@ -85,7 +85,7 @@ class AgentPlatformEvalService:
         """
         self._project_id = project_id
         self._location = location
-        self._client = agentplatform.Client(
+        self._client = clients.create_agentplatform_client(
             project=self._project_id, location=self._location
         )
 

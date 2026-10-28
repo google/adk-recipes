@@ -148,10 +148,14 @@ bq mk --table --schema /tmp/turns.json \
 ```
 
 To update tables in an existing deployment when new columns are added (for
-example, `analyses`, `analysis_mode`, `occurrence_state`, and `trajectory_ids`
-on `insight_occurrences`, or `agent_revision` on `trajectory_payloads`):
+example, `agent_id` on `insights`, `analyses`, `analysis_mode`,
+`occurrence_state`, and `trajectory_ids` on `insight_occurrences`, or
+`agent_revision` on `trajectory_payloads`):
 
 ```bash
+jq '.schema' terraform/modules/aqa/schemas/insights.json > /tmp/insights.json
+bq update --schema /tmp/insights.json "$PROJECT:$DATASET.insights"
+
 jq '.schema' terraform/modules/aqa/schemas/insight_occurrences.json > /tmp/occ.json
 bq update --schema /tmp/occ.json "$PROJECT:$DATASET.insight_occurrences"
 
@@ -253,19 +257,21 @@ cd ~/ambient-quality-agent
 export GOOGLE_CLOUD_PROJECT=your-gcp-project
 export GOOGLE_CLOUD_LOCATION=us-central1
 export AQA_JOBS_GCS_BUCKET="${GOOGLE_CLOUD_PROJECT}-aqua-jobs"
-export AQA_OBSERVED_AGENT_NAME=your_observed_agent
-# Set any additional AQA_*, BIGQUERY_*, *_METRICS, or DATA_* variables needed.
+# Set any additional AQA_* variables needed.
 ```
 
+Once it is deployed, attach the observed agent with `agents-cli aqua attach`,
+which stores its settings where the engine reads them.
+
 To evaluate sessions using deterministic Python checks alongside model
-evaluations, publish a metric library to `AQA_METRICS_GCS_BUCKET` using
-`agents-cli aqua metrics publish`. Published metrics run during session-review
+evaluations, publish a metric library using `agents-cli aqua metrics publish`.
+The CLI sends it to the engine's API, and the engine validates it and writes it
+to `AQA_METRICS_GCS_BUCKET`. Published metrics run during session-review
 sweeps over the specified window; if no metrics are published, the review runs
 using model evaluations alone. Terraform provisions the metrics bucket and
-grants read access to the engine; define authorized publishers in the
-`metrics_writers` variable. Because published metrics execute inside the agent
-process using its credentials, write access to this bucket grants permissions
-equivalent to deploying code. See the [agents-cli evaluation
+grants the engine write access to it. Because published metrics execute inside
+the agent process using its credentials, publishing grants permissions
+equivalent to deploying code to anyone who can call the engine's API. See the [agents-cli evaluation
 guide](https://google.github.io/agents-cli/guide/evaluation/).
 
 **Production deployments use `agents-cli`**, which builds the repository

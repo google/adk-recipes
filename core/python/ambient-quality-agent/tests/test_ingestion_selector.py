@@ -83,7 +83,7 @@ def test_the_factory_hands_the_selector_to_whichever_source_is_configured(
     }
     with (
         mock.patch.object(backends.bigquery, "Client"),
-        mock.patch.object(_common.storage, "Client"),
+        mock.patch("google.cloud.storage.Client"),
         mock.patch(
             "ambient_quality_agent.tools.ingestion.cloud_ops_fetcher.LogFetcher"
         ),
@@ -130,7 +130,7 @@ def test_the_factory_reads_the_table_in_the_project_the_run_names(
     }
     with (
         mock.patch.object(backends.bigquery, "Client") as client,
-        mock.patch.object(_common.storage, "Client"),
+        mock.patch.object(_common.clients, "create_storage_client"),
         mock.patch(
             "ambient_quality_agent.tools.ingestion.cloud_ops_fetcher.LogFetcher"
         ),
@@ -187,7 +187,7 @@ def test_every_source_resolves_the_model_placeholder_in_its_query(
     }
     with (
         mock.patch.object(backends.bigquery, "Client"),
-        mock.patch.object(_common.storage, "Client"),
+        mock.patch("google.cloud.storage.Client"),
         mock.patch(
             "ambient_quality_agent.tools.ingestion.cloud_ops_fetcher.LogFetcher"
         ),

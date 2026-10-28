@@ -122,9 +122,10 @@ const config: Config = {
         "fade-in-up": "fade-in-up 0.18s ease-out",
       },
       // Markdown, mapped onto the type scale. Every place that renders
-      // markdown goes through components/chat/markdown.tsx. Prose colors follow
-      // the app's tokens, which flip under `.dark`, so no `prose-invert` is
-      // needed.
+      // markdown as prose goes through components/chat/markdown.tsx; a line of
+      // model-written text renders inline, in its own role, through
+      // components/ui/inline-markdown.tsx. Prose colors follow the app's
+      // tokens, which flip under `.dark`, so no `prose-invert` is needed.
       typography: {
         DEFAULT: {
           css: {

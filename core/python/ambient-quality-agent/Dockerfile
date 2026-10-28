@@ -25,7 +25,7 @@
 # ASGI app we ship rather than at the agent module directly. See:
 # https://docs.cloud.google.com/gemini-enterprise-agent-platform/scale/runtime/runtime-contract
 
-FROM python:3.12-slim
+FROM python:3.15-slim
 
 RUN pip install --no-cache-dir uv==0.8.13
 

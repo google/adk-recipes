@@ -31,8 +31,13 @@ from .conftest import FakeGcsClient
 BUCKET = "jobs-bucket"
 
 
-def _config(name: str = "watched-agent", **fields: Any) -> ObservedAgentConfig:
-    return ObservedAgentConfig(observed_agent_name=name, **fields)
+KEY = "acme-aqua__watched_agent"
+
+
+def _config(key: str = KEY, **fields: Any) -> ObservedAgentConfig:
+    return ObservedAgentConfig(
+        observed_agent_name=key.rpartition("__")[2], agent_key=key, **fields
+    )
 
 
 def _stored(
@@ -65,7 +70,7 @@ def test_what_was_written_is_what_comes_back() -> None:
     )
 
     written = store.save_agent_record(_over(client), record)
-    read_back = store.get_agent_record(_over(client), "watched-agent")
+    read_back = store.get_agent_record(_over(client), KEY)
 
     assert read_back == written
     # `save_agent_record` stamps the time; everything else survives untouched.
@@ -77,14 +82,13 @@ def test_what_was_written_is_what_comes_back() -> None:
 
 def test_an_agent_nobody_attached_reads_as_absent() -> None:
     """Not an error: it is the normal state of a deployment before `attach`."""
-    assert (
-        store.get_agent_record(_over(FakeGcsClient()), "watched-agent") is None
-    )
+    assert store.get_agent_record(_over(FakeGcsClient()), KEY) is None
 
 
 def test_the_stored_object_is_flat_and_readable() -> None:
     """One read tells a reader how the agent is observed, without their having
-    to know which field the runtime acts on and which only Terraform does."""
+    to know which field the runtime acts on and which only the update trigger
+    does."""
     record = store.AgentRecord(
         config=_config(data_lookback_window=30),
         investigation_schedule="0 12 * * *",
@@ -187,18 +191,57 @@ def test_a_newer_schema_version_is_read_rather_than_refused(
 
 
 def test_the_object_key_is_the_agents_identity() -> None:
-    """An object claiming a name other than its key would be reachable under
-    two names or none, so the key wins."""
+    """An object claiming a key or a name other than its own would be
+    reachable under two keys or none, so the object's key wins."""
     client = _client(
         _stored(
-            "watched-agent", {"agent": {"observed_agent_name": "someone-else"}}
+            KEY,
+            {
+                "agent": {
+                    "agent_key": "acme-aqua__someone_else",
+                    "observed_agent_name": "someone_else",
+                }
+            },
         )
     )
 
-    record = store.get_agent_record(_over(client), "watched-agent")
+    record = store.get_agent_record(_over(client), KEY)
 
     assert record is not None
-    assert record.config.observed_agent_name == "watched-agent"
+    assert record.agent_key == KEY
+    assert record.agent_name == "watched_agent"
+
+
+def test_an_object_stored_before_keys_is_named_by_its_bare_name() -> None:
+    client = _client(_stored("watched_agent", {"agent": {}}))
+
+    record = store.get_agent_record(_over(client), "watched_agent")
+
+    assert record is not None
+    assert record.agent_key == "watched_agent"
+    assert record.agent_name == "watched_agent"
+
+
+def test_a_bare_name_with_a_separator_in_it_is_the_name_it_records() -> None:
+    """`support__bot` is a valid agent name, which also reads as a key."""
+    client = _client(
+        _stored(
+            "support__bot", {"agent": {"observed_agent_name": "support__bot"}}
+        )
+    )
+
+    record = store.get_agent_record(_over(client), "support__bot")
+
+    assert record is not None
+    assert record.agent_name == "support__bot"
+
+
+def test_a_record_without_a_key_is_not_stored() -> None:
+    """It would land under a name no read looks for."""
+    record = store.AgentRecord(config=_config(key=""))
+
+    with pytest.raises(ValueError, match="no key"):
+        store.save_agent_record(_over(FakeGcsClient()), record)
 
 
 @pytest.mark.parametrize(
@@ -212,7 +255,7 @@ def test_an_object_that_is_not_a_config_raises(payload: bytes) -> None:
     """The reader is tolerant of keys it does not know, not of a file that is
     not one of these. The caller decides what to do about it."""
     with pytest.raises(ValueError):
-        store.parse_agent_record(payload, "watched-agent")
+        store.parse_agent_record(payload, KEY)
 
 
 # --- which agent a sessionless request means -------------------------------- #
@@ -292,52 +335,106 @@ def test_no_agents_resolves_to_nobody() -> None:
     assert store.resolve_default(_over(FakeGcsClient())) is None
 
 
+# --- the schedule ------------------------------------------------------------ #
+
+
+def test_a_record_with_no_schedule_given_has_the_default() -> None:
+    assert (
+        store.AgentRecord(config=_config()).investigation_schedule
+        == store.DEFAULT_INVESTIGATION_SCHEDULE
+    )
+
+
+def test_a_schedule_stored_empty_reads_as_the_default() -> None:
+    """The engine runs an empty schedule on the default, so the object says so."""
+    client = _client(
+        _stored(
+            KEY, {"schema_version": 1, "agent": {"investigation_schedule": ""}}
+        )
+    )
+
+    record = store.get_agent_record(_over(client), KEY)
+
+    assert record is not None
+    assert record.investigation_schedule == store.DEFAULT_INVESTIGATION_SCHEDULE
+
+
+def test_a_schedule_in_the_applied_section_is_dropped_without_a_warning(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The `agent` section's schedule is the one in effect."""
+    client = _client(
+        _stored(
+            KEY,
+            {
+                "schema_version": 1,
+                "agent": {"investigation_schedule": "0 6 * * *"},
+                "applied": {
+                    "at": "2026-09-21T10:02:00Z",
+                    "investigation_schedule": "0 12 * * *",
+                    "scheduled_trigger_enabled": False,
+                },
+            },
+        )
+    )
+
+    with caplog.at_level(logging.WARNING):
+        record = store.get_agent_record(_over(client), KEY)
+
+    assert record is not None
+    assert record.investigation_schedule == "0 6 * * *"
+    assert record.applied is not None
+    assert not hasattr(record.applied, "investigation_schedule")
+    assert "investigation_schedule" not in record.list_unapplied_fields()
+    assert not caplog.records
+
+
 # --- desired versus in effect ----------------------------------------------- #
 
 
-def test_everything_terraform_backed_is_pending_until_an_apply() -> None:
-    record = store.AgentRecord(
-        config=_config(), investigation_schedule="0 12 * * *"
-    )
+def test_every_trigger_field_is_pending_until_an_apply() -> None:
+    record = store.AgentRecord(config=_config(), observed_engine_id="123")
 
-    assert record.list_unapplied_fields() == list(store.TERRAFORM_BACKED_FIELDS)
+    assert record.list_unapplied_fields() == list(store.TRIGGER_FIELDS)
+
+
+def test_the_schedule_is_never_pending() -> None:
+    """The engine reads it on every tick, so there is nothing to apply."""
+    assert "investigation_schedule" not in store.TRIGGER_FIELDS
+    assert "scheduled_trigger_enabled" not in store.TRIGGER_FIELDS
 
 
 def test_only_what_changed_since_the_apply_is_pending() -> None:
-    """What a reader is meant to say: the schedule shown is the one that will
-    apply after the next `attach --apply`, not the one Cloud Scheduler runs."""
+    """What a reader is meant to say: the engine shown is the one that will
+    apply after the next `attach`, not the one the sink watches."""
     record = store.AgentRecord(
         config=_config(),
-        investigation_schedule="0 6 * * *",
-        observed_engine_id="123",
+        observed_engine_id="456",
         applied=store.Applied(
-            at="2026-09-21T10:02:00Z",
-            investigation_schedule="0 12 * * *",
-            observed_engine_id="123",
+            at="2026-09-21T10:02:00Z", observed_engine_id="123"
         ),
     )
 
-    assert record.list_unapplied_fields() == ["investigation_schedule"]
+    assert record.list_unapplied_fields() == ["observed_engine_id"]
 
 
 def test_nothing_is_pending_when_the_apply_matches() -> None:
     record = store.AgentRecord(
-        config=_config(),
-        investigation_schedule="0 12 * * *",
+        config=_config(observed_project_id="agent-proj"),
+        investigation_schedule="0 6 * * *",
         scheduled_trigger_enabled=False,
         observed_engine_id="123",
         applied=store.Applied(
             at="2026-09-21T10:02:00Z",
-            investigation_schedule="0 12 * * *",
-            scheduled_trigger_enabled=False,
             observed_engine_id="123",
+            observed_project_id="agent-proj",
         ),
     )
 
     assert record.list_unapplied_fields() == []
 
 
-# --- grants recorded for `detach --apply` ----------------------------------- #
+# --- grants recorded for `detach` to revoke --------------------------------- #
 
 _GRANT = store.AppliedGrant(
     resource="proj:agent_telemetry",
@@ -347,14 +444,14 @@ _GRANT = store.AppliedGrant(
 
 
 def test_grants_alone_put_no_trigger_into_effect() -> None:
-    """An `--apply` whose Terraform failed still ran its grants, and records
-    them; the defaults in its `applied` block were never applied."""
+    """An attach whose trigger commands failed still ran its grants, and
+    records them; the defaults in its `applied` block were never applied."""
     record = store.AgentRecord(
         config=_config(),
         applied=store.Applied(grants=(_GRANT,)),
     )
 
-    assert record.list_unapplied_fields() == list(store.TERRAFORM_BACKED_FIELDS)
+    assert record.list_unapplied_fields() == list(store.TRIGGER_FIELDS)
 
 
 def test_recorded_grants_survive_the_round_trip() -> None:
@@ -365,10 +462,8 @@ def test_recorded_grants_survive_the_round_trip() -> None:
     )
 
     store.save_agent_record(_over(client), record)
-    raw = json.loads(
-        client.contents[(BUCKET, store.build_object_name("watched-agent"))]
-    )
-    read_back = store.get_agent_record(_over(client), "watched-agent")
+    raw = json.loads(client.contents[(BUCKET, store.build_object_name(KEY))])
+    read_back = store.get_agent_record(_over(client), KEY)
 
     assert raw["applied"]["grants"] == [
         {

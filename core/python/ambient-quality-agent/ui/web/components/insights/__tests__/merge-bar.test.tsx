@@ -64,6 +64,28 @@ describe("MergeBar", () => {
     ).toBeInTheDocument();
   });
 
+  it("renders a code span in a survivor's name as code", () => {
+    render(
+      <MergeBar
+        insights={[
+          view({ insight_id: "c", label: "failed to call `create_ticket`" }),
+          B,
+        ]}
+        selected={new Set(["c", "b"])}
+        onCancel={() => {}}
+        onMerge={() => {}}
+        merging={false}
+      />,
+    );
+
+    expect(screen.getByText("create_ticket").tagName).toBe("CODE");
+    expect(
+      screen.getByRole("button", {
+        name: /Keep: failed to call create_ticket/,
+      }),
+    ).toBeInTheDocument();
+  });
+
   it("calls onMerge with the chosen survivor, not the first selected by default", async () => {
     const onMerge = vi.fn();
     render(

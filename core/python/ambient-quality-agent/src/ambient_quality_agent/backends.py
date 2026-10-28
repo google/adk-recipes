@@ -26,13 +26,15 @@ Wiring::
         BigQueryInvestigationStore,             build_bindings()
         BigQueryInsightStore, RootCauseStore,     InMemory* adapters,
         TrajectoryRecorder,                       FileObjectStore(.aqua/job/),
-                                                  FileObjectStore(.aqua/source/)
+                                                  FileObjectStore(.aqua/source/),
+                                                  FileObjectStore(.aqua/metrics/)
         BigQueryTrajectoryStore,
         BigQueryInsightReader,
         BigQueryTrajectoryReader
       build_gcs_bindings()
         GcsObjectStore(jobs bucket),
-        GcsObjectStore(source bucket)
+        GcsObjectStore(source bucket),
+        GcsObjectStore(metrics bucket)
         │                                         │
         └───────────────► bind_providers() ◄──────┘
                               │ sets each PROVIDERS target
@@ -42,7 +44,7 @@ Wiring::
     root_cause_tools.store_factory, insight_tools.reader_factory,
     insight_tools.store_factory, trajectory_tools.reader_factory,
     investigation.preview.store_factory, objects.store.jobs_store_factory,
-    objects.store.source_store_factory
+    objects.store.source_store_factory, objects.store.metrics_store_factory
 
 This is the composition root. Each store is reached through a provider: a
 module attribute holding its factory, which callers look up when they need one
@@ -52,11 +54,12 @@ from one set of bindings per backend.
 Two backends bind the same providers:
 
 - **Deployed**: BigQuery for AQuA's dataset, the jobs bucket for the goal,
-  the memories and the attached agents' configurations, and the source bucket
-  for the observed agents' source snapshots.
+  the memories and the attached agents' configurations, the source bucket
+  for the observed agents' source snapshots, and the metrics bucket for the
+  code-metric library.
 - **Standalone**: one in-memory store in place of the dataset, and files under
-  `.aqua/job/` and `.aqua/source/` in place of the buckets, so a standalone run
-  keeps nothing in a Cloud project.
+  `.aqua/job/`, `.aqua/source/` and `.aqua/metrics/` in place of the buckets,
+  so a standalone run keeps nothing in a Cloud project.
 
 `configure_providers()` reads `Config.standalone` and binds one set. Every entry
 point calls it, and nothing else needs to. This is the only module that imports
@@ -91,6 +94,7 @@ import contextlib
 import logging
 from typing import TYPE_CHECKING, Any, NamedTuple
 
+from ambient_quality_agent import clients
 from ambient_quality_agent import config as config_module
 from ambient_quality_agent.core import root_cause_tools
 from ambient_quality_agent.core import state as core_state
@@ -161,6 +165,7 @@ PROVIDERS: dict[str, ProviderTarget] = {
     ),
     "jobs_store": ProviderTarget(objects_store, "jobs_store_factory"),
     "source_store": ProviderTarget(objects_store, "source_store_factory"),
+    "metrics_store": ProviderTarget(objects_store, "metrics_store_factory"),
 }
 """Every storage provider, keyed by what it stores rather than by where it lives.
 
@@ -178,8 +183,8 @@ def _create_bigquery_client(cfg: Any) -> bigquery.Client:
     Returns:
         Configured BigQuery client.
     """
-    return bigquery.Client(
-        project=cfg.project_id, location=cfg.aqa_dataset_location
+    return clients.create_bigquery_client(
+        cfg.project_id, cfg.aqa_dataset_location
     )
 
 
@@ -194,12 +199,12 @@ def build_bigquery_bindings() -> dict[str, Callable[..., Any]]:
         state = ctx.state
         location = state.get("aqa_dataset_location", "us-central1")
         return BigQueryInsightStore(
-            client=bigquery.Client(
-                project=state["project_id"], location=location
+            client=clients.create_bigquery_client(
+                state["project_id"], location
             ),
             project_id=state["project_id"],
             dataset=state.get("aqa_dataset", "aqua_insights"),
-            agent_name=state["observed_agent_name"],
+            agent_name=config_module.extract_agent_key(state),
             match_call=_common.match_call_factory(ctx),
         )
 
@@ -208,15 +213,15 @@ def build_bigquery_bindings() -> dict[str, Callable[..., Any]]:
         location = state.get("aqa_dataset_location", "us-central1")
         return TrajectoryRecorder(
             store=BigQueryTrajectoryStore(
-                client=bigquery.Client(
-                    project=state["project_id"], location=location
+                client=clients.create_bigquery_client(
+                    state["project_id"], location
                 ),
                 project_id=state["project_id"],
                 dataset=state.get("aqa_dataset", "aqua_insights"),
-                agent_name=state["observed_agent_name"],
+                agent_name=config_module.extract_agent_key(state),
             ),
             run_id=state.get("run_id", ""),
-            agent_name=state["observed_agent_name"],
+            agent_name=config_module.extract_agent_key(state),
             source=state.get("telemetry_ingestion_source", ""),
         )
 
@@ -234,7 +239,7 @@ def build_bigquery_bindings() -> dict[str, Callable[..., Any]]:
             client=_create_bigquery_client(cfg),
             project_id=cfg.project_id,
             dataset=cfg.aqa_dataset,
-            agent_name=cfg.observed_agent_name,
+            agent_name=cfg.resolve_agent_key(),
         )
 
     def build_insight_store(state: Any) -> BigQueryInsightStore:
@@ -244,7 +249,7 @@ def build_bigquery_bindings() -> dict[str, Callable[..., Any]]:
             client=_create_bigquery_client(cfg),
             project_id=cfg.project_id,
             dataset=cfg.aqa_dataset,
-            agent_name=cfg.observed_agent_name,
+            agent_name=cfg.resolve_agent_key(),
         )
 
     def build_trajectory_reader(state: Any) -> BigQueryTrajectoryReader:
@@ -253,7 +258,7 @@ def build_bigquery_bindings() -> dict[str, Callable[..., Any]]:
             client=_create_bigquery_client(cfg),
             project_id=cfg.project_id,
             dataset=cfg.aqa_dataset,
-            agent_name=cfg.observed_agent_name,
+            agent_name=cfg.resolve_agent_key(),
         )
 
     return {
@@ -278,7 +283,7 @@ def build_bigquery_bindings() -> dict[str, Callable[..., Any]]:
             client=_create_bigquery_client(config),
             project_id=config.project_id,
             dataset=config.aqa_dataset,
-            agent_name=config.observed_agent_name,
+            agent_name=config.resolve_agent_key(),
         ),
     }
 
@@ -286,9 +291,10 @@ def build_bigquery_bindings() -> dict[str, Callable[..., Any]]:
 def build_gcs_bindings() -> dict[str, Callable[..., Any]]:
     """Constructs provider bindings for the deployed Cloud Storage backend.
 
-    The jobs and source buckets belong to the deployment rather than to an
-    observed agent, so they are read once from the environment rather than per
-    request. A deployment that names no source bucket has no source store.
+    The jobs, source and metrics buckets belong to the deployment rather than to
+    an observed agent, so they are read once from the environment rather than
+    per request. A deployment that names no source or metrics bucket has no
+    such store.
 
     Returns:
         Mapping of provider names to their factory callables.
@@ -303,7 +309,16 @@ def build_gcs_bindings() -> dict[str, Callable[..., Any]]:
         if cfg.source_gcs_bucket
         else None
     )
-    return {"jobs_store": lambda: jobs, "source_store": lambda: source}
+    metrics = (
+        GcsObjectStore(cfg.metrics_gcs_bucket)
+        if cfg.metrics_gcs_bucket
+        else None
+    )
+    return {
+        "jobs_store": lambda: jobs,
+        "source_store": lambda: source,
+        "metrics_store": lambda: metrics,
+    }
 
 
 def build_deployed_bindings() -> dict[str, Callable[..., Any]]:

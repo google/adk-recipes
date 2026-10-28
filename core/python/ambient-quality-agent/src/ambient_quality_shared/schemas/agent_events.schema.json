@@ -1,0 +1,10 @@
+[
+  {"name": "timestamp", "type": "TIMESTAMP", "mode": "NULLABLE"},
+  {"name": "event_type", "type": "STRING", "mode": "NULLABLE"},
+  {"name": "agent", "type": "STRING", "mode": "NULLABLE"},
+  {"name": "session_id", "type": "STRING", "mode": "NULLABLE"},
+  {"name": "invocation_id", "type": "STRING", "mode": "NULLABLE"},
+  {"name": "content", "type": "JSON", "mode": "NULLABLE"},
+  {"name": "attributes", "type": "JSON", "mode": "NULLABLE"},
+  {"name": "error_message", "type": "STRING", "mode": "NULLABLE"}
+]

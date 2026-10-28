@@ -13,12 +13,12 @@
 # limitations under the License.
 
 terraform {
-  required_version = ">= 1.4"
+  required_version = ">= 1.7"
 
   required_providers {
     google = {
       source  = "hashicorp/google"
-      version = ">= 7.13, < 8.0"
+      version = ">= 8.1, < 9.0"
     }
     # Delays resource creation while newly provisioned identities and IAM grants
     # propagate; see the time_sleep resources in iam.tf.

@@ -19,7 +19,7 @@ This module implements step 3 of the `agents-cli deploy` chain (see `acli_deploy
     agents-cli deploy
       |
       +-- 1. the built-in       the observed agent
-      +-- 2. acli_deploy.py     the AQuA engine that watches it
+      +-- 2. acli_deploy.py     the AQuA engine, and the agent attached to it
       +-- 3. this file          the dashboard that reads the engine
 
 It runs last so the engine it reads is already up to date, not because it has to:

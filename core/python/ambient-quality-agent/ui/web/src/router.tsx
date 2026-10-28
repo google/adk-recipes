@@ -32,4 +32,9 @@ declare module "@tanstack/react-router" {
   interface Register {
     router: typeof router;
   }
+  interface HistoryState {
+    /** The insights list an insight was opened from, with its page and
+     *  status, so the insight's back link returns there. */
+    insightsListHref?: string;
+  }
 }

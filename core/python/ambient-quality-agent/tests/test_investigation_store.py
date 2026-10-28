@@ -43,6 +43,8 @@ from ambient_quality_agent.tools.investigations.store import (
     IN_FLIGHT_HORIZON_HOURS,
 )
 
+from .conftest import make_config
+
 _PROJECT = "test-project"
 _DATASET = "aqua_insights"
 _TABLE_REF = f"{_PROJECT}.{_DATASET}.{INVESTIGATIONS_TABLE}"
@@ -737,3 +739,97 @@ def test_counters_by_day_counts_zeroed_runs_as_unmeasured() -> None:
     # recorded only a counter added later still counts as measured.
     for name in InvestigationCounters.model_fields:
         assert f"'$.{name}'" in sql
+
+
+# --- one agent's runs --------------------------------------------------------- #
+
+_KEY = "acme-prod__it_support_agent"
+
+
+def _build_scoped_store(client: mock.MagicMock) -> BigQueryInvestigationStore:
+    """Builds a store bound to `_KEY`.
+
+    Args:
+        client: Mock BigQuery client.
+
+    Returns:
+        The store.
+    """
+    return BigQueryInvestigationStore(
+        client=client, project_id=_PROJECT, dataset=_DATASET, agent_name=_KEY
+    )
+
+
+@mock.patch.object(BigQueryInvestigationStore, "_run", return_value=[])
+def test_the_run_list_and_totals_are_scoped_before_the_newest_snapshot(
+    run: mock.MagicMock,
+) -> None:
+    """One agent's runs must not show in another's list, totals or trends."""
+    store = _build_scoped_store(mock.MagicMock())
+
+    store.list_recent()
+    store.sum_counters()
+    store.sum_counters_by_day()
+
+    assert run.call_count == 3
+    for call in run.call_args_list:
+        sql, params = call.args
+        # Filtered inside the subquery, where the agent is the same on every
+        # snapshot of a run, so the newest snapshot is picked among its own.
+        assert (
+            f"FROM `{_TABLE_REF}` WHERE observed_agent_name = @agent\n"
+            "  QUALIFY" in sql
+        )
+        assert {p.name: p.value for p in params}["agent"] == _KEY
+
+
+@mock.patch.object(BigQueryInvestigationStore, "_run", return_value=[])
+def test_a_run_and_the_runs_to_fail_are_read_across_agents(
+    run: mock.MagicMock,
+) -> None:
+    """A run id is unique across agents, so the durable job finds its run
+    with no agent selected; every agent's runs share one lease."""
+    store = _build_scoped_store(mock.MagicMock())
+
+    store.get("r1")
+    store.list_stale_pending(lease_minutes=30)
+    store.list_overdue_scheduled(grace_minutes=30)
+
+    for call in run.call_args_list:
+        sql, params = call.args
+        assert "@agent" not in sql
+        assert "agent" not in {p.name for p in params}
+
+
+@mock.patch.object(BigQueryInvestigationStore, "_run", return_value=[])
+def test_a_store_with_no_agent_lists_every_run(run: mock.MagicMock) -> None:
+    _store(mock.MagicMock()).list_recent()
+
+    sql, params = run.call_args.args
+    assert "@agent" not in sql
+    assert "agent" not in {p.name for p in params}
+
+
+def test_a_store_from_a_config_is_scoped_to_its_key() -> None:
+    store = BigQueryInvestigationStore.from_config(
+        make_config(observed_agent_name="it_support_agent", agent_key=_KEY)
+    )
+
+    assert store._agent_name == _KEY
+
+
+def test_a_store_from_a_runs_state_is_scoped_to_its_key() -> None:
+    store = BigQueryInvestigationStore.from_workflow_state(
+        {
+            "project_id": _PROJECT,
+            "observed_agent_name": "it_support_agent",
+            "agent_key": _KEY,
+        }
+    )
+
+    assert store._agent_name == _KEY
+
+
+def test_new_run_ids_are_full_uuids() -> None:
+    """Unique across agents, so a run is found by its id alone."""
+    assert len(InvestigationRecord().run_id) == 32

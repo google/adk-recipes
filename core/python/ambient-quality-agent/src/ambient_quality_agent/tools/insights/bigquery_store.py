@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import functools
 import json
 import logging
 from typing import TYPE_CHECKING, Any
@@ -211,7 +212,9 @@ class BigQueryInsightStore:
         Two steps:
 
         1. Read this agent's open insights, most recently updated first.
-        2. Hand them to `matching.match_candidates`, which chooses among them.
+        2. Pass them to `matching.match_candidates_by_scope`, which restricts
+           each candidate to insights of the same attributed agent and delegates
+           selection to `matching.match_candidates`.
 
         The judge is a `generateContent` call, so the query carries no AI.
 
@@ -227,6 +230,9 @@ class BigQueryInsightStore:
           way, and skipping it would mint a fresh insight every sweep for
           exactly the defect somebody asked not to see.
 
+        Scope is taken from `Cluster.agent_id` and ``agent_id``, defaulting to
+        this store's root agent when empty.
+
         Args:
             candidates: Candidate clusters from the current sweep.
 
@@ -235,8 +241,8 @@ class BigQueryInsightStore:
             ``None`` values both mean no match.
 
         Raises:
-            Exception: Whatever the judge raised, if it answered for no
-                candidate at all -- see `matching.match_candidates`.
+            Exception: The exception raised by the judge, if every scope call
+                failed -- see `matching.match_candidates_by_scope`.
         """
         if not candidates:
             return {}
@@ -246,7 +252,7 @@ class BigQueryInsightStore:
         # decides which batch a label lands in, and the first batch to answer
         # wins.
         sql = f"""
-SELECT insight_id, label
+SELECT insight_id, agent_id, label
 FROM `{self._build_table_ref(_INSIGHTS_TABLE)}`
 WHERE agent_name = @agent_name
   AND status != '{InsightStatus.RESOLVED.value}'
@@ -266,10 +272,15 @@ ORDER BY updated_at DESC, insight_id
         if not rows:
             return dict.fromkeys(range(len(candidates)))
 
-        hits = matching.match_candidates(
-            [c.label for c in candidates],
-            [row["label"] for row in rows],
-            model_call=self._match_call,
+        hits = matching.match_candidates_by_scope(
+            [(c.agent_id or self._agent_name, c.label) for c in candidates],
+            [
+                (row.get("agent_id") or self._agent_name, row["label"])
+                for row in rows
+            ],
+            functools.partial(
+                matching.match_candidates, model_call=self._match_call
+            ),
         )
         return {
             index: (rows[hit]["insight_id"] if hit is not None else None)
@@ -323,6 +334,7 @@ ORDER BY updated_at DESC, insight_id
             {
                 "insight_id": i.insight_id,
                 "agent_name": i.agent_name,
+                "agent_id": i.agent_id,
                 "label": i.label,
                 "status": i.status.value,
                 "created_at": i.created_at.isoformat(),

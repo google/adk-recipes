@@ -135,6 +135,28 @@ def test_saved_artifacts_are_attached_to_the_a2a_events(
     )
 
 
+def test_the_card_defaults_to_the_package_version(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import ambient_quality_shared
+
+    monkeypatch.delenv("AGENT_VERSION", raising=False)
+    monkeypatch.setattr(ambient_quality_shared, "__version__", "9.8.7")
+
+    versions: list[str] = []
+    builder = a2a_module.AgentCardBuilder
+
+    def _record(**kwargs: Any) -> Any:
+        versions.append(kwargs["agent_version"])
+        return builder(**kwargs)
+
+    monkeypatch.setattr(a2a_module, "AgentCardBuilder", _record)
+
+    _captured_handler(monkeypatch)
+
+    assert versions == ["9.8.7"]
+
+
 # --- trap T2: the wire dialect ------------------------------------------------ #
 
 

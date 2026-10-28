@@ -6,8 +6,7 @@
 - Exempt: `@property` members (nouns), dunders, pytest `test_*` functions and fixtures, framework overrides (OpenTelemetry `shutdown`/`force_flush`, ADK callbacks such as `before_agent`).
 - Mirrored code shares names:
   - the BigQuery stores and readers under `src/ambient_quality_agent/tools/` ↔ their in-memory counterparts in `src/ambient_quality_agent/standalone/` (`InMemory*`), which implement the same contract;
-  - `TrajectoryReader`/`InsightReader` ↔ `tools/mock_aqa_server.py`;
-  - `src/ambient_quality_cli/metrics.py` ↔ `src/ambient_quality_agent/tools/metrics/library.py`.
+  - `TrajectoryReader`/`InsightReader` ↔ `tools/mock_aqa_server.py`.
 
 ### Verbs
 
