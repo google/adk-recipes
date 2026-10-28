@@ -7,12 +7,13 @@ authors = [{ name = "Google LLC" }]
 
 dependencies = [
     "python-dotenv>=1.0.0",
-    "google-adk[gcp,otel-gcp,bigquery-analytics]>=2.9.2,<3.0.0",
+    "google-adk[gcp,otel-gcp,bigquery-analytics]>=2.6.0,<3.0.0",
     "opentelemetry-resourcedetector-gcp<=1.12.0a0",
     "gcsfs>=2024.11.0",
     "a2a-sdk[http-server]>=1.0,<2",
     "aiohttp>=3.13.4",
     "google-cloud-logging>=3.12.0,<4.0.0",
+    "google-cloud-aiplatform[agent-engines]>=1.156.0,<2.0.0",
 ]
 requires-python = ">=3.11,<3.14"
 
@@ -26,7 +27,7 @@ dev = [
 
 [project.optional-dependencies]
 eval = [
-    "google-adk[eval]>=2.9.2,<3.0.0",
+    "google-adk[eval]>=2.6.0,<3.0.0",
     "google-cloud-aiplatform[evaluation]>=1.156.0,<2.0.0"
 ]
 lint = [

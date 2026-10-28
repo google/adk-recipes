@@ -44,7 +44,7 @@ The starting instruction is one sentence: `Help the user. If they want to cancel
 
 ```bash
 git clone https://github.com/google/adk-recipes.git
-cd adk-recipes/core/python/auto-hill-climb
+cd adk-recipes/contrib/python/auto-hill-climb
 cp .env.example .env   # then set GOOGLE_CLOUD_PROJECT
 uv tool install google-agents-cli
 uvx google-agents-cli setup

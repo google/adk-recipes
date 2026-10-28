@@ -13,7 +13,7 @@
 # limitations under the License.
 """Runnability test for the recipe."""
 
-import os
+from unittest.mock import patch
 
 from google.adk.agents import Agent
 from google.adk.apps import App
@@ -21,10 +21,13 @@ from google.adk.apps import App
 
 def test_agent_runnability() -> None:
     """agent.py imports and builds the agent without calling a model."""
-    os.environ.setdefault("GOOGLE_CLOUD_PROJECT", "test-project")
-    os.environ.setdefault("GOOGLE_CLOUD_LOCATION", "global")
-    os.environ.setdefault("MODEL_NAME", "gemini-3.8-flash")
-    import app.agent
+    test_env = {
+        "GOOGLE_CLOUD_PROJECT": "test-project",
+        "GOOGLE_CLOUD_LOCATION": "global",
+        "MODEL_NAME": "gemini-3.8-flash",
+    }
+    with patch.dict("os.environ", test_env):
+        import app.agent
 
     assert isinstance(app.agent.root_agent, Agent)
     assert app.agent.root_agent.name == "support_agent"
