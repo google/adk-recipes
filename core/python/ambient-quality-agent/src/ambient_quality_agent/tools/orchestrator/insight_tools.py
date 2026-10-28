@@ -230,6 +230,7 @@ async def list_insights(
     order_by: str = "",
     page_size: int = 0,
     day: str = "",
+    page: int = 0,
 ) -> dict[str, Any]:
     """List durable quality insights for the observed agent (paginated).
 
@@ -256,6 +257,10 @@ async def list_insights(
             ``NEW`` for found that day (whatever the status is now),
             ``RESOLVED`` for resolved that day; ``RECURRING`` is refused.
             Empty (the default) for no day.
+        page: a 1-based page number of ``page_size`` issues, for a caller that
+            addresses a page directly, such as a dashboard URL that names one.
+            Ignored when ``page_token`` is set; 0 (the default) is the first
+            page.
 
     Returns ``{"insights": [...], "total": N, "conversations": M,
     "next_page_token": str | None}``; each insight carries its label, status,
@@ -280,7 +285,12 @@ async def list_insights(
     changed_on, error = _parse_day(day, statuses)
     if error:
         return {"error": error}
-    offset = decode_page_token(page_token)
+    limit = _resolve_page_size(page_size)
+    offset = (
+        decode_page_token(page_token)
+        if page_token
+        else max(0, page - 1) * limit
+    )
     state = tool_context.state
     filters: dict[str, Any] = {
         "statuses": statuses,
@@ -295,7 +305,7 @@ async def list_insights(
         # asyncio event loop unblocked.
         summaries, total = await asyncio.to_thread(
             lambda: reader_factory(state).list_insights(
-                limit=_resolve_page_size(page_size),
+                limit=limit,
                 offset=offset,
                 order_by=order,
                 **filters,

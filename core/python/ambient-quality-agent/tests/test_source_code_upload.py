@@ -31,11 +31,16 @@ import pytest
 from ambient_quality_agent.core import command_routes as routes
 from ambient_quality_agent.standalone.files import FileObjectStore
 from ambient_quality_agent.tools.objects import store as objects_store
+from ambient_quality_agent.tools.observed_agent_config import (
+    store as agent_store,
+)
 from ambient_quality_agent.tools.source_code import snapshot, upload
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 AGENT = "travel_agent"
+ENGINE = "projects/p/locations/l/reasoningEngines/1"
+"""The engine the manifests are of."""
 
 
 @pytest.fixture
@@ -56,7 +61,7 @@ def _build_manifest(
     *entries: tuple[str, int, bool], **fields: Any
 ) -> dict[str, Any]:
     return {
-        "engine": "projects/p/locations/l/reasoningEngines/1",
+        "engine": ENGINE,
         "agent_directory": "app",
         "ignore_patterns": [".git"],
         "files": [
@@ -72,7 +77,7 @@ def test_files_land_under_the_agent_and_the_revision(
     store: FileObjectStore,
 ) -> None:
     reply = upload.write_files(
-        agent_name=AGENT,
+        agent_key=AGENT,
         revision="7",
         files=[
             _encode_file("app/agent.py", b"x = 1\n"),
@@ -80,7 +85,7 @@ def test_files_land_under_the_agent_and_the_revision(
         ],
     )
 
-    assert reply == {"agent_name": AGENT, "revision": "7", "written": 2}
+    assert reply == {"agent_key": AGENT, "revision": "7", "written": 2}
     assert store.read_bytes(f"{AGENT}/7/files/app/agent.py") == b"x = 1\n"
     assert store.read_bytes(f"{AGENT}/7/files/Dockerfile") == b"\xff"
 
@@ -88,7 +93,7 @@ def test_files_land_under_the_agent_and_the_revision(
 def test_a_file_of_any_type_is_written(store: FileObjectStore) -> None:
     """The CLI chooses which files to send; the engine does not second-guess it."""
     reply = upload.write_files(
-        agent_name=AGENT,
+        agent_key=AGENT,
         revision="7",
         files=[_encode_file("logo.png", b"\x89")],
     )
@@ -98,7 +103,7 @@ def test_a_file_of_any_type_is_written(store: FileObjectStore) -> None:
 
 
 @pytest.mark.parametrize(
-    ("agent_name", "revision"),
+    ("agent_key", "revision"),
     [
         ("", "7"),
         ("../x", "7"),
@@ -109,10 +114,10 @@ def test_a_file_of_any_type_is_written(store: FileObjectStore) -> None:
     ],
 )
 def test_a_key_that_leaves_its_prefix_is_refused(
-    store: FileObjectStore, agent_name: str, revision: str
+    store: FileObjectStore, agent_key: str, revision: str
 ) -> None:
     reply = upload.write_files(
-        agent_name=agent_name,
+        agent_key=agent_key,
         revision=revision,
         files=[_encode_file("a.py", b"a")],
     )
@@ -129,17 +134,17 @@ def test_a_path_that_leaves_the_files_prefix_is_refused(
 ) -> None:
     entry = {**_encode_file("x", b"a"), "path": path}
 
-    reply = upload.write_files(agent_name=AGENT, revision="7", files=[entry])
+    reply = upload.write_files(agent_key=AGENT, revision="7", files=[entry])
 
     assert "error" in reply
     assert store.list_names("") == []
 
 
-def test_an_agent_name_may_start_with_an_underscore(
+def test_an_agent_key_may_start_with_an_underscore(
     store: FileObjectStore,
 ) -> None:
     reply = upload.write_files(
-        agent_name="_private", revision="7", files=[_encode_file("a.py", b"a")]
+        agent_key="_private", revision="7", files=[_encode_file("a.py", b"a")]
     )
 
     assert reply["written"] == 1
@@ -153,7 +158,7 @@ def test_a_batch_of_too_many_files_is_refused_before_decoding(
         for i in range(snapshot.MAX_BATCH_FILES + 1)
     ]
 
-    reply = upload.write_files(agent_name=AGENT, revision="7", files=files)
+    reply = upload.write_files(agent_key=AGENT, revision="7", files=files)
 
     assert "files in one batch" in reply["error"]
     assert store.list_names("") == []
@@ -164,7 +169,7 @@ def test_content_that_is_not_base64_gzip_is_refused(
 ) -> None:
     raw = {"path": "a.py", "content": base64.b64encode(b"plain").decode()}
 
-    reply = upload.write_files(agent_name=AGENT, revision="7", files=[raw])
+    reply = upload.write_files(agent_key=AGENT, revision="7", files=[raw])
 
     assert "not base64 gzip" in reply["error"]
 
@@ -175,7 +180,7 @@ def test_a_file_that_inflates_past_the_cap_is_refused(
     """A small body must not become an unbounded write."""
     bomb = _encode_file("a.py", b"\0" * (snapshot.MAX_FILE_BYTES + 1))
 
-    reply = upload.write_files(agent_name=AGENT, revision="7", files=[bomb])
+    reply = upload.write_files(agent_key=AGENT, revision="7", files=[bomb])
 
     assert "larger than" in reply["error"]
     assert store.list_names("") == []
@@ -183,7 +188,7 @@ def test_a_file_that_inflates_past_the_cap_is_refused(
 
 def test_one_bad_file_writes_none_of_the_batch(store: FileObjectStore) -> None:
     reply = upload.write_files(
-        agent_name=AGENT,
+        agent_key=AGENT,
         revision="7",
         files=[_encode_file("a.py", b"a"), {"path": "b.py", "content": "!!"}],
     )
@@ -198,7 +203,7 @@ def test_without_a_source_store_nothing_is_written(
     monkeypatch.setattr(objects_store, "source_store_factory", lambda: None)
 
     reply = upload.write_files(
-        agent_name=AGENT, revision="7", files=[_encode_file("a.py", b"a")]
+        agent_key=AGENT, revision="7", files=[_encode_file("a.py", b"a")]
     )
 
     assert "AQA_SOURCE_GCS_BUCKET" in reply["error"]
@@ -208,13 +213,13 @@ def test_commit_writes_the_manifest_with_counters_of_its_own(
     store: FileObjectStore,
 ) -> None:
     upload.write_files(
-        agent_name=AGENT,
+        agent_key=AGENT,
         revision="7",
         files=[_encode_file("a.py", b"abc"), _encode_file("b.py", b"de")],
     )
 
     reply = upload.commit(
-        agent_name=AGENT,
+        agent_key=AGENT,
         revision="7",
         manifest=_build_manifest(
             ("a.py", 3, True),
@@ -240,11 +245,11 @@ def test_commit_refuses_a_manifest_listing_a_file_never_uploaded(
 ) -> None:
     """The manifest means the snapshot is complete, so it is not written."""
     upload.write_files(
-        agent_name=AGENT, revision="7", files=[_encode_file("a.py", b"a")]
+        agent_key=AGENT, revision="7", files=[_encode_file("a.py", b"a")]
     )
 
     reply = upload.commit(
-        agent_name=AGENT,
+        agent_key=AGENT,
         revision="7",
         manifest=_build_manifest(("a.py", 1, False), ("lost.py", 1, False)),
     )
@@ -257,11 +262,11 @@ def test_commit_refuses_a_snapshot_over_the_total_cap(
     store: FileObjectStore,
 ) -> None:
     upload.write_files(
-        agent_name=AGENT, revision="7", files=[_encode_file("a.py", b"a")]
+        agent_key=AGENT, revision="7", files=[_encode_file("a.py", b"a")]
     )
 
     reply = upload.commit(
-        agent_name=AGENT,
+        agent_key=AGENT,
         revision="7",
         manifest=_build_manifest(
             ("a.py", snapshot.MAX_SNAPSHOT_BYTES + 1, False)
@@ -273,11 +278,11 @@ def test_commit_refuses_a_snapshot_over_the_total_cap(
 
 def test_commit_refuses_a_path_listed_twice(store: FileObjectStore) -> None:
     upload.write_files(
-        agent_name=AGENT, revision="7", files=[_encode_file("a.py", b"a")]
+        agent_key=AGENT, revision="7", files=[_encode_file("a.py", b"a")]
     )
 
     reply = upload.commit(
-        agent_name=AGENT,
+        agent_key=AGENT,
         revision="7",
         manifest=_build_manifest(("a.py", 1, False), ("/a.py", 1, False)),
     )
@@ -287,15 +292,57 @@ def test_commit_refuses_a_path_listed_twice(store: FileObjectStore) -> None:
 
 # --- the routes -------------------------------------------------------------- #
 
+STAGING_KEY = "acme-staging__travel_agent"
+"""The same agent in a staging project, keyed by it."""
+
 
 @pytest.fixture
-def client() -> TestClient:
+def client(jobs_store: FileObjectStore) -> TestClient:
+    """Serves the routes, with `AGENT` and `STAGING_KEY` attached."""
+    for key, project, engine in (
+        (AGENT, "", "7"),
+        (STAGING_KEY, "acme-staging", ENGINE),
+    ):
+        jobs_store.write_text(
+            agent_store.build_object_name(key),
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "agent": {
+                        "observed_agent_name": AGENT,
+                        "observed_project_id": project,
+                        "observed_engine_id": engine,
+                    },
+                }
+            ),
+        )
     app = FastAPI()
     app.include_router(routes.router)
     return TestClient(app)
 
 
-def test_the_upload_route_passes_the_batch_through(
+def test_the_upload_route_stores_the_batch_under_the_agents_key(
+    client: TestClient, store: FileObjectStore
+) -> None:
+    response = client.post(
+        "/source/upload",
+        json={
+            "agent_key": STAGING_KEY,
+            "revision": "7",
+            "files": [_encode_file("a.py", b"a")],
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "agent_key": STAGING_KEY,
+        "revision": "7",
+        "written": 1,
+    }
+    assert store.read_bytes(f"{STAGING_KEY}/7/files/a.py") == b"a"
+
+
+def test_an_agent_name_without_an_agent_key_is_read_as_the_key(
     client: TestClient, store: FileObjectStore
 ) -> None:
     response = client.post(
@@ -307,14 +354,103 @@ def test_the_upload_route_passes_the_batch_through(
         },
     )
 
-    assert response.status_code == 200
-    assert response.json()["written"] == 1
+    assert response.json()["agent_key"] == AGENT
+    assert store.read_bytes(f"{AGENT}/7/files/a.py") == b"a"
+
+
+@pytest.mark.parametrize(
+    "selector", [{"agent_key": "acme-prod__travel_agent"}, {"agent_name": "x"}]
+)
+def test_a_snapshot_of_an_agent_not_attached_is_refused(
+    client: TestClient, store: FileObjectStore, selector: dict[str, str]
+) -> None:
+    """No reader would look under it."""
+    upload_response = client.post(
+        "/source/upload",
+        json={**selector, "revision": "7", "files": [_encode_file("a", b"")]},
+    )
+    commit_response = client.post(
+        "/source/commit",
+        json={**selector, "revision": "7", "manifest": _build_manifest()},
+    )
+
+    assert upload_response.status_code == 400
+    assert commit_response.status_code == 400
+    assert "No agent is attached" in upload_response.json()["detail"]
+    assert store.list_names("") == []
+
+
+def test_a_snapshot_of_another_engine_is_not_committed(
+    client: TestClient, store: FileObjectStore
+) -> None:
+    """The bare name a CLI sends can be another attachment's key: here, the
+    same agent in AQuA's own project, which observes engine 7."""
+    files = [_encode_file("a.py", b"a")]
+    client.post(
+        "/source/upload",
+        json={"agent_name": AGENT, "revision": "7", "files": files},
+    )
+
+    response = client.post(
+        "/source/commit",
+        json={
+            "agent_name": AGENT,
+            "revision": "7",
+            "manifest": _build_manifest(("a.py", 1, False)),
+        },
+    )
+
+    assert response.status_code == 400
+    assert "observes engine 7" in response.json()["detail"]
+    assert store.read_text(f"{AGENT}/7/manifest.json") is None
+
+
+def test_a_snapshot_of_the_agents_engine_is_committed(
+    client: TestClient, store: FileObjectStore
+) -> None:
+    """Recorded as a full resource name, compared by its trailing id."""
+    files = [_encode_file("a.py", b"a")]
+    client.post(
+        "/source/upload",
+        json={"agent_key": STAGING_KEY, "revision": "7", "files": files},
+    )
+
+    response = client.post(
+        "/source/commit",
+        json={
+            "agent_key": STAGING_KEY,
+            "revision": "7",
+            "manifest": _build_manifest(
+                ("a.py", 1, False),
+                engine="projects/123/locations/l/reasoningEngines/1",
+            ),
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert store.read_text(f"{STAGING_KEY}/7/manifest.json") is not None
+
+
+def test_a_key_that_cannot_be_a_snapshot_prefix_is_refused(
+    client: TestClient, jobs_store: FileObjectStore, store: FileObjectStore
+) -> None:
+    """An attachment stored as `a_b` answers to `a/b`, which would read
+    revision `b` of agent `a`."""
+    jobs_store.write_text(
+        agent_store.build_object_name("a/b"),
+        json.dumps({"schema_version": 1, "agent": {}}),
+    )
+
+    response = client.post("/source", json={"agent_key": "a/b"})
+
+    assert response.status_code == 400
+    assert "snapshot key" in response.json()["detail"]
 
 
 @pytest.mark.parametrize(
     ("route", "body", "detail"),
     [
-        ("/source/upload", {"agent_name": AGENT, "files": []}, "revision"),
+        ("/source/upload", {"agent_key": AGENT, "files": []}, "revision"),
         ("/source/upload", {"revision": "7", "files": {}}, "files"),
         ("/source/commit", {"revision": "7", "manifest": []}, "manifest"),
     ],
@@ -329,7 +465,7 @@ def test_a_malformed_request_is_rejected(
 
 
 @pytest.mark.parametrize(
-    "body", [{"agent_name": "../x"}, {"agent_name": AGENT, "revision": "a/b"}]
+    "body", [{"agent_key": "../x"}, {"agent_key": AGENT, "revision": "a/b"}]
 )
 def test_the_source_route_refuses_a_key_outside_the_store(
     client: TestClient, store: FileObjectStore, body: dict[str, Any]
@@ -339,18 +475,19 @@ def test_the_source_route_refuses_a_key_outside_the_store(
     assert response.status_code == 400
 
 
-def test_without_an_agent_the_snapshot_is_the_watched_agents(
+def test_without_an_agent_the_snapshot_is_the_default_agents(
     client: TestClient,
     store: FileObjectStore,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The agent the reader reads, so a snapshot sent without a name is found."""
+    """The agent the reader reads, so a snapshot sent without a key is found."""
 
-    class _Watched:
-        observed_agent_name = "watched_agent"
+    class _Default:
+        def resolve_agent_key(self) -> str:
+            return STAGING_KEY
 
     monkeypatch.setattr(
-        routes.effective_config, "load", lambda state: _Watched()
+        routes.effective_config, "load", lambda state: _Default()
     )
 
     response = client.post(
@@ -358,30 +495,35 @@ def test_without_an_agent_the_snapshot_is_the_watched_agents(
         json={"revision": "7", "files": [_encode_file("a.py", b"a")]},
     )
 
-    assert response.json()["agent_name"] == "watched_agent"
-    assert store.read_bytes("watched_agent/7/files/a.py") == b"a"
+    assert response.json()["agent_key"] == STAGING_KEY
+    assert store.read_bytes(f"{STAGING_KEY}/7/files/a.py") == b"a"
 
 
-def test_the_source_route_reports_a_named_agents_revision(
+def test_the_source_route_reports_the_selected_agents_revision(
     client: TestClient, store: FileObjectStore
 ) -> None:
+    """Not the revision of the same agent under another key."""
     upload.write_files(
-        agent_name=AGENT, revision="7", files=[_encode_file("a.py", b"a")]
+        agent_key=STAGING_KEY,
+        revision="7",
+        files=[_encode_file("a.py", b"a")],
     )
     upload.commit(
-        agent_name=AGENT,
+        agent_key=STAGING_KEY,
         revision="7",
         manifest=_build_manifest(("a.py", 1, False)),
     )
 
     published = client.post(
-        "/source", json={"agent_name": AGENT, "revision": "7"}
+        "/source", json={"agent_key": STAGING_KEY, "revision": "7"}
     ).json()
     missing = client.post(
-        "/source", json={"agent_name": AGENT, "revision": "8"}
+        "/source", json={"agent_key": STAGING_KEY, "revision": "8"}
     ).json()
+    own = client.post("/source", json={"agent_key": AGENT}).json()
 
     assert published["available"] is True
     assert published["revision"] == "7"
-    assert published["uri"] == store.uri(f"{AGENT}/7/manifest.json")
+    assert published["uri"] == store.uri(f"{STAGING_KEY}/7/manifest.json")
     assert missing["available"] is False
+    assert own["available"] is False

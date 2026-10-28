@@ -101,11 +101,11 @@ def _occurrence(
 
 
 @pytest.fixture(autouse=True)
-def _isolated_manifest_cache() -> Iterator[None]:
-    """Clears the manifest cache before and after each test to isolate snapshot state."""
-    reader_module.clear_manifest_cache()
+def _isolated_snapshot_cache() -> Iterator[None]:
+    """Clears the snapshot cache before and after each test to isolate snapshot state."""
+    reader_module.clear_snapshot_cache()
     yield
-    reader_module.clear_manifest_cache()
+    reader_module.clear_snapshot_cache()
 
 
 @pytest.fixture

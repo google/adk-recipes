@@ -24,6 +24,8 @@ import httpx
 import pytest
 from ambient_quality_cli import rest_client
 from ambient_quality_cli.rest_client import ApiError, RestClient
+from ambient_quality_shared import usage_headers
+from ambient_quality_shared.usage_headers import build_product_token
 
 
 def _serve(monkeypatch, handler) -> list[httpx.Request]:
@@ -146,3 +148,64 @@ def test_a_transport_failure_is_an_api_error(monkeypatch):
     with pytest.raises(ApiError) as caught:
         _build_client().get_json("https://x/y")
     assert caught.value.status == 0
+
+
+def test_an_error_carries_its_error_info_reason(monkeypatch):
+    _serve(
+        monkeypatch,
+        lambda r: httpx.Response(
+            403,
+            json={
+                "error": {
+                    "message": "Observability API has not been used",
+                    "details": [
+                        {"@type": "type.googleapis.com/google.rpc.Help"},
+                        {
+                            "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+                            "reason": "SERVICE_DISABLED",
+                        },
+                    ],
+                }
+            },
+        ),
+    )
+
+    with pytest.raises(ApiError) as caught:
+        _build_client().get_json("https://x/y")
+    assert caught.value.reason == "SERVICE_DISABLED"
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"error": {"message": "denied"}},
+        {"error": {"message": "denied", "details": "not a list"}},
+        {"error": "not an object"},
+    ],
+)
+def test_an_error_without_error_info_has_no_reason(monkeypatch, body):
+    _serve(monkeypatch, lambda r: httpx.Response(403, json=body))
+
+    with pytest.raises(ApiError) as caught:
+        _build_client().get_json("https://x/y")
+    assert caught.value.reason == ""
+
+
+def test_sends_the_product_token(monkeypatch, usage_analytics_on):
+    sent = _serve(monkeypatch, lambda r: httpx.Response(200, json={}))
+
+    RestClient(lambda: "tok").get_json("https://x/y")
+
+    assert sent[0].headers["user-agent"] == build_product_token()
+    assert sent[0].headers["x-goog-api-client"] == build_product_token()
+    assert sent[0].headers["Authorization"] == "Bearer tok"
+
+
+def test_sends_httpx_defaults_with_the_switch_off(monkeypatch):
+    monkeypatch.setattr(usage_headers, "USAGE_ANALYTICS_ENABLED", False)
+    sent = _serve(monkeypatch, lambda r: httpx.Response(200, json={}))
+
+    RestClient(lambda: "tok").get_json("https://x/y")
+
+    assert sent[0].headers["user-agent"] == f"python-httpx/{httpx.__version__}"
+    assert "x-goog-api-client" not in sent[0].headers

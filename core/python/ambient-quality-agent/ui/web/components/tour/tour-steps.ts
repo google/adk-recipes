@@ -13,7 +13,12 @@
 // limitations under the License.
 
 import type { QueryClient } from "@tanstack/react-query";
-import { insightsQuery, runsQuery, type Run } from "@/lib/aqua-api";
+import {
+  type AgentKey,
+  insightsQuery,
+  runsQuery,
+  type Run,
+} from "@/lib/aqua-api";
 import { startedAt } from "@/lib/runstate";
 
 /** One stop of the guided tour: a spotlight on part of a page and what to say
@@ -26,13 +31,18 @@ export interface TourStep {
   /** The page the step is on, when it is not whatever page is open. A page
    *  that needs an id out of the data is a function, which resolves null when
    *  the deployment has none to show and the tour skips the step. */
-  page?: string | ((client: QueryClient) => Promise<string | null>);
+  page?:
+    | string
+    | ((client: QueryClient, agentKey: AgentKey) => Promise<string | null>);
 }
 
 /** The insight the Home strip ranks first. */
-async function topInsightPage(client: QueryClient): Promise<string | null> {
+async function topInsightPage(
+  client: QueryClient,
+  agentKey: AgentKey,
+): Promise<string | null> {
   const page = await client.fetchQuery(
-    insightsQuery({ orderBy: "impact", pageSize: 1 }),
+    insightsQuery(agentKey, { orderBy: "impact", pageSize: 1 }),
   );
   const id = page.insights[0]?.insight_id;
   return id ? `/insights/${encodeURIComponent(id)}` : null;
@@ -40,8 +50,11 @@ async function topInsightPage(client: QueryClient): Promise<string | null> {
 
 /** The latest investigation that finished, which has results to show, or the
  *  latest of any when none has. */
-async function latestRunPage(client: QueryClient): Promise<string | null> {
-  const runs = await client.fetchQuery(runsQuery());
+async function latestRunPage(
+  client: QueryClient,
+  agentKey: AgentKey,
+): Promise<string | null> {
+  const runs = await client.fetchQuery(runsQuery(agentKey));
   const finished = runs.filter((run) => run.status === "done");
   const latest = (finished.length > 0 ? finished : runs).reduce<Run | null>(
     (newest, run) =>

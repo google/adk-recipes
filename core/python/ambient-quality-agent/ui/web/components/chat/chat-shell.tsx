@@ -88,6 +88,7 @@ import {
 import { textStyle } from "@/lib/typography";
 import { cn, formatBytes } from "@/lib/utils";
 import { rememberTask, rememberConversation } from "@/lib/aqua-conversations";
+import { useAgentSelection } from "@/lib/agent-selection";
 import { useLhaTasks } from "@/lib/horizon-tasks";
 import {
   forgetLastChat,
@@ -241,6 +242,12 @@ export function ChatShell({
   // rather than waiting for an empty slot. Cleared once that turn is over.
   const dragDepthRef = useRef(0);
   const navigate = useNavigate();
+  // The agent the conversation is about. Read through a ref at each send, as
+  // the agent list that names the default agent can answer after the client
+  // is built; switching agents remounts this component.
+  const { selectedKey, shownKey } = useAgentSelection();
+  const shownKeyRef = useRef(shownKey);
+  shownKeyRef.current = shownKey;
   const {
     data: sessions,
     isLoading: sessionsLoading,
@@ -428,16 +435,16 @@ export function ChatShell({
   // old one.
   useEffect(() => {
     if (contextIdProp || trimmedInitialMessage) return;
-    const stored = readLastChat();
+    const stored = readLastChat(selectedKey);
     if (!stored) return;
     navigate({ to: "/c", search: { id: stored }, replace: true });
-  }, [contextIdProp, trimmedInitialMessage, navigate]);
+  }, [contextIdProp, trimmedInitialMessage, navigate, selectedKey]);
 
   // A new chat's id reaches the URL with its first send, so an unsent chat,
   // which has nothing to return to, is never the one a bare /c reopens.
   useEffect(() => {
-    if (contextIdProp) rememberLastChat(contextIdProp);
-  }, [contextIdProp]);
+    if (contextIdProp) rememberLastChat(contextIdProp, selectedKey);
+  }, [contextIdProp, selectedKey]);
 
   // Boot or rebuild the A2A client whenever the URL contextId changes.
   // No prop → generate a fresh contextId for a new chat; on first send we lock
@@ -465,7 +472,11 @@ export function ChatShell({
 
     const contextId = contextIdProp ?? newId();
 
-    createLhaClient({ contextId, signal: bootAbort.signal })
+    createLhaClient({
+      contextId,
+      signal: bootAbort.signal,
+      resolveAgentKey: () => shownKeyRef.current,
+    })
       .then((c) => {
         if (cancelled) return;
         // Stamp only once the client exists. Stamping before the await let an
@@ -495,7 +506,7 @@ export function ChatShell({
   const onNewChat = useCallback(() => {
     sentInitialRef.current = null;
     initialTurnIdsRef.current = null;
-    forgetLastChat();
+    forgetLastChat(selectedKey);
     if (contextIdProp || trimmedInitialMessage) {
       // `search: {}` matters: without it the `?id=` or `?q=` of the current
       // conversation survives the navigation and it reopens instead of
@@ -506,7 +517,7 @@ export function ChatShell({
       setAttachments([]);
       setAttachmentError(null);
     }
-  }, [contextIdProp, trimmedInitialMessage, navigate]);
+  }, [contextIdProp, trimmedInitialMessage, navigate, selectedKey]);
 
   const [paletteOpen, setPaletteOpen] = useState(false);
   const paletteOpenRef = useRef(false);
@@ -657,7 +668,9 @@ export function ChatShell({
       // something is sent in it. Recorded here rather than on client boot, so
       // opening the app and typing nothing does not litter the list.
       const activeCid = client?.contextId ?? contextIdProp;
-      if (activeCid) rememberConversation(activeCid, text);
+      if (activeCid) {
+        rememberConversation(activeCid, text, shownKeyRef.current);
+      }
       // Built before the busy check so a message queued mid-turn keeps its
       // selection and file references; flushing text alone would send the
       // instruction without the span it refers to.

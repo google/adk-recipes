@@ -17,6 +17,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Markdown } from "../markdown";
 import { ArtifactViewer } from "../artifact-viewer/artifact-viewer";
 import { ViewerProvider } from "../artifact-viewer/viewer-context";
+import {
+  renderWithAgent,
+  stubAgentsFetch,
+} from "@/lib/__tests__/render-with-agent";
 
 function setup(text: string) {
   return render(
@@ -60,5 +64,23 @@ describe("markdown workspace links", () => {
   it("does not turn a rooted app link into a panel link", () => {
     setup("Open [sessions](/lha/sessions).");
     expect(screen.getByRole("link", { name: "sessions" })).toBeTruthy();
+  });
+
+  it("opens a dashboard link on the agent the conversation is about", async () => {
+    vi.stubGlobal("fetch", stubAgentsFetch([], null));
+    renderWithAgent(
+      <ViewerProvider>
+        <Markdown text="See [the insight](/insights/i-1) and [docs](https://example.com)." />
+      </ViewerProvider>,
+      { url: "/?agent=acme-prod__support" },
+    );
+
+    const link = await screen.findByRole("link", { name: "the insight" });
+    expect(link.getAttribute("href")).toBe(
+      "/insights/i-1?agent=acme-prod__support",
+    );
+    expect(
+      screen.getByRole("link", { name: "docs" }).getAttribute("href"),
+    ).toBe("https://example.com");
   });
 });

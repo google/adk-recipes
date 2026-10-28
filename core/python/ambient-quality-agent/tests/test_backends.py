@@ -25,6 +25,7 @@ that gets a backend by forgetting to ask for one.
 
 from __future__ import annotations
 
+import types
 from typing import Any
 
 import pytest
@@ -176,3 +177,62 @@ def test_a_standalone_run_keeps_source_snapshots_beside_its_jobs(
 
     assert store is not None
     assert store.uri("a/") == f"{tmp_path / 'source'}/a/"
+
+
+def test_a_deployment_keeps_the_metric_library_in_the_metrics_bucket(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from ambient_quality_agent.tools.objects import store as objects
+
+    monkeypatch.setenv("AQA_METRICS_GCS_BUCKET", "the-metrics-bucket")
+
+    with backends.override_providers():
+        store = objects.metrics_store_factory()
+
+    assert store is not None
+    assert store.uri("current/") == "gs://the-metrics-bucket/current/"
+
+
+def test_a_deployment_without_a_metrics_bucket_has_no_metrics_store(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from ambient_quality_agent.tools.objects import store as objects
+
+    monkeypatch.delenv("AQA_METRICS_GCS_BUCKET", raising=False)
+
+    with backends.override_providers():
+        assert objects.metrics_store_factory() is None
+
+
+def test_a_standalone_run_keeps_the_metric_library_beside_its_jobs(
+    tmp_path: Any,
+) -> None:
+    from ambient_quality_agent.tools.objects import store as objects
+
+    with backends.override_providers(
+        standalone=True, jobs_dir=tmp_path / "job"
+    ):
+        store = objects.metrics_store_factory()
+
+    assert store is not None
+    assert store.uri("current/") == f"{tmp_path / 'metrics'}/current/"
+
+
+def test_the_bigquery_client_runs_its_jobs_where_the_dataset_lives(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A job outside the dataset's location fails, so the client takes it."""
+    from ambient_quality_agent import clients
+
+    client = object()
+    calls: list[tuple[str, str]] = []
+
+    def create(project: str, location: str) -> object:
+        calls.append((project, location))
+        return client
+
+    monkeypatch.setattr(clients, "create_bigquery_client", create)
+    cfg = types.SimpleNamespace(project_id="p", aqa_dataset_location="EU")
+
+    assert backends._create_bigquery_client(cfg) is client
+    assert calls == [("p", "EU")]

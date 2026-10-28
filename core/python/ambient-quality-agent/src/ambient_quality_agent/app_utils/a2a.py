@@ -28,6 +28,7 @@ from __future__ import annotations
 import os
 from typing import TYPE_CHECKING
 
+import ambient_quality_shared
 from a2a.server.request_handlers import DefaultRequestHandler
 from a2a.server.routes import (
     add_a2a_routes_to_fastapi,
@@ -212,7 +213,7 @@ async def attach_a2a_routes(
     """
     resolved_app_url = _resolve_app_url(app_url)
     resolved_agent_version = agent_version or os.getenv(
-        "AGENT_VERSION", "0.1.0"
+        "AGENT_VERSION", ambient_quality_shared.__version__
     )
     resolved_capabilities = capabilities or _build_default_capabilities()
 

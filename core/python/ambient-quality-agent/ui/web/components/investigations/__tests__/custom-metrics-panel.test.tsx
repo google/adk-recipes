@@ -65,11 +65,11 @@ describe("CustomMetricsPanel", () => {
     expect(screen.getByText("scores only · mean 3.00")).toBeTruthy();
   });
 
-  it("names the deployment's own metric list beside a predefined row", () => {
+  it("names the agent's own metric settings beside a predefined row", () => {
     render(<CustomMetricsPanel detail={{ named: PREDEFINED }} />);
 
-    expect(screen.getByText(/MULTI_TURN_METRICS/)).toBeTruthy();
-    expect(screen.getByText(/SINGLE_TURN_METRICS/)).toBeTruthy();
+    expect(screen.getByText(/--multi-turn-metric/)).toBeTruthy();
+    expect(screen.getByText(/--single-turn-metric/)).toBeTruthy();
   });
 
   it("omits that note when nothing on the table is predefined", () => {
@@ -77,6 +77,6 @@ describe("CustomMetricsPanel", () => {
       <CustomMetricsPanel detail={{ ran: RAN, bad: { kind: "refused" } }} />,
     );
 
-    expect(screen.queryByText(/MULTI_TURN_METRICS/)).toBeNull();
+    expect(screen.queryByText(/--multi-turn-metric/)).toBeNull();
   });
 });

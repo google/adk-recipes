@@ -7,14 +7,13 @@ root owns the provider and the state. `bootstrap/` is a second root, applied onc
 per project; it holds the APIs and the Cloud Build grant the whole project
 shares in a state no deployment can destroy, and `bootstrap/README.md` says why.
 
-`examples/attach/` is the third root: the triggers that start an investigation
-of one attached agent, a Cloud Scheduler job and an audit log sink on the
-observed engine's updates. `agents-cli aqua attach --apply` applies it once per
-agent, with its own state, from the values `attach` stored and the topic and
-caller account AQuA's engine reports, so it needs only the engine's resource
-name. It is for a deployment provisioned with no observed agent
-(`configure_observed_agent = false`); one that names its agent keeps creating
-that agent's triggers itself.
+The agents AQA watches are configured by `agents-cli aqua attach`, not by
+Terraform. It stores each agent's settings where the engine reads them, grants
+the engine read access to the agent's telemetry, and creates the trigger that
+starts an investigation when the agent is updated, an audit log sink on the
+observed engine's updates, with gcloud, from the values `attach` stored and the
+topic AQuA's engine reports. It needs only the engine's resource name. The
+scheduler tick that runs each attached agent's schedule is in `modules/aqa`.
 
 AQA watches an agent that already exists. Create that agent with `agents-cli
 scaffold create`, whose own documentation covers the choices it asks for.
@@ -48,8 +47,8 @@ Every state file lives in `.aqua/`, and changing `--aqua-origin` means deleting
 it. Run `terraform destroy` on both AQA roots first, or the resources are left
 with nothing to destroy them from.
 
-Without `agents-cli`, apply `bootstrap`, then `examples/single-project`, then
-`examples/attach` by hand; each takes a `terraform.tfvars` copied from its
+Without `agents-cli`, apply `bootstrap`, then `examples/single-project` by
+hand; each takes a `terraform.tfvars` copied from its
 `terraform.tfvars.example`.
 `modules/aqa/README.md` describes the module.
 

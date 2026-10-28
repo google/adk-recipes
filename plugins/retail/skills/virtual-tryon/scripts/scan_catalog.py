@@ -54,10 +54,12 @@ class ProductAnalysis(BaseModel):
 def _get_client(project_id: str, location: str | None = None):
     from google import genai
 
+    # Gemini text models are served at `global`, not in the regional
+    # GCP_REGION used for buckets and Veo (gemini-3.5-flash 404s in us-west1).
     return genai.Client(
         vertexai=True,
         project=project_id,
-        location=location or config.GCP_REGION,
+        location=location or config.GEMINI_MODEL_LOCATION,
     )
 
 
@@ -295,7 +297,10 @@ if __name__ == "__main__":
     parser.add_argument(
         "--project-id", help="GCP project ID (overrides GOOGLE_CLOUD_PROJECT)"
     )
-    parser.add_argument("--location", help="GCP region (overrides GCP_REGION)")
+    parser.add_argument(
+        "--location",
+        help="Gemini model location (overrides GEMINI_MODEL_LOCATION)",
+    )
     parser.add_argument(
         "--force", action="store_true", help="Force reindexing of all images"
     )

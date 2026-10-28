@@ -15,7 +15,11 @@ descriptions leave out three things:
 - `agent` -- the agent that wrote the row, which can be a sub-agent.
   `@agent_name` is the root of the agent tree: match it with
   `COALESCE(JSON_VALUE(attributes, '$.root_agent_name'), agent) = @agent_name`,
-  as the recipes do.
+  as the recipes do. On `AGENT_RESPONSE`, `agent` can name the agent the
+  invocation started at rather than the sub-agent that wrote the reply. The
+  author is in `attributes.source_event_author` when the plugin writes it, so
+  match it with
+  `COALESCE(JSON_VALUE(attributes, '$.source_event_author'), agent)`.
 - `event_type` -- its description cites names the plugin does not write; the
   values it does write are listed below.
 - `trace_id` -- when no span was active, it holds an id the plugin generated,
@@ -32,7 +36,8 @@ session state, for example -- so preview a filter on it before relying on it.
 `INVOCATION_COMPLETED`, `INVOCATION_ERROR`, `STATE_DELTA`, `EVENT_COMPACTION`,
 `HITL_CREDENTIAL_REQUEST`, `HITL_CONFIRMATION_REQUEST`, `HITL_INPUT_REQUEST`,
 `HITL_CREDENTIAL_REQUEST_COMPLETED`, `HITL_CONFIRMATION_REQUEST_COMPLETED`,
-`HITL_INPUT_REQUEST_COMPLETED`, `A2A_INTERACTION`.
+`HITL_INPUT_REQUEST_COMPLETED`, `A2A_INTERACTION`, `NODE_OUTPUT`,
+`NODE_ERROR`.
 
 ### Keys inside the JSON columns
 
@@ -50,14 +55,17 @@ the list as a starting point rather than the full set:
   on the tool events.
 - `content.artifacts` and `content.status.state` -- on `A2A_INTERACTION`, where
   `content` is the peer's response.
+- `attributes.adk.node.path` -- on `NODE_OUTPUT` and `NODE_ERROR`, the workflow
+  node that wrote the event. `content` is the node's output on `NODE_OUTPUT`;
+  `content.error_code` is set on `NODE_ERROR`.
 - `attributes.usage_metadata`, `attributes.model_version`, `attributes.model`,
   `attributes.root_agent_name`, `attributes.session_metadata`,
   `attributes.custom_tags`, `attributes.labels`, `attributes.otel` and
   `attributes.adk`.
 - `latency_ms.total_ms`.
 
-The error text of `LLM_ERROR`, `TOOL_ERROR`, `AGENT_ERROR` and
-`INVOCATION_ERROR` is on the `error_message` column, which can be empty.
+The error text of `LLM_ERROR`, `TOOL_ERROR`, `AGENT_ERROR`, `INVOCATION_ERROR`
+and `NODE_ERROR` is on the `error_message` column, which can be empty.
 `AGENT_ERROR` and `INVOCATION_ERROR` also carry the traceback in
 `content.error_traceback`.
 

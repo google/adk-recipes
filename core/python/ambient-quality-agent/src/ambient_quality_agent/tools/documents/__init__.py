@@ -12,4 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Documents an operator maintains and the agent reads: the goal, the memories."""
+"""Documents an operator maintains and the agent reads: the goal, the memories.
+
+Each observed agent has its own, which `agent_scope` locates.
+"""

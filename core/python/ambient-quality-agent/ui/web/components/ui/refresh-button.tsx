@@ -12,9 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+import { useCallback } from "react";
+import { useIsFetching, useQueryClient } from "@tanstack/react-query";
 import { RefreshCw } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { buildAgentScope } from "@/lib/aqua-api";
+import { useAgentKey } from "@/lib/agent-selection";
 import { cn } from "@/lib/utils";
 
 /**
@@ -61,5 +65,55 @@ export function RefreshButton({
         aria-hidden="true"
       />
     </Button>
+  );
+}
+
+/**
+ * Re-reads everything the dashboard holds for the selected agent.
+ *
+ * A page is drawn from several reads, and the shell around it (the tab counts,
+ * the health bar, the side rails) from more. Refreshing only the page's own
+ * list would leave those describing an earlier moment than the list, so the
+ * whole agent scope is invalidated: the reads on screen refetch now, and the
+ * rest are marked stale so the next page to show them reads them again.
+ *
+ * Returns:
+ *   `refresh`, which starts the re-read, and `refreshing`, which is true while
+ *   any read for the agent is in flight.
+ */
+export function useRefreshAgentData(): {
+  refresh: () => void;
+  refreshing: boolean;
+} {
+  const queryClient = useQueryClient();
+  const agentKey = useAgentKey();
+  const refreshing = useIsFetching({ queryKey: buildAgentScope(agentKey) }) > 0;
+  const refresh = useCallback(() => {
+    void queryClient.invalidateQueries({
+      queryKey: buildAgentScope(agentKey),
+    });
+  }, [queryClient, agentKey]);
+  return { refresh, refreshing };
+}
+
+/**
+ * A page header's refresh control: a `RefreshButton` that re-reads all of the
+ * selected agent's data, for `PageHeader`'s `aside`.
+ *
+ * Args:
+ *   className: Extra classes for the button.
+ *
+ * Returns:
+ *   The button.
+ */
+export function PageRefreshButton({ className }: { className?: string }) {
+  const { refresh, refreshing } = useRefreshAgentData();
+  return (
+    <RefreshButton
+      onRefresh={refresh}
+      refreshing={refreshing}
+      label="Refresh the data"
+      className={className}
+    />
   );
 }

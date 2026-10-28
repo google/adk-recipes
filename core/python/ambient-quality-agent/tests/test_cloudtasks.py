@@ -157,3 +157,15 @@ def test_enqueue_http_task_propagates_unexpected_errors(
             oauth_sa="caller@p.iam.gserviceaccount.com",
             task_id="x",
         )
+
+
+def test_the_default_client_comes_from_the_shared_factory(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The shared factory is what attaches AQuA's client info to the requests.
+    from ambient_quality_agent import clients
+
+    client = FakeTasksClient()
+    monkeypatch.setattr(clients, "create_cloud_tasks_client", lambda: client)
+
+    assert cloudtasks._create_tasks_client() is client

@@ -38,6 +38,7 @@ from ambient_quality_agent.tools.ingestion.bigquery_fetcher import (
     BigQueryFetcher,
 )
 from ambient_quality_agent.tools.review import session_review
+from ambient_quality_agent.tools.telemetry.schema import load_required_schema
 from ambient_quality_agent.tools.trajectories.models import IngestStatus
 from google.cloud import bigquery
 
@@ -626,6 +627,39 @@ def test_both_queries_select_every_error_event_type() -> None:
 
     assert multi_turn == single_turn
     assert _ERROR_EVENT_TYPES <= set(multi_turn)
+
+
+@pytest.mark.parametrize(
+    "metric_type", [MetricType.MULTI_TURN, MetricType.SINGLE_TURN]
+)
+def test_ingestion_does_not_read_content_parts(metric_type: MetricType) -> None:
+    """`payload_column_denylist` can omit `content_parts`, and cases use `content` alone."""
+    fetcher = _make_fetcher(mock.MagicMock())
+
+    assert "content_parts" not in fetcher._build_ingestion_sql(metric_type)
+
+
+def test_every_column_the_schema_file_lists_is_read() -> None:
+    """A listed column the queries do not read would refuse tables that
+    ingest fine."""
+    fetcher = _make_fetcher(mock.MagicMock())
+    sql = "\n".join(
+        build(metric_type)
+        for build in (
+            fetcher._build_ingestion_sql,
+            fetcher._build_count_sql,
+            fetcher._build_count_by_agent_sql,
+        )
+        for metric_type in (MetricType.MULTI_TURN, MetricType.SINGLE_TURN)
+    )
+
+    unread = [
+        column.name
+        for column in load_required_schema(BigQueryFetcher.SCHEMA_FILE)
+        if not re.search(rf"\b{column.name}\b", sql)
+    ]
+
+    assert unread == []
 
 
 @pytest.mark.parametrize(
@@ -1765,6 +1799,85 @@ def test_both_queries_project_the_logged_tools(metric_type: MetricType) -> None:
         "IF( e.event_type = 'LLM_REQUEST', JSON_QUERY(e.attributes, '$.tools'), "
         "NULL ) AS tools" in sql
     )
+
+
+@pytest.mark.parametrize(
+    "metric_type", [MetricType.MULTI_TURN, MetricType.SINGLE_TURN]
+)
+def test_both_queries_name_the_reply_author_on_agent_responses(
+    metric_type: MetricType,
+) -> None:
+    """The plugin writes the Runner's agent to `agent` on AGENT_RESPONSE, so
+    without this every sub-agent reply reads as written by that agent. A reply
+    logged by a final response tool has no `source_event_author` and keeps
+    `agent`, which already names the tool's agent."""
+    client = mock.MagicMock()
+    client.query.return_value.job_id = "job-1"
+    fetcher = _make_fetcher(client)
+
+    fetcher.submit_query("agent-a", metric_type, _START, _END, limit=5)
+
+    sql = " ".join(client.query.call_args.args[0].split())
+    assert (
+        "COALESCE( IF( e.event_type = 'AGENT_RESPONSE', "
+        "JSON_VALUE(e.attributes, '$.source_event_author'), NULL ), "
+        "e.agent ) AS agent," in sql
+    )
+    assert "e.agent, " not in sql
+
+
+def _build_transferred_session_row() -> dict[str, Any]:
+    """Builds a two-turn session where `root` transfers to `worker`.
+
+    Both agents change their instruction and toolset in the second turn, so
+    the reply shows which agent's configuration it was paired with.
+
+    Returns:
+        A multi-turn row dictionary.
+    """
+    return {
+        "session_id": "sess-5",
+        "events": [
+            _build_event("inv-1", "USER_MESSAGE_RECEIVED", agent="root"),
+            _llm_request("inv-1", "root", "Route.", ["transfer_to_agent"]),
+            _llm_request("inv-1", "worker", "Work.", ["find_booking"]),
+            _build_agent_response_event("inv-1", "worker", "Found it."),
+            _build_event("inv-2", "USER_MESSAGE_RECEIVED", agent="root"),
+            _llm_request(
+                "inv-2",
+                "root",
+                "Route carefully.",
+                ["transfer_to_agent", "escalate"],
+            ),
+            _llm_request(
+                "inv-2",
+                "worker",
+                "Work fast.",
+                ["find_booking", "amend_booking"],
+            ),
+            _build_agent_response_event("inv-2", "worker", "Amended."),
+        ],
+    }
+
+
+def test_a_sub_agent_reply_pairs_with_the_sub_agents_configuration() -> None:
+    """A reply credited to the transfer-only root makes the reviewer report
+    that the root answered instead of transferring."""
+    fetcher = _make_fetcher(mock.MagicMock())
+
+    case = fetcher._build_case(
+        _build_transferred_session_row(), MetricType.MULTI_TURN
+    )
+
+    first, second = case.agent_data.turns
+    assert first.events[-1].author == "worker"
+    reply = second.events[-1]
+    assert reply.author == "worker"
+    assert reply.state_delta == _build_instruction_delta("Work fast.")
+    assert _list_tool_names(reply.active_tools) == [
+        "find_booking",
+        "amend_booking",
+    ]
 
 
 def test_a_three_agent_session_with_named_tools_reaches_the_review_prompt() -> (

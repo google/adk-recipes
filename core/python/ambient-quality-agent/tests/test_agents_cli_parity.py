@@ -12,24 +12,22 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Hold this repo's two metric validators to what `agents-cli` actually does.
+"""Hold this repo's metric loader to what `agents-cli` actually does.
 
-The eval config format is `agents-cli`'s, and this repo reads it twice: the
-loader the deployed agent runs (`tools.metrics.library`) and the validator
-`aqua metrics publish` runs on the operator's machine
-(`ambient_quality_cli.metrics`). Both restate `agents-cli`'s rules by hand.
+The eval config format is `agents-cli`'s, and this repo reads it with the
+loader the deployed agent runs (`tools.metrics.library`), which also validates
+what `aqua metrics publish` sends (`tools.metrics.publishing`). It restates
+`agents-cli`'s rules by hand.
 
-Neither can call `agents-cli` to avoid that. The agent does not ship it --
+It cannot call `agents-cli` to avoid that. The agent does not ship it --
 `google-agents-cli` is not in `src/ambient_quality_agent/requirements.txt` --
 and there is no validation entry point to call in any case: the nearest thing,
-`prepare_eval_metrics`, is reached only from `eval grade` and `eval submit`,
-and it compiles and executes every local `custom_function` as it builds the
-metric list. Publishing must not run the library it is publishing.
+`prepare_eval_metrics`, is reached only from `eval grade` and `eval submit`.
 
-So the rules stay duplicated and this pins the duplication instead. Each case
-below states what `agents-cli` does with a config, asserts that against the
-installed `agents-cli`, and asserts this repo agrees. A rule that changes
-upstream fails here rather than in a sweep.
+So the rules stay restated and this pins them instead. Each case below states
+what `agents-cli` does with a config, asserts that against the installed
+`agents-cli`, and asserts this repo agrees. A rule that changes upstream fails
+here rather than in a sweep.
 
 `aqua run` leans on `agents-cli` too: it hands the turn to
 `agents-cli run --mode a2a`, so the options it passes are pinned here as well.
@@ -37,16 +35,17 @@ upstream fails here rather than in a sweep.
 
 from __future__ import annotations
 
+import base64
 import json
 from pathlib import Path
 from typing import Any
 
 import pytest
+from ambient_quality_agent.tools.metrics import publishing
 from ambient_quality_agent.tools.metrics.library import (
     PREDEFINED_KIND,
     load_library,
 )
-from ambient_quality_cli import metrics as cli_metrics
 
 pytestmark = pytest.mark.parity
 
@@ -104,6 +103,22 @@ def _we_accept(entry: dict[str, Any]) -> bool:
     }
     library = load_library(objects)
     return bool(library) or bool(library.remote) or bool(library.judged)
+
+
+def _publishes(objects: dict[str, bytes]) -> bool:
+    """Checks whether `aqua metrics publish` accepts a library, as a dry run.
+
+    Args:
+        objects: Each file's content, by its path in the library.
+
+    Returns:
+        True if the engine would publish it.
+    """
+    files = [
+        {"path": path, "content": base64.b64encode(data).decode()}
+        for path, data in objects.items()
+    ]
+    return "error" not in publishing.publish(files, agent_key="", dry_run=True)
 
 
 # `expected` is what `agents-cli` does, asserted against it rather than trusted.
@@ -321,25 +336,16 @@ def test_a_config_with_several_faults_is_refused_for_the_same_one(
     )
 
 
-def test_the_publish_validator_agrees_with_the_agent_loader(
-    tmp_path: Path,
-) -> None:
-    """And the two halves of this repo agree with each other.
-
-    `aqua metrics publish` refusing what the sweep would run, or passing what it
-    would refuse, is the same divergence one step earlier.
-    """
+def test_publish_accepts_exactly_what_the_loader_runs() -> None:
+    """`aqua metrics publish` refusing what the sweep would run, or passing
+    what it would refuse, is a divergence one step before the sweep."""
     for label, entry, _acli in _CASES:
         objects = {
             "eval_config.json": json.dumps(
                 {"metrics_to_run": [entry["name"]], "custom_metrics": [entry]}
             ).encode()
         }
-        try:
-            published = bool(cli_metrics.validate(objects).metrics)
-        except cli_metrics.ValidationError:
-            published = False
-        assert published is _we_accept(entry), label
+        assert _publishes(objects) is _we_accept(entry), label
 
 
 _TERNARY_MAPPING_FN = (
@@ -385,34 +391,6 @@ def test_a_remote_only_rule_is_refused_remotely_and_allowed_locally(
     assert _we_accept(local) is True, "and only for the remote side"
 
 
-@pytest.mark.parametrize(
-    "extra", [pytest.param(e, id=label) for label, e in _DELIBERATE_DIFFERENCES]
-)
-def test_publish_applies_the_remote_only_rules_exactly_as_the_loader_does(
-    extra: dict[str, Any],
-) -> None:
-    """These rules live twice, so they are the ones that drift.
-
-    A shape the validator passes and the loader refuses is published and then
-    declines to score. One the validator refuses and the loader would run
-    cannot be published at all. Both halves are checked here.
-    """
-    remote = {"name": "m", **extra}
-    remote["remote_custom_function"] = remote.pop("custom_function")
-
-    for entry in (remote, {"name": "m", **extra}):
-        objects = {
-            "eval_config.json": json.dumps(
-                {"metrics_to_run": [entry["name"]], "custom_metrics": [entry]}
-            ).encode()
-        }
-        try:
-            published = bool(cli_metrics.validate(objects).metrics)
-        except cli_metrics.ValidationError:
-            published = False
-        assert published is _we_accept(entry), entry
-
-
 # The judge-side rules this repo adds, on the same grounds as the four above:
 # `agents-cli` builds each of these, and the eval service was measured to
 # error every session on it, so a sweep would score nothing and stall.
@@ -444,8 +422,7 @@ def test_a_judge_shape_agents_cli_builds_is_refused_here_by_design(
 
     assert _acli_accepts(tmp_path, entry) is True
     assert _we_accept(entry) is False, "refused here, by design"
-    with pytest.raises(cli_metrics.ValidationError):
-        cli_metrics.validate(objects)
+    assert not _publishes(objects)
 
 
 def test_agents_cli_run_accepts_the_options_aqua_run_passes() -> None:

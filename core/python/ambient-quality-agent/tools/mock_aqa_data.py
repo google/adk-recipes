@@ -81,7 +81,6 @@ from typing import Any
 # Disable `.env` loading from the agent package so the run uses only
 # explicitly exported environment variables and the defaults below.
 os.environ.setdefault("PYTHON_DOTENV_DISABLED", "1")
-os.environ.setdefault("AQA_OBSERVED_AGENT_NAME", "travel_desk_agent")
 os.environ.setdefault("GOOGLE_CLOUD_PROJECT", "mock-aqa-project")
 os.environ.setdefault("GOOGLE_CLOUD_LOCATION", "us-central1")
 os.environ.setdefault("AQA_JOBS_GCS_BUCKET", "mock-aqa-project-aqua-jobs")
@@ -153,6 +152,10 @@ class Defect:
     prompts: tuple[str, ...]
     """User turns that provoke it, for the evidence traces."""
 
+    agent_id: str = ""
+    """Sub-agent the defect is attributed to, as `Insight.agent_id` records it.
+    Empty for a defect of the observed root agent."""
+
     weight: float = 1.0
     """Relative likelihood of showing up in any given sweep."""
 
@@ -176,6 +179,7 @@ DEFECTS: tuple[Defect, ...] = (
     Defect(
         key="file_expense_invalid_category",
         label="calls file_expense with a category outside the accepted set",
+        agent_id="expense_agent",
         expected=(
             "file_expense must be called with one of the accepted category values.",
             "The expense category has to come from the tool's documented enum.",
@@ -199,6 +203,7 @@ DEFECTS: tuple[Defect, ...] = (
     Defect(
         key="policy_lookup_skipped",
         label="answers travel-policy questions without calling lookup_travel_policy",
+        agent_id="policy_agent",
         expected=(
             "The agent must call lookup_travel_policy before quoting a limit.",
             "Policy answers have to be grounded in a lookup_travel_policy call.",
@@ -265,6 +270,7 @@ DEFECTS: tuple[Defect, ...] = (
     Defect(
         key="currency_not_converted",
         label="files foreign-currency expenses without converting the amount",
+        agent_id="expense_agent",
         expected=(
             "An expense in a foreign currency must be converted before filing.",
             "The amount and currency arguments have to agree with the receipt.",
@@ -306,6 +312,7 @@ DEFECTS: tuple[Defect, ...] = (
     Defect(
         key="attaches_wrong_receipt",
         label="attaches the previous receipt to a new expense",
+        agent_id="expense_agent",
         expected=(
             "The receipt filed must be the one referenced in this turn.",
             "Each expense has to carry its own attachment.",
@@ -342,6 +349,7 @@ DEFECTS: tuple[Defect, ...] = (
     Defect(
         key="policy_answer_stale",
         label="quotes a superseded per-diem after the policy tool returned the new one",
+        agent_id="policy_agent",
         expected=(
             "The answer must reflect the value the policy tool returned.",
             "A tool result overrides anything the model believed beforehand.",
@@ -396,6 +404,7 @@ DEFECTS: tuple[Defect, ...] = (
     Defect(
         key="rounds_amount_down",
         label="rounds expense amounts to whole units before filing",
+        agent_id="expense_agent",
         expected=(
             "The filed amount must match the receipt to the cent.",
             "Amounts may not be rounded.",
@@ -786,6 +795,28 @@ def _build_custom_metric_summary(
     return {"metrics_by_name": by_name, "metrics_detail": detail}
 
 
+DEFAULT_AGENT = "travel_desk_agent"
+"""The observed agent the generated data is about, unless `--agent` names
+another."""
+
+
+def load_mock_config(agent_name: str = DEFAULT_AGENT) -> Config:
+    """Loads the configuration the mock deployment reports for one agent.
+
+    Args:
+        agent_name: Observed agent the generated data is about.
+
+    Returns:
+        AQuA's configuration from the environment, with the agent's name and
+        the mock's metrics bucket.
+    """
+    return dataclasses.replace(
+        load(),
+        observed_agent_name=agent_name,
+        metrics_gcs_bucket="mock-aqa-project-aqua-metrics",
+    )
+
+
 def build_dataset(scenario: Scenario, config: Config) -> dict[str, Any]:
     """Generates a complete mock deployment dataset.
 
@@ -889,6 +920,7 @@ def build_dataset(scenario: Scenario, config: Config) -> dict[str, Any]:
                     insights[defect.key] = Insight(
                         insight_id=insight_id,
                         agent_name=config.observed_agent_name,
+                        agent_id=defect.agent_id or config.observed_agent_name,
                         label=defect.label,
                         status=InsightStatus.NEW,
                         created_at=window_end,
@@ -1339,6 +1371,7 @@ def _build_occurrence(
                         case=case_id
                     ),
                     session_id=case_id,
+                    agent_id=defect.agent_id,
                 ),
                 eval_case_id=case_id,
                 trace=traces[case_id],
@@ -1957,7 +1990,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--seed", type=int, default=7, help="RNG seed.")
     parser.add_argument(
         "--agent",
-        default=os.environ["AQA_OBSERVED_AGENT_NAME"],
+        default=DEFAULT_AGENT,
         help="observed agent name (default: %(default)s).",
     )
     parser.add_argument(
@@ -2079,15 +2112,7 @@ def main(argv: list[str] | None = None) -> int:
         source_dir=args.source_dir,
         no_telemetry=args.no_telemetry,
     )
-    # `load()` re-reads the env, so --agent takes effect without the caller
-    # having to export anything.
-    os.environ["AQA_OBSERVED_AGENT_NAME"] = args.agent
-    dataset = build_dataset(
-        scenario,
-        dataclasses.replace(
-            load(), metrics_gcs_bucket="mock-aqa-project-aqua-metrics"
-        ),
-    )
+    dataset = build_dataset(scenario, load_mock_config(args.agent))
 
     out = pathlib.Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)

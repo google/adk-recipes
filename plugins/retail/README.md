@@ -47,8 +47,8 @@ This repository provides the Retail capabilities in two complementary formats de
 Install either skill directly into your AI coding assistant (`~/.agents/skills/`):
 
 ```bash
-npx skills add google/adk-recipes --skill retail-product-search
-npx skills add google/adk-recipes --skill retail-virtual-tryon
+npx skills add google/adk-recipes/plugins/retail --skill retail-product-search
+npx skills add google/adk-recipes/plugins/retail --skill retail-virtual-tryon
 ```
 
 ### Option 2: Surface Both Skills Locally from `plugins/retail` (`make surface`)

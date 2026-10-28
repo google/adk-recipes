@@ -297,7 +297,10 @@ class InvestigationRecord(BaseModel):
 
     # --- Identity -------------------------------------------------------- #
 
-    run_id: str = Field(default_factory=lambda: uuid.uuid4().hex[:8])
+    run_id: str = Field(default_factory=lambda: uuid.uuid4().hex)
+    """A full uuid, unique across agents, so a run is found by its id alone.
+    A run an update trigger schedules gets one derived from the trigger
+    (`handler.compute_scheduled_run_id`) instead."""
 
     created_at: str = Field(default_factory=_format_utc_now_iso)
     """When the run was scheduled. Every snapshot of it repeats this."""
@@ -309,6 +312,10 @@ class InvestigationRecord(BaseModel):
     # --- Inputs, fixed at submit time -------------------------------------- #
 
     observed_agent_name: str = ""
+    """The investigated agent's key (`Config.resolve_agent_key`), which its
+    runs are listed and locked by; for an agent in AQuA's own project, its
+    name."""
+
     trigger_type: str = ""
     """Origin of the run: ``manual`` (direct request), ``custom`` (user-selected
     conversations), or ambient triggers (``scheduled``, ``task_fire``, ``update``)."""

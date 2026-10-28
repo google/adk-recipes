@@ -259,10 +259,10 @@ def test_no_findings_is_zero_and_nothing_worst() -> None:
     assert verdict.worst_finding is None
 
 
-def test_the_schedule_is_null_because_the_engine_cannot_read_it() -> None:
-    """The cron lives in the Cloud Scheduler job and is never handed to the
-    engine. The card falls back to `reason`, which is why the reason always
-    says something about the rhythm."""
+def test_with_no_schedule_given_the_reason_still_describes_the_rhythm() -> None:
+    """A paused schedule, or one the engine cannot read, reaches the card as
+    null; the card falls back to `reason`, which is why the reason always says
+    something about the rhythm."""
     verdict = assess(daily(4, newest_hours_ago=1))
     assert verdict.schedule is None
     assert verdict.reason

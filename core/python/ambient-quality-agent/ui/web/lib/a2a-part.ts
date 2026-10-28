@@ -179,6 +179,7 @@ export function makeUserMessage(args: {
   contextId: string;
   parts: Part[];
   taskId?: string;
+  metadata?: Record<string, unknown>;
 }): Message {
   return {
     messageId: args.messageId,
@@ -186,7 +187,7 @@ export function makeUserMessage(args: {
     taskId: args.taskId ?? "",
     role: Role.ROLE_USER,
     parts: args.parts,
-    metadata: undefined,
+    metadata: args.metadata,
     extensions: [],
     referenceTaskIds: [],
   };

@@ -16,31 +16,6 @@ locals {
   prefix        = "${var.observed_deployment_name}-aqua"
   bucket_prefix = "${var.project_id}-${local.prefix}"
 
-  # What AQA matches `gen_ai.agent.name` against. Derived only as a fallback:
-  # `agents-cli` passes the root agent name it actually scaffolded, which need
-  # not be a plain transliteration of the deployment's name.
-  observed_agent_name = coalesce(
-    var.observed_agent_name,
-    replace(var.observed_deployment_name, "-", "_"),
-  )
-
-  telemetry_dataset = coalesce(
-    var.telemetry_dataset,
-    "${replace(var.observed_deployment_name, "-", "_")}_telemetry",
-  )
-
-  telemetry_table = coalesce(
-    var.telemetry_table,
-    "aiplatform_googleapis_com_reasoning_engine_stdout",
-  )
-
-  telemetry_location = coalesce(var.telemetry_location, var.region)
-
-  telemetry_payload_bucket = coalesce(
-    var.telemetry_payload_bucket,
-    "${var.project_id}-${var.observed_deployment_name}-logs",
-  )
-
   # `observed_deployment` is what tells two deployments in one project apart.
   # The deployment, not the agent: a renamed root agent must not look like a
   # different set of resources.

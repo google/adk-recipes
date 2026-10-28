@@ -24,18 +24,25 @@ Each read goes through the telemetry fetcher an investigation would build, so
 the table, the filter and the columns are the ones ingestion uses:
 
 1. `table`: read the table's metadata, which proves it exists.
-2. `rows`: count the agent's sessions in the lookback window. When there are
+2. `schema`: compare the table's columns, from that metadata, with the
+   source's schema in `ambient_quality_shared.schemas`. Ingestion's queries
+   fail on a column the table lacks, and can fail on or misread one of another
+   type, so a mismatch skips `rows`.
+3. `rows`: count the agent's sessions in the lookback window. When there are
    none, name the agents the window does hold, in case the name is wrong.
-3. `payload`: read one ``gs://`` payload object the agent's telemetry points
+4. `payload`: read one ``gs://`` payload object the agent's telemetry points
    at, for the sources whose ingestion follows those references
    (`cloud_logging` and `cloud_ops`). With no reference to sample, as for an
    agent with no traffic yet, test object reads on the bucket the attachment
    names instead, so the grant is not left until the first rows arrive.
-4. `log_view`: for `cloud_ops`, read an entry through the log view the fetcher
+5. `log_view`: for `cloud_ops`, read an entry through the log view the fetcher
    reads message content from.
 
 A check that cannot run because an earlier one failed is reported as skipped,
 with the reason, rather than left out.
+
+`read_table_settings` reads, from the same metadata, the location and source
+the table decides, which a dry run of `aqua attach` fills in before checking.
 """
 
 from __future__ import annotations
@@ -43,12 +50,13 @@ from __future__ import annotations
 import dataclasses
 import datetime as dt
 import logging
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 from urllib.parse import urlparse
 
 import google.auth
 import google.auth.transport.requests
+from ambient_quality_agent import clients
 from ambient_quality_agent.config import ObservedAgentConfig
 from ambient_quality_agent.tools.evaluation.models import MetricType
 from ambient_quality_agent.tools.ingestion.base import (
@@ -66,8 +74,12 @@ from ambient_quality_agent.tools.ingestion.cloud_ops_fetcher import (
     CloudOpsFetcher,
 )
 from ambient_quality_agent.tools.ingestion.log_fetcher import LogFetcher
+from ambient_quality_agent.tools.telemetry.schema import (
+    list_schema_mismatches,
+    load_required_schema,
+)
 from google.api_core import exceptions as api_exceptions
-from google.cloud import storage
+from google.cloud import bigquery, storage
 
 logger = logging.getLogger(__name__)
 
@@ -81,6 +93,10 @@ new agent may have had no traffic yet, so the attach goes ahead."""
 MISSING = "missing"
 """The dataset or table does not exist. Nothing could be investigated, so the
 attach does not go ahead."""
+
+MISMATCH = "mismatch"
+"""The table lacks a required column or holds one in an incompatible type or
+mode, so the attach does not go ahead."""
 
 DENIED = "denied"
 """AQuA's service account may not read it, and needs a grant."""
@@ -103,13 +119,22 @@ _FOLLOWS_PAYLOAD_REFS = {
 """Whether each source's ingestion follows payload references, for when the
 check has no fetcher to ask."""
 
+_SCHEMA_FILES = {
+    fetcher.TELEMETRY_SOURCE: fetcher.SCHEMA_FILE
+    for fetcher in (BigQueryFetcher, CloudLoggingFetcher, CloudOpsFetcher)
+}
+
+_DENYLISTABLE_COLUMNS = frozenset({"content", "attributes"})
+"""Columns `big_query` ingestion requires that the BigQuery Agent Analytics
+plugin omits when listed in `payload_column_denylist`."""
+
 
 @dataclasses.dataclass(frozen=True)
 class CheckResult:
     """The outcome of one read."""
 
     name: str
-    """Which check: `table`, `rows`, `payload` or `log_view`."""
+    """Which check: `table`, `schema`, `rows`, `payload` or `log_view`."""
 
     status: str
     """One of the status constants in this module."""
@@ -119,6 +144,24 @@ class CheckResult:
 
     detail: str
     """What happened, for the operator."""
+
+    matching_sources: tuple[str, ...] = ()
+    """For a failed `schema` check, the other telemetry sources whose schema
+    the table satisfies, sorted; empty otherwise."""
+
+
+@dataclasses.dataclass(frozen=True)
+class TableSetting:
+    """A setting of the agent that its telemetry table decides otherwise."""
+
+    field: str
+    """The `ObservedAgentConfig` field."""
+
+    value: str
+    """The value the table decides."""
+
+    reason: str
+    """How the table decides it, for the operator."""
 
 
 FetcherFactory = Callable[[ObservedAgentConfig, str], BigQueryJobFetcher]
@@ -197,6 +240,59 @@ def check_access(
     }
 
 
+def read_table_settings(
+    agent: ObservedAgentConfig,
+    *,
+    project_id: str,
+    fetcher_factory: FetcherFactory | None = None,
+) -> list[TableSetting]:
+    """Reads the settings of `agent` that its telemetry table decides otherwise.
+
+    Args:
+        agent: How the agent would be observed, which names the table.
+        project_id: AQuA's project, which owns the table unless
+            `agent.observed_project_id` names another.
+        fetcher_factory: Builds the telemetry fetcher from `agent` and
+            `project_id`.
+
+    Returns:
+        In field order: `telemetry_ingestion_source` when the table is not in
+        the agent's source's format but is in exactly one other source's, and
+        `telemetry_location` when the table is in another location, compared
+        without regard to case. Empty when no table is named or its metadata
+        cannot be read.
+    """
+    if not agent.telemetry_dataset or not agent.telemetry_table:
+        return []
+    try:
+        table = (fetcher_factory or _create_default_fetcher)(
+            agent, project_id
+        ).load_table()
+    except Exception:
+        # The `table` check reads it again, and reports why it cannot.
+        return []
+    owner = agent.observed_project_id or project_id
+    table_ref = f"{owner}.{agent.telemetry_dataset}.{agent.telemetry_table}"
+    settings: list[TableSetting] = []
+    sources = _list_matching_sources(table.schema)
+    if agent.telemetry_ingestion_source not in sources and len(sources) == 1:
+        settings.append(
+            TableSetting(
+                "telemetry_ingestion_source",
+                sources[0],
+                f"the only source whose columns {table_ref} has",
+            )
+        )
+    location = table.location or ""
+    if location and location.lower() != agent.telemetry_location.lower():
+        settings.append(
+            TableSetting(
+                "telemetry_location", location, f"the location of {table_ref}"
+            )
+        )
+    return settings
+
+
 def _check_telemetry(
     agent: ObservedAgentConfig,
     *,
@@ -206,7 +302,7 @@ def _check_telemetry(
     end: dt.datetime,
     checks: list[CheckResult],
 ) -> BigQueryJobFetcher | None:
-    """Runs the `table` and `rows` checks, appending their results to `checks`.
+    """Runs the `table`, `schema` and `rows` checks, appending their results.
 
     Args:
         agent: How the agent would be observed.
@@ -215,16 +311,20 @@ def _check_telemetry(
         build_fetcher: Builds the telemetry fetcher.
         start: Start of the lookback window.
         end: End of the lookback window.
-        checks: Results so far; this function appends two.
+        checks: Results so far; this function appends three.
 
     Returns:
-        The fetcher when the agent has readable rows in the window, for the
+        The fetcher when `table`, `schema`, and `rows` all pass, for the
         payload check to sample; None otherwise.
     """
     # The grant for a denied read is built from this reference, so it names
     # the project that owns the dataset.
     owner = agent.observed_project_id or project_id
     table_ref = f"{owner}.{agent.telemetry_dataset}.{agent.telemetry_table}"
+    needs_table = [
+        CheckResult(name, SKIPPED, table_ref, "Needs the table.")
+        for name in ("schema", "rows")
+    ]
     if not agent.telemetry_dataset or not agent.telemetry_table:
         checks.append(
             CheckResult(
@@ -234,21 +334,33 @@ def _check_telemetry(
                 "No telemetry dataset or table is set.",
             )
         )
-        checks.append(
-            CheckResult("rows", SKIPPED, table_ref, "Needs the table.")
-        )
+        checks.extend(needs_table)
         return None
 
     try:
         fetcher = build_fetcher(agent, project_id)
-        fetcher.load_table()
+        table = fetcher.load_table()
     except Exception as exc:
         checks.append(_classify_failure("table", table_ref, exc))
-        checks.append(
-            CheckResult("rows", SKIPPED, table_ref, "Needs the table.")
-        )
+        checks.extend(needs_table)
         return None
     checks.append(CheckResult("table", PASSED, table_ref, "The table exists."))
+
+    source = agent.telemetry_ingestion_source
+    schema_check = _check_schema(
+        table.schema, source=source, table_ref=table_ref
+    )
+    checks.append(schema_check)
+    if schema_check.status != PASSED:
+        checks.append(
+            CheckResult(
+                "rows",
+                SKIPPED,
+                table_ref,
+                f"Needs a table in the {source} format.",
+            )
+        )
+        return None
 
     name = agent.observed_agent_name
     try:
@@ -274,6 +386,75 @@ def _check_telemetry(
         )
     )
     return fetcher
+
+
+def _check_schema(
+    columns: Sequence[bigquery.SchemaField], *, source: str, table_ref: str
+) -> CheckResult:
+    """Checks that the table's columns satisfy the source's required schema.
+
+    Args:
+        columns: The table's columns, from its metadata.
+        source: The agent's telemetry source.
+        table_ref: Target table reference for the result.
+
+    Returns:
+        `passed` when `columns` satisfies the source's schema; `mismatch`
+        naming the mismatches and any other matching sources otherwise.
+    """
+    mismatches = list_schema_mismatches(
+        columns, load_required_schema(_SCHEMA_FILES[source])
+    )
+    if not mismatches:
+        return CheckResult(
+            "schema",
+            PASSED,
+            table_ref,
+            f"The table has the columns {source} ingestion reads.",
+        )
+    matching = _list_matching_sources(columns)
+    listed = "; ".join(
+        f"{path} is {mismatch}" for path, mismatch in mismatches.items()
+    )
+    detail = f"The table is not in the {source} format: {listed}."
+    if matching:
+        detail += f" It has the {' and '.join(matching)} columns."
+    missing = {
+        path for path, mismatch in mismatches.items() if mismatch == "missing"
+    }
+    # The plugin cannot leave out any other column, so a table with any other
+    # problem is not one it wrote with a denylist.
+    if (
+        source == BigQueryFetcher.TELEMETRY_SOURCE
+        and missing == mismatches.keys()
+        and missing <= _DENYLISTABLE_COLUMNS
+    ):
+        detail += (
+            f" Remove {' and '.join(sorted(missing))} from the BigQuery Agent "
+            "Analytics plugin's payload_column_denylist, and the plugin adds "
+            f"{'it' if len(missing) == 1 else 'them'} back to its table."
+        )
+    return CheckResult(
+        "schema", MISMATCH, table_ref, detail, matching_sources=matching
+    )
+
+
+def _list_matching_sources(
+    columns: Sequence[bigquery.SchemaField],
+) -> tuple[str, ...]:
+    """Lists the telemetry sources whose required schema `columns` satisfies.
+
+    Args:
+        columns: A table's columns, from its metadata.
+
+    Returns:
+        The sources, sorted.
+    """
+    return tuple(
+        source
+        for source, file_name in sorted(_SCHEMA_FILES.items())
+        if not list_schema_mismatches(columns, load_required_schema(file_name))
+    )
 
 
 def _count_agents(
@@ -617,7 +798,7 @@ def _create_default_storage_client(project_id: str) -> storage.Client:
     Returns:
         A storage client on this process's credentials.
     """
-    return storage.Client(project=project_id)
+    return clients.create_storage_client(project_id)
 
 
 def _create_default_log_fetcher(project_id: str) -> LogFetcher:

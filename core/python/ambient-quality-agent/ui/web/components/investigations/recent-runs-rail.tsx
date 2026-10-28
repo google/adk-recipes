@@ -20,6 +20,7 @@ import { runsQuery, type Run } from "@/lib/aqua-api";
 import { count } from "@/lib/funnel";
 import {
   ABSENT,
+  isAmbient,
   isPastDue,
   runStateWord,
   renderScheduledText,
@@ -40,16 +41,22 @@ import {
   RAIL_SCROLL_CLASS,
   useRailScroll,
 } from "@/components/chat/use-rail-scroll";
+import { useAgentKey } from "@/lib/agent-selection";
+import { TriggerBadge } from "./trigger-badge";
 
 /** The last ten investigations, newest first, as a sidebar section.
+ *
+ * A run somebody started, custom or manual, is marked with its trigger's icon,
+ * so it stands out among the sweeps; a sweep has none.
  *
  * No count in the header: the server returns only the newest runs, so the
  * figure would be that page size rather than how many runs exist.
  */
 export function RecentRunsRail() {
+  const agentKey = useAgentKey();
   // Same query as the list (one fetch); an empty or error line takes only its
   // own height.
-  const { data, isError } = useQuery(runsQuery());
+  const { data, isError } = useQuery(runsQuery(agentKey));
   const hasRows = data ? data.length > 0 : !isError;
   return (
     <SidebarSection
@@ -67,9 +74,10 @@ export function RecentRunsRail() {
 }
 
 function RecentRunsList() {
+  const agentKey = useAgentKey();
   // react-query keeps `data` through a failed refetch, so the rows stay up and
   // the error line is only for a list that never loaded.
-  const { data, isError, refetch } = useQuery(runsQuery());
+  const { data, isError, refetch } = useQuery(runsQuery(agentKey));
   const recent = data
     ? [...data].sort((a, b) => startedAt(b) - startedAt(a)).slice(0, 10)
     : [];
@@ -102,6 +110,7 @@ function RecentRunsList() {
             activeProps={{ className: SIDEBAR_ROW_ACTIVE_CLASS }}
           >
             <span className="min-w-0 flex-1 truncate">{when(run)}</span>
+            {!isAmbient(run) && <TriggerBadge run={run} iconOnly />}
             <Outcome run={run} />
           </Link>
         </li>

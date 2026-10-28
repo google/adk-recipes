@@ -284,3 +284,69 @@ describe("the /investigations page narrowed to a day", () => {
     expect(document.activeElement).toBe(checkbox());
   });
 });
+
+describe("the /investigations trigger filter", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  const runs = [
+    { ...run("custom0011", 0), trigger_type: "custom" },
+    { ...run("manual0022", 1), trigger_type: "manual" },
+    { ...run("sweep00033", 1), trigger_type: "scheduled" },
+  ];
+  const tab = (name: string) => screen.getByRole("button", { name });
+  const listed = () =>
+    ["custom00", "manual00", "sweep000"].filter(
+      (name) => screen.queryByRole("link", { name }) !== null,
+    );
+
+  it("keeps trigger=user and trigger=scheduled, and drops anything else", () => {
+    expect(validate({ trigger: "user" }).trigger).toBe("user");
+    expect(validate({ trigger: "scheduled" }).trigger).toBe("scheduled");
+    for (const trigger of ["all", "custom", "USER", "", 1]) {
+      expect(validate({ trigger }).trigger).toBeUndefined();
+    }
+  });
+
+  it("opens on the user-initiated runs when the URL says trigger=user", async () => {
+    mountPage("/investigations?trigger=user", { runs });
+
+    await screen.findByRole("link", { name: "custom00" });
+    expect(tab("User-initiated")).toHaveAttribute("aria-pressed", "true");
+    expect(listed()).toEqual(["custom00", "manual00"]);
+  });
+
+  it("writes the tab into the URL, and All as no param", async () => {
+    const router = mountPage("/investigations", { runs });
+    await screen.findByRole("link", { name: "sweep000" });
+    const entries = router.history.length;
+
+    await userEvent.click(tab("Scheduled"));
+    await waitFor(() =>
+      expect(router.state.location.search).toEqual({ trigger: "scheduled" }),
+    );
+    expect(listed()).toEqual(["sweep000"]);
+
+    await userEvent.click(tab("All"));
+    await waitFor(() => expect(router.state.location.searchStr).toBe(""));
+    expect(listed()).toEqual(["custom00", "manual00", "sweep000"]);
+    expect(router.history.length).toBe(entries);
+  });
+
+  it("combines with Only with failures", async () => {
+    mountPage("/investigations?trigger=user&failures=only", { runs });
+
+    await screen.findByRole("link", { name: "manual00" });
+    expect(listed()).toEqual(["manual00"]);
+  });
+
+  it("says when no run of the chosen kind is among the newest", async () => {
+    // Only the sweep.
+    mountPage("/investigations?trigger=user", { runs: runs.slice(2) });
+
+    expect(
+      await screen.findByText(
+        "No user-initiated investigations among the most recent.",
+      ),
+    ).toBeInTheDocument();
+  });
+});

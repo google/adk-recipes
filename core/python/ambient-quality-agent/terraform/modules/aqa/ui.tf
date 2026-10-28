@@ -32,13 +32,14 @@ resource "google_project_iam_member" "ui_aiplatform_user" {
   member  = "serviceAccount:${google_service_account.ui.email}"
 }
 
-# Grants the UI read, list, and delete access to chat transcripts in the
-# jobs bucket. `roles/storage.objectUser` provides `storage.objects.delete`
-# alongside get and list without granting full `objectAdmin`.
+# Grants the UI read, list, and delete access to chat transcripts in the jobs
+# bucket, and create access for saved chat names. `roles/storage.objectUser`
+# provides `storage.objects.create` and `storage.objects.delete` alongside get
+# and list without granting full `objectAdmin`.
 #
-# Because bucket IAM cannot be scoped to a prefix, `task_reader.delete_context`
-# restricts operations to `tasks/` to avoid touching investigation run state or
-# `aqa-telemetry/`.
+# Because bucket IAM cannot be scoped to a prefix, `task_reader` restricts
+# deletes to `tasks/` and `chat-titles/`, and writes to `chat-titles/`, to
+# avoid touching investigation run state or `aqa-telemetry/`.
 resource "google_storage_bucket_iam_member" "ui_jobs_object_user" {
   bucket = google_storage_bucket.jobs.name
   role   = "roles/storage.objectUser"
