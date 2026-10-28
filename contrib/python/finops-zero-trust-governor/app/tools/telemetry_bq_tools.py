@@ -115,10 +115,11 @@ def query_bigquery_billing_anomalies(
         "lookback_hours": lookback_hours,
         "anomalies": rows,
     }
-    tool_context.state["billing_anomalies_summary"] = {
-        "row_count": len(rows),
-        "status": report["status"],
-    }
+    if tool_context and hasattr(tool_context, "state"):
+        tool_context.state["billing_anomalies_summary"] = {
+            "row_count": len(rows),
+            "status": report["status"],
+        }
     return report
 
 

@@ -1,8 +1,0 @@
-{
-  "name": "finops",
-  "version": "0.1.0",
-  "description": "Google Cloud FinOps & Vertex AI Token Telemetry Triage skills for coding assistants and Gemini Enterprise.",
-  "skills": [
-    "skills/token-cost-anomaly-triage"
-  ]
-}
