@@ -163,12 +163,15 @@ def test_two_unrelated_defects_stay_two_findings() -> None:
         pytest.param("I cannot help with that.", id="refusal"),
         pytest.param('{"findings": [', id="truncated"),
         pytest.param('{"findings": {}}', id="not_a_list"),
+        pytest.param('{"findings": null}', id="null"),
+        pytest.param("{}", id="no_findings_key"),
         pytest.param("", id="empty"),
     ],
 )
-def test_an_unusable_response_yields_no_findings(response: str) -> None:
-    """Verify malformed or empty model responses return an empty findings list without raising."""
-    assert _review(_case(_ONE_AGENT), response) == []
+def test_an_unusable_response_raises(response: str) -> None:
+    """Verify a response without a finding list raises instead of reading as a clean session."""
+    with pytest.raises(ValueError, match="session review response"):
+        _review(_case(_ONE_AGENT), response)
 
 
 def test_an_empty_finding_is_dropped() -> None:
