@@ -85,6 +85,11 @@ class InsightWriter(Protocol):
           way, and skipping it would mint a fresh insight every sweep for
           exactly the defect somebody asked not to see.
 
+        Each candidate is compared only against insights attributed to the same
+        agent (`matching.match_candidates_by_scope`), matching
+        `Cluster.agent_id` against `Insight.agent_id` and defaulting empty
+        values to the store's root agent.
+
         Ordered newest-updated first, ``insight_id`` breaking ties -- a sweep
         stamps one timestamp across everything it touches, so ties are routine,
         and the order decides which batch of labels the judge answers from.
@@ -95,6 +100,10 @@ class InsightWriter(Protocol):
         Returns:
             ``{candidate index: matched insight id or None}``. An absent key and
             a ``None`` both mean no match.
+
+        Raises:
+            Exception: Whatever the judge raised, if it raised for every agent
+                it was asked about.
         """
 
     def save_investigation_result(

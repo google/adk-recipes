@@ -60,9 +60,13 @@ from __future__ import annotations
 import os
 import re
 import urllib.parse
-from typing import Any
+from typing import Any, TypeVar
 
 import httpx
+from ambient_quality_shared.protocol import Route
+from ambient_quality_shared.usage_headers import build_usage_headers
+
+ArgsT = TypeVar("ArgsT")
 
 _ADC_CREDS = None  # Cached credentials for `get_adc_token`.
 
@@ -197,15 +201,17 @@ class AgentRuntimeClient:
         """Builds the headers for an authenticated JSON request.
 
         Returns:
-            Header dictionary carrying an ADC bearer token.
+            Header dictionary carrying an ADC bearer token and AQuA's product
+            token (see `build_usage_headers`).
         """
         return {
             "Authorization": f"Bearer {get_adc_token()}",
             "Content-Type": "application/json",
+            **build_usage_headers(),
         }
 
     async def post_command(
-        self, path: str, payload: dict[str, Any] | None = None
+        self, path: Route[ArgsT], payload: ArgsT | None = None
     ) -> dict[str, Any]:
         """Sends a POST request to an agent command route and returns the JSON response.
 
@@ -213,8 +219,8 @@ class AgentRuntimeClient:
         to accommodate long-running operations like BigQuery scans.
 
         Args:
-            path: Command route path (e.g., 'investigations/list').
-            payload: Optional JSON request payload.
+            path: Command route, such as `INVESTIGATIONS_LIST_ROUTE`.
+            payload: Request body, of the route's `TypedDict`.
 
         Returns:
             Decoded JSON response dictionary.
@@ -263,13 +269,13 @@ class AdkHttpClient:
         )
 
     async def post_command(
-        self, path: str, payload: dict[str, Any] | None = None
+        self, path: Route[ArgsT], payload: ArgsT | None = None
     ) -> dict[str, Any]:
         """Sends a POST request to a command route on the local agent server.
 
         Args:
-            path: Command route path matching deployed endpoint paths.
-            payload: Optional JSON request payload.
+            path: Command route, such as `INVESTIGATIONS_LIST_ROUTE`.
+            payload: Request body, of the route's `TypedDict`.
 
         Returns:
             Decoded JSON response dictionary.

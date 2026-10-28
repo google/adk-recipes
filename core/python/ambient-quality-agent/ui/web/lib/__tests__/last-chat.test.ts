@@ -14,7 +14,12 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { forgetLastChat, readLastChat, rememberLastChat } from "../last-chat";
+import {
+  forgetDeletedChat,
+  forgetLastChat,
+  readLastChat,
+  rememberLastChat,
+} from "../last-chat";
 
 function deny(): never {
   throw new DOMException("Access is denied", "SecurityError");
@@ -43,7 +48,7 @@ describe("last chat when localStorage throws", () => {
     stubStorage({ getItem: deny, setItem: deny, removeItem: deny });
 
     expect(readLastChat()).toBeNull();
-    expect(() => forgetLastChat("ctx-a")).not.toThrow();
+    expect(() => forgetDeletedChat("ctx-a")).not.toThrow();
     expect(() => forgetLastChat()).not.toThrow();
   });
 
@@ -53,5 +58,56 @@ describe("last chat when localStorage throws", () => {
     expect(readLastChat()).toBeNull();
     expect(() => rememberLastChat("ctx-a")).not.toThrow();
     expect(() => forgetLastChat()).not.toThrow();
+  });
+});
+
+function createFakeStorage(): Storage {
+  const map = new Map<string, string>();
+  return {
+    get length() {
+      return map.size;
+    },
+    clear: () => map.clear(),
+    getItem: (k: string) => map.get(k) ?? null,
+    key: (i: number) => [...map.keys()][i] ?? null,
+    removeItem: (k: string) => void map.delete(k),
+    setItem: (k: string, v: string) => void map.set(k, v),
+  };
+}
+
+describe("last chat per agent", () => {
+  it("keeps one for each agent, so a switch never reopens another's", () => {
+    stubStorage(createFakeStorage());
+
+    rememberLastChat("ctx-default");
+    rememberLastChat("ctx-prod", "acme-prod__support");
+
+    expect(readLastChat()).toBe("ctx-default");
+    expect(readLastChat("acme-prod__support")).toBe("ctx-prod");
+    expect(readLastChat("acme-staging__support")).toBeNull();
+  });
+
+  it("forgets only the agent's own on a new chat", () => {
+    stubStorage(createFakeStorage());
+    rememberLastChat("ctx-default");
+    rememberLastChat("ctx-prod", "acme-prod__support");
+
+    forgetLastChat("acme-prod__support");
+
+    expect(readLastChat("acme-prod__support")).toBeNull();
+    expect(readLastChat()).toBe("ctx-default");
+  });
+
+  it("forgets a deleted chat for whichever agent it was the last of", () => {
+    stubStorage(createFakeStorage());
+    rememberLastChat("ctx-a");
+    rememberLastChat("ctx-a", "acme-prod__support");
+    rememberLastChat("ctx-b", "acme-staging__support");
+
+    forgetDeletedChat("ctx-a");
+
+    expect(readLastChat()).toBeNull();
+    expect(readLastChat("acme-prod__support")).toBeNull();
+    expect(readLastChat("acme-staging__support")).toBe("ctx-b");
   });
 });

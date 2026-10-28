@@ -15,7 +15,7 @@
 
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
+import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 import {
   ArrowLeft,
   Check,
@@ -45,8 +45,12 @@ import {
   type InsightView,
   type RootCause,
 } from "@/lib/aqua-api";
+import { stripMarkdownForSummary } from "@/lib/aqa-markdown";
+import { resolveSubAgent } from "@/lib/insight-agent";
 import { Button } from "@/components/ui/button";
+import { InlineMarkdown } from "@/components/ui/inline-markdown";
 import { DiagnoseInChatButton } from "./diagnose-in-chat-button";
+import { SubAgentItem } from "./sub-agent-item";
 import { RootCauseRecord, newestRootCause } from "./root-cause-record";
 import { cn, formatSentenceCase } from "@/lib/utils";
 import { link, mono, textStyle } from "@/lib/typography";
@@ -54,6 +58,7 @@ import { PageHeader } from "@/components/nav/page-header";
 import { FailureNote } from "@/components/ui/failure-note";
 import { LoadingPane } from "@/components/ui/loading";
 import { RawJson } from "@/components/ui/raw-json";
+import { useAgentKey, buildAgentHref } from "@/lib/agent-selection";
 
 /** One sampled finding: the two behaviours, kept apart. */
 export interface RubricFinding {
@@ -110,13 +115,17 @@ function Finding({ finding }: { finding: RubricFinding }) {
       {finding.expected && (
         <>
           <dt className={cn(textStyle.label, "text-teal-400")}>Expected</dt>
-          <dd className={textStyle.meta}>{finding.expected}</dd>
+          <dd className={textStyle.meta}>
+            <InlineMarkdown text={finding.expected} />
+          </dd>
         </>
       )}
       {finding.actual && (
         <>
           <dt className={cn(textStyle.label, "text-orange-400")}>Actual</dt>
-          <dd className={textStyle.meta}>{finding.actual}</dd>
+          <dd className={textStyle.meta}>
+            <InlineMarkdown text={finding.actual} />
+          </dd>
         </>
       )}
     </dl>
@@ -128,14 +137,20 @@ export function formatBugReport({
   occurrences,
   rootCause,
   origin = "",
+  agentKey,
 }: {
   insight: InsightView;
   occurrences: InsightOccurrence[];
   /** Root-cause record to include in the bug report. */
   rootCause?: RootCause;
   origin?: string;
+  /** The selected agent, which the permalink opens on. */
+  agentKey?: string;
 }): string {
-  const permalink = `${origin}/insights/${encodeURIComponent(insight.insight_id)}`;
+  const permalink = `${origin}${buildAgentHref(
+    `/insights/${encodeURIComponent(insight.insight_id)}`,
+    agentKey,
+  )}`;
   // The heading's rule, so the report is filed under the name the pane shows.
   // The diagnosis describes the behaviour in 30-70 words and has its own
   // section below.
@@ -149,10 +164,12 @@ export function formatBugReport({
     insight.diagnosis ||
     rootCause?.summary ||
     "No root cause recorded: the judge model's observation, not a diagnosis.";
+  const subAgent = resolveSubAgent(insight);
   const lines: string[] = [
     `# [Bug Report] ${title}`,
     "",
     `**Observed agent:** ${insight.agent_name || "unknown"}`,
+    ...(subAgent ? [`**Sub-agent:** ${subAgent}`] : []),
     `**Status:** ${insight.status}`,
     `**Impact:** ${insight.impact}`,
     `**Affected Trajectories:** ${insight.trace_count} across ${insight.occurrence_count} ${insight.occurrence_count === 1 ? "occurrence" : "occurrences"}`,
@@ -182,7 +199,10 @@ export function formatBugReport({
 }
 
 export function InsightDetailView({ insightId }: { insightId: string }) {
-  const { data, isLoading, isError, error } = useQuery(insightQuery(insightId));
+  const agentKey = useAgentKey();
+  const { data, isLoading, isError, error } = useQuery(
+    insightQuery(agentKey, insightId),
+  );
   const [copied, setCopied] = useState(false);
 
   if (isLoading) return <LoadingPane label="Loading insight…" />;
@@ -217,6 +237,7 @@ export function InsightDetailView({ insightId }: { insightId: string }) {
       occurrences,
       rootCause: currentRecord,
       origin,
+      agentKey,
     });
     try {
       if (navigator.clipboard) {
@@ -232,21 +253,13 @@ export function InsightDetailView({ insightId }: { insightId: string }) {
   return (
     <div className="flex flex-col gap-5">
       <div className="flex items-center justify-between">
-        <Link
-          to="/insights"
-          className={cn(
-            textStyle.meta,
-            "inline-flex w-fit items-center gap-1 hover:text-foreground",
-          )}
-        >
-          <ArrowLeft className="h-3 w-3" /> All insights
-        </Link>
+        <BackToListLink />
 
         <div data-tour="insight-actions" className="flex items-center gap-2">
           <DiagnoseInChatButton
             insightId={insight.insight_id}
             label={insight.label}
-            ariaLabel={`Diagnose insight in chat: ${insight.refined_label || insight.label}`}
+            ariaLabel={`Diagnose insight in chat: ${stripMarkdownForSummary(insight.refined_label || insight.label)}`}
             variant="default"
             className="h-7 gap-1.5 font-normal [&_svg]:size-3.5"
           />
@@ -274,7 +287,7 @@ export function InsightDetailView({ insightId }: { insightId: string }) {
       {/* Render the triage label as the heading to keep it distinct from
             the autorater diagnosis and recorded root cause. */}
       <PageHeader
-        title={insight.refined_label || insight.label}
+        title={<InlineMarkdown text={insight.refined_label || insight.label} />}
         className="gap-2"
       >
         <div
@@ -294,6 +307,7 @@ export function InsightDetailView({ insightId }: { insightId: string }) {
             {insight.trace_count}{" "}
             {insight.trace_count === 1 ? "trajectory" : "trajectories"}
           </span>
+          <SubAgentItem insight={insight} />
           <span>{insight.impact} impact</span>
         </div>
       </PageHeader>
@@ -430,7 +444,9 @@ export function Occurrence({
       {/* `compact` drops what repeats across sightings -- the conclusion and
           the notice about it -- and keeps what does not. */}
       {!compact && occurrence.diagnosis && (
-        <p className={textStyle.body}>{occurrence.diagnosis}</p>
+        <p className={textStyle.body}>
+          <InlineMarkdown text={occurrence.diagnosis} />
+        </p>
       )}
       {!compact && !isOccurrenceDiagnosed(occurrence) && (
         <p className={textStyle.meta}>
@@ -517,4 +533,49 @@ export function Occurrence({
 
 function Muted({ children }: { children: React.ReactNode }) {
   return <div className={textStyle.description}>{children}</div>;
+}
+
+/**
+ * The way back to the list the insight was opened from.
+ *
+ * The list records its own address, page and status included, in the history
+ * entry it opens the insight with, so this returns to the page the reader was
+ * on rather than the top of the list. Without that record, as on a shared link
+ * or a reload in a new tab, it goes to the whole insights list.
+ */
+function BackToListLink() {
+  const listHref = useLocation({
+    select: (location) => location.state?.insightsListHref,
+  });
+  const navigate = useNavigate();
+  const className = cn(
+    textStyle.meta,
+    "inline-flex w-fit items-center gap-1 hover:text-foreground",
+  );
+  if (!listHref) {
+    return (
+      <Link to="/insights" className={className}>
+        <ArrowLeft className="h-3 w-3" /> All insights
+      </Link>
+    );
+  }
+  return (
+    <a
+      href={listHref}
+      className={className}
+      onClick={(e) => {
+        // A modified click opens the list in a new tab, which the browser does
+        // from the href on its own.
+        if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0)
+          return;
+        e.preventDefault();
+        void navigate({ href: listHref });
+      }}
+    >
+      <ArrowLeft className="h-3 w-3" />{" "}
+      {listHref.startsWith("/investigations")
+        ? "Back to investigation"
+        : "All insights"}
+    </a>
+  );
 }

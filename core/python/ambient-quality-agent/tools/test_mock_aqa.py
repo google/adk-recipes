@@ -91,7 +91,7 @@ def dataset() -> dict[str, Any]:
     scenario = mock_data.Scenario(
         days=_DAYS, runs_per_day=4, seed=11, anchor=_ANCHOR
     )
-    return mock_data.build_dataset(scenario, mock_data.load())
+    return mock_data.build_dataset(scenario, mock_data.load_mock_config())
 
 
 @pytest.fixture(scope="module")
@@ -130,6 +130,15 @@ def test_insights_and_occurrences_validate(dataset) -> None:
         InsightView.model_validate(insight)
     for occurrence in dataset["occurrences"]:
         InsightOccurrence.model_validate(occurrence)
+
+
+def test_insights_are_attributed_to_the_root_and_to_sub_agents(dataset) -> None:
+    # Include both root and sub-agent insights so the dashboard demo shows
+    # sub-agent attribution alongside root-agent defects.
+    root = dataset["config"]["observed_agent_name"]
+    agents = {insight["agent_id"] for insight in dataset["insights"]}
+    assert root in agents
+    assert agents - {root}
 
 
 def test_config_is_the_serialized_effective_config(dataset) -> None:
@@ -477,19 +486,19 @@ def test_a_deployment_with_no_telemetry_only_ever_fails() -> None:
     failures as an empty deployment rather than a broken one, and this is the
     only fixture that puts it in that state.
     """
-    dataset = mock_data.build_dataset(
+    built = mock_data.build_dataset(
         mock_data.Scenario(days=3, runs_per_day=2, no_telemetry=True),
-        mock_data.load(),
+        mock_data.load_mock_config(),
     )
 
-    runs = dataset["runs"]
+    runs = built["runs"]
     assert runs
     assert {r["status"] for r in runs} == {"failed"}
     for run in runs:
         assert run["error"] == mock_data._NO_TELEMETRY_ERROR
         assert not any(run["counters"].values())
-    assert dataset["insights"] == []
-    assert dataset["occurrences"] == []
+    assert built["insights"] == []
+    assert built["occurrences"] == []
 
 
 def test_the_no_telemetry_error_is_the_one_the_dashboard_classifies() -> None:
@@ -510,8 +519,8 @@ def test_generation_is_deterministic_for_a_seed() -> None:
     scenario = mock_data.Scenario(
         days=3, runs_per_day=2, seed=3, anchor=_ANCHOR
     )
-    first = mock_data.build_dataset(scenario, mock_data.load())
-    second = mock_data.build_dataset(scenario, mock_data.load())
+    first = mock_data.build_dataset(scenario, mock_data.load_mock_config())
+    second = mock_data.build_dataset(scenario, mock_data.load_mock_config())
     # `generated_at` is wall-clock by design; everything else has to repeat.
     for payload in (first, second):
         payload.pop("generated_at")
@@ -625,6 +634,20 @@ def test_the_insight_list_pages_a_ranking_of_every_match(served) -> None:
     assert len({i["insight_id"] for i in seen}) == len(seen)
     traces = [int(i["trace_count"]) for i in seen]
     assert traces == sorted(traces, reverse=True)
+
+
+def test_the_insight_list_serves_a_page_by_number(served) -> None:
+    """Page 2 by number is the page the first page's token leads to."""
+    args = {"order_by": "impact", "page_size": 10}
+    first = mock_server._list_insights(served, args)
+    by_token = mock_server._list_insights(
+        served, {**args, "page_token": first["next_page_token"]}
+    )
+
+    by_number = mock_server._list_insights(served, {**args, "page": 2})
+
+    assert by_number["insights"] == by_token["insights"]
+    assert by_number["insights"] != first["insights"]
 
 
 def test_the_insight_list_refuses_an_order_it_does_not_have(served) -> None:
@@ -850,6 +873,123 @@ def test_settle_seconds_zero_leaves_the_run_pending(dataset) -> None:
         == 0
     )
     assert served.get_run(run["run_id"])["status"] == "pending"
+
+
+def test_the_schedule_constants_the_mock_copies_match_the_store() -> None:
+    from ambient_quality_agent.tools.observed_agent_config import store
+
+    assert mock_server.AGENTS_PREFIX == store.AGENTS_PREFIX
+    assert (
+        mock_server.DEFAULT_INVESTIGATION_SCHEDULE
+        == store.DEFAULT_INVESTIGATION_SCHEDULE
+    )
+    assert set(mock_server.SCHEDULE_FIELDS) <= store.RECORD_FIELDS
+
+
+def test_the_listed_attachment_is_the_investigated_agent(dataset) -> None:
+    served = mock_server.Dataset(dataset, settle_seconds=0)
+    listing = mock_server._list_agents(served)
+    (agent,) = listing["agents"]
+    assert agent["agent_key"] == dataset["config"]["observed_agent_name"]
+    assert agent["watched"] is True
+    assert agent["investigation_schedule"] == "0 12 * * *"
+    assert agent["scheduled_trigger_enabled"] is True
+
+
+def test_the_config_names_the_attachment_it_is_for(dataset) -> None:
+    """Verifies that the config includes the attachment key, matching the
+    engine, so the telemetry card can send checks and saves for that key."""
+    served = mock_server.Dataset(dataset, settle_seconds=0)
+    config = mock_server._show_config(served)["config"]
+    assert config["agent_key"] == dataset["config"]["observed_agent_name"]
+
+
+def test_a_schedule_change_reaches_the_listing_and_the_health(dataset) -> None:
+    served = mock_server.Dataset(dataset, settle_seconds=0)
+    key = served.agent_key
+    result = mock_server._attach_agent(
+        served,
+        {"agent_key": key, "fields": {"investigation_schedule": "0 6 * * *"}},
+    )
+    assert result["written"] is True
+    assert result["changes"] == [
+        {
+            "field": "investigation_schedule",
+            "before": "0 12 * * *",
+            "after": "0 6 * * *",
+        }
+    ]
+    assert (
+        mock_server._list_agents(served)["agents"][0]["investigation_schedule"]
+        == "0 6 * * *"
+    )
+    assert mock_server._get_ambient_health(served)["schedule"] == "0 6 * * *"
+
+
+def test_a_paused_schedule_is_none_in_the_health(dataset) -> None:
+    # As the engine reports it: a paused agent has no schedule its ticks run.
+    served = mock_server.Dataset(dataset, settle_seconds=0)
+    mock_server._attach_agent(
+        served,
+        {
+            "agent_key": served.agent_key,
+            "fields": {"scheduled_trigger_enabled": False},
+        },
+    )
+    assert mock_server._get_ambient_health(served)["schedule"] is None
+    assert (
+        mock_server._list_agents(served)["agents"][0][
+            "scheduled_trigger_enabled"
+        ]
+        is False
+    )
+
+
+def test_an_unchanged_schedule_is_not_written(dataset) -> None:
+    served = mock_server.Dataset(dataset, settle_seconds=0)
+    result = mock_server._attach_agent(
+        served,
+        {
+            "agent_key": served.agent_key,
+            "fields": {"investigation_schedule": "0 12 * * *"},
+        },
+    )
+    assert result["written"] is False
+    assert result["changes"] == []
+
+
+@pytest.mark.parametrize(
+    ("args", "message"),
+    [
+        (
+            {
+                "agent_key": "nope",
+                "fields": {"investigation_schedule": "0 6 * * *"},
+            },
+            "No agent is attached as 'nope'",
+        ),
+        (
+            {"fields": {"investigation_schedule": "every day"}},
+            "five-field cron",
+        ),
+        (
+            {"fields": {"scheduled_trigger_enabled": "false"}},
+            "scheduled_trigger_enabled must be bool",
+        ),
+        (
+            {"fields": {"telemetry_table": "a.b.c"}},
+            "The mock changes only",
+        ),
+    ],
+)
+def test_a_refused_attach_changes_nothing(dataset, args, message) -> None:
+    served = mock_server.Dataset(dataset, settle_seconds=0)
+    result = mock_server._attach_agent(
+        served, {"agent_key": served.agent_key, **args}
+    )
+    assert message in result["error"]
+    assert served.investigation_schedule == "0 12 * * *"
+    assert served.scheduled_trigger_enabled is True
 
 
 # --------------------------------------------------------------------------- #
@@ -1366,8 +1506,8 @@ def test_no_sighting_is_diagnosed_by_default() -> None:
     scenario = mock_data.Scenario(
         days=7, runs_per_day=2, seed=5, anchor=_ANCHOR
     )
-    dataset = mock_data.build_dataset(scenario, mock_data.load())
-    assert all(not o["analyses"] for o in dataset["occurrences"])
+    built = mock_data.build_dataset(scenario, mock_data.load_mock_config())
+    assert all(not o["analyses"] for o in built["occurrences"])
 
 
 def test_the_knob_produces_results_the_agent_model_accepts() -> None:
@@ -1379,10 +1519,10 @@ def test_the_knob_produces_results_the_agent_model_accepts() -> None:
     scenario = mock_data.Scenario(
         days=7, runs_per_day=2, seed=5, anchor=_ANCHOR, verified_rate=1.0
     )
-    dataset = mock_data.build_dataset(scenario, mock_data.load())
+    built = mock_data.build_dataset(scenario, mock_data.load_mock_config())
 
-    assert dataset["occurrences"]
-    for occurrence in dataset["occurrences"]:
+    assert built["occurrences"]
+    for occurrence in built["occurrences"]:
         analysis = occurrence["analyses"][VERIFICATION_ANALYSIS_KEY]
         verification = ClusterVerification.model_validate(analysis)
         assert verification.explanation
@@ -1402,9 +1542,9 @@ def test_the_explanation_describes_the_sighting_it_is_attached_to() -> None:
     scenario = mock_data.Scenario(
         days=7, runs_per_day=2, seed=5, anchor=_ANCHOR, verified_rate=1.0
     )
-    dataset = mock_data.build_dataset(scenario, mock_data.load())
+    built = mock_data.build_dataset(scenario, mock_data.load_mock_config())
 
-    for occurrence in dataset["occurrences"]:
+    for occurrence in built["occurrences"]:
         analysis = occurrence["analyses"][VERIFICATION_ANALYSIS_KEY]
         assert occurrence["label"] in analysis["explanation"]
 
@@ -1416,10 +1556,11 @@ def test_the_knob_changes_the_analyses_and_nothing_else() -> None:
     id sampled into a run's event prose."""
     kwargs = {"days": 7, "runs_per_day": 2, "seed": 5, "anchor": _ANCHOR}
     plain = mock_data.build_dataset(
-        mock_data.Scenario(**kwargs), mock_data.load()
+        mock_data.Scenario(**kwargs), mock_data.load_mock_config()
     )
     verified = mock_data.build_dataset(
-        mock_data.Scenario(**kwargs, verified_rate=1.0), mock_data.load()
+        mock_data.Scenario(**kwargs, verified_rate=1.0),
+        mock_data.load_mock_config(),
     )
 
     assert plain["runs"] == verified["runs"]
@@ -1453,10 +1594,15 @@ def test_the_document_paths_match_the_agent() -> None:
     """The mock restates them rather than importing the agent. Nothing but this
     holds the copies level, and a rename would leave the config page linking at
     a path nothing is stored under."""
-    from ambient_quality_agent.tools.documents import goal, memories
+    from ambient_quality_agent.tools.documents import (
+        agent_scope,
+        goal,
+        memories,
+    )
 
     assert mock_server.GOAL_OBJECT == goal.GOAL_OBJECT
     assert mock_server.MEMORIES_PREFIX == memories.MEMORIES_PREFIX
+    assert mock_server.AGENTS_PREFIX == agent_scope.AGENT_DOCUMENTS_PREFIX
     assert mock_server.MAX_MEMORY_CHARS == memories.MAX_MEMORY_CHARS
 
 
@@ -1695,12 +1841,12 @@ def test_the_source_card_reads_a_published_snapshot(served) -> None:
 
 
 def test_an_unpublished_deployment_is_the_other_card() -> None:
-    dataset = mock_data.build_dataset(
+    built = mock_data.build_dataset(
         mock_data.Scenario(days=2, runs_per_day=1, source_published=False),
-        mock_data.load(),
+        mock_data.load_mock_config(),
     )
 
-    body = mock_server._get_source_snapshot(mock_server.Dataset(dataset))
+    body = mock_server._get_source_snapshot(mock_server.Dataset(built))
 
     assert body["available"] is False
     assert mock_server.MOCK_SOURCE_BUCKET in body["reason"]
@@ -1714,14 +1860,14 @@ def test_a_source_directory_is_summarized_as_itself(tmp_path) -> None:
     (tmp_path / ".git").mkdir()
     (tmp_path / ".git" / "HEAD").write_text("ignored")
 
-    dataset = mock_data.build_dataset(
+    built = mock_data.build_dataset(
         mock_data.Scenario(days=2, runs_per_day=1, source_dir=str(tmp_path)),
-        mock_data.load(),
+        mock_data.load_mock_config(),
     )
 
-    assert dataset["source"]["file_count"] == 2
-    assert dataset["source"]["total_bytes"] == 150
-    assert dataset["source"]["agent_directory"] == tmp_path.name
+    assert built["source"]["file_count"] == 2
+    assert built["source"]["total_bytes"] == 150
+    assert built["source"]["agent_directory"] == tmp_path.name
 
 
 def test_a_file_over_the_cap_is_reported_as_truncated(tmp_path) -> None:
@@ -1729,13 +1875,13 @@ def test_a_file_over_the_cap_is_reported_as_truncated(tmp_path) -> None:
     (tmp_path / "big.bin").write_bytes(b"z" * (mock_data.MAX_FILE_BYTES + 1))
     (tmp_path / "small.py").write_text("ok")
 
-    dataset = mock_data.build_dataset(
+    built = mock_data.build_dataset(
         mock_data.Scenario(days=2, runs_per_day=1, source_dir=str(tmp_path)),
-        mock_data.load(),
+        mock_data.load_mock_config(),
     )
 
-    assert dataset["source"]["truncated_files"] == 1
-    assert dataset["source"]["total_bytes"] == mock_data.MAX_FILE_BYTES + 2
+    assert built["source"]["truncated_files"] == 1
+    assert built["source"]["total_bytes"] == mock_data.MAX_FILE_BYTES + 2
 
 
 # --------------------------------------------------------------------------- #
@@ -1748,10 +1894,10 @@ def test_no_insight_is_diagnosed_by_default() -> None:
     scenario = mock_data.Scenario(
         days=7, runs_per_day=2, seed=5, anchor=_ANCHOR
     )
-    dataset = mock_data.build_dataset(scenario, mock_data.load())
+    built = mock_data.build_dataset(scenario, mock_data.load_mock_config())
 
-    assert dataset["root_causes"] == []
-    assert all(not i["has_root_cause"] for i in dataset["insights"])
+    assert built["root_causes"] == []
+    assert all(not i["has_root_cause"] for i in built["insights"])
 
 
 def test_the_knob_produces_records_the_agent_model_accepts() -> None:
@@ -1760,10 +1906,10 @@ def test_the_knob_produces_records_the_agent_model_accepts() -> None:
     scenario = mock_data.Scenario(
         days=7, runs_per_day=2, seed=5, anchor=_ANCHOR, root_cause_rate=1.0
     )
-    dataset = mock_data.build_dataset(scenario, mock_data.load())
+    built = mock_data.build_dataset(scenario, mock_data.load_mock_config())
 
-    assert dataset["root_causes"]
-    for record in dataset["root_causes"]:
+    assert built["root_causes"]
+    for record in built["root_causes"]:
         parsed = RootCause.model_validate(record)
         assert parsed.summary
         assert parsed.edits
@@ -1775,12 +1921,10 @@ def test_a_diagnosed_insight_is_marked_in_the_list_view() -> None:
     scenario = mock_data.Scenario(
         days=7, runs_per_day=2, seed=5, anchor=_ANCHOR, root_cause_rate=1.0
     )
-    dataset = mock_data.build_dataset(scenario, mock_data.load())
+    built = mock_data.build_dataset(scenario, mock_data.load_mock_config())
 
-    diagnosed = {r["insight_id"] for r in dataset["root_causes"]}
-    marked = {
-        i["insight_id"] for i in dataset["insights"] if i["has_root_cause"]
-    }
+    diagnosed = {r["insight_id"] for r in built["root_causes"]}
+    marked = {i["insight_id"] for i in built["insights"] if i["has_root_cause"]}
     assert marked == diagnosed
 
 
@@ -1789,14 +1933,14 @@ def test_a_record_names_a_sighting_the_dataset_holds() -> None:
     scenario = mock_data.Scenario(
         days=7, runs_per_day=2, seed=5, anchor=_ANCHOR, root_cause_rate=1.0
     )
-    dataset = mock_data.build_dataset(scenario, mock_data.load())
+    built = mock_data.build_dataset(scenario, mock_data.load_mock_config())
 
     newest: dict[str, dict[str, Any]] = {}
-    for occurrence in dataset["occurrences"]:
+    for occurrence in built["occurrences"]:
         current = newest.get(occurrence["insight_id"])
         if current is None or occurrence["created_at"] > current["created_at"]:
             newest[occurrence["insight_id"]] = occurrence
-    for record in dataset["root_causes"]:
+    for record in built["root_causes"]:
         assert (
             record["occurrence_id"]
             == newest[record["insight_id"]]["occurrence_id"]
@@ -1807,10 +1951,11 @@ def test_the_knob_changes_the_root_causes_and_nothing_else() -> None:
     """Verifies root_cause_rate does not alter runs, occurrences, or other insight fields."""
     kwargs = {"days": 7, "runs_per_day": 2, "seed": 5, "anchor": _ANCHOR}
     plain = mock_data.build_dataset(
-        mock_data.Scenario(**kwargs), mock_data.load()
+        mock_data.Scenario(**kwargs), mock_data.load_mock_config()
     )
     diagnosed = mock_data.build_dataset(
-        mock_data.Scenario(**kwargs, root_cause_rate=1.0), mock_data.load()
+        mock_data.Scenario(**kwargs, root_cause_rate=1.0),
+        mock_data.load_mock_config(),
     )
 
     assert plain["runs"] == diagnosed["runs"]
@@ -1834,7 +1979,8 @@ def diagnosed_served() -> Any:
         days=7, runs_per_day=2, seed=5, anchor=_ANCHOR, root_cause_rate=1.0
     )
     return mock_server.Dataset(
-        mock_data.build_dataset(scenario, mock_data.load()), settle_seconds=0
+        mock_data.build_dataset(scenario, mock_data.load_mock_config()),
+        settle_seconds=0,
     )
 
 
@@ -2209,7 +2355,8 @@ def judged_diagnosed() -> Any:
         days=7, runs_per_day=2, seed=5, anchor=_ANCHOR, root_cause_rate=0.5
     )
     return mock_server.Dataset(
-        mock_data.build_dataset(scenario, mock_data.load()), settle_seconds=0
+        mock_data.build_dataset(scenario, mock_data.load_mock_config()),
+        settle_seconds=0,
     )
 
 

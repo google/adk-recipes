@@ -533,3 +533,42 @@ describe("runOutcome and runOutcomeTone", () => {
     expect(runOutcomeTone(run)).toBe("text-muted-foreground");
   });
 });
+
+describe("RunsTable trigger badges", () => {
+  it("badges the runs a user started, and the sweeps not at all", async () => {
+    renderTable([
+      { ...RUN, run_id: "custom0001", trigger_type: "custom" },
+      { ...RUN, run_id: "manual0001", trigger_type: "manual" },
+      { ...RUN, run_id: "sweep00001", trigger_type: "scheduled" },
+    ]);
+    await screen.findByRole("link", { name: "sweep000" });
+    const rowOf = (id: string) =>
+      screen.getByRole("link", { name: id.slice(0, 8) }).closest("tr")!;
+
+    expect(within(rowOf("custom0001")).getByText("Custom")).toBeInTheDocument();
+    expect(within(rowOf("manual0001")).getByText("Manual")).toBeInTheDocument();
+    expect(within(rowOf("sweep00001")).queryByText("Custom")).toBeNull();
+    expect(within(rowOf("sweep00001")).queryByText("Manual")).toBeNull();
+    expect(screen.queryByTitle(/own schedule/)).toBeNull();
+  });
+
+  it("previews the focus a custom run was asked to review", async () => {
+    renderTable([
+      {
+        ...RUN,
+        trigger_type: "custom",
+        custom_overrides: {
+          selector_sql: "SELECT 1",
+          session_review_focus: "Refund requests the agent declined",
+        },
+      },
+    ]);
+
+    const focus = await screen.findByText("Refund requests the agent declined");
+    expect(focus).toHaveAttribute(
+      "title",
+      "Refund requests the agent declined",
+    );
+    expect(screen.queryByText("SELECT 1")).toBeNull();
+  });
+});

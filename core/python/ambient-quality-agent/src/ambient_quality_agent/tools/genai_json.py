@@ -31,6 +31,20 @@ if TYPE_CHECKING:
 CHUNK_ATTEMPTS = 4
 """Total model call attempts per request."""
 
+CALL_TIMEOUT_MS = 15 * 60 * 1000
+"""Default HTTP timeout per attempt, in milliseconds.
+
+The SDK sets no timeout, so a stalled connection blocks the call, and the
+review page that waits on it, indefinitely. The SDK retries a timed-out attempt
+within `CHUNK_ATTEMPTS`. Session review calls take 147 s at p99, and two full
+5,553-case runs completed with this value on every caller."""
+
+LONG_CALL_TIMEOUT_MS = 45 * 60 * 1000
+"""HTTP timeout per attempt, in milliseconds, for calls with a large output.
+
+A single clustering call over 4,000 findings took 26 minutes, so
+`CALL_TIMEOUT_MS` would cut off legitimate work."""
+
 # Defined as an integer constant because HTTP 499 is absent from http.HTTPStatus.
 _CLIENT_CLOSED_REQUEST = 499
 
@@ -52,6 +66,7 @@ def call_gemini(
     thinking_level: types.ThinkingLevel | None = types.ThinkingLevel.MEDIUM,
     model: Model | None = None,
     temperature: float | None = None,
+    timeout_ms: int = CALL_TIMEOUT_MS,
 ) -> Any:
     """Executes a Gemini request with structured JSON output constrained to schema.
 
@@ -66,26 +81,25 @@ def call_gemini(
             thinking configuration.
         model: Optional model configuration override; defaults to ``config.insights_model``.
         temperature: Sampling temperature. When None, uses the model default.
+        timeout_ms: HTTP timeout per attempt, in milliseconds.
 
     Returns:
         The GenerateContentResponse from the Gemini model.
     """
+    from ambient_quality_agent import clients
     from ambient_quality_agent.config import config
     from ambient_quality_agent.core.labels import build_request_labels
-    from google import genai
 
     spec = model or config.insights_model
-    client = genai.Client(
-        vertexai=True,
+    client = clients.create_genai_client(
         project=config.project_id,
         location=spec.location,
         # Retry transient serving errors encountered during long-running calls.
-        http_options=types.HttpOptions(
-            retry_options=types.HttpRetryOptions(
-                attempts=CHUNK_ATTEMPTS,
-                http_status_codes=RETRY_STATUS_CODES,
-            )
+        retry_options=types.HttpRetryOptions(
+            attempts=CHUNK_ATTEMPTS,
+            http_status_codes=RETRY_STATUS_CODES,
         ),
+        timeout_ms=timeout_ms,
     )
     return client.models.generate_content(
         model=spec.model,

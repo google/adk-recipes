@@ -223,7 +223,7 @@ class InMemoryStore:
 
         Args:
             run_id: Investigation run identifier to clean up.
-            agent_name: Name of the observed agent scoping the removal.
+            agent_name: Key of the observed agent scoping the removal.
         """
         with self._write:
             self._trajectories = {

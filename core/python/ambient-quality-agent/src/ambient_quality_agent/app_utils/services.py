@@ -22,6 +22,10 @@ sessions.
 
 `get_fast_api_app` takes URIs rather than objects, so a scheme in the registry
 is the only seam for handing it an instance we also hold a reference to.
+
+The managed session service and the Cloud Storage artifact service are built
+here rather than by ADK's URI factories, which take no client arguments, so
+that their requests carry AQuA's product token for usage analytics.
 """
 
 from __future__ import annotations
@@ -29,12 +33,23 @@ from __future__ import annotations
 import functools
 import os
 from typing import Any
+from urllib.parse import urlparse
 
-from google.adk.cli.service_registry import get_service_registry
+from ambient_quality_agent import clients
+from ambient_quality_shared.usage_headers import (
+    build_usage_headers,
+    detect_platform,
+)
+from google.adk.artifacts.gcs_artifact_service import GcsArtifactService
+from google.adk.cli import service_registry
 from google.adk.cli.utils.service_factory import (
     create_artifact_service_from_options,
     create_session_service_from_options,
 )
+from google.adk.sessions.vertex_ai_session_service import (
+    VertexAiSessionService,
+)
+from google.genai import types
 
 SESSION_SERVICE_URI = "shared://session"
 ARTIFACT_SERVICE_URI = "shared://artifact"
@@ -43,6 +58,13 @@ ARTIFACT_SERVICE_URI = "shared://artifact"
 # package's parent -- making the app loadable as `ambient_quality_agent`.
 AGENT_DIR = os.path.dirname(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+)
+
+# ADK's parser for `agentengine://` URIs is private. If an ADK upgrade drops
+# it, the session service comes from ADK's factory instead: sessions keep
+# working and only their requests lose the product token.
+_parse_agent_engine_kwargs = getattr(
+    service_registry, "_parse_agent_engine_kwargs", None
 )
 
 
@@ -94,6 +116,58 @@ def _resolve_artifact_service_uri() -> str | None:
     return None
 
 
+class _TokenedVertexAiSessionService(VertexAiSessionService):
+    """The managed session service, sending AQuA's engine product token."""
+
+    def _api_client_http_options_override(self) -> types.HttpOptions:
+        return types.HttpOptions(
+            headers=build_usage_headers(platform=detect_platform())
+        )
+
+
+def _create_session_service(uri: str | None) -> Any:
+    """Creates the session service a URI names, as ADK's factory would.
+
+    Args:
+        uri: Session service URI, or None for ADK's local default.
+
+    Returns:
+        A managed session service sending the product token for an
+        ``agentengine://`` URI while ADK's parser is available, otherwise
+        whatever ADK builds for ``uri``.
+    """
+    if (
+        uri
+        and _parse_agent_engine_kwargs is not None
+        and (parsed := urlparse(uri)).scheme == "agentengine"
+    ):
+        return _TokenedVertexAiSessionService(
+            **_parse_agent_engine_kwargs(parsed.netloc + parsed.path, AGENT_DIR)
+        )
+    return create_session_service_from_options(
+        base_dir=AGENT_DIR, session_service_uri=uri
+    )
+
+
+def _create_artifact_service(uri: str | None) -> Any:
+    """Creates the artifact service a URI names, as ADK's factory would.
+
+    Args:
+        uri: Artifact service URI, or None for ADK's local default.
+
+    Returns:
+        A Cloud Storage artifact service sending the product token for a
+        ``gs://`` URI, otherwise whatever ADK builds for ``uri``.
+    """
+    if uri and (parsed := urlparse(uri)).scheme == "gs":
+        return GcsArtifactService(
+            bucket_name=parsed.netloc, client_info=clients.build_client_info()
+        )
+    return create_artifact_service_from_options(
+        base_dir=AGENT_DIR, artifact_service_uri=uri
+    )
+
+
 @functools.cache
 def get_session_service() -> Any:
     """Provides the process-wide session service shared across all surfaces.
@@ -101,9 +175,7 @@ def get_session_service() -> Any:
     Returns:
         Cached session service instance.
     """
-    return create_session_service_from_options(
-        base_dir=AGENT_DIR, session_service_uri=_resolve_session_service_uri()
-    )
+    return _create_session_service(_resolve_session_service_uri())
 
 
 @functools.cache
@@ -113,12 +185,10 @@ def get_artifact_service() -> Any:
     Returns:
         Cached artifact service instance.
     """
-    return create_artifact_service_from_options(
-        base_dir=AGENT_DIR, artifact_service_uri=_resolve_artifact_service_uri()
-    )
+    return _create_artifact_service(_resolve_artifact_service_uri())
 
 
-_registry = get_service_registry()
+_registry = service_registry.get_service_registry()
 _registry.register_session_service(
     "shared", lambda uri, **kw: get_session_service()
 )

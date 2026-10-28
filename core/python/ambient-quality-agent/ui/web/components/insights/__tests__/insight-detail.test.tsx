@@ -59,6 +59,19 @@ function insightView(over: Partial<InsightView>): InsightView {
 }
 
 describe("formatBugReport", () => {
+  it("links the report to the agent the insight belongs to", () => {
+    const report = formatBugReport({
+      insight: insightView({ insight_id: "ins-abc" }),
+      occurrences: [],
+      origin: "http://localhost:8080",
+      agentKey: "acme-prod__support",
+    });
+
+    expect(report).toContain(
+      "**Permalink:** http://localhost:8080/insights/ins-abc?agent=acme-prod__support",
+    );
+  });
+
   it("formats a complete markdown bug report with permalink and evidence", () => {
     const ins = insightView({
       insight_id: "ins-abc",
@@ -260,6 +273,31 @@ describe("Occurrence", () => {
       l.getAttribute("href"),
     );
     expect(hrefs).toContain("/investigations/run-7/cases/case-0123456789ab");
+  });
+
+  it("renders code spans in the diagnosis and the findings as code", async () => {
+    const occ = occurrence({
+      diagnosis: "The `create_ticket` declaration lists no parameters.",
+      rubrics: [
+        {
+          rubric: {
+            expected_behavior: "The agent should have used `list_user_groups`.",
+            actual_behavior:
+              "The agent called a hallucinated tool `find_user_group`.",
+          },
+        },
+      ],
+    });
+
+    renderOccurrence(occ);
+
+    for (const name of [
+      "create_ticket",
+      "list_user_groups",
+      "find_user_group",
+    ]) {
+      expect((await screen.findByText(name)).tagName).toBe("CODE");
+    }
   });
 
   it("shows a plain chip when the sighting records no run", async () => {

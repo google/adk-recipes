@@ -13,7 +13,7 @@
 # limitations under the License.
 
 terraform {
-  required_version = ">= 1.4"
+  required_version = ">= 1.7"
 
   # Empty on purpose. The local backend is the default with or without this
   # block, but declaring it is what makes `init -backend-config="path=..."`
@@ -25,7 +25,7 @@ terraform {
   required_providers {
     google = {
       source  = "hashicorp/google"
-      version = ">= 7.13, < 8.0"
+      version = ">= 8.1, < 9.0"
     }
   }
 }

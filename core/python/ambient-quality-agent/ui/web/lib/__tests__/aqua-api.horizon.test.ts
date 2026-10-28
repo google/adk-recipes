@@ -56,7 +56,7 @@ const requestedUrl = (): string => String(fetchMock.mock.calls[0][0]);
 
 describe("the scoped reads", () => {
   it("sums the funnel over the horizon rather than over all time", async () => {
-    await statsQuery().queryFn();
+    await statsQuery(undefined).queryFn();
     const url = new URL(requestedUrl(), "http://x");
     expect(url.pathname).toBe("/api/stats");
     expect(url.searchParams.get("windowStart")).toBe(
@@ -65,7 +65,7 @@ describe("the scoped reads", () => {
   });
 
   it("asks /api/daily for the days the charts draw, and no more", async () => {
-    await dailyQuery().queryFn();
+    await dailyQuery(undefined).queryFn();
     const url = new URL(requestedUrl(), "http://x");
     expect(url.pathname).toBe("/api/daily");
     expect(url.searchParams.get("windowStart")).toBe(
@@ -77,12 +77,12 @@ describe("the scoped reads", () => {
     // The bound is computed in the query function, so the key stays stable and
     // the cache is worth having; a key holding the clock is a fresh query on
     // every render.
-    const before = statsQuery().queryKey;
+    const before = statsQuery(undefined).queryKey;
     vi.setSystemTime(new Date(NOW.getTime() + 3 * 86_400_000));
-    expect(statsQuery().queryKey).toEqual(before);
+    expect(statsQuery(undefined).queryKey).toEqual(before);
     expect(JSON.stringify(before)).not.toContain("2026");
 
-    await statsQuery().queryFn();
+    await statsQuery(undefined).queryFn();
     const url = new URL(requestedUrl(), "http://x");
     expect(url.searchParams.get("windowStart")).toBe(
       "2026-09-06T00:00:00.000Z",
@@ -94,7 +94,7 @@ describe("the reads left unscoped", () => {
   it("asks for the most recent sweeps, not the last fortnight of them", async () => {
     // The server already caps this list; a window could only make it shorter,
     // and a log is read for depth.
-    await runsQuery().queryFn();
+    await runsQuery(undefined).queryFn();
     expect(requestedUrl()).toBe("/api/investigations");
   });
 
@@ -103,12 +103,12 @@ describe("the reads left unscoped", () => {
     // auto-resolved issue's last sighting is one auto-resolve window before the
     // day the chart plots it on, so a matching window would drop exactly the
     // resolutions being drawn.
-    await insightsQuery().queryFn();
+    await insightsQuery(undefined).queryFn();
     expect(requestedUrl()).toBe("/api/insights");
   });
 
   it("keeps the issue list unwindowed even when it is filtered", async () => {
-    await insightsQuery({ status: "RESOLVED" }).queryFn();
+    await insightsQuery(undefined, { status: "RESOLVED" }).queryFn();
     const url = new URL(requestedUrl(), "http://x");
     expect(url.searchParams.get("status")).toBe("RESOLVED");
     expect(url.searchParams.has("windowStart")).toBe(false);

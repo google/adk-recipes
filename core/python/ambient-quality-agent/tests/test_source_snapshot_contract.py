@@ -35,6 +35,9 @@ from ambient_quality_agent.core import command_routes as routes
 from ambient_quality_agent.standalone.files import FileObjectStore
 from ambient_quality_agent.tools.objects import store as objects_store
 from ambient_quality_agent.tools.objects.gcs_store import GcsObjectStore
+from ambient_quality_agent.tools.observed_agent_config import (
+    store as agent_store,
+)
 from ambient_quality_agent.tools.source_code import reader as source_reader
 from ambient_quality_agent.tools.source_code import snapshot
 from ambient_quality_cli import source_snapshot
@@ -47,7 +50,8 @@ from fastapi.testclient import TestClient
 
 from .conftest import FakeGcsClient
 
-AGENT = "travel_agent"
+AGENT = "acme-prod__travel_agent"
+"""The agent's key, which its snapshots are stored under."""
 REVISION = "10"
 ENGINE = "projects/p/locations/us-east1/reasoningEngines/42"
 
@@ -62,8 +66,8 @@ def test_total_cap_agrees() -> None:
 
 def test_a_batch_leaves_room_under_the_body_cap() -> None:
     """The JSON around a batch's content must fit in what the cap leaves."""
-    assert source_snapshot.BATCH_BYTES <= routes._MAX_BODY_BYTES - 64 * 1024
-    assert source_snapshot.MAX_BODY_BYTES == routes._MAX_BODY_BYTES
+    assert source_snapshot.BATCH_BYTES <= routes.MAX_BODY_BYTES - 64 * 1024
+    assert source_snapshot.MAX_BODY_BYTES == routes.MAX_BODY_BYTES
 
 
 def test_a_batch_holds_no_more_files_than_the_engine_takes() -> None:
@@ -83,9 +87,9 @@ def store(
         client = FakeGcsClient()
         bound = GcsObjectStore("source-bucket", client_factory=lambda: client)
     monkeypatch.setattr(objects_store, "source_store_factory", lambda: bound)
-    source_reader.clear_manifest_cache()
+    source_reader.clear_snapshot_cache()
     yield bound
-    source_reader.clear_manifest_cache()
+    source_reader.clear_snapshot_cache()
 
 
 @pytest.fixture
@@ -112,10 +116,19 @@ def _create_project(root: Path, files: dict[str, bytes]) -> Path:
     return root
 
 
+@pytest.fixture(autouse=True)
+def attached(jobs_store: FileObjectStore) -> None:
+    """Attaches `AGENT`, which the routes check a key against."""
+    jobs_store.write_text(
+        agent_store.build_object_name(AGENT),
+        json.dumps({"schema_version": 1, "agent": {}}),
+    )
+
+
 def _publish(post: Any, root: Path) -> dict[str, Any]:
     return source_snapshot.upload(
         post,
-        agent_name=AGENT,
+        agent_key=AGENT,
         revision=REVISION,
         snapshot=source_snapshot.pack(
             root, engine=ENGINE, agent_directory="app"
@@ -148,8 +161,10 @@ def test_a_snapshot_round_trips_through_the_routes(
     cap, and an image, which is not sent at all."""
     pytest.importorskip("pathspec")
     noise = os.urandom(snapshot.MAX_FILE_BYTES + 10)
+    # In a subdirectory, so the packed project leaves out `tmp_path/jobs`,
+    # where `attached` writes.
     root = _create_project(
-        tmp_path,
+        tmp_path / "project",
         {
             "app/agent.py": b"def run():\n    return 'ok'\n",
             "app/big.txt": noise,
@@ -166,7 +181,7 @@ def test_a_snapshot_round_trips_through_the_routes(
     assert summary["truncated_files"] == 1
     assert summary["uri"] == store.uri(f"{AGENT}/{REVISION}/manifest.json")
 
-    reader = source_reader.SourceSnapshotReader(store=store, agent_name=AGENT)
+    reader = source_reader.SourceSnapshotReader(store=store, agent_key=AGENT)
     assert reader.list_revisions() == [REVISION]
     manifest = reader.load_manifest(REVISION)
     assert manifest is not None
@@ -198,7 +213,7 @@ def test_publishing_a_revision_again_drops_the_files_it_no_longer_has(
     _publish(
         post, _create_project(tmp_path / "first", {"a.py": b"a", "b.py": b"b"})
     )
-    first = source_reader.SourceSnapshotReader(store=store, agent_name=AGENT)
+    first = source_reader.SourceSnapshotReader(store=store, agent_key=AGENT)
     assert first.load_manifest(REVISION) is not None
     _publish(post, _create_project(tmp_path / "second", {"a.py": b"a2"}))
 
@@ -207,7 +222,7 @@ def test_publishing_a_revision_again_drops_the_files_it_no_longer_has(
     assert store.read_bytes(f"{prefix}a.py") == b"a2"
     # Read back through the reader, whose manifest cache must not serve the
     # first publish.
-    reader = source_reader.SourceSnapshotReader(store=store, agent_name=AGENT)
+    reader = source_reader.SourceSnapshotReader(store=store, agent_key=AGENT)
     manifest_read = reader.load_manifest(REVISION)
     assert manifest_read is not None
     assert [f.path for f in manifest_read.files] == ["a.py"]

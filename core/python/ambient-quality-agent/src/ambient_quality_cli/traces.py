@@ -39,6 +39,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from ambient_quality_cli import gcs
+from ambient_quality_shared.schemas import SCHEMA_DIR
 from ambient_quality_shared.telemetry import SPAN_OBJECT_PREFIX
 from ambient_quality_shared.terraform_state import (
     DEPLOYMENT_KEY,
@@ -128,13 +129,14 @@ somewhere else fails. Any location works as long as the two agree.
 
 ## Review it with AQuA
 
-Point an AQuA deployment at the table instead of at a live linked dataset, and
-the existing ingestion path reads the dump exactly as it reads production:
+Attach the agent to an AQuA deployment with the table in place of a live
+linked dataset, and the existing ingestion path reads the dump exactly as it
+reads production:
 
 ```
-TELEMETRY_INGESTION_SOURCE=cloud_ops
-AQA_TELEMETRY_DATASET=<dataset>
-AQA_TELEMETRY_TABLE=all_spans
+agents-cli aqua attach <agent name> --no-discover \\
+  --telemetry-source cloud_ops --telemetry-dataset <dataset> \\
+  --telemetry-table all_spans --telemetry-location <location>
 ```
 
 ## What is in the archive
@@ -508,7 +510,7 @@ def write_dump(
         DumpError: If schema is missing or archive generation fails.
         GcsError: If GCS read operations fail.
     """
-    schema = schema_path or Path(__file__).with_name(SCHEMA_FILE)
+    schema = schema_path or SCHEMA_DIR / SCHEMA_FILE
     if not schema.is_file():
         # Validate schema existence upfront before initiating network downloads.
         raise DumpError(f"the `bq load` schema is not at {schema}.")

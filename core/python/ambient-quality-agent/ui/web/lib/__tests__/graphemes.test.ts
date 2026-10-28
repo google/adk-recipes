@@ -16,6 +16,7 @@ import { describe, expect, it } from "vitest";
 
 import { capEdit, sliceGraphemes } from "@/lib/graphemes";
 import {
+  buildConversationTitle,
   listConversations,
   rememberConversation,
   resetConversationsForTest,
@@ -95,5 +96,22 @@ describe("conversation titles from the first message", () => {
     resetConversationsForTest();
     rememberConversation("c1", `${"a".repeat(56)}${FAMILY}`);
     expect(listConversations()[0].title).toBe(`${"a".repeat(56)}…`);
+  });
+
+  it("puts the message on one line", () => {
+    expect(buildConversationTitle("  why did\n  it\tfail?  ")).toBe(
+      "why did it fail?",
+    );
+  });
+
+  it("keeps a message of 60 units whole and shortens a longer one", () => {
+    expect(buildConversationTitle("a".repeat(60))).toBe("a".repeat(60));
+    expect(buildConversationTitle("a".repeat(61))).toBe(`${"a".repeat(57)}…`);
+  });
+
+  it("builds nothing from a missing or blank message", () => {
+    expect(buildConversationTitle(undefined)).toBe("");
+    expect(buildConversationTitle(null)).toBe("");
+    expect(buildConversationTitle("   ")).toBe("");
   });
 });

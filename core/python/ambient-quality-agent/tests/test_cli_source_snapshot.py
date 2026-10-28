@@ -36,6 +36,8 @@ from ambient_quality_cli import source_snapshot as lib
 from click.testing import CliRunner
 
 ENGINE = "projects/123456789012/locations/us-east1/reasoningEngines/42"
+KEY = "acme-prod__travel_agent"
+"""The key the attached agent is stored under."""
 
 
 def _build_revision(revision_id: str, create_time: str) -> dict[str, Any]:
@@ -369,7 +371,7 @@ def test_upload_commits_the_manifest_after_every_batch() -> None:
 
     reply = lib.upload(
         post,
-        agent_name="a",
+        agent_key="a",
         revision="1",
         snapshot=packed,
         upload_route="u",
@@ -377,7 +379,9 @@ def test_upload_commits_the_manifest_after_every_batch() -> None:
     )
 
     assert [route for route, _ in calls] == ["u", "u", "c"]
-    assert calls[0][1]["agent_name"] == "a" and calls[0][1]["revision"] == "1"
+    assert calls[0][1]["agent_key"] == "a" and calls[0][1]["revision"] == "1"
+    # An engine that takes no `agent_key` stores the snapshot under the key.
+    assert all(body["agent_name"] == "a" for _, body in calls)
     assert reply == {"uri": "gs://b/a/1/manifest.json"}
 
 
@@ -404,7 +408,7 @@ def test_a_manifest_too_large_for_one_request_sends_nothing(
     with pytest.raises(lib.SnapshotError, match=r"\.gcloudignore"):
         lib.upload(
             post,
-            agent_name="a",
+            agent_key="a",
             revision="1",
             snapshot=packed,
             upload_route="u",
@@ -428,7 +432,7 @@ def test_a_refused_batch_stops_before_the_manifest() -> None:
     with pytest.raises(lib.SnapshotError, match="no source bucket"):
         lib.upload(
             post,
-            agent_name="a",
+            agent_key="a",
             revision="1",
             snapshot=packed,
             upload_route="u",
@@ -443,23 +447,30 @@ def test_a_refused_batch_stops_before_the_manifest() -> None:
 def test_the_attachment_recording_the_engine_wins() -> None:
     listing = {
         "agents": [
-            {"agent_name": "watched", "watched": True},
-            {"agent_name": "other", "observed_engine_id": "42"},
+            {"agent_key": "p__watched", "watched": True},
+            {"agent_key": "p__other", "observed_engine_id": "42"},
         ],
-        "environment_agent": None,
     }
 
-    assert lib.resolve_agent_for_engine(listing, ENGINE) == "other"
+    assert lib.resolve_agent_for_engine(listing, ENGINE) == "p__other"
 
 
 def test_without_a_matching_attachment_the_watched_agent() -> None:
     """One attached without an engine, which may well be this one."""
     listing = {
-        "agents": [{"agent_name": "watched", "watched": True}],
-        "environment_agent": None,
+        "agents": [{"agent_key": "p__watched", "watched": True}],
     }
 
-    assert lib.resolve_agent_for_engine(listing, ENGINE) == "watched"
+    assert lib.resolve_agent_for_engine(listing, ENGINE) == "p__watched"
+
+
+def test_an_engine_that_lists_no_keys_has_its_agents_named() -> None:
+    """Every agent such an engine holds is stored under its bare name."""
+    listing = {
+        "agents": [{"agent_name": "other", "observed_engine_id": "42"}],
+    }
+
+    assert lib.resolve_agent_for_engine(listing, ENGINE) == "other"
 
 
 def test_a_watched_agent_recording_another_engine_is_not_chosen() -> None:
@@ -467,24 +478,35 @@ def test_a_watched_agent_recording_another_engine_is_not_chosen() -> None:
     listing = {
         "agents": [
             {
-                "agent_name": "watched",
+                "agent_key": "p__watched",
                 "watched": True,
                 "observed_engine_id": "7",
             }
         ],
-        "environment_agent": None,
     }
 
     assert lib.resolve_agent_for_engine(listing, ENGINE) == ""
 
 
-def test_with_nothing_attached_the_agent_the_environment_names() -> None:
-    assert (
-        lib.resolve_agent_for_engine(
-            {"agents": [], "environment_agent": "env_agent"}, ENGINE
-        )
-        == "env_agent"
-    )
+def test_an_attachment_recording_another_engine_leaves_the_watched_agent() -> (
+    None
+):
+    """The engine decides an update of the engine the same way."""
+    listing = {
+        "agents": [
+            {"agent_key": "p__other", "observed_engine_id": "7"},
+            {"agent_key": "p__watched", "watched": True},
+        ],
+    }
+
+    assert lib.resolve_agent_for_engine(listing, ENGINE) == "p__watched"
+
+
+def test_with_nothing_attached_no_agent() -> None:
+    """There is no default agent to file the engine's source under."""
+    listing: dict[str, Any] = {"agents": [], "default_agent": None}
+
+    assert lib.resolve_agent_for_engine(listing, ENGINE) == ""
 
 
 # --- the command ------------------------------------------------------------- #
@@ -498,9 +520,12 @@ class _FakeAqua:
         self.calls: list[tuple[str, Any]] = []
         self.listing = {
             "agents": [
-                {"agent_name": "travel_agent", "observed_engine_id": "42"}
+                {
+                    "agent_key": KEY,
+                    "agent_name": "travel_agent",
+                    "observed_engine_id": "42",
+                }
             ],
-            "environment_agent": None,
         }
 
     def fetch(self, *, url, resource, path, payload=None) -> Any:
@@ -522,12 +547,13 @@ class _FakeAqua:
             return {"written": len(payload["files"])}
         if path == "source/commit":
             return {
-                "agent_name": payload["agent_name"],
+                "agent_key": payload["agent_key"],
                 "revision": payload["revision"],
-                "uri": "gs://b/travel_agent/9/manifest.json",
+                "uri": f"gs://b/{KEY}/9/manifest.json",
             }
         if path == "agents/attach":
             return {
+                "agent_key": KEY,
                 "agent_name": "travel_agent",
                 "watched": True,
                 "attached": True,
@@ -595,9 +621,13 @@ def test_publish_source_uploads_the_newest_revision_for_the_engines_agent(
         "source/upload",
         "source/commit",
     ]
-    assert aqua.calls[1][1] == {"agent_name": "travel_agent", "revision": "9"}
+    assert aqua.calls[1][1] == {
+        "agent_key": KEY,
+        "agent_name": KEY,
+        "revision": "9",
+    }
     upload = aqua.calls[2][1]
-    assert upload["agent_name"] == "travel_agent" and upload["revision"] == "9"
+    assert upload["agent_key"] == KEY and upload["revision"] == "9"
     assert {f["path"] for f in upload["files"]} == {
         "app/agent.py",
         lib.METADATA_FILE,
@@ -606,6 +636,7 @@ def test_publish_source_uploads_the_newest_revision_for_the_engines_agent(
     assert manifest["engine"] == ENGINE
     assert manifest["agent_directory"] == "app"
     assert json.loads(result.stdout)["published"] is True
+    assert json.loads(result.stdout)["agent_key"] == KEY
 
 
 def test_an_already_published_revision_is_not_uploaded_again(
@@ -614,7 +645,7 @@ def test_an_already_published_revision_is_not_uploaded_again(
     aqua.published = "9"
     root = _create_project(tmp_path / "p", {"app/agent.py": b"x"})
 
-    result = _publish(root, "travel_agent")
+    result = _publish(root, KEY)
 
     assert result.exit_code == 0, result.output
     assert aqua.routes() == ["source"]
@@ -628,7 +659,7 @@ def test_force_uploads_a_published_revision_again(
     aqua.published = "3"
     root = _create_project(tmp_path / "p", {"app/agent.py": b"x"})
 
-    result = _publish(root, "travel_agent", "--force", "--revision", "3")
+    result = _publish(root, KEY, "--force", "--revision", "3")
 
     assert result.exit_code == 0, result.output
     assert aqua.routes() == ["source/upload", "source/commit"]
@@ -643,7 +674,7 @@ def test_another_revision_being_published_does_not_skip_this_one(
     aqua.published = "8"
     root = _create_project(tmp_path / "p", {"app/agent.py": b"x"})
 
-    result = _publish(root, "travel_agent")
+    result = _publish(root, KEY)
 
     assert result.exit_code == 0, result.output
     assert "source/commit" in aqua.routes()
@@ -671,7 +702,7 @@ def test_a_dry_run_uploads_nothing(aqua: _FakeAqua, tmp_path: Path) -> None:
     pytest.importorskip("pathspec")
     root = _create_project(tmp_path / "p", {"app/agent.py": b"x"})
 
-    result = _publish(root, "travel_agent", "--dry-run")
+    result = _publish(root, KEY, "--dry-run")
 
     assert result.exit_code == 0, result.output
     assert aqua.routes() == []
@@ -710,7 +741,7 @@ def _attach(root: Path, *args: str):
     )
 
 
-def test_attach_publishes_the_source_once_attached(
+def test_attach_publishes_the_source_under_the_agents_key(
     aqua: _FakeAqua, tmp_path: Path
 ) -> None:
     pytest.importorskip("pathspec")
@@ -724,9 +755,11 @@ def test_attach_publishes_the_source_once_attached(
         i for i, r in enumerate(routes) if r == "agents/attach"
     )
     assert aqua.calls[routes.index("source")][1] == {
-        "agent_name": "travel_agent",
+        "agent_key": KEY,
+        "agent_name": KEY,
         "revision": "9",
     }
+    assert aqua.calls[routes.index("source/commit")][1]["agent_key"] == KEY
 
 
 def test_a_failed_snapshot_does_not_fail_the_attach(

@@ -24,12 +24,15 @@ import { CustomMetricsPanel } from "./custom-metrics-panel";
 import { RunEventLedger } from "./run-event-ledger";
 import { Trajectory } from "@/components/trajectory/trajectory";
 import { ConversationLink } from "@/components/investigations/conversation-link";
-import { InsightsView } from "@/components/insights/insights-view";
+import {
+  InsightsView,
+  type InsightStatusFilter,
+} from "@/components/insights/insights-view";
 import { Funnel } from "@/components/stats/funnel";
 import { HelpPopover } from "@/components/ui/help-popover";
 import {
-  ABSENT,
   agentLabel,
+  extractReviewFocus,
   formatInstant,
   isScheduled,
   noCountsText,
@@ -38,13 +41,35 @@ import {
   telemetryWindow,
 } from "@/lib/run-summary";
 import { RawJson } from "@/components/ui/raw-json";
+import { TriggerBadge } from "./trigger-badge";
 import { PageHeader } from "@/components/nav/page-header";
 import { mono, textStyle } from "@/lib/typography";
 import { cn, formatSentenceCase } from "@/lib/utils";
+import { useAgentKey } from "@/lib/agent-selection";
 
-export function InvestigationDetailView({ runId }: { runId: string }) {
+/**
+ * One investigation: its summary, the insights it found, and its counters.
+ *
+ * The insights list's status tab and page are the caller's when it passes
+ * their change handlers, as `InsightsView` describes; without them the list
+ * keeps both itself.
+ */
+export function InvestigationDetailView({
+  runId,
+  insightStatus,
+  onInsightStatusChange,
+  insightPage,
+  onInsightPageChange,
+}: {
+  runId: string;
+  insightStatus?: InsightStatusFilter;
+  onInsightStatusChange?: (status: InsightStatusFilter | undefined) => void;
+  insightPage?: number;
+  onInsightPageChange?: (page: number | undefined) => void;
+}) {
+  const agentKey = useAgentKey();
   const { data, isLoading, isError, error } = useQuery(
-    investigationQuery(runId),
+    investigationQuery(agentKey, runId),
   );
 
   if (isLoading) {
@@ -81,7 +106,7 @@ export function InvestigationDetailView({ runId }: { runId: string }) {
   const stats = runStats(run);
   // Evaluate fields individually because either override can be set independently.
   const selectorSql = run.custom_overrides?.selector_sql?.trim();
-  const reviewFocus = run.custom_overrides?.session_review_focus?.trim();
+  const reviewFocus = extractReviewFocus(run);
 
   return (
     <div className="flex flex-col gap-6">
@@ -104,20 +129,29 @@ export function InvestigationDetailView({ runId }: { runId: string }) {
           </>
         }
         aside={
-          <span
-            className={cn(
-              textStyle.label,
-              "rounded border px-2 py-0.5",
-              failure?.kind === "error" &&
-                "border-destructive text-destructive bg-destructive/10",
-              (failure?.kind === "no-data" || (!failure && isScheduled(run))) &&
-                "border-border text-muted-foreground",
-              !failure &&
-                !isScheduled(run) &&
-                "border-emerald-500/40 text-emerald-500 bg-emerald-500/10",
-            )}
-          >
-            {formatSentenceCase(run.status || (run.error ? "failed" : "done"))}
+          <span className="flex items-center gap-2">
+            {/* Who asked for this run. A manual run and a scheduled one that
+                  found the same thing mean different things: one is somebody
+                  looking, the other is the loop turning. */}
+            <TriggerBadge run={run} className="py-0.5" />
+            <span
+              className={cn(
+                textStyle.label,
+                "rounded border px-2 py-0.5",
+                failure?.kind === "error" &&
+                  "border-destructive text-destructive bg-destructive/10",
+                (failure?.kind === "no-data" ||
+                  (!failure && isScheduled(run))) &&
+                  "border-border text-muted-foreground",
+                !failure &&
+                  !isScheduled(run) &&
+                  "border-emerald-500/40 text-emerald-500 bg-emerald-500/10",
+              )}
+            >
+              {formatSentenceCase(
+                run.status || (run.error ? "failed" : "done"),
+              )}
+            </span>
           </span>
         }
       >
@@ -128,10 +162,6 @@ export function InvestigationDetailView({ runId }: { runId: string }) {
             Observed agent:{" "}
             <strong className="text-foreground">{agentLabel(run)}</strong>
           </span>
-          {/* Who asked for this sweep. A `manual` run and a `scheduled` one
-                that found the same thing mean different things: one is
-                somebody looking, the other is the loop turning. */}
-          <span>Trigger: {run.trigger_type || ABSENT}</span>
           {/* The period examined, which the elapsed time below says nothing
                 about -- a 40s run can cover a week. */}
           <span>Telemetry window: {telemetryWindow(run)}</span>
@@ -255,7 +285,14 @@ export function InvestigationDetailView({ runId }: { runId: string }) {
         <h2 className={textStyle.sectionTitle}>
           Insights from this investigation
         </h2>
-        <InsightsView runId={run.run_id} embedded />
+        <InsightsView
+          runId={run.run_id}
+          embedded
+          status={insightStatus}
+          onStatusChange={onInsightStatusChange}
+          page={insightPage}
+          onPageChange={onInsightPageChange}
+        />
       </section>
 
       {/* Summary Counters */}

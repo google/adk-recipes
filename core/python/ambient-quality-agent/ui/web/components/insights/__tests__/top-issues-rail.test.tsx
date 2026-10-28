@@ -198,6 +198,27 @@ describe("TopIssuesRail", () => {
     expect(title.className).toContain("break-words");
   });
 
+  it("renders a code span in the title as code, and keeps the tooltip plain", async () => {
+    const plain = "calls file_expense with a category outside the accepted set";
+    renderRail({
+      insights: [
+        insight({
+          label:
+            "calls `file_expense` with a category outside the accepted set",
+        }),
+      ],
+    });
+
+    const row = await rowLink(/calls file_expense with/);
+    expect(within(row).getByText("file_expense").tagName).toBe("CODE");
+    expect(row.querySelector("[title]")).toHaveAttribute("title", plain);
+    expect(
+      screen.getByRole("button", {
+        name: `Diagnose insight in chat: ${plain}`,
+      }),
+    ).toBeInTheDocument();
+  });
+
   it("names an insight with a blank label", async () => {
     renderRail({ insights: [insight({ label: "   " })] });
 

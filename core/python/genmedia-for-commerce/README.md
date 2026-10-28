@@ -61,7 +61,7 @@ uvx google-agents-cli setup
 **Create the project from this recipe**:
 
 ```bash
-agents-cli create genmedia4commerce -a adk@genmedia-for-commerce
+agents-cli create genmedia4commerce -a https://github.com/google/adk-recipes/tree/main/core/python/genmedia-for-commerce
 ```
 
 You'll be prompted to select a deployment option — choose **None**, as deployment is already handled in the code repo.

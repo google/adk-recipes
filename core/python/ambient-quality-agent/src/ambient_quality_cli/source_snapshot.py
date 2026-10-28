@@ -18,7 +18,7 @@ Root-cause analysis reads the observed agent's source as deployed, keyed by
 the Agent Runtime revision that runs it. This module builds that snapshot
 from the project directory and uploads it through AQuA's command routes, which
 write it with the engine's own credentials, as
-`<agent_name>/<revision>/manifest.json` and `<agent_name>/<revision>/files/…`
+`<agent key>/<revision>/manifest.json` and `<agent key>/<revision>/files/…`
 in AQuA's source store. The CLI therefore needs no grant on AQuA's storage,
 and the same upload reaches a deployed AQuA and a standalone one.
 
@@ -48,9 +48,17 @@ import json
 import os
 from collections.abc import Callable, Iterable
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol, TypeVar
 
 from ambient_quality_cli import rest_client as rest_client_lib
+from ambient_quality_shared import engine_agent
+from ambient_quality_shared.protocol import (
+    AgentSelector,
+    CommitSourceSnapshotArgs,
+    Route,
+    SourceFile,
+    UploadSourceFilesArgs,
+)
 
 METADATA_FILE = "deployment_metadata.json"
 """Deployment metadata `agents-cli deploy` writes for the observed agent."""
@@ -520,25 +528,40 @@ def build_batches(files: list[PackedFile]) -> list[list[PackedFile]]:
     return batches
 
 
-PostCommand = Callable[[str, dict[str, Any]], dict[str, Any]]
-"""Sends one command route request to AQuA: a route and a body, to the reply."""
+ArgsT = TypeVar("ArgsT")
+
+
+class PostCommand(Protocol):
+    """Sends one command route request to AQuA: a route and a body, to the reply."""
+
+    def __call__(self, route: Route[ArgsT], body: ArgsT) -> dict[str, Any]:
+        """Sends the request.
+
+        Args:
+            route: Command route.
+            body: Request body, of the route's `TypedDict`.
+
+        Returns:
+            The decoded reply.
+        """
+        ...
 
 
 def upload(
     post_command: PostCommand,
     *,
-    agent_name: str,
+    agent_key: str,
     revision: str,
     snapshot: Snapshot,
-    upload_route: str,
-    commit_route: str,
+    upload_route: Route[UploadSourceFilesArgs],
+    commit_route: Route[CommitSourceSnapshotArgs],
     on_batch: Callable[[int, int], None] | None = None,
 ) -> dict[str, Any]:
     """Uploads a packed snapshot in batches, then commits its manifest.
 
     Args:
         post_command: Sends one command route request to AQuA.
-        agent_name: Observed agent the snapshot belongs to.
+        agent_key: Key of the observed agent the snapshot belongs to.
         revision: Runtime revision the snapshot is of.
         snapshot: The packed snapshot.
         upload_route: The route that writes a batch of files.
@@ -552,11 +575,10 @@ def upload(
         SnapshotError: If the manifest would not fit one request, or the engine
             refuses a batch or the manifest.
     """
-    commit_body = {
-        "agent_name": agent_name,
-        "revision": revision,
-        "manifest": snapshot.manifest,
-    }
+    selector = build_agent_selector(agent_key)
+    commit_body = CommitSourceSnapshotArgs(
+        **selector, revision=revision, manifest=snapshot.manifest
+    )
     # Checked before anything is sent, so a snapshot that cannot be committed
     # writes nothing.
     if len(json.dumps(commit_body)) > MAX_BODY_BYTES - 1024:
@@ -569,14 +591,14 @@ def upload(
     for done, batch in enumerate(batches, start=1):
         reply = post_command(
             upload_route,
-            {
-                "agent_name": agent_name,
-                "revision": revision,
-                "files": [
-                    {"path": packed.path, "content": packed.content}
+            UploadSourceFilesArgs(
+                **selector,
+                revision=revision,
+                files=[
+                    SourceFile(path=packed.path, content=packed.content)
                     for packed in batch
                 ],
-            },
+            ),
         )
         if reply.get("error"):
             raise SnapshotError(str(reply["error"]))
@@ -588,37 +610,58 @@ def upload(
     return reply
 
 
-def resolve_agent_for_engine(listing: dict[str, Any], engine: str) -> str:
-    """Chooses the attached agent a snapshot of an engine belongs to.
+def build_agent_selector(agent_key: str) -> AgentSelector:
+    """Builds the fields that name the agent to the snapshot routes.
 
-    Steps:
-    1. The attached agent whose `observed_engine_id` is the engine's.
-    2. Otherwise the agent the deployment watches, unless it records another
-       engine: filing one agent's code under another's name would have
-       root-cause analysis cite the wrong code.
-    3. With nothing attached, the agent the environment names, as when AQuA
-       was deployed beside the agent.
+    An engine that takes no `agent_key` there stores the snapshot under
+    `agent_name`, so it is sent the key there too, and stores the snapshot
+    where an engine that reads `agent_key` looks for it.
+
+    Args:
+        agent_key: Key of the observed agent.
+
+    Returns:
+        `{"agent_key", "agent_name"}`, both the key.
+    """
+    return AgentSelector(agent_key=agent_key, agent_name=agent_key)
+
+
+def resolve_agent_for_engine(listing: dict[str, Any], engine: str) -> str:
+    """Chooses the key of the attached agent a snapshot of an engine belongs to.
+
+    `engine_agent.resolve_engine_agent_key` decides, as the engine does for an
+    update of the engine. Filing one agent's code under another's key would
+    have root-cause analysis cite the wrong code. The default agent is the
+    listed one marked `watched`.
 
     Args:
         listing: The reply of the `agents/list` route.
         engine: Full resource name of the observed engine.
 
     Returns:
-        The agent's name, or the empty string if no agent can be told to be
+        The agent's key, or the empty string if no agent can be told to be
         the engine's.
     """
-    engine_id = engine.rsplit("/", 1)[-1]
     agents = [a for a in listing.get("agents") or [] if "error" not in a]
-    for agent in agents:
-        recorded = str(agent.get("observed_engine_id") or "")
-        if recorded and recorded.rsplit("/", 1)[-1] == engine_id:
-            return str(agent["agent_name"])
-    watched = next((a for a in agents if a.get("watched")), None)
-    if watched:
-        recorded = str(watched.get("observed_engine_id") or "")
-        if recorded and recorded.rsplit("/", 1)[-1] != engine_id:
-            return ""
-        return str(watched["agent_name"])
-    if agents:
-        return ""
-    return str(listing.get("environment_agent") or "")
+    recorded_engines = {
+        _extract_listed_key(agent): str(agent.get("observed_engine_id") or "")
+        for agent in agents
+    }
+    default = next((a for a in agents if a.get("watched")), None)
+    default_key = _extract_listed_key(default) if default else ""
+    return engine_agent.resolve_engine_agent_key(
+        engine_agent.extract_engine_id(engine), recorded_engines, default_key
+    )
+
+
+def _extract_listed_key(agent: dict[str, Any]) -> str:
+    """Returns the key of an `agents/list` entry.
+
+    Args:
+        agent: One entry of the listing.
+
+    Returns:
+        Its `agent_key`, else its `agent_name`: an engine that lists no key
+        stores every agent under its bare name.
+    """
+    return str(agent.get("agent_key") or agent.get("agent_name") or "")

@@ -66,7 +66,7 @@ uvx google-agents-cli setup
 **Create the project from this recipe**:
 
 ```bash
-agents-cli create my_rag_app -a adk@multiformat-hybrid-rag
+agents-cli create my_rag_app -a https://github.com/google/adk-recipes/tree/main/contrib/python/multiformat-hybrid-rag
 ```
 
 You'll be prompted to select a deployment option — choose **None** if you want to use the deployment already included in the repo, or pick one to get Google Agents CLI CI/CD scaffolding.
