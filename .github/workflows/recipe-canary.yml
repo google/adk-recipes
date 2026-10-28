@@ -1,37 +1,52 @@
 name: 🐤 Recipe Canary
 
-# Monthly check that every Python recipe STILL WORKS — installs from its
-# committed lockfile and passes its tests — and files an issue against the
-# recipe's owner when it does not.
+# Monthly check that every recipe STILL WORKS — installs from its
+# committed lockfile / build toolchain and passes its tests — and files an issue
+# against the recipe's owner when it does not.
+#
+# Supported languages: Python, Kotlin.
+# (Go, Java, TypeScript deferred until live recipes land).
 #
 # Why this exists
 # ---------------
 # .github/dependabot.yml no longer opens version-update PRs for recipes (see
-# its header). A recipe's uv.lock is treated as a verified snapshot rather
-# than a living artifact, so the question worth asking monthly is not "are
+# its header). A recipe's lockfile/build config is treated as a verified snapshot
+# rather than a living artifact, so the question worth asking monthly is not "are
 # these versions current?" but "does this still work for someone who clones
 # it today?".
 #
 # A frozen lockfile does not decay on its own. What decays around it:
 #   * a pinned release is yanked or pulled from the index;
-#   * the interpreter moves and a pinned wheel has no build for it;
-#   * a transitive pin turns out to be broken on a Python the recipe claims
+#   * the interpreter or toolchain moves and a pinned package has no build for it;
+#   * a transitive pin turns out to be broken on a version the recipe claims
 #     to support.
 # The third is not hypothetical — core/python/rag-agent-search declares
 # `requires-python = ">=3.11,<3.14"` and cannot be imported on 3.13 at all,
 # while passing on 3.11.
 #
-# `uv sync --frozen`, not `uv sync`
-# ---------------------------------
+# `uv sync --frozen` for Python; Gradle/Maven for Kotlin
+# -----------------------------------------------------
 # python-tests.yml uses plain `uv sync`, which silently RE-LOCKS when the
 # lockfile has drifted from pyproject.toml. That is the right behaviour for a
 # PR check and the wrong one here: it would quietly repair the exact condition
 # this workflow exists to detect.
+# Kotlin recipes run `./gradlew test` (or `gradle test`) / `./mvnw test` (or `mvn test`),
+# matching kotlin-tests.yml:228-245.
 #
-# Two Python versions per recipe
-# ------------------------------
-# The floor everyone uses, plus the ceiling each recipe claims in
-# `requires-python`. See .github/scripts/recipe_canary_matrix.py.
+# Version sweeps and non-Python limitations
+# -----------------------------------------
+# Python: The canary tests each recipe on the floor AND ceiling of its declared
+# `requires-python`.
+# Non-Python (Kotlin): No non-Python recipe declares a version floor anywhere
+# the canary can read (b/565392726 deliberately did not add one). For Kotlin,
+# the canary sweeps only the JDK CI pins (JDK 17) rather than inventing a floor.
+# See .github/scripts/recipe_canary_matrix.py.
+#
+# Deferred toolchain execution checks
+# -----------------------------------
+# When Go and TypeScript join the canary, this workflow is also the home for:
+#   - npm ci lockfile-staleness for TypeScript (b/565393791)
+#   - go mod verify / go mod tidy -diff for Go (b/565393393)
 
 on:
   schedule:
@@ -104,7 +119,7 @@ jobs:
           echo "$MATRIX" | python3 -m json.tool
 
   check:
-    name: "${{ matrix.entry.recipe }} @ py${{ matrix.entry.python }}"
+    name: "${{ matrix.entry.recipe }} @ ${{ matrix.entry.language == 'kotlin' && 'jdk' || 'py' }}${{ matrix.entry.version }}"
     needs: matrix
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -124,16 +139,25 @@ jobs:
           persist-credentials: false
 
       - name: Install uv
+        if: matrix.entry.language == 'python'
         uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # ratchet:astral-sh/setup-uv@v10.2.0
         with:
-          python-version: ${{ matrix.entry.python }}
+          python-version: ${{ matrix.entry.version }}
+
+      - name: Set up JDK
+        if: matrix.entry.language == 'kotlin'
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # ratchet:actions/setup-java@v6.0.1
+        with:
+          distribution: temurin
+          java-version: ${{ matrix.entry.version }}
 
       - name: Install from the committed lockfile
         id: sync
+        if: matrix.entry.language == 'python'
         working-directory: ${{ matrix.entry.recipe }}
         continue-on-error: true
         env:
-          PYVER: ${{ matrix.entry.python }}
+          PYVER: ${{ matrix.entry.version }}
         run: |
           # `set +e` is load-bearing — do not drop it. GitHub invokes `run:`
           # as `bash -e {0}`, so errexit is ALREADY on and `set -uo pipefail`
@@ -156,7 +180,7 @@ jobs:
           exit $rc
 
       - name: Set up .env
-        if: steps.sync.outcome == 'success'
+        if: matrix.entry.language != 'python' || steps.sync.outcome == 'success'
         working-directory: ${{ matrix.entry.recipe }}
         run: |
           set -euo pipefail
@@ -164,13 +188,13 @@ jobs:
             cp .env.example .env
           fi
 
-      - name: Run tests
+      - name: Run Python tests
         id: tests
-        if: steps.sync.outcome == 'success'
+        if: matrix.entry.language == 'python' && steps.sync.outcome == 'success'
         working-directory: ${{ matrix.entry.recipe }}
         continue-on-error: true
         env:
-          PYVER: ${{ matrix.entry.python }}
+          PYVER: ${{ matrix.entry.version }}
         run: |
           # `set +e` for the same reason as the sync step above: errexit is
           # already on, and without clearing it a failing pytest run skips
@@ -190,6 +214,38 @@ jobs:
           tail -60 pytest.log
           exit $rc
 
+      - name: Run Kotlin tests
+        id: kotlin_tests
+        if: matrix.entry.language == 'kotlin'
+        working-directory: ${{ matrix.entry.recipe }}
+        continue-on-error: true
+        env:
+          RECIPE: ${{ matrix.entry.recipe }}
+        run: |
+          set -uo pipefail
+          set +e
+          if [ -f "build.gradle" ] || [ -f "build.gradle.kts" ] || [ -f "settings.gradle" ] || [ -f "settings.gradle.kts" ]; then
+            if [ -f "./gradlew" ]; then
+              chmod +x ./gradlew
+              ./gradlew test > test.log 2>&1
+            else
+              gradle test > test.log 2>&1
+            fi
+          elif [ -f "pom.xml" ]; then
+            if [ -f "./mvnw" ]; then
+              chmod +x ./mvnw
+              ./mvnw test -B > test.log 2>&1
+            else
+              mvn test -B > test.log 2>&1
+            fi
+          else
+            echo "::error file=${RECIPE}::No supported Kotlin build system (Gradle or Maven) found in ${RECIPE}." | tee test.log
+            exit 1
+          fi
+          rc=$?
+          tail -60 test.log
+          exit $rc
+
       # Classification happens here, in the job that has the logs, and is the
       # only thing the report job reads. Distinguishing "the recipe is broken"
       # from "CI had a bad day" is what keeps the canary from filing an issue
@@ -206,9 +262,12 @@ jobs:
         env:
           RECIPE_DIR: ${{ matrix.entry.recipe }}
           RECIPE: ${{ matrix.entry.recipe }}
-          PYVER: ${{ matrix.entry.python }}
+          LANGUAGE: ${{ matrix.entry.language }}
+          VERSION: ${{ matrix.entry.version }}
+          PYVER: ${{ matrix.entry.python || matrix.entry.version }}
           SYNC_OUTCOME: ${{ steps.sync.outcome }}
           TESTS_OUTCOME: ${{ steps.tests.outcome }}
+          KOTLIN_TESTS_OUTCOME: ${{ steps.kotlin_tests.outcome }}
         run: |
           # `set +e` matters MOST here. Errexit is on by default (`bash -e
           # {0}`), and every DETAIL assignment below is a pipeline that
@@ -234,49 +293,70 @@ jobs:
           # cost of the two mistakes is not symmetric: a missed month of rot
           # is caught next month, while one issue filed against an owner for
           # a runner problem teaches everyone to ignore the channel.
-          if [ "$SYNC_OUTCOME" = "skipped" ] || [ -z "$SYNC_OUTCOME" ]; then
-            # The sync step never ran, so nothing was learned about the
-            # recipe. Checkout or the uv install failed ahead of it — both
-            # transient, and both exactly the class this must not misfile.
-            # `skipped` reaches here because this step is `if: always()`.
-            OUTCOME=infra
-            STEP="setup"
-            DETAIL="sync never ran (outcome: ${SYNC_OUTCOME:-unset}); checkout or uv install failed first"
-          elif [ "$SYNC_OUTCOME" != "success" ]; then
-            STEP="uv sync --frozen"
-            DETAIL=$(tail -5 sync.log 2>/dev/null | tr '\n' ' ')
-            # A lockfile that will not install is a genuine recipe problem
-            # (yanked release, no wheel for this interpreter). A network or
-            # registry failure is not — and uv says which in its own words.
-            if [ -z "$DETAIL" ]; then
-              # `uv sync > sync.log` creates the file before uv runs, so an
-              # empty or absent log means uv never got far enough to say
-              # anything. No evidence against the recipe.
+          if [ "$LANGUAGE" = "python" ]; then
+            if [ "$SYNC_OUTCOME" = "skipped" ] || [ -z "$SYNC_OUTCOME" ]; then
+              # The sync step never ran, so nothing was learned about the
+              # recipe. Checkout or the uv install failed ahead of it — both
+              # transient, and both exactly the class this must not misfile.
+              # `skipped` reaches here because this step is `if: always()`.
               OUTCOME=infra
-              DETAIL="sync failed with no log output"
-            elif echo "$DETAIL" | grep -qiE 'network|timed out|temporary failure|503|502|connection reset|resolve|handshake|SSL|proxy|rate limit'; then
+              STEP="setup"
+              DETAIL="sync never ran (outcome: ${SYNC_OUTCOME:-unset}); checkout or uv install failed first"
+            elif [ "$SYNC_OUTCOME" != "success" ]; then
+              STEP="uv sync --frozen"
+              DETAIL=$(tail -5 sync.log 2>/dev/null | tr '\n' ' ')
+              # A lockfile that will not install is a genuine recipe problem
+              # (yanked release, no wheel for this interpreter). A network or
+              # registry failure is not — and uv says which in its own words.
+              if [ -z "$DETAIL" ]; then
+                # `uv sync > sync.log` creates the file before uv runs, so an
+                # empty or absent log means uv never got far enough to say
+                # anything. No evidence against the recipe.
+                OUTCOME=infra
+                DETAIL="sync failed with no log output"
+              elif echo "$DETAIL" | grep -qiE 'network|timed out|temporary failure|503|502|connection reset|resolve|handshake|SSL|proxy|rate limit'; then
+                OUTCOME=infra
+              else
+                OUTCOME=fail
+              fi
+            elif [ "$TESTS_OUTCOME" = "skipped" ] || [ -z "$TESTS_OUTCOME" ]; then
+              # Sync worked but pytest never ran — the .env step failed, or the
+              # job was cancelled. Same rule: no log, no evidence, not the
+              # recipe's fault.
               OUTCOME=infra
-            else
+              STEP="pytest"
+              DETAIL="tests never ran (outcome: ${TESTS_OUTCOME:-unset})"
+            elif [ "$TESTS_OUTCOME" != "success" ]; then
               OUTCOME=fail
+              STEP="pytest"
+              # `sed -n '1,3p'` rather than `head -3`: head closes the pipe
+              # after three lines, and on a large pytest.log grep is killed by
+              # SIGPIPE (141) before it finishes writing. sed drains its input.
+              DETAIL=$(grep -E '^(FAILED|ERROR|E  )' pytest.log 2>/dev/null | sed -n '1,3p' | tr '\n' ' ')
+              [ -z "$DETAIL" ] && DETAIL=$(tail -5 pytest.log 2>/dev/null | tr '\n' ' ')
+              if [ -z "$DETAIL" ]; then
+                OUTCOME=infra
+                DETAIL="pytest failed with no log output"
+              fi
             fi
-          elif [ "$TESTS_OUTCOME" = "skipped" ] || [ -z "$TESTS_OUTCOME" ]; then
-            # Sync worked but pytest never ran — the .env step failed, or the
-            # job was cancelled. Same rule: no log, no evidence, not the
-            # recipe's fault.
-            OUTCOME=infra
-            STEP="pytest"
-            DETAIL="tests never ran (outcome: ${TESTS_OUTCOME:-unset})"
-          elif [ "$TESTS_OUTCOME" != "success" ]; then
-            OUTCOME=fail
-            STEP="pytest"
-            # `sed -n '1,3p'` rather than `head -3`: head closes the pipe
-            # after three lines, and on a large pytest.log grep is killed by
-            # SIGPIPE (141) before it finishes writing. sed drains its input.
-            DETAIL=$(grep -E '^(FAILED|ERROR|E  )' pytest.log 2>/dev/null | sed -n '1,3p' | tr '\n' ' ')
-            [ -z "$DETAIL" ] && DETAIL=$(tail -5 pytest.log 2>/dev/null | tr '\n' ' ')
-            if [ -z "$DETAIL" ]; then
+          elif [ "$LANGUAGE" = "kotlin" ]; then
+            if [ "$KOTLIN_TESTS_OUTCOME" = "skipped" ] || [ -z "$KOTLIN_TESTS_OUTCOME" ]; then
               OUTCOME=infra
-              DETAIL="pytest failed with no log output"
+              STEP="setup"
+              DETAIL="tests never ran (outcome: ${KOTLIN_TESTS_OUTCOME:-unset}); checkout or JDK setup failed first"
+            elif [ "$KOTLIN_TESTS_OUTCOME" != "success" ]; then
+              STEP="test"
+              DETAIL=$(tail -5 test.log 2>/dev/null | tr '\n' ' ')
+              if [ -z "$DETAIL" ]; then
+                OUTCOME=infra
+                DETAIL="tests failed with no log output"
+              elif echo "$DETAIL" | grep -qiE 'network|timed out|temporary failure|503|502|connection reset|resolve|handshake|SSL|proxy|rate limit|Could not resolve|Connection refused'; then
+                OUTCOME=infra
+              else
+                OUTCOME=fail
+                FAILS=$(grep -E '(FAILURE|FAILED|BUILD FAILURE|Compilation error|Exception in thread|error:)' test.log 2>/dev/null | sed -n '1,3p' | tr '\n' ' ')
+                [ -n "$FAILS" ] && DETAIL="$FAILS"
+              fi
             fi
           fi
 
@@ -288,7 +368,9 @@ jobs:
           import json, os, sys
           json.dump({
               "recipe": os.environ["RECIPE"],
-              "python": os.environ["PYVER"],
+              "language": os.environ.get("LANGUAGE", "python"),
+              "version": os.environ.get("VERSION", ""),
+              "python": os.environ.get("PYVER", ""),
               "outcome": os.environ["OUTCOME"],
               "step": os.environ["STEP"],
               "detail": os.environ["DETAIL"][:400],
@@ -354,18 +436,21 @@ jobs:
           # from results.json is left untouched while one wrongly present is
           # acted on.
           expected = {
-              (e["recipe"], e["python"])
+              (e["recipe"], str(e.get("version") or e.get("python")))
               for e in json.loads(os.environ["MATRIX_JSON"])
           }
-          seen = {(e["recipe"], e["python"]) for e in entries}
+          seen = {
+              (e["recipe"], str(e.get("version") or e.get("python")))
+              for e in entries
+          }
           missing = expected - seen
           incomplete = {r for r, _ in missing}
           failing = {e["recipe"] for e in entries if e["outcome"] == "fail"}
 
           if missing:
-              for recipe, python in sorted(missing):
+              for recipe, ver in sorted(missing):
                   print(
-                      f"::warning::no result from {recipe} @ py{python} — "
+                      f"::warning::no result from {recipe} @ {ver} — "
                       f"the check job did not report"
                   )
 
@@ -387,7 +472,10 @@ jobs:
               f"{len(fails)} failing, {len(infra)} infra"
           )
           for e in entries:
-              print(f"  {e['outcome']:5}  {e['recipe']} @ py{e['python']}")
+              lang = e.get("language", "python")
+              prefix = "jdk" if lang == "kotlin" else "py"
+              ver = e.get("version") or e.get("python", "")
+              print(f"  {e['outcome']:5}  {e['recipe']} @ {prefix}{ver}")
           PY
 
       - name: Update issues
@@ -429,8 +517,12 @@ jobs:
           if bad:
               print('Failing:')
               for r in bad:
-                  vers = ', '.join(sorted(x['python'] for x in e if x['recipe'] == r and x['outcome'] == 'fail'))
-                  print(f'- \`{r}\` (py {vers})')
+                  recipe_jobs = [x for x in e if x['recipe'] == r and x['outcome'] == 'fail']
+                  vers = ', '.join(sorted(
+                      ('jdk ' if x.get('language') == 'kotlin' else 'py ') + str(x.get('version') or x.get('python') or '')
+                      for x in recipe_jobs
+                  ))
+                  print(f'- \`{r}\` ({vers})')
           else:
               print('All recipes install from their lockfiles and pass.')
           "

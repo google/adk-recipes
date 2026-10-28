@@ -232,23 +232,9 @@ def _mount_frontend():
             )
 
     # SPA catch-all: serve index.html for any path not matched by API routes or static files
-    from starlette.responses import FileResponse
+    from genmedia4commerce.app_utils.spa import attach_spa_routes
 
-    index_html = str(frontend_dir / "index.html")
-
-    @app.get("/{full_path:path}")
-    async def serve_spa(full_path: str):
-        # If the path matches an actual file in dist/, serve it
-        file_path = frontend_dir / full_path
-        if full_path and file_path.is_file():
-            return FileResponse(str(file_path))
-        # Only serve index.html for SPA routes (paths without file extensions)
-        # Asset requests (.json, .js, .css, etc.) that don't exist should 404
-        if "." in full_path.rsplit("/", maxsplit=1)[-1]:
-            from fastapi.responses import JSONResponse
-
-            return JSONResponse({"detail": "Not Found"}, status_code=404)
-        return FileResponse(index_html)
+    attach_spa_routes(app, frontend_dir)
 
 
 @app.get("/health")

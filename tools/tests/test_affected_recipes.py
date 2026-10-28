@@ -37,6 +37,11 @@ import pytest
         ("plugins/retail/store-ops/SKILL.md", "plugins/retail/store-ops"),
         ("plugins/hr/onboarding/scripts/run.py", "plugins/hr/onboarding"),
         ("plugins/finance/close/eval/cases.jsonl", "plugins/finance/close"),
+        # Spec-compliant plugins map to plugins/<plugin>.
+        ("plugins/retail/plugin.json", "plugins/retail"),
+        ("plugins/retail/mcp.json", "plugins/retail"),
+        ("plugins/retail/skills/product-search/SKILL.md", "plugins/retail"),
+        ("plugins/retail/com.example.extension/config.json", "plugins/retail"),
         # A solution placed directly under plugins/, with no vertical, must
         # NOT be promoted to a recipe — mapping it would validate it at the
         # wrong depth and hide the misplacement. validate_placement.py is
@@ -450,3 +455,32 @@ def test_language_filter_via_cli(tmp_path, monkeypatch, capsys):
 
     assert m.main() == 0
     assert capsys.readouterr().out.splitlines() == ["core/flat-py"]
+
+
+def test_compute_affected_recipes_maps_any_file_in_spec_plugin_container(
+    tmp_path,
+):
+    plugin_dir = tmp_path / "plugins/retail"
+    (plugin_dir / "assets").mkdir(parents=True)
+    (plugin_dir / "plugin.json").write_text('{"name": "retail"}\n')
+    (plugin_dir / "README.md").write_text("# Retail\n")
+    (plugin_dir / "assets/diagram.png").write_text("png")
+
+    changed = [
+        "plugins/retail/README.md",
+        "plugins/retail/assets/diagram.png",
+    ]
+    assert m.compute_affected_recipes(changed, repo_root=tmp_path) == [
+        "plugins/retail"
+    ]
+
+
+def test_compute_affected_recipes_rejects_path_traversal(tmp_path):
+    (tmp_path / "plugin.json").write_text('{"name": "root"}\n')
+    changed = [
+        "plugins/../plugin.json",
+        "plugins/../skills/foo/SKILL.md",
+        "core/../secret/agent.py",
+    ]
+    assert m.compute_affected_recipes(changed, repo_root=tmp_path) == []
+    assert m.recipe_dir_for("plugins/../plugin.json") is None

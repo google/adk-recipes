@@ -1,0 +1,40 @@
+{
+  "description": "A function_call DataPart for a non-special tool, arriving on a statusUpdate message. Locks the existing generic ToolChip pill render.",
+  "event": {
+    "payload": {
+      "$case": "statusUpdate",
+      "value": {
+        "taskId": "task-1",
+        "contextId": "ctx-1",
+        "status": {
+          "state": 2,
+          "message": {
+            "messageId": "msg-1",
+            "contextId": "ctx-1",
+            "taskId": "task-1",
+            "role": 2,
+            "parts": [
+              {
+                "content": {
+                  "$case": "data",
+                  "value": {
+                    "name": "web_search",
+                    "args": { "query": "anthropic adk" }
+                  }
+                },
+                "metadata": { "adk_type": "function_call" },
+                "filename": "",
+                "mediaType": ""
+              }
+            ],
+            "metadata": null,
+            "extensions": [],
+            "referenceTaskIds": []
+          },
+          "timestamp": null
+        },
+        "metadata": null
+      }
+    }
+  }
+}

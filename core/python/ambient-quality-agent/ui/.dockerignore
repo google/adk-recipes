@@ -1,0 +1,18 @@
+.venv/
+**/__pycache__/
+**/*.pyc
+*.log
+.DS_Store
+
+# A host node_modules carries native esbuild binaries built for this machine,
+# which do not run in the Linux builder -- and copying it in shadows whatever
+# `npm ci` installed a layer earlier, so the failure looks like a broken build
+# rather than a stale directory.
+web/node_modules/
+
+# Vite's output, built by the image's Node stage. A copy from a laptop would
+# take precedence over the one just built.
+static_v2/
+
+# The deploy script is executed locally and is not needed in the container image.
+deploy_ui_cloud_run.sh

@@ -1,5 +1,3 @@
-<!-- word count: 619 (target 500, cap 800) -->
-
 # Recipe Handbook
 
 You're here to contribute a recipe to `contrib/`. Welcome.
@@ -12,18 +10,16 @@ links back here whenever a step needs more explanation.
 
 ## What makes a good recipe
 
-**Recipes must earn their place.** Have a clear intent, a
-concrete problem the recipe solves for the ADK community, and
-something new to teach. If you can't state it in one sentence,
-revisit the idea before writing code. Recipes that duplicate
-existing examples without new insight may not be accepted.
+Have a clear intent, a concrete problem the recipe solves for the ADK
+community, and something new to teach. If you can't state it in one sentence,
+revisit the idea before writing code. Recipes that duplicate existing examples
+without new insight are rejected during review.
 
 Every accepted recipe:
 
-- Lives under `contrib/` with a valid `manifest.yaml` and a
-  `README.md`.
-- Passes the runnability test (agent code loads without
-  crashing).
+- Lives under `contrib/` with a valid `manifest.yaml`, `README.md`,
+  `.env.example`, and `Dockerfile`.
+- Passes the runnability and container checks.
 - Has real owners in `manifest.ownership`.
 
 ## Handbook pages
@@ -33,12 +29,14 @@ it covers everything on one page. Come back here for deeper context:
 
 - [Anatomy of a recipe](./anatomy.md) — file layout rules for all
   recipes, regardless of language
+- [Plugins and layout](./plugins.md) — structure and specs for plugins
+  under `plugins/`
 - [The manifest](./manifest.md) — every `manifest.yaml` field and
   the rules CI enforces
 - [Python language rules](./languages/python.md) — starts with the
   fast path; specific requirements and end-to-end scenarios
-- [Repo skills catalog](./skills-catalog.md) — the assistant
-  helpers that build this repo
+- [Repo skills catalog](./skills-catalog.md) — the repo skills
+  that prepare and validate recipes
 
 **Updating an existing recipe?** Run `prepare-python-recipe`
 against your recipe path — it's safe to re-run and applies
@@ -47,33 +45,33 @@ any new requirements automatically. Then check the
 
 **Reference:**
 
-- [Repo skills catalog](./skills-catalog.md) — the assistant
-  helpers that do the work for you
 - [Repo oracle](./skills-catalog.md#repo-oracle) — ask how the repo
   itself works: policy, CI, ownership, process
 - [Troubleshooting](./troubleshooting.md) — errors mapped
   directly to fixes
-- Other languages *(coming soon)*: Java · Go · TypeScript ·
-  Kotlin
+- Other languages: [Go](./languages/go.md) ·
+  [Java](./languages/java.md) ·
+  [Kotlin](./languages/kotlin.md) ·
+  [TypeScript](./languages/typescript.md)
 
 ## Glossary
 
 - **Recipe** — a runnable agent example (or importable agent
-  module) under `contrib/`, consumed by ADK developers and coding
-  agents alike.
+  module) under `core/`, `contrib/`, or `plugins/`, consumed by ADK
+  developers and coding agents alike.
 - **Repo skill** — a pre-loaded instruction set that your AI coding
   assistant follows when you ask it to perform a task (e.g.
   `prepare-python-recipe`). Files live in `.agents/skills/` and load
   automatically when you open this repo. Repo skills *build* the
   repo; they are never shipped to users.
 - **Plugin** — a recipe under
-  `plugins/<vertical>/<solution>/` (e.g. `plugins/retail/store-ops/`),
+  `plugins/<vertical>/<solution>/` (e.g. `plugins/retail/my-plugin/`),
   where the vertical names the business domain that owns it.
   Shipped to users like any other recipe. Unrelated to repo skills.
 - **Manifest** — `manifest.yaml`. Declares recipe metadata:
   type, language, ownership, description.
 - **Runnability test** — a smoke test that imports the agent module
-  and asserts `root_agent is not None`. Required at
+  and asserts `root_agent is not None`. Required for Python recipes at
   `tests/test_runnability.py`.
 - **poc** — Point of Contact. A GitHub user ID; the person
   accountable for the recipe. Set in `manifest.yaml` as
@@ -89,20 +87,9 @@ Open a GitHub issue at
 Include the recipe path and the CI check name if you're
 reporting a failure.
 
-`contrib/` PRs are reviewed by the repository maintainers. If
-your PR has had no activity for more than a week, leave a comment
-on the PR to request a review.
-
-A weekly sweep labels a quiet PR `stale`, then closes it if it
-stays quiet. Any comment or push resets the clock. A close is
-housekeeping, not rejection — your commits survive, the branch
-outlives the close, and reopening takes one click. Ask a
-maintainer for `keep-open` if a PR must stay open.
-
-Issues follow the same pattern on a much longer clock, and close
-as `not planned` — a record that nobody got to it, not that it
-was fixed.
+Pull requests are routed to maintainers automatically once all CI checks pass
+and automated review comments are resolved.
 
 ---
 
-← [Checklist](../recipe-checklist.md) · [Handbook](./README.md)
+← [Docs home](../README.md) · [Checklist](../recipe-checklist.md)

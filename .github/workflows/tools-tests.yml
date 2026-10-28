@@ -75,6 +75,7 @@ on:
       # Without these entries such a PR merges green and the failure only
       # surfaces later, on an unrelated PR that happens to touch tools/.
       - ".github/policy.yml"
+      - ".github/review-gate-config.yml"
       - ".github/schemas/**"
       - ".github/dependabot.yml"
       - ".github/workflows/**"
@@ -96,6 +97,7 @@ on:
       - ".agents/**"
       - ".github/scripts/**"
       - ".github/policy.yml"
+      - ".github/review-gate-config.yml"
       - ".github/schemas/**"
       - ".github/workflows/**"
       - ".github/review-rules.md"

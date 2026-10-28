@@ -1,0 +1,11 @@
+# Build context exclusions. Maven output is rebuilt inside the image.
+target/
+
+# Never bake credentials into an image. .env.example is safe and stays.
+.env
+
+.git/
+.gitignore
+.DS_Store
+.idea/
+.vscode/

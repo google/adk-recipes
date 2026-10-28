@@ -1,0 +1,32 @@
+{
+  "description": "TaskArtifactUpdateEvent carrying a single raw-bytes Part. In 1.0 a file with bytes uses content.$case='raw'; filename and mediaType are top-level Part fields.",
+  "event": {
+    "payload": {
+      "$case": "artifactUpdate",
+      "value": {
+        "taskId": "task-1",
+        "contextId": "ctx-1",
+        "artifact": {
+          "artifactId": "art-1",
+          "name": "screenshot",
+          "description": "",
+          "parts": [
+            {
+              "content": {
+                "$case": "raw",
+                "value": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg=="
+              },
+              "metadata": null,
+              "filename": "tiny.png",
+              "mediaType": "image/png"
+            }
+          ],
+          "metadata": null
+        },
+        "append": false,
+        "lastChunk": true,
+        "metadata": null
+      }
+    }
+  }
+}

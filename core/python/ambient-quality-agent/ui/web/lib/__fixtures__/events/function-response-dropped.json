@@ -1,0 +1,40 @@
+{
+  "description": "A function_response DataPart — surfaced by the consumer as a tool_result so the raw response is available to render.",
+  "event": {
+    "payload": {
+      "$case": "statusUpdate",
+      "value": {
+        "taskId": "task-1",
+        "contextId": "ctx-1",
+        "status": {
+          "state": 2,
+          "message": {
+            "messageId": "msg-1",
+            "contextId": "ctx-1",
+            "taskId": "task-1",
+            "role": 2,
+            "parts": [
+              {
+                "content": {
+                  "$case": "data",
+                  "value": {
+                    "name": "web_search",
+                    "response": { "results": ["doc1", "doc2"] }
+                  }
+                },
+                "metadata": { "adk_type": "function_response" },
+                "filename": "",
+                "mediaType": ""
+              }
+            ],
+            "metadata": null,
+            "extensions": [],
+            "referenceTaskIds": []
+          },
+          "timestamp": null
+        },
+        "metadata": null
+      }
+    }
+  }
+}

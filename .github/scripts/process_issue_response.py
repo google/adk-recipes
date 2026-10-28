@@ -9,18 +9,19 @@ selected, determines whether to close the issue when a complete solution is
 provided, and prepares the response comment.
 
 Routing rules for Option 4:
-  Catch-all (docs, CI workflows, root configs, unmatched): @happyhuman
+  Catch-all (docs, root configs, unmatched): @tommywagz
+  /.github/**          -> @happyhuman
   /core/python/**      -> @eliasecchig
   /core/go/**          -> @ToniCorinne
   /core/java/**        -> @eliasecchig
-  /core/typescript/**  -> @happyhuman
-  /core/kotlin/**      -> @happyhuman
-  /contrib/python/**   -> @happyhuman
+  /core/typescript/**  -> @tommywagz
+  /core/kotlin/**      -> @tommywagz
+  /contrib/python/**   -> @tommywagz
   /contrib/go/**       -> @ToniCorinne
-  /contrib/java/**     -> @happyhuman
-  /contrib/typescript/** -> @happyhuman
-  /contrib/kotlin/**   -> @happyhuman
-  /plugins/**          -> @happyhuman
+  /contrib/java/**     -> @tommywagz
+  /contrib/typescript/** -> @tommywagz
+  /contrib/kotlin/**   -> @tommywagz
+  /plugins/**          -> @tommywagz
 
 Usage:
   python3 process_issue_response.py \\
@@ -67,26 +68,36 @@ class Option(IntEnum):
 
 
 ROUTING_RULES: list[tuple[str, str]] = [
+    # Repository governance stays with the repo admin
+    (".github", "happyhuman"),
     # Core directory assignments
     ("core/python", "eliasecchig"),
     ("core/go", "ToniCorinne"),
     ("core/java", "eliasecchig"),
-    ("core/typescript", "happyhuman"),
-    ("core/kotlin", "happyhuman"),
+    ("core/typescript", "tommywagz"),
+    ("core/kotlin", "tommywagz"),
+    # Recipes owned by their authors
+    ("core/python/ambient-quality-agent", "maxgasztych"),
     # Contrib directory assignments
-    ("contrib/python", "happyhuman"),
+    ("contrib/python", "tommywagz"),
     ("contrib/go", "ToniCorinne"),
-    ("contrib/java", "happyhuman"),
-    ("contrib/typescript", "happyhuman"),
-    ("contrib/kotlin", "happyhuman"),
+    ("contrib/java", "tommywagz"),
+    ("contrib/typescript", "tommywagz"),
+    ("contrib/kotlin", "tommywagz"),
     # Plugins directory assignments
-    ("plugins", "happyhuman"),
+    ("plugins", "tommywagz"),
 ]
 
-DEFAULT_ASSIGNEE = "happyhuman"
+DEFAULT_ASSIGNEE = "tommywagz"
 
 # Known developer usernames (without @ prefix)
-VALID_ASSIGNEES = {"eliasecchig", "ToniCorinne", "happyhuman"}
+VALID_ASSIGNEES = {
+    "eliasecchig",
+    "ToniCorinne",
+    "tommywagz",
+    "happyhuman",
+    "maxgasztych",
+}
 
 FENCED_JSON = re.compile(
     r"```(?:json)?\s*(\{.*?\})\s*```", re.DOTALL | re.IGNORECASE
@@ -112,11 +123,20 @@ def resolve_assignee_from_path(path: str | None) -> str:
     if not normalized:
         return DEFAULT_ASSIGNEE
 
-    for prefix, assignee in ROUTING_RULES:
-        if normalized == prefix or normalized.startswith(prefix + "/"):
-            return assignee
-
-    return DEFAULT_ASSIGNEE
+    # The most specific (longest) matching prefix wins, so a recipe-level
+    # owner beats its language folder. This is what CODEOWNERS' "last match
+    # wins" produces for these rules, since each more specific line is listed
+    # after the folder line it narrows, while keeping this list in the same
+    # order as CODEOWNERS (test_routing_rules_sync_with_codeowners_and_workflow).
+    matches = [
+        (prefix, assignee)
+        for prefix, assignee in ROUTING_RULES
+        if normalized == prefix.lower()
+        or normalized.startswith(prefix.lower() + "/")
+    ]
+    if not matches:
+        return DEFAULT_ASSIGNEE
+    return max(matches, key=lambda rule: len(rule[0]))[1]
 
 
 def parse_option(raw_option: Any) -> Option:

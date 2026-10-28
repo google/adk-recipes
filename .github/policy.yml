@@ -24,16 +24,20 @@ repo_admin: &repo_admin happyhuman
 # Recipes live under core/<language>/<recipe> or contrib/<language>/<recipe>
 # (e.g. core/python/rag-agent-search, contrib/java/hello-agent).
 #
-# plugins/ uses a VERTICAL rather than a language for its middle component:
-# plugins/<vertical>/<solution> (e.g. plugins/retail/store-ops). The vertical
-# surfaces ownership, so a team can see its whole surface at a glance, and
-# it is mandatory — tools/validate_placement.py rejects a solution placed
-# directly under plugins/.
+# plugins/ supports two layouts during the migration window:
+#   1. Legacy (single-skill vertical): plugins/<vertical>/<solution>/manifest.yaml
+#      (e.g. plugins/retail/store-ops). The vertical surfaces ownership, and
+#      is mandatory for legacy recipes.
+#   2. Spec-compliant (Agent Plugins v1.0.0): plugins/<plugin-name>/plugin.json
+#      with nested skills/<skill-name>/SKILL.md (and optional mcp.json,
+#      com.<reverse-domain>/).
+# Both layouts are accepted during migration. Once all plugins migrate, the
+# repository will move to the spec-only end state.
 #
 # The applicable tier is chosen by:
 #   1. Top-level ancestor: core → `core` limits;  contrib → `contrib`
 #      limits;  plugins → `plugins` limits.
-#   2. `large:` field in the recipe's manifest.yaml (default: false):
+#   2. `large:` field in the recipe's manifest.yaml or plugin.json (default: false):
 #        false / omitted → `default` limits;  true → `large` limits.
 #
 # The `excluded_paths` section below lists files and directories that
@@ -230,13 +234,20 @@ required_files:
       - AGENTS.md
     contrib:
       - Dockerfile
-    # Vertical plugins live at plugins/<vertical>/<solution>.
+    # Vertical plugins live at plugins/<vertical>/<solution> (legacy) or
+    # plugins/<plugin>/ (spec-compliant container).
+    #
+    # Legacy vertical plugins ship:
     #   SKILL.md  — the conversational installer: runs the interview,
     #               writes the design spec, performs setup.
     #   EVAL.yaml — self-verifying proof of performance (eval rubrics).
-    # The one directory a vertical plugin must also ship (scripts/) is
+    # The one directory a legacy vertical plugin must also ship (scripts/) is
     # listed under `required_dirs` below — this section can only express
     # files.
+    #
+    # Spec-compliant plugins follow Google's Agent Plugins v1.0.0 spec
+    # (plugin.json at root and skills/<skill>/SKILL.md) and are validated
+    # through dedicated container checks in tools/validate_structure.py.
     #
     # A Python vertical plugin additionally picks up
     # required_files.by_language.python (pyproject.toml, uv.lock,
@@ -787,6 +798,32 @@ deployability:
       - contrib/python/financial-advisor
       - core/python/rag-agent-search
       - core/python/rag-vector-search
+
+# --------------------------------------------------------------------------
+# Per-check recipe exemptions consumed by tools/check_exemptions.py.
+# Allows workflows to skip exempt recipes before running checks, keeping
+# check scripts decoupled from policy logic.
+#
+# Mapping structure:
+#   <check-id>:
+#     Check identifier matching either the workflow name without `.yml`
+#     (e.g., recipe-docker-build) or `<workflow>/<check>` when one workflow
+#     runs several checks. Some workflow must reference each key via
+#     `filter --check <id>`; tools/tests/test_check_exemptions.py enforces it.
+#
+#   path:
+#     Repo-relative path under core/, contrib/, or plugins/. Matches full path
+#     components hierarchically.
+#
+#   reason:
+#     Required explanation, logged to stderr with each skip.
+# --------------------------------------------------------------------------
+check_exemptions:
+  recipe-docker-build:
+    - path: core/python/ambient-quality-agent
+      reason: >-
+        Agent Runtime image built by `agents-cli deploy`; starts only as a
+        deployed engine with Application Default Credentials.
 
 # --------------------------------------------------------------------------
 # Automated PR review — read by .github/scripts/review_budget.py, which the

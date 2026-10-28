@@ -1,0 +1,32 @@
+# Bounds what is uploaded as build context when this directory is deployed to
+# Cloud Run. `agents-cli deploy` builds with `--source .`, so the context is
+# this directory and the root .gcloudignore never applies to it.
+#
+# Providing this file also replaces the one gcloud would synthesize, which is
+# why `.git` and the caches are listed explicitly rather than inherited.
+#
+# The .dockerignore beside it covers the same ground for a local `docker build`;
+# both are needed, because they are read by different tools at different points.
+#
+# `_UNWANTED` in `extension/acli_ui.py` excludes these directories during staging;
+# this file prevents gcloud from uploading them if present. Heavy directories
+# must be listed in both.
+
+.git
+.gcloudignore
+
+# Left behind by running the dashboard from a checkout, and by pytest.
+.venv
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# The front end's dependencies and its build output. `npm ci` runs in the
+# image's Node stage, so neither belongs in the upload -- node_modules alone is
+# roughly 200 MB of files the builder is about to fetch again, and its esbuild
+# binary is compiled for the developer's machine.
+web/node_modules/
+static_v2/
+
+# The deploy script is executed locally and is not needed in the upload context.
+deploy_ui_cloud_run.sh

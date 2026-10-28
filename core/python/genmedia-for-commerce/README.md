@@ -61,7 +61,7 @@ uvx google-agents-cli setup
 **Create the project from this recipe**:
 
 ```bash
-agents-cli create genmedia4commerce -a adk@genmedia-for-commerce
+agents-cli create genmedia4commerce -a https://github.com/google/adk-recipes/tree/main/core/python/genmedia-for-commerce
 ```
 
 You'll be prompted to select a deployment option — choose **None**, as deployment is already handled in the code repo.
@@ -141,7 +141,7 @@ This deploys the entire application stack, including the React frontend, FastAPI
 | **Interaction Type** | Workflow / API |
 | **Complexity** | Advanced |
 | **Agent Type** | Orchestrator |
-| **Components** | Veo 3.1, Gemini 2.5, Image Processing, Validation Loops |
+| **Components** | Veo 3.1, Gemini 3.8 Flash / 3.5 Flash-Lite / 3.1 Pro, Nano Banana 2.1, Image Processing, Validation Loops |
 | **Vertical** | Retail / Commerce |
 
 ### 1. Clothes Video VTO Pipeline

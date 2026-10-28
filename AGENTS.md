@@ -37,7 +37,7 @@ All agents must follow the guidelines below without being reminded.
   mutate history.
 
 ## Models
-- Do NOT use `gemini-2.0-flash` or `gemini-2.5-flash` — both are deprecated. Use `gemini-3.5-flash` instead.
+- Do NOT use `gemini-2.0-flash` or `gemini-2.5-flash` — both are deprecated. Use `gemini-3.7-flash` instead.
 
 ## Python
 - Python recipes go under `contrib/python/` or `core/python/`. Plugins

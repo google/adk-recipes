@@ -18,3 +18,8 @@
 # Use the venv pip — the app runs from /code/.venv/
 /code/.venv/bin/pip uninstall -y opencv-python opencv-contrib-python 2>/dev/null
 /code/.venv/bin/pip install --force-reinstall --no-deps opencv-python-headless==4.13.0.92
+
+# Install insightface from pre-built wheel (requires g++ if built from source)
+if compgen -G "/code/startup_scripts/insightface*.whl" > /dev/null; then
+    /code/.venv/bin/pip install --no-deps /code/startup_scripts/insightface*.whl
+fi

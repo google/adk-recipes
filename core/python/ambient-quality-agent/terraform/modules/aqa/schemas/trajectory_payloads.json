@@ -1,0 +1,20 @@
+{
+  "schema": [
+    { "name": "agent_name", "type": "STRING", "mode": "REQUIRED",
+      "description": "Observed agent, and part of the key rather than merely a column on it. Trajectory ids being unique across agents is an assumption about the observed agent's telemetry, which AQA does not control." },
+    { "name": "trajectory_id", "type": "STRING", "mode": "REQUIRED",
+      "description": "The conversation this payload is of. With agent_name it is the whole key: no run_id, because the conversation is the same thing whichever sweep sampled it, and deduplicating the bulky copy across sweeps is the point of this table." },
+    { "name": "created_at", "type": "TIMESTAMP", "mode": "REQUIRED",
+      "description": "When this copy was stored. Partition column, and what the retention window expires on." },
+    { "name": "status", "type": "STRING", "mode": "REQUIRED",
+      "description": "What this stored copy is: ingested (the whole conversation is here), partial (assembled from lossy telemetry -- something was missing), or truncated (nothing was wrong with the telemetry and we chose to cut it, because a turn exceeded the write cap). Not trajectories.ingest_status, which is one sweep's attempt rather than the copy." },
+    { "name": "turn_count", "type": "INT64", "mode": "REQUIRED",
+      "description": "How many trajectory_payload_turns rows belong to this payload, so a reader can tell a short conversation from a partly-written one." },
+    { "name": "agents", "type": "JSON", "mode": "NULLABLE",
+      "description": "AgentData.agents: the static config of each agent in the system -- system instructions, tool definitions. It belongs to the conversation rather than to any one turn, which is why this manifest is a table of its own beside the turns." },
+    { "name": "agent_revision", "type": "STRING", "mode": "NULLABLE",
+      "description": "Deployment revision that served this conversation, as the telemetry reported it. Part of the evidence: an archived conversation outlives the telemetry it came from, and what an agent did is only judgeable against the build that did it. Null for a source that reports no revision, which denotes its single unnamed revision rather than an unknown one." }
+  ],
+  "clustering": ["agent_name", "trajectory_id"],
+  "partitioning": { "type": "DAY", "field": "created_at", "expiration_days": 30 }
+}

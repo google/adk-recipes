@@ -359,7 +359,7 @@ async def handle_tool_response(
 
 stylish_agent = Agent(
     name="stylish_agent",
-    model=Gemini(model=os.getenv("MODEL_NAME_GENERATED_4", "gemini-3.6-flash")),
+    model=Gemini(model=os.getenv("MODEL_NAME_GENERATED_4", "gemini-3.8-flash")),
     instruction="""You are the Stylish Agent — a High-Fashion Curator.
 Assemble 3 complete, premium looks from the candidates.
 
@@ -392,7 +392,7 @@ For each look, provide a cohesive presentation using clean spacing:
 
 style_advisor_agent = Agent(
     name="style_advisor",
-    model=Gemini(model=os.getenv("MODEL_NAME_GENERATED_4", "gemini-3.6-flash")),
+    model=Gemini(model=os.getenv("MODEL_NAME_GENERATED_4", "gemini-3.8-flash")),
     instruction="""You are the Style Advisor. Find garments and delegate to the stylist.
 
 ## Workflow

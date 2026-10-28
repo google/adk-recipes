@@ -43,8 +43,7 @@ Usage:
   uv run validate structure contrib
 
   # Validate a single recipe:
-  uv run validate structure core/rag-agent-search
-  uv run validate structure core/python/some-recipe
+  uv run validate structure core/python/rag-agent-search
 
 Exit codes:
   0 — every checked recipe passed every applicable check
@@ -514,7 +513,7 @@ def check_size_and_count(
                         f"reported instead of quietly falling back."
                     ),
                     how=(
-                        f"Remove `large: true` from {vm.MANIFEST_FILENAME} "
+                        f"Remove `large: true` from {manifest_path.name} "
                         f"and stay within the default tier, or ask a "
                         f"maintainer to add a `{root}.large` block "
                         f"(max_files / max_size_mb) to .github/policy.yml."
@@ -551,7 +550,7 @@ def check_size_and_count(
         if is_large
         else (
             f"If the recipe genuinely needs the room, set `large: true` in "
-            f"{vm.MANIFEST_FILENAME} to opt into the relaxed tier "
+            f"{manifest_path.name} to opt into the relaxed tier "
             f"({_describe_tier(root_limits.get('large'))})."
         )
     )
@@ -828,16 +827,259 @@ def check_required_dirs(
 
 
 # ===========================================================================
+# Skill front-matter & Plugin Container Validation
+# ===========================================================================
+
+
+def validate_skill_frontmatter(skill_file: Path) -> list[Diagnostic]:
+    """Validate that SKILL.md starts with valid YAML front-matter containing
+    at minimum `name` and `description`."""
+    file = vm.repo_relative(skill_file, REPO_ROOT)
+    parent_rel = vm.repo_relative(skill_file.parent, REPO_ROOT)
+    skill_dir_name = skill_file.parent.name
+    try:
+        text = skill_file.read_text(encoding="utf-8")
+    except OSError as e:
+        return [
+            Diagnostic(
+                check="skill-frontmatter",
+                what=f"Cannot read {file}: {e}",
+                why="The skill file must be readable.",
+                how=f"Ensure {file} exists and has read permissions.",
+                doc=Doc.REQUIRED_FILES,
+                file=file,
+            )
+        ]
+
+    # Must start with front-matter delimiter
+    stripped = text.lstrip()
+    if not stripped.startswith("---"):
+        return [
+            Diagnostic(
+                check="skill-frontmatter",
+                what=f"SKILL.md in '{parent_rel}' does not contain YAML front-matter delimiters (---).",
+                why="SKILL.md must begin with a YAML front-matter block enclosed by '---' markers.",
+                how=f"Add front-matter at the top of {file}:\n---\nname: {skill_dir_name}\ndescription: <description>\n---\n",
+                doc=Doc.REQUIRED_FILES,
+                file=file,
+            )
+        ]
+
+    fm_match = re.match(
+        r"^---[ \t]*\r?\n(.*?\r?\n)?---[ \t]*(?:\r?\n|$)",
+        stripped,
+        re.DOTALL,
+    )
+    if fm_match is None:
+        return [
+            Diagnostic(
+                check="skill-frontmatter",
+                what=f"SKILL.md in '{parent_rel}' has an unclosed YAML front-matter block.",
+                why="The front-matter block must open and close with '---' delimiters.",
+                how=f"Add a closing '---' delimiter after the YAML front-matter in {file}.",
+                doc=Doc.REQUIRED_FILES,
+                file=file,
+            )
+        ]
+
+    try:
+        data = yaml.safe_load(fm_match.group(1) or "")
+    except yaml.YAMLError as e:
+        return [
+            Diagnostic(
+                check="skill-frontmatter",
+                what=f"SKILL.md front-matter in '{parent_rel}' is not valid YAML.",
+                why=f"YAML parser error: {e}",
+                how=f"Fix the YAML syntax error in the front-matter of {file}.",
+                doc=Doc.REQUIRED_FILES,
+                file=file,
+            )
+        ]
+
+    if not isinstance(data, dict):
+        return [
+            Diagnostic(
+                check="skill-frontmatter",
+                what=f"SKILL.md front-matter in '{parent_rel}' must be a YAML mapping.",
+                why="Front-matter must contain key-value pairs (name, description).",
+                how=f"Format the front-matter of {file} as key-value pairs:\nname: {skill_dir_name}\ndescription: ...",
+                doc=Doc.REQUIRED_FILES,
+                file=file,
+            )
+        ]
+
+    diagnostics: list[Diagnostic] = []
+    name = data.get("name")
+    if not isinstance(name, str) or not name.strip():
+        diagnostics.append(
+            Diagnostic(
+                check="skill-frontmatter",
+                what=f"Required field 'name' is missing or empty in SKILL.md front-matter for '{parent_rel}'.",
+                why="Every skill front-matter must declare a 'name' field.",
+                how=f"Add 'name: {skill_dir_name}' to the front-matter of {file}.",
+                doc=Doc.REQUIRED_FILES,
+                file=file,
+            )
+        )
+
+    description = data.get("description")
+    if not isinstance(description, str) or not description.strip():
+        diagnostics.append(
+            Diagnostic(
+                check="skill-frontmatter",
+                what=f"Required field 'description' is missing or empty in SKILL.md front-matter for '{parent_rel}'.",
+                why="Every skill front-matter must declare a 'description' field.",
+                how=f"Add 'description: ...' explaining what the skill does to {file}.",
+                doc=Doc.REQUIRED_FILES,
+                file=file,
+            )
+        )
+
+    if "metadata" in data and not isinstance(data.get("metadata"), dict):
+        diagnostics.append(
+            Diagnostic(
+                check="skill-frontmatter",
+                what=f"Field 'metadata' in SKILL.md front-matter for '{parent_rel}' must be a YAML mapping.",
+                why="If present, 'metadata' must be a key-value mapping.",
+                how=f"Format 'metadata' as a nested YAML object in {file}.",
+                doc=Doc.REQUIRED_FILES,
+                file=file,
+            )
+        )
+
+    return diagnostics
+
+
+def validate_plugin_container(
+    recipe_dir: Path, policy: dict, plugin_schema: dict
+) -> list[Diagnostic]:
+    """Validate a spec-compliant plugin container directory."""
+    diagnostics: list[Diagnostic] = []
+    rel = vm.repo_relative(recipe_dir, REPO_ROOT)
+    root = recipe_root_of(recipe_dir) or "plugins"
+
+    # Check 1: plugin.json presence and schema validation
+    plugin_json = recipe_dir / vm.PLUGIN_FILENAME
+    if not plugin_json.is_file():
+        diagnostics.append(
+            Diagnostic(
+                check="plugin-missing",
+                what=f"{vm.PLUGIN_FILENAME} is missing.",
+                why="A spec-compliant plugin container must have a plugin.json file at its root.",
+                how=f"Add plugin.json to {rel}/{vm.PLUGIN_FILENAME} with required fields ($schema, name, ownership).",
+                doc=Doc.MANIFEST,
+                file=f"{rel}/{vm.PLUGIN_FILENAME}",
+            )
+        )
+    else:
+        diagnostics.extend(vm.validate_plugin(plugin_json, plugin_schema))
+
+    # Check 2: Check for mixed layout (presence of manifest.yaml)
+    manifests = [
+        p
+        for p in recipe_dir.rglob(vm.MANIFEST_FILENAME)
+        if not any(
+            part
+            in {".git", ".venv", "node_modules", "__pycache__", ".ruff_cache"}
+            for part in p.parts
+        )
+    ]
+    if manifests:
+        diagnostics.append(
+            Diagnostic(
+                check="placement",
+                what=f"'{rel}' mixes legacy (manifest.yaml) and spec-compliant (plugin.json) layouts.",
+                why=(
+                    "A plugin directory under plugins/ must use either the "
+                    "legacy layout (plugins/<vertical>/<solution>/manifest.yaml) "
+                    "or the spec-compliant layout (plugins/<plugin>/plugin.json "
+                    "with skills/<skill>/SKILL.md), not both."
+                ),
+                how=(
+                    "Choose one layout: migrate fully to the spec-compliant "
+                    "layout (remove manifest.yaml and use plugin.json with skills/) "
+                    "or keep the legacy layout."
+                ),
+                doc=Doc.PLACEMENT,
+                file=rel,
+            )
+        )
+
+    # Check 3: folder name
+    naming = policy.get("recipe_naming") or {}
+    max_length = int(naming.get("max_folder_name_length", 30))
+    diagnostics.extend(check_folder_name(recipe_dir, max_length))
+
+    # Check 4: folder size + file count (keyed off plugin root)
+    diagnostics.extend(
+        check_size_and_count(recipe_dir, root, policy, plugin_json)
+    )
+
+    # Check 5: skills/ directory and SKILL.md structural validation
+    skills_dir = recipe_dir / "skills"
+    if not skills_dir.is_dir():
+        diagnostics.append(
+            Diagnostic(
+                check="required-dirs",
+                what=f"Required directory 'skills/' is missing from plugin '{rel}'.",
+                why="A spec-compliant plugin container must contain a 'skills/' directory holding one or more skill packages.",
+                how=f"Create the skills directory: mkdir -p {rel}/skills/<skill-name>",
+                doc=Doc.REQUIRED_FILES,
+                file=f"{rel}/skills",
+            )
+        )
+    else:
+        skill_dirs = [
+            d
+            for d in sorted(skills_dir.iterdir())
+            if d.is_dir() and not d.name.startswith(".")
+        ]
+        if not skill_dirs:
+            diagnostics.append(
+                Diagnostic(
+                    check="required-dirs",
+                    what=f"Plugin '{rel}/skills' contains no skill directories.",
+                    why="A plugin must contain at least one skill directory under skills/ (e.g. skills/<skill-name>/SKILL.md).",
+                    how=f"Add a skill directory with a SKILL.md: mkdir -p {rel}/skills/my-skill && touch {rel}/skills/my-skill/SKILL.md",
+                    doc=Doc.REQUIRED_FILES,
+                    file=f"{rel}/skills",
+                )
+            )
+        else:
+            for skill_dir in skill_dirs:
+                skill_rel = vm.repo_relative(skill_dir, REPO_ROOT)
+                diagnostics.extend(check_folder_name(skill_dir, max_length))
+                skill_md = skill_dir / "SKILL.md"
+                if not skill_md.is_file():
+                    diagnostics.append(
+                        Diagnostic(
+                            check="required-files",
+                            what=f"Required file 'SKILL.md' is missing from skill '{skill_rel}'.",
+                            why="Every skill inside a plugin must contain a SKILL.md file with YAML front-matter.",
+                            how=f"Add SKILL.md to {skill_rel}/SKILL.md with front-matter.",
+                            doc=Doc.REQUIRED_FILES,
+                            file=f"{skill_rel}/SKILL.md",
+                        )
+                    )
+                else:
+                    diagnostics.extend(validate_skill_frontmatter(skill_md))
+
+    return diagnostics
+
+
+# ===========================================================================
 # Per-recipe orchestration
 # ===========================================================================
 
 
 def validate_recipe(
-    recipe_dir: Path, policy: dict, schema: dict
+    recipe_dir: Path,
+    policy: dict,
+    schema: dict,
+    plugin_schema: dict | None = None,
 ) -> list[Diagnostic]:
     """Run every applicable check on one recipe. Returns the list of
     diagnostics (empty list means everything passed)."""
-    diagnostics: list[Diagnostic] = []
     rel = vm.repo_relative(recipe_dir, REPO_ROOT)
 
     root = recipe_root_of(recipe_dir)
@@ -861,6 +1103,14 @@ def validate_recipe(
                 file=rel,
             )
         ]
+
+    # If this is a spec-compliant plugin container (has plugin.json), validate it as such.
+    if (recipe_dir / vm.PLUGIN_FILENAME).is_file():
+        if plugin_schema is None:
+            plugin_schema = vm.load_plugin_schema()
+        return validate_plugin_container(recipe_dir, policy, plugin_schema)
+
+    diagnostics: list[Diagnostic] = []
 
     # Check 1: manifest.yaml presence.
     manifest_path = recipe_dir / vm.MANIFEST_FILENAME
@@ -909,13 +1159,16 @@ def validate_recipe(
 def main(scope: str | None = None) -> int:
     policy = load_policy()
     schema = vm.load_schema()
+    plugin_schema = vm.load_plugin_schema()
     recipe_dirs = vm.collect_recipe_dirs(scope)
     if vm.report_empty_scope(scope, recipe_dirs):
         return EXIT_VIOLATIONS
 
     diagnostics: list[Diagnostic] = []
     for recipe_dir in recipe_dirs:
-        diagnostics.extend(validate_recipe(recipe_dir, policy, schema))
+        diagnostics.extend(
+            validate_recipe(recipe_dir, policy, schema, plugin_schema)
+        )
 
     return report(
         diagnostics,
@@ -943,8 +1196,8 @@ if __name__ == "__main__":
         nargs="?",
         default=None,
         help=(
-            "What to validate: 'all' (default), 'core', 'contrib', "
-            "or a path to a single recipe (e.g. core/rag-agent-search)."
+            "What to validate: 'all' (default), 'core', 'contrib', 'plugins', "
+            "or a path to a single recipe (e.g. core/python/rag-agent-search)."
         ),
     )
     args = parser.parse_args()

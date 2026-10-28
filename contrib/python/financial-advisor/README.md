@@ -786,7 +786,7 @@ uvx google-agents-cli setup
 **Create the project from this recipe** (replace `my-financial-advisor` with your project name):
 
 ```bash
-agents-cli create my-financial-advisor -a adk@financial-advisor
+agents-cli create my-financial-advisor -a https://github.com/google/adk-recipes/tree/main/contrib/python/financial-advisor
 ```
 
 The Google Agents CLI will prompt you to select deployment options and provides additional production-ready features including automated CI/CD deployment scripts.

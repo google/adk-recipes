@@ -48,32 +48,99 @@ CHECKED_ROOTS = sorted(vm.NAMESPACE_REQUIRED_ROOTS)
 # Directory names never descended into while looking for manifests.
 PRUNED_DIRS = {".git", ".venv", "node_modules", "__pycache__", ".ruff_cache"}
 
-# <root>/<namespace>/<recipe>/manifest.yaml
-EXPECTED_PARTS = 4
+SKILL_FILENAME = "SKILL.md"
+
+# Expected path component counts for each layout type:
+#   Legacy:       plugins/<vertical>/<solution>/manifest.yaml
+#   Spec plugin:  plugins/<plugin>/plugin.json
+#   Spec skill:   plugins/<plugin>/skills/<skill>/SKILL.md
+EXPECTED_LEGACY_PARTS = 4
+EXPECTED_SPEC_PLUGIN_PARTS = 3
+EXPECTED_SPEC_SKILL_PARTS = 5
 
 
-def find_manifests(root: Path) -> list[Path]:
-    """Every manifest.yaml beneath `root`, skipping vendored/build dirs."""
+def _find_files(root: Path, filename: str) -> list[Path]:
+    """Every file matching `filename` beneath `root`, skipping vendored/build dirs."""
     if not root.is_dir():
         return []
     found: list[Path] = []
-    for path in sorted(root.rglob(vm.MANIFEST_FILENAME)):
+    for path in sorted(root.rglob(filename)):
         if any(part in PRUNED_DIRS for part in path.parts):
             continue
         found.append(path)
     return found
 
 
-def describe_violation(rel_parts: list[str]) -> Diagnostic | None:
-    """Return a diagnostic for a manifest path, or None if it is valid.
+def find_manifests(root: Path) -> list[Path]:
+    """Every manifest.yaml beneath `root`, skipping vendored/build dirs."""
+    return _find_files(root, vm.MANIFEST_FILENAME)
 
-    `rel_parts` are the manifest's path components relative to the repo
-    root, e.g. ["plugins", "retail", "store-ops", "manifest.yaml"].
+
+def find_plugin_manifests(root: Path) -> list[Path]:
+    """Every plugin.json beneath `root`, skipping vendored/build dirs."""
+    return _find_files(root, vm.PLUGIN_FILENAME)
+
+
+def find_skills(root: Path) -> list[Path]:
+    """Every SKILL.md beneath `root`, skipping vendored/build dirs."""
+    return _find_files(root, SKILL_FILENAME)
+
+
+def describe_violation(rel_parts: list[str]) -> Diagnostic | None:
+    """Return a diagnostic for a manifest or plugin path, or None if it is valid.
+
+    `rel_parts` are the path components relative to the repo root, e.g.
+    ["plugins", "retail", "store-ops", "manifest.yaml"] or
+    ["plugins", "retail", "plugin.json"].
     """
-    if len(rel_parts) == EXPECTED_PARTS:
+    if not rel_parts:
         return None
 
+    filename = rel_parts[-1]
     root = rel_parts[0]
+
+    if filename == vm.PLUGIN_FILENAME:
+        # plugins/<plugin>/plugin.json (depth 3)
+        if len(rel_parts) == EXPECTED_SPEC_PLUGIN_PARTS:
+            return None
+        recipe_dir = "/".join(rel_parts[:-1])
+        if len(rel_parts) < EXPECTED_SPEC_PLUGIN_PARTS:
+            return Diagnostic(
+                check="placement",
+                what=f"'{recipe_dir}' sits directly under '{root}/' with no plugin directory.",
+                why=f"In a spec-compliant plugin, {vm.PLUGIN_FILENAME} must sit directly at {root}/<plugin>/{vm.PLUGIN_FILENAME}.",
+                how=f"Move it into a plugin directory:\n  git mv {recipe_dir}/{vm.PLUGIN_FILENAME} {root}/<plugin>/{vm.PLUGIN_FILENAME}",
+                doc=Doc.PLACEMENT,
+                file="/".join(rel_parts),
+            )
+        return Diagnostic(
+            check="placement",
+            what=f"'{recipe_dir}' is nested too deeply.",
+            why=f"In a spec-compliant plugin, {vm.PLUGIN_FILENAME} must sit directly at {root}/<plugin>/{vm.PLUGIN_FILENAME}.",
+            how=f"Move {vm.PLUGIN_FILENAME} up to the plugin root:\n  git mv {'/'.join(rel_parts)} {root}/{rel_parts[1]}/{vm.PLUGIN_FILENAME}",
+            doc=Doc.PLACEMENT,
+            file="/".join(rel_parts),
+        )
+
+    if filename == SKILL_FILENAME:
+        # Spec skill: plugins/<plugin>/skills/<skill>/SKILL.md (depth 5)
+        if (
+            len(rel_parts) == EXPECTED_SPEC_SKILL_PARTS
+            and rel_parts[2] == "skills"
+        ):
+            return None
+        return Diagnostic(
+            check="placement",
+            what=f"'{'/'.join(rel_parts)}' is placed at an invalid location.",
+            why="In a spec-compliant plugin, skills must live at plugins/<plugin>/skills/<skill-name>/SKILL.md.",
+            how=f"Move {SKILL_FILENAME} to plugins/{rel_parts[1]}/skills/<skill-name>/SKILL.md.",
+            doc=Doc.PLACEMENT,
+            file="/".join(rel_parts),
+        )
+
+    if len(rel_parts) == EXPECTED_LEGACY_PARTS:
+        return None
+
     recipe_dir = "/".join(rel_parts[:-1])
     expected = f"{root}/<vertical>/<solution>/{vm.MANIFEST_FILENAME}"
     why = (
@@ -82,7 +149,7 @@ def describe_violation(rel_parts: list[str]) -> Diagnostic | None:
         f"ownership and lets a team see its whole surface at a glance."
     )
 
-    if len(rel_parts) < EXPECTED_PARTS:
+    if len(rel_parts) < EXPECTED_LEGACY_PARTS:
         solution = rel_parts[-2] if len(rel_parts) > 1 else "<solution>"
         return Diagnostic(
             check="placement",
@@ -119,6 +186,12 @@ def describe_violation(rel_parts: list[str]) -> Diagnostic | None:
     )
 
 
+def _matches_scope(rel_str: str, scope: str | None) -> bool:
+    if not scope:
+        return True
+    return rel_str == scope or rel_str.startswith(f"{scope}/")
+
+
 def check_root(
     root_name: str,
     repo_root: Path = REPO_ROOT,
@@ -131,15 +204,111 @@ def check_root(
     on an unrelated problem elsewhere in the tree.
     """
     diagnostics: list[Diagnostic] = []
-    for manifest in find_manifests(repo_root / root_name):
-        rel = manifest.relative_to(repo_root)
+    root_path = repo_root / root_name
+    if not root_path.is_dir():
+        return []
+
+    # Check for manifest at root of plugins/
+    root_manifest = root_path / vm.MANIFEST_FILENAME
+    if root_manifest.is_file():
+        rel = root_manifest.relative_to(repo_root)
+        if _matches_scope(str(rel), scope):
+            diag = describe_violation(list(rel.parts))
+            if diag is not None:
+                diagnostics.append(diag)
+
+    root_plugin = root_path / vm.PLUGIN_FILENAME
+    if root_plugin.is_file():
+        rel = root_plugin.relative_to(repo_root)
+        if _matches_scope(str(rel), scope):
+            diag = describe_violation(list(rel.parts))
+            if diag is not None:
+                diagnostics.append(diag)
+
+    for child in sorted(root_path.iterdir()):
+        if not child.is_dir() or child.name.startswith("."):
+            continue
+        rel_child = child.relative_to(repo_root)
+        child_str = str(rel_child)
+
         if scope and not (
-            str(rel) == scope or str(rel).startswith(f"{scope}/")
+            child_str == scope
+            or child_str.startswith(f"{scope}/")
+            or scope.startswith(f"{child_str}/")
         ):
             continue
-        diagnostic = describe_violation(list(rel.parts))
-        if diagnostic is not None:
-            diagnostics.append(diagnostic)
+
+        manifests = find_manifests(child)
+        plugins = find_plugin_manifests(child)
+        skills = find_skills(child)
+
+        # Check for mixed pattern
+        if manifests and plugins:
+            diagnostics.append(
+                Diagnostic(
+                    check="placement",
+                    what=f"'{child_str}' mixes legacy and spec-compliant plugin layouts.",
+                    why=(
+                        "A plugin directory under plugins/ must use either the "
+                        "legacy layout (plugins/<vertical>/<solution>/manifest.yaml) "
+                        "or the spec-compliant layout (plugins/<plugin>/plugin.json "
+                        "with skills/<skill>/SKILL.md), not both."
+                    ),
+                    how=(
+                        "Choose one layout: migrate fully to the spec-compliant "
+                        "layout (remove manifest.yaml and use plugin.json with skills/) "
+                        "or keep the legacy layout."
+                    ),
+                    doc=Doc.PLACEMENT,
+                    file=child_str,
+                )
+            )
+            continue
+
+        if plugins:
+            for p in plugins:
+                rel = p.relative_to(repo_root)
+                if not _matches_scope(str(rel), scope):
+                    continue
+                diag = describe_violation(list(rel.parts))
+                if diag is not None:
+                    diagnostics.append(diag)
+            for s in skills:
+                rel = s.relative_to(repo_root)
+                if not _matches_scope(str(rel), scope):
+                    continue
+                diag = describe_violation(list(rel.parts))
+                if diag is not None:
+                    diagnostics.append(diag)
+        elif manifests:
+            for m_path in manifests:
+                rel = m_path.relative_to(repo_root)
+                if not _matches_scope(str(rel), scope):
+                    continue
+                diag = describe_violation(list(rel.parts))
+                if diag is not None:
+                    diagnostics.append(diag)
+        else:
+            for s in skills:
+                rel = s.relative_to(repo_root)
+                if not _matches_scope(str(rel), scope):
+                    continue
+                diagnostics.append(
+                    Diagnostic(
+                        check="placement",
+                        what=f"'{child_str}' contains skills ({rel}) but is missing plugin.json.",
+                        why=(
+                            "A spec-compliant plugin container must have a "
+                            f"plugin.json file at plugins/<plugin>/{vm.PLUGIN_FILENAME} "
+                            f"(or a legacy manifest.yaml at plugins/<vertical>/<solution>/{vm.MANIFEST_FILENAME})."
+                        ),
+                        how=f"Add {vm.PLUGIN_FILENAME} to {child_str}/{vm.PLUGIN_FILENAME}.",
+                        doc=Doc.PLACEMENT,
+                        file=child_str,
+                    )
+                )
+                break
+
     return diagnostics
 
 
