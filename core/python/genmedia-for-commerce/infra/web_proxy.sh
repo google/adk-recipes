@@ -27,10 +27,10 @@
 # lasts an hour, so the proxy restarts with a fresh one every 50 minutes.
 #
 #   infra/web_proxy.sh               the proxy in the foreground (make web)
-#   infra/web_proxy.sh --hint        how to open the web app (make deploy)
+#   infra/web_proxy.sh --hint        how to open the web app
 #   infra/web_proxy.sh --background  the proxy in the background when stdin
 #       and stdout are a terminal (not CI) and the port is free, otherwise
-#       the hint (make register-gemini-enterprise). It stops with the
+#       the hint (make deploy, make register-gemini-enterprise). It stops with the
 #       terminal session (the session leader, polled every second) or
 #       with `kill <pid>`, which stop the proxy and its children; its output goes to a temporary log file.
 #

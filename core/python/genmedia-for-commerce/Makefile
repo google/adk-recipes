@@ -86,7 +86,7 @@ config.env:
 	sed "s/^PROJECT_ID=.*/PROJECT_ID=$$project/" config.env.example > config.env && \
 	echo "Created config.env from config.env.example with PROJECT_ID=$$project (the gcloud project). Edit config.env to change it."
 
-# Deploy the app (web app, REST API, ADK API, Studio MCP App at /mcp) as one Cloud Run service, from source, built as the genmedia-build account (make setup-infra creates both accounts); then lets genmedia-web invoke the service (make web); sizing, env vars and USE_IAP from config.env [USE_IAP=true] [SECRETS="KEY=SECRET_ID:latest,..."]
+# Deploy the app (web app, REST API, ADK API, Studio MCP App at /mcp) as one Cloud Run service, from source, built as the genmedia-build account (make setup-infra creates both accounts); then lets genmedia-web invoke the service (make web) and starts the web app proxy on :8080 in the background if the terminal is interactive and the port free, otherwise prints how to open the web app; sizing, env vars and USE_IAP from config.env [USE_IAP=true] [SECRETS="KEY=SECRET_ID:latest,..."]
 deploy: config.env
 	@eval "$$($(CONFIG_SH))" && \
 	env_file=$$(mktemp) && trap 'rm -f "$$env_file"' EXIT && \
@@ -113,7 +113,7 @@ deploy: config.env
 		$(if $(filter command line,$(origin SECRETS)),--set-secrets="$(SECRETS)") \
 		$$([ "$(if $(filter command line,$(origin USE_IAP)),$(USE_IAP),$$USE_IAP)" = true ] && echo --iap) \
 		2>&1 | tee "$$log"; \
-	[ "$${PIPESTATUS[0]}" = 0 ] && { echo; $(GRANT_WEB_INVOKER); $(WEB_PROXY) --hint; exit 0; }; \
+	[ "$${PIPESTATUS[0]}" = 0 ] && { echo; $(GRANT_WEB_INVOKER); $(WEB_PROXY) --background || true; exit 0; }; \
 	grep -q "missing required IAM permissions" "$$log" && [ $$attempt -lt 3 ] || exit 1; \
 	echo "The build account's new roles are still propagating (right after make setup-infra); retrying in 90 s..."; \
 	sleep 90; \
@@ -199,10 +199,15 @@ format:
 # ==============================================================================
 
 # Register the Studio MCP App (<Cloud Run URL>/mcp) in its own Gemini Enterprise app, guiding the console-only steps [GEMINI_ENTERPRISE_APP_ID=existing app: projects/.../engines/<id> or <id>] [GEMINI_ENTERPRISE_LOCATION=global] [DRY_RUN=1]
-# When it succeeds (not in a dry run), it starts the web app proxy on :8080 in the background if the terminal is interactive and the port free, otherwise prints how to open the web app
+# Then (not in a dry run), whether it succeeded or not, it starts the web app proxy on :8080 in the background if the terminal is interactive and the port free, otherwise prints how to open the web app; it exits with the registration's status
 register-gemini-enterprise: config.env
-	@uv run python infra/gemini_enterprise.py $(if $(DRY_RUN),--dry-run) && \
-	if [ -z "$(DRY_RUN)" ]; then echo; eval "$$($(CONFIG_SH))" && $(WEB_PROXY) --background || true; fi
+	@uv run python infra/gemini_enterprise.py $(if $(DRY_RUN),--dry-run); status=$$?; \
+	if [ -z "$(DRY_RUN)" ]; then echo; eval "$$($(CONFIG_SH))" && $(WEB_PROXY) --background || true; fi; \
+	exit $$status
+
+# Allow custom MCP connectors (which make register-gemini-enterprise needs) in the Gemini Enterprise app's project only: the per-project override of the organisation policy discoveryengine.managed.disableCustomMcpServerConnector (enforce: false). Needs the Organization Policy Administrator role
+allow-mcp-connectors: config.env
+	@uv run python infra/gemini_enterprise.py --allow-mcp-connectors
 
 # ==============================================================================
 # Local Development

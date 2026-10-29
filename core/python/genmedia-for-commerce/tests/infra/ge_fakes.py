@@ -17,6 +17,8 @@
 
 import json
 
+from infra.gemini_enterprise_policy import POLICY
+
 URL = "https://genmedia-for-commerce-123.us-central1.run.app"
 MCP = f"{URL}/mcp"
 DE = "https://discoveryengine.googleapis.com"
@@ -78,12 +80,14 @@ class FakeApi:
 
 class Terminal:
     """``sys.stdin`` and ``input``: not a terminal unless ``tty`` is set;
-    ``on_enter`` runs at each Enter (it may change answers or raise)."""
+    ``input`` returns ``answer`` (Enter by default) and ``on_enter`` runs at
+    each answer (it may change answers or raise)."""
 
     def __init__(self):
         self.tty = False
         self.prompts = []
         self.on_enter = None
+        self.answer = ""
 
     def isatty(self):
         return self.tty
@@ -94,7 +98,15 @@ class Terminal:
             raise RuntimeError(f"still waiting after: {prompt}")
         if self.on_enter:
             self.on_enter()
-        return ""
+        return self.answer
+
+
+# The connector refused by the organisation policy, then created
+BLOCKED = error(
+    "FAILED_PRECONDITION",
+    f"CUSTOM_ORG_POLICY_VIOLATION: constraints/{POLICY} is enforced",
+)
+CREATED = {"name": "op", "done": True}
 
 
 def entity(cid):

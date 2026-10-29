@@ -52,8 +52,9 @@ class ApiError(GenMediaError):
 
 
 class UserStepNeeded(Exception):
-    """A console step is left and stdin is not a terminal, so nobody can
-    confirm it; its instructions have been printed."""
+    """A step is left to the user (a console step nobody can confirm, as
+    stdin is not a terminal, or the policy on custom MCP connectors); its
+    instructions have been printed."""
 
 
 def gcloud(*args: str) -> str:

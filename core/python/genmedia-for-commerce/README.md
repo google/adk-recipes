@@ -71,7 +71,7 @@ Running locally still uses Google Cloud: the models, and the media bucket where 
 make deploy
 ```
 
-This builds the image and deploys it to Cloud Run with the settings in `config.env` (by default 8 CPUs, 32 GiB, 2 to 10 instances; the minimum instances are billed all the time). The service requires Google Cloud IAM authentication, so its URL answers 403 in a browser. When it finishes, `make deploy` prints how to open the web app:
+This builds the image and deploys it to Cloud Run with the settings in `config.env` (by default 8 CPUs, 32 GiB, 2 to 10 instances; the minimum instances are billed all the time). The service requires Google Cloud IAM authentication, so its URL answers 403 in a browser. When it finishes in a terminal, `make deploy` starts the web app in the background at <http://localhost:8080> (in Cloud Shell: **Web Preview > Preview on port 8080**); otherwise it prints how to open it. To run it in the foreground yourself:
 
 ```bash
 make web
@@ -89,7 +89,7 @@ make share USERS="user:alice@example.com,group:team@example.com"
 
 It grants each of them Token Creator on `genmedia-web` and Cloud Run Viewer on this service only (`make web` reads the service's URL). A setup made before `genmedia-web` existed needs `make setup-infra`, then `make deploy`.
 
-After the Agent Garden command (or any `make register-gemini-enterprise` that succeeds in a terminal), the proxy is already running in the background: the command prints its address and `kill <pid>` to stop it, and it stops by itself when the terminal session ends.
+After `make deploy` (so also the Agent Garden command) or `make register-gemini-enterprise` in a terminal, the proxy is already running in the background: the command prints its address and `kill <pid>` to stop it, and it stops by itself when the terminal session ends.
 
 The backend accepts browser calls from those two origins because `ALLOW_ORIGINS` in `config.env` lists them: `http://localhost:8080` (and `127.0.0.1`) and, as a `regex:` pattern, Cloud Shell's Web Preview of port 8080 (`https://8080-<instance>.cloudshell.dev`). A `config.env` created before that pattern was added needs it copied from `config.env.example`, then `make deploy`. To use another port, add its origin to `ALLOW_ORIGINS` and deploy again. To let people in your organisation sign in from a browser, set `USE_IAP=true`. Secrets go through Secret Manager: `make deploy SECRETS="NAME=SECRET_ID:latest"`.
 
@@ -108,7 +108,7 @@ It connects the deployed Studio to Gemini Enterprise and creates a "GenMedia Stu
 The command does everything it can and guides you through what only the console can do:
 
 1. **Start the subscription or the free trial**, in the console under Gemini Enterprise, before you register.
-2. **Allow custom MCP data stores:** organisations block them by default. The command prints the per-project override (it needs the Organization Policy Administrator role) and waits.
+2. **Allow custom MCP connectors:** Gemini Enterprise blocks them by default. The command asks to allow them for the project (Enter means yes; it needs the Organization Policy Administrator role) and waits until that applies. `make allow-mcp-connectors` does the same on its own; without a terminal the command prints what to run.
 3. **Reload custom actions** (Gemini Enterprise > Data stores > GenMedia Studio > Actions), then enable `studio_agent`. Do it again after a deploy that changes the Studio's tools.
 
 Then give users a licence (Gemini Enterprise > Manage users), open the app, turn on GenMedia Studio under Connectors and ask "Open the GenMedia Studio". Upload images with the panel's Upload button: files attached in the chat do not reach the Studio.

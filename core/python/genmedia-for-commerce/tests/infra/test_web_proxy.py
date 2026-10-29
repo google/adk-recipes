@@ -138,12 +138,12 @@ def test_make_web_reads_the_service_from_config_env():
     assert "bash infra/web_proxy.sh" in MAKEFILE
 
 
-def test_make_deploy_hints_only_after_a_successful_deploy():
+def test_make_deploy_starts_the_proxy_after_a_successful_deploy():
     recipe = _recipe("deploy")
 
     assert (
-        "= 0 ] && { echo; $(GRANT_WEB_INVOKER); $(WEB_PROXY) --hint; exit 0; }"
-        in recipe
+        "= 0 ] && { echo; $(GRANT_WEB_INVOKER); "
+        "$(WEB_PROXY) --background || true; exit 0; }" in recipe
     )
     assert "register-gemini-enterprise" not in recipe
 
@@ -172,13 +172,14 @@ def test_the_script_refreshes_the_token_in_its_watch_loop():
     assert 'serve ""' in SCRIPT_TEXT  # make web
 
 
-def test_registration_starts_the_proxy_after_it_succeeds():
+def test_registration_starts_the_proxy_whatever_its_outcome():
     recipe = _recipe("register-gemini-enterprise")
 
-    # Not after a failure (&&) nor in a dry run
-    assert "--dry-run) && \\" in recipe
+    # After a success or a failure, not in a dry run; the script's status
+    assert "--dry-run); status=$$?; \\" in recipe
     assert 'if [ -z "$(DRY_RUN)" ]' in recipe
     assert "$(WEB_PROXY) --background || true" in recipe
+    assert recipe.endswith("exit $$status")
 
 
 # ------------------------------------------- config.env to shell and YAML

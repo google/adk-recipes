@@ -159,9 +159,11 @@ def test_make_deploy_lets_genmedia_web_invoke_the_service(tmp_path):
         "--member=serviceAccount:genmedia-web@$PROJECT_ID.iam.gserviceaccount.com "
         "--role=roles/run.invoker --quiet" in recipe
     )
-    # After the deploy succeeded, before the hint
+    # After the deploy succeeded, before the web app proxy starts
     assert recipe.index("run.invoker") > recipe.index("gcloud run deploy")
-    assert recipe.index("run.invoker") < recipe.index("web_proxy.sh --hint")
+    assert recipe.index("run.invoker") < recipe.index(
+        "web_proxy.sh --background"
+    )
 
 
 # Records its arguments; add-iam-policy-binding answers as FAKE_BINDING says
@@ -255,3 +257,64 @@ def test_make_share_grants_token_creator_and_service_viewer(tmp_path):
         '--member="$member" --role=roles/run.viewer --quiet' in recipe
     )
     assert "echo \"user:a@x.com,group:g@x.com\" | tr ',' ' '" in recipe
+
+
+# uv: the registration script exits with FAKE_STATUS; CONFIG_SH's config
+FAKE_UV = """#!/bin/bash
+case "$*" in
+*infra/gemini_enterprise.py*) echo "script: ${*: -1}"; exit "$FAKE_STATUS" ;;
+*) echo "PROJECT_ID=my-proj" ;;
+esac
+"""
+
+
+@pytest.fixture
+def register(tmp_path):
+    """make register-gemini-enterprise with a fake uv and web_proxy.sh."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    (bin_dir / "uv").write_text(FAKE_UV)
+    (bin_dir / "uv").chmod(0o755)
+    (tmp_path / "infra").mkdir()
+    # It fails too: that must not change the registration's status
+    (tmp_path / "infra" / "web_proxy.sh").write_text(
+        'echo "proxy $* for $PROJECT_ID"; exit 1\n'
+    )
+
+    def run(status: int, *args: str):
+        return _make(
+            tmp_path,
+            "register-gemini-enterprise",
+            *args,
+            PATH=f"{bin_dir}:/usr/bin:/bin",
+            FAKE_STATUS=str(status),
+        )
+
+    return run
+
+
+@pytest.mark.skipif(not shutil.which("make"), reason="no make")
+@pytest.mark.parametrize("status", [0, 1])
+def test_registration_starts_the_proxy_and_keeps_its_status(register, status):
+    result = register(status)
+
+    assert "proxy --background for my-proj" in result.stdout
+    assert (result.returncode == 0) is (status == 0)
+
+
+@pytest.mark.skipif(not shutil.which("make"), reason="no make")
+def test_a_dry_run_registration_starts_no_proxy(register):
+    result = register(0, "DRY_RUN=1")
+
+    assert result.returncode == 0
+    assert "script: --dry-run" in result.stdout
+    assert "proxy" not in result.stdout
+
+
+@pytest.mark.skipif(not shutil.which("make"), reason="no make")
+def test_make_allow_mcp_connectors_runs_the_override(tmp_path):
+    recipe = _make(tmp_path, "-n", "allow-mcp-connectors").stdout
+
+    assert recipe == (
+        "uv run python infra/gemini_enterprise.py --allow-mcp-connectors\n"
+    )

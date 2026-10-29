@@ -15,19 +15,23 @@
 """Fixtures of the ``infra/gemini_enterprise.py`` tests: gcloud, the
 terminal and the clock are fakes, so nothing waits or calls Google."""
 
+import sys
 import time
 
 import pytest
 
 from infra import gemini_enterprise as ge
+from infra import gemini_enterprise_policy as gep
 from tests.infra.ge_fakes import URL, Terminal
 
 
 @pytest.fixture(autouse=True)
 def terminal(monkeypatch):
-    """stdin is not a terminal unless a test sets ``terminal.tty``."""
+    """stdin and stdout are not a terminal unless a test sets
+    ``terminal.tty``."""
     term = Terminal()
     monkeypatch.setattr("sys.stdin", term)
+    monkeypatch.setattr(sys.stdout, "isatty", term.isatty)
     monkeypatch.setattr("builtins.input", term.input)
     return term
 
@@ -54,6 +58,7 @@ def gcloud_calls(monkeypatch):
         return "token" if args[:2] == ("auth", "print-access-token") else ""
 
     monkeypatch.setattr(ge, "gcloud", fake_gcloud)
+    monkeypatch.setattr(gep, "gcloud", fake_gcloud)
     for name in ("GEMINI_ENTERPRISE_LOCATION", "ID", "SERVICE_NAME"):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("PROJECT_ID", "my-proj")
