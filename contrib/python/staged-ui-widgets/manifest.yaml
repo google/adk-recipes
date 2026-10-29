@@ -5,6 +5,8 @@ status: "active"
 
 language: "python"
 
+deployable: true
+
 description: >-
   A shopping agent that renders A2UI widgets — product cards, comparison
   tables, delivery timelines, spend charts — through a staging layer instead
