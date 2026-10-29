@@ -16,8 +16,9 @@
 
 Every step can run again: the connector is reused when one serves the same
 URL, and activating or enabling actions is idempotent. When the organisation
-policy blocks custom MCP connectors, or Gemini Enterprise has not read the
-Studio's tools yet ("Reload custom actions", console-only), it prints the
+policy blocks custom MCP connectors, it asks to allow them
+(``gemini_enterprise_policy.unblock``); when Gemini Enterprise has not read
+the Studio's tools yet ("Reload custom actions", console-only), it prints the
 step and waits for the user (``guide_user``)."""
 
 import logging
@@ -27,11 +28,11 @@ from genmedia4commerce.core.errors import GenMediaError
 from infra.gemini_enterprise_api import (
     OPERATION_TIMEOUT_S,
     DiscoveryEngine,
-    UserStepNeeded,
     console_url,
     guide_user,
     poll,
 )
+from infra.gemini_enterprise_policy import POLICY, unblock
 
 logger = logging.getLogger(__name__)
 
@@ -39,17 +40,6 @@ DISPLAY_NAME = "GenMedia Studio"
 # The tools Gemini Enterprise's model sees (mcp/studio.py marks the panel's
 # tools app-only, so the console lists only studio_agent: the Studio's action).
 STUDIO_ACTIONS = ["studio_agent"]
-# A changed organisation policy takes a minute or two to apply: after the
-# user confirms it, retry every POLICY_RETRY_S for up to POLICY_WAIT_S.
-POLICY_RETRY_S = 20
-POLICY_WAIT_S = 180
-
-POLICY = "discoveryengine.managed.disableCustomMcpServerConnector"
-POLICY_STEPS = """
-Custom MCP connectors are blocked ({policy}; Gemini Enterprise blocks them by default). Someone with the Organization Policy Administrator role can allow them for this project only (the change takes a minute or two to apply); as that allows any custom MCP connector in the project, prefer a project dedicated to GenMedia for Commerce and its Gemini Enterprise app:
-  printf 'name: projects/{project}/policies/{policy}\\nspec:\\n  rules:\\n  - enforce: false\\n' > policy.yaml
-  gcloud org-policies set-policy policy.yaml --project={project}"""
-POLICY_PROMPT = "Press Enter once the policy is set (Ctrl+C to stop)... "
 
 RELOAD_STEP = """
 Last step, in the console (it has no public API yet): Gemini Enterprise > Data stores > {name} ({cid}) > Actions > Reload custom actions, then enable {actions}.
@@ -103,7 +93,7 @@ def find_collection(api: DiscoveryEngine, mcp_url: str) -> str | None:
 
 def create_collection(api: DiscoveryEngine, mcp_url: str) -> str:
     """Create the custom MCP connector (and its collection); return its id.
-    While the organisation policy blocks it, guide the user to the override."""
+    While the organisation policy blocks it, ask to allow it (``unblock``)."""
     cid = f"genmedia-studio-{int(time.time())}-collection"
     logger.info("Creating the custom MCP data connector %s", cid)
     body = connector_request(mcp_url, cid)
@@ -117,17 +107,9 @@ def create_collection(api: DiscoveryEngine, mcp_url: str) -> str:
             return False
         return True
 
-    def created_once_applied() -> bool:
-        logger.info("Retrying every %d s while it applies", POLICY_RETRY_S)
-        return poll(created, POLICY_RETRY_S, POLICY_WAIT_S)
-
-    if created():
-        return cid
-    steps = POLICY_STEPS.format(policy=POLICY, project=api.project)
-    retry = "Still blocked: check the policy, or give it another minute."
-    if guide_user(steps, created_once_applied, retry, POLICY_PROMPT):
-        return cid
-    raise UserStepNeeded
+    if not created():
+        unblock(api.project, created)
+    return cid
 
 
 def activate(api: DiscoveryEngine, cid: str, mcp_url: str) -> None:

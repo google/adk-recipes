@@ -17,14 +17,17 @@
 ``uv run python infra/gemini_enterprise.py [--dry-run]``, run by
 ``make register-gemini-enterprise``. It does everything by itself and can run
 again; for the console-only steps it prints what to do, waits for Enter and
-checks the result (when stdin is a terminal; otherwise it prints the step):
+checks the result (when stdin is a terminal; otherwise it prints the step).
+``--allow-mcp-connectors`` (``make allow-mcp-connectors``) only allows custom
+MCP connectors in the app's project (see step 2).
 
 1. Finds the Cloud Run service (PROJECT_ID, DEFAULT_REGION and SERVICE_NAME
    from config.env; the Studio is at ``<URL>/mcp``) and lets the Discovery
    Engine service agent invoke it.
 2. Creates a custom MCP data connector unless one already serves the same URL
-   (waiting for the organisation policy override when it is blocked) and
-   activates its actions.
+   (when the organisation policy blocks it, asking in a terminal to allow
+   custom MCP connectors in the project, then waiting until that applies)
+   and activates its actions.
 3. Creates or reuses its own Gemini Enterprise app, "GenMedia Studio", with
    the connector's data store linked (waiting for Gemini Enterprise to be
    enabled when it is not), or connects the data store to the app
@@ -45,7 +48,6 @@ import sys
 import requests
 
 from genmedia4commerce.core.errors import ConfigError, GenMediaError
-from genmedia4commerce.core.settings import get_settings
 from infra.gemini_enterprise_api import (
     RERUN,
     DiscoveryEngine,
@@ -54,10 +56,13 @@ from infra.gemini_enterprise_api import (
     gcloud,
 )
 from infra.gemini_enterprise_app import connect_existing_app, ensure_own_app
+from infra.gemini_enterprise_policy import (
+    POLICY,
+    allow_mcp_connectors_in,
+    blocked_steps,
+)
 from infra.gemini_enterprise_steps import (
     DISPLAY_NAME,
-    POLICY,
-    POLICY_STEPS,
     STUDIO_ACTIONS,
     activate,
     create_collection,
@@ -148,24 +153,34 @@ def warn_if_iap() -> None:
     )
 
 
-def client(run_args: list[str], app_id: str, dry_run: bool):
-    """The REST client for the app's project and location."""
+def gemini_enterprise_app() -> str:
+    """GEMINI_ENTERPRISE_APP_ID: a full engine name, an id or empty."""
+    return os.environ.get("GEMINI_ENTERPRISE_APP_ID") or os.environ.get(
+        "ID", ""
+    )
+
+
+def app_project(app_id: str) -> str:
+    """The app's project: the one of a full engine name, else PROJECT_ID."""
     parts = app_id.split("/")  # projects/<p>/locations/<loc>/... or an id
-    project = parts[1] if len(parts) > 3 else run_args[2].split("=")[1]
+    return parts[1] if len(parts) > 3 else os.environ.get("PROJECT_ID", "")
+
+
+def client(app_id: str, dry_run: bool):
+    """The REST client for the app's project and location."""
+    parts = app_id.split("/")
     location = parts[3] if len(parts) > 3 else None
     location = (
         location or os.environ.get("GEMINI_ENTERPRISE_LOCATION") or "global"
     )
     token = gcloud("auth", "print-access-token")
-    return DiscoveryEngine(project, location, token, dry_run)
+    return DiscoveryEngine(app_project(app_id), location, token, dry_run)
 
 
 def register(run_args: list[str], mcp_url: str, dry_run: bool) -> None:
     warn_if_iap()
-    app_id = os.environ.get("GEMINI_ENTERPRISE_APP_ID") or os.environ.get(
-        "ID", ""
-    )
-    api = client(run_args, app_id, dry_run)
+    app_id = gemini_enterprise_app()
+    api = client(app_id, dry_run)
     grant_invoker(api, run_args, dry_run)
     reused = find_collection(api, mcp_url)
     if reused:
@@ -210,15 +225,31 @@ def finish(api: DiscoveryEngine, engine: str, app_id: str, loaded: bool):
     )
 
 
+def allow_mcp_connectors() -> int:
+    """``make allow-mcp-connectors``: allow custom MCP connectors in the
+    app's project only."""
+    project = app_project(gemini_enterprise_app())
+    if not project:
+        logger.error("Error: PROJECT_ID is not set in config.env")
+        return 1
+    return allow_mcp_connectors_in(project)
+
+
 def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--dry-run", action="store_true", help="change nothing")
+    parser.add_argument(
+        "--allow-mcp-connectors",
+        action="store_true",
+        help="only allow custom MCP connectors in the project",
+    )
     args = parser.parse_args()
+    if args.allow_mcp_connectors:
+        return allow_mcp_connectors()
     mcp_url = "https://<Cloud Run service URL>/mcp"
     try:
         run_args, mcp_url = studio_url()
-        logger.info("Studio MCP App: %s", mcp_url)
         register(run_args, mcp_url, args.dry_run)
     except UserStepNeeded:
         return 1  # the step and "run again" have been printed
@@ -228,8 +259,7 @@ def main() -> int:
     except (GenMediaError, requests.RequestException) as exc:
         logger.error("Error: %s", exc)
         if POLICY in str(exc):
-            project = get_settings().project_id
-            logger.error(POLICY_STEPS.format(policy=POLICY, project=project))
+            logger.error(blocked_steps(app_project(gemini_enterprise_app())))
             logger.error(RERUN)
             return 1
     except subprocess.CalledProcessError as exc:

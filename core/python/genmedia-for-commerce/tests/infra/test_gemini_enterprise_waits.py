@@ -17,20 +17,13 @@ the printed step (and a non-zero exit where it blocks) without one."""
 
 from infra import gemini_enterprise as ge
 from infra import gemini_enterprise_api as gea
-from infra import gemini_enterprise_steps as steps
 from tests.infra.ge_fakes import (
+    BLOCKED,
     CONNECTOR,
     SETUP,
-    error,
     fresh_project_api,
 )
 from tests.infra.ge_fakes import connector as connector_body
-
-BLOCKED = error(
-    "FAILED_PRECONDITION",
-    f"CUSTOM_ORG_POLICY_VIOLATION: constraints/{steps.POLICY} is enforced",
-)
-CREATED = {"name": "op", "done": True}
 
 
 def test_wait_for_user_on_a_terminal_waits_for_enter():
@@ -70,49 +63,6 @@ def _register(monkeypatch, api):
     monkeypatch.setattr(ge.requests, "request", api)
     monkeypatch.setattr("sys.argv", ["gemini_enterprise.py"])
     return ge.main()
-
-
-def test_org_policy_without_a_terminal_exits_with_the_override(
-    monkeypatch, gcloud_calls, caplog
-):
-    api = fresh_project_api()
-    api.answers[("POST", SETUP)] = BLOCKED
-
-    assert _register(monkeypatch, api) == 1
-
-    assert "set-policy policy.yaml --project=my-proj" in caplog.text
-    assert "Organization Policy Administrator" in caplog.text
-    assert gea.RERUN in caplog.text
-    assert "Data stores > Create data store" not in caplog.text
-
-
-def test_org_policy_retries_after_enter_while_it_applies(
-    monkeypatch, gcloud_calls, terminal, sleeps
-):
-    api = fresh_project_api()
-    api.answers[("POST", SETUP)] = [BLOCKED, BLOCKED, CREATED]
-    api.answers[("GET", CONNECTOR)] = connector_body(["studio_agent"])
-    terminal.tty = True
-
-    assert _register(monkeypatch, api) == 0
-
-    assert terminal.prompts == [steps.POLICY_PROMPT]
-    assert sleeps == [steps.POLICY_RETRY_S]
-
-
-def test_org_policy_asks_again_after_three_minutes(
-    monkeypatch, gcloud_calls, terminal, sleeps, caplog
-):
-    api = fresh_project_api()
-    api.answers[("POST", SETUP)] = [BLOCKED] * 10 + [CREATED]
-    api.answers[("GET", CONNECTOR)] = connector_body(["studio_agent"])
-    terminal.tty = True
-
-    assert _register(monkeypatch, api) == 0
-
-    assert terminal.prompts == [steps.POLICY_PROMPT] * 2
-    assert sleeps == [steps.POLICY_RETRY_S] * 8
-    assert "Still blocked" in caplog.text
 
 
 def test_reload_step_waits_until_the_action_is_loaded(

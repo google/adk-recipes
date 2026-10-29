@@ -42,7 +42,7 @@ Outside the package:
 
 - `frontend/`: React, Vite and Tailwind. `src/App.tsx` routes every path to the Studio (`src/pages/Studio/`): `useStudio.ts` and `store.ts` (the state the server owns, actions, the agent chat, jobs), `model.ts` (the server's state as the page shows it, job specs), `items.ts` (picks and uploads), `jobs.ts` (follows a job), `shrink.ts` (an upload over the server's limit or of a type it does not take becomes a JPEG in the browser). `src/api/client.ts` is the only module that calls `fetch`; `src/api/studio.ts` holds the `/api/studio` calls. `src/test/mockServer.ts` and `studioMock.ts` are the fixture backend of the tests and of `npm run dev:mock`.
 - `infra/terraform/`: APIs, the media bucket and its lifecycle rules, Artifact Registry, the service accounts `genmedia-cloudrun` (runtime), `genmedia-build` (Cloud Build) and `genmedia-web` (identity of the `make web` proxy), and their roles. `infra/terraform.sh` runs Terraform, installing a pinned release when it is missing. `infra/web_proxy.sh` is `make web`.
-- `infra/gemini_enterprise.py` with `gemini_enterprise_api.py`, `gemini_enterprise_app.py` and `gemini_enterprise_steps.py`: `make register-gemini-enterprise`. The Discovery Engine API's quirks are explained in the module docstrings.
+- `infra/gemini_enterprise.py` with `gemini_enterprise_api.py`, `gemini_enterprise_app.py`, `gemini_enterprise_steps.py` and `gemini_enterprise_policy.py` (the organisation policy on custom MCP connectors): `make register-gemini-enterprise` and `make allow-mcp-connectors`. The Discovery Engine API's quirks are explained in the module docstrings.
 - `assets/catalog/products.parquet`: the sample catalogue (products, preset models, spin sets, with WebP images and embeddings), copied into the image.
 - `services.yaml`: registers the `studio://` session service for `adk web`.
 - `tests/`: one folder per package (below).
@@ -158,9 +158,10 @@ Everything is in the media bucket (`MEDIA_BUCKET`, default `<PROJECT_ID>-genmedi
 | `make deploy` | Build from source and deploy the Cloud Run service; `make deploy-agent-engine` is a legacy alias |
 | `make web`, `make share USERS=...` | Open the deployed web app through a local proxy; let teammates do it |
 | `make register-gemini-enterprise [DRY_RUN=1]` | Register the Studio in a Gemini Enterprise app |
+| `make allow-mcp-connectors` | Allow custom MCP connectors in the project (the per-project override of the organisation policy) |
 | `cd frontend && npm run lint && npm run build && npm test` | Biome (the adk-recipes rules), `tsc` and the Vite build, Vitest; `npm run format` fixes formatting |
 
-Run `make deploy` only after the user confirms. `make register-gemini-enterprise` changes IAM and a Gemini Enterprise app: run it with `DRY_RUN=1` first, and without it only after the user confirms; without a terminal it prints each console-only step and exits.
+Run `make deploy` only after the user confirms. `make register-gemini-enterprise` changes IAM and a Gemini Enterprise app: run it with `DRY_RUN=1` first, and without it only after the user confirms; without a terminal it prints each console-only step and exits. `make allow-mcp-connectors` changes an organisation policy: run it only after the user confirms.
 
 ## Code rules
 
