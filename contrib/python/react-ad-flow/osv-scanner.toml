@@ -1,8 +1,0 @@
-# osv-scanner reads this file for ./uv.lock (the CVE scan in
-# .github/workflows/dependency-cve-scan.yml). Only vulnerabilities with
-# no fixed release belong here; remove each entry once a fix ships.
-
-[[IgnoredVulns]]
-id = "CVE-2026-114603"
-ignoreUntil = 2026-12-31
-reason = "google-adk pins opentelemetry-api<=1.42.1, preventing upgrade to fixed version 1.45.1. Transitive dependency; not called by this recipe's code."
