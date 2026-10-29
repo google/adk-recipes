@@ -1,0 +1,111 @@
+name: '🔍 AI Plugin Evaluator'
+
+# Delegates to `_ai-pr-review-core.yml` to run an AI evaluation review
+# specifically focused on Agent Plugins v1.0.0 standards:
+# - Directory anatomy and package naming (<vertical>-<skill-name>)
+# - Conversational Q-MODE installer quality in SKILL.md
+# - Evaluation rubric completeness, assertions, and >=80% threshold in EVAL.yaml
+# - Robust GCP infrastructure setup and complete teardown in cleanup.py
+#
+# Posts findings as inline review comments on pull requests touching plugins/**.
+
+'on': # zizmor: ignore[dangerous-triggers]
+  pull_request_target:
+    types:
+      - 'opened'
+      - 'reopened'
+      - 'synchronize'
+  issue_comment:
+    types:
+      - 'created'
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'PR number to evaluate'
+        required: true
+        type: 'number'
+      dry_run:
+        description: 'Build the evaluation and upload it as an artifact instead of posting it'
+        required: false
+        default: true
+        type: 'boolean'
+
+concurrency:
+  group: >-
+    ${{ github.workflow }}-${{ github.event.pull_request.number || github.event.issue.number || github.event.inputs.pr_number || github.ref }}-${{ (github.event_name == 'issue_comment' && !(github.event.issue.pull_request && (contains(github.event.comment.body, '@ai-review') || contains(github.event.comment.body, '@ai-eval')) && contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association))) && github.run_id || '' }}
+  cancel-in-progress: true
+
+permissions:
+  contents: 'read'
+  id-token: 'write'
+  issues: 'write'
+  pull-requests: 'write'
+
+jobs:
+  trigger:
+    if: |-
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'pull_request_target' ||
+      (
+        github.event_name == 'issue_comment' &&
+        github.event.issue.pull_request &&
+        (contains(github.event.comment.body, '@ai-review') || contains(github.event.comment.body, '@ai-eval')) &&
+        contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association)
+      )
+    uses: './.github/workflows/_ai-pr-review-core.yml' # zizmor: ignore[self-repository]
+    with:
+      review_label: 'Plugin Evaluator'
+      event_name: '${{ github.event_name }}'
+      pr_number_pull_request: '${{ github.event.pull_request.number }}'
+      pr_number_issue: '${{ github.event.issue.number }}'
+      pr_number_dispatch: '${{ github.event.inputs.pr_number }}'
+      comment_body: '${{ github.event.comment.body }}'
+      app_id: '${{ vars.APP_ID }}'
+      dry_run: '${{ github.event.inputs.dry_run }}'
+      role: |-
+        You are an expert AI code reviewer specializing in Agent Plugins v1.0.0 and vertical
+        solution architectures. Your sole focus is evaluating incoming plugin directory anatomy,
+        conversational Q-MODE installation quality in SKILL.md, reproducibility in setup/cleanup
+        scripts, and evaluation rubrics in EVAL.yaml.
+      criteria: |-
+        ## Review Criteria — Agent Plugins Evaluation Only
+
+        You MUST ONLY comment on issues affecting Agent Plugins v1.0.0 standards and plugin quality:
+
+        * Plugin directory anatomy under `plugins/<vertical>/`:
+          - `plugin.json` manifest with valid ownership (`team` and `poc`).
+          - Skill directory structure: `skills/<skill-name>/` containing `SKILL.md`, `EVAL.yaml`,
+            `README.md`, `.env.example`, `pyproject.toml`, `uv.lock`, `Makefile`, `scripts/`,
+            `references/`, and `assets/`.
+          - Package naming in `pyproject.toml` MUST match `<vertical>-<skill-name>`.
+        * Conversational Q-MODE installation (`SKILL.md`):
+          - Clear multi-turn conversational interview to gather configuration.
+          - Generation of valid design spec before provisioning resources.
+        * Evaluation rubrics & assertions (`EVAL.yaml`):
+          - Test cases covering core agent capabilities.
+          - Clear rubrics using explicit requirements (MUST, MUST NOT, SHOULD).
+          - Deterministic assertions checking actual expected behavior.
+          - Declared evaluation pass threshold must be >= 80%.
+        * Infrastructure setup and clean teardown (`scripts/setup.py` & `scripts/cleanup.py`):
+          - Every GCP resource created in `setup.py` (GCS buckets, BigQuery tables, Vector Search
+            indexes/collections, Cloud Run services) MUST have a corresponding deletion path in
+            `cleanup.py`.
+          - `cleanup.py` must support `--dry-run` and require `--confirm` before deleting resources.
+        * Configuration:
+          - No hardcoded GCP project IDs, regions, or credentials.
+          - All environment variables accessed in scripts must be documented in `.env.example`.
+
+        Do NOT comment on general formatting, typo fixes, or stylistic preferences outside of
+        plugin requirements.
+      hunt_list: |-
+        * a pyproject.toml where `[project].name` does not match the `<vertical>-<skill-name>` naming convention
+        * a GCP resource (bucket, dataset, index, service) created in setup scripts that is omitted from `cleanup.py`
+        * a `cleanup.py` script that deletes resources without requiring `--confirm` or without offering `--dry-run`
+        * an `EVAL.yaml` file without test cases, without rubrics, or declaring a pass threshold under 80% (0.80)
+        * a rubric rule in `EVAL.yaml` that lacks concrete, falsifiable requirements (e.g. missing MUST / MUST NOT)
+        * a hardcoded GCP project ID, service account, or bucket name in scripts rather than reading from config/env
+        * an environment variable referenced in `scripts/` or `agent.py` that is absent from `.env.example`
+        * a Makefile missing the standard `setup` target for provisioning infrastructure
+        * a `SKILL.md` missing YAML front-matter with `name` and `description`
+    secrets:
+      APP_PRIVATE_KEY: '${{ secrets.APP_PRIVATE_KEY }}'
