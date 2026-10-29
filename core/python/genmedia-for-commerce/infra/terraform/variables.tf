@@ -34,3 +34,9 @@ variable "media_retention_days" {
   type        = number
   default     = 30
 }
+
+variable "deployer_email" {
+  description = "Account running Terraform (make passes gcloud's active account). Empty: read from Terraform's credentials, which in Cloud Shell carry no email."
+  type        = string
+  default     = ""
+}
