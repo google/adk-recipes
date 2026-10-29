@@ -13,8 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Run terraform with the given arguments. When terraform is not on PATH (Cloud
-# Shell no longer ships it), install a pinned release into ~/.local/bin first.
+# Run terraform with the given arguments. When no working terraform is on PATH
+# (Cloud Shell ships only a stub), install a pinned release into ~/.local/bin.
 # The zip is checked against the SHA-256 published by HashiCorp in
 # terraform_<version>_SHA256SUMS before it is unzipped.
 
@@ -69,7 +69,15 @@ install_terraform() (
     chmod +x "$BIN"
 )
 
-if command -v terraform >/dev/null; then
+# A terraform on PATH counts only if it runs: Cloud Shell has a stub that just
+# prints how to install Terraform and exits 0, so init and apply "succeeded"
+# without creating anything.
+real_terraform() {
+    command -v terraform >/dev/null || return 1
+    [[ "$(terraform version 2>/dev/null)" == "Terraform v"* ]]
+}
+
+if real_terraform; then
     exec terraform "$@"
 fi
 [ -x "$BIN" ] || install_terraform
