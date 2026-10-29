@@ -48,7 +48,6 @@ import sys
 import requests
 
 from genmedia4commerce.core.errors import ConfigError, GenMediaError
-from genmedia4commerce.core.settings import get_settings
 from infra.gemini_enterprise_api import (
     RERUN,
     DiscoveryEngine,
@@ -59,7 +58,7 @@ from infra.gemini_enterprise_api import (
 from infra.gemini_enterprise_app import connect_existing_app, ensure_own_app
 from infra.gemini_enterprise_policy import (
     POLICY,
-    allow_connectors,
+    allow_mcp_connectors_in,
     blocked_steps,
 )
 from infra.gemini_enterprise_steps import (
@@ -233,7 +232,7 @@ def allow_mcp_connectors() -> int:
     if not project:
         logger.error("Error: PROJECT_ID is not set in config.env")
         return 1
-    return allow_connectors(project)
+    return allow_mcp_connectors_in(project)
 
 
 def main() -> int:
@@ -260,7 +259,7 @@ def main() -> int:
     except (GenMediaError, requests.RequestException) as exc:
         logger.error("Error: %s", exc)
         if POLICY in str(exc):
-            logger.error(blocked_steps(get_settings().project_id))
+            logger.error(blocked_steps(app_project(gemini_enterprise_app())))
             logger.error(RERUN)
             return 1
     except subprocess.CalledProcessError as exc:

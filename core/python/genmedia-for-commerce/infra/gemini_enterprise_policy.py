@@ -112,7 +112,9 @@ def allow(project: str) -> bool:
     with contextlib.suppress(subprocess.CalledProcessError):
         # Best effort: set-policy says so when the API stays disabled.
         gcloud(
-            *("services", "enable", "orgpolicy.googleapis.com"),
+            "services",
+            "enable",
+            "orgpolicy.googleapis.com",
             f"--project={project}",
             "--quiet",
         )
@@ -165,7 +167,7 @@ def unblock(project: str, created: Callable[[], bool]) -> None:
         raise UserStepNeeded
 
 
-def allow_connectors(project: str) -> int:
+def allow_mcp_connectors_in(project: str) -> int:
     """``make allow-mcp-connectors``: set the override; the exit status."""
     try:
         if not allow(project):

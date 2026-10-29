@@ -17,6 +17,7 @@ with GEMINI_ENTERPRISE_APP_ID set (the app ``my-app``)."""
 
 import pytest
 
+from genmedia4commerce.core.settings import get_settings
 from infra import gemini_enterprise as ge
 from infra import gemini_enterprise_api as gea
 from infra import gemini_enterprise_steps as steps
@@ -240,7 +241,7 @@ def test_org_policy_block_prints_the_project_override(monkeypatch, caplog):
     monkeypatch.setattr("sys.argv", ["gemini_enterprise.py"])
     with caplog.at_level("ERROR"):
         assert ge.main() == 1
-    project = ge.get_settings().project_id
+    project = get_settings().project_id
     assert f"set-policy policy.yaml --project={project}" in caplog.text
     assert "Data stores > Create data store" not in caplog.text
 
