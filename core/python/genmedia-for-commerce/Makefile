@@ -239,6 +239,7 @@ define TF_VARS
 eval "$$($(CONFIG_SH))" && \
 export TF_VAR_project_id=$${PROJECT_ID} && \
 export TF_VAR_region=$${DEFAULT_REGION:-us-central1} && \
+export TF_VAR_deployer_email=$$(gcloud config get-value account 2>/dev/null) && \
 export TF_VAR_service_name=$${SERVICE_NAME:-genmedia-for-commerce}
 endef
 

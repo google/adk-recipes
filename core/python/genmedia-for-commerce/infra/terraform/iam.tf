@@ -99,7 +99,9 @@ resource "google_service_account" "web" {
 data "google_client_openid_userinfo" "deployer" {}
 
 locals {
-  deployer_email = data.google_client_openid_userinfo.deployer.email
+  # gcloud's account (make), else the credentials' email: Cloud Shell's
+  # credentials name none (null)
+  deployer_email = try(coalesce(var.deployer_email, data.google_client_openid_userinfo.deployer.email), "")
   deployer_member = (
     endswith(local.deployer_email, ".gserviceaccount.com")
     ? "serviceAccount:${local.deployer_email}"
@@ -116,7 +118,7 @@ resource "google_service_account_iam_member" "web_deployer" {
   lifecycle {
     precondition {
       condition     = local.deployer_email != ""
-      error_message = "Terraform's credentials do not name their account (no userinfo.email scope). Run gcloud auth application-default login and try again."
+      error_message = "No deployer account: set TF_VAR_deployer_email (make setup-infra passes gcloud's active account), or run gcloud auth application-default login and try again."
     }
   }
 }
