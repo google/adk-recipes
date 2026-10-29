@@ -49,6 +49,7 @@ jobs:
       issue_body: '${{ steps.resolve_issue.outputs.issue_body }}'
       issue_author: '${{ steps.resolve_issue.outputs.issue_author }}'
       skip: '${{ steps.resolve_issue.outputs.skip }}'
+      allow_comment: '${{ steps.resolve_issue.outputs.allow_comment }}'
     steps:
       - name: 'Resolve the issue details'
         id: 'resolve_issue'
@@ -83,6 +84,15 @@ jobs:
           fi
           echo "skip=${SKIP}" >> "${GITHUB_OUTPUT}"
 
+          # On initial open, route to the code owner without posting a comment.
+          # Comments are posted only when a maintainer explicitly chooses to
+          # trigger one (via issue_comment '@gemini-cli /respond' or workflow_dispatch).
+          ALLOW_COMMENT='true'
+          if [[ "${GITHUB_EVENT_NAME}" == "issues" ]]; then
+            ALLOW_COMMENT='false'
+          fi
+          echo "allow_comment=${ALLOW_COMMENT}" >> "${GITHUB_OUTPUT}"
+
           DELIM="EOF_$(uuidgen)"
           { echo "issue_title<<${DELIM}"; echo "${TITLE}"; echo "${DELIM}"; } >> "${GITHUB_OUTPUT}"
           { echo "issue_body<<${DELIM}"; echo "${BODY}"; echo "${DELIM}"; } >> "${GITHUB_OUTPUT}"
@@ -107,6 +117,7 @@ jobs:
       issue_title: '${{ needs.resolve.outputs.issue_title }}'
       issue_body: '${{ needs.resolve.outputs.issue_body }}'
       issue_author: '${{ needs.resolve.outputs.issue_author }}'
+      allow_comment: ${{ needs.resolve.outputs.allow_comment == 'true' }}
       app_id: '${{ vars.APP_ID }}'
     secrets:
       APP_PRIVATE_KEY: '${{ secrets.APP_PRIVATE_KEY }}'
@@ -116,7 +127,7 @@ jobs:
       - 'resolve'
       - 'respond'
     if: |-
-      ${{ always() && contains(needs.*.result, 'failure') }}
+      ${{ always() && contains(needs.*.result, 'failure') && needs.resolve.outputs.allow_comment == 'true' }}
     timeout-minutes: 5
     runs-on: 'ubuntu-latest'
     permissions:

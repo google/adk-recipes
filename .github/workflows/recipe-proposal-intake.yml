@@ -12,15 +12,18 @@ on:
     types:
       - 'opened'
       - 'reopened'
+  issue_comment:
+    types:
+      - 'created'
   workflow_dispatch:
     inputs:
       issue_number:
-        description: 'issue number to route'
+        description: 'issue number to route or triage'
         required: true
         type: 'number'
 
 concurrency:
-  group: '${{ github.workflow }}-${{ github.event.issue.number || github.event.inputs.issue_number }}'
+  group: '${{ github.workflow }}-${{ github.event.issue.number || github.event.inputs.issue_number || github.run_id }}'
   cancel-in-progress: true
 
 defaults:
@@ -31,6 +34,19 @@ permissions: {}
 
 jobs:
   route:
+    if: |-
+      github.event_name == 'issues' ||
+      github.event_name == 'workflow_dispatch' ||
+      (
+        github.event_name == 'issue_comment' &&
+        !github.event.issue.pull_request &&
+        (
+          contains(github.event.comment.body, '@gemini-cli /triage') ||
+          contains(github.event.comment.body, '@gemini-cli /triage-proposal') ||
+          contains(github.event.comment.body, '@gemini-cli /respond')
+        ) &&
+        contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association)
+      )
     timeout-minutes: 5
     runs-on: 'ubuntu-latest'
     permissions:
@@ -143,7 +159,7 @@ jobs:
   triage:
     needs: 'route'
     if: |-
-      ${{ needs.route.outputs.is_proposal == 'true' }}
+      ${{ needs.route.outputs.is_proposal == 'true' && (github.event_name == 'issue_comment' || github.event_name == 'workflow_dispatch') }}
     permissions:
       contents: 'read'
       id-token: 'write'

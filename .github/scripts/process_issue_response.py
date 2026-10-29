@@ -409,22 +409,11 @@ def parse_close_issue(decision: dict[str, Any], option: Option) -> bool:
 
 def process_response(
     decision: dict[str, Any],
+    allow_comment: bool = True,
 ) -> tuple[Option, str, str | None, bool]:
     """Process decision dict and return (option, response_body, assignee, close_issue)."""
     raw_opt = decision.get("option")
     option = parse_option(raw_opt)
-
-    # Option 4 (acknowledge and assign) is silent — it assigns the maintainer
-    # without posting a generic, sycophantic bot comment on the issue.
-    if option == Option.ACKNOWLEDGE_AND_ASSIGN:
-        response_body = ""
-    else:
-        response_body = str(decision.get("response") or "").strip()
-        if not response_body:
-            response_body = (
-                "Could you please share additional details, reproduction steps, "
-                "or relevant error logs to help investigate this issue?"
-            )
 
     path = decision.get("path")
     if path is not None:
@@ -436,8 +425,25 @@ def process_response(
 
     assignees_ci = {k.lower(): k for k in VALID_ASSIGNEES}
 
-    if option == Option.ACKNOWLEDGE_AND_ASSIGN:
-        # Determine assignee based on path routing
+    # Option 4 (acknowledge and assign) is silent — it assigns the maintainer
+    # without posting a generic, sycophantic bot comment on the issue.
+    # When allow_comment is False (e.g. during initial on-open routing), comments
+    # and issue closure are also suppressed.
+    if option == Option.ACKNOWLEDGE_AND_ASSIGN or not allow_comment:
+        response_body = ""
+        close_issue = False
+    else:
+        response_body = str(decision.get("response") or "").strip()
+        if not response_body:
+            response_body = (
+                "Could you please share additional details, reproduction steps, "
+                "or relevant error logs to help investigate this issue?"
+            )
+        close_issue = parse_close_issue(decision, option)
+
+    # When allow_comment is False (initial routing), or when Option 4 is chosen,
+    # resolve assignee based on path routing:
+    if option == Option.ACKNOWLEDGE_AND_ASSIGN or not allow_comment:
         if path:
             assignee = resolve_assignee_from_path(path)
         elif raw_assignee and raw_assignee.lower() in assignees_ci:
@@ -446,8 +452,6 @@ def process_response(
             assignee = DEFAULT_ASSIGNEE
     else:
         assignee = None
-
-    close_issue = parse_close_issue(decision, option)
 
     return option, response_body, assignee, close_issue
 
@@ -501,6 +505,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Path to $GITHUB_OUTPUT file",
     )
+    parser.add_argument(
+        "--no-comment",
+        action="store_true",
+        help="Suppress posting response comments and issue closure (e.g. during initial issue routing)",
+    )
     return parser
 
 
@@ -522,7 +531,10 @@ def main() -> int:
             infra_fault(CHECKER, f"failed to parse JSON from agy output: {exc}")
         )
 
-    option, response_body, assignee, close_issue = process_response(decision)
+    allow_comment = not args.no_comment
+    option, response_body, assignee, close_issue = process_response(
+        decision, allow_comment=allow_comment
+    )
 
     try:
         content = (response_body + "\n") if response_body.strip() else ""

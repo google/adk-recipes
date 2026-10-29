@@ -51,6 +51,11 @@ on:
         required: false
         type: 'string'
         default: ''
+      allow_comment:
+        description: 'Whether to post the generated response comment (set false during initial routing)'
+        required: false
+        type: 'boolean'
+        default: true
     secrets:
       APP_PRIVATE_KEY:
         required: false
@@ -371,6 +376,7 @@ jobs:
         id: 'process'
         env:
           ISSUE_NUMBER: '${{ inputs.issue_number }}'
+          ALLOW_COMMENT: '${{ inputs.allow_comment }}'
         run: |-
           set -euo pipefail
 
@@ -381,13 +387,19 @@ jobs:
             exit 1
           fi
 
+          ARGS=()
+          if [[ "${ALLOW_COMMENT}" == "false" ]]; then
+            ARGS+=(--no-comment)
+          fi
+
           python3 .github/scripts/process_issue_response.py \
             --result agy_result.json \
             --issue-number "${ISSUE_NUMBER}" \
             --comment-out comment.md \
             --assignee-out assignee.txt \
             --close-out close.txt \
-            --github-output "${GITHUB_OUTPUT}"
+            --github-output "${GITHUB_OUTPUT}" \
+            "${ARGS[@]}"
 
       - name: 'Post comment, assign developer, and optionally close issue'
         id: 'apply'
