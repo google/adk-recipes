@@ -22,10 +22,7 @@
 
     /* Path mapping (paths are resolved relative to tsconfig.json since TS 5) */
     "paths": {
-      "@/*": ["./src/*"],
-      "@components/*": ["./src/components/*"],
-      "@pages/*": ["./src/pages/*"],
-      "@config/*": ["./src/config/*"]
+      "@/*": ["./src/*"]
     }
   },
   "include": ["src"],

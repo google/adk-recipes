@@ -1,3 +1,5 @@
+#!include:.gitignore
+
 .git/
 .gitignore
 .DS_Store
@@ -10,6 +12,12 @@ __pycache__/
 *.pyo
 *.pyd
 
+.ruff_cache/
+
+# ADK runtime session/artifact storage — created on first agent import
+.adk/
+**/.adk/
+
 .venv/
 **/.venv/
 venv/
@@ -20,3 +28,12 @@ dist/
 **/dist/
 build/
 **/build/
+
+# Assets stay local, except the product catalogue the image copies in
+/assets/*
+!/assets/catalog/
+
+# Local debug dumps and eval clips
+**/debug*/
+**/video_examples/
+*.zip

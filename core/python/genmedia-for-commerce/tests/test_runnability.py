@@ -11,22 +11,44 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Runnability tests for the recipe."""
 
-import os
-from unittest.mock import MagicMock, patch
+"""The package, the agent and the web app import without credentials."""
+
+import importlib
+from unittest.mock import patch
+
+import pytest
+from google.auth.exceptions import DefaultCredentialsError
 
 
-def test_agent_runnability() -> None:
-    """Verify agent.py imports and defines the expected globals."""
-    # provide a dummy GCP project and patch google.auth.default() so import-time
-    # credential lookups don't need ADC — the setup must happen before the import.
-    os.environ.setdefault("GOOGLE_CLOUD_PROJECT", "test-project")
+@pytest.fixture
+def no_adc(monkeypatch):
+    """No Application Default Credentials and no GCE metadata probe."""
+    monkeypatch.setenv("NO_GCE_CHECK", "true")
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "test-project")
+    no_credentials = DefaultCredentialsError("no credentials in this test")
+    with patch("google.auth.default", side_effect=no_credentials):
+        yield
 
-    with patch(
-        "google.auth.default", return_value=(MagicMock(), "test-project")
-    ):
-        import genmedia4commerce.agent
 
-    assert genmedia4commerce.agent.root_agent is not None
-    assert genmedia4commerce.agent.app is not None
+def test_package_imports(no_adc):
+    """The package imports without credentials."""
+    assert importlib.import_module("genmedia4commerce") is not None
+
+
+def test_agent_runnability(no_adc):
+    """The agent package exposes the Studio agent as ``root_agent`` and
+    ``app``, also as the lazy ``genmedia4commerce.agent`` ADK reads."""
+    agent = importlib.import_module("genmedia4commerce.agent")
+    studio = importlib.import_module("genmedia4commerce.studio.agent")
+    assert agent.root_agent is studio.root_agent
+    assert agent.app is studio.app
+    assert agent.app.name == "genmedia4commerce"
+    package = importlib.import_module("genmedia4commerce")
+    assert package.agent is agent
+
+
+def test_api_app_runnability(no_adc):
+    """The FastAPI app builds at import."""
+    api_app = importlib.import_module("genmedia4commerce.api.app")
+    assert api_app.app is not None
