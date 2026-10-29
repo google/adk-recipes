@@ -34,7 +34,7 @@ on:
         description: 'agy model id'
         required: false
         type: 'string'
-        default: 'gemini-3.5-flash'
+        default: 'gemini-3.7-flash'
       effort:
         description: 'Reasoning effort (low|medium|high)'
         required: false
@@ -174,7 +174,7 @@ jobs:
               - `contrib/<language>/<recipe-name>`: Community-contributed recipes (default destination for new proposals).
               - `plugins/<vertical>/<solution>`: Vertical solutions shipped to users (e.g. `plugins/retail/store-ops/`).
             - Existing recipes in repository:
-            ${EXISTING_RECIPES}
+            ${{ env.EXISTING_RECIPES }}
 
             ## Decision Rubric — Walk the gates in order (hard gates first)
 

@@ -50,6 +50,15 @@ def test_template_body_signal():
     assert "template_signal" in reason
 
 
+def test_template_body_signal_language():
+    body = (
+        "2- What language is your recipe implemented in (e.g. Python, Go, etc)?"
+    )
+    is_prop, reason = is_recipe_proposal("New agent idea", body=body)
+    assert is_prop is True
+    assert "template_signal" in reason
+
+
 def test_label_contribute():
     is_prop, reason = is_recipe_proposal(
         "Financial agent", labels=["contribute"]

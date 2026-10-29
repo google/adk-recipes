@@ -31,7 +31,7 @@ PROPOSAL_MARKER = "[RECIPE PROPOSAL]"
 
 TEMPLATE_SIGNALS = [
     "What is the intent/purpose of your new recipe?",
-    "What language is your recipe is implemented in",
+    "What language is your recipe implemented in",
     "Will this be a deployable recipe",
     "What GCP services or third-party APIs",
     "Who (individual/team) will own and maintain this?",
