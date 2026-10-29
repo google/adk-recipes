@@ -1,0 +1,1024 @@
+<!doctype html>
+<!--
+ Copyright 2026 Google LLC
+
+ Licensed under the Apache License, Version 2.0 (the "License");
+ you may not use this file except in compliance with the License.
+ You may obtain a copy of the License at
+
+     https://www.apache.org/licenses/LICENSE-2.0
+
+ Unless required by applicable law or agreed to in writing, software
+ distributed under the License is distributed on an "AS IS" BASIS,
+ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ See the License for the specific language governing permissions and
+ limitations under the License.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>GenMedia Studio</title>
+<style>
+  /* The web app's design tokens (frontend/tailwind.config.js), light by
+     default (Gemini Enterprise's page is white), dark from the host theme. */
+  :root { color-scheme: light;
+    --bg: #fff; --card: #fff; --soft: rgba(17,24,39,.04); --soft2: rgba(17,24,39,.08); --tab-on: #fff;
+    --fg: #1f1f1f; --fg2: #5f6368; --fg3: #70757a; --line: #e4e6eb; --line2: #d3d6dc; --input: #fff;
+    --acc: #8ab4f8; --ink: #1967d2; --acc-soft: rgba(138,180,248,.16); --acc-ring: rgba(138,180,248,.6);
+    --grad: linear-gradient(135deg, #8ab4f8 0%, #a5c8fa 100%); --on-grad: #0b1220;
+    --title: linear-gradient(90deg, #1967d2 0%, #4a90e2 100%);
+    --glow: radial-gradient(900px 360px at 10% -10%, rgba(138,180,248,.16), transparent 60%);
+    --ok: #188038; --warn: #b06000; --err: #c5221f;
+    --shadow: 0 1px 3px rgba(0,0,0,.08), 0 1px 2px rgba(0,0,0,.04);
+    --shadow2: 0 4px 12px rgba(0,0,0,.1), 0 2px 4px rgba(0,0,0,.06); }
+  html[data-theme="dark"] { color-scheme: dark;
+    --bg: #050505; --card: rgba(255,255,255,.03); --soft: rgba(255,255,255,.04); --soft2: rgba(255,255,255,.08);
+    --tab-on: rgba(255,255,255,.09); --fg: #fff; --fg2: #a1a1aa; --fg3: #8b8b94;
+    --line: rgba(255,255,255,.07); --line2: rgba(255,255,255,.14); --input: rgba(0,0,0,.3);
+    --ink: #8ab4f8; --acc-soft: rgba(138,180,248,.12); --acc-ring: rgba(138,180,248,.45);
+    --title: linear-gradient(90deg, #8ab4f8 0%, #fff 100%);
+    --glow: radial-gradient(1200px 520px at 15% -10%, rgba(138,180,248,.10), transparent 60%),
+            radial-gradient(900px 480px at 100% 0%, rgba(165,200,250,.06), transparent 60%);
+    --ok: #34d399; --warn: #fbbf24; --err: #f87171;
+    --shadow: 0 1px 0 rgba(255,255,255,.04) inset, 0 12px 32px -12px rgba(0,0,0,.6);
+    --shadow2: 0 12px 40px rgba(0,0,0,.4), inset 0 0 0 1px rgba(255,255,255,.08); }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; color: var(--fg); background-color: var(--bg);
+         background-image: var(--glow); background-repeat: no-repeat;
+         font: 14px/1.5 "Google Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+         -webkit-font-smoothing: antialiased; }
+  :focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
+  ::selection { background: rgba(138,180,248,.3); }
+  header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+  header h1 { font-size: 18px; font-weight: 600; letter-spacing: -.01em; margin: 0 4px 0 0;
+              background: var(--title); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .tabs { display: flex; gap: 4px; padding: 4px; border-radius: 12px; background: var(--soft); border: 1px solid var(--line); }
+  .tab { border: 0; background: none; color: var(--fg2); border-radius: 8px; padding: 7px 14px;
+         font: inherit; font-weight: 500; cursor: pointer; white-space: nowrap; }
+  .tab:hover { color: var(--fg); background: var(--soft); }
+  .tab.on { color: var(--fg); background: var(--tab-on); box-shadow: var(--shadow2), inset 0 0 0 1px var(--line2); }
+  .spacer { flex: 1; }
+  section { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 16px;
+            margin: 12px 0; box-shadow: var(--shadow); }
+  section h2 { font-size: 15px; font-weight: 600; letter-spacing: -.005em; margin: 0 0 8px;
+               display: flex; gap: 8px; align-items: center; }
+  .hint { color: var(--fg2); font-size: 12px; margin: 2px 0 8px; }
+  .btn { border: 1px solid var(--line2); background: var(--soft); color: var(--fg); border-radius: 8px;
+         padding: 6px 12px; cursor: pointer; font: inherit; font-size: 13px; font-weight: 500; text-decoration: none;
+         display: inline-flex; align-items: center; gap: 6px; transition: background .2s, border-color .2s; }
+  .btn:hover:not(:disabled) { background: var(--acc-soft); border-color: var(--acc-ring); }
+  .btn.primary { background: var(--grad); color: var(--on-grad); border: 0; border-radius: 12px; padding: 11px 22px;
+                 font-weight: 600; font-size: 14px; box-shadow: 0 2px 12px rgba(138,180,248,.25);
+                 transition: box-shadow .3s, transform .3s; }
+  .btn.primary:hover:not(:disabled) { box-shadow: 0 4px 20px rgba(138,180,248,.35); transform: translateY(-1px); }
+  .btn:disabled { opacity: .5; cursor: not-allowed; }
+  .btn.primary:disabled { opacity: 1; background: var(--soft2); color: var(--fg3); box-shadow: none; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 6px 0; }
+  .between { justify-content: space-between; }
+  .chip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 9999px;
+          font-size: 11px; font-weight: 500; line-height: 16px; white-space: nowrap; font-variant-numeric: tabular-nums;
+          background: var(--soft2); color: var(--fg2); }
+  .chip.ok, .chip.warn, .chip.err, .chip.acc { background: color-mix(in srgb, currentColor 12%, transparent);
+          box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 28%, transparent); }
+  .chip.ok { color: var(--ok); } .chip.warn { color: var(--warn); } .chip.err { color: var(--err); } .chip.acc { color: var(--ink); }
+  .sel { display: flex; gap: 10px; align-items: center; padding: 6px; border-radius: 12px; margin: 6px 0;
+         background: var(--soft); border: 1px solid var(--line); }
+  .sel img { width: 44px; height: 44px; object-fit: cover; border-radius: 8px; }
+  .sel .lbl { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(88px, 1fr)); gap: 8px; }
+  .tile { border: 1px solid var(--line); border-radius: 12px; padding: 4px; cursor: pointer; background: var(--card);
+          text-align: center; font-size: 11px; color: var(--fg); transition: border-color .2s, box-shadow .2s; }
+  .tile:hover { border-color: var(--acc-ring); box-shadow: 0 0 0 3px rgba(138,180,248,.15); }
+  .tile img { width: 100%; aspect-ratio: 3/4; object-fit: cover; border-radius: 8px; display: block; }
+  .tile span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 3px; }
+  details > summary { cursor: pointer; color: var(--fg2); font-weight: 500; margin: 8px 0; }
+  details > summary:hover { color: var(--fg); }
+  input[type=text], textarea, select { font: inherit; color: var(--fg); background: var(--input);
+         border: 1px solid var(--line2); border-radius: 8px; padding: 7px 10px; }
+  input[type=text]:focus, textarea:focus, select:focus { outline: none; border-color: var(--acc);
+         box-shadow: 0 0 0 3px rgba(138,180,248,.25); }
+  input[type=text], textarea { width: 100%; }
+  input[type=checkbox], input[type=radio] { accent-color: #4a90e2; }
+  label.f { display: block; margin: 6px 0 4px; color: var(--fg2); font-size: 12px; font-weight: 500; }
+  .results { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; }
+  .imgs { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+  .res { border: 1px solid var(--line); border-radius: 16px; overflow: hidden; background: var(--card);
+         box-shadow: var(--shadow); display: flex; flex-direction: column; transition: box-shadow .2s, border-color .2s; }
+  .res > img, .res > video { width: 100%; display: block; background: var(--soft); }
+  .imgs .res > img { aspect-ratio: 3/4; object-fit: cover; }
+  .res .body { padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 6px; flex: 1; }
+  .res .body .row { margin: 0; }
+  .res .body .btn { align-self: flex-start; }
+  .res.best { border-color: var(--acc-ring); box-shadow: 0 0 40px rgba(138,180,248,.2); }
+  .res.hl { border-color: var(--acc); box-shadow: 0 0 0 3px rgba(138,180,248,.35); }
+  .link { border: 0; background: none; padding: 0; color: var(--ink); font: inherit; font-size: 12px;
+          font-weight: 500; cursor: pointer; align-self: flex-start; }
+  .link:hover { text-decoration: underline; }
+  .status { color: var(--fg2); font-size: 12px; }
+  .err { color: var(--err); }
+  .alert { color: var(--err); background: color-mix(in srgb, var(--err) 10%, transparent); border-radius: 12px;
+           border: 1px solid color-mix(in srgb, var(--err) 25%, transparent); padding: 8px 12px; margin: 8px 0; }
+  .warn { color: var(--warn); font-size: 12px; margin: 4px 0; }
+  .noprev { aspect-ratio: 3/4; display: flex; align-items: center; justify-content: center;
+            background: var(--soft); color: var(--fg3); font-size: 12px; }
+  .hidden { display: none !important; }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; scroll-behavior: auto !important; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>GenMedia Studio</h1>
+  <div id="tabs" class="row"></div>
+  <span class="spacer"></span>
+  <button class="btn hidden" id="panelBtn" title="Open in the side panel">Side panel</button>
+  <button class="btn" id="fullBtn" title="Full screen">⛶</button>
+</header>
+<main id="page"></main>
+<input type="file" id="file" accept="image/png,image/jpeg,image/webp" multiple class="hidden">
+
+<script>
+(() => {
+  // ---- state ---------------------------------------------------------------
+  // The server owns the studio (studio/state.py): every user action is sent
+  // with studio_event and the panel renders the state it gets back. `S` is
+  // that state, ready to render; `L` holds what only this panel knows.
+  const CAPS = { tryon: "Photo Try-On", video_tryon: "Video Try-On", spin: "360° Spin" };
+  const CAP_KEYS = ["tryon", "video_tryon", "spin"];
+  // Shown until the studio sets them.
+  const DEFAULTS = {
+    tryon: { scenario: "", style_guidelines: "", aspect_ratio: "3:4", image_size: "2K", num_variations: "1",
+             complete_look: true, upscale_crops: false },
+    video_tryon: { motion: "auto", prompt: "", aspect_ratio: "9:16", resolution: "720p", num_variations: "1" },
+    spin: { aspect_ratio: "auto", resolution: "720p", num_variations: "1" },
+  };
+  function blank() {
+    return {
+      capability: "tryon", person: null, reference_model: null, products: [], spin: [],
+      settings: { tryon: { ...DEFAULTS.tryon }, video_tryon: { ...DEFAULTS.video_tryon }, spin: { ...DEFAULTS.spin } },
+      results: { tryon: [], video_tryon: [], spin: [] },
+      images: [],  // the try-on images the last video try-on animated (state.images.video_tryon)
+      job: null,
+    };
+  }
+  let S = blank();
+  let stateAt = 0;  // updated_at of the state shown
+  const L = {
+    jobStatus: "", jobError: "", notice: "",
+    // The generation being followed: {cap, results, images, tryon (the image a Make video job redoes)}.
+    live: null,
+    retry: null,  // {cap, spec, tryon} of the last generation started or followed, for "Try again"
+    // The products picker: the featured products until a search (shown: its query).
+    catalog: { query: "", audience: "", shown: "", items: [], busy: false, error: "" },
+    // The people and products galleries: collapsed until the user opens them (kept across redraws).
+    open: { people: false, products: false },
+  };
+  let G = { models: [], spin: [] };  // the catalogue's preset models and multi-view sets
+  const randomBytes = (n) => crypto.getRandomValues(new Uint8Array(n));
+  const randomHex = (n) => Array.from(randomBytes(n), b => b.toString(16).padStart(2, "0")).join("");
+  let connected = false, uploadTarget = null;
+  let canWrite = false;  // only once the saved studio was read: never write over it
+  let restoreRun = 0, restoreMsg = "";  // restore attempts; their message
+  let nextId = 1 + (new DataView(randomBytes(4).buffer).getUint32(0) >>> 1);  // request ids
+  let studioId = randomHex(6);
+  const thumbs = new Map();  // ref or result uri -> browser URL
+  const pending = new Map();
+
+  // ---- data from the host and the server --------------------------------------
+  // The server keeps only known fields and settings; the panel still reads
+  // what it renders defensively: known keys, plain values, safe URLs.
+  const ITEM_KEYS = ["label", "ref", "thumb"];
+  const RESULT_KEYS = ["index", "status", "score", "uri", "url", "view", "note", "source"];  // source: its image's uri
+  const IMAGE_KEYS = ["index", "status", "score", "uri", "url", "note", "run", "passed"];
+  const isObj = (x) => x !== null && typeof x === "object" && !Array.isArray(x);
+  const isPrim = (v) => typeof v === "string" || typeof v === "number" || typeof v === "boolean";
+  const arr = (x) => (Array.isArray(x) ? x : []);
+  const str = (x) => (typeof x === "string" ? x : "");
+  // The allowed constant equal to `value`, or null.
+  function oneOf(allowed, value) { for (const k of allowed) if (k === value) return k; return null; }
+  const capOf = (c) => oneOf(CAP_KEYS, c);
+  function cleanItem(x) {
+    if (!isObj(x) || typeof x.ref !== "string") return null;
+    const o = {};
+    for (const k of ITEM_KEYS) if (Object.hasOwn(x, k) && typeof x[k] === "string") o[k] = x[k];
+    return o;
+  }
+  function cleanResult(r, keys) {
+    if (!isObj(r)) return null;
+    const o = {};
+    for (const k of keys) if (Object.hasOwn(r, k) && (isPrim(r[k]) || r[k] === null)) o[k] = r[k];
+    return o;
+  }
+  // Browser URLs: https, or inline images and videos; anything else is dropped.
+  function safeUrl(u) {
+    if (typeof u !== "string") return "";
+    if (/^data:(image|video)\/[a-z0-9.+-]+[;,]/i.test(u)) return u;
+    try { return new URL(u).protocol === "https:" ? u : ""; } catch (_) { return ""; }
+  }
+  // Results with their preview URLs: the server's, else the ones already seen.
+  function resultsOf(list, keys) {
+    return arr(list).map(r => cleanResult(r, keys || RESULT_KEYS)).filter(Boolean).map(r => {
+      if (typeof r.uri === "string" && typeof r.url === "string" && r.url) thumbs.set(r.uri, r.url);
+      else if (typeof r.uri === "string") r.url = thumbs.get(r.uri) || "";
+      return r;
+    });
+  }
+  // Video try-on images (state.images.video_tryon, a job's images): each has its uri.
+  const imagesOf = (list) => resultsOf(list, IMAGE_KEYS).filter(m => typeof m.uri === "string" && m.uri);
+  // A state from the server, ready to render.
+  // Keys of old studios (video_start, tryon_image, source) are ignored.
+  function fromServer(st) {
+    const s = blank();
+    const cap = capOf(st.capability);
+    if (cap) s.capability = cap;
+    s.person = withThumb(st.person);
+    s.reference_model = withThumb(st.reference_model);
+    s.products = arr(st.products).map(withThumb).filter(Boolean);
+    s.spin = arr(st.spin).map(withThumb).filter(Boolean);
+    const settings = isObj(st.settings) ? st.settings : {};
+    const results = isObj(st.results) ? st.results : {}, images = isObj(st.images) ? st.images : {};
+    for (const c of CAP_KEYS) {
+      const page = Object.hasOwn(settings, c) && isObj(settings[c]) ? settings[c] : {};
+      for (const k of Object.keys(DEFAULTS[c])) if (Object.hasOwn(page, k) && isPrim(page[k])) s.settings[c][k] = page[k];
+      // Kept without a usable url too (its preview could not be renewed).
+      s.results[c] = resultsOf(Object.hasOwn(results, c) ? results[c] : []).filter(r => r.uri || r.url);
+    }
+    s.images = imagesOf(Object.hasOwn(images, "video_tryon") ? images.video_tryon : []);
+    // Studios saved with the old catwalk / turnaround motions.
+    if (s.settings.video_tryon.motion !== "custom") s.settings.video_tryon.motion = "auto";
+    const job = isObj(st.job) ? st.job : null;
+    if (job && typeof job.job_id === "string" && job.job_id && capOf(job.capability))  // tryon: a Make video's image
+      s.job = { id: job.job_id, capability: capOf(job.capability), tryon: str(job.tryon_image) };
+    return s;
+  }
+
+  // ---- host bridge ---------------------------------------------------------
+  const post = (m) => { if (window.parent !== window) window.parent.postMessage(m, "*"); };
+  const notify = (method, params) => post({ jsonrpc: "2.0", method, params: params || {} });
+  function request(method, params, ms) {
+    return new Promise((resolve, reject) => {
+      if (window.parent === window) return reject(new Error("no host"));
+      const id = nextId++;
+      const t = setTimeout(() => { pending.delete(id); reject(new Error("timeout: " + method)); }, ms || 60000);
+      pending.set(id, { resolve, reject, t });
+      post({ jsonrpc: "2.0", id, method, params: params || {} });
+    });
+  }
+  // A tool's payload: its structuredContent, else its text as JSON. Errors
+  // raised by a tool come back as plain text: `{error: text}`.
+  function payload(r) {
+    if (isObj(r.structuredContent)) return r.structuredContent;
+    const text = arr(r.content).filter(c => isObj(c) && typeof c.text === "string").map(c => c.text).join("\n");
+    if (!text) return {};
+    try {
+      const v = JSON.parse(text);
+      return isObj(v) ? v : { error: text };
+    } catch (_) { return { error: text }; }
+  }
+  async function tool(name, args) {
+    const r = await request("tools/call", { name, arguments: args || {} }, 120000);
+    if (!isObj(r)) throw new Error("tool failed");
+    const sc = payload(r);
+    if (r.isError) throw new Error(str(sc.error) || "tool failed");
+    return sc;
+  }
+  let lastH = 0;
+  function reportHeight() {
+    const h = Math.ceil(document.documentElement.scrollHeight);
+    if (Math.abs(h - lastH) > 4) { lastH = h; notify("ui/notifications/size-changed", { height: h }); }
+  }
+
+  // ---- items and thumbnails -------------------------------------------------
+  const lean = (x) => x && { label: x.label, ref: x.ref };
+  function remember(item) { if (item && item.ref && item.thumb) thumbs.set(item.ref, item.thumb); return item; }
+  function withThumb(x) {
+    const item = cleanItem(x);
+    if (item) item.thumb = item.thumb || thumbs.get(item.ref) || "";
+    return item;
+  }
+  function allItems() {
+    return [S.person, S.reference_model, ...S.products, ...S.spin].filter(Boolean);
+  }
+  async function fillThumbs() {
+    const missing = [...new Set(allItems().filter(i => !i.thumb && !thumbs.has(i.ref)).map(i => i.ref))];
+    if (!missing.length || !connected) return;
+    try {
+      const r = await tool("studio_preview", { refs: missing });
+      for (const [ref, url] of Object.entries(isObj(r.previews) ? r.previews : {}))
+        if (typeof url === "string") thumbs.set(ref, url);
+    } catch (_) { /* thumbnails are cosmetic */ }
+    for (const i of allItems()) if (!i.thumb) i.thumb = thumbs.get(i.ref) || "";
+    render();
+  }
+  // Catalogue picks come back as gs:// copies: they keep their thumbnails.
+  function carryThumbs(refs) {
+    for (const [from, to] of Object.entries(isObj(refs) ? refs : {}))
+      if (typeof to === "string" && thumbs.has(from)) thumbs.set(to, thumbs.get(from));
+  }
+
+  // ---- model context ---------------------------------------------------------
+  const leanResult = (r) => ({ index: r.index, status: r.status, score: r.score, uri: r.uri, view: r.view, note: r.note,
+                               source: r.source });
+  const leanImage = (m) => ({ index: m.index, status: m.status, score: m.score, uri: m.uri, note: m.note, passed: m.passed });
+  function snapshot() {
+    const results = {};
+    for (const cap of CAP_KEYS) results[cap] = S.results[cap].map(leanResult);
+    return { capability: S.capability, person: lean(S.person), reference_model: lean(S.reference_model),
+             products: S.products.map(lean), spin: S.spin.map(lean),
+             settings: S.settings, results, images: { video_tryon: S.images.map(leanImage) },
+             job: S.job ? { job_id: S.job.id, capability: S.job.capability } : null };
+  }
+  function summary() {
+    const st = S.settings[S.capability];
+    const lines = [`GenMedia Studio is open on ${CAPS[S.capability]} (studio_id: ${studioId};`
+      + " pass it to studio_agent with the user's message)."];
+    if (S.capability !== "spin") {
+      lines.push(`Person: ${S.person ? S.person.label : "none"}.`);
+      lines.push("Products: " + (S.products.map((p, i) => `${i}: ${p.label}`).join("; ") || "none") + ".");
+      if (S.reference_model) lines.push(`Reference model: ${S.reference_model.label}.`);
+    } else {
+      lines.push("Spin photos: " + (S.spin.map(p => p.label).join("; ") || "none") + ".");
+    }
+    if (S.capability === "video_tryon" && S.images.length)
+      lines.push("Try-on images: " + S.images.map((m, i) => `Image ${i + 1}, score ${m.score ?? "n/a"}`
+        + (m.passed === false ? " (didn't pass every check)" : "")).join("; ") + ".");
+    lines.push("Settings: " + JSON.stringify(st) + ".");
+    if (makesTryOn()) {
+      const { complete_look, upscale_crops } = S.settings.tryon;
+      lines.push("Try-on options: " + JSON.stringify({ complete_look, upscale_crops }) + ".");
+    }
+    const res = S.results[S.capability];
+    if (S.job || polling) lines.push(`A generation is running (${L.jobStatus}).`);
+    else if (res.length) lines.push(`Last generation: ${res.length} result(s), best score ${res[0].score ?? "n/a"}.`);
+    return lines.join(" ");
+  }
+  let ctxTimer = null;
+  function syncContext() {
+    if (!connected) return;
+    clearTimeout(ctxTimer);
+    ctxTimer = setTimeout(() => {
+      request("ui/update-model-context", {
+        content: [{ type: "text", text: summary() }],
+        structuredContent: { studio_id: studioId, studio: snapshot() },
+      }).catch(() => {});
+    }, 300);
+  }
+
+  // ---- the server's state ------------------------------------------------------
+  const typing = new Map();  // "cap/key" -> {value}: a setting being typed, not yet saved
+  // Show a state from the server unless the panel shows a newer one
+  // (`strict`: only a strictly newer one, for results replayed by the host).
+  function adopt(st, at, strict) {
+    const t = Number(at) || 0;
+    if (!isObj(st) || (strict ? t <= stateAt : t < stateAt)) return false;
+    stateAt = t;
+    const next = fromServer(st);
+    for (const [k, v] of typing) {  // what the user is typing stays
+      const [cap, key] = k.split("/");
+      if (capOf(cap) && Object.hasOwn(DEFAULTS[cap], key)) next.settings[cap][key] = v.value;
+    }
+    if (!polling) L.live = null;
+    const same = JSON.stringify(next) === JSON.stringify(S);
+    S = next;
+    if (!same) { render(); syncContext(); fillThumbs(); }
+    follow();
+    return true;
+  }
+  async function refresh() {
+    try {
+      const saved = await tool("studio_state", { studio_id: studioId });
+      if (saved.saved === true) adopt(saved.state, saved.updated_at);
+    } catch (_) { /* the next action or result brings the state */ }
+  }
+  // Every user action goes to the server, one at a time and in order; the
+  // last answer is rendered (an earlier one would undo the later actions'
+  // local changes). Never before the saved studio was read (canWrite): the
+  // action would apply to a studio this panel does not show.
+  let queue = Promise.resolve(), queued = 0;
+  function act(action) {
+    if (!connected || !canWrite) return Promise.resolve(null);
+    queued++;
+    if (queued === 1) render();
+    const run = queue.then(async () => {
+      try {
+        const r = await tool("studio_event", { studio_id: studioId, event: action });
+        carryThumbs(r.refs);
+        L.notice = "";
+        if (queued === 1) adopt(r.state, r.updated_at);
+        return r;
+      } catch (e) {
+        L.notice = `Not saved: ${e.message}`;
+        if (queued === 1) await refresh();  // the server's state wins
+        return null;
+      } finally {
+        queued--;
+        if (!queued) render();
+      }
+    });
+    queue = run.catch(() => {});
+    return run;
+  }
+  function settingChanged(cap, key, value, debounceMs) {
+    syncContext();
+    const k = `${cap}/${key}`, entry = { value };
+    clearTimeout((typing.get(k) || {}).t);
+    typing.set(k, entry);
+    entry.t = setTimeout(() => {
+      act({ settings: { [key]: value }, page: cap }).finally(() => { if (typing.get(k) === entry) typing.delete(k); });
+    }, debounceMs || 0);
+  }
+
+  // ---- DOM helpers -----------------------------------------------------------
+  // Builds an element. Text only ever reaches the page as text nodes, and
+  // src / href only take https and inline image or video URLs.
+  function el(tag, attrs, ...kids) {
+    const n = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs || {})) {
+      if (k === "on") for (const [e, f] of Object.entries(v)) n.addEventListener(e, f);
+      else if (k === "class") n.className = v;
+      else if (k === "src" || k === "href") { const u = safeUrl(v); if (u) n.setAttribute(k, u); }
+      else if (v !== undefined && v !== null && v !== false) n.setAttribute(k, v === true ? "" : String(v));
+    }
+    for (const k of kids.flat()) if (k !== null && k !== undefined && k !== false)
+      n.append(k instanceof Node ? k : String(k));  // strings become text nodes
+    return n;
+  }
+  const btn = (text, onclick, cls) => el("button", { class: "btn " + (cls || ""), on: { click: onclick } }, text);
+  function chip(item, onRemove) {
+    return el("div", { class: "sel" }, el("img", { src: item.thumb || "", alt: "" }),
+      el("span", { class: "lbl", title: item.label }, item.label), onRemove ? btn("Remove", onRemove) : null);
+  }
+  function tile(item, onclick, caption) {
+    return el("div", { class: "tile", title: caption || item.label, on: { click: onclick } },
+      el("img", { src: item.thumb || "", alt: "" }), el("span", {}, caption || item.label));
+  }
+  function section(title, count, ...kids) {
+    return el("section", {}, el("h2", {}, title, count ? el("span", { class: "chip" }, count) : null), ...kids);
+  }
+  // Setting inputs change the shown value at once and save it.
+  function select(cap, key, options, label, names) {
+    const value = S.settings[cap][key];
+    const s = el("select", { on: { change: (e) => { S.settings[cap][key] = e.target.value; settingChanged(cap, key, e.target.value); } } },
+      options.map(o => el("option", { value: o, selected: value === o }, (names && names[o]) || o)));
+    return el("span", {}, el("label", { class: "f" }, label), s);
+  }
+  function toggle(cap, key, label, hint) {
+    const box = el("input", { type: "checkbox", checked: S.settings[cap][key] === true,
+      on: { change: (e) => { S.settings[cap][key] = e.target.checked; settingChanged(cap, key, e.target.checked); } } });
+    return el("div", {}, el("label", { class: "row" }, box, label), el("div", { class: "hint" }, hint));
+  }
+  function text(cap, key, label, placeholder, long) {
+    const inp = el(long ? "textarea" : "input", { type: "text", placeholder, rows: long ? 2 : undefined, "data-k": `${cap}/${key}`,
+      on: { input: (e) => { S.settings[cap][key] = e.target.value; settingChanged(cap, key, e.target.value, 1500); } } });
+    inp.value = S.settings[cap][key] || "";
+    return el("div", {}, el("label", { class: "f" }, label), inp);
+  }
+
+  // ---- actions ---------------------------------------------------------------
+  function setSlot(field, item, source) {
+    remember(item);
+    act({ set: { field, item: lean(item) }, source });
+  }
+  const clearField = (field) => act({ clear: { field } });
+  function addProduct(item, source) {
+    if (S.products.length >= 8 || S.products.some(p => p.ref === item.ref)) return;
+    remember(item);
+    act({ add: { field: "product", item: lean(item), replace_index: -1 }, source });
+  }
+  const removeAt = (field, index) => act({ remove: { field, index } });
+  function setSpin(items, source) {
+    items.forEach(remember);
+    act({ set: { field: "spin", items: items.map(lean) }, source });
+  }
+
+  // ---- sections --------------------------------------------------------------
+  // A collapsible gallery that stays as the user left it when the panel redraws.
+  function gallery(key, title, ...kids) {
+    return el("details", { open: L.open[key], on: { toggle: (e) => { L.open[key] = e.target.open; } } },
+      el("summary", {}, title), ...kids);
+  }
+  function personSection() {
+    return section("Person", S.person ? "1/1" : "0/1",
+      el("div", { class: "hint" }, "A photo of the person, or a model from the gallery."),
+      S.person ? chip(S.person, () => clearField("person")) : null,
+      el("div", { class: "row" }, btn("Upload photo", () => pick("person"))),
+      gallery("people", `Gallery (${G.models.length})`,
+        el("div", { class: "grid" }, G.models.map(m => tile(m, () => setSlot("person", { ...m }, "gallery"))))));
+  }
+  function productsSection() {
+    return section("Products", `${S.products.length}/8`,
+      el("div", { class: "hint" }, "Several photos of one product, or one photo per product for an outfit."),
+      S.products.map((p, i) => chip(p, () => removeAt("product", i))),
+      el("div", { class: "row" }, btn("Upload photos", () => pick("product")),
+        S.products.length ? btn("Clear", () => clearField("product")) : null),
+      productPicker((item) => addProduct({ ...item }, "catalog"), "+ Add"));
+  }
+  // An empty query lists the featured products; a search is noted for the agent.
+  async function findProducts(query, audience) {
+    const C = L.catalog;
+    C.busy = true; C.error = ""; render();
+    try {
+      const found = await tool("studio_catalog_search", { query, audience, studio_id: studioId });
+      C.items = arr(found.items).map(cleanItem).filter(Boolean).map(remember);
+      C.shown = query; C.error = found.error || "";
+    } catch (e) { C.error = String(e.message); }
+    C.busy = false; render();
+  }
+  // The try-on products picker: a search box over the featured products.
+  function productPicker(onUse, verb) {
+    const C = L.catalog;
+    const q = el("input", { type: "text", placeholder: "Search the catalogue, e.g. light blue linen shirt" });
+    q.value = C.query;
+    const go = () => { C.query = q.value.trim(); C.audience = aud.value; findProducts(C.query, C.audience); };
+    const aud = el("select", { on: { change: go } }, ["", "women", "men", "unisex"].map(a =>
+      el("option", { value: a, selected: C.audience === a }, a || "any audience")));
+    q.addEventListener("keydown", (e) => { if (e.key === "Enter") go(); });
+    return gallery("products", "Products",
+      el("div", { class: "row" }, el("div", { style: "flex:1" }, q), aud, btn(C.busy ? "Searching…" : "Search", go)),
+      C.error ? el("div", { class: "err" }, C.error) : null,
+      el("div", { class: "hint" }, C.shown ? `Results for “${C.shown}”` : "Featured"),
+      !C.items.length && !C.busy ? el("div", { class: "hint" }, "No products match.") : null,
+      el("div", { class: "grid" }, C.items.map(it => tile(it, () => onUse(it), verb + " · " + it.label))));
+  }
+  function refModelSection() {
+    return el("details", { open: !!S.reference_model }, el("summary", {}, "Reference model (optional)"),
+      el("div", { class: "hint" }, "Upload your own photo of a model already wearing the look; its parts are used when you have no worn photo of an item."),
+      S.reference_model ? chip(S.reference_model, () => clearField("reference_model")) : null,
+      S.reference_model ? lookOptions() : null,
+      el("div", { class: "row" }, btn("Upload photo", () => pick("reference_model"))));
+  }
+  // The reference model's options (Photo Try-On settings, also used by Video Try-On).
+  function lookOptions() {
+    return [
+      toggle("tryon", "complete_look", "Complete the look",
+        "Also dress the person in what only the reference model wears (e.g. its skirt and shoes), taken from its photo."),
+      toggle("tryon", "upscale_crops", "Upscale look-photo crops",
+        "Sharpen the shoes taken from the reference model photo before use. Slower."),
+    ];
+  }
+  function styleSection() {
+    return section("Style & scenario", "",
+      text("tryon", "style_guidelines", "Style guidelines", "Brand rules, e.g. jackets closed, shirts tucked", true),
+      text("tryon", "scenario", "Scenario", "a plain light grey studio environment"));
+  }
+  function motionSection() {
+    const st = S.settings.video_tryon;
+    const radio = (v, label) => el("label", { class: "row" },
+      el("input", { type: "radio", name: "motion", value: v, checked: st.motion === v,
+        on: { change: () => { S.settings.video_tryon.motion = v; render(); settingChanged("video_tryon", "motion", v); } } }), label);
+    return section("Motion", "",
+      radio("auto", "Automatic — planned from your images"),
+      radio("custom", "Custom — describe the video"),
+      st.motion === "custom" ? text("video_tryon", "prompt", "What the video should show", "e.g. walks to the camera, stops and turns", true) : null);
+  }
+  // 360° Spin photos: uploads or every view of a catalogue spin set (a catalogue product has one
+  // photo, too few to spin). One photo is accepted, with a warning. Each view keeps its own
+  // thumbnail (`thumbs`); one without is previewed once the studio has it.
+  function spinSection() {
+    const useSet = (p) => setSpin(arr(p.refs).map((r, i) => ({ label: `${p.label} ${i + 1}`, ref: r, thumb: str(arr(p.thumbs)[i]) })), "gallery");
+    return section("Product photos", `${S.spin.length}/8`,
+      el("div", { class: "hint" }, "Use several photos of the same product from different sides."),
+      S.spin.map((p, i) => chip(p, () => removeAt("spin", i))),
+      S.spin.length === 1 ? el("div", { class: "warn", role: "status" },
+        "One photo works, but the spin will invent the sides and back: add photos from other angles.") : null,
+      el("div", { class: "row" }, btn("Upload photos", () => pick("spin")),
+        S.spin.length ? btn("Clear", () => clearField("spin")) : null),
+      el("details", { open: !S.spin.length }, el("summary", {}, `Spin sets (${G.spin.length})`),
+        el("div", { class: "hint" }, "Catalogue products photographed from several sides."),
+        el("div", { class: "grid" }, G.spin.map(p => tile(p, () => useSet(p))))));
+  }
+  // What Variations counts: Video Try-On makes try-on images, each animated into the deployment's
+  // videos per image (2 by default).
+  function variations() {
+    if (S.capability !== "video_tryon") return ["Variations", ""];
+    return ["Try-on images", "Try-on images to make. Each one animated gets 2 videos (unless the deployment sets another number)."];
+  }
+  function optionsSection() {
+    const cap = S.capability;
+    const [label, hint] = variations();
+    const kids = [select(cap, "num_variations", ["1", "2", "3"], label)];
+    if (cap === "tryon") {
+      kids.push(select(cap, "aspect_ratio", ["3:4", "1:1", "4:3", "9:16", "16:9"], "Aspect ratio"),
+                select(cap, "image_size", ["1K", "2K", "4K"], "Image size"));
+    } else {
+      kids.push(select(cap, "aspect_ratio", cap === "spin" ? ["auto", "16:9", "9:16"] : ["9:16", "16:9"], "Aspect ratio"),
+                select(cap, "resolution", ["720p", "1080p"], "Resolution"));
+    }
+    return el("details", {}, el("summary", {}, "Run options"), el("div", { class: "row" }, kids),
+      hint ? el("div", { class: "hint" }, hint) : null);
+  }
+  // Whether the current page makes a try-on image (Photo Try-On and Video Try-On).
+  const makesTryOn = () => S.capability !== "spin";
+  // The page of the generation running, if one.
+  const jobCap = () => (polling && L.live ? L.live.cap : starting || (S.job ? S.job.capability : null));
+  const busy = () => !!(S.job || polling || starting);  // one generation at a time
+  const ready = () => connected && canWrite;  // the saved studio was read
+  function generateSection() {
+    const cap = S.capability;
+    const running = jobCap() === cap;
+    // "Try again": the failed generation of this page, once nothing runs.
+    const retry = L.jobError && L.retry && L.retry.cap === cap && !busy();
+    return el("div", { class: "row" },
+      el("button", { class: "btn primary", disabled: busy(), on: { click: () => generate() } },
+        running ? "Generating…" : `Generate ${CAPS[cap]}`),
+      el("span", { class: "status " + (L.jobError ? "err" : ""), role: L.jobError ? "alert" : "status" },
+        L.jobError || (running ? L.jobStatus : "")),
+      retry ? el("button", { class: "btn", disabled: !ready(), on: { click: tryAgain } }, "Try again") : null);
+  }
+  // Video Try-On's MP4 plays as a video; any other result is an image (a spin is an animated WebP).
+  const isVideo = (r) => /\.mp4$/i.test(String(r.uri || ""));
+  // A saved result whose preview URL could not be renewed keeps its place.
+  function media(r, video, alt) {
+    if (!safeUrl(r.url)) return el("div", { class: "noprev" }, "Preview unavailable");
+    return video ? el("video", { src: r.url, controls: true, loop: true, muted: true, playsinline: true })
+      : el("img", { src: r.url, alt: alt || "Result" });
+  }
+  // The evaluator's score: green from 80, amber from 60, red below.
+  function scoreChip(score) {
+    if (typeof score !== "number") return null;
+    const n = Math.round(score);
+    return el("span", { class: "chip " + (n >= 80 ? "ok" : n >= 60 ? "warn" : "err"), title: "Evaluator score, 0-100" }, `Score ${n}`);
+  }
+  // Video Try-On's images and videos: the studio's, or the generation being
+  // followed. A full run shows its own; a Make video job (live.tryon) only
+  // replaces the videos of its image, its new ones last and numbered above every
+  // saved index, as the server saves them. `making`: the image whose video is being made.
+  function videoView() {
+    const live = L.live && L.live.cap === "video_tryon" ? L.live : null;
+    const saved = S.results.video_tryon, running = !!live && !!polling;
+    if (!live) return { images: S.images, videos: saved, running, making: "" };
+    if (!live.tryon) return { images: live.images, videos: live.results, running, making: "" };
+    const top = Math.max(-1, ...saved.map(r => (Number.isInteger(r.index) ? r.index : -1)));
+    const made = live.results.map((r, n) => ({ ...r, index: top + 1 + n, source: live.tryon }));
+    return { images: S.images, videos: saved.filter(r => r.source !== live.tryon).concat(made),
+             running, making: running ? live.tryon : "" };
+  }
+  // "Best" is the first in one judge's order. Video Try-On's videos were all
+  // ranked together only when one job made them: each job writes to its own
+  // run folder (runs/<date>/studio-<id>/<run>/outputs/), so after a Make video
+  // the page holds two folders.
+  const ranked = (v) => !v.running && new Set(v.videos.map(r => String(r.uri || "").replace(/[^/]*$/, ""))).size <= 1;
+  // An image and its videos light up together; "From image N" scrolls to it.
+  function mark(n, on) { for (const x of document.querySelectorAll(`[data-img="${n}"]`)) x.classList.toggle("hl", on); }
+  const linked = (n) => ({ "data-img": n, on: { mouseenter: () => mark(n, true), mouseleave: () => mark(n, false),
+                                                focusin: () => mark(n, true), focusout: () => mark(n, false) } });
+  function showImage(n) {
+    const card = document.getElementById(`img-${n}`);
+    if (!card) return;
+    card.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    mark(n, true); setTimeout(() => mark(n, false), 1500);
+  }
+  function imageCard(m, n, v) {
+    const count = v.videos.filter(r => r.source === m.uri).length;
+    const status = v.making === m.uri ? "Making video…" : count ? `${count} video${count > 1 ? "s" : ""}` : "No video";
+    return el("article", { class: "res", id: `img-${n}`, ...linked(n) }, media(m, false, `Try-on image ${n}`),
+      el("div", { class: "body" },
+        el("div", { class: "row between" }, el("strong", {}, `Image ${n}`), scoreChip(m.score)),
+        m.passed === false ? el("div", {}, el("span", { class: "chip warn" }, "Didn't pass every check")) : null,
+        el("div", { class: "status" }, status),
+        el("button", { class: "btn", disabled: busy() || !ready(), on: { click: () => makeVideo(m.uri) } }, "Make video")));
+  }
+  function imagesSection(v) {
+    if (!v.images.length) return null;
+    return section("Try-on images", String(v.images.length),
+      el("div", { class: "hint" }, "The images the videos were made from. Make video makes only that image's videos again."),
+      el("div", { class: "imgs" }, v.images.map((m, i) => imageCard(m, i + 1, v))));
+  }
+  function resultCard(r, best, video, images) {
+    const i = video ? images.findIndex(m => m.uri === r.source) : -1, n = i + 1;
+    return el("article", { class: "res" + (best ? " best" : ""), ...(n ? linked(n) : {}) }, media(r, isVideo(r)),
+      el("div", { class: "body" },
+        el("div", { class: "row" }, scoreChip(r.score), best ? el("span", { class: "chip acc" }, "Best") : null,
+          r.status === "rejected" ? el("span", { class: "chip warn" }, "Not publishable") : null,
+          r.view === "back" ? el("span", { class: "chip" }, "Back") : null),
+        n ? el("button", { class: "link", on: { click: () => showImage(n) } }, `From image ${n}`) : null,
+        r.note ? el("div", { class: "hint" }, r.note) : null,
+        safeUrl(r.url) ? el("a", { href: safeUrl(r.url), target: "_blank", rel: "noopener", class: "btn" }, "Open") : null));
+  }
+  function resultsSection() {
+    const cap = S.capability;
+    // The generation being followed shows its results so far; the studio's
+    // results once the server recorded them.
+    const live = L.live && L.live.cap === cap ? L.live : null;
+    const v = cap === "video_tryon" ? videoView()
+      : { images: [], videos: live ? live.results : S.results[cap], running: !!live && !!polling };
+    const res = v.videos, best = cap === "video_tryon" ? ranked(v) : !v.running;
+    return [imagesSection(v), res.length ? section(v.running ? "Results so far" : "Results", String(res.length),
+      el("div", { class: "results" }, res.map((r, i) => resultCard(r, best && i === 0, cap !== "tryon", v.images))))
+      : null];
+  }
+
+  function render() {
+    const active = document.activeElement;
+    const focused = active && active.dataset ? str(active.dataset.k) : "";
+    const caret = focused ? [active.selectionStart, active.selectionEnd] : null;
+    const tabs = document.getElementById("tabs");
+    tabs.replaceChildren(el("div", { class: "tabs", role: "tablist", "aria-label": "Capability" }, Object.entries(CAPS).map(([k, v]) =>
+      el("button", { class: "tab" + (S.capability === k ? " on" : ""), role: "tab", "aria-selected": String(S.capability === k),
+        on: { click: () => {
+          if (S.capability === k) return;
+          S.capability = k; render(); syncContext(); act({ capability: k });
+        } } }, v))), queued ? el("span", { class: "status" }, "Saving…") : "");
+    const page = [restoreMsg ? el("div", { class: "alert" }, restoreMsg) : null,
+                  L.notice ? el("div", { class: "alert", role: "alert" }, L.notice) : null];
+    // Video Try-On takes the Photo Try-On inputs: the video starts with that try-on.
+    if (makesTryOn()) page.push(personSection(), productsSection(), refModelSection(), styleSection());
+    if (S.capability === "video_tryon") page.push(motionSection());
+    if (S.capability === "spin") page.push(spinSection());
+    page.push(optionsSection(), generateSection(), ...resultsSection());
+    document.getElementById("page").replaceChildren(...page.filter(Boolean));
+    // The text being typed keeps its focus and caret.
+    const again = focused && [...document.querySelectorAll("[data-k]")].find(n => n.dataset.k === focused);
+    if (again) { again.focus(); try { again.setSelectionRange(caret[0], caret[1]); } catch (_) { /* not a text field */ } }
+    reportHeight();
+  }
+
+  // ---- uploads ---------------------------------------------------------------
+  const fileInput = document.getElementById("file");
+  function pick(target) { uploadTarget = target; fileInput.multiple = target === "product" || target === "spin"; fileInput.click(); }
+  function shrink(file) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onerror = () => reject(new Error("not an image"));
+      img.onload = () => {
+        const m = 1600, s = Math.min(1, m / Math.max(img.width, img.height));
+        const c = document.createElement("canvas");
+        c.width = Math.round(img.width * s); c.height = Math.round(img.height * s);
+        c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+        resolve(c.toDataURL("image/jpeg", 0.9));
+      };
+      img.src = URL.createObjectURL(file);
+    });
+  }
+  fileInput.addEventListener("change", async () => {
+    const files = Array.from(fileInput.files || []).slice(0, 8);
+    const field = uploadTarget;
+    fileInput.value = "";
+    for (const f of files) {
+      try {
+        const up = await tool("studio_upload", { image_base64: await shrink(f), filename: f.name, studio_id: studioId });
+        const item = remember(cleanItem({ label: up.label, ref: up.ref, thumb: up.thumb }));
+        if (!item) throw new Error(str(up.error) || "no image saved");
+        const meta = { source: "upload", description: str(up.description) };
+        if (field !== "product" && field !== "spin") await act({ set: { field, item: lean(item) }, ...meta });
+        else if ((field === "spin" ? S.spin : S.products).length < 8)
+          await act({ add: { field: field === "spin" ? "spin" : "product", item: lean(item), replace_index: -1 }, ...meta });
+      } catch (e) { L.notice = `Upload failed: ${e.message}`; render(); }
+    }
+  });
+
+  // ---- generation ------------------------------------------------------------
+  // A start spec. `tryon`: a Make video job, the uri of the video try-on image
+  // whose videos are made again (the server takes its products and back view).
+  function spec(cap, tryon) {
+    const refs = (xs) => xs.map(x => x.ref);
+    return { studio_id: studioId, capability: cap, person: S.person?.ref || "",
+             reference_model: S.reference_model?.ref || "", products: refs(S.products), tryon_image: tryon || "",
+             spin: refs(S.spin), settings: { ...S.settings.tryon, ...S.settings[cap] } };
+  }
+  function missing(cap) {
+    if (cap === "spin") return S.spin.length ? "" : "Add product photos to spin first.";
+    if (!S.person) return "Choose a person first.";
+    if (!S.products.length) return "Add at least one product first.";
+    return "";
+  }
+  function generate() {
+    const cap = S.capability;
+    if (busy()) return;
+    L.jobError = missing(cap);
+    if (L.jobError) { L.retry = null; return render(); }
+    start(cap, spec(cap));
+  }
+  const makeVideo = (uri) => { if (ready()) start("video_tryon", spec("video_tryon", uri)); };
+  // The failed generation again: its spec, or (one this panel only followed) the page's,
+  // recomputing what the server's preprocessing cache kept for it (refresh_cache).
+  function tryAgain() {
+    const r = L.retry;
+    if (r && ready()) start(r.cap, { ...(r.spec || spec(r.cap, r.tryon)), refresh_cache: true });
+  }
+  // `starting`: the page of the generation being started; nothing else starts meanwhile.
+  let starting = null;
+  async function start(cap, sp) {
+    if (busy()) return;
+    starting = cap; L.jobError = ""; L.jobStatus = "starting…";
+    L.retry = { cap, spec: sp, tryon: sp.tryon_image };
+    render();
+    let jobId = "";
+    try {
+      const started = await tool("studio_job_start", { spec: sp });
+      if (started.error) throw new Error(String(started.error));
+      if (typeof started.job_id !== "string" || !started.job_id) throw new Error("The generation did not start.");
+      jobId = started.job_id;
+    } catch (e) {  // unless the panel follows another generation meanwhile (e.g. the agent's)
+      if (!polling) L.jobError = String(e.message);
+    }
+    starting = null;
+    if (!jobId) return render();
+    poll(jobId, cap, true, sp.tryon_image);  // clears any earlier error
+    act({ job_started: { job_id: jobId, capability: cap } });  // saved with the studio
+  }
+  const POLL_LIMIT_MS = 30 * 60 * 1000;  // stop following a generation after this
+  const POLL_RETRY_MS = [4000, 8000, 16000, 30000, 30000];  // waits after a failed status poll
+  let pollRun = 0;  // bumped to stop the running poll loop (teardown)
+  let polling = null;  // id of the generation being followed
+  const followed = new Set();  // generations already followed in this page load
+  // Follow the studio's running generation, e.g. one the agent started or
+  // found in a reopened studio (with its image, for a Make video).
+  function follow() {
+    if (S.job && !polling && !followed.has(S.job.id)) poll(S.job.id, S.job.capability, false, S.job.tryon);
+  }
+  // Follow a generation (`fresh`: just started here), showing each variation
+  // as soon as it is judged. When it ends, the server records its results in
+  // the studio (job_finished) and the panel shows that state. A failed status
+  // poll is retried; when the panel stops following before the end, it
+  // shows the server's state again (which may follow the job anew).
+  // `tryon`: the image of a Make video job.
+  async function poll(jobId, capability, fresh, tryon) {
+    const cap = capOf(capability);
+    if (typeof jobId !== "string" || !jobId || !cap || polling) return;
+    polling = jobId; followed.add(jobId); L.jobStatus = "starting…"; L.jobError = "";
+    L.live = { cap, results: [], images: [], tryon: tryon || "" };
+    if (!fresh) L.retry = { cap, spec: null, tryon: tryon || "" };
+    render(); syncContext();
+    const run = ++pollRun, startedAt = Date.now();
+    let wait = fresh ? 4000 : 0, ended = false, failures = 0;
+    try {
+      while (true) {
+        await new Promise(r => setTimeout(r, wait)); wait = 4000;
+        if (run !== pollRun) return;  // the panel is closing: the saved studio keeps the job
+        if (Date.now() - startedAt > POLL_LIMIT_MS) {
+          L.jobError = "Stopped following the generation after 30 minutes.";
+          break;
+        }
+        let st;
+        try {
+          st = await tool("studio_job_status", { job_id: jobId });
+          failures = 0;
+        } catch (e) {  // a timeout or a host hiccup: try again, later each time
+          if (run !== pollRun) return;
+          if (failures >= POLL_RETRY_MS.length) throw e;
+          wait = POLL_RETRY_MS[failures++];
+          L.jobStatus = "reconnecting…"; render();
+          continue;
+        }
+        if (run !== pollRun) return;
+        if (st.status === "unknown") { ended = true; break; }  // no longer kept
+        L.jobStatus = [str(st.progress), `${Number(st.elapsed_s) || 0} s`].filter(Boolean).join(" · ");
+        // Each variation shows as soon as it is judged; the final order is the judge's.
+        L.live.results = resultsOf(st.results);
+        L.live.images = imagesOf(st.images);  // a full video try-on's animated images so far
+        L.live.tryon = str(st.tryon_image) || L.live.tryon;  // a Make video job's image
+        if (L.retry && !L.retry.spec) L.retry.tryon = L.live.tryon;
+        if (st.status === "running") { render(); continue; }
+        // done, or error (e.g. "interrupted: ..." when its server stopped)
+        if (st.status !== "done") L.jobError = str(st.error) || `Generation ${str(st.status) || "failed"}`;
+        ended = true;
+        break;
+      }
+    } catch (e) { L.jobError = String(e.message); }
+    polling = null;
+    render(); syncContext();
+    if (ended) {
+      await act({ job_finished: { job_id: jobId } });  // its results, saved with the studio
+      return;
+    }
+    followed.delete(jobId);  // not ended: follow it again if the server still does
+    await refresh();
+  }
+  // The host is about to remove the panel: stop polling and pending updates.
+  function teardown() { pollRun++; restoreRun++; clearTimeout(ctxTimer); }
+
+  // ---- results of studio_agent ----------------------------------------------------
+  // Each carries the studio it saved: shown when newer than the panel's. A
+  // reopened conversation replays every earlier result into the panel; those
+  // are not newer than the restored studio.
+  // Ignored until the saved studio was read (restore shows the newest);
+  // a result without a state (its save failed) shows the server's state.
+  function fromResult(sc) {
+    if (!canWrite) return;
+    if (isObj(sc) && !isObj(sc.state)) { refresh(); return; }
+    if (!isObj(sc) || !adopt(sc.state, sc.updated_at, true)) syncContext();
+  }
+  // The saved studio (images, settings, results, a running generation): what a
+  // reopened conversation shows. `kind`: "saved", "new" (the server has none)
+  // or "failed" (it could not be read; never taken for a new studio).
+  async function fetchSaved() {
+    let saved;
+    try { saved = await tool("studio_state", { studio_id: studioId }); } catch (_) { return { kind: "failed" }; }
+    if (saved.saved === false) return { kind: "new" };
+    return saved.saved === true ? { kind: "saved", saved } : { kind: "failed" };
+  }
+  // Restore the saved studio, then show `first` (the result that opened the
+  // panel) if it is newer. Until the saved studio is read, nothing is written
+  // (it would change a studio the panel does not show); a failed read is
+  // retried, and after the last try the panel stays read-only.
+  const RESTORE_RETRY_S = [2, 4, 8, 16];
+  async function restore(first) {
+    const run = ++restoreRun;
+    canWrite = false; stateAt = 0;
+    for (let i = 0; ; i++) {
+      const got = await fetchSaved();
+      if (run !== restoreRun) return;  // closing, or another studio
+      if (got.kind !== "failed") {
+        canWrite = true; restoreMsg = "";
+        if (got.kind === "saved") adopt(got.saved.state, got.saved.updated_at); else render();
+        fromResult(first);
+        return;
+      }
+      const last = i >= RESTORE_RETRY_S.length;
+      restoreMsg = last ? "Could not load the saved studio, so changes are off. Reopen the conversation to try again."
+        : "Could not load the saved studio, retrying…";
+      render();
+      if (last) return;
+      await new Promise(r => setTimeout(r, RESTORE_RETRY_S[i] * 1000));
+      if (run !== restoreRun) return;
+    }
+  }
+
+  // Requests from the host: teardown before the panel is removed, and ping.
+  function answer(m) {
+    if (m.method === "ui/resource-teardown") teardown();
+    if (m.method === "ui/resource-teardown" || m.method === "ping") post({ jsonrpc: "2.0", id: m.id, result: {} });
+    else post({ jsonrpc: "2.0", id: m.id, error: { code: -32601, message: "Method not found" } });
+  }
+
+  let restoredFor = null;  // studio id already restored in this page load
+  window.addEventListener("message", (ev) => {
+    if (ev.source !== window.parent || window.parent === window) return;  // only the host
+    const m = ev.data;
+    if (!isObj(m) || m.jsonrpc !== "2.0") return;
+    const hasId = typeof m.id === "string" || typeof m.id === "number";
+    if (hasId && m.method === undefined && pending.has(m.id)) {
+      const e = pending.get(m.id); clearTimeout(e.t); pending.delete(m.id);
+      return m.error ? e.reject(new Error(str(isObj(m.error) && m.error.message) || "error")) : e.resolve(m.result);
+    }
+    if (hasId && typeof m.method === "string") return answer(m);
+    if (m.method === "ui/notifications/host-context-changed") {
+      const ctx = isObj(m.params) ? m.params : {};
+      if (ctx.theme) document.documentElement.dataset.theme = ctx.theme;
+      if (Array.isArray(ctx.availableDisplayModes)) modes = ctx.availableDisplayModes;
+      if (ctx.displayMode) showMode(ctx.displayMode);
+    } else if (m.method === "ui/notifications/tool-result") {
+      const sc = isObj(m.params) ? m.params.structuredContent : null;
+      if (!isObj(sc)) return;
+      if (sc.studio_id && typeof sc.studio_id === "string") studioId = sc.studio_id;  // the agent's conversation
+      // First result after the panel (re)loads, e.g. a reopened conversation
+      // replaying the call that opened it: restore the saved studio first.
+      if (restoredFor !== studioId) {
+        restoredFor = studioId;
+        restore(sc);
+        return;
+      }
+      fromResult(sc);
+    }
+  });
+
+  // ---- display mode: the right-hand side panel when the host offers it ----
+  let modes = ["inline", "fullscreen"], mode = "inline";
+  function showMode(m) {
+    mode = m || mode;
+    const panelBtn = document.getElementById("panelBtn");
+    panelBtn.classList.toggle("hidden", !modes.includes("pip"));
+    panelBtn.textContent = mode === "pip" ? "Back to chat" : "Side panel";
+    document.getElementById("fullBtn").textContent = mode === "fullscreen" ? "Exit full screen" : "⛶";
+  }
+  async function setMode(m) {
+    try {
+      const r = await request("ui/request-display-mode", { mode: m });
+      showMode((r && r.mode) || m);
+    } catch (_) { /* the host keeps its current mode */ }
+  }
+  document.getElementById("panelBtn").addEventListener("click", () =>
+    setMode(mode === "pip" ? "inline" : "pip"));
+  document.getElementById("fullBtn").addEventListener("click", () =>
+    setMode(mode === "fullscreen" ? (modes.includes("pip") ? "pip" : "inline") : "fullscreen"));
+
+  // ---- start -----------------------------------------------------------------
+  (async () => {
+    render();
+    if (typeof ResizeObserver !== "undefined") new ResizeObserver(reportHeight).observe(document.documentElement);
+    if (window.parent === window) return;
+    try {
+      const init = await request("ui/initialize", {
+        protocolVersion: "2026-01-26", appCapabilities: {},
+        appInfo: { name: "GenMedia Studio", version: "1.2.0" },
+      }, 10000);
+      const hc = init?.hostContext || {};
+      if (hc.theme) document.documentElement.dataset.theme = hc.theme;
+      if (Array.isArray(hc.availableDisplayModes)) modes = hc.availableDisplayModes;
+      showMode(hc.displayMode || "inline");
+      connected = true;
+      notify("ui/notifications/initialized", {});
+      if (modes.includes("pip") && mode !== "pip") setMode("pip");  // open on the right
+      const g = await tool("studio_gallery", {});
+      G = { models: arr(g.models), spin: arr(g.spin) };
+      for (const m of G.models) remember(m);
+      render(); syncContext();
+      findProducts("", "");  // the featured products
+    } catch (e) {
+      L.jobError = "Could not connect to Gemini Enterprise: " + e.message; render();
+    }
+  })();
+})();
+</script>
+</body>
+</html>

@@ -4,7 +4,7 @@
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -12,70 +12,58 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Multi-stage build: frontend + backend with ADK agent
+# Three stages: frontend build, Python deps build, slim runtime.
+# The product catalogue (assets/catalog/products.parquet) is copied in; no
+# config.env is baked in: config comes from env vars. The app runs as an
+# unprivileged user (uid 10001). The base images are floating tags on
+# purpose: each deploy builds on the latest patched base.
 
-FROM python:3.13-slim
+# ---- Frontend ---------------------------------------------------------------
+FROM node:20-slim AS frontend
 
-# Accept build args
 ARG NPM_CONFIG_REGISTRY=https://registry.npmjs.org/
 ENV NPM_CONFIG_REGISTRY=${NPM_CONFIG_REGISTRY}
-ARG COMMIT_SHA=""
-ENV COMMIT_SHA=${COMMIT_SHA}
-ARG AGENT_VERSION=0.0.0
-ENV AGENT_VERSION=${AGENT_VERSION}
 
-# Install uv, Node.js and system dependencies
-RUN pip install --no-cache-dir uv==0.8.13 && \
-    apt-get update && apt-get install -y \
-    build-essential \
-    g++ \
-    ffmpeg \
-    libgl1 \
-    libglib2.0-0 \
-    curl \
-    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
-    && apt-get install -y nodejs \
-    && rm -rf /var/lib/apt/lists/*
+WORKDIR /code/frontend
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci --ignore-scripts --no-audit --no-fund
+COPY frontend/ ./
+RUN npm run build
+
+# ---- Python dependencies ----------------------------------------------------
+FROM python:3.12-slim AS python-build
+
+RUN pip install --no-cache-dir uv==0.10.9
+
+ENV UV_PYTHON_DOWNLOADS=never
 
 WORKDIR /code
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-dev --no-install-project --no-cache
 
-# Copy dependency files first for better caching
-COPY pyproject.toml README.md uv.lock* ./
+# ---- Runtime ----------------------------------------------------------------
+FROM python:3.12-slim AS runtime
 
-# Copy application code
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgl1 \
+    libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --gid 10001 app \
+    && useradd --uid 10001 --gid 10001 --home-dir /nonexistent --no-create-home \
+    --shell /usr/sbin/nologin app
+
+ARG COMMIT_SHA=""
+ENV COMMIT_SHA=${COMMIT_SHA}
+
+WORKDIR /code
+COPY --from=python-build /code/.venv /code/.venv
+COPY --from=frontend /code/frontend/dist /code/frontend/dist
+COPY pyproject.toml ./
 COPY genmedia4commerce/ ./genmedia4commerce/
-COPY frontend/ ./frontend/
-COPY config.env.example* config.env* ./
-RUN mkdir -p assets && if [ ! -f config.env ] && [ -f config.env.example ]; then cp config.env.example config.env; fi
+COPY assets/catalog/products.parquet ./assets/catalog/products.parquet
 
-# Install Python dependencies from root pyproject.toml
-RUN rm -f uv.lock && uv sync --no-cache
-
-# Build frontend
-RUN cd /code/frontend && \
-    find /code -name ".npmrc" -delete && \
-    rm -f ~/.npmrc /root/.npmrc /etc/npmrc && \
-    rm -f package-lock.json && \
-    npm install --no-audit --no-fund && \
-    npm run build
-
-# Pre-download InsightFace model weights (avoids download at runtime)
-RUN uv run python -c "\
-from insightface.app import FaceAnalysis; \
-app = FaceAnalysis(name='buffalo_l', providers=['CPUExecutionProvider']); \
-app.prepare(ctx_id=-1, det_size=(640, 640)); \
-print('InsightFace buffalo_l model ready')"
-
-# Pre-download rembg u2net model (avoids 176MB download at runtime)
-RUN uv run python -c "\
-from rembg import new_session; \
-new_session('u2net'); \
-print('rembg u2net model ready')"
-
-# Set PYTHONPATH so imports work (from workflows..., from mcp_server..., etc.)
-ENV PYTHONPATH=/code/genmedia4commerce
-
+ENV PATH=/code/.venv/bin:$PATH
 EXPOSE 8080
+USER 10001
 
-# Run the combined FastAPI app (ADK agent + REST + frontend)
-CMD ["uv", "run", "uvicorn", "genmedia4commerce.fast_api_app:app", "--host", "0.0.0.0", "--port", "8080"]
+CMD ["uvicorn", "genmedia4commerce.fast_api_app:app", "--host", "0.0.0.0", "--port", "8080"]

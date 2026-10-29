@@ -1,72 +1,79 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 [project]
 name = "genmedia-for-commerce"
 version = "0.1.0"
+description = "An ADK agent and Gemini workflows for retail media: image and video virtual try-on, 360° product spins and catalogue search, with every result checked for product fidelity"
+authors = [
+    { name = "Lorenzo Spataro", email = "lspataro@google.com" },
+    { name = "Giulio Salierno", email = "giuliosalierno@google.com" },
+    { name = "Javier Pita", email = "javierpita@google.com" },
+]
+license = { text = "Apache License 2.0" }
+readme = "README.md"
 requires-python = ">=3.11,<3.14"
 dependencies = [
     # ADK & Agent infrastructure
-    "google-adk>=1.31.0,<2.0.0",
+    "google-adk>=2.12.0,<3.0.0",
+    # Traces the direct google-genai calls; inactive with google-genai 2 until
+    # ADK allows OpenTelemetry 1.43 (plugin 1.1+, which supports genai 2).
     "opentelemetry-instrumentation-google-genai>=0.1.0,<1.0.0",
-    "gcsfs>=2024.11.0",
-    "google-cloud-logging>=3.12.0,<4.0.0",
-    "google-cloud-aiplatform[agent-engines,evaluation]>=1.149.0",
-    "asyncpg>=0.30.0,<1.0.0",
+    # ADK exports traces, metrics and logs to Google Cloud on Cloud Run
+    # (get_fast_api_app(otel_to_cloud=True)) with these two.
+    "opentelemetry-exporter-otlp-proto-http>=1.39",
+    "opentelemetry-resourcedetector-gcp>=1.9.0a0,<2",
+    # ADK resolves the project number with it to name the agent in its
+    # telemetry (agent URN); from google-adk[gcp], whose other packages we
+    # do not need.
+    "google-cloud-resource-manager>=1.12,<2",
     # Web framework
     "fastapi>=0.115.8,<1.0.0",
-    "uvicorn[standard]>=0.34.0",
+    "uvicorn[standard]>=0.46.0",
     "python-multipart>=0.0.20",
     "python-dotenv>=1.2.2",
     # Google AI
-    "google-genai>=1.62.0",
+    "google-genai>=2.30.1,<3.0.0",
     "google-auth>=2.47.0",
-    # Image/Video processing
+    # Image/Video processing (pillow, numpy: imported directly, so declared)
+    "pillow>=12.0",
+    "numpy>=2.0",
     "scikit-image>=0.25.2",
     "opencv-python-headless>=4.12.0.88",
-    "imageio>=2.37.0",
-    "imageio-ffmpeg>=0.6.0",
-    "moviepy>=2.2.1",
-    "rembg>=2.0.57",
     "google-cloud-vision>=3.9.0",
     "google-cloud-storage>=2.19.0",
-    # ML / Eval
-    "insightface>=0.7.3",
-    "onnxruntime>=1.17.0",
-    # Utilities
-    "jinja2>=3.1.6",
-    "matplotlib>=3.10.9",
-    "scikit-learn>=1.7.2",
-    "tabulate>=0.9.0",
-    "seaborn",
-    "pandas",
-    "db-dtypes",
-    # GCP services
-    "google-cloud-bigquery-storage>=2.34.0",
     # MCP
     "mcp[cli]>=1.27.0",
     # Catalogue search (in-memory)
     "pyarrow",
     "protobuf>=6.31.1,<7.0.0",
+    # HEIC decoding only: its wheels carry no x265 encoder (GPL)
+    "pi-heif-decoder>=1.7.0.post4",
+    # Imported directly (also pulled in by other packages)
+    "requests>=2.32",
+    "pydantic>=2.0",
+    "click>=8.0",
 ]
 
 [dependency-groups]
 dev = [
-    "pytest>=8.3.4,<9.0.0",
-    "pytest-asyncio>=0.23.8,<1.0.0",
-    "pytest-cov>=4.0.0",
-    "nest-asyncio>=1.6.0,<2.0.0",
-    "agent-starter-pack>=0.41.0",
-    "jupyter>=1.1.1",
-    "ruff>=0.4.6",
+    "pytest>=8.3.4,<10.0.0",
+    "pytest-asyncio>=1.0.0,<2.0.0",
+    "ruff>=0.16.8",
     "codespell>=2.2.0",
     "detect-secrets>=1.5.0",
     "pre-commit>=3.0.0",
-]
-
-[project.optional-dependencies]
-eval = [
-    # Note: google-adk[eval] requires google-cloud-aiplatform[evaluation]
-    # which caps scikit-learn<=1.5.2, conflicting with scikit-learn>=1.7.2
-    # needed by this project's image processing code.
-    # Install eval deps separately when needed: pip install google-adk[eval]
 ]
 
 [build-system]
@@ -81,22 +88,30 @@ default = true
 packages = ["genmedia4commerce"]
 
 [tool.pytest.ini_options]
-pythonpath = [".", "genmedia4commerce"]
+pythonpath = ["."]
 asyncio_default_fixture_loop_scope = "function"
+markers = ["live: calls real Google APIs"]
 
 [tool.codespell]
-ignore-words-list = "rouge,chanel,rotat"
-skip = "uv.lock,.venv,frontend/*,assets/*,docs/USER_GUIDE_WITH_IMAGES.html,**/*.ipynb,**/package-lock.json,**/node_modules"
+ignore-words-list = "rouge,rotat,lightening"
+# Skip patterns use fnmatch — directory names (no trailing /*) skip whole
+# subtrees; filename globs (*foo) match basenames anywhere. Codespell
+# prepends "./" to paths and `*` is not recursive, so `assets/*` would not match.
+skip = "uv.lock,.venv,frontend,assets,**/*.ipynb,**/package-lock.json,**/node_modules"
 
 [tool.agent-starter-pack]
 base_template = "adk_base"
-description = "A production-ready agent for generating high-quality retail media, including Virtual Try-On videos, 360° product spins, and product enrichment using Gemini and Veo"
-example_question = "Generate a virtual try-on video of this model wearing this red dress"
+description = "A full-stack ADK app for retail media: image and video virtual try-on, 360° product spins and catalogue search with Gemini"
+example_question = "Show this person wearing this jacket, then make a video of the result"
 
 [tool.agent-starter-pack.settings]
 name = "genmedia-for-commerce"
-description = "GenMedia retail media generation agent with MCP tools"
+description = "Retail media agent: virtual try-on, 360° spins and catalogue search"
 base_template = "adk"
 agent_directory = "genmedia4commerce"
-deployment_targets = ["agent_engine", "cloud_run"]
-interactive_command = "setup-infra && make playground"
+# One Cloud Run service runs the whole app (make deploy). agent_engine is legacy:
+# kept only so Agent Garden's current `create -d agent_engine` works (it ends
+# with make deploy-agent-engine, an alias of make deploy). Remove it once Agent
+# Garden uses -d cloud_run.
+deployment_targets = ["cloud_run", "agent_engine"]
+interactive_command = "setup-infra && make dev"
