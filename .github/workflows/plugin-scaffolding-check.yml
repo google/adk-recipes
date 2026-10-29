@@ -1,0 +1,57 @@
+name: 'Plugin Scaffolding Check'
+
+# Enforces the Agent Plugins v1.0.0 directory anatomy and scaffolding
+# requirements across all plugins under plugins/<vertical>/:
+# - plugin.json (Agent Plugins v1.0.0 manifest with ownership)
+# - optional mcp.json
+# - skills/<skill-name>/ with SKILL.md, EVAL.yaml (>=80% threshold),
+#   README.md, .env.example, pyproject.toml (<vertical>-<skill-name>),
+#   uv.lock, Makefile (setup target), scripts/ (setup.py & cleanup.py),
+#   references/, and assets/.
+
+'on':
+  pull_request:
+    paths:
+      - 'plugins/**'
+      - '.github/workflows/plugin-scaffolding-check.yml'
+      - 'tools/validate_plugin_scaffolding.py'
+      - 'tools/ci_message.py'
+      - 'pyproject.toml'
+  push:
+    branches:
+      - 'main'
+    paths:
+      - 'plugins/**'
+      - '.github/workflows/plugin-scaffolding-check.yml'
+      - 'tools/validate_plugin_scaffolding.py'
+      - 'tools/ci_message.py'
+      - 'pyproject.toml'
+  workflow_dispatch:
+
+permissions:
+  contents: 'read'
+
+jobs:
+  validate-plugin-scaffolding:
+    name: 'Validate Plugin Directory Anatomy'
+    runs-on: 'ubuntu-latest'
+    timeout-minutes: 10
+
+    steps:
+      - name: 'Checkout repository'
+        uses: 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1' # ratchet:actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: 'Install uv'
+        uses: 'astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7' # ratchet:astral-sh/setup-uv@v10.2.0
+        with:
+          python-version: '3.11'
+          enable-cache: false
+
+      - name: 'Install repo dependencies'
+        run: 'uv sync'
+
+      - name: 'Run Plugin Scaffolding Validator'
+        run: 'uv run python tools/validate_plugin_scaffolding.py plugins'

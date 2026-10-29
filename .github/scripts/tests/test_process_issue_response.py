@@ -561,9 +561,8 @@ def test_cli_execution_option_4(tmp_path):
     assert res.returncode == 0, res.stderr
     assert "eliasecchig" in res.stdout
 
-    assert comment_out.read_text(encoding="utf-8").strip() == (
-        "Thank you! Routing this to the Python maintainer."
-    )
+    # Option 4 does not generate a comment (silent maintainer assignment)
+    assert comment_out.read_text(encoding="utf-8").strip() == ""
     assert assignee_out.read_text(encoding="utf-8").strip() == "eliasecchig"
     assert close_out.read_text(encoding="utf-8").strip() == "false"
 
@@ -634,3 +633,66 @@ def test_cli_execution_option_3_with_close(tmp_path):
     assert "option=3" in output_lines
     assert "has_assignee=false" in output_lines
     assert "close_issue=true" in output_lines
+
+
+def test_cli_execution_no_comment_routes_silently(tmp_path):
+    import subprocess
+    import sys
+
+    result_file = tmp_path / "agy_result.json"
+    result_file.write_text(
+        json.dumps(
+            {
+                "status": "SUCCESS",
+                "response": json.dumps(
+                    {
+                        "option": 3,
+                        "path": "core/python/sample-recipe",
+                        "close_issue": True,
+                        "response": "Here is the solution to your issue.",
+                    }
+                ),
+            }
+        ),
+        encoding="utf-8",
+    )
+    comment_out = tmp_path / "comment.md"
+    assignee_out = tmp_path / "assignee.txt"
+    close_out = tmp_path / "close.txt"
+    github_output = tmp_path / "github_output.txt"
+
+    script_path = (
+        Path(__file__).resolve().parents[1] / "process_issue_response.py"
+    )
+    cmd = [
+        sys.executable,
+        str(script_path),
+        "--result",
+        str(result_file),
+        "--issue-number",
+        "100",
+        "--comment-out",
+        str(comment_out),
+        "--assignee-out",
+        str(assignee_out),
+        "--close-out",
+        str(close_out),
+        "--github-output",
+        str(github_output),
+        "--no-comment",
+    ]
+
+    res = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    assert res.returncode == 0, res.stderr
+    assert "eliasecchig" in res.stdout
+
+    # With --no-comment, comments and closing are suppressed, and the maintainer is assigned
+    assert comment_out.read_text(encoding="utf-8").strip() == ""
+    assert assignee_out.read_text(encoding="utf-8").strip() == "eliasecchig"
+    assert close_out.read_text(encoding="utf-8").strip() == "false"
+
+    output_lines = github_output.read_text(encoding="utf-8").splitlines()
+    assert "option=3" in output_lines
+    assert "assignee=eliasecchig" in output_lines
+    assert "has_assignee=true" in output_lines
+    assert "close_issue=false" in output_lines

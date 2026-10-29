@@ -1,0 +1,77 @@
+name: 'Plugin Tests & Evaluation'
+
+# Runs test suites and evaluation rubrics for Agent Plugins under plugins/:
+# 1. Executes pytest in each plugin skill directory.
+# 2. Runs EVAL.yaml verification and assertions via tools/run_plugin_eval.py,
+#    enforcing the >= 80% pass threshold.
+
+'on':
+  pull_request:
+    paths:
+      - 'plugins/**'
+      - '.github/workflows/plugin-test-and-eval.yml'
+      - 'tools/run_plugin_eval.py'
+      - 'pyproject.toml'
+  push:
+    branches:
+      - 'main'
+    paths:
+      - 'plugins/**'
+      - '.github/workflows/plugin-test-and-eval.yml'
+      - 'tools/run_plugin_eval.py'
+      - 'pyproject.toml'
+  workflow_dispatch:
+
+permissions:
+  contents: 'read'
+
+jobs:
+  test-and-eval-plugins:
+    name: 'Run Plugin Tests and Evals'
+    runs-on: 'ubuntu-latest'
+    timeout-minutes: 15
+
+    steps:
+      - name: 'Checkout repository'
+        uses: 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1' # ratchet:actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: 'Install uv'
+        uses: 'astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7' # ratchet:astral-sh/setup-uv@v10.2.0
+        with:
+          python-version: '3.11'
+          enable-cache: false
+
+      - name: 'Install repo dependencies'
+        run: 'uv sync'
+
+      - name: 'Run Skill Unit & Runnability Tests'
+        run: |
+          set -euo pipefail
+          echo "Finding plugin skill directories with tests..."
+          FAILED=0
+          while IFS= read -r test_file; do
+            skill_dir="$(dirname "$(dirname "${test_file}")")"
+            echo "------------------------------------------------------------"
+            echo "Running pytest in: ${skill_dir}"
+            echo "------------------------------------------------------------"
+            (
+              cd "${skill_dir}"
+              if [ ! -f .env ] && [ -f .env.example ]; then
+                cp .env.example .env
+              fi
+              uv sync --dev
+              uv run pytest --ignore=tests/integration --ignore-glob="**/test_integration.py"
+            ) || FAILED=1
+          done < <(find plugins -mindepth 4 -maxdepth 5 -type f -name "test_*.py" | sort -u)
+
+          if [ "${FAILED}" -ne 0 ]; then
+            echo "❌ One or more plugin skill tests failed."
+            exit 1
+          fi
+          echo "✅ All plugin skill unit tests passed."
+
+      - name: 'Run Plugin Evaluation Suites (>=80% threshold)'
+        run: 'uv run python tools/run_plugin_eval.py plugins'
