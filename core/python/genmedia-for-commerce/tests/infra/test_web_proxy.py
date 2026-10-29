@@ -234,3 +234,60 @@ def test_the_example_origins_reach_cloud_run_whole(example_config):
 
     deployed = yaml.safe_load(env_yaml)["ALLOW_ORIGINS"]
     assert deployed.split(",")[-1] == CLOUD_SHELL_ORIGIN
+
+
+def _background_on_a_terminal(tmp_path, pid_in_file):
+    """``--background`` on a pseudo-terminal while port 8080's stand-in is
+    taken, with the pid file naming ``pid_in_file``."""
+    import os
+    import pty
+    import select
+    import socket
+    import subprocess
+
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        sock.listen()
+        port = sock.getsockname()[1]
+        (tmp_path / f"genmedia-web-proxy-{port}.pid").write_text(
+            f"{pid_in_file}\n"
+        )
+        env = {
+            **os.environ,
+            "TMPDIR": str(tmp_path),
+            "WEB_PROXY_PORT": str(port),
+            "PROJECT_ID": "my-proj",
+            "DEFAULT_REGION": "us-central1",
+            "SERVICE_NAME": "genmedia-for-commerce",
+        }
+        leader, follower = pty.openpty()
+        proc = subprocess.run(
+            ["bash", str(ROOT / "infra" / "web_proxy.sh"), "--background"],
+            stdin=follower,
+            stdout=follower,
+            stderr=follower,
+            env=env,
+            timeout=30,
+            check=False,
+        )
+        out = b""  # read while the terminal is open: macOS drops it on close
+        while select.select([leader], [], [], 0.5)[0]:
+            out += os.read(leader, 4096)
+        os.close(follower)
+        os.close(leader)
+    return proc.returncode, out.decode(), port
+
+
+def test_a_second_background_start_says_the_web_app_is_running(tmp_path):
+    import os
+
+    code, out, port = _background_on_a_terminal(tmp_path, os.getpid())
+    assert code == 0
+    assert f"already running at http://localhost:{port}" in out
+    assert "in use by another program" not in out
+
+
+def test_a_port_taken_by_something_else_is_said_so(tmp_path):
+    code, out, _ = _background_on_a_terminal(tmp_path, 999999)
+    assert code == 0
+    assert "in use by another program" in out
