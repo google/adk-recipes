@@ -78,6 +78,7 @@ ROUTING_RULES: list[tuple[str, str]] = [
     ("core/kotlin", "tommywagz"),
     # Recipes owned by their authors
     ("core/python/ambient-quality-agent", "maxgasztych"),
+    ("core/python/genmedia-for-commerce", "lspataroG"),
     # Contrib directory assignments
     ("contrib/python", "tommywagz"),
     ("contrib/go", "ToniCorinne"),
