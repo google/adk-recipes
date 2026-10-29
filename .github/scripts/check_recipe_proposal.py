@@ -122,6 +122,49 @@ def is_recipe_proposal(
     return False, "no_proposal_signals"
 
 
+def is_template_proposal(
+    title: str,
+    body: str = "",
+) -> tuple[bool, str]:
+    """Check if an issue was filed specifically using propose-a-new-recipe.md format.
+
+    Requires the [RECIPE PROPOSAL] title marker (case-insensitive) along with
+    template structure signals from propose-a-new-recipe.md, or a high concentration
+    of template questions if the title was modified.
+    """
+    clean_title = (title or "").strip()
+    upper_title = clean_title.upper()
+    clean_body = (body or "").strip()
+    lower_body = clean_body.lower()
+
+    # Negative check for bug reports / questions / chores
+    for prefix in BUG_OR_QUESTION_PREFIXES:
+        if upper_title.startswith(prefix):
+            return False, f"negative_prefix:{prefix}"
+
+    has_marker = PROPOSAL_MARKER in upper_title
+
+    matched_signals = [s for s in TEMPLATE_SIGNALS if s.lower() in lower_body]
+    if (
+        "what language is your recipe is implemented in" in lower_body
+        and "What language is your recipe implemented in" not in matched_signals
+    ):
+        matched_signals.append("What language is your recipe is implemented in")
+
+    # If title has [RECIPE PROPOSAL] and at least one template question/section is present:
+    if has_marker and len(matched_signals) >= 1:
+        return (
+            True,
+            f"template_format:marker_and_{len(matched_signals)}_signals",
+        )
+
+    # Or if body contains at least 3 distinct template questions/sections even if user altered title:
+    if len(matched_signals) >= 3:
+        return True, f"template_format:{len(matched_signals)}_signals"
+
+    return False, "not_template_format"
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--title", default="", help="Issue title")
@@ -135,6 +178,11 @@ def main() -> int:
         "--github-output",
         default="",
         help="Path to GITHUB_OUTPUT file",
+    )
+    parser.add_argument(
+        "--template-only",
+        action="store_true",
+        help="Only match issues that use the propose-a-new-recipe.md template format",
     )
     args = parser.parse_args()
 
@@ -151,7 +199,10 @@ def main() -> int:
         else:
             labels = [x.strip() for x in stripped.split(",") if x.strip()]
 
-    is_prop, reason = is_recipe_proposal(args.title, args.body, labels)
+    if args.template_only:
+        is_prop, reason = is_template_proposal(args.title, args.body)
+    else:
+        is_prop, reason = is_recipe_proposal(args.title, args.body, labels)
 
     if args.github_output:
         out_path = Path(args.github_output)

@@ -19,7 +19,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from check_recipe_proposal import is_recipe_proposal
+from check_recipe_proposal import is_recipe_proposal, is_template_proposal
 
 
 def test_standard_title_marker():
@@ -121,3 +121,63 @@ def test_cli_execution(tmp_path: Path):
     assert res.returncode == 0
     assert '"is_proposal": true' in res.stdout
     assert "is_proposal=true" in out_file.read_text(encoding="utf-8")
+
+
+def test_is_template_proposal_full_template():
+    body = (
+        "### ⚠️ Scope Notice\n"
+        "For `contrib/` recipes only. `core/` recipes follow a different process.\n\n"
+        "1- What is the intent/purpose of your new recipe?\n"
+        "To showcase enterprise agent workflows.\n\n"
+        "2- What language is your recipe implemented in (e.g. Python, Go, etc)?\n"
+        "Python\n\n"
+        "3- Will this be a deployable recipe?\n"
+        "Yes, includes Dockerfile.\n\n"
+        "4- What GCP services or third-party APIs are required?\n"
+        "Vertex AI, BigQuery.\n\n"
+        "5- Who will own and maintain this?\n"
+        "my-team\n"
+    )
+    is_prop, reason = is_template_proposal(
+        "[RECIPE PROPOSAL] Enterprise Workflow Agent", body=body
+    )
+    assert is_prop is True
+    assert "template_format" in reason
+
+
+def test_is_template_proposal_rejects_freeform_proposal():
+    # Issue that mentions proposing a recipe but does NOT use the template format
+    title = "Propose a new recipe for retail automation"
+    body = "Hi team, I would like to propose a new recipe for contrib/python."
+    is_prop, reason = is_template_proposal(title, body=body)
+    assert is_prop is False
+    assert reason == "not_template_format"
+
+
+def test_is_template_proposal_rejects_marker_without_template():
+    # Title has marker, but body has no template questions
+    title = "[RECIPE PROPOSAL] Quick idea"
+    body = "Just opening this to ask if anyone has done this before."
+    is_prop, reason = is_template_proposal(title, body=body)
+    assert is_prop is False
+    assert reason == "not_template_format"
+
+
+def test_cli_execution_template_only(tmp_path: Path):
+    out_file = tmp_path / "github_output.txt"
+    script = Path(__file__).resolve().parents[1] / "check_recipe_proposal.py"
+
+    # Non-template proposal with --template-only should return false
+    cmd = [
+        sys.executable,
+        str(script),
+        "--title",
+        "Add new recipe: Smart Agent",
+        "--template-only",
+        "--github-output",
+        str(out_file),
+    ]
+    res = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    assert res.returncode == 0
+    assert '"is_proposal": false' in res.stdout
+    assert "is_proposal=false" in out_file.read_text(encoding="utf-8")

@@ -139,11 +139,7 @@ jobs:
         id: 'catalog'
         run: |-
           set -euo pipefail
-          {
-            echo "EXISTING_RECIPES<<EOF"
-            find core contrib plugins -mindepth 2 -maxdepth 3 -type d 2>/dev/null | sort || true
-            echo "EOF"
-          } >> "${GITHUB_ENV}"
+          find core contrib plugins -mindepth 2 -maxdepth 3 -type d 2>/dev/null | sort > existing_recipes.txt
 
       - name: 'Ask agy to evaluate recipe proposal'
         id: 'evaluate'
@@ -174,7 +170,7 @@ jobs:
               - `contrib/<language>/<recipe-name>`: Community-contributed recipes (default destination for new proposals).
               - `plugins/<vertical>/<solution>`: Vertical solutions shipped to users (e.g. `plugins/retail/store-ops/`).
             - Existing recipes in repository:
-            ${{ env.EXISTING_RECIPES }}
+              (Refer to the existing recipes catalog appended below).
 
             ## Decision Rubric — Walk the gates in order (hard gates first)
 
@@ -251,11 +247,14 @@ jobs:
 
           {
             printf '%s\n\n' "${PROMPT}"
-            printf '## Proposal Issue #%s to evaluate\n\n' "${ISSUE_NUMBER}"
+            printf '## Existing recipes catalog in repository\n'
+            cat existing_recipes.txt
+            printf '\n\n## Proposal Issue #%s to evaluate\n\n' "${ISSUE_NUMBER}"
             printf 'Author: %s\n' "${ISSUE_AUTHOR}"
             printf 'Title: %s\n\n' "${ISSUE_TITLE}"
             printf 'Body:\n%s\n' "${ISSUE_BODY}"
           } > full_prompt.txt
+          rm -f existing_recipes.txt
 
           MAX_PROMPT_BYTES=125000
           PROMPT_BYTES="$(wc -c < full_prompt.txt)"
