@@ -1,0 +1,16 @@
+# Grading config for `agents-cli eval grade` (the ADK-format eval_config.json
+# next to it still grades the replay suites under evalsets/).
+#
+# Each dataset case carries its own rubrics under `rubric_groups.horizon`;
+# rubric_group_key is what points the managed metric at them. The judge is the
+# eval service's default — unlike the ADK config, it is not pinned here.
+#
+# Pass/fail is not part of this file: `eval grade` reports scores, so the 0.8
+# threshold is applied afterwards by `scripts/eval_gate.py`.
+metrics_to_run:
+  - final_response_quality
+
+custom_metrics:
+  - name: final_response_quality
+    metric_spec_parameters:
+      rubric_group_key: horizon
