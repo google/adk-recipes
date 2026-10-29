@@ -253,7 +253,7 @@ def _background_on_a_terminal(tmp_path, pid_in_file):
             f"{pid_in_file}\n"
         )
         env = {
-            **os.environ,
+            **{k: v for k, v in os.environ.items() if k != "CI"},
             "TMPDIR": str(tmp_path),
             "WEB_PROXY_PORT": str(port),
             "PROJECT_ID": "my-proj",
