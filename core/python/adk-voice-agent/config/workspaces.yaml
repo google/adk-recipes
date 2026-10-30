@@ -1,0 +1,118 @@
+# Shared repositories (`~/code/<repo>`). Per-user repos come from GitHub App
+# installations; local overrides go in gitignored `config/workspaces.local.yaml`.
+
+repositories: []
+
+# Inline playground repo for trying coding agents before connecting GitHub.
+seed_repositories:
+  - name: "voice-agent-playground"
+    branch: "main"
+    description: "Scratch repo for trying coding agents: a tiny shop package with a failing test, a cart without input validation, and unreleased changes."
+    files:
+      README.md: |
+        # voice-agent-playground
+
+        A scratch repo for trying ADK Voice Agent's coding agents. Nothing here matters, so let an
+        agent loose. Each of these touches different files, so you can run them side by side
+        on different harnesses:
+
+        - "Fix the failing test in voice-agent-playground"
+        - "Add input validation to the cart in voice-agent-playground, with unit tests"
+        - "Draft release notes for the next voice-agent-playground release"
+
+        More ideas: a small command-line interface, a discount code feature, or a
+        `word_count` helper in `text.py`.
+
+        Run the tests with `python -m pytest` (or `uv run --with pytest pytest`).
+      CHANGELOG.md: |
+        # Changelog
+
+        ## Unreleased
+
+        - Added `Cart` for adding items by SKU and computing totals (`playground/cart.py`).
+        - Added `slugify` for turning product titles into URL slugs (`playground/text.py`).
+        - Cart totals are now rounded to cents.
+        - Known issue: `slugify` keeps punctuation, so "Hello, World!" becomes "hello,-world!".
+
+        ## 0.1.0
+
+        - First release: the package skeleton and test setup.
+      pyproject.toml: |
+        [project]
+        name = "voice-agent-playground"
+        version = "0.1.0"
+        description = "A tiny shop package for trying coding agents."
+        requires-python = ">=3.11"
+
+        [project.optional-dependencies]
+        test = ["pytest"]
+
+        [tool.pytest.ini_options]
+        pythonpath = ["."]
+        testpaths = ["tests"]
+      playground/__init__.py: ""
+      playground/text.py: |
+        def slugify(title: str) -> str:
+            """`"Hello, World!"` -> `"hello-world"`."""
+            return title.lower().replace(" ", "-")
+      playground/cart.py: |
+        from dataclasses import dataclass, field
+
+
+        @dataclass
+        class LineItem:
+            sku: str
+            quantity: int
+            unit_price: float
+
+
+        @dataclass
+        class Cart:
+            items: dict[str, LineItem] = field(default_factory=dict)
+
+            def add(self, sku: str, quantity: int, unit_price: float) -> None:
+                """Add `quantity` of `sku`; adding a SKU again increases its quantity."""
+                if sku in self.items:
+                    self.items[sku].quantity += quantity
+                else:
+                    self.items[sku] = LineItem(sku, quantity, unit_price)
+
+            def remove(self, sku: str) -> None:
+                self.items.pop(sku, None)
+
+            def total(self) -> float:
+                return round(sum(i.quantity * i.unit_price for i in self.items.values()), 2)
+      tests/test_text.py: |
+        from playground.text import slugify
+
+
+        def test_slugify_joins_words_with_hyphens():
+            assert slugify("Voice first") == "voice-first"
+
+
+        def test_slugify_drops_punctuation():
+            assert slugify("Hello, World!") == "hello-world"
+      tests/test_cart.py: |
+        from playground.cart import Cart
+
+
+        def test_total_sums_quantity_times_price():
+            cart = Cart()
+            cart.add("mug", 2, 8.5)
+            cart.add("tee", 1, 20.0)
+            assert cart.total() == 37.0
+
+
+        def test_adding_a_sku_again_increases_its_quantity():
+            cart = Cart()
+            cart.add("mug", 1, 8.5)
+            cart.add("mug", 2, 8.5)
+            assert cart.items["mug"].quantity == 3
+
+
+        def test_remove_drops_the_sku():
+            cart = Cart()
+            cart.add("mug", 1, 8.5)
+            cart.remove("mug")
+            assert cart.total() == 0
+

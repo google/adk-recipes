@@ -1,0 +1,43 @@
+exclude: ^(uv\.lock|web/package-lock\.json|workspaces/|artifacts/)
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-added-large-files
+      - id: detect-private-key
+
+  # Same tool versions as `make lint`: everything runs from the locked `lint` extra.
+  - repo: local
+    hooks:
+      - id: ruff
+        name: ruff check
+        entry: uv run --extra lint ruff check --fix
+        language: system
+        types_or: [python, pyi]
+      - id: ruff-format
+        name: ruff format
+        entry: uv run --extra lint ruff format
+        language: system
+        types_or: [python, pyi]
+      - id: codespell
+        name: codespell
+        entry: uv run --extra lint codespell --toml pyproject.toml
+        language: system
+        types: [text]
+      - id: ty
+        name: ty check app
+        entry: uv run --extra lint ty check app
+        language: system
+        types: [python]
+        pass_filenames: false
+      - id: web-typecheck
+        name: web typecheck
+        entry: npm --prefix web run typecheck
+        language: system
+        files: ^web/
+        types_or: [ts, tsx]
+        pass_filenames: false

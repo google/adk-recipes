@@ -1,0 +1,85 @@
+# System 2 (coding harnesses on the user's computer) evals: real harness runs graded on what they leave behind.
+#
+#   uv run python scripts/run_eval.py --suite system2 --harness claude,antigravity
+#
+# runs tests/eval/datasets/system2.json through `agents-cli eval run` against
+# tests/eval/system2_agent (a real thread registry, driver, and MCP gateway, a docker
+# computer per case, fake app upstreams). Every metric but `rubrics` reads the case report
+# in the trace (system2_agent/graders.py):
+#   - outcome, filing, continuity, safety, latency, updates: the fraction of the case's checks in
+#     that dimension that pass (1.0 with "n/a" when the case has none);
+#   - time_to_result_s, cost_usd: raw numbers to compare between runs (lower is better);
+#   - rubrics: the LLM judge on the case's own rubrics (`reference`).
+metrics_to_run:
+  - outcome
+  - filing
+  - continuity
+  - safety
+  - latency
+  - updates
+  - time_to_result_s
+  - cost_usd
+  - rubrics
+
+custom_metrics:
+  - name: outcome
+    custom_function: |
+      import sys; sys.path.insert(0, "tests/eval")
+      from system2_agent.graders import outcome as evaluate
+
+  - name: filing
+    custom_function: |
+      import sys; sys.path.insert(0, "tests/eval")
+      from system2_agent.graders import filing as evaluate
+
+  - name: continuity
+    custom_function: |
+      import sys; sys.path.insert(0, "tests/eval")
+      from system2_agent.graders import continuity as evaluate
+
+  - name: safety
+    custom_function: |
+      import sys; sys.path.insert(0, "tests/eval")
+      from system2_agent.graders import safety as evaluate
+
+  - name: latency
+    custom_function: |
+      import sys; sys.path.insert(0, "tests/eval")
+      from system2_agent.graders import latency as evaluate
+
+  - name: updates
+    custom_function: |
+      import sys; sys.path.insert(0, "tests/eval")
+      from system2_agent.graders import updates as evaluate
+
+  - name: time_to_result_s
+    custom_function: |
+      import sys; sys.path.insert(0, "tests/eval")
+      from system2_agent.graders import time_to_result_s as evaluate
+
+  - name: cost_usd
+    custom_function: |
+      import sys; sys.path.insert(0, "tests/eval")
+      from system2_agent.graders import cost_usd as evaluate
+
+  - name: rubrics
+    judge_model_sampling_count: 1
+    judge_model_generation_config:
+      temperature: 0
+    prompt_template: |
+      You grade one thread run by a coding agent on the user's own computer, for a personal
+      assistant. The trace holds the fixed request it was given, each milestone, and a
+      report of what it did: thread results, the files and git history it changed (with the
+      text of changed files), test runs, and every call it made to the user's apps (the
+      apps are fixtures; their data is the ground truth).
+
+      Thread execution trace:
+      {agent_data}
+
+      Criteria for this thread:
+      {reference}
+
+      Judge each criterion strictly on the report: it passes only if the files, results,
+      and app calls clearly satisfy it. Score the fraction of criteria that pass.
+      Return a single-line valid JSON object with double-quoted keys "score" and "explanation":
+      {"score": <number from 0.0 to 1.0>, "explanation": "<PASS or FAIL per criterion with a short reason on a single line, using single quotes for any inner quotes>"}

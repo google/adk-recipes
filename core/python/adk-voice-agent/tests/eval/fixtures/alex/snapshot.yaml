@@ -1,0 +1,42 @@
+# Alex's home disk, rebuilt for every case (tests/eval/system2_agent/snapshot.py).
+#
+# Each repo is a folder under the home, committed from the trees under `repos/` with
+# back-dated commits. `{alias}` is a journal thread's ID (persona.yaml) and `@DAYS_AGO_N@` a
+# date. `thread_branches` creates `agent/<id>` at the default branch for every journal thread in
+# that project, as an earlier thread on the repo would have left it.
+
+repos:
+  - path: code/payments-api
+    # A bare remote inside the home, so pushes are observable without GitHub.
+    origin: .remotes/payments-api.git
+    thread_branches: true
+    commits:
+      - tree: repos/payments-api/base
+        message: Initial payments service
+        days_ago: 21
+      - tree: repos/payments-api/fee-tiers
+        message: Add volume fee tiers
+        days_ago: 1
+        branch: feature/fee-tiers
+        merge: "Merge pull request #412 from lumenpay/feature/fee-tiers"
+
+  - path: projects/portland-trip
+    journal: portland_plan
+    commits:
+      - tree: repos/portland-trip
+        message: "thread {portland_plan}: Plan a Portland long weekend"
+        days_ago: 3
+
+  - path: scratch/@DAYS_AGO_1@-hello-note
+    journal: hello_note
+    commits:
+      - tree: repos/hello-note
+        message: "thread {hello_note}: Hello note"
+        days_ago: 1
+
+  - path: scratch/@DAYS_AGO_7@-flight-comparison
+    journal: flight_comparison
+    commits:
+      - tree: repos/flight-comparison
+        message: "thread {flight_comparison}: Compare flights to Portland"
+        days_ago: 7

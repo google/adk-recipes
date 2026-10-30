@@ -1,0 +1,194 @@
+# What happened before a voice eval case's live session, by fixture name. A case lists the
+# fixtures it starts from as `history:` in its expectations (default: alex); the loader is
+# tests/eval/history.py. Each case runs in its own server, so a case's fixtures are all it
+# sees. Times are relative to the run ("2m", "5h", "3d" ago).
+#
+#   threads:     thread snapshots for the thread store, oldest first (seed_eval_store.py).
+#              Fields: thread_id, goal, title, project (a folder of the home: code/<repo>,
+#              projects/<name>, scratch/<name>; default scratch/<thread_id>), harness (default
+#              claude), state, plan,
+#              result_text, summary, error, files_changed, followups (later instructions,
+#              as [kind, text]), origin_session_id, created / ended (ago), and announce:
+#              a milestone kind the user hasn't heard yet (briefed at session start);
+#              without it the thread's milestones count as already heard.
+#   sessions:  earlier voice conversations (sitecustomize.py): id, ended (ago), and turns
+#              as [user|model, text].
+#   profile:   the user's profile fields (app/memory/profile.py).
+#   memories:  conversation and thread memories: kind, fact, ago, and the session_id or
+#              thread_id it points at.
+#   disconnected: connected-app providers the user hasn't connected (sitecustomize.py
+#              connects every other app in config/integrations.yaml).
+#   focus:     what the user has open on screen (view: home|project|thread, project,
+#              thread_id), applied via app.voice.focus.set_focus.
+
+# ---- the Alex persona (datasets/system1.json) --------------------------------------------
+# An engineer with a family. Earlier work: a hello note from a few days ago, a date-night
+# search that just finished with five options, last week's grocery list, and yesterday's
+# look into the failing payments tests. Monday's call settled the Tahoe cabin; it is only
+# found by looking it up. GitHub is not connected.
+
+alex:
+  profile:
+    name: Alex
+    role: Backend engineer on the payments team
+    home_base: Portland, Oregon
+    people: "Partner Sam; kids Maya (9) and Leo (6)"
+    personal_preferences: "Family trips with late starts; no red-eye flights"
+  disconnected: [github]
+  sessions:
+    - id: seed-tahoe
+      ended: 4d
+      turns:
+        - [user, "Let's settle the Tahoe place for August."]
+        - [model, "The cabin on Lake Forest Road or the Kings Beach condo?"]
+        - [user, "The cabin. It has a fenced yard for Leo. Book it once the deposit clears."]
+        - [model, "Got it: the Lake Forest Road cabin, booked once the deposit clears."]
+  memories:
+    - kind: conversation
+      ago: 4d
+      session_id: seed-tahoe
+      fact: "Picked the Tahoe cabin on Lake Forest Road over the Kings Beach condo for August, because it has a fenced yard for Leo; book it once the deposit clears."
+  threads:
+    - thread_id: thread-971
+      title: Weekly grocery list
+      goal: Make the grocery list for this week's dinners
+      project: projects/meal-planning
+      state: completed
+      created: 7d
+      ended: 7d
+      result_text: Grocery list for five dinners, sorted by store aisle and nut-free for Leo, about $140 at New Seasons.
+      summary: Five-dinner grocery list by aisle, nut-free, about $140.
+      files_changed: [grocery-list.md]
+    - thread_id: thread-951
+      title: Hello note
+      goal: Make a note in scratch saying hello
+      project: scratch/2026-10-20-hello-note
+      state: completed
+      created: 3d
+      ended: 3d
+      result_text: Wrote hello.md with one line, "hello".
+      summary: Wrote a hello note.
+      files_changed: [hello.md]
+    - thread_id: thread-981
+      title: Why payments tests fail
+      goal: Payments tests started failing after yesterday's merge; figure out why
+      project: code/payments-api
+      state: completed
+      created: 1d
+      ended: 1d
+      result_text: >-
+        The failures come from Tuesday's merge: round_amount() in src/payments/currency.py
+        now rounds half down, so three refund tests expect 10.01 and get 10.00. The fix is
+        to round with ROUND_HALF_UP. Nothing was changed yet.
+      summary: Rounding changed to half down in round_amount(); three refund tests fail.
+    - thread_id: thread-961
+      title: Date night restaurants
+      goal: Find a date-night restaurant for Friday, somewhere we haven't been
+      project: scratch/2026-10-24-date-night-restaurants
+      state: completed
+      created: 8m
+      ended: 4m
+      result_text: >-
+        Five spots with Friday tables, none of them places you've been: 1. Ox, Argentine
+        wood-fired grill, $$$, 7:30 table open. 2. Kachka, Russian small plates, $$, 8:00
+        open. 3. Nostrana, rustic Italian, $$$, 7:00 open. 4. Langbaan, Thai tasting menu,
+        $$$$, waitlist only. 5. Canard, French bistro, $$, walk-ins until 9. Ox is the best
+        fit for a 7:30 dinner; Kachka is the best value.
+      summary: Five Friday options; Ox is the top pick, Kachka the best value.
+      files_changed: [restaurants.md]
+
+# A call that dropped three minutes ago: the same conversation, so its last turns carry over.
+alex_dropped_call:
+  sessions:
+    - id: seed-party
+      ended: 3m
+      turns:
+        - [user, "Let's sort out Leo's birthday party."]
+        - [model, "Sure. Trampoline park or the backyard?"]
+        - [user, "Trampoline park, Saturday the 8th. We still need to send the invites."]
+        - [model, "Got it: the trampoline park on Saturday the 8th. Invites are next."]
+
+# Back after a few hours away: a permission gate waits on Alex, and a retry refactor
+# and packing list finished while nobody was listening.
+alex_away:
+  threads:
+    - thread_id: thread-991
+      title: Pediatric dentist for Leo
+      goal: Find a pediatric dentist for Leo that takes our insurance and email them
+      project: projects/leo-dentist
+      state: awaiting_permission
+      created: 3h
+      permission:
+        key: k-991
+        action_class: gmail.send*
+        command: 'gmail__send_message {"to": "info@sellwoodkidsdental.com"}'
+        kind: tool
+      summary: "Needs approval to send email to Sellwood Kids Dental."
+      announce: permission_requested
+    - thread_id: thread-992
+      title: Webhook retry refactor
+      goal: Refactor the payments webhook handler onto the new retry library
+      project: code/payments-api
+      state: completed
+      created: 2h
+      ended: 1h
+      result_text: Moved webhook retries onto the shared retry library with exponential backoff, keeping the dead-letter queue.
+      summary: Moved webhook retries onto the shared retry library with exponential backoff.
+      announce: completed
+    - thread_id: thread-993
+      title: Portland packing list
+      goal: Make a packing list for the Portland weekend
+      project: projects/portland-trip
+      state: completed
+      created: 2h
+      ended: 1h
+      result_text: Packing list for two adults and two kids, sorted by person, with rain gear for Saturday.
+      summary: Packing list by person, with rain gear.
+      files_changed: [packing-list.md]
+      announce: completed
+
+# The Portland trip as a project with a thread: two days ago a thread planned the weekend,
+# leaving day three and the hotel open. Nothing about it needs Alex now.
+alex_portland:
+  threads:
+    - thread_id: thread-940
+      title: Portland weekend plan
+      goal: Plan a long weekend in Portland for the four of us, Nov 14 to 17
+      project: projects/portland-trip
+      state: completed
+      created: 2d
+      ended: 2d
+      result_text: >-
+        A plan for Nov 14 to 17: day one in the Pearl District with Powell's Books, day two
+        at OMSI and the riverfront. Still open: day three, and the hotel (the Pearl District
+        or Hawthorne).
+      summary: Days one and two planned; day three and the hotel are still open.
+      files_changed: [itinerary.md]
+
+# On top of alex_portland: the Portland project is open on screen.
+alex_portland_open:
+  focus:
+    view: project
+    project: projects/portland-trip
+
+# On top of alex_portland: a finished packing list in the same project, with its thread
+# page open on screen so "it" refers to the packing list rather than the weekend plan.
+alex_portland_packing:
+  focus:
+    view: thread
+    project: projects/portland-trip
+    thread_id: thread-941
+  threads:
+    - thread_id: thread-941
+      title: Portland packing list
+      goal: Make a packing list for the Portland weekend, two adults and two kids
+      project: projects/portland-trip
+      state: completed
+      created: 1d
+      ended: 1d
+      result_text: >-
+        A packing list for four, Nov 14 to 17: rain jackets and layers for everyone,
+        walking shoes, the kids' tablets and chargers, snacks for the drive, and a small
+        umbrella. 38 items in all, grouped by person.
+      summary: A 38-item packing list for four, grouped by person.
+      files_changed: [packing-list.md]
