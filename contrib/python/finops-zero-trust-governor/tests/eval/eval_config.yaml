@@ -1,0 +1,6 @@
+app_name: app
+dataset_path: tests/eval/datasets/finops_trajectories.json
+output_dir: artifacts/grade_results
+metrics:
+  - tool_trajectory_avg_score
+  - response_match_score

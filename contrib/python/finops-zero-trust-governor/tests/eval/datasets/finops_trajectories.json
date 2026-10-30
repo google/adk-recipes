@@ -1,0 +1,12 @@
+[
+  {
+    "id": "finops_happy_path_triage",
+    "prompt": "Audit our GCP billing and Vertex AI token telemetry for the last 24 hours and apply safe FinOps remediations for any cost spikes.",
+    "expected_tool_calls": [
+      "query_bigquery_billing_anomalies",
+      "inspect_agent_token_telemetry",
+      "apply_model_routing_downgrade",
+      "update_cloud_run_scaling_limits"
+    ]
+  }
+]

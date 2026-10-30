@@ -1,0 +1,35 @@
+type: "standalone"
+status: "active"
+language: "python"
+description: "Multi-agent Cloud FinOps governor with BigQuery telemetry triage and mid-task OAuth revocation guardrails."
+deployable: true
+
+architecture:
+  agent: "multi"
+  stateful: false
+  datasources:
+    - "external"
+
+dependencies:
+  libraries:
+    - "google-adk"
+    - "google-genai"
+    - "pydantic"
+    - "fastapi"
+  services:
+    - "BigQuery"
+    - "Cloud Trace"
+    - "Cloud Run"
+
+ownership:
+  team: "finops-governance"
+  poc: "varmaleena"
+
+tags:
+  - "finops"
+  - "zero-trust"
+  - "cost-governance"
+  - "resumability"
+  - "cloud-run"
+
+license: "Apache-2.0"

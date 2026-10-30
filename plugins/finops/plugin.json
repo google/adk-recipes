@@ -1,0 +1,23 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "finops",
+  "version": "0.1.0",
+  "description": "FinOps and Zero-Trust Governance plugin for autonomous token cost anomaly triage, BigQuery Cloud Billing analytics, and workload governance.",
+  "license": "Apache-2.0",
+  "keywords": [
+    "finops",
+    "zero-trust",
+    "token-cost",
+    "cost-governance",
+    "bigquery-billing",
+    "cloud-trace",
+    "gemini"
+  ],
+  "author": {
+    "name": "FinOps Core Team"
+  },
+  "ownership": {
+    "team": "finops-governance",
+    "poc": "varmaleena"
+  }
+}
