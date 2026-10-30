@@ -1,0 +1,93 @@
+Sample Input 1: EDR_DETECTION (New - Malicious PowerShell)
+
+SCH_SR_Falcon_Detection/Host:winsrv0221
+
+User system on Host winsrv0221 Which is a WINDOWS Server 2022 Server with an IP of 10.20.3.16 alerted for A suspicious process tree was observed. Host Impacted: winsrv0221 User Impacted: system.
+IOC: 45.146.164.110 (IP)
+
+Host Summary
+
+OS: WINDOWS Server 2022
+
+Type: Server
+
+IP: 10.20.3.16
+
+Owner: Team-B
+
+User Summary
+
+User: system
+
+Process Summary
+
+Process: powershell.exe
+
+PID: 700
+
+Parent Process: services.exe (PID 500)
+
+File Path: C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe
+
+Command Line: powershell -enc VwByAGkAdABlAC0ASABvAHMAdAAgACIARwBvAHQAIAB5AG8AdQAiAA==
+
+
+Sample Input 2:IOC_MATCH (New - Malicious IP)
+
+SCH_SR_Crowdstrike_IOC_Match/Host:winws1045
+
+User m.chen on Host winws1045 Which is a WINDOWS 11 Workstation with an IP of 10.12.0.101 alerted for An IP Address matched a Custom Intelligence Indicator (LockbitC2) with critical severity. Host Impacted: winws1045 User Impacted: m.chen.
+IOC: 198.51.100.42
+
+Host Summary
+
+OS: WINDOWS 11
+
+Type: Workstation
+
+IP: 10.12.0.101
+
+Owner: m.chen
+
+User Summary
+
+User: m.chen
+
+Process Summary
+
+Process: teams.exe
+
+PID: 7100
+
+Parent Process: explorer.exe
+
+File Path: C:\Users\m.chen\AppData\Local\Microsoft\Teams\current\teams.exe
+
+Command Line: C:\Users\m.chen\AppData\Local\Microsoft\Teams\current\teams.exe --type=utility
+
+
+Sample Input 3. PHISHING_EMAIL (New - Malicious Domain)
+
+SCH_SR_Phishing_Alert/User:m.chen
+
+User m.chen reported a suspicious email. The email originated from SMTP relay 203.0.113.77 and contained a link to a malicious domain. User Impacted: m.chen. Host potentially impacted: winws1045.
+IOCs: scanned-invoice-attach.org (Domain), 203.0.113.77 (IP)
+
+Email Summary
+
+From: "AP Invoicing" billing@scanned-invoice-attach.org
+
+To: "Chen, Michael" m.chen@example.com
+
+Subject: Urgent: Scanned Invoice [INV-90234]
+
+Body Snippet: "Your invoice is attached. Please review and pay at http://scanned-invoice-attach.org/view.php?id=90234"
+
+SMTP IP: 203.0.113.77
+
+User Summary
+
+User: m.chen
+
+Host: winws1045
+
