@@ -1,212 +1,206 @@
-# GenMedia for Commerce — Full-Stack Multi-Agent Retail Media
+# GenMedia for Commerce: guide for coding agents
 
-## Intent
+How the code works and the rules for changing it. `README.md` is the only user document (setup, run, deploy, configuration); `CLAUDE.md` and `GEMINI.md` only point here.
 
-A clone-and-study **full-stack, multi-agent** ADK app that generates retail
-media — Virtual Try-On (**VTO**) images/videos, 360° product spins
-(**Reference-to-Video / R2V**), product fitting on a virtual model, and
-background swaps — by orchestrating **Gemini** and **Veo 3.1** through
-multi-stage media pipelines. The interesting part is **not** the router agent
-(a thin ADK wrapper around one **MCP toolset**); it's the **MCP tool server +
-workflow pipelines** (framing → parallel Veo generation → automated
-validation/retry), the **in-memory catalogue vector search**, and the **full app
-stack** (FastAPI + React + Terraform + Agent Engine / Gemini Enterprise
-registration).
+## What the app does
 
-## When To Use
+A full-stack ADK app that makes product media for online shops with Gemini: Photo Try-On (a person wearing one product or a whole outfit), Video Try-On (the try-on animated into short videos), 360° Spin (a looping animated WebP of any product) and catalogue search. Each generation makes several variations (`GENMEDIA_NUM_VARIATIONS`, default 3, in parallel by default), checks each one against the product photos (and the person's face) with a judge model, ranks them and streams them as they finish.
 
-- The user wants an **orchestrator agent** that drives multi-stage
-  media-generation pipelines (framing → generation → validation/retry) instead
-  of a single tool call.
-- The user wants a reference for exposing generation workflows as **MCP tools**
-  and wiring them into an ADK agent, a **FastAPI** REST surface, and a **React**
-  frontend.
-- The user needs a **Veo/Gemini retail-media** example with automated quality
-  validation (rotation-consistency + glitch detection) and ADK eval sets.
+One FastAPI app, deployed as one Cloud Run service, serves every entry point:
 
-## Eval
+- the web app (`frontend/`), one page: the Studio, with the agent's chat beside it;
+- the Studio MCP App at `/mcp`, an interactive panel inside Gemini Enterprise;
+- the Studio agent, the app's one ADK agent, through those two and through the ADK API (`/run`, `/run_sse`); `make playground` runs it in the ADK web UI;
+- REST routes that stream one generation as Server-Sent Events (`POST /api/tryon`, `/api/video-tryon`, `/api/spin`).
 
-- **Scenarios Path**: `tests/eval/evalsets/` (config: `tests/eval/eval_config.json`)
-- **Minimum Score**: two weighted criteria, each `threshold: 0.5` —
-  `tool_trajectory` (`weight 0.6`, `tool_name_match: flexible`) +
-  `response_match_v2` (`weight 0.4`); `num_runs: 1`.
-- Run with `make eval` (default `basic.evalset.json`) or `make eval-all` (loops
-  every `tests/eval/evalsets/*.evalset.json`). Both call `adk eval`. Cases mix
-  **tool-trajectory** checks (e.g. `route_product_fitting` asserts a
-  `product_fitting` call with `gender`/`ethnicity` args) with **reference**
-  behavior checks (e.g. `ask_for_missing_params`).
+The agent never handles image bytes: it fills a "studio" (person, products, spin photos, settings) with image references and starts background jobs. The server owns the studio state; it, the agent's ADK sessions, the jobs, the uploads and the results all live in one Cloud Storage bucket, so any instance can answer any call.
 
-## End-to-end flow
+## Module map
+
+All the app's Python is under `genmedia4commerce/`. Read first: `core/gen.py`, `core/runner.py`, `requests.py`, `workflows/tryon/pipeline.py`, `studio/agent.py` and `api/app.py`.
+
+| Path | What it holds |
+|---|---|
+| `__init__.py` | Loads `config.env` from the repository root when it exists (environment values win); exposes `agent` lazily |
+| `agent/` | Re-exports `root_agent` and `app` from `studio/agent.py`, where ADK looks for them. Keep it a package: agent-starter-pack writes its own sample `agent.py` into the agent directory (`agent_directory` in `pyproject.toml`), and the package wins the import |
+| `fast_api_app.py` | The uvicorn entry point (`genmedia4commerce.fast_api_app:app`) |
+| `core/` | The shared layer, with no import from the rest of the package: `settings.py` and `models.py` (environment), `clients.py` (the one `genai.Client` factory and HTTP retry policy), `gen.py` (every model call), `retry.py` (deadlines, stalls, transport retries, `ContextPool`), `runner.py` (N variations, evaluate, rank), `events.py` (the event types), `runs.py` (run folders and output delivery), `_parts.py` and `_json.py` (request parts, lenient JSON for `gen`), `gcs.py` (Cloud Storage, `resolve_image`, signed URLs), `media.py`, `_fit.py`, `video.py` (image and frame helpers, Cloud Vision face boxes), `catalog.py` and `catalog_search.py`, `cache.py`, `_codec.py` and `degraded.py` (the preprocessing cache), `trace.py` (local debug trace), `errors.py`, `types.py`, `testing.py` (test helpers) |
+| `eval/` | The checks, depending only on `core/`: `outfit.py` (the one-call outfit judge used by both try-ons), `identity.py` (same person in a video), `unseen.py` (video frames showing what no reference shows), `orientation.py` (view of each frame), `motion.py` (spin direction by optical flow, glitch call), `video_fidelity.py` (each reference view against its best frame, shoe or product judge). `garment.py`, `garment_detector.py` and `garment_prompts.py` (per-reference detector, verifier, aggregator) are reachable only as `video_fidelity`'s `judge="garment"`, which no workflow uses |
+| `workflows/tryon/` | Photo Try-On (below) |
+| `workflows/video_tryon/` | Video Try-On (below) |
+| `workflows/spin/` | 360° Spin (below) |
+| `workflows/details.py` | Close-ups of a product's small details (lettering, logos, hardware): one judge call finds them, each is cropped from the full-resolution photo and can be upscaled by the image model. Used by all three workflows |
+| `requests.py` | Builds and validates every workflow request and starts runs (`start_run`), for both `tools.py` and the REST routes |
+| `tools.py` | The four tool functions (`try_on`, `video_try_on`, `spin_360`, `catalog_search`): a generation tool folds its run's events into one JSON result; `stream` returns the events instead (the Studio jobs use it) |
+| `describe.py` | One-sentence description of an uploaded image (the agent gets text and a `gs://` reference, never pixels) |
+| `api/` | FastAPI: `app.py` (builds the app), one router per capability (`tryon.py`, `video_tryon.py`, `spin.py`, sharing `sse.py`), `uploads.py`, `catalog.py`, `media.py`, `status.py`, `studio.py` (the Studio for the web app), and the middlewares `message_limit.py` and `security_headers.py`. `adk_home/` is the near-empty agents folder ADK puts on `sys.path` |
+| `studio/` | The Studio, with no transport: the agent (`agent.py`, `prompt.py`, `agent_tools.py`, `agent_settings.py`, `agent_spin.py`, `agent_spec.py`, `tool_order.py`, `turn.py`, `headless.py`), its sessions (`sessions.py`, `session_cache.py`, `session_limits.py`, `history.py`, `events.py`), the state (`store.py`, `state.py`, `patches.py`), jobs (`jobs.py`, `job_call.py`, `quota.py`), images (`media.py`, `picks.py`) and `service.py`, the operations both clients share |
+| `mcp/` | `studio.py`, the MCP App adapter over `studio/service.py`; `static/studio.html`, the panel (plain HTML and JavaScript, no build step) |
+| `app_utils/telemetry.py` | OpenTelemetry setup; by default prompts and replies are kept out of ADK's spans |
+
+Outside the package:
+
+- `frontend/`: React, Vite and Tailwind. `src/App.tsx` routes every path to the Studio (`src/pages/Studio/`): `useStudio.ts` and `store.ts` (the state the server owns, actions, the agent chat, jobs), `model.ts` (the server's state as the page shows it, job specs), `items.ts` (picks and uploads), `jobs.ts` (follows a job), `shrink.ts` (an upload over the server's limit or of a type it does not take becomes a JPEG in the browser). `src/api/client.ts` is the only module that calls `fetch`; `src/api/studio.ts` holds the `/api/studio` calls. `src/test/mockServer.ts` and `studioMock.ts` are the fixture backend of the tests and of `npm run dev:mock`.
+- `infra/terraform/`: APIs, the media bucket and its lifecycle rules, Artifact Registry, the service accounts `genmedia-cloudrun` (runtime), `genmedia-build` (Cloud Build) and `genmedia-web` (identity of the `make web` proxy), and their roles. `infra/terraform.sh` runs Terraform, installing a pinned release when it is missing. `infra/web_proxy.sh` is `make web`.
+- `infra/gemini_enterprise.py` with `gemini_enterprise_api.py`, `gemini_enterprise_app.py`, `gemini_enterprise_steps.py` and `gemini_enterprise_policy.py` (the organisation policy on custom MCP connectors): `make register-gemini-enterprise` and `make allow-mcp-connectors`. The Discovery Engine API's quirks are explained in the module docstrings.
+- `assets/catalog/products.parquet`: the sample catalogue (products, preset models, spin sets, with WebP images and embeddings), copied into the image.
+- `services.yaml`: registers the `studio://` session service for `adk web`.
+- `tests/`: one folder per package (below).
+
+## Data flow
+
+### Every generation
 
 ```
-user (React frontend / ADK web / Gemini Enterprise)
-   -> root_agent "genmedia_router" (genmedia4commerce/agent.py)
-      - before_model_callback: uploads described by Gemini, pushed to GCS,
-        inline bytes replaced with [user_upload | filename | description]
-   -> McpToolset -> GenMedia MCP server (mcp_server/server.py, 7 tools)
-      - before_tool_callback resolves filenames -> base64 from GCS
-   -> media workflow pipeline (workflows/<capability>/):
-        framing/canvas -> parallel Veo 3.1 / Gemini generation
-        -> automated eval + (spinning) rotation/glitch validation & retry
-   -> after_tool_callback: generated media saved as ADK artifacts + GCS,
-        LLM sees only a text summary (no base64 blobs in context)
-   -> frontend renders artifacts; history persisted to GCS per session
+caller: a Studio job (studio/jobs.py, through tools.stream) or a REST route (api/sse.py)
+  -> requests.py: build and check the request; start_run resolves image refs,
+     keeps the inputs (input mode gcs) and starts the run
+  -> workflows/<capability>/pipeline.py: classify, references, prompt
+     -> core.runner.run_variations: make N variations, evaluate each (eval/), rank
+  -> core.runs.deliver: first event progress("run"); media inline as base64,
+     or saved to the run's outputs/ (output mode gcs)
+  -> events: progress, classified, variation (one per result), then one complete or one error
 ```
 
-## Most interesting files to study (in order)
+A workflow never raises to its caller: it ends with one `ErrorEvent` whose message is meant for the user (`core.errors.user_message(exc)` for an exception). The REST routes stream the events, the tool functions fold them into a dict, a Studio job folds them into its job document.
 
-### MCP tool server (the tool surface)
-1. **`genmedia4commerce/mcp_server/server.py`** — a `FastMCP` server
-   (`genmedia-retail`) exposing **7 tools**: `product_fitting`, `image_vto`,
-   `video_vto`, `background_changer`, `product_spinning`, `animate_model`,
-   `catalog_search`. Each `@server.tool()` is a thin async wrapper that
-   JSON-encodes the result of a `run_*` workflow. Runs over **stdio** (for the
-   ADK agent subprocess) or **SSE** (`--transport sse`, for external clients).
+### Photo Try-On (`workflows/tryon/`)
 
-### Media-generation workflows (the bulk of the logic)
-2. **`genmedia4commerce/workflows/`** — the real pipelines, grouped by
-   capability: `video_vto/` (clothes catwalk + glasses), `image_vto/` (static
-   clothes/glasses VTO with evaluation ranking), `spinning/` (shoe & product
-   360° R2V + interpolation), `product_enrichment/product_fitting/` (front/back
-   views on a model body), `other/background_changer/`, and `shared/`
-   (Gemini/Veo/image/video/GCS utilities). Each `*/pipeline.py` is the entry the
-   matching `*_mcp.py` calls.
-3. **`genmedia4commerce/workflows/spinning/r2v/shoes/pipeline.py`** — the richest
-   pipeline: classify shoe angle/closure → select & stack images (Veo caps
-   reference images at 3) → generate → **validate**. Study its two validators:
-   **`video_validation_r2v.py`** (`validate_and_fix_product_spin_consistency_r2v`,
-   rotation-direction + glitch checks with retry) and
-   **`product_consistency_validation.py`** (`validate_product_consistency`).
-4. **`genmedia4commerce/workflows/shared/vector_search.py`** — the catalogue
-   backend: an **in-memory dot-product search** over pre-computed embeddings
-   (`numpy`) + `metadata.parquet` (`pyarrow`), **Matryoshka-truncated to 128d**,
-   with `audience`/`season`/etc. filters. No managed index — assets are pulled
-   from GCS at import. Read side of `catalog_search`.
-5. **`genmedia4commerce/workflows/shared/`** — `veo_utils.py` (Veo R2V calls),
-   `image_utils.py` (framing, canvas, background removal), `video_utils.py`,
-   `llm_utils.py`, `gcs_utils.py`, `person_eval.py` — the reusable primitives
-   every pipeline composes.
+`pipeline.run_tryon`:
 
-### App stack & infrastructure
-6. **`genmedia4commerce/fast_api_app.py`** (+ **`chat_api.py`**) — the combined
-   server: `get_fast_api_app` (ADK `/run`, sessions, optional web UI) **plus**
-   every `mcp_server/*/*_api.py` REST router, a `/feedback` + `/health` +
-   `/api/status` endpoint, an **embedded MCP server on a daemon thread (SSE)**,
-   and SPA/static mounts for the built React app. This is the Cloud Run
-   entrypoint.
-7. **`genmedia4commerce/agent_engine_app.py`** (+ **`genmedia4commerce/app_utils/deploy.py`**) —
-   the Agent Engine path: wraps `agent.app` in an `AdkApp` subclass
-   (`AgentEngineApp`) with telemetry, GCS artifacts, and a `register_feedback`
-   op. `make deploy-agent-engine` exports requirements and calls
-   `genmedia4commerce.app_utils.deploy`.
-8. **`infra/terraform/`** — GCP provisioning: `main.tf` (APIs), `storage.tf`
-   (media bucket `${project_id}-genmedia-for-commerce-media-payloads`),
-   `artifact_registry.tf`, `cloudrun.tf`, `iam.tf`. **`infra/model_training/`** —
-   optional Gemini **LoRA** shoe-side classifier fine-tune/eval
-   (`make train-shoe-model` / `make eval-set-shoe-model`).
+1. `inputs.trimmed` crops the product photos to their content. With the cache on (`GENMEDIA_USE_CACHE`), `cache.TryOnCache` may return steps 2 and 3 (and the styling plan) from an earlier run with the same photos and options.
+2. `classify.classify_products`: one judge-model call groups the photos into products (category, view, worn or flat, detail photos, the look photo of a whole outfit) and picks the framing. Then `worn.normalise` turns every photo it saw worn (product photos, the look photo, the reference model) into the same photo on a grey mannequin, all at once: one image-model edit (`mannequin.py`, a standalone module that imports nothing from the package) pasted back onto the photo, so every product pixel stays the original's. Every later step gets these photos and the prompt says "on a mannequin" (`ProductRef.mannequin`); a photo whose edit fails twice stays as it is (a fallback). Each converted photo is cached on its own, so a cache hit gets them too. The person photo is never touched.
+3. At once: `closeups.search` (one `details.find` per product; close-ups of one photo that would show nearly the same area become one, `closeup_merge.py`) and `reference.complete`: one box call per photo to crop from (`cut.py`), the look photo's top and bottom halves as worn examples, each product's hero image (`hero.py`) and, with `complete_look`, the products the look photo adds.
+4. `_prepare`: the wearer (`inputs.wearer`: the photo as it is plus its Cloud Vision face crop; `GENMEDIA_UPSCALE_FACE` upscales the prompt's face) and, for an outfit, the styling plan (`outfit.analyze_outfit`).
+5. The run record (`record.py`) for a later video of these images, then the front variations: `prompt.build_prompt` for one product, `outfit_prompt.build_prompt` for several (one card per product, `cards.py`; how each is worn, `styling.py`), `gen.generate_image`, and `evaluate.evaluator` (the `eval/outfit.py` judge, which also sees the wearer and the face on the front view). With `GENMEDIA_TRYON_FIX` (off by default) each rejected image, front or back, gets one fix attempt (`fix.py`, prompt in `fix_prompt.py`) and is judged again; a fix that passes replaces it, marked `fixed`. The prompts never leave a bare chest or underwear on show (a plain top or bottom in a neutral colour instead), and the judge checks it on the front view.
+6. A single product with back photos then gets back views drawn from the best front (`back_view`). One `complete` ranks the fronts.
 
-### Agent + frontend (thin layer — read last)
-9. **`genmedia4commerce/agent.py`** — `root_agent` (`genmedia_router`, Gemini)
-   and `app`. Thin on routing (one `McpToolset`), but carries the recipe's
-   **callback machinery**: `before_model` (GE-stable session id, upload →
-   describe → GCS), `after_model` (inject `[session_id=...]`), `before_tool`
-   (filename → base64), `after_tool` (media → artifacts + GCS, summary to LLM).
-10. **`genmedia4commerce/agent_utils.py`** — the helpers behind those callbacks:
-    **GCS-backed conversation history** (`append_to_history` /
-    `retrieve_from_history`), `upload_asset_to_gcs` / `copy_gcs_asset`,
-    `resolve_filename_to_gcs_uri`, `extract_media` / `resolve_media`, and
-    parallel image description.
-11. **`genmedia4commerce/agents/style_advisor_agent/agent.py`** — a second,
-    self-contained **multi-agent** app: a `style_advisor` searcher that delegates
-    to a `stylish_agent` curator sub-agent (`sub_agents=[...]`). Its own
-    `App(...)`; not wired into the router. Read for the ADK sub-agent pattern.
-12. **`frontend/`** — the **React + Vite** UI (`genmedia-studio-frontend`), with
-    per-capability views (`image_vto/`, `video_vto/`, `spinning/`,
-    `product_enrichment/`). Talks to the FastAPI REST + ADK API; built and
-    served by `fast_api_app.py` in production.
+### Video Try-On (`workflows/video_tryon/`)
 
-## Data handling
+`pipeline.run_video_tryon` runs `run_tryon` first (its events tagged `extra.stage="image"`) and animates each front that passes at once, in its own branch (`branch.py`), while the other images are still being made; with none passing, the best-scoring one. A branch first draws the back view of a single product with a back photo, then builds the references (`refs.py`: the try-on image, its back, the face, photos of accessories and shoes, close-ups), plans 1 to 3 shots of 8 to 10 seconds in total (`plan.py`), writes the video model's prompt (`prompt.py`) and makes `GENMEDIA_VIDEOS_PER_IMAGE` videos (default 2). Each video is checked by `evaluate.evaluate_clip`: identity (`eval/identity.py`), blind spots (`eval/unseen.py`) and the products on still frames (`checks.py`, the outfit judge in video-frame mode). One `complete` ranks every video. With a `tryon_image` only that image is animated; its products come from the try-on's run record (`source_run`) or are classified again.
 
-- **Session state & history are GCS-backed**, not in ADK memory. All media +
-  `history.json` live under `sessions/<global_session_id>/` in
-  `MEDIA_BUCKET = ${project_id}-genmedia-for-commerce-media-payloads`
-  (`user_uploads/`, `generated_assets/`). A **stable global session id** is
-  injected as `[session_id=...]` so the Gemini Enterprise playground (which
-  rotates session ids each turn) keeps a consistent storage key.
-- **Base64 never enters LLM context.** Uploads are described by Gemini and
-  replaced with `[user_upload | filename | description]`; tool outputs are saved
-  as artifacts + GCS and reduced to a text summary. Filenames follow
-  `TIMESTAMP_TYPE_INDEX.EXT` (`_u_` upload, `_c_` catalog, `_g_` generated);
-  `before_tool` resolves them back to bytes from GCS.
-- **Catalogue = in-memory vector search.** `workflows/shared/vector_search.py`
-  loads pre-computed embeddings + `metadata.parquet` into RAM and does
-  dot-product similarity (128d Matryoshka slice) with metadata filters. Assets
-  auto-download at import from a hash-named GCS bucket via
-  `config.pull_assets()` (`make setup-infra` runs `pull-assets` first).
-- **Model names are env-driven** (`MODEL_NAME_GENERATED_*`, `EMBEDDING_MODEL`,
-  `MULTIMODAL_EMBEDDING_MODEL`); the router model is `config.agent_model`
-  (`MODEL_NAME_GENERATED_1`).
+### 360° Spin (`workflows/spin/`)
 
-## Gotchas / things to know
+`pipeline.run_spin`: `classify.py` (one judge call: product type, the view of each photo, a description). Shoes: `shoe_refs.py` builds the reference set (labels, pairs cut apart by `shoe_split.py`, a mirrored twin by the image model in `shoe_twin.py`), one video with the tuned shoe prompt, then `shoe_check.py` (frame labels give the direction, turn-backs, jumps and the loop cut; the shoe judge compares frames and references). Other products: `product_refs.py` (the best photo per angle, reduced to the product alone), close-ups (`details.find`, `GENMEDIA_SPIN_CLOSEUPS`), two half turns of one stored video interaction (`prompt.orbit_turns`), then `product_check.py` (optical flow, frame labels and a glitch call; an anticlockwise spin is reversed, a turn-back rejected, the clip cut where it closes) and the product judge. Every spin is delivered as a looping animated WebP (`core.video.to_webp`).
 
-- **`config.env` vs `.env`.** The runtime loads the **package-internal**
-  `genmedia4commerce/config.env` (a gitignored build artifact). The root
-  `config.env` is the source of truth — `make sync-config` copies it in, and
-  most targets depend on it. Copy `config.env.example` → `config.env` first.
-- **Model names must be in `config.env`.** Many call sites read
-  `MODEL_NAME_GENERATED_*` with no fallback, and `.env.example` is never
-  loaded. `config.env.example` defines them: flash `gemini-3.8-flash`, lite
-  `gemini-3.5-flash-lite`, pro `gemini-3.1-pro-preview`, image
-  `gemini-nano-banana-2.1`.
-- **The `eval` extra is intentionally empty.** `google-adk[eval]` /
-  `aiplatform[evaluation]` cap `scikit-learn<=1.5.2`, which conflicts with the
-  image code's `scikit-learn>=1.7.2`. `make eval` works via the base
-  `google-cloud-aiplatform[...,evaluation]` dependency; install `google-adk[eval]`
-  separately only if you need those extras.
-- **Heavy dependency set** (OpenCV, moviepy, rembg, insightface, onnxruntime,
-  scikit-image). `uv sync` is slow and pulls large ML wheels; `make install`
-  also installs `g++`/build tools.
-- **Live GCP is required at runtime** (Vertex AI / Veo / Gemini, GCS). Config
-  probes Vertex at import (`test_vertex_connection`). The runnability test
-  (`tests/test_runnability.py`) patches `google.auth.default` and only asserts
-  that `root_agent`/`app` import and are non-None.
-- **MCP transport is dual.** The ADK agent connects over **SSE** when
-  `MCP_SERVER_URL` is set, else spawns the server as a **stdio subprocess**.
-  In Cloud Run the server also runs embedded on an SSE daemon thread inside
-  `fast_api_app.py`.
-- **Deployment is multi-step, two targets.** `deploy-agent-engine` ships the
-  **agent only** (no REST/VTO endpoints); `deploy-cloudrun` ships the **full
-  stack**. Both need `make setup-infra` first.
+### Catalogue
 
-## Where to run things
+`core/catalog.py` reads the parquet file once, on first use. Its images are `catalog:<id>` or `catalog:<id>/<n>` references, which `gcs.resolve_image` reads, so every image input takes them. `catalog_search.search` embeds the query with the catalogue's embedding model, ranks by cosine similarity plus a keyword boost and falls back to keywords alone when the embedding call fails; `find` lists the featured products for an empty query.
 
-`Makefile` targets:
+### A Studio turn
 
-- **Setup**: `make install`, `make sync-config`, `make setup-infra` (Terraform +
-  `pull-assets`), `make tf-plan`, `make tf-destroy`.
-- **Local**: `make playground` (ADK web UI), `make dev` (backend + frontend),
-  `make run-backend`, `make run-frontend`, `make mcp-server` (standalone SSE).
-- **Quality**: `make test` (unit + integration), `make eval` /
-  `make eval-all`, `make lint` (codespell + ruff + ty).
-- **Deploy**: `make deploy-agent-engine`, `make deploy-cloudrun`,
-  `make register-gemini-enterprise`.
-- **Shoe classifier (optional)**: `make train-shoe-model`,
-  `make eval-set-shoe-model`.
+```
+Gemini Enterprise chat -> studio_agent MCP tool (mcp/studio.py)   or   web app -> POST /api/studio/{id}/agent
+  -> studio/service.py agent_turn -> studio/agent.py run_agent_turn: a turn scope (studio/turn.py)
+     holding a working copy of the saved state
+  -> ADK Runner on the studio's session (studio/sessions.py, the studio:// service)
+  -> _StudioPlugin rewrites the user's message before it is stored: attachments become [studio] lines;
+     the current studio and up to six of its images (gs:// file parts) are added when they changed
+  -> the Studio agent (LlmAgent, instruction in studio/prompt.py, eleven tools in agent_tools.py,
+     agent_settings.py and agent_spin.py) edits the working copy and records patches
+  -> state.save_patched applies the turn's patches to the saved state.json; the reply and
+     the state go back to the panel or the web app
+```
 
-Eval lives under `tests/eval/` (`eval_config.json` + `evalsets/`).
+- The panel and the web app send each user change as an action (`studio_event`, `POST /api/studio/{id}/actions`): `state.apply_action` checks it with the rules in `patches.py`, applies it to `state.json` and notes it in the session as a `[studio]` line (`history.py`, `events.py`).
+- Jobs: the agent's `generate` and `remake_video` and the clients' job routes all start through `quota.start` (saved studio, one running job per studio, `GENMEDIA_MAX_JOBS_PER_HOUR` per studio, `GENMEDIA_MAX_JOBS_PER_INSTANCE_HOUR` per instance). `jobs.py` runs `tools.stream` on that instance, with outputs in the bucket, and rewrites the job document as events arrive; clients poll it. When the job ends, `state.finish_job` records the results and a note goes to the session.
+- `generate` refuses with `needs_confirmation` when the agent changed the inputs, the page or a cost setting in the same turn (`tool_order.py`), so the agent asks "Shall I generate?" first.
+- Without a panel (`adk web`, the ADK API) `_before_agent` opens a `Headless` scope for the studio named by the ADK session id; `headless.py` turns attached images into uploads and saves finished results as ADK artifacts.
 
-## Reuse (copy as-is)
+## Prompts and model ids
 
-- **`genmedia4commerce/mcp_server/`** is a self-contained **FastMCP** server —
-  run it standalone (`python -m mcp_server.server` / `make mcp-server`) and
-  connect any MCP client. It imports `genmedia4commerce/workflows/`, so copy the
-  two together (the workflows are the actual generation logic).
-- **`infra/terraform/`** is self-contained GCP provisioning (media bucket, AR
-  repo, Cloud Run service, IAM, APIs). `make setup-infra` derives `TF_VAR_*`
-  from `config.env`; set `PROJECT_ID` (and Cloud Run knobs) there.
-- **`frontend/`** is a standalone **React + Vite** app with its own
-  `package.json` — `npm install && npm run build` and point it at the backend's
-  REST + ADK API.
-- There is **no hard coupling** from the agent to the workflows: `agent.py`
-  reaches every capability purely through the **MCP toolset** (stdio subprocess
-  or SSE via `MCP_SERVER_URL`).
+- Model ids live only in `core/models.py`: one environment variable per role (`GENMEDIA_TEXT_MODEL`, `GENMEDIA_TEXT_LITE_MODEL`, `GENMEDIA_JUDGE_MODEL`, `GENMEDIA_STUDIO_AGENT_MODEL`, `GENMEDIA_IMAGE_MODEL`, `GENMEDIA_VIDEO_MODEL` with `GENMEDIA_VIDEO_API_REVISION`, `GENMEDIA_EMBED_CATALOG_MODEL`) and a default. Code reads them with `get_models()`. The judge model also does the classifying, boxing and planning calls.
+- Prompts live next to the code that sends them, as module constants: `workflows/tryon/` (`prompt.py`, `outfit_prompt.py`, `styling.py`, `skin.py`, `classify.py`, `cut.py`, `outfit.py`, `fix_prompt.py`, `mannequin.py`), `workflows/video_tryon/` (`plan.py`, `prompt.py`, `checks.py`), `workflows/spin/` (`prompt.py`, `shoe_prompts.py`, `classify.py`, `product_check.py`), `workflows/details.py`, `eval/` (the long ones in `eval/prompts/*.md`, the others in `motion.py`, `orientation.py`, `unseen.py`, `video_fidelity.py`), `studio/prompt.py` and the tool docstrings in `studio/agent_tools.py` (the agent), `describe.py`, and the upscale prompts in `core/media.py`.
+- The try-on prompts are pinned by golden files in `tests/workflows/tryon/golden/`.
+- Any change to a source or prompt file starts a new preprocessing cache (`core.cache.code_fingerprint`).
+
+## Settings
+
+- `core/settings.py` reads the deployment settings once (`get_settings()`, cached); `PROJECT_ID` is checked only when first used, so the package imports without it. A few variables are read where they are used: `ALLOW_ORIGINS`, `SESSION_SERVICE_URI`, `LOGS_BUCKET_NAME` and `K_SERVICE` in `api/app.py`, `GENMEDIA_MAX_JOBS_PER_*` in `studio/quota.py`, the telemetry ones in `app_utils/telemetry.py`.
+- `.env.example` declares every variable the code reads, with its default: add a new one there (adk-recipes' env-var check fails on an `os.getenv` or `os.environ` read it does not declare). Do not repeat the list here.
+- `config.env` (made from `config.env.example` by any target that needs it) holds the values for a project; the Makefile also reads the deploy sizing, region, service name and `USE_IAP` from it. A deployment passes the same values as environment variables.
+
+## Storage
+
+Everything is in the media bucket (`MEDIA_BUCKET`, default `<PROJECT_ID>-genmedia-for-commerce-media-payloads`). Terraform deletes objects under `runs/`, `sessions/` and `product_cache/` 30 days after they were written (`media_retention_days`).
+
+- `runs/<date>/<session_id>/<run_id>/`: one folder per run (`core/runs.py`): `inputs/` with `GENMEDIA_INPUT=gcs` (or `input=gcs` on a call) and for `POST /api/uploads`, `outputs/` with `GENMEDIA_OUTPUT=gcs` (or `output=gcs`; events then carry `media_uri` and `media_url`, served by `GET /api/media`), and, for a try-on with gcs output, its run record `manifest.json` with `record/`. Workflows never see the modes.
+- `runs/studio_catalog/`: the Studio's copies of catalogue images; the Studio's own runs use the session `studio-<id>`.
+- `sessions/studio-<id>/`: `adk/session.json` and one object per event under `adk/events/` (the ADK session), `state.json` (the studio) and `results.json` (the latest results). `sessions/studio-jobs/<job_id>.json`: one job. Writers on different instances go through `store.update` (a generation precondition, retried on conflict); events are written create-only.
+- `product_cache/<key>/`: the try-on preprocessing cache (`core/cache.py`, `workflows/tryon/cache.py`, and each worn photo on a mannequin, `workflows/tryon/worn.py`), from product photos only; nothing from a person photo is cached. No image reference rule reaches it.
+- Elsewhere: with `LOGS_BUCKET_NAME` set, ADK artifacts go to that bucket (`api/app.py`) and GenAI telemetry can be uploaded there (`app_utils/telemetry.py`); the debug trace (`GENMEDIA_DEBUG_DIR`, `core/trace.py`) is on local disk.
+
+## Rules the server enforces (keep them)
+
+- Image references: a client or the agent may use only catalogue images, the catalogue copies and the image and video files of that studio's runs (`studio.media.allowed_ref`); a job spec is checked by `studio.job_call.check_refs` before it starts; `GET /api/media` serves run inputs and outputs (`core.runs.is_media_file`) and the catalogue copies, never a record or a manifest.
+- Studio and job ids are refused, never rewritten, when invalid (`store.check_id`, `store.check_job_id`).
+- A user message is at most 4000 characters (`studio/session_limits.py`; `api/message_limit.py` on ADK's `/run` and `/run_sse`).
+- What a client or the agent's model reads of a failure is `core.errors.user_message(exc)`: the message of `InputError`, `GenerationError`, `EvalError` and `BusyError`, a generic one for anything else (log the details).
+- Browser side: an enforced CSP and security headers outside `/mcp` (`api/security_headers.py`); CORS same-origin unless `ALLOW_ORIGINS` lists origins (`*` is refused at startup); ADK's session list and delete routes answer 404; no ADK web UI is served.
+- Everyone who can invoke the service is one trusted team: there are no per-user accounts.
+
+## Commands
+
+| Command | Purpose |
+|---|---|
+| `make install` | Python dependencies with uv |
+| `make dev` | Backend on 127.0.0.1:8000 and the Vite dev server on :3000 (`make run-backend` / `make run-frontend` for one) |
+| `make playground` | Optional, best effort: the ADK web UI on :8501, the agent without a panel |
+| `make test` | The hermetic test suite |
+| `make test-live` | `tests/live` against the real APIs (needs credentials, costs money) |
+| `make lint` | codespell, ruff check and ruff format check with the adk-recipes rules; fails when `uv.lock` is out of date |
+| `make format [FILES=...]` | ruff fix and format with the same rules |
+| `make typecheck` | mypy on `genmedia4commerce/`, `tests/` and `infra/` with the flags of adk-recipes' CI (no mypy config: its CI would not read ours) |
+| `make secrets` | detect-secrets on the tracked files when a `.secrets.baseline` is present, skipped otherwise; mark a false positive with `# pragma: allowlist secret` |
+| `make check-panel` | Syntax check of the script in `mcp/static/studio.html` |
+| `make tf-check` | `terraform fmt -check` and `validate`, no Google Cloud access needed |
+| `make setup-infra` | Terraform apply (APIs, bucket, Artifact Registry, service accounts, IAM); `make tf-plan` / `make tf-destroy` |
+| `make deploy` | Build from source and deploy the Cloud Run service; `make deploy-agent-engine` is a legacy alias |
+| `make web`, `make share USERS=...` | Open the deployed web app through a local proxy; let teammates do it |
+| `make register-gemini-enterprise [DRY_RUN=1]` | Register the Studio in a Gemini Enterprise app |
+| `make allow-mcp-connectors` | Allow custom MCP connectors in the project (the per-project override of the organisation policy) |
+| `cd frontend && npm run lint && npm run build && npm test` | Biome (the adk-recipes rules), `tsc` and the Vite build, Vitest; `npm run format` fixes formatting |
+
+Run `make deploy` only after the user confirms. `make register-gemini-enterprise` changes IAM and a Gemini Enterprise app: run it with `DRY_RUN=1` first, and without it only after the user confirms; without a terminal it prints each console-only step and exits. `make allow-mcp-connectors` changes an organisation policy: run it only after the user confirms.
+
+## Code rules
+
+- Delete before you build: standard library first, then the SDK, then one shared helper. One of each: one client factory, one retry policy, one runner. No dead code.
+- Keep modules to at most 400 lines and functions to at most 60: split before you add. Line length is 80 (ruff, with the adk-recipes rules passed as flags by the Makefile: there is no ruff config file, and adk-recipes forbids one, as it does a recipe-local Biome config).
+- Imports: `from genmedia4commerce.<pkg> import ...`; never edit `sys.path`.
+- Model calls go through the module so tests can fake them: `from genmedia4commerce.core import gen`, then `gen.generate_image(...)`. A model id anywhere but `core/models.py` is a bug.
+- Model parameters (`TextParams`, `ImageParams`, `VideoParams`) travel from the request to the `gen.*` call; workflows set the defaults, helpers never hard-code a size, ratio, thinking level or resolution.
+- No `fastapi`, `starlette` or request models under `core/`, `eval/` or `workflows/`. `core/` imports nothing else of the package and `eval/` only `core/`.
+- `gen`, `media` and `eval` functions are synchronous; workflows call them with `asyncio.to_thread`.
+- Raise the types in `core/errors.py`; workflows yield an `ErrorEvent` instead of raising.
+- Log with `logging.getLogger(__name__)`, never `print`.
+- Every new code file starts with the Apache 2.0 header of the existing files (`tests/test_license_headers.py` checks it).
+- `README.md` is the only user document; this file is the guide to the code. Write plain, direct language, one paragraph per line.
+
+## How to test
+
+- `make test` (`pytest -m "not live"`, skipping `tests/integration`, `tests/unit` and `tests/load_test`, which agent-starter-pack adds to the projects it creates). Tests are hermetic: no network, no credentials, no Cloud Storage. The autouse fixture in `tests/conftest.py` sets `PROJECT_ID=test-project`, a catalogue path with no file, inline input and output, no trace and no cache, and makes any real `genai` client fail.
+- Fixtures: `fake_gen` (from `core/testing.py`) fakes every `core.gen` call and records them; `storage` is an in-memory bucket; `catalog_file` writes a tiny catalogue.
+- Tests mirror the package: `tests/core`, `tests/eval`, `tests/workflows/<capability>`, `tests/studio`, `tests/api`, `tests/mcp`, `tests/infra`, `tests/app_utils`. `tests/test_runnability.py` imports the package, the agent and the app without credentials (adk-recipes requires it).
+- Goldens: after an intended prompt change, regenerate them with `UPDATE_GOLDEN=1 uv run pytest tests/workflows/tryon` and review the diff.
+- Live tests are in `tests/live/`, marked `@pytest.mark.live`, and run only with `GENMEDIA_LIVE=1` (`make test-live`).
+- `tests/benchmark/rotation/run_benchmark.py` measures `eval.motion.check_rotation` on labelled clips.
+- Before a commit: `make lint`, `make typecheck`, `make secrets` and `make test`; frontend changes add the npm commands above; `studio.html` changes `make check-panel`; Terraform changes `make tf-check`.
+
+## Reuse
+
+- `core/` imports nothing else of the package: copy it for any Gemini project that needs typed model parameters, one retry policy and a fan-out runner. `eval/` needs only `core/`.
+- `studio/store.py`: JSON documents in Cloud Storage that several instances update safely (generation preconditions, retry on conflict).
+- `studio/sessions.py`: an ADK session service on Cloud Storage (one object per event, create-only writes), registered under the `studio://` scheme for `get_fast_api_app` (`register()`) and `adk web` (`services.yaml`).
+- `mcp/studio.py` with `studio/`: an ADK agent behind an MCP App, with a server that owns the panel's state, one chat tool, app-only tools for the panel and background jobs the panel polls.
+- `infra/gemini_enterprise.py` registers an MCP server on Cloud Run (`<URL>/mcp`) in a Gemini Enterprise app; change `DISPLAY_NAME` and `STUDIO_ACTIONS` in `gemini_enterprise_steps.py`.
+
+## Gotchas
+
+- Run ADK from the repository root, as the Makefile does (`adk web .`). Pointing it at `genmedia4commerce/agent` puts `genmedia4commerce/` on `sys.path`, where `requests.py`, `tools.py` and `mcp/` shadow the libraries of the same names; the same reason gives the backend its own agents folder, `api/adk_home/`.
+- The agent always needs the media bucket, also in `make playground`: its sessions, the studio state, uploads and jobs live there.
+- Keep the system instruction identical from call to call and the stored conversation append-only, so Gemini's prefix cache hits (`Studio model call: <n> prompt tokens, <m> cached` in the logs).
+- Studio jobs run as background tasks on the instance that started them: the service needs CPU always allocated (`--no-cpu-throttling` in `make deploy`), and a job whose instance stops is reported as interrupted, not resumed.
+- Preview URLs are V4 signed URLs: the runtime account needs Token Creator on itself (Terraform grants it). With user credentials signing fails and previews fall back to inline images.
+- `make run-backend` sets `ALLOW_ORIGINS` to the Vite dev server: Vite's proxy rewrites the Host but forwards the browser's Origin, which ADK's origin check would refuse.
+- agent-starter-pack (Agent Garden) renders the `Makefile` with Jinja2: never write `{{`, `{%` or `{#` in it (`tests/infra/test_deploy_files.py` checks it). Agent Garden's command ends with `make deploy-agent-engine` and fills `config.env` by replacing `your-gcp-project-id` in `config.env.example`: keep that alias, that placeholder and `agent_engine` in `[tool.agent-starter-pack.settings]` until it uses `make deploy`.
