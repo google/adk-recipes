@@ -215,6 +215,7 @@ def _configure_paging(
     *,
     page_rows: list[dict[str, Any]],
     next_page_token: str | None,
+    total_rows: int | None = None,
 ) -> None:
     """Configures a mock client for a single fetch_page call.
 
@@ -222,6 +223,8 @@ def _configure_paging(
         client: Mock BigQuery client.
         page_rows: Row dictionaries to return in the page.
         next_page_token: Token for the next page, or None if exhausted.
+        total_rows: Row count the destination table reports, or None when
+            BigQuery reports none.
     """
     query_job = mock.MagicMock(spec=bigquery.QueryJob)
     query_job.destination = "dest-table-ref"
@@ -230,6 +233,7 @@ def _configure_paging(
     row_iter = mock.MagicMock()
     row_iter.pages = iter([[_row(row_values) for row_values in page_rows]])
     row_iter.next_page_token = next_page_token
+    row_iter.total_rows = total_rows
     client.list_rows.return_value = row_iter
 
 
@@ -351,6 +355,95 @@ def test_fetch_page_stops_early_on_memory_guard() -> None:
     assert len(page.dataset.eval_cases) == 1
     assert page.memory_truncated is True
     assert page.next_page_token is None
+
+
+def test_fetch_page_records_the_sample_size_and_nothing_unread() -> None:
+    """A page mapped in full counts the sample and leaves nothing unread."""
+    client = mock.MagicMock()
+    _configure_paging(
+        client,
+        page_rows=[_multi_turn_row(), _multi_turn_row()],
+        next_page_token=None,
+        total_rows=2,
+    )
+    fetcher = _make_fetcher(client)
+
+    fetcher.fetch_page("job-1", MetricType.MULTI_TURN)
+
+    assert fetcher.counts.sampled == 2
+    assert fetcher.counts.unread == 0
+
+
+def test_fetch_page_counts_the_sample_once_across_pages() -> None:
+    """Every page reports the same table total; only the first adds it."""
+    client = mock.MagicMock()
+    _configure_paging(
+        client,
+        page_rows=[_multi_turn_row()],
+        next_page_token="tok-next",
+        total_rows=2,
+    )
+    fetcher = _make_fetcher(client)
+    fetcher.fetch_page("job-1", MetricType.MULTI_TURN)
+
+    _configure_paging(
+        client,
+        page_rows=[_multi_turn_row()],
+        next_page_token=None,
+        total_rows=2,
+    )
+    fetcher.fetch_page("job-1", MetricType.MULTI_TURN, page_token="tok-next")
+
+    assert fetcher.counts.sampled == 2
+    assert fetcher.counts.unread == 0
+
+
+def test_fetch_page_counts_the_rows_a_memory_stop_left_unread() -> None:
+    """The rest of the stopped page and every unlisted page count as unread.
+
+    Five rows sampled, two listed on this page, the guard firing before the
+    second: one row attempted, one left on the page, three never listed.
+    """
+    client = mock.MagicMock()
+    _configure_paging(
+        client,
+        page_rows=[_multi_turn_row(), _multi_turn_row()],
+        next_page_token="tok-next",
+        total_rows=5,
+    )
+    fetcher = _make_fetcher(client)
+    calls = {"n": 0}
+
+    def guard() -> bool:
+        calls["n"] += 1
+        return calls["n"] > 1
+
+    fetcher._memory_guard = guard
+
+    page = fetcher.fetch_page("job-1", MetricType.MULTI_TURN)
+
+    assert page.memory_truncated is True
+    assert fetcher.counts.sampled == 5
+    assert fetcher.counts.ingested == 1
+    assert fetcher.counts.unread == 4
+
+
+def test_fetch_page_counts_the_stopped_page_when_the_total_is_unknown() -> None:
+    """Without a table total, only the rest of the stopped page is known."""
+    client = mock.MagicMock()
+    _configure_paging(
+        client,
+        page_rows=[_multi_turn_row(), _multi_turn_row(), _multi_turn_row()],
+        next_page_token="tok-next",
+        total_rows=None,
+    )
+    fetcher = _make_fetcher(client)
+    fetcher._memory_guard = lambda: True
+
+    fetcher.fetch_page("job-1", MetricType.MULTI_TURN)
+
+    assert fetcher.counts.sampled == 0
+    assert fetcher.counts.unread == 3
 
 
 def test_fetch_page_empty_destination_returns_no_cases() -> None:
@@ -1257,7 +1350,7 @@ def test_map_page_counts_every_row_as_ingested() -> None:
         [_multi_turn_row(), _multi_turn_row()], MetricType.MULTI_TURN
     )
 
-    assert dataclasses.astuple(fetcher.counts) == (0, 2, 0, 0)
+    assert dataclasses.astuple(fetcher.counts) == (0, 2, 0, 0, 0, 0)
 
 
 def test_map_page_does_not_count_the_rows_a_memory_stop_left_unread() -> None:
@@ -1268,7 +1361,7 @@ def test_map_page_does_not_count_the_rows_a_memory_stop_left_unread() -> None:
 
     fetcher._map_page([_multi_turn_row()], MetricType.MULTI_TURN)
 
-    assert dataclasses.astuple(fetcher.counts) == (0, 0, 0, 0)
+    assert dataclasses.astuple(fetcher.counts) == (0, 0, 0, 0, 0, 0)
 
 
 def _llm_request(

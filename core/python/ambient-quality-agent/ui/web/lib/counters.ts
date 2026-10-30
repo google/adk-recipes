@@ -42,6 +42,16 @@ export const COUNTER_FIELDS: readonly CounterField[] = [
     help: "Ingestion failed before evaluation: unparseable, or no trajectory content at all.",
   },
   {
+    key: "traces_sampled",
+    label: "Trajectories sampled",
+    help: "What the ingestion query returned: the sample drawn from the window, bounded by the evaluation budget.",
+  },
+  {
+    key: "traces_unread",
+    label: "Left unread",
+    help: "Sampled trajectories the investigation stopped before reading because it neared its memory limit. They were never evaluated.",
+  },
+  {
     key: "traces_evaluated",
     // Not "evaluated": the funnel's Evaluated total is the trajectories that
     // came back with an outcome, which can be fewer.

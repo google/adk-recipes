@@ -271,8 +271,29 @@ def run_sweep(
     if first_error is not None:
         raise first_error
 
-    suffix = " (stopped early near the memory limit)" if truncated else ""
+    suffix = (
+        _render_truncation_suffix(fetcher.counts.unread) if truncated else ""
+    )
     return [evaluation.render_summary() + suffix for evaluation in evaluations]
+
+
+def _render_truncation_suffix(unread: int) -> str:
+    """Render the note a memory-stopped sweep appends to each summary line.
+
+    Args:
+        unread: Sampled trajectories the stop left unread, as the fetcher
+            counted them (`IngestionCounts.unread`). A fetcher that does not
+            track it reports zero.
+
+    Returns:
+        The parenthesized note, naming the unread count when there is one.
+    """
+    if unread > 0:
+        return (
+            f" (stopped early near the memory limit; {unread} sampled "
+            "trajectories left unread)"
+        )
+    return " (stopped early near the memory limit)"
 
 
 def render_nothing_evaluated_line(
