@@ -1,0 +1,22 @@
+{
+  "eval_set_id": "basic_eval",
+  "name": "Code security fixer evaluation",
+  "description": "Runs the detect -> patch -> validate workflow on the bundled Django archive module (CVE-2021-3281 / CVE-2025-59682) and checks the final report is validator-backed and ends with a diff for human review. Every message starts a run, so there is no chit-chat case.",
+  "eval_cases": [
+    {
+      "eval_id": "fix_django_archive_traversal",
+      "conversation": [
+        {
+          "user_content": {
+            "parts": [{"text": "Fix the security findings in the bundled Django archive code and give me a reviewable patch."}]
+          }
+        }
+      ],
+      "session_input": {
+        "app_name": "app",
+        "user_id": "eval_user",
+        "state": {}
+      }
+    }
+  ]
+}
