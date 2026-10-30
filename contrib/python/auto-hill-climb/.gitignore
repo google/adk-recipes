@@ -1,0 +1,67 @@
+
+# --- Secrets and credentials (never commit) ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*_key.json
+*credentials*.json
+service_account*.json
+.netrc
+
+# --- Python ---
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# --- Node and frontend ---
+node_modules/
+dist/
+.next/
+.parcel-cache/
+.vite/
+
+# --- Go ---
+bin/
+
+# --- Agent runtime state and local session stores ---
+.adk/
+*.db
+*.sqlite
+*.sqlite3
+sessions/
+.preflight_state.json
+
+# --- Build and deploy artifacts ---
+build/
+artifacts/
+*.tar.gz
+*.zip
+.terraform/
+*.tfstate
+*.tfstate.*
+
+# --- Logs, captures, and scratch output ---
+logs/
+*.log
+captures/
+tmp/
+scratch/
+
+# --- Editor and OS ---
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# --- Repo specific additions below ---
+
+# Local eval config with your project filled in by make
+tests/eval/.eval_config.local.yaml

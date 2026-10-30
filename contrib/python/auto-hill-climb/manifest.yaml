@@ -1,0 +1,28 @@
+type: "standalone"
+status: "active"
+language: "python"
+deployable: true
+description: "Auto hill climbing: a coding agent improves a failing ADK support agent against a written contract using Agents CLI evals, a train and held out split, and the eval skill."
+license: "Apache-2.0"
+
+architecture:
+  agent: "single"
+  stateful: false
+  datasources:
+    - "hardcoded"
+
+dependencies:
+  libraries:
+    - "adk"
+    - "agents-cli"
+  services:
+    - "vertex-ai"
+
+ownership:
+  team: "Agent Development Kit (ADK) - Cloud AI"
+  poc: "kmaphoenix"
+
+tags:
+  - "evaluation"
+  - "hill-climbing"
+  - "agents-cli"
