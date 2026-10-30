@@ -1,22 +1,39 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 type: "standalone"   # Options: [standalone | module]
 status: "active"     # Options: [active | inactive]
 language: "python"   # Options: [python | java | go | kotlin | typescript]
-description: "ADK agent generating retail media (Virtual Try-On videos, 360°
-  product spins) using Gemini and Veo"                                                                                # TODO: review and expand this draft description
+description: "An ADK agent and Gemini workflows for retail media: image and video virtual try-on, 360° product spins and catalogue search, with every result checked for product fidelity"
 
 architecture:
-  agent: "multi"        # Options: [single | multi]
+  agent: "single"       # Options: [single | multi]
   stateful: true        # Options: [true | false]
   datasources:          # Options: [hardcoded | local | external]
     - "external"
 
-# dependencies: (optional) uncomment and fill in with canonical names
-#   libraries:
-#     - "ADK"
-#     - "pandas"            # example — replace with actual libraries used
-#   services:
-#     - "GCP Project"
-#     - "Cloud Run"         # example — replace with actual GCP/external services used
+dependencies:
+  libraries:
+    - "ADK"
+    - "FastAPI"
+    - "MCP"
+    - "React"
+  services:
+    - "Vertex AI"
+    - "Cloud Storage"
+    - "Cloud Run"
+    - "Gemini Enterprise"
 
 ownership:
   team: "Forward Deployed Engineering (FDE)"
@@ -25,6 +42,10 @@ ownership:
     - "giuliosalierno"
     - "javierpitagg"
 
-# tags: (optional) uncomment and replace with meaningful labels
-#   - "rag"               # example — use technology names, patterns, and use-case keywords
-#   - "gemini"
+tags:
+  - "retail"
+  - "virtual-try-on"
+  - "video-generation"
+  - "image-generation"
+  - "mcp"
+  - "full-stack"

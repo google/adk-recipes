@@ -1,0 +1,198 @@
+{
+  "description": "Behavioral evals for the per-session workspace window (horizon/workspace_window.py, /workspace). The shared per-user workspace can hold many unrelated projects; the window lets a session anchor to the project this conversation is about so file/discovery tools default-scope to it, while always allowing explicit break-out to the whole workspace via a leading-`/` path or scope=\"workspace\". There is no agent-callable tool to set the focus (set_workspace_window was dropped as agent-facing ceremony with no UI consumer) \u2014 the only mechanism left is auto-seed on first write into a top-level subdir, plus the user's own /workspace command. The contract (mirrored from the system prompt's Workspace-focus paragraph): (a) when the conversation is clearly about one project, the agent scopes its file ops into that project's directory and does NOT conflate other projects; (b) the window is a lens, not a cage \u2014 an explicit 'what else is here?' must reach the whole workspace; (c) when the project is ambiguous, the agent does NOT silently pick the wrong one \u2014 it asks or stays unfocused. NOTE: eval_config.json grades against rubric_based_final_response_quality_v1 only (no tool_trajectory_avg_score), so 'focuses' / 'breaks out' / 'does not guess' is encoded via rubric text. The intermediate_data.tool_uses field is declarative documentation of the expected trajectory. session_input.state seeds the workspace_window key where a focus is pre-set.",
+  "eval_cases": [
+    {
+      "eval_case_id": "no_cross_project_bleed_when_focused",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "Let's work on agent-finder. Research the leading agent-finder frameworks and write your notes into the project."
+          }
+        ]
+      },
+      "rubric_groups": {
+        "horizon": {
+          "group_id": "horizon",
+          "rubrics": [
+            {
+              "rubric_id": "window_focuses_on_named_project",
+              "content": {
+                "property": {
+                  "description": "The response anchors the session to the agent-finder project by scoping its file operations to the `agent-finder/` directory (e.g. writing to `agent-finder/notes.md`), which auto-focuses the session on first write into that subdir. The user named exactly one project; the agent should commit to it rather than treating the whole shared workspace as the target or writing to a root-level file."
+                }
+              }
+            },
+            {
+              "rubric_id": "window_no_audiobook_bleed",
+              "content": {
+                "property": {
+                  "description": "The response references ONLY the agent-finder task. It does NOT mention, read, write into, or otherwise conflate any unrelated project that may also live in the shared workspace (e.g. an 'audiobook' project). Surfacing or acting on another project's files when the user clearly scoped the work to agent-finder fails this rubric \u2014 that cross-project confusion is exactly what the workspace window exists to prevent."
+                }
+              }
+            },
+            {
+              "rubric_id": "relevance",
+              "content": {
+                "property": {
+                  "description": "The response addresses what the user is asking and does not fabricate. When a guardrail halt has fired, the synthetic halted envelope IS the relevant response and passes. Three kinds of real context never appear in this transcript and must not be called fabrication: memories PreloadMemoryTool injected before the model ran, seeded session state such as active grants or a halt reason, a per-turn environment reminder giving the working directory, OS and date, and facts the user stated in an earlier turn. Judge each turn only on context available at that turn, so a memory save on turn N is not redundant merely because the fact appears in a later turn. Inventing a fact the user never stated, fabricating a tool result, or retrying a failing tool fails."
+                }
+              }
+            },
+            {
+              "rubric_id": "helpfulness",
+              "content": {
+                "property": {
+                  "description": "The response is useful given the real constraints of the turn. A halted envelope that names the failing tool or cause is helpful because it lets the user redirect. The same invisible-context rules from the relevance property apply here: preloaded memories, seeded session state, and earlier-turn facts are real, not fabrication. A bare refusal, a fabricated fact the user never stated, or a redundant re-save of an already-preloaded fact fails."
+                }
+              }
+            }
+          ]
+        }
+      },
+      "expected_tool_uses": [
+        {
+          "name": "write",
+          "args": {
+            "path": "agent-finder/notes.md"
+          }
+        }
+      ]
+    },
+    {
+      "eval_case_id": "explicit_breakout_reaches_whole_workspace",
+      "agent_data": {
+        "turns": [
+          {
+            "turn_index": 0,
+            "events": [
+              {
+                "author": "user",
+                "state_delta": {
+                  "workspace_window": [
+                    "agent-finder"
+                  ]
+                }
+              },
+              {
+                "author": "user",
+                "content": {
+                  "role": "user",
+                  "parts": [
+                    {
+                      "text": "While we're focused on agent-finder \u2014 what other projects do I have in my workspace?"
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "rubric_groups": {
+        "horizon": {
+          "group_id": "horizon",
+          "rubrics": [
+            {
+              "rubric_id": "window_breaks_out_for_whole_workspace_question",
+              "content": {
+                "property": {
+                  "description": "Even though the session is focused on agent-finder (state pre-sets the focus), the response surveys the WHOLE workspace to answer 'what other projects do I have' \u2014 e.g. by calling `bash` with a `/`-prefixed `ls` (or `search_files` with `scope=\"workspace\"`). The agent must NOT answer only about agent-finder; the window is a default, not a cage, and an explicit workspace-wide question must break out of it."
+                }
+              }
+            },
+            {
+              "rubric_id": "window_lists_other_projects",
+              "content": {
+                "property": {
+                  "description": "The response actually enumerates the other projects present in the workspace (not just agent-finder). A response that says it can only see agent-finder, or that refuses to look beyond the focus, fails \u2014 that would mean the window trapped the agent, the opposite of the intended behavior."
+                }
+              }
+            },
+            {
+              "rubric_id": "relevance",
+              "content": {
+                "property": {
+                  "description": "The response addresses what the user is asking and does not fabricate. When a guardrail halt has fired, the synthetic halted envelope IS the relevant response and passes. Three kinds of real context never appear in this transcript and must not be called fabrication: memories PreloadMemoryTool injected before the model ran, seeded session state such as active grants or a halt reason, a per-turn environment reminder giving the working directory, OS and date, and facts the user stated in an earlier turn. Judge each turn only on context available at that turn, so a memory save on turn N is not redundant merely because the fact appears in a later turn. Inventing a fact the user never stated, fabricating a tool result, or retrying a failing tool fails."
+                }
+              }
+            },
+            {
+              "rubric_id": "helpfulness",
+              "content": {
+                "property": {
+                  "description": "The response is useful given the real constraints of the turn. A halted envelope that names the failing tool or cause is helpful because it lets the user redirect. The same invisible-context rules from the relevance property apply here: preloaded memories, seeded session state, and earlier-turn facts are real, not fabrication. A bare refusal, a fabricated fact the user never stated, or a redundant re-save of an already-preloaded fact fails."
+                }
+              }
+            }
+          ]
+        }
+      },
+      "expected_tool_uses": [
+        {
+          "name": "bash",
+          "args": {
+            "command": "ls /",
+            "cwd": "/"
+          }
+        }
+      ]
+    },
+    {
+      "eval_case_id": "ambiguous_project_does_not_guess",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "Can you update the README and fix the failing test?"
+          }
+        ]
+      },
+      "rubric_groups": {
+        "horizon": {
+          "group_id": "horizon",
+          "rubrics": [
+            {
+              "rubric_id": "window_does_not_silently_pick_wrong_project",
+              "content": {
+                "property": {
+                  "description": "The request names no project, yet the shared workspace contains several. The response does NOT silently pick one project and start editing its README / test \u2014 it either asks the user which project they mean (via `clarify` or a plain question and stops), or surveys the workspace first and asks the user to confirm before acting. Committing edits to a guessed project's files without confirmation fails \u2014 guessing wrong is precisely the cross-project confusion the window guards against."
+                }
+              }
+            },
+            {
+              "rubric_id": "window_does_not_set_focus_on_a_guess",
+              "content": {
+                "property": {
+                  "description": "The response does NOT write into or otherwise act on a project directory the agent merely guessed from an ambiguous request (there is no agent-callable focus tool \u2014 writing into a guessed project's subdir would auto-seed the session's focus to it, which compounds the mistake for the rest of the conversation). The guidance is explicit that the agent should not guess a focus when the project is ambiguous \u2014 it should ask or stay unfocused. Acting on a project the user never named fails this rubric."
+                }
+              }
+            },
+            {
+              "rubric_id": "relevance",
+              "content": {
+                "property": {
+                  "description": "The response addresses what the user is asking and does not fabricate. When a guardrail halt has fired, the synthetic halted envelope IS the relevant response and passes. Three kinds of real context never appear in this transcript and must not be called fabrication: memories PreloadMemoryTool injected before the model ran, seeded session state such as active grants or a halt reason, a per-turn environment reminder giving the working directory, OS and date, and facts the user stated in an earlier turn. Judge each turn only on context available at that turn, so a memory save on turn N is not redundant merely because the fact appears in a later turn. Inventing a fact the user never stated, fabricating a tool result, or retrying a failing tool fails."
+                }
+              }
+            },
+            {
+              "rubric_id": "helpfulness",
+              "content": {
+                "property": {
+                  "description": "The response is useful given the real constraints of the turn. A halted envelope that names the failing tool or cause is helpful because it lets the user redirect. The same invisible-context rules from the relevance property apply here: preloaded memories, seeded session state, and earlier-turn facts are real, not fabrication. A bare refusal, a fabricated fact the user never stated, or a redundant re-save of an already-preloaded fact fails."
+                }
+              }
+            }
+          ]
+        }
+      },
+      "expected_tool_uses": [
+        {
+          "name": "clarify",
+          "args": {}
+        }
+      ]
+    }
+  ]
+}
