@@ -1,0 +1,27 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "smart-router",
+  "version": "1.0.1",
+  "description": "A predictive semantic router and principal-scoped tool cache for Google ADK agents: prune the tool menu once per session, and skip tool calls whose answer is already known.",
+  "author": {
+    "name": "Mike Henderson",
+    "url": "https://github.com/statmike"
+  },
+  "homepage": "https://github.com/statmike/adk-smart-router",
+  "repository": "https://github.com/statmike/adk-smart-router",
+  "license": "Apache-2.0",
+  "keywords": [
+    "google-adk",
+    "llm",
+    "agents",
+    "tool-calling",
+    "prompt-caching",
+    "semantic-routing",
+    "bigquery-ml",
+    "xgboost"
+  ],
+  "ownership": {
+    "team": "cloud-gtm/agentic-data-science",
+    "poc": "statmike"
+  }
+}
