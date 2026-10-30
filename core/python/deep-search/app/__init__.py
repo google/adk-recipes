@@ -15,21 +15,26 @@
 """Deep Search Agent: strategize, research, and synthesize comprehensive reports."""
 
 import os
+from pathlib import Path
 
-import google.auth
 from dotenv import load_dotenv
 
 # Load variables from .env if present. In production the environment is
 # already populated by the platform (Cloud Run, GKE, etc.), so a missing
 # .env is expected and not an error.
-load_dotenv()
+load_dotenv(Path(__file__).parent / ".env")
 
-_, project_id = google.auth.default()
-os.environ.setdefault("GOOGLE_CLOUD_PROJECT", project_id or "")
-os.environ.setdefault("GOOGLE_CLOUD_LOCATION", "global")
-# This entry-point is Vertex AI only; set explicitly so a stale env value
-# cannot silently override the detected auth mode.
-os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "True"
+# AI Studio mode (GOOGLE_API_KEY set) runs without Cloud credentials, so the
+# project id lookup only applies to Vertex AI. Matches app/config.py.
+if not os.getenv("GOOGLE_API_KEY"):
+    import google.auth
+
+    _, project_id = google.auth.default()
+    os.environ.setdefault("GOOGLE_CLOUD_PROJECT", project_id or "")
+    os.environ.setdefault("GOOGLE_CLOUD_LOCATION", "global")
+    # This entry-point is Vertex AI only; set explicitly so a stale env value
+    # cannot silently override the detected auth mode.
+    os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "True"
 
 # Env bootstrap above must run before importing the agent (which reads env
 # vars at import time), so this import is intentionally not at the top.
