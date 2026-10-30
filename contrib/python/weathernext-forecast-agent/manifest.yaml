@@ -1,0 +1,67 @@
+# ADK Recipe Manifest — manifest.yaml
+# Fields marked REQUIRED must be present. All others are optional.
+# ============================================================
+
+# REQUIRED — Recipe type.
+#   standalone : complete, runnable recipe with its own entry point
+#   module     : importable sub-agent meant to be orchestrated by another workflow
+type: "standalone"
+
+# OPTIONAL — Set to true only if the recipe can be fully deployed with a single command and no manual configuration steps (e.g. has Terraform config or a deploy script).
+deployable: true
+
+# REQUIRED — Maintenance status.
+#   active | inactive
+status: "active"
+
+# REQUIRED — Primary programming language.
+#   python | java | go | kotlin | typescript
+language: "python"
+
+# REQUIRED — Short description of what this recipe does and the value it provides.
+description: "Decides when a wind-turbine blade exchange at Whitelee Wind Farm (Scotland) can go ahead, and where two crane crews should go across three real Scottish wind farms, from ensemble forecasts with an ADK 2.0 graph workflow: deterministic function nodes compute the probability that crane lifts, blade repairs or nacelle service stay within wind, gust and rain limits for the required hours, rank windows across sites and assign crews; single-turn Gemini nodes parse the request and explain the plan with explicit uncertainty. Serves A2A over JSON-RPC and HTTP+JSON for Gemini Enterprise and the Gemini agent. Production data: WeatherNext 3 on BigQuery (full SQL in the README); default: a bundled real ECMWF ensemble snapshot (Open-Meteo, CC BY 4.0)."
+
+# OPTIONAL — Agent architecture details. Omit the whole block if unknown.
+architecture:
+  agent: "multi"
+  stateful: false
+  datasources:
+    - "local"
+    - "external"
+
+# OPTIONAL — Library and service dependencies.
+dependencies:
+  libraries:
+    - "ADK"
+    - "google-cloud-bigquery"
+  services:
+    - "Gemini"
+    - "BigQuery"
+    - "WeatherNext"
+    - "Cloud Run"
+
+# REQUIRED — Ownership. Both sub-fields are required.
+ownership:
+  team: "Cloud AI"
+  poc: "debanshd"
+  # OPTIONAL — Additional contributors other than the poc.
+  # contributors:
+  #   - "github-id"
+
+# OPTIONAL — Classification tags (technology names, patterns, use-case keywords).
+tags:
+  - "weathernext"
+  - "adk-2"
+  - "graph-workflow"
+  - "a2a"
+  - "gemini-enterprise"
+  - "weather-forecasting"
+  - "ensemble-forecast"
+  - "uncertainty"
+  - "wind-energy"
+  - "maintenance-planning"
+  - "bigquery"
+
+# OPTIONAL — SPDX license identifier (e.g. "Apache-2.0", "MIT", "BSD-3-Clause").
+# Only set if explicitly declared in a LICENSE file or by the author.
+license: "Apache-2.0"
