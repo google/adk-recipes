@@ -48,6 +48,8 @@ REFRESH="${WEB_PROXY_REFRESH:-3000}"
 RETRY="${WEB_PROXY_RETRY:-60}"
 POLL="${WEB_PROXY_POLL:-1}"
 URL="http://localhost:$PORT"
+# The background proxy's pid, so a later start can tell it is already ours
+PIDFILE="${TMPDIR:-/tmp}/genmedia-web-proxy-$PORT.pid"
 SERVICE="${SERVICE_NAME:-genmedia-for-commerce}"
 REGION="${DEFAULT_REGION:-us-central1}"
 PROJECT="${PROJECT_ID:-}"
@@ -238,7 +240,11 @@ background() {
         return 0
     fi
     if port_in_use; then
-        echo "Port $PORT is in use (the proxy started earlier?), so the web app proxy was not started."
+        if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
+            echo "The web app is already running at $URL (Cloud Shell: Web Preview > port $PORT); stop it with: kill $(cat "$PIDFILE")"
+            return 0
+        fi
+        echo "Port $PORT is in use by another program, so the web app proxy was not started."
         hint
         return 0
     fi
@@ -249,6 +255,7 @@ background() {
     log=$(mktemp "${TMPDIR:-/tmp}/genmedia-web-proxy.XXXXXX")
     watch_proxy "$(session_id)" "$log" </dev/null >/dev/null 2>&1 &
     pid=$!
+    echo "$pid" >"$PIDFILE"
     echo "Starting the web app proxy ($COMMAND)..."
     while ! port_in_use; do
         if ! kill -0 "$pid" 2>/dev/null; then

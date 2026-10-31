@@ -130,8 +130,6 @@
   <h1>GenMedia Studio</h1>
   <div id="tabs" class="row"></div>
   <span class="spacer"></span>
-  <button class="btn hidden" id="panelBtn" title="Open in the side panel">Side panel</button>
-  <button class="btn" id="fullBtn" title="Full screen">⛶</button>
 </header>
 <main id="page"></main>
 <input type="file" id="file" accept="image/png,image/jpeg,image/webp" multiple class="hidden">
@@ -974,23 +972,13 @@
 
   // ---- display mode: the right-hand side panel when the host offers it ----
   let modes = ["inline", "fullscreen"], mode = "inline";
-  function showMode(m) {
-    mode = m || mode;
-    const panelBtn = document.getElementById("panelBtn");
-    panelBtn.classList.toggle("hidden", !modes.includes("pip"));
-    panelBtn.textContent = mode === "pip" ? "Back to chat" : "Side panel";
-    document.getElementById("fullBtn").textContent = mode === "fullscreen" ? "Exit full screen" : "⛶";
-  }
+  function showMode(m) { mode = m || mode; }  // the host's own frame switches and closes it
   async function setMode(m) {
     try {
       const r = await request("ui/request-display-mode", { mode: m });
       showMode((r && r.mode) || m);
     } catch (_) { /* the host keeps its current mode */ }
   }
-  document.getElementById("panelBtn").addEventListener("click", () =>
-    setMode(mode === "pip" ? "inline" : "pip"));
-  document.getElementById("fullBtn").addEventListener("click", () =>
-    setMode(mode === "fullscreen" ? (modes.includes("pip") ? "pip" : "inline") : "fullscreen"));
 
   // ---- start -----------------------------------------------------------------
   (async () => {

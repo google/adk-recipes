@@ -72,3 +72,14 @@ def own_app(gcloud_calls, monkeypatch):
     """No GEMINI_ENTERPRISE_APP_ID: the command uses its own app."""
     monkeypatch.delenv("GEMINI_ENTERPRISE_APP_ID")
     return gcloud_calls
+
+
+@pytest.fixture(autouse=True)
+def _no_licence_step(request, monkeypatch):
+    """The registration tests run without the licence step (its own tests
+    call it directly)."""
+    if request.module.__name__.endswith("test_gemini_enterprise_licence"):
+        return
+    import infra.gemini_enterprise as ge
+
+    monkeypatch.setattr(ge, "ensure_licence", lambda *_a, **_k: None)

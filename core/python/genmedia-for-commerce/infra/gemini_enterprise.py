@@ -56,6 +56,7 @@ from infra.gemini_enterprise_api import (
     gcloud,
 )
 from infra.gemini_enterprise_app import connect_existing_app, ensure_own_app
+from infra.gemini_enterprise_licence import ensure_licence
 from infra.gemini_enterprise_policy import (
     POLICY,
     allow_mcp_connectors_in,
@@ -177,6 +178,14 @@ def client(app_id: str, dry_run: bool):
     return DiscoveryEngine(app_project(app_id), location, token, dry_run)
 
 
+def deployer() -> str:
+    """gcloud's active account: the deployer, who gets the first licence."""
+    try:
+        return gcloud("config", "get-value", "account").strip()
+    except subprocess.CalledProcessError:
+        return ""
+
+
 def register(run_args: list[str], mcp_url: str, dry_run: bool) -> None:
     warn_if_iap()
     app_id = gemini_enterprise_app()
@@ -196,6 +205,8 @@ def register(run_args: list[str], mcp_url: str, dry_run: bool) -> None:
         engine = connect_existing_app(api, app_id, stores)
     else:  # our own app, with a stable id so a second run reuses it
         engine = ensure_own_app(api, f"{run_args[0]}-studio", stores)
+    if not dry_run:  # the user store exists once an app does
+        ensure_licence(api, deployer())
     enable_actions(api, cid)
     if dry_run:
         logger.info(
