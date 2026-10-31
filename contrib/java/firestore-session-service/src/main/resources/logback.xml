@@ -1,0 +1,24 @@
+<!-- src/main/resources/logback.xml -->
+<configuration>
+    <!-- Define an appender to output logs to the console -->
+    <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <!-- Define the log pattern to match your existing format -->
+            <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <!-- Set the logging level for a specific package or class -->
+    <!-- You can change INFO to DEBUG, TRACE, WARN, ERROR, or OFF -->
+    <logger name="com.google.adk.sessions.FirestoreSessionService" level="WARN" />
+
+    <!-- You can also set it for the entire package if you want -->
+    <!-- <logger name="com.google.adk.sessions" level="DEBUG"/> -->
+
+    <!-- Root logger configuration -->
+    <!-- This sets the default level for all other loggers -->
+    <root level="INFO">
+        <appender-ref ref="STDOUT" />
+    </root>
+
+</configuration>
