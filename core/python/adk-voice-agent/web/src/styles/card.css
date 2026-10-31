@@ -1,0 +1,68 @@
+/* ---------------------------------------------------------------------------
+   Card shell shared by every surface
+   --------------------------------------------------------------------------- */
+
+.a2ui-card {
+  position: relative;
+  width: 100%;
+  border-radius: var(--radius-card);
+  padding: 18px 18px 18px;
+  background: var(--surface-card);
+  backdrop-filter: blur(24px) saturate(1.2);
+  -webkit-backdrop-filter: blur(24px) saturate(1.2);
+  box-shadow:
+    0 24px 48px color-mix(in srgb, var(--black) 42%, transparent),
+    inset 0 1px 0 color-mix(in srgb, var(--white) 6%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  animation: cardIn var(--dur-slow) var(--ease-out) both;
+}
+
+@keyframes cardIn {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.98);
+    filter: blur(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+    filter: none;
+  }
+}
+
+.card-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 28px;
+}
+
+.card-source {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  flex: 1;
+  font-size: var(--fs-meta);
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: -0.005em;
+}
+
+.card-source-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.card-close {
+  width: 28px;
+  height: 28px;
+  margin: -4px -6px -4px 0;
+}
+
+.card-close::after {
+  inset: -8px;
+}

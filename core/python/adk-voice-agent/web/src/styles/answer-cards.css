@@ -1,0 +1,263 @@
+/* Answer cards (events, threads, files): on the stage from `look`, and inside thread cards from `present_card`.
+   Self-contained: no padding or background of their own, so the host card frames them.
+   Files reuse the Drive tile and text styles in context-apps.css and context-cards.css. */
+
+/* ---- Shared ------------------------------------------------------------- */
+
+.answer-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.answer-card-title {
+  font-size: var(--fs-micro);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text-muted);
+}
+
+.answer-empty {
+  font-size: var(--fs-body);
+  color: var(--text-secondary);
+}
+
+.answer-card-as-of {
+  font-size: var(--fs-micro);
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- Events ------------------------------------------------------------- */
+
+.cal-timeline {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+}
+
+.cal-event + .cal-event {
+  border-top: 1px solid var(--line);
+}
+
+.cal-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  min-width: 0;
+  padding: 11px 0;
+  color: inherit;
+  text-decoration: none;
+  transition: opacity var(--dur-fast) ease;
+}
+
+a.cal-row:active {
+  opacity: 0.6;
+}
+
+.cal-timeline > :first-child .cal-row {
+  padding-top: 2px;
+}
+
+.cal-time {
+  flex-shrink: 0;
+  width: 62px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding-top: 1px;
+  font-size: var(--fs-meta);
+  font-weight: 500;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.cal-time-end {
+  font-weight: 400;
+  color: var(--text-faint);
+}
+
+.cal-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.cal-title {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  font-size: var(--fs-body);
+  font-weight: 500;
+  line-height: 1.35;
+  color: var(--text-secondary);
+}
+
+.cal-event[data-phase="now"] .cal-title,
+.cal-event[data-phase="next"] .cal-title {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.cal-event[data-phase="now"] .cal-time {
+  color: var(--text-primary);
+}
+
+.cal-event[data-phase="past"] .cal-title,
+.cal-event[data-phase="past"] .cal-time {
+  color: var(--text-muted);
+}
+
+.cal-facts {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 6px;
+  font-size: var(--fs-meta);
+  color: var(--text-muted);
+}
+
+.cal-phase {
+  flex-basis: 100%;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.cal-event[data-phase="now"] .cal-phase {
+  color: var(--status-success);
+}
+
+.cal-event[data-phase="now"] .cal-phase::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-pill);
+  background: currentColor;
+  animation: calPulse 2.4s ease-in-out infinite;
+}
+
+@keyframes calPulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.cal-now {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 1px 0;
+}
+
+.cal-now + .cal-event {
+  border-top: none;
+}
+
+.cal-now span {
+  width: 62px;
+  font-size: var(--fs-micro);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--status-danger);
+}
+
+.cal-now::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--status-danger);
+  opacity: 0.7;
+}
+
+.cal-day {
+  padding: 12px 0 2px;
+  font-size: var(--fs-micro);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text-muted);
+}
+
+.cal-day:first-child {
+  padding-top: 0;
+}
+
+.cal-day + .cal-event {
+  border-top: none;
+}
+
+/* ---- Threads ------------------------------------------------------------ */
+
+.mail-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.mail-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.mail-sender {
+  min-width: 0;
+  font-size: var(--fs-meta);
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.mail-count,
+.mail-time {
+  flex-shrink: 0;
+  font-size: var(--fs-micro);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.mail-time {
+  margin-left: auto;
+}
+
+.mail-dot {
+  flex-shrink: 0;
+  width: 7px;
+  height: 7px;
+  border-radius: var(--radius-pill);
+  background: var(--status-running);
+}
+
+.mail-subject {
+  font-size: var(--fs-body);
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.mail-main[data-unread] .mail-sender,
+.mail-main[data-unread] .mail-subject {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.mail-snippet {
+  font-size: var(--fs-meta);
+  color: var(--text-muted);
+}
+
+.mail-sender,
+.mail-subject,
+.mail-snippet {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

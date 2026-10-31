@@ -1,0 +1,107 @@
+/* Context cards on the stage: one design per grounding tool, else bullets. */
+
+/* ---- Shared ------------------------------------------------------------- */
+
+.ctx-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+.ctx-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ctx-rows {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+}
+
+.ctx-rows > li + li {
+  border-top: 1px solid var(--line);
+}
+
+.ctx-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-width: 0;
+  padding: 12px 0;
+  color: inherit;
+  text-decoration: none;
+  transition: opacity var(--dur-fast) ease;
+}
+
+.ctx-rows > li:first-child .ctx-row {
+  padding-top: 4px;
+}
+
+.ctx-rows > li:last-child .ctx-row {
+  padding-bottom: 2px;
+}
+
+a.ctx-row:active {
+  opacity: 0.6;
+}
+
+.ctx-caption {
+  margin-top: -4px;
+  font-size: var(--fs-meta);
+  line-height: 1.45;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.ctx-foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+  font-size: var(--fs-meta);
+  color: var(--text-muted);
+}
+
+.ctx-link {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  text-decoration: none;
+  transition: color var(--dur-fast) ease;
+}
+
+.ctx-link:hover {
+  color: var(--text-primary);
+}
+
+.ctx-bullet {
+  font-size: var(--fs-meta);
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+/* Text helpers shared by the place rows and the Drive file rows. */
+
+.drive-main,
+.place-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.drive-name,
+.place-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

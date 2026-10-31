@@ -1,0 +1,415 @@
+/* Above the deck (z-index 5) so the `⋯` menu opens over the thread, not under it. */
+.stage-top-bar {
+  position: relative;
+  z-index: 6;
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) 40px;
+  align-items: center;
+  column-gap: 14px;
+  padding: 16px 18px 10px;
+}
+
+.top-chrome-btn {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  background: var(--chrome-button);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  color: var(--text-secondary);
+}
+
+.top-chrome-btn::after {
+  content: "";
+  position: absolute;
+  inset: -2px;
+}
+
+.top-chrome-btn:hover:not(:disabled) {
+  background: var(--chrome-button-hover);
+}
+
+.top-menu-dot {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--status-attention);
+  box-shadow: 0 0 0 2px var(--bg-stage);
+}
+
+.stage-banner {
+  position: relative;
+  z-index: 5;
+  align-self: center;
+  margin: 10px 18px 0;
+  padding: 6px 14px;
+  border-radius: var(--radius-pill);
+  background: var(--chrome-button);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  font-size: var(--fs-meta);
+  color: var(--text-secondary);
+  animation: fadeIn var(--dur-med) ease;
+}
+
+.thread-head {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  animation: fadeIn var(--dur-med) ease;
+}
+
+.thread-head:focus-visible {
+  outline: 2px solid var(--border-highlight);
+  outline-offset: 4px;
+  border-radius: var(--radius-small);
+}
+
+.thread-menu {
+  position: relative;
+}
+
+.thread-menu-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 6;
+  min-width: 220px;
+  padding: 6px;
+  border-radius: var(--radius-inner);
+  /* The sheet color over the stage color: opaque, so the thread doesn't show through. */
+  background:
+    linear-gradient(var(--bg-sheet), var(--bg-sheet)), var(--bg-stage);
+  box-shadow:
+    0 8px 24px var(--scrim),
+    inset 0 0 0 1px var(--border-subtle);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  animation: fadeIn var(--dur-fast) ease;
+}
+
+.thread-menu-item.ui-btn {
+  align-self: stretch;
+  justify-content: flex-start;
+  gap: 10px;
+  width: 100%;
+  height: 44px;
+  padding: 0 12px;
+  border-radius: var(--radius-small);
+  font-size: var(--fs-body);
+  color: var(--text-primary);
+}
+
+.thread-menu-item.ui-btn:hover:not(:disabled),
+.thread-menu-item.ui-btn:focus-visible {
+  background: var(--surface-hover);
+}
+
+.thread-menu-item.ui-btn[data-tone="danger"] {
+  color: color-mix(in srgb, var(--status-danger) 85%, transparent);
+}
+
+.thread-menu-item.ui-btn[data-tone="danger"]:hover:not(:disabled),
+.thread-menu-item.ui-btn[data-tone="danger"]:focus-visible {
+  color: var(--status-danger);
+}
+
+.thread-menu-rename {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 6px;
+}
+
+.thread-menu-panel .ui-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 6px;
+  font-size: var(--fs-meta);
+  white-space: normal;
+}
+
+.thread-title,
+.thread-status {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.thread-title {
+  font-size: var(--fs-title);
+  font-weight: 650;
+  line-height: 1.3;
+  letter-spacing: -0.015em;
+  color: var(--text-primary);
+}
+
+.thread-status {
+  font-size: var(--fs-meta);
+  color: var(--text-secondary);
+}
+
+/* A color blend keeps the aurora's light and swaps its hue to the project's tint. */
+.stage-tint {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  background: hsl(
+    var(--project-hue, 220) var(--tint-saturation) var(--tint-lightness)
+  );
+  mix-blend-mode: color;
+  opacity: 0;
+  transition: opacity var(--dur-slow) ease;
+}
+
+.stage-tint[data-on] {
+  opacity: var(--tint-strength);
+}
+
+.project-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: hsl(
+    var(--project-hue, 220) var(--tint-saturation) var(--tint-lightness)
+  );
+}
+
+/* Centered when it fits, scrollable from the top when it doesn't. */
+.home-now {
+  margin-block: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: 100%;
+}
+
+.home-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.home-more {
+  align-self: flex-start;
+}
+
+.stage-middle-deck {
+  position: relative;
+  z-index: 5;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 14px 18px calc(8px + env(safe-area-inset-bottom));
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+
+.stage-middle-deck::-webkit-scrollbar {
+  display: none;
+}
+
+.deck {
+  margin-block: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+}
+
+.deck-slide {
+  width: 100%;
+  touch-action: pan-y;
+}
+
+.deck-pager {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+}
+
+.deck-count {
+  font-size: var(--fs-micro);
+  font-weight: 500;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.deck-dot {
+  position: relative;
+  width: 6px;
+  height: 6px;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--white) 22%, transparent);
+  cursor: pointer;
+  transition:
+    width var(--dur-med) var(--ease-out),
+    background var(--dur-med) ease;
+}
+
+.deck-dot::after {
+  content: "";
+  position: absolute;
+  inset: -19px -6px;
+}
+
+.deck-dot[aria-current="true"] {
+  width: 18px;
+  background: var(--text-primary);
+}
+
+.deck-step {
+  width: 26px;
+  height: 26px;
+}
+
+.deck-step::after {
+  inset: -9px;
+}
+
+.starter {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  width: 100%;
+  animation: starterIn var(--dur-slow) var(--ease-out) both;
+}
+
+.starter-brand {
+  margin-block: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  text-align: center;
+}
+
+.starter-name {
+  margin-top: 6px;
+  font-size: var(--fs-title);
+  font-weight: 650;
+  letter-spacing: -0.015em;
+  color: var(--text-primary);
+}
+
+.starter-tagline {
+  font-size: var(--fs-meta);
+  color: var(--text-muted);
+}
+
+/* Connect an app (first run: Google): the one card above the suggestions. */
+.connect-card {
+  padding: 14px 16px;
+  gap: 10px;
+}
+
+.connect-card-text {
+  font-size: var(--fs-body);
+  line-height: 1.4;
+  color: var(--text-primary);
+}
+
+.starter-label {
+  padding: 0 4px 6px;
+  font-size: var(--fs-micro);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.starter-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.starter-list li + li {
+  border-top: 1px solid var(--line);
+}
+
+.starter-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 13px 4px;
+  background: none;
+  border: 0;
+  border-radius: var(--radius-inner);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out);
+}
+
+.starter-row:hover,
+.starter-row:focus-visible {
+  background: var(--surface-inset);
+}
+
+.starter-row:active {
+  background: var(--surface-hover);
+}
+
+.starter-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.starter-prompt {
+  font-size: var(--fs-body);
+  line-height: 1.4;
+  color: var(--text-primary);
+  text-wrap: pretty;
+  text-indent: -0.4em; /* hang the opening quote so the words align with the meta line */
+}
+
+.starter-meta {
+  font-size: var(--fs-meta);
+  color: var(--text-muted);
+}
+
+.starter-mic {
+  flex-shrink: 0;
+  color: var(--text-faint);
+  transition: color var(--dur-fast) var(--ease-out);
+}
+
+.starter-row:hover .starter-mic,
+.starter-row:focus-visible .starter-mic {
+  color: var(--status-running);
+}
+
+@keyframes starterIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}

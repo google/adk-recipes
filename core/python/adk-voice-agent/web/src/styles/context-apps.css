@@ -1,0 +1,128 @@
+/* Context cards, continued: Search and Maps; and the Drive files a thread saved. */
+
+/* ---- Drive files (thread outcomes) -------------------------------------- */
+
+.drive-tile {
+  --file: var(--text-muted);
+  flex-shrink: 0;
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius-small);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--file) 15%, transparent);
+  color: var(--file);
+}
+
+.drive-tile[data-kind="doc"] {
+  --file: var(--file-doc);
+}
+
+.drive-tile[data-kind="sheet"] {
+  --file: var(--file-sheet);
+}
+
+.drive-tile[data-kind="slides"] {
+  --file: var(--file-slides);
+}
+
+.drive-tile[data-kind="pdf"] {
+  --file: var(--file-pdf);
+}
+
+.drive-name {
+  font-size: var(--fs-body);
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.drive-meta {
+  font-size: var(--fs-meta);
+  color: var(--text-muted);
+}
+
+/* ---- Search ------------------------------------------------------------- */
+
+.search-answer {
+  font-size: var(--fs-body);
+  line-height: 1.5;
+  color: var(--text-primary);
+  text-wrap: pretty;
+  overflow-wrap: break-word;
+}
+
+.search-sources {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.source-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  max-width: 100%;
+  padding: 4px 11px 4px 4px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-hover);
+  font-size: var(--fs-micro);
+  font-weight: 500;
+  color: var(--text-secondary);
+  text-decoration: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition:
+    background var(--dur-fast) ease,
+    color var(--dur-fast) ease;
+}
+
+.source-chip:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.source-letter {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-hover);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+/* ---- Maps --------------------------------------------------------------- */
+
+.place-pin {
+  flex-shrink: 0;
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-inset);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+}
+
+.place-name {
+  font-size: var(--fs-body);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.place-summary {
+  font-size: var(--fs-meta);
+  line-height: 1.45;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

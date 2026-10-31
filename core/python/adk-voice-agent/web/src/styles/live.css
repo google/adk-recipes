@@ -1,0 +1,146 @@
+/* ---------------------------------------------------------------------------
+   Live status: what the voice session is doing (connecting, listening, a tool)
+   --------------------------------------------------------------------------- */
+
+.stage-caption-zone {
+  position: relative;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  /* Keeps its height while the voice speaks and the line is empty. */
+  min-height: 42px;
+  padding: 6px 28px 18px;
+  text-align: center;
+}
+
+.caption-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 18px;
+  font-size: var(--fs-meta);
+  font-weight: 500;
+  color: var(--text-caption-status);
+  letter-spacing: -0.005em;
+  animation: fadeIn var(--dur-med) ease;
+}
+
+.activity-dots {
+  display: inline-flex;
+  gap: 3px;
+}
+
+.activity-dots span {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: activityDot 1.2s ease-in-out infinite;
+}
+
+.activity-dots span:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.activity-dots span:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes activityDot {
+  0%,
+  80%,
+  100% {
+    opacity: 0.25;
+    transform: translateY(0);
+  }
+  40% {
+    opacity: 1;
+    transform: translateY(-2px);
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Voice dock below the stage
+   --------------------------------------------------------------------------- */
+
+.gemini-bottom-dock {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 18px 6px;
+  width: 100%;
+}
+
+.dock-controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 38px;
+}
+
+.dock-control-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.dock-circle-btn {
+  position: relative;
+  width: 58px;
+  height: 58px;
+  border-radius: 50%;
+  border: 1px solid color-mix(in srgb, var(--white) 8%, transparent);
+  background: var(--dock-button);
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition:
+    transform var(--dur-fast) ease,
+    background var(--dur-fast) ease,
+    border-color var(--dur-fast) ease;
+}
+
+.dock-circle-btn:hover {
+  background: var(--dock-button-hover);
+  border-color: color-mix(in srgb, var(--white) 16%, transparent);
+}
+
+.dock-circle-btn:active {
+  transform: scale(0.94);
+}
+
+.dock-circle-btn.hold-active {
+  background: color-mix(in srgb, var(--accent-amber) 22%, transparent);
+  border-color: color-mix(in srgb, var(--accent-amber) 55%, transparent);
+  color: var(--accent-amber-soft);
+}
+
+.dock-circle-btn.end-btn {
+  background: var(--accent-coral);
+  border-color: color-mix(in srgb, var(--white) 12%, transparent);
+  color: var(--white);
+  box-shadow: 0 8px 24px
+    color-mix(in srgb, var(--accent-coral) 36%, transparent);
+}
+
+.dock-circle-btn.end-btn:hover {
+  background: var(--accent-coral-hover);
+}
+
+.dock-circle-btn.start-live-btn {
+  background: var(--accent);
+  border-color: color-mix(in srgb, var(--white) 18%, transparent);
+  color: var(--white);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--accent) 42%, transparent);
+}
+
+.dock-label {
+  font-size: var(--fs-micro);
+  font-weight: 500;
+  color: var(--text-secondary);
+}

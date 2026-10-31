@@ -1,0 +1,118 @@
+/* Slide-Up Translucent Bottom Sheets (You and the thread page) */
+.sheet-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  background: var(--scrim);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  border-radius: var(--radius-stage);
+  overflow: hidden;
+  animation: fadeIn 0.18s ease;
+}
+
+/* Invisible tap target behind the panel; tapping it closes the sheet. */
+.sheet-scrim {
+  position: absolute;
+  inset: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: default;
+}
+
+.bottom-sheet-panel {
+  /* Above the scrim (a flex item takes z-index without being positioned). */
+  z-index: 1;
+  width: 100%;
+  max-height: 88%;
+  background: var(--bg-sheet);
+  backdrop-filter: blur(28px);
+  -webkit-backdrop-filter: blur(28px);
+  border-top: 1px solid color-mix(in srgb, var(--white) 14%, transparent);
+  border-radius: var(--radius-card) var(--radius-card) 0 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: slideUpSheet 0.24s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes slideUpSheet {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+/* A full-screen page (Settings): fills the stage and slides in from the right. */
+.bottom-sheet-panel[data-page] {
+  flex: 1;
+  max-height: 100%;
+  border-top: none;
+  border-radius: 0;
+  animation: slideInPage 0.24s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes slideInPage {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+.sheet-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 18px 14px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.bottom-sheet-panel[data-page] .sheet-header {
+  padding-top: calc(14px + env(safe-area-inset-top, 0px));
+}
+
+.sheet-title {
+  font-size: var(--fs-title);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.sheet-close-btn {
+  position: relative;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: none;
+  background: var(--surface-hover);
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.sheet-close-btn::after {
+  content: "";
+  position: absolute;
+  inset: -7px;
+}
+
+.sheet-body {
+  /* A flex item only shrinks (and so scrolls) below its content with min-height: 0. */
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 16px 18px 24px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}

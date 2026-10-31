@@ -1,0 +1,32 @@
+# Fixture repositories for voice evals, merged over config/workspaces.yaml (the eval servers
+# set VOICE_AGENT_WORKSPACES_LOCAL_YAML to this file instead of workspaces.local.yaml).
+# Each repo's scripted agent behavior lives in scenarios.yaml under the same name.
+# They are Alex's repos (datasets/system1.json).
+seed_repositories:
+  - name: "payments-api"
+    branch: "main"
+    description: "Stripe webhook ingestion and payment reconciliation API."
+    files:
+      README.md: |
+        # payments-api
+        Receives Stripe webhooks and reconciles payments nightly.
+      src/payments/currency.py: |
+        from decimal import ROUND_HALF_DOWN, Decimal
+
+
+        def round_amount(amount: Decimal) -> Decimal:
+            return amount.quantize(Decimal("0.01"), rounding=ROUND_HALF_DOWN)
+      src/webhooks/deliver.py: |
+        def deliver(event: dict) -> bool:
+            """Forward one webhook event downstream; returns False on failure."""
+            return bool(event.get("id"))
+
+  - name: "payments-dashboard"
+    branch: "main"
+    description: "React admin dashboard for payouts and refunds."
+    files:
+      README.md: |
+        # payments-dashboard
+        Admin dashboard for the payments team: payouts and refunds.
+      src/App.tsx: |
+        export default function App() { return null; }
