@@ -3,7 +3,9 @@ status: "active" # Options: [active | inactive]
 language: "java" # Options: [python | java | go | kotlin | typescript]
 description: "Demonstrates persistent multi-turn conversation using Google Firestore as a session data store with the ADK Java SDK."
 
-deployable: true
+deployable: true # required for contrib/; the recipe-docker-build HTTP probe
+                 # is exempted for this one in .github/policy.yml since
+                 # FirestoreRunner is a stdin CLI, not an HTTP service
 
 architecture:
   agent: "single"

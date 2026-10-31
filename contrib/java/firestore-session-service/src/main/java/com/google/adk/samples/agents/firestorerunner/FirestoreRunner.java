@@ -1,5 +1,5 @@
 /*
- * Copyright 2025 Google LLC
+ * Copyright 2026 Google LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -25,6 +25,7 @@ import com.google.adk.events.Event;
 import com.google.adk.runner.FirestoreDatabaseRunner;
 import com.google.adk.sessions.FirestoreSessionService;
 import com.google.adk.sessions.Session;
+import com.google.adk.sessions.SessionNotFoundException;
 import com.google.adk.tools.Annotations.Schema;
 import com.google.adk.tools.FunctionTool;
 import com.google.cloud.firestore.Firestore;
@@ -32,7 +33,9 @@ import com.google.cloud.firestore.FirestoreOptions;
 import com.google.genai.types.Content;
 import com.google.genai.types.Part;
 import io.reactivex.rxjava3.core.Flowable;
+import io.reactivex.rxjava3.core.Maybe;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Scanner;
 import java.util.UUID;
 import java.util.logging.Logger;
@@ -57,17 +60,45 @@ public final class FirestoreRunner {
         Scanner scanner = new Scanner(System.in, UTF_8)) {
 
       FirestoreDatabaseRunner runner = new FirestoreDatabaseRunner(timeAgent, APP_NAME, firestore);
+      FirestoreSessionService sessionService = new FirestoreSessionService(firestore);
 
-      String userId = "user-" + UUID.randomUUID();
-      String sessionId = "session-" + UUID.randomUUID();
+      String userId = System.getenv("USER_ID");
+      String sessionId = System.getenv("SESSION_ID");
 
-      Session session =
-          new FirestoreSessionService(firestore)
-              .createSession(APP_NAME, userId, null, sessionId)
-              .blockingGet();
+      Session session;
+      if (userId != null && !userId.isBlank() && sessionId != null && !sessionId.isBlank()) {
+        String resumeUserId = userId;
+        String resumeSessionId = sessionId;
+        session =
+            sessionService
+                .getSession(APP_NAME, resumeUserId, resumeSessionId, Optional.empty())
+                .onErrorResumeNext(
+                    error ->
+                        error instanceof SessionNotFoundException
+                            ? sessionService
+                                .createSession(APP_NAME, resumeUserId, null, resumeSessionId)
+                                .toMaybe()
+                            : Maybe.error(error))
+                .blockingGet();
+        logger.info("Resumed session " + sessionId + " for user " + userId);
+      } else {
+        userId = "user-" + UUID.randomUUID();
+        sessionId = "session-" + UUID.randomUUID();
+        session = sessionService.createSession(APP_NAME, userId, null, sessionId).blockingGet();
+      }
+
+      System.out.println(
+          "\nSession ready. To resume this conversation later, restart with:\n"
+              + "USER_ID="
+              + userId
+              + " SESSION_ID="
+              + sessionId);
 
       while (true) {
         System.out.print("\nYou > ");
+        if (!scanner.hasNextLine()) {
+          break;
+        }
         String userInput = scanner.nextLine();
         if ("quit".equalsIgnoreCase(userInput) || "exit".equalsIgnoreCase(userInput)) {
           break;
@@ -90,12 +121,15 @@ public final class FirestoreRunner {
     }
 
     logger.info("FirestoreRunner finished execution.");
+    // The Gemini API client leaves non-daemon OkHttp threads running; force
+    // a clean exit instead of waiting on them to time out.
+    System.exit(0);
   }
 
   @Schema(description = "Get the current time for a given city")
   public static Map<String, String> getCurrentTime(
       @Schema(name = "city", description = "Name of the city to get the time for") String city) {
-    return Map.of("city", city, "forecast", "The time is 10:30 am.");
+    return Map.of("city", city, "time", "The time is 10:30 am.");
   }
 
   protected static BaseAgent initAgent(String agentName) {

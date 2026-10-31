@@ -1,5 +1,5 @@
 /*
- * Copyright 2025 Google LLC
+ * Copyright 2026 Google LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -35,9 +35,9 @@ public class FirestoreRunnerTest {
     assertNotNull(result);
     assertEquals(2, result.size());
     assertTrue(result.containsKey("city"));
-    assertTrue(result.containsKey("forecast"));
+    assertTrue(result.containsKey("time"));
     assertEquals("London", result.get("city"));
-    assertEquals("The time is 10:30 am.", result.get("forecast"));
+    assertEquals("The time is 10:30 am.", result.get("time"));
   }
 
   @Test

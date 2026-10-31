@@ -65,8 +65,15 @@ Agent > The time in London is 10:30 am.
 You > quit
 ```
 
-Session state is written to Firestore after every turn, so you can stop and
-restart the agent and the session history will be preserved.
+Session state is written to Firestore after every turn. On startup, the agent
+prints a `USER_ID`/`SESSION_ID` pair; set these as environment variables on
+your next run to resume the same conversation with its history intact:
+
+```bash
+USER_ID=user-... SESSION_ID=session-... mvn compile exec:java -Dexec.mainClass="com.google.adk.samples.agents.firestorerunner.FirestoreRunner"
+```
+
+Without them, each run starts a brand-new session.
 
 ![Console Output](console_output.png)
 

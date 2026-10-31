@@ -53,7 +53,7 @@ recipe_size_limits:
       # a defensive upper bound, not a real constraint. Bump if a legitimate
       # recipe hits it.
       max_files: 10000
-      max_size_mb: 10240 # 10 GB
+      max_size_mb: 10240  # 10 GB
   contrib:
     default:
       max_files: 70
@@ -132,68 +132,68 @@ frozen_paths:
 excluded_paths:
   common:
     files:
-      - .DS_Store # macOS filesystem metadata
+      - .DS_Store       # macOS filesystem metadata
     dirs:
-      - .idea # IntelliJ project files (almost always accidental)
+      - .idea           # IntelliJ project files (almost always accidental)
 
   python:
     files:
-      - uv.lock # uv lockfile (auto-generated)
+      - uv.lock         # uv lockfile (auto-generated)
     dirs:
-      - __pycache__ # bytecode cache
-      - .venv # virtualenv
+      - __pycache__     # bytecode cache
+      - .venv           # virtualenv
       - .pytest_cache
       - .mypy_cache
       - .ruff_cache
       - .tox
-      - "*.egg-info" # setuptools/pip package metadata
-      - build # setuptools build output
-      - dist # setuptools/wheel output
+      - "*.egg-info"    # setuptools/pip package metadata
+      - build           # setuptools build output
+      - dist            # setuptools/wheel output
 
   java:
     files: []
     dirs:
-      - target # Maven build output
-      - build # Gradle build output (shared with kotlin)
-      - .gradle # Gradle cache
-      - out # IntelliJ default output
-      - bin # Eclipse default output
+      - target          # Maven build output
+      - build           # Gradle build output (shared with kotlin)
+      - .gradle         # Gradle cache
+      - out             # IntelliJ default output
+      - bin             # Eclipse default output
 
   kotlin:
     files: []
     dirs:
-      - build # Gradle build output
+      - build           # Gradle build output
       - .gradle
-      - .kotlin # Kotlin compiler cache
+      - .kotlin         # Kotlin compiler cache
       - out
       - bin
 
   go:
     files:
-      - go.sum # Go module checksum file (auto-generated)
-      - "*.test" # test binaries
+      - go.sum          # Go module checksum file (auto-generated)
+      - "*.test"        # test binaries
     dirs:
       - bin
-      - vendor # vendored deps (sometimes committed intentionally
-        # — treat as tool output for size-limit purposes)
+      - vendor          # vendored deps (sometimes committed intentionally
+                        # — treat as tool output for size-limit purposes)
 
   typescript:
     files:
       - package-lock.json
       - yarn.lock
       - pnpm-lock.yaml
-      - bun.lockb # bun lockfile (binary)
+      - bun.lockb       # bun lockfile (binary)
       - "*.tsbuildinfo" # TypeScript incremental build info
     dirs:
       - node_modules
       - dist
       - build
-      - .next # Next.js build output
-      - .nuxt # Nuxt build output
-      - .turbo # Turborepo cache
+      - .next           # Next.js build output
+      - .nuxt           # Nuxt build output
+      - .turbo          # Turborepo cache
       - .parcel-cache
       - .cache
-      - coverage # test coverage output
+      - coverage        # test coverage output
 
 # --------------------------------------------------------------------------
 # Required files — enforced by

@@ -1,4 +1,4 @@
-# Copyright 2025 Google LLC
+# Copyright 2026 Google LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -31,9 +31,6 @@ WORKDIR /app
 COPY --from=build /build/target/classes ./target/classes
 COPY --from=build /build/target/dependency ./lib
 COPY src/main/resources ./target/classes
-
-# Defaults live in .env.example; override with a real .env at runtime.
-COPY .env.example ./.env
 
 RUN useradd --create-home --uid 10001 appuser && \
     chown -R appuser:appuser /app
