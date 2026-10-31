@@ -815,7 +815,7 @@ def test_no_tool_renders() -> None:
     """
     app_root = Path(tools_package.__file__).parent.parent
     call_sites = sorted(
-        str(path.relative_to(app_root))
+        path.relative_to(app_root).as_posix()
         for path in app_root.rglob("*.py")
         if re.search(
             r"\.render_ui_widget\s*\(", path.read_text(encoding="utf-8")
