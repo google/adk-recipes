@@ -851,6 +851,38 @@ def test_review_counts_each_session_outcome(
     assert list(finding_set["sessions"]) == ["bad"]
 
 
+def test_review_counts_an_unreadable_response_as_errored(
+    patched_factories: dict[str, Any],
+) -> None:
+    """Verify a review response with no finding list counts as errored, not passed."""
+    state = _review_state()
+    patched_factories["fetcher"] = FakeFetcher(
+        pages=[
+            Page(
+                dataset=EvaluationDataset(
+                    eval_cases=[_session("ok"), _session("garbled")]
+                ),
+                next_page_token=None,
+            )
+        ],
+    )
+
+    def reviewer(prompt: str) -> str:
+        if "session garbled" in prompt:
+            return "I cannot help with that."
+        return '{"findings": []}'
+
+    patched_factories["reviewer"] = reviewer
+
+    nodes.review_node._func(_ctx(state))
+
+    counters = state["counters"]
+    assert counters["traces_evaluated"] == 2
+    assert counters["traces_eval_passed"] == 1
+    assert counters["traces_eval_errored"] == 1
+    assert counters.get("traces_eval_failed", 0) == 0
+
+
 def test_review_passes_the_session_review_focus_to_every_session(
     patched_factories: dict[str, Any],
 ) -> None:

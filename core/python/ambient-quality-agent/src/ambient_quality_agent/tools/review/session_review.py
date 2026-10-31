@@ -368,6 +368,9 @@ def extract_findings(
 
     Returns:
         List of up to `MAX_FINDINGS_PER_SESSION` findings extracted from the model response.
+
+    Raises:
+        ValueError: If the model response is not valid JSON or holds no finding list.
     """
     call = model_call or call_review_model
     session_id = str(getattr(eval_case, "eval_case_id", "") or "")
@@ -411,6 +414,11 @@ def _parse_findings(
 ) -> list[Finding]:
     """Parse a raw JSON model response into validated `Finding` objects.
 
+    Raises on a response that holds no finding list, because an empty list is
+    the reviewer's verdict that the session has no defect. A response the
+    reviewer did not complete carries no verdict, so the caller records the
+    session as errored rather than passed.
+
     1. Decode JSON response and extract the findings list.
     2. Convert and validate each finding against known agent identifiers.
     3. Truncate the list to `MAX_FINDINGS_PER_SESSION`.
@@ -421,23 +429,23 @@ def _parse_findings(
         known_agent_ids: Valid agent identifiers for the session.
 
     Returns:
-        Validated findings capped at `MAX_FINDINGS_PER_SESSION`, or an empty list
-        if parsing fails.
+        Validated findings capped at `MAX_FINDINGS_PER_SESSION`.
+
+    Raises:
+        ValueError: If the response is not valid JSON or holds no finding list.
     """
     try:
         decoded = json.loads(response or "")
     except json.JSONDecodeError as exc:
-        logger.warning(
-            "review: session review response was not valid JSON: %s", exc
-        )
-        return []
+        raise ValueError(
+            f"session review response was not valid JSON: {exc}"
+        ) from exc
 
     raw_findings = (
         decoded.get("findings") if isinstance(decoded, dict) else decoded
-    ) or []
+    )
     if not isinstance(raw_findings, list):
-        logger.warning("review: session review response held no finding list.")
-        return []
+        raise ValueError("session review response held no finding list")
 
     findings: list[Finding] = []
     for raw in raw_findings:
