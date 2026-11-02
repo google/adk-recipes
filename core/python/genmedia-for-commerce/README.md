@@ -125,9 +125,11 @@ The command does everything it can and guides you through what only the console 
 
 1. **Start the subscription or the free trial**, in the console under Gemini Enterprise, before you register.
 2. **Allow custom MCP connectors:** Gemini Enterprise blocks them by default. The command asks to allow them for the project (Enter means yes; it needs the Organization Policy Administrator role) and waits until that applies. `make allow-mcp-connectors` does the same on its own; without a terminal the command prints what to run.
-3. **Reload custom actions** (Gemini Enterprise > Data stores > GenMedia Studio > Actions), then enable `studio_agent`. Do it again after a deploy that changes the Studio's tools.
+3. **Reload custom actions:** the command links the connector's Actions page; click Reload custom actions there and press Enter. It checks the reload happened (asking again if not) and enables `studio_agent` itself. Do it again after a deploy that changes the Studio's tools.
 
 When the project has no Gemini Enterprise licence yet, the command offers the 30-day free trial (as the console does with the first app): it assigns you a licence and gives every other user one at first sign-in. Otherwise give users a licence (Gemini Enterprise > Manage users). Then open the app and ask "Open the GenMedia Studio" (GenMedia Studio is on under Connectors). Upload images with the panel's Upload button: files attached in the chat do not reach the Studio.
+
+The panel puts each original photo straight into the media bucket; when it cannot, it sends a smaller JPEG copy instead. The direct upload uses tools added in this version: after deploying it, click Reload custom actions once on the connector's Actions page (the command does not ask, as the Studio's action, `studio_agent`, has not changed).
 
 ## Configuration
 
@@ -162,7 +164,7 @@ curl -N http://localhost:8000/api/tryon -F product_images=@jacket.jpg -F person_
 
 - **One team per deployment:** everyone who can invoke the service, through IAM, IAP or the Gemini Enterprise app, can open any studio whose id they know. Grant access to that team only.
 - **One place for data:** everything is stored in the media bucket, and deleted 30 days after its last change. Preview links are signed URLs, valid for 60 minutes.
-- **Preprocessing cache:** so that the next photo try-on with the same product photos starts sooner, the server keeps what it worked out from the product photos only (their classification, the product crops, the detail close-ups and the styling plan) in the media bucket under `product_cache/`, in folders named by a hash of the photos and options; nothing from the person photo is kept. These are also deleted after 30 days, and are never served or accepted as image references. "Try again" after a failed generation recomputes them; `GENMEDIA_USE_CACHE=false` turns the cache off.
+- **Preprocessing cache:** so that the next photo try-on with the same product photos starts sooner, the server keeps what it worked out from the product photos only (their classification, the product crops, the detail close-ups and the styling plan) in the media bucket under `product_cache/`, in folders named by a hash of the photos and options; nothing from the person photo is kept. A 360° spin likewise keeps its product's classification, reference views and close-ups under `spin_cache/`; the videos are always made again. These are also deleted after 30 days, and are never served or accepted as image references. "Try again" after a failed generation recomputes them; `GENMEDIA_USE_CACHE=false` turns the cache off.
 - **Hardening:** the server checks every id and image reference, limits generations per studio, and refuses browser calls from other websites.
 
 ## Evaluate and develop

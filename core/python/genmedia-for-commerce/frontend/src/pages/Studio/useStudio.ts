@@ -36,6 +36,7 @@ export function useStudio() {
     reset: store.reset,
     generate: store.jobs.generate,
     makeVideo: store.jobs.makeVideo,
+    animate: store.jobs.animate,
     tryAgain: store.jobs.tryAgain,
     setCapability: store.setCapability,
     setSetting: store.setSetting,

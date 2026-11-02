@@ -175,7 +175,11 @@ def _found(
     raw = gen.generate_json(
         parts,
         schema=_SCHEMA,
-        params=gen.TextParams(model=get_models().judge, thinking="LOW"),
+        params=gen.TextParams(
+            model=get_models().judge,
+            thinking="LOW",
+            media_resolution="MEDIA_RESOLUTION_MEDIUM",
+        ),
     )
     return (raw or {}).get("details", []) if isinstance(raw, dict) else []
 

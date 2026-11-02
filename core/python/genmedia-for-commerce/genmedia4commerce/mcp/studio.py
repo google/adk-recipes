@@ -27,9 +27,10 @@ no model answers it.
 - **App tools**: ``studio_event`` applies each user action to the saved
   studio (``studio.state``, which the server owns), notes it in the agent's
   history and returns the new state for the app to render; ``studio_state``
-  restores it; ``studio_gallery``, ``studio_upload``,
-  ``studio_catalog_search``, ``studio_preview`` and ``studio_job_*`` serve the
-  panel.
+  restores it; ``studio_gallery``, ``studio_upload_url`` and
+  ``studio_upload_saved`` (the original file put straight into the bucket),
+  ``studio_upload`` (base64, when that fails), ``studio_catalog_search``,
+  ``studio_preview`` and ``studio_job_*`` serve the panel.
 
 Each tool wraps one operation of ``studio.service``, which the web app's
 REST API (``api/studio.py``) shares.
@@ -213,6 +214,39 @@ async def studio_upload(
 
 
 @_guarded
+async def studio_upload_url(
+    studio_id: str, content_type: str
+) -> mt.CallToolResult:
+    """App only: a signed URL to PUT one image straight into the bucket;
+    returns url, ref and the headers the PUT must send.
+
+    Args:
+        studio_id: The app's studio id.
+        content_type: The file's type, e.g. "image/jpeg".
+    """
+    return _result(
+        await asyncio.to_thread(service.upload_url, studio_id, content_type)
+    )
+
+
+@_guarded
+async def studio_upload_saved(
+    studio_id: str, ref: str, filename: str = ""
+) -> mt.CallToolResult:
+    """App only: check the image put at a studio_upload_url ref; returns
+    what studio_upload returns.
+
+    Args:
+        studio_id: The app's studio id.
+        ref: The ref from studio_upload_url.
+        filename: The original file name.
+    """
+    return _result(
+        await asyncio.to_thread(service.upload_saved, studio_id, ref, filename)
+    )
+
+
+@_guarded
 async def studio_catalog_search(
     query: str, audience: str = "", studio_id: str = ""
 ) -> mt.CallToolResult:
@@ -267,6 +301,8 @@ _APP_TOOLS = (
     studio_preview,
     studio_gallery,
     studio_upload,
+    studio_upload_url,
+    studio_upload_saved,
     studio_catalog_search,
     studio_job_start,
     studio_job_status,
@@ -289,7 +325,11 @@ def build_server() -> FastMCP:
         meta={
             "ui": {
                 "prefersBorder": False,
-                "csp": {"resourceDomains": ["https://storage.googleapis.com"]},
+                "csp": {
+                    "resourceDomains": ["https://storage.googleapis.com"],
+                    # the panel PUTs uploads there (studio_upload_url)
+                    "connectDomains": ["https://storage.googleapis.com"],
+                },
             }
         },
     )(lambda: _HTML.read_text(encoding="utf-8"))

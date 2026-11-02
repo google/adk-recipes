@@ -112,14 +112,22 @@ export type JobStarted = {
   status: string;
   capability: StudioCapability;
 };
+/** A count per list of a job: Video Try-On's try-on images (`image_results`) and the results. */
+export type JobCounts = { image_results: number; results: number };
 export type JobStatus = {
   job_id: string;
   status: "running" | "done" | "error" | "unknown";
   progress?: string;
   elapsed_s?: number;
   results?: StudioResult[];
+  /** Video Try-On: the try-on images made so far (front and back views). */
+  image_results?: StudioResult[];
   /** Video Try-On: the try-on images animated so far. */
   images?: StudioResult[];
+  /** The front variations the job will make (absent from older servers). */
+  expected?: Partial<JobCounts>;
+  /** The front variations that ended without media (absent from older servers). */
+  failed?: Partial<JobCounts>;
   /** The try-on image of a "Make video" job ("" or absent for a full run). */
   tryon_image?: string;
   error?: string;

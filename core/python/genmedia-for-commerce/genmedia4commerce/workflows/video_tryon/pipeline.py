@@ -64,7 +64,7 @@ from genmedia4commerce.core.events import (
 )
 from genmedia4commerce.core.gen import ImageParams, VideoParams
 from genmedia4commerce.core.runner import RunPolicy
-from genmedia4commerce.core.types import Classification
+from genmedia4commerce.core.types import Classification, Landmark
 from genmedia4commerce.workflows.tryon import cache, outfit
 from genmedia4commerce.workflows.tryon import pipeline as tryon_pipeline
 from genmedia4commerce.workflows.tryon.types import Prepared, TryOnRequest
@@ -177,6 +177,13 @@ def _search_ahead(used: VideoTryOnRequest) -> asyncio.Task:
     return asyncio.create_task(asyncio.to_thread(search))
 
 
+def _span(c: Classification | None) -> tuple[Landmark, Landmark] | None:
+    """The span framing the try-on image: a single product's, else None."""
+    if c is None or c.mode != "single" or len(c.products) != 1:
+        return None
+    return c.products[0].span
+
+
 def _classified(anim: Animation, event: ClassifiedEvent) -> None:
     """Take the framing and the products the try-on used from stage 1."""
     photos, classification = _used_products(event.classification, anim.req)
@@ -184,6 +191,7 @@ def _classified(anim: Animation, event: ClassifiedEvent) -> None:
         anim.req, product_images=photos, classification=classification
     )
     anim.framing = event.payload.get("framing")
+    anim.span = _span(event.classification)
     if anim.ahead is None:
         anim.ahead = _search_ahead(anim.req)
 
@@ -226,7 +234,7 @@ async def _animate_image(
         req, c = classified, classified.classification
         yield ClassifiedEvent(payload=c.to_dict(), classification=c)
     framing = req.classification.framing if req.classification else None
-    anim = Animation(req, params, policy, framing)
+    anim = Animation(req, params, policy, framing, _span(req.classification))
     if req.closeups is None and req.product_images:
         anim.ahead = _search_ahead(req)
     stage = animate_only(anim)

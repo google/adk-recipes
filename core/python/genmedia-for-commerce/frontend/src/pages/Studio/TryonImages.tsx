@@ -21,10 +21,14 @@ import type { StudioResult } from "../../api/studio";
 import { SpinnerIcon, VideoIcon } from "../../components/icons";
 import ImageLightbox from "../../components/ImageLightbox";
 import { safeUrl } from "./model";
+import { FailedNote, PendingCard } from "./Pending";
 import ScoreBadge from "./ScoreBadge";
 
 type Props = {
   images: StudioResult[];
+  /** Try-on images still coming, and those that failed, of the running job. */
+  coming: number;
+  failed: number;
   videos: StudioResult[];
   /** The image of the "Make video" job running ("" when none). */
   making: string;
@@ -37,7 +41,10 @@ type Props = {
   ratio: string;
 };
 
-type CardProps = Omit<Props, "images" | "making" | "linked"> & {
+type CardProps = Omit<
+  Props,
+  "images" | "coming" | "failed" | "making" | "linked"
+> & {
   image: StudioResult;
   n: number;
   making: boolean;
@@ -133,6 +140,8 @@ function ImageCard({
 /** One card per try-on image, numbered as the agent and the videos name them ("Image 1", "Image 2"...). */
 export default function TryonImages({
   images,
+  coming,
+  failed,
   making,
   linked,
   ...rest
@@ -149,18 +158,24 @@ export default function TryonImages({
         <span className="chip bg-white/[0.06] text-gm-text-secondary">
           {images.length}
         </span>
+        <FailedNote count={failed} noun="image" />
       </div>
       <ul className="grid gap-3 grid-cols-2 sm:grid-cols-3 2xl:grid-cols-4">
         {images.map((image, i) => (
           <ImageCard
-            // biome-ignore lint/suspicious/noArrayIndexKey: an image can have no uri yet
-            key={`${image.uri ?? ""}-${i}`}
+            key={image.uri || `#${i}`}
             image={image}
             n={i + 1}
             making={!!making && making === image.uri}
             linked={!!linked && linked === image.uri}
             {...rest}
           />
+        ))}
+        {Array.from({ length: coming }, (_, n) => (
+          // biome-ignore lint/suspicious/noArrayIndexKey: placeholders are all alike
+          <li key={`pending-${n}`}>
+            <PendingCard ratio={rest.ratio} />
+          </li>
         ))}
       </ul>
     </section>

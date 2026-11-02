@@ -232,7 +232,9 @@ function jobStatus(job: Job, { bucket, delayMs }: Config) {
     progress: done ? "Done" : `Generating variation ${shown + 1} of ${total}`,
     elapsed_s: Math.round((Date.now() - job.started) / 1000),
     results,
+    image_results: images,
     images,
+    expected: { image_results: images.length, results: total },
     tryon_image: job.tryonImage,
   };
 }

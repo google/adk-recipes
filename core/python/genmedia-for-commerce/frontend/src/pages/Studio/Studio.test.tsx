@@ -382,7 +382,7 @@ describe("Studio page", () => {
     expect(bodies[0]).toContain("Content-Type: image/png");
   });
 
-  it("generates and shows the results, with no way to animate one", async () => {
+  it("generates and shows the results, each with Animate", async () => {
     await renderStudio(
       { set: { field: "person", item: EMMA } },
       { add: { field: "product", item: JEANS, replace_index: -1 } },
@@ -400,8 +400,8 @@ describe("Studio page", () => {
     expect(within(cards[0]).getByText("Best")).toBeTruthy();
     expect(within(cards[0]).getByText("Score 90")).toBeTruthy();
     expect(
-      within(cards[0]).queryByRole("button", { name: /animate/i }),
-    ).toBeNull();
+      within(cards[0]).getByRole("button", { name: "Animate Variation 1" }),
+    ).toBeTruthy();
     await waitFor(() =>
       expect(events.map((e) => Object.keys(e)[0])).toEqual([
         "job_started",

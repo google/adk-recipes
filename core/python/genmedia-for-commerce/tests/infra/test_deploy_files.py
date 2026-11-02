@@ -75,6 +75,14 @@ def test_every_bucket_prevents_public_access():
     assert len(enforced) == buckets
 
 
+def test_the_media_bucket_takes_signed_puts_from_the_panel():
+    cors = re.search(r"cors \{(.*?)\}", _read(TERRAFORM / "storage.tf"), re.S)
+    assert cors, "no cors block in storage.tf"
+    assert re.search(r'method\s*=\s*\["PUT"\]', cors[1])  # PUT only
+    for header in ("x-goog-content-length-range", "x-goog-if-generation-match"):
+        assert f'"{header}"' in cors[1]
+
+
 def test_the_image_runs_as_an_unprivileged_user():
     dockerfile = _read(ROOT / "Dockerfile")
     users = re.findall(r"^USER (\S+)", dockerfile, re.MULTILINE)

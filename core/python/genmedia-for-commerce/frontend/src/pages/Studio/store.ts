@@ -31,12 +31,11 @@ import {
   type StudioCapability,
   type StudioGallery,
   type StudioItem,
-  type StudioResult,
 } from "../../api/studio";
 import { ApiError } from "../../api/client";
 import { errorMessage } from "../../shared/files";
 import { ItemCommands, type UploadField } from "./items";
-import { JobFollower } from "./jobs";
+import { JobFollower, type LiveJob } from "./jobs";
 import {
   blank,
   fromServer,
@@ -48,16 +47,6 @@ import {
 } from "./model";
 import { newStudioId } from "./studioId";
 
-/**
- * The generation being followed: its results so far and (Video Try-On) the try-on images it animated so far;
- * `tryonImage`: the image of a "Make video" job, whose results replace only that image's videos ("" for a full run).
- */
-export type LiveJob = {
-  cap: StudioCapability;
-  results: StudioResult[];
-  images: StudioResult[];
-  tryonImage: string;
-};
 export type ChatEntry = ChatMessage & { error?: boolean };
 
 export type StudioSnapshot = {

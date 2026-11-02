@@ -14,6 +14,10 @@
 
 """``run_spin``: classify -> references -> video variations -> validate.
 
+With ``GENMEDIA_USE_CACHE`` on, the classification, the references and the
+close-ups may come from an earlier run with the same photos
+(``cache.SpinCache``); the videos are always made again.
+
 Shoes: shoe reference set (``shoe_refs``: views labelled by the judge model,
 pairs cut into single shoes, a shoe mirrored only when two photos show
 opposite sides), one request with the tuned turntable prompt, then
@@ -55,6 +59,7 @@ from genmedia4commerce.workflows.spin import (
     shoe_check,
     shoe_refs,
 )
+from genmedia4commerce.workflows.spin.cache import Prepared, SpinCache
 from genmedia4commerce.workflows.spin.prompt import (
     TURN_DURATION,
     orbit_turns,
@@ -210,6 +215,22 @@ async def _closeups(req: SpinRequest, shoes: bool):
     return found
 
 
+async def _prepare(
+    req: SpinRequest, classification: SpinClassification
+) -> Prepared:
+    """The references, the mirrored ones and the close-ups, looked for
+    while the references are built: everything that depends only on the
+    photos."""
+    shoes = classification.product_type == "shoes"
+    finding = asyncio.create_task(_closeups(req, shoes))  # meanwhile
+    try:
+        refs, mirrored = await _references(req, classification)
+    except BaseException:
+        finding.cancel()
+        raise
+    return Prepared(classification, refs, sorted(mirrored), await finding)
+
+
 def _product_steps(
     refs: dict[str, bytes], params, description: str, closeups: Sequence = ()
 ):
@@ -257,6 +278,26 @@ def _product_steps(
     return make, check
 
 
+def _spin_steps(prep: Prepared, params: gen.VideoParams, closeups: list):
+    """``make`` and ``evaluate`` of the product's route; every spin comes
+    out as an animated WebP."""
+    if prep.classification.product_type == "shoes":
+        mirrored = frozenset(prep.mirrored)
+        make, check = _shoe_steps(prep.refs, params, mirrored)
+    else:
+        description = prep.classification.description
+        make, check = _product_steps(prep.refs, params, description, closeups)
+
+    async def evaluate(clip: bytes) -> tuple[Verdict, bytes]:
+        verdict, clip = await check(clip)
+        verdict.details["score"] = _score(verdict)
+        # Every spin is an animated WebP, also one the checks kept as
+        # the video model's MP4.
+        return verdict, await asyncio.to_thread(core_video.to_webp, clip)
+
+    return make, evaluate
+
+
 async def run_spin(req: SpinRequest) -> AsyncGenerator[Event, None]:
     """Generate 360 spin variations of a product; stream the events:
     ``classified`` {product_type, views, description}, ``progress``,
@@ -264,24 +305,26 @@ async def run_spin(req: SpinRequest) -> AsyncGenerator[Event, None]:
     ``complete``; or one ``error`` if the run cannot start."""
     try:
         _validate(req.product_images)
-        classification = await asyncio.to_thread(
-            classify.classify, req.product_images
-        )
+        store = SpinCache(req.product_images)
+        prep = await store.load()
+        if prep is None:
+            classification = await store.tracked(
+                asyncio.to_thread(classify.classify, req.product_images)
+            )
+        else:
+            classification = prep.classification
         yield ClassifiedEvent(payload=dataclasses.asdict(classification))
-        shoes = classification.product_type == "shoes"
-        finding = asyncio.create_task(_closeups(req, shoes))  # meanwhile
-        try:
-            refs, mirrored = await _references(req, classification)
-        except BaseException:
-            finding.cancel()
-            raise
+        if prep is None:
+            prep = await store.tracked(_prepare(req, classification))
+            store.save(prep)
+        refs, shoes = prep.refs, classification.product_type == "shoes"
         params = req.video or gen.VideoParams(aspect_ratio=AUTO)
         picked = params.aspect_ratio == AUTO
         if picked:
             ratio = _auto_aspect(refs, shoes=shoes)
             params = dataclasses.replace(params, aspect_ratio=ratio)
         ratio = params.aspect_ratio + (" (auto)" if picked else "")
-        closeups = (await finding)[: MAX_REFERENCES - len(refs)]
+        closeups = prep.closeups[: MAX_REFERENCES - len(refs)]
         extra = f" + {len(closeups)} close-ups" if closeups else ""
         yield ProgressEvent(
             "references",
@@ -293,20 +336,7 @@ async def run_spin(req: SpinRequest) -> AsyncGenerator[Event, None]:
             },
         )
         policy = req.policy or RunPolicy.from_settings()
-        if shoes:
-            make, check = _shoe_steps(refs, params, mirrored)
-        else:
-            make, check = _product_steps(
-                refs, params, classification.description, closeups
-            )
-
-        async def evaluate(clip: bytes) -> tuple[Verdict, bytes]:
-            verdict, clip = await check(clip)
-            verdict.details["score"] = _score(verdict)
-            # Every spin is an animated WebP, also one the checks kept as
-            # the video model's MP4.
-            return verdict, await asyncio.to_thread(core_video.to_webp, clip)
-
+        make, evaluate = _spin_steps(prep, params, closeups)
         yield ProgressEvent("generating", "Generating spin videos")
         variations = trace.scoped(
             run_variations(policy, make, evaluate), stage="video"
