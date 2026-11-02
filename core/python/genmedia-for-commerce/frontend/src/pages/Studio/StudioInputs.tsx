@@ -94,7 +94,7 @@ export function ModelField({
         hint={
           person
             ? "A photo of the person, or a model from the gallery."
-            : "Upload your own photo of a model already wearing the look; its parts are used when you have no worn photo of an item."
+            : "Taken automatically from a full-length photo of a model among the products. Upload one here only to choose it yourself."
         }
       >
         {person && (

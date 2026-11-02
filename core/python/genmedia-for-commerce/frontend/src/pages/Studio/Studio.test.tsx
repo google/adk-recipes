@@ -472,6 +472,29 @@ describe("Studio page", () => {
     expect(screen.getByText("Choose a person first.")).toBeTruthy();
   });
 
+  it("folds the reference model and style like Run options, open once one is set", async () => {
+    await renderStudio();
+    const fold = () =>
+      screen.getByText("Reference model & style").closest("details");
+    expect(fold()?.open).toBe(false);
+    expect(within(fold() as HTMLElement).getByText("Optional")).toBeTruthy();
+    expect(
+      within(card("Reference model (optional)")).getByText(
+        /Taken automatically from a full-length photo of a model/,
+      ),
+    ).toBeTruthy();
+
+    fireEvent.change(
+      screen.getByLabelText("Upload Reference model (optional)"),
+      { target: { files: [imageFile("look.png")] } },
+    );
+
+    await waitFor(() => expect(fold()?.open).toBe(true));
+    expect(
+      within(fold() as HTMLElement).getByText("Reference model"),
+    ).toBeTruthy();
+  });
+
   it("opens and closes the chat drawer", async () => {
     await renderStudio();
     const open = screen.getByRole("button", { name: "Open the studio agent" });

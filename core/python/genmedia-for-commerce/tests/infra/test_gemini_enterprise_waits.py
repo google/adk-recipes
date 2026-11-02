@@ -15,10 +15,15 @@
 """The guided waits of ``infra/gemini_enterprise.py``: Enter on a terminal,
 the printed step (and a non-zero exit where it blocks) without one."""
 
+import subprocess
+
+import pytest
+
 from infra import gemini_enterprise as ge
 from infra import gemini_enterprise_api as gea
 from tests.infra.ge_fakes import (
     BLOCKED,
+    CID,
     CONNECTOR,
     SETUP,
     fresh_project_api,
@@ -83,7 +88,10 @@ def test_reload_step_waits_until_the_action_is_loaded(
 
     assert terminal.prompts == [gea.ENTER, gea.ENTER]
     assert "Reload custom actions" in caplog.text
-    assert "gemini-enterprise/data-stores?project=my-proj" in caplog.text
+    assert (
+        "https://console.cloud.google.com/gemini-enterprise/locations/global/"
+        f"collections/{CID}/connector/actions?project=my-proj" in caplog.text
+    )
     assert "is loaded and enabled" in caplog.text
     assert "Done:" in caplog.text
     enabling = [u for _, u, _ in api.writes() if "bapConfig" in u]
@@ -115,3 +123,79 @@ def test_ctrl_c_at_a_prompt_stops_the_command(
 
     assert _register(monkeypatch, api) == 130
     assert "Stopped" in caplog.text
+
+
+# ------------------------------- the Discovery Engine service agent's wait
+
+AGENT = "service-123@gcp-sa-discoveryengine.iam.gserviceaccount.com"
+
+
+def _binding_fails(monkeypatch, times: int):
+    """gcloud whose invoker binding fails ``times`` times: the service
+    agent of a new project does not exist yet."""
+    calls = []
+
+    def fake_gcloud(*args):
+        calls.append(args)
+        bindings = [c for c in calls if "add-iam-policy-binding" in c]
+        if "add-iam-policy-binding" in args and len(bindings) <= times:
+            raise subprocess.CalledProcessError(
+                1,
+                ["gcloud", *args],
+                stderr=f"ERROR: INVALID_ARGUMENT: Service account {AGENT} "
+                "does not exist.",
+            )
+        return "123"
+
+    monkeypatch.setattr(ge, "gcloud", fake_gcloud)
+    api = gea.DiscoveryEngine("my-proj", "global", "token", dry_run=False)
+    return lambda: ge.grant_invoker(api, ["my-svc"], dry_run=False), calls
+
+
+def test_the_binding_waits_for_the_service_agent(monkeypatch, sleeps, caplog):
+    grant, calls = _binding_fails(monkeypatch, times=2)
+    caplog.set_level("INFO")
+
+    grant()
+
+    assert sleeps == [15, 15]
+    assert caplog.text.count(ge.AGENT_WAIT) == 1
+    assert sum("add-iam-policy-binding" in c for c in calls) == 3
+
+
+def test_the_binding_gives_up_after_three_minutes(monkeypatch, sleeps):
+    grant, _ = _binding_fails(monkeypatch, times=99)
+
+    with pytest.raises(subprocess.CalledProcessError):
+        grant()
+
+    assert sleeps == [15] * 12
+
+
+def test_an_expired_token_is_renewed_once(monkeypatch):
+    """gcloud's cached token can expire while the user is in the console."""
+    from tests.infra.ge_fakes import FakeApi, error
+
+    api = FakeApi(
+        {("GET", CONNECTOR): [error("UNAUTHENTICATED", "expired", 401), {}]}
+    )
+    tokens = []
+
+    def request(method, url, headers, json, timeout):
+        tokens.append(headers["Authorization"])
+        return api(method, url, headers, json, timeout)
+
+    monkeypatch.setattr(gea.requests, "request", request)
+    monkeypatch.setattr(gea, "gcloud", lambda *_args: "fresh-token")
+    engine = gea.DiscoveryEngine("my-proj", "global", "old-token", False)
+
+    assert engine.call("GET", CONNECTOR.split("/v1alpha/")[1]) == {}
+
+    assert tokens == ["Bearer old-token", "Bearer fresh-token"]
+
+
+def test_highlight_only_on_a_terminal(monkeypatch):
+    monkeypatch.setattr(gea.sys.stderr, "isatty", lambda: True)
+    assert gea.highlight("Done.") == "\033[1;32mDone.\033[0m"
+    monkeypatch.setattr(gea.sys.stderr, "isatty", lambda: False)
+    assert gea.highlight("Done.") == "Done."

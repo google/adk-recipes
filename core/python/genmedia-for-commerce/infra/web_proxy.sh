@@ -226,6 +226,32 @@ serve() {
     wait "$proxy"
 }
 
+# A key line, in bold green on a terminal
+highlight() {
+    if [ -t 1 ]; then
+        printf '\033[1;32m%s\033[0m\n' "$*"
+    else
+        echo "$*"
+    fi
+}
+
+# Right after a deploy the service refuses genmedia-web for about a minute
+# (403) while its invoker grant applies: wait for it, up to 2 minutes.
+wait_until_allowed() {
+    local deadline=$((SECONDS + 120)) said=""
+    while [ "$(curl -s -o /dev/null -m 5 -w '%{http_code}' "$URL/" || true)" = 403 ]; do
+        if [ "$SECONDS" -ge "$deadline" ]; then
+            echo "The service still answers 403: its access grant can take another minute; reload the page then."
+            return 0
+        fi
+        if [ -z "$said" ]; then
+            echo "Waiting for the service to let the web app in (it takes a minute after a deploy)..."
+            said=1
+        fi
+        sleep "$POLL"
+    done
+}
+
 # Run in the background: the proxy, stopped when the terminal session ends.
 # A child started with & outlives a closed terminal (the shell sends SIGHUP
 # to its own jobs only, and make's job has ended).
@@ -241,7 +267,7 @@ background() {
     fi
     if port_in_use; then
         if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
-            echo "The web app is already running at $URL (Cloud Shell: Web Preview > port $PORT); stop it with: kill $(cat "$PIDFILE")"
+            highlight "The web app is already running at $URL (Cloud Shell: Web Preview > port $PORT); stop it with: kill $(cat "$PIDFILE")"
             return 0
         fi
         echo "Port $PORT is in use by another program, so the web app proxy was not started."
@@ -271,8 +297,9 @@ background() {
         sleep 1
         waited=$((waited + 1))
     done
+    wait_until_allowed
     echo
-    echo "The web app is running in the background at $URL (Cloud Shell: Web Preview > port $PORT); stop it with: kill $pid"
+    highlight "The web app is running in the background at $URL (Cloud Shell: Web Preview > port $PORT); stop it with: kill $pid"
     echo "It stops when this terminal session ends. $ACCESS Log: $log"
 }
 
