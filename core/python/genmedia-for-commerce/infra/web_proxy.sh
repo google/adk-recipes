@@ -48,6 +48,8 @@ REFRESH="${WEB_PROXY_REFRESH:-3000}"
 RETRY="${WEB_PROXY_RETRY:-60}"
 POLL="${WEB_PROXY_POLL:-1}"
 URL="http://localhost:$PORT"
+# The background proxy's pid, so a later start can tell it is already ours
+PIDFILE="${TMPDIR:-/tmp}/genmedia-web-proxy-$PORT.pid"
 SERVICE="${SERVICE_NAME:-genmedia-for-commerce}"
 REGION="${DEFAULT_REGION:-us-central1}"
 PROJECT="${PROJECT_ID:-}"
@@ -224,6 +226,32 @@ serve() {
     wait "$proxy"
 }
 
+# A key line, in bold green on a terminal
+highlight() {
+    if [ -t 1 ]; then
+        printf '\033[1;32m%s\033[0m\n' "$*"
+    else
+        echo "$*"
+    fi
+}
+
+# Right after a deploy the service refuses genmedia-web for about a minute
+# (403) while its invoker grant applies: wait for it, up to 2 minutes.
+wait_until_allowed() {
+    local deadline=$((SECONDS + 120)) said=""
+    while [ "$(curl -s -o /dev/null -m 5 -w '%{http_code}' "$URL/" || true)" = 403 ]; do
+        if [ "$SECONDS" -ge "$deadline" ]; then
+            echo "The service still answers 403: its access grant can take another minute; reload the page then."
+            return 0
+        fi
+        if [ -z "$said" ]; then
+            echo "Waiting for the service to let the web app in (it takes a minute after a deploy)..."
+            said=1
+        fi
+        sleep "$POLL"
+    done
+}
+
 # Run in the background: the proxy, stopped when the terminal session ends.
 # A child started with & outlives a closed terminal (the shell sends SIGHUP
 # to its own jobs only, and make's job has ended).
@@ -238,7 +266,11 @@ background() {
         return 0
     fi
     if port_in_use; then
-        echo "Port $PORT is in use (the proxy started earlier?), so the web app proxy was not started."
+        if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
+            highlight "The web app is already running at $URL (Cloud Shell: Web Preview > port $PORT); stop it with: kill $(cat "$PIDFILE")"
+            return 0
+        fi
+        echo "Port $PORT is in use by another program, so the web app proxy was not started."
         hint
         return 0
     fi
@@ -249,6 +281,7 @@ background() {
     log=$(mktemp "${TMPDIR:-/tmp}/genmedia-web-proxy.XXXXXX")
     watch_proxy "$(session_id)" "$log" </dev/null >/dev/null 2>&1 &
     pid=$!
+    echo "$pid" >"$PIDFILE"
     echo "Starting the web app proxy ($COMMAND)..."
     while ! port_in_use; do
         if ! kill -0 "$pid" 2>/dev/null; then
@@ -264,8 +297,9 @@ background() {
         sleep 1
         waited=$((waited + 1))
     done
+    wait_until_allowed
     echo
-    echo "The web app is running in the background at $URL (Cloud Shell: Web Preview > port $PORT); stop it with: kill $pid"
+    highlight "The web app is running in the background at $URL (Cloud Shell: Web Preview > port $PORT); stop it with: kill $pid"
     echo "It stops when this terminal session ends. $ACCESS Log: $log"
 }
 

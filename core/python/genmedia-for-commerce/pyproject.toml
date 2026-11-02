@@ -110,8 +110,16 @@ description = "Retail media agent: virtual try-on, 360° spins and catalogue sea
 base_template = "adk"
 agent_directory = "genmedia4commerce"
 # One Cloud Run service runs the whole app (make deploy). agent_engine is legacy:
-# kept only so Agent Garden's current `create -d agent_engine` works (it ends
-# with make deploy-agent-engine, an alias of make deploy). Remove it once Agent
-# Garden uses -d cloud_run.
+# kept only so Agent Garden's current agent-starter-pack command
+# (`create -d agent_engine`, ending with make deploy-agent-engine, an alias of
+# make deploy) works. Remove it once Agent Garden uses the agents-cli command
+# of the README, which reads [tool.agents-cli] below.
 deployment_targets = ["cloud_run", "agent_engine"]
 interactive_command = "setup-infra && make dev"
+
+[tool.agents-cli]
+base_template = "empty_py"
+
+[tool.agents-cli.settings]
+agent_directory = "genmedia4commerce"
+deployment_targets = ["cloud_run"]

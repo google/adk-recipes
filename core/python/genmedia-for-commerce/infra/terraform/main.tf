@@ -15,6 +15,13 @@
 terraform {
   required_version = ">= 1.7.0"
 
+  # The state is in the bucket <project>-genmedia-tfstate, which
+  # infra/setup_infra.sh creates and passes to terraform init
+  # (-backend-config=bucket=...), so a run from a new folder finds it.
+  backend "gcs" {
+    prefix = "genmedia-for-commerce"
+  }
+
   required_providers {
     google = {
       source  = "hashicorp/google"
@@ -23,6 +30,10 @@ terraform {
     google-beta = {
       source  = "hashicorp/google-beta"
       version = ">= 5.0.0"
+    }
+    time = {
+      source  = "hashicorp/time"
+      version = ">= 0.9.0"
     }
   }
 }

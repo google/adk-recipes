@@ -86,9 +86,10 @@ def test_setup_infra_retries_terraform_apply():
     # A fresh project's new APIs take a minute to be usable (403).
     makefile = _read(ROOT / "Makefile")
     recipe = makefile.split("\nsetup-infra:", 1)[1].split("\n\n", 1)[0]
-    assert "for attempt in 1 2 3" in recipe
-    assert "apply && exit 0" in recipe
-    assert "-auto-approve" not in recipe
+    assert recipe.endswith("@$(TF_VARS) && bash infra/setup_infra.sh")
+    script = _read(ROOT / "infra" / "setup_infra.sh")
+    assert "for attempt in 1 2 3" in script
+    assert "-auto-approve" not in script
 
 
 def test_the_makefile_has_no_jinja_markers():

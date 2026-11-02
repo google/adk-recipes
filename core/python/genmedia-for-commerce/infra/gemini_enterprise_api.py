@@ -68,9 +68,16 @@ def gcloud(*args: str) -> str:
     return result.stdout.strip()
 
 
+def highlight(text: str) -> str:
+    """``text`` in bold green on a terminal (the log goes to stderr)."""
+    if not sys.stderr.isatty():
+        return text
+    return f"\033[1;32m{text}\033[0m"
+
+
 def console_url(page: str, project: str) -> str:
-    """A Google Cloud console page of ``project``."""
-    return f"{CONSOLE}/{page}?project={project}"
+    """A Google Cloud console page of ``project`` (highlighted)."""
+    return highlight(f"{CONSOLE}/{page}?project={project}")
 
 
 def wait_for_user(prompt: str, read=None, isatty=None) -> bool:
@@ -95,6 +102,31 @@ def poll(check: Callable[[], bool], interval_s: float, timeout_s: float):
         if check():
             return True
     return False
+
+
+def retry_while(
+    call: Callable[[], object],
+    texts: tuple[str, ...],
+    message: str,
+    interval_s: int = 15,
+    timeout_s: int = 180,
+):
+    """Run ``call`` (a gcloud command), again every ``interval_s`` seconds
+    for up to ``timeout_s`` while its error contains one of ``texts``: what
+    a new project answers for a minute about a just-created service agent or
+    a just-enabled API. ``message`` is logged at the first wait."""
+    attempts = timeout_s // interval_s
+    for attempt in range(attempts + 1):
+        try:
+            return call()
+        except subprocess.CalledProcessError as exc:
+            waiting = any(text in (exc.stderr or "") for text in texts)
+            if not waiting or attempt == attempts:
+                raise
+            if not attempt:
+                logger.info(message)
+            time.sleep(interval_s)
+    return None
 
 
 def guide_user(step: str, done: Callable[[], bool], retry: str, prompt=ENTER):
@@ -136,6 +168,16 @@ class DiscoveryEngine:
         response = requests.request(
             method, url, headers=self.headers, json=body, timeout=HTTP_TIMEOUT_S
         )
+        if response.status_code == 401:  # expired during a long wait
+            token = gcloud("auth", "print-access-token")
+            self.headers["Authorization"] = f"Bearer {token}"
+            response = requests.request(
+                method,
+                url,
+                headers=self.headers,
+                json=body,
+                timeout=HTTP_TIMEOUT_S,
+            )
         if not response.ok:
             raise ApiError(method, url, response.status_code, response.text)
         return response.json() if response.content else {}

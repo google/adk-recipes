@@ -77,11 +77,20 @@ playground:
 # Deployment
 # ==============================================================================
 
-# Create config.env from config.env.example when it is missing, with PROJECT_ID set to the gcloud project
+# Create config.env from config.env.example when it is missing, with PROJECT_ID set to the gcloud project (asked [Y/n] in a terminal)
 config.env:
 	@project=$$(gcloud config get-value project 2>/dev/null); \
 	if [ -z "$$project" ]; then \
 		echo "Error: no config.env and no gcloud project. Copy config.env.example to config.env and set PROJECT_ID."; exit 1; \
+	fi; \
+	if [ -t 0 ] && [ -t 1 ] && [ -z "$$CI" ]; then \
+		read -r -p "Deploy to project $$project (gcloud's active project)? [Y/n] " answer || answer=n; \
+		case "$$answer" in \
+		"" | [yY] | [yY][eE][sS]) ;; \
+		*) echo "Set the project: gcloud config set project <id> (or create config.env from config.env.example)."; exit 1 ;; \
+		esac; \
+	else \
+		echo "Using project $$project (gcloud's active project)."; \
 	fi; \
 	sed "s/^PROJECT_ID=.*/PROJECT_ID=$$project/" config.env.example > config.env && \
 	echo "Created config.env from config.env.example with PROJECT_ID=$$project (the gcloud project). Edit config.env to change it."
@@ -248,26 +257,20 @@ export TF_VAR_deployer_email=$$(gcloud config get-value account 2>/dev/null) && 
 export TF_VAR_service_name=$${SERVICE_NAME:-genmedia-for-commerce}
 endef
 
-# Setup with Terraform: APIs, Artifact Registry, media bucket, the runtime, build and web proxy service accounts, IAM. Run it once per project, and again after an upgrade, before make deploy (it creates genmedia-build, which make deploy builds as)
+# Setup with Terraform: APIs, Artifact Registry, media bucket, the runtime, build and web proxy service accounts, IAM. Run it once per project, and again after an upgrade, before make deploy (it creates genmedia-build, which make deploy builds as). The state is in the bucket <project>-genmedia-tfstate; asks [Y/n] before applying the plan (without a terminal: TF_AUTO_APPROVE=1)
 setup-infra: config.env
 	@echo "Setting up infrastructure..."
 	@eval "$$($(CONFIG_SH))" && \
 		gcloud config set project $$PROJECT_ID --quiet && \
-		gcloud services enable cloudresourcemanager.googleapis.com --quiet
-	@# A fresh project's new APIs and service agents take a minute to be
-	@# usable (403 or "does not exist"): terraform apply is safe to re-run.
-	@$(TF_VARS) && $(TERRAFORM) -chdir=infra/terraform init && \
-	for attempt in 1 2 3; do \
-		$(TERRAFORM) -chdir=infra/terraform apply && exit 0; \
-		[ $$attempt -lt 3 ] && echo "Terraform failed (attempt $$attempt of 3): new APIs and permissions can take a minute to propagate. Trying again in 30 s (press Ctrl+C to stop)..." && sleep 30; \
-	done; exit 1
+		gcloud services enable cloudresourcemanager.googleapis.com storage.googleapis.com --quiet
+	@$(TF_VARS) && bash infra/setup_infra.sh
 
 # Preview Terraform changes
 tf-plan: config.env
 	@echo "Planning Terraform changes..."
-	@$(TF_VARS) && $(TERRAFORM) -chdir=infra/terraform init -input=false && $(TERRAFORM) -chdir=infra/terraform plan
+	@$(TF_VARS) && bash infra/setup_infra.sh init && $(TERRAFORM) -chdir=infra/terraform plan
 
 # Destroy Terraform-managed infrastructure
 tf-destroy: config.env
 	@echo "Destroying Terraform resources..."
-	@$(TF_VARS) && $(TERRAFORM) -chdir=infra/terraform init -input=false && $(TERRAFORM) -chdir=infra/terraform destroy
+	@$(TF_VARS) && bash infra/setup_infra.sh init && $(TERRAFORM) -chdir=infra/terraform destroy
