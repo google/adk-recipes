@@ -14,8 +14,8 @@
 
 """Tests for `_common.metric_library_factory`.
 
-The node tests replace this seam, so without these the whole bucket path -- the
-config field, the state copy, the degrade-on-failure rule -- could be deleted
+The node tests replace this seam, so without these the whole store path -- the
+read through the metrics store, the degrade-on-failure rule -- could be deleted
 and the suite would stay green.
 """
 
@@ -28,9 +28,8 @@ from unittest import mock
 import pytest
 from ambient_quality_agent.config import ObservedAgentConfig
 from ambient_quality_agent.core.nodes import _common
-from ambient_quality_agent.core.state import WorkflowState
-
-from .conftest import make_config
+from ambient_quality_agent.tools.metrics import publishing
+from ambient_quality_agent.tools.objects import store as objects_store
 
 _CONFIG = b"metrics_to_run: [ok]\ncustom_metrics:\n  - name: ok\n    custom_function_file: ok.py\n"
 _METRIC = b"EXPECTED = 'the published version'\n\n\ndef evaluate(i):\n    return 1.0\n"
@@ -43,53 +42,54 @@ def _ctx(**state: Any) -> Any:
 
 
 @pytest.fixture
-def stub_gcs(monkeypatch: pytest.MonkeyPatch) -> Any:
-    """Make the factory's GCS read serve fixed objects, or raise."""
+def stub_library(monkeypatch: pytest.MonkeyPatch, metrics_store: Any) -> Any:
+    """Publish fixed objects to the metrics store, or make reading it raise."""
 
     def _stub(outcome: dict[str, bytes] | BaseException) -> None:
-        def fake(bucket: str, **kwargs: Any) -> dict:
-            if isinstance(outcome, BaseException):
+        if isinstance(outcome, BaseException):
+
+            def fail(store: Any, agent_key: str) -> Any:
                 raise outcome
-            from ambient_quality_agent.tools.metrics.library import load_library
 
-            return load_library(outcome)
-
-        monkeypatch.setattr(_common, "load_library_from_gcs", fake)
+            monkeypatch.setattr(publishing, "load_published_library", fail)
+            return
+        for path, data in outcome.items():
+            metrics_store.write_bytes(publishing.LIBRARY_PREFIX + path, data)
 
     return _stub
 
 
-def test_no_bucket_means_no_metrics() -> None:
+def test_no_metrics_store_means_no_metrics(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """There is no baseline pack: nothing published means nothing scored, not
     a fallback to metrics nobody chose."""
+    monkeypatch.setattr(objects_store, "metrics_store_factory", lambda: None)
+
     library, warning = _common.metric_library_factory(_ctx())
 
     assert library == {}
     assert warning == ""
 
 
-def test_the_published_library_is_loaded(stub_gcs: Any) -> None:
-    stub_gcs({"eval_config.yaml": _CONFIG, "ok.py": _METRIC})
+def test_the_published_library_is_loaded(stub_library: Any) -> None:
+    stub_library({"eval_config.yaml": _CONFIG, "ok.py": _METRIC})
 
-    library, warning = _common.metric_library_factory(
-        _ctx(metrics_gcs_bucket="b")
-    )
+    library, warning = _common.metric_library_factory(_ctx())
 
     assert set(library) == {"ok"}
     assert library["ok"].expected == "the published version"
     assert warning == ""
 
 
-def test_an_unreadable_bucket_degrades_instead_of_raising(
-    stub_gcs: Any, caplog: pytest.LogCaptureFixture
+def test_an_unreadable_library_degrades_instead_of_raising(
+    stub_library: Any, caplog: pytest.LogCaptureFixture
 ) -> None:
     """One bad upload must not fail the node: the window only advances on a
     completed run, so it would stop every later sweep too."""
-    stub_gcs(RuntimeError("403"))
+    stub_library(RuntimeError("403"))
 
-    library, warning = _common.metric_library_factory(
-        _ctx(metrics_gcs_bucket="b")
-    )
+    library, warning = _common.metric_library_factory(_ctx())
 
     assert library == {}
     assert "Could not read the metric library" in caplog.text
@@ -98,26 +98,17 @@ def test_an_unreadable_bucket_degrades_instead_of_raising(
     assert "could not be read" in warning
 
 
-def test_a_module_that_exits_the_process_degrades_too(stub_gcs: Any) -> None:
+def test_a_module_that_exits_the_process_degrades_too(
+    stub_library: Any,
+) -> None:
     """`SystemExit` is not an `Exception`; an `argparse` call at module scope in
     an uploaded metric would otherwise stall every future sweep."""
-    stub_gcs(SystemExit(2))
+    stub_library(SystemExit(2))
 
-    library, warning = _common.metric_library_factory(
-        _ctx(metrics_gcs_bucket="b")
-    )
+    library, warning = _common.metric_library_factory(_ctx())
 
     assert library == {}
     assert "could not be read" in warning
-
-
-def test_the_bucket_reaches_the_factory_from_config() -> None:
-    """The whole wiring: env-backed `Config` field -> workflow state -> factory."""
-    state = WorkflowState.from_config(
-        make_config(metrics_gcs_bucket="my-metrics")
-    )
-
-    assert state.metrics_gcs_bucket == "my-metrics"
 
 
 def test_the_bucket_is_not_part_of_an_agents_configuration() -> None:
@@ -144,12 +135,30 @@ def test_a_metric_that_did_not_load_is_named_in_the_warning() -> None:
     library = MetricLibrary()
     library.failures = (("broken", "SyntaxError: '(' was never closed"),)
 
-    with mock.patch.object(_common, "load_library_from_gcs", lambda b: library):
-        loaded, warning = _common._create_default_metric_library(
-            _ctx(metrics_gcs_bucket="some-bucket")
-        )
+    with mock.patch.object(
+        publishing, "load_published_library", lambda store, agent_key: library
+    ):
+        loaded, warning = _common._create_default_metric_library(_ctx())
 
     assert loaded is library
     assert "1 metric(s) did not load" in warning
     assert "`broken`" in warning
     assert "SyntaxError" in warning
+
+
+def test_a_run_scores_with_its_agents_library(metrics_store: Any) -> None:
+    metrics_store.write_bytes(
+        "acme-prod__support/current/metrics/eval_config.yaml", _CONFIG
+    )
+    metrics_store.write_bytes(
+        "acme-prod__support/current/metrics/ok.py", _METRIC
+    )
+
+    library, warning = _common.metric_library_factory(
+        _ctx(agent_key="acme-prod__support")
+    )
+    other, _ = _common.metric_library_factory(_ctx(agent_key="acme-staging__x"))
+
+    assert set(library) == {"ok"}
+    assert warning == ""
+    assert other == {}

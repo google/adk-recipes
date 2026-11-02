@@ -24,6 +24,10 @@ dashboard.
 text alone, so the same text recorded twice is one memory. Recording is a
 create-only write and deleting is a single delete, so neither can undo the
 other.
+
+Every function takes the `ObjectStore` the memories live in: one agent's prefix
+of the jobs store (`agent_scope.AgentDocumentStore`), so each agent has its own
+memories and its own `MAX_MEMORIES`.
 """
 
 from __future__ import annotations
@@ -42,7 +46,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 MEMORIES_PREFIX = "memories/"
-"""One object per memory, at `memories/<id>.json`, in the jobs store."""
+"""One object per memory, at `memories/<id>.json`, in the agent's store."""
 
 MAX_MEMORY_CHARS = 500
 """Characters a memory may hold; a longer one is refused, not cut."""
@@ -186,8 +190,8 @@ def record_memory(
     stored = sum(1 for n in names if _id_of(n) is not None)
     if name not in names and stored >= MAX_MEMORIES:
         raise ValueError(
-            f"AQuA keeps at most {MAX_MEMORIES} memories; delete one on the "
-            "Memory card first."
+            f"AQuA keeps at most {MAX_MEMORIES} memories per agent; delete one "
+            "on the Memory card first."
         )
     body = json.dumps(
         {"text": cleaned, "source": source, "created_at": memory.created_at},

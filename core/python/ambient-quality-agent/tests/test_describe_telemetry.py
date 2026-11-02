@@ -33,13 +33,27 @@ from ambient_quality_agent.config import (
     Config,
 )
 from ambient_quality_agent.core import custom_investigation_skill, skill_toolset
+from ambient_quality_agent.tools.ingestion.base import BigQueryJobFetcher
+from ambient_quality_agent.tools.ingestion.bigquery_fetcher import (
+    BigQueryFetcher,
+)
+from ambient_quality_agent.tools.ingestion.cloud_logging_fetcher import (
+    CloudLoggingFetcher,
+)
+from ambient_quality_agent.tools.ingestion.cloud_ops_fetcher import (
+    CloudOpsFetcher,
+)
 from ambient_quality_agent.tools.observed_agent_config import effective_config
 from ambient_quality_agent.tools.telemetry import describe, schema
+from ambient_quality_shared.usage_headers import (
+    build_product_token,
+    detect_platform,
+)
 from google.adk.tools.function_tool import FunctionTool
 from google.api_core import exceptions as api_exceptions
 from google.cloud import bigquery
 
-from .conftest import StateContext, make_config
+from .conftest import StateContext, load_schema_fixture, make_config
 
 _SCHEMA = [
     bigquery.SchemaField(
@@ -254,7 +268,7 @@ def test_a_table_override_reaches_the_reported_and_read_table(
 
 
 def test_the_default_client_targets_aquas_project_and_the_telemetry_location(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, usage_analytics_on
 ) -> None:
     built: list[dict[str, Any]] = []
     monkeypatch.setattr(
@@ -267,7 +281,12 @@ def test_the_default_client_targets_aquas_project_and_the_telemetry_location(
         )
     )
 
-    assert built == [{"project": "aqua-project", "location": "EU"}]
+    assert len(built) == 1
+    assert built[0]["project"] == "aqua-project"
+    assert built[0]["location"] == "EU"
+    assert built[0]["client_info"].user_agent == build_product_token(
+        platform=detect_platform()
+    )
 
 
 def test_the_client_is_built_from_the_effective_config(
@@ -484,3 +503,219 @@ def test_the_table_is_in_the_agents_project_when_it_names_one(
 
     assert result["table"] == "agent-project.dataset_big_query.custom_events"
     assert [ref for ref, _ in client.calls] == [result["table"]]
+
+
+@pytest.mark.parametrize(
+    "fetcher", [BigQueryFetcher, CloudLoggingFetcher, CloudOpsFetcher]
+)
+def test_every_fetcher_names_a_schema_file_that_loads(
+    fetcher: type[BigQueryJobFetcher],
+) -> None:
+    assert schema.load_required_schema(fetcher.SCHEMA_FILE)
+
+
+@pytest.mark.parametrize(
+    ("fixture", "schema_file"),
+    [
+        ("agent_events.json", BigQueryFetcher.SCHEMA_FILE),
+        ("all_spans_view.json", CloudOpsFetcher.SCHEMA_FILE),
+    ],
+)
+def test_a_table_its_source_writes_has_every_column_ingestion_reads(
+    fixture: str, schema_file: str
+) -> None:
+    mismatches = schema.list_schema_mismatches(
+        load_schema_fixture(fixture), schema.load_required_schema(schema_file)
+    )
+
+    assert mismatches == {}
+
+
+def test_a_table_of_another_source_misses_the_columns_ingestion_reads() -> None:
+    spans = load_schema_fixture("all_spans_view.json")
+
+    mismatches = schema.list_schema_mismatches(
+        spans, schema.load_required_schema(BigQueryFetcher.SCHEMA_FILE)
+    )
+
+    assert mismatches == {
+        "timestamp": "missing",
+        "event_type": "missing",
+        "agent": "missing",
+        "session_id": "missing",
+        "invocation_id": "missing",
+        "content": "missing",
+        "error_message": "missing",
+    }
+
+
+def test_a_column_of_another_type_names_both_types() -> None:
+    mismatches = schema.list_schema_mismatches(
+        [bigquery.SchemaField("attributes", "STRING")],
+        [bigquery.SchemaField("attributes", "JSON")],
+    )
+
+    assert mismatches == {"attributes": "STRING, expected JSON"}
+
+
+def test_a_field_of_a_record_is_named_by_its_path() -> None:
+    mismatches = schema.list_schema_mismatches(
+        [
+            bigquery.SchemaField(
+                "status",
+                "RECORD",
+                fields=[bigquery.SchemaField("message", "STRING")],
+            )
+        ],
+        [
+            bigquery.SchemaField(
+                "status",
+                "RECORD",
+                fields=[
+                    bigquery.SchemaField("code", "INTEGER"),
+                    bigquery.SchemaField("message", "STRING"),
+                ],
+            )
+        ],
+    )
+
+    assert mismatches == {"status.code": "missing"}
+
+
+def test_a_column_is_repeated_exactly_when_the_reader_wants_it() -> None:
+    mismatches = schema.list_schema_mismatches(
+        [
+            bigquery.SchemaField("events", "RECORD"),
+            bigquery.SchemaField("attributes", "JSON", mode="REPEATED"),
+        ],
+        [
+            bigquery.SchemaField("events", "RECORD", mode="REPEATED"),
+            bigquery.SchemaField("attributes", "JSON"),
+        ],
+    )
+
+    assert mismatches == {"events": "not REPEATED", "attributes": "REPEATED"}
+
+
+def test_names_ignore_case_and_type_aliases_equal_their_legacy_names() -> None:
+    """BigQuery column names are case-insensitive, and its API can return either type spelling."""
+    mismatches = schema.list_schema_mismatches(
+        [
+            bigquery.SchemaField("Timestamp", "TIMESTAMP"),
+            bigquery.SchemaField(
+                "status",
+                "STRUCT",
+                fields=[bigquery.SchemaField("code", "INT64")],
+            ),
+        ],
+        [
+            bigquery.SchemaField("timestamp", "TIMESTAMP"),
+            bigquery.SchemaField(
+                "status",
+                "RECORD",
+                fields=[bigquery.SchemaField("code", "INTEGER")],
+            ),
+        ],
+    )
+
+    assert mismatches == {}
+
+
+def test_extra_columns_and_a_required_mode_do_not_count() -> None:
+    mismatches = schema.list_schema_mismatches(
+        [
+            bigquery.SchemaField("timestamp", "TIMESTAMP", mode="REQUIRED"),
+            bigquery.SchemaField("event_id", "STRING"),
+        ],
+        [bigquery.SchemaField("timestamp", "TIMESTAMP")],
+    )
+
+    assert mismatches == {}
+
+
+def test_a_similar_name_is_not_the_same_column() -> None:
+    """The Cloud Trace view's span_id is not the log sink's spanId."""
+    mismatches = schema.list_schema_mismatches(
+        [bigquery.SchemaField("span_id", "STRING")],
+        [bigquery.SchemaField("spanId", "STRING")],
+    )
+
+    assert mismatches == {"spanId": "missing"}
+
+
+@pytest.mark.parametrize(
+    ("held", "wanted"),
+    [
+        ("INT64", "INTEGER"),
+        ("INTEGER", "INT64"),
+        ("FLOAT64", "FLOAT"),
+        ("FLOAT", "FLOAT64"),
+        ("BOOL", "BOOLEAN"),
+        ("BOOLEAN", "BOOL"),
+        ("STRUCT", "RECORD"),
+        ("RECORD", "STRUCT"),
+    ],
+)
+def test_either_spelling_of_a_type_matches_on_either_side(
+    held: str, wanted: str
+) -> None:
+    """all_spans.schema.json spells status.code INT64 where the API says
+    INTEGER."""
+    mismatches = schema.list_schema_mismatches(
+        [bigquery.SchemaField("column", held)],
+        [bigquery.SchemaField("column", wanted)],
+    )
+
+    assert mismatches == {}
+
+
+def test_a_record_held_as_another_type_is_reported_once() -> None:
+    mismatches = schema.list_schema_mismatches(
+        [bigquery.SchemaField("status", "JSON")],
+        [
+            bigquery.SchemaField(
+                "status",
+                "RECORD",
+                fields=[bigquery.SchemaField("code", "INTEGER")],
+            )
+        ],
+    )
+
+    assert mismatches == {"status": "JSON, expected RECORD"}
+
+
+def test_a_field_of_a_repeated_record_is_named_by_its_path() -> None:
+    mismatches = schema.list_schema_mismatches(
+        [
+            bigquery.SchemaField(
+                "events",
+                "RECORD",
+                mode="REPEATED",
+                fields=[bigquery.SchemaField("time", "STRING")],
+            )
+        ],
+        [
+            bigquery.SchemaField(
+                "events",
+                "RECORD",
+                mode="REPEATED",
+                fields=[bigquery.SchemaField("time", "TIMESTAMP")],
+            )
+        ],
+    )
+
+    assert mismatches == {"events.time": "STRING, expected TIMESTAMP"}
+
+
+def test_a_type_mismatch_is_reported_before_a_mode_mismatch() -> None:
+    mismatches = schema.list_schema_mismatches(
+        [bigquery.SchemaField("attributes", "STRING", mode="REPEATED")],
+        [bigquery.SchemaField("attributes", "JSON")],
+    )
+
+    assert mismatches == {"attributes": "STRING, expected JSON"}
+
+
+def test_an_unknown_schema_file_raises() -> None:
+    with pytest.raises(FileNotFoundError):
+        schema.load_required_schema("no_such_table.schema.json")

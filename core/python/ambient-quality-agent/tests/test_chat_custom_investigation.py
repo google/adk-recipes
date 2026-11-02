@@ -27,15 +27,20 @@ from typing import Any
 from unittest import mock
 
 import pytest
+from ambient_quality_agent.config import ObservedAgentConfig
 from ambient_quality_agent.core import chat_agent
 from ambient_quality_agent.core.investigation import job_scheduling as schedule
 from ambient_quality_agent.core.investigation import locking, preview
+from ambient_quality_agent.standalone.files import FileObjectStore
 from ambient_quality_agent.tools.ingestion import selector
 from ambient_quality_agent.tools.investigations.models import (
     CUSTOM_TRIGGER_TYPE,
     RunStatus,
 )
-from ambient_quality_agent.tools.observed_agent_config import effective_config
+from ambient_quality_agent.tools.observed_agent_config import (
+    effective_config,
+    store,
+)
 
 from .conftest import StateContext, get_run, make_config
 
@@ -111,6 +116,24 @@ def mock_submit(monkeypatch: pytest.MonkeyPatch) -> mock.MagicMock:
     fake = mock.MagicMock(return_value={"job_name": "op/123"})
     monkeypatch.setattr(schedule, "submit_investigation", fake)
     return fake
+
+
+@pytest.fixture(autouse=True)
+def attached_agent(jobs_store: FileObjectStore) -> None:
+    """Attach the agent a request that selects none investigates.
+
+    Without one there is nothing to investigate, and every run is refused
+    before the checks these tests are about.
+    """
+    store.save_agent_record(
+        jobs_store,
+        store.AgentRecord(
+            config=ObservedAgentConfig(
+                observed_agent_name="support", agent_key="support"
+            )
+        ),
+    )
+    effective_config.clear_cache()
 
 
 def _eval_service(monkeypatch: pytest.MonkeyPatch) -> None:

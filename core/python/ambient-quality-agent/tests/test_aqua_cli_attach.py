@@ -15,7 +15,8 @@
 """`aqua attach`, `list-agents` and `detach` at the command line.
 
 The deployment is faked at `_fetch_command_result`, the one seam every command
-route goes through. What these check is what the CLI sends, what it shows the
+route goes through, and the update trigger's APIs and gcloud commands by
+`_FakeSinks`. What these check is what the CLI sends, what it shows the
 operator before writing, and that it asks first -- the engine side, which
 decides what is stored, is `tests/test_observed_agent_config_commands.py`.
 """
@@ -23,6 +24,7 @@ decides what is stored, is `tests/test_observed_agent_config_commands.py`.
 from __future__ import annotations
 
 import json
+import pathlib
 import shlex
 from typing import Any
 
@@ -33,6 +35,9 @@ from ambient_quality_agent.tools.evaluation.models import (
 )
 from ambient_quality_cli import aqua_cli
 from ambient_quality_cli import grants as grants_lib
+from ambient_quality_cli import rest_client as rest_client_lib
+from ambient_quality_cli import update_trigger as update_trigger_lib
+from ambient_quality_cli.rest_client import ApiError
 from click.testing import CliRunner
 
 _OBJECT = "gs://jobs-bucket/agents/watched_agent.json"
@@ -44,6 +49,153 @@ _TARGET = {
     "ambient_caller_email": "aqua-solo-aqua-caller@p2.iam.gserviceaccount.com",
 }
 """The trigger target the fake engine reports."""
+
+_KEY = "agent-project__watched_agent"
+"""The key the fake engine's plan names: the agent, in the project its
+triggers name."""
+
+_SINK = f"aqua-solo-aqua-ambient-{_KEY}-updates"
+"""The update sink of the agent `_KEY`, in its project."""
+
+_WRITER = "serviceAccount:service-9@gcp-sa-logging.iam.gserviceaccount.com"
+"""The writer identity every sink the fake creates gets."""
+
+
+class _FakeSinks:
+    """The Logging and Pub/Sub APIs the update trigger reads, and its gcloud
+    commands, which change what the APIs report.
+
+    Starts with the agent's sink in place on engine 42, allowed to publish, so
+    that an attach of the default plan has no trigger command to run.
+    """
+
+    def __init__(self):
+        """Initializes the fake with the agent's sink in place."""
+        self.sinks: dict[tuple[str, str], dict[str, str]] = {}
+        self.publishers: set[str] = {_WRITER}
+        self.ran: list[list[str]] = []
+        self.status = 0
+        self.add("agent-project", _SINK, "42")
+
+    def add(
+        self, project: str, name: str, engine_id: str, topic: str = ""
+    ) -> None:
+        """Adds a sink.
+
+        Args:
+            project: Its project.
+            name: Its name.
+            engine_id: The engine its filter matches.
+            topic: Where it publishes; the fake engine's topic if empty.
+        """
+        self.sinks[(project, name)] = {
+            "name": name,
+            "destination": update_trigger_lib.build_destination(
+                topic or _TARGET["ambient_topic"]
+            ),
+            "filter": update_trigger_lib.build_sink_filter(engine_id),
+            "writerIdentity": _WRITER,
+        }
+
+    def drop(self) -> None:
+        """Removes every sink, so that an attach has one to create."""
+        self.sinks.clear()
+
+    def get_json(self, url, params=None):
+        """Answers a GET of a sink, a project's sinks or the topic's policy.
+
+        Args:
+            url: Request URL.
+            params: Ignored query parameters.
+
+        Returns:
+            The reply.
+
+        Raises:
+            ApiError: 404 for a sink that does not exist.
+        """
+        if url.endswith(":getIamPolicy"):
+            return {
+                "bindings": [
+                    {
+                        "role": update_trigger_lib.PUBLISHER_ROLE,
+                        "members": sorted(self.publishers),
+                    }
+                ]
+            }
+        parts = url.split("/")
+        if parts[-1] == "sinks":
+            project = parts[-2]
+            return {
+                "sinks": [s for (p, _), s in self.sinks.items() if p == project]
+            }
+        project, name = parts[-3], parts[-1]
+        if (project, name) not in self.sinks:
+            raise ApiError(404, "not found")
+        return self.sinks[(project, name)]
+
+    def __call__(self, argv: list[str]) -> int:
+        """Records one gcloud command and applies it to the fake's state.
+
+        Args:
+            argv: Command-line arguments vector.
+
+        Returns:
+            The scripted exit status.
+        """
+        self.ran.append(argv)
+        if self.status:
+            return self.status
+        flags = dict(
+            a[2:].split("=", 1) for a in argv if a.startswith("--") and "=" in a
+        )
+        if argv[1:3] == ["logging", "sinks"]:
+            key = (flags["project"], argv[4])
+            if argv[3] == "delete":
+                self.sinks.pop(key, None)
+            else:
+                engine = flags["log-filter"].split("/reasoningEngines/")[1]
+                self.add(*key, engine.split("$")[0])
+        elif argv[3] == "add-iam-policy-binding":
+            self.publishers.add(flags["member"])
+        elif argv[3] == "remove-iam-policy-binding":
+            self.publishers.discard(flags["member"])
+        return 0
+
+    def list_verbs(self) -> list[str]:
+        """Lists what each command that ran did.
+
+        Returns:
+            `sinks create`, `topics add-iam-policy-binding` and the like.
+        """
+        return [f"{argv[2]} {argv[3]}" for argv in self.ran]
+
+
+@pytest.fixture(autouse=True)
+def sinks(monkeypatch) -> _FakeSinks:
+    """Replaces the update trigger's API reads and its gcloud commands.
+
+    Args:
+        monkeypatch: Pytest monkeypatch fixture.
+
+    Returns:
+        The installed fake.
+    """
+    fake = _FakeSinks()
+    monkeypatch.setattr(
+        rest_client_lib, "RestClient", lambda *args, **kwargs: fake
+    )
+    monkeypatch.setattr(aqua_cli, "_run_command", fake)
+    monkeypatch.setattr(
+        update_trigger_lib.shutil, "which", lambda p: f"/bin/{p}"
+    )
+
+    def refuse_grant(argv: list[str]) -> int:
+        raise AssertionError(f"a grant ran with no runner installed: {argv}")
+
+    # Attach runs the grants it prints; one must never reach a real `bq`.
+    monkeypatch.setattr(grants_lib, "_run_command", refuse_grant)
+    return fake
 
 
 class _FakeDeployment:
@@ -57,29 +209,34 @@ class _FakeDeployment:
             listing: Response for `agents/list`; a single watched agent if None.
         """
         self.plan = {
+            "agent_key": _KEY,
             "agent_name": "watched_agent",
             "object": _OBJECT,
             "attached": True,
             "watched": True,
-            "environment_agent": "watched_agent",
+            "triggers_name_agent": True,
             "changes": [],
             "adjusted": [],
             "needs_apply": [],
             "triggers": {
-                "investigation_schedule": "0 6 * * *",
-                "scheduled_trigger_enabled": True,
                 "observed_engine_id": "42",
                 "observed_project_id": "agent-project",
             },
+            "unapplied_fields": [],
             "trigger_target": dict(_TARGET),
             "written": False,
             **(plan or {}),
         }
         self.listing = listing or {
             "prefix": "gs://jobs-bucket/agents/",
-            "agents": [{"agent_name": "watched_agent", "watched": True}],
-            "default_agent": "watched_agent",
-            "environment_agent": "watched_agent",
+            "agents": [
+                {
+                    "agent_key": _KEY,
+                    "agent_name": "watched_agent",
+                    "watched": True,
+                }
+            ],
+            "default_agent": _KEY,
             "trigger_target": dict(_TARGET),
         }
         self.calls: list[tuple[str, Any]] = []
@@ -106,6 +263,15 @@ class _FakeDeployment:
         self.calls.append((path, payload))
         if path == "agents/attach":
             response = {**self.plan, "written": not payload["dry_run"]}
+            # As the engine does: only a dry run that asks fills anything in,
+            # and never a field the request sets.
+            requested = payload.get("fields") or {}
+            response["filled"] = [
+                f
+                for f in self.plan.get("filled") or []
+                if payload.get("fill_from_table")
+                and f["field"] not in requested
+            ]
             if payload.get("check_access") and self.after_checks:
                 self.plan.update(self.after_checks.pop(0))
             return response
@@ -113,16 +279,12 @@ class _FakeDeployment:
             return self.listing
         if path == "agents/applied":
             return {
-                "agent_name": payload["agent_name"],
+                "agent_key": payload["agent_key"],
                 "applied_at": "2026-10-01T00:00:00+00:00",
                 "unapplied_fields": [],
             }
         if path == "agents/detach":
-            return {
-                "agent_name": payload["agent_name"],
-                "detached": True,
-                "watched": True,
-            }
+            return {"agent_key": payload["agent_key"], "detached": True}
         raise AssertionError(f"unexpected route {path}")
 
     def list_writes(self) -> list[Any]:
@@ -213,12 +375,14 @@ def test_attach_sends_only_the_flags_given_under_their_field_names(
         },
         "dry_run": True,
         "check_access": True,
+        "fill_from_table": True,
     }
 
 
-def test_without_a_name_the_deployment_picks_the_agent(
+def test_without_a_name_the_cli_leaves_the_name_to_the_deployment(
     runner, monkeypatch
 ) -> None:
+    """The deployment refuses an attach that names no agent and no key."""
     fake = _install_deployment(monkeypatch)
 
     _invoke(runner, "attach", "--dry-run")
@@ -233,14 +397,15 @@ def test_attach_plans_before_it_writes(runner, monkeypatch) -> None:
 
     assert result.exit_code == 0, result.output
     assert [p["dry_run"] for _, p in fake.calls] == [True, False]
-    assert "Attached watched_agent." in result.output
+    assert f"Attached watched_agent as {_KEY}." in result.output
 
 
 def test_attach_never_touches_storage_itself(runner, monkeypatch) -> None:
     """The CLI talks to AQuA only through its API. Minting a token is the first
     step of any direct bucket call, so an attach that needed one would fail
-    here."""
-    _install_deployment(monkeypatch, plan=_A_CHANGE)
+    here. The engine reports no trigger target, so the only Google APIs the
+    attach could call are AQuA's storage."""
+    _install_deployment(monkeypatch, plan={**_A_CHANGE, "trigger_target": {}})
 
     def refuse_token():
         raise AssertionError(
@@ -294,14 +459,14 @@ def test_re_attaching_with_no_change_writes_nothing(
 def test_a_first_attach_with_no_change_is_stored_without_asking(
     runner, monkeypatch
 ) -> None:
-    """It moves the settings out of the environment and changes nothing about
-    how the agent is watched, so there is nothing to confirm."""
+    """Storing it attaches the agent with the defaults it is planned from, and
+    changes no setting, so there is nothing to confirm."""
     fake = _install_deployment(monkeypatch, plan={"attached": False})
 
     result = _invoke(runner, "attach")
 
     assert result.exit_code == 0, result.output
-    assert "starting from the engine's environment" in result.output
+    assert "(not attached yet -- starting from the defaults)" in result.output
     assert len(fake.list_writes()) == 1
 
 
@@ -312,48 +477,111 @@ def test_a_value_the_deployment_adjusted_is_pointed_out(
         monkeypatch,
         plan={
             "changes": [
-                {"field": "data_lookback_window", "before": 14, "after": 64}
+                {"field": "data_evaluation_cap", "before": 500, "after": 1000}
             ],
             "adjusted": [
                 {
-                    "field": "data_lookback_window",
+                    "field": "data_evaluation_cap",
                     "requested": 9999,
-                    "stored": 64,
+                    "stored": 1000,
                 }
             ],
         },
     )
 
-    result = _invoke(runner, "attach", "--lookback-days", "9999", "--dry-run")
+    result = _invoke(runner, "attach", "--evaluation-cap", "9999", "--dry-run")
 
-    assert "asked for 9999, the deployment stores 64" in result.output
+    assert "asked for 9999, the deployment stores 1000" in result.output
 
 
-def test_a_schedule_change_says_it_needs_terraform(runner, monkeypatch) -> None:
+_FILLED_LOCATION = {
+    "changes": [
+        {"field": "telemetry_location", "before": "us-central1", "after": "EU"}
+    ],
+    "filled": [
+        {
+            "field": "telemetry_location",
+            "value": "EU",
+            "reason": "the location of proj.agent_telemetry.t",
+        }
+    ],
+}
+"""A plan that filled in the location of the table the request names."""
+
+
+def test_what_the_table_decides_is_shown_with_its_reason_and_stored(
+    runner, monkeypatch
+) -> None:
+    """The deployment reads nothing from BigQuery when storing, so the write
+    sends what the dry run filled in."""
+    fake = _install_deployment(monkeypatch, plan=_FILLED_LOCATION)
+
+    result = _invoke(runner, "attach", "--telemetry-table", "t", "--yes")
+
+    assert result.exit_code == 0, result.output
+    assert (
+        "  telemetry_location: us-central1 -> EU "
+        "(the location of proj.agent_telemetry.t)" in result.output
+    )
+    [write] = fake.list_writes()
+    assert write["fields"] == {
+        "telemetry_table": "t",
+        "telemetry_location": "EU",
+    }
+
+
+def test_an_engine_change_shows_the_trigger_commands(
+    runner, monkeypatch, sinks
+) -> None:
+    sinks.drop()
     _install_deployment(
+        monkeypatch,
+        plan={
+            "changes": [
+                {"field": "observed_engine_id", "before": "", "after": "42"}
+            ],
+            "needs_apply": ["observed_engine_id"],
+        },
+    )
+
+    result = _invoke(runner, "attach", "--dry-run")
+
+    assert result.exit_code == 0, result.output
+    assert f"gcloud logging sinks create {_SINK}" in result.output
+    assert "create it for engine 42" in result.output
+    assert sinks.ran == []
+
+
+def test_a_schedule_change_takes_effect_without_a_trigger_command(
+    runner, monkeypatch, sinks
+) -> None:
+    fake = _install_deployment(
         monkeypatch,
         plan={
             "changes": [
                 {
                     "field": "investigation_schedule",
-                    "before": "",
-                    "after": "0 12 * * *",
+                    "before": "0 12 * * *",
+                    "after": "0 6 * * *",
                 }
             ],
-            "needs_apply": ["investigation_schedule"],
         },
     )
 
-    result = _invoke(runner, "attach", "--schedule", "0 12 * * *", "--dry-run")
+    result = _invoke(runner, "attach", "--schedule", "0 6 * * *", "--yes")
 
-    assert "not yet in effect: investigation_schedule" in result.output
-    assert "Terraform" in result.output
+    assert result.exit_code == 0, result.output
+    assert sinks.ran == []
+    assert fake.calls[-1][1]["fields"] == {
+        "investigation_schedule": "0 6 * * *"
+    }
 
 
-def test_attaching_an_agent_the_deployment_does_not_watch_says_so(
+def test_attaching_an_agent_besides_the_default_adds_no_note(
     runner, monkeypatch
 ) -> None:
-    """Until one AQuA watches several agents, that object is never read."""
+    """Each agent is investigated by its own triggers, so there is nothing to
+    warn about, and no listing to read."""
     fake = _install_deployment(
         monkeypatch,
         plan={"agent_name": "other", "watched": False, "attached": False},
@@ -361,39 +589,38 @@ def test_attaching_an_agent_the_deployment_does_not_watch_says_so(
 
     result = _invoke(runner, "attach", "other", "--dry-run")
 
-    assert (
-        "This deployment investigates watched_agent, not other" in result.output
-    )
-    # An attach cannot displace the agent the environment names.
-    assert "only a separate AQuA deployment can investigate other" in (
-        result.output
-    )
+    assert result.exit_code == 0, result.output
+    assert "investigates" not in result.output
     assert "--default" not in result.output
-    # The plan already names it, so no listing is needed.
     assert [path for path, _ in fake.calls] == ["agents/attach"]
+
+
+_ENGINE_IGNORING_OTHERS = {"triggers_name_agent": None}
+"""An engine that does not report `triggers_name_agent`: it investigates its
+default agent whatever trigger fires."""
 
 
 _LISTING_WITH_DEFAULT_FIRST_AGENT = {
     "prefix": "gs://jobs-bucket/agents/",
     "agents": [{"agent_name": "first_agent", "watched": True}],
     "default_agent": "first_agent",
-    "environment_agent": "",
     "trigger_target": dict(_TARGET),
 }
-"""A deployment whose environment names no agent, watching its one attachment."""
+"""A deployment watching its one attachment."""
 
 
 def test_an_agent_behind_the_default_attachment_is_named_with_the_remedy(
     runner, monkeypatch
 ) -> None:
-    """With no agent in the environment, the deployment investigates its
-    default attached agent, and `--default` moves that to this one."""
-    _install_deployment(
+    """An engine that does not report `triggers_name_agent` never reads that
+    object: it investigates its default attached agent, which only the listing
+    names, and `--default` moves that to this one."""
+    fake = _install_deployment(
         monkeypatch,
         plan={
+            **_ENGINE_IGNORING_OTHERS,
             "agent_name": "other",
             "watched": False,
-            "environment_agent": "",
             "attached": False,
         },
         listing=_LISTING_WITH_DEFAULT_FIRST_AGENT,
@@ -404,8 +631,10 @@ def test_an_agent_behind_the_default_attachment_is_named_with_the_remedy(
     assert (
         "This deployment investigates first_agent, not other" in result.output
     )
+    assert "Upgrading AQuA" in result.output
     assert "attach it with --default" in result.output
     assert "another agent" not in result.output
+    assert [path for path, _ in fake.calls] == ["agents/attach", "agents/list"]
 
 
 def test_an_unreadable_listing_still_shows_the_note(
@@ -415,9 +644,9 @@ def test_an_unreadable_listing_still_shows_the_note(
     _install_deployment(
         monkeypatch,
         plan={
+            **_ENGINE_IGNORING_OTHERS,
             "agent_name": "other",
             "watched": False,
-            "environment_agent": "",
             "attached": False,
         },
         listing={"error": "listing failed"},
@@ -515,6 +744,220 @@ def test_missing_telemetry_refuses_the_attach(runner, monkeypatch) -> None:
     assert fake.list_writes() == []
 
 
+def test_a_failed_telemetry_read_refuses_the_attach(
+    runner, monkeypatch
+) -> None:
+    """A rows query the table rejects (the wrong telemetry source, say) means no
+    investigation could read it either."""
+    fake = _install_deployment(
+        monkeypatch,
+        plan={
+            **_A_CHANGE,
+            **_build_access(
+                ("table", "passed", _TABLE),
+                ("rows", "error", _TABLE),
+                ("payload", "skipped", ""),
+            ),
+        },
+    )
+
+    result = _invoke(runner, "attach", "--lookback-days", "30", "--yes")
+
+    assert result.exit_code == 1
+    assert f"Not attaching: reading {_TABLE} failed" in result.output
+    assert "--telemetry-source" in result.output
+    assert fake.list_writes() == []
+
+
+_REFUSED_FORMAT = (
+    f"Not attaching: {_TABLE} is not in the telemetry source's format"
+)
+
+
+def _build_mismatch(*matching_sources: str) -> dict[str, Any]:
+    """Builds an attach plan whose schema check failed.
+
+    Args:
+        *matching_sources: The other sources whose columns the table has.
+
+    Returns:
+        The plan as the deployment returns it.
+    """
+    plan = {
+        **_A_CHANGE,
+        **_build_access(
+            ("table", "passed", _TABLE),
+            ("schema", "mismatch", _TABLE),
+            ("rows", "skipped", _TABLE),
+            ("payload", "skipped", ""),
+        ),
+    }
+    plan["access"]["checks"][1]["matching_sources"] = list(matching_sources)
+    return plan
+
+
+@pytest.mark.parametrize(
+    ("matching_sources", "hint"),
+    [
+        (
+            ["cloud_ops"],
+            "Pass --telemetry-source cloud_ops to read it as cloud_ops.",
+        ),
+        (
+            ["big_query", "cloud_logging"],
+            "Pass --telemetry-source with one of big_query, cloud_logging.",
+        ),
+        (
+            [],
+            "Name a table in that format with --telemetry-dataset and "
+            "--telemetry-table, or fix what writes this one.",
+        ),
+    ],
+)
+def test_a_schema_mismatch_refuses_the_attach(
+    runner, monkeypatch, matching_sources: list[str], hint: str
+) -> None:
+    """Every hint names something that can work: with no source that fits,
+    another --telemetry-source would only mismatch again."""
+    fake = _install_deployment(
+        monkeypatch, plan=_build_mismatch(*matching_sources)
+    )
+
+    result = _invoke(runner, "attach", "--lookback-days", "30", "--yes")
+
+    assert result.exit_code == 1
+    assert f"schema   MISMATCH {_TABLE}" in result.output
+    assert (
+        f"{_REFUSED_FORMAT}, as the schema check above shows." in result.output
+    )
+    assert hint in result.output
+    assert fake.list_writes() == []
+
+
+def test_a_dry_run_with_a_schema_mismatch_is_refused(
+    runner, monkeypatch
+) -> None:
+    _install_deployment(monkeypatch, plan=_build_mismatch("cloud_ops"))
+
+    result = _invoke(runner, "attach", "--dry-run")
+
+    assert result.exit_code == 1
+    assert _REFUSED_FORMAT in result.output
+    assert "Dry run" not in result.output
+
+
+def test_a_schema_mismatch_refuses_before_any_grant(
+    runner, monkeypatch, sinks
+) -> None:
+    """Granting reads on a table in the wrong format would not make it
+    readable."""
+    plan = _build_mismatch()
+    plan["access"]["checks"].append(
+        {
+            "name": "log_view",
+            "status": "denied",
+            "target": "projects/proj",
+            "detail": "log_view detail",
+        }
+    )
+    fake = _install_deployment(monkeypatch, plan=plan)
+    grant_runner = _install_grant_runner(
+        monkeypatch, fake, access_after=_PASSED_TABLE
+    )
+
+    result = _invoke(runner, "attach", "--yes")
+
+    assert result.exit_code == 1
+    assert _REFUSED_FORMAT in result.output
+    assert grant_runner.ran == []
+    assert fake.list_writes() == []
+    assert sinks.ran == []
+
+
+def test_a_missing_table_outranks_a_schema_mismatch(
+    runner, monkeypatch
+) -> None:
+    fake = _install_deployment(
+        monkeypatch,
+        plan={
+            **_A_CHANGE,
+            **_build_access(
+                ("table", "missing", _TABLE), ("schema", "mismatch", _TABLE)
+            ),
+        },
+    )
+
+    result = _invoke(runner, "attach", "--yes")
+
+    assert result.exit_code == 1
+    assert f"Not attaching: {_TABLE} does not exist" in result.output
+    assert _REFUSED_FORMAT not in result.output
+    assert fake.list_writes() == []
+
+
+def test_a_schema_mismatch_outranks_a_failed_read(runner, monkeypatch) -> None:
+    fake = _install_deployment(
+        monkeypatch,
+        plan={
+            **_A_CHANGE,
+            **_build_access(
+                ("table", "passed", _TABLE),
+                ("schema", "mismatch", _TABLE),
+                ("rows", "error", _TABLE),
+            ),
+        },
+    )
+
+    result = _invoke(runner, "attach", "--yes")
+
+    assert result.exit_code == 1
+    assert _REFUSED_FORMAT in result.output
+    assert "failed, and investigations" not in result.output
+    assert fake.list_writes() == []
+
+
+def test_a_passing_schema_check_does_not_refuse(runner, monkeypatch) -> None:
+    fake = _install_deployment(
+        monkeypatch,
+        plan={
+            **_A_CHANGE,
+            **_build_access(
+                ("table", "passed", _TABLE),
+                ("schema", "passed", _TABLE),
+                ("rows", "passed", _TABLE),
+            ),
+        },
+    )
+
+    result = _invoke(runner, "attach", "--lookback-days", "30", "--yes")
+
+    assert result.exit_code == 0, result.output
+    assert f"schema  ok {_TABLE}" in result.output
+    assert len(fake.list_writes()) == 1
+
+
+def test_a_failed_payload_read_does_not_refuse_the_attach(
+    runner, monkeypatch
+) -> None:
+    """The telemetry itself is readable; only one sampled object is not."""
+    fake = _install_deployment(
+        monkeypatch,
+        plan={
+            **_A_CHANGE,
+            **_build_access(
+                ("table", "passed", _TABLE),
+                ("rows", "passed", _TABLE),
+                ("payload", "error", "gs://b/o"),
+            ),
+        },
+    )
+
+    result = _invoke(runner, "attach", "--lookback-days", "30", "--yes")
+
+    assert result.exit_code == 0, result.output
+    assert len(fake.list_writes()) == 1
+
+
 def test_a_denied_read_is_named_and_the_attach_goes_ahead(
     runner, monkeypatch
 ) -> None:
@@ -523,6 +966,7 @@ def test_a_denied_read_is_named_and_the_attach_goes_ahead(
         monkeypatch,
         plan={**_A_CHANGE, **_build_access(("table", "denied", _TABLE))},
     )
+    _install_grant_runner(monkeypatch, fake, access_after=_PASSED_TABLE)
 
     result = _invoke(runner, "attach", "--lookback-days", "30", "--yes")
 
@@ -540,6 +984,7 @@ def test_the_write_does_not_ask_for_the_check_again(
     _invoke(runner, "attach", "--lookback-days", "30", "--yes")
 
     assert [p.get("check_access") for _, p in fake.calls] == [True, None]
+    assert [p.get("fill_from_table") for _, p in fake.calls] == [True, None]
 
 
 # --- grants ---------------------------------------------------------------------------- #
@@ -628,7 +1073,7 @@ def _install_grant_runner(
     return runner
 
 
-def test_a_denied_read_prints_its_grant_and_runs_nothing(
+def test_a_dry_run_prints_the_grant_and_runs_nothing(
     runner, monkeypatch
 ) -> None:
     fake = _install_deployment(monkeypatch, plan=_DENIED_TABLE)
@@ -636,24 +1081,24 @@ def test_a_denied_read_prints_its_grant_and_runs_nothing(
         monkeypatch, fake, access_after=_PASSED_TABLE
     )
 
-    result = _invoke(runner, "attach")
+    result = _invoke(runner, "attach", "--dry-run", "--yes")
 
     assert result.exit_code == 0, result.output
     assert f"To let {_SA} make those reads" in result.output
     assert f"  {_GRANT_LINE}" in result.output
-    assert "Or run attach with --apply to run them." in result.output
+    assert "nothing was written, granted or created" in result.output
     assert grant_runner.ran == []
 
 
-def test_apply_runs_exactly_the_printed_commands_then_checks_again(
-    runner, monkeypatch, terraform_runs
+def test_attach_runs_exactly_the_printed_commands_then_checks_again(
+    runner, monkeypatch
 ) -> None:
     fake = _install_deployment(monkeypatch, plan={**_A_CHANGE, **_DENIED_TABLE})
     grant_runner = _install_grant_runner(
         monkeypatch, fake, access_after=_PASSED_TABLE
     )
 
-    result = _invoke(runner, "attach", "--apply", "--yes")
+    result = _invoke(runner, "attach", "--yes")
 
     assert result.exit_code == 0, result.output
     assert [shlex.join(argv) for argv in grant_runner.ran] == [_GRANT_LINE]
@@ -665,18 +1110,15 @@ def test_apply_runs_exactly_the_printed_commands_then_checks_again(
         if path == "agents/attach"
     ] == [(True, True), (False, None), (True, True)]
     assert grant_runner.sleeps == []
-    assert [run["apply"] for run in terraform_runs] == [True]
 
 
-def test_apply_asks_before_granting(
-    runner, monkeypatch, terraform_runs
-) -> None:
+def test_attach_asks_before_granting(runner, monkeypatch) -> None:
     fake = _install_deployment(monkeypatch, plan=_DENIED_TABLE)
     grant_runner = _install_grant_runner(
         monkeypatch, fake, access_after=_PASSED_TABLE
     )
 
-    result = _invoke(runner, "attach", "--apply", stdin="n\n")
+    result = _invoke(runner, "attach", stdin="n\n")
 
     assert result.exit_code != 0
     assert "Run 1 grant command(s) with your credentials?" in result.output
@@ -684,23 +1126,8 @@ def test_apply_asks_before_granting(
     assert fake.list_writes() == []
 
 
-def test_a_dry_run_grants_nothing_even_with_apply(
-    runner, monkeypatch, terraform_runs
-) -> None:
-    fake = _install_deployment(monkeypatch, plan=_DENIED_TABLE)
-    grant_runner = _install_grant_runner(
-        monkeypatch, fake, access_after=_PASSED_TABLE
-    )
-
-    result = _invoke(runner, "attach", "--apply", "--dry-run", "--yes")
-
-    assert result.exit_code == 0, result.output
-    assert "nothing was written or granted" in result.output
-    assert grant_runner.ran == []
-
-
-def test_apply_grants_even_when_no_setting_changes(
-    runner, monkeypatch, terraform_runs
+def test_attach_grants_even_when_no_setting_changes(
+    runner, monkeypatch
 ) -> None:
     """Re-attaching an agent whose reads are denied is how the grants are
     made for an attachment already stored."""
@@ -709,15 +1136,56 @@ def test_apply_grants_even_when_no_setting_changes(
         monkeypatch, fake, access_after=_PASSED_TABLE
     )
 
-    result = _invoke(runner, "attach", "--apply", "--yes")
+    result = _invoke(runner, "attach", "--yes")
 
     assert result.exit_code == 0, result.output
     assert len(grant_runner.ran) == 1
     assert fake.list_writes() == []
 
 
+def test_what_the_table_decides_once_granted_is_stored_after_the_grants(
+    runner, monkeypatch, sinks
+) -> None:
+    """The attachment is stored before the grants, when AQuA cannot read the
+    table yet, so the check after them is the first to fill anything in."""
+    sinks.drop()
+    fake = _install_deployment(monkeypatch, plan={**_A_CHANGE, **_DENIED_TABLE})
+    _install_grant_runner(
+        monkeypatch, fake, access_after={**_PASSED_TABLE, **_FILLED_LOCATION}
+    )
+
+    result = _invoke(runner, "attach", "--yes")
+
+    assert result.exit_code == 0, result.output
+    assert (
+        "  telemetry_location: EU (the location of proj.agent_telemetry.t)"
+        in result.output
+    )
+    first, second = fake.list_writes()
+    assert "telemetry_location" not in first["fields"]
+    assert second["fields"]["telemetry_location"] == "EU"
+    assert sinks.ran
+
+
+def test_declining_what_the_table_decides_stops_before_storing_it(
+    runner, monkeypatch, sinks
+) -> None:
+    sinks.drop()
+    fake = _install_deployment(monkeypatch, plan={**_A_CHANGE, **_DENIED_TABLE})
+    _install_grant_runner(
+        monkeypatch, fake, access_after={**_PASSED_TABLE, **_FILLED_LOCATION}
+    )
+
+    result = _invoke(runner, "attach", stdin="y\ny\ny\nn\n")
+
+    assert result.exit_code != 0
+    assert "Store 1 setting(s)?" in result.output
+    assert len(fake.list_writes()) == 1
+    assert sinks.ran == []
+
+
 def test_a_grant_still_denied_is_checked_again_and_reported(
-    runner, monkeypatch, terraform_runs
+    runner, monkeypatch
 ) -> None:
     """Propagation is not instant; the attach still goes ahead, as it does
     for any denied read."""
@@ -726,7 +1194,7 @@ def test_a_grant_still_denied_is_checked_again_and_reported(
         monkeypatch, fake, access_after=_DENIED_TABLE
     )
 
-    result = _invoke(runner, "attach", "--apply", "--yes")
+    result = _invoke(runner, "attach", "--yes")
 
     assert result.exit_code == 0, result.output
     assert grant_runner.sleeps == [
@@ -736,12 +1204,12 @@ def test_a_grant_still_denied_is_checked_again_and_reported(
         "Still denied after the grants: proj:agent_telemetry, so rows could "
         "not be checked yet" in result.output
     )
-    assert "run attach --apply again to grant what they need" in result.output
+    assert "run attach again to grant what they need" in result.output
     assert len(fake.list_writes()) == 1
 
 
 def test_a_read_denied_behind_the_granted_one_waits_for_propagation(
-    runner, monkeypatch, terraform_runs
+    runner, monkeypatch
 ) -> None:
     """The dataset grant reaches the metadata read before the query: `rows`
     is denied on the same dataset, so the grant that ran is still the fix."""
@@ -754,13 +1222,13 @@ def test_a_read_denied_behind_the_granted_one_waits_for_propagation(
         ),
     )
 
-    result = _invoke(runner, "attach", "--apply", "--yes")
+    result = _invoke(runner, "attach", "--yes")
 
     assert result.exit_code == 0, result.output
     assert grant_runner.sleeps == [
         d for d in aqua_cli._RECHECK_DELAYS_SECONDS if d
     ]
-    assert "Or run attach --apply again" not in result.output
+    assert "Or run attach again" not in result.output
 
 
 _PAYLOAD_DENIED = _build_access(
@@ -775,18 +1243,18 @@ _PAYLOAD_PASSED = _build_access(
 )
 
 
-def test_a_read_denied_behind_the_granted_one_is_granted_in_the_same_apply(
-    runner, monkeypatch, terraform_runs
+def test_a_read_denied_behind_the_granted_one_is_granted_in_the_same_attach(
+    runner, monkeypatch
 ) -> None:
     """The payload check is skipped until the rows are readable, so its
-    bucket's grant can only be known after the dataset's. One --apply makes
+    bucket's grant can only be known after the dataset's. One attach makes
     both, printing the bucket's before running it."""
     fake = _install_deployment(monkeypatch, plan={**_A_CHANGE, **_DENIED_TABLE})
     grant_runner = _install_grant_runner(
         monkeypatch, fake, access_after=[_PAYLOAD_DENIED, _PAYLOAD_PASSED]
     )
 
-    result = _invoke(runner, "attach", "--apply", "--yes")
+    result = _invoke(runner, "attach", "--yes")
 
     assert result.exit_code == 0, result.output
     assert grant_runner.sleeps == []
@@ -799,28 +1267,61 @@ def test_a_read_denied_behind_the_granted_one_is_granted_in_the_same_apply(
     assert shown < result.output.index("$ gcloud storage buckets")
     assert "payload  ok gs://proj-agent-logs/x.json" in result.output
     assert "Still denied after the grants" not in result.output
-    assert "Or run attach --apply again" not in result.output
+    assert "Or run attach again" not in result.output
     assert len(fake.list_writes()) == 1
     assert _list_applied_calls(fake)[:2] == [
-        {"agent_name": "watched_agent", "granted": [_DATASET_RECORD]},
-        {"agent_name": "watched_agent", "granted": [_BUCKET_RECORD]},
+        {"agent_key": _KEY, "agent_name": _KEY, "granted": [_DATASET_RECORD]},
+        {"agent_key": _KEY, "agent_name": _KEY, "granted": [_BUCKET_RECORD]},
     ]
-    assert [r["apply"] for r in terraform_runs] == [True]
 
 
-def test_each_round_of_grants_is_confirmed(
-    runner, monkeypatch, terraform_runs
+def test_what_the_table_decides_is_stored_before_granting_what_it_needs(
+    runner, monkeypatch
 ) -> None:
+    """What the table decides can call for reads of its own, which are granted
+    only once it is stored."""
+    fake = _install_deployment(monkeypatch, plan={**_A_CHANGE, **_DENIED_TABLE})
+    grant_runner = _install_grant_runner(
+        monkeypatch, fake, access_after={**_PAYLOAD_DENIED, **_FILLED_LOCATION}
+    )
+
+    result = _invoke(runner, "attach", stdin="y\ny\nn\n")
+
+    assert result.exit_code != 0
+    assert "Store 1 setting(s)?" in result.output
+    assert result.output.count("grant command(s) with your credentials?") == 1
+    assert len(grant_runner.ran) == 1
+
+
+def test_what_the_plan_filled_in_is_sent_with_every_later_request(
+    runner, monkeypatch
+) -> None:
+    """Sent as given, it is neither lost by the store nor filled in again."""
+    fake = _install_deployment(
+        monkeypatch, plan={**_PAYLOAD_DENIED, **_FILLED_LOCATION}
+    )
+    _install_grant_runner(monkeypatch, fake, access_after=_PAYLOAD_PASSED)
+
+    result = _invoke(runner, "attach", "--telemetry-table", "t", "--yes")
+
+    assert result.exit_code == 0, result.output
+    later = [p for path, p in fake.calls if path == "agents/attach"][1:]
+    assert [p["dry_run"] for p in later] == [False, True]
+    assert [p["fields"]["telemetry_location"] for p in later] == ["EU", "EU"]
+
+
+def test_each_round_of_grants_is_confirmed(runner, monkeypatch, sinks) -> None:
     """Without --yes, the grant a re-check reveals is asked about on its own,
-    and declining it stops the attach before the triggers are applied. The
+    and declining it stops the attach before the trigger is wired. The
     attachment is already stored, with the first round's grant recorded on it
-    for detach --apply to revoke."""
+    for detach to revoke."""
+    sinks.drop()
     fake = _install_deployment(monkeypatch, plan={**_A_CHANGE, **_DENIED_TABLE})
     grant_runner = _install_grant_runner(
         monkeypatch, fake, access_after=[_PAYLOAD_DENIED, _PAYLOAD_PASSED]
     )
 
-    result = _invoke(runner, "attach", "--apply", stdin="y\ny\nn\n")
+    result = _invoke(runner, "attach", stdin="y\ny\ny\nn\n")
 
     assert result.exit_code == 1
     assert result.output.count("grant command(s) with your credentials?") == 2
@@ -830,17 +1331,18 @@ def test_each_round_of_grants_is_confirmed(
     ) < result.output.rindex("grant command(s) with your credentials?")
     assert len(fake.list_writes()) == 1
     assert _list_applied_calls(fake) == [
-        {"agent_name": "watched_agent", "granted": [_DATASET_RECORD]}
+        {"agent_key": _KEY, "agent_name": _KEY, "granted": [_DATASET_RECORD]}
     ]
-    assert terraform_runs == []
+    assert sinks.ran == []
 
 
 def test_a_failing_grant_in_a_later_round_keeps_the_earlier_round_recorded(
-    runner, monkeypatch, terraform_runs
+    runner, monkeypatch, sinks
 ) -> None:
     """The earlier round's grant stays recorded on the stored attachment, so
-    detach --apply still revokes it, and the attach stops before applying the
-    triggers."""
+    detach still revokes it, and the attach stops before wiring the
+    trigger."""
+    sinks.drop()
     fake = _install_deployment(monkeypatch, plan={**_A_CHANGE, **_DENIED_TABLE})
     grant_runner = _install_grant_runner(
         monkeypatch,
@@ -849,19 +1351,19 @@ def test_a_failing_grant_in_a_later_round_keeps_the_earlier_round_recorded(
         status=[0, 1],
     )
 
-    result = _invoke(runner, "attach", "--apply", "--yes")
+    result = _invoke(runner, "attach", "--yes")
 
     assert result.exit_code == 1
     assert [argv[0] for argv in grant_runner.ran] == ["bq", "gcloud"]
     assert len(fake.list_writes()) == 1
     assert _list_applied_calls(fake) == [
-        {"agent_name": "watched_agent", "granted": [_DATASET_RECORD]}
+        {"agent_key": _KEY, "agent_name": _KEY, "granted": [_DATASET_RECORD]}
     ]
-    assert terraform_runs == []
+    assert sinks.ran == []
 
 
 def test_a_grant_revealed_while_another_propagates_runs_once_that_lands(
-    runner, monkeypatch, terraform_runs
+    runner, monkeypatch
 ) -> None:
     """The re-check waits while the dataset grant is still denied; once it
     lands, the newly denied read gets its grant in the next round."""
@@ -886,7 +1388,7 @@ def test_a_grant_revealed_while_another_propagates_runs_once_that_lands(
     # The plan's own check comes first and changes nothing.
     fake.after_checks = [{}, log_view_denied]
 
-    result = _invoke(runner, "attach", "--apply", "--yes")
+    result = _invoke(runner, "attach", "--yes")
 
     assert result.exit_code == 0, result.output
     assert grant_runner.sleeps == [aqua_cli._RECHECK_DELAYS_SECONDS[1]]
@@ -898,11 +1400,9 @@ def test_a_grant_revealed_while_another_propagates_runs_once_that_lands(
     assert len(fake.list_writes()) == 1
 
 
-def test_grants_stop_after_the_last_round(
-    runner, monkeypatch, terraform_runs
-) -> None:
+def test_grants_stop_after_the_last_round(runner, monkeypatch) -> None:
     """A check that keeps revealing new grants cannot loop: after the last
-    round, what is left is printed for the next --apply."""
+    round, what is left is printed for the next attach."""
     fake = _install_deployment(monkeypatch, plan=_DENIED_TABLE)
     rounds = [
         _build_access(("payload", "denied", f"gs://bucket-{n}/x.json"))
@@ -910,7 +1410,7 @@ def test_grants_stop_after_the_last_round(
     ]
     grant_runner = _install_grant_runner(monkeypatch, fake, access_after=rounds)
 
-    result = _invoke(runner, "attach", "--apply", "--yes")
+    result = _invoke(runner, "attach", "--yes")
 
     assert result.exit_code == 0, result.output
     assert len(grant_runner.ran) == aqua_cli._MAX_GRANT_ROUNDS
@@ -923,11 +1423,11 @@ def test_grants_stop_after_the_last_round(
         f"Stopped after {aqua_cli._MAX_GRANT_ROUNDS} rounds of grants"
         in result.output
     )
-    assert "Or run attach --apply again to run them." in result.output
+    assert "Or run attach again to run them." in result.output
 
 
 def test_missing_telemetry_refuses_the_attach_before_any_grant(
-    runner, monkeypatch, terraform_runs
+    runner, monkeypatch
 ) -> None:
     fake = _install_deployment(
         monkeypatch,
@@ -940,54 +1440,55 @@ def test_missing_telemetry_refuses_the_attach_before_any_grant(
         monkeypatch, fake, access_after=_PASSED_TABLE
     )
 
-    result = _invoke(runner, "attach", "--apply", "--yes")
+    result = _invoke(runner, "attach", "--yes")
 
     assert result.exit_code == 1
     assert "Not attaching" in result.output
-    assert "--apply to run them" not in result.output
+    assert "$ " not in result.output
     assert grant_runner.ran == []
     assert fake.list_writes() == []
 
 
-def test_apply_with_every_read_allowed_has_nothing_to_grant(
-    runner, monkeypatch, terraform_runs
+def test_attach_with_every_read_allowed_has_nothing_to_grant(
+    runner, monkeypatch
 ) -> None:
     fake = _install_deployment(monkeypatch, plan=_PASSED_TABLE)
     grant_runner = _install_grant_runner(
         monkeypatch, fake, access_after=_PASSED_TABLE
     )
 
-    result = _invoke(runner, "attach", "--apply", "--yes")
+    result = _invoke(runner, "attach", "--yes")
 
     assert result.exit_code == 0, result.output
-    assert "Nothing to grant." in result.output
+    assert "grant command" not in result.output
     assert grant_runner.ran == []
 
 
 def test_a_failed_grant_fails_the_attach_after_storing_it(
-    runner, monkeypatch, terraform_runs
+    runner, monkeypatch, sinks
 ) -> None:
     """Stored first, so that a grant made before the failure has an
     attachment to be recorded on."""
+    sinks.drop()
     fake = _install_deployment(monkeypatch, plan={**_A_CHANGE, **_DENIED_TABLE})
     _install_grant_runner(
         monkeypatch, fake, access_after=_PASSED_TABLE, status=1
     )
 
-    result = _invoke(runner, "attach", "--apply", "--yes")
+    result = _invoke(runner, "attach", "--yes")
 
     assert result.exit_code == 1
     assert "Exit status 1 from: bq query" in result.output
     assert len(fake.list_writes()) == 1
-    assert terraform_runs == []
+    assert sinks.ran == []
 
 
-def test_apply_against_a_deployment_that_checks_nothing_says_so(
-    runner, monkeypatch, terraform_runs
+def test_attach_against_a_deployment_that_checks_nothing_says_so(
+    runner, monkeypatch
 ) -> None:
     _install_deployment(monkeypatch)
 
-    result = _invoke(runner, "attach", "--apply", "--yes")
+    result = _invoke(runner, "attach", "--yes")
 
     assert result.exit_code == 0, result.output
     assert "checked no reads, so there is nothing to grant" in result.output
@@ -1004,29 +1505,30 @@ def test_list_agents_prints_the_deployments_answer_as_json(
     result = _invoke(runner, "list-agents")
 
     assert result.exit_code == 0
-    assert json.loads(result.output)["default_agent"] == "watched_agent"
+    assert json.loads(result.output)["default_agent"] == _KEY
     assert fake.calls == [("agents/list", None)]
 
 
 def test_detaching_asks_first(runner, monkeypatch) -> None:
     fake = _install_deployment(monkeypatch)
 
-    result = _invoke(runner, "detach", "watched_agent", stdin="n\n")
+    result = _invoke(runner, "detach", _KEY, stdin="n\n")
 
     assert result.exit_code != 0
     assert [path for path, _ in fake.calls] == ["agents/list"]
 
 
-def test_detaching_says_where_the_settings_come_from(
-    runner, monkeypatch
-) -> None:
+def test_detaching_names_the_detached_agent(runner, monkeypatch) -> None:
     fake = _install_deployment(monkeypatch)
 
-    result = _invoke(runner, "detach", "watched_agent", "--yes")
+    result = _invoke(runner, "detach", _KEY, "--yes")
 
     assert result.exit_code == 0, result.output
-    assert ("agents/detach", {"agent_name": "watched_agent"}) in fake.calls
-    assert "come from the engine's environment" in result.output
+    assert (
+        "agents/detach",
+        {"agent_key": _KEY, "agent_name": _KEY},
+    ) in fake.calls
+    assert f"Detached {_KEY}." in result.output
 
 
 def test_detaching_what_is_not_attached_deletes_nothing(
@@ -1041,164 +1543,338 @@ def test_detaching_what_is_not_attached_deletes_nothing(
     assert [path for path, _ in fake.calls] == ["agents/list"]
 
 
-# --- --apply: the triggers, with Terraform ------------------------------------ #
+# --- the agent key recorded for later commands here ------------------------- #
 
 
-@pytest.fixture
-def terraform_runs(tmp_path, monkeypatch) -> list[dict[str, Any]]:
-    """Makes an empty directory the working directory and records Terraform runs.
-
-    Nothing of AQuA's own Terraform is there: `--apply` must not need it.
+def _load_agent_record(directory) -> dict[str, Any] | None:
+    """Reads `.aqua/attached_aqua.json`.
 
     Args:
-        tmp_path: Temporary directory fixture, made the working directory.
-        monkeypatch: Pytest monkeypatch fixture.
+        directory: The project directory.
 
     Returns:
-        The keyword arguments of each `run_terraform` call, in order.
+        The record, or None if there is none.
     """
-    monkeypatch.chdir(tmp_path)
-    runs: list[dict[str, Any]] = []
-    monkeypatch.setattr(
-        aqua_cli,
-        "run_terraform",
-        lambda root, **kwargs: runs.append({"root": root, **kwargs}),
-    )
-    return runs
+    record = directory / ".aqua" / "attached_aqua.json"
+    if not record.is_file():
+        return None
+    return json.loads(record.read_text(encoding="utf-8"))
 
 
-def _write_attach_state(tmp_path, agent: str, target=None) -> Any:
-    """Writes an agent's attach state as an earlier `--apply` would leave it.
-
-    Args:
-        tmp_path: The working directory.
-        agent: Agent name.
-        target: The instance it was applied against; `_TARGET` if None.
-
-    Returns:
-        The state file's path.
-    """
-    state = tmp_path / ".aqua" / f"attach-{agent}.tfstate"
-    state.parent.mkdir(exist_ok=True)
-    state.write_text(
-        json.dumps(
-            {"outputs": {"instance": {"value": target or dict(_TARGET)}}}
-        ),
-        encoding="utf-8",
-    )
-    return state
-
-
-def test_apply_stores_then_applies_then_records_what_it_applied(
-    runner, monkeypatch, terraform_runs
+def test_attach_records_the_key_for_the_aqua_it_reached(
+    runner, monkeypatch, tmp_path
 ) -> None:
-    fake = _install_deployment(
-        monkeypatch,
-        plan={
-            "changes": [
-                {
-                    "field": "investigation_schedule",
-                    "before": "",
-                    "after": "0 6 * * *",
-                }
-            ],
-            "needs_apply": ["investigation_schedule"],
-        },
-    )
+    monkeypatch.chdir(tmp_path)
+    _install_deployment(monkeypatch)
 
-    result = _invoke(
-        runner, "attach", "--schedule", "0 6 * * *", "--apply", "--yes"
-    )
+    result = _invoke(runner, "attach")
 
     assert result.exit_code == 0, result.output
+    assert _load_agent_record(tmp_path) == {
+        "agent_key": _KEY,
+        "agent_key_target": "r",
+    }
+    assert f"Recorded {_KEY} in .aqua/attached_aqua.json" in result.output
+
+
+def test_re_attaching_the_recorded_agent_says_nothing_of_it(
+    runner, monkeypatch, tmp_path
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    _install_deployment(monkeypatch)
+    _invoke(runner, "attach")
+
+    result = _invoke(runner, "attach")
+
+    assert result.exit_code == 0, result.output
+    assert "Recorded" not in result.output
+
+
+def test_attach_keeps_what_agents_cli_recorded(
+    runner, monkeypatch, tmp_path
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".aqua").mkdir()
+    (tmp_path / ".aqua" / "attached_aqua.json").write_text(
+        json.dumps({"aqua_resource": "r"}), encoding="utf-8"
+    )
+    _install_deployment(monkeypatch)
+
+    _invoke(runner, "attach")
+
+    assert _load_agent_record(tmp_path) == {
+        "aqua_resource": "r",
+        "agent_key": _KEY,
+        "agent_key_target": "r",
+    }
+
+
+def test_a_dry_run_records_no_key(runner, monkeypatch, tmp_path) -> None:
+    monkeypatch.chdir(tmp_path)
+    _install_deployment(monkeypatch)
+
+    result = _invoke(runner, "attach", "--dry-run")
+
+    assert result.exit_code == 0, result.output
+    assert _load_agent_record(tmp_path) is None
+
+
+def test_attach_records_no_key_in_aquas_own_checkout(
+    runner, monkeypatch, tmp_path
+) -> None:
+    """There, an operator attaches one agent after another."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(aqua_cli, "_is_aqua_own_checkout", lambda: True)
+    _install_deployment(monkeypatch)
+
+    result = _invoke(runner, "attach")
+
+    assert result.exit_code == 0, result.output
+    assert _load_agent_record(tmp_path) is None
+
+
+def test_only_the_cli_source_tree_is_aquas_own_checkout(
+    monkeypatch, tmp_path
+) -> None:
+    checkout = pathlib.Path(aqua_cli.__file__).resolve().parents[2]
+    monkeypatch.chdir(checkout / "tests")
+    assert aqua_cli._is_aqua_own_checkout()
+
+    monkeypatch.chdir(tmp_path)
+    assert not aqua_cli._is_aqua_own_checkout()
+
+
+@pytest.mark.parametrize(
+    ("detached", "kept"), [(_KEY, False), ("other_agent", True)]
+)
+def test_detach_removes_the_recorded_key_only_for_that_agent(
+    runner, monkeypatch, tmp_path, detached, kept
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    fake = _install_deployment(monkeypatch)
+    _invoke(runner, "attach")
+    fake.listing["agents"].append({"agent_key": "other_agent"})
+
+    result = _invoke(runner, "detach", detached, "--yes")
+
+    assert result.exit_code == 0, result.output
+    assert bool(_load_agent_record(tmp_path)) == kept
+
+
+def test_detaching_a_recorded_agent_that_is_gone_removes_its_key(
+    runner, monkeypatch, sinks, tmp_path
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    fake = _install_deployment(monkeypatch)
+    _invoke(runner, "attach")
+    fake.listing["agents"] = []
+    sinks.drop()
+
+    result = _invoke(runner, "detach", _KEY, "--yes")
+
+    assert result.exit_code == 0, result.output
+    assert "not attached" in result.output
+    assert _load_agent_record(tmp_path) == {}
+
+
+# --- the update trigger ---------------------------------------------------------------- #
+
+_ENGINE_CHANGE = {
+    "changes": [{"field": "observed_engine_id", "before": "", "after": "42"}],
+    "needs_apply": ["observed_engine_id"],
+    "unapplied_fields": ["observed_engine_id"],
+}
+
+
+def test_attach_creates_a_missing_trigger_then_records_what_it_wired(
+    runner, monkeypatch, sinks
+) -> None:
+    """The sink goes where the observed engine is, and its identity is bound
+    on AQuA's topic once the sink reports it."""
+    sinks.drop()
+    fake = _install_deployment(monkeypatch, plan=_ENGINE_CHANGE)
+
+    result = _invoke(runner, "attach", "--yes")
+
+    assert result.exit_code == 0, result.output
+    assert sinks.list_verbs() == [
+        "sinks create",
+        "topics add-iam-policy-binding",
+    ]
+    create, grant = sinks.ran
+    assert create[4] == _SINK
+    assert "--project=agent-project" in create
+    assert grant[4] == _TARGET["ambient_topic"]
+    assert f"--member={_WRITER}" in grant
     assert [path for path, _ in fake.calls] == [
         "agents/attach",
         "agents/attach",
         "agents/applied",
     ]
-    (run,) = terraform_runs
-    assert run["root"].parts[-2:] == ("examples", "attach")
-    assert run["state_key"] == "attach-watched_agent"
-    assert run["apply"] and not run["destroy"]
-    assert run["tf_vars"] == {
-        **_TARGET,
-        "observed_agent_name": "watched_agent",
-        "investigation_schedule": "0 6 * * *",
-        "scheduled_trigger_enabled": "true",
-        "observed_engine_id": "42",
-        # The audit sink goes where the observed engine is.
-        "observed_project_id": "agent-project",
-    }
     assert fake.calls[-1][1] == {
-        "agent_name": "watched_agent",
+        "agent_key": _KEY,
+        "agent_name": _KEY,
         "applied": fake.plan["triggers"],
     }
-    assert "not yet in effect" not in result.output
+    assert f"Wired the update trigger of {_KEY}." in result.output
 
 
-def test_apply_with_nothing_to_store_still_applies(
-    runner, monkeypatch, terraform_runs
+def test_a_trigger_in_place_runs_and_records_nothing(
+    runner, monkeypatch, sinks
 ) -> None:
-    """What is stored may never have been applied, as after a plain attach."""
     fake = _install_deployment(monkeypatch)
 
-    result = _invoke(runner, "attach", "--apply")
+    result = _invoke(runner, "attach", "--yes")
 
     assert result.exit_code == 0, result.output
-    assert fake.list_writes() == []
-    assert len(terraform_runs) == 1
+    assert sinks.ran == []
+    assert "Update trigger: agent-project/sinks/" in result.output
+    assert "in place" in result.output
+    assert "agents/applied" not in [path for path, _ in fake.calls]
+
+
+def test_a_trigger_in_place_but_never_recorded_is_recorded(
+    runner, monkeypatch, sinks
+) -> None:
+    """A sink the attachment does not record, such as one an attach left
+    when it failed before recording it, is taken over as it is."""
+    fake = _install_deployment(
+        monkeypatch, plan={"unapplied_fields": ["observed_engine_id"]}
+    )
+
+    result = _invoke(runner, "attach", "--yes")
+
+    assert result.exit_code == 0, result.output
+    assert sinks.ran == []
     assert fake.calls[-1][0] == "agents/applied"
 
 
-def test_a_dry_run_with_apply_plans_the_triggers_and_writes_nothing(
-    runner, monkeypatch, terraform_runs
+def test_an_engine_that_does_not_report_what_is_unapplied_is_recorded(
+    runner, monkeypatch
 ) -> None:
     fake = _install_deployment(monkeypatch)
+    del fake.plan["unapplied_fields"]
 
-    result = _invoke(runner, "attach", "--dry-run", "--apply")
+    result = _invoke(runner, "attach", "--yes")
 
     assert result.exit_code == 0, result.output
-    (run,) = terraform_runs
-    assert not run["apply"]
+    assert fake.calls[-1][0] == "agents/applied"
+
+
+def test_a_sink_on_another_engine_is_updated(
+    runner, monkeypatch, sinks
+) -> None:
+    sinks.add("agent-project", _SINK, "7")
+    _install_deployment(monkeypatch)
+
+    result = _invoke(runner, "attach", "--yes")
+
+    assert result.exit_code == 0, result.output
+    assert sinks.list_verbs() == ["sinks update"]
+
+
+def test_a_dry_run_shows_the_trigger_commands_and_runs_none(
+    runner, monkeypatch, sinks
+) -> None:
+    sinks.drop()
+    fake = _install_deployment(monkeypatch, plan=_ENGINE_CHANGE)
+
+    result = _invoke(runner, "attach", "--dry-run")
+
+    assert result.exit_code == 0, result.output
+    assert f"gcloud logging sinks create {_SINK}" in result.output
+    assert update_trigger_lib.WRITER_PLACEHOLDER in result.output
+    assert sinks.ran == []
     assert [path for path, _ in fake.calls] == ["agents/attach"]
 
 
-def test_unset_trigger_fields_are_left_to_the_roots_defaults(
-    runner, monkeypatch, terraform_runs
+def test_declining_the_trigger_commands_stores_nothing(
+    runner, monkeypatch, sinks
 ) -> None:
+    """Every question comes before anything is done."""
+    sinks.drop()
+    fake = _install_deployment(monkeypatch, plan=_ENGINE_CHANGE)
+
+    result = _invoke(runner, "attach", stdin="y\nn\n")
+
+    assert result.exit_code != 0
+    assert "Run 2 update trigger command(s) with your credentials?" in (
+        result.output
+    )
+    assert fake.list_writes() == []
+    assert sinks.ran == []
+
+
+def test_without_an_engine_the_trigger_is_removed(
+    runner, monkeypatch, sinks
+) -> None:
+    """An agent re-pointed at no engine is no longer watched for updates."""
     _install_deployment(
         monkeypatch,
         plan={
             "triggers": {
-                "investigation_schedule": "",
-                "scheduled_trigger_enabled": False,
                 "observed_engine_id": "",
-                "observed_project_id": "",
-            }
+                "observed_project_id": "agent-project",
+            },
+            "unapplied_fields": ["observed_engine_id"],
         },
     )
 
-    result = _invoke(runner, "attach", "--apply")
+    result = _invoke(runner, "attach", "--yes")
 
     assert result.exit_code == 0, result.output
-    tf_vars = terraform_runs[0]["tf_vars"]
-    assert "investigation_schedule" not in tf_vars
-    assert "observed_engine_id" not in tf_vars
-    assert "observed_project_id" not in tf_vars
-    assert tf_vars["scheduled_trigger_enabled"] == "false"
+    assert sinks.list_verbs() == [
+        "topics remove-iam-policy-binding",
+        "sinks delete",
+    ]
 
 
-def test_apply_needs_nothing_of_aquas_own_terraform(
-    runner, monkeypatch, terraform_runs, tmp_path
+def test_a_sink_of_the_agents_name_publishing_elsewhere_stops_before_storing(
+    runner, monkeypatch, sinks
 ) -> None:
-    """The engine's resource name is all `--apply` is given."""
-    _install_deployment(monkeypatch)
+    """It belongs to another AQuA whose topic has the same name."""
+    sinks.add("agent-project", _SINK, "42", topic="projects/x/topics/t")
+    fake = _install_deployment(monkeypatch, plan=_A_CHANGE)
 
-    result = _invoke(runner, "attach", "--apply")
+    result = _invoke(runner, "attach", "--yes")
+
+    assert result.exit_code == 1
+    assert "leaving it alone" in result.output
+    assert "Nothing was changed." in result.output
+    assert fake.list_writes() == []
+    assert sinks.ran == []
+
+
+def test_a_failed_trigger_command_fails_the_attach_after_storing_it(
+    runner, monkeypatch, sinks
+) -> None:
+    sinks.drop()
+    sinks.status = 1
+    fake = _install_deployment(monkeypatch, plan=_ENGINE_CHANGE)
+
+    result = _invoke(runner, "attach", "--yes")
+
+    assert result.exit_code == 1
+    assert "Exit status 1 from: gcloud logging sinks create" in result.output
+    assert len(fake.list_writes()) == 1
+    assert "agents/applied" not in [path for path, _ in fake.calls]
+
+
+def test_attach_needs_nothing_of_aquas_own_terraform(
+    runner, monkeypatch, sinks, tmp_path
+) -> None:
+    """The engine's resource name is all attach is given, and no state is kept
+    for the trigger: its name finds it again from any directory."""
+    monkeypatch.chdir(tmp_path)
+    sinks.drop()
+    _install_deployment(monkeypatch, plan=_ENGINE_CHANGE)
+
+    result = _invoke(runner, "attach", "--yes")
 
     assert result.exit_code == 0, result.output
-    assert [p.name for p in (tmp_path / ".aqua").iterdir()] == []
-    assert terraform_runs[0]["state_root"] == tmp_path / ".aqua"
+    assert [p.name for p in (tmp_path / ".aqua").iterdir()] == [
+        "attached_aqua.json"
+    ]
 
 
 @pytest.mark.parametrize(
@@ -1208,179 +1884,209 @@ def test_apply_needs_nothing_of_aquas_own_terraform(
         {"region": "us-central1", "aqua_engine": "projects/p2/x"},
     ],
 )
-def test_apply_refuses_an_engine_that_reports_no_target_before_storing(
-    runner, monkeypatch, terraform_runs, target
+def test_an_engine_that_reports_no_topic_gets_no_trigger(
+    runner, monkeypatch, sinks, target
 ) -> None:
-    """One that names its observed agent runs that agent's triggers itself, and
-    a second scheduler would investigate every window twice."""
+    """A local run reports no topic, and there is nothing to wire a sink to."""
+    sinks.drop()
     fake = _install_deployment(
+        monkeypatch, plan={**_ENGINE_CHANGE, "trigger_target": target}
+    )
+
+    result = _invoke(runner, "attach", "--yes")
+
+    assert result.exit_code == 0, result.output
+    assert "reports no topic for update triggers" in result.output
+    assert len(fake.list_writes()) == 1
+    assert sinks.ran == []
+    assert "agents/applied" not in [path for path, _ in fake.calls]
+
+
+def test_attach_wires_the_trigger_of_an_agent_besides_the_default(
+    runner, monkeypatch, sinks
+) -> None:
+    """Each trigger investigates its own agent, so any agent gets one."""
+    sinks.drop()
+    other_key = "agent-project__other"
+    _install_deployment(
         monkeypatch,
         plan={
-            "trigger_target": target,
-            "changes": [
-                {"field": "data_lookback_window", "before": 7, "after": 9}
-            ],
+            **_ENGINE_CHANGE,
+            "agent_key": other_key,
+            "agent_name": "other",
+            "watched": False,
+            "attached": False,
         },
     )
 
-    result = _invoke(
-        runner, "attach", "--lookback-days", "9", "--apply", "--yes"
-    )
-
-    assert result.exit_code == 1
-    assert "reports nothing to wire triggers to" in result.output
-    assert "agents-cli infra single-project --apply" in result.output
-    assert fake.list_writes() == []
-    assert terraform_runs == []
-
-
-def test_detach_with_apply_destroys_the_triggers_then_detaches(
-    runner, monkeypatch, terraform_runs, tmp_path
-) -> None:
-    state = _write_attach_state(tmp_path, "watched_agent")
-    fake = _install_deployment(monkeypatch)
-
-    result = _invoke(runner, "detach", "watched_agent", "--apply", "--yes")
+    result = _invoke(runner, "attach", "other", "--yes")
 
     assert result.exit_code == 0, result.output
-    (run,) = terraform_runs
-    assert run["destroy"] and run["apply"]
-    assert run["state_key"] == "attach-watched_agent"
-    assert run["tf_vars"] == {
-        **_TARGET,
-        "observed_agent_name": "watched_agent",
-        "scheduled_trigger_enabled": "true",
-    }
-    assert not state.exists()
+    assert sinks.ran[0][4] == f"aqua-solo-aqua-ambient-{other_key}-updates"
+
+
+def test_an_agent_the_engine_ignores_gets_no_trigger(
+    runner, monkeypatch, sinks
+) -> None:
+    """Its updates would investigate the default agent a second time; the
+    attachment is still stored, as the plan's note says."""
+    sinks.drop()
+    fake = _install_deployment(
+        monkeypatch,
+        plan={
+            **_ENGINE_CHANGE,
+            **_ENGINE_IGNORING_OTHERS,
+            "agent_name": "other",
+            "watched": False,
+            "attached": False,
+        },
+    )
+
+    result = _invoke(runner, "attach", "other", "--yes")
+
+    assert result.exit_code == 0, result.output
+    assert "No update trigger for other" in result.output
+    assert f"investigates {_KEY} whatever trigger fires" in result.output
+    assert len(fake.list_writes()) == 1
+    assert sinks.ran == []
+
+
+def test_the_default_agent_of_an_engine_that_ignores_others_gets_a_trigger(
+    runner, monkeypatch, sinks
+) -> None:
+    """Its default agent is the one every trigger investigates."""
+    sinks.drop()
+    _install_deployment(
+        monkeypatch, plan={**_ENGINE_CHANGE, **_ENGINE_IGNORING_OTHERS}
+    )
+
+    result = _invoke(runner, "attach", "--yes")
+
+    assert result.exit_code == 0, result.output
+    assert sinks.list_verbs()[0] == "sinks create"
+
+
+def test_detach_removes_the_trigger_then_detaches(
+    runner, monkeypatch, sinks
+) -> None:
+    fake = _install_deployment(monkeypatch)
+
+    result = _invoke(runner, "detach", _KEY, "--yes")
+
+    assert result.exit_code == 0, result.output
+    assert sinks.list_verbs() == [
+        "topics remove-iam-policy-binding",
+        "sinks delete",
+    ]
     assert [path for path, _ in fake.calls] == ["agents/list", "agents/detach"]
 
 
-def test_detach_with_apply_and_no_triggers_here_still_detaches(
-    runner, monkeypatch, terraform_runs
+def test_detach_keeps_the_binding_another_sink_publishes_with(
+    runner, monkeypatch, sinks
 ) -> None:
-    fake = _install_deployment(monkeypatch)
+    """Cloud Logging can give every sink in a project one writer identity."""
+    sinks.add("agent-project", "aqua-solo-aqua-ambient-other-updates", "7")
+    _install_deployment(monkeypatch)
 
-    result = _invoke(runner, "detach", "watched_agent", "--apply", "--yes")
+    result = _invoke(runner, "detach", _KEY, "--yes")
 
     assert result.exit_code == 0, result.output
-    assert terraform_runs == []
-    assert (
-        "No triggers of watched_agent were applied from here" in result.output
-    )
-    assert ("agents/detach", {"agent_name": "watched_agent"}) in fake.calls
+    assert sinks.list_verbs() == ["sinks delete"]
 
 
-def test_detach_with_apply_removes_triggers_left_behind(
-    runner, monkeypatch, terraform_runs, tmp_path
+def test_detach_removes_a_trigger_left_behind(
+    runner, monkeypatch, sinks
 ) -> None:
-    """An object detached without --apply leaves its triggers running."""
-    _write_attach_state(tmp_path, "gone")
+    """A detach that could not remove the trigger leaves it publishing."""
+    gone = "agent-project__gone"
+    sinks.add("agent-project", f"aqua-solo-aqua-ambient-{gone}-updates", "5")
     fake = _install_deployment(monkeypatch)
 
-    result = _invoke(runner, "detach", "gone", "--apply", "--yes")
+    result = _invoke(runner, "detach", gone, stdin="y\n")
 
     assert result.exit_code == 0, result.output
-    assert terraform_runs[0]["destroy"]
+    assert f"Remove the update trigger of {gone}?" in result.output
+    assert sinks.list_verbs()[-1] == "sinks delete"
     assert [path for path, _ in fake.calls] == ["agents/list"]
 
 
-def test_detach_with_apply_refuses_triggers_wired_to_another_aqua(
-    runner, monkeypatch, terraform_runs, tmp_path
+def test_detach_finds_the_sink_in_the_project_the_attachment_records(
+    runner, monkeypatch, sinks
 ) -> None:
-    """Detaching from one AQuA must not destroy what calls another."""
-    _write_attach_state(
-        tmp_path,
-        "watched_agent",
-        {
-            **_TARGET,
-            "aqua_engine": "projects/p2/locations/x/reasoningEngines/8",
+    """A bare name says nothing of the project; the listing does."""
+    sinks.add(
+        "agent-project", "aqua-solo-aqua-ambient-watched_agent-updates", "42"
+    )
+    _install_deployment(
+        monkeypatch,
+        listing={
+            "prefix": "gs://jobs-bucket/agents/",
+            "agents": [
+                {
+                    "agent_key": "watched_agent",
+                    "agent_name": "watched_agent",
+                    "observed_project_id": "agent-project",
+                }
+            ],
+            "trigger_target": dict(_TARGET),
         },
     )
-    fake = _install_deployment(monkeypatch)
 
-    result = _invoke(runner, "detach", "watched_agent", "--apply", "--yes")
+    result = _invoke(runner, "detach", "watched_agent", "--yes")
 
-    assert result.exit_code == 1
-    assert "not the AQuA this command reached" in result.output
-    assert terraform_runs == []
-    assert [path for path, _ in fake.calls] == ["agents/list"]
+    assert result.exit_code == 0, result.output
+    assert "--project=agent-project" in sinks.ran[-1]
 
 
-def test_apply_refuses_an_agent_the_deployment_does_not_watch(
-    runner, monkeypatch, terraform_runs
+def test_detach_from_an_aqua_that_reports_no_topic_removes_no_trigger(
+    runner, monkeypatch, sinks
 ) -> None:
-    """Its triggers would investigate the watched agent a second time."""
-    fake = _install_deployment(
-        monkeypatch,
-        plan={"agent_name": "other", "watched": False, "attached": False},
-    )
-
-    result = _invoke(runner, "attach", "other", "--apply", "--yes")
-
-    assert result.exit_code == 1
-    assert "this deployment investigates watched_agent" in result.output
-    assert "Nothing was granted, stored or applied" in result.output
-    assert fake.list_writes() == []
-    assert terraform_runs == []
-
-
-def test_apply_refusing_an_unwatched_agent_runs_none_of_the_printed_grants(
-    runner, monkeypatch, terraform_runs
-) -> None:
-    """The grant commands are printed before the refusal, so the refusal has to
-    say they were not run, and suggest the flag that lets them run."""
-    fake = _install_deployment(
-        monkeypatch,
-        plan={
-            **_DENIED_TABLE,
-            "agent_name": "other",
-            "watched": False,
-            "environment_agent": "",
-            "attached": False,
-        },
-        listing=_LISTING_WITH_DEFAULT_FIRST_AGENT,
-    )
-    grant_runner = _install_grant_runner(
-        monkeypatch, fake, access_after=_PASSED_TABLE
-    )
-
-    result = _invoke(runner, "attach", "other", "--apply", "--yes")
-
-    assert result.exit_code == 1
-    assert _GRANT_LINE in result.output
-    assert "this deployment investigates first_agent" in result.output
-    assert "Nothing was granted, stored or applied" in result.output
-    assert "attach it with --default" in result.output
-    # The plan's own note would repeat what the refusal says.
-    assert "An attachment for any other agent is stored" not in result.output
-    assert grant_runner.ran == []
-    assert fake.list_writes() == []
-    assert terraform_runs == []
-
-
-def test_the_cli_expects_the_target_the_engine_reports() -> None:
-    """The engine's side is pinned to the attach root's variables in
-    `test_observed_agent_config_commands.py`; this pins the CLI to the same."""
-    assert set(_TARGET) == aqua_cli._TRIGGER_TARGET_KEYS
-
-
-def test_detach_with_apply_refuses_an_aqua_that_reports_no_target(
-    runner, monkeypatch, terraform_runs, tmp_path
-) -> None:
-    """Without the reached engine's name there is no telling what the triggers
-    here call."""
-    _write_attach_state(tmp_path, "watched_agent")
     fake = _install_deployment(monkeypatch)
     fake.listing["trigger_target"] = {}
 
-    result = _invoke(runner, "detach", "watched_agent", "--apply", "--yes")
+    result = _invoke(runner, "detach", _KEY, "--yes")
 
-    assert result.exit_code == 1
-    assert "which reports no trigger target" in result.output
-    assert terraform_runs == []
+    assert result.exit_code == 0, result.output
+    assert sinks.ran == []
+    assert fake.calls[-1][0] == "agents/detach"
 
 
-# --- grants recorded on the attachment, and revoked by detach --apply ----------------- #
+def test_delete_triggers_plans_every_agents_removal(
+    runner, monkeypatch, sinks
+) -> None:
+    """What `infra single-project --destroy` shows before AQuA goes."""
+    fake = _install_deployment(monkeypatch)
+
+    result = _invoke(runner, "delete-triggers")
+
+    assert result.exit_code == 0, result.output
+    assert f"gcloud logging sinks delete {_SINK}" in result.output
+    assert "Re-run with --apply" in result.output
+    assert sinks.ran == []
+    assert [path for path, _ in fake.calls] == ["agents/list"]
+
+
+def test_delete_triggers_with_apply_removes_them_and_keeps_the_attachments(
+    runner, monkeypatch, sinks
+) -> None:
+    fake = _install_deployment(monkeypatch)
+
+    result = _invoke(runner, "delete-triggers", "--apply")
+
+    assert result.exit_code == 0, result.output
+    assert sinks.list_verbs()[-1] == "sinks delete"
+    assert sinks.sinks == {}
+    assert [path for path, _ in fake.calls] == ["agents/list"]
+
+
+def test_attach_has_no_apply_flag(runner) -> None:
+    result = runner.invoke(aqua_cli.cli, ["attach", "--apply"])
+
+    assert result.exit_code == 2
+    assert "No such option '--apply'" in result.output
+
+
+# --- grants recorded on the attachment, and revoked by detach ------------------------- #
 
 _PAYLOAD = "gs://proj-agent-logs/x.json"
 _DENIED_TABLE_AND_PAYLOAD = _build_access(
@@ -1415,86 +2121,92 @@ def _list_applied_calls(fake: _FakeDeployment) -> list[Any]:
     return [p for path, p in fake.calls if path == "agents/applied"]
 
 
-def test_apply_stores_then_grants_then_records_the_grants_it_ran(
-    runner, monkeypatch, terraform_runs
+def test_attach_stores_then_grants_then_records_the_grants_it_ran(
+    runner, monkeypatch
 ) -> None:
     fake = _install_deployment(
         monkeypatch, plan={**_A_CHANGE, "attached": False, **_DENIED_TABLE}
     )
     _install_grant_runner(monkeypatch, fake, access_after=_PASSED_TABLE)
 
-    result = _invoke(runner, "attach", "--apply", "--yes")
+    result = _invoke(runner, "attach", "--yes")
 
     assert result.exit_code == 0, result.output
     assert [
         "applied" if path == "agents/applied" else p["dry_run"]
         for path, p in fake.calls
-    ] == [True, False, "applied", True, "applied"]
-    granted, triggers = _list_applied_calls(fake)
+    ] == [True, False, "applied", True]
+    (granted,) = _list_applied_calls(fake)
     assert granted == {
-        "agent_name": "watched_agent",
+        "agent_key": _KEY,
+        "agent_name": _KEY,
         "granted": [_DATASET_RECORD],
     }
-    assert "granted" not in triggers
-    assert "detach --apply revokes them" in result.output
+    assert "detach revokes them" in result.output
 
 
-def test_apply_records_its_grants_on_an_attachment_it_leaves_unchanged(
-    runner, monkeypatch, terraform_runs
+def test_attach_records_its_grants_on_an_attachment_it_leaves_unchanged(
+    runner, monkeypatch
 ) -> None:
     fake = _install_deployment(monkeypatch, plan=_DENIED_TABLE)
     _install_grant_runner(monkeypatch, fake, access_after=_PASSED_TABLE)
 
-    result = _invoke(runner, "attach", "--apply", "--yes")
+    result = _invoke(runner, "attach", "--yes")
 
     assert result.exit_code == 0, result.output
     assert fake.list_writes() == []
     assert _list_applied_calls(fake)[0] == {
-        "agent_name": "watched_agent",
+        "agent_key": _KEY,
+        "agent_name": _KEY,
         "granted": [_DATASET_RECORD],
     }
 
 
-def test_an_apply_with_nothing_to_grant_records_no_grant(
-    runner, monkeypatch, terraform_runs
+def test_an_attach_with_nothing_to_grant_records_no_grant(
+    runner, monkeypatch
 ) -> None:
-    fake = _install_deployment(monkeypatch, plan=_PASSED_TABLE)
+    fake = _install_deployment(
+        monkeypatch,
+        plan={**_PASSED_TABLE, "unapplied_fields": ["observed_engine_id"]},
+    )
 
-    result = _invoke(runner, "attach", "--apply", "--yes")
+    result = _invoke(runner, "attach", "--yes")
 
     assert result.exit_code == 0, result.output
     assert [list(p) for p in _list_applied_calls(fake)] == [
-        ["agent_name", "applied"]
+        ["agent_key", "agent_name", "applied"]
     ]
 
 
 @pytest.mark.parametrize("attached", [True, False])
 def test_a_grant_that_fails_records_those_made_before_it(
-    runner, monkeypatch, terraform_runs, attached
+    runner, monkeypatch, sinks, attached
 ) -> None:
-    """Otherwise the dataset grant would outlive every detach --apply: a rerun
-    finds that read allowed, and grants and records nothing for it."""
+    """Otherwise the dataset grant would outlive every detach: a rerun finds
+    that read allowed, and grants and records nothing for it."""
+    sinks.drop()
     fake = _install_deployment(
         monkeypatch, plan={"attached": attached, **_DENIED_TABLE_AND_PAYLOAD}
     )
     _install_grant_runner(monkeypatch, fake, access_after={}, status=[0, 1])
 
-    result = _invoke(runner, "attach", "--apply", "--yes")
+    result = _invoke(runner, "attach", "--yes")
 
     assert result.exit_code == 1
     assert "Exit status 1 from: gcloud storage" in result.output
     assert _list_applied_calls(fake) == [
-        {"agent_name": "watched_agent", "granted": [_DATASET_RECORD]}
+        {"agent_key": _KEY, "agent_name": _KEY, "granted": [_DATASET_RECORD]}
     ]
     assert len(fake.list_writes()) == (0 if attached else 1)
-    assert terraform_runs == []
+    assert sinks.ran == []
 
 
 def test_a_grant_record_the_deployment_refuses_shows_how_to_revoke_it(
-    runner, monkeypatch, terraform_runs
+    runner, monkeypatch, sinks
 ) -> None:
-    """An engine older than the CLI takes no grants; the triggers still get
-    applied, and the user learns what detach --apply cannot undo."""
+    """An engine older than the CLI takes no grants; the trigger is still
+    wired, and the user learns what detach cannot undo."""
+    sinks.drop()
     fake = _install_deployment(monkeypatch, plan=_DENIED_TABLE)
     _install_grant_runner(monkeypatch, fake, access_after=_PASSED_TABLE)
     answer = fake.__call__
@@ -1509,24 +2221,22 @@ def test_a_grant_record_the_deployment_refuses_shows_how_to_revoke_it(
 
     monkeypatch.setattr(aqua_cli, "_fetch_command_result", refuse_grants)
 
-    result = _invoke(runner, "attach", "--apply", "--yes")
+    result = _invoke(runner, "attach", "--yes")
 
     assert result.exit_code == 0, result.output
     assert "Could not record the grants" in result.output
     assert f"  {_REVOKE_LINE}" in result.output
-    assert len(terraform_runs) == 1
+    assert sinks.list_verbs()[0] == "sinks create"
 
 
-def test_declining_the_grants_stores_nothing(
-    runner, monkeypatch, terraform_runs
-) -> None:
+def test_declining_the_grants_stores_nothing(runner, monkeypatch) -> None:
     """Both questions come before anything is done."""
     fake = _install_deployment(monkeypatch, plan={**_A_CHANGE, **_DENIED_TABLE})
     grant_runner = _install_grant_runner(
         monkeypatch, fake, access_after=_PASSED_TABLE
     )
 
-    result = _invoke(runner, "attach", "--apply", stdin="y\nn\n")
+    result = _invoke(runner, "attach", stdin="y\nn\n")
 
     assert result.exit_code != 0
     assert "Change 1 setting(s)?" in result.output
@@ -1548,6 +2258,7 @@ def _install_recorded_grants(
         The installed fake.
     """
     agent: dict[str, Any] = {
+        "agent_key": _KEY,
         "agent_name": "watched_agent",
         "watched": True,
         "grants": list(records),
@@ -1558,20 +2269,18 @@ def _install_recorded_grants(
             "prefix": "gs://jobs-bucket/agents/",
             "agents": [agent],
             "default_agent": "watched_agent",
-            "environment_agent": "watched_agent",
             "trigger_target": dict(_TARGET),
         },
     )
 
 
-def test_detach_with_apply_revokes_the_recorded_grants_and_records_that(
-    runner, monkeypatch, terraform_runs, tmp_path
+def test_detach_revokes_the_recorded_grants_and_records_that(
+    runner, monkeypatch, sinks
 ) -> None:
-    _write_attach_state(tmp_path, "watched_agent")
     fake = _install_recorded_grants(monkeypatch, _DATASET_RECORD)
     grant_runner = _install_grant_runner(monkeypatch, fake, access_after={})
 
-    result = _invoke(runner, "detach", "watched_agent", "--apply", "--yes")
+    result = _invoke(runner, "detach", _KEY, "--yes")
 
     assert result.exit_code == 0, result.output
     assert [shlex.join(argv) for argv in grant_runner.ran] == [_REVOKE_LINE]
@@ -1581,33 +2290,65 @@ def test_detach_with_apply_revokes_the_recorded_grants_and_records_that(
         "agents/detach",
     ]
     assert _list_applied_calls(fake) == [
-        {"agent_name": "watched_agent", "revoked": [_DATASET_RECORD]}
+        {"agent_key": _KEY, "agent_name": _KEY, "revoked": [_DATASET_RECORD]}
     ]
-    assert terraform_runs[0]["destroy"]
+    assert sinks.list_verbs()[-1] == "sinks delete"
 
 
-def test_detach_with_apply_asks_before_revoking(
-    runner, monkeypatch, terraform_runs
+def test_detach_reads_a_listing_that_names_agents_only_by_name(
+    runner, monkeypatch
 ) -> None:
+    """An engine that lists no `agent_key` stores each attachment under its
+    bare name, so that name finds the attachment and its recorded grants."""
+    fake = _install_deployment(
+        monkeypatch,
+        listing={
+            "prefix": "gs://jobs-bucket/agents/",
+            "agents": [
+                {
+                    "agent_name": "watched_agent",
+                    "watched": True,
+                    "grants": [_DATASET_RECORD],
+                }
+            ],
+            "default_agent": "watched_agent",
+            "trigger_target": dict(_TARGET),
+        },
+    )
+    grant_runner = _install_grant_runner(monkeypatch, fake, access_after={})
+
+    result = _invoke(runner, "detach", "watched_agent", "--yes")
+
+    assert result.exit_code == 0, result.output
+    assert [shlex.join(argv) for argv in grant_runner.ran] == [_REVOKE_LINE]
+    assert (
+        "agents/detach",
+        {"agent_key": "watched_agent", "agent_name": "watched_agent"},
+    ) in fake.calls
+
+
+def test_detach_asks_before_revoking(runner, monkeypatch) -> None:
     fake = _install_recorded_grants(monkeypatch, _DATASET_RECORD)
     grant_runner = _install_grant_runner(monkeypatch, fake, access_after={})
 
-    result = _invoke(runner, "detach", "watched_agent", "--apply", stdin="n\n")
+    result = _invoke(runner, "detach", _KEY, stdin="n\n")
 
     assert result.exit_code != 0
     assert f"  {_REVOKE_LINE}" in result.output
-    assert "and revoke 1 grant(s)?" in result.output
+    assert "and revoke 1 grant(s) and remove its update trigger?" in (
+        result.output
+    )
     assert grant_runner.ran == []
     assert [path for path, _ in fake.calls] == ["agents/list"]
 
 
-def test_detach_without_apply_shows_the_grants_it_leaves_and_runs_nothing(
+def test_detach_keeping_the_grants_shows_them_and_revokes_nothing(
     runner, monkeypatch
 ) -> None:
     fake = _install_recorded_grants(monkeypatch, _DATASET_RECORD)
     grant_runner = _install_grant_runner(monkeypatch, fake, access_after={})
 
-    result = _invoke(runner, "detach", "watched_agent", "--yes")
+    result = _invoke(runner, "detach", _KEY, "--keep-grants", "--yes")
 
     assert result.exit_code == 0, result.output
     assert "left in place and forgotten once detached" in result.output
@@ -1617,37 +2358,37 @@ def test_detach_without_apply_shows_the_grants_it_leaves_and_runs_nothing(
 
 
 def test_a_failed_revocation_records_those_made_and_keeps_the_attachment(
-    runner, monkeypatch, terraform_runs, tmp_path
+    runner, monkeypatch, sinks
 ) -> None:
-    """Running detach --apply again then retries only the rest."""
-    _write_attach_state(tmp_path, "watched_agent")
+    """Running detach again then retries only the rest, and the trigger is
+    left for it."""
     fake = _install_recorded_grants(
         monkeypatch, _DATASET_RECORD, _BUCKET_RECORD
     )
     _install_grant_runner(monkeypatch, fake, access_after={}, status=[0, 1])
 
-    result = _invoke(runner, "detach", "watched_agent", "--apply", "--yes")
+    result = _invoke(runner, "detach", _KEY, "--yes")
 
     assert result.exit_code == 1
     assert "remove-iam-policy-binding gs://proj-agent-logs" in result.output
     assert "watched_agent stays attached" in result.output
-    assert "detach without --apply forgets them" in result.output
+    assert "detach --keep-grants forgets them" in result.output
     assert _list_applied_calls(fake) == [
-        {"agent_name": "watched_agent", "revoked": [_DATASET_RECORD]}
+        {"agent_key": _KEY, "agent_name": _KEY, "revoked": [_DATASET_RECORD]}
     ]
-    assert terraform_runs == []
+    assert sinks.ran == []
     assert "agents/detach" not in [path for path, _ in fake.calls]
 
 
 def test_a_recorded_grant_with_no_revoke_command_is_named(
-    runner, monkeypatch, terraform_runs
+    runner, monkeypatch
 ) -> None:
     fake = _install_recorded_grants(
         monkeypatch, {**_DATASET_RECORD, "role": "roles/owner"}
     )
     grant_runner = _install_grant_runner(monkeypatch, fake, access_after={})
 
-    result = _invoke(runner, "detach", "watched_agent", "--apply", "--yes")
+    result = _invoke(runner, "detach", _KEY, "--yes")
 
     assert result.exit_code == 0, result.output
     assert (
@@ -1655,7 +2396,10 @@ def test_a_recorded_grant_with_no_revoke_command_is_named(
         in result.output
     )
     assert grant_runner.ran == []
-    assert ("agents/detach", {"agent_name": "watched_agent"}) in fake.calls
+    assert (
+        "agents/detach",
+        {"agent_key": _KEY, "agent_name": _KEY},
+    ) in fake.calls
 
 
 @pytest.mark.parametrize(

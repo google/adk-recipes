@@ -77,8 +77,12 @@ function renderPanel(body: unknown, status = 200) {
     getParentRoute: () => root,
     path: "/investigations/$runId",
   });
+  const config = createRoute({
+    getParentRoute: () => root,
+    path: "/config",
+  });
   const router = createRouter({
-    routeTree: root.addChildren([index, insights, insight, run]),
+    routeTree: root.addChildren([index, insights, insight, run, config]),
     history: createMemoryHistory({ initialEntries: ["/"] }),
   });
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -151,12 +155,34 @@ describe("StatBar", () => {
     expect(screen.queryByText("0")).toBeNull();
   });
 
+  it("names the worst insight without its markdown", async () => {
+    // A one-line caption that truncates: no room for code styling, and a
+    // backtick there is noise.
+    const plain = "create_ticket declares no parameters";
+    renderPanel({
+      ...healthy,
+      worst_finding: {
+        insight_id: "i-1",
+        label: "`create_ticket` declares no parameters",
+      },
+    });
+
+    expect(await screen.findByText(plain)).toHaveAttribute("title", plain);
+  });
+
   it("writes the schedule as a sentence, not a crontab", async () => {
     renderPanel(healthy);
 
     // "0 12 * * *" renders as glitched asterisks.
     expect(await screen.findByText(/daily at 12:00 UTC/)).toBeInTheDocument();
     expect(screen.queryByText(/\* \* \*/)).toBeNull();
+  });
+
+  it("links the schedule to the page that edits it", async () => {
+    renderPanel(healthy);
+
+    const schedule = await screen.findByText(/daily at 12:00 UTC/);
+    expect(schedule.closest("a")).toHaveAttribute("href", "/config");
   });
 
   it("shows a crontab it cannot phrase rather than guessing", async () => {

@@ -820,7 +820,7 @@ def test_the_marker_is_a_correlated_subquery_on_the_insight_id() -> None:
     assert "COUNT(owned.occurrence_id) AS occurrence_count" in page_sql
     assert "SUM(owned.trace_count) AS trace_count" in page_sql
     assert (
-        "GROUP BY i.insight_id, i.agent_name, i.label, i.status, i.created_at"
+        "GROUP BY i.insight_id, i.agent_name, i.agent_id, i.label, i.status,"
         in (page_sql)
     )
 
@@ -832,6 +832,27 @@ def test_the_detail_query_carries_the_marker_too() -> None:
     _reader(client).get_insight("ins-42")
 
     assert "AS has_root_cause" in _sql(client.query.call_args)
+
+
+@pytest.mark.parametrize(
+    ("stored", "read"),
+    [
+        pytest.param("sub_agent", "sub_agent", id="attributed"),
+        pytest.param(None, "", id="unattributed"),
+    ],
+)
+def test_the_insights_agent_reads_back(stored: str | None, read: str) -> None:
+    """A NULL `agent_id` reads as the empty string, which the store scopes to
+    the root agent."""
+    client = _query_returning([_summary_row("ins-42", agent_id=stored)])
+
+    view = _reader(client).get_insight("ins-42")
+
+    assert view is not None
+    assert view.agent_id == read
+    sql = _sql(client.query.call_args)
+    assert "i.agent_id" in sql.split("GROUP BY", maxsplit=1)[0]
+    assert "i.agent_id" in sql.split("GROUP BY", maxsplit=1)[1]
 
 
 def test_a_diagnosed_insight_reads_back_marked() -> None:

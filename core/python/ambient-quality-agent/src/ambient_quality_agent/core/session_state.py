@@ -67,8 +67,9 @@ class RouteContext:
     """The `LaunchContext` an HTTP route runs its work under.
 
     Overrides are per-session state written during a chat turn, and a request
-    reaching a route belongs to no session, so the state starts empty and the
-    work sees the deploy-time configuration.
+    reaching a route belongs to no session, so the state holds at most the
+    agent the request selects (`effective_config.AGENT_KEY_STATE`), and the
+    work sees the deploy-time configuration for that agent.
     """
 
     state: ADKStateLike = dataclasses.field(default_factory=dict[str, Any])

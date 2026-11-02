@@ -244,6 +244,42 @@ export function isAmbient(run: RunSummaryLike): boolean {
   return trigger !== "manual" && trigger !== "custom";
 }
 
+/** Who started a run: `custom` for a one-off investigation of conversations a
+ *  user picked (usually from chat), `manual` for a sweep a user or the CLI
+ *  asked for, and `ambient` for every trigger the loop fires on its own
+ *  (`scheduled`, and `task_fire` after an observed-agent redeploy). */
+export type TriggerKind = "custom" | "manual" | "ambient";
+
+/** Sorts a run into its `TriggerKind`, case-insensitively.
+ *
+ * Args:
+ *   run: The run record, read for its `trigger_type`.
+ *
+ * Returns:
+ *   `custom` or `manual` for a user-initiated run; `ambient` for anything
+ *   else, a record with no trigger included, since it predates the field and
+ *   sweeps are the common case.
+ */
+export function resolveTriggerKind(run: RunSummaryLike): TriggerKind {
+  const trigger = (run.trigger_type || "").toLowerCase();
+  if (trigger === "custom" || trigger === "manual") return trigger;
+  return "ambient";
+}
+
+/** Pulls the reviewer focus a custom run was started with off its overrides.
+ *
+ * Args:
+ *   run: The run record; `custom_overrides` is null for an ambient run.
+ *
+ * Returns:
+ *   The trimmed focus, or null when the run has none.
+ */
+export function extractReviewFocus(run: {
+  custom_overrides?: { session_review_focus?: string | null } | null;
+}): string | null {
+  return run.custom_overrides?.session_review_focus?.trim() || null;
+}
+
 const FAILURE_COUNTER_KEYS: readonly (keyof InvestigationCounters)[] = [
   "traces_ingested_failed",
   "traces_eval_failed",

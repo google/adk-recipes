@@ -17,13 +17,16 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { Stethoscope, TriangleAlert } from "lucide-react";
 import {
+  type AgentKey,
   insightsQuery,
   isDiagnosed,
   runsQuery,
   type InsightView,
 } from "@/lib/aqua-api";
+import { stripMarkdownForSummary } from "@/lib/aqa-markdown";
 import { evaluatedTraces } from "@/lib/funnel";
 import { cn } from "@/lib/utils";
+import { InlineMarkdown } from "@/components/ui/inline-markdown";
 import { SidebarSection } from "@/components/chat/sidebar-section";
 import {
   SIDEBAR_META_CLASS,
@@ -40,12 +43,13 @@ import {
   useRailScroll,
 } from "@/components/chat/use-rail-scroll";
 import { DiagnoseInChatButton } from "./diagnose-in-chat-button";
+import { useAgentKey } from "@/lib/agent-selection";
 
 /** How many issues the rail shows. */
 const RAIL_SIZE = 10;
 
-const topIssuesQuery = () =>
-  insightsQuery({ orderBy: "impact", pageSize: RAIL_SIZE });
+const topIssuesQuery = (agentKey: AgentKey) =>
+  insightsQuery(agentKey, { orderBy: "impact", pageSize: RAIL_SIZE });
 
 /** The worst issues, in the sidebar's spare height, as a sidebar section.
  *
@@ -57,7 +61,8 @@ const topIssuesQuery = () =>
  * overall rather than the worst of whatever one page held.
  */
 export function TopIssuesRail() {
-  const query = useQuery(topIssuesQuery());
+  const agentKey = useAgentKey();
+  const query = useQuery(topIssuesQuery(agentKey));
   // An empty or error line takes only its own height.
   const hasRows = query.data ? query.data.insights.length > 0 : !query.isError;
   return (
@@ -75,14 +80,15 @@ export function TopIssuesRail() {
 }
 
 function TopIssuesList() {
+  const agentKey = useAgentKey();
   // react-query keeps `data` through a failed refetch, so the rows stay up and
   // the error line is only for a list that never loaded.
-  const { data, isError, refetch } = useQuery(topIssuesQuery());
+  const { data, isError, refetch } = useQuery(topIssuesQuery(agentKey));
   const top = data?.insights ?? [];
   // Only an empty page needs the runs, to tell "nothing failing" from "nothing
   // analysed yet"; the Recent investigations section shares the query.
   const runs = useQuery({
-    ...runsQuery(),
+    ...runsQuery(agentKey),
     enabled: data !== undefined && top.length === 0,
   });
   const scrollRef = useRailScroll<HTMLUListElement>("issues");
@@ -120,6 +126,7 @@ function TopIssuesList() {
 function IssueRow({ insight }: { insight: InsightView }) {
   const title =
     insight.diagnosis.trim() || insight.label.trim() || "Untitled insight";
+  const plainTitle = stripMarkdownForSummary(title);
   return (
     // The Diagnose button is the row link's sibling, laid over the end of the
     // short meta line so the title keeps the full width: inside the link it
@@ -133,10 +140,10 @@ function IssueRow({ insight }: { insight: InsightView }) {
       >
         <span
           dir="auto"
-          title={title}
+          title={plainTitle}
           className="line-clamp-2 min-w-0 break-words"
         >
-          {title}
+          <InlineMarkdown text={title} />
         </span>
         <span className={cn(SIDEBAR_META_CLASS, "flex items-center gap-1")}>
           {insight.has_root_cause && (
@@ -164,7 +171,7 @@ function IssueRow({ insight }: { insight: InsightView }) {
       <DiagnoseInChatButton
         insightId={insight.insight_id}
         label={insight.label}
-        ariaLabel={`Diagnose insight in chat: ${title}`}
+        ariaLabel={`Diagnose insight in chat: ${plainTitle}`}
         iconOnly
         className={cn(
           "absolute bottom-1 right-1 h-6 w-6 p-0 [&_svg]:size-3.5",

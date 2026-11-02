@@ -22,14 +22,28 @@ becomes a result, and which checks a failure skips.
 from __future__ import annotations
 
 import datetime as dt
+import types
 from typing import Any
 from unittest import mock
 
 import pytest
 from ambient_quality_agent.config import ObservedAgentConfig
 from ambient_quality_agent.tools.evaluation.models import MetricType
+from ambient_quality_agent.tools.ingestion.bigquery_fetcher import (
+    BigQueryFetcher,
+)
+from ambient_quality_agent.tools.ingestion.cloud_logging_fetcher import (
+    CloudLoggingFetcher,
+)
+from ambient_quality_agent.tools.ingestion.cloud_ops_fetcher import (
+    CloudOpsFetcher,
+)
 from ambient_quality_agent.tools.observed_agent_config import access_check
+from ambient_quality_agent.tools.telemetry import schema
 from google.api_core import exceptions as api_exceptions
+from google.cloud import bigquery
+
+from .conftest import load_schema_fixture
 
 PROJECT = "aqua-project"
 AGENT = "it_support_agent"
@@ -38,6 +52,16 @@ TABLE_REF = f"{PROJECT}.agent_telemetry.{TABLE}"
 REF = "gs://payload-bucket/2026/turn1_inputs.jsonl"
 NOW = dt.datetime(2026, 9, 30, 12, tzinfo=dt.UTC)
 SA = "aqua-engine@aqua-project.iam.gserviceaccount.com"
+
+_EVERY_SOURCE_COLUMNS = list(
+    {
+        field.name: field
+        for fetcher in (BigQueryFetcher, CloudLoggingFetcher, CloudOpsFetcher)
+        for field in schema.load_required_schema(fetcher.SCHEMA_FILE)
+    }.values()
+)
+"""Union of all sources' required columns, which no two sources type
+differently, so `_FakeFetcher` passes `schema` for any source by default."""
 
 
 class _FakeFetcher:
@@ -49,6 +73,8 @@ class _FakeFetcher:
         self,
         *,
         table: Exception | None = None,
+        columns: list[bigquery.SchemaField] | None = None,
+        location: str = "us-central1",
         sessions: int | Exception = 3,
         by_agent: dict[str, int] | Exception | None = None,
         ref: str | Exception | None = REF,
@@ -57,20 +83,27 @@ class _FakeFetcher:
 
         Args:
             table: What `load_table` raises, or None to succeed.
+            columns: The columns of the table `load_table` returns;
+                `_EVERY_SOURCE_COLUMNS` if None.
+            location: The location of the table `load_table` returns.
             sessions: What `count_scanned` returns.
             by_agent: What `count_by_agent` returns; empty if None.
             ref: What `get_payload_ref` returns.
         """
         self._table = table
+        self._columns = _EVERY_SOURCE_COLUMNS if columns is None else columns
+        self._location = location
         self._sessions = sessions
         self._by_agent = {} if by_agent is None else by_agent
         self._ref = ref
         self.counted: list[tuple[Any, ...]] = []
 
-    def load_table(self) -> object:
+    def load_table(self) -> types.SimpleNamespace:
         if self._table:
             raise self._table
-        return object()
+        return types.SimpleNamespace(
+            schema=self._columns, location=self._location
+        )
 
     def count_scanned(self, *args: Any) -> int:
         self.counted.append(args)
@@ -225,6 +258,19 @@ def _extract_statuses(result: dict[str, Any]) -> dict[str, str]:
     return {c["name"]: c["status"] for c in result["checks"]}
 
 
+def _extract_check(result: dict[str, Any], name: str) -> dict[str, Any]:
+    """Finds one check's result by its name.
+
+    Args:
+        result: Response from `check_access`.
+        name: Check name, such as ``rows``.
+
+    Returns:
+        The matching check dictionary.
+    """
+    return next(c for c in result["checks"] if c["name"] == name)
+
+
 def test_every_read_passing() -> None:
     storage = _FakeStorageClient()
 
@@ -233,13 +279,14 @@ def test_every_read_passing() -> None:
     assert result["service_account"] == SA
     assert _extract_statuses(result) == {
         "table": "passed",
+        "schema": "passed",
         "rows": "passed",
         "payload": "passed",
     }
     assert result["checks"][0]["target"] == TABLE_REF
     assert (
         "3 session(s) for it_support_agent in the last 7 day(s)"
-        in (result["checks"][1]["detail"])
+        in _extract_check(result, "rows")["detail"]
     )
     assert storage.read == [REF]
 
@@ -265,10 +312,178 @@ def test_a_missing_table_skips_the_reads_that_need_it() -> None:
 
     assert _extract_statuses(result) == {
         "table": "missing",
+        "schema": "skipped",
         "rows": "skipped",
         "payload": "skipped",
     }
     assert result["checks"][0]["detail"] == "Not found: Dataset"
+
+
+def test_a_table_without_the_source_columns_skips_the_query() -> None:
+    fetcher = _FakeFetcher(columns=load_schema_fixture("all_spans_view.json"))
+
+    result = _check(fetcher=fetcher)
+
+    assert _extract_statuses(result) == {
+        "table": "passed",
+        "schema": "mismatch",
+        "rows": "skipped",
+        "payload": "skipped",
+    }
+    schema_check = _extract_check(result, "schema")
+    assert schema_check["target"] == TABLE_REF
+    assert schema_check["detail"] == (
+        "The table is not in the cloud_logging format: timestamp is missing; "
+        "trace is missing; spanId is missing. It has the cloud_ops columns."
+    )
+    assert schema_check["matching_sources"] == ("cloud_ops",)
+    assert (
+        _extract_check(result, "rows")["detail"]
+        == "Needs a table in the cloud_logging format."
+    )
+    assert fetcher.counted == []
+
+
+def test_a_column_of_another_type_is_a_mismatch() -> None:
+    columns = [
+        bigquery.SchemaField("attributes", "STRING")
+        if field.name == "attributes"
+        else field
+        for field in schema.load_required_schema(CloudOpsFetcher.SCHEMA_FILE)
+    ]
+
+    result = _check(
+        agent=_build_agent(telemetry_ingestion_source="cloud_ops"),
+        fetcher=_FakeFetcher(columns=columns),
+    )
+
+    schema_check = _extract_check(result, "schema")
+    assert schema_check["status"] == "mismatch"
+    assert schema_check["detail"] == (
+        "The table is not in the cloud_ops format: attributes is STRING, "
+        "expected JSON."
+    )
+    assert schema_check["matching_sources"] == ()
+
+
+@pytest.mark.parametrize(
+    ("dropped", "detail"),
+    [
+        (
+            {"content"},
+            "The table is not in the big_query format: content is missing. "
+            "Remove content from the BigQuery Agent Analytics plugin's "
+            "payload_column_denylist, and the plugin adds it back to its table.",
+        ),
+        (
+            {"content", "attributes"},
+            "The table is not in the big_query format: content is missing; "
+            "attributes is missing. Remove attributes and content from the "
+            "BigQuery Agent Analytics plugin's payload_column_denylist, and the "
+            "plugin adds them back to its table.",
+        ),
+    ],
+)
+def test_an_analytics_table_without_content_names_the_plugin_setting(
+    dropped: set[str], detail: str
+) -> None:
+    columns = [
+        field
+        for field in load_schema_fixture("agent_events.json")
+        if field.name not in dropped
+    ]
+
+    result = _check(
+        agent=_build_agent(telemetry_ingestion_source="big_query"),
+        fetcher=_FakeFetcher(columns=columns),
+    )
+
+    assert _extract_check(result, "schema")["detail"] == detail
+
+
+@pytest.mark.parametrize(
+    "columns",
+    [
+        [],
+        list(schema.load_required_schema(CloudLoggingFetcher.SCHEMA_FILE)),
+        [
+            field
+            for field in load_schema_fixture("agent_events.json")
+            if field.name not in ("content", "error_message")
+        ],
+    ],
+    ids=["empty", "log_sink", "without_a_column_the_plugin_always_writes"],
+)
+def test_a_table_the_plugin_did_not_write_gets_no_denylist_hint(
+    columns: list[bigquery.SchemaField],
+) -> None:
+    """The plugin can leave out content and attributes only, so a table missing
+    any other column cannot be one it wrote with a denylist."""
+    result = _check(
+        agent=_build_agent(telemetry_ingestion_source="big_query"),
+        fetcher=_FakeFetcher(columns=columns),
+    )
+
+    schema_check = _extract_check(result, "schema")
+    assert schema_check["status"] == "mismatch"
+    assert "payload_column_denylist" not in schema_check["detail"]
+
+
+@pytest.mark.parametrize(
+    ("source", "fixture"),
+    [("big_query", "agent_events.json"), ("cloud_ops", "all_spans_view.json")],
+)
+def test_a_table_its_source_writes_passes_the_schema_check(
+    source: str, fixture: str
+) -> None:
+    fetcher = _FakeFetcher(columns=load_schema_fixture(fixture))
+
+    result = _check(
+        agent=_build_agent(telemetry_ingestion_source=source), fetcher=fetcher
+    )
+
+    schema_check = _extract_check(result, "schema")
+    assert schema_check["status"] == "passed"
+    assert schema_check["matching_sources"] == ()
+    assert len(fetcher.counted) == 1
+
+
+@pytest.mark.parametrize("dropped", ["content_parts", "latency_ms"])
+def test_an_analytics_table_without_a_column_ingestion_ignores_passes(
+    dropped: str,
+) -> None:
+    """The plugin's payload_column_denylist can leave these out too."""
+    columns = [
+        field
+        for field in load_schema_fixture("agent_events.json")
+        if field.name != dropped
+    ]
+
+    result = _check(
+        agent=_build_agent(telemetry_ingestion_source="big_query"),
+        fetcher=_FakeFetcher(columns=columns),
+    )
+
+    assert _extract_check(result, "schema")["status"] == "passed"
+
+
+def test_a_table_with_two_other_sources_columns_names_both() -> None:
+    columns = [
+        *load_schema_fixture("agent_events.json"),
+        bigquery.SchemaField("trace", "STRING"),
+        bigquery.SchemaField("spanId", "STRING"),
+    ]
+
+    result = _check(
+        agent=_build_agent(telemetry_ingestion_source="cloud_ops"),
+        fetcher=_FakeFetcher(columns=columns),
+    )
+
+    schema_check = _extract_check(result, "schema")
+    assert schema_check["detail"].endswith(
+        " It has the big_query and cloud_logging columns."
+    )
+    assert schema_check["matching_sources"] == ("big_query", "cloud_logging")
 
 
 def test_no_dataset_set_is_missing_telemetry() -> None:
@@ -295,6 +510,7 @@ def test_a_refused_query_is_denied() -> None:
 
     assert _extract_statuses(result) == {
         "table": "passed",
+        "schema": "passed",
         "rows": "denied",
         "payload": "skipped",
     }
@@ -305,10 +521,14 @@ def test_no_sessions_in_the_window_is_empty_not_a_failure() -> None:
 
     assert _extract_statuses(result) == {
         "table": "passed",
+        "schema": "passed",
         "rows": "empty",
         "payload": "skipped",
     }
-    assert "No agent recorded any there" in result["checks"][1]["detail"]
+    assert (
+        "No agent recorded any there"
+        in _extract_check(result, "rows")["detail"]
+    )
 
 
 def test_an_empty_window_names_the_agents_the_table_does_hold() -> None:
@@ -319,7 +539,7 @@ def test_an_empty_window_names_the_agents_the_table_does_hold() -> None:
         )
     )
 
-    detail = result["checks"][1]["detail"]
+    detail = _extract_check(result, "rows")["detail"]
     assert "'it_support_agent_v2' (12), 'root_agent' (3)" in detail
     assert "attach it under that name" in detail
 
@@ -333,7 +553,7 @@ def test_a_full_agent_list_is_called_the_busiest() -> None:
 
     assert (
         f"(the {access_check.AGENT_COUNT_LIMIT} busiest)"
-        in (result["checks"][1]["detail"])
+        in _extract_check(result, "rows")["detail"]
     )
 
 
@@ -344,7 +564,7 @@ def test_an_empty_window_whose_agents_cannot_be_listed_is_still_empty() -> None:
         )
     )
 
-    rows = result["checks"][1]
+    rows = _extract_check(result, "rows")
     assert rows["status"] == "empty"
     assert "check the agent name" in rows["detail"]
 
@@ -361,7 +581,7 @@ def test_rows_with_no_payload_reference_skip_the_payload_read() -> None:
 def test_a_failed_reference_query_skips_the_payload_read() -> None:
     result = _check(fetcher=_FakeFetcher(ref=RuntimeError("boom")))
 
-    payload = result["checks"][2]
+    payload = _extract_check(result, "payload")
     assert payload["status"] == "skipped"
     assert (
         payload["detail"]
@@ -382,7 +602,7 @@ def test_a_source_read_from_the_table_alone_needs_no_payload_read() -> None:
         storage=storage,
     )
 
-    payload = result["checks"][2]
+    payload = _extract_check(result, "payload")
     assert payload["status"] == "skipped"
     assert "from the table itself" in payload["detail"]
     assert storage.read == []
@@ -393,7 +613,7 @@ def test_a_refused_payload_read_is_denied() -> None:
         storage=_FakeStorageClient(api_exceptions.Forbidden("objects.get"))
     )
 
-    payload = result["checks"][2]
+    payload = _extract_check(result, "payload")
     assert payload["status"] == "denied"
     assert payload["target"] == REF
 
@@ -437,6 +657,7 @@ def test_a_fetcher_that_cannot_be_built_is_an_error_not_a_crash() -> None:
 
     assert _extract_statuses(result) == {
         "table": "error",
+        "schema": "skipped",
         "rows": "skipped",
         "payload": "skipped",
     }
@@ -586,7 +807,7 @@ def test_no_reference_to_read_tests_the_named_bucket_instead(
 
     result = _check(fetcher=fetcher, storage=storage, payload_bucket="logs")
 
-    payload = result["checks"][2]
+    payload = _extract_check(result, "payload")
     assert payload["status"] == "denied"
     assert payload["target"] == "gs://logs"
     assert reason in payload["detail"]
@@ -639,3 +860,131 @@ def test_a_source_read_from_the_table_tests_no_bucket_without_rows() -> None:
 
     assert _extract_statuses(result)["payload"] == "skipped"
     assert storage.tested == []
+
+
+def _read_settings(
+    agent: ObservedAgentConfig | None = None,
+    fetcher: _FakeFetcher | None = None,
+) -> list[access_check.TableSetting]:
+    """Reads the settings the table decides, against a fake fetcher.
+
+    Args:
+        agent: Agent whose table is read; `_build_agent()` if None.
+        fetcher: Telemetry fetcher; one whose table fits every source and is
+            in the agent's location if None.
+
+    Returns:
+        What `read_table_settings` returns.
+    """
+    fetcher = fetcher or _FakeFetcher()
+    return access_check.read_table_settings(
+        agent or _build_agent(),
+        project_id=PROJECT,
+        fetcher_factory=lambda _agent, _project: fetcher,
+    )
+
+
+def test_a_table_in_another_location_decides_the_location() -> None:
+    settings = _read_settings(fetcher=_FakeFetcher(location="EU"))
+
+    assert settings == [
+        access_check.TableSetting(
+            "telemetry_location", "EU", f"the location of {TABLE_REF}"
+        )
+    ]
+
+
+def test_a_location_spelled_in_another_case_is_the_same_location() -> None:
+    settings = _read_settings(
+        agent=_build_agent(telemetry_location="us"),
+        fetcher=_FakeFetcher(location="US"),
+    )
+
+    assert settings == []
+
+
+def test_a_table_in_one_other_sources_format_decides_the_source() -> None:
+    settings = _read_settings(
+        fetcher=_FakeFetcher(columns=load_schema_fixture("agent_events.json"))
+    )
+
+    assert settings == [
+        access_check.TableSetting(
+            "telemetry_ingestion_source",
+            "big_query",
+            f"the only source whose columns {TABLE_REF} has",
+        )
+    ]
+
+
+def test_a_table_in_the_agents_own_format_keeps_its_source() -> None:
+    """Also when the table fits other sources too."""
+    assert _read_settings() == []
+
+
+def test_a_table_in_two_other_sources_formats_decides_no_source() -> None:
+    columns = [
+        *load_schema_fixture("agent_events.json"),
+        bigquery.SchemaField("trace", "STRING"),
+        bigquery.SchemaField("spanId", "STRING"),
+    ]
+
+    settings = _read_settings(
+        agent=_build_agent(telemetry_ingestion_source="cloud_ops"),
+        fetcher=_FakeFetcher(columns=columns),
+    )
+
+    assert settings == []
+
+
+def test_the_settings_a_table_decides_come_in_field_order() -> None:
+    settings = _read_settings(
+        fetcher=_FakeFetcher(
+            columns=load_schema_fixture("agent_events.json"), location="EU"
+        )
+    )
+
+    assert [s.field for s in settings] == [
+        "telemetry_ingestion_source",
+        "telemetry_location",
+    ]
+
+
+def test_a_table_that_cannot_be_read_decides_nothing() -> None:
+    """The `table` check reads it again, and reports why it cannot."""
+    settings = _read_settings(
+        fetcher=_FakeFetcher(
+            table=api_exceptions.Forbidden("Access Denied"), location="EU"
+        )
+    )
+
+    assert settings == []
+
+
+@pytest.mark.parametrize("unset", ["telemetry_dataset", "telemetry_table"])
+def test_no_table_named_decides_nothing(unset: str) -> None:
+    settings = _read_settings(
+        agent=_build_agent(**{unset: ""}), fetcher=_FakeFetcher(location="EU")
+    )
+
+    assert settings == []
+
+
+def test_the_payload_check_reads_through_the_shared_factory(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The shared factory attaches AQuA's client info, and the client is on
+    AQuA's project rather than the credentials' default one."""
+    from ambient_quality_agent import clients
+
+    calls: list[str | None] = []
+    client = object()
+
+    def create(project: str | None = None) -> object:
+        calls.append(project)
+        return client
+
+    monkeypatch.setattr(clients, "create_storage_client", create)
+
+    assert access_check._create_default_storage_client(PROJECT) is client
+    assert calls == [PROJECT]

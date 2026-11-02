@@ -22,7 +22,7 @@ ui/
 
 src/ambient_quality_shared/  the wire client, shared with src/ambient_quality_cli
 ├── agent_client.py          AgentRuntimeClient (deployed) + AdkHttpClient (local)
-└── protocol.py              the command route paths, shared with the agent
+└── protocol.py              the command routes and their request bodies, shared with the agent
 ```
 
 This directory and the shared package are staged into one build context — by
@@ -90,6 +90,7 @@ and a **Retry** on every list.
 | --- | --- |
 | `GET /api/config` | `{"config": {...}}` — the effective configuration |
 | `GET /api/health` | `{"verdict", "reason", ...}` — is the ambient loop turning |
+| `GET /api/agents` | `{"agents": [...], "default_agent_key"}` — the attached agents, for the selector |
 | `GET /api/investigations` | `{"runs": [...]}` for the table — the most recent page |
 | `POST /api/investigations` | `{"run": {...}}` if a run comes back, else `{"ok": true}`, or `{"error": ...}` |
 | `GET /api/investigations/{run_id}` | `{"run": {...}}` for one run, events included |
@@ -107,6 +108,13 @@ and a **Retry** on every list.
 `/api/daily`, `/api/investigations` and `/api/insights` to a period; with
 neither, each covers everything it can see. The front end sends `windowStart`
 on the two that aggregate and on neither list — `lib/day-buckets.ts` says why.
+
+`agent_key` selects the agent every route but `/api/agents` answers for; with
+none, the agent answers for its default agent. The front end keeps the
+selected agent in the `agent` search parameter of every page
+(`lib/agent-selection.tsx`), scopes its query keys and its persisted cache by
+it, and names it in the chat's A2A request metadata, where the chat agent's
+`before_agent` binds the conversation to it.
 
 Every route degrades to `{"error": ...}` rather than a raw 5xx, so a failed read
 renders as a named failure instead of an empty page.

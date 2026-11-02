@@ -64,28 +64,20 @@ from typing import Any, NamedTuple, NoReturn
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from ambient_quality_shared.terraform_state import (
-    ATTACH_INSTANCE_OUTPUT,
-    ATTACH_ROOT,
     BOOTSTRAP_KEY,
     DEPLOYMENT_KEY,
     STATE_DIR_NAME,
-    build_attach_key,
     build_state_path,
-    list_attached_agents,
     read_state_outputs,
     run_terraform,
 )
 
 # Re-exported for sibling extension wrappers.
 __all__ = [
-    "ATTACH_INSTANCE_OUTPUT",
-    "ATTACH_ROOT",
     "BOOTSTRAP_KEY",
     "DEPLOYMENT_KEY",
     "STATE_DIR_NAME",
-    "build_attach_key",
     "build_state_path",
-    "list_attached_agents",
     "read_state_outputs",
     "run_terraform",
 ]
@@ -100,12 +92,6 @@ METADATA_FILE = "deployment_metadata.json"
 # Manifest file that `agents-cli` searches for when walking up to find the project root.
 MANIFEST_FILE = "agents-cli-manifest.yaml"
 
-# The extension schema lacks a skills field, so wrappers install this bundled skill directly.
-SKILL_NAME = "agents-cli-aqua"
-
-# Caps setup output logged on failure to provide diagnostic context without flooding logs.
-_SETUP_FAILURE_TAIL_LINES = 5
-
 # Ignore pattern that `ensure_state_dir_ignored` writes to ignore files.
 _IGNORE_ENTRY = f"/{STATE_DIR_NAME}/"
 _IGNORE_COMMENT = (
@@ -119,32 +105,33 @@ _GCLOUDIGNORE_INCLUDE = "#!include:.gitignore"
 
 EXTENSION_DIR_ENV = "AGENTS_CLI_EXTENSION_DIR"
 
-# Options naming the agent AQuA watches. The `TF_VAR_*` spellings are read too,
-# since Terraform takes these as variables and reads them from the environment
-# on its own.
+# Names the deployment AQuA observes, which names every resource AQuA creates.
+# The `TF_VAR_*` spelling is read too, since Terraform takes it as a variable
+# and reads it from the environment on its own.
 OBSERVED_DEPLOYMENT_NAME = "--observed-deployment-name"
-OBSERVED_AGENT_NAME = "--observed-agent-name"
 _OBSERVED_DEPLOYMENT_NAME_ENV = "TF_VAR_observed_deployment_name"
-_OBSERVED_AGENT_NAME_ENV = "TF_VAR_observed_agent_name"
+
+# Refused rather than ignored: the agents AQuA watches are attached to it, so a
+# name given here would have no effect.
+_OBSERVED_AGENT_NAME = "--observed-agent-name"
 
 # Add AQuA's step to `infra single-project` and `deploy` in the observed agent's
 # project, which leave it out otherwise. AQuA's own checkout has no other step.
 APPLY_AQUA = "--apply-aqua"
 DEPLOY_AQUA = "--deploy-aqua"
 
-# Names AQuA's resources in its own checkout when it is provisioned with no
-# observed agent, and so no observed deployment to be named after.
+# Names AQuA's resources in its own checkout when no observed deployment is
+# named to name them after.
 STANDALONE_DEPLOYMENT_NAME = "aqua-solo"
 
 _OBSERVED_HELP = (
-    f"  Pass {OBSERVED_DEPLOYMENT_NAME} <deployment> {OBSERVED_AGENT_NAME} <adk-name>,\n"
-    f"  or export {_OBSERVED_DEPLOYMENT_NAME_ENV} and {_OBSERVED_AGENT_NAME_ENV}.\n"
+    f"  Pass {OBSERVED_DEPLOYMENT_NAME} <deployment>, or export "
+    f"{_OBSERVED_DEPLOYMENT_NAME_ENV}.\n"
     "  The deployment is the observed agent's project name, and names every "
-    "resource AQuA creates; the ADK name is the one its code passes to "
-    "`Agent(name=...)`.\n"
-    "  Leave out both to provision AQuA with no observed agent, named "
-    f"'{STANDALONE_DEPLOYMENT_NAME}', and attach one later with "
-    "`agents-cli aqua attach`."
+    "resource AQuA creates.\n"
+    "  Leave it out to name AQuA "
+    f"'{STANDALONE_DEPLOYMENT_NAME}'. Either way, attach the agents AQuA "
+    "watches with `agents-cli aqua attach`."
 )
 
 # Table in the observed agent's telemetry dataset that AQuA reads. Cloud
@@ -156,6 +143,30 @@ _TELEMETRY_TABLES = {
     "agent_runtime": "aiplatform_googleapis_com_reasoning_engine_stdout"
 }
 _DEFAULT_TELEMETRY_TABLE = "gen_ai_client_inference_operation_details"
+
+
+# `agents-cli aqua`, run as the manifest's `aqua` command runs it: AQuA's CLI
+# needs third-party imports these stdlib-only wrappers do not have. Invoked by
+# path rather than through `agents-cli aqua`, because the wrappers run with
+# overrides disabled. Keep the `--with` list in step with the `aqua` command in
+# `agents-cli-extension.yaml`.
+AQUA_CLI_COMMAND = (
+    "uv",
+    "run",
+    "--no-project",
+    "--with",
+    "click",
+    "--with",
+    "google-auth",
+    "--with",
+    "httpx",
+    "--with",
+    "pathspec",
+    "--with",
+    "requests",
+    "python",
+    str(Path(__file__).resolve().parent / "acli_aqua.py"),
+)
 
 
 def echo(message: str) -> None:
@@ -201,6 +212,7 @@ def run(
     cwd: Path | None = None,
     env: Mapping[str, str] | None = None,
     capture: bool = False,
+    capture_stdout: bool = False,
 ) -> subprocess.CompletedProcess:
     """Run a command with no shell, inheriting the environment plus ``env``.
 
@@ -209,6 +221,8 @@ def run(
         cwd: Working directory for the process.
         env: Additional environment variables to overlay.
         capture: If True, captures stdout and stderr.
+        capture_stdout: If True, captures stdout alone, so the command's
+            progress on stderr still reaches the terminal as it runs.
 
     Returns:
         CompletedProcess instance containing execution results.
@@ -218,6 +232,7 @@ def run(
         cwd=str(cwd) if cwd else None,
         env={**os.environ, **env} if env else None,
         capture_output=capture,
+        stdout=subprocess.PIPE if capture_stdout and not capture else None,
         text=True,
         encoding="utf-8",
         errors="replace",
@@ -412,58 +427,6 @@ def ensure_aqua_state_dir(info: Mapping[str, Any]) -> Path:
     return path
 
 
-# TODO(b/567862679): Delete once `agents-cli extension add` installs extension
-# skills (b/567822506), and declare the skill in agents-cli-extension.yaml.
-def install_skill_best_effort(project_root: Path) -> None:
-    """Install AQuA's coding-agent skill into the project without failing callers.
-
-    Because the skill is an optional aid for coding agents, installation errors
-    must not abort deployment or infrastructure workflows.
-
-    Execution sequence:
-    1. Verify the skill source contains a `SKILL.md` manifest.
-    2. Run `agents-cli setup --workspace --skills-source` to install into `.agents/skills/`
-       with agents-cli's own installer. Setup also runs its
-       `uv tool install google-agents-cli` step.
-    3. Capture subprocess output so installer progress does not obscure deploy logs.
-    4. Log summary error details on failure and swallow exceptions.
-
-    Args:
-        project_root: Root directory of the observed agent project.
-    """
-    source = resolve_extension_root() / "skills" / SKILL_NAME
-    if not (source / "SKILL.md").is_file():
-        echo(f"AQuA: skill install skipped (no SKILL.md in {source}).")
-        return
-    argv = [
-        resolve_agents_cli_path(),
-        "setup",
-        "--workspace",
-        "--skip-auth",
-        "--skills-source",
-        str(source),
-    ]
-    try:
-        result = run(argv, cwd=project_root, capture=True)
-    except OSError as error:
-        echo(f"AQuA: skill install skipped ({error}).")
-        return
-    if result.returncode == 0:
-        echo(
-            f"AQuA: installed the {SKILL_NAME} skill into .agents/skills/ "
-            "(agents-cli setup)."
-        )
-        return
-    echo(
-        f"AQuA: skill install skipped (agents-cli setup exited {result.returncode})."
-    )
-    output = (
-        f"{result.stdout or ''}\n{result.stderr or ''}".strip().splitlines()
-    )
-    for line in output[-_SETUP_FAILURE_TAIL_LINES:]:
-        echo(f"  {line}")
-
-
 def resolve_observed_agent_name(info: Mapping[str, Any]) -> str:
     """Resolve the ADK agent name AQuA matches telemetry on.
 
@@ -486,14 +449,6 @@ class ObservedOptions(NamedTuple):
     """What the command line and the environment say about the observed agent."""
 
     deployment_name: str | None
-    agent_name: str | None
-
-
-class Observed(NamedTuple):
-    """The agent AQuA watches, once resolved."""
-
-    deployment_name: str
-    agent_name: str
 
 
 def take_observed_options(
@@ -508,27 +463,33 @@ def take_observed_options(
         Tuple of (filtered arguments list, parsed ObservedOptions).
 
     Raises:
-        SystemExit: If an observed-agent option is given without a value.
+        SystemExit: If an observed-agent option is given without a value, or
+            `--observed-agent-name` is given at all.
     """
+    if any(
+        arg == _OBSERVED_AGENT_NAME
+        or arg.startswith(f"{_OBSERVED_AGENT_NAME}=")
+        for arg in argv
+    ):
+        die(
+            f"{_OBSERVED_AGENT_NAME} is not an option: the agents AQuA watches "
+            "are attached to it once it is deployed:\n"
+            "    agents-cli aqua attach --observed-agent-resource "
+            "projects/…/reasoningEngines/…"
+        )
     # Checked here because `take_option` drops an option with no value, which
     # would otherwise fall through to a default rather than fail.
     for index, arg in enumerate(argv):
-        if arg in (OBSERVED_DEPLOYMENT_NAME, OBSERVED_AGENT_NAME) and (
+        if arg == OBSERVED_DEPLOYMENT_NAME and (
             index + 1 == len(argv) or argv[index + 1].startswith("-")
         ):
             die(f"{arg} needs a value.\n{_OBSERVED_HELP}")
     remaining, deployment_name = take_option(argv, OBSERVED_DEPLOYMENT_NAME)
-    remaining, agent_name = take_option(remaining, OBSERVED_AGENT_NAME)
     # `--name=` gives an empty value, which would also fall through.
-    for option, value in (
-        (OBSERVED_DEPLOYMENT_NAME, deployment_name),
-        (OBSERVED_AGENT_NAME, agent_name),
-    ):
-        if value == "":
-            die(f"{option} needs a value.\n{_OBSERVED_HELP}")
+    if deployment_name == "":
+        die(f"{OBSERVED_DEPLOYMENT_NAME} needs a value.\n{_OBSERVED_HELP}")
     return remaining, ObservedOptions(
         deployment_name or os.environ.get(_OBSERVED_DEPLOYMENT_NAME_ENV),
-        agent_name or os.environ.get(_OBSERVED_AGENT_NAME_ENV),
     )
 
 
@@ -537,8 +498,8 @@ def resolve_observed_deployment_name(
 ) -> str:
     """Resolve the deployment name of the observed agent.
 
-    In AQuA's own checkout with neither observed option given, AQuA has no
-    observed agent, and its resources are named :data:`STANDALONE_DEPLOYMENT_NAME`.
+    In AQuA's own checkout with no deployment named, AQuA's resources are named
+    :data:`STANDALONE_DEPLOYMENT_NAME`.
 
     Args:
         options: Command line and environment options.
@@ -547,54 +508,16 @@ def resolve_observed_deployment_name(
 
     Returns:
         Observed deployment name string.
-
-    Raises:
-        SystemExit: If standalone and only the ADK agent name is given.
     """
     if not standalone:
         return options.deployment_name or str(info["project_name"])
     if options.deployment_name:
         return options.deployment_name
-    if not options.agent_name:
-        echo(
-            f"AQuA: no {OBSERVED_DEPLOYMENT_NAME}, so AQuA is named "
-            f"'{STANDALONE_DEPLOYMENT_NAME}'."
-        )
-        return STANDALONE_DEPLOYMENT_NAME
-    die(
-        f"AQuA's own checkout does not say which deployment "
-        f"'{options.agent_name}' belongs to.\n{_OBSERVED_HELP}"
+    echo(
+        f"AQuA: no {OBSERVED_DEPLOYMENT_NAME}, so AQuA is named "
+        f"'{STANDALONE_DEPLOYMENT_NAME}'."
     )
-
-
-def resolve_observed_identity(
-    options: ObservedOptions, info: Mapping[str, Any], *, standalone: bool
-) -> Observed:
-    """Resolve the deployment name and ADK agent name for the observed agent.
-
-    Args:
-        options: Command line and environment options.
-        info: Project metadata mapping.
-        standalone: True if running from AQuA's own checkout.
-
-    Returns:
-        Observed identity containing deployment_name and agent_name.
-
-    Raises:
-        SystemExit: If identity details cannot be resolved.
-    """
-    deployment_name = resolve_observed_deployment_name(
-        options, info, standalone=standalone
-    )
-    agent_name = options.agent_name or (
-        None if standalone else resolve_observed_agent_name(info)
-    )
-    if not agent_name:
-        die(
-            f"AQuA's own checkout does not say what ADK calls '{deployment_name}'.\n"
-            f"{_OBSERVED_HELP}"
-        )
-    return Observed(deployment_name, agent_name)
+    return STANDALONE_DEPLOYMENT_NAME
 
 
 def build_aqua_service_name(project_name: str) -> str:

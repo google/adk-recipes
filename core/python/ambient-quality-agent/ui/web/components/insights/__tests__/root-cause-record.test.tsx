@@ -59,6 +59,29 @@ describe("RootCauseRecord", () => {
     expect(lines).toContain("+new line");
   });
 
+  it("renders code spans in the summary and the rationale as code", () => {
+    render(
+      <RootCauseRecord
+        record={record({
+          summary: "The `refund_order` step is phrased as a preference.",
+          edits: [
+            {
+              path: "app/agent.py",
+              start_line: 42,
+              end_line: 44,
+              before: "old line",
+              after: "new line",
+              rationale: "Make `REFUND_RULE` mandatory.",
+            },
+          ],
+        })}
+      />,
+    );
+
+    expect(screen.getByText("refund_order").tagName).toBe("CODE");
+    expect(screen.getByText("REFUND_RULE").tagName).toBe("CODE");
+  });
+
   it("omits the rationale line when the edit carries none", () => {
     render(
       <RootCauseRecord

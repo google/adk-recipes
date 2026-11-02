@@ -60,7 +60,7 @@ import json
 import logging
 from typing import Any
 
-import agentplatform
+from ambient_quality_agent import clients
 from ambient_quality_agent import config as config_module
 from ambient_quality_agent.config import Config
 from ambient_quality_agent.core.investigation import locking, model
@@ -87,10 +87,10 @@ DEDUP_GRAIN_SECONDS = 300
 """Time bucket window in seconds for deduplicating repeated trigger invocations."""
 
 NO_AGENT_ATTACHED = (
-    "this deployment names no agent and none is attached, so there is nothing "
-    "to investigate; attach one with `agents-cli aqua attach`"
+    "no agent is attached, so there is nothing to investigate; attach one with "
+    "`agents-cli aqua attach`"
 )
-"""Refusal for a deployment deployed without an observed agent, before an attach."""
+"""Refusal when no agent is attached."""
 
 DRY_RUN_WITH_OVERRIDES = (
     "a dry run re-derives its own window and budget, which would discard the "
@@ -303,6 +303,9 @@ async def _launch_investigation(
     config = effective_config.load(state)
     if not config.observed_agent_name:
         return {"error": NO_AGENT_ATTACHED}
+    # Runs, their dedup key and the lock are AQuA's own, so they are keyed by
+    # the agent's key; the telemetry filter stays `observed_agent_name`.
+    agent_key = config.resolve_agent_key()
     is_custom = custom_overrides is not None and custom_overrides.is_custom()
     if is_custom and dry_run:
         raise ValueError(DRY_RUN_WITH_OVERRIDES)
@@ -332,9 +335,7 @@ async def _launch_investigation(
     except Exception:
         logger.exception("could not fail the overdue scheduled runs")
     since = (
-        await model.get_last_finished_window_end(
-            state, config.observed_agent_name
-        )
+        await model.get_last_finished_window_end(state, agent_key)
         if ambient
         else None
     )
@@ -351,12 +352,12 @@ async def _launch_investigation(
             int((anchor or _read_utc_clock()).timestamp())
             // DEDUP_GRAIN_SECONDS
         )
-        idempotency_key = f"{config.observed_agent_name}:{bucket}"
+        idempotency_key = f"{agent_key}:{bucket}"
 
     # Instantiate record before persistence so concurrency checks can inspect its parameters.
     record = InvestigationRecord(
         status=RunStatus.PENDING,
-        observed_agent_name=config.observed_agent_name,
+        observed_agent_name=agent_key,
         trigger_type=trigger_type,
         metrics={
             "multi_turn": list(config.multi_turn_metrics),
@@ -377,16 +378,14 @@ async def _launch_investigation(
 
     if is_custom and not config.sync_investigation:
         # Check active run limits in store because durable jobs run in separate processes.
-        if refusal := await _refuse_if_too_busy(
-            state, config.observed_agent_name
-        ):
+        if refusal := await _refuse_if_too_busy(state, agent_key):
             return refusal
 
     lock = locking.lock_factory(config)
-    if holder := lock.acquire(config.observed_agent_name, record.run_id):
+    if holder := lock.acquire(agent_key, record.run_id):
         logger.info(
             "A sweep of %r is already running as %s; %s.",
-            config.observed_agent_name,
+            agent_key,
             holder,
             "refusing this custom investigation"
             if is_custom
@@ -396,7 +395,7 @@ async def _launch_investigation(
             # Prevent returning an existing sweep that does not match the requested overrides.
             return {
                 "error": (
-                    f"a sweep of {config.observed_agent_name!r} is already "
+                    f"a sweep of {agent_key!r} is already "
                     f"running as {holder}; your investigation was not started"
                 ),
                 "running_run_id": holder,
@@ -410,9 +409,7 @@ async def _launch_investigation(
                 status=RunStatus.SKIPPED,
                 error=f"a sweep was already running as {holder}; skipped",
             )
-        return await _get_running_run_view(
-            state, config.observed_agent_name, holder
-        )
+        return await _get_running_run_view(state, agent_key, holder)
 
     updated: InvestigationRecord | None = None
     try:
@@ -423,7 +420,7 @@ async def _launch_investigation(
             updated = await model.update_run(state, record.run_id, **changes)
     finally:
         # Release the lock only after terminal state write completes.
-        lock.release(config.observed_agent_name, record.run_id)
+        lock.release(agent_key, record.run_id)
     return model.format_run(updated or record)
 
 
@@ -483,7 +480,7 @@ def _parse_explicit_window(
 
 
 async def _refuse_if_too_busy(
-    state: ADKStateLike, agent_name: str
+    state: ADKStateLike, agent_key: str
 ) -> dict[str, Any] | None:
     """Check if active runs exceed MAX_RUNS_IN_FLIGHT and return refusal response if so.
 
@@ -491,25 +488,23 @@ async def _refuse_if_too_busy(
 
     Args:
         state: State dictionary used to resolve the investigation store.
-        agent_name: Name of the observed agent to check concurrency for.
+        agent_key: Key of the observed agent to check concurrency for.
 
     Returns:
         Refusal error dictionary if limit is reached, or None to allow execution.
     """
     try:
         in_flight = await asyncio.to_thread(
-            lambda: model.store_factory(state).count_in_flight(agent_name)
+            lambda: model.store_factory(state).count_in_flight(agent_key)
         )
     except Exception:
-        logger.exception(
-            "could not count the runs in flight for %r", agent_name
-        )
+        logger.exception("could not count the runs in flight for %r", agent_key)
         return None
     if in_flight < MAX_RUNS_IN_FLIGHT:
         return None
     return {
         "error": (
-            f"{in_flight} investigation(s) of {agent_name!r} are already in "
+            f"{in_flight} investigation(s) of {agent_key!r} are already in "
             f"flight, at or above the {MAX_RUNS_IN_FLIGHT} this deployment "
             "aims to keep; your investigation was not started. Wait for one to "
             "finish."
@@ -587,13 +582,13 @@ def _execute_on_this_thread(run_id: str, context: LaunchContext) -> None:
 
 
 async def _get_running_run_view(
-    state: ADKStateLike, agent_name: str, run_id: str
+    state: ADKStateLike, agent_key: str, run_id: str
 ) -> dict[str, Any]:
     """Retrieve formatted status for an active run when a new launch is refused.
 
     Args:
         state: State dictionary to access the investigation store.
-        agent_name: Name of the observed agent.
+        agent_key: Key of the observed agent.
         run_id: Identifier of the currently executing run.
 
     Returns:
@@ -605,7 +600,7 @@ async def _get_running_run_view(
         record = InvestigationRecord(
             run_id=run_id,
             status=RunStatus.RUNNING,
-            observed_agent_name=agent_name,
+            observed_agent_name=agent_key,
         )
     return model.format_run(record)
 
@@ -649,8 +644,10 @@ def submit_investigation(run_id: str, context: LaunchContext) -> dict[str, Any]:
             f"gs://{cfg.jobs_gcs_bucket}/aqa-jobs/{run_id}.json"
         )
 
-    client = agentplatform.Client(project=cfg.project_id, location=cfg.location)
-    result = client.agent_engines.run_query_job(
+    client = clients.create_agentplatform_client(
+        project=cfg.project_id, location=cfg.location
+    )
+    result = client.runtimes.run_query_job(
         name=_build_engine_name(cfg.project_id, cfg.location, engine_id),
         config=job_config,
     )

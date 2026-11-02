@@ -30,6 +30,7 @@ import { GcsLink } from "@/components/ui/gcs-link";
 import { HelpPopover } from "@/components/ui/help-popover";
 import { Loading } from "@/components/ui/loading";
 import { Textarea } from "@/components/ui/textarea";
+import { useAgentKey } from "@/lib/agent-selection";
 
 /** Shown in the empty box: a whole goal in the shape the review uses. */
 const EXAMPLE_GOAL = [
@@ -47,21 +48,24 @@ const TITLE = "Developer goal";
 /** The developer's goal (`goal.md`): an editor for the saved goal, and the
  * earlier versions to bring back. Every save is kept as a version. */
 export function GoalCard() {
-  const { data, isLoading, error } = useQuery(goalQuery());
-  const { data: versionsData } = useQuery(goalVersionsQuery());
+  const agentKey = useAgentKey();
+  const { data, isLoading, error } = useQuery(goalQuery(agentKey));
+  const { data: versionsData } = useQuery(goalVersionsQuery(agentKey));
   const queryClient = useQueryClient();
   const [draft, setDraft] = useState<string | null>(null);
   const [restoredFrom, setRestoredFrom] = useState<GoalVersionRow | null>(null);
   const [savedNotice, setSavedNotice] = useState(false);
 
   const mutation = useMutation({
-    mutationFn: (text: string) => saveGoal(text),
+    mutationFn: (text: string) => saveGoal(agentKey, text),
     onSuccess: () => {
       setDraft(null);
       setRestoredFrom(null);
       setSavedNotice(true);
       setTimeout(() => setSavedNotice(false), 3000);
-      void queryClient.invalidateQueries({ queryKey: ["aqua", "goal"] });
+      void queryClient.invalidateQueries({
+        queryKey: goalQuery(agentKey).queryKey,
+      });
     },
   });
 

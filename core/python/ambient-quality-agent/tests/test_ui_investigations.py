@@ -552,6 +552,19 @@ def test_list_insights_forwards_the_page_the_client_wants(monkeypatch) -> None:
     assert args["page_token"] == "tok-2"
 
 
+def test_list_insights_forwards_a_page_number(monkeypatch) -> None:
+    """A dashboard URL names its page by number, which the engine resolves."""
+    fake = FakeClient(insights=_INSIGHTS)
+    _inject(monkeypatch, fake)
+
+    r = _get("/api/insights?pageSize=10&page=3")
+
+    assert r.status_code == 200
+    args = fake.args_for("insights/list")
+    assert args["page"] == 3
+    assert "page_token" not in args
+
+
 def test_list_insights_passes_the_next_page_token_back(monkeypatch) -> None:
     fake = FakeClient(
         insights={**_INSIGHTS, "total": 87, "next_page_token": "tok-2"},

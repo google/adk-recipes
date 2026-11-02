@@ -1,0 +1,45 @@
+type: "standalone"
+status: "active"
+language: "python"
+description: "ADK Voice Agent — a Gemini Live voice agent that runs background coding agents on a personal cloud computer per user"
+# `make onboard` / `make deploy`: terraform/ provisions the infrastructure (including the
+# users' computers' instance template), then agents-cli ships the single UI + API
+# container (root Dockerfile) to Cloud Run behind IAP.
+deployable: true
+
+architecture:
+  # Voice orchestrator + grounding specialists (app/agent.py, app/tools/grounding_tools.py),
+  # plus the background coding harnesses it drives (Claude Code, Antigravity).
+  agent: "multi"
+  # Durable thread store (SQLite locally, Cloud SQL deployed) and each user's persistent home
+  # disk, with one git commit per thread round.
+  stateful: true
+  datasources:
+  - "external"
+
+dependencies:
+  libraries:
+  - "adk"
+  services:
+  - "vertex-ai"
+  - "agent-engine"
+  - "cloud-run"
+  - "compute-engine"
+  - "secret-manager"
+  - "cloud-sql"  # optional: enable_cloud_sql in terraform/
+
+tags:
+- "voice"
+- "gemini-live"
+- "sandbox"
+- "mcp"
+- "coding-agents"
+- "human-in-the-loop"
+- "memory"
+- "a2ui"
+
+license: "Apache-2.0"
+
+ownership:
+  team: "Developer Evangelism & Engineering (DevRel) - Cloud AI"
+  poc: "allen-stephen"

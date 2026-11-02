@@ -22,28 +22,33 @@ import {
   insightsQuery,
   runsQuery,
 } from "@/lib/aqua-api";
+import { useAgentKey } from "@/lib/agent-selection";
 import { useRailState } from "@/lib/rail-state";
 import { startTour } from "@/lib/tour-state";
 import { AppearancePopover } from "@/components/chat/appearance-popover";
 import { FeedbackPopover } from "@/components/chat/feedback-popover";
 import { Button } from "@/components/ui/button";
-import { mono, textStyle } from "@/lib/typography";
+import { textStyle } from "@/lib/typography";
+import { AgentSelector } from "./agent-selector";
 import { cn } from "@/lib/utils";
 
-/** Brand and global controls.
+/** Brand, the agent selector and global controls.
  *
  * Navigation lives in the sidebar, which already lists conversations, issues
  * and investigations -- tabs here would be a second place to go to the same
  * three destinations, and the wordmark appeared twice on the chat route.
  */
 export function TabBar() {
-  const { data: runs } = useQuery(runsQuery());
-  const { data: health } = useQuery(healthQuery());
+  const agentKey = useAgentKey();
+  const { data: runs } = useQuery(runsQuery(agentKey));
+  const { data: health } = useQuery(healthQuery(agentKey));
   // One row: all this needs off the list is the agent name it carries, for
-  // when no run has reported one.
-  const { data: insightsPage } = useQuery(insightsQuery({ pageSize: 1 }));
+  // when neither the agent list nor a run has reported one.
+  const { data: insightsPage } = useQuery(
+    insightsQuery(agentKey, { pageSize: 1 }),
+  );
   // Before any run or insight, the configured agent is the only name there is.
-  const { data: effectiveConfig } = useQuery(effectiveConfigQuery());
+  const { data: effectiveConfig } = useQuery(effectiveConfigQuery(agentKey));
   const { collapsed: railCollapsed, toggle: toggleRail } = useRailState();
   const latestRun = runs?.[0];
   const configuredName = effectiveConfig?.config?.observed_agent_name;
@@ -76,40 +81,27 @@ export function TabBar() {
             <PanelLeft className="h-4 w-4" />
           </Button>
         )}
-        {agentName && (
-          <div
-            data-testid="agent-freshness-badge"
+        {/* The dot is on every route and outlives the homepage strip, so it
+            cannot be decorative: a green pulse over a scheduler that has
+            never fired is the loudest lie on the screen. Freshness lives in
+            the homepage stat bar, from the health read: two sources for one
+            fact disagreed on screen. */}
+        <AgentSelector fallbackName={agentName}>
+          <span
+            data-testid="agent-health-dot"
+            title={health?.reason ?? "health unknown"}
             className={cn(
-              textStyle.meta,
-              "hidden sm:flex items-center gap-1.5 rounded-full bg-muted/40 px-2.5 py-0.5 border border-border/40",
+              "h-1.5 w-1.5 rounded-full",
+              health?.verdict === "watching" && "bg-emerald-500 animate-pulse",
+              (health?.verdict === "overdue" ||
+                health?.verdict === "never" ||
+                health?.verdict === "disabled") &&
+                "bg-amber-500",
+              health?.verdict === "failing" && "bg-red-500",
+              !health?.verdict && "bg-muted-foreground/40",
             )}
-          >
-            {/* The dot is on every route and outlives the homepage strip, so
-                it cannot be decorative: a green pulse over a scheduler that
-                has never fired is the loudest lie on the screen. */}
-            <span
-              data-testid="agent-health-dot"
-              title={health?.reason ?? "health unknown"}
-              className={cn(
-                "h-1.5 w-1.5 rounded-full",
-                health?.verdict === "watching" &&
-                  "bg-emerald-500 animate-pulse",
-                (health?.verdict === "overdue" ||
-                  health?.verdict === "never" ||
-                  health?.verdict === "disabled") &&
-                  "bg-amber-500",
-                health?.verdict === "failing" && "bg-red-500",
-                !health?.verdict && "bg-muted-foreground/40",
-              )}
-            />
-            {/* Freshness lives in the homepage stat bar, from the health read.
-                Two sources for one fact disagreed on screen: this said "3d
-                ago" beside the bar's "1d ago". */}
-            <span className={cn(mono, "text-foreground font-medium")}>
-              {agentName}
-            </span>
-          </div>
-        )}
+          />
+        </AgentSelector>
       </div>
       <div className="ml-auto flex items-center gap-1">
         <Button

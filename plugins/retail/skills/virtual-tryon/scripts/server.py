@@ -74,7 +74,6 @@ def _resolve_project() -> str:
 
 
 PROJECT_ID = _resolve_project()
-LOCATION = config.GCP_REGION
 MODEL_LOCATION = config.GEMINI_MODEL_LOCATION
 OUTPUT_BUCKET = config.TRYON_OUTPUT_BUCKET
 MODEL_NAME = config.GEMINI_IMAGE_MODEL
@@ -113,7 +112,7 @@ def get_catalog(path: str | None = None, force: bool = False):
 
     try:
         catalog = scan_directory(
-            catalog_path, PROJECT_ID, LOCATION, force_reindex=force
+            catalog_path, PROJECT_ID, MODEL_LOCATION, force_reindex=force
         )
         path_display = (
             catalog_path if is_gcs else str(Path(catalog_path).resolve())

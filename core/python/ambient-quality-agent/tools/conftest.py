@@ -22,6 +22,5 @@ os.environ["PYTHON_DOTENV_DISABLED"] = "1"
 
 # Sets required configuration defaults for importing ambient_quality_agent
 # during test collection, matching tests/conftest.py.
-os.environ.setdefault("AQA_OBSERVED_AGENT_NAME", "test-observed-agent")
 os.environ.setdefault("GOOGLE_CLOUD_PROJECT", "test-project")
 os.environ.setdefault("GOOGLE_CLOUD_LOCATION", "us-central1")

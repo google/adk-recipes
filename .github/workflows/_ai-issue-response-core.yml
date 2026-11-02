@@ -213,6 +213,7 @@ jobs:
             - /core/typescript/** -> tommywagz
             - /core/kotlin/** -> tommywagz
             - /core/python/ambient-quality-agent/** -> maxgasztych
+            - /core/python/genmedia-for-commerce/** -> lspataroG
 
             Contrib Directory Assignments:
             - /contrib/python/** -> tommywagz

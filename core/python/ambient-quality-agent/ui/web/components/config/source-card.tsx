@@ -19,6 +19,7 @@ import { Loading } from "@/components/ui/loading";
 import { sourceQuery } from "@/lib/aqua-api";
 import { mono, textStyle } from "@/lib/typography";
 import { cn, formatBytes, formatRelativeTime } from "@/lib/utils";
+import { useAgentKey } from "@/lib/agent-selection";
 
 /** An RFC 3339 instant as "2h ago", or null when absent or unparseable. */
 function publishedAt(value: string | null | undefined): string | null {
@@ -42,7 +43,8 @@ function publishedAt(value: string | null | undefined): string | null {
  * though nothing were wrong.
  */
 export function SourceCard() {
-  const { data, isLoading, error } = useQuery(sourceQuery());
+  const agentKey = useAgentKey();
+  const { data, isLoading, error } = useQuery(sourceQuery(agentKey));
 
   if (isLoading) {
     return (

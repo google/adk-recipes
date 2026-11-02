@@ -373,6 +373,32 @@ def test_list_insights_page_token_advances_offset(use_reader) -> None:
     assert reader.list_calls[0]["offset"] == 30
 
 
+@pytest.mark.parametrize(
+    ("page", "offset"), [(0, 0), (1, 0), (2, 10), (4, 30), (-3, 0)]
+)
+def test_list_insights_page_number_counts_pages_of_the_page_size(
+    use_reader, page: int, offset: int
+) -> None:
+    reader = use_reader(_FakeReader(summaries=[_summary()], total=100))
+
+    _call_list(StateContext(), page_size=10, page=page)
+
+    assert reader.list_calls[0]["offset"] == offset
+
+
+def test_list_insights_page_token_wins_over_a_page_number(use_reader) -> None:
+    reader = use_reader(_FakeReader(summaries=[_summary()], total=100))
+
+    _call_list(
+        StateContext(),
+        page_size=10,
+        page=5,
+        page_token=paging.encode_page_token(30),
+    )
+
+    assert reader.list_calls[0]["offset"] == 30
+
+
 def test_list_insights_status_filter_parsed(use_reader) -> None:
     reader = use_reader(_FakeReader(summaries=[], total=0))
 

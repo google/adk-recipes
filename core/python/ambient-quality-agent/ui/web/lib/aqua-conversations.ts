@@ -12,16 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-/** The chat list, held in this browser.
+/** Local conversation store for chats started in this browser.
  *
  * A conversation is an A2A `contextId`. The engine mints one ADK session per
- * context under the user `A2A_USER_<contextId>`, so listing them server-side
- * would need the user ids we are trying to discover in the first place --
- * `/lha/sessions` answers an empty list for exactly that reason.
+ * context under the user `A2A_USER_<contextId>`, so listing them through ADK
+ * would require knowing the user ids in advance; `/lha/sessions` returns an
+ * empty list for that reason.
  *
- * Holding them here is honest about what the list is: conversations started on
- * this machine, not every conversation ever. The transcript itself lives in the
- * engine, so opening one on another machine still works if you have the id.
+ * This store populates the sidebar immediately and supports deployments
+ * without a jobs bucket. When a jobs bucket is configured, `/lha/contexts`
+ * returns every stored conversation with its saved name and first message, and
+ * `useLhaSessions` merges both sources so a saved name persists across
+ * browsers and after site data is cleared.
  */
 
 import { sliceGraphemes } from "./graphemes";
@@ -44,6 +46,18 @@ export interface StoredConversation {
    * there is one. The messages themselves still come from A2A `getTask`.
    */
   taskIds?: string[];
+  /**
+   * True when the title was derived from a message rather than set by the
+   * user. Because that message may be a later reply sent from a browser that
+   * never saw the opening turn, `useLhaSessions` prefers the server's
+   * `first_message` over a derived local title. Entries without this field are
+   * treated as user-chosen.
+   */
+  derivedTitle?: boolean;
+  /** The agent the conversation is about, from its first send. Absent on a
+   *  conversation whose sends named no agent, which the agent answers for its
+   *  default agent. */
+  agentKey?: string;
 }
 
 // Falls back to memory when there is no Storage: happy-dom does not provide
@@ -88,18 +102,26 @@ export function listConversations(): StoredConversation[] {
   }
 }
 
-/** Record a conversation, keeping the first message as its title. */
-export function rememberConversation(id: string, firstMessage?: string): void {
+/** Record a conversation, keeping the first message as its title and the
+ *  first agent it was sent for as its agent. */
+export function rememberConversation(
+  id: string,
+  firstMessage?: string,
+  agentKey?: string,
+): void {
   const s = storage();
   const now = Date.now();
   const existing = listConversations();
   const previous = existing.find((c) => c.id === id);
   const next: StoredConversation = {
     id,
-    title: previous?.title || titleFrom(firstMessage) || "New chat",
+    title:
+      previous?.title || buildConversationTitle(firstMessage) || "New chat",
+    derivedTitle: previous?.title ? previous.derivedTitle : true,
     createdAt: previous?.createdAt ?? now,
     lastUpdated: now,
     taskIds: previous?.taskIds,
+    agentKey: previous?.agentKey ?? agentKey,
   };
   const rest = existing.filter((c) => c.id !== id);
   s.setItem(KEY, JSON.stringify([next, ...rest].slice(0, LIMIT)));
@@ -118,13 +140,20 @@ export function forgetConversation(id: string): void {
 export function renameConversation(id: string, title: string): void {
   const s = storage();
   const next = listConversations().map((c) =>
-    c.id === id ? { ...c, title } : c,
+    c.id === id ? { ...c, title, derivedTitle: false } : c,
   );
   s.setItem(KEY, JSON.stringify(next));
   notify();
 }
 
-function titleFrom(message?: string): string {
+/**
+ * Builds a single-line sidebar title from a conversation's first message.
+ *
+ * @param message - The first user message, if any.
+ * @returns Single-line title truncated with an ellipsis past 60 UTF-16 code
+ *   units without splitting a grapheme cluster, or `""` if blank.
+ */
+export function buildConversationTitle(message?: string | null): string {
   const trimmed = (message ?? "").trim().replace(/\s+/g, " ");
   if (!trimmed) return "";
   return trimmed.length > 60 ? `${sliceGraphemes(trimmed, 57)}…` : trimmed;
@@ -152,6 +181,7 @@ export function rememberTask(conversationId: string, taskId: string): void {
   const base: StoredConversation = previous ?? {
     id: conversationId,
     title: "New chat",
+    derivedTitle: true,
     createdAt: Date.now(),
     lastUpdated: Date.now(),
   };

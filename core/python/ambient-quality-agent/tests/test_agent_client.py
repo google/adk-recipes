@@ -29,6 +29,7 @@ import asyncio
 
 import pytest
 from ambient_quality_shared import agent_client as ac
+from ambient_quality_shared import protocol, usage_headers
 
 
 # --------------------------------------------------------------------------- #
@@ -344,3 +345,52 @@ def test_command_raises_on_a_non_2xx(monkeypatch):
 
     with pytest.raises(RuntimeError):
         _run(c.post_command("investigations/list"))
+
+
+# --------------------------------------------------------------------------- #
+# Usage analytics headers
+# --------------------------------------------------------------------------- #
+_RESOURCE = "projects/p/locations/us-central1/reasoningEngines/9"
+
+
+def _post_headers(monkeypatch, client, path, payload=None) -> dict:
+    """Sends one command through a fake transport.
+
+    Args:
+        monkeypatch: Patches the transport and the ADC token.
+        client: Client under test.
+        path: Command route to post to.
+        payload: JSON body, if any.
+
+    Returns:
+        The headers the command went out with.
+    """
+    calls: list[dict] = []
+    _install_fake_httpx(monkeypatch, calls, _FakeResp(json_data={}))
+    monkeypatch.setattr(ac, "get_adc_token", lambda: "tok")  # skip real ADC
+    _run(client.post_command(path, payload))
+    return calls[0]["headers"]
+
+
+def test_an_engine_client_sends_the_product_token(
+    _clean_env, usage_analytics_on
+):
+    client = ac.AgentRuntimeClient(resource_id=_RESOURCE)
+
+    headers = _post_headers(_clean_env, client, protocol.CONFIG_ROUTE)
+
+    assert headers["user-agent"] == usage_headers.build_product_token()
+    assert headers["x-goog-api-client"] == headers["user-agent"]
+    assert headers["Authorization"] == "Bearer tok"
+
+
+def test_the_switch_off_sends_no_usage_headers(_clean_env):
+    _clean_env.setattr(usage_headers, "USAGE_ANALYTICS_ENABLED", False)
+    client = ac.AgentRuntimeClient(resource_id=_RESOURCE)
+
+    headers = _post_headers(
+        _clean_env, client, protocol.INVESTIGATIONS_SCHEDULE_ROUTE
+    )
+
+    assert "user-agent" not in headers
+    assert "x-goog-api-client" not in headers

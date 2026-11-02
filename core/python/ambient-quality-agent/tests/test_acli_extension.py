@@ -31,7 +31,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any, NoReturn
+from typing import Any
 
 import _acli
 import acli_aqua
@@ -74,13 +74,21 @@ class Recorder:
         self._results = results or {}
 
     def __call__(
-        self, argv, *, cwd=None, env=None, capture=False, check=False
+        self,
+        argv,
+        *,
+        cwd=None,
+        env=None,
+        capture=False,
+        capture_stdout=False,
+        check=False,
     ) -> subprocess.CompletedProcess:
         self.calls.append(
             {
                 "argv": list(argv),
                 "cwd": None if cwd is None else str(cwd),
                 "env": env,
+                "capture_stdout": capture_stdout,
             }
         )
         for marker, (code, stdout) in self._results.items():
@@ -105,7 +113,8 @@ def wrappers(monkeypatch, tmp_path):
     to be replaced on the wrapper's own module; `run` is the exception, since
     `run_builtin` reaches it through `_acli`'s globals.
     """
-    # Simulates `gcloud run services list` finding an existing dashboard service.
+    # Simulates `gcloud run services list` finding an existing dashboard
+    # service.
     recorder = Recorder({"list": (0, f"{UI_SERVICE}\n")})
     info = dict(_INFO, project_root=str(tmp_path))
     for module in (_acli, acli_infra, acli_deploy, acli_ui):
@@ -139,11 +148,7 @@ def wrappers(monkeypatch, tmp_path):
     monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "p1")
     # The fallback for `--observed-*`, so a developer's shell must not decide
     # what the tests see.
-    for name in (
-        "TF_VAR_observed_deployment_name",
-        "TF_VAR_observed_agent_name",
-    ):
-        monkeypatch.delenv(name, raising=False)
+    monkeypatch.delenv("TF_VAR_observed_deployment_name", raising=False)
     return recorder
 
 
@@ -169,6 +174,17 @@ def test_manifest_declares_the_three_commands():
     commands = _manifest()["commands"]
     assert set(commands["override"]) == {"deploy", "infra.single-project"}
     assert set(commands["add"]) == {"aqua"}
+
+
+def test_manifest_declares_the_bundled_skill():
+    skills = _manifest()["skills"]
+    assert set(skills) == {"agents-cli-aqua"}
+    skill_dir = (REPO_ROOT / skills["agents-cli-aqua"]["path"]).resolve()
+    assert skill_dir.is_relative_to(REPO_ROOT)
+    skill_md = skill_dir / "SKILL.md"
+    assert skill_md.is_file()
+    _, frontmatter, _ = skill_md.read_text(encoding="utf-8").split("---", 2)
+    assert yaml.safe_load(frontmatter)["name"] == "agents-cli-aqua"
 
 
 def test_every_run_vector_names_a_file_that_exists():
@@ -213,12 +229,12 @@ def test_take_flag_removes_only_that_flag():
 @pytest.mark.parametrize(
     "argv",
     [
-        ["--observed-agent-name", "a1", "--apply"],
-        ["--observed-agent-name=a1", "--apply"],
+        ["--flavor", "a1", "--apply"],
+        ["--flavor=a1", "--apply"],
     ],
 )
 def test_take_option_removes_both_spellings(argv):
-    assert _acli.take_option(argv, "--observed-agent-name") == (
+    assert _acli.take_option(argv, "--flavor") == (
         ["--apply"],
         "a1",
     )
@@ -226,16 +242,16 @@ def test_take_option_removes_both_spellings(argv):
 
 def test_take_option_drops_a_trailing_option_carrying_nothing():
     """The built-in would reject what it cannot parse, value or no value."""
-    argv = ["--apply", "--observed-agent-name"]
-    assert _acli.take_option(argv, "--observed-agent-name") == (
+    argv = ["--apply", "--flavor"]
+    assert _acli.take_option(argv, "--flavor") == (
         ["--apply"],
         None,
     )
 
 
 def test_take_option_takes_every_occurrence_and_reads_the_first():
-    argv = ["--observed-agent-name", "a1", "--observed-agent-name=a2"]
-    assert _acli.take_option(argv, "--observed-agent-name") == ([], "a1")
+    argv = ["--flavor", "a1", "--flavor=a2"]
+    assert _acli.take_option(argv, "--flavor") == ([], "a1")
 
 
 @pytest.mark.parametrize(
@@ -264,45 +280,37 @@ def test_observed_agent_name_prefers_the_contract_over_the_convention():
     assert _acli.resolve_observed_agent_name(_INFO) == "it_support_agent"
 
 
-def test_the_observed_project_answers_for_itself(monkeypatch):
+def test_the_observed_project_names_aqua_after_itself(monkeypatch):
     """The vendored install: the project in the working directory is the agent."""
-    for name in (
-        "TF_VAR_observed_deployment_name",
-        "TF_VAR_observed_agent_name",
-    ):
-        monkeypatch.delenv(name, raising=False)
-    options = _acli.ObservedOptions(None, None)
-    assert _acli.resolve_observed_identity(
-        options, _INFO, standalone=False
-    ) == (
-        "it-support-agent",
-        "it_support_agent",
+    monkeypatch.delenv("TF_VAR_observed_deployment_name", raising=False)
+    options = _acli.ObservedOptions(None)
+    assert (
+        _acli.resolve_observed_deployment_name(options, _INFO, standalone=False)
+        == "it-support-agent"
     )
 
 
-def test_observed_options_fall_back_to_terraforms_own_variables(monkeypatch):
-    """A deployment that exports them for `terraform` need not repeat them."""
+def test_observed_options_fall_back_to_terraforms_own_variable(monkeypatch):
+    """A deployment that exports it for `terraform` need not repeat it."""
     monkeypatch.setenv("TF_VAR_observed_deployment_name", "sherlock-v2")
-    monkeypatch.setenv("TF_VAR_observed_agent_name", "from_env")
     remaining, options = _acli.take_observed_options(["--apply"])
     assert remaining == ["--apply"]
-    assert options == ("sherlock-v2", "from_env")
+    assert options == ("sherlock-v2",)
 
 
 def test_an_observed_flag_beats_terraforms_environment(monkeypatch):
-    monkeypatch.setenv("TF_VAR_observed_agent_name", "from_env")
+    monkeypatch.setenv("TF_VAR_observed_deployment_name", "from-env")
     _, options = _acli.take_observed_options(
-        ["--observed-agent-name", "from_flag"]
+        ["--observed-deployment-name", "from-flag"]
     )
-    assert options.agent_name == "from_flag"
+    assert options.deployment_name == "from-flag"
 
 
 @pytest.mark.parametrize(
     "argv",
     [
-        ["--observed-agent-name"],
-        ["--observed-agent-name", "--apply"],
-        ["--observed-agent-name="],
+        ["--observed-deployment-name"],
+        ["--observed-deployment-name", "--apply"],
         ["--observed-deployment-name="],
     ],
 )
@@ -311,6 +319,17 @@ def test_an_observed_flag_without_a_value_is_refused(argv, capsys):
     with pytest.raises(SystemExit):
         _acli.take_observed_options(argv)
     assert "needs a value" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [["--observed-agent-name", "a1"], ["--observed-agent-name=a1", "--apply"]],
+)
+def test_the_observed_agent_name_is_refused(argv, capsys):
+    """AQuA is provisioned with no agent, so the name would be ignored."""
+    with pytest.raises(SystemExit):
+        _acli.take_observed_options(argv)
+    assert "agents-cli aqua attach" in capsys.readouterr().err
 
 
 def test_aqua_service_name_matches_the_module():
@@ -363,16 +382,13 @@ def test_infra_leaves_aqua_out_without_its_flag(wrappers, monkeypatch, capsys):
     assert applied == []
     err = capsys.readouterr().err
     assert "--apply-aqua" in err
-    assert "agents-cli aqua attach --apply --aqua-resource" in err
+    assert "agents-cli aqua attach --aqua-resource" in err
 
 
 def test_infra_strips_its_own_flag_before_the_builtin(wrappers, monkeypatch):
     applied: list[Any] = []
     monkeypatch.setattr(
         acli_infra, "run_terraform", lambda *a, **k: applied.append(a)
-    )
-    monkeypatch.setattr(
-        acli_infra, "read_observed_engine_resource_name", lambda *a, **k: None
     )
     acli_infra.main(["--apply", "--apply-aqua"])
     assert wrappers.calls[0]["argv"][1:] == [
@@ -383,15 +399,15 @@ def test_infra_strips_its_own_flag_before_the_builtin(wrappers, monkeypatch):
     assert len(applied) == 2, "bootstrap and the deployment root"
 
 
-def test_infra_passes_the_variables_each_root_declares(wrappers, monkeypatch):
+def test_infra_passes_the_variables_each_root_declares(
+    wrappers, monkeypatch, capsys
+):
+    """Neither root names the observed agent: the deploy attaches it."""
     runs: list[dict[str, Any]] = []
     monkeypatch.setattr(
         acli_infra,
         "run_terraform",
         lambda root, **kwargs: runs.append({"root": root, **kwargs}),
-    )
-    monkeypatch.setattr(
-        acli_infra, "read_observed_engine_resource_name", lambda *a, **k: None
     )
     acli_infra.main(["--project", "p2", "--apply", "--apply-aqua"])
 
@@ -402,114 +418,237 @@ def test_infra_passes_the_variables_each_root_declares(wrappers, monkeypatch):
     assert deployment["tf_vars"] == {
         "region": "us-east1",
         "observed_deployment_name": "it-support-agent",
-        "observed_agent_name": "it_support_agent",
-        "telemetry_table": "aiplatform_googleapis_com_reasoning_engine_stdout",
         "project_id": "p2",
     }
     assert all(run["apply"] for run in runs)
-
-
-def test_infra_passes_the_engine_when_one_exists(wrappers, monkeypatch):
-    runs: list[dict[str, Any]] = []
-    monkeypatch.setattr(
-        acli_infra, "run_terraform", lambda root, **kwargs: runs.append(kwargs)
+    assert (
+        "agents-cli deploy --deploy-aqua` attaches" in capsys.readouterr().err
     )
-    monkeypatch.setattr(
-        acli_infra,
-        "read_observed_engine_resource_name",
-        lambda *a, **k: "projects/p2/locations/us-east1/reasoningEngines/7",
-    )
-    acli_infra.main(["--project", "p2", "--apply-aqua"])
-    assert runs[1]["tf_vars"]["observed_engine_resource_name"] == (
-        "projects/p2/locations/us-east1/reasoningEngines/7"
-    )
-    assert not runs[1]["apply"], "no --apply means plan"
 
 
-def _infra_show(payload: str, code: int = 0) -> Recorder:
-    """Returns a `run` recorder answering `agents-cli infra show --json` with `payload`.
+def test_infra_links_no_spans_itself(wrappers, monkeypatch):
+    """The attach in the deploy creates the link it reads through."""
+    monkeypatch.setattr(acli_infra, "run_terraform", lambda *a, **k: None)
+    acli_infra.main(["--project", "p2", "--apply", "--apply-aqua"])
+    assert not any("link-traces" in c["argv"] for c in wrappers.calls)
+
+
+def test_destroy_leaves_the_spans_link_alone(wrappers, monkeypatch, tmp_path):
+    """The bucket and the link are project-wide; other readers use them."""
+    _destroy_recorder(monkeypatch, tmp_path)
+
+    acli_infra.main(["--destroy", "--apply", "--project", "p2"])
+
+    assert not any("link-traces" in c["argv"] for c in wrappers.calls)
+
+
+# --- infra: the agent the deployed engine's environment names ----------------
+
+ENGINE = "projects/p2/locations/us-east1/reasoningEngines/42"
+
+
+def _write_deployed_engine(tmp_path) -> None:
+    """Writes ENGINE as the engine in AQuA's Terraform state.
 
     Args:
-        payload: JSON response payload to return.
-        code: Return code to simulate.
+        tmp_path: The fake project's root.
+    """
+    state_root = tmp_path / _acli.STATE_DIR_NAME
+    state_root.mkdir(exist_ok=True)
+    outputs = {"engine_resource_name": {"value": ENGINE}}
+    terraform_state.build_state_path(
+        state_root, _acli.DEPLOYMENT_KEY
+    ).write_text(json.dumps({"outputs": outputs}), encoding="utf-8")
+
+
+def _build_listing(**fields: Any) -> tuple[int, str]:
+    """Builds the canned output of `agents-cli aqua list-agents`.
+
+    Args:
+        **fields: Fields of the listing.
 
     Returns:
-        A configured `Recorder` instance.
+        A `(returncode, stdout)` pair for the recorder.
     """
-    return Recorder({"show": (code, payload)})
+    return 0, json.dumps({"agents": [], **fields})
 
 
-def test_engine_resource_name_reads_the_infra_contract(monkeypatch):
-    """`infra show` is what makes the engine id readable from outside."""
-    recorder = _infra_show(
-        json.dumps({"outputs": {"agent_runtime_resource_name": "7"}})
-    )
-    monkeypatch.setattr(_acli, "run", recorder)
+def _record_steps(monkeypatch, recorder: Recorder) -> list[str]:
+    """Records the Terraform roots and the AQuA CLI commands, in order.
+
+    Args:
+        monkeypatch: Pytest monkeypatch fixture.
+        recorder: The recording `run` of the `wrappers` fixture.
+
+    Returns:
+        A state key per root, and the CLI subcommand per CLI run.
+    """
+    steps: list[str] = []
     monkeypatch.setattr(
-        _acli, "resolve_agents_cli_path", lambda: "/bin/agents-cli"
+        acli_infra,
+        "run_terraform",
+        lambda root, **kwargs: steps.append(kwargs["state_key"]),
     )
-    # Composed with the project *id*: AQuA matches audit logs, which never
-    # carry a project number.
-    assert acli_infra.read_observed_engine_resource_name("p2", "us-east1") == (
-        "projects/p2/locations/us-east1/reasoningEngines/7"
+    cli = len(_acli.AQUA_CLI_COMMAND)
+
+    def run(argv, **kwargs):
+        """Records an AQuA CLI subcommand and forwards the call to `recorder`.
+
+        Args:
+            argv: Command argument vector.
+            **kwargs: Keyword arguments forwarded to `recorder`.
+
+        Returns:
+            The canned `CompletedProcess` from `recorder`.
+        """
+        if list(argv[:cli]) == list(_acli.AQUA_CLI_COMMAND):
+            steps.append(argv[cli])
+        return recorder(argv, **kwargs)
+
+    monkeypatch.setattr(acli_infra, "run", run)
+    return steps
+
+
+def test_infra_attaches_the_environments_agent_before_replacing_its_engine(
+    wrappers, monkeypatch, tmp_path
+):
+    _write_deployed_engine(tmp_path)
+    monkeypatch.setattr(
+        wrappers,
+        "_results",
+        {
+            "list-agents": _build_listing(
+                environment_agent="it_support_agent",
+                environment_agent_key="it_support_agent",
+            )
+        },
+        raising=False,
     )
-    assert recorder.argv_containing("show") == [
-        "/bin/agents-cli",
-        "infra",
-        "show",
-        "--json",
+    steps = _record_steps(monkeypatch, wrappers)
+
+    acli_infra.main(["--project", "p2", "--apply", "--apply-aqua"])
+
+    assert steps == ["bootstrap", "list-agents", "attach", "single-project"]
+    attach = wrappers.argv_containing("attach")
+    assert attach[len(_acli.AQUA_CLI_COMMAND) :] == [
+        "attach",
+        "it_support_agent",
+        "--no-discover",
     ]
+    (call,) = [c for c in wrappers.calls if "attach" in c["argv"]]
+    assert call["env"] == {"AGENT_ENGINE_RESOURCE_ID": ENGINE}
 
 
-def test_engine_resource_name_rewrites_a_full_name(monkeypatch):
-    full = "projects/123456/locations/us-east1/reasoningEngines/7"
+def test_a_plan_says_the_environments_agent_would_be_attached(
+    wrappers, monkeypatch, tmp_path, capsys
+):
+    _write_deployed_engine(tmp_path)
     monkeypatch.setattr(
-        _acli,
-        "run",
-        _infra_show(
-            json.dumps({"outputs": {"agent_runtime_resource_name": full}})
-        ),
+        wrappers,
+        "_results",
+        {"list-agents": _build_listing(environment_agent="it_support_agent")},
+        raising=False,
     )
-    monkeypatch.setattr(
-        _acli, "resolve_agents_cli_path", lambda: "/bin/agents-cli"
-    )
-    assert acli_infra.read_observed_engine_resource_name("p2", "us-east1") == (
-        "projects/p2/locations/us-east1/reasoningEngines/7"
+    steps = _record_steps(monkeypatch, wrappers)
+
+    acli_infra.main(["--project", "p2", "--apply-aqua"])
+
+    assert steps == ["bootstrap", "list-agents", "single-project"]
+    assert "With --apply, its settings are first copied" in (
+        capsys.readouterr().err
     )
 
 
 @pytest.mark.parametrize(
-    ("payload", "code"),
+    "listing",
     [
-        # No state yet: `infra show` reports no outputs rather than failing.
-        (json.dumps({"outputs": {}}), 0),
-        # A target that creates no engine at all.
-        (json.dumps({"outputs": {"service_account": "x@y"}}), 0),
-        ("", 1),
-        ("not json", 0),
+        # An engine deployed with no observed agent.
+        _build_listing(environment_agent=None),
+        # Already attached, by an earlier apply or by hand.
+        _build_listing(
+            environment_agent="it_support_agent",
+            environment_agent_key="it_support_agent",
+            agents=[{"agent_key": "it_support_agent"}],
+        ),
     ],
 )
-def test_engine_resource_name_is_none_when_there_is_no_engine(
-    payload, code, monkeypatch
+def test_infra_attaches_nothing_the_environment_does_not_hold(
+    wrappers, monkeypatch, tmp_path, listing
 ):
-    monkeypatch.setattr(_acli, "run", _infra_show(payload, code))
+    _write_deployed_engine(tmp_path)
     monkeypatch.setattr(
-        _acli, "resolve_agents_cli_path", lambda: "/bin/agents-cli"
+        wrappers, "_results", {"list-agents": listing}, raising=False
     )
-    assert (
-        acli_infra.read_observed_engine_resource_name("p2", "us-east1") is None
-    )
+    steps = _record_steps(monkeypatch, wrappers)
+
+    acli_infra.main(["--project", "p2", "--apply", "--apply-aqua"])
+
+    assert steps == ["bootstrap", "list-agents", "single-project"]
 
 
-def test_engine_resource_name_needs_a_project_to_compose_one(monkeypatch):
-    recorder = _infra_show(
-        json.dumps({"outputs": {"agent_runtime_resource_name": "7"}})
+def test_a_first_apply_asks_no_engine(wrappers, monkeypatch):
+    steps = _record_steps(monkeypatch, wrappers)
+
+    acli_infra.main(["--project", "p2", "--apply", "--apply-aqua"])
+
+    assert steps == ["bootstrap", "single-project"]
+
+
+def test_an_unreachable_engine_is_reported_and_aqua_still_applied(
+    wrappers, monkeypatch, tmp_path, capsys
+):
+    _write_deployed_engine(tmp_path)
+    monkeypatch.setattr(
+        wrappers, "_results", {"list-agents": (1, "")}, raising=False
     )
-    monkeypatch.setattr(_acli, "run", recorder)
-    assert (
-        acli_infra.read_observed_engine_resource_name(None, "us-east1") is None
+    steps = _record_steps(monkeypatch, wrappers)
+
+    acli_infra.main(["--project", "p2", "--apply", "--apply-aqua"])
+
+    assert steps == ["bootstrap", "list-agents", "single-project"]
+    assert "no settings are copied" in capsys.readouterr().err
+
+
+def test_a_failed_attach_is_reported_and_aqua_still_applied(
+    wrappers, monkeypatch, tmp_path, capsys
+):
+    """Refusing would leave no way to apply an AQuA whose telemetry broke."""
+    _write_deployed_engine(tmp_path)
+    monkeypatch.setattr(
+        wrappers,
+        "_results",
+        {
+            "list-agents": _build_listing(environment_agent="it_support_agent"),
+            "attach": (1, ""),
+        },
+        raising=False,
     )
-    assert recorder.calls == [], "no project means nothing to ask about"
+    steps = _record_steps(monkeypatch, wrappers)
+
+    acli_infra.main(["--project", "p2", "--apply", "--apply-aqua"])
+
+    assert steps == ["bootstrap", "list-agents", "attach", "single-project"]
+    assert "its settings are not copied" in capsys.readouterr().err
+
+
+def test_aquas_own_checkout_says_how_to_wire_the_trigger_after_the_copy(
+    own_checkout, monkeypatch, tmp_path, capsys
+):
+    """No deploy attaches the agent there, so its update trigger is left to do."""
+    _write_deployed_engine(tmp_path)
+    monkeypatch.setattr(
+        own_checkout,
+        "_results",
+        {"list-agents": _build_listing(environment_agent="sherlock_v2_agent")},
+        raising=False,
+    )
+    _record_steps(monkeypatch, own_checkout)
+
+    acli_infra.main(["--apply", *OBSERVED])
+
+    assert "agents-cli aqua attach sherlock_v2_agent --no-discover" in (
+        capsys.readouterr().err
+    )
 
 
 # --- infra --destroy --------------------------------------------------------
@@ -592,103 +731,73 @@ def test_destroy_forgets_the_engine_it_destroyed(
     assert not metadata.exists()
 
 
-_INSTANCE = {
-    "region": "us-east1",
-    "aqua_engine": "projects/p2/locations/us-east1/reasoningEngines/1",
-    "ambient_topic": "projects/p2/topics/it-support-agent-aqua-ambient",
-    "ambient_caller_email": "caller@p2.iam.gserviceaccount.com",
-}
+_ENGINE = "projects/p2/locations/us-east1/reasoningEngines/1"
 
 
-def _write_attach_state(state_root: Path, agent: str, instance=_INSTANCE):
-    """Writes an agent's attach state as `attach --apply` leaves it.
+def _record_engine(state_root: Path) -> None:
+    """Records the deployed engine as `agents-cli deploy` leaves it.
 
     Args:
         state_root: Directory holding state files.
-        agent: Agent name.
-        instance: The recorded `instance` output; None writes none.
-
-    Returns:
-        The state file's path.
     """
-    state = state_root / f"attach-{agent}.tfstate"
-    outputs = {} if instance is None else {"instance": {"value": instance}}
-    state.write_text(json.dumps({"outputs": outputs}), encoding="utf-8")
-    return state
+    (state_root / _acli.METADATA_FILE).write_text(
+        json.dumps({"remote_agent_runtime_id": _ENGINE}), encoding="utf-8"
+    )
 
 
-def test_destroy_takes_the_attached_triggers_down_first(
+def test_destroy_removes_the_attached_triggers_first(
     wrappers, monkeypatch, tmp_path
 ):
-    """Left standing, they would call a deleted engine on every tick. What they
-    call comes from their own state, not from the deployment's."""
+    """Left standing, each sink would export to a deleted topic. The engine
+    names the attached agents, wherever `attach` ran for them."""
     runs = _destroy_recorder(monkeypatch, tmp_path)
-    state = _write_attach_state(
-        tmp_path / _acli.STATE_DIR_NAME, "it_support_agent"
-    )
+    _record_engine(tmp_path / _acli.STATE_DIR_NAME)
 
     acli_infra.main(["--destroy", "--apply"])
 
-    attach, deployment = runs
-    assert attach["root"].parts[-2:] == ("examples", "attach")
-    assert attach["state_key"] == "attach-it_support_agent"
-    assert attach["tf_vars"] == {
-        **_INSTANCE,
-        "observed_agent_name": "it_support_agent",
-    }
-    assert attach["destroy"] and attach["apply"]
-    assert deployment["state_key"] == "single-project"
-    assert not state.exists(), (
-        "a state left behind would wedge the next teardown"
-    )
+    argv = wrappers.argv_containing("delete-triggers")
+    assert argv[-2:] == [f"--aqua-resource={_ENGINE}", "--apply"]
+    assert [run["state_key"] for run in runs] == ["single-project"]
 
 
-def test_destroy_leaves_triggers_that_call_another_aqua(
+def test_planning_the_teardown_plans_the_trigger_removal(
     wrappers, monkeypatch, tmp_path
 ):
-    """A project can hold attach states for more than one AQuA."""
+    """A plan destroys nothing, so the triggers are still there to remove."""
+    _destroy_recorder(monkeypatch, tmp_path)
+    _record_engine(tmp_path / _acli.STATE_DIR_NAME)
+
+    acli_infra.main(["--destroy"])
+
+    argv = wrappers.argv_containing("delete-triggers")
+    assert "--apply" not in argv
+
+
+def test_destroy_with_no_engine_recorded_looks_for_no_trigger(
+    wrappers, monkeypatch, tmp_path, capsys
+):
+    """Another engine the CLI could reach is not the one being destroyed."""
     runs = _destroy_recorder(monkeypatch, tmp_path)
-    state_root = tmp_path / _acli.STATE_DIR_NAME
-    (state_root / _acli.METADATA_FILE).write_text(
-        json.dumps(
-            {
-                "remote_agent_runtime_id": "projects/p2/locations/x/reasoningEngines/9"
-            }
-        ),
-        encoding="utf-8",
-    )
-    state = _write_attach_state(state_root, "it_support_agent")
+
+    acli_infra.main(["--destroy", "--apply"])
+
+    assert wrappers.calls == []
+    assert [run["state_key"] for run in runs] == ["single-project"]
+    assert "no deployed engine is recorded" in capsys.readouterr().err
+
+
+def test_a_failed_trigger_removal_does_not_block_the_teardown(
+    wrappers, monkeypatch, tmp_path, capsys
+):
+    """An engine that cannot answer must still be destroyable."""
+    runs = _destroy_recorder(monkeypatch, tmp_path)
+    _record_engine(tmp_path / _acli.STATE_DIR_NAME)
+    wrappers._results["delete-triggers"] = (1, "")
 
     acli_infra.main(["--destroy", "--apply"])
 
     assert [run["state_key"] for run in runs] == ["single-project"]
-    assert state.is_file()
-
-
-def test_planning_the_teardown_keeps_the_attached_state(
-    wrappers, monkeypatch, tmp_path
-):
-    """A plan destroys nothing, so the triggers are still there to destroy."""
-    _destroy_recorder(monkeypatch, tmp_path)
-    state = _write_attach_state(
-        tmp_path / _acli.STATE_DIR_NAME, "it_support_agent"
-    )
-
-    acli_infra.main(["--destroy"])
-
-    assert state.is_file()
-
-
-def test_destroy_refuses_attached_triggers_it_cannot_name(
-    wrappers, monkeypatch, tmp_path, capsys
-):
-    """Without the instance they call, the attach root cannot be planned."""
-    runs = _destroy_recorder(monkeypatch, tmp_path)
-    _write_attach_state(tmp_path / _acli.STATE_DIR_NAME, "a", instance=None)
-    with pytest.raises(SystemExit):
-        acli_infra.main(["--destroy", "--apply"])
-    assert runs == [], "the instance must outlive the triggers that call it"
-    assert "Delete them by hand" in capsys.readouterr().err
+    assert "could not be removed" in capsys.readouterr().err
 
 
 def test_destroy_is_a_no_op_without_state(wrappers, monkeypatch, tmp_path):
@@ -800,8 +909,8 @@ def test_run_terraform_says_which_tool_is_missing(tmp_path, monkeypatch):
 def _deploy_calls(recorder: Recorder) -> list[list[str]]:
     """Filter recorded commands to deploy operations.
 
-    Excludes source snapshot publishing and `agents-cli setup` subprocesses
-    so assertions can verify deployment invocations directly.
+    Excludes source snapshot publishing so assertions can verify deployment
+    invocations directly.
 
     Args:
         recorder: Test recorder capturing `_acli.run` invocations.
@@ -813,7 +922,6 @@ def _deploy_calls(recorder: Recorder) -> list[list[str]]:
         call["argv"]
         for call in recorder.calls
         if "publish-source" not in call["argv"]
-        and not _is_skill_install(call["argv"])
     ]
 
 
@@ -916,6 +1024,148 @@ def test_deploy_leaves_aqua_alone_for_read_only_runs(wrappers, flag):
     assert len(wrappers.calls) == 1
 
 
+# --- deploy: attaching the observed agent ------------------------------------
+
+OBSERVED_ENGINE = "projects/p2/locations/us-east1/reasoningEngines/7"
+
+
+def _write_observed_engine(tmp_path) -> None:
+    """Writes OBSERVED_ENGINE as the engine the agent's own deploy created.
+
+    Args:
+        tmp_path: The fake project's root.
+    """
+    (tmp_path / _acli.METADATA_FILE).write_text(
+        json.dumps({"remote_agent_runtime_id": OBSERVED_ENGINE}),
+        encoding="utf-8",
+    )
+
+
+def _write_deployed_aqua(tmp_path) -> None:
+    """Writes the record of the AQuA this project deployed, which publishing needs.
+
+    Written by the test rather than left to the deploy's copy of the vendored
+    tree's record, which exists only where AQuA was once deployed from it.
+
+    Args:
+        tmp_path: The fake project's root.
+    """
+    state_root = tmp_path / _acli.STATE_DIR_NAME
+    state_root.mkdir(exist_ok=True)
+    (state_root / _acli.METADATA_FILE).write_text(
+        json.dumps({"remote_agent_runtime_id": ENGINE}), encoding="utf-8"
+    )
+
+
+def _list_aqua_commands(recorder: Recorder) -> list[str]:
+    """Lists the AQuA CLI subcommands the recorder saw, in order.
+
+    Args:
+        recorder: Test recorder capturing `_acli.run` invocations.
+
+    Returns:
+        The subcommand of each run of the AQuA CLI.
+    """
+    cli = len(_acli.AQUA_CLI_COMMAND)
+    return [
+        call["argv"][cli]
+        for call in recorder.calls
+        if call["argv"][:cli] == list(_acli.AQUA_CLI_COMMAND)
+    ]
+
+
+def test_deploy_attaches_the_agent_to_the_aqua_it_deployed(
+    wrappers, tmp_path, monkeypatch
+):
+    """AQuA's Terraform names no agent, so the deploy points AQuA at it."""
+    _write_observed_engine(tmp_path)
+    monkeypatch.setattr(
+        wrappers,
+        "_results",
+        {"list-agents": (0, json.dumps({"agents": []}))},
+        raising=False,
+    )
+
+    assert acli_deploy.main(["--deploy-aqua", "--skip-aqua-ui"]) == 0
+
+    # The attach publishes the source itself.
+    assert _list_aqua_commands(wrappers) == ["list-agents", "attach"]
+    # --rediscover replaces the telemetry defaults `infra --apply-aqua` copied.
+    assert wrappers.argv_containing("attach")[-3:] == [
+        "attach",
+        "--yes",
+        "--rediscover",
+    ]
+
+
+def test_deploy_leaves_an_attached_agent_to_attach(
+    wrappers, tmp_path, monkeypatch
+):
+    """Discovery would replace a setting changed by hand on every deploy."""
+    _write_observed_engine(tmp_path)
+    _write_deployed_aqua(tmp_path)
+    listing = {"agents": [{"agent_key": "a", "observed_engine_id": "7"}]}
+    monkeypatch.setattr(
+        wrappers,
+        "_results",
+        {"list-agents": (0, json.dumps(listing))},
+        raising=False,
+    )
+
+    acli_deploy.main(["--deploy-aqua", "--skip-aqua-ui"])
+
+    assert _list_aqua_commands(wrappers) == ["list-agents", "publish-source"]
+
+
+@pytest.mark.parametrize(
+    "results",
+    [
+        {"list-agents": (1, "")},
+        {"list-agents": (0, json.dumps({"agents": []})), "attach": (1, "")},
+    ],
+)
+def test_a_failed_attach_still_publishes_and_says_how_to_attach(
+    wrappers, tmp_path, monkeypatch, capsys, results
+):
+    _write_observed_engine(tmp_path)
+    _write_deployed_aqua(tmp_path)
+    monkeypatch.setattr(wrappers, "_results", results, raising=False)
+
+    assert acli_deploy.main(["--deploy-aqua", "--skip-aqua-ui"]) == 0
+
+    assert _list_aqua_commands(wrappers)[-1] == "publish-source"
+    assert "    agents-cli aqua attach" in capsys.readouterr().err
+
+
+def test_deploy_attaches_no_agent_that_has_no_engine_yet(wrappers, capsys):
+    acli_deploy.main(["--deploy-aqua", "--skip-aqua-ui"])
+
+    assert "attach" not in _list_aqua_commands(wrappers)
+    assert "so the agent is not attached" in capsys.readouterr().err
+
+
+def test_a_no_wait_deploy_attaches_nothing_and_says_how(
+    wrappers, tmp_path, capsys
+):
+    """One notice, since the attach it names publishes the source too."""
+    _write_observed_engine(tmp_path)
+
+    acli_deploy.main(["--deploy-aqua", "--skip-aqua-ui", "--no-wait"])
+
+    assert _list_aqua_commands(wrappers) == []
+    err = capsys.readouterr().err
+    assert "Once the deploy finishes, attach the agent" in err
+    assert err.count("--no-wait given") == 1
+
+
+def test_deploy_without_aqua_attaches_nothing(wrappers, tmp_path):
+    _write_observed_engine(tmp_path)
+
+    acli_deploy.main([])
+
+    assert "attach" not in _list_aqua_commands(wrappers)
+
+
 def test_deploy_copies_the_metadata_out_of_the_replaceable_tree(
     wrappers, tmp_path, monkeypatch
 ):
@@ -932,6 +1182,165 @@ def test_deploy_copies_the_metadata_out_of_the_replaceable_tree(
     assert json.loads(copied.read_text(encoding="utf-8")) == {
         "remote_agent_runtime_id": "projects/p/…/9"
     }
+
+
+_CURRENT_ENGINE = "projects/p2/locations/us-east1/reasoningEngines/22"
+
+
+def _stage_engine_records(
+    tmp_path: Path,
+    monkeypatch,
+    *,
+    vendored: str,
+    copied: str,
+    state: str | None,
+) -> tuple[Path, Path]:
+    """Stage the vendored tree, both deploy records, and AQuA's Terraform state.
+
+    Args:
+        tmp_path: Fake project root directory.
+        monkeypatch: Pytest monkeypatch fixture.
+        vendored: Engine resource name for the vendored record, or empty to
+            skip writing it.
+        copied: Engine resource name for the `.aqua/` copy, or empty to skip
+            writing it.
+        state: Engine resource name in AQuA's Terraform state, or None to omit
+            the output.
+
+    Returns:
+        Paths to the vendored record and the `.aqua/` copy.
+    """
+    sources = tmp_path / "extensions" / "aqua"
+    sources.mkdir(parents=True)
+    (sources / "Dockerfile").write_text("FROM scratch\n", encoding="utf-8")
+    monkeypatch.setattr(acli_deploy, "resolve_extension_root", lambda: sources)
+    state_root = tmp_path / _acli.STATE_DIR_NAME
+    state_root.mkdir(exist_ok=True)
+    outputs = {"ui_service_name": {"value": UI_SERVICE}}
+    if state is not None:
+        outputs["engine_resource_name"] = {"value": state}
+    terraform_state.build_state_path(
+        state_root, _acli.DEPLOYMENT_KEY
+    ).write_text(json.dumps({"outputs": outputs}), encoding="utf-8")
+    records = (sources / _acli.METADATA_FILE, state_root / _acli.METADATA_FILE)
+    for record, engine in zip(records, (vendored, copied), strict=True):
+        if engine:
+            record.write_text(
+                json.dumps({"remote_agent_runtime_id": engine}),
+                encoding="utf-8",
+            )
+    return records
+
+
+def test_deploy_forgets_records_of_an_engine_terraform_replaced(
+    wrappers, tmp_path, monkeypatch, capsys
+):
+    """Deletes stale records so the built-in does not fail updating a deleted engine."""
+    seen: list[bool] = []
+    vendored, copied = _stage_engine_records(
+        tmp_path,
+        monkeypatch,
+        vendored="projects/123/locations/us-east1/reasoningEngines/11",
+        copied="projects/p2/locations/us-east1/reasoningEngines/11",
+        state=_CURRENT_ENGINE,
+    )
+
+    def run(argv, **kwargs):
+        if "--update-only" in argv:
+            seen.append(vendored.exists() or copied.exists())
+        return wrappers(argv, **kwargs)
+
+    monkeypatch.setattr(acli_deploy, "run", run)
+
+    acli_deploy.main(["--deploy-aqua", "--skip-aqua-ui"])
+
+    assert seen == [False], "removed before the AQuA deploy runs"
+    assert not copied.exists()
+    err = capsys.readouterr().err
+    assert f"removed {vendored}" in err
+    assert f"removed {copied}" in err
+
+
+def test_deploy_keeps_records_of_the_current_engine(
+    wrappers, tmp_path, monkeypatch, capsys
+):
+    """Matches by engine ID alone because a record may store the project number."""
+    vendored, copied = _stage_engine_records(
+        tmp_path,
+        monkeypatch,
+        vendored="projects/123/locations/us-east1/reasoningEngines/22",
+        copied=_CURRENT_ENGINE,
+        state=_CURRENT_ENGINE,
+    )
+
+    acli_deploy.main(["--deploy-aqua", "--skip-aqua-ui"])
+
+    assert vendored.exists() and copied.exists()
+    assert "Terraform replaced" not in capsys.readouterr().err
+
+
+def test_deploy_keeps_records_when_the_state_names_no_engine(
+    wrappers, tmp_path, monkeypatch
+):
+    vendored, copied = _stage_engine_records(
+        tmp_path,
+        monkeypatch,
+        vendored="projects/p2/locations/us-east1/reasoningEngines/11",
+        copied="projects/p2/locations/us-east1/reasoningEngines/11",
+        state=None,
+    )
+
+    acli_deploy.main(["--deploy-aqua", "--skip-aqua-ui"])
+
+    assert vendored.exists() and copied.exists()
+
+
+def test_stale_records_list_only_files_that_exist(tmp_path, monkeypatch):
+    vendored, _ = _stage_engine_records(
+        tmp_path,
+        monkeypatch,
+        vendored="projects/p2/locations/us-east1/reasoningEngines/11",
+        copied="",
+        state=_CURRENT_ENGINE,
+    )
+
+    assert acli_deploy.list_stale_metadata_files(
+        vendored.parent, tmp_path / _acli.STATE_DIR_NAME
+    ) == [vendored]
+
+
+@pytest.mark.parametrize("flag", ["--dry-run", "--status", "--list"])
+def test_a_read_only_deploy_keeps_stale_records(
+    own_checkout, tmp_path, monkeypatch, flag
+):
+    vendored, copied = _stage_engine_records(
+        tmp_path,
+        monkeypatch,
+        vendored="projects/p2/locations/us-east1/reasoningEngines/11",
+        copied="projects/p2/locations/us-east1/reasoningEngines/11",
+        state=_CURRENT_ENGINE,
+    )
+
+    acli_deploy.main(["--project", "p2", *OBSERVED, flag])
+
+    assert vendored.exists() and copied.exists()
+
+
+def test_the_deployment_root_outputs_the_engine_the_deploy_compares():
+    """A renamed output would leave stale records in place without an error."""
+    outputs = (REPO_ROOT / acli_infra.DEPLOYMENT_ROOT / "outputs.tf").read_text(
+        encoding="utf-8"
+    )
+
+    assert f'output "{acli_deploy._ENGINE_OUTPUT}" {{' in outputs
+
+
+def test_stale_records_need_no_state_directory(tmp_path):
+    """Looking for stale records must not create `.aqua/`."""
+    state_root = tmp_path / _acli.STATE_DIR_NAME
+
+    assert acli_deploy.list_stale_metadata_files(tmp_path, state_root) == []
+    assert not state_root.exists()
 
 
 def test_deploy_says_what_creates_an_engine_it_could_not_update(
@@ -1138,8 +1547,6 @@ def test_staging_says_which_tree_is_missing(tmp_path):
 # The agent a standalone run is told to watch. Deliberately not the project
 # `agents-cli info` answers with, which is AQuA itself in a real checkout.
 OBSERVED = ["--observed-deployment-name", "sherlock-v2"]
-OBSERVED_AGENT = ["--observed-agent-name", "sherlock_v2_agent"]
-OBSERVED_ARGS = [*OBSERVED, *OBSERVED_AGENT]
 
 
 def _unreachable(*args: Any, **kwargs: Any) -> Any:
@@ -1163,52 +1570,37 @@ def test_infra_in_its_own_checkout_has_no_builtin_to_wrap(
     monkeypatch.setattr(
         acli_infra, "run_terraform", lambda root, **kwargs: runs.append(kwargs)
     )
-    assert acli_infra.main(["--apply", *OBSERVED_ARGS]) == 0
+    assert acli_infra.main(["--apply", *OBSERVED]) == 0
     assert own_checkout.calls == []
     assert [run["state_key"] for run in runs] == ["bootstrap", "single-project"]
 
 
-def test_infra_in_its_own_checkout_names_the_agent_it_was_told_to_watch(
+def test_infra_in_its_own_checkout_names_aqua_after_the_given_deployment(
     own_checkout, monkeypatch
 ):
     runs: list[dict[str, Any]] = []
     monkeypatch.setattr(
         acli_infra, "run_terraform", lambda root, **kwargs: runs.append(kwargs)
     )
-    acli_infra.main(["--apply", "--project", "p2", *OBSERVED_ARGS])
-    # No `telemetry_table`: only the observed project knows its deployment
-    # target, so the root's default stands.
+    acli_infra.main(["--apply", "--project", "p2", *OBSERVED])
+    assert not any("link-traces" in c["argv"] for c in own_checkout.calls)
     assert runs[1]["tf_vars"] == {
         "region": "us-east1",
         "observed_deployment_name": "sherlock-v2",
-        "observed_agent_name": "sherlock_v2_agent",
         "project_id": "p2",
     }
 
 
-def test_infra_in_its_own_checkout_asks_no_other_project_for_an_engine(
-    own_checkout, monkeypatch
-):
-    """`infra show` reads a Terraform root that is in the observed project."""
-    runs: list[dict[str, Any]] = []
-    monkeypatch.setattr(
-        acli_infra, "run_terraform", lambda root, **kwargs: runs.append(kwargs)
-    )
-    monkeypatch.setattr(
-        acli_infra, "read_observed_engine_resource_name", _unreachable
-    )
-    acli_infra.main(["--apply", *OBSERVED_ARGS])
-    assert "observed_engine_resource_name" not in runs[1]["tf_vars"]
-
-
-def test_infra_in_its_own_checkout_refuses_to_guess_the_observed_deployment(
+def test_infra_in_its_own_checkout_refuses_the_observed_agent_name(
     own_checkout, monkeypatch, capsys
 ):
-    """An agent named without its deployment has nothing to name AQuA after."""
+    """The agent is attached once AQuA is deployed, not provisioned with it."""
     monkeypatch.setattr(acli_infra, "run_terraform", _unreachable)
     with pytest.raises(SystemExit):
-        acli_infra.main(["--apply", *OBSERVED_AGENT])
-    assert "--observed-deployment-name" in capsys.readouterr().err
+        acli_infra.main(
+            ["--apply", "--observed-agent-name", "sherlock_v2_agent"]
+        )
+    assert "agents-cli aqua attach" in capsys.readouterr().err
 
 
 def test_infra_in_its_own_checkout_names_an_unobserving_aqua_by_default(
@@ -1221,7 +1613,6 @@ def test_infra_in_its_own_checkout_names_an_unobserving_aqua_by_default(
     )
     assert acli_infra.main(["--apply"]) == 0
     assert runs[1]["tf_vars"]["observed_deployment_name"] == "aqua-solo"
-    assert runs[1]["tf_vars"]["configure_observed_agent"] == "false"
     assert "'aqua-solo'" in capsys.readouterr().err
 
 
@@ -1250,37 +1641,16 @@ def test_infra_in_its_own_checkout_can_provision_aqua_with_no_observed_agent(
     monkeypatch.setattr(
         acli_infra, "run_terraform", lambda root, **kwargs: runs.append(kwargs)
     )
-    monkeypatch.setattr(
-        acli_infra, "read_observed_engine_resource_name", _unreachable
-    )
 
     assert acli_infra.main(["--apply", "--project", "p2", *OBSERVED]) == 0
 
     assert runs[1]["tf_vars"] == {
         "region": "us-east1",
         "observed_deployment_name": "sherlock-v2",
-        "configure_observed_agent": "false",
         "project_id": "p2",
     }
     err = capsys.readouterr().err
-    assert "agents-cli aqua attach --apply --observed-agent-resource" in err
-    assert "TF_VAR_observed_engine_id" not in err
-
-
-def test_the_vendored_install_always_names_the_observed_agent(
-    wrappers, monkeypatch
-):
-    """The project it runs in is the observed agent, so there is one to name."""
-    runs: list[dict[str, Any]] = []
-    monkeypatch.setattr(
-        acli_infra, "run_terraform", lambda root, **kwargs: runs.append(kwargs)
-    )
-    monkeypatch.setattr(
-        acli_infra, "read_observed_engine_resource_name", lambda *a, **k: None
-    )
-    acli_infra.main(["--apply", "--apply-aqua"])
-    assert "configure_observed_agent" not in runs[1]["tf_vars"]
-    assert runs[1]["tf_vars"]["observed_agent_name"] == "it_support_agent"
+    assert "agents-cli aqua attach --observed-agent-resource" in err
 
 
 def test_infra_in_its_own_checkout_refuses_to_skip_aqua(
@@ -1288,7 +1658,7 @@ def test_infra_in_its_own_checkout_refuses_to_skip_aqua(
 ):
     monkeypatch.setattr(acli_infra, "run_terraform", _unreachable)
     with pytest.raises(SystemExit):
-        acli_infra.main(["--apply", "--skip-aqua", *OBSERVED_ARGS])
+        acli_infra.main(["--apply", "--skip-aqua", *OBSERVED])
 
 
 def test_destroy_in_its_own_checkout_needs_only_the_deployment(
@@ -1306,24 +1676,21 @@ def test_the_observed_options_never_reach_the_builtin(wrappers, monkeypatch):
     monkeypatch.setattr(
         acli_infra, "run_terraform", lambda root, **kwargs: runs.append(kwargs)
     )
-    monkeypatch.setattr(
-        acli_infra, "read_observed_engine_resource_name", lambda *a, **k: None
-    )
     acli_infra.main(
-        ["--apply", "--apply-aqua", "--observed-agent-name", "renamed_agent"]
+        ["--apply", "--apply-aqua", "--observed-deployment-name", "renamed"]
     )
     assert wrappers.calls[0]["argv"][1:] == [
         "infra",
         "single-project",
         "--apply",
     ]
-    assert runs[1]["tf_vars"]["observed_agent_name"] == "renamed_agent"
+    assert runs[1]["tf_vars"]["observed_deployment_name"] == "renamed"
 
 
 def test_deploy_in_its_own_checkout_is_aqua_and_its_dashboard(
     own_checkout, tmp_path
 ):
-    assert acli_deploy.main(["--project", "p2", *OBSERVED_ARGS]) == 0
+    assert acli_deploy.main(["--project", "p2", *OBSERVED]) == 0
     engine, _, dashboard = own_checkout.calls
     assert engine["argv"][:5] == [
         "/bin/agents-cli",
@@ -1351,19 +1718,19 @@ def test_deploy_in_its_own_checkout_needs_only_the_deployment(own_checkout):
 
 def test_deploy_in_its_own_checkout_publishes_no_source_snapshot(own_checkout):
     """The observed agent's code is in its own tree, and is snapshotted there."""
-    acli_deploy.main(OBSERVED_ARGS)
+    acli_deploy.main(OBSERVED)
     assert _deploy_calls(own_checkout) == [
         call["argv"] for call in own_checkout.calls
     ]
 
 
-def test_deploy_in_its_own_checkout_refuses_to_guess_the_observed_deployment(
+def test_deploy_in_its_own_checkout_refuses_the_observed_agent_name(
     own_checkout, capsys
 ):
     with pytest.raises(SystemExit):
-        acli_deploy.main(OBSERVED_AGENT)
+        acli_deploy.main(["--observed-agent-name", "sherlock_v2_agent"])
     assert own_checkout.calls == []
-    assert "--observed-deployment-name" in capsys.readouterr().err
+    assert "agents-cli aqua attach" in capsys.readouterr().err
 
 
 def test_deploy_in_its_own_checkout_uses_the_default_name(own_checkout):
@@ -1379,7 +1746,7 @@ def test_deploy_in_its_own_checkout_refuses_a_service_name(
 ):
     """It would name an engine Terraform did not create, and the dashboard's own."""
     with pytest.raises(SystemExit):
-        acli_deploy.main(["--service-name", "sherlock-v2-aqua", *OBSERVED_ARGS])
+        acli_deploy.main(["--service-name", "sherlock-v2-aqua", *OBSERVED])
     assert own_checkout.calls == []
     message = capsys.readouterr().err
     # The flag names where the deployment comes from; it is not itself part of
@@ -1391,7 +1758,7 @@ def test_deploy_in_its_own_checkout_refuses_a_service_name(
 
 def test_deploy_in_its_own_checkout_refuses_to_skip_aqua(own_checkout):
     with pytest.raises(SystemExit):
-        acli_deploy.main(["--skip-aqua", *OBSERVED_ARGS])
+        acli_deploy.main(["--skip-aqua", *OBSERVED])
     assert own_checkout.calls == []
 
 
@@ -1399,7 +1766,7 @@ def test_deploy_in_its_own_checkout_takes_the_opt_in_without_complaint(
     own_checkout,
 ):
     """AQuA is all there is to deploy here, so the flag changes nothing."""
-    assert acli_deploy.main(["--deploy-aqua", *OBSERVED_ARGS]) == 0
+    assert acli_deploy.main(["--deploy-aqua", *OBSERVED]) == 0
     assert "--deploy-aqua" not in own_checkout.calls[0]["argv"]
     assert len(own_checkout.calls) == 3
 
@@ -1407,7 +1774,7 @@ def test_deploy_in_its_own_checkout_takes_the_opt_in_without_complaint(
 @pytest.mark.parametrize("flag", ["--dry-run", "--status", "--list"])
 def test_deploy_in_its_own_checkout_reports_on_aqua_itself(own_checkout, flag):
     """AQuA is the deployment here, so a report has to be a report of it."""
-    assert acli_deploy.main([flag, *OBSERVED_ARGS]) == 0
+    assert acli_deploy.main([flag, *OBSERVED]) == 0
     (reported,) = own_checkout.calls
     assert reported["argv"][-1] == flag
     assert "sherlock-v2-aqua" in reported["argv"]
@@ -2243,7 +2610,7 @@ def test_attach_records_the_aqua_it_reached_for_later_commands(
     targets = _exit_cli(monkeypatch, 0)
 
     code = _attach_from_the_observed_project(
-        monkeypatch, tmp_path, "--apply", "--aqua-resource", _AQUA_ELSEWHERE
+        monkeypatch, tmp_path, "--yes", "--aqua-resource", _AQUA_ELSEWHERE
     )
 
     assert code == 0
@@ -2348,161 +2715,58 @@ def test_info_reports_an_attached_aqua(tmp_path, monkeypatch, capsys):
     assert capsys.readouterr().out.strip() == "us-central1"
 
 
-# --- the coding-agent skill ---------------------------------------------------
+def test_recording_the_aqua_keeps_the_agent_key_the_cli_recorded(
+    wrappers, tmp_path, monkeypatch
+):
+    """The CLI records the agent key during the attach, before the wrapper writes."""
+    monkeypatch.delenv("AGENT_ENGINE_RESOURCE_ID", raising=False)
+    _exit_cli(monkeypatch, 0)
+    state = tmp_path / _acli.STATE_DIR_NAME
+    state.mkdir()
+    agent = {"agent_key": "acme-prod__bot", "agent_key_target": _AQUA_ELSEWHERE}
+    (state / acli_aqua.ATTACHED_AQUA_FILE).write_text(
+        json.dumps(agent), encoding="utf-8"
+    )
 
+    _attach_from_the_observed_project(
+        monkeypatch, tmp_path, "--aqua-resource", _AQUA_ELSEWHERE
+    )
 
-def _is_skill_install(argv: list[str]) -> bool:
-    """Check whether a command invocation runs `agents-cli setup`.
-
-    Args:
-        argv: Recorded command-line argument list.
-
-    Returns:
-        True if the arguments run `agents-cli setup`, False otherwise.
-    """
-    return argv[1:2] == ["setup"]
-
-
-def _skill_install_calls(recorder: Recorder) -> list[dict[str, Any]]:
-    """Filter recorded calls to `agents-cli setup` skill installations.
-
-    Args:
-        recorder: Test recorder capturing `_acli.run` invocations.
-
-    Returns:
-        Recorded call dictionaries that execute `agents-cli setup`.
-    """
-    return [call for call in recorder.calls if _is_skill_install(call["argv"])]
-
-
-def _expected_skill_install(project_root: Path) -> dict[str, Any]:
-    """Build the expected call dictionary for installing the workspace skill.
-
-    Args:
-        project_root: Root directory of the observed agent project.
-
-    Returns:
-        Dictionary specifying expected argv, cwd, and env parameters.
-    """
-    return {
-        "argv": [
-            "/bin/agents-cli",
-            "setup",
-            "--workspace",
-            "--skip-auth",
-            "--skills-source",
-            str(REPO_ROOT / "skills" / _acli.SKILL_NAME),
-        ],
-        "cwd": str(project_root),
-        "env": None,
+    record = state / acli_aqua.ATTACHED_AQUA_FILE
+    assert json.loads(record.read_text(encoding="utf-8")) == {
+        **agent,
+        "aqua_resource": _AQUA_ELSEWHERE,
     }
 
 
-def test_the_repository_ships_the_skill_it_installs():
-    skill = REPO_ROOT / "skills" / _acli.SKILL_NAME / "SKILL.md"
-    assert skill.is_file()
-    _, frontmatter, _ = skill.read_text(encoding="utf-8").split("---", 2)
-    assert yaml.safe_load(frontmatter)["name"] == _acli.SKILL_NAME
-
-
-def _stub_infra_terraform(monkeypatch) -> None:
-    """Stubs Terraform and engine lookup operations during infrastructure testing.
-
-    Args:
-        monkeypatch: Pytest monkeypatch fixture.
-    """
-    monkeypatch.setattr(acli_infra, "run_terraform", lambda *a, **k: None)
-    monkeypatch.setattr(
-        acli_infra, "read_observed_engine_resource_name", lambda *a, **k: None
-    )
-
-
-def test_infra_installs_the_skill_with_agents_cli_setup(
-    wrappers, monkeypatch, tmp_path, capsys
-):
-    _stub_infra_terraform(monkeypatch)
-    assert acli_infra.main(["--apply", "--apply-aqua"]) == 0
-    assert _skill_install_calls(wrappers) == [_expected_skill_install(tmp_path)]
-    assert "installed the agents-cli-aqua skill" in capsys.readouterr().err
-
-
-@pytest.mark.parametrize("flag", ["--apply", "--destroy"])
-def test_infra_installs_no_skill_without_the_aqua_leg(
-    wrappers, monkeypatch, flag
-):
-    _stub_infra_terraform(monkeypatch)
-    assert acli_infra.main([flag]) == 0
-    assert _skill_install_calls(wrappers) == []
-
-
-def test_infra_in_its_own_checkout_installs_no_skill(own_checkout, monkeypatch):
-    _stub_infra_terraform(monkeypatch)
-    assert acli_infra.main(["--apply", *OBSERVED_ARGS]) == 0
-    assert _skill_install_calls(own_checkout) == []
-
-
-def test_deploy_installs_the_skill_with_agents_cli_setup(wrappers, tmp_path):
-    assert acli_deploy.main(["--deploy-aqua"]) == 0
-    assert _skill_install_calls(wrappers) == [_expected_skill_install(tmp_path)]
-
-
 @pytest.mark.parametrize(
-    "flag", ["--project=p2", *acli_deploy._READ_ONLY_FLAGS]
+    ("recorded_for", "reported"),
+    [
+        (_AQUA_ELSEWHERE, True),
+        ("projects/p/locations/l/reasoningEngines/9", False),
+    ],
 )
-def test_deploy_installs_no_skill_without_the_aqua_leg(wrappers, flag):
-    acli_deploy.main([flag])
-    assert _skill_install_calls(wrappers) == []
-
-
-def test_deploy_in_its_own_checkout_installs_no_skill(own_checkout):
-    assert acli_deploy.main(OBSERVED_ARGS) == 0
-    assert _skill_install_calls(own_checkout) == []
-
-
-@pytest.fixture
-def failing_setup(wrappers, monkeypatch):
-    """Configure `_acli.run` to simulate a failed `agents-cli setup` with error output."""
-    recorder = Recorder({"setup": (1, "npx: command not found\n")})
-    monkeypatch.setattr(_acli, "run", recorder)
-    return recorder
-
-
-def test_a_failed_skill_install_does_not_fail_infra(
-    failing_setup, monkeypatch, capsys
+def test_info_reports_the_agent_key_recorded_for_the_aqua_it_reaches(
+    tmp_path, monkeypatch, capsys, recorded_for, reported
 ):
-    _stub_infra_terraform(monkeypatch)
-    assert acli_infra.main(["--apply", "--apply-aqua"]) == 0
-    err = capsys.readouterr().err
-    assert "skill install skipped (agents-cli setup exited 1)" in err
-    assert "npx: command not found" in err
-
-
-def test_a_failed_skill_install_does_not_fail_deploy(failing_setup, capsys):
-    assert acli_deploy.main(["--deploy-aqua"]) == 0
-    err = capsys.readouterr().err
-    assert "skill install skipped (agents-cli setup exited 1)" in err
-    assert "npx: command not found" in err
-
-
-def test_an_unlaunchable_setup_does_not_fail_the_install(
-    wrappers, monkeypatch, capsys
-):
-    def _raise_oserror(*args: Any, **kwargs: Any) -> NoReturn:
-        raise OSError("exec format error")
-
-    monkeypatch.setattr(_acli, "run", _raise_oserror)
-    _acli.install_skill_best_effort(Path.cwd())
-    assert (
-        "skill install skipped (exec format error)" in capsys.readouterr().err
+    monkeypatch.delenv("AGENT_ENGINE_RESOURCE_ID", raising=False)
+    monkeypatch.chdir(tmp_path)
+    state = tmp_path / _acli.STATE_DIR_NAME
+    state.mkdir()
+    (state / acli_aqua.ATTACHED_AQUA_FILE).write_text(
+        json.dumps(
+            {
+                "aqua_resource": _AQUA_ELSEWHERE,
+                "agent_key": "acme-prod__bot",
+                "agent_key_target": recorded_for,
+            }
+        ),
+        encoding="utf-8",
     )
 
+    assert acli_aqua.main(["info"]) == 0
 
-def test_a_source_without_skill_md_runs_no_setup(
-    wrappers, monkeypatch, tmp_path, capsys
-):
-    monkeypatch.setattr(
-        _acli, "resolve_extension_root", lambda: tmp_path / "empty"
+    report = json.loads(capsys.readouterr().out)
+    assert report.get("attached_agent_key") == (
+        "acme-prod__bot" if reported else None
     )
-    _acli.install_skill_best_effort(tmp_path)
-    assert _skill_install_calls(wrappers) == []
-    assert "skill install skipped (no SKILL.md" in capsys.readouterr().err

@@ -107,16 +107,16 @@ def _build_insight_store(cfg: Config) -> BigQueryInsightStore:
     Returns:
         BigQueryInsightStore instance for schema inspection.
     """
+    from ambient_quality_agent import clients
     from ambient_quality_agent.tools.insights.bigquery_store import (
         BigQueryInsightStore,
     )
-    from google.cloud import bigquery
 
     return BigQueryInsightStore(
-        client=bigquery.Client(
-            project=cfg.project_id, location=cfg.aqa_dataset_location
+        client=clients.create_bigquery_client(
+            cfg.project_id, cfg.aqa_dataset_location
         ),
         project_id=cfg.project_id,
         dataset=cfg.aqa_dataset,
-        agent_name=cfg.observed_agent_name,
+        agent_name=cfg.resolve_agent_key(),
     )

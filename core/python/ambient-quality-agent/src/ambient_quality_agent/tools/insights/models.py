@@ -110,6 +110,12 @@ class Insight(BaseModel):
     """Scope pre-filter for matching: insights are never compared across
     agents."""
 
+    agent_id: str = ""
+    """Root agent or sub-agent the defect is attributed to (`Cluster.agent_id`).
+    Matching compares an insight only against candidates for this agent. Empty
+    on unattributed rows, which default to the observed root agent
+    (`agent_name`)."""
+
     label: str
 
     status: InsightStatus

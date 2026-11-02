@@ -28,6 +28,7 @@ import {
   forgetConversation,
   listConversations,
   rememberConversation,
+  renameConversation,
 } from "../aqua-conversations";
 
 function wrapper({ children }: { children: React.ReactNode }) {
@@ -96,6 +97,118 @@ describe("useLhaSessions", () => {
 
     await waitFor(() => expect(result.current.data?.length).toBe(1));
     expect(result.current.data?.[0].title).toBe("Untitled chat");
+  });
+
+  it("names a chat with the title saved on the server, over the local one", async () => {
+    rememberConversation("ctx-a", "local first message");
+    stubContexts({
+      contexts: [
+        {
+          context_id: "ctx-a",
+          task_ids: ["t1"],
+          updated_at: "2026-09-01T10:00:00Z",
+          title: "Saved name",
+          first_message: "server first message",
+        },
+      ],
+    });
+
+    const { result } = renderHook(() => useLhaSessions(), { wrapper });
+
+    await waitFor(() =>
+      expect(result.current.data?.[0].title).toBe("Saved name"),
+    );
+  });
+
+  it("prefers a name chosen in this browser over the server's first message", async () => {
+    rememberConversation("ctx-a", "local first message");
+    renameConversation("ctx-a", "Renamed here");
+    stubContexts({
+      contexts: [
+        {
+          context_id: "ctx-a",
+          task_ids: ["t1"],
+          updated_at: "2026-09-01T10:00:00Z",
+          title: null,
+          first_message: "server first message",
+        },
+      ],
+    });
+
+    const { result } = renderHook(() => useLhaSessions(), { wrapper });
+
+    await waitFor(() => expect(result.current.data?.length).toBe(1));
+    expect(result.current.data?.[0].title).toBe("Renamed here");
+  });
+
+  it("keeps the first message as the name after a reply from another browser", async () => {
+    // This browser first saw the chat when it sent a reply, so its own entry
+    // is titled after that reply, not after the message that opened the chat.
+    rememberConversation("ctx-a", "a later reply");
+    stubContexts({
+      contexts: [
+        {
+          context_id: "ctx-a",
+          task_ids: ["t1", "t2"],
+          updated_at: "2026-09-01T10:00:00Z",
+          title: null,
+          first_message: "the opening question",
+        },
+      ],
+    });
+
+    const { result } = renderHook(() => useLhaSessions(), { wrapper });
+
+    await waitFor(() =>
+      expect(result.current.data?.[0].title).toBe("the opening question"),
+    );
+  });
+
+  it("names a chat this browser never saw from its first message", async () => {
+    // A different browser, or one whose site data was cleared, has no local
+    // entry; the chat must still get a name.
+    stubContexts({
+      contexts: [
+        {
+          context_id: "ctx-remote",
+          task_ids: ["t1"],
+          updated_at: "2026-09-01T10:00:00Z",
+          title: null,
+          first_message: `why  did\n${"x".repeat(80)}`,
+        },
+      ],
+    });
+
+    const { result } = renderHook(() => useLhaSessions(), { wrapper });
+
+    await waitFor(() => expect(result.current.data?.length).toBe(1));
+    expect(result.current.data?.[0].title).toBe(`why did ${"x".repeat(49)}…`);
+  });
+
+  it("finds a chat by the name saved on the server", async () => {
+    stubContexts({
+      contexts: [
+        {
+          context_id: "ctx-a",
+          task_ids: ["t1"],
+          updated_at: "2026-09-01T10:00:00Z",
+          title: "Ticket bug",
+        },
+        {
+          context_id: "ctx-b",
+          task_ids: ["t2"],
+          updated_at: "2026-09-02T10:00:00Z",
+          title: "Other",
+        },
+      ],
+    });
+
+    const { result } = renderHook(() => useLhaSessions("ticket"), {
+      wrapper,
+    });
+
+    await waitFor(() => expect(result.current.data?.length).toBe(1));
+    expect(result.current.data?.[0].id).toBe("ctx-a");
   });
 
   it("prefers the local title over the server's bare id", async () => {

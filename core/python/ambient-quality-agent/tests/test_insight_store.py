@@ -224,6 +224,67 @@ def test_find_existing_insights_with_an_empty_store_asks_nothing() -> None:
         assert store.find_existing_insights([_cluster("a")]) == {0: None}
 
 
+def _match_equal_labels(
+    candidates, existing, **kwargs
+) -> dict[int, int | None]:
+    """A judge that matches a candidate to the first identical existing label.
+
+    Args:
+        candidates: Candidate issue labels to match.
+        existing: Existing insight labels to compare against.
+        **kwargs: The judge's keyword options, ignored.
+
+    Returns:
+        Mapping of candidate indices to the matching existing index, or None.
+    """
+    return {
+        i: existing.index(label) if label in existing else None
+        for i, label in enumerate(candidates)
+    }
+
+
+def test_find_existing_insights_never_matches_across_agents() -> None:
+    """One wording in two agents is two defects, so a sub-agent's candidate
+    must not land on the root's insight, nor the other way round."""
+    client = mock.MagicMock()
+    client.query.return_value.result.return_value = [
+        {"insight_id": "ins-root", "agent_id": _AGENT, "label": "same"},
+        {"insight_id": "ins-sub", "agent_id": "sub_agent", "label": "same"},
+    ]
+
+    with mock.patch.object(matching, "match_candidates", _match_equal_labels):
+        result = _store(client).find_existing_insights(
+            [
+                Cluster(label="same", agent_id="sub_agent"),
+                Cluster(label="same", agent_id=_AGENT),
+                Cluster(label="same", agent_id="other_agent"),
+            ]
+        )
+
+    assert result == {0: "ins-sub", 1: "ins-root", 2: None}
+    assert "SELECT insight_id, agent_id, label" in _sql(client.query.call_args)
+
+
+def test_an_unattributed_insight_matches_root_candidates_only() -> None:
+    """A NULL `agent_id` stands for the root agent, as does a candidate with an
+    empty one."""
+    client = mock.MagicMock()
+    client.query.return_value.result.return_value = [
+        {"insight_id": "ins-legacy", "agent_id": None, "label": "same"},
+    ]
+
+    with mock.patch.object(matching, "match_candidates", _match_equal_labels):
+        result = _store(client).find_existing_insights(
+            [
+                Cluster(label="same", agent_id=_AGENT),
+                Cluster(label="same"),
+                Cluster(label="same", agent_id="sub_agent"),
+            ]
+        )
+
+    assert result == {0: "ins-legacy", 1: "ins-legacy", 2: None}
+
+
 # --- save_investigation_result ------------------------------------------------
 
 
@@ -538,3 +599,18 @@ def test_a_newly_minted_insight_carries_no_operator_judgement() -> None:
     assert row["dismissed_at"] is None
     assert row["merged_into_insight_id"] is None
     assert row["merged_at"] is None
+
+
+def test_a_newly_minted_insight_records_its_agent() -> None:
+    client = mock.MagicMock()
+
+    _store(client).save_investigation_result(
+        new_insights=[_insight().model_copy(update={"agent_id": "sub_agent"})],
+        seen_insight_ids=[],
+        recurring_insight_ids=[],
+        occurrences=[],
+        now=_NOW,
+    )
+
+    (row,) = client.load_table_from_json.call_args.args[0]
+    assert row["agent_id"] == "sub_agent"

@@ -629,3 +629,81 @@ def test_a_terminal_state_counts_as_the_final_frame() -> None:
         {"statusUpdate": {"status": {"state": "TASK_STATE_WORKING"}}}
     )
     assert not ui_app._is_final_frame({"task": {"id": "t"}})
+
+
+# --- usage analytics headers --------------------------------------------------- #
+
+
+def _serve_outbound(
+    monkeypatch: pytest.MonkeyPatch,
+) -> list[httpx.Request]:
+    """Routes the proxy's own `httpx.AsyncClient` to a mock transport.
+
+    Safe here because these tests call the proxy's helpers directly rather
+    than through the ASGI test client.
+
+    Args:
+        monkeypatch: Pytest monkeypatch fixture.
+
+    Returns:
+        The requests sent, in order.
+    """
+    sent: list[httpx.Request] = []
+    real = httpx.AsyncClient
+
+    def answer(request: httpx.Request) -> httpx.Response:
+        sent.append(request)
+        return httpx.Response(200, json={})
+
+    monkeypatch.setattr(
+        ui_app.httpx,
+        "AsyncClient",
+        lambda **kwargs: real(transport=httpx.MockTransport(answer), **kwargs),
+    )
+    return sent
+
+
+async def _send_forwarded_and_streamed() -> None:
+    """Sends one request through each of the proxy's two outbound paths."""
+    await ui_app._forward(
+        "POST",
+        f"{_ENGINE_API}/a2a/aqa_chat",
+        headers={"authorization": "Bearer tok"},
+        content=b"{}",
+    )
+    async with ui_app._create_streaming_client() as http:
+        await http.post(f"{_ENGINE_API}/a2a/aqa_chat", content=b"{}")
+
+
+def test_proxied_requests_send_the_product_token(
+    monkeypatch: pytest.MonkeyPatch, usage_analytics_on
+) -> None:
+    from ambient_quality_shared.usage_headers import build_product_token
+
+    sent = _serve_outbound(monkeypatch)
+
+    asyncio.run(_send_forwarded_and_streamed())
+
+    assert len(sent) == 2
+    for request in sent:
+        assert request.headers["user-agent"] == build_product_token()
+        assert request.headers["x-goog-api-client"] == build_product_token()
+    assert sent[0].headers["authorization"] == "Bearer tok"
+
+
+def test_proxied_requests_send_httpx_defaults_with_the_switch_off(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from ambient_quality_shared import usage_headers
+
+    monkeypatch.setattr(usage_headers, "USAGE_ANALYTICS_ENABLED", False)
+    sent = _serve_outbound(monkeypatch)
+
+    asyncio.run(_send_forwarded_and_streamed())
+
+    assert len(sent) == 2
+    for request in sent:
+        assert request.headers["user-agent"] == (
+            f"python-httpx/{httpx.__version__}"
+        )
+        assert "x-goog-api-client" not in request.headers

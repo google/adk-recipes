@@ -40,13 +40,21 @@ from google.genai import types as genai_types
 # --- builders -----------------------------------------------------------------
 
 
+_ROOT = "root_agent"
+"""The observed root agent every test sweep belongs to."""
+
+
 def _finding(
-    expected: str = "e", actual: str = "a", session_id: str = ""
+    expected: str = "e",
+    actual: str = "a",
+    session_id: str = "",
+    agent_id: str = "",
 ) -> Finding:
     return Finding(
         expected_behavior=expected,
         actual_behavior=actual,
         session_id=session_id,
+        agent_id=agent_id,
     )
 
 
@@ -79,6 +87,47 @@ def _fake_call(payload: Any) -> Any:
     return call
 
 
+def _read_prompt_ids(prompt: str) -> list[int]:
+    """Extract the finding IDs from a rendered clustering prompt.
+
+    Args:
+        prompt: Rendered clustering prompt string.
+
+    Returns:
+        Finding IDs in the order they appear in the prompt payload.
+    """
+    payload = prompt.rsplit(clustering._TUPLES_HEADER, maxsplit=1)[-1]
+    return [entry["id"] for entry in json.loads(payload)]
+
+
+def _build_own_ids_call(label: str = "made no tool call") -> Any:
+    """Create a mock model call that groups all findings from the prompt into one cluster.
+
+    Reading IDs from the prompt rather than returning a static list keeps each
+    chunk's cluster grounded in its own findings regardless of thread
+    scheduling.
+
+    Args:
+        label: Label of the single cluster returned for each chunk.
+
+    Returns:
+        Callable mock model function with a `prompts` list attribute.
+    """
+
+    def call(prompt: str) -> str:
+        call.prompts.append(prompt)  # type: ignore[attr-defined]
+        return json.dumps(
+            {
+                "clusters": [
+                    {"label": label, "finding_ids": _read_prompt_ids(prompt)}
+                ]
+            }
+        )
+
+    call.prompts = []  # type: ignore[attr-defined]
+    return call
+
+
 # --- the prompt ---------------------------------------------------------------
 
 
@@ -94,6 +143,7 @@ def test_the_prompt_carries_no_tool_declarations() -> None:
             _finding("calls create_incident", "called nothing"),
             _finding("passes a severity", "passed none"),
         ],
+        root_agent_id=_ROOT,
         model_call=call,
     )
 
@@ -117,7 +167,9 @@ def test_a_sweep_is_clustered_in_chunks(
         {"clusters": [{"label": "made no tool call", "finding_ids": [0]}]}
     )
 
-    clustering.cluster_and_label(_findings(5), model_call=call)
+    clustering.cluster_and_label(
+        _findings(5), root_agent_id=_ROOT, model_call=call
+    )
 
     assert len(call.prompts) == 3
     # Every finding reached exactly one chunk, and none was dropped to fit.
@@ -133,16 +185,18 @@ def test_a_findings_id_is_its_global_position(
     monkeypatch.setattr(clustering, "CHUNK_SIZE", 2)
     call = _fake_call({"clusters": []})
 
-    clustering.cluster_and_label(_findings(5), model_call=call)
-
-    def chunk_ids(prompt: str) -> list[int]:
-        payload = prompt.rsplit(clustering._TUPLES_HEADER, maxsplit=1)[-1]
-        return [entry["id"] for entry in json.loads(payload)]
+    clustering.cluster_and_label(
+        _findings(5), root_agent_id=_ROOT, model_call=call
+    )
 
     # Sorted because the chunks partition 0..4, so their sorted order is unique
     # and independent of which chunk finished first. Ids that restarted per
     # chunk would read [[0], [0, 1], [0, 1]].
-    assert sorted(chunk_ids(p) for p in call.prompts) == [[0, 1], [2, 3], [4]]
+    assert sorted(_read_prompt_ids(p) for p in call.prompts) == [
+        [0, 1],
+        [2, 3],
+        [4],
+    ]
 
 
 def test_chunk_clusters_are_numbered_across_the_whole_sweep(
@@ -151,11 +205,11 @@ def test_chunk_clusters_are_numbered_across_the_whole_sweep(
     """`merge_clusters` names candidates by `cluster_id`, so ids that restarted
     per chunk would make two different candidates share one."""
     monkeypatch.setattr(clustering, "CHUNK_SIZE", 1)
-    call = _fake_call(
-        {"clusters": [{"label": "made no tool call", "finding_ids": [0]}]}
-    )
+    call = _build_own_ids_call()
 
-    clusters, _ = clustering.cluster_and_label(_findings(3), model_call=call)
+    clusters, _ = clustering.cluster_and_label(
+        _findings(3), root_agent_id=_ROOT, model_call=call
+    )
 
     assert [c.cluster_id for c in clusters] == [0, 1, 2]
 
@@ -165,18 +219,19 @@ def test_one_unusable_chunk_does_not_cost_the_others(
 ) -> None:
     """A truncated chunk is findings lost from that chunk, not a failed sweep."""
     monkeypatch.setattr(clustering, "CHUNK_SIZE", 1)
-    responses = iter(
-        [
-            json.dumps({"clusters": [{"label": "first", "finding_ids": [0]}]}),
-            "{ truncated",
-            json.dumps({"clusters": [{"label": "third", "finding_ids": [2]}]}),
-        ]
-    )
+    responses = {
+        0: json.dumps({"clusters": [{"label": "first", "finding_ids": [0]}]}),
+        1: "{ truncated",
+        2: json.dumps({"clusters": [{"label": "third", "finding_ids": [2]}]}),
+    }
 
     def call(prompt: str) -> str:
-        return next(responses)
+        (finding_id,) = _read_prompt_ids(prompt)
+        return responses[finding_id]
 
-    clusters, _ = clustering.cluster_and_label(_findings(3), model_call=call)
+    clusters, _ = clustering.cluster_and_label(
+        _findings(3), root_agent_id=_ROOT, model_call=call
+    )
 
     assert [c.label for c in clusters] == ["first", "third"]
 
@@ -187,18 +242,16 @@ def test_a_failed_call_does_not_cost_the_chunks_that_answered(
     """The calls are minutes long and fail on infrastructure often enough that
     raising would routinely discard a sweep's completed chunks."""
     monkeypatch.setattr(clustering, "CHUNK_SIZE", 1)
-    responses = iter(
-        [json.dumps({"clusters": [{"label": "first", "finding_ids": [0]}]})]
-    )
 
     def call(prompt: str) -> str:
-        try:
-            return next(responses)
-        except StopIteration:
-            raise RuntimeError("503 UNAVAILABLE") from None
+        if _read_prompt_ids(prompt) != [0]:
+            raise RuntimeError("503 UNAVAILABLE")
+        return json.dumps(
+            {"clusters": [{"label": "first", "finding_ids": [0]}]}
+        )
 
     clusters, findings_skipped_to_errors = clustering.cluster_and_label(
-        _findings(3), model_call=call
+        _findings(3), root_agent_id=_ROOT, model_call=call
     )
 
     assert [c.label for c in clusters] == ["first"]
@@ -215,7 +268,9 @@ def test_every_chunk_failing_raises(monkeypatch: pytest.MonkeyPatch) -> None:
         raise RuntimeError("model unavailable")
 
     with pytest.raises(RuntimeError, match="model unavailable"):
-        clustering.cluster_and_label(_findings(2), model_call=call)
+        clustering.cluster_and_label(
+            _findings(2), root_agent_id=_ROOT, model_call=call
+        )
 
 
 def test_chunks_are_clustered_concurrently(
@@ -235,7 +290,9 @@ def test_chunks_are_clustered_concurrently(
         entered.wait()
         return json.dumps({"clusters": []})
 
-    clustering.cluster_and_label(_findings(4), model_call=call)
+    clustering.cluster_and_label(
+        _findings(4), root_agent_id=_ROOT, model_call=call
+    )
 
 
 def test_chunk_results_keep_the_input_order(
@@ -249,9 +306,7 @@ def test_chunk_results_keep_the_input_order(
         # Labeled from the chunk's own finding, not from call order, so the
         # assertion below is about where results land rather than when they were
         # asked for. The first chunk answers last.
-        finding_id = json.loads(
-            prompt.rsplit(clustering._TUPLES_HEADER, maxsplit=1)[-1]
-        )[0]["id"]
+        (finding_id,) = _read_prompt_ids(prompt)
         time.sleep(0.05 if finding_id == 0 else 0.0)
         return json.dumps(
             {
@@ -264,10 +319,147 @@ def test_chunk_results_keep_the_input_order(
             }
         )
 
-    clusters, _ = clustering.cluster_and_label(_findings(3), model_call=call)
+    clusters, _ = clustering.cluster_and_label(
+        _findings(3), root_agent_id=_ROOT, model_call=call
+    )
 
     assert [c.label for c in clusters] == ["chunk-0", "chunk-1", "chunk-2"]
     assert [c.cluster_id for c in clusters] == [0, 1, 2]
+
+
+# --- agent partitioning -------------------------------------------------------
+
+
+def test_two_agents_findings_never_share_a_prompt_or_a_cluster() -> None:
+    """A look-alike defect in a sub-agent and in the root needs two fixes, and
+    verification can reject a cluster that mixes them -- losing both."""
+    findings = [
+        _finding("root 1"),
+        _finding("sub 1", agent_id="sub_agent"),
+        _finding("root 2", agent_id=_ROOT),
+        _finding("sub 2", agent_id="sub_agent"),
+        _finding("other 1", agent_id="other_agent"),
+    ]
+    call = _build_own_ids_call()
+
+    clusters, _ = clustering.cluster_and_label(
+        findings, root_agent_id=_ROOT, model_call=call
+    )
+
+    # Each prompt holds one agent's findings, under their global indices.
+    assert sorted(_read_prompt_ids(p) for p in call.prompts) == [
+        [0, 2],
+        [1, 3],
+        [4],
+    ]
+    # Empty `agent_id` defaults to `_ROOT`, grouping finding 0 with finding 2.
+    # Results are ordered by first-seen agent rather than completion order.
+    assert [(c.agent_id, c.finding_ids) for c in clusters] == [
+        (_ROOT, [0, 2]),
+        ("sub_agent", [1, 3]),
+        ("other_agent", [4]),
+    ]
+    assert [c.cluster_id for c in clusters] == [0, 1, 2]
+
+
+def test_a_single_agent_prompt_numbers_its_findings_contiguously() -> None:
+    """With one agent there is one partition, so the prompt is exactly the
+    instructions plus every finding under ids 0..n-1."""
+    findings = [
+        _finding("calls the tool", "did not"),
+        _finding("answers in English", "answered in Français", agent_id=_ROOT),
+        _finding("passes a severity", "passed none"),
+    ]
+    call = _fake_call({"clusters": []})
+
+    clustering.cluster_and_label(findings, root_agent_id=_ROOT, model_call=call)
+
+    expected = json.dumps(
+        [
+            {
+                "id": index,
+                "expected_behavior": finding.expected_behavior,
+                "actual_behavior": finding.actual_behavior,
+            }
+            for index, finding in enumerate(findings)
+        ],
+        ensure_ascii=False,
+    )
+    assert call.prompts == [
+        clustering._CLUSTER_INSTRUCTIONS + clustering._TUPLES_HEADER + expected
+    ]
+
+
+def test_a_cluster_naming_an_id_outside_its_chunk_is_dropped() -> None:
+    """An id from another agent's chunk is in range for the sweep, so
+    `validate_clusters` would keep it and mix the two agents."""
+    findings = [_finding("root"), _finding("sub", agent_id="sub_agent")]
+
+    def call(prompt: str) -> str:
+        if _read_prompt_ids(prompt) == [0]:
+            return json.dumps(
+                {"clusters": [{"label": "mixed", "finding_ids": [0, 1]}]}
+            )
+        return json.dumps({"clusters": [{"label": "own", "finding_ids": [1]}]})
+
+    clusters, skipped = clustering.cluster_and_label(
+        findings, root_agent_id=_ROOT, model_call=call
+    )
+
+    assert [(c.label, c.agent_id) for c in clusters] == [("own", "sub_agent")]
+    assert skipped == 0
+
+
+def test_each_agents_findings_are_chunked_separately(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`CHUNK_SIZE` bounds each agent partition, and results preserve partition
+    and chunk order regardless of completion order."""
+    monkeypatch.setattr(clustering, "CHUNK_SIZE", 2)
+    findings = [
+        _finding(agent_id="sub_agent"),
+        _finding(),
+        _finding(agent_id="sub_agent"),
+        _finding(agent_id="sub_agent"),
+    ]
+
+    def call(prompt: str) -> str:
+        ids = _read_prompt_ids(prompt)
+        time.sleep(0.05 if ids[0] == 0 else 0.0)
+        return json.dumps(
+            {"clusters": [{"label": f"chunk-{ids}", "finding_ids": ids}]}
+        )
+
+    clusters, _ = clustering.cluster_and_label(
+        findings, root_agent_id=_ROOT, model_call=call
+    )
+
+    assert [(c.agent_id, c.finding_ids) for c in clusters] == [
+        ("sub_agent", [0, 2]),
+        ("sub_agent", [3]),
+        (_ROOT, [1]),
+    ]
+
+
+def test_a_failed_chunk_counts_only_its_own_findings() -> None:
+    """One agent's lost call costs that agent's findings, not the sweep."""
+    findings = [
+        _finding(),
+        _finding(agent_id="sub_agent"),
+        _finding(agent_id="sub_agent"),
+    ]
+
+    def call(prompt: str) -> str:
+        if _read_prompt_ids(prompt) == [1, 2]:
+            raise RuntimeError("503 UNAVAILABLE")
+        return json.dumps({"clusters": [{"label": "root", "finding_ids": [0]}]})
+
+    clusters, skipped = clustering.cluster_and_label(
+        findings, root_agent_id=_ROOT, model_call=call
+    )
+
+    assert [(c.label, c.agent_id) for c in clusters] == [("root", _ROOT)]
+    assert skipped == 2
 
 
 # --- cluster_and_label --------------------------------------------------------
@@ -277,7 +469,9 @@ def test_empty_input_makes_no_model_call() -> None:
     """Nothing failed, so there is nothing to ask the model about."""
     call = _fake_call({"clusters": []})
 
-    assert clustering.cluster_and_label([], model_call=call) == ([], 0)
+    assert clustering.cluster_and_label(
+        [], root_agent_id=_ROOT, model_call=call
+    ) == ([], 0)
     assert call.prompts == []
 
 
@@ -290,7 +484,9 @@ def test_cluster_and_label_parses_the_model_response() -> None:
         {"clusters": [{"label": "made no tool call", "finding_ids": [0, 1]}]}
     )
 
-    clusters, _ = clustering.cluster_and_label(findings, model_call=call)
+    clusters, _ = clustering.cluster_and_label(
+        findings, root_agent_id=_ROOT, model_call=call
+    )
 
     assert [(c.label, c.finding_ids) for c in clusters] == [
         ("made no tool call", [0, 1])
@@ -312,7 +508,7 @@ def test_cluster_and_label_parses_the_model_response() -> None:
 def test_unusable_model_response_yields_no_clusters(response: str) -> None:
     """A refusal or a truncated generation degrades to zero clusters, not a crash."""
     assert clustering.cluster_and_label(
-        _findings(1), model_call=_fake_call(response)
+        _findings(1), root_agent_id=_ROOT, model_call=_fake_call(response)
     ) == (
         [],
         0,
@@ -330,7 +526,9 @@ def test_malformed_cluster_is_skipped_but_siblings_survive() -> None:
         }
     )
 
-    clusters, _ = clustering.cluster_and_label(_findings(1), model_call=call)
+    clusters, _ = clustering.cluster_and_label(
+        _findings(1), root_agent_id=_ROOT, model_call=call
+    )
 
     assert [c.label for c in clusters] == ["made no tool call"]
 
@@ -343,7 +541,7 @@ def test_the_model_may_answer_with_integers_or_strings() -> None:
         )
 
         clusters, _ = clustering.cluster_and_label(
-            _findings(2), model_call=call
+            _findings(2), root_agent_id=_ROOT, model_call=call
         )
         (cluster,) = clusters
 
@@ -361,7 +559,9 @@ def test_an_id_that_is_not_a_number_costs_its_cluster() -> None:
         }
     )
 
-    assert clustering.cluster_and_label(_findings(2), model_call=call) == (
+    assert clustering.cluster_and_label(
+        _findings(2), root_agent_id=_ROOT, model_call=call
+    ) == (
         [],
         0,
     )
@@ -587,6 +787,31 @@ def test_the_client_retries_the_transient_failures_these_calls_hit(
     retry = captured["http_options"].retry_options
     assert retry.attempts == genai_json.CHUNK_ATTEMPTS
     assert {429, 499, 503} <= set(retry.http_status_codes)
+
+
+def test_a_clustering_call_gets_the_long_per_attempt_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With no timeout a stalled connection blocks forever, and a clustering
+    call over thousands of findings can run past the default timeout."""
+    from .conftest import make_config
+
+    captured: dict[str, Any] = {}
+
+    class _FakeClient:
+        def __init__(self, **kwargs: Any) -> None:
+            captured["http_options"] = kwargs.get("http_options")
+            self.models = SimpleNamespace(
+                generate_content=lambda **kw: SimpleNamespace(text="{}")
+            )
+
+    monkeypatch.setattr("ambient_quality_agent.config.config", make_config())
+    monkeypatch.setattr("google.genai.Client", _FakeClient)
+
+    clustering.call_clustering_model("prompt")
+
+    assert captured["http_options"].timeout == genai_json.LONG_CALL_TIMEOUT_MS
+    assert genai_json.LONG_CALL_TIMEOUT_MS > genai_json.CALL_TIMEOUT_MS
 
 
 def test_attach_examples_collects_the_distinct_revisions() -> None:

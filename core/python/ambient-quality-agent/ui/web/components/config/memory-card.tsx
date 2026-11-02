@@ -23,6 +23,7 @@ import { HelpPopover } from "@/components/ui/help-popover";
 import { Loading } from "@/components/ui/loading";
 import { textStyle } from "@/lib/typography";
 import { cn } from "@/lib/utils";
+import { useAgentKey } from "@/lib/agent-selection";
 
 const TITLE = "Memory";
 
@@ -30,12 +31,15 @@ const TITLE = "Memory";
  *  under `memories/`. The chat stores them when asked; this card lists them
  *  and deletes them. */
 export function MemoryCard() {
-  const { data, isLoading, error } = useQuery(memoriesQuery());
+  const agentKey = useAgentKey();
+  const { data, isLoading, error } = useQuery(memoriesQuery(agentKey));
   const queryClient = useQueryClient();
   const remove = useMutation({
-    mutationFn: deleteMemory,
+    mutationFn: (id: string) => deleteMemory(agentKey, id),
     onSettled: () =>
-      void queryClient.invalidateQueries({ queryKey: ["aqua", "memories"] }),
+      void queryClient.invalidateQueries({
+        queryKey: memoriesQuery(agentKey).queryKey,
+      }),
   });
 
   if (isLoading) {

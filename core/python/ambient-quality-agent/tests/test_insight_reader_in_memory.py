@@ -792,3 +792,16 @@ def test_the_diagnosed_badge_follows_the_merge(
     view = reader.get_insight("survivor")
 
     assert view is not None and view.has_root_cause
+
+
+def test_the_insights_agent_reads_back(
+    reader: InMemoryInsightReader, writer: InMemoryInsightStore
+) -> None:
+    writer.save_investigation_result(
+        [_insight("i1", agent_id="sub_agent")], [], [], [], _NOW
+    )
+
+    view = reader.get_insight("i1")
+
+    assert view is not None
+    assert view.agent_id == "sub_agent"

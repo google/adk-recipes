@@ -24,25 +24,30 @@ dependencies = [
     # `[http-server]` adds sse-starlette; without it `import a2a.server.routes`
     # fails, and so does `adk deploy agent_engine`'s unconditional `--a2a` CMD.
     "a2a-sdk[http-server]>=1.0,<2",
-    "google-adk>=2.6.3",
-    "google-cloud-aiplatform[evaluation]>=1.163.0",
-    "google-cloud-bigquery>=3.43.0",
+    # The engine decides on each scheduler tick whether an agent's cron fell
+    # due.
+    "croniter>=6.2,<7",
+    "google-adk>=2.12.0",
+    # 2.0.1 is the first release whose `agentplatform.Client` has `runtimes`,
+    # which investigation scheduling calls to submit its query job.
+    "google-cloud-aiplatform[evaluation]>=2.0.1,<3",
+    "google-cloud-bigquery>=3.46.2",
     "google-cloud-logging>=3.16.2",
-    "google-cloud-storage>=3.13.1",
+    "google-cloud-storage>=3.17.0",
     "google-cloud-tasks>=2.24.0",
     # Direct: the GCS span exporter builds on the tracing API and SDK (tracer
     # provider, batch processor, `SpanExporter`). Available transitively today,
     # which is not a contract.
     "opentelemetry-api>=1.42.1",
     "opentelemetry-sdk>=1.42.1",
-    "pydantic==2.12.5",
+    "pydantic==2.14.1",
     # Direct: the package loads its `.env` with it. Available transitively
     # today, which is not a contract. 1.2 is the first release that honors
     # `PYTHON_DOTENV_DISABLED`, which the tests and dev scripts set.
     "python-dotenv>=1.2.0",
     # Direct: the code-metric library reads its `eval_config.yaml` with it.
     # Available transitively today, which is not a contract.
-    "pyyaml>=6",
+    "pyyaml>=6.0.3",
 ]
 
 [project.optional-dependencies]
@@ -56,10 +61,10 @@ Homepage = "https://github.com/google/adk-recipes/tree/main/core/python/ambient-
 Repository = "https://github.com/google/adk-recipes/tree/main/core/python/ambient-quality-agent"
 
 [tool.hatch.version]
-path = "src/ambient_quality_agent/__init__.py"
+path = "src/ambient_quality_shared/__init__.py"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/ambient_quality_agent"]
+packages = ["src/ambient_quality_agent", "src/ambient_quality_shared"]
 
 [tool.uv]
 # Lifts upstream caps that hold known CVEs in the lock:
@@ -82,7 +87,7 @@ default = true
 [dependency-groups]
 dev = [
     "cloudpickle>=3.1.2",
-    "google-agents-cli>=1.6",
+    "google-agents-cli>=1.10",
     "pytest>=8.0",
     "pytest-xdist>=3.6",
 ]
@@ -97,7 +102,7 @@ python_files = ["test_*.py"]
 addopts = "-v"
 markers = [
     # Tests that assert the installed `google-agents-cli` still behaves as this
-    # repo's two validators assume. They fail when upstream changes a rule,
+    # repo's metric loader assumes. They fail when upstream changes a rule,
     # which is the point, so the marker exists to name them in that report.
     "parity: checks this repo against the installed agents-cli",
 ]
@@ -117,6 +122,9 @@ pythonpath = ["src", "ui", "extension", "."]
 
 [tool.ty.environment]
 python-version = "3.11"
+# tools_internal/e2e imports release.py from its own directory, as the release
+# scripts import each other.
+extra-paths = ["tools_internal/release"]
 
 [tool.ty.rules]
 # Ignore missing third-party type stubs.

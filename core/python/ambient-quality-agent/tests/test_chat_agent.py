@@ -25,11 +25,15 @@ from __future__ import annotations
 import asyncio
 import base64
 import collections
+import types
 from typing import Any
 
 import pytest
 from ambient_quality_agent.core import chat_agent, rca_skill
 from ambient_quality_agent.core import chat_tools_pending as chat_pending
+from ambient_quality_agent.tools.observed_agent_config import effective_config
+from google.adk.a2a.converters.request_converter import A2A_METADATA_KEY
+from google.adk.agents.run_config import RunConfig
 from google.adk.tools.base_toolset import BaseToolset
 from google.adk.tools.skill_toolset import SkillToolset
 
@@ -544,3 +548,91 @@ def test_the_prompt_routes_custom_investigations_to_their_skill() -> None:
     assert "asks for a custom investigation" in instruction
     full_run = instruction[: instruction.index("1. Call evaluate_telemetry")]
     assert "does not ask for a custom investigation" in full_run
+
+
+# --------------------------------------------------------------------------- #
+# before_agent: the conversation's agent                                       #
+# --------------------------------------------------------------------------- #
+
+
+def _build_callback_context(
+    metadata: dict[str, Any] | None, state: dict[str, Any] | None = None
+) -> Any:
+    """Builds the two fields of a callback context `before_agent` reads.
+
+    Args:
+        metadata: The A2A request metadata, or None for a request with none.
+        state: The session state; empty when omitted.
+
+    Returns:
+        An object with the context's `run_config` and `state`.
+    """
+    custom = {A2A_METADATA_KEY: metadata} if metadata is not None else {}
+    return types.SimpleNamespace(
+        run_config=RunConfig(custom_metadata=custom),
+        state=state if state is not None else {},
+    )
+
+
+@pytest.fixture
+def attached(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Makes `effective_config.load` accept only `acme-prod__support`."""
+    loaded: list[str] = []
+
+    def _load(state: dict[str, Any]) -> object:
+        key = state[effective_config.AGENT_KEY_STATE]
+        loaded.append(key)
+        if key != "acme-prod__support":
+            raise effective_config.UnknownAgentError(f"No agent {key!r}.")
+        return object()
+
+    monkeypatch.setattr(effective_config, "load", _load)
+    return loaded
+
+
+def test_the_selected_agent_is_stored_in_the_conversation(attached) -> None:
+    context = _build_callback_context({"agent_key": " acme-prod__support "})
+
+    assert asyncio.run(chat_agent.before_agent(context)) is None
+    assert context.state == {
+        effective_config.AGENT_KEY_STATE: "acme-prod__support"
+    }
+
+
+def test_a_conversation_keeps_the_agent_it_started_with(attached) -> None:
+    context = _build_callback_context(
+        {"agent_key": "acme-staging__support"},
+        {effective_config.AGENT_KEY_STATE: "acme-prod__support"},
+    )
+
+    assert asyncio.run(chat_agent.before_agent(context)) is None
+    assert context.state[effective_config.AGENT_KEY_STATE] == (
+        "acme-prod__support"
+    )
+    assert attached == []
+
+
+@pytest.mark.parametrize(
+    "metadata", [None, {}, {"agent_key": ""}, {"agent_key": 7}]
+)
+def test_a_request_that_names_no_agent_selects_none(attached, metadata) -> None:
+    context = _build_callback_context(metadata)
+
+    assert asyncio.run(chat_agent.before_agent(context)) is None
+    assert context.state == {}
+
+
+def test_an_unknown_agent_ends_the_turn_with_the_reason(attached) -> None:
+    context = _build_callback_context({"agent_key": "gone"})
+
+    reply = asyncio.run(chat_agent.before_agent(context))
+
+    assert reply is not None
+    assert reply.parts[0].text == "No agent 'gone'."
+    assert context.state == {}
+
+
+def test_the_agent_binds_the_conversation_before_each_turn() -> None:
+    agent = chat_agent.build_chat_agent()
+
+    assert agent.before_agent_callback is chat_agent.before_agent

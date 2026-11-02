@@ -288,3 +288,123 @@ def test_the_judge_runs_the_configured_match_model(
     # A thinking level is a Gemini 3 field that earlier models reject outright,
     # and the model here is the operator's choice.
     assert captured["thinking_config"] is None
+
+
+# --------------------------------------------------------------------------- #
+# match_candidates_by_scope                                                    #
+# --------------------------------------------------------------------------- #
+
+
+def _build_recording_matcher(
+    answers: dict[str, int | None],
+) -> tuple[matching.Matcher, list[tuple[list[str], list[str]]]]:
+    """Create a matcher that resolves each candidate label from `answers` and records calls.
+
+    Args:
+        answers: Mapping of candidate label to its matched index in the scope's
+            existing labels, or `None`. Unlisted labels return `None`.
+
+    Returns:
+        A tuple of `(matcher, calls)`, where `calls` records each
+        `(candidates, existing)` pair passed to `matcher`.
+    """
+    calls: list[tuple[list[str], list[str]]] = []
+
+    def matcher(candidates, existing) -> dict[int, int | None]:
+        calls.append((list(candidates), list(existing)))
+        return {i: answers.get(label) for i, label in enumerate(candidates)}
+
+    return matcher, calls
+
+
+def test_a_candidate_only_sees_labels_of_its_own_scope() -> None:
+    """Two agents can share a symptom with different causes, so another agent's
+    insight is never offered."""
+    matcher, calls = _build_recording_matcher({"made no tool call": 0})
+
+    hits = matching.match_candidates_by_scope(
+        [("sub", "made no tool call"), ("root", "made no tool call")],
+        [
+            ("root", "answered from memory"),
+            ("sub", "made no tool call"),
+            ("root", "made no tool call"),
+        ],
+        matcher,
+    )
+
+    assert sorted(calls) == [
+        (["made no tool call"], ["answered from memory", "made no tool call"]),
+        (["made no tool call"], ["made no tool call"]),
+    ]
+    # Scoped indices map back into the full lists.
+    assert hits == {0: 1, 1: 0}
+
+
+def test_a_scope_with_no_existing_labels_is_new_without_a_call() -> None:
+    matcher, calls = _build_recording_matcher({"a": 0})
+
+    hits = matching.match_candidates_by_scope(
+        [("fresh", "a"), ("root", "a")], [("root", "a")], matcher
+    )
+
+    assert hits == {0: None, 1: 0}
+    assert calls == [(["a"], ["a"])]
+
+
+def test_a_scope_keeps_the_newest_first_order_of_existing() -> None:
+    """The order is the judge's tie-break, so filtering must not reorder it."""
+    matcher, calls = _build_recording_matcher({})
+
+    matching.match_candidates_by_scope(
+        [("root", "c")],
+        [
+            ("root", "newest"),
+            ("sub", "x"),
+            ("root", "older"),
+            ("root", "oldest"),
+        ],
+        matcher,
+    )
+
+    assert calls == [(["c"], ["newest", "older", "oldest"])]
+
+
+def test_one_failed_scope_reports_its_candidates_as_new() -> None:
+    def matcher(candidates, existing) -> dict[int, int | None]:
+        if candidates == ["broken"]:
+            raise matching.MatchUnavailable("judge down")
+        return {0: 0}
+
+    hits = matching.match_candidates_by_scope(
+        [("a", "broken"), ("b", "fine")], [("a", "x"), ("b", "y")], matcher
+    )
+
+    assert hits == {0: None, 1: 1}
+
+
+def test_every_called_scope_failing_raises() -> None:
+    """Same policy as `match_candidates`: answering "all new" against a
+    populated store would duplicate it. A scope never called does not count."""
+
+    def matcher(candidates, existing) -> dict[int, int | None]:
+        raise matching.MatchUnavailable("judge down")
+
+    with pytest.raises(matching.MatchUnavailable, match="judge down"):
+        matching.match_candidates_by_scope(
+            [("a", "1"), ("b", "2"), ("unstored", "3")],
+            [("a", "x"), ("b", "y")],
+            matcher,
+        )
+
+
+def test_an_out_of_scope_answer_from_the_matcher_is_no_match() -> None:
+    """`NO_MATCH` must not wrap around to the oldest insight of the scope."""
+
+    def matcher(candidates, existing) -> dict[int, int | None]:
+        return {0: matching.NO_MATCH, 1: 5}
+
+    hits = matching.match_candidates_by_scope(
+        [("root", "a"), ("root", "b")], [("root", "x"), ("root", "y")], matcher
+    )
+
+    assert hits == {0: None, 1: None}

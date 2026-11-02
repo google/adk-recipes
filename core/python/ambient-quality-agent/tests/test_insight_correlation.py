@@ -292,6 +292,26 @@ def test_unmatched_candidate_mints_one_new_insight(
     assert "_made no tool call_ (new): 2 rubric(s)" in text
 
 
+def test_insights_are_written_under_the_agent_key(
+    fake_call: FakeInsightModelCall, fake_store: FakeInsightStore
+) -> None:
+    """The same agent in a staging and a prod project shares its name, so its
+    insights are told apart by the key."""
+    fake_call.response = json.dumps(
+        {"clusters": [{"label": "made no tool call", "finding_ids": ["0"]}]}
+    )
+    state = _state(
+        agent_key="acme-staging__root_agent",
+        finding_sets=[_finding_set("r-1")],
+    )
+
+    insight_correlation_node._func(_ctx(state))
+
+    new_insights, _, occurrences = fake_store.saved[0]
+    assert new_insights[0].agent_name == "acme-staging__root_agent"
+    assert occurrences[0].agent_name == "acme-staging__root_agent"
+
+
 def test_matched_candidate_appends_occurrence_not_insight(
     fake_call: FakeInsightModelCall, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1632,6 +1652,47 @@ def test_a_zero_window_ambient_run_leaves_the_switch_to_the_store(
     insight_correlation_node._func(_ctx(state))
 
     assert [window for _now, window in fake_store.resolve_calls] == [0]
+
+
+def test_each_agents_defect_mints_an_insight_attributed_to_that_agent(
+    fake_store: FakeInsightStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """One wording seen in the root and in a sub-agent is two candidates, and
+    each minted insight records the agent it was clustered under."""
+    root_set = _finding_set("r-1")
+    sub_set = _finding_set("r-2", case_id="case-2")
+    sub_set["findings"][0]["agent_id"] = "sub_agent"
+    prompts: list[str] = []
+
+    def cluster_own_ids(prompt: str) -> str:
+        prompts.append(prompt)
+        tuples = json.loads(prompt.rsplit("Failed tuples:\n", maxsplit=1)[-1])
+        ids = [entry["id"] for entry in tuples]
+        return json.dumps(
+            {"clusters": [{"label": "made no tool call", "finding_ids": ids}]}
+        )
+
+    monkeypatch.setattr(
+        _common, "model_call_factory", lambda ctx: cluster_own_ids
+    )
+    state = _state(finding_sets=[root_set, sub_set])
+
+    event = insight_correlation_node._func(_ctx(state))
+
+    assert len(prompts) == 2
+    new_insights, _, occurrences = fake_store.saved[0]
+    assert [(i.label, i.agent_id) for i in new_insights] == [
+        ("made no tool call", "root_agent"),
+        ("made no tool call", "sub_agent"),
+    ]
+    assert all(i.agent_name == "root_agent" for i in new_insights)
+    assert len(occurrences) == 2
+    # The summary names a sub-agent and leaves the observed agent implicit.
+    assert event.content is not None
+    lines = event.content.parts[0].text.splitlines()
+    assert "- _made no tool call_ (new): 1 rubric(s)" in "\n".join(lines)
+    assert any("(new, agent `sub_agent`)" in line for line in lines)
+    assert not any("agent `root_agent`" in line for line in lines)
 
 
 def test_clustering_failure_fails_the_sweep(

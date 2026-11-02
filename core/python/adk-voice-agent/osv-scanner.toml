@@ -1,0 +1,99 @@
+# osv-scanner reads this file for ./uv.lock (the CVE scan in
+# .github/workflows/dependency-cve-scan.yml). Only vulnerabilities with
+# no fixed release or an upstream-blocked fix belong here; remove each
+# entry once the upstream constraint is lifted.
+
+[[IgnoredVulns]]
+id = "PYSEC-2026-3552"
+ignoreUntil = 2026-12-31
+reason = "Fixed in cryptography >= 50.0.0; blocked by pyOpenSSL 26.1.0 (via google-auth[pyopenssl] and google-agents-cli) pinning cryptography < 48."
+
+[[IgnoredVulns]]
+id = "PYSEC-2026-3553"
+ignoreUntil = 2026-12-31
+reason = "Fixed in cryptography >= 49.0.0; blocked by pyOpenSSL 26.1.0 (via google-auth[pyopenssl] and google-agents-cli) pinning cryptography < 48."
+
+[[IgnoredVulns]]
+id = "PYSEC-2026-3554"
+ignoreUntil = 2026-12-31
+reason = "Fixed in cryptography >= 49.0.0; blocked by pyOpenSSL 26.1.0 (via google-auth[pyopenssl] and google-agents-cli) pinning cryptography < 48."
+
+[[IgnoredVulns]]
+id = "GHSA-537c-gmf6-5ccf"
+ignoreUntil = 2026-12-31
+reason = "Fixed in cryptography >= 48.0.1; blocked by pyOpenSSL 26.1.0 (via google-auth[pyopenssl] and google-agents-cli) pinning cryptography < 48."
+
+[[IgnoredVulns]]
+id = "GHSA-567q-5qvw-pf92"
+ignoreUntil = 2026-12-31
+reason = "Fixed in filelock >= 4.2.1; blocked by google-agents-cli pinning filelock >= 3.12, < 4."
+
+[[IgnoredVulns]]
+id = "GHSA-9vhv-jxww-xfm5"
+ignoreUntil = 2026-12-31
+reason = "Fixed in filelock >= 4.2.1; blocked by google-agents-cli pinning filelock >= 3.12, < 4."
+
+[[IgnoredVulns]]
+id = "GHSA-v4x8-3wr5-3wq8"
+ignoreUntil = 2026-12-31
+reason = "Fixed in filelock >= 4.2.1; blocked by google-agents-cli pinning filelock >= 3.12, < 4."
+
+[[IgnoredVulns]]
+id = "GHSA-6627-m3xw-93mp"
+ignoreUntil = 2026-12-31
+reason = "Fixed in filelock >= 4.2.1; blocked by google-agents-cli pinning filelock >= 3.12, < 4."
+
+[[IgnoredVulns]]
+id = "GHSA-69hj-f68j-2879"
+ignoreUntil = 2026-12-31
+reason = "Fixed in filelock >= 4.2.1; blocked by google-agents-cli pinning filelock >= 3.12, < 4."
+
+[[IgnoredVulns]]
+id = "GHSA-8mx5-7m5m-r77g"
+ignoreUntil = 2026-12-31
+reason = "Fixed in filelock >= 4.2.1; blocked by google-agents-cli pinning filelock >= 3.12, < 4."
+
+[[IgnoredVulns]]
+id = "GHSA-9c4x-gm8v-wgc4"
+ignoreUntil = 2026-12-31
+reason = "Fixed in filelock >= 4.2.1; blocked by google-agents-cli pinning filelock >= 3.12, < 4."
+
+[[IgnoredVulns]]
+id = "GHSA-9j6q-wvj5-jgjg"
+ignoreUntil = 2026-12-31
+reason = "Fixed in filelock >= 4.2.1; blocked by google-agents-cli pinning filelock >= 3.12, < 4."
+
+[[IgnoredVulns]]
+id = "GHSA-cwqr-hh33-gh44"
+ignoreUntil = 2026-12-31
+reason = "Fixed in filelock >= 4.2.1; blocked by google-agents-cli pinning filelock >= 3.12, < 4."
+
+[[IgnoredVulns]]
+id = "GHSA-fq56-3cx3-fjxp"
+ignoreUntil = 2026-12-31
+reason = "Fixed in filelock >= 4.2.1; blocked by google-agents-cli pinning filelock >= 3.12, < 4."
+
+[[IgnoredVulns]]
+id = "GHSA-j8f7-rjxc-mr56"
+ignoreUntil = 2026-12-31
+reason = "Fixed in filelock >= 4.0.9; blocked by google-agents-cli pinning filelock >= 3.12, < 4."
+
+[[IgnoredVulns]]
+id = "GHSA-m462-7rxw-wvpg"
+ignoreUntil = 2026-12-31
+reason = "Fixed in filelock >= 4.2.1; blocked by google-agents-cli pinning filelock >= 3.12, < 4."
+
+[[IgnoredVulns]]
+id = "GHSA-rfpc-qcw5-3pc4"
+ignoreUntil = 2026-12-31
+reason = "Fixed in filelock >= 4.2.1; blocked by google-agents-cli pinning filelock >= 3.12, < 4."
+
+[[IgnoredVulns]]
+id = "GHSA-7hp6-4w63-5g45"
+ignoreUntil = 2026-12-31
+reason = "Fixed in litellm >= 1.100.4; blocked by google-cloud-aiplatform[evaluation] 2.6.0 (via google-adk[eval]) pinning litellm < 1.97.0."
+
+[[IgnoredVulns]]
+id = "GHSA-xcq7-p3pf-p88h"
+ignoreUntil = 2026-12-31
+reason = "Fixed in opentelemetry-api >= 1.45.1; blocked by google-adk 2.13.0 pinning opentelemetry-api <= 1.44."

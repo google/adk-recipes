@@ -36,12 +36,13 @@ Wiring::
         ▼
     InsightWriter.resolve_stale_insights(), skipped on custom-triggered runs
 
-Clusters this sweep's failed rubrics into labelled candidate issues, judges them
-against their own traces unless ``insights_verification_enabled`` turns the pass
-off, and even then only the largest `MAX_VERIFIED_CLUSTERS` are judged -- matches everything the judge did
-not reject against the insights earlier sweeps recorded for the same agent, and
-writes one occurrence per candidate. A recurring defect is then tracked as one
-insight with history rather than resurfacing as a fresh finding every run.
+Clusters this sweep's failed rubrics into labeled candidate issues, one
+attributed agent (root or sub-agent) at a time. Unless
+``insights_verification_enabled`` is false, verifies the largest
+`MAX_VERIFIED_CLUSTERS` clusters against their own traces. Matches unrejected
+candidates against insights from earlier sweeps for the same attributed agent,
+and writes one occurrence per candidate so recurring defects are tracked as a
+single insight with history rather than reported as new findings every run.
 
 flow: failed rubrics -> candidate clusters -> one occurrence per candidate, and
 then, on the verdict that candidate got:
@@ -209,7 +210,9 @@ def insight_correlation_node(ctx: Context) -> Event:
     )
     if findings:
         clusters, rubrics_skipped_to_errors = clustering.cluster_and_label(
-            findings, model_call=_common.model_call_factory(ctx)
+            findings,
+            root_agent_id=state["observed_agent_name"],
+            model_call=_common.model_call_factory(ctx),
         )
         clusters = clustering.validate_clusters(clusters, len(findings))
         clustered = len({fid for c in clusters for fid in c.finding_ids})
@@ -290,6 +293,7 @@ def insight_correlation_node(ctx: Context) -> Event:
             clustering_info,
             verdicts.tally,
             enforced=verification_enforced,
+            root_agent_id=state["observed_agent_name"],
         )
         logger.info(
             "insight_correlation: run_id=%s persisted %d cluster(s) as %d new "
@@ -415,11 +419,25 @@ def _render_correlation_summary(
     verify_info: VerifyInfo,
     *,
     enforced: bool,
+    root_agent_id: str,
 ) -> str:
     """Format the correlation result as human-readable markdown for the run log.
 
     Summarizes the grouping of findings into candidate clusters, recurrence
-    matches against existing insights, and cluster status breakdown.
+    matches against existing insights, and cluster status breakdown. Includes a
+    candidate's `agent_id` only for sub-agents to keep single-agent sweep logs
+    concise.
+
+    Args:
+        findings: The sweep's findings.
+        candidates: Each cluster with its matched insight and verdict.
+        clustering_info: Findings that produced no insight, by cause.
+        verify_info: The verification pass's outcome counts.
+        enforced: Whether a negative verdict rejects its candidate.
+        root_agent_id: Name of the observed root agent.
+
+    Returns:
+        The summary as markdown.
     """
     statuses: list[str] = []
     lines = []
@@ -440,6 +458,8 @@ def _render_correlation_summary(
             if verdict.flagged and verdict.state is OccurrenceState.TRACKED
             else status
         )
+        if cluster.agent_id and cluster.agent_id != root_agent_id:
+            shown = f"{shown}, agent `{cluster.agent_id}`"
         cases = [e.eval_case_id for e in cluster.examples if e.eval_case_id]
         cases_text = ", ".join(cases) if cases else "no case ids"
         lines.append(
@@ -564,7 +584,7 @@ def _build_records_to_save(
     confirmed recurring, the renames a verdict proposed for insights already
     stored, and the occurrences to write.
     """
-    agent_name = state["observed_agent_name"]
+    agent_name = config_module.extract_agent_key(state)
     run_id = state.get("run_id", "")
 
     new_insights: list[Insight] = []
@@ -598,6 +618,7 @@ def _build_records_to_save(
                 Insight(
                     insight_id=insight_id,
                     agent_name=agent_name,
+                    agent_id=cluster.agent_id,
                     label=_resolve_best_label(cluster, verdict),
                     status=InsightStatus.NEW,
                     created_at=now,

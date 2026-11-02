@@ -41,12 +41,16 @@ payloads it sampled so the dashboard can show them.
 Source-browsing tools are read-only and inspect published snapshots.
 
 The `aqa_chat` name is the one the dashboard's A2A client resolves; the UI
-proxy (`ui/app.py`) forwards `/a2a` to `/a2a/aqa_chat`.
+proxy (`ui/app.py`) forwards `/a2a` to `/a2a/aqa_chat`. The dashboard names
+the agent a conversation is about in each request's metadata, and
+`before_agent` binds the conversation to it.
 """
 
 from __future__ import annotations
 
+import asyncio
 import base64
+import logging
 from typing import Any
 
 from ambient_quality_agent import config as config_module
@@ -72,6 +76,7 @@ from ambient_quality_agent.core.models import build_gemini
 from ambient_quality_agent.core.rca_tools import get_full_trajectories
 from ambient_quality_agent.core.root_cause_tools import record_root_cause
 from ambient_quality_agent.core.skill_toolset import build_skill_toolset
+from ambient_quality_agent.tools.observed_agent_config import effective_config
 from ambient_quality_agent.tools.orchestrator.document_tools import get_goal
 from ambient_quality_agent.tools.orchestrator.insight_tools import (
     get_insight,
@@ -84,11 +89,15 @@ from ambient_quality_agent.tools.source_code.agent_source_browsing_tools import 
     search_source,
 )
 from ambient_quality_agent.tools.telemetry.describe import describe_telemetry
+from google.adk.a2a.converters.request_converter import A2A_METADATA_KEY
+from google.adk.agents.callback_context import CallbackContext
 from google.adk.agents.llm_agent import LlmAgent, ToolUnion
 from google.adk.tools import ToolContext
 from google.genai import types as genai_types
 
 AGENT_NAME = "aqa_chat"
+
+logger = logging.getLogger(__name__)
 
 
 async def save_artifact(
@@ -726,6 +735,62 @@ _INSTRUCTION = (
 )
 
 
+async def before_agent(
+    callback_context: CallbackContext,
+) -> genai_types.Content | None:
+    """Binds the conversation to the agent the dashboard selected.
+
+    The dashboard sends the selected agent's key as A2A request metadata,
+    which ADK hands over in `RunConfig.custom_metadata`. The first key a
+    conversation receives goes into its session state, where every tool
+    resolves the agent from (`effective_config.load`); a later, different key
+    is ignored, so a conversation stays about the agent it started with. A
+    conversation that never receives one gets the default agent.
+
+    Args:
+        callback_context: ADK callback context for the turn.
+
+    Returns:
+        A message ending the turn when the key names no attached agent, or
+        None to let the model answer.
+    """
+    run_config = callback_context.run_config
+    metadata = (
+        (run_config.custom_metadata or {}).get(A2A_METADATA_KEY)
+        if run_config
+        else None
+    )
+    requested = (
+        metadata.get("agent_key") if isinstance(metadata, dict) else None
+    )
+    if not isinstance(requested, str) or not requested.strip():
+        return None
+    requested = requested.strip()
+    bound = str(
+        callback_context.state.get(effective_config.AGENT_KEY_STATE) or ""
+    )
+    if bound:
+        if bound != requested:
+            logger.warning(
+                "chat: conversation is about %s; ignoring the request for %s",
+                bound,
+                requested,
+            )
+        return None
+    try:
+        # In a thread, as resolving the agent may read the jobs store.
+        await asyncio.to_thread(
+            effective_config.load,
+            {effective_config.AGENT_KEY_STATE: requested},
+        )
+    except effective_config.UnknownAgentError as exc:
+        return genai_types.Content(
+            role="model", parts=[genai_types.Part(text=str(exc))]
+        )
+    callback_context.state[effective_config.AGENT_KEY_STATE] = requested
+    return None
+
+
 def build_chat_agent() -> LlmAgent:
     """Builds the dashboard chat agent.
 
@@ -755,5 +820,6 @@ def build_chat_agent() -> LlmAgent:
         description="Q&A over AQuA's findings and sweeps, for the dashboard's chat panel.",
         instruction=_INSTRUCTION,
         tools=[*CHAT_TOOLS, build_skill_toolset()],
+        before_agent_callback=before_agent,
         on_model_error_callback=on_model_error,
     )

@@ -19,11 +19,13 @@ writer, chat tools, and dashboard.
 
 Each run is stored as a single mutable record representing its current state.
 Filtering, ordering, and windowing rules match the production contract:
-1. Filter telemetry windows based on window closure time (`window_end`) rather
+1. Scope the run list and counter totals to the store's agent, by its key in
+   `observed_agent_name`; read one run, and the runs to fail, across agents.
+2. Filter telemetry windows based on window closure time (`window_end`) rather
    than run execution time.
-2. Return recent run lists capped and sorted oldest first.
-3. Exclude inactive days from daily aggregation rather than outputting zeros.
-4. Exclude dry runs and manual triggers when calculating the ambient watermark.
+3. Return recent run lists capped and sorted oldest first.
+4. Exclude inactive days from daily aggregation rather than outputting zeros.
+5. Exclude dry runs and manual triggers when calculating the ambient watermark.
 """
 
 from __future__ import annotations
@@ -61,10 +63,19 @@ def _format_utc_now_iso() -> str:
 
 
 class InMemoryInvestigationStore:
-    """One deployment's runs, over the in-process `InMemoryStore`."""
+    """One agent's runs, over the in-process `InMemoryStore`."""
 
-    def __init__(self, store: InMemoryStore) -> None:
+    def __init__(self, store: InMemoryStore, *, agent_name: str = "") -> None:
+        """Bind the store to the shared runs and one agent.
+
+        Args:
+            store: Shared in-memory store.
+            agent_name: Key of the agent whose runs the run list and counter
+                totals cover. Empty for a deployment with no agent, whose
+                list and totals are not scoped.
+        """
         self._store = store
+        self._agent_name = agent_name
 
     # --- Writes ------------------------------------------------------------- #
 
@@ -147,7 +158,7 @@ class InMemoryInvestigationStore:
         kept = [
             record
             for record in self._list_runs_in_window(
-                self._store.runs.values(), window_start, window_end
+                self._list_own_runs(), window_start, window_end
             )
             if status is None or record.status == status
         ]
@@ -170,7 +181,7 @@ class InMemoryInvestigationStore:
         """
         kept = list(
             self._list_runs_in_window(
-                self._store.runs.values(), window_start, window_end
+                self._list_own_runs(), window_start, window_end
             )
         )
         totals = dict.fromkeys(list_counter_names(), 0)
@@ -201,7 +212,7 @@ class InMemoryInvestigationStore:
         names = list_counter_names()
         buckets: dict[str, dict[str, int | str]] = {}
         for record in self._list_runs_in_window(
-            self._store.runs.values(), window_start, window_end
+            self._list_own_runs(), window_start, window_end
         ):
             day = _compute_utc_day(record.window_end)
             if day is None:
@@ -232,7 +243,8 @@ class InMemoryInvestigationStore:
         custom or manual sweeps do not advance or reset the ambient watermark.
 
         Args:
-            observed_agent_name: Name of the observed agent.
+            observed_agent_name: The agent's key, which runs record in
+                `observed_agent_name`.
 
         Returns:
             ISO 8601 timestamp of the latest completed window end, or None if no
@@ -257,7 +269,8 @@ class InMemoryInvestigationStore:
         so abandoned or crashed executions do not permanently block concurrency.
 
         Args:
-            observed_agent_name: Name of the observed agent.
+            observed_agent_name: The agent's key, which runs record in
+                `observed_agent_name`.
 
         Returns:
             Number of pending or running runs updated within the horizon.
@@ -316,6 +329,20 @@ class InMemoryInvestigationStore:
         ]
 
     # --- Shared rules -------------------------------------------------------- #
+
+    def _list_own_runs(self) -> list[InvestigationRecord]:
+        """Lists the runs of the store's agent.
+
+        Returns:
+            Every run if the store has no agent, else the runs whose
+            `observed_agent_name` is its key.
+        """
+        return [
+            record
+            for record in self._store.runs.values()
+            if not self._agent_name
+            or record.observed_agent_name == self._agent_name
+        ]
 
     @staticmethod
     def _list_runs_in_window(

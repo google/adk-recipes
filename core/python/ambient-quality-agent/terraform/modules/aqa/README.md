@@ -20,7 +20,6 @@ module "aqa" {
 
   project_id               = "my-project"
   observed_deployment_name = "my-agent"
-  observed_engine_id       = "1234567890"
 }
 ```
 
@@ -28,21 +27,13 @@ module "aqa" {
 `observed_deployment_name` has to be 2 to 18 characters, because the longest
 service account id derived from it takes at most 30.
 
-`observed_engine_id` is optional. Leaving it null turns update triggering off
-and leaves the schedule as the only trigger — see "Ambient triggering" below.
-With `configure_observed_agent = false` it is ignored, along with the schedule
-settings.
+Agents are attached to the deployed engine with `agents-cli aqua attach`, which
+stores each agent's settings where the engine reads them, grants the engine
+read access to the agent's telemetry and creates its update trigger.
 
 Inputs and outputs are documented in `variables.tf` and `outputs.tf`; generate a
 table with [`terraform-docs`](https://terraform-docs.io) rather than reading a
 copy that can rot.
-
-## Deployment name vs agent name
-
-`observed_deployment_name` names infrastructure; `observed_agent_name` is what
-AQA matches telemetry on. They differ because an `Agent(name=...)` holds
-underscores and a service account id cannot. A wrong agent name matches no rows,
-silently.
 
 ## The engine
 
@@ -58,36 +49,42 @@ apply that reports success and changes nothing on the running engine.
 
 ## Ambient triggering
 
-A Cloud Scheduler job runs on the `investigation_schedule` setting and POSTs to
-`/ambient/trigger`. An audit log sink watches `observed_engine_id` and publishes
-update events to Pub/Sub. Pub/Sub pushes them to `/ambient/observed-update`. If
-`observed_engine_id` is null, the module creates no sink and no publish grant.
-The schedule is the only trigger. That is the only option when the observed
-agent is not an Agent Runtime. Nothing else writes an `UpdateReasoningEngine`
-audit entry. It is also the situation before the observed agent is first
-deployed.
+A Cloud Scheduler job POSTs to `/ambient/trigger` every 15 minutes, whether or
+not an agent is attached. The engine reads the investigated agent's schedule, a
+cron in UTC, from its attachment, and starts an investigation when that cron
+fell due since the previous tick. So a scheduled investigation starts up to 15
+minutes after the time its cron names. The schedule is set and paused with
+`agents-cli aqua attach --schedule` and `--no-scheduled-trigger`, and takes
+effect on the next tick; an agent with no attachment runs daily
+at 12:00 UTC. `scheduled_trigger_enabled = false` pauses the job itself, and
+with it every scheduled investigation of this instance.
 
-That is how a deployment that names its observed agent is triggered. A
-deployment with `configure_observed_agent = false` creates neither the job nor
-the sink: each attached agent gets its own from `../../examples/attach`, which
-`agents-cli aqua attach --apply` applies with the agent's stored settings and
-the topic and caller account the engine reports, so attaching needs only the
-engine's resource name. The topic, its push subscription, the caller account and
-the delay queue stay here in both cases.
+Each attached agent on Agent Runtime gets an audit log sink on its engine's
+updates from `agents-cli aqua attach`, which creates it with gcloud from the
+agent's stored settings and the topic the engine reports, so attaching needs
+only the engine's resource name. The sink publishes update events to this
+module's topic, and Pub/Sub pushes them to `/ambient/observed-update`. An agent
+on Cloud Run or GKE writes no `UpdateReasoningEngine` audit entry, so the
+schedule is its only trigger. The scheduler job, the topic, its push
+subscription, the caller account and the delay queue are here.
 
 Retries of one scheduled tick all carry the same `X-CloudScheduler-ScheduleTime`.
-They resolve to one deduplication key. A retry costs nothing extra.
-`gcloud scheduler jobs run` sends the next scheduled fire time. A manual run and
-the scheduled fire count as the same tick. The engine discards the second one.
+They reach the same decision and resolve to one deduplication key. A retry
+costs nothing extra. `gcloud scheduler jobs run` sends the next scheduled fire
+time, so a manual run starts an investigation only when the schedule falls due
+in the 15 minutes before that time; `agents-cli aqua schedule-investigation` starts one
+regardless.
 
 When the engine decides to refuse a trigger, it answers HTTP 200 with a note.
 Pub/Sub reads HTTP 200 as success. Only the engine's own logs record the
 refusal.
 
-`investigation_schedule` is the only setting. Each run checks everything since the
-last run that finished, so the schedule can be irregular. A failed run does not
+Each run checks everything since the last run that finished, so the schedule
+can be irregular, and a cron that fires more often than the tick loses nothing
+by starting at most one investigation per tick. A failed run does not
 move that point, so the next run checks the same period again. One run never looks back further than
-`DATA_LOOKBACK_WINDOW` days, seven by default; if the last run finished longer
+the attached agent's lookback window (`aqua attach --lookback-days`), seven days
+by default; if the last run finished longer
 ago than that, the older period is skipped and a warning says how much.
 
 A push Pub/Sub cannot deliver is retried five times, then goes to a dead-letter
@@ -157,22 +154,68 @@ anything talks to it.
 
 `force_destroy` defaults to `true`. At the default, `terraform destroy` removes
 all three buckets, the insight tables and the investigation registry, including
-their contents.
+their contents, and the Cloud SQL instance with its database.
+
+## Cloud SQL
+
+`storage_backend = "cloudsql"` keeps AQuA's state in a Cloud SQL for PostgreSQL
+instance rather than in the insights dataset. The instance has only a private IP,
+so the module also builds the path from the engine to it (`network.tf`):
+
+```
+engine --PSC interface--> network attachment --> VPC --peering--> instance
+```
+
+The engine logs in as its service account, an IAM database user, through the
+Cloud SQL connector (`database.tf`). With the PSC interface the engine still
+reaches Google APIs, but not the public internet. The interface carries only
+the engine's outbound traffic: the CLI and the dashboard reach the engine through
+the Agent Platform API as before. Choosing the backend replaces
+the engine, and the BigQuery dataset is still created.
+
+Apply adds a VPC, a subnet, a network attachment, a custom role for the Agent
+Platform service agent, a private services access range and connection, the
+instance, its database and user, and two conditional grants. Creating the
+instance takes the longest, about a quarter of an hour.
+
+Service Networking refuses to delete the private services connection for four
+days after the instance is deleted, while Cloud SQL keeps its subnet. Destroy
+removes the connection's VPC peering instead (`deletion_policy =
+"REMOVE_PEERING"`), so this does not block the VPC. Two things can still stop
+a destroy; fix them and run it again:
+
+- The network attachment is refused until the platform releases the deleted
+  engine's endpoint, which takes some minutes.
+- An organization policy enforcer may add firewall rules to every new VPC.
+  Terraform does not manage them, and they block deleting the VPC. List and
+  delete them with:
+
+  ```
+  gcloud compute firewall-rules list --project=PROJECT \
+    --filter="network ~ /networks/DEPLOYMENT-aqua$" --format='value(name)'
+  gcloud compute firewall-rules delete RULE... --project=PROJECT
+  ```
+
+A deleted custom role's id also stays reserved for up to 37 days.
 
 ## The metrics bucket
 
 Code metrics score each session against Python metric modules the operator
-publishes to `<project>-<deployment>-aqua-metrics`, under `current/metrics/`.
-The module creates the bucket and grants the engine read.
+publishes with `agents-cli aqua metrics publish`. The CLI sends the library to
+the engine's API; the engine validates it with the loader that runs it and
+writes it to `<project>-<deployment>-aqua-metrics`, each attached agent's under
+`<agent key>/current/metrics/`. The default agent also scores with the library
+under `current/metrics/` while its own prefix is empty; publishing or
+destroying its own deletes that one. The module creates the bucket and grants the engine write.
 
 They are not an analysis mode. `session_review` runs them beside its LLM
 reviewer, over the same sessions it has already fetched, and publishing one is
 what turns them on.
 
-Write goes to the principals you name in `metrics_writers`, and to nobody
-otherwise. Choose them deliberately: what is published there is executed inside
-the agent's process on the agent's credentials, so write access to this bucket
-is equivalent to deploy access.
+What is published there is executed inside the agent's process on the
+agent's credentials, so publishing is equivalent to deploy access. Anyone who
+can call the engine's API can publish; the module grants write to the bucket
+to no one else.
 
 A metric the eval config marks remote -- with `remote_custom_function`, or
 `execution: remote` beside a `custom_function` or `custom_function_file` -- is
@@ -220,7 +263,8 @@ session, as agents-cli sets it only on a single-turn case. What AQuA adds:
 
 - **Cost.** One model call per session per metric (`judge_model_sampling_count`
   calls when set), on the deployment's Gemini platform quota, up to
-  `DATA_EVALUATION_CAP` sessions. The run summary and `aqua metrics publish`
+  the attached agent's evaluation cap (`aqua attach --evaluation-cap`) of
+  sessions. The run summary and `aqua metrics publish`
   both state it.
 - **Findings.** Without a `threshold`, a judge reports scores only, as in
   agents-cli. With one, each session scoring below it becomes a finding whose
@@ -258,5 +302,6 @@ Being read-only, a dump does not require the write access the engine holds over
 investigation state.
 
 Bucket-level IAM takes no object prefix, so these principals read the whole jobs
-bucket — investigation task state and the chat transcripts under `tasks/`
-included, not only `aqa-telemetry/`. Name them with that in mind.
+bucket — investigation task state, the chat transcripts under `tasks/` and the
+chat names under `chat-titles/` included, not only `aqa-telemetry/`. Name them
+with that in mind.

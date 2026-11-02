@@ -21,13 +21,21 @@ from typing import Any
 from ambient_quality_agent import config as config_module
 from ambient_quality_agent.config import Model
 from ambient_quality_agent.core.labels import build_request_labels
+from ambient_quality_shared.usage_headers import (
+    build_usage_headers,
+    detect_platform,
+)
 from google.adk.models import Gemini
 from google.adk.models.llm_request import LlmRequest
 from google.genai import Client, types
 
 
 class LocatedGemini(Gemini):
-    """An ADK `Gemini` whose Gemini platform client is pinned to an explicit location."""
+    """An ADK `Gemini` whose Gemini platform client is pinned to an explicit location.
+
+    Its requests carry AQuA's engine product token after ADK's own tracking
+    tokens.
+    """
 
     # Extra field on top of Gemini's Pydantic model.
     location: str
@@ -55,6 +63,16 @@ class LocatedGemini(Gemini):
             )
         await super()._preprocess_request(llm_request)
 
+    def _tracking_headers(self) -> dict[str, str]:
+        return _append_usage_tokens(super()._tracking_headers())
+
+    def _merge_tracking_headers(
+        self, headers: dict[str, str]
+    ) -> dict[str, str]:
+        # ADK sets these on every request, and they replace the client's own
+        # headers, so the token has to be added here as well.
+        return _append_usage_tokens(super()._merge_tracking_headers(headers))
+
     @property
     def api_client(self) -> Client:
         base_url, api_version = self._base_url_and_api_version
@@ -70,6 +88,25 @@ class LocatedGemini(Gemini):
             location=self.location,
             http_options=types.HttpOptions(**http_options),
         )
+
+
+def _append_usage_tokens(headers: dict[str, str]) -> dict[str, str]:
+    """Appends AQuA's engine product token to ADK's tracking headers.
+
+    Args:
+        headers: Headers with ADK's lowercase ``user-agent`` and
+            ``x-goog-api-client`` keys.
+
+    Returns:
+        A copy with the engine product token appended to both values, unless
+        already present. Unchanged while usage analytics is off.
+    """
+    merged = dict(headers)
+    for name, value in build_usage_headers(platform=detect_platform()).items():
+        parts = merged.get(name, "").split()
+        parts += [token for token in value.split() if token not in parts]
+        merged[name] = " ".join(parts)
+    return merged
 
 
 def build_gemini(spec: Model) -> Gemini:

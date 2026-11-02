@@ -129,7 +129,7 @@ async def execute_investigation(
             run_id=run_id,
             observed_agent_name=effective_config.load(
                 state
-            ).observed_agent_name,
+            ).resolve_agent_key(),
         )
         _log_run_finished(placeholder, changes)
         return {"status": "failed", "error": error}

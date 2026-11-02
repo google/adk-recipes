@@ -14,7 +14,10 @@
 // limitations under the License.
 
 import { createFileRoute } from "@tanstack/react-router";
-import { InvestigationsView } from "@/components/investigations/investigations-view";
+import {
+  InvestigationsView,
+  type TriggerFilter,
+} from "@/components/investigations/investigations-view";
 import { PageShell } from "@/components/nav/page-shell";
 import { parseDay } from "@/lib/day-buckets";
 
@@ -24,15 +27,25 @@ export const Route = createFileRoute("/investigations/")({
   // at all, which makes every link here that carries none (the sidebar's among
   // them) turn it off.
   //
+  // `trigger` is the trigger filter, kept the same way, with All as no param.
+  //
   // `day` narrows the list to the runs one column of the per-day chart counts.
   validateSearch: (
     search: Record<string, unknown>,
-  ): { failures?: "only"; day?: string } => ({
+  ): {
+    failures?: "only";
+    trigger?: Exclude<TriggerFilter, "all">;
+    day?: string;
+  } => ({
     failures: search.failures === "only" ? "only" : undefined,
+    trigger:
+      search.trigger === "user" || search.trigger === "scheduled"
+        ? search.trigger
+        : undefined,
     day: parseDay(search.day),
   }),
   component: function Page() {
-    const { failures, day } = Route.useSearch();
+    const { failures, trigger, day } = Route.useSearch();
     const navigate = Route.useNavigate();
     return (
       <PageShell width="wide">
@@ -45,6 +58,16 @@ export const Route = createFileRoute("/investigations/")({
               search: (prev) => ({
                 ...prev,
                 failures: only ? "only" : undefined,
+              }),
+              replace: true,
+            })
+          }
+          trigger={trigger ?? "all"}
+          onTriggerChange={(next) =>
+            void navigate({
+              search: (prev) => ({
+                ...prev,
+                trigger: next === "all" ? undefined : next,
               }),
               replace: true,
             })

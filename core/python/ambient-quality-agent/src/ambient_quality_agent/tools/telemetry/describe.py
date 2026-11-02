@@ -27,6 +27,7 @@ import logging
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
+from ambient_quality_agent import clients
 from ambient_quality_agent.core import custom_investigation_skill
 from ambient_quality_agent.tools.ingestion import selector
 from ambient_quality_agent.tools.observed_agent_config import effective_config
@@ -60,8 +61,8 @@ def _create_default_client(config: Config) -> bigquery.Client:
         A BigQuery client bound to AQuA's project and the telemetry location.
         Reading another project's table metadata needs no client there.
     """
-    return bigquery.Client(
-        project=config.project_id, location=config.telemetry_location
+    return clients.create_bigquery_client(
+        config.project_id, config.telemetry_location
     )
 
 

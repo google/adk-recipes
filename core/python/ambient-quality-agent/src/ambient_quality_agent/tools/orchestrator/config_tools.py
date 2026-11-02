@@ -26,6 +26,7 @@ from typing import Any
 
 from ambient_quality_agent.core.session_state import LaunchContext
 from ambient_quality_agent.tools.observed_agent_config import effective_config
+from ambient_quality_shared import usage_headers
 
 
 def show_config(tool_context: LaunchContext) -> dict[str, Any]:
@@ -35,10 +36,13 @@ def show_config(tool_context: LaunchContext) -> dict[str, Any]:
         tool_context: Tool context carrying the session state.
 
     Returns:
-        `{"config": ...}` with every configuration field as a JSON-safe value.
+        `config`, every configuration field as a JSON-safe value, and
+        `usage_analytics`: `enabled`, whether this release sends usage
+        analytics headers at all.
     """
     return {
         "config": effective_config.serialize_config(
             effective_config.load(tool_context.state)
-        )
+        ),
+        "usage_analytics": {"enabled": usage_headers.USAGE_ANALYTICS_ENABLED},
     }

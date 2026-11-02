@@ -7,24 +7,13 @@ region     = "us-central1"
 # deployment in the same project needs nothing but a different value here.
 observed_deployment_name = "my-agent"
 
-# The agent inside it, as ADK names it -- what AQA matches its telemetry on.
-# Defaults to `observed_deployment_name` with underscores, which is what
-# agents-cli scaffolds. Set it only if the root agent was renamed by hand.
-# observed_agent_name = "my_agent"
+# The agent itself, its telemetry and its update trigger are not set here:
+# attach it to the deployed engine with `agents-cli aqua attach`.
 
-# Numeric id of the Agent Runtime agent to watch. Omit it and AQA runs on its
-# schedule alone.
-# observed_engine_id = "1234567890"
-
-# Where that agent exports its telemetry. Defaults to `<deployment>_telemetry`,
-# which is what an agents-cli project has.
-# telemetry_dataset = "my_agent_telemetry"
-
-# The investigation runs at midday UTC by default, one investigation per run.
-# Each run checks everything since the last run that finished, so the schedule
-# can be irregular.
+# The investigation runs at midday UTC by default; change it with
+# `agents-cli aqua attach --schedule`. Setting `scheduled_trigger_enabled =
+# false` pauses every scheduled investigation of the instance.
 # scheduled_trigger_enabled = false
-# investigation_schedule          = "0 12 * * *"
 
 # Addresses notified when an investigation fails or finds a new defect. Empty
 # sends none.

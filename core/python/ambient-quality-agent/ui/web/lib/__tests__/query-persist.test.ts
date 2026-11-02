@@ -11,9 +11,11 @@
 import { QueryClient } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { buildAgentScope } from "../aqua-api";
 import { hydrateQueryCache, persistQueryCache } from "../query-persist";
 
-const KEY = "aqua.query-cache.v1";
+const KEY = "aqua.query-cache.v2";
+const RUNS = [...buildAgentScope(undefined), "runs"];
 
 // happy-dom provides no Storage, so the persister's real code path needs one.
 function fakeStorage(): Storage {
@@ -53,7 +55,7 @@ describe("persistQueryCache", () => {
   it("writes aqua reads and skips everything else", async () => {
     const qc = client();
     const stop = persistQueryCache(qc);
-    qc.setQueryData(["aqua", "runs"], [{ run_id: "r1" }]);
+    qc.setQueryData(RUNS, [{ run_id: "r1" }]);
     qc.setQueryData(["lha", "contexts", "c", "tasks"], [{ id: "t" }]);
     await flush();
     stop();
@@ -68,7 +70,10 @@ describe("persistQueryCache", () => {
     // measured run persisted only the three fastest queries.
     const qc = client();
     const stop = persistQueryCache(qc);
-    qc.setQueryData(["aqua", "insights"], [{ id: "i1" }]);
+    qc.setQueryData(
+      [...buildAgentScope(undefined), "insights"],
+      [{ id: "i1" }],
+    );
     expect(store.getItem(KEY)).toBeNull();
     window.dispatchEvent(new Event("pagehide"));
     stop();
@@ -82,7 +87,7 @@ describe("hydrateQueryCache", () => {
       KEY,
       JSON.stringify([
         {
-          key: ["aqua", "runs"],
+          key: RUNS,
           data: [{ run_id: "r1" }],
           updatedAt: Date.now(),
         },
@@ -90,20 +95,20 @@ describe("hydrateQueryCache", () => {
     );
     const qc = client();
     hydrateQueryCache(qc);
-    expect(qc.getQueryData(["aqua", "runs"])).toEqual([{ run_id: "r1" }]);
+    expect(qc.getQueryData(RUNS)).toEqual([{ run_id: "r1" }]);
   });
 
   it("keeps the original timestamp so stale data still refetches", () => {
     const old = Date.now() - 60_000;
     store.setItem(
       KEY,
-      JSON.stringify([{ key: ["aqua", "runs"], data: [], updatedAt: old }]),
+      JSON.stringify([{ key: RUNS, data: [], updatedAt: old }]),
     );
     const qc = client();
     hydrateQueryCache(qc);
     // Restoring with "now" would make a day-old cache look fresh and suppress
     // the background refetch, which is how a dashboard starts lying.
-    expect(qc.getQueryState(["aqua", "runs"])?.dataUpdatedAt).toBe(old);
+    expect(qc.getQueryState(RUNS)?.dataUpdatedAt).toBe(old);
   });
 
   it("drops entries older than a day", () => {
@@ -111,7 +116,7 @@ describe("hydrateQueryCache", () => {
       KEY,
       JSON.stringify([
         {
-          key: ["aqua", "runs"],
+          key: RUNS,
           data: [{ run_id: "ancient" }],
           updatedAt: Date.now() - 48 * 60 * 60 * 1000,
         },
@@ -119,6 +124,36 @@ describe("hydrateQueryCache", () => {
     );
     const qc = client();
     hydrateQueryCache(qc);
+    expect(qc.getQueryData(RUNS)).toBeUndefined();
+  });
+
+  it("restores each agent's reads under its own key", () => {
+    const prod = [...buildAgentScope("acme-prod__support"), "runs"];
+    const staging = [...buildAgentScope("acme-staging__support"), "runs"];
+    store.setItem(
+      KEY,
+      JSON.stringify([
+        { key: prod, data: [{ run_id: "p" }], updatedAt: Date.now() },
+        { key: staging, data: [{ run_id: "s" }], updatedAt: Date.now() },
+      ]),
+    );
+    const qc = client();
+    hydrateQueryCache(qc);
+    expect(qc.getQueryData(prod)).toEqual([{ run_id: "p" }]);
+    expect(qc.getQueryData(staging)).toEqual([{ run_id: "s" }]);
+    expect(qc.getQueryData(RUNS)).toBeUndefined();
+  });
+
+  it("drops a cache whose keys name no agent", () => {
+    store.setItem(
+      "aqua.query-cache.v1",
+      JSON.stringify([
+        { key: ["aqua", "runs"], data: [], updatedAt: Date.now() },
+      ]),
+    );
+    const qc = client();
+    hydrateQueryCache(qc);
+    expect(store.getItem("aqua.query-cache.v1")).toBeNull();
     expect(qc.getQueryData(["aqua", "runs"])).toBeUndefined();
   });
 

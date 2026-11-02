@@ -15,9 +15,12 @@
 import { Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { healthQuery, type AmbientVerdict } from "@/lib/aqua-api";
+import { stripMarkdownForSummary } from "@/lib/aqa-markdown";
 import { FailureNote } from "@/components/ui/failure-note";
+import { formatCron } from "@/lib/cron";
 import { textStyle } from "@/lib/typography";
 import { cn, formatSentenceCase } from "@/lib/utils";
+import { useAgentKey } from "@/lib/agent-selection";
 
 const VERDICT: Record<AmbientVerdict, { value: string; tone: string }> = {
   watching: { value: "Watching", tone: "text-emerald-400" },
@@ -26,18 +29,6 @@ const VERDICT: Record<AmbientVerdict, { value: string; tone: string }> = {
   failing: { value: "Failing", tone: "text-red-400" },
   disabled: { value: "Disabled", tone: "text-amber-400" },
 };
-
-/**
- * "0 12 * * *" reads as glitched asterisks. Only the fixed-time daily case is
- * translated, which is the default and every schedule anyone has set; anything
- * else shows the crontab it actually is rather than a guess at its meaning.
- */
-export function humanCron(cron: string): string {
-  const daily = /^(\d{1,2}) (\d{1,2}) \* \* \*$/.exec(cron.trim());
-  if (!daily) return cron;
-  const [, minute, hour] = daily;
-  return `daily at ${hour.padStart(2, "0")}:${minute.padStart(2, "0")} UTC`;
-}
 
 const ago = (iso: string | null): string => {
   if (!iso) return "unknown";
@@ -98,7 +89,8 @@ function Cell({
  * words, and it is the sentence this bar exists to say.
  */
 export function StatBar() {
-  const { data, isLoading, error } = useQuery(healthQuery());
+  const agentKey = useAgentKey();
+  const { data, isLoading, error } = useQuery(healthQuery(agentKey));
 
   if (isLoading) {
     return (
@@ -141,7 +133,9 @@ export function StatBar() {
         label="Ambient"
         value={verdict.value}
         tone={verdict.tone}
-        note={data.schedule ? humanCron(data.schedule) : data.reason}
+        note={data.schedule ? formatCron(data.schedule) : data.reason}
+        // Where the schedule is edited.
+        to="/config"
       />
       <Cell
         label="Pass rate"
@@ -157,7 +151,9 @@ export function StatBar() {
       <Cell
         label="Open insights"
         value={String(data.open_findings)}
-        note={data.worst_finding?.label ?? "Nothing outstanding"}
+        note={stripMarkdownForSummary(
+          data.worst_finding?.label ?? "Nothing outstanding",
+        )}
         to="/insights"
       />
       <Cell

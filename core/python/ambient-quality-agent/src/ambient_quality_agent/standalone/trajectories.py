@@ -73,7 +73,7 @@ class InMemoryTrajectoryStore:
 
         Args:
             store: Backing in-memory store.
-            agent_name: Name of the observed agent scoping cleanups and storage.
+            agent_name: Key of the observed agent scoping cleanups and storage.
         """
         self._store = store
         self._agent_name = agent_name

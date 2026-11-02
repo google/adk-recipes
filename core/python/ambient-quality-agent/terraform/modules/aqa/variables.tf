@@ -23,8 +23,8 @@ variable "observed_deployment_name" {
     this module creates is named from it, so two deployments in one project
     never collide.
 
-    An infrastructure identity only. What AQA watches is an agent, and that has
-    its own name -- see `observed_agent_name`.
+    An infrastructure identity only. The agents AQA watches are attached to the
+    deployed engine with `agents-cli aqua attach`.
   EOT
   type        = string
 
@@ -34,77 +34,6 @@ variable "observed_deployment_name" {
     condition     = can(regex("^[a-z][a-z0-9-]*[a-z0-9]$", var.observed_deployment_name))
     error_message = "Must be lowercase letters, digits and hyphens, starting with a letter and ending with a letter or digit."
   }
-}
-
-variable "observed_agent_name" {
-  description = <<-EOT
-    The agent AQA watches, named as ADK names it -- what the observed agent
-    passes to `Agent(name=...)`. Its telemetry carries that value as the
-    `gen_ai.agent.name` attribute, and AQA filters the telemetry dataset on it.
-    Reaches the engine as `AQA_OBSERVED_AGENT_NAME`, which is what the code
-    calls it throughout.
-
-    Separate from `observed_deployment_name` because the two cannot be one
-    string: an ADK agent name is a Python identifier and so usually has
-    underscores, while the deployment name becomes a service account id and a
-    bucket prefix, neither of which admits them.
-
-    Getting this wrong is silent. Every query matches nothing, so investigations
-    run and report on an empty window rather than failing.
-
-    Null derives `observed_deployment_name` with hyphens replaced by
-    underscores, which is what `agents-cli` scaffolds for a project of that
-    name.
-  EOT
-  type        = string
-  default     = null
-
-  validation {
-    condition = (
-      var.observed_agent_name == null
-      || can(regex("^[A-Za-z_][A-Za-z0-9_]*$", var.observed_agent_name))
-    )
-    error_message = "Must be a valid Python identifier: ADK rejects any other agent name."
-  }
-}
-
-variable "observed_engine_id" {
-  description = <<-EOT
-    Numeric id of the Agent Runtime agent to watch, as `1234567890` -- the last
-    segment of its resource name. Null turns update triggering off: neither the
-    audit sink nor its publish grant is created. Null is the setting before
-    first deployment, and when the observed agent is not on Agent Runtime.
-    A Cloud Run or GKE deployment emits no `UpdateReasoningEngine` audit entry.
-
-    Ignored when `configure_observed_agent` is false; the attach root takes it then.
-  EOT
-  type        = string
-  default     = null
-}
-
-variable "configure_observed_agent" {
-  description = <<-EOT
-    Whether AQuA is deployed with an observed agent.
-
-    - true: the engine's environment names the observed agent and its telemetry
-      settings. The engine's service account gets read access to the agent's
-      telemetry dataset and payload bucket, and, for `cloud_ops`, to the
-      project's log views. The module creates the agent's scheduled tick and
-      update sink.
-    - false: AQuA is deployed with no observed agent. The engine's environment
-      has no agent name and no telemetry settings. No telemetry access is
-      granted, and no scheduled tick or update sink is created. Attach the agent
-      later with `agents-cli aqua attach`, which stores its settings where the
-      engine reads them; its `--apply` creates the triggers from
-      `../../examples/attach`. Grant the telemetry access by hand.
-      `observed_agent_name`, the `telemetry_*` inputs,
-      `agent_revision_trigger_delay_seconds`, `observed_engine_id`,
-      `investigation_schedule` and `scheduled_trigger_enabled` are ignored.
-
-    `observed_deployment_name` names every resource in both cases.
-  EOT
-  type        = bool
-  default     = true
 }
 
 variable "region" {
@@ -140,30 +69,6 @@ variable "notification_emails" {
   }
 }
 
-variable "metrics_writers" {
-  description = <<-EOT
-    IAM members permitted to publish code metrics (e.g. `group:quality@example.com`).
-    Published code runs in the agent process; write access equals deploy access.
-  EOT
-  type        = list(string)
-  default     = []
-
-  validation {
-    # IAM bindings are keyed by member string, so duplicates would apply
-    # redundant bindings that report success anyway.
-    condition     = length(distinct(var.metrics_writers)) == length(var.metrics_writers)
-    error_message = "Each principal must appear once."
-  }
-
-  validation {
-    condition = alltrue([
-      for m in var.metrics_writers :
-      can(regex("^(user|group|serviceAccount|domain|principal|principalSet):", m))
-    ])
-    error_message = "Each entry must be an IAM member string, e.g. 'group:quality@example.com'."
-  }
-}
-
 variable "trace_readers" {
   description = <<-EOT
     IAM members permitted to download exported trace spans under `aqa-telemetry/`
@@ -171,7 +76,7 @@ variable "trace_readers" {
 
     Cloud Storage IAM does not support prefix filtering, so granted principals
     can read all objects in the jobs bucket, including task state and chat transcripts
-    under `tasks/`.
+    under `tasks/` and chat names under `chat-titles/`.
   EOT
   type        = list(string)
   default     = []
@@ -210,75 +115,6 @@ variable "trace_retention_days" {
     )
     error_message = "trace_retention_days must be a positive whole number of days."
   }
-}
-
-variable "telemetry_payload_bucket" {
-  description = <<-EOT
-    Bucket the observed agent offloads large telemetry payloads to. Rows in the
-    telemetry dataset carry only `gs://` pointers into it, so without read access
-    every ingested turn arrives empty and an investigation reports nothing while
-    raising no error. Null derives `<project_id>-<observed_deployment_name>-logs`.
-  EOT
-  type        = string
-  default     = null
-}
-
-variable "telemetry_dataset" {
-  description = <<-EOT
-    Dataset the observed agent exports its telemetry to, which AQA reads to
-    find its work. Null derives `<observed_deployment_name>_telemetry`, the dataset
-    an `agents-cli` agent's `telemetry.tf` creates.
-  EOT
-  type        = string
-  default     = null
-}
-
-variable "telemetry_table" {
-  description = <<-EOT
-    Table in `telemetry_dataset` that AQA reads, created and named by the
-    observed agent's own `telemetry.tf` after its deployment target. Null
-    defaults to the `agent_runtime` table; `bq ls <dataset>` shows what it
-    made.
-  EOT
-  type        = string
-  default     = null
-}
-
-variable "telemetry_ingestion_source" {
-  description = <<-EOT
-    Telemetry store AQA reads:
-
-      cloud_logging  Cloud Logging GenAI export sink table (default).
-      cloud_ops      Cloud Trace linked BigQuery dataset (not created by this
-                     module). Point `telemetry_dataset` at it, set
-                     `telemetry_table` to its span view (`_AllSpans`), and set
-                     `telemetry_location` to its location. Because the module
-                     always passes an explicit table name, leaving
-                     `telemetry_table` null queries the default `cloud_logging`
-                     table, which does not exist in a linked dataset.
-      big_query      ADK BigQuery analytics dataset.
-  EOT
-  type        = string
-  default     = "cloud_logging"
-
-  validation {
-    condition     = contains(["big_query", "cloud_ops", "cloud_logging"], var.telemetry_ingestion_source)
-    error_message = "telemetry_ingestion_source must be one of: big_query, cloud_ops, cloud_logging."
-  }
-}
-
-variable "telemetry_location" {
-  description = <<-EOT
-    BigQuery location where AQA submits telemetry queries. Null defaults to
-    `var.region`.
-
-    Set this when the telemetry dataset is in a different location from the
-    engine: a Cloud Trace linked dataset is commonly in a multi-region such as
-    `US` while the engine runs in a single region such as `us-east1`. A query
-    job submitted against the wrong location fails.
-  EOT
-  type        = string
-  default     = null
 }
 
 variable "trajectory_payload_retention_days" {
@@ -335,23 +171,6 @@ variable "source_snapshot_retention_days" {
   }
 }
 
-variable "investigation_schedule" {
-  description = <<-EOT
-    The schedule for the periodic investigation, as a crontab entry. Midday
-    UTC each day by default; Cloud Scheduler reads it as UTC unless the job says
-    otherwise.
-
-    Each run checks everything since the last run that finished, so the schedule
-    can be irregular. There is nothing else to set. One run never looks back
-    further than `DATA_LOOKBACK_WINDOW` days, and a warning says how much older
-    telemetry it gave up.
-
-    Ignored when `configure_observed_agent` is false; the attach root takes it then.
-  EOT
-  type        = string
-  default     = "0 12 * * *"
-}
-
 variable "task_queue_name" {
   description = <<-EOT
     Cloud Tasks queue name. Defaults to `<observed_deployment_name>-aqua-delay`.
@@ -361,31 +180,13 @@ variable "task_queue_name" {
   default     = null
 }
 
-variable "agent_revision_trigger_delay_seconds" {
-  description = <<-EOT
-    Wait after an observed-agent revision update before investigating, so the
-    new revision's traces have time to accumulate. Sets
-    `AQA_AGENT_REVISION_TRIGGER_DELAY_SECONDS`. Runtime config overrides still
-    take precedence over this default.
-  EOT
-  type        = number
-  default     = 900
-  validation {
-    condition = (
-      var.agent_revision_trigger_delay_seconds >= 0 &&
-      floor(var.agent_revision_trigger_delay_seconds) == var.agent_revision_trigger_delay_seconds
-    )
-    error_message = "agent_revision_trigger_delay_seconds must be a positive integer."
-  }
-}
-
 variable "scheduled_trigger_enabled" {
   description = <<-EOT
-    Whether the periodic investigation runs. On by default, and each run costs
-    one investigation in model spend. Redeploying the watched agent triggers an
-    investigation even when this is off.
-
-    Ignored when `configure_observed_agent` is false; the attach root takes it then.
+    Whether the scheduler tick runs. Off pauses every scheduled investigation
+    of this instance, whatever the attached agent's schedule says; an agent's
+    own schedule is paused with `agents-cli aqua attach --no-scheduled-trigger`.
+    Redeploying the watched agent triggers an investigation even when this is
+    off.
   EOT
   type        = bool
   default     = true
@@ -460,7 +261,7 @@ variable "ui_iap_members" {
 variable "force_destroy" {
   description = <<-EOT
     Whether a `terraform destroy` may take down the buckets, the insight tables
-    and the rest of their dataset.
+    and the rest of their dataset, and the Cloud SQL instance.
   EOT
   type        = bool
   default     = true
@@ -496,5 +297,90 @@ variable "engine_memory" {
   validation {
     condition     = can(regex("^([1-9]|[12][0-9]|3[0-2])Gi$", var.engine_memory))
     error_message = "Must be a whole number of Gi from 1Gi to 32Gi."
+  }
+}
+
+variable "storage_backend" {
+  description = <<-EOT
+    Where AQuA keeps its own state:
+
+      bigquery  The insights dataset. The default.
+      cloudsql  A Cloud SQL for PostgreSQL instance with a private IP, reached
+                through a PSC interface on the engine. Adds a VPC, private
+                services access, a network attachment, the instance and an IAM
+                database user.
+
+    Changing it replaces the engine. The dataset is created either way.
+  EOT
+  type        = string
+  default     = "bigquery"
+  nullable    = false
+
+  validation {
+    condition     = contains(["bigquery", "cloudsql"], var.storage_backend)
+    error_message = "Must be bigquery or cloudsql."
+  }
+}
+
+variable "network" {
+  description = <<-EOT
+    An existing VPC, as `projects/P/global/networks/N`, for the Cloud SQL path.
+    Null creates one. In an existing network the module adds a subnet, a
+    network attachment and a private services access range, and fails if the
+    network already has a private services access connection. Shared VPC is not
+    supported. Used only with `storage_backend = "cloudsql"`.
+  EOT
+  type        = string
+  default     = null
+
+  validation {
+    # `can()` takes the whole right operand, so Terraform before 1.12, which
+    # evaluates both sides of `||`, never sees an error from a null.
+    condition     = var.network == null || can(regex("^projects/[^/]+/global/networks/[a-z]([-a-z0-9]*[a-z0-9])?$", var.network))
+    error_message = "Must be projects/P/global/networks/N."
+  }
+}
+
+variable "network_attachment_subnet_range" {
+  description = <<-EOT
+    The subnet that holds the engine's PSC interface: an RFC 1918 range of at
+    least /28 that is free in the network. Used only with
+    `storage_backend = "cloudsql"`.
+  EOT
+  type        = string
+  default     = "10.8.0.0/28"
+  nullable    = false
+
+  validation {
+    # A /28 is 16 addresses, so host 15 exists only in a range that large.
+    condition     = can(cidrhost(var.network_attachment_subnet_range, 15))
+    error_message = "Must be a CIDR range of /28 or larger."
+  }
+}
+
+variable "cloudsql_tier" {
+  description = <<-EOT
+    Cloud SQL machine tier. The tier sets the connection limit (25 on
+    db-f1-micro, 50 on db-g1-small), which the engine's maximum instance count
+    times its pool size must stay under. Shared-core tiers are not covered by
+    the Cloud SQL SLA. Used only with `storage_backend = "cloudsql"`.
+  EOT
+  type        = string
+  default     = "db-g1-small"
+  nullable    = false
+}
+
+variable "cloudsql_availability" {
+  description = <<-EOT
+    ZONAL, or REGIONAL for a standby in a second zone at twice the price. Used
+    only with `storage_backend = "cloudsql"`.
+  EOT
+  type        = string
+  default     = "ZONAL"
+  nullable    = false
+
+  validation {
+    condition     = contains(["ZONAL", "REGIONAL"], var.cloudsql_availability)
+    error_message = "Must be ZONAL or REGIONAL."
   }
 }

@@ -19,6 +19,7 @@ import { count, STAGES, type StageId } from "@/lib/funnel";
 import {
   ABSENT,
   agentLabel,
+  extractReviewFocus,
   formatInstant,
   isAmbient,
   isPastDue,
@@ -32,6 +33,7 @@ import {
 import { inFlightAge, isStalled, newestFirst, startedAt } from "@/lib/runstate";
 import { link, mono, textStyle } from "@/lib/typography";
 import { cn, formatSentenceCase } from "@/lib/utils";
+import { TriggerBadge } from "./trigger-badge";
 
 /** Padding for every cell, header included, so the columns line up. */
 const CELL = "px-3 py-2 first:pl-4 last:pr-4";
@@ -77,6 +79,11 @@ const COUNT_COLUMNS = [
  * out: the agent, which the tab bar also names, unless the runs observed more
  * than one; and the window, unless this run's differs from the one most of the
  * others share. The start time's tooltip gives the window either way.
+ *
+ * A run somebody started, custom or manual, carries a badge saying so, and a
+ * custom run the start of the focus it was asked to review: those are the runs
+ * a user is waiting on, among dozens of sweeps. A sweep carries none, being
+ * what most rows are.
  *
  * Only ambient sweeps are compared: the change in pass rate and the length of
  * the traffic bar are measured against other sweeps, never against a manual or
@@ -150,6 +157,7 @@ export function RunsTable({
           {runs.map((run) => {
             const note = windowNote(run);
             const bounds = telemetryWindow(run);
+            const focus = extractReviewFocus(run);
             const href = router.buildLocation({
               to: "/investigations/$runId",
               params: { runId: run.run_id },
@@ -208,6 +216,7 @@ export function RunsTable({
                     >
                       {run.run_id.slice(0, 8)}
                     </Link>
+                    {!isAmbient(run) && <TriggerBadge run={run} />}
                     {note !== usualWindow && note !== ABSENT && (
                       <span
                         className={cn(
@@ -219,6 +228,14 @@ export function RunsTable({
                       </span>
                     )}
                   </span>
+                  {focus && (
+                    <span
+                      className={cn(textStyle.meta, "mt-0.5 line-clamp-1")}
+                      title={focus}
+                    >
+                      {focus}
+                    </span>
+                  )}
                 </td>
                 {showAgent && (
                   <td className={cn(CELL, textStyle.meta)}>

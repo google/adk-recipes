@@ -38,17 +38,6 @@ STATE_DIR_NAME = ".aqua"
 BOOTSTRAP_KEY = "bootstrap"
 DEPLOYMENT_KEY = "single-project"
 
-# The root holding one attached agent's triggers, relative to the repository
-# root, and the prefix of its per-agent state key. One state per agent is what
-# lets `detach --apply` destroy one agent's triggers and leave the others.
-ATTACH_ROOT = Path("terraform") / "examples" / "attach"
-ATTACH_KEY_PREFIX = "attach-"
-
-# The output of `ATTACH_ROOT` naming the AQuA instance it was applied against.
-# Destroying the root needs every variable it requires, and taking them from
-# here wires the destroy to that instance and no other.
-ATTACH_INSTANCE_OUTPUT = "instance"
-
 
 def build_state_path(state_root: Path, state_key: str) -> Path:
     """Returns the path to the Terraform state file for a given root.
@@ -94,35 +83,6 @@ def read_state_outputs(state_root: Path, state_key: str) -> dict[str, Any]:
         for name, entry in outputs.items()
         if isinstance(entry, Mapping)
     }
-
-
-def build_attach_key(agent_name: str) -> str:
-    """Builds the state key of the attach root applied for one agent.
-
-    Args:
-        agent_name: Attached agent, as ADK names it.
-
-    Returns:
-        The state key, as `attach-<agent_name>`.
-    """
-    return f"{ATTACH_KEY_PREFIX}{agent_name}"
-
-
-def list_attached_agents(state_root: Path) -> list[str]:
-    """Lists the agents whose triggers have attach state in ``state_root``.
-
-    Args:
-        state_root: Directory containing state files.
-
-    Returns:
-        Agent names, sorted.
-    """
-    suffix = build_state_path(Path(), "").name
-    return sorted(
-        path.name[len(ATTACH_KEY_PREFIX) : -len(suffix)]
-        for path in state_root.glob(f"{ATTACH_KEY_PREFIX}*{suffix}")
-        if path.is_file()
-    )
 
 
 def run_terraform(

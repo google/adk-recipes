@@ -13,12 +13,12 @@
 // limitations under the License.
 
 /**
- * The `/insights` page keeps its status filter in the URL.
+ * The `/insights` page keeps its status filter and page in the URL.
  *
  * Mounted through the real route, so what is pinned is the whole loop: the
- * URL a link or a reload arrives with, the tab that reads it, and the URL a
- * tab click leaves behind. The run detail embeds the same list and must not
- * take part in that loop at all.
+ * URL a link or a reload arrives with, the tab and pager that read it, and the
+ * URL a click leaves behind. The list embedded without change handlers must
+ * not take part in that loop at all.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
@@ -34,6 +34,7 @@ import {
 } from "@tanstack/react-router";
 import { INSIGHTS_PAGE_SIZE, type InsightView } from "@/lib/aqua-api";
 import { Route as InsightsRoute } from "@/src/routes/insights.index";
+import { Route as InsightRoute } from "@/src/routes/insights.$insightId";
 import { InsightsView } from "../insights-view";
 
 // The sidebar reads chat sessions over A2A, which is not what is under test.
@@ -58,7 +59,7 @@ const insight = (n: number): InsightView => ({
 /** First page of 87 with a token to the second; the second page on `t2`. */
 async function twoPages(input: RequestInfo | URL): Promise<Response> {
   const url = typeof input === "string" ? input : input.toString();
-  const first = url.includes("pageToken=t2") ? 11 : 1;
+  const first = url.includes("page=2") ? 11 : 1;
   return new Response(
     JSON.stringify({
       insights: Array.from({ length: INSIGHTS_PAGE_SIZE }, (_, i) =>
@@ -241,7 +242,7 @@ describe("the /insights page", () => {
     await userEvent.click(tab("Recurring"));
 
     await screen.findByText("insight 1");
-    expect(listReads(urls).at(-1)).not.toContain("pageToken");
+    expect(listReads(urls).at(-1)).not.toContain("page=");
   });
 
   it("follows the URL when it changes under a mounted page", async () => {
@@ -258,11 +259,155 @@ describe("the /insights page", () => {
       expect(tab("All")).toHaveAttribute("aria-pressed", "true"),
     );
     await screen.findByText("insight 1");
-    // The token was issued for the `new` list; carried over, it would open
+    // The page was reached in the `new` list; carried over, it would open
     // the unfiltered list part-way down.
     const unfiltered = listReads(urls).filter((u) => !u.includes("status="));
     expect(unfiltered.length).toBeGreaterThan(0);
-    expect(unfiltered.every((u) => !u.includes("pageToken"))).toBe(true);
+    expect(unfiltered.every((u) => !u.includes("page="))).toBe(true);
+  });
+});
+
+describe("the /insights page param", () => {
+  it("keeps a whole page number above the first", () => {
+    expect(validate({ page: "2" }).page).toBe(2);
+    expect(validate({ page: 7 }).page).toBe(7);
+  });
+
+  it("reads anything else as the first page, which is no param", () => {
+    for (const page of ["1", 1, "0", "-2", "2.5", "two", "", true, null]) {
+      expect(validate({ page }).page).toBeUndefined();
+    }
+  });
+});
+
+describe("the /insights pager", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("writes the page into the URL", async () => {
+    const urls = stubFetch();
+    const router = mountPage("/insights");
+    await screen.findByText("insight 1");
+
+    await userEvent.click(screen.getByRole("button", { name: /Next/i }));
+
+    await screen.findByText("insight 11");
+    expect(router.state.location.search).toEqual({ page: 2 });
+    expect(listReads(urls).at(-1)).toContain("page=2");
+
+    await userEvent.click(screen.getByRole("button", { name: /Previous/i }));
+
+    await screen.findByText("insight 1");
+    expect(router.state.location.search).toEqual({});
+  });
+
+  it("opens on the page a link names", async () => {
+    const urls = stubFetch();
+    mountPage("/insights?status=new&page=2");
+
+    expect(await screen.findByText("insight 11")).toBeInTheDocument();
+    expect(screen.getByText(/Page 2 of 9/)).toBeInTheDocument();
+    const read = listReads(urls)[0];
+    expect(read).toContain("page=2");
+    expect(read).toContain("status=NEW");
+  });
+
+  it("returns to the same page after opening an insight and going Back", async () => {
+    stubFetch();
+    const router = mountPage("/insights");
+    await screen.findByText("insight 1");
+    await userEvent.click(screen.getByRole("button", { name: /Next/i }));
+    await userEvent.click(await screen.findByText("insight 11"));
+    await screen.findByText("Detail");
+
+    await act(() => router.history.back());
+
+    expect(await screen.findByText("insight 11")).toBeInTheDocument();
+    expect(screen.getByText(/Page 2 of 9/)).toBeInTheDocument();
+  });
+
+  it("starts another status from its first page", async () => {
+    stubFetch();
+    const router = mountPage("/insights?page=2");
+    await screen.findByText("insight 11");
+
+    await userEvent.click(tab("New"));
+
+    await waitFor(() =>
+      expect(router.state.location.search).toEqual({ status: "new" }),
+    );
+    expect(await screen.findByText("insight 1")).toBeInTheDocument();
+  });
+});
+
+/** The list as `twoPages` serves it, and any one insight's detail page. */
+function stubListAndDetail(): void {
+  vi.stubGlobal("fetch", ((input: RequestInfo | URL) => {
+    const url = typeof input === "string" ? input : input.toString();
+    const detail = url.match(/^\/api\/insights\/(ins-\d+)/);
+    if (!detail) return twoPages(input);
+    const n = Number(detail[1].slice("ins-".length));
+    return Promise.resolve(
+      new Response(
+        JSON.stringify({
+          insight: insight(n),
+          occurrences: [],
+          root_causes: [],
+          next_page_token: null,
+        }),
+        { status: 200 },
+      ),
+    );
+  }) as typeof fetch);
+}
+
+/** The real `/insights` list and insight routes together. */
+function mountListAndDetail(at: string) {
+  const root = createRootRoute();
+  const list = InsightsRoute.update({
+    id: "/insights/",
+    path: "/insights/",
+    getParentRoute: () => root,
+    // biome-ignore lint/suspicious/noExplicitAny: the test route tree is not the app's registered route tree.
+  } as any);
+  const detail = InsightRoute.update({
+    id: "/insights/$insightId",
+    path: "/insights/$insightId",
+    getParentRoute: () => root,
+    // biome-ignore lint/suspicious/noExplicitAny: the test route tree is not the app's registered route tree.
+  } as any);
+  return mount(root.addChildren([list, detail]), at);
+}
+
+describe("the insight page's way back to the list", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("returns to the page and status the insight was opened from", async () => {
+    stubListAndDetail();
+    const router = mountListAndDetail("/insights?status=new");
+    await screen.findByText("insight 1");
+    await userEvent.click(screen.getByRole("button", { name: /Next/i }));
+    await userEvent.click(await screen.findByText("insight 11"));
+    const back = await screen.findByRole("link", { name: /All insights/ });
+    expect(back).toHaveAttribute("href", "/insights?status=new&page=2");
+
+    await userEvent.click(back);
+
+    await waitFor(() =>
+      expect(router.state.location.search).toEqual({
+        status: "new",
+        page: 2,
+      }),
+    );
+    expect(await screen.findByText("insight 11")).toBeInTheDocument();
+  });
+
+  it("goes to the whole list from an insight opened by its own link", async () => {
+    stubListAndDetail();
+    mountListAndDetail("/insights/ins-11");
+
+    const back = await screen.findByRole("link", { name: /All insights/ });
+
+    expect(back).toHaveAttribute("href", "/insights");
   });
 });
 
@@ -360,7 +505,7 @@ describe("the /insights page narrowed to a day", () => {
     );
     expect(otherDay.length).toBeGreaterThan(0);
     // The token was issued for the 20th's list.
-    expect(otherDay.every((u) => !u.includes("pageToken"))).toBe(true);
+    expect(otherDay.every((u) => !u.includes("page="))).toBe(true);
   });
 
   it("keeps the day when a tab is clicked", async () => {

@@ -12,11 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Shared wire layer providing transport, authentication, and event normalization.
+"""Code shared by the agent, the CLI, the dashboard and the deploy wrapper.
 
-Maintained as a standalone package to decouple independent consumers:
-`ambient_quality_cli` (fetched into `.aqua` by `agents-cli`) and the Cloud Run
-dashboard (`ui/`). Dependencies are restricted to google-auth and httpx,
-allowing clients to communicate with an agent deployment without importing
+Holds the package version, the usage analytics headers, the engine routes and
+the wire layer (transport, authentication and event normalization) through
+which `ambient_quality_cli` (fetched into `.aqua` by `agents-cli`) and the
+Cloud Run dashboard (`ui/`) talk to an agent deployment. Dependencies are
+restricted to google-auth and httpx, so those clients run without importing
 ADK or `ambient_quality_agent`.
 """
+
+# Read by hatch as the distribution version, and sent in usage analytics headers.
+__version__ = "0.2.0"

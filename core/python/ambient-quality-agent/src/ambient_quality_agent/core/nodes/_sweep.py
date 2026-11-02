@@ -287,8 +287,8 @@ def render_nothing_evaluated_line(
     Handles three distinct cases:
     - Target selector matched zero sessions: notifies that the custom criteria
       found no matching conversations in the window.
-    - Window contained zero traces: indicates an idle agent or a mismatched
-      `AQA_OBSERVED_AGENT_NAME` configuration.
+    - Window contained zero traces: indicates an idle agent or an agent
+      attached under a name its telemetry does not record.
     - Otherwise: traces existed but none were ingested, or the trace count is
       unknown (`scanned` is None).
 
@@ -315,8 +315,8 @@ def render_nothing_evaluated_line(
         "_Skipped: the window held no traces at all._ Nothing in "
         f"`{source}` matched agent `{agent_name}` between {_format_window_bound(start)} and "
         f"{_format_window_bound(end)}. Either the agent served no traffic in that window, or "
-        "`AQA_OBSERVED_AGENT_NAME` is not the name its telemetry records it "
-        "under."
+        "it is attached under a name its telemetry does not record; "
+        "`agents-cli aqua attach` sets the name."
     )
 
 
@@ -360,8 +360,8 @@ def render_empty_window_error(
     if present is None:
         return (
             f"{head} The agent names it does record could not be listed. Check "
-            "that AQA_OBSERVED_AGENT_NAME is the name the agent's telemetry "
-            "records, and that the agent served traffic in that window."
+            "that the agent is attached under the name its telemetry records, "
+            "and that the agent served traffic in that window."
         )
     if not present:
         return (
@@ -376,8 +376,8 @@ def render_empty_window_error(
         else ""
     )
     return (
-        f"{head} Agents with traces there{busiest}: {names}. Set "
-        "AQA_OBSERVED_AGENT_NAME to the one to watch."
+        f"{head} Agents with traces there{busiest}: {names}. Attach the one "
+        "to watch with `agents-cli aqua attach <agent name>`."
     )
 
 

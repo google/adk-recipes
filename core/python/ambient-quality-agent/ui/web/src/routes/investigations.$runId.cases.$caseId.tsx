@@ -25,6 +25,7 @@ import { Loading } from "@/components/ui/loading";
 import { PageHeader } from "@/components/nav/page-header";
 import { link, mono, textStyle } from "@/lib/typography";
 import { cn } from "@/lib/utils";
+import { useAgentKey } from "@/lib/agent-selection";
 
 /** Why a conversation is not all here, or null when it is.
  *
@@ -64,8 +65,9 @@ export function archiveNote(archived: CaseConversation): string | null {
 export const Route = createFileRoute("/investigations/$runId/cases/$caseId")({
   component: function CaseConversationRoute() {
     const { runId, caseId } = Route.useParams();
+    const agentKey = useAgentKey();
     const { data, isLoading, isError, error } = useQuery(
-      caseConversationQuery(runId, caseId),
+      caseConversationQuery(agentKey, runId, caseId),
     );
 
     return (
