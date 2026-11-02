@@ -537,12 +537,19 @@
       !C.items.length && !C.busy ? el("div", { class: "hint" }, "No products match.") : null,
       el("div", { class: "grid" }, C.items.map(it => tile(it, () => onUse(it), verb + " · " + it.label))));
   }
-  function refModelSection() {
-    return el("details", { open: !!S.reference_model }, el("summary", {}, "Reference model (optional)"),
-      el("div", { class: "hint" }, "Upload your own photo of a model already wearing the look; its parts are used when you have no worn photo of an item."),
+  // The optional try-on inputs, folded like Run options: open when one is set, then as the user left it.
+  function moreSection() {
+    const st = S.settings.tryon;
+    const set = !!(S.reference_model || st.style_guidelines || st.scenario);
+    return el("details", { open: L.open.more ?? set, on: { toggle: (e) => { L.open.more = e.target.open; } } },
+      el("summary", {}, "Reference model & style"),
+      el("label", { class: "f" }, "Reference model (optional)"),
+      el("div", { class: "hint" }, "Taken automatically from a full-length photo of a model among the products. Upload one here only to choose it yourself."),
       S.reference_model ? chip(S.reference_model, () => clearField("reference_model")) : null,
       S.reference_model ? lookOptions() : null,
-      el("div", { class: "row" }, btn("Upload photo", () => pick("reference_model"))));
+      el("div", { class: "row" }, btn("Upload photo", () => pick("reference_model"))),
+      text("tryon", "style_guidelines", "Style guidelines", "Brand rules, e.g. jackets closed, shirts tucked", true),
+      text("tryon", "scenario", "Scenario", "a plain light grey studio environment"));
   }
   // The reference model's options (Photo Try-On settings, also used by Video Try-On).
   function lookOptions() {
@@ -552,11 +559,6 @@
       toggle("tryon", "upscale_crops", "Upscale look-photo crops",
         "Sharpen the shoes taken from the reference model photo before use. Slower."),
     ];
-  }
-  function styleSection() {
-    return section("Style & scenario", "",
-      text("tryon", "style_guidelines", "Style guidelines", "Brand rules, e.g. jackets closed, shirts tucked", true),
-      text("tryon", "scenario", "Scenario", "a plain light grey studio environment"));
   }
   function motionSection() {
     const st = S.settings.video_tryon;
@@ -719,8 +721,9 @@
     const page = [restoreMsg ? el("div", { class: "alert" }, restoreMsg) : null,
                   L.notice ? el("div", { class: "alert", role: "alert" }, L.notice) : null];
     // Video Try-On takes the Photo Try-On inputs: the video starts with that try-on.
-    if (makesTryOn()) page.push(personSection(), productsSection(), refModelSection(), styleSection());
+    if (makesTryOn()) page.push(personSection(), productsSection());
     if (S.capability === "video_tryon") page.push(motionSection());
+    if (makesTryOn()) page.push(moreSection());
     if (S.capability === "spin") page.push(spinSection());
     page.push(optionsSection(), generateSection(), ...resultsSection());
     document.getElementById("page").replaceChildren(...page.filter(Boolean));

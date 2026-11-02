@@ -20,11 +20,19 @@ new app: the API cannot add the first data store to an app that has none
 (``PATCH dataStoreIds`` answers FAILED_PRECONDITION "can not remove data
 stores such that <2 data stores remain linked" in every API version, and
 ``data_stores`` is immutable), while adding one to an app that already has one
-works. The app id is stable, so a second run finds and reuses it."""
+works. The app id is stable, so a second run finds and reuses it.
+
+Our app's assistant (its chat) gets Google Search (web grounding) off, the
+model GENMEDIA_ASSISTANT_MODEL and instructions to only relay messages to
+and from the Studio's agent, which does the work; an app named in
+GEMINI_ENTERPRISE_APP_ID keeps its own settings."""
 
 import logging
 
+import requests
+
 from genmedia4commerce.core.errors import GenMediaError
+from genmedia4commerce.core.models import get_models
 from infra.gemini_enterprise_api import (
     ENGINES,
     ApiError,
@@ -53,6 +61,22 @@ NOT_ENABLED = """
 Gemini Enterprise does not seem to be enabled for project {project}, so the app cannot be created (the API's message is above).
 Enable Gemini Enterprise for this project: console > Gemini Enterprise (start the subscription or free trial):
   {url}"""
+
+# Our app's chat only relays: the Studio has its own agent.
+RELAY = """You are only a relay between the user and the GenMedia Studio, which has its own expert agent. You do no work yourself.
+- For every user message, call the studio_agent tool right away, with the user's message exactly as written, word for word (even a single word like "yes"), and the studio_id from the studio's model context (empty if there is none yet). Do not rephrase, summarise, add context, plan or think it over first: the Studio's agent does all of that.
+- Then reply with the text of the tool's "reply" exactly as it is, word for word, and nothing else. If the tool returns an "error" instead, reply with that error text as it is.
+- Never write anything of your own: no greeting, no "I'm sending this to the Studio", no summary, no explanation of what the tool did, no follow-up question.
+- Never answer from your own knowledge, never create or describe images or videos, and never use any other tool."""
+ASSISTANT_MASK = (
+    "webGroundingType,generationConfig.defaultModelId,"
+    "generationConfig.systemInstruction.additionalSystemInstruction"
+)
+NOT_SET = (
+    "Could not set up the app's chat (%s): Google Search stays available "
+    "there and it uses the default model and instructions. Change them in "
+    "the app's settings in the console."
+)
 
 CONNECT_STEP = """
 The API cannot add the first data store to an existing app (it answered: {message}).
@@ -127,7 +151,29 @@ def ensure_own_app(api: DiscoveryEngine, engine_id: str, stores: list[str]):
     else:
         logger.info("Reusing the Gemini Enterprise app %s", engine)
         add_stores(api, engine, app, stores)
+    set_up_assistant(api, engine)
     return engine
+
+
+def assistant_request() -> dict:
+    """Our app's chat: no Google Search, the assistant model
+    (GENMEDIA_ASSISTANT_MODEL) and the relay instructions."""
+    return {
+        "webGroundingType": "WEB_GROUNDING_TYPE_DISABLED",
+        "generationConfig": {
+            "defaultModelId": get_models().assistant,
+            "systemInstruction": {"additionalSystemInstruction": RELAY},
+        },
+    }
+
+
+def set_up_assistant(api: DiscoveryEngine, engine: str) -> None:
+    """Set up our app's assistant; a failure only warns."""
+    path = f"{engine}/assistants/default_assistant?updateMask={ASSISTANT_MASK}"
+    try:
+        api.call("PATCH", path, assistant_request())
+    except (GenMediaError, requests.RequestException) as exc:
+        logger.warning(NOT_SET, getattr(exc, "message", exc))
 
 
 def connect_existing_app(api: DiscoveryEngine, app_id: str, stores):

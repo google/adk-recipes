@@ -39,8 +39,9 @@ IMPERSONATE = (
 # (FAKE_NO_SERVICE: not found). `auth print-identity-token` gives
 # sa-token-<n> when impersonating (FAKE_NO_IMPERSONATION: refused; FAKE_TOKENS:
 # refused after that many), else user-token (FAKE_NO_USER_TOKEN: refused).
-# `run services proxy` returns at once, or with FAKE_PROXY_LIVE listens on
-# WEB_PROXY_PORT until killed, its pid in proxy.pids.
+# `run services proxy` returns at once, or with FAKE_PROXY_LIVE serves HTTP
+# on WEB_PROXY_PORT until killed (403 to the first FAKE_FORBIDDEN requests,
+# then 200), its pid in proxy.pids.
 FAKE_GCLOUD = r"""#!/bin/bash
 echo "$*" >> "$FAKE_DIR/calls"
 impersonated() {
@@ -64,12 +65,17 @@ components*) mkdir -p "$FAKE_DIR/sdk/bin" && touch "$FAKE_DIR/sdk/bin/cloud-run-
     echo "proxying"
     [ -n "${FAKE_PROXY_LIVE:-}" ] || exit 0
     echo $$ >> "$FAKE_DIR/proxy.pids"
-    exec "$FAKE_PYTHON" -c 'import socket, sys, time
-s = socket.socket()
-s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-s.bind(("127.0.0.1", int(sys.argv[1])))
-s.listen()
-time.sleep(600)' "$WEB_PROXY_PORT" ;;
+    exec "$FAKE_PYTHON" -c 'import http.server, sys
+forbidden = [int(sys.argv[2])]  # 403 to the first requests, then 200
+class Handler(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(403 if forbidden[0] > 0 else 200)
+        self.end_headers()
+        forbidden[0] -= 1
+    def log_message(self, *args):
+        pass
+http.server.HTTPServer.allow_reuse_address = True
+http.server.HTTPServer(("127.0.0.1", int(sys.argv[1])), Handler).serve_forever()' "$WEB_PROXY_PORT" "${FAKE_FORBIDDEN:-0}" ;;
 "auth print-identity-token "*)
     case "$*" in
     *--impersonate-service-account=*) impersonated ;;

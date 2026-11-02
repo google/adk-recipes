@@ -18,6 +18,7 @@ import type { ComponentType } from "react";
 import type { StudioCapability } from "../../api/studio";
 import {
   CheckIcon,
+  ChevronIcon,
   ImageIcon,
   SparkleIcon,
   SpinIcon,
@@ -152,6 +153,36 @@ function GenerateBar({ studio }: Props) {
   );
 }
 
+/** The optional try-on inputs, folded like Run options: open when one is set. */
+function MoreOptions({ studio }: Props) {
+  const { reference_model, settings } = studio.view;
+  const { style_guidelines, scenario } = settings.tryon;
+  const set = [
+    reference_model && "Reference model",
+    (style_guidelines || scenario) && "Style",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  return (
+    <details className="group glass-panel rounded-2xl" open={Boolean(set)}>
+      <summary className="flex items-center gap-3 cursor-pointer select-none list-none [&::-webkit-details-marker]:hidden rounded-2xl px-4 sm:px-5 py-4">
+        <span className="text-h3">Reference model & style</span>
+        <span className="ml-auto text-caption text-gm-text-tertiary">
+          {set || "Optional"}
+        </span>
+        <ChevronIcon
+          size={16}
+          className="text-gm-text-secondary transition-transform group-open:rotate-180"
+        />
+      </summary>
+      <div className="flex flex-col gap-4 px-4 sm:px-5 pb-5">
+        <ModelField studio={studio} field="reference_model" />
+        <StyleFields studio={studio} />
+      </div>
+    </details>
+  );
+}
+
 function PageInputs({ studio }: Props) {
   const { capability } = studio.view;
   if (capability === "spin") return <SpinField studio={studio} />;
@@ -160,9 +191,8 @@ function PageInputs({ studio }: Props) {
     <>
       <ModelField studio={studio} field="person" />
       <ProductsField studio={studio} />
-      <ModelField studio={studio} field="reference_model" />
-      <StyleFields studio={studio} />
       {capability === "video_tryon" && <MotionField studio={studio} />}
+      <MoreOptions studio={studio} />
     </>
   );
 }
