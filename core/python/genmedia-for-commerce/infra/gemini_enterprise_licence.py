@@ -29,6 +29,7 @@ does, so this runs after the app is created.
 import logging
 import sys
 
+from genmedia4commerce.core.errors import GenMediaError
 from infra.gemini_enterprise_api import DiscoveryEngine, console_url
 
 logger = logging.getLogger(__name__)
@@ -57,6 +58,9 @@ NO_LICENCE = (
     "the app yet. Start the 30-day free trial or add a subscription, then "
     "assign licences (Manage users): {url}"
 )
+TRIAL_FAILED = (
+    "Could not start the free trial ({message}). Assign licences here: {url}"
+)
 
 
 def _date(value: dict) -> str:
@@ -82,10 +86,19 @@ def ensure_licence(api: DiscoveryEngine, user: str) -> None:
         "licenseConfigs"
     ):
         return
+    url = console_url("gemini-enterprise/user-license", api.project)
     if not _ask(api.project, user):
-        url = console_url("gemini-enterprise/user-license", api.project)
         logger.warning(NO_LICENCE.format(project=api.project, url=url))
         return
+    try:  # the app and connector are done: a failed trial is not fatal
+        _start_trial(api, user)
+    except GenMediaError as exc:
+        message = getattr(exc, "message", str(exc))
+        logger.warning(TRIAL_FAILED.format(message=message, url=url))
+
+
+def _start_trial(api: DiscoveryEngine, user: str) -> None:
+    """Create the trial, make it the default and assign one to ``user``."""
     config = api.call(
         "POST",
         f"{api.parent}/licenseConfigs?licenseConfigId={TRIAL_ID}",
