@@ -17,6 +17,7 @@ or reuses its own Gemini Enterprise app, GenMedia Studio."""
 
 import pytest
 
+from genmedia4commerce.core.models import get_models
 from infra import gemini_enterprise as ge
 from infra import gemini_enterprise_api as gea
 from infra import gemini_enterprise_app as gapp
@@ -57,13 +58,76 @@ def _own_app_api(app=None, tools=("studio_agent",)):
 
 
 def _engine_writes(api):
-    return [(m, u, b) for m, u, b in api.writes() if u.startswith(CREATE)]
+    return [
+        (m, u, b)
+        for m, u, b in api.writes()
+        if u.startswith(CREATE) and "/assistants/" not in u
+    ]
+
+
+ASSISTANT = (
+    f"{DE}/v1alpha/{OWN}/assistants/default_assistant?updateMask="
+    "webGroundingType,generationConfig.defaultModelId,"
+    "generationConfig.systemInstruction.additionalSystemInstruction"
+)
+
+
+@pytest.mark.parametrize("app", [None, {"dataStoreIds": [STORE]}])
+def test_its_own_app_s_chat_only_relays_to_the_studio(
+    monkeypatch, own_app, app
+):
+    """Created or reused: no Google Search, the assistant model and the
+    relay instructions."""
+    monkeypatch.setenv("GENMEDIA_ASSISTANT_MODEL", "gemini-test-flash")
+    get_models.cache_clear()
+    api = _own_app_api(app=app)
+    monkeypatch.setattr(ge.requests, "request", api)
+
+    ge.register(*ge.studio_url(), dry_run=False)
+    get_models.cache_clear()
+
+    (body,) = [b for m, u, b in api.writes() if u == ASSISTANT]
+    assert body["webGroundingType"] == "WEB_GROUNDING_TYPE_DISABLED"
+    config = body["generationConfig"]
+    assert config["defaultModelId"] == "gemini-test-flash"
+    relay = config["systemInstruction"]["additionalSystemInstruction"]
+    assert relay.startswith("You are only a relay")
+    assert "studio_agent" in relay and "studio_id" in relay
+    assert 'the tool\'s "reply"' in relay
+    assert "I'm sending this to the Studio" in relay  # named as banned
+
+
+def test_a_refused_assistant_setting_only_warns(monkeypatch, own_app, caplog):
+    api = _own_app_api(app={"dataStoreIds": [STORE]})
+    api.answers[("PATCH", ASSISTANT.split("?", maxsplit=1)[0])] = error(
+        "PERMISSION_DENIED", "Not allowed.", 403
+    )
+    monkeypatch.setattr(ge.requests, "request", api)
+
+    with caplog.at_level("INFO"):
+        ge.register(*ge.studio_url(), dry_run=False)
+
+    assert "Could not set up the app's chat (Not allowed.)" in caplog.text
+    assert "Done:" in caplog.text
+
+
+def test_an_existing_app_keeps_its_search_setting(monkeypatch, gcloud_calls):
+    """GEMINI_ENTERPRISE_APP_ID: a customer's app is not changed."""
+    api = fresh_project_api()
+    api.answers[("GET", CONNECTOR)] = connector_body(["studio_agent"])
+    monkeypatch.setattr(ge.requests, "request", api)
+
+    ge.register(*ge.studio_url(), dry_run=False)
+
+    assert not [u for _, u, _ in api.writes() if "/assistants/" in u]
 
 
 def test_creates_its_own_app_with_the_data_store_linked(
     monkeypatch, own_app, sleeps, caplog
 ):
     api = _own_app_api()
+    widget = f"{DE}/v1/{OWN}/widgetConfigs/default_search_widget_config"
+    api.answers[("GET", widget)] = {"configId": "abc-123"}
     monkeypatch.setattr(ge.requests, "request", api)
 
     with caplog.at_level("INFO"):
@@ -83,8 +147,16 @@ def test_creates_its_own_app_with_the_data_store_linked(
     }
     assert sleeps == [5]  # the create operation was not done at once
     assert "Done:" in caplog.text
-    assert "gemini-enterprise/?project=my-proj" in caplog.text
-    assert "licence" in caplog.text
+    assert (
+        "Open the app: https://vertexaisearch.cloud.google.com/home/cid/"
+        "abc-123" in caplog.text
+    )
+    assert (
+        "gemini-enterprise/locations/global/engines/"
+        "genmedia-for-commerce-studio/overview/dashboard?project=my-proj"
+        in caplog.text
+    )
+    assert "licence" not in caplog.text  # the licence step says its own
 
 
 def test_reuses_its_app_that_already_links_the_data_store(monkeypatch, own_app):

@@ -35,6 +35,22 @@ curl -X POST http://localhost:8000/run -H "Content-Type: application/json" \
 - A Google Cloud project with billing enabled.
 - For Gemini Enterprise: a subscription or the free trial in that project (see [Gemini Enterprise](#gemini-enterprise)).
 
+## Quick deploy
+
+In [Cloud Shell](https://shell.cloud.google.com), with your project selected (`gcloud config set project <your-project-id>`):
+
+```bash
+d=genmedia4commerce-$RANDOM && uvx google-agents-cli@1.12.0 scaffold create $d -ag -y -p -d cloud_run \
+  --agent-guidance-filename AGENTS.md -a https://github.com/google/adk-recipes/tree/main/core/python/genmedia-for-commerce \
+  && cd $d && make install setup-infra deploy register-gemini-enterprise
+```
+
+It copies the recipe into a new folder, sets up the project, deploys the app, starts the web app at <http://localhost:8080> (in Cloud Shell: **Web Preview > Preview on port 8080**) and registers the Studio in Gemini Enterprise. It can run again in the same project. Agent Garden's older agent-starter-pack command still works. On the way, Enter answers yes to:
+
+- `Deploy to project <id> (gcloud's active project)? [Y/n]`, when `config.env` is created.
+- `Apply these changes to project <id>? [Y/n]`, after Terraform's plan (without a terminal, set `TF_AUTO_APPROVE=1`).
+- The Gemini Enterprise questions: allow custom MCP connectors, and start the free trial ([Gemini Enterprise](#gemini-enterprise)).
+
 ## Setup
 
 ```bash
@@ -49,7 +65,7 @@ gcloud config set project <your-project-id>
 make setup-infra
 ```
 
-`make setup-infra` creates `config.env` from `config.env.example` (with your gcloud project), then uses Terraform (installed for you if missing) to enable the APIs and create the media bucket, the image repository and the service accounts. Run it once per project, and again after upgrading, before you deploy. Every setting is in `config.env` ([Configuration](#configuration)).
+`make setup-infra` creates `config.env` from `config.env.example` (with your gcloud project), then uses Terraform (installed for you if missing) to enable the APIs and create the media bucket, the image repository and the service accounts. Its Terraform state is in the bucket `<project>-genmedia-tfstate`, so it can run again from any folder. Run it once per project, and again after upgrading, before you deploy. Every setting is in `config.env` ([Configuration](#configuration)).
 
 ## Run locally
 
@@ -103,15 +119,15 @@ After `make deploy`:
 make register-gemini-enterprise
 ```
 
-It connects the deployed Studio to Gemini Enterprise and creates a "GenMedia Studio" app. It can run again safely, and `DRY_RUN=1` shows what it would change. Use a project dedicated to this app: some of these settings apply to the whole project.
+It connects the deployed Studio to Gemini Enterprise and creates a "GenMedia Studio" app, whose chat only relays your messages to the Studio's agent and its replies back (Google Search off, model `GENMEDIA_ASSISTANT_MODEL`, default `gemini-3.8-flash`). It can run again safely, and `DRY_RUN=1` shows what it would change. Use a project dedicated to this app: some of these settings apply to the whole project.
 
 The command does everything it can and guides you through what only the console can do:
 
 1. **Start the subscription or the free trial**, in the console under Gemini Enterprise, before you register.
 2. **Allow custom MCP connectors:** Gemini Enterprise blocks them by default. The command asks to allow them for the project (Enter means yes; it needs the Organization Policy Administrator role) and waits until that applies. `make allow-mcp-connectors` does the same on its own; without a terminal the command prints what to run.
-3. **Reload custom actions** (Gemini Enterprise > Data stores > GenMedia Studio > Actions), then enable `studio_agent`. Do it again after a deploy that changes the Studio's tools.
+3. **Reload custom actions:** the command links the connector's Actions page; click Reload custom actions there and press Enter. It checks the reload happened (asking again if not) and enables `studio_agent` itself. Do it again after a deploy that changes the Studio's tools.
 
-When the project has no Gemini Enterprise licence yet, the command offers the 30-day free trial (as the console does with the first app): it assigns you a licence and gives every other user one at first sign-in. Otherwise give users a licence (Gemini Enterprise > Manage users). Then open the app, turn on GenMedia Studio under Connectors and ask "Open the GenMedia Studio". Upload images with the panel's Upload button: files attached in the chat do not reach the Studio.
+When the project has no Gemini Enterprise licence yet, the command offers the 30-day free trial (as the console does with the first app): it assigns you a licence and gives every other user one at first sign-in. Otherwise give users a licence (Gemini Enterprise > Manage users). Then open the app and ask "Open the GenMedia Studio" (GenMedia Studio is on under Connectors). Upload images with the panel's Upload button: files attached in the chat do not reach the Studio.
 
 ## Configuration
 

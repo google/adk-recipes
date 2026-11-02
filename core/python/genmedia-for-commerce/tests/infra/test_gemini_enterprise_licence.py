@@ -103,3 +103,25 @@ def test_without_a_terminal_nothing_is_started(monkeypatch, caplog):
     lic.ensure_licence(api, "me@example.com")
     assert [c[0] for c in api.calls] == ["GET"]
     assert "Manage users" in caplog.text
+
+
+def test_a_refused_trial_is_a_warning_and_the_registration_goes_on(
+    terminal, caplog
+):
+    """A project or billing account that already used its trial."""
+    from infra.gemini_enterprise_api import ApiError
+
+    class RefusingApi(FakeApi):
+        def call(self, method, path, body=None, version="v1alpha"):
+            if method == "POST":
+                text = '{"error": {"message": "Trial already used."}}'
+                raise ApiError(method, path, 400, text)
+            return super().call(method, path, body, version)
+
+    terminal("")
+    lic.ensure_licence(RefusingApi([]), "me@example.com")
+    assert (
+        "Could not start the free trial (Trial already used.). Assign "
+        "licences here: https://console.cloud.google.com/gemini-enterprise/"
+        "user-license?project=my-proj" in caplog.text
+    )

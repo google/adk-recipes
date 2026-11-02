@@ -36,6 +36,7 @@ class Models:
     video: str
     video_api_revision: str
     embed_catalog: str
+    assistant: str
 
 
 def _env(name: str, default: str) -> str:
@@ -56,4 +57,5 @@ def get_models() -> Models:
         embed_catalog=_env(
             "GENMEDIA_EMBED_CATALOG_MODEL", "gemini-embedding-001"
         ),
+        assistant=_env("GENMEDIA_ASSISTANT_MODEL", "gemini-3.8-flash"),
     )
