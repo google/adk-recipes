@@ -1,18 +1,16 @@
-/**
- * Copyright 2026 Google LLC
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     https://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2026 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
 // The user's image picks as studio actions (`{label, ref}` items, studio/patches.py), as the MCP
 // App panel sends them; the thumbnails stay on the client. A pick, a removal or a clear shows at
@@ -28,6 +26,8 @@ export type ListField = "product" | "spin";
 export type UploadField = SlotField | ListField;
 /** The view's list of each list field. */
 const LISTS = { product: "products", spin: "spin" } as const;
+/** Whether `field` is a list field (`in` alone does not narrow its type). */
+const isList = (field: UploadField): field is ListField => field in LISTS;
 
 /** `list` without its first `field`. */
 function withoutOne<T>(list: T[], field: T): T[] {
@@ -61,11 +61,7 @@ export class ItemCommands {
   };
 
   clearField = (field: SlotField | ListField) => {
-    this.show(
-      field === "product" || field === "spin"
-        ? { [LISTS[field]]: [] }
-        : { [field]: null },
-    );
+    this.show(isList(field) ? { [LISTS[field]]: [] } : { [field]: null });
     return this.store.act({ clear: { field } });
   };
 

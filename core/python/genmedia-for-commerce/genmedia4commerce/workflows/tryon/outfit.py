@@ -217,7 +217,7 @@ def analyze_outfit(
             params=TextParams(
                 model=get_models().judge,
                 thinking="MEDIUM",
-                media_resolution="MEDIA_RESOLUTION_MEDIUM",
+                media_resolution=gen.MEDIUM_RES,
             ),
         )
     except GenerationError as exc:

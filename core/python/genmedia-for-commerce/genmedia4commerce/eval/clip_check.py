@@ -132,7 +132,7 @@ def check_clip(
         params=TextParams(
             model=get_models().judge,
             thinking="LOW",
-            media_resolution="MEDIA_RESOLUTION_MEDIUM",
+            media_resolution=gen.MEDIUM_RES,
             deadline_s=DEADLINE_S,
         ),
     )

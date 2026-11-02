@@ -214,11 +214,12 @@ async def start(spec: dict[str, Any]) -> dict[str, Any]:
     spec = await asyncio.to_thread(for_studio, spec, st)
     await asyncio.to_thread(check_refs, spec, studio_id)
     job_id, now = uuid.uuid4().hex[:10], time.time()
-    # A photo's video (``image``) replaces the page, as a full run does.
-    image = "" if spec.get("image") else str(spec.get("tryon_image") or "")
+    # The try-on image a Make video job remakes; "" for a photo's video
+    # (``image``), which replaces the page, as a full run does.
+    remade = "" if spec.get("image") else str(spec.get("tryon_image") or "")
     _take_slot(now)
     try:
-        await asyncio.to_thread(claim, studio_id, job_id, cap, image)
+        await asyncio.to_thread(claim, studio_id, job_id, cap, remade)
     except BaseException:
         _give_back_slot(now)
         raise

@@ -178,7 +178,7 @@ def _found(
         params=gen.TextParams(
             model=get_models().judge,
             thinking="LOW",
-            media_resolution="MEDIA_RESOLUTION_MEDIUM",
+            media_resolution=gen.MEDIUM_RES,
         ),
     )
     return (raw or {}).get("details", []) if isinstance(raw, dict) else []

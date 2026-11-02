@@ -376,7 +376,7 @@ def classify_products(
         params=TextParams(
             model=get_models().judge,
             thinking="LOW",
-            media_resolution="MEDIA_RESOLUTION_MEDIUM",
+            media_resolution=gen.MEDIUM_RES,
         ),
     )
     rows = _rows(raw, len(photos))

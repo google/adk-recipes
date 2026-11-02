@@ -194,7 +194,7 @@ def plan_animation(refs: ReferenceSet, request: str | None = None) -> Plan:
             params=TextParams(
                 model=get_models().judge,
                 thinking="MEDIUM",
-                media_resolution="MEDIA_RESOLUTION_MEDIUM",
+                media_resolution=gen.MEDIUM_RES,
             ),
         )
     except GenMediaError as exc:

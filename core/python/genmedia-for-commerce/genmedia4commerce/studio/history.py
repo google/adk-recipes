@@ -32,8 +32,9 @@ from genmedia4commerce.studio import sessions
 __all__ = ["STUDIO_PREFIX", "flush", "note", "note_later"]
 
 STUDIO_PREFIX = "[studio] "
+_WRITERS = 4  # notes ``note_later`` writes at the same time
 #: Writes the notes of ``note_later``; ``_PENDING`` are not written yet.
-_WRITER = ThreadPoolExecutor(4, thread_name_prefix="studio-note")
+_WRITER = ThreadPoolExecutor(_WRITERS, thread_name_prefix="studio-note")
 _PENDING: set[Future] = set()
 
 

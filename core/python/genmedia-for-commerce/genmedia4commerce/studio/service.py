@@ -63,6 +63,8 @@ __all__ = [
 logger = logging.getLogger(__name__)
 
 _CATALOG_RESULTS = 8
+# The longest a turn waits for the notes of the user's last actions (seconds)
+NOTES_WAIT_S = 5.0
 _SESSIONS = sessions.StudioSessionService()
 
 
@@ -87,7 +89,7 @@ async def agent_turn(message: str, studio_id: str = "") -> dict[str, Any]:
     ``studio_id`` is ""): ``{studio_id, reply, patches, issued_at}``, plus
     the saved ``state`` and ``updated_at`` when the turn saved it."""
     # The notes of the user's last actions first (written after answering).
-    await asyncio.to_thread(sh.flush, 5.0)
+    await asyncio.to_thread(sh.flush, NOTES_WAIT_S)
     sid, done = await agent.run_agent_turn(message, studio_id)
     payload = {
         "studio_id": sid,
