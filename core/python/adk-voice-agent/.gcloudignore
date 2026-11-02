@@ -1,0 +1,17 @@
+# What `agents-cli deploy` (gcloud run deploy --source .) uploads to Cloud Build.
+# gcloud reads this file instead of .gitignore once it exists, so include it:
+# nothing that isn't committed (.env, .venv, node_modules, web/dist, ...) is uploaded.
+#!include:.gitignore
+# ...except your onboarded repo list (repo URLs only), so the service sees your repos.
+!config/workspaces.local.yaml
+
+.git
+.gitignore
+.gcloudignore
+
+# Committed, but not part of the image (the Dockerfile copies app/, config/, web/).
+tests/
+docs/
+scripts/
+sandbox/
+terraform/
