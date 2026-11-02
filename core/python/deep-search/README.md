@@ -55,7 +55,7 @@ uvx google-agents-cli setup
 **Create the project from this recipe** (replace `my-deep-search-agent` with your project name):
 
 ```bash
-agents-cli create my-deep-search-agent -a adk@deep-search
+agents-cli create my-deep-search-agent -a https://github.com/google/adk-recipes/tree/main/core/python/deep-search
 ```
 
 The Google Agents CLI will prompt you to select deployment options and set up your Google Cloud project.

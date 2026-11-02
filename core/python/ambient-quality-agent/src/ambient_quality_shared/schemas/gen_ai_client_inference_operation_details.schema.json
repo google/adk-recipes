@@ -1,0 +1,5 @@
+[
+  {"name": "timestamp", "type": "TIMESTAMP", "mode": "NULLABLE"},
+  {"name": "trace", "type": "STRING", "mode": "NULLABLE"},
+  {"name": "spanId", "type": "STRING", "mode": "NULLABLE"}
+]

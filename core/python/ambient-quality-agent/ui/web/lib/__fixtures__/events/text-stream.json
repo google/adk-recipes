@@ -1,0 +1,72 @@
+{
+  "description": "Streamed text on the new-impl converter path: incremental deltas arrive as append=true artifactUpdate events into one artifact; the run ends with a terminal statusUpdate (state=COMPLETED=3). The redundant final aggregate is stripped server-side, so no statusUpdate carries the model text.",
+  "events": [
+    {
+      "payload": {
+        "$case": "artifactUpdate",
+        "value": {
+          "taskId": "task-1",
+          "contextId": "ctx-1",
+          "artifact": {
+            "artifactId": "art-1",
+            "name": "",
+            "description": "",
+            "parts": [
+              {
+                "content": { "$case": "text", "value": "Hello, " },
+                "metadata": null,
+                "filename": "",
+                "mediaType": ""
+              }
+            ],
+            "metadata": null
+          },
+          "append": true,
+          "lastChunk": false,
+          "metadata": null
+        }
+      }
+    },
+    {
+      "payload": {
+        "$case": "artifactUpdate",
+        "value": {
+          "taskId": "task-1",
+          "contextId": "ctx-1",
+          "artifact": {
+            "artifactId": "art-1",
+            "name": "",
+            "description": "",
+            "parts": [
+              {
+                "content": { "$case": "text", "value": "world" },
+                "metadata": null,
+                "filename": "",
+                "mediaType": ""
+              }
+            ],
+            "metadata": null
+          },
+          "append": true,
+          "lastChunk": false,
+          "metadata": null
+        }
+      }
+    },
+    {
+      "payload": {
+        "$case": "statusUpdate",
+        "value": {
+          "taskId": "task-1",
+          "contextId": "ctx-1",
+          "status": {
+            "state": 3,
+            "message": null,
+            "timestamp": null
+          },
+          "metadata": null
+        }
+      }
+    }
+  ]
+}

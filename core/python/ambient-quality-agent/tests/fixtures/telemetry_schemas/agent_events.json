@@ -1,0 +1,150 @@
+{
+  "source": "google-adk 2.12.0, google/adk/plugins/bigquery_agent_analytics_plugin.py: the columns _get_events_schema() returns (schema version 2), in order, with no payload_column_denylist. The BigQuery Agent Analytics plugin creates the agent_events table with them.",
+  "table": "agent_events",
+  "columns": [
+    {
+      "name": "timestamp",
+      "type": "TIMESTAMP",
+      "mode": "REQUIRED"
+    },
+    {
+      "name": "event_id",
+      "type": "STRING",
+      "mode": "NULLABLE"
+    },
+    {
+      "name": "event_type",
+      "type": "STRING",
+      "mode": "NULLABLE"
+    },
+    {
+      "name": "agent",
+      "type": "STRING",
+      "mode": "NULLABLE"
+    },
+    {
+      "name": "session_id",
+      "type": "STRING",
+      "mode": "NULLABLE"
+    },
+    {
+      "name": "invocation_id",
+      "type": "STRING",
+      "mode": "NULLABLE"
+    },
+    {
+      "name": "user_id",
+      "type": "STRING",
+      "mode": "NULLABLE"
+    },
+    {
+      "name": "trace_id",
+      "type": "STRING",
+      "mode": "NULLABLE"
+    },
+    {
+      "name": "span_id",
+      "type": "STRING",
+      "mode": "NULLABLE"
+    },
+    {
+      "name": "parent_span_id",
+      "type": "STRING",
+      "mode": "NULLABLE"
+    },
+    {
+      "name": "content",
+      "type": "JSON",
+      "mode": "NULLABLE"
+    },
+    {
+      "name": "content_parts",
+      "type": "RECORD",
+      "mode": "REPEATED",
+      "fields": [
+        {
+          "name": "mime_type",
+          "type": "STRING",
+          "mode": "NULLABLE"
+        },
+        {
+          "name": "uri",
+          "type": "STRING",
+          "mode": "NULLABLE"
+        },
+        {
+          "name": "object_ref",
+          "type": "RECORD",
+          "mode": "NULLABLE",
+          "fields": [
+            {
+              "name": "uri",
+              "type": "STRING",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "version",
+              "type": "STRING",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "authorizer",
+              "type": "STRING",
+              "mode": "NULLABLE"
+            },
+            {
+              "name": "details",
+              "type": "JSON",
+              "mode": "NULLABLE"
+            }
+          ]
+        },
+        {
+          "name": "text",
+          "type": "STRING",
+          "mode": "NULLABLE"
+        },
+        {
+          "name": "part_index",
+          "type": "INTEGER",
+          "mode": "NULLABLE"
+        },
+        {
+          "name": "part_attributes",
+          "type": "STRING",
+          "mode": "NULLABLE"
+        },
+        {
+          "name": "storage_mode",
+          "type": "STRING",
+          "mode": "NULLABLE"
+        }
+      ]
+    },
+    {
+      "name": "attributes",
+      "type": "JSON",
+      "mode": "NULLABLE"
+    },
+    {
+      "name": "latency_ms",
+      "type": "JSON",
+      "mode": "NULLABLE"
+    },
+    {
+      "name": "status",
+      "type": "STRING",
+      "mode": "NULLABLE"
+    },
+    {
+      "name": "error_message",
+      "type": "STRING",
+      "mode": "NULLABLE"
+    },
+    {
+      "name": "is_truncated",
+      "type": "BOOLEAN",
+      "mode": "NULLABLE"
+    }
+  ]
+}

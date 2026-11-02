@@ -127,7 +127,7 @@ uvx google-agents-cli setup
 **Create the project from this recipe** (replace `my-on-brand-genmedia` with your project name):
 
 ```bash
-agents-cli create my-on-brand-genmedia -a adk@on-brand-genmedia
+agents-cli create my-on-brand-genmedia -a https://github.com/google/adk-recipes/tree/main/contrib/python/on-brand-genmedia
 ```
 
 The Google Agents CLI will prompt you to select deployment options and provides additional production-ready features including automated CI/CD deployment scripts.

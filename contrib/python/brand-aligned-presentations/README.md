@@ -141,7 +141,7 @@ uvx google-agents-cli setup
 **Create the project from this recipe** (replace `my-research-deck-agent` with your project name):
 
 ```bash
-agents-cli create my-research-deck-agent -a adk@brand-aligned-presentations
+agents-cli create my-research-deck-agent -a https://github.com/google/adk-recipes/tree/main/contrib/python/brand-aligned-presentations
 ```
 
 The Google Agents CLI will prompt you to select deployment options and provides additional production-ready features including automated CI/CD deployment scripts.

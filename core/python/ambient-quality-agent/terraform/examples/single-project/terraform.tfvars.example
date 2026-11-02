@@ -1,0 +1,25 @@
+# Copy to terraform.tfvars and fill in. terraform.tfvars is gitignored.
+
+project_id = "my-project"
+region     = "us-central1"
+
+# The deployment this AQA watches. Everything is named after it, so a second
+# deployment in the same project needs nothing but a different value here.
+observed_deployment_name = "my-agent"
+
+# The agent itself, its telemetry and its update trigger are not set here:
+# attach it to the deployed engine with `agents-cli aqua attach`.
+
+# The investigation runs at midday UTC by default; change it with
+# `agents-cli aqua attach --schedule`. Setting `scheduled_trigger_enabled =
+# false` pauses every scheduled investigation of the instance.
+# scheduled_trigger_enabled = false
+
+# Addresses notified when an investigation fails or finds a new defect. Empty
+# sends none.
+# notification_emails = ["aqa-alerts@example.com"]
+
+# Engine sizing, defaulting to 4 vCPU and 8Gi. The cpu bounds the memory: 4
+# allows up to 16Gi. Raising either only affects an engine being created.
+# engine_cpu    = "4"
+# engine_memory = "8Gi"

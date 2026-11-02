@@ -66,7 +66,7 @@ uvx google-agents-cli setup
 **Create the project from this recipe** (replace `my-safety-plugins` with your project name):
 
 ```bash
-agents-cli create my-safety-plugins -a adk@safety-plugins
+agents-cli create my-safety-plugins -a https://github.com/google/adk-recipes/tree/main/core/python/safety-plugins
 ```
 
 This will:

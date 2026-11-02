@@ -1,0 +1,34 @@
+{
+  "description": "First statusUpdate echoes the user's input as state=submitted (1) with role=user (1). The consumer must skip these so the user's text isn't merged into the assistant bubble.",
+  "event": {
+    "payload": {
+      "$case": "statusUpdate",
+      "value": {
+        "taskId": "task-1",
+        "contextId": "ctx-1",
+        "status": {
+          "state": 1,
+          "message": {
+            "messageId": "msg-1",
+            "contextId": "ctx-1",
+            "taskId": "task-1",
+            "role": 1,
+            "parts": [
+              {
+                "content": { "$case": "text", "value": "hello agent" },
+                "metadata": null,
+                "filename": "",
+                "mediaType": ""
+              }
+            ],
+            "metadata": null,
+            "extensions": [],
+            "referenceTaskIds": []
+          },
+          "timestamp": null
+        },
+        "metadata": null
+      }
+    }
+  }
+}

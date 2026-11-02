@@ -169,7 +169,7 @@ uvx google-agents-cli setup
 **Create the project from this recipe** (replace `my-memory-bank` with your project name):
 
 ```bash
-agents-cli create my-memory-bank -a adk@memory-bank
+agents-cli create my-memory-bank -a https://github.com/google/adk-recipes/tree/main/core/python/cross-session-memory
 ```
 
 The Google Agents CLI will prompt you to select deployment options and provides additional production-ready features including automated CI/CD deployment scripts.

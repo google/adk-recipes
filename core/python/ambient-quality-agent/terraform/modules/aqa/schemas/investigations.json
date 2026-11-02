@@ -1,0 +1,39 @@
+{
+  "schema": [
+    { "name": "run_id", "type": "STRING", "mode": "REQUIRED",
+      "description": "The investigation this snapshot is of." },
+    { "name": "created_at", "type": "TIMESTAMP", "mode": "REQUIRED",
+      "description": "When the investigation was scheduled; the same on every snapshot of it." },
+    { "name": "updated_at", "type": "TIMESTAMP", "mode": "REQUIRED",
+      "description": "When this snapshot was written. A run is its newest snapshot." },
+
+    { "name": "observed_agent_name", "type": "STRING", "mode": "NULLABLE" },
+    { "name": "trigger_type", "type": "STRING", "mode": "NULLABLE",
+      "description": "What launched the run: manual, custom, scheduled, task_fire or update." },
+    { "name": "window_start", "type": "TIMESTAMP", "mode": "NULLABLE" },
+    { "name": "window_end", "type": "TIMESTAMP", "mode": "NULLABLE" },
+    { "name": "budget_per_metric", "type": "INT64", "mode": "NULLABLE" },
+    { "name": "metrics", "type": "JSON", "mode": "NULLABLE",
+      "description": "Metrics evaluated, keyed by metric type." },
+    { "name": "dry_run", "type": "BOOL", "mode": "NULLABLE" },
+    { "name": "custom_overrides", "type": "JSON", "mode": "NULLABLE",
+      "description": "Selector SQL and reviewer focus for a custom investigation." },
+    { "name": "idempotency_key", "type": "STRING", "mode": "NULLABLE" },
+    { "name": "effective_config", "type": "JSON", "mode": "NULLABLE",
+      "description": "Config snapshot taken at submit time; the durable job runs the graph from this." },
+    { "name": "due_at", "type": "TIMESTAMP", "mode": "NULLABLE",
+      "description": "When the delayed trigger of a scheduled run is due to start it." },
+
+    { "name": "status", "type": "STRING", "mode": "NULLABLE",
+      "description": "scheduled, pending, running, done, failed or skipped." },
+    { "name": "job_name", "type": "STRING", "mode": "NULLABLE",
+      "description": "Resource name of the durable long-running query job." },
+    { "name": "finished_at", "type": "TIMESTAMP", "mode": "NULLABLE" },
+    { "name": "error", "type": "STRING", "mode": "NULLABLE" },
+    { "name": "summary", "type": "JSON", "mode": "NULLABLE",
+      "description": "Terminal run summary. The progress events live in investigation_events." },
+    { "name": "counters", "type": "JSON", "mode": "NULLABLE",
+      "description": "Flat integer counts of what the run saw: traces scanned, ingested and evaluated, and the rubrics, clusters and insights they produced." }
+  ],
+  "clustering": ["run_id"]
+}

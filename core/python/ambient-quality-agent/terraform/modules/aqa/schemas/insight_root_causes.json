@@ -1,0 +1,14 @@
+{
+  "schema": [
+    { "name": "root_cause_id", "type": "STRING", "mode": "REQUIRED" },
+    { "name": "insight_id", "type": "STRING", "mode": "REQUIRED" },
+    { "name": "occurrence_id", "type": "STRING", "mode": "REQUIRED",
+      "description": "The sighting this diagnosis was written against. A record can outlive its occurrence: a retried sweep mints fresh occurrence ids." },
+    { "name": "agent_revision", "type": "STRING", "mode": "NULLABLE" },
+    { "name": "summary", "type": "STRING", "mode": "REQUIRED" },
+    { "name": "edits", "type": "JSON", "mode": "NULLABLE",
+      "description": "Proposed replacements, each a path, a line range, the anchored code and its replacement. JSON rather than a REPEATED RECORD, as rubrics is, so the edit shape can evolve without a schema migration." },
+    { "name": "created_at", "type": "TIMESTAMP", "mode": "REQUIRED" }
+  ],
+  "clustering": ["insight_id"]
+}

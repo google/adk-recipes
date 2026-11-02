@@ -1,0 +1,21 @@
+[
+  {"name": "trace_id", "type": "STRING", "mode": "NULLABLE"},
+  {"name": "span_id", "type": "STRING", "mode": "NULLABLE"},
+  {"name": "parent_span_id", "type": "STRING", "mode": "NULLABLE"},
+  {"name": "name", "type": "STRING", "mode": "NULLABLE"},
+  {"name": "start_time", "type": "TIMESTAMP", "mode": "NULLABLE"},
+  {"name": "end_time", "type": "TIMESTAMP", "mode": "NULLABLE"},
+  {"name": "attributes", "type": "JSON", "mode": "NULLABLE"},
+  {"name": "status", "type": "RECORD", "mode": "NULLABLE", "fields": [
+    {"name": "code", "type": "INT64", "mode": "NULLABLE"},
+    {"name": "message", "type": "STRING", "mode": "NULLABLE"}
+  ]},
+  {"name": "events", "type": "RECORD", "mode": "REPEATED", "fields": [
+    {"name": "time", "type": "TIMESTAMP", "mode": "NULLABLE"},
+    {"name": "name", "type": "STRING", "mode": "NULLABLE"},
+    {"name": "attributes", "type": "JSON", "mode": "NULLABLE"}
+  ]},
+  {"name": "resource", "type": "RECORD", "mode": "NULLABLE", "fields": [
+    {"name": "attributes", "type": "JSON", "mode": "NULLABLE"}
+  ]}
+]

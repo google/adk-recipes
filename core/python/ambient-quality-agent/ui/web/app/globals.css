@@ -1,0 +1,262 @@
+/**
+ * Copyright 2026 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Neutral surfaces */
+    --background: 30 20% 99%;
+    --foreground: 240 10% 12%;
+    --card: 0 0% 100%;
+    --card-foreground: 240 10% 12%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 240 10% 12%;
+
+    /* Single accent — slate (near-monochrome). Used for: send, brand mark. */
+    --primary: 220 16% 42%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 240 5% 96%;
+    --secondary-foreground: 240 10% 18%;
+    --muted: 240 5% 96%;
+    --muted-foreground: 240 4% 46%;
+    --accent: 240 5% 96%;
+    --accent-foreground: 240 10% 18%;
+    --destructive: 0 70% 50%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 240 5% 90%;
+    --input: 240 5% 90%;
+    --ring: 220 16% 42%;
+    --radius: 0.625rem;
+
+    /* Brand gradient endpoints — slate range (near-monochrome), with a warm
+       coral tail used only as a thin rule highlight. */
+    --lh-warp: 235 14% 55%;      /* slate-lavender */
+    --lh-thread: 220 16% 42%;    /* slate (matches --primary) */
+    --lh-shuttle: 205 18% 48%;   /* slate-blue */
+    --lh-weft: 18 75% 62%;       /* warm coral — accent rule only */
+    --lh-code: 32 45% 40%;       /* warm brown code chip (readable on light) */
+  }
+
+  .dark {
+    /* Hueless near-black neutrals (bg #101010, panel
+       #161616, card #1c1c1c, border #323232, text #cdcdcd, muted #939393). */
+    --background: 0 0% 6.5%;
+    --foreground: 0 0% 82%;
+    --card: 0 0% 9%;
+    --card-foreground: 0 0% 82%;
+    --popover: 0 0% 9%;
+    --popover-foreground: 0 0% 82%;
+
+    --primary: 220 14% 64%;
+    --primary-foreground: 0 0% 8%;
+
+    --secondary: 0 0% 13%;
+    --secondary-foreground: 0 0% 82%;
+    --muted: 0 0% 12%;
+    --muted-foreground: 0 0% 58%;
+    --accent: 0 0% 15%;
+    --accent-foreground: 0 0% 90%;
+    --destructive: 0 65% 55%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 0 0% 18%;
+    --input: 0 0% 18%;
+    --ring: 220 14% 64%;
+
+    --lh-warp: 235 12% 68%;
+    --lh-thread: 220 14% 64%;
+    --lh-shuttle: 205 16% 66%;
+    --lh-weft: 18 80% 65%;
+    --lh-code: 39 30% 62%;       /* warm tan code chip — #b8a476 */
+  }
+
+  /* Accent skins — override only the accent/brand tokens, layered on top of the
+     light/dark blocks above. `.dark[data-skin]` outranks `.dark`, so dark mode
+     stays correct. Background/foreground are intentionally left to the theme. */
+  :root[data-skin="ocean"] {
+    --primary: 205 90% 48%; --ring: 205 90% 48%;
+    --lh-warp: 190 85% 60%; --lh-thread: 205 90% 48%; --lh-shuttle: 225 85% 60%;
+  }
+  .dark[data-skin="ocean"] {
+    --primary: 205 90% 60%; --ring: 205 90% 60%;
+    --lh-warp: 190 85% 65%; --lh-thread: 205 90% 60%; --lh-shuttle: 225 85% 68%;
+  }
+  :root[data-skin="ember"] {
+    --primary: 18 85% 52%; --ring: 18 85% 52%;
+    --lh-warp: 32 90% 58%; --lh-thread: 18 85% 52%; --lh-shuttle: 2 80% 58%;
+  }
+  .dark[data-skin="ember"] {
+    --primary: 18 88% 62%; --ring: 18 88% 62%;
+    --lh-warp: 32 90% 64%; --lh-thread: 18 88% 62%; --lh-shuttle: 2 82% 64%;
+  }
+  :root[data-skin="moss"] {
+    --primary: 152 48% 38%; --ring: 152 48% 38%;
+    --lh-warp: 130 45% 48%; --lh-thread: 152 48% 38%; --lh-shuttle: 175 50% 40%;
+  }
+  .dark[data-skin="moss"] {
+    --primary: 152 45% 52%; --ring: 152 45% 52%;
+    --lh-warp: 130 42% 58%; --lh-thread: 152 45% 52%; --lh-shuttle: 175 48% 52%;
+  }
+  /* Sidebar container query: collapse the New Conversation button to icon-only
+     when the (resizable) sidebar is dragged narrow. */
+  .sidebar-cq { container-type: inline-size; }
+  @container (max-width: 240px) {
+    .nc-label { display: none; }
+    .nc-trigger {
+      justify-content: center;
+      gap: 0;
+      padding-left: 0;
+      padding-right: 0;
+    }
+  }
+}
+
+@layer base {
+  * { @apply border-border; }
+  /* Text without a role is body text (lib/typography.ts), and numbers keep
+     their width in counts, columns and live figures. */
+  body {
+    @apply bg-background antialiased text-sm font-normal opsz-text text-foreground;
+    font-variant-numeric: tabular-nums;
+  }
+  strong, b { font-weight: 500; }
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb {
+    background: hsl(var(--border));
+    border-radius: 3px;
+  }
+  ::-webkit-scrollbar-thumb:hover { background: hsl(var(--muted-foreground)); }
+}
+
+@layer components {
+  /* Translucent brand-tinted surface used for callout buttons and panel
+     highlights. Replaces ad-hoc border-primary/20 bg-gradient-to-r
+     constructions. */
+  .lh-surface-accent {
+    @apply border border-primary/20 bg-primary/5;
+  }
+  .lh-surface-accent-hover {
+    @apply hover:bg-primary/10;
+  }
+  /* Unified hover treatment for interactive sidebar rows — replaces
+     ad-hoc accent/60 vs accent mismatch between session list and tree. */
+  .lh-sidebar-hover {
+    @apply hover:bg-accent hover:text-foreground;
+  }
+  /* Link style for <a> outside prose blocks (headers, footers, hints).
+     Inside prose, ReactMarkdown's defaults still apply. */
+  .lh-link {
+    @apply text-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-sm;
+  }
+  /* Truncate text with a right-edge fade so cut-off is visible.
+     Use in place of plain `.truncate` when the parent is narrow. */
+  .lh-truncate-fade {
+    @apply truncate;
+    mask-image: linear-gradient(to right, black calc(100% - 12px), transparent);
+    -webkit-mask-image: linear-gradient(to right, black calc(100% - 12px), transparent);
+  }
+}
+
+@layer utilities {
+  .text-balance { text-wrap: balance; }
+  .brand-gradient {
+    background: linear-gradient(
+      90deg,
+      hsl(var(--lh-warp)) 0%,
+      hsl(var(--lh-thread)) 55%,
+      hsl(var(--lh-shuttle)) 100%
+    );
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .brand-rule {
+    background: linear-gradient(
+      180deg,
+      hsl(var(--lh-warp)) 0%,
+      hsl(var(--lh-thread)) 60%,
+      hsl(var(--lh-weft)) 100%
+    );
+  }
+  .shimmer {
+    background: linear-gradient(
+      90deg,
+      hsl(var(--muted)) 0%,
+      hsl(var(--accent)) 50%,
+      hsl(var(--muted)) 100%
+    );
+    background-size: 200% 100%;
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .shimmer { @apply animate-shimmer; }
+  }
+
+  /* decorative animations */
+  .brand-gradient-pan {
+    background: linear-gradient(
+      90deg,
+      hsl(var(--lh-warp)) 0%,
+      hsl(var(--lh-thread)) 33%,
+      hsl(var(--lh-shuttle)) 66%,
+      hsl(var(--lh-warp)) 100%
+    );
+    background-size: 200% auto;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  @keyframes bts-shimmer {
+    0% { background-position: 0% 50%; }
+    100% { background-position: 200% 50%; }
+  }
+  @keyframes bts-float {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-8px); }
+  }
+  @keyframes bts-glow-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 hsl(var(--lh-thread) / 0.0); }
+    50%      { box-shadow: 0 0 40px 0 hsl(var(--lh-thread) / 0.35); }
+  }
+  .bts-marquee {
+    display: flex;
+    width: max-content;
+  }
+  @keyframes bts-marquee {
+    0%   { transform: translateX(0); }
+    100% { transform: translateX(-50%); }
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .brand-gradient-pan { animation: bts-shimmer 8s linear infinite; }
+    .bts-float { animation: bts-float 7s ease-in-out infinite; }
+    .bts-glow-pulse { animation: bts-glow-pulse 4s ease-in-out infinite; }
+    .bts-marquee { animation: bts-marquee 40s linear infinite; }
+  }
+}
+
+/* Shades whichever side of a horizontally scrolling box has more to show. The
+   covers scroll with the content and hide each shade once its edge is reached.
+   Needs a box without a background of its own. */
+.scroll-x-edges {
+  background:
+    linear-gradient(to right, hsl(var(--background)) 30%, transparent) left / 2.5rem 100% no-repeat local,
+    linear-gradient(to left, hsl(var(--background)) 30%, transparent) right / 2.5rem 100% no-repeat local,
+    radial-gradient(farthest-side at 0 50%, hsl(var(--foreground) / 0.18), transparent) left / 0.875rem 100% no-repeat scroll,
+    radial-gradient(farthest-side at 100% 50%, hsl(var(--foreground) / 0.18), transparent) right / 0.875rem 100% no-repeat scroll;
+}

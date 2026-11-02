@@ -370,6 +370,28 @@ def test_body_states_this_is_not_a_dependency_bump_nag(monkeypatch):
     assert "never opens version-bump PRs" in body
 
 
+def test_body_for_kotlin_recipe(monkeypatch):
+    monkeypatch.setattr(m, "read_owner", lambda r, repo_root=None: "sherryfox")
+    body = m.build_body(
+        "contrib/kotlin/llm-auditor",
+        [
+            {
+                "recipe": "contrib/kotlin/llm-auditor",
+                "language": "kotlin",
+                "version": "17",
+                "python": "17",
+                "outcome": "fail",
+                "step": "test",
+                "detail": "build error",
+            }
+        ],
+        "https://run",
+    )
+    assert "JDK 17." in body
+    assert "| 17 | test | build error |" in body
+    assert "The canary runs each Kotlin recipe's test suite" in body
+
+
 def test_title_is_stable_because_it_is_the_dedupe_key():
     """Anything varying in the title — a date, a version, the error text —
     stops the canary recognising its own issue, so it files a fresh one every

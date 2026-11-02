@@ -254,26 +254,26 @@ jobs:
           set -euo pipefail
 
           if [ -f "package-lock.json" ]; then
-            npm ci || npm install
+            npm ci
             npm test
           elif [ -f "pnpm-lock.yaml" ]; then
             corepack enable
-            pnpm install --frozen-lockfile || pnpm install
+            pnpm install --frozen-lockfile
             pnpm test
           elif [ -f "yarn.lock" ]; then
-            yarn install --frozen-lockfile || yarn install
+            yarn install --frozen-lockfile
             yarn test
           elif [ -f "bun.lockb" ] || [ -f "bun.lock" ]; then
             if command -v bun >/dev/null 2>&1; then
-              bun install --frozen-lockfile || bun install
+              bun install --frozen-lockfile
               bun test
             else
-              npm install
-              npm test
+              echo "::error file=${RECIPE}::bun is required for ${RECIPE} (found bun.lock/bun.lockb) but bun is not available on this runner."
+              exit 1
             fi
           elif [ -f "package.json" ]; then
-            npm install
-            npm test
+            echo "::error file=${RECIPE}::No lockfile found in ${RECIPE}. Add a lockfile (package-lock.json, pnpm-lock.yaml, yarn.lock, bun.lockb, or bun.lock) to the recipe by running your package manager's install/lock command."
+            exit 1
           else
             echo "::error file=${RECIPE}::No package.json found in ${RECIPE}."
             exit 1
@@ -315,24 +315,29 @@ jobs:
                 cp .env.example .env
               fi
               if [ -f "package-lock.json" ]; then
-                npm ci || npm install
+                npm ci
               elif [ -f "pnpm-lock.yaml" ]; then
                 corepack enable
-                pnpm install --frozen-lockfile || pnpm install
+                pnpm install --frozen-lockfile
               elif [ -f "yarn.lock" ]; then
-                yarn install --frozen-lockfile || yarn install
+                yarn install --frozen-lockfile
               elif [ -f "bun.lockb" ] || [ -f "bun.lock" ]; then
                 if command -v bun >/dev/null 2>&1; then
-                  bun install --frozen-lockfile || bun install
+                  bun install --frozen-lockfile
                 else
-                  npm install
+                  echo "::error file=$dir::bun is required for $dir (found bun.lock/bun.lockb) but bun is not available on this runner."
+                  exit 1
                 fi
               elif [ -f "package.json" ]; then
-                npm install
+                echo "::error file=$dir::No lockfile found in $dir. Add a lockfile (package-lock.json, pnpm-lock.yaml, yarn.lock, bun.lockb, or bun.lock) to the recipe by running your package manager's install/lock command."
+                exit 1
+              else
+                echo "::error file=$dir::No package.json found in $dir."
+                exit 1
               fi
               npx tsc --noEmit
             ) || FAILED=1
-          done < <(find core contrib plugins typescript -name "tsconfig.json" -not -path "*/node_modules/*" 2>/dev/null)
+          done < <(find core contrib plugins -name "tsconfig.json" -not -path "*/node_modules/*" 2>/dev/null)
 
           if [ "$COUNT" -eq 0 ]; then
             echo "[INFO] No TypeScript projects with tsconfig.json found."

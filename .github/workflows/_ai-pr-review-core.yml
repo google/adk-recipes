@@ -1405,15 +1405,11 @@ jobs:
           RESPONSE=''
           for attempt in 1 2; do
             set +e
-            # agy requires an explicit reasoning effort alongside the model,
-            # and the two are validated together: gemini-3.5-flash offers only
-            # 'low' and 'medium', and asking it for 'high' is a hard error
-            # ("gemini-3.5-flash has no \"high\" effort") that produces no
-            # review at all. Raising this means changing the model too, which
-            # is a cost decision rather than a prompt one, so it stays where
-            # it was and the recall work is done in the prompt instead.
+            # agy validates effort against the model: an effort the model does
+            # not offer is a hard error and no review is posted. Check both
+            # when changing either.
             agy -p "$(cat full_prompt.txt)" \
-              --model 'gemini-3.5-flash' \
+              --model 'gemini-3.8-flash' \
               --effort 'medium' \
               --output-format json \
               --print-timeout 5m > agy_result.json 2> agy_stderr.log

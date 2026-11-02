@@ -2,10 +2,10 @@
 """
 Build the job matrix for .github/workflows/recipe-canary.yml.
 
-Emits one entry per (recipe, python-version) pair the canary should exercise,
+Emits one entry per (recipe, version) pair the canary should exercise,
 as a JSON array on stdout:
 
-    [{"recipe": "core/python/deep-search", "python": "3.11"}, ...]
+    [{"recipe": "core/python/deep-search", "language": "python", "version": "3.11", "python": "3.11"}, ...]
 
 Why two Python versions per recipe
 ----------------------------------
@@ -16,20 +16,26 @@ advertises `<3.14` and cannot be imported on 3.13 at all — the google-genai
 2.10.0 it pins ships a module with a misplaced `from __future__` import, a
 hard SyntaxError. It passes cleanly on 3.11.
 
-So the canary tests the floor AND the ceiling of what each recipe claims:
+So the canary tests the floor AND the ceiling of what each Python recipe claims:
 the version everyone actually uses, plus the highest one it promises to work
 on. A recipe that only claims 3.11 gets a single job.
 
-This is the rot the canary exists for. A frozen lockfile does not decay on
-its own — the interpreter moves underneath it.
+Non-Python version sweep limitation
+------------------------------------
+No non-Python recipe declares a version floor anywhere the canary can read
+(b/565392726 deliberately did not add one). For Kotlin, the canary sweeps only
+the JDK CI pins (JDK 17) rather than inventing a floor.
 
 Scope
 -----
-Python recipes under core/, contrib/ and plugins/, discovered by manifest.yaml
-declaring `language: python`. Recipes marked `status: inactive` are INCLUDED:
-a recipe on the retirement path still needs to be noticed if it starts
-passing again, and skipping it would make "fixed but never reactivated"
-invisible until deletion.
+Recipes under core/, contrib/ and plugins/, discovered by manifest.yaml
+declaring `language: python` or `language: kotlin`. Recipes marked
+`status: inactive` are INCLUDED: a recipe on the retirement path still needs
+to be noticed if it starts passing again, and skipping it would make "fixed
+but never reactivated" invisible until deletion.
+
+Go, Java and TypeScript have zero live recipes — their canary matrices will be
+added when their first live recipes land.
 
 Usage:
     python recipe_canary_matrix.py            # every recipe
@@ -48,6 +54,8 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
 SCAN_ROOTS = ["core", "contrib", "plugins"]
+
+SUPPORTED_LANGUAGES = {"python", "kotlin"}
 
 SKIP_DIRS = {
     ".venv",
@@ -71,6 +79,9 @@ FLOOR = "3.11"
 # because that is the point.
 MAX_TESTABLE_MINOR = 13
 
+# The JDK versions swept for Kotlin recipes (matching CI pins in kotlin-tests.yml).
+KOTLIN_JDK_TARGETS = ["17"]
+
 # Recipes the canary deliberately does not run.
 #
 # Empty since #2653 deleted the legacy flat-path duplicates it held. A stale
@@ -87,12 +98,12 @@ class MatrixError(RuntimeError):
     cannot say which recipes to test must not report success."""
 
 
-def _is_python_recipe(manifest_path: Path) -> bool:
-    """`language: python` in manifest.yaml, without requiring a YAML parser.
+def _get_recipe_language(manifest_path: Path) -> str | None:
+    """`language: <lang>` in manifest.yaml, without requiring a YAML parser.
 
-    Mirrors the tolerant matcher in python-tests.yml: optional quotes, any
-    case, an optional trailing comment. Kept regex-based so the canary matrix
-    can be produced with the standard library alone.
+    Mirrors the tolerant matchers in python-tests.yml and kotlin-tests.yml:
+    optional quotes, any case, an optional trailing comment. Kept regex-based
+    so the canary matrix can be produced with the standard library alone.
 
     An unreadable manifest is reported on stderr rather than swallowed. A
     recipe silently dropped from the matrix is the worst outcome this script
@@ -101,39 +112,41 @@ def _is_python_recipe(manifest_path: Path) -> bool:
     try:
         text = manifest_path.read_text(encoding="utf-8")
     except UnicodeDecodeError:
-        # Not UTF-8. Say so and move on rather than taking the whole month's
-        # run down with an uncaught exception.
-        #
-        # Plain stderr, not a `::warning` annotation: GitHub only collects
-        # annotations from stdout, and stdout here is the matrix JSON the
-        # workflow parses. tools/tests/test_ci_message.py also forbids
-        # hand-built annotations outside Diagnostic, which this stdlib-only
-        # script deliberately cannot import.
         print(
             f"WARNING: {manifest_path} is not valid UTF-8; the canary "
             f"cannot read it and is skipping this recipe",
             file=sys.stderr,
         )
-        return False
+        return None
     except OSError as exc:
         print(
             f"WARNING: cannot read {manifest_path} ({exc}); the canary is "
             f"skipping this recipe",
             file=sys.stderr,
         )
-        return False
-    return bool(
-        re.search(
-            r"""^[ \t]*language:[ \t]*["']?python["']?[ \t]*(?:\#.*)?$""",
-            text,
-            re.IGNORECASE | re.MULTILINE,
-        )
+        return None
+    match = re.search(
+        r"""^[ \t]*language:[ \t]*["']?([a-zA-Z0-9_-]+)["']?[ \t]*(?:\#.*)?$""",
+        text,
+        re.IGNORECASE | re.MULTILINE,
     )
+    if not match:
+        return None
+    return match.group(1).lower()
 
 
-def discover_recipes(repo_root: Path | None = None) -> list[str]:
-    """Repo-relative paths of every Python recipe root, sorted."""
+def _is_python_recipe(manifest_path: Path) -> bool:
+    """`language: python` in manifest.yaml."""
+    return _get_recipe_language(manifest_path) == "python"
+
+
+def discover_recipes(
+    repo_root: Path | None = None,
+    languages: set[str] | tuple[str, ...] | None = None,
+) -> list[str]:
+    """Repo-relative paths of every supported recipe root, sorted."""
     root = REPO_ROOT if repo_root is None else repo_root
+    langs = SUPPORTED_LANGUAGES if languages is None else set(languages)
     found: list[str] = []
     for root_name in SCAN_ROOTS:
         root_path = root / root_name
@@ -141,15 +154,10 @@ def discover_recipes(repo_root: Path | None = None) -> list[str]:
             continue
         for manifest in sorted(root_path.rglob("manifest.yaml")):
             rel = manifest.parent.relative_to(root).as_posix()
-            # Match SKIP_DIRS against the REPO-RELATIVE path. Testing
-            # `manifest.parts` matched the absolute path, so a checkout under
-            # any directory happening to be named `build`, `dist` or `.venv`
-            # — which is every self-hosted runner with a `build/` workspace —
-            # excluded every recipe in the repo and produced an empty matrix.
-            # recipe_manifests.scan() gets this right; the two now agree.
             if any(part in SKIP_DIRS for part in Path(rel).parts):
                 continue
-            if not _is_python_recipe(manifest):
+            lang = _get_recipe_language(manifest)
+            if lang not in langs:
                 continue
             if rel in SKIP_RECIPES:
                 continue
@@ -249,6 +257,17 @@ def python_targets(recipe_dir: Path) -> list[str]:
     return targets
 
 
+def kotlin_targets(recipe_dir: Path | None = None) -> list[str]:
+    """The JDK versions the canary should run for one Kotlin recipe.
+
+    Sweeps only the JDK CI pins (JDK 17). `recipe_dir` is accepted for
+    interface symmetry with `python_targets`. No dynamic version sweep is done
+    because Kotlin recipes declare no version floor in their manifests or
+    build files.
+    """
+    return list(KOTLIN_JDK_TARGETS)
+
+
 def build_matrix(
     repo_root: Path | None = None, only: str | None = None
 ) -> list[dict[str, str]]:
@@ -266,14 +285,36 @@ def build_matrix(
         # SKIP_RECIPES bypassed the skip entirely — canarying by hand exactly
         # the duplicate the skip list exists to keep quiet.
         raise MatrixError(
-            f"{only!r} is not a Python recipe the canary tests. Known "
+            f"{only!r} is not a supported recipe the canary tests. Known "
             f"recipes:\n  " + "\n  ".join(discovered)
         )
 
     matrix: list[dict[str, str]] = []
     for recipe in recipes:
-        for version in python_targets(root / recipe):
-            matrix.append({"recipe": recipe, "python": version})
+        recipe_dir = root / recipe
+        manifest = recipe_dir / "manifest.yaml"
+        lang = _get_recipe_language(manifest)
+        if lang == "python":
+            for version in python_targets(recipe_dir):
+                matrix.append(
+                    {
+                        "recipe": recipe,
+                        "language": "python",
+                        "version": version,
+                        "python": version,
+                    }
+                )
+        elif lang == "kotlin":
+            for version in kotlin_targets(recipe_dir):
+                matrix.append(
+                    {
+                        "recipe": recipe,
+                        "language": "kotlin",
+                        "version": version,
+                        "python": version,
+                        "jdk": version,
+                    }
+                )
 
     if len(matrix) > MAX_MATRIX_JOBS:
         # GitHub rejects a matrix above 256 jobs with a scheduling error that
@@ -302,7 +343,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if not matrix:
         print(
-            "No Python recipes found. The canary refuses to report success "
+            "No supported recipes found. The canary refuses to report success "
             "on an empty scan — that is indistinguishable from every recipe "
             "having vanished.",
             file=sys.stderr,

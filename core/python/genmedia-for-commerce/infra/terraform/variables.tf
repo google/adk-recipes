@@ -1,4 +1,4 @@
-# Copyright 2025 Google LLC
+# Copyright 2026 Google LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -29,39 +29,14 @@ variable "service_name" {
   default     = "genmedia-for-commerce"
 }
 
-variable "memory" {
-  description = "Memory allocation for Cloud Run"
+variable "media_retention_days" {
+  description = "Days before objects under runs/ (saved inputs and results) and sessions/ (chat history, Studio state and jobs) in the media bucket are deleted"
+  type        = number
+  default     = 30
+}
+
+variable "deployer_email" {
+  description = "Account running Terraform (make passes gcloud's active account). Empty: read from Terraform's credentials, which in Cloud Shell carry no email."
   type        = string
-  default     = "32Gi"
+  default     = ""
 }
-
-variable "cpu" {
-  description = "CPU allocation for Cloud Run"
-  type        = string
-  default     = "8"
-}
-
-variable "timeout" {
-  description = "Request timeout in seconds"
-  type        = number
-  default     = 3600
-}
-
-variable "concurrency" {
-  description = "Max concurrent requests per instance"
-  type        = number
-  default     = 7
-}
-
-variable "min_instances" {
-  description = "Minimum number of instances"
-  type        = number
-  default     = 2
-}
-
-variable "max_instances" {
-  description = "Maximum number of instances"
-  type        = number
-  default     = 10
-}
-

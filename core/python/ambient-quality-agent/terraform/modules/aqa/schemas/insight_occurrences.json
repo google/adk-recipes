@@ -1,0 +1,25 @@
+{
+  "schema": [
+    { "name": "occurrence_id", "type": "STRING", "mode": "REQUIRED" },
+    { "name": "insight_id", "type": "STRING", "mode": "NULLABLE" },
+    { "name": "occurrence_state", "type": "STRING", "mode": "NULLABLE",
+      "description": "Why the row names the insight it names: TRACKED (a sighting of insight_id), REJECTED (the verification pass judged the candidate no defect) or UNJUDGED (the pass reached no verdict on it). NULLABLE for the rows written before the column existed, every one of which names an insight." },
+    { "name": "run_id", "type": "STRING", "mode": "REQUIRED" },
+    { "name": "created_at", "type": "TIMESTAMP", "mode": "REQUIRED" },
+    { "name": "agent_name", "type": "STRING", "mode": "NULLABLE" },
+    { "name": "agent_revision", "type": "STRING", "mode": "NULLABLE" },
+    { "name": "analysis_mode", "type": "STRING", "mode": "NULLABLE",
+      "description": "The analysis mode the sweep ran, from quality_analysis_mode. A sweep routes to one producer, so a sighting has exactly one." },
+    { "name": "label", "type": "STRING", "mode": "NULLABLE" },
+    { "name": "item_count", "type": "INT64", "mode": "NULLABLE" },
+    { "name": "trace_count", "type": "INT64", "mode": "NULLABLE",
+      "description": "How many distinct trajectories the clustered rubrics came from. Redundant against ARRAY_LENGTH(trajectory_ids) on a new row, and the only count that reads correctly on a row written before that column existed." },
+    { "name": "trajectory_ids", "type": "STRING", "mode": "REPEATED",
+      "description": "Trajectory ids of every conversation the clustered rubrics failed in, of which trace_count is the number. Joins to trajectories.trajectory_id for the source trace ids and a console link. Empty on rows written before this column, which is why trace_count stays." },
+    { "name": "analyses", "type": "JSON", "mode": "NULLABLE",
+      "description": "Analysis-method name to that method's result, appended alongside the occurrence rather than folded into it. Absent when no analysis ran." },
+    { "name": "rubrics", "type": "JSON", "mode": "NULLABLE",
+      "description": "Failed rubrics and traces, for the RCA harness." }
+  ],
+  "clustering": ["insight_id"]
+}

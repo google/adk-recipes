@@ -8,7 +8,7 @@ readme = "README.md"
 requires-python = ">=3.11,<3.13"
 
 dependencies = [
-    "google-adk[gcp,otel-gcp]<3.0.0,>=2.6.0",
+    "google-adk[gcp,otel-gcp]<3.0.0,>=2.13.0",
     "google-cloud-bigquery>=3.25.0",
     "google-genai>=1.9.0",
     "pillow>=11.0.0",
@@ -20,13 +20,13 @@ dependencies = [
     "gcsfs>=2024.11.0",
     "opentelemetry-resourcedetector-gcp<=1.12.0a0",
     "joserfc>=1.6.8",
-    "google-cloud-aiplatform[agent-engines]>=1.156.0,<2.0.0",
+    "google-cloud-aiplatform[agent-engines]>=1.156.0,<3.0.0",
 ]
 
 [dependency-groups]
 dev = [
     "agent-starter-pack>=0.32.0",
-    "google-adk[eval]>=2.6.0",
+    "google-adk[eval]>=2.13.0",
     "mypy>=1.17.0",
     "pytest>=8.3.5",
     "pytest-asyncio>=0.26.0",
@@ -46,6 +46,7 @@ exclude = ["^deployment/", "^\\.venv/", "__pycache__"]
 
 [tool.pytest.ini_options]
 pythonpath = "."
+testpaths = ["tests"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["app"]

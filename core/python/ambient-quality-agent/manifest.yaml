@@ -1,0 +1,55 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+type: "standalone"
+status: "active"
+language: "python"
+description: "On-demand production intelligence sidecar agent built with Google Agent Development Kit (ADK)."
+# Categorized as large because the agent, extension, Terraform module, and web
+# dashboard total ~730 files, exceeding the standard 500-file tier for core/ recipes.
+large: true
+license: "Apache-2.0"
+
+architecture:
+  agent: "multi"
+  stateful: true
+  datasources:
+  - "external"
+
+dependencies:
+  libraries:
+  - "adk"
+  - "a2a-sdk"
+  services:
+  - "vertex-ai"
+  - "agent-engine"
+  - "bigquery"
+  - "cloud-storage"
+  - "cloud-tasks"
+  - "cloud-scheduler"
+  - "cloud-run"
+  - "cloud-logging"
+  - "pubsub"
+
+tags:
+- "observability"
+- "evaluation"
+- "ambient"
+- "root-cause-analysis"
+- "telemetry"
+- "agents-cli-extension"
+
+ownership:
+  team: "adlc-devex"
+  poc: "maxgasztych"

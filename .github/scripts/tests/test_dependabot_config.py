@@ -629,3 +629,147 @@ def test_every_ecosystem_in_the_tree_is_configured(config):
         "`ignore` rule, so nothing stops Dependabot opening PRs for them. "
         "Add a suppression entry for each, copying an existing one."
     )
+
+
+# ---------------------------------------------------------------------------
+# dependabot-auto-merge.yml consistency
+# ---------------------------------------------------------------------------
+
+AUTO_MERGE_WORKFLOW_PATH = (
+    REPO_ROOT / ".github" / "workflows" / "dependabot-auto-merge.yml"
+)
+WORKFLOWS_DIR = REPO_ROOT / ".github" / "workflows"
+
+
+def load_auto_merge_workflow() -> dict:
+    """Load and parse dependabot-auto-merge.yml."""
+    data = yaml.safe_load(AUTO_MERGE_WORKFLOW_PATH.read_text(encoding="utf-8"))
+    return data if isinstance(data, dict) else {}
+
+
+def get_workflow_on_block(data: dict) -> dict:
+    """Extract the `on` trigger block from a parsed workflow dict."""
+    if not isinstance(data, dict):
+        return {}
+    on_block = data.get("on") if "on" in data else data.get(True, {})
+    return on_block if isinstance(on_block, dict) else {}
+
+
+def auto_merge_trigger_workflows() -> list[str]:
+    """The list of workflow names triggering dependabot-auto-merge.yml."""
+    data = load_auto_merge_workflow()
+    on_block = get_workflow_on_block(data)
+    workflow_run = on_block.get("workflow_run", {})
+    if not isinstance(workflow_run, dict):
+        return []
+    return workflow_run.get("workflows", []) or []
+
+
+def discover_recipe_gating_workflows() -> dict[str, str]:
+    """Map filename -> workflow display name for every recipe gating workflow.
+
+    A recipe gating workflow is any workflow under .github/workflows/ that gates
+    recipe PRs:
+      - Language format checks (<lang>-format.yml)
+      - Language tests (<lang>-tests.yml, excluding tools-tests.yml)
+      - Language recipe validation (<lang>-validate-recipe.yml)
+      - Python dependency policy (python-dependency-policy.yml)
+      - General recipe structure validation (validate-recipe-structure.yml)
+    """
+    gating: dict[str, str] = {}
+    for path in sorted(WORKFLOWS_DIR.glob("*.yml")):
+        name = path.name
+        if name.startswith("_") or name == "tools-tests.yml":
+            continue
+        if name.endswith(
+            ("-format.yml", "-tests.yml", "-validate-recipe.yml")
+        ) or name in (
+            "python-dependency-policy.yml",
+            "validate-recipe-structure.yml",
+        ):
+            data = yaml.safe_load(path.read_text(encoding="utf-8"))
+            assert isinstance(data, dict) and "name" in data, (
+                f"{name} is missing a `name:` field"
+            )
+            gating[name] = data["name"]
+    return gating
+
+
+def test_auto_merge_workflow_triggers_on_all_recipe_gating_workflows():
+    """Assert dependabot-auto-merge.yml triggers on all recipe gating workflows.
+
+    `workflow_run` matches triggering workflows on exact display name (the
+    `name:` field in the workflow file, including emoji). If a workflow that
+    gates a recipe PR is missing from `workflow_run.workflows`, Dependabot PRs
+    affecting that ecosystem will not re-evaluate auto-merge when that check
+    completes.
+
+    While recipe ecosystems currently set `open-pull-requests-limit: 0` in
+    dependabot.yml, this trigger list ensures that unsuppressed PRs (e.g. root)
+    or future policy adjustments immediately and safely evaluate auto-merge
+    without latent drift.
+
+    This test discovers every language format check, language test suite,
+    recipe validation workflow (<lang>-validate-recipe.yml), dependency policy,
+    and structure validation workflow in .github/workflows/, and fails if any
+    of them is absent from dependabot-auto-merge.yml.
+    """
+    gating = discover_recipe_gating_workflows()
+    assert gating, "no recipe gating workflows discovered in .github/workflows"
+
+    configured = set(auto_merge_trigger_workflows())
+    missing = {
+        fname: disp_name
+        for fname, disp_name in gating.items()
+        if disp_name not in configured
+    }
+    assert not missing, (
+        f"dependabot-auto-merge.yml is missing {len(missing)} recipe gating "
+        f"workflow(s) from its workflow_run.workflows trigger list: "
+        f"{missing}. Add the exact `name:` of each to "
+        ".github/workflows/dependabot-auto-merge.yml under "
+        "`on.workflow_run.workflows`."
+    )
+
+
+def test_auto_merge_workflow_trigger_names_match_real_workflows():
+    """Assert every workflow named in dependabot-auto-merge.yml exists.
+
+    `workflow_run.workflows` matches on display name. A typo, stale name,
+    or forgotten emoji causes GitHub Actions to silently ignore the trigger
+    with no warning or error.
+
+    This asserts that every entry in `workflow_run.workflows` matches the
+    exact `name:` of a real workflow file in .github/workflows/.
+    """
+    all_workflow_names: dict[str, str] = {}
+    for path in WORKFLOWS_DIR.glob("*.yml"):
+        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+        if isinstance(data, dict) and "name" in data:
+            all_workflow_names[data["name"]] = path.name
+
+    configured = auto_merge_trigger_workflows()
+    assert configured, (
+        "dependabot-auto-merge.yml has an empty workflow_run.workflows list"
+    )
+
+    unknown = [name for name in configured if name not in all_workflow_names]
+    assert not unknown, (
+        f"dependabot-auto-merge.yml lists workflow name(s) that do not match "
+        f"the exact `name:` of any workflow file in .github/workflows/: "
+        f"{unknown}. Check for typos, missing emoji, or renamed workflows."
+    )
+
+
+def test_auto_merge_workflow_run_trigger_types():
+    """Assert dependabot-auto-merge.yml listens for completed workflow runs."""
+    data = load_auto_merge_workflow()
+    on_block = get_workflow_on_block(data)
+    workflow_run = on_block.get("workflow_run", {})
+    trigger_types = (
+        workflow_run.get("types", []) if isinstance(workflow_run, dict) else []
+    )
+    assert "completed" in trigger_types, (
+        "dependabot-auto-merge.yml must listen for `types: [completed]` "
+        "under `workflow_run` so it evaluates PRs after checks finish."
+    )
