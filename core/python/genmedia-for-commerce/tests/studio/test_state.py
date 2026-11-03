@@ -35,7 +35,7 @@ from genmedia4commerce.studio import state as ss
 
 #: The media bucket of the tests (PROJECT_ID=test-project), for refs built
 #: when the tests are collected.
-_MEDIA = "test-project-genmedia-for-commerce-media-payloads"
+_MEDIA = "test-project-gfc-media"
 
 
 def media(path: str) -> str:

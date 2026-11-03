@@ -27,7 +27,7 @@ from tests.infra.setup_infra_fakes import calls, make_fakes, run
 ROOT = Path(__file__).parents[2]
 SCRIPT = ROOT / "infra" / "setup_infra.sh"
 STATE = "my-cherry-genmedia-tfstate"
-MEDIA = "my-cherry-genmedia-for-commerce-media-payloads"
+MEDIA = "my-cherry-gfc-media"
 ASK = "Apply these changes to project my-cherry? [Y/n]"
 
 
@@ -91,7 +91,7 @@ def test_only_what_exists_and_is_not_in_the_state_is_imported(setup):
 
     assert code == 0
     assert _imports(made) == [
-        f"terraform import -input=false google_storage_bucket.media {MEDIA}",
+        f"terraform import -input=false google_storage_bucket.gfc_media {MEDIA}",
         "terraform import -input=false google_service_account.build "
         "projects/my-cherry/serviceAccounts/"
         "genmedia-build@my-cherry.iam.gserviceaccount.com",
@@ -180,6 +180,32 @@ def test_three_failures_stop_with_an_error(setup):
     assert code == 1
     assert len(_applies(made)) == 3
     assert made.count("sleep 30") == 2
+
+
+def test_the_apis_are_enabled_and_ready_before_terraform(setup):
+    code, out, made = setup(TF_AUTO_APPROVE="1")
+
+    assert code == 0, out
+    enable = next(c for c in made if c.startswith("gcloud services enable"))
+    for api in ("artifactregistry", "iam", "run", "discoveryengine"):
+        assert f" {api}.googleapis.com " in enable
+    assert made.index(enable) < made.index("terraform state list")
+    assert "Waiting for the new APIs" not in out
+    assert "sleep 10" not in made
+
+
+def test_terraform_waits_for_new_apis_to_answer(setup):
+    code, out, made = setup(TF_AUTO_APPROVE="1", FAKE_NOT_READY="2")
+
+    assert code == 0, out
+    assert out.count("Waiting for the new APIs to be ready") == 1
+    assert made.count("sleep 10") == 2
+    lists = [
+        c for c in made if c.startswith("gcloud artifacts repositories list")
+    ]
+    assert len(lists) == 3
+    plan = next(c for c in made if c.startswith("terraform plan"))
+    assert made.index(plan) > made.index(lists[-1])
 
 
 def test_no_changes_ask_nothing(setup):

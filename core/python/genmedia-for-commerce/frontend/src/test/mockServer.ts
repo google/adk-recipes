@@ -31,7 +31,7 @@ export function configureMock(overrides: Partial<typeof options>): void {
   Object.assign(options, overrides);
 }
 
-const MEDIA_BUCKET = "demo-genmedia-for-commerce-media-payloads";
+const MEDIA_BUCKET = "demo-gfc-media";
 
 const badRequest = (detail: string) =>
   HttpResponse.json({ detail }, { status: 400 });

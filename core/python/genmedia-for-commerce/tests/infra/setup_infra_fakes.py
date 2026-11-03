@@ -43,12 +43,16 @@ apply) exit "$(code_for apply "${FAKE_APPLY:-0}")" ;;
 esac
 """
 
-# Records its arguments; describe finds what FAKE_EXISTING names, and
-# get-value project answers FAKE_PROJECT.
+# Records its arguments; describe finds what FAKE_EXISTING names,
+# get-value project answers FAKE_PROJECT, and the Artifact Registry list
+# fails its first FAKE_NOT_READY calls (an API not ready yet).
 FAKE_GCLOUD = r"""#!/bin/bash
 echo "gcloud $*" >> "$FAKE_DIR/calls"
 case "$1 $2 $3" in
 "config get-value project") echo "${FAKE_PROJECT:-}"; exit 0 ;;
+"artifacts repositories list")
+    n=$(grep -c "^gcloud artifacts repositories list" "$FAKE_DIR/calls")
+    [ "$n" -gt "${FAKE_NOT_READY:-0}" ]; exit $? ;;
 "storage buckets describe") name=${4#gs://} ;;
 "iam service-accounts describe") name=${4%%@*} ;;
 "artifacts repositories describe") name=$4 ;;
