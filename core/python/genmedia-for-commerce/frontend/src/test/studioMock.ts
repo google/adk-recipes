@@ -15,7 +15,7 @@
 // Fixture Studio API (/api/studio/*, genmedia4commerce/api/studio.py) for the tests and
 // `npm run dev:mock`: studios in memory, a keyword agent, and jobs whose variations arrive
 // over time. Saved states drop result URLs (as the server does) and GET state renews them.
-// A Video Try-On animates each of its try-on images into VIDEOS_PER_IMAGE videos; a "Make
+// A Video Try-On animates its first try-on image into VIDEOS_PER_IMAGE videos; a "Make
 // video" job (a `tryon_image` of the studio's images) remakes only that image's videos.
 import { http, HttpResponse } from "msw";
 import type { ChatMessage, StudioGallery, StudioItem } from "../api/studio";
@@ -168,7 +168,7 @@ function copyCatalog(bucket: string, items: State[]): Record<string, string> {
   return refs;
 }
 
-/** The try-on images a full Video Try-On animates: all of them pass. */
+/** The try-on images of a full Video Try-On: all of them pass; the first is animated. */
 function tryonImages(job: Job, folder: string) {
   if (job.capability !== "video_tryon" || job.tryonImage) return [];
   return Array.from({ length: job.n }, (_, i) => {
@@ -196,11 +196,7 @@ function jobStatus(job: Job, { bucket, delayMs }: Config) {
         : "mp4"; // a spin is an animated WebP
   const folder = `gs://${bucket}/runs/2026-10-08/studio-${job.studioId}/${job.id}`;
   const images = tryonImages(job, folder);
-  const total = job.tryonImage
-    ? VIDEOS_PER_IMAGE
-    : images.length
-      ? images.length * VIDEOS_PER_IMAGE
-      : job.n;
+  const total = job.tryonImage || images.length ? VIDEOS_PER_IMAGE : job.n;
   const delay = delayMs();
   const shown = delay
     ? Math.min(total, Math.floor((Date.now() - job.started) / delay))
@@ -208,8 +204,7 @@ function jobStatus(job: Job, { bucket, delayMs }: Config) {
   const results = Array.from({ length: shown }, (_, i) => {
     const uri = `${folder}/outputs/${i}.${ext}`;
     const ok = i !== 2;
-    const source =
-      job.tryonImage || images[Math.floor(i / VIDEOS_PER_IMAGE)]?.uri;
+    const source = job.tryonImage || images[0]?.uri;
     return {
       index: i,
       status: ok ? "ready" : "rejected",

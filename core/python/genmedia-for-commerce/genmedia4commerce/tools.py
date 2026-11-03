@@ -19,7 +19,7 @@ catalogue) or ``gs://`` URIs (``runs/`` in the media bucket); an empty
 string means absent. Each generation tool runs one workflow and
 folds its events into ``{"variations", "best_index", "ranked_indices",
 "classification", "run"}`` (end-to-end video try-on adds
-``image_variations`` and ``selected``, one entry per animated image);
+``image_variations`` and ``selected``, the animated image);
 ``catalog_search`` returns
 ``{"items"}`` (catalogue rows with their ``ref``). Failures return ``{"error", "retryable"}`` and never raise;
 a failure after the run started also carries ``run`` and the
@@ -125,7 +125,7 @@ async def _collect(events: AsyncGenerator[Event, None]) -> dict:
     The run event's data goes to ``run``, with the ``manifest`` of the
     run record once it is saved (output gcs). Video try-on image-stage
     variations go to ``image_variations`` and the data of each
-    ``image_selected`` event (one per animated image) to the ``selected``
+    ``image_selected`` event (the animated image) to the ``selected``
     list. An error event ends the result with the error, the run and the
     image variations so far.
     """
@@ -282,10 +282,10 @@ async def video_try_on(
     """Make short videos of a person wearing products (video try-on).
 
     From product photos and a person photo it dresses the person first (do
-    not call try_on before) and animates each image that passes its checks
-    (the best one when none does); the images are in "image_variations",
-    the animated ones in "selected", each video's extra.source_index names
-    its image. Pass tryon_image_base64 only to animate an existing result,
+    not call try_on before) and animates one image: with check_images on,
+    the best once every image is judged; off, the first image made. The
+    images are in "image_variations", the animated one in "selected", each
+    video's extra.source_index names its image. Pass tryon_image_base64 only to animate an existing result,
     with source_run when it is a try_on result.
 
     Args:
@@ -316,8 +316,8 @@ async def video_try_on(
         prompt: What the video should show when motion is "custom", in
             plain words; parts the images cannot show (e.g. the back without
             a back view) are adapted.
-        num_variations: From photos: how many try-on images (1-5); each
-            animated image then makes 2 videos (a deployment setting).
+        num_variations: From photos: how many try-on images (1-5); the
+            animated one then makes 2 videos (a deployment setting).
             With tryon_image_base64: how many videos (1-5). Default: the
             deployment settings.
         mode: "parallel" or "sequential"; "" for the deployment setting.

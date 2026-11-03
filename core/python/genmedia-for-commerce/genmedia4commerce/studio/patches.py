@@ -39,7 +39,7 @@ A label is one short line (``events.one_line``); an action's
 ``description`` is ignored (the server describes images itself).
 
 The server alone writes the results of each page (``results``) and the
-try-on images a video try-on animated (``images``, ``IMAGE_KEYS``), each
+try-on images of a video try-on (``images``, ``IMAGE_KEYS``), each
 video naming its image (``source``); ``replace_videos`` puts the videos of
 a "Make video" in place of that image's. ``upgrade`` maps studios saved
 with the retired "Animate an image" start.
@@ -68,6 +68,7 @@ __all__ = [
     "SLOT_FIELDS",
     "TRYON_KEYS",
     "TRYON_OPTIONS",
+    "VARIATIONS",
     "VIDEO_KEYS",
     "apply_patch",
     "check_action",
@@ -90,6 +91,8 @@ _STATE_KEYS = {"product": "products", "spin": "spin"}
 TRYON_OPTIONS = {"complete_look": True, "upscale_crops": False}
 #: The model checks of the results, with their defaults: off in the Studio.
 CHECKS = {"check_images": False, "check_videos": False}
+#: Each page's number of variations until the studio sets one.
+VARIATIONS = {"tryon": "3", "video_tryon": "3", "spin": "1"}
 #: The values of the settings that take a fixed set of them.
 _CHOICES: dict[str, tuple[Any, ...]] = dict.fromkeys(
     (*TRYON_OPTIONS, *CHECKS), (True, False)
@@ -118,7 +121,7 @@ _ITEM_KEYS = ("label", "ref")
 RESULT_KEYS: tuple[str, ...]
 RESULT_KEYS = ("index", "status", "score", "uri", "view", "note", "run")
 RESULT_KEYS += ("source", "fixed", "video_uri")
-#: A try-on image a video try-on animated: ``passed`` its checks, and
+#: A try-on image of a video try-on: ``passed`` its checks, and
 #: ``back``, the back view its videos used (for the server's "Make video");
 #: ``fixed`` as for a result.
 IMAGE_KEYS: tuple[str, ...]

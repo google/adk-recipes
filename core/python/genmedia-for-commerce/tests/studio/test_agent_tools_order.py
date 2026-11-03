@@ -181,6 +181,7 @@ async def test_settings_and_the_same_page_need_no_confirmation(
     assert not any("capability" in p for p in sc.out.patches)
     assert started[0]["settings"] == {
         "scenario": "a beach",
+        "num_variations": "3",  # the page's default
         "aspect_ratio": "1:1",
     }
 
@@ -210,19 +211,20 @@ async def test_generate_on_another_page_opens_it_and_asks(started) -> None:
 
 
 @pytest.mark.asyncio
-async def test_more_variations_need_confirmation_the_same_count_not(
+async def test_a_new_count_needs_confirmation_the_same_count_not(
     started,
 ) -> None:
     with scope(ready()) as sc:
-        assert at.update_settings(num_variations=3) == {
-            "settings": {"num_variations": "3"}
+        assert at.update_settings(num_variations=3) == {"settings": {}}
+        assert at.update_settings(num_variations=2) == {
+            "settings": {"num_variations": "2"}
         }
         assert await at.generate() == at.NEEDS_CONFIRMATION
     assert not started
-    with scope(sc.st):  # "yes, 3 variations": nothing changes, it starts
-        assert at.update_settings(num_variations=3) == {"settings": {}}
+    with scope(sc.st):  # "yes, 2 variations": nothing changes, it starts
+        assert at.update_settings(num_variations=2) == {"settings": {}}
         assert (await at.generate())["status"] == "started"
-    assert started[0]["settings"]["num_variations"] == "3"
+    assert started[0]["settings"]["num_variations"] == "2"
 
 
 @pytest.mark.asyncio
@@ -436,7 +438,10 @@ async def test_an_adk_turn_sets_up_and_the_next_one_generates(
     assert len(started) == 1
     assert started[0]["person"] == media("runs/studio_catalog/m_w1")
     assert started[0]["products"] == [tee_ref]
-    assert started[0]["settings"] == {"scenario": "a beach"}
+    assert started[0]["settings"] == {
+        "scenario": "a beach",
+        "num_variations": "3",
+    }
     assert out.patches == [
         {"job_started": {"job_id": "j1", "capability": "tryon"}}
     ]

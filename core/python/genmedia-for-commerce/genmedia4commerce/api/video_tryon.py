@@ -110,10 +110,11 @@ async def video_tryon(
 ) -> StreamingResponse:
     """Dress the person (unless a tryon_image is given), then animate it.
 
-    Streams the run event and the image try-on events (end to end); each
-    image that passes is animated at once, its events (back view, selection,
-    plan, videos with ``extra.source_index``) interleaved with the others.
-    ``num_variations`` is the number of try-on images, each animated image
+    Streams the run event and the image try-on events (end to end); one
+    image is animated (with ``check_images`` the best once all are judged,
+    else the first made), its events (back view, selection, plan, videos
+    with ``extra.source_index``) interleaved with the image events.
+    ``num_variations`` is the number of try-on images, the animated one
     getting ``settings.videos_per_image`` videos; with a ``tryon_image`` it
     is the number of videos. ``source_run`` (with a ``tryon_image`` made by
     ``POST /api/tryon`` with output gcs): the ``manifest`` of that run's

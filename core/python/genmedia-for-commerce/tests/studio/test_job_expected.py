@@ -62,8 +62,9 @@ async def _started(spec: dict[str, Any]) -> dict[str, Any]:
         ({"capability": "tryon", "settings": {"num_variations": "3"}}, 3),
         ({"capability": "spin", "settings": {"num_variations": 2}}, 2),
         ({"capability": "spin", "settings": {"num_variations": "x"}}, 1),
-        ({"capability": "tryon", "settings": {"num_variations": 0}}, 1),
-        ({"capability": "tryon"}, 1),
+        ({"capability": "tryon", "settings": {"num_variations": 0}}, 3),
+        ({"capability": "tryon"}, 3),  # the page's default
+        ({"capability": "spin"}, 1),
         (  # a "Make video": for_studio set its number of videos
             {
                 "capability": "video_tryon",
@@ -81,25 +82,20 @@ async def test_a_job_expects_its_variations_as_results(spec, expected):
 
 
 @pytest.mark.asyncio
-async def test_a_video_try_on_expects_videos_per_animated_image(
-    monkeypatch,
-):
-    monkeypatch.setenv("GENMEDIA_VIDEOS_PER_IMAGE", "3")
+async def test_a_video_try_on_expects_the_videos_of_one_image(monkeypatch):
+    monkeypatch.setenv("GENMEDIA_VIDEOS_PER_IMAGE", "2")
     get_settings.cache_clear()
-    spec = {"capability": "video_tryon", "settings": {"num_variations": "2"}}
-    job = await _started(spec)
-    assert job["expected"] == {"image_results": 2, "results": 0}
+    job = await _started({"capability": "video_tryon"})
+    assert job["expected"] == {"image_results": 3, "results": 0}
     live = jobs._LOCAL["j1"] = jobs._RUNS["j1"].job
-    for i in (0, 1):
+    for i in (0, 1, 2):
         img = _variation(i, f"gs://b/runs/x/front-{i}.png", stage="image")
         await jobs._apply(live, img, video=True)
-    for front in (0, 7, 1):  # 7: no such image, nothing is animated
+    for front in (7, 1):  # 7: no such image, nothing is animated
         data = {"front_index": front, "back_index": None}
         event = ProgressEvent(stage="image_selected", message="", data=data)
         await jobs._apply(live, event, video=True)
-        if front == 0:
-            assert jobs.status("j1")["expected"]["results"] == 3
-    assert jobs.status("j1")["expected"] == {"image_results": 2, "results": 6}
+    assert jobs.status("j1")["expected"] == {"image_results": 3, "results": 2}
 
 
 @pytest.mark.asyncio
