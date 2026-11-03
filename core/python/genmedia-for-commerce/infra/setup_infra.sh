@@ -67,8 +67,18 @@ adopt_one() {
 }
 
 adopt() {
-    local media="$PROJECT-gfc-media" sa email
+    local media="${TF_VAR_media_bucket:-$PROJECT-gfc-media}" sa email shown
     IN_STATE=$(tf state list 2>/dev/null || true)
+    # MEDIA_BUCKET names another bucket: forget the one in the state (never
+    # deleted, it keeps its files) and adopt or create the one it names.
+    if grep -qxF google_storage_bucket.gfc_media <<<"$IN_STATE"; then
+        shown=$(tf state show -no-color google_storage_bucket.gfc_media || true)
+        if ! grep -qxE " *name *= *\"$media\"" <<<"$shown"; then
+            echo "Media bucket: $media (the state's one is kept, not deleted)"
+            tf state rm google_storage_bucket.gfc_media
+            IN_STATE=$(tf state list 2>/dev/null || true)
+        fi
+    fi
     adopt_one google_storage_bucket.gfc_media "$media" \
         storage buckets describe "gs://$media"
     for sa in build cloudrun web; do

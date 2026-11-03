@@ -22,7 +22,8 @@ import subprocess
 from pathlib import Path
 
 # Records its arguments. FAKE_PLAN and FAKE_APPLY: the exit codes of each
-# plan and apply, one per call, the last repeats. FAKE_STATE: the state.
+# plan and apply, one per call, the last repeats. FAKE_STATE: the state;
+# FAKE_STATE_MEDIA: the name of its media bucket (default <project>-gfc-media).
 # FAKE_IMPORT: the exit code of import.
 FAKE_TERRAFORM = r"""#!/bin/bash
 [ "$1" = version ] && { echo "Terraform v1.9.0"; exit 0; }
@@ -35,7 +36,13 @@ code_for() {
     echo "$code"
 }
 case "$1" in
-state) printf '%s\n' ${FAKE_STATE:-} ;;
+state) case "$2" in
+       list) for a in ${FAKE_STATE:-}; do  # less what state rm removed
+                 grep -qxF "terraform state rm $a" "$FAKE_DIR/calls" ||
+                     echo "$a"
+             done ;;
+       show) echo "  name = \"${FAKE_STATE_MEDIA:-$TF_VAR_project_id-gfc-media}\"" ;;
+       esac ;;
 import) exit "${FAKE_IMPORT:-0}" ;;
 plan) echo "Plan: 1 to add, 0 to change, 0 to destroy."
       exit "$(code_for plan "${FAKE_PLAN:-2}")" ;;

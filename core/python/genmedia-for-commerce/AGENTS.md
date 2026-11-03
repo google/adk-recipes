@@ -122,7 +122,7 @@ Gemini Enterprise chat -> studio_agent MCP tool (mcp/studio.py)   or   web app -
 
 ## Storage
 
-Everything is in the media bucket (`MEDIA_BUCKET`, default `<PROJECT_ID>-gfc-media`). Earlier deployments keep their old bucket `<PROJECT_ID>-genmedia-for-commerce-media-payloads`, with their older runs and studios; new data goes to the new bucket. Terraform deletes objects under `runs/`, `sessions/`, `product_cache/` and `spin_cache/` 30 days after they were written (`media_retention_days`).
+Everything is in the media bucket (`MEDIA_BUCKET`, default `<PROJECT_ID>-gfc-media`). Earlier deployments keep their old bucket `<PROJECT_ID>-genmedia-for-commerce-media-payloads`, with their older runs and studios; new data goes to the new bucket, unless `MEDIA_BUCKET` names the old one (`make setup-infra` creates the bucket it names, or adopts it when it exists). Terraform deletes objects under `runs/`, `sessions/`, `product_cache/` and `spin_cache/` 30 days after they were written (`media_retention_days`).
 
 - `runs/<date>/<session_id>/<run_id>/`: one folder per run (`core/runs.py`): `inputs/` with `GENMEDIA_INPUT=gcs` (or `input=gcs` on a call) and for `POST /api/uploads`, `outputs/` with `GENMEDIA_OUTPUT=gcs` (or `output=gcs`; events then carry `media_uri` and `media_url`, served by `GET /api/media`), and, for a try-on with gcs output, its run record `manifest.json` with `record/`. Workflows never see the modes.
 - `runs/studio_catalog/`: the Studio's copies of catalogue images; the Studio's own runs use the session `studio-<id>`.

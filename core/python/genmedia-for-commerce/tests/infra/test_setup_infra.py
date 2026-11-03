@@ -104,6 +104,50 @@ def test_only_what_exists_and_is_not_in_the_state_is_imported(setup):
     )
 
 
+def test_media_bucket_names_the_bucket_to_adopt(setup):
+    old = "my-cherry-genmedia-for-commerce-media-payloads"
+    code, _, made = setup(
+        TF_AUTO_APPROVE="1",
+        TF_VAR_media_bucket=old,
+        FAKE_EXISTING=f"{STATE} {old}",
+    )
+
+    assert code == 0
+    assert _imports(made) == [
+        f"terraform import -input=false google_storage_bucket.gfc_media {old}"
+    ]
+    makefile = (ROOT / "Makefile").read_text()
+    assert "export TF_VAR_media_bucket=$${MEDIA_BUCKET:-}" in makefile
+
+
+def test_a_new_media_bucket_replaces_the_state_one_without_deleting_it(setup):
+    old = "my-cherry-genmedia-for-commerce-media-payloads"
+    code, out, made = setup(
+        TF_AUTO_APPROVE="1",
+        TF_VAR_media_bucket=old,
+        FAKE_STATE="google_storage_bucket.gfc_media",
+        FAKE_STATE_MEDIA=MEDIA,
+        FAKE_EXISTING=f"{STATE} {old}",
+    )
+
+    assert code == 0, out
+    forget = "terraform state rm google_storage_bucket.gfc_media"
+    adopt = (
+        f"terraform import -input=false google_storage_bucket.gfc_media {old}"
+    )
+    assert made.index(forget) < made.index(adopt)
+    assert f"Media bucket: {old} (the state's one is kept" in out
+
+
+def test_the_state_media_bucket_is_kept_when_it_is_the_one_named(setup):
+    code, _, made = setup(
+        TF_AUTO_APPROVE="1", FAKE_STATE="google_storage_bucket.gfc_media"
+    )
+
+    assert code == 0
+    assert not [c for c in made if c.startswith("terraform state rm")]
+
+
 def test_a_failed_import_stops_before_the_plan(setup):
     code, _, made = setup(
         TF_AUTO_APPROVE="1",

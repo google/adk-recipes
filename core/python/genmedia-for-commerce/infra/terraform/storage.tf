@@ -18,7 +18,8 @@
 
 # Earlier deployments made <project>-genmedia-for-commerce-media-payloads
 # (too long for long project ids): that bucket is kept, not deleted;
-# Terraform only drops it from the state.
+# Terraform only drops it from the state (MEDIA_BUCKET set to its name
+# keeps using it).
 removed {
   from = google_storage_bucket.media
 
@@ -28,7 +29,7 @@ removed {
 }
 
 resource "google_storage_bucket" "gfc_media" {
-  name     = "${var.project_id}-gfc-media"
+  name     = coalesce(var.media_bucket, "${var.project_id}-gfc-media")
   location = var.region
   project  = var.project_id
 
