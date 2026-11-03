@@ -2,40 +2,40 @@
   "name": "genmedia-studio-frontend",
   "private": true,
   "version": "2.0.0",
+  "license": "Apache-2.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "npm run copy-mediapipe && tsc && vite build",
+    "dev:mock": "vite --config vite.mock.config.ts",
+    "build": "tsc && vite build",
     "preview": "vite preview",
-    "lint": "eslint src --ext .ts,.tsx",
-    "copy-mediapipe": "bash scripts/copy-mediapipe.sh",
-    "postinstall": "npm run copy-mediapipe"
+    "lint": "biome ci --indent-style=space --vcs-enabled=true --vcs-client-kind=git --vcs-use-ignore-file=true --assist-enabled=false --css-formatter-enabled=false --css-linter-enabled=false --error-on-warnings .",
+    "format": "biome check --write --indent-style=space --vcs-enabled=true --vcs-client-kind=git --vcs-use-ignore-file=true --assist-enabled=false --css-formatter-enabled=false --css-linter-enabled=false .",
+    "test": "vitest run"
   },
   "dependencies": {
-    "@mediapipe/camera_utils": "^0.3.1675466862",
-    "@mediapipe/face_mesh": "^0.4.1633559619",
-    "@tensorflow-models/face-landmarks-detection": "^1.0.2",
-    "@tensorflow/tfjs-backend-webgl": "^4.17.0",
-    "@tensorflow/tfjs-core": "^4.17.0",
-    "@types/marked": "^5.0.2",
-    "marked": "^18.0.3",
-    "react": "^19.2.5",
-    "react-dom": "^19.2.5",
-    "react-router-dom": "^7.12.0"
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "react-router-dom": "^7.15.0"
   },
   "devDependencies": {
-    "@types/react": "^19.2.14",
-    "@types/react-dom": "^19.2.3",
-    "@typescript-eslint/eslint-plugin": "^8.59.1",
-    "@typescript-eslint/parser": "^8.59.1",
-    "@vitejs/plugin-react": "^6.0.1",
-    "autoprefixer": "^10.4.20",
-    "eslint": "^9.39.4",
-    "eslint-plugin-react": "^7.37.5",
-    "eslint-plugin-react-hooks": "^7.1.1",
-    "postcss": "^8.4.49",
-    "tailwindcss": "^3.4.17",
+    "@biomejs/biome": "2.5.10",
+    "@testing-library/dom": "^10.4.2",
+    "@testing-library/react": "^16.3.3",
+    "@types/node": "^20.19.43",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.2",
+    "autoprefixer": "^10.6.1",
+    "jsdom": "^29.1.1",
+    "msw": "^2.15.0",
+    "postcss": "^8.5.14",
+    "tailwindcss": "^3.4.19",
     "typescript": "^6.0.3",
-    "vite": "^8.0.10"
+    "vite": "^8.3.4",
+    "vitest": "^4.1.12"
+  },
+  "overrides": {
+    "postcss-selector-parser": "^7.1.6"
   }
 }
