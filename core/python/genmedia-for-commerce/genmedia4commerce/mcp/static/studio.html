@@ -147,7 +147,7 @@
   // Shown until the studio sets them.
   const DEFAULTS = {
     tryon: { scenario: "", style_guidelines: "", aspect_ratio: "3:4", image_size: "2K", num_variations: "1",
-             complete_look: true, upscale_crops: false },
+             complete_look: true, upscale_crops: false, check_images: false, check_videos: false },
     video_tryon: { motion: "auto", prompt: "", aspect_ratio: "9:16", resolution: "720p", num_variations: "1" },
     spin: { aspect_ratio: "auto", resolution: "720p", num_variations: "1" },
   };
@@ -170,8 +170,8 @@
     retry: null,  // {cap, spec, tryon} of the last generation started or followed, for "Try again"
     // The products picker: the featured products until a search (shown: its query).
     catalog: { query: "", audience: "", shown: "", items: [], busy: false, error: "" },
-    // The people and products galleries: collapsed until the user opens them (kept across redraws).
-    open: { people: false, products: false },
+    // The people, products and spin-set galleries: collapsed until the user opens them (kept across redraws).
+    open: { people: false, products: false, spinSets: false },
     uploads: [],  // files being uploaded: {key, field, thumb}, shown where they will land
   };
   let G = { models: [], spin: [] };  // the catalogue's preset models and multi-view sets
@@ -190,7 +190,8 @@
   // The server keeps only known fields and settings; the panel still reads
   // what it renders defensively: known keys, plain values, safe URLs.
   const ITEM_KEYS = ["label", "ref", "thumb"];
-  const RESULT_KEYS = ["index", "status", "score", "uri", "url", "view", "note", "source"];  // source: its image's uri
+  // source: its image's uri; video_url: a spin's MP4
+  const RESULT_KEYS = ["index", "status", "score", "uri", "url", "view", "note", "source", "video_url"];
   const IMAGE_KEYS = ["index", "status", "score", "uri", "url", "note", "run", "passed"];
   const isObj = (x) => x !== null && typeof x === "object" && !Array.isArray(x);
   const isPrim = (v) => typeof v === "string" || typeof v === "number" || typeof v === "boolean";
@@ -358,6 +359,8 @@
       const { complete_look, upscale_crops } = S.settings.tryon;
       lines.push("Try-on options: " + JSON.stringify({ complete_look, upscale_crops }) + ".");
     }
+    const { check_images, check_videos } = S.settings.tryon;
+    lines.push("Checks: " + JSON.stringify({ check_images, check_videos }) + ".");
     const res = S.results[S.capability];
     if (S.job || polling) lines.push(`A generation is running (${L.jobStatus}).`);
     else if (res.length) lines.push(`Last generation: ${res.length} result(s), best score ${res[0].score ?? "n/a"}.`);
@@ -618,7 +621,7 @@
         "One photo works, but the spin will invent the sides and back: add photos from other angles.") : null,
       el("div", { class: "row" }, btn("Upload photos", () => pick("spin")),
         S.spin.length ? btn("Clear", () => clearField("spin")) : null),
-      el("details", { open: !S.spin.length }, el("summary", {}, `Spin sets (${G.spin.length})`),
+      gallery("spinSets", `Spin sets (${G.spin.length})`,
         el("div", { class: "hint" }, "Catalogue products photographed from several sides."),
         el("div", { class: "grid" }, G.spin.map(p => tile(p, () => useSet(p))))));
   }
@@ -639,8 +642,14 @@
       kids.push(select(cap, "aspect_ratio", cap === "spin" ? ["auto", "16:9", "9:16"] : ["9:16", "16:9"], "Aspect ratio"),
                 select(cap, "resolution", ["720p", "1080p"], "Resolution"));
     }
+    // The checks: one setting each, kept with the Photo Try-On settings (studio/patches.py CHECKS).
+    const checks = [];
+    if (cap !== "spin") checks.push(toggle("tryon", "check_images", "Check images",
+      "Judge each try-on image with Gemini (slower). Off: images are not checked."));
+    if (cap !== "tryon") checks.push(toggle("tryon", "check_videos", "Check videos",
+      "Judge each video with Gemini (slower). Off: videos are not checked."));
     return el("details", {}, el("summary", {}, "Run options"), el("div", { class: "row" }, kids),
-      hint ? el("div", { class: "hint" }, hint) : null);
+      hint ? el("div", { class: "hint" }, hint) : null, ...checks);
   }
   // Whether the current page makes a try-on image (Photo Try-On and Video Try-On).
   const makesTryOn = () => S.capability !== "spin";
@@ -775,6 +784,7 @@
       el("div", { class: "imgs" }, v.images.map((m, i) => imageCard(m, i + 1, v)), more));
   }
   function resultCard(r, best, video, images) {
+    best = best && typeof r.score === "number";  // a result made with its checks off is never "Best"
     const i = video ? images.findIndex(m => m.uri === r.source) : -1, n = i + 1;
     return el("article", { class: "res" + (best ? " best" : ""), ...(n ? linked(n) : {}) }, media(r, isVideo(r)),
       el("div", { class: "body" },
@@ -785,6 +795,9 @@
         r.note ? el("div", { class: "hint" }, r.note) : null,
         safeUrl(r.url) ? el("div", { class: "row" },
           el("a", { href: safeUrl(r.url), target: "_blank", rel: "noopener", class: "btn" }, "Open"),
+          // A spin's MP4: the video model's raw clip (not cut to the loop, not reversed).
+          safeUrl(r.video_url) ? el("a", { href: safeUrl(r.video_url), target: "_blank", rel: "noopener",
+            class: "btn", download: true }, "Download video") : null,
           // A Photo Try-On front view: its videos on Video Try-On.
           !video && r.view !== "back" && str(r.uri) ? el("button", { class: "btn", disabled: busy() || !ready(),
             on: { click: () => animate(r.uri) } }, "Animate") : null) : null));
@@ -858,6 +871,16 @@
     }
     return tool("studio_upload", { image_base64: await shrink(f, 1600, 0.9), filename: f.name, studio_id: studioId });
   }
+  // At most `n` calls of fn at a time: a call that ends hands its slot to the next one waiting.
+  function limited(n, fn) {
+    let active = 0;
+    const waiting = [];
+    return async (...a) => {
+      if (active < n) active++; else await new Promise(r => waiting.push(r));
+      try { return await fn(...a); } finally { const w = waiting.shift(); if (w) w(); else active--; }
+    };
+  }
+  const sendSome = limited(4, send);
   // Each file shows at once where it will land (only the ones there is room for) until its upload ends.
   fileInput.addEventListener("change", async () => {
     const field = uploadTarget, list = S[listOf(field)];
@@ -868,9 +891,12 @@
     L.uploads.push(...ups);
     render();
     ups.forEach((u, i) => shrink(files[i], 88, 0.8).then(t => { u.thumb = t; render(); }, () => {}));
-    for (const [i, f] of files.entries()) {
+    // Up to 4 uploads at once; each file lands (its action is sent) in the order picked.
+    const sent = files.map(f => sendSome(f));
+    sent.forEach(p => p.catch(() => {}));  // a failure is reported in its turn below
+    for (const [i, p] of sent.entries()) {
       try {
-        const up = await send(f);
+        const up = await p;
         const item = remember(cleanItem({ label: up.label, ref: up.ref, thumb: up.thumb }));
         if (!item) throw new Error(str(up.error) || "no image saved");
         const meta = { source: "upload", description: str(up.description) };

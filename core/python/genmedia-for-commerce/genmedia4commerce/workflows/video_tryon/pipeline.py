@@ -44,6 +44,8 @@ and the close-ups found, no new search) or, as photos, are classified
 first like the try-on's (a ``classified`` event) and their details
 searched while the animation is prepared. With no product photo the video
 gets no product reference and the outfit is judged against the image.
+With ``check_images`` off every front passes unjudged, so each is
+animated; with ``check_videos`` off no video is checked.
 """
 
 import asyncio
@@ -139,6 +141,7 @@ def _tryon_request(
         style_guidelines=req.style_guidelines,
         scenario=req.scenario,
         generate_back=False,
+        check_images=req.check_images,
         policy=policy,
         image=req.image or stage_one_image(video),
     )

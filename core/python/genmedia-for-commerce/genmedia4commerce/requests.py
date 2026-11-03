@@ -145,6 +145,7 @@ def tryon_request(
     mode: str = "",
     aspect_ratio: str = "3:4",
     image_size: str = "2K",
+    check_images: bool = True,
 ) -> TryOnRequest:
     """Validate the request-level options and build a ``TryOnRequest``."""
     _count("product_images", product_images, 1, MAX_PRODUCT_IMAGES)
@@ -161,6 +162,7 @@ def tryon_request(
         style_guidelines=style_guidelines or None,
         scenario=scenario or None,
         generate_back=generate_back,
+        check_images=check_images,
         policy=_policy(mode, num_variations),
         image=ImageParams(aspect_ratio=aspect_ratio, image_size=image_size),
     )
@@ -200,6 +202,8 @@ def video_tryon_request(
     aspect_ratio: str = "9:16",
     resolution: str = "720p",
     image_size: str = "2K",
+    check_images: bool = True,
+    check_videos: bool = True,
 ) -> VideoTryOnRequest:
     """Validate the request-level options and build a ``VideoTryOnRequest``.
 
@@ -248,6 +252,8 @@ def video_tryon_request(
         policy=_video_policy(mode, num_variations, video),
         video=video,
         videos_per_image=num_variations if tryon_image else None,
+        check_images=check_images,
+        check_videos=check_videos,
     )
 
 
@@ -258,6 +264,7 @@ def spin_request(
     mode: str = "",
     aspect_ratio: str = "auto",
     resolution: str = "720p",
+    check_videos: bool = True,
 ) -> SpinRequest:
     """Validate the request-level options and build a ``SpinRequest``.
 
@@ -272,6 +279,7 @@ def spin_request(
         product_images=product_images,
         policy=_video_policy(mode, num_variations, video),
         video=video,
+        check_videos=check_videos,
     )
 
 

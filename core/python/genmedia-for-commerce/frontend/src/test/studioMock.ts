@@ -45,6 +45,8 @@ const TRYON_KEYS = [
   "style_guidelines",
   "complete_look",
   "upscale_crops",
+  "check_images",
+  "check_videos",
 ];
 const studios = new Map<string, Doc>();
 const jobs = new Map<string, Job>();

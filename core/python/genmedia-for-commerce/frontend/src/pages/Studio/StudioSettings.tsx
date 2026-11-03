@@ -17,7 +17,7 @@
 import { ChevronIcon, SparkleIcon, VideoIcon } from "../../components/icons";
 import { Select, Switch, TextField } from "../../components/RunControls";
 import { CardHeader } from "./ItemSlot";
-import { RUN_OPTIONS, variationsOf } from "./model";
+import { CHECKS, RUN_OPTIONS, variationsOf } from "./model";
 import type { Studio } from "./useStudio";
 
 const TYPING_MS = 1500;
@@ -182,6 +182,16 @@ export function RunOptionsPanel({ studio }: Props) {
             {variations.hint}
           </p>
         )}
+        {CHECKS[cap].map(({ key, label, hint }) => (
+          <div key={key} className="col-span-2">
+            <Switch
+              label={label}
+              checked={studio.view.settings.tryon[key] === true}
+              onChange={(on) => studio.setSetting("tryon", key, on)}
+              hint={hint}
+            />
+          </div>
+        ))}
       </div>
     </details>
   );

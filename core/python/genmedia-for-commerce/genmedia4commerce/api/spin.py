@@ -39,11 +39,13 @@ async def spin(
     mode: str = Form(""),
     aspect_ratio: str = Form("auto"),
     resolution: str = Form("720p"),
+    check_videos: bool = Form(True),
 ) -> StreamingResponse:
     """Generate spins (animated WebP); streams run/classified/progress/
     variation events.
 
     Images, ``input`` and ``output`` as in ``POST /api/tryon``.
+    ``check_videos`` false: no spin is checked, each passes.
     """
     images = {
         "product_images": await read_images(
@@ -56,5 +58,6 @@ async def spin(
         mode=mode,
         aspect_ratio=aspect_ratio,
         resolution=resolution,
+        check_videos=check_videos,
     )
     return await start(request, run, images, build, run_spin)

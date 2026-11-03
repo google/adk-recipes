@@ -251,8 +251,10 @@ def _motion(spec: dict[str, Any]) -> str:
 
 
 def tool_call(spec: dict[str, Any]) -> tuple[str, dict[str, Any]]:
-    """The generation tool's name and its arguments for one Studio spec."""
+    """The generation tool's name and its arguments for one Studio spec;
+    its checks off unless the spec's settings turn them on."""
     cap = spec.get("capability")
+    checks = rules.tryon_options(spec.get("settings"), rules.CHECKS)
     common: dict[str, Any] = {
         "num_variations": int(_str(spec, "num_variations", "1")),
         "aspect_ratio": _str(spec, "aspect_ratio"),
@@ -266,6 +268,7 @@ def tool_call(spec: dict[str, Any]) -> tuple[str, dict[str, Any]]:
             **common,
             "product_images_base64": refs,
             "resolution": _str(spec, "resolution", "720p"),
+            "check_videos": checks["check_videos"],
         }
     people = {
         "product_images_base64": [
@@ -296,6 +299,8 @@ def tool_call(spec: dict[str, Any]) -> tuple[str, dict[str, Any]]:
             "motion": _motion(spec),
             "prompt": _str(spec, "prompt"),
             "resolution": _str(spec, "resolution", "720p"),
+            **checks,
         }
     common["aspect_ratio"] = common["aspect_ratio"] or "3:4"
-    return _TOOLS["tryon"], {**common, **people}
+    tryon = {**common, **people, "check_images": checks["check_images"]}
+    return _TOOLS["tryon"], tryon

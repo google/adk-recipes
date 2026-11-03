@@ -72,6 +72,7 @@ class VideoTryOnRequest:
     style_guidelines: str | None = None
     scenario: str | None = None
     image: ImageParams | None = None  # stage-1 image params
+    check_images: bool = True  # see TryOnRequest
     # Shortcut: animate an existing try-on image
     tryon_image: bytes | None = None
     back_image: bytes | None = None  # its back view, when there is one
@@ -85,6 +86,8 @@ class VideoTryOnRequest:
     policy: RunPolicy | None = None
     video: VideoParams | None = None
     videos_per_image: int | None = None
+    # False: every video passes, no model check (``evaluate_clip``) made
+    check_videos: bool = True
 
     @property
     def animated_image(self) -> bytes:

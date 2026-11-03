@@ -278,8 +278,7 @@ def catalog_copies(refs: list[str]) -> dict[str, tuple[str, str]]:
 
 
 def _studio_file(ref: str) -> re.Match[str] | None:
-    """The match of a Studio run file in the media bucket, if ``ref`` is
-    one."""
+    """The match of a Studio run file in the media bucket, if ref is one."""
     prefix = f"gs://{get_settings().media_bucket}/"
     if not (isinstance(ref, str) and ref.startswith(prefix)):
         return None
@@ -351,12 +350,10 @@ def previews(refs: list[str], *, inline: bool = True) -> dict[str, str]:
     return {r: u for r, u in zip(todo, urls, strict=True) if u is not None}
 
 
-def preview_url(uri: str, *, video: bool = False) -> str:
-    """A URL the iframe can load: signed, or a data URL fallback.
-
+def preview_url(uri: str, *, video: bool = False, inline: bool = True) -> str:
+    """A URL the iframe can load: signed, else a data URL (``inline``) or "".
     Only for refs ``allowed_ref`` accepts ("" for any other): callers send
-    the refs, so this must not open the rest of the media bucket.
-    """
+    the refs, so this must not open the rest of the media bucket."""
     global _warned_unsigned
     if not uri:
         return ""
@@ -369,6 +366,8 @@ def preview_url(uri: str, *, video: bool = False) -> str:
         log = logger.debug if _warned_unsigned else logger.warning
         _warned_unsigned = True
         log("Signed URLs unavailable (%s); previews are inlined", exc)
+        if not inline:  # a spin's MP4: no download link rather than inlined
+            return ""
     data = gcs.resolve_image(uri)  # media bucket runs/ only
     if video:  # whole, in its own format (a spin is an animated WebP)
         mime = media.sniff_mime(data)
@@ -379,22 +378,23 @@ def preview_url(uri: str, *, video: bool = False) -> str:
 def refresh_urls(groups: list[tuple[list[Any], bool]]) -> None:
     """Give saved results new preview URLs (signed URLs expire), all of
     ``groups`` (``(results, video)`` pairs) signed in parallel; a URL valid
-    for half an hour more is kept, so a playing video does not reload.
+    for half an hour more is kept, so a playing video does not reload; a
+    spin's MP4 (``video_uri``) gets its ``video_url`` (never inlined). One
+    that fails gets "" and the rest keep theirs."""
 
-    Each item on its own: one that fails gets ``url`` "" and the rest keep
-    their previews.
-    """
-
-    def one(item: tuple[dict[str, Any], bool]) -> None:
-        r, video = item
-        if not (isinstance(r, dict) and r.get("uri")):
+    def one(item: tuple[dict[str, Any], str, bool]) -> None:
+        r, key, video = item
+        url = key.replace("uri", "url")  # uri -> url, video_uri -> video_url
+        if not (isinstance(r, dict) and r.get(key)):
             return
-        if gcs.still_valid(str(r.get("url") or ""), 1800):
+        if gcs.still_valid(str(r.get(url) or ""), 1800):
             return
         try:
-            r["url"] = preview_url(str(r["uri"]), video=video)
+            how = {"video": video} if key == "uri" else {"inline": False}
+            r[url] = preview_url(str(r[key]), **how)
         except Exception as exc:
-            logger.warning("No preview for %s: %s", r["uri"], exc)
-            r["url"] = ""
+            logger.warning("No preview for %s: %s", r[key], exc)
+            r[url] = ""
 
-    _pmap(one, [(r, video) for results, video in groups for r in results])
+    todo = [(r, "uri", video) for results, video in groups for r in results]
+    _pmap(one, todo + [(r, "video_uri", True) for r, _, _ in todo])

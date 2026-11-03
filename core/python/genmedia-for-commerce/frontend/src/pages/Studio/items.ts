@@ -35,6 +35,34 @@ function withoutOne<T>(list: T[], field: T): T[] {
   return i < 0 ? list : [...list.slice(0, i), ...list.slice(i + 1)];
 }
 
+/** At most `n` calls of `fn` at a time: a call that ends hands its slot to the next one waiting. */
+function limited<A extends unknown[], R>(
+  n: number,
+  fn: (...a: A) => Promise<R>,
+): (...a: A) => Promise<R> {
+  let active = 0;
+  const waiting: (() => void)[] = [];
+  return async (...a) => {
+    if (active < n) active++;
+    else
+      await new Promise<void>((resolve) => {
+        waiting.push(resolve);
+      });
+    try {
+      return await fn(...a);
+    } finally {
+      const next = waiting.shift();
+      if (next) next();
+      else active--;
+    }
+  };
+}
+
+/** One upload; up to 4 at once. */
+const send = limited(4, async (studioId: string, file: File) =>
+  uploadStudioImage(studioId, await uploadFile(file)),
+);
+
 export class ItemCommands {
   private readonly store: StudioStore;
 
@@ -111,16 +139,20 @@ export class ItemCommands {
     });
   };
 
-  /** Upload images (the originals; shrunk only over the server's limit) into a slot or a list, one at a time, each
-   * sent as the user's upload; `uploading` names the field of each one in flight. */
+  /** Upload images (the originals; shrunk only over the server's limit) into a slot or a list, up to 4 at once,
+   * each added (sent as the user's upload) in the order picked; `uploading` names the field of each one in flight. */
   upload = async (field: UploadField, files: File[]) => {
     const { store } = this;
     const { epoch } = store;
     const { studioId } = store.state;
-    for (const file of files.slice(0, MAX_ITEMS)) {
-      store.set({ uploading: [...store.state.uploading, field] });
+    const picked = files.slice(0, MAX_ITEMS);
+    const fields = picked.map(() => field);
+    store.set({ uploading: [...store.state.uploading, ...fields] });
+    const sent = picked.map((file) => send(studioId, file));
+    for (const p of sent) p.catch(() => undefined); // reported in its turn
+    for (const pending of sent) {
       try {
-        const up = await uploadStudioImage(studioId, await uploadFile(file));
+        const up = await pending;
         if (epoch !== store.epoch) return;
         const item = cleanItem({
           label: up.label,

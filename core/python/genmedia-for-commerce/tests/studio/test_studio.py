@@ -223,9 +223,15 @@ async def test_resource_declares_app_mime_and_csp() -> None:
         "await settled()",  # a state read meanwhile never undoes pending actions
         '"Animate")',  # a Photo Try-On result's videos, as a full run
         'start("video_tryon", spec("video_tryon", uri), "")',
+        'gallery("spinSets"',  # spin sets folded until opened
+        "limited(4, send)",  # up to 4 uploads at once
+        '"source", "video_url"]',  # a spin's MP4
+        # only when the result has one
+        'safeUrl(r.video_url) ? el("a", { href: safeUrl(r.video_url)',
     ):
         assert needle in html
     assert html.index('"Open")') < html.index('"Animate")')  # Open first
+    assert html.index('"Open")') < html.index('"Download video")')
 
 
 @pytest.mark.asyncio
