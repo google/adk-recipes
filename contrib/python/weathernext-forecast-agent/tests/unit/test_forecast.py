@@ -11,201 +11,339 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Unit tests for loaders and configuration. No network or model calls."""
+"""Unit tests for the forecast adapters, snapshot, access check and config."""
 
 import json
-from datetime import UTC, datetime, timedelta
-from pathlib import Path
 
+import numpy as np
 import pytest
+import xarray as xr
 
-from app import config, forecast
-from app.forecast import PRECIP, WIND
+from app import analysis, config, contract, forecast, weathernext_access
 
-
-def test_sample_forecast_shape():
-    sites = forecast.load_sites()
-    assert set(sites) == {
-        "whitelee",
-        "clyde",
-        "black-law",
-    }
-    f = forecast.SampleSource().get(sites["whitelee"])
-    assert f.kind == "members"
-    assert f.init_time == datetime(2026, 10, 19, 6, tzinfo=UTC)
-    assert len(f.times) == 120
-    assert f.times[0] == datetime(2026, 10, 20, tzinfo=UTC)
-    assert f.times[1] - f.times[0] == timedelta(hours=1)
-    # ECMWF IFS ensemble: control + 50 perturbed members.
-    assert len(f.members[WIND]) == 51
-    assert all(len(m) == 120 for m in f.members[WIND] + f.members[PRECIP])
-    assert all(v >= 0 for m in f.members[PRECIP] for v in m)
+SITES = forecast.load_sites()
 
 
-def test_sample_unknown_site_raises():
-    site = forecast.Site("nowhere", "n", 0, 0, 0, 100)
+@pytest.fixture
+def clean_source():
+    forecast.get_source.cache_clear()
+    yield
+    forecast.get_source.cache_clear()
+
+
+# --- bundled snapshot ------------------------------------------------------
+
+
+def test_snapshot_is_a_contract_dataset_of_raw_members():
+    src = forecast.SnapshotSource()
+    ds = src.get(SITES["whitelee"])
+    contract.validate(ds)
+    assert contract.realization_dim(ds) == "ensemble_member"
+    assert ds.sizes["ensemble_member"] == 51
+    wind = contract.find_variable(ds, contract.WIND_SPEED)
+    assert wind.attrs[contract.HEIGHT_ATTR] == 100.0
+    rain = contract.find_variable(ds, contract.PRECIP_RATE_NAMES)
+    assert (rain.attrs["units"], rain.attrs["step_type"]) == (
+        "kg m-2 s-1",
+        "avg",
+    )
+    # Precipitation is a mean over the previous step: missing at lead 0.
+    assert np.isnan(rain.isel(lead_time=0)).all()
+    meta = forecast.describe(ds)
+    assert meta["init_time"] == "2026-10-20T06:00:00+00:00"
+    assert meta["step_hours"] == [6]
+    assert meta["grid_point"] == [55.75, -4.25]
+    assert "dynamical.org" in meta["attribution"]
+
+
+def test_snapshot_records_provenance_and_licence():
+    src = forecast.SnapshotSource()
+    prov = src.provenance
+    assert prov["dataset_id"] == forecast.AIFS_DATASET_ID
+    assert prov["source"].endswith("v0.1.0.icechunk")
+    assert "CC-BY-4.0" in prov["license"]
+    assert "ECMWF Open Data" in prov["attribution"]
+    assert "AIFS ENS" in src.description
+
+
+def test_snapshot_unknown_site_raises():
     with pytest.raises(KeyError):
-        forecast.SampleSource().get(site)
+        forecast.SnapshotSource().get(
+            forecast.Site("x", "X", 0, 0, timezone="UTC", hub_height_m=80)
+        )
 
 
 def test_custom_sites_file(tmp_path):
     path = tmp_path / "sites.json"
-    path.write_text(
-        json.dumps(
-            {
-                "sites": [
-                    {
-                        "site_id": "x",
-                        "name": "X",
-                        "latitude": 1,
-                        "longitude": 2,
-                        "utc_offset_hours": 0,
-                        "hub_height_m": 100,
-                    }
-                ]
-            }
-        )
+    site = {
+        "site_id": "s",
+        "name": "S",
+        "latitude": 1.0,
+        "longitude": 2.0,
+        "timezone": "Europe/Berlin",
+        "hub_height_m": 120,
+    }
+    path.write_text(json.dumps({"sites": [site]}))
+    assert forecast.load_sites(path)["s"].timezone == "Europe/Berlin"
+
+
+# --- adapters --------------------------------------------------------------
+
+
+def _aifs_native(members=3, leads=(0, 6, 12)):
+    shape = (len(leads), members)
+    attrs_u = {
+        "standard_name": "eastward_wind",
+        "units": "m s-1",
+        "step_type": "instant",
+    }
+    attrs_v = {**attrs_u, "standard_name": "northward_wind"}
+    attrs_p = {
+        "standard_name": "precipitation_flux",
+        "units": "kg m-2 s-1",
+        "step_type": "avg",
+    }
+    dims = ("lead_time", "ensemble_member")
+    return xr.Dataset(
+        {
+            "wind_u_100m": (dims, np.full(shape, 3.0), attrs_u),
+            "wind_v_100m": (dims, np.full(shape, 4.0), attrs_v),
+            "precipitation_surface": (dims, np.full(shape, 1e-4), attrs_p),
+        },
+        coords={
+            "lead_time": np.array(leads, dtype="int64").astype(
+                "timedelta64[h]"
+            ),
+            "ensemble_member": (
+                "ensemble_member",
+                np.arange(members),
+                {"standard_name": "realization"},
+            ),
+            "init_time": np.datetime64("2026-10-20T06:00", "ns"),
+            "latitude": ((), 55.75, {"standard_name": "latitude"}),
+            "longitude": ((), -4.25, {"standard_name": "longitude"}),
+            "spatial_ref": 0,
+        },
     )
-    assert forecast.load_sites(path)["x"].longitude == 2
 
 
-def test_index_range():
-    f = forecast.SampleSource().get(forecast.load_sites()["clyde"])
-    lo, hi = f.index_range(f.times[10], f.times[20])
-    assert (lo, hi) == (10, 20)
-    assert f.index_range(None, None) == (0, 120)
+def test_aifs_adapter_derives_member_wind_speed():
+    ds = forecast.aifs_to_contract(_aifs_native(), "src")
+    contract.validate(ds)
+    assert float(ds["wind_speed_100m"].max()) == 5.0  # hypot(3, 4)
+    assert "spatial_ref" not in ds.coords
+    assert ds.attrs["license"] == "CC-BY-4.0"
+    assert ds["wind_speed_100m"].dims == ("ensemble_member", "lead_time")
 
 
-def test_parse_time_defaults_to_utc():
-    assert forecast.parse_time("2026-10-12T06:00:00").tzinfo == UTC
-    assert forecast.parse_time("2026-10-12T06:00:00Z").hour == 6
+def test_aifs_source_reads_latest_complete_init(monkeypatch):
+    store = _aifs_native(leads=(0, 6, 12, 18)).expand_dims(
+        init_time=[
+            np.datetime64("2026-10-20T00", "ns"),
+            np.datetime64("2026-10-20T06", "ns"),
+        ]
+    )
+    store = store.expand_dims(latitude=[55.75], longitude=[-4.25])
+    # The newest init is still ingesting: its last lead is missing.
+    u = store["wind_u_100m"]
+    values = u.values.copy()
+    values[:, :, 1, -1, :] = np.nan
+    store["wind_u_100m"] = (u.dims, values, u.attrs)
+    monkeypatch.setenv("FORECAST_MAX_LEAD_HOURS", "12")
+    src = forecast.AifsEnsSource("https://example/store.icechunk")
+    monkeypatch.setattr(src, "_open", lambda: store)
+    ds = src.get(SITES["whitelee"])
+    assert contract.init_time(ds).isoformat() == "2026-10-20T00:00:00+00:00"
+    assert ds.sizes["lead_time"] == 3  # 0, 6, 12 h
+    analysis.SiteForecast.from_dataset(ds, SITES["whitelee"])
+
+
+def _wn3_native(subtime=False):
+    members, dims = 2, ("sample", "lead_time")
+    if subtime:
+        leads = np.array([6, 12], dtype="int64").astype("timedelta64[h]")
+        shape: tuple[int, ...] = (members, 2, 6)
+        dims = ("sample", "lead_time", "lead_subtime")
+        extra = {
+            "lead_subtime": np.arange(6).astype("timedelta64[h]"),
+        }
+    else:
+        leads = np.arange(1, 5).astype("timedelta64[h]")
+        shape = (members, 4)
+        extra = {}
+    return xr.Dataset(
+        {
+            "u_component_of_wind_100m": (dims, np.full(shape, 6.0)),
+            "v_component_of_wind_100m": (dims, np.full(shape, 8.0)),
+            "imerg_tp_1hr": (dims, np.full(shape, 0.0004), {"units": "m"}),
+        },
+        coords={
+            "sample": np.arange(members),
+            "lead_time": leads,
+            "init_time": np.datetime64("2026-10-20T06", "ns"),
+            "lat_0p1": ((), 55.7),
+            "lon_0p1": ((), 355.7),
+            **extra,
+        },
+    )
+
+
+def test_wn3_adapter_annotates_the_contract():
+    ds = forecast.wn3_to_contract(_wn3_native(), "gs://b/p")
+    contract.validate(ds)
+    assert contract.realization_dim(ds) == "sample"
+    assert contract.point_location(ds) == pytest.approx((55.7, -4.3))
+    rain = ds["imerg_tp_1hr"]
+    assert (rain.attrs["step_type"], rain.attrs["step_period"]) == (
+        "accum",
+        "PT1H",
+    )
+    f = analysis.SiteForecast.from_dataset(ds, SITES["whitelee"], 0.0)
+    assert f.precip_units == "mm"
+    assert f.precip[0, 0] == pytest.approx(0.4)
+    assert f.hub_wind[0, 0] == pytest.approx(10.0)
+    assert "disclaimers" in ds.attrs["disclaimer"]
+
+
+def test_wn3_adapter_flattens_lead_subtime_to_hourly_steps():
+    ds = forecast.wn3_to_contract(_wn3_native(subtime=True), "gs://b/p")
+    hours = (ds["lead_time"].values / np.timedelta64(1, "h")).astype(int)
+    assert hours.tolist() == list(range(6, 18))
+
+
+def test_wn3_source_picks_latest_six_hourly_run_and_res_group(monkeypatch):
+    monkeypatch.setenv("FORECAST_MAX_LEAD_HOURS", "360")
+    opened = []
+    point = (
+        _wn3_native()
+        .drop_vars(["lat_0p1", "lon_0p1"])
+        .expand_dims(lat_0p1=[55.7], lon_0p1=[355.7])
+    )
+
+    def opener(prefix, group):
+        opened.append((prefix, group))
+        return point if group == "res_0p1" else xr.Dataset()
+
+    runs = [
+        "root/20261020_06hr_01_preds/",
+        "root/20261020_07hr_01_preds/",  # interim run, skipped
+        "root/20261020_00hr_01_preds/",
+    ]
+    src = forecast.WeatherNext3Source(
+        "gs://bucket/root",
+        opener=opener,
+        lister=lambda bucket, prefix: runs,
+        access_check=lambda: None,
+    )
+    ds = src.get(SITES["whitelee"])
+    assert opened == [
+        ("root/20261020_06hr_01_preds/predictions.zarr", ""),
+        ("root/20261020_06hr_01_preds/predictions.zarr", "res_0p1"),
+    ]
+    assert ds.attrs["source"] == (
+        "gs://bucket/root/20261020_06hr_01_preds/predictions.zarr"
+    )
+
+
+def test_wn3_source_stops_when_access_is_denied():
+    def denied():
+        raise RuntimeError("not on the WeatherNext data allowlist")
+
+    src = forecast.WeatherNext3Source(
+        "gs://bucket/store.zarr", access_check=denied
+    )
+    with pytest.raises(RuntimeError, match="allowlist"):
+        src.get(SITES["whitelee"])
+
+
+def test_pick_init_dir_and_uri_parsing():
+    runs = ["p/20261019_18hr_01_preds/", "p/20261020_00hr_01_preds/"]
+    assert forecast.pick_init_dir(runs, None) == "p/20261020_00hr_01_preds"
+    assert (
+        forecast.pick_init_dir(runs, "2026-10-19T18:00:00Z")
+        == "p/20261019_18hr_01_preds"
+    )
+    with pytest.raises(RuntimeError):
+        forecast.pick_init_dir(runs, "2026-10-21T00:00:00Z")
+    assert forecast.split_gcs_uri("gs://b/a/b/") == ("b", "a/b")
+    with pytest.raises(ValueError):
+        forecast.split_gcs_uri("s3://b/a")
+
+
+# --- access check ----------------------------------------------------------
+
+
+class FakeResponse:
+    def __init__(self, status, text=""):
+        self.status_code = status
+        self.text = text
+
+
+class FakeSession:
+    def __init__(self, status, text=""):
+        self.response = FakeResponse(status, text)
+        self.calls = []
+
+    def get(self, url, params, timeout):
+        self.calls.append((url, params))
+        return self.response
 
 
 @pytest.mark.parametrize(
-    "table",
-    ["", "dataset.table", "p.d.t`; DROP TABLE x; --", "p.d.t.u", "p.d.t name"],
+    ("status", "text", "ok", "needle"),
+    [
+        (200, "", True, "confirmed"),
+        (401, "", False, "application-default login"),
+        (403, "", False, "allowlist"),
+        (
+            400,
+            "Bucket is a requester pays bucket but no user project",
+            False,
+            "WEATHERNEXT_BILLING_PROJECT",
+        ),
+        (500, "boom", False, "Unexpected HTTP 500"),
+    ],
 )
-def test_validate_table_rejects_unsafe_ids(table):
-    with pytest.raises(ValueError):
-        forecast.validate_table(table)
-
-
-def test_forecast_query_uses_documented_schema():
-    sql = forecast.build_forecast_query(
-        "my-proj.weathernext.weathernext_3_0_0_0p1deg"
+def test_access_check_explains_each_outcome(status, text, ok, needle):
+    session = FakeSession(status, text)
+    got_ok, message = weathernext_access.check_access(
+        "gs://bucket/prefix", "my-project", session=session
     )
-    assert "`my-proj.weathernext.weathernext_3_0_0_0p1deg` AS t" in sql
-    assert "CROSS JOIN UNNEST(t.forecast) AS f" in sql
-    assert "t.init_time = @init_time" in sql
-    assert "ST_INTERSECTS(t.geography_polygon, ST_GEOGPOINT(@lon, @lat))" in sql
-    for col in (
-        "wind_speed_100m_p10",
-        "wind_speed_100m_p90",
-        "total_precipitation_1hr_p50",
-    ):
-        assert f"f.{col}" in sql
-    assert "init_time >= TIMESTAMP_SUB" in forecast.build_latest_init_query(
-        "p.d.t"
-    )
-
-
-def _rows(init, hours):
-    rows = []
-    for h in hours:
-        row = {"init_time": init, "time": init + timedelta(hours=h), "hours": h}
-        for col, level in forecast.QUANTILE_COLUMNS.items():
-            row[f"{WIND}_{col}"] = 5.0 + 10 * level
-            row[f"{PRECIP}_{col}"] = 0.001 * level  # metres
-        rows.append(row)
-    return rows
-
-
-def test_rows_to_forecast_sorts_dedups_and_converts_units():
-    init = datetime(2026, 10, 12, tzinfo=UTC)
-    rows = _rows(init, [3, 1, 2, 2])
-    f = forecast.rows_to_forecast(rows, "s", "bq")
-    assert f.kind == "quantiles"
-    assert [t.hour for t in f.times] == [1, 2, 3]
-    assert f.quantiles[WIND][0.5] == [10.0, 10.0, 10.0]
-    assert f.quantiles[PRECIP][0.9] == pytest.approx([0.9, 0.9, 0.9])  # mm
-    with pytest.raises(ValueError):
-        forecast.rows_to_forecast([], "s", "bq")
-
-
-class FakeJob:
-    def __init__(self, rows):
-        self._rows = rows
-        self.timeout = None
-
-    def result(self, timeout=None):
-        self.timeout = timeout
-        return self._rows
-
-
-class FakeClient:
-    def __init__(self, init):
-        self.init = init
-        self.queries = []
-        self.jobs = []
-
-    def query(self, sql, job_config=None):
-        self.queries.append((sql, job_config))
-        if "MAX(init_time)" in sql:
-            job = FakeJob([{"init_time": self.init}])
-        else:
-            job = FakeJob(_rows(self.init, range(1, 7)))
-        self.jobs.append(job)
-        return job
-
-
-def test_bigquery_source_with_fake_client():
-    init = datetime(2026, 10, 12, 6, tzinfo=UTC)
-    client = FakeClient(init)
-    source = forecast.BigQuerySource(
-        "p.d.weathernext_3_0_0_0p1deg",
-        max_hours=120,
-        timeout_seconds=30,
-        client=client,
-    )
-    site = forecast.load_sites()["clyde"]
-    f = source.get(site)
-    assert f.init_time == init
-    assert len(f.times) == 6
-    job_config = client.queries[1][1]
-    assert int(job_config.job_timeout_ms) == 30000
-    assert client.jobs[1].timeout == 30
-    params = {p.name: p.value for p in job_config.query_parameters}
+    assert got_ok is ok
+    assert needle in message
+    url, params = session.calls[0]
+    assert url.endswith("/b/bucket/o")
     assert params == {
-        "init_time": init,
-        "lon": -3.6544,
-        "lat": 55.4672,
-        "max_hours": 120,
+        "maxResults": "1",
+        "prefix": "prefix",
+        "userProject": "my-project",
     }
-    source.get(site)  # cached: no new queries
-    assert len(client.queries) == 2
+    if status == 403:
+        assert weathernext_access.ACCESS_FORM_URL in message
 
 
-def test_bigquery_source_pinned_init_skips_lookup():
-    client = FakeClient(datetime(2026, 10, 12, tzinfo=UTC))
-    source = forecast.BigQuerySource(
-        "p.d.t",
-        max_hours=120,
-        timeout_seconds=30,
-        init_time="2026-10-12T00:00:00Z",
-        client=client,
-    )
-    source.get(forecast.load_sites()["clyde"])
-    assert len(client.queries) == 1
+# --- configuration -----------------------------------------------------------
 
 
+@pytest.mark.usefixtures("clean_source")
+@pytest.mark.parametrize(
+    ("kind", "cls"),
+    [
+        ("snapshot", forecast.SnapshotSource),
+        ("aifs_ens", forecast.AifsEnsSource),
+        ("weathernext_3", forecast.WeatherNext3Source),
+    ],
+)
+def test_get_source_kinds(monkeypatch, kind, cls):
+    monkeypatch.setenv("FORECAST_SOURCE", kind)
+    assert isinstance(forecast.get_source(), cls)
+
+
+@pytest.mark.usefixtures("clean_source")
 def test_get_source_rejects_unknown_kind(monkeypatch):
-    forecast.get_source.cache_clear()
-    monkeypatch.setenv("WEATHERNEXT_SOURCE", "csv")
-    try:
-        with pytest.raises(ValueError):
-            forecast.get_source()
-    finally:
-        forecast.get_source.cache_clear()
+    monkeypatch.setenv("FORECAST_SOURCE", "bigquery")
+    with pytest.raises(ValueError, match="FORECAST_SOURCE"):
+        forecast.get_source()
 
 
 def test_task_overrides_inline_and_file(tmp_path):
@@ -220,7 +358,7 @@ def test_task_overrides_inline_and_file(tmp_path):
                     "description": "Ground cable pull",
                     "max_wind_ms": 20,
                     "max_gust_ms": 25,
-                    "max_precip_mm": 5,
+                    "max_precip_mm_per_h": 5,
                     "min_hours": 3,
                 }
             }
@@ -237,51 +375,35 @@ def test_task_overrides_reject_bad_input():
     assert config.load_tasks("") == config.DEFAULT_TASKS
 
 
-def test_empty_optional_paths_use_bundled_samples(monkeypatch):
-    for var in ("SITES_JSON", "SAMPLE_FORECAST_JSON", "TASK_LIMITS_JSON"):
+def test_empty_optional_paths_use_bundled_files(monkeypatch):
+    for var in ("SITES_JSON", "FORECAST_SNAPSHOT_JSON", "TASK_LIMITS_JSON"):
         monkeypatch.setenv(var, "")
     assert len(forecast.load_sites()) == 3
-    assert "Open-Meteo" in forecast.SampleSource().description
+    assert "AIFS ENS" in forecast.SnapshotSource().description
     assert config.load_tasks() == config.DEFAULT_TASKS
 
 
+@pytest.mark.usefixtures("clean_source")
 @pytest.mark.parametrize(
-    ("var", "read"),
+    ("var", "kind", "read"),
     [
-        ("WEATHERNEXT_SOURCE", forecast.get_source),
-        ("GUST_FACTOR", config.gust_factor),
-        ("SHEAR_EXPONENT", config.shear_exponent),
+        ("FORECAST_SOURCE", "", forecast.get_source),
+        ("AIFS_ENS_ICECHUNK_URL", "aifs_ens", forecast.get_source),
+        ("WEATHERNEXT_ZARR_URI", "weathernext_3", forecast.get_source),
+        ("GUST_FACTOR", "snapshot", config.gust_factor),
+        ("SHEAR_EXPONENT", "snapshot", config.shear_exponent),
     ],
 )
-def test_required_settings_fail_clearly_when_missing(monkeypatch, var, read):
+def test_required_settings_fail_clearly_when_missing(
+    monkeypatch, var, kind, read
+):
+    monkeypatch.setenv("FORECAST_SOURCE", kind)
     monkeypatch.setenv(var, "")
-    forecast.get_source.cache_clear()
-    try:
-        with pytest.raises(RuntimeError, match=var):
-            read()
-    finally:
-        forecast.get_source.cache_clear()
+    with pytest.raises(RuntimeError, match=var):
+        read()
 
 
 def test_settings_come_from_env_example():
     # tests/conftest.py loads .env.example, the single source of defaults.
     assert config.gust_factor() == 1.35
     assert config.shear_exponent() == 0.14
-
-
-def test_bigquery_source_requires_table(monkeypatch):
-    monkeypatch.setenv("WEATHERNEXT_SOURCE", "bigquery")
-    monkeypatch.setenv("WEATHERNEXT_BQ_TABLE", "")
-    forecast.get_source.cache_clear()
-    try:
-        with pytest.raises(RuntimeError, match="WEATHERNEXT_BQ_TABLE"):
-            forecast.get_source()
-    finally:
-        forecast.get_source.cache_clear()
-
-
-def test_readme_shows_the_exact_bigquery_sql():
-    readme = (Path(__file__).resolve().parents[2] / "README.md").read_text()
-    table = "YOUR_PROJECT.YOUR_DATASET.weathernext_3_0_0_0p1deg"
-    assert forecast.build_latest_init_query(table) in readme
-    assert forecast.build_forecast_query(table) in readme

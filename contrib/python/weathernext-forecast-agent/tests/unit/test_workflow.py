@@ -44,7 +44,7 @@ class FakeContext:
 
 @pytest.fixture(autouse=True)
 def sample_source(monkeypatch):
-    monkeypatch.setenv("WEATHERNEXT_SOURCE", "sample")
+    monkeypatch.setenv("FORECAST_SOURCE", "snapshot")
     monkeypatch.delenv("TASK_LIMITS_JSON", raising=False)
     forecast.get_source.cache_clear()
     yield
@@ -147,25 +147,26 @@ def test_load_forecasts_routes_error(monkeypatch):
 
 
 def test_plan_go_for_main_component_lift():
-    # Bundled snapshot: ECMWF ENS run 2026-10-19 06 UTC, 51 members.
+    # Bundled snapshot: ECMWF AIFS ENS run 2026-10-20 06 UTC, 51 members.
     route, out = run_plan(plan_request())
     assert route == agent.ROUTE_GO
     got = {a["site_id"]: a for a in out["assignments"]}
-    assert set(got) == set(ALL_SITES)
-    assert out["unassigned_sites"] == {}
     # Thursday 22 Oct is the best lift day at every site, but two crews cannot
-    # cover three farms that day: one site falls back to Wednesday.
-    thursday = [
-        a for a in got.values() if a["start_local"].startswith("2026-10-22")
-    ]
-    assert len(thursday) == 2
-    assert all(
-        a["probability_safe"] == 0.98 and a["members_safe"] == 50
-        for a in thursday
+    # cover three farms that day and no other day reaches the 0.8 threshold.
+    assert set(got) == {"whitelee", "black-law"}
+    for a in got.values():
+        assert a["start_local"] == "2026-10-22T07:00:00+01:00"
+        assert a["probability_safe"] == 1.0 and a["members_safe"] == 51
+        assert a["method"] == "ensemble_all_steps"
+        assert a["step_hours"] == 6
+    assert out["unassigned_sites"] == {
+        "clyde": "no crew free for any qualifying window"
+    }
+    assert out["expected_completed_jobs"] == 2.0
+    assert out["forecasts"]["whitelee"]["members"] == 51
+    assert out["forecasts"]["whitelee"]["init_time"] == (
+        "2026-10-20T06:00:00+00:00"
     )
-    assert got["whitelee"]["start_local"] == "2026-10-21T08:00:00+01:00"
-    assert got["whitelee"]["members_safe"] == 43
-    assert out["expected_completed_jobs"] == 2.8
     for windows in out["best_windows_by_site"].values():
         assert len(windows) <= agent.SHOWN_WINDOWS_PER_SITE
         assert all("start_local" in w for w in windows)
@@ -173,24 +174,24 @@ def test_plan_go_for_main_component_lift():
 
 
 def test_plan_no_go_and_alternatives():
-    # A lift at Whitelee tomorrow only (Tue 20 Oct): best window is 64.7%.
+    # A lift at Whitelee in the next 48 h only (Tue 20 - Wed 21 Oct).
     route, out = run_plan(
-        plan_request(site_ids=["whitelee"], crews=1, horizon_hours=24)
+        plan_request(site_ids=["whitelee"], crews=1, horizon_hours=48)
     )
     assert route == agent.ROUTE_NO_GO
     assert out["assignments"] == []
     best = out["best_windows_by_site"]["whitelee"][0]
-    assert best["probability_safe"] == 0.647
-    assert (
-        best["fail_fraction_precipitation"] > best["fail_fraction_wind_or_gust"]
-    )
+    assert best["start_local"] == "2026-10-21T07:00:00+01:00"
+    assert (best["probability_safe"], best["members_safe"]) == (0.667, 34)
+    rain = best["precipitation_exceedance"]["prob_any_step"]
+    assert rain > best["wind_exceedance"]["prob_any_step"]
     alt = agent.suggest_alternatives(out).output
     tasks = {a["task_type"]: a for a in alt["alternative_tasks"]}
     assert set(tasks) == {"blade_repair", "nacelle_service"}
     assert tasks["nacelle_service"]["probability_safe"] == 1.0
     outlook = alt["daily_outlook_by_site"]["whitelee"]
-    assert len(outlook) == 1
-    assert all(b["hours"] <= agent.OUTLOOK_BLOCK_HOURS for b in outlook)
+    assert [d["date"] for d in outlook] == ["2026-10-21"]
+    assert outlook[0]["prob_any_step_precip_over_limit"] == 0.647
     json.dumps(alt)
 
 
@@ -271,7 +272,7 @@ def test_workflow_go_route(monkeypatch):
 
 
 def test_workflow_no_go_route(monkeypatch):
-    request = plan_request(site_ids=["whitelee"], crews=1, horizon_hours=24)
+    request = plan_request(site_ids=["whitelee"], crews=1, horizon_hours=48)
     nodes, final, calls = _run_workflow(monkeypatch, [request])
     assert calls == ["parse_request", "explain_no_window"]
     assert "suggest_alternatives" in nodes

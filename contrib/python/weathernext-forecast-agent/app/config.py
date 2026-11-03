@@ -40,8 +40,10 @@ class TaskLimits:
     max_wind_ms: float
     # Highest acceptable gust at hub height, m/s (estimated, see GUST_FACTOR).
     max_gust_ms: float
-    # Highest acceptable 1-hour precipitation, mm.
-    max_precip_mm: float
+    # Highest acceptable precipitation, in mm per hour. Compared with each
+    # forecast step's rate (mm/h) or, for accumulations, with the step total
+    # scaled to the step length (for example 0.5 mm/h -> 0.5 mm per 1 h step).
+    max_precip_mm_per_h: float
     # Number of consecutive workable hours the job needs.
     min_hours: int
     # Restrict windows to local working hours [work_start_hour, work_end_hour).
@@ -65,7 +67,7 @@ DEFAULT_TASKS: dict[str, TaskLimits] = {
         ),
         max_wind_ms=10.0,
         max_gust_ms=14.0,
-        max_precip_mm=0.5,
+        max_precip_mm_per_h=0.5,
         min_hours=8,
         go_probability=0.8,
     ),
@@ -76,7 +78,7 @@ DEFAULT_TASKS: dict[str, TaskLimits] = {
         ),
         max_wind_ms=12.0,
         max_gust_ms=15.0,
-        max_precip_mm=0.1,
+        max_precip_mm_per_h=0.1,
         min_hours=6,
         go_probability=0.7,
     ),
@@ -87,21 +89,23 @@ DEFAULT_TASKS: dict[str, TaskLimits] = {
         ),
         max_wind_ms=18.0,
         max_gust_ms=22.0,
-        max_precip_mm=2.0,
+        max_precip_mm_per_h=2.0,
         min_hours=4,
         go_probability=0.7,
     ),
 }
 
-# WeatherNext 3 does not publish a gust variable, so gusts are estimated from
-# the hub-height mean wind with a gust factor (ratio of 3-second gust to
-# hourly mean). Typical values are 1.2-1.5; use one derived from your SCADA
-# or met-mast data. Set with GUST_FACTOR (default in .env.example).
+# Neither the WeatherNext 3 ensemble store nor ECMWF AIFS ENS on dynamical.org
+# publishes a wind gust variable, so gusts are estimated from the hub-height
+# mean wind with a gust factor (ratio of 3-second gust to the mean). Typical
+# values are 1.2-1.5; use one derived from your SCADA or met-mast data. Set
+# with GUST_FACTOR (default in .env.example). If your dataset has a gust
+# variable, use it instead of this estimate.
 #
-# A power-law shear exponent moves WeatherNext's 100 m wind speed to each
-# site's hub height: v_hub = v_100 * (hub_height / 100) ** alpha. Set with
+# A power-law shear exponent moves the dataset's wind speed (100 m in both
+# datasets; the height is recorded on the variable) to each site's hub
+# height: v_hub = v_ref * (hub_height / ref_height) ** alpha. Set with
 # SHEAR_EXPONENT (default in .env.example).
-REFERENCE_HEIGHT_M = 100.0
 
 
 def require_env(name: str, value: str | None) -> str:

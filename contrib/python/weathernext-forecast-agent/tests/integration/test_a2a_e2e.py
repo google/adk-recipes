@@ -133,9 +133,10 @@ def test_message_send_returns_completed_plan(server: None) -> None:
         for artifact in result.get("artifacts", [])
         for part in artifact["parts"]
     )
-    # Snapshot: best 8-hour lift window at Whitelee is Thu 22 Oct, 98% (50/51).
-    assert re.search(r"98(\.0)?\s?%", answer), answer
-    assert "50/51" in answer.replace(" ", "") or "50 of 51" in answer
+    # Snapshot (AIFS ENS 2026-10-20 06 UTC): best 8-hour lift window at
+    # Whitelee is Thu 22 Oct 07:00-15:00 BST, 100% (51/51 members).
+    assert re.search(r"100(\.0)?\s?%", answer), answer
+    assert "51/51" in answer.replace(" ", "") or "51 of 51" in answer
     assert "decision support" in answer.lower()
 
 
@@ -174,8 +175,10 @@ def test_http_json_card_and_message_send(server: None) -> None:
         for artifact in task.get("artifacts", [])
         for part in artifact["parts"]
     )
-    # Snapshot: best 6-hour blade-repair window at Clyde is Thu 22 Oct, 92.2%.
-    assert "92.2" in answer, answer
+    # Snapshot: best 6-hour blade-repair window at Clyde is Thu 22 Oct
+    # 13:00-19:00 BST, 100% (51/51); the morning window is 80.4%.
+    assert re.search(r"100(\.0)?\s?%", answer), answer
+    assert "13:00" in answer, answer
     assert "decision support" in answer.lower()
 
 

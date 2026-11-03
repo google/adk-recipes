@@ -4,13 +4,18 @@ version = "0.1.0"
 requires-python = ">=3.11,<3.14"
 dependencies = [
     "google-adk[gcp,otel-gcp]>=2.13.0,<3.0.0",
-    "google-cloud-bigquery>=3.25.0,<4.0.0",
     "python-dotenv>=1.0.0",
     "a2a-sdk[http-server]>=1.0,<2",
     "aiohttp>=3.13.4",
     "gcsfs>=2024.11.0",
     "opentelemetry-resourcedetector-gcp<=1.12.0a0",
     "google-cloud-aiplatform[agent-engines]>=1.156.0,<3.0.0",
+    "xarray>=2025.6.0,<2027",
+    "zarr>=3.1.0,<4",
+    "numpy>=2.0,<3",
+    "obstore>=0.8.0,<1",
+    "tzdata>=2025.2",
+    "icechunk>=2.0.0,<3 ; python_full_version >= '3.12'",
 ]
 
 [dependency-groups]

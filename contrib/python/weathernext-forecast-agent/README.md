@@ -7,19 +7,19 @@ Wind-farm maintenance is limited by weather. A main-component crane lift
 (blade, hub or gearbox exchange) needs a long, calm, dry daylight window; blade
 repairs need dry air for resin to cure; even routine nacelle service has a wind
 limit for climbing. Mobilizing a large crane and crew for a window that does not
-hold is expensive, and a day that "looks fine" on the median forecast can
-still have roughly one ensemble member in six breaking the lift limit (see
-Wednesday at Whitelee below).
+hold is expensive, and a day that "looks fine" on the ensemble median can still
+fail in a third of the members (see Wednesday at Whitelee below).
 
 This recipe gives an operations planner an ADK 2.0 agent that answers
 questions like *"Which day this week can the crane lift at Whitelee go ahead,
-and how sure are we?"* from an **ensemble forecast**: it counts how many
-ensemble members keep every hour of the job within the task's wind, gust and
-rain limits. The production data source is
-[WeatherNext](https://developers.google.com/weathernext) on BigQuery; out of
-the box the recipe runs on a bundled **real ECMWF ensemble snapshot** so it
-works without any cloud access. The model never computes weather numbers
-itself.
+and how sure are we?"* from **raw ensemble members**: it counts the members in
+which every step of the job stays within the task's wind, gust and rain limits.
+The production data source is the
+[WeatherNext 3](https://developers.google.com/weathernext) 64-member ensemble
+on Google Cloud Storage; with no credentials at all it runs on **ECMWF AIFS
+ENS** (51 members) from [dynamical.org](https://dynamical.org/catalog/ecmwf-aifs-ens-forecast/),
+either live or from a bundled real snapshot. Both go through the same analysis
+code. The model never computes weather numbers itself.
 
 ## The decision this recipe makes
 
@@ -30,41 +30,119 @@ itself.
 > members. The same contractor also has to place **two crane crews across
 > three farms** (Whitelee, Clyde, Black Law) that week.
 
-The answer from the bundled forecast (ECMWF IFS ensemble, run 2026-10-19
-06:00 UTC, 51 members):
+The answer from the bundled forecast (ECMWF AIFS ENS, run 2026-10-20 06:00
+UTC, 51 members, 6-hourly steps):
 
-| Whitelee, 8-hour lift window (BST) | P(safe) | Members safe | What fails the rest |
+| Whitelee, 8-hour lift window (BST) | P(safe) | Members safe | Exceedance at any step |
 | --- | --- | --- | --- |
-| **Thu 22 Oct 08:00–16:00 — go** | **98.0%** | 50/51 | rain (2.0%) |
-| Wed 21 Oct 08:00–16:00 — backup | 84.3% | 43/51 | rain 13.7%, wind 2.0% |
-| Tue 20 Oct 07:00–15:00 — no-go | 64.7% | 33/51 | rain 35.3% |
+| **Thu 22 Oct 07:00–15:00 — go** | **100%** | 51/51 | none |
+| Wed 21 Oct 07:00–15:00 — no-go | 66.7% | 34/51 | rain 33.3%, wind 2.0% |
+| Tue 20 Oct 07:00–15:00 — no-go | 37.3% | 19/51 | rain 62.7% |
+| Fri 23 Oct 07:00–15:00 — no-go | 21.6% | 11/51 | rain 78.4%, wind 23.5% |
+| Sat 24 Oct 07:00–15:00 — no-go | 3.9% | 2/51 | rain 96.1%, wind 80.4% |
 
-Saturday is out: the daily ensemble spread at Whitelee goes from a p90
-hub-height wind of 11.9 m/s on Thursday to 19.4 m/s on Saturday.
+The weekend is out: across members, the daily maximum hub-height wind at
+Whitelee rises from a p90 of 7.0 m/s on Thursday to 16.2 m/s on Saturday,
+with 82.4% of members above the lift limit at some step.
 
-For the two-crew question, Thursday is also the best lift day at Clyde and
-Black Law (98.0%, 50/51 each), and two crews cannot cover three farms in one
-day. The planner sends crew 2 to Black Law on Thursday, and crew 1 to
-Whitelee on Wednesday (84.3%) and then Clyde on Thursday (98.0%), keeping a
-12-hour travel buffer: expected completed lifts 2.8 of 3. The answer names
-Whitelee's Thursday window (98.0%) as the backup if crew 1's Wednesday lift
-slips.
+For the two-crew question, Thursday is also the best lift day at Black Law
+(100%, 51/51) and Clyde (98.0%, 50/51), and two crews cannot cover three farms
+in one day. No other day reaches the 80% threshold at any farm (the next best
+is Clyde on Wednesday, 68.6%), so the planner sends crew 1 to Black Law and
+crew 2 to Whitelee on Thursday and leaves Clyde unassigned ("no crew free for
+any qualifying window"): expected completed lifts 2.0. If the lift must happen
+in the next two days, there is no go window: the best is Wednesday at 66.7%,
+and the agent offers nacelle service (100%, 51/51) as work the crew can do
+instead.
 
 ### Sites
 
-| Site | Coordinates (WGS 84) | Hub height used | Source |
-| --- | --- | --- | --- |
-| Whitelee Wind Farm, East Renfrewshire | 55.6728, −4.2856 | 65 m | [Wikipedia](https://en.wikipedia.org/wiki/Whitelee_Wind_Farm) (coordinates, hub height) |
-| Clyde Wind Farm, South Lanarkshire | 55.4672, −3.6544 | 80 m (assumed) | [Wikipedia](https://en.wikipedia.org/wiki/Clyde_Wind_Farm) (coordinates) |
-| Black Law Wind Farm, South Lanarkshire | 55.7669, −3.7389 | 80 m (assumed) | [Wikipedia](https://en.wikipedia.org/wiki/Black_Law_Wind_Farm) (coordinates) |
+| Site | Coordinates (WGS 84) | AIFS ENS grid point | Hub height used | Source |
+| --- | --- | --- | --- | --- |
+| Whitelee Wind Farm, East Renfrewshire | 55.6728, −4.2856 | 55.75, −4.25 | 65 m | [Wikipedia](https://en.wikipedia.org/wiki/Whitelee_Wind_Farm) (coordinates, hub height) |
+| Clyde Wind Farm, South Lanarkshire | 55.4672, −3.6544 | 55.50, −3.75 | 80 m (assumed) | [Wikipedia](https://en.wikipedia.org/wiki/Clyde_Wind_Farm) (coordinates) |
+| Black Law Wind Farm, South Lanarkshire | 55.7669, −3.7389 | 55.75, −3.75 | 80 m (assumed) | [Wikipedia](https://en.wikipedia.org/wiki/Black_Law_Wind_Farm) (coordinates) |
 
 Coordinates were retrieved on 2026-10-19. Hub height is published in the
 cited source for Whitelee only; replace the assumed values with the
-operator's. All three sites are on British Summer Time (UTC+1) for the whole
-window (BST ends on 25 October). The recipe has no affiliation with the
-owners or operators of these farms.
+operator's. Sites carry an IANA time zone (`Europe/London`), so working hours
+and calendar days follow BST/GMT changes (BST ended on 25 October 2026). The
+recipe has no affiliation with the owners or operators of these farms.
 
-## Architecture: an ADK 2.0 graph workflow
+## Architecture
+
+### Data: one dataset contract, three sources
+
+The design follows the WeatherNext team's forecast dataset contract and
+ensemble-analysis semantics. Each source is a small adapter in
+[`app/forecast.py`](app/forecast.py) that returns an in-memory xarray Dataset
+of **raw members** for one site; [`app/contract.py`](app/contract.py) checks
+the contract and [`app/analysis.py`](app/analysis.py) only ever reads it
+through the contract:
+
+- variables are found by CF `standard_name` (`wind_speed`,
+  `precipitation_flux` or `lwe_thickness_of_precipitation_amount`), never by
+  name, and converted to m/s, mm/h or mm from their `units`; accumulations
+  are never turned into rates or the other way round;
+- each variable has a `step_type` (`instant`, `avg`, `accum`, ...) and, for
+  accumulations, a `step_period`; `avg` intervals come from the `lead_time`
+  spacing, which may be uneven;
+- members sit on the dimension whose coordinate has `standard_name:
+  realization`; variables tagged with a `statistic` (mean, p90, ...) are
+  rejected, because window probabilities need members;
+- valid time is `init_time + lead_time`; latitude and longitude are found by
+  `standard_name`.
+
+| `FORECAST_SOURCE` | Dataset | Access | Steps | Wind | Precipitation |
+| --- | --- | --- | --- | --- | --- |
+| `weathernext_3` | WeatherNext 3, 64 members (`sample`) | Allowlisted Google account, ADC | hourly | 100 m speed derived per member from `u`/`v_component_of_wind_100m` | `imerg_tp_1hr`: 1-hour accumulation (m), `accum`, `PT1H` |
+| `aifs_ens` | ECMWF AIFS ENS, 51 members (`ensemble_member`) | Public, anonymous Icechunk over HTTPS | 6-hourly | 100 m speed derived per member from `wind_u_100m`/`wind_v_100m` | `precipitation_surface`: mean rate over the previous step (kg m-2 s-1), `avg` |
+| `snapshot` (default) | Bundled point subset of AIFS ENS | none | 6-hourly | as `aifs_ens` | as `aifs_ens` |
+
+Neither dataset publishes a **wind gust** variable, so gusts are estimated as
+`GUST_FACTOR` (default 1.35) times the hub-height mean wind, and every answer
+labels them as an estimate. Wind is moved from the dataset's 100 m (recorded on
+the variable) to each site's hub height with a power-law shear profile
+(`SHEAR_EXPONENT`, default 0.14).
+
+### Probabilities
+
+The window probability uses the semantics and terms of the WeatherNext
+ensemble-analysis skill:
+
+- a **step condition** ("hub wind ≤ 10 m/s") is evaluated for every member at
+  every step; a missing value never satisfies it, and steps missing for all
+  members are skipped;
+- the **joint condition** "hub wind ≤ limit AND precipitation ≤ limit" is
+  ANDed within each member, so the hour-to-hour and wind-to-rain correlation
+  of each member is kept;
+- **P(safe) = `prob_all_steps`** of the joint condition: the fraction of
+  members in which it holds at *every* step of the window (temporal
+  persistence);
+- for each limit, the answer also reports the exceedance
+  **`prob_any_step`** and the **`peak_step_prob`** (the highest single-step
+  probability) with its local valid time.
+
+Which steps belong to a window depends on step semantics: instantaneous wind
+uses the steps that bracket the window (the last step at or before the start
+through the first step at or after the end), and interval variables use every
+step whose interval overlaps it. With hourly WeatherNext 3 data that is every
+hour of the job. With 6-hourly AIFS ENS an 8-hour window rests on three wind
+samples and two 6-hour rain means, and the 6-hour **mean** rain rate is
+compared with the hourly limit; windows report this as `step_hours: 6`, and the
+explanation says so.
+
+When no window qualifies, the agent adds a **daily outlook** per site in the
+style of the ensemble-analysis `--group-by-day` output: complete local days
+only (coverage of 23–25 hours around DST changes), interval steps ending at
+local 00:00 counted on the previous day, each member's daily maximum hub wind
+and rain total summarized as p10/p50/p90, and the probability of exceeding the
+task's limits at any step. Following the WeatherNext daily-summary rules, a
+note flags that maxima of 6-hourly samples understate the true peak, and rain
+totals are left out when 6-hour intervals do not line up with local midnight
+(as in BST).
+
+### The ADK 2.0 graph workflow
 
 The root of the app is an ADK 2.0 `Workflow`
 ([`app/agent.py`](app/agent.py)). Deterministic steps are **function nodes**;
@@ -90,28 +168,25 @@ flowchart TD
 | `parse_request` | LLM (`single_turn`, Pydantic `output_schema`) | Turns the planner's message (and follow-ups) into `PlanRequest`: task type, sites, crews, horizon, hours |
 | `check_request` | function, routes | Validates ids and numbers; sends errors back to the parser once (`retry`, bounded by `PARSE_RETRY_LIMIT`), else `plan` or `reply` |
 | `reply_without_plan` | function | Deterministic help text: sites, task limits, example questions, or the validation/data error |
-| `load_forecasts` | function, routes | Loads the ensemble for every site (snapshot or BigQuery); `error` if data access fails |
-| `find_windows` | function | Scores every allowed window per site with [`analysis.py`](app/analysis.py): P(all hours within limits) across ensemble members |
+| `load_forecasts` | function, routes | Loads every site's members and checks the dataset contract; `error` if access fails (for example not on the WeatherNext allowlist) |
+| `find_windows` | function | Scores every allowed window per site: `prob_all_steps` of the joint condition, exceedance and peak-step probabilities |
 | `plan_crews` | function, routes | Assigns crews (one job per site, travel buffer, go threshold); `go` if any crew is assigned, else `no_go` |
-| `suggest_alternatives` | function | For `no_go`: best window for every other task type, plus a daily p10/p50/p90 outlook per site |
-| `explain_plan` / `explain_no_window` | LLM (`single_turn`, `include_contents="none"`) | Narrate only the numbers in their JSON input, with local times, members in support and the main risk |
+| `suggest_alternatives` | function | For `no_go`: best window for every other task type, plus the daily outlook per site |
+| `explain_plan` / `explain_no_window` | LLM (`single_turn`, `include_contents="none"`) | Narrate only the numbers in their JSON input, with local times, members in support, the main risk and the dataset attribution |
 
 Task limits live in config ([`app/config.py`](app/config.py)), overridable with
 `TASK_LIMITS_JSON` so you can paste in the limits from your own lift plans and
 OEM manuals:
 
-| Task type | Hub wind | Gust | Rain (1 h) | Hours | Go threshold |
+| Task type | Hub wind | Gust (estimated) | Rain | Hours | Go threshold |
 | --- | --- | --- | --- | --- | --- |
-| `main_component_lift` | ≤ 10 m/s | ≤ 14 m/s | ≤ 0.5 mm | 8, daylight | 80% |
-| `blade_repair` | ≤ 12 m/s | ≤ 15 m/s | ≤ 0.1 mm | 6, daylight | 70% |
-| `nacelle_service` | ≤ 18 m/s | ≤ 22 m/s | ≤ 2.0 mm | 4, daylight | 70% |
+| `main_component_lift` | ≤ 10 m/s | ≤ 14 m/s | ≤ 0.5 mm/h | 8, daylight | 80% |
+| `blade_repair` | ≤ 12 m/s | ≤ 15 m/s | ≤ 0.1 mm/h | 6, daylight | 70% |
+| `nacelle_service` | ≤ 18 m/s | ≤ 22 m/s | ≤ 2.0 mm/h | 4, daylight | 70% |
 
 These are illustrative planning values, not OEM or regulatory limits.
-"Daylight" means 07:00–19:00 site local time. Wind is moved from 100 m to
-each site's hub height with a power-law shear profile (`SHEAR_EXPONENT`,
-default 0.14), and gusts are estimated as `GUST_FACTOR` (default 1.35) times
-the hub-height mean wind, because WeatherNext does not publish a gust
-variable.
+"Daylight" means 07:00–19:00 site local time. The rain limit is compared with
+each step's rate, or with a 1-hour accumulation as mm per hour.
 
 There is deliberately **no human-in-the-loop `RequestInput` step**: the
 workflow only recommends, it never books crews or changes anything, and a
@@ -121,25 +196,29 @@ site (see [Safety and limitations](#safety-and-limitations)).
 
 ### Example run
 
-Live run on 2026-10-19 with `MODEL_NAME=gemini-3.7-flash` on the bundled
-snapshot. Prompt: *"We need to swap a damaged blade at Whitelee this week
-(Tue 20 to Sat 24 October). Which day can the main crane lift go ahead, and
-how sure are you?"*
+Live run on 2026-11-03 with `MODEL_NAME=gemini-3.7-flash` on the bundled
+AIFS ENS snapshot, three turns in one session:
 
-- Trace: `parse_request` → `check_request` (`plan`) → `load_forecasts`
-  (`ok`) → `find_windows` → `plan_crews` (`go`) → `explain_plan`; 2 model
-  calls, 19.4 s.
-- Answer: crew 1 to Whitelee on **Thursday 22 Oct 08:00–16:00 BST, 98%
-  (50/51 members)**, main residual risk rain (fail fraction 0.02); backup
-  Wednesday 21 Oct 08:00–16:00, 84.3% (43/51), rain fail fraction 0.137;
-  forecast run and source named; decision-support line at the end.
-
-The two-crew follow-up (*"We have 2 crane crews for blade exchanges at
-Whitelee, Clyde and Black Law this week. Which farm when?"*) took the same
-route in 21.4 s and returned the plan in the table above (expected completed
-jobs 2.8). A request for Tuesday only takes the `no_go` route (best window
-64.7%) and offers nacelle service (100%, 51/51) as work the crew can do
-instead; that path is covered by the unit tests.
+1. *"We need to swap a damaged blade at Whitelee this week (Tue 20 to Sat 24
+   October). Which day can the main crane lift go ahead, and how sure are
+   you?"* Trace: `parse_request` → `check_request` (`plan`) →
+   `load_forecasts` (`ok`) → `find_windows` → `plan_crews` (`go`) →
+   `explain_plan`; 2 model calls, 9.2 s. Answer: crew 1 to Whitelee on
+   **Thursday 22 Oct 07:00–15:00, 100% (51 of 51 members)**, no member
+   exceeding either limit; backup Wednesday 07:00–15:00 at 66.7% (34 of 51),
+   where rain exceeds the limit at some step in 33.3% of members (peak 21.6%
+   for 13:00–19:00); the 6-hour step, the estimated gusts, the run and the
+   dynamical.org attribution are stated; decision-support line at the end.
+2. *"We have 2 crane crews for blade exchanges at Whitelee, Clyde and Black
+   Law this week. Which farm when?"* Same route, 20.1 s: Black Law and
+   Whitelee on Thursday (100% each), Clyde unassigned because no crew is free
+   for its Thursday window (98%, 50 of 51).
+3. *"What if the Whitelee lift has to happen in the next two days?"* Route
+   `plan_crews` (`no_go`) → `suggest_alternatives` → `explain_no_window`,
+   17.9 s: no go window (best Wednesday, 66.7%), do not proceed; nacelle
+   service on Tuesday 07:00–11:00 (100%) as alternative work; the daily
+   outlook shows rain over the limit at some step in 64.7% of members on
+   Wednesday.
 
 ## What you will learn
 
@@ -147,11 +226,12 @@ instead; that path is covered by the unit tests.
   `single_turn` LLM nodes with a Pydantic `output_schema`, conditional routes
   (`Event(route=...)` with dict edges) and a bounded retry loop back to the
   parser.
+- Reading **WeatherNext 3 ensemble members from Zarr** on Cloud Storage, and a
+  public ensemble (ECMWF AIFS ENS) through the same **dataset contract**, so
+  the agent's analysis never depends on one dataset's variable names.
 - Grounding an agent in **probabilistic data**: probabilities come from
-  counting ensemble members, so the agent can say "50 of 51 members" instead
-  of guessing.
-- Querying **WeatherNext on BigQuery** with a parameterized, partition-pruned
-  query, and handling its precomputed quantiles honestly.
+  counting members over the whole window, so the agent can say "34 of 51
+  members" instead of guessing.
 - Serving the agent over **A2A JSON-RPC and HTTP+JSON**, the bindings Gemini
   Enterprise and the Gemini agent (via Agent Registry) use.
 
@@ -160,7 +240,8 @@ instead; that path is covered by the unit tests.
 Before you begin, ensure you have:
 - **uv**: Python package manager - [Install](https://docs.astral.sh/uv/getting-started/installation/)
 - Access to Gemini through Vertex AI or a Google AI Studio API key.
-- Optional: WeatherNext data access and a Google Cloud project with BigQuery
+- Optional: Python 3.12+ for live AIFS ENS (`icechunk` 2 needs it; the
+  container image uses 3.12), and WeatherNext data access for WeatherNext 3
   (see [Data access](#data-access)).
 
 ## Setup
@@ -183,17 +264,17 @@ Before you begin, ensure you have:
    | --- | --- | --- |
    | `MODEL_NAME` | `gemini-3.7-flash` | Model for the parse and explain nodes |
    | `PARSE_RETRY_LIMIT` | `1` | Times an invalid parsed request goes back to the parser |
-   | `WEATHERNEXT_SOURCE` | `sample` | `sample` (bundled snapshot) or `bigquery` |
-   | `WEATHERNEXT_BQ_TABLE` | — | `project.dataset.weathernext_3_0_0_0p1deg` |
-   | `WEATHERNEXT_BQ_PROJECT` | client default | Project billed for queries |
-   | `WEATHERNEXT_INIT_TIME` | latest 6-hourly init | Pin a forecast run |
-   | `WEATHERNEXT_MAX_HOURS` | `120` | Lead hours to load (≤ 360) |
-   | `WEATHERNEXT_BQ_TIMEOUT_SECONDS` | `60` | BigQuery query timeout (client and server) |
+   | `FORECAST_SOURCE` | `snapshot` | `snapshot`, `aifs_ens` or `weathernext_3` |
+   | `FORECAST_INIT_TIME` | newest complete 6-hourly init | Pin a forecast run (live sources) |
+   | `FORECAST_MAX_LEAD_HOURS` | `168` | Lead hours to load (≤ 360) |
+   | `AIFS_ENS_ICECHUNK_URL` | dynamical.org store | ECMWF AIFS ENS Icechunk repository |
+   | `WEATHERNEXT_ZARR_URI` | public full-ensemble folder | WeatherNext 3 ensemble Zarr (folder of per-init stores, or one `.zarr`) |
+   | `WEATHERNEXT_BILLING_PROJECT` | — | Project billed for Requester Pays reads |
    | `SITES_JSON` | bundled `app/data/sites.json` | Your wind farms |
-   | `SAMPLE_FORECAST_JSON` | bundled snapshot | Your own member-level ensemble |
+   | `FORECAST_SNAPSHOT_JSON` | bundled snapshot | Your own point snapshot |
    | `TASK_LIMITS_JSON` | — | Override or add task limits |
    | `GUST_FACTOR` | `1.35` | Gust / hub-height mean wind |
-   | `SHEAR_EXPONENT` | `0.14` | 100 m → hub height wind shear |
+   | `SHEAR_EXPONENT` | `0.14` | Dataset height → hub height wind shear |
 
 ## Run
 
@@ -214,131 +295,110 @@ uv run uvicorn app.fast_api_app:app --reload
 
 ## Data access
 
-### Production: WeatherNext 3 on BigQuery
+### Production: WeatherNext 3 ensemble members on Cloud Storage
 
-WeatherNext 3 forecasts are published on Google Cloud Storage (Zarr), Earth
-Engine and BigQuery
-([quick start](https://developers.google.com/weathernext/guides/access-forecast)).
-Access is by request: submit the
-[WeatherNext Data Request form](https://docs.google.com/forms/d/e/1FAIpQLSeCf1JY8G78UDWzbm0ly9kJxfSjUIJT5WyMR_HiNqCm-IHIBg/viewform);
-one approval covers all three surfaces. Then subscribe to the
-[WeatherNext 3 BigQuery Analytics Hub listing](https://developers.google.com/weathernext/guides/bigquery),
-which links the tables into a dataset in your project, and set:
+WeatherNext 3 forecasts are published as Zarr on
+[Google Cloud Storage](https://developers.google.com/weathernext/guides/gcs).
+Access is restricted to approved Google accounts and approval is manual:
+submit the
+[WeatherNext Data Request form](https://docs.google.com/forms/d/e/1FAIpQLSeCf1JY8G78UDWzbm0ly9kJxfSjUIJT5WyMR_HiNqCm-IHIBg/viewform)
+(see [Request data access](https://developers.google.com/weathernext/guides/access-forecast#step_1_request_data_access));
+reading fails until it is granted. Then sign in with Application Default
+Credentials and check access before planning:
 
 ```bash
-WEATHERNEXT_SOURCE=bigquery
-WEATHERNEXT_BQ_TABLE=your-project.your_dataset.weathernext_3_0_0_0p1deg
+gcloud auth application-default login
+uv run python -m app.weathernext_access
 ```
 
-The loader ([`app/forecast.py`](app/forecast.py)) runs two queries. First the
-latest 6-hourly run (the runs with a 15-day horizon), unless
-`WEATHERNEXT_INIT_TIME` pins one:
+The check lists one object of `WEATHERNEXT_ZARR_URI` with your credentials
+and tells you what to do on a missing login, an expired login (401), an
+account that is not on the allowlist (403, with the request form) or a
+Requester Pays bucket without `WEATHERNEXT_BILLING_PROJECT`. The
+`weathernext_3` source runs the same check once before its first read and
+stops with that message instead of retrying. Then set:
 
-```sql
-SELECT MAX(init_time) AS init_time
-FROM `YOUR_PROJECT.YOUR_DATASET.weathernext_3_0_0_0p1deg`
-WHERE init_time >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 2 DAY)
-  AND EXTRACT(HOUR FROM init_time AT TIME ZONE 'UTC') IN (0, 6, 12, 18)
+```bash
+FORECAST_SOURCE=weathernext_3
+# The public full-ensemble layout (one store per init) is the default:
+WEATHERNEXT_ZARR_URI=gs://weathernext3_spatial/weathernext_3_0_0/zarr/2026_to_present
+WEATHERNEXT_BILLING_PROJECT=your-project   # the full-ensemble bucket is Requester Pays
 ```
 
-Then, per site, the hourly ensemble statistics of the 0.1° cell that contains
-it. For Whitelee the parameters are `@init_time` = the run above,
-`@lon = -4.2856`, `@lat = 55.6728`, `@max_hours = 120`:
-
-```sql
-SELECT
-  t.init_time AS init_time,
-  f.time AS time,
-  f.hours AS hours,
-  f.wind_speed_100m_p10 AS wind_speed_100m_p10,
-  f.wind_speed_100m_p25 AS wind_speed_100m_p25,
-  f.wind_speed_100m_p50 AS wind_speed_100m_p50,
-  f.wind_speed_100m_p75 AS wind_speed_100m_p75,
-  f.wind_speed_100m_p90 AS wind_speed_100m_p90,
-  f.total_precipitation_1hr_p10 AS total_precipitation_1hr_p10,
-  f.total_precipitation_1hr_p25 AS total_precipitation_1hr_p25,
-  f.total_precipitation_1hr_p50 AS total_precipitation_1hr_p50,
-  f.total_precipitation_1hr_p75 AS total_precipitation_1hr_p75,
-  f.total_precipitation_1hr_p90 AS total_precipitation_1hr_p90
-FROM `YOUR_PROJECT.YOUR_DATASET.weathernext_3_0_0_0p1deg` AS t
-CROSS JOIN UNNEST(t.forecast) AS f
-WHERE t.init_time = @init_time
-  AND ST_INTERSECTS(t.geography_polygon, ST_GEOGPOINT(@lon, @lat))
-  AND f.hours <= @max_hours
-ORDER BY f.time
-```
-
-Both filter on `init_time`, the partition column, so only one run is scanned.
-Values are bound as query parameters; the table id is validated before it is
-put in the SQL. Precipitation is converted from metres to millimetres. Each
-query is bounded by `WEATHERNEXT_BQ_TIMEOUT_SECONDS` (client wait and BigQuery
-job timeout), and results are cached per site per process. A unit test checks
-that this README shows exactly the SQL the loader sends.
-
-> [!IMPORTANT]
-> The BigQuery listing publishes **precomputed ensemble statistics** (mean
-> and percentiles), not individual members. From quantiles alone the
-> probability that a whole multi-hour window is safe cannot be computed
-> exactly, so in this mode the tools report `probability_safe` (the smallest
-> per-hour, per-variable marginal probability: exact only if the conditions
-> are perfectly correlated, otherwise optimistic) **and**
-> `probability_safe_lower_bound` (the Fréchet bound, valid for any
-> correlation). Use member-level data from the
-> [Zarr full-ensemble store](https://developers.google.com/weathernext/guides/gcs)
-> for exact joint probabilities.
-
-The table and column names follow the WeatherNext documentation. The BigQuery
-path is covered by unit tests with a fake client; it has not been run against
-the live listing by the author, who has no WeatherNext access. Check the
-schema of your linked table (`SELECT * FROM ... LIMIT 1`) before relying on it.
+The adapter picks the newest 6-hourly run folder (`YYYYMMDD_HHhr_XX_preds`;
+hourly interim runs only reach 48 hours), opens its `predictions.zarr` with
+[obstore](https://developmentseed.org/obstore/) and Zarr, flattens the
+6-hourly `lead_time` × `lead_subtime` layout into hourly steps, selects the
+nearest 0.1° grid point (`lat_0p1`, `lon_0p1` in 0–360°) and reads the 100 m
+wind components and `imerg_tp_1hr`, the precipitation variable the WeatherNext
+skills recommend. If you have been given a single rechunked `.zarr` store
+instead (all inits on one axis, optionally with a `res_0p1` group, members on
+`sample`), point `WEATHERNEXT_ZARR_URI` at it: the adapter then takes the
+newest processed 6-hourly init.
 
 **Terms**: real-time WeatherNext data (less than 1 hour old and the future) is
 governed by the
 [GDM Real-Time Weather Forecasting Experimental Data Terms of Use](https://storage.googleapis.com/weathernext-public/terms-of-use.pdf);
 historical data (1 hour old or more) is licensed under CC BY 4.0. See
 [Terms of Service and Disclaimers](https://developers.google.com/weathernext/guides/disclaimers).
+WeatherNext forecasts are experimental, provided as-is and are not official
+weather warnings.
 
-### Default: bundled real ensemble snapshot (stand-in for WeatherNext)
+> [!NOTE]
+> The recipe no longer reads WeatherNext from BigQuery. The BigQuery listing
+> publishes precomputed per-hour statistics (mean and percentiles), from
+> which the probability that a whole multi-hour window is safe cannot be
+> computed; the members on Cloud Storage give it exactly. Use
+> [WeatherNext on BigQuery](https://developers.google.com/weathernext/guides/bigquery)
+> for dashboards and summary statistics.
 
-`app/data/forecast_snapshot.json` is a **real** forecast, not synthetic data,
-used as a credential-free stand-in for WeatherNext. It is **not** WeatherNext
-output.
+### No credentials: ECMWF AIFS ENS from dynamical.org
+
+[dynamical.org](https://dynamical.org/catalog/ecmwf-aifs-ens-forecast/) hosts
+an archive of ECMWF AIFS ENS forecasts (51 members, 0.25°, 6-hourly steps to
+15 days, a run every 6 hours since July 2025) as a public Icechunk repository
+on AWS Open Data. `FORECAST_SOURCE=aifs_ens` opens it anonymously over HTTPS
+with `icechunk` and xarray, walks back from the newest run (up to 8) to the
+first one whose last step is complete at the site, and reads the 100 m wind
+components and `precipitation_surface` at the nearest grid point. The store
+already carries the contract's CF attributes.
+
+The **bundled snapshot** (`app/data/forecast_snapshot.json`, 96 kB) is a real
+point subset of that store, read by the same adapter:
 
 | | |
 | --- | --- |
-| Model | ECMWF IFS 0.25° ensemble: control + 50 perturbed members |
-| Run | 2026-10-19 06:00 UTC |
-| Retrieved | 2026-10-19 20:36 UTC from the [Open-Meteo Ensemble API](https://open-meteo.com/en/docs/ensemble-api) (`models=ecmwf_ifs025`) |
-| Window | 2026-10-20 00:00 – 2026-10-24 23:00 UTC, hourly (native 3-hourly, interpolated by Open-Meteo) |
-| Variables | `wind_speed_100m` (m/s), `precipitation` (mm in the preceding hour) |
-| Grid | Nearest 0.25° cell to each site (recorded in the file's `provenance`) |
-| Licence | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/); underlying ECMWF open data CC BY 4.0 |
-| Changes | 2 variables and 3 cells selected, values rounded (0.1 m/s, 0.01 mm), converted to member arrays |
+| Model | ECMWF AIFS ENS, 51 members |
+| Run | 2026-10-20 06:00 UTC, leads 0–168 h every 6 h |
+| Source | `https://dynamical-ecmwf-aifs-ens.s3.us-west-2.amazonaws.com/ecmwf-aifs-ens-forecast/v0.1.0.icechunk` (dataset version 0.1.0), retrieved 2026-11-03 |
+| Variables | `wind_u_100m`, `wind_v_100m` (m s-1, instant), `precipitation_surface` (kg m-2 s-1, mean over the previous 6 h; missing at lead 0) |
+| Grid | Nearest 0.25° grid point to each site (see Sites) |
+| Changes | Point selection only; native names and attributes kept; wind rounded to 0.001 m s-1, precipitation to 4 significant digits |
+| Licence | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) and the [ECMWF Terms of Use](https://apps.ecmwf.int/datasets/licences/general/) |
 
-Weather data by [Open-Meteo.com](https://open-meteo.com/), containing
-[ECMWF open data](https://www.ecmwf.int/en/forecasts/datasets/open-data).
-The same provenance is stored in the file itself. Open-Meteo's free API is for
-non-commercial use; this snapshot is shared as educational content under its
-CC BY 4.0 licence. Fetch your own data under the terms that apply to you.
+ECMWF AIFS ENS forecast data processed by dynamical.org from ECMWF Open Data.
+The same provenance is stored in the file. It is a single past run: do not use
+it to plan real work.
 
-To use your own member-level ensemble (for example WeatherNext's raw 64-member
-Zarr output), write a file in the same format and point `SAMPLE_FORECAST_JSON`
-and `SITES_JSON` at it.
+To use your own sites, point `SITES_JSON` at a file like
+`app/data/sites.json`; with `aifs_ens` or `weathernext_3` the forecasts are
+read for them live.
 
 ## Deploy and use it where your team works
 
-The recipe ships a `Dockerfile` and serves the standard ADK FastAPI app, so
-it runs on Cloud Run:
+The recipe ships a `Dockerfile` (Python 3.12, non-root) and serves the
+standard ADK FastAPI app, so it runs on Cloud Run:
 
 ```bash
 gcloud run deploy weathernext-forecast-agent --source . --region us-central1 \
   --set-env-vars MODEL_NAME=gemini-3.7-flash,GOOGLE_GENAI_USE_VERTEXAI=True
 ```
 
-For live data, add `WEATHERNEXT_SOURCE=bigquery` and `WEATHERNEXT_BQ_TABLE`,
-and grant the service account `roles/bigquery.jobUser` on the billing project
-and `roles/bigquery.dataViewer` on the linked dataset. Set `APP_URL` to the
-service URL so the A2A agent card points at it.
+For live data add `FORECAST_SOURCE=aifs_ens` (no credentials), or
+`FORECAST_SOURCE=weathernext_3` with `WEATHERNEXT_BILLING_PROJECT`, running the
+service as a service account that is on the WeatherNext allowlist and has
+`roles/serviceusage.serviceUsageConsumer` on the billing project. Set
+`APP_URL` to the service URL so the A2A agent card points at it.
 
 ### A2A endpoints
 
@@ -378,20 +438,30 @@ which invokes A2A agents over the **HTTP+JSON** binding (`GET /v1/card`,
 Follow-up questions ("what about blade repair instead?") work because
 `parse_request` reads the conversation.
 
-**What was verified locally** (no GCP project, Agent Registry or Gemini
-Enterprise tenant was available, so registration and the Discovery Engine
-proxy were not exercised): against the local server,
-`GET /a2a/app/v1/card` returns the v0.3 card (`protocolVersion` 0.3,
-`preferredTransport` HTTP+JSON, `url`, name, description, skills), and
-`POST /a2a/app/v1/message:send` with the request body from the Gemini agent
-docs returns `TASK_STATE_COMPLETED` with the workflow's answer as the task
-artifact. A JSON-RPC 0.3 `message/send` round trip and the Agent Engine
-adapter's `async_create_session` also succeed. All of this is covered by
-[`tests/integration/test_a2a_e2e.py`](tests/integration/test_a2a_e2e.py).
-Running a query through the Agent Engine adapter needs Vertex AI credentials,
-because that runtime forces `GOOGLE_GENAI_USE_VERTEXAI=1`. In the A2A task
-history the structured `parse_request` output appears as an intermediate
-agent message; the answer itself is the task artifact.
+## What was verified
+
+No Google Cloud project, WeatherNext access, Agent Registry or Gemini
+Enterprise tenant was available to the author, so:
+
+- **WeatherNext 3 on Cloud Storage was not read.** The `weathernext_3`
+  adapter, the run-folder selection, the `lead_subtime` flattening, the
+  `res_0p1` fallback and the access check are covered by unit tests with fake
+  stores and HTTP responses built from the public documentation; check them
+  against the store you are given before relying on them.
+- **ECMWF AIFS ENS was read live** from dynamical.org on 2026-11-03 with
+  Python 3.12 and `icechunk` 2.3 (store attributes, latest-init walk-back,
+  point extraction); that is how the bundled snapshot was made.
+- Against the local server, `GET /a2a/app/v1/card` returns the v0.3 card
+  (`protocolVersion` 0.3, `preferredTransport` HTTP+JSON, `url`, name,
+  description, skills), and `POST /a2a/app/v1/message:send` with the request
+  body from the Gemini agent docs returns `TASK_STATE_COMPLETED` with the
+  workflow's answer as the task artifact. A JSON-RPC 0.3 `message/send` round
+  trip and the Agent Engine adapter's `async_create_session` also succeed
+  ([`tests/integration/test_a2a_e2e.py`](tests/integration/test_a2a_e2e.py)).
+  Running a query through the Agent Engine adapter needs Vertex AI
+  credentials, because that runtime forces `GOOGLE_GENAI_USE_VERTEXAI=1`. In
+  the A2A task history the structured `parse_request` output appears as an
+  intermediate agent message; the answer itself is the task artifact.
 
 ## Safety and limitations
 
@@ -402,12 +472,13 @@ agent message; the answer itself is the task artifact.
 - **Forecasts are probabilistic.** A 90% window still fails one time in ten.
   Probabilities come from the ensemble and are only as reliable as its
   calibration; re-check with each new forecast run, and against observations
-  on the day. The bundled snapshot is a single past run: do not use it to
-  plan real work.
-- **Not modelled:** lightning and convective risk (WeatherNext 3 does not
-  publish a lightning variable; precipitation is only a proxy), measured
-  gusts (estimated from a gust factor), temperature limits, icing, visibility,
-  and sea state.
+  on the day. With 64 or 51 members, probabilities move in steps of about 2%.
+- **Coarse steps.** With 6-hourly data (AIFS ENS) a window is judged on a few
+  samples and rain on 6-hour means, so short wind or rain peaks between
+  samples are missed. Hourly WeatherNext 3 data is better suited to go/no-go.
+- **Not modelled:** lightning and convective risk (precipitation is only a
+  proxy), forecast gusts (neither dataset publishes them; estimated from a
+  gust factor), temperature limits, icing, visibility and sea state.
 - **Illustrative defaults.** Task limits, gust factor, shear exponent and the
   assumed hub heights are placeholders. Replace them with values from your own
   procedures and site data.
@@ -416,11 +487,14 @@ agent message; the answer itself is the task artifact.
 
 ## Running Tests
 
-The unit tests cover the loaders (including the BigQuery path with a fake
-client and the README SQL), percentile and quantile math, window search edge
-cases, crew planning on the real snapshot, every function node, and the
+The unit tests cover the dataset contract (CF unit conversion, discovery by
+`standard_name`, rejection of reduced statistics), the three adapters with
+fake stores, the access check, the probability semantics (all-steps
+persistence, joint condition, missing values, peak step, bracketing of
+6-hourly steps), the daily outlook (complete days, midnight rule, DST, rain
+alignment), crew planning on the real snapshot, every function node, and the
 workflow routes (`go`, `no_go`, help, bounded retry) with the model replaced
-by a fake. They do not call a model:
+by a fake. They do not call a model or the network:
 
 ```bash
 uv run pytest
@@ -440,4 +514,5 @@ uv run pytest tests/integration
 | ------- | ----------- |
 | `uv run adk run app` | Run the agent in interactive CLI mode |
 | `uv run uvicorn app.fast_api_app:app --reload` | Start the local FastAPI development server |
+| `uv run python -m app.weathernext_access` | Check WeatherNext Cloud Storage access |
 | `uv run pytest` | Run the unit and runnability tests |

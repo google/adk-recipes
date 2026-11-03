@@ -41,14 +41,12 @@ from google.genai import types
 from pydantic import BaseModel, Field
 
 from . import analysis, config
-from .forecast import Forecast, get_source, load_sites
+from .forecast import describe, get_source, load_sites
 
 # Candidate windows per site the crew planner can fall back to when a crew is
 # busy, and windows per site shown to the user.
 PLAN_WINDOWS_PER_SITE = 10
 SHOWN_WINDOWS_PER_SITE = 3
-# Block length of the per-site outlook shown when no window qualifies.
-OUTLOOK_BLOCK_HOURS = 24
 # Retries for transient model API errors.
 MODEL_RETRY_ATTEMPTS = 3
 # Planning defaults used when the user does not say otherwise.
@@ -167,9 +165,10 @@ def reply_without_plan(node_input: dict[str, Any]) -> Event:
     if node_input.get("error"):
         lines.append(f"I could not load the forecast: {node_input['error']}")
     lines += [
-        "I plan wind-turbine maintenance from WeatherNext ensemble forecasts:"
-        " for each window I report the probability that the whole job stays"
-        " within the task's wind, gust and rain limits, and I can assign crews"
+        "I plan wind-turbine maintenance from ensemble forecasts (WeatherNext 3"
+        " or ECMWF AIFS ENS): for each window I report the probability that"
+        " the whole job stays within the task's wind, gust and rain limits"
+        " (the share of ensemble members that do), and I can assign crews"
         " across sites.",
         "",
         "Sites: "
@@ -178,7 +177,7 @@ def reply_without_plan(node_input: dict[str, Any]) -> Event:
         "Tasks: "
         + "; ".join(
             f"{name} (hub wind <= {t.max_wind_ms} m/s, gust <= {t.max_gust_ms}"
-            f" m/s, rain <= {t.max_precip_mm} mm/h, {t.min_hours} h)"
+            f" m/s, rain <= {t.max_precip_mm_per_h} mm/h, {t.min_hours} h)"
             for name, t in tasks.items()
         )
         + ".",
@@ -192,22 +191,25 @@ def reply_without_plan(node_input: dict[str, Any]) -> Event:
     return Event(message=message, output={"reply": text})
 
 
+def _site_forecast(site_id: str) -> analysis.SiteForecast:
+    site = load_sites()[site_id]
+    return analysis.SiteForecast.from_dataset(get_source().get(site), site)
+
+
 def load_forecasts(node_input: dict[str, Any], ctx: Context) -> Event:
-    """Loads the ensemble forecast for every requested site.
+    """Loads and checks the ensemble forecast for every requested site.
 
     Routes `ok` with forecast metadata, or `error` if any site's data cannot
-    be loaded (for example missing BigQuery access).
+    be loaded or breaks the dataset contract (for example missing WeatherNext
+    access).
     """
     sites = load_sites()
     meta: dict[str, Any] = {}
     try:
         for sid in node_input["site_ids"]:
-            forecast = get_source().get(sites[sid])
-            meta[sid] = {
-                "init_time": forecast.init_time.isoformat(),
-                "data_kind": forecast.kind,
-                "timesteps": len(forecast.times),
-            }
+            ds = get_source().get(sites[sid])
+            analysis.SiteForecast.from_dataset(ds, sites[sid])
+            meta[sid] = describe(ds)
     except Exception as e:
         return Event(
             route=ROUTE_ERROR, output={"error": f"{type(e).__name__}: {e}"}
@@ -223,7 +225,9 @@ def load_forecasts(node_input: dict[str, Any], ctx: Context) -> Event:
     )
 
 
-def _range(forecast: Forecast, horizon_hours: int) -> tuple[datetime, datetime]:
+def _range(
+    forecast: analysis.SiteForecast, horizon_hours: int
+) -> tuple[datetime, datetime]:
     # Plan from the first forecast hour (a snapshot may start after its init).
     begin = forecast.times[0]
     return begin, begin + timedelta(hours=horizon_hours)
@@ -232,11 +236,10 @@ def _range(forecast: Forecast, horizon_hours: int) -> tuple[datetime, datetime]:
 def _site_windows(
     site_id: str, task_type: str, horizon_hours: int, min_hours: int, top_k: int
 ) -> list[analysis.Window]:
-    site = load_sites()[site_id]
     task = config.load_tasks()[task_type]
-    forecast = get_source().get(site)
+    forecast = _site_forecast(site_id)
     begin, end = _range(forecast, horizon_hours)
-    evaluator = analysis.Evaluator(forecast, site, task)
+    evaluator = analysis.Evaluator(forecast, task)
     return analysis.find_windows(
         evaluator, begin, end, min_hours or None, top_k
     )
@@ -310,8 +313,10 @@ def plan_crews(node_input: dict[str, Any]) -> Event:
 def suggest_alternatives(node_input: dict[str, Any]) -> Event:
     """For a no-go plan, finds the best window for every other task type.
 
-    Also adds a daily ensemble outlook per site (p10/p50/p90 hub wind and
-    rain) so the explanation can say why no window qualifies.
+    Also adds a daily outlook per site over complete local days (member
+    maximum hub wind and rain total as p10/p50/p90, and the probability of
+    exceeding the task's limits at any step) so the explanation can say why
+    no window qualifies.
     """
     request = node_input["request"]
     sites = load_sites()
@@ -338,11 +343,10 @@ def suggest_alternatives(node_input: dict[str, Any]) -> Event:
             )
     outlook = {}
     for sid in request["site_ids"]:
-        forecast = get_source().get(sites[sid])
+        forecast = _site_forecast(sid)
         begin, end = _range(forecast, request["horizon_hours"])
-        outlook[sid] = analysis.summarize(
-            forecast, sites[sid], begin, end, block_hours=OUTLOOK_BLOCK_HOURS
-        )
+        evaluator = analysis.Evaluator(forecast, tasks[request["task_type"]])
+        outlook[sid] = analysis.daily_outlook(evaluator, begin, end)
     return Event(
         output={
             **node_input,
@@ -406,11 +410,21 @@ Rules:
 - Use only numbers that appear in the JSON. Never estimate weather values or
   probabilities yourself.
 - Give times in site local time with the weekday and date (start_local /
-  end_local), and name the forecast init time and data source.
-- For every recommended window state P(safe) as a percentage, the members in
-  support (members_safe / members_total) or, for quantile data, also
-  probability_safe_lower_bound, and the main risk (fail_fraction_wind_or_gust
-  vs fail_fraction_precipitation).
+  end_local), and name the forecast init time and dataset, with its
+  attribution line.
+- For every recommended window state P(safe) as a percentage with the members
+  in support (members_safe / members_total): the share of ensemble members in
+  which the joint condition holds at all steps of the window. Name the main
+  risk from wind_exceedance vs precipitation_exceedance (prob_any_step, and
+  peak_step_prob with its local time).
+- Write probabilities as percentages in plain words ("rain exceeds the limit
+  at some step in 33% of members"); do not print JSON field names.
+- If step_hours is above 1, say once that the forecast has that step, so the
+  window is judged on a few samples, the wind samples bracketing the window
+  can fall just outside it, and rain is a mean rate over each step (from
+  peak_step_interval_start_local to peak_step_prob_valid_time_local).
+- Gusts are estimates from the hub-height wind (gust_estimate_*), not
+  forecast gusts.
 - Keep it short: one small markdown table, then 2-4 bullet points.
 - End with one line: this is decision support; the site's lift plan, OEM
   limits, on-site measurements and the person in charge of the work have the
@@ -425,7 +439,7 @@ explain_plan = Agent(
     description="Explains a crew plan computed by the planner.",
     instruction=f"""\
 You are a wind-farm operations planning assistant. The input is a JSON crew
-plan computed deterministically from a WeatherNext ensemble forecast. Present
+plan computed deterministically from an ensemble forecast. Present
 it to the planner: the assignment for each crew (site, window, probability),
 a backup window from best_windows_by_site where one exists, and which sites
 were left unassigned and why.
@@ -445,9 +459,10 @@ in which NO window meets the task's go threshold (go_probability). Say that
 plainly first. Then show the best window found per site from
 best_windows_by_site (with its probability), the alternatives in
 alternative_tasks (a less wind-sensitive task that could use the crew), and in
-one sentence what daily_outlook_by_site shows (for example p50 hub wind above
-the effective limit). Suggest waiting for a newer forecast run where relevant. Do not recommend going ahead
-with the original task.
+one sentence what daily_outlook_by_site shows (for example hub_wind_max_p50_ms
+above the effective limit, or prob_any_step_wind_over_limit close to 1).
+Suggest waiting for a newer forecast run where relevant. Do not recommend
+going ahead with the original task.
 
 {_EXPLAIN_RULES}""",
 )
@@ -464,7 +479,8 @@ def create_workflow() -> Workflow:
         name="maintenance_planner",
         description=(
             "Finds safe wind-turbine maintenance windows and schedules crews from"
-            " WeatherNext ensemble forecasts, with explicit probabilities."
+            " WeatherNext 3 or ECMWF AIFS ENS ensemble members, with explicit"
+            " probabilities."
         ),
         edges=[
             ("START", parse_request, check_request),

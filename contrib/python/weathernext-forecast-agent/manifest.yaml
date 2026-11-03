@@ -19,7 +19,7 @@ status: "active"
 language: "python"
 
 # REQUIRED — Short description of what this recipe does and the value it provides.
-description: "Decides when a wind-turbine blade exchange at Whitelee Wind Farm (Scotland) can go ahead, and where two crane crews should go across three real Scottish wind farms, from ensemble forecasts with an ADK 2.0 graph workflow: deterministic function nodes compute the probability that crane lifts, blade repairs or nacelle service stay within wind, gust and rain limits for the required hours, rank windows across sites and assign crews; single-turn Gemini nodes parse the request and explain the plan with explicit uncertainty. Serves A2A over JSON-RPC and HTTP+JSON for Gemini Enterprise and the Gemini agent. Production data: WeatherNext 3 on BigQuery (full SQL in the README); default: a bundled real ECMWF ensemble snapshot (Open-Meteo, CC BY 4.0)."
+description: "Decides when a wind-turbine blade exchange at Whitelee Wind Farm (Scotland) can go ahead, and where two crane crews should go across three real Scottish wind farms, from raw ensemble members with an ADK 2.0 graph workflow: deterministic function nodes compute the probability that crane lifts, blade repairs or nacelle service stay within wind, gust and rain limits at every step of the window (all-steps persistence across members), rank windows across sites and assign crews; single-turn Gemini nodes parse the request and explain the plan with explicit uncertainty. Reads WeatherNext 3 64-member Zarr on Cloud Storage or ECMWF AIFS ENS from dynamical.org through one forecast dataset contract; ships a bundled real AIFS ENS snapshot (CC-BY-4.0). Serves A2A over JSON-RPC and HTTP+JSON for Gemini Enterprise and the Gemini agent."
 
 # OPTIONAL — Agent architecture details. Omit the whole block if unknown.
 architecture:
@@ -33,10 +33,13 @@ architecture:
 dependencies:
   libraries:
     - "ADK"
-    - "google-cloud-bigquery"
+    - "xarray"
+    - "zarr"
+    - "icechunk"
+    - "obstore"
   services:
     - "Gemini"
-    - "BigQuery"
+    - "Cloud Storage"
     - "WeatherNext"
     - "Cloud Run"
 
@@ -60,7 +63,8 @@ tags:
   - "uncertainty"
   - "wind-energy"
   - "maintenance-planning"
-  - "bigquery"
+  - "zarr"
+  - "ecmwf-aifs"
 
 # OPTIONAL — SPDX license identifier (e.g. "Apache-2.0", "MIT", "BSD-3-Clause").
 # Only set if explicitly declared in a LICENSE file or by the author.

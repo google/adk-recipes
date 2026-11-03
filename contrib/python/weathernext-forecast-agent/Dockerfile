@@ -12,7 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-FROM python:3.11-slim
+# Python 3.12: FORECAST_SOURCE=aifs_ens needs icechunk 2, which requires it.
+FROM python:3.12-slim
 
 RUN pip install --no-cache-dir uv==0.8.13
 
