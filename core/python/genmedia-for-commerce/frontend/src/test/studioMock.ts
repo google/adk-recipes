@@ -1,18 +1,16 @@
-/**
- * Copyright 2026 Google LLC
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     https://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2026 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
 // Fixture Studio API (/api/studio/*, genmedia4commerce/api/studio.py) for the tests and
 // `npm run dev:mock`: studios in memory, a keyword agent, and jobs whose variations arrive
@@ -47,6 +45,8 @@ const TRYON_KEYS = [
   "style_guidelines",
   "complete_look",
   "upscale_crops",
+  "check_images",
+  "check_videos",
 ];
 const studios = new Map<string, Doc>();
 const jobs = new Map<string, Job>();
@@ -232,7 +232,9 @@ function jobStatus(job: Job, { bucket, delayMs }: Config) {
     progress: done ? "Done" : `Generating variation ${shown + 1} of ${total}`,
     elapsed_s: Math.round((Date.now() - job.started) / 1000),
     results,
+    image_results: images,
     images,
+    expected: { image_results: images.length, results: total },
     tryon_image: job.tryonImage,
   };
 }

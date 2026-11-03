@@ -1,18 +1,16 @@
-/**
- * Copyright 2026 Google LLC
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     https://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2026 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
 // Generations as jobs (studio/jobs.py), as the MCP App panel follows them: start one, poll its
 // status with backoff showing each variation as it is judged, and when it ends send
@@ -22,13 +20,29 @@
 import {
   getStudioJob,
   startStudioJob,
+  type JobCounts,
   type JobSpec,
   type JobStatus,
   type StudioCapability,
+  type StudioResult,
 } from "../../api/studio";
 import { errorMessage } from "../../shared/files";
 import { jobSpec, missingInput, resultsOf, type UrlCache } from "./model";
-import type { LiveJob, StudioStore } from "./store";
+import type { StudioStore } from "./store";
+
+/**
+ * The generation being followed: its results so far and (Video Try-On) the try-on images it animated so far;
+ * `tryonImage`: the image of a "Make video" job, whose results replace only that image's videos ("" for a full run);
+ * `coming`: the front variations of each list still coming; `failed`: those that ended without media.
+ */
+export type LiveJob = {
+  cap: StudioCapability;
+  results: StudioResult[];
+  images: StudioResult[];
+  tryonImage: string;
+  coming: JobCounts;
+  failed: JobCounts;
+};
 
 /** Poll timing (tests shorten it). */
 export const POLLING = {
@@ -40,18 +54,36 @@ export const POLLING = {
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-/** A job's results so far, and its try-on images. */
+const NONE: JobCounts = { image_results: 0, results: 0 };
+const count = (x: unknown) => Math.max(0, Math.floor(Number(x)) || 0);
+const fronts = (list: unknown) =>
+  (Array.isArray(list) ? list : []).filter((r) => r?.view !== "back").length;
+
+/** The front variations of each list still coming and those that failed (none when the server does not say). */
+function countsOf(st: JobStatus): Pick<LiveJob, "coming" | "failed"> {
+  const coming = { ...NONE };
+  const failed = { ...NONE };
+  for (const k of ["image_results", "results"] as const) {
+    failed[k] = count(st.failed?.[k]);
+    coming[k] = Math.max(
+      0,
+      count(st.expected?.[k]) - fronts(st[k]) - failed[k],
+    );
+  }
+  return { coming, failed };
+}
+
+/** A job's results so far, its try-on images and the variations still coming. */
 function liveOf(prev: LiveJob, st: JobStatus, urls: UrlCache): LiveJob {
   const images = resultsOf(st.images, urls);
   const tryonImage =
-    typeof st.tryon_image === "string" && st.tryon_image
-      ? st.tryon_image
-      : prev.tryonImage;
+    typeof st.tryon_image === "string" ? st.tryon_image : prev.tryonImage;
   return {
     cap: prev.cap,
     results: resultsOf(st.results, urls),
     images,
     tryonImage,
+    ...countsOf(st),
   };
 }
 
@@ -93,6 +125,16 @@ export class JobFollower {
   makeVideo = (uri: string) =>
     this.start(jobSpec(this.store.state.view, "video_tryon", uri));
 
+  /**
+   * "Animate": videos of a Photo Try-On result (its `uri`) on Video Try-On. The server animates that image, or
+   * makes a 9:16 one first, as a full run of the page (no "Make video" image).
+   */
+  animate = async (uri: string) => {
+    if (this.busy) return;
+    this.store.setCapability("video_tryon");
+    await this.start(jobSpec(this.store.state.view, "video_tryon", uri), "");
+  };
+
   /** "Try again": the spec of the last generation, which ended in error, bypassing the server's preprocessing cache. */
   tryAgain = async () => {
     const { retry } = this.store.state;
@@ -105,7 +147,10 @@ export class JobFollower {
     return !ready || !!view.job || !!this.polling || starting;
   }
 
-  private async start(spec: JobSpec): Promise<void> {
+  private async start(
+    spec: JobSpec,
+    tryonImage = spec.tryon_image ?? "",
+  ): Promise<void> {
     if (this.busy) return;
     const { epoch } = this.store;
     this.store.set({ starting: true, jobError: "", retry: null });
@@ -114,7 +159,7 @@ export class JobFollower {
       if (epoch !== this.store.epoch) return; // "New" meanwhile: the job stays with the studio it started in
       if (typeof start.job_id !== "string" || !start.job_id)
         throw new Error("The generation did not start.");
-      void this.poll(start.job_id, spec.capability, spec);
+      void this.poll(start.job_id, spec.capability, spec, tryonImage);
       void this.store.act({
         job_started: { job_id: start.job_id, capability: spec.capability },
       }); // saved with the studio
@@ -140,7 +185,14 @@ export class JobFollower {
     if (this.polling) return;
     this.polling = jobId;
     this.followed.add(jobId);
-    let live: LiveJob = { cap, results: [], images: [], tryonImage };
+    let live: LiveJob = {
+      cap,
+      results: [],
+      images: [],
+      tryonImage,
+      coming: NONE,
+      failed: NONE,
+    };
     this.store.set({
       following: true,
       live,

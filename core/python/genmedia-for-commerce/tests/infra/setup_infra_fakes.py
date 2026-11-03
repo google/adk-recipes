@@ -22,7 +22,8 @@ import subprocess
 from pathlib import Path
 
 # Records its arguments. FAKE_PLAN and FAKE_APPLY: the exit codes of each
-# plan and apply, one per call, the last repeats. FAKE_STATE: the state.
+# plan and apply, one per call, the last repeats. FAKE_STATE: the state;
+# FAKE_STATE_MEDIA: the name of its media bucket (default <project>-gfc-media).
 # FAKE_IMPORT: the exit code of import.
 FAKE_TERRAFORM = r"""#!/bin/bash
 [ "$1" = version ] && { echo "Terraform v1.9.0"; exit 0; }
@@ -35,7 +36,13 @@ code_for() {
     echo "$code"
 }
 case "$1" in
-state) printf '%s\n' ${FAKE_STATE:-} ;;
+state) case "$2" in
+       list) for a in ${FAKE_STATE:-}; do  # less what state rm removed
+                 grep -qxF "terraform state rm $a" "$FAKE_DIR/calls" ||
+                     echo "$a"
+             done ;;
+       show) echo "  name = \"${FAKE_STATE_MEDIA:-$TF_VAR_project_id-gfc-media}\"" ;;
+       esac ;;
 import) exit "${FAKE_IMPORT:-0}" ;;
 plan) echo "Plan: 1 to add, 0 to change, 0 to destroy."
       exit "$(code_for plan "${FAKE_PLAN:-2}")" ;;
@@ -43,12 +50,16 @@ apply) exit "$(code_for apply "${FAKE_APPLY:-0}")" ;;
 esac
 """
 
-# Records its arguments; describe finds what FAKE_EXISTING names, and
-# get-value project answers FAKE_PROJECT.
+# Records its arguments; describe finds what FAKE_EXISTING names,
+# get-value project answers FAKE_PROJECT, and the Artifact Registry list
+# fails its first FAKE_NOT_READY calls (an API not ready yet).
 FAKE_GCLOUD = r"""#!/bin/bash
 echo "gcloud $*" >> "$FAKE_DIR/calls"
 case "$1 $2 $3" in
 "config get-value project") echo "${FAKE_PROJECT:-}"; exit 0 ;;
+"artifacts repositories list")
+    n=$(grep -c "^gcloud artifacts repositories list" "$FAKE_DIR/calls")
+    [ "$n" -gt "${FAKE_NOT_READY:-0}" ]; exit $? ;;
 "storage buckets describe") name=${4#gs://} ;;
 "iam service-accounts describe") name=${4%%@*} ;;
 "artifacts repositories describe") name=$4 ;;

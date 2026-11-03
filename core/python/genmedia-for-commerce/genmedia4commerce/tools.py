@@ -31,6 +31,8 @@ gcs results come as ``media_uri`` and ``media_url`` instead of
 ``media_base64``, and a try-on also keeps its run record: ``run.manifest``
 is its URI (null inline), the ``source_run`` of a video of its images. ``stream`` starts the same runs and returns their events
 instead of the folded result, for callers that show results as they come.
+``check_images`` and ``check_videos`` (on by default) false skip the model
+checks of the images or videos: each result passes, unjudged.
 """
 
 import asyncio
@@ -202,6 +204,7 @@ async def try_on(
     mode: str = "",
     aspect_ratio: str = "3:4",
     image_size: str = "2K",
+    check_images: bool = True,
     input: str = "",
     output: str = "",
     run_id: str = "",
@@ -269,6 +272,8 @@ async def video_try_on(
     aspect_ratio: str = "9:16",
     resolution: str = "720p",
     image_size: str = "2K",
+    check_images: bool = True,
+    check_videos: bool = True,
     input: str = "",
     output: str = "",
     run_id: str = "",
@@ -337,6 +342,7 @@ async def spin_360(
     mode: str = "",
     aspect_ratio: str = "auto",
     resolution: str = "720p",
+    check_videos: bool = True,
     input: str = "",
     output: str = "",
     run_id: str = "",

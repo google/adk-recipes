@@ -19,7 +19,10 @@
 #      missing), so a run from a new folder, or a second run, finds it.
 #   2. The resources with a fixed name that exist but are not in the state
 #      (made by a run whose state is lost) are imported, not created again.
-#   3. terraform plan, then "Apply these changes ...? [Y/n]" on a terminal
+#   3. The APIs of terraform/main.tf are enabled first, then the script
+#      waits until Artifact Registry and IAM answer: a new project's APIs
+#      refuse calls (403 SERVICE_DISABLED) for a minute or two after.
+#   4. terraform plan, then "Apply these changes ...? [Y/n]" on a terminal
 #      (without one, TF_AUTO_APPROVE=1 is needed), then terraform apply of
 #      that plan. A fresh project's new APIs and service agents take a minute
 #      to be usable: up to 3 attempts, without asking again.
@@ -64,9 +67,19 @@ adopt_one() {
 }
 
 adopt() {
-    local media="$PROJECT-genmedia-for-commerce-media-payloads" sa email
+    local media="${TF_VAR_media_bucket:-$PROJECT-gfc-media}" sa email shown
     IN_STATE=$(tf state list 2>/dev/null || true)
-    adopt_one google_storage_bucket.media "$media" \
+    # MEDIA_BUCKET names another bucket: forget the one in the state (never
+    # deleted, it keeps its files) and adopt or create the one it names.
+    if grep -qxF google_storage_bucket.gfc_media <<<"$IN_STATE"; then
+        shown=$(tf state show -no-color google_storage_bucket.gfc_media || true)
+        if ! grep -qxE " *name *= *\"$media\"" <<<"$shown"; then
+            echo "Media bucket: $media (the state's one is kept, not deleted)"
+            tf state rm google_storage_bucket.gfc_media
+            IN_STATE=$(tf state list 2>/dev/null || true)
+        fi
+    fi
+    adopt_one google_storage_bucket.gfc_media "$media" \
         storage buckets describe "gs://$media"
     for sa in build cloudrun web; do
         email="genmedia-$sa@$PROJECT.iam.gserviceaccount.com"
@@ -77,6 +90,27 @@ adopt() {
     adopt_one google_artifact_registry_repository.docker \
         "projects/$PROJECT/locations/$REGION/repositories/$SERVICE-repo" \
         artifacts repositories describe "$SERVICE-repo" --location="$REGION"
+}
+
+# Step 3: at most 5 minutes; on a re-run the APIs answer at once.
+apis() {
+    local list n
+    list=$(grep -o '"[a-z.]*\.googleapis\.com"' "$HERE/terraform/main.tf" |
+        tr -d '"')
+    # shellcheck disable=SC2086 # one argument per API
+    gcloud services enable $list --project="$PROJECT" --quiet
+    for n in $(seq 30); do
+        if exists artifacts repositories list --location="$REGION" &&
+            exists iam service-accounts list; then
+            return 0
+        fi
+        if [ "$n" = 1 ]; then
+            echo "Waiting for the new APIs to be ready (a new project" \
+                "takes a minute or two)..."
+        fi
+        sleep 10
+    done
+    echo "The APIs are still not ready: Terraform may fail and try again."
 }
 
 # Returns when the plan may be applied, else exits.
@@ -120,7 +154,7 @@ plan_and_apply() {
 
 # Plain commands (not after && or ||): set -e stops at a failure inside.
 case "${1:-}" in
-"") init; adopt; plan_and_apply ;;
+"") apis; init; adopt; plan_and_apply ;;
 init) init; adopt ;;
 *) echo "Usage: $0 [init]" >&2 && exit 2 ;;
 esac

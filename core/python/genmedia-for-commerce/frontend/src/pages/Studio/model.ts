@@ -1,18 +1,16 @@
-/**
- * Copyright 2026 Google LLC
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     https://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2026 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
 // The studio as the page renders it, built from the server's state (studio/patches.py),
 // as the MCP App panel does (mcp/static/studio.html): known keys and plain values only.
@@ -67,6 +65,8 @@ const DEFAULTS: Record<StudioCapability, Settings> = {
     num_variations: "1",
     complete_look: true,
     upscale_crops: false,
+    check_images: false,
+    check_videos: false,
   },
   video_tryon: {
     motion: "auto",
@@ -128,6 +128,24 @@ export const RUN_OPTIONS: Record<StudioCapability, SelectSetting[]> = {
   ],
 };
 
+type CheckSwitch = { key: string; label: string; hint: string };
+const CHECK_IMAGES: CheckSwitch = {
+  key: "check_images",
+  label: "Check images",
+  hint: "Judge each try-on image with Gemini (slower). Off: images are not checked.",
+};
+const CHECK_VIDEOS: CheckSwitch = {
+  key: "check_videos",
+  label: "Check videos",
+  hint: "Judge each video with Gemini (slower). Off: videos are not checked.",
+};
+/** The check switches each page shows: one setting each, kept with the Photo Try-On settings (studio/patches.py CHECKS). */
+export const CHECKS: Record<StudioCapability, CheckSwitch[]> = {
+  tryon: [CHECK_IMAGES],
+  video_tryon: [CHECK_IMAGES, CHECK_VIDEOS],
+  spin: [CHECK_VIDEOS],
+};
+
 export function blank(): StudioView {
   return {
     capability: "tryon",
@@ -157,6 +175,7 @@ const RESULT_KEYS = [
   "note",
   "source",
   "passed",
+  "video_url",
 ] as const;
 
 const isObj = (x: unknown): x is Record<string, unknown> =>

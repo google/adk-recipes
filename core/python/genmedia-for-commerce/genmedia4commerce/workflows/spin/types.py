@@ -30,12 +30,14 @@ class SpinRequest:
     """Inputs of ``run_spin``.
 
     ``policy=None`` -> ``RunPolicy.from_settings()``; ``video=None`` ->
-    ``VideoParams(aspect_ratio="16:9")``.
+    ``VideoParams(aspect_ratio="16:9")``. ``check_videos=False``: no
+    model check, every spin passes (``pipeline._spin_steps``).
     """
 
     product_images: list[bytes]
     policy: RunPolicy | None = None
     video: VideoParams | None = None
+    check_videos: bool = True
 
 
 @dataclass

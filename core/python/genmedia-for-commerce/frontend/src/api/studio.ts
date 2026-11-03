@@ -1,18 +1,16 @@
-/**
- * Copyright 2026 Google LLC
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     https://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2026 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
 // The Studio REST API of the web app (/api/studio/*): the server owns the studio
 // state; the client renders it, sends each click as an action and follows jobs.
@@ -44,6 +42,8 @@ export type StudioResult = {
   /** A video's try-on image: the `uri` of an item of the studio's `images.video_tryon`. */
   source?: string;
   passed?: boolean;
+  /** A spin's MP4: the video model's clip, for a download. */
+  video_url?: string;
 };
 
 /** A studio state as the server stores it (studio/patches.py); read defensively by `fromServer`. */
@@ -112,14 +112,22 @@ export type JobStarted = {
   status: string;
   capability: StudioCapability;
 };
+/** A count per list of a job: Video Try-On's try-on images (`image_results`) and the results. */
+export type JobCounts = { image_results: number; results: number };
 export type JobStatus = {
   job_id: string;
   status: "running" | "done" | "error" | "unknown";
   progress?: string;
   elapsed_s?: number;
   results?: StudioResult[];
+  /** Video Try-On: the try-on images made so far (front and back views). */
+  image_results?: StudioResult[];
   /** Video Try-On: the try-on images animated so far. */
   images?: StudioResult[];
+  /** The front variations the job will make (absent from older servers). */
+  expected?: Partial<JobCounts>;
+  /** The front variations that ended without media (absent from older servers). */
+  failed?: Partial<JobCounts>;
   /** The try-on image of a "Make video" job ("" or absent for a full run). */
   tryon_image?: string;
   error?: string;

@@ -17,8 +17,9 @@
 import functools
 import logging
 import threading
-from datetime import timedelta
-from urllib.parse import urlparse
+import time
+from datetime import UTC, datetime, timedelta
+from urllib.parse import parse_qs, urlparse
 
 import google.auth
 import requests
@@ -39,6 +40,7 @@ __all__ = [
     "download",
     "list_paths",
     "resolve_image",
+    "signed_put_url",
     "signed_url",
     "upload",
 ]
@@ -148,6 +150,43 @@ def signed_url(uri: str, *, minutes: int = 60) -> str:
         service_account_email=email,
         access_token=token,
     )
+
+
+def signed_put_url(
+    uri: str, *, content_type: str, max_bytes: int, minutes: int = 15
+) -> tuple[str, dict[str, str]]:
+    """A V4 signed PUT URL for a new ``gs://`` object and the headers the
+    PUT must send: its content type, a size of at most ``max_bytes`` and
+    create only (the URL cannot overwrite what was put). Signs like
+    ``signed_url``."""
+    extra = {
+        "x-goog-content-length-range": f"0,{max_bytes}",
+        "x-goog-if-generation-match": "0",
+    }
+    email, token = _signer()
+    url = blob(uri).generate_signed_url(
+        version="v4",
+        expiration=timedelta(minutes=minutes),
+        method="PUT",
+        content_type=content_type,
+        headers=extra,
+        service_account_email=email,
+        access_token=token,
+    )
+    return url, {"Content-Type": content_type, **extra}
+
+
+def still_valid(url: str, seconds: float) -> bool:
+    """Whether a V4 signed URL (``signed_url``) is valid for at least
+    ``seconds`` more; False for any other URL."""
+    query = parse_qs(urlparse(url).query)
+    try:
+        start = datetime.strptime(query["X-Goog-Date"][0], "%Y%m%dT%H%M%SZ")
+        expires = int(query["X-Goog-Expires"][0])
+    except (KeyError, IndexError, ValueError):
+        return False
+    end = start.replace(tzinfo=UTC).timestamp() + expires
+    return end - time.time() >= seconds
 
 
 def _download_ours(uri: str) -> bytes:

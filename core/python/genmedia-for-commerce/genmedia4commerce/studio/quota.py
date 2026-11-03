@@ -19,7 +19,8 @@ so the panel, the web app and the agent all start jobs here. Every image
 of the spec must be one the studio may use (``job_call.check_refs``:
 catalogue images and copies, files of its own runs, its own try-on records
 as ``source_run``), and a "Make video" one of its own video try-on images
-(``job_call.for_studio``, which also sets what the server derives). The
+or Photo Try-On results (``job_call.for_studio``, which also sets what the
+server derives; a video of a photo starts as a full run). The
 checks below and the claim are one read-modify-write of
 the studio's state (``store.update``, with a generation precondition), so
 two starts on any instances never both pass:
@@ -210,13 +211,15 @@ async def start(spec: dict[str, Any]) -> dict[str, Any]:
         raise InputError(_NO_STUDIO)
     remake = cap == "video_tryon" and bool(spec.get("tryon_image"))
     st = await asyncio.to_thread(ss.get_state, studio_id) if remake else {}
-    spec = for_studio(spec, st)
+    spec = await asyncio.to_thread(for_studio, spec, st)
     await asyncio.to_thread(check_refs, spec, studio_id)
     job_id, now = uuid.uuid4().hex[:10], time.time()
-    image = str(spec.get("tryon_image") or "")
+    # The try-on image a Make video job remakes; "" for a photo's video
+    # (``image``), which replaces the page, as a full run does.
+    remade = "" if spec.get("image") else str(spec.get("tryon_image") or "")
     _take_slot(now)
     try:
-        await asyncio.to_thread(claim, studio_id, job_id, cap, image)
+        await asyncio.to_thread(claim, studio_id, job_id, cap, remade)
     except BaseException:
         _give_back_slot(now)
         raise

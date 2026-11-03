@@ -21,13 +21,16 @@ drops "no"/"never" rules; the blind spots are kept out by ``plan.enforce``).
 Product photos are named as detail references and every shot shows the
 product worn, or the model cuts to the bare product photo. A framing
 narrower than full body is described by what fills the frame, or the model
-widens it and invents the rest of the person.
+widens it and invents the rest of the person. A single garment's span
+(``ReferenceSet.span``) gives the frame's edges instead of the framing.
 
 A close-up holds the product still: when a hand moved it, the model turned
 the product to a side no photo shows and invented it (a padlock on the
 front of a bag photographed three-quarter, 4 times in 4; still: 0 in 3).
 """
 
+from genmedia4commerce.workflows.tryon import framing
+from genmedia4commerce.workflows.video_tryon.plan import full_body
 from genmedia4commerce.workflows.video_tryon.types import (
     Closeup,
     Plan,
@@ -68,6 +71,25 @@ def _is(name: str) -> str:
     return "are" if name.endswith("s") else "is"
 
 
+def _framed(refs: ReferenceSet) -> str:
+    """The framing of <IMAGE_0>, e.g. 'From the top of the head to the
+    knees'."""
+    if refs.span:
+        return framing.edges(refs.span)
+    return FRAMED.get(refs.framing, FRAMED["full_body"])
+
+
+def _fills(refs: ReferenceSet) -> str:
+    """What fills the frame of a framing narrower than full body; "" for
+    full body."""
+    if full_body(refs):
+        return ""
+    if refs.span:
+        edges = framing.edges(refs.span).lower()
+        return f"the person {edges} fills the frame"
+    return FILLS.get(refs.framing, "")
+
+
 def _header(plan: Plan, refs: ReferenceSet) -> str:
     seconds = plan.duration
     text = (
@@ -93,11 +115,8 @@ def _header(plan: Plan, refs: ReferenceSet) -> str:
                 f" <IMAGE_{i}> is a close-up of the {c.name} ({where}), for "
                 "its exact shape, colours and materials."
             )
-    if refs.framing in FILLS:
-        text += (
-            f" Every shot keeps the close framing of <IMAGE_0>: "
-            f"{FILLS[refs.framing]}."
-        )
+    if fills := _fills(refs):
+        text += f" Every shot keeps the close framing of <IMAGE_0>: {fills}."
     return text
 
 
@@ -138,11 +157,12 @@ def _sentences(shot: Shot, refs: ReferenceSet) -> list[tuple[float, str]]:
     product: Closeup | None = next(
         (c for c in refs.closeups if c.name == shot.region), None
     )
-    close = refs.framing in FILLS
+    fills = _fills(refs)
+    close = bool(fills)
     key = "pose_close" if shot.move == "pose" and close else shot.move
     text = SENTENCES[key].format(
-        framed=FRAMED.get(refs.framing, FRAMED["full_body"]),
-        fills=FILLS.get(refs.framing, ""),
+        framed=_framed(refs),
+        fills=fills,
         extra=f", {shot.action.rstrip('.')}" if shot.action else "",
         within=", within this framing" if close else "",
         target=f"{shot.region} {product.worn}" if product else shot.region,

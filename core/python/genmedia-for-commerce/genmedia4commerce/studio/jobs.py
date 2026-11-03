@@ -24,7 +24,13 @@ the try-on images (``image_results``) and those it animates (``images``,
 each with ``passed`` and its back view); each result carries the URI of
 its run record (``run``) and each video the image it was made from
 (``source``). A "Make video" job (``tryon_image``) animates one of them
-again. A job with ``refresh_cache: true`` (the "Try again" of a failed
+again; a video of a Photo Try-On result animates its one image
+(``images``) as a full run would. ``expected`` and ``failed`` count front
+variations per list (``{"image_results": n, "results": n}``), for the
+clients to draw placeholders: those the job will make (a video try-on from photos adds
+``GENMEDIA_VIDEOS_PER_IMAGE`` videos per image it animates) and those that
+ended without media; back views are never counted, and documents saved
+before these fields have none (read as zeros). A job with ``refresh_cache: true`` (the "Try again" of a failed
 one) recomputes the preprocessing the cache keeps (``core.cache``). Any
 instance can answer a status poll. Each job writes its inputs when it starts
 and its outputs when it ends to the studio's history, with their ``gs://``
@@ -61,7 +67,9 @@ from genmedia4commerce.core.events import (
     ProgressEvent,
     VariationEvent,
 )
+from genmedia4commerce.core.settings import get_settings
 from genmedia4commerce.studio import history as sh
+from genmedia4commerce.studio import job_events as je
 from genmedia4commerce.studio import media as sm
 from genmedia4commerce.studio import state as ss
 from genmedia4commerce.studio import store
@@ -114,72 +122,6 @@ _RUNS: dict[str, _Run] = {}
 _TASKS: set[asyncio.Task] = set()
 
 
-def _result(v: dict[str, Any], video: bool) -> dict[str, Any] | None:
-    """One variation for the app and the history; ``None`` without media."""
-    uri = v.get("media_uri") or ""
-    if not uri:
-        return None
-    return {
-        "index": v.get("index"),
-        "status": v.get("status"),
-        "score": v.get("score"),
-        "uri": uri,
-        "url": sm.preview_url(uri, video=video),
-        "note": (v.get("verdict") or {}).get("description", ""),
-        "view": (v.get("extra") or {}).get("view") or "front",
-        "fixed": bool(v.get("fixed")),
-    }
-
-
-def _ranked(results: list[dict], order: list[int], best: Any) -> list[dict]:
-    """``results`` in the judge's order (unranked ones keep theirs, last),
-    the back views, drawn from the best front, right after it: the judge
-    ranks the fronts only, and fronts and back views are numbered apart."""
-    rank = {i: n for n, i in enumerate(order)}
-    backs = [r for r in results if r.get("view") == "back"]
-    fronts = sorted(
-        (r for r in results if r.get("view") != "back"),
-        key=lambda r: rank.get(r["index"], len(rank)),
-    )
-    at = next(
-        (n + 1 for n, r in enumerate(fronts) if r["index"] == best),
-        len(fronts),
-    )
-    return [*fronts[:at], *backs, *fronts[at:]]
-
-
-def _views(job: dict[str, Any], view: str) -> dict[Any, dict[str, Any]]:
-    """The try-on images of one view by index (fronts and back views are
-    numbered apart)."""
-    return {
-        r["index"]: r
-        for r in job["image_results"]
-        if (r.get("view") == "back") == (view == "back")
-    }
-
-
-def _animated(job: dict[str, Any], data: dict[str, Any]) -> None:
-    """Record a try-on image a video try-on animates (``image_selected``):
-    in ``images`` (``passed``: it passed its checks; ``back``: its back
-    view)."""
-    front = _views(job, "front").get(data.get("front_index"))
-    back = _views(job, "back").get(data.get("back_index")) or {}
-    if front is None:
-        return
-    passed = front.get("status") == "ready"
-    image = {**front, "passed": passed, "back": back.get("uri") or ""}
-    image.pop("view", None)
-    job.setdefault("images", []).append(image)
-
-
-def _source(job: dict[str, Any], index: Any) -> str:
-    """The try-on image a video was made from: a "Make video"'s image, or
-    the front of ``extra.source_index``."""
-    if job.get("tryon_image"):
-        return str(job["tryon_image"])
-    return (_views(job, "front").get(index) or {}).get("uri", "")
-
-
 async def _apply(job: dict[str, Any], event: Event, video: bool) -> bool:
     """Fold one event into the job; whether the job changed."""
     if isinstance(event, ProgressEvent) and event.stage == "record":
@@ -188,29 +130,39 @@ async def _apply(job: dict[str, Any], event: Event, video: bool) -> bool:
         job["run"] = (event.data or {}).get("manifest") or ""
         return False
     if isinstance(event, ProgressEvent):
-        job["progress"] = event.message
+        # A photo's video keeps saying which way it went (``job_call``).
+        job["progress"] = " · ".join(
+            filter(None, (job.get("path"), event.message))
+        )
         # A video try-on animates every passing image; each video names
         # its own (``source``).
-        if event.stage == "image_selected":
-            _animated(job, event.data or {})
+        if event.stage == "image_selected" and je.animated(
+            job, event.data or {}
+        ):
+            per_image = get_settings().videos_per_image
+            je.bump(job, "expected", "results", per_image)
         return True
     if isinstance(event, VariationEvent):
         image_stage = event.extra.get("stage") == "image"
         key = "image_results" if image_stage else "results"
         # Signing the preview URL is a network call: off the event loop.
         item = await asyncio.to_thread(
-            _result, event.to_dict(), video and not image_stage
+            je.result, event.to_dict(), video and not image_stage
         )
-        source = _source(job, event.extra.get("source_index"))
-        if item and not image_stage and source:
+        if item is None:  # back views are extras, never expected
+            if event.extra.get("view") == "back":
+                return False
+            je.bump(job, "failed", key)
+            return True
+        source = je.source(job, event.extra.get("source_index"))
+        if not image_stage and source:
             item["source"] = source
-        if item and job.get("run"):
+        if job.get("run"):
             item["run"] = job["run"]
-        if item:
-            job[key].append(item)
-        return item is not None
+        job[key].append(item)
+        return True
     if isinstance(event, CompleteEvent):
-        job["results"] = _ranked(
+        job["results"] = je.ranked(
             job["results"], event.ranked_indices, event.best_index
         )
         return True
@@ -323,7 +275,8 @@ def start(spec: dict[str, Any], job_id: str) -> dict[str, Any]:
     for jid, v in list(_LOCAL.items()):
         if jid not in _RUNS and now - v["started"] > _KEEP_S:
             _LOCAL.pop(jid, None)
-    cap = spec.get("capability")
+    cap, photo = spec.get("capability"), spec.get("image")
+    started = {"job_id": job_id, "status": "running", "capability": cap}
     run = _RUNS[job_id] = _Run(
         job_id,
         {
@@ -332,18 +285,23 @@ def start(spec: dict[str, Any], job_id: str) -> dict[str, Any]:
             "studio_id": str(spec.get("studio_id") or ""),
             "started": now,
             "updated_at": now,
-            "progress": "Starting",
+            "progress": str(spec.get("progress") or "Starting"),
             "results": [],
             "image_results": [],
-            "images": [],
-            "tryon_image": str(spec.get("tryon_image") or ""),
+            # A photo's video (``job_call``): a full run of its one image.
+            "images": [photo] if photo else [],
+            "tryon_image": "" if photo else str(spec.get("tryon_image") or ""),
+            "expected": je.expected(spec),
+            "failed": {"image_results": 0, "results": 0},
         },
     )
+    if spec.get("progress"):  # which way a photo's video goes
+        run.job["path"] = started["progress"] = str(spec["progress"])
     _publish(run)
     task = asyncio.get_running_loop().create_task(_run(run, spec))
     _TASKS.add(task)
     task.add_done_callback(_TASKS.discard)
-    return {"job_id": job_id, "status": "running", "capability": cap}
+    return started
 
 
 async def interrupt_local() -> int:
@@ -382,9 +340,13 @@ def status(job_id: str) -> dict[str, Any]:
         return {"job_id": job_id, "status": "unknown"}
     if job.get("finished"):  # read back later: its signed URLs may have expired
         video = job.get("capability") != "tryon"
-        sm.refresh_urls(job.get("results") or [], video=video)
-        sm.refresh_urls(job.get("image_results") or [], video=False)
-        sm.refresh_urls(job.get("images") or [], video=False)
+        sm.refresh_urls(
+            [
+                (job.get("results") or [], video),
+                (job.get("image_results") or [], False),
+                (job.get("images") or [], False),
+            ]
+        )
     end = job.get("finished") or time.time()
     return {
         "job_id": job_id,

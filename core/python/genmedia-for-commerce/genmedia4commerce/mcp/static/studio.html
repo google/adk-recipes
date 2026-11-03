@@ -104,8 +104,8 @@
   .imgs { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
   .res { border: 1px solid var(--line); border-radius: 16px; overflow: hidden; background: var(--card);
          box-shadow: var(--shadow); display: flex; flex-direction: column; transition: box-shadow .2s, border-color .2s; }
-  .res > img, .res > video { width: 100%; display: block; background: var(--soft); }
-  .imgs .res > img { aspect-ratio: 3/4; object-fit: cover; }
+  .res > img, .res > video, .res > a > img { width: 100%; display: block; background: var(--soft); }
+  .res > a > img { object-fit: contain; }
   .res .body { padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 6px; flex: 1; }
   .res .body .row { margin: 0; }
   .res .body .btn { align-self: flex-start; }
@@ -122,6 +122,8 @@
   .noprev { aspect-ratio: 3/4; display: flex; align-items: center; justify-content: center;
             background: var(--soft); color: var(--fg3); font-size: 12px; }
   .hidden { display: none !important; }
+  .shim { width: 100%; background: linear-gradient(90deg, var(--soft) 25%, var(--soft2) 50%, var(--soft) 75%);
+          background-size: 200% 100%; }
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; scroll-behavior: auto !important; } }
 </style>
 </head>
@@ -145,7 +147,7 @@
   // Shown until the studio sets them.
   const DEFAULTS = {
     tryon: { scenario: "", style_guidelines: "", aspect_ratio: "3:4", image_size: "2K", num_variations: "1",
-             complete_look: true, upscale_crops: false },
+             complete_look: true, upscale_crops: false, check_images: false, check_videos: false },
     video_tryon: { motion: "auto", prompt: "", aspect_ratio: "9:16", resolution: "720p", num_variations: "1" },
     spin: { aspect_ratio: "auto", resolution: "720p", num_variations: "1" },
   };
@@ -162,13 +164,15 @@
   let stateAt = 0;  // updated_at of the state shown
   const L = {
     jobStatus: "", jobError: "", notice: "",
-    // The generation being followed: {cap, results, images, tryon (the image a Make video job redoes)}.
+    // The generation being followed: {cap, results, images, tryon (the image a Make video job redoes),
+    // expected, made and failed (front variations per list, see counts)}.
     live: null,
     retry: null,  // {cap, spec, tryon} of the last generation started or followed, for "Try again"
     // The products picker: the featured products until a search (shown: its query).
     catalog: { query: "", audience: "", shown: "", items: [], busy: false, error: "" },
-    // The people and products galleries: collapsed until the user opens them (kept across redraws).
-    open: { people: false, products: false },
+    // The people, products and spin-set galleries: collapsed until the user opens them (kept across redraws).
+    open: { people: false, products: false, spinSets: false },
+    uploads: [],  // files being uploaded: {key, field, thumb}, shown where they will land
   };
   let G = { models: [], spin: [] };  // the catalogue's preset models and multi-view sets
   const randomBytes = (n) => crypto.getRandomValues(new Uint8Array(n));
@@ -179,13 +183,15 @@
   let nextId = 1 + (new DataView(randomBytes(4).buffer).getUint32(0) >>> 1);  // request ids
   let studioId = randomHex(6);
   const thumbs = new Map();  // ref or result uri -> browser URL
+  const copies = new Map();  // catalogue pick ref -> its gs:// copy
   const pending = new Map();
 
   // ---- data from the host and the server --------------------------------------
   // The server keeps only known fields and settings; the panel still reads
   // what it renders defensively: known keys, plain values, safe URLs.
   const ITEM_KEYS = ["label", "ref", "thumb"];
-  const RESULT_KEYS = ["index", "status", "score", "uri", "url", "view", "note", "source"];  // source: its image's uri
+  // source: its image's uri; video_url: a spin's MP4
+  const RESULT_KEYS = ["index", "status", "score", "uri", "url", "view", "note", "source", "video_url"];
   const IMAGE_KEYS = ["index", "status", "score", "uri", "url", "note", "run", "passed"];
   const isObj = (x) => x !== null && typeof x === "object" && !Array.isArray(x);
   const isPrim = (v) => typeof v === "string" || typeof v === "number" || typeof v === "boolean";
@@ -220,6 +226,13 @@
       return r;
     });
   }
+  // A job's front variations per list: how many it makes (expected) or ended without media (failed).
+  function counts(x) {
+    const o = isObj(x) ? x : {}, n = (k) => Math.max(0, Math.floor(Number(o[k])) || 0);
+    return { image_results: n("image_results"), results: n("results") };
+  }
+  // The front variations a job status holds per list (its try-on images, its results).
+  const fronts = (list) => arr(list).filter(r => isObj(r) && r.view !== "back").length;
   // Video try-on images (state.images.video_tryon, a job's images): each has its uri.
   const imagesOf = (list) => resultsOf(list, IMAGE_KEYS).filter(m => typeof m.uri === "string" && m.uri);
   // A state from the server, ready to render.
@@ -309,8 +322,10 @@
   }
   // Catalogue picks come back as gs:// copies: they keep their thumbnails.
   function carryThumbs(refs) {
-    for (const [from, to] of Object.entries(isObj(refs) ? refs : {}))
+    for (const [from, to] of Object.entries(isObj(refs) ? refs : {})) {
+      if (typeof to === "string") copies.set(from, to);
       if (typeof to === "string" && thumbs.has(from)) thumbs.set(to, thumbs.get(from));
+    }
   }
 
   // ---- model context ---------------------------------------------------------
@@ -344,6 +359,8 @@
       const { complete_look, upscale_crops } = S.settings.tryon;
       lines.push("Try-on options: " + JSON.stringify({ complete_look, upscale_crops }) + ".");
     }
+    const { check_images, check_videos } = S.settings.tryon;
+    lines.push("Checks: " + JSON.stringify({ check_images, check_videos }) + ".");
     const res = S.results[S.capability];
     if (S.job || polling) lines.push(`A generation is running (${L.jobStatus}).`);
     else if (res.length) lines.push(`Last generation: ${res.length} result(s), best score ${res[0].score ?? "n/a"}.`);
@@ -381,9 +398,12 @@
     follow();
     return true;
   }
-  async function refresh() {
+  // `own`: for act's own failed action. Any other read waits for the actions being saved, so a
+  // state read before them does not bring back what they changed (their answer is newer).
+  async function refresh(own) {
     try {
       const saved = await tool("studio_state", { studio_id: studioId });
+      if (!own) await settled();
       if (saved.saved === true) adopt(saved.state, saved.updated_at);
     } catch (_) { /* the next action or result brings the state */ }
   }
@@ -405,7 +425,7 @@
         return r;
       } catch (e) {
         L.notice = `Not saved: ${e.message}`;
-        if (queued === 1) await refresh();  // the server's state wins
+        if (queued === 1) await refresh(true);  // the server's state wins
         return null;
       } finally {
         queued--;
@@ -415,6 +435,7 @@
     queue = run.catch(() => {});
     return run;
   }
+  async function settled() { while (queued) await queue; }  // no action waits to be saved
   function settingChanged(cap, key, value, debounceMs) {
     syncContext();
     const k = `${cap}/${key}`, entry = { value };
@@ -472,20 +493,37 @@
   }
 
   // ---- actions ---------------------------------------------------------------
+  // An item action changes the shown state at once, as the server will
+  // (studio/patches.py), then is saved; act shows the server's answer.
+  const listOf = (field) => (field === "product" ? "products" : field);
+  function change(action) {
+    if (!ready()) return Promise.resolve(null);
+    const { set, add, remove, clear } = action;
+    if (set && set.items) S[listOf(set.field)] = set.items.map(withThumb).filter(Boolean).slice(0, 8);
+    else if (set) S[set.field] = withThumb(set.item);
+    if (add && S[listOf(add.field)].length < 8) S[listOf(add.field)].push(withThumb(add.item));
+    if (remove) {  // saved by ref: the shown list can differ from the saved one
+      const ref = str((S[listOf(remove.field)].splice(remove.index, 1)[0] || {}).ref);
+      if (ref) remove.ref = copies.get(ref) || ref;
+    }
+    if (clear) S[listOf(clear.field)] = Array.isArray(S[listOf(clear.field)]) ? [] : null;
+    render(); syncContext();
+    return act(action);
+  }
   function setSlot(field, item, source) {
     remember(item);
-    act({ set: { field, item: lean(item) }, source });
+    change({ set: { field, item: lean(item) }, source });
   }
-  const clearField = (field) => act({ clear: { field } });
+  const clearField = (field) => change({ clear: { field } });
   function addProduct(item, source) {
     if (S.products.length >= 8 || S.products.some(p => p.ref === item.ref)) return;
     remember(item);
-    act({ add: { field: "product", item: lean(item), replace_index: -1 }, source });
+    change({ add: { field: "product", item: lean(item), replace_index: -1 }, source });
   }
-  const removeAt = (field, index) => act({ remove: { field, index } });
+  const removeAt = (field, index) => change({ remove: { field, index } });
   function setSpin(items, source) {
     items.forEach(remember);
-    act({ set: { field: "spin", items: items.map(lean) }, source });
+    change({ set: { field: "spin", items: items.map(lean) }, source });
   }
 
   // ---- sections --------------------------------------------------------------
@@ -497,7 +535,7 @@
   function personSection() {
     return section("Person", S.person ? "1/1" : "0/1",
       el("div", { class: "hint" }, "A photo of the person, or a model from the gallery."),
-      S.person ? chip(S.person, () => clearField("person")) : null,
+      uploading("person").slice(-1)[0] || (S.person ? chip(S.person, () => clearField("person")) : null),
       el("div", { class: "row" }, btn("Upload photo", () => pick("person"))),
       gallery("people", `Gallery (${G.models.length})`,
         el("div", { class: "grid" }, G.models.map(m => tile(m, () => setSlot("person", { ...m }, "gallery"))))));
@@ -505,7 +543,7 @@
   function productsSection() {
     return section("Products", `${S.products.length}/8`,
       el("div", { class: "hint" }, "Several photos of one product, or one photo per product for an outfit."),
-      S.products.map((p, i) => chip(p, () => removeAt("product", i))),
+      S.products.map((p, i) => chip(p, () => removeAt("product", i))), uploading("product"),
       el("div", { class: "row" }, btn("Upload photos", () => pick("product")),
         S.products.length ? btn("Clear", () => clearField("product")) : null),
       productPicker((item) => addProduct({ ...item }, "catalog"), "+ Add"));
@@ -545,7 +583,8 @@
       el("summary", {}, "Reference model & style"),
       el("label", { class: "f" }, "Reference model (optional)"),
       el("div", { class: "hint" }, "Taken automatically from a full-length photo of a model among the products. Upload one here only to choose it yourself."),
-      S.reference_model ? chip(S.reference_model, () => clearField("reference_model")) : null,
+      uploading("reference_model").slice(-1)[0]
+        || (S.reference_model ? chip(S.reference_model, () => clearField("reference_model")) : null),
       S.reference_model ? lookOptions() : null,
       el("div", { class: "row" }, btn("Upload photo", () => pick("reference_model"))),
       text("tryon", "style_guidelines", "Style guidelines", "Brand rules, e.g. jackets closed, shirts tucked", true),
@@ -577,12 +616,12 @@
     const useSet = (p) => setSpin(arr(p.refs).map((r, i) => ({ label: `${p.label} ${i + 1}`, ref: r, thumb: str(arr(p.thumbs)[i]) })), "gallery");
     return section("Product photos", `${S.spin.length}/8`,
       el("div", { class: "hint" }, "Use several photos of the same product from different sides."),
-      S.spin.map((p, i) => chip(p, () => removeAt("spin", i))),
+      S.spin.map((p, i) => chip(p, () => removeAt("spin", i))), uploading("spin"),
       S.spin.length === 1 ? el("div", { class: "warn", role: "status" },
         "One photo works, but the spin will invent the sides and back: add photos from other angles.") : null,
       el("div", { class: "row" }, btn("Upload photos", () => pick("spin")),
         S.spin.length ? btn("Clear", () => clearField("spin")) : null),
-      el("details", { open: !S.spin.length }, el("summary", {}, `Spin sets (${G.spin.length})`),
+      gallery("spinSets", `Spin sets (${G.spin.length})`,
         el("div", { class: "hint" }, "Catalogue products photographed from several sides."),
         el("div", { class: "grid" }, G.spin.map(p => tile(p, () => useSet(p))))));
   }
@@ -603,8 +642,14 @@
       kids.push(select(cap, "aspect_ratio", cap === "spin" ? ["auto", "16:9", "9:16"] : ["9:16", "16:9"], "Aspect ratio"),
                 select(cap, "resolution", ["720p", "1080p"], "Resolution"));
     }
+    // The checks: one setting each, kept with the Photo Try-On settings (studio/patches.py CHECKS).
+    const checks = [];
+    if (cap !== "spin") checks.push(toggle("tryon", "check_images", "Check images",
+      "Judge each try-on image with Gemini (slower). Off: images are not checked."));
+    if (cap !== "tryon") checks.push(toggle("tryon", "check_videos", "Check videos",
+      "Judge each video with Gemini (slower). Off: videos are not checked."));
     return el("details", {}, el("summary", {}, "Run options"), el("div", { class: "row" }, kids),
-      hint ? el("div", { class: "hint" }, hint) : null);
+      hint ? el("div", { class: "hint" }, hint) : null, ...checks);
   }
   // Whether the current page makes a try-on image (Photo Try-On and Video Try-On).
   const makesTryOn = () => S.capability !== "spin";
@@ -626,11 +671,63 @@
   }
   // Video Try-On's MP4 plays as a video; any other result is an image (a spin is an animated WebP).
   const isVideo = (r) => /\.mp4$/i.test(String(r.uri || ""));
+  // Nodes kept from one render to the next by key, so a playing video does
+  // not restart (moving it within one task does not pause it) and an image
+  // does not reload; the ones the last render did not use are dropped.
+  let kept = new Map(), keeping = new Map();
+  function keep(key, make) {
+    let k = key;
+    for (let i = 1; keeping.has(k); i++) k = `${key} #${i}`;  // the same media twice in one render
+    const n = kept.get(k) || make();
+    keeping.set(k, n);
+    return n;
+  }
+  // Gemini Enterprise's frame does not allow full screen: no button for it.
+  const videoEl = (url) => el("video", { src: url, controls: true, controlslist: "nofullscreen", loop: true,
+    muted: true, playsinline: true });
   // A saved result whose preview URL could not be renewed keeps its place.
-  function media(r, video, alt) {
+  // An image opens in a new tab on click; `ratio` boxes it whole, whatever its shape.
+  function media(r, video, alt, ratio) {
     if (!safeUrl(r.url)) return el("div", { class: "noprev" }, "Preview unavailable");
-    return video ? el("video", { src: r.url, controls: true, loop: true, muted: true, playsinline: true })
-      : el("img", { src: r.url, alt: alt || "Result" });
+    if (video) return keep("video " + r.url, () => videoEl(r.url));
+    const n = keep("img " + r.url, () => el("a", { href: r.url, target: "_blank", rel: "noopener" },
+      el("img", { src: r.url })));
+    n.firstChild.alt = alt || "Result";
+    n.firstChild.style.aspectRatio = ratio || "";
+    return n;
+  }
+  // The shimmer of things still coming runs on the page's clock, so a redrawn one does not jump.
+  function shimmer(n) {
+    const calm = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (n.animate && !calm)
+      n.animate([{ backgroundPosition: "100% 0" }, { backgroundPosition: "-100% 0" }],
+        { duration: 1600, iterations: Infinity }).startTime = 0;
+    return n;
+  }
+  // One card per front variation still coming in a list (`key`) of the
+  // running job: expected, less those received and those that failed.
+  function placeholders(live, key, ratio) {
+    if (!live || !polling) return [];
+    const n = Math.max(0, live.expected[key] - live.made[key] - live.failed[key]);
+    return Array.from({ length: n }, (_, i) => keep(`wait ${key} ${i} ${ratio}`, () =>
+      el("article", { class: "res", "aria-busy": "true" },
+        shimmer(el("div", { class: "shim", style: `aspect-ratio: ${ratio}` })),
+        el("div", { class: "body" }, el("span", { class: "status" }, "Generating…")))));
+  }
+  // The files being uploaded to a field: their previews until each upload ends.
+  const uploading = (field) => L.uploads.filter(u => u.field === field).map(u => keep(`upload ${u.key} ${!!u.thumb}`, () =>
+    shimmer(el("div", { class: "sel shim", "aria-busy": "true" },
+      u.thumb ? el("img", { src: u.thumb, alt: "" }) : el("span", { style: "width:44px;height:44px" }),
+      el("span", { class: "lbl status" }, "Uploading…")))));
+  // "1 video failed": the front variations of a list that ended without media.
+  function failedNote(live, key, noun) {
+    const n = live ? live.failed[key] : 0;
+    return n > 0 ? el("div", { class: "warn", role: "status" }, `${n} ${noun}${n > 1 ? "s" : ""} failed`) : null;
+  }
+  // A page's aspect ratio as CSS ("3:4" -> "3/4"), square for "auto".
+  function ratioOf(cap) {
+    const m = /^(\d+):(\d+)$/.exec(str(S.settings[cap].aspect_ratio));
+    return m ? `${m[1]}/${m[2]}` : "1/1";
   }
   // The evaluator's score: green from 80, amber from 60, red below.
   function scoreChip(score) {
@@ -670,20 +767,24 @@
   function imageCard(m, n, v) {
     const count = v.videos.filter(r => r.source === m.uri).length;
     const status = v.making === m.uri ? "Making video…" : count ? `${count} video${count > 1 ? "s" : ""}` : "No video";
-    return el("article", { class: "res", id: `img-${n}`, ...linked(n) }, media(m, false, `Try-on image ${n}`),
+    return el("article", { class: "res", id: `img-${n}`, ...linked(n) }, media(m, false, `Try-on image ${n}`, ratioOf("video_tryon")),
       el("div", { class: "body" },
         el("div", { class: "row between" }, el("strong", {}, `Image ${n}`), scoreChip(m.score)),
         m.passed === false ? el("div", {}, el("span", { class: "chip warn" }, "Didn't pass every check")) : null,
         el("div", { class: "status" }, status),
-        el("button", { class: "btn", disabled: busy() || !ready(), on: { click: () => makeVideo(m.uri) } }, "Make video")));
+        el("div", { class: "row" },
+          el("button", { class: "btn", disabled: busy() || !ready(), on: { click: () => makeVideo(m.uri) } }, "Make video"))));
   }
-  function imagesSection(v) {
-    if (!v.images.length) return null;
+  function imagesSection(v, live) {
+    const more = placeholders(live, "image_results", ratioOf("video_tryon"));
+    if (!v.images.length && !more.length) return null;
     return section("Try-on images", String(v.images.length),
       el("div", { class: "hint" }, "The images the videos were made from. Make video makes only that image's videos again."),
-      el("div", { class: "imgs" }, v.images.map((m, i) => imageCard(m, i + 1, v))));
+      failedNote(live, "image_results", "image"),
+      el("div", { class: "imgs" }, v.images.map((m, i) => imageCard(m, i + 1, v)), more));
   }
   function resultCard(r, best, video, images) {
+    best = best && typeof r.score === "number";  // a result made with its checks off is never "Best"
     const i = video ? images.findIndex(m => m.uri === r.source) : -1, n = i + 1;
     return el("article", { class: "res" + (best ? " best" : ""), ...(n ? linked(n) : {}) }, media(r, isVideo(r)),
       el("div", { class: "body" },
@@ -692,7 +793,14 @@
           r.view === "back" ? el("span", { class: "chip" }, "Back") : null),
         n ? el("button", { class: "link", on: { click: () => showImage(n) } }, `From image ${n}`) : null,
         r.note ? el("div", { class: "hint" }, r.note) : null,
-        safeUrl(r.url) ? el("a", { href: safeUrl(r.url), target: "_blank", rel: "noopener", class: "btn" }, "Open") : null));
+        safeUrl(r.url) ? el("div", { class: "row" },
+          el("a", { href: safeUrl(r.url), target: "_blank", rel: "noopener", class: "btn" }, "Open"),
+          // A spin's MP4: the video model's raw clip (not cut to the loop, not reversed).
+          safeUrl(r.video_url) ? el("a", { href: safeUrl(r.video_url), target: "_blank", rel: "noopener",
+            class: "btn", download: true }, "Download video") : null,
+          // A Photo Try-On front view: its videos on Video Try-On.
+          !video && r.view !== "back" && str(r.uri) ? el("button", { class: "btn", disabled: busy() || !ready(),
+            on: { click: () => animate(r.uri) } }, "Animate") : null) : null));
   }
   function resultsSection() {
     const cap = S.capability;
@@ -702,8 +810,11 @@
     const v = cap === "video_tryon" ? videoView()
       : { images: [], videos: live ? live.results : S.results[cap], running: !!live && !!polling };
     const res = v.videos, best = cap === "video_tryon" ? ranked(v) : !v.running;
-    return [imagesSection(v), res.length ? section(v.running ? "Results so far" : "Results", String(res.length),
-      el("div", { class: "results" }, res.map((r, i) => resultCard(r, best && i === 0, cap !== "tryon", v.images))))
+    const more = placeholders(live, "results", ratioOf(cap));
+    const noun = { tryon: "image", video_tryon: "video", spin: "spin" }[cap];
+    return [imagesSection(v, live), res.length || more.length ? section(v.running ? "Results so far" : "Results",
+      String(res.length), failedNote(live, "results", noun),
+      el("div", { class: "results" }, res.map((r, i) => resultCard(r, best && i === 0, cap !== "tryon", v.images)), more))
       : null];
   }
 
@@ -711,6 +822,7 @@
     const active = document.activeElement;
     const focused = active && active.dataset ? str(active.dataset.k) : "";
     const caret = focused ? [active.selectionStart, active.selectionEnd] : null;
+    kept = keeping; keeping = new Map();
     const tabs = document.getElementById("tabs");
     tabs.replaceChildren(el("div", { class: "tabs", role: "tablist", "aria-label": "Capability" }, Object.entries(CAPS).map(([k, v]) =>
       el("button", { class: "tab" + (S.capability === k ? " on" : ""), role: "tab", "aria-selected": String(S.capability === k),
@@ -736,34 +848,64 @@
   // ---- uploads ---------------------------------------------------------------
   const fileInput = document.getElementById("file");
   function pick(target) { uploadTarget = target; fileInput.multiple = target === "product" || target === "spin"; fileInput.click(); }
-  function shrink(file) {
-    return new Promise((resolve, reject) => {
-      const img = new Image();
-      img.onerror = () => reject(new Error("not an image"));
-      img.onload = () => {
-        const m = 1600, s = Math.min(1, m / Math.max(img.width, img.height));
-        const c = document.createElement("canvas");
-        c.width = Math.round(img.width * s); c.height = Math.round(img.height * s);
-        c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
-        resolve(c.toDataURL("image/jpeg", 0.9));
-      };
-      img.src = URL.createObjectURL(file);
-    });
+  // A file as a JPEG data URL at most `m` px wide and high, read without a blob: URL (the host's CSP blocks them).
+  async function shrink(file, m, quality) {
+    const img = await createImageBitmap(file).catch(() => { throw new Error("not an image"); });
+    const s = Math.min(1, m / Math.max(img.width, img.height)), c = document.createElement("canvas");
+    c.width = Math.round(img.width * s); c.height = Math.round(img.height * s);
+    c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+    img.close();
+    return c.toDataURL("image/jpeg", quality);
   }
-  fileInput.addEventListener("change", async () => {
-    const files = Array.from(fileInput.files || []).slice(0, 8);
-    const field = uploadTarget;
-    fileInput.value = "";
-    for (const f of files) {
+  // The original file goes straight into the bucket (a signed PUT URL); when that fails once (tools
+  // not reloaded, no signing, the PUT blocked), every upload of the session is shrunk and sent as base64.
+  let direct = true;
+  async function send(f) {
+    if (direct && f.size <= 20 * 1024 * 1024) {  // the server's limit (gcs.MAX_IMAGE_BYTES)
       try {
-        const up = await tool("studio_upload", { image_base64: await shrink(f), filename: f.name, studio_id: studioId });
+        const u = await tool("studio_upload_url", { studio_id: studioId, content_type: f.type });
+        const r = await fetch(str(u.url), { method: "PUT", headers: isObj(u.headers) ? u.headers : {}, body: f });
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return await tool("studio_upload_saved", { studio_id: studioId, ref: str(u.ref), filename: f.name });
+      } catch (e) { direct = false; console.warn("direct upload failed:", e); }
+    }
+    return tool("studio_upload", { image_base64: await shrink(f, 1600, 0.9), filename: f.name, studio_id: studioId });
+  }
+  // At most `n` calls of fn at a time: a call that ends hands its slot to the next one waiting.
+  function limited(n, fn) {
+    let active = 0;
+    const waiting = [];
+    return async (...a) => {
+      if (active < n) active++; else await new Promise(r => waiting.push(r));
+      try { return await fn(...a); } finally { const w = waiting.shift(); if (w) w(); else active--; }
+    };
+  }
+  const sendSome = limited(4, send);
+  // Each file shows at once where it will land (only the ones there is room for) until its upload ends.
+  fileInput.addEventListener("change", async () => {
+    const field = uploadTarget, list = S[listOf(field)];
+    const room = Array.isArray(list) ? 8 - list.length - L.uploads.filter(u => u.field === field).length : 1;
+    const files = Array.from(fileInput.files || []).slice(0, Math.max(0, room));
+    fileInput.value = "";
+    const ups = files.map(() => ({ key: randomHex(6), field, thumb: "" }));
+    L.uploads.push(...ups);
+    render();
+    ups.forEach((u, i) => shrink(files[i], 88, 0.8).then(t => { u.thumb = t; render(); }, () => {}));
+    // Up to 4 uploads at once; each file lands (its action is sent) in the order picked.
+    const sent = files.map(f => sendSome(f));
+    sent.forEach(p => p.catch(() => {}));  // a failure is reported in its turn below
+    for (const [i, p] of sent.entries()) {
+      try {
+        const up = await p;
         const item = remember(cleanItem({ label: up.label, ref: up.ref, thumb: up.thumb }));
         if (!item) throw new Error(str(up.error) || "no image saved");
         const meta = { source: "upload", description: str(up.description) };
-        if (field !== "product" && field !== "spin") await act({ set: { field, item: lean(item) }, ...meta });
+        if (field !== "product" && field !== "spin") change({ set: { field, item: lean(item) }, ...meta });
         else if ((field === "spin" ? S.spin : S.products).length < 8)
-          await act({ add: { field: field === "spin" ? "spin" : "product", item: lean(item), replace_index: -1 }, ...meta });
-      } catch (e) { L.notice = `Upload failed: ${e.message}`; render(); }
+          change({ add: { field: field === "spin" ? "spin" : "product", item: lean(item), replace_index: -1 }, ...meta });
+      } catch (e) { L.notice = `Upload failed: ${e.message}`; }
+      L.uploads = L.uploads.filter(u => u !== ups[i]);
+      render();
     }
   });
 
@@ -790,6 +932,13 @@
     start(cap, spec(cap));
   }
   const makeVideo = (uri) => { if (ready()) start("video_tryon", spec("video_tryon", uri)); };
+  // "Animate" a Photo Try-On result on Video Try-On: the server animates it
+  // (or makes a 9:16 image first) as a full run of the page, not a Make video.
+  function animate(uri) {
+    if (busy() || !ready()) return;
+    S.capability = "video_tryon"; render(); syncContext(); act({ capability: "video_tryon" });
+    start("video_tryon", spec("video_tryon", uri), "");
+  }
   // The failed generation again: its spec, or (one this panel only followed) the page's,
   // recomputing what the server's preprocessing cache kept for it (refresh_cache).
   function tryAgain() {
@@ -798,7 +947,7 @@
   }
   // `starting`: the page of the generation being started; nothing else starts meanwhile.
   let starting = null;
-  async function start(cap, sp) {
+  async function start(cap, sp, tryon = sp.tryon_image) {
     if (busy()) return;
     starting = cap; L.jobError = ""; L.jobStatus = "starting…";
     L.retry = { cap, spec: sp, tryon: sp.tryon_image };
@@ -814,7 +963,7 @@
     }
     starting = null;
     if (!jobId) return render();
-    poll(jobId, cap, true, sp.tryon_image);  // clears any earlier error
+    poll(jobId, cap, true, tryon);  // clears any earlier error
     act({ job_started: { job_id: jobId, capability: cap } });  // saved with the studio
   }
   const POLL_LIMIT_MS = 30 * 60 * 1000;  // stop following a generation after this
@@ -837,7 +986,8 @@
     const cap = capOf(capability);
     if (typeof jobId !== "string" || !jobId || !cap || polling) return;
     polling = jobId; followed.add(jobId); L.jobStatus = "starting…"; L.jobError = "";
-    L.live = { cap, results: [], images: [], tryon: tryon || "" };
+    L.live = { cap, results: [], images: [], tryon: tryon || "",
+               expected: counts(), made: counts(), failed: counts() };
     if (!fresh) L.retry = { cap, spec: null, tryon: tryon || "" };
     render(); syncContext();
     const run = ++pollRun, startedAt = Date.now();
@@ -867,7 +1017,9 @@
         // Each variation shows as soon as it is judged; the final order is the judge's.
         L.live.results = resultsOf(st.results);
         L.live.images = imagesOf(st.images);  // a full video try-on's animated images so far
-        L.live.tryon = str(st.tryon_image) || L.live.tryon;  // a Make video job's image
+        L.live.expected = counts(st.expected); L.live.failed = counts(st.failed);
+        L.live.made = { image_results: fronts(st.image_results), results: fronts(st.results) };
+        if (typeof st.tryon_image === "string") L.live.tryon = st.tryon_image;  // a Make video job's image
         if (L.retry && !L.retry.spec) L.retry.tryon = L.live.tryon;
         if (st.status === "running") { render(); continue; }
         // done, or error (e.g. "interrupted: ..." when its server stopped)
@@ -893,9 +1045,11 @@
   // reopened conversation replays every earlier result into the panel; those
   // are not newer than the restored studio.
   // Ignored until the saved studio was read (restore shows the newest);
-  // a result without a state (its save failed) shows the server's state.
-  function fromResult(sc) {
+  // a result without a state (its save failed) shows the server's state. It waits
+  // for the actions being saved: their answer may be newer.
+  async function fromResult(sc) {
     if (!canWrite) return;
+    await settled();
     if (isObj(sc) && !isObj(sc.state)) { refresh(); return; }
     if (!isObj(sc) || !adopt(sc.state, sc.updated_at, true)) syncContext();
   }

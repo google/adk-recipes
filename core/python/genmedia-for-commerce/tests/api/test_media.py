@@ -26,7 +26,7 @@ from genmedia4commerce.core.runs import media_url
 from genmedia4commerce.core.testing import mp4_stub
 from tests.api.conftest import IMAGE
 
-BUCKET = "test-project-genmedia-for-commerce-media-payloads"
+BUCKET = "test-project-gfc-media"
 RUN = f"gs://{BUCKET}/runs/2026-01-02/tab-1/0123456789ab"
 URI = f"{RUN}/outputs/image-front-0.png"
 

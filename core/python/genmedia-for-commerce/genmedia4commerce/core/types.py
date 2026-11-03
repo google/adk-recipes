@@ -20,6 +20,7 @@ from typing import Any, Literal
 __all__ = [
     "FRAMING_BY_CATEGORY",
     "GARMENTS",
+    "AnimatedImage",
     "Category",
     "Classification",
     "Framing",
@@ -33,6 +34,7 @@ __all__ = [
     "Verdict",
     "View",
     "quality_score",
+    "unchecked",
 ]
 
 
@@ -50,6 +52,20 @@ class StoredVideo(bytes):
         video = super().__new__(cls, data)
         video.interaction_id, video.extends = interaction_id, extends
         return video
+
+
+class AnimatedImage(bytes):
+    """An animated image (a spin's WebP) with ``video``, the video model's
+    MP4 it was made from, unchanged: ``core.runs`` saves it next to the
+    image (output mode gcs).
+    """
+
+    video: bytes
+
+    def __new__(cls, data: bytes, video: bytes):
+        image = super().__new__(cls, data)
+        image.video = video
+        return image
 
 
 @dataclass
@@ -70,6 +86,12 @@ class Verdict:
 def quality_score(publish: bool, imperfections: int) -> float:
     """Return the 0-100 score of a verdict (``Verdict.details["score"]``)."""
     return float(max(0, 100 - 15 * imperfections - 30 * (not publish)))
+
+
+def unchecked() -> Verdict:
+    """The verdict of a result made with its model checks off: it passes,
+    with no imperfection and no score (``details["checked"]`` False)."""
+    return Verdict(True, description="Not checked", details={"checked": False})
 
 
 Framing = Literal[
@@ -222,7 +244,8 @@ class Classification:
     photos: list[Photo] = field(default_factory=list)
 
     def to_dict(self) -> dict:
-        """Return a JSON-friendly summary without image bytes."""
+        """Return a JSON-friendly summary without image bytes (a
+        product's span only when it has one)."""
         return {
             "mode": self.mode,
             "framing": self.framing,
@@ -232,6 +255,7 @@ class Classification:
                     "category": p.category,
                     "description": p.description,
                     "refs": [{"view": r.view, "rank": r.rank} for r in p.refs],
+                    **({"span": list(p.span)} if p.span else {}),
                 }
                 for p in self.products
             ],

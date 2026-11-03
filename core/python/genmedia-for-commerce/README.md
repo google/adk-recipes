@@ -1,55 +1,23 @@
 # GenMedia for Commerce
 
-Product images and videos for online shops, made with Gemini and checked before they are shown. Chat with the Studio agent ("put her in this jacket", "now make a video of it") or fill in the Studio yourself, in the web app or inside Gemini Enterprise.
+Product images and videos for online shops, made with Gemini. Chat with the Studio agent ("put her in this jacket", "now make a video of it") or fill in the Studio yourself, in the web app or inside Gemini Enterprise.
 
 ## What you get
 
-- **Photo Try-On:** state-of-the-art virtual try-on. Show a person, or a preset model, wearing one product or a full outfit of up to 20, with close-up details kept, your brand styling rules, and a back view when there are back photos of a single product.
-- **Video Try-On:** the same inputs, turned into short fashion videos with planned camera moves.
-- **360° Spin:** a turntable animation (a looping animated WebP) of any product from a few photos, with a tuned path for shoes.
-- **Quality checks:** a judge model compares every result with the product photos (colours, logos, missing or invented details) and the face when a person is involved. Results are scored, ranked and streamed as they finish.
-- **The Studio agent:** an ADK agent that sets up the Studio from a conversation, finds catalogue products and preset models, and always asks "Shall I generate?" before it generates.
-- **Gemini Enterprise:** the Studio runs as an interactive panel next to the Gemini Enterprise chat (an MCP App), registered with one command.
-- **A sample catalogue:** 788 fashion products, 8 preset models and 5 products photographed from several sides, so you can try everything without your own photos.
-- **One Cloud Run service:** the web app, the Gemini Enterprise panel, the ADK API and a REST API for each capability, set up with Terraform.
+- **Photo Try-On:** a person, or a preset model, wearing one product or an outfit of up to 20, with close-up details, brand styling rules and a back view.
+- **Video Try-On:** the same inputs as short fashion videos with planned camera moves.
+- **360° Spin:** a looping turntable animation of any product from a few photos.
+- **Quality checks:** a judge model compares each result with the product photos and scores it. Off by default in the Studio: turn on "Check images" or "Check videos" in Run options.
+- **The Studio agent:** an [ADK](https://google.github.io/adk-docs/) agent that sets up the Studio from a conversation and asks "Shall I generate?" before it generates.
+- **Gemini Enterprise:** the Studio as an interactive panel next to the chat (an MCP App).
+- **A sample catalogue:** 788 fashion products, 8 preset models and 5 multi-view products, so you can try it without your own photos.
 
 [AGENTS.md](./AGENTS.md) explains how each part works.
-
-## Built with ADK
-
-- **The agent:** the Studio agent is an ADK `App` (`root_agent` in `genmedia4commerce/agent/`), with its tools as ADK function tools, a plugin and callbacks around each turn and tool call, results saved as artifacts, and the "ask before generating" rule enforced in the `generate` tool's code.
-- **Sessions:** a custom ADK session service on Cloud Storage (`studio://`, `genmedia4commerce/studio/sessions.py`), so any Cloud Run instance can continue any conversation, from the web app, Gemini Enterprise or the ADK API.
-- **Serving:** the backend is ADK's `get_fast_api_app`, so the ADK API (`/run`, `/run_sse`) comes with the service:
-
-```bash
-curl -X POST http://localhost:8000/apps/genmedia4commerce/users/demo/sessions \
-  -H "Content-Type: application/json" -d '{"session_id": "demo-chat-1"}'
-curl -X POST http://localhost:8000/run -H "Content-Type: application/json" \
-  -d '{"app_name": "genmedia4commerce", "user_id": "demo", "session_id": "demo-chat-1",
-       "new_message": {"role": "user", "parts": [{"text": "Find me a black t-shirt."}]}}'
-```
 
 ## Prerequisites
 
 - Python 3.11 to 3.13, Node.js 20 or newer, [uv](https://github.com/astral-sh/uv) and the Google Cloud CLI (`gcloud`).
 - A Google Cloud project with billing enabled.
-- For Gemini Enterprise: a subscription or the free trial in that project (see [Gemini Enterprise](#gemini-enterprise)).
-
-## Quick deploy
-
-In [Cloud Shell](https://shell.cloud.google.com), with your project selected (`gcloud config set project <your-project-id>`):
-
-```bash
-d=genmedia4commerce-$RANDOM && uvx google-agents-cli@1.12.0 scaffold create $d -ag -y -p -d cloud_run \
-  --agent-guidance-filename AGENTS.md -a https://github.com/google/adk-recipes/tree/main/core/python/genmedia-for-commerce \
-  && cd $d && make install setup-infra deploy register-gemini-enterprise
-```
-
-It copies the recipe into a new folder, sets up the project, deploys the app, starts the web app at <http://localhost:8080> (in Cloud Shell: **Web Preview > Preview on port 8080**) and registers the Studio in Gemini Enterprise. It can run again in the same project. Agent Garden's older agent-starter-pack command still works. On the way, Enter answers yes to:
-
-- `Deploy to project <id> (gcloud's active project)? [Y/n]`, when `config.env` is created.
-- `Apply these changes to project <id>? [Y/n]`, after Terraform's plan (without a terminal, set `TF_AUTO_APPROVE=1`).
-- The Gemini Enterprise questions: allow custom MCP connectors, and start the free trial ([Gemini Enterprise](#gemini-enterprise)).
 
 ## Setup
 
@@ -65,7 +33,7 @@ gcloud config set project <your-project-id>
 make setup-infra
 ```
 
-`make setup-infra` creates `config.env` from `config.env.example` (with your gcloud project), then uses Terraform (installed for you if missing) to enable the APIs and create the media bucket, the image repository and the service accounts. Its Terraform state is in the bucket `<project>-genmedia-tfstate`, so it can run again from any folder. Run it once per project, and again after upgrading, before you deploy. Every setting is in `config.env` ([Configuration](#configuration)).
+`make setup-infra` creates `config.env` (every setting, see [Configuration](#configuration)) and, with Terraform, the APIs, the media bucket and the service accounts. It can run again safely; run it again after upgrading.
 
 ## Run locally
 
@@ -73,86 +41,49 @@ make setup-infra
 make dev
 ```
 
-Open <http://localhost:3000>: the Studio, with the agent's chat on the side and pages for Photo Try-On, Video Try-On and 360° Spin. The backend runs on port 8000.
+Open <http://localhost:3000>. Try: "Use Emma as the model and find me a black leather jacket", answer "yes" when the agent asks "Shall I generate?", then "Now make a video of it". Local runs still use your project's models and media bucket.
 
-Optional and best effort: `make playground` opens the ADK web UI on <http://localhost:8501>, to chat with the agent without the Studio panel.
-
-Try: "Use Emma as the model and find me a black leather jacket", answer "yes" when the agent asks "Shall I generate?", then "Now make a video of it".
-
-Running locally still uses Google Cloud: the models, and the media bucket where the Studio keeps its conversations, uploads and results.
-
-## Deploy
+## Deploy and Gemini Enterprise
 
 ```bash
 make deploy
-```
-
-This builds the image and deploys it to Cloud Run with the settings in `config.env` (by default 8 CPUs, 32 GiB, 2 to 10 instances; the minimum instances are billed all the time). The service requires Google Cloud IAM authentication, so its URL answers 403 in a browser. When it finishes in a terminal, `make deploy` starts the web app in the background at <http://localhost:8080> (in Cloud Shell: **Web Preview > Preview on port 8080**); otherwise it prints how to open it. To run it in the foreground yourself:
-
-```bash
-make web
-```
-
-It runs `gcloud run services proxy` for the service in `config.env` on port 8080, which adds an identity token to every request: go to <http://localhost:8080>, or in Cloud Shell use **Web Preview > Preview on port 8080**. Ctrl+C stops it. Right after a deploy, the page can answer 403 for about a minute while `genmedia-web`'s access to the new service applies: wait and reload. The first run installs the gcloud component `cloud-run-proxy` if it is missing.
-
-The token belongs to the service account `genmedia-web`, which can only invoke this service: `make setup-infra` creates it and lets whoever runs it act as it (Token Creator on that account only), and `make deploy` gives it Cloud Run Invoker on the service. This works the same on a laptop and in Cloud Shell, with no extra login (Cloud Shell's own credentials cannot mint a token for Cloud Run). If you cannot act as `genmedia-web`, `make web` uses your own token instead (`gcloud auth print-identity-token`, which works with `gcloud auth login` credentials on a laptop). A token lasts an hour, so the proxy restarts with a fresh one every 50 minutes.
-
-To let teammates open the web app with `make web` (they also need the repository and `config.env`):
-
-```bash
-make share USERS="user:alice@example.com,group:team@example.com"
-```
-
-It grants each of them Token Creator on `genmedia-web` and Cloud Run Viewer on this service only (`make web` reads the service's URL). A setup made before `genmedia-web` existed needs `make setup-infra`, then `make deploy`.
-
-After `make deploy` (so also the Agent Garden command) or `make register-gemini-enterprise` in a terminal, the proxy is already running in the background: the command prints its address and `kill <pid>` to stop it, and it stops by itself when the terminal session ends.
-
-The backend accepts browser calls from those two origins because `ALLOW_ORIGINS` in `config.env` lists them: `http://localhost:8080` (and `127.0.0.1`) and, as a `regex:` pattern, Cloud Shell's Web Preview of port 8080 (`https://8080-<instance>.cloudshell.dev`). A `config.env` created before that pattern was added needs it copied from `config.env.example`, then `make deploy`. To use another port, add its origin to `ALLOW_ORIGINS` and deploy again. To let people in your organisation sign in from a browser, set `USE_IAP=true`. Secrets go through Secret Manager: `make deploy SECRETS="NAME=SECRET_ID:latest"`.
-
-`make deploy-agent-engine` is a legacy name for the same deploy, kept for the Agent Garden command.
-
-## Gemini Enterprise
-
-After `make deploy`:
-
-```bash
 make register-gemini-enterprise
 ```
 
-It connects the deployed Studio to Gemini Enterprise and creates a "GenMedia Studio" app, whose chat only relays your messages to the Studio's agent and its replies back (Google Search off, model `GENMEDIA_ASSISTANT_MODEL`, default `gemini-3.8-flash`). It can run again safely, and `DRY_RUN=1` shows what it would change. Use a project dedicated to this app: some of these settings apply to the whole project.
+- `make deploy` puts the app on Cloud Run (private: IAM only) and opens it at <http://localhost:8080> through a local proxy. Later, `make web` opens it again, and `make share USERS="user:alice@example.com"` lets teammates do the same.
+- `make register-gemini-enterprise` creates a "GenMedia Studio" app in Gemini Enterprise. Enter answers yes to its questions (allow custom MCP connectors, start the 30-day free trial); one step is in the console: click **Reload custom actions** on the page it links, then press Enter. Use a project dedicated to this app.
 
-The command does everything it can and guides you through what only the console can do:
+Then open the app and ask "Open the GenMedia Studio". Upload images with the panel's Upload button: files attached in the chat do not reach the Studio.
 
-1. **Start the subscription or the free trial**, in the console under Gemini Enterprise, before you register.
-2. **Allow custom MCP connectors:** Gemini Enterprise blocks them by default. The command asks to allow them for the project (Enter means yes; it needs the Organization Policy Administrator role) and waits until that applies. `make allow-mcp-connectors` does the same on its own; without a terminal the command prints what to run.
-3. **Reload custom actions:** the command links the connector's Actions page; click Reload custom actions there and press Enter. It checks the reload happened (asking again if not) and enables `studio_agent` itself. Do it again after a deploy that changes the Studio's tools.
+## Cloud Shell: one command
 
-When the project has no Gemini Enterprise licence yet, the command offers the 30-day free trial (as the console does with the first app): it assigns you a licence and gives every other user one at first sign-in. Otherwise give users a licence (Gemini Enterprise > Manage users). Then open the app and ask "Open the GenMedia Studio" (GenMedia Studio is on under Connectors). Upload images with the panel's Upload button: files attached in the chat do not reach the Studio.
+In [Cloud Shell](https://shell.cloud.google.com), with your project selected (`gcloud config set project <your-project-id>`):
+
+```bash
+d=genmedia4commerce-$RANDOM && uvx google-agents-cli@1.12.0 scaffold create $d -ag -y -p -d cloud_run \
+  --agent-guidance-filename AGENTS.md -a https://github.com/google/adk-recipes/tree/main/core/python/genmedia-for-commerce \
+  && cd $d && make install setup-infra deploy register-gemini-enterprise
+```
+
+It runs all of the above. Open the web app with **Web Preview > Preview on port 8080**.
 
 ## Configuration
 
-`config.env.example` lists the deploy settings and `.env.example` every variable the code reads, with their defaults. The ones you are most likely to change:
+`config.env` holds the deploy settings and `.env.example` lists every variable with its default. The most useful:
 
 | Variable | What it does |
 |---|---|
-| `PROJECT_ID`, `DEFAULT_REGION` | The Google Cloud project, and the region of Cloud Run and regional services |
-| `GENMEDIA_*_MODEL` | The model used for each task (text, judge, agent, image, video, embeddings) |
-| `GENMEDIA_STYLE_GUIDELINES`, `GENMEDIA_SCENARIO` | Brand styling rules and the default scene for try-on images |
+| `PROJECT_ID`, `DEFAULT_REGION` | The project, and the region of Cloud Run and regional services |
+| `GENMEDIA_*_MODEL` | The model of each task (text, judge, agent, image, video, embeddings) |
+| `GENMEDIA_STYLE_GUIDELINES`, `GENMEDIA_SCENARIO` | Brand styling rules and the default scene of try-on images |
 | `GENMEDIA_NUM_VARIATIONS` | Results per request (1 to 5, default 3) |
-| `GENMEDIA_UPSCALE_FACE` | Upscale a small face crop of the wearer before it goes into the try-on prompt (default false) |
-| `GENMEDIA_TRYON_FIX` | Give each try-on image the judge rejects one fix attempt with the judge's defects; a fixed image that passes replaces it and is marked `fixed` (default false) |
-| `GENMEDIA_CATALOG_PATH` | Your own catalogue file, with the same columns as `assets/catalog/products.parquet` |
-| `GENMEDIA_MAX_JOBS_PER_HOUR` | Studio generations per studio per hour (default 20) |
-| `ALLOW_ORIGINS` | Browser origins allowed besides the app's own (by default the proxy's on port 8080 and Cloud Shell's Web Preview of it) |
-| `USE_IAP` | Sign-in with Identity-Aware Proxy instead of IAM only |
+| `GENMEDIA_CATALOG_PATH` | Your own catalogue, with the columns of `assets/catalog/products.parquet` |
+| `MEDIA_BUCKET` | The media bucket (default `<PROJECT_ID>-gfc-media`) |
+| `USE_IAP` | Browser sign-in with Identity-Aware Proxy |
 
 ## APIs
 
-All on the same service; the OpenAPI reference is at `/docs`.
-
-- **REST:** `POST /api/tryon`, `/api/video-tryon` and `/api/spin` take images (or `gs://`, `catalog:` and allowed `https://` references) and stream the results as Server-Sent Events. Also uploads, catalogue search and images, and media.
-- **ADK API:** the Studio agent under the app name `genmedia4commerce` (`/run`, `/run_sse`; see [Built with ADK](#built-with-adk)).
-- **MCP:** the Studio MCP App at `/mcp`, used by Gemini Enterprise and any MCP client that supports MCP Apps.
+One service serves the web app, the REST API (`/api/tryon`, `/api/video-tryon`, `/api/spin`, streamed as Server-Sent Events; reference at `/docs`), the ADK API (`/run`, `/run_sse`, app `genmedia4commerce`) and the MCP App (`/mcp`).
 
 ```bash
 curl -N http://localhost:8000/api/tryon -F product_images=@jacket.jpg -F person_image=@person.jpg
@@ -160,22 +91,19 @@ curl -N http://localhost:8000/api/tryon -F product_images=@jacket.jpg -F person_
 
 ## Security and data
 
-- **One team per deployment:** everyone who can invoke the service, through IAM, IAP or the Gemini Enterprise app, can open any studio whose id they know. Grant access to that team only.
-- **One place for data:** everything is stored in the media bucket, and deleted 30 days after its last change. Preview links are signed URLs, valid for 60 minutes.
-- **Preprocessing cache:** so that the next photo try-on with the same product photos starts sooner, the server keeps what it worked out from the product photos only (their classification, the product crops, the detail close-ups and the styling plan) in the media bucket under `product_cache/`, in folders named by a hash of the photos and options; nothing from the person photo is kept. These are also deleted after 30 days, and are never served or accepted as image references. "Try again" after a failed generation recomputes them; `GENMEDIA_USE_CACHE=false` turns the cache off.
-- **Hardening:** the server checks every id and image reference, limits generations per studio, and refuses browser calls from other websites.
+- **One team per deployment:** anyone who can invoke the service can open any studio whose id they know.
+- **One place for data:** everything is in the media bucket and deleted 30 days after its last change; preview links are signed URLs valid for 60 minutes.
+- **Cache:** what was worked out from product photos only (never the person photo) is kept under `product_cache/` and `spin_cache/` so the next run starts sooner; `GENMEDIA_USE_CACHE=false` turns it off.
 
-## Evaluate and develop
+## Develop
 
 ```bash
 make test        # hermetic tests: no network, no credentials
 make lint        # codespell and ruff
 make typecheck   # mypy
-make secrets     # detect-secrets
-make test-live   # tests against the real APIs (costs money)
 ```
 
-When the frontend changes, also run `cd frontend && npm run lint && npm run build && npm test`. [AGENTS.md](./AGENTS.md) is the guide to the code and its rules.
+[AGENTS.md](./AGENTS.md) is the guide to the code and its rules.
 
 ## Disclaimer
 

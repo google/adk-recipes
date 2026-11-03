@@ -58,6 +58,7 @@ def _offline(storage, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(store, "_BACKOFF_S", 0)
     monkeypatch.setattr(ss, "_JOB_WAIT_S", 0)
     monkeypatch.setattr(sh, "note", lambda studio_id, text: True)
+    monkeypatch.setattr(sh, "note_later", lambda studio_id, text: None)
     monkeypatch.setattr(
         sm, "preview_url", lambda uri, video=False: f"https://p/{uri}"
     )

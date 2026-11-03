@@ -1,18 +1,16 @@
-/**
- * Copyright 2026 Google LLC
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     https://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2026 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
 // Fixture backend for the web app (the Studio API in ./studioMock, plus the media,
 // catalogue image and status routes it relies on), shared by the tests (msw/node) and
@@ -33,7 +31,7 @@ export function configureMock(overrides: Partial<typeof options>): void {
   Object.assign(options, overrides);
 }
 
-const MEDIA_BUCKET = "demo-genmedia-for-commerce-media-payloads";
+const MEDIA_BUCKET = "demo-gfc-media";
 
 const badRequest = (detail: string) =>
   HttpResponse.json({ detail }, { status: 400 });

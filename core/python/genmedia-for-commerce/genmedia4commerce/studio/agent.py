@@ -169,10 +169,15 @@ def _drop_images(llm_request: LlmRequest) -> bool:
 async def _before_model(
     callback_context: CallbackContext, llm_request: LlmRequest
 ) -> None:
-    """While the model cannot read the images, send none of them."""
+    """While the model cannot read the images, send none of them. The call
+    after tool results mostly words the reply: the lite model (the first
+    call, which chooses the tools, keeps the agent's model)."""
     del callback_context
     if not _images_on():
         _drop_images(llm_request)
+    last = llm_request.contents[-1] if llm_request.contents else None
+    if last and any(p.function_response for p in last.parts or []):
+        llm_request.model = get_models().text_lite
 
 
 async def _on_model_error(
