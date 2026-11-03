@@ -337,6 +337,29 @@ describe("useStudio", () => {
     );
   });
 
+  it("sends the check switches in the job, off unless turned on", async () => {
+    await seedTryOn();
+    await seed({ capability: "video_tryon" });
+    const specs = recordSpecs();
+    const { result } = await renderStudio();
+    const settings = () => specs[specs.length - 1]?.settings;
+
+    await act(() => result.current.generate());
+    expect(settings()).toMatchObject({
+      check_images: false,
+      check_videos: false,
+    });
+    await waitFor(() => expect(result.current.view.job).toBeNull());
+    await waitFor(() => expect(result.current.following).toBe(false));
+
+    act(() => result.current.setSetting("tryon", "check_videos", true));
+    await act(() => result.current.generate());
+    expect(settings()).toMatchObject({
+      check_images: false,
+      check_videos: true,
+    });
+  });
+
   it("generates Video Try-On from photos and keeps the try-on images it animated, each video naming its image", async () => {
     await seedTryOn();
     await seed(

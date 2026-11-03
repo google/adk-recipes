@@ -15,7 +15,7 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import { beforeEach, describe, expect, it } from "vitest";
-import { sendStudioAction } from "../../api/studio";
+import { sendStudioAction, type StudioAction } from "../../api/studio";
 import {
   FEATURED,
   resetStudioMock,
@@ -48,6 +48,51 @@ beforeEach(() => {
   resetStudioMock();
   stubLocalStorage();
   localStorage.setItem("genmedia.studioId", ID);
+});
+
+describe("Upload", () => {
+  it("uploads several files at once and adds them in the order picked", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const started: string[] = [];
+    const added: string[] = [];
+    const { result } = await renderStudio();
+    server.use(
+      // The PNG (picked first) answers only once the JPEG's upload started.
+      http.post("/api/studio/:id/uploads", async ({ params, request }) => {
+        const type = /Content-Type: (image\/\w+)/.exec(await request.text());
+        const name = type?.[1] === "image/png" ? "first" : "second";
+        started.push(name);
+        if (name === "first") await gate;
+        const ref = `gs://b/runs/2026-10-08/studio-${params.id}/inputs/upload-${name}.png`;
+        return HttpResponse.json({ ref, label: name, thumb: "" });
+      }),
+      http.post("/api/studio/:id/actions", async ({ request }) => {
+        const { event } = (await request.clone().json()) as {
+          event: StudioAction;
+        };
+        const add = event.add as { item: { label: string } } | undefined;
+        if (add) added.push(add.item.label);
+      }),
+    );
+    const first = new File(["a"], "a.png", { type: "image/png" });
+    const second = new File(["b"], "b.jpg", { type: "image/jpeg" });
+
+    let done!: Promise<void>;
+    act(() => {
+      done = result.current.upload("product", [first, second]);
+    });
+    await waitFor(() => expect(started).toEqual(["first", "second"]));
+    expect(result.current.uploading).toEqual(["product", "product"]);
+    expect(added).toEqual([]); // the second waits for the first
+    release();
+    await act(() => done);
+
+    expect(added).toEqual(["first", "second"]);
+    expect(result.current.uploading).toEqual([]);
+  });
 });
 
 describe("Remove and Clear", () => {

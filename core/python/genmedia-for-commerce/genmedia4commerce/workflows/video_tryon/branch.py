@@ -16,7 +16,7 @@
 
 ``video_stage`` animates one image: its references, the plan, the zoomed
 details of the plan's close-ups, then ``Animation.videos`` videos, each
-checked by ``evaluate.evaluate_clip``. ``animate`` is one branch of an
+checked by ``evaluate.evaluate_clip`` (none with ``check_videos`` off). ``animate`` is one branch of an
 end-to-end run: the back view drawn from its front first (a single product
 with a back upload), then ``progress("image_selected")`` and the video
 stage. ``Streams`` runs the image stage and the branches at once and merges
@@ -46,6 +46,7 @@ from genmedia4commerce.core.runner import (
     RunPolicy,
     default_rank_key,
     run_variations,
+    skip_checks,
 )
 from genmedia4commerce.core.settings import get_settings
 from genmedia4commerce.core.types import Framing, Landmark, Verdict
@@ -242,8 +243,9 @@ async def video_stage(
         return verdict, clip
 
     policy = anim.policy.replace(num_variations=count)
+    check = evaluate if req.check_videos else skip_checks
     variations = trace.scoped(
-        run_variations(policy, make, evaluate), stage="video"
+        run_variations(policy, make, check), stage="video"
     )
     async with contextlib.aclosing(variations):
         async for event in variations:

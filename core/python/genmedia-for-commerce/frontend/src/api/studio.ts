@@ -42,6 +42,8 @@ export type StudioResult = {
   /** A video's try-on image: the `uri` of an item of the studio's `images.video_tryon`. */
   source?: string;
   passed?: boolean;
+  /** A spin's MP4: the video model's clip, for a download. */
+  video_url?: string;
 };
 
 /** A studio state as the server stores it (studio/patches.py); read defensively by `fromServer`. */

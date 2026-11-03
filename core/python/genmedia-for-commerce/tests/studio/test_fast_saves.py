@@ -21,10 +21,11 @@ from typing import Any
 
 import pytest
 
+from genmedia4commerce.core.events import VariationEvent
 from genmedia4commerce.core.settings import get_settings
 from genmedia4commerce.studio import history as sh
+from genmedia4commerce.studio import job_events, patches, sessions, store
 from genmedia4commerce.studio import media as sm
-from genmedia4commerce.studio import sessions, store
 from genmedia4commerce.studio import state as ss
 from genmedia4commerce.studio.events import CAPABILITY_NAMES
 
@@ -187,6 +188,51 @@ def test_a_url_valid_for_half_an_hour_more_is_kept(monkeypatch) -> None:
 
     assert fresh["url"].startswith("https://") and old["url"] == "new"
     assert sorted(signed) == ["gs://b/bare.mp4", "gs://b/old.mp4"]
+
+
+def test_a_spins_mp4_gets_its_own_url(monkeypatch) -> None:
+    """A spin result names its MP4 (``video_uri``, kept with the studio)
+    and a URL for it, renewed like its preview's; other results have
+    none."""
+    signed: list[tuple[str, bool]] = []
+
+    def preview_url(uri: str, *, video=False, inline=True) -> str:
+        signed.append((uri, inline))
+        return f"signed:{uri}"
+
+    monkeypatch.setattr(sm, "preview_url", preview_url)
+    spin = VariationEvent(
+        0, "ready", None, None, 1.0, media_uri="gs://b/0.webp"
+    )
+    spin.video_uri = "gs://b/0.mp4"
+
+    shown = job_events.result(spin.to_dict(), True) or {}
+
+    assert shown["video_url"] == "signed:gs://b/0.mp4"
+    kept = patches.clean(shown, patches.RESULT_KEYS)
+    assert kept["video_uri"] == "gs://b/0.mp4" and "video_url" not in kept
+    sm.refresh_urls([([kept], False)])
+    assert kept["video_url"] == "signed:gs://b/0.mp4"
+    assert signed.count(("gs://b/0.mp4", False)) == 2  # never inlined
+    image = VariationEvent(
+        0, "ready", None, None, 1.0, media_uri="gs://b/0.png"
+    )
+    assert "video_url" not in (job_events.result(image.to_dict(), False) or {})
+
+
+def test_an_mp4_has_no_url_without_signing(monkeypatch) -> None:
+    """Without signed URLs (user credentials) a spin's MP4 gets no link:
+    it is never inlined in the studio's responses like a preview."""
+
+    def unsigned(uri: str) -> str:
+        raise RuntimeError("no signing")
+
+    monkeypatch.setattr(sm.gcs, "signed_url", unsigned)
+    monkeypatch.setattr(sm, "allowed_ref", lambda uri: True)
+    monkeypatch.setattr(sm.gcs, "resolve_image", lambda uri: b"mp4 bytes")
+
+    assert sm.preview_url("gs://b/0.mp4", inline=False) == ""
+    assert sm.preview_url("gs://b/0.mp4", video=True).startswith("data:")
 
 
 def test_a_chat_turn_waits_for_the_notes_first(monkeypatch) -> None:
