@@ -14,6 +14,7 @@
 
 import time
 from concurrent.futures import ThreadPoolExecutor
+from datetime import timedelta
 from unittest.mock import MagicMock
 
 import pytest
@@ -79,7 +80,7 @@ def test_resolve_image_bytes_passthrough(monkeypatch):
     gcs.download.assert_not_called()
 
 
-MEDIA_BUCKET = "test-project-genmedia-for-commerce-media-payloads"
+MEDIA_BUCKET = "test-project-gfc-media"
 
 
 def test_resolve_image_gs_from_the_media_bucket(monkeypatch):
@@ -298,9 +299,40 @@ def test_signing_refreshes_once_for_concurrent_calls(credentials):
     assert creds.refreshes == 1
 
 
+def test_a_put_url_is_signed_for_its_type_size_and_time(credentials):
+    _, _, signer = credentials
+    url, headers = gcs.signed_put_url(
+        "gs://bkt/up.png", content_type="image/png", max_bytes=99, minutes=15
+    )
+    extra = {
+        "x-goog-content-length-range": "0,99",
+        "x-goog-if-generation-match": "0",  # create only
+    }
+    assert url == "https://signed"
+    assert headers == {"Content-Type": "image/png", **extra}
+    kwargs = signer.call_args.kwargs
+    assert (kwargs["version"], kwargs["method"]) == ("v4", "PUT")
+    assert kwargs["content_type"] == "image/png"
+    assert kwargs["headers"] == extra
+    assert kwargs["expiration"] == timedelta(minutes=15)
+    assert kwargs["access_token"] == "token-1"
+
+
 def test_credentials_that_cannot_sign_are_a_config_error(credentials):
     creds, _, signer = credentials
     creds.service_account_email = None  # e.g. user credentials
     with pytest.raises(ConfigError, match="cannot sign"):
         gcs.signed_url("gs://bkt/a.png")
     signer.assert_not_called()
+
+
+def test_still_valid_reads_a_v4_signed_url() -> None:
+    def url(start: float, expires: int) -> str:
+        stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime(start))
+        return f"https://x/o?X-Goog-Date={stamp}&X-Goog-Expires={expires}"
+
+    now = time.time()
+    assert gcs.still_valid(url(now, 3600), 1800)
+    assert not gcs.still_valid(url(now - 2000, 3600), 1800)
+    assert not gcs.still_valid("https://x/o", 0)
+    assert not gcs.still_valid("data:image/png;base64,AA", 0)

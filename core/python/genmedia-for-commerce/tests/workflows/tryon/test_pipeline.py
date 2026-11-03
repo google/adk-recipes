@@ -1590,3 +1590,27 @@ def test_a_crop_hero_is_drawn_and_judged_with_its_uploads_close_ups(
     sent = _byte_parts(_image_calls(fake_gen)[0])
     assert sent[2:] == [crop, images[0], CROPS[0], LOCK.image]  # top half
     assert {r for c in fakes.product_calls for r in c["references"]} == {crop}
+
+
+def test_with_check_images_off_no_image_is_judged_or_fixed(
+    fake_gen, fakes, images, person, monkeypatch
+):
+    """Front and back views pass unjudged, with no score, and the fix
+    pass (on here) never runs: only the drawings call the image model."""
+    monkeypatch.setenv("GENMEDIA_TRYON_FIX", "true")
+    pipeline.get_settings.cache_clear()
+    fakes.publish = False  # the judge would reject every image
+    fake_gen.json(
+        _json_router(_classified(("A", "top", [_img(0), _img(1, "back")])))
+    )
+    fake_gen.image(_images_counter())
+    events = _run(_request(images, person, 2, check_images=False))
+    made = [e for e in events if isinstance(e, VariationEvent)]
+    assert [e.extra["view"] for e in made] == ["front"] * 3 + ["back"] * 3
+    assert fakes.judge_calls == 0
+    assert len(_image_calls(fake_gen)) == 6  # no fix drawing
+    for e in made:
+        assert (e.status, e.score, e.fixed) == ("ready", 0.0, False)
+        assert e.verdict == Verdict(
+            True, description="Not checked", details={"checked": False}
+        )

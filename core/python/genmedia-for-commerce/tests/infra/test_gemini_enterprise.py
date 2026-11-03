@@ -363,4 +363,10 @@ def test_register_enables_the_action_and_reports_it(
     assert ("Reload custom actions" in caplog.text) is not loaded
     assert (gea.RERUN in caplog.text) is not loaded
     assert ("Done:" in caplog.text) is loaded
-    assert "licence" in caplog.text
+    assert (
+        "App settings: https://console.cloud.google.com/gemini-enterprise/"
+        "locations/global/engines/my-app/overview/dashboard?project=my-proj"
+        in caplog.text
+    )
+    # No web app id from the API: where the console shows the link
+    assert "Open the app: App settings below > Integration" in caplog.text

@@ -35,7 +35,7 @@ from genmedia4commerce.studio import state as ss
 
 #: The media bucket of the tests (PROJECT_ID=test-project), for refs built
 #: when the tests are collected.
-_MEDIA = "test-project-genmedia-for-commerce-media-payloads"
+_MEDIA = "test-project-gfc-media"
 
 
 def media(path: str) -> str:
@@ -92,6 +92,7 @@ def notes(monkeypatch: pytest.MonkeyPatch) -> list[str]:
         return True
 
     monkeypatch.setattr(sh, "note", note)
+    monkeypatch.setattr(sh, "note_later", note)
     return lines
 
 
@@ -378,6 +379,23 @@ def test_refs_of_older_studios_are_mapped_to_the_catalogue(
     assert out["refs"] == {old_bucket: media("runs/studio_catalog/pb2")}
 
 
+def test_a_removal_by_ref_takes_that_item_or_none(storage, notes) -> None:
+    """A client's list can differ from the saved one: the ref wins over
+    the index, and a ref no item has removes nothing."""
+
+    def act(action: dict[str, Any]) -> dict[str, Any]:
+        return ss.apply_action("s1", action)["state"]
+
+    act({"add": {"field": "product", "item": tee(), "replace_index": -1}})
+    act({"add": {"field": "product", "item": cap(), "replace_index": -1}})
+    ref = cap()["ref"]
+    st = act({"remove": {"field": "product", "index": 0, "ref": ref}})
+    assert st["products"] == [tee()]
+    st = act({"remove": {"field": "product", "index": 0, "ref": ref}})
+    assert st["products"] == [tee()]  # already gone: not the tee instead
+    assert notes[-1] == f"User removed cap from Products. ref: {ref}"
+
+
 def test_each_action_is_narrated_for_the_agent(storage, notes) -> None:
     upload = {"label": "tee.jpg", "ref": media(f"{_RUN}/inputs/upload-t.png")}
     # The description the server wrote when it saved the upload.
@@ -472,6 +490,7 @@ def test_a_failed_read_never_wipes_the_state(storage, monkeypatch) -> None:
     # A missing state is an empty studio, not an error.
     assert ss.get_state("s1") == {"capability": "tryon"}
     ss.apply_action("s1", {"set": {"field": "spin", "items": [tee()]}})
+    assert sh.flush()  # its note
     before = dict(storage.objects)
 
     def denied(uri: str) -> bytes:

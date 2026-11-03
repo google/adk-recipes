@@ -105,6 +105,8 @@ async def video_tryon(
     mode: str = Form(""),
     aspect_ratio: str = Form("9:16"),
     resolution: str = Form("720p"),
+    check_images: bool = Form(True),
+    check_videos: bool = Form(True),
 ) -> StreamingResponse:
     """Dress the person (unless a tryon_image is given), then animate it.
 
@@ -121,7 +123,8 @@ async def video_tryon(
     Without it, product images are classified first; with none, the video
     gets no product photo. Images, ``input`` and ``output`` as in
     ``POST /api/tryon``. The video references always go as separate
-    images. ``upscale_crops`` as in ``POST /api/tryon``.
+    images. ``upscale_crops`` and ``check_images`` as in ``POST
+    /api/tryon``; ``check_videos`` false: no video is checked, each passes.
     """
     build = functools.partial(
         video_tryon_request,
@@ -138,5 +141,7 @@ async def video_tryon(
         aspect_ratio=aspect_ratio,
         resolution=resolution,
         image_size=image_size,
+        check_images=check_images,
+        check_videos=check_videos,
     )
     return await start(request, run, images, build, run_video_tryon)

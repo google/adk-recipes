@@ -40,6 +40,11 @@ DENIED = (
     "permission to access projects instance [my-proj]: Permission "
     "'orgpolicy.policies.create' denied on resource"
 )
+NOT_READY = (
+    "ERROR: (gcloud.org-policies.set-policy) PERMISSION_DENIED: Organization "
+    "Policy API has not been used in project 123 before or it is disabled. "
+    "If you enabled this API recently, wait a few minutes. SERVICE_DISABLED"
+)
 SET_POLICY = "gcloud org-policies set-policy policy.yaml --project=my-proj"
 
 
@@ -95,11 +100,10 @@ def test_yes_allows_the_connectors_and_retries_until_created(
 
     assert terminal.prompts == [gep.ASK.format(project="my-proj")]
     assert (
-        "Allow custom MCP connectors for project my-proj? [Y/n]"
-        in (terminal.prompts[0])
+        "Change the organization policy to allow custom MCP connectors in "
+        "project my-proj? [Y/n]" in (terminal.prompts[0])
     )
-    assert "Studio panel needs one" in caplog.text
-    assert "not only this one" in caplog.text
+    assert "The Studio needs a custom MCP connector" in caplog.text
     assert org_policy["files"] == [gep.policy_yaml("my-proj")]
     assert org_policy["files"][0] == (
         f"name: projects/my-proj/policies/{gep.POLICY}\n"
@@ -196,7 +200,8 @@ def test_permission_denied_prints_what_an_admin_must_run(
 
     assert (
         "Could not change the policy (needs the Organization Policy "
-        "Administrator role). Ask an admin to run:\n  printf '" in caplog.text
+        f"Administrator role): {DENIED}\nAsk an admin to run:\n  printf '"
+        in caplog.text
     )
     assert f"{SET_POLICY}\nthen run make register-gemini-enterprise again." in (
         caplog.text
@@ -205,6 +210,34 @@ def test_permission_denied_prints_what_an_admin_must_run(
     assert len(_posts(api)) == 1
     assert "Policy changed" not in caplog.text
     assert "Data stores > Create data store" not in caplog.text
+
+
+def test_a_just_enabled_api_is_waited_for(
+    monkeypatch, org_policy, terminal, sleeps, caplog
+):
+    """A new project: the API enabled a moment ago answers a 403 that is
+    not a missing role."""
+    answers = [NOT_READY, NOT_READY]
+    set_policy = gep.gcloud
+
+    def gcloud(*args):
+        if args[:2] == ("org-policies", "set-policy") and answers:
+            raise subprocess.CalledProcessError(
+                1, ["gcloud", *args], stderr=answers.pop()
+            )
+        return set_policy(*args)
+
+    monkeypatch.setattr(gep, "gcloud", gcloud)
+    api = _blocked_api(BLOCKED, CREATED)
+    terminal.tty = True
+    caplog.set_level("INFO")
+
+    assert _register(monkeypatch, api) == 0
+
+    assert caplog.text.count(gep.API_WAIT) == 1
+    assert org_policy["files"] == [gep.policy_yaml("my-proj")]
+    assert sleeps == [15, 15, 15]  # the API twice, then the policy once
+    assert "Could not change the policy" not in caplog.text
 
 
 def test_still_blocked_after_three_minutes(

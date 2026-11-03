@@ -35,7 +35,7 @@ from google.genai import types
 
 from genmedia4commerce.core import catalog
 from genmedia4commerce.studio import media as sm
-from genmedia4commerce.studio.patches import tryon_options
+from genmedia4commerce.studio.patches import CHECKS, tryon_options
 
 __all__ = [
     "HEADLESS",
@@ -104,7 +104,8 @@ product visuals. {mode}
 - `video_tryon` (Video Try-On): the same inputs as Photo Try-On (person,
   products, optional reference model and style); it dresses the person in
   the products, then animates every try-on image that passes its checks
-  (the best one when none does). It never animates an arbitrary image.
+  (the best one when none does). It never animates an arbitrary image,
+  only the studio's own Photo Try-On results (`animate_photo`).
   Motion: auto (1 to 3 shots planned from the images) or custom, with a
   motion prompt saying what the video shows. Variations: the try-on images
   to make (each animated into 2 videos by default). The studio shows the
@@ -119,6 +120,12 @@ product visuals. {mode}
   photo each, so never use `find_product` for a spin. One photo works but
   the spin invents the sides and back: use a single photo only when the
   user insists, and pass on the warning.
+
+Checks ("checks" in the current studio, one switch each, shared by the
+pages): `check_images` (the try-on images of Photo and Video Try-On) and
+`check_videos` (Video Try-On's videos and the spins). Both are off by
+default: results are then not judged, pass and have no score. On, a model
+judges each result (slower).
 
 "Try-on", "VTO", "virtual try-on", "put it on her" or "dress him" mean Photo
 Try-On (`tryon`). Use Video Try-On only when the user asks for a video: "a
@@ -187,9 +194,11 @@ seen in the studio.
   missing, ask for it (a person, a product, photos to spin) instead of
   generating. Shortcuts, with no searching and no other changes:
   - "again", "one more": `generate` on that page with what the studio holds.
-  - "a video of the last try-on": Video Try-On makes its own try-on from
-    the same person and products, so `open_capability("video_tryon")`,
-    then ask "Shall I generate?".
+  - "animate it", "make a video of it" or "a video of the last try-on"
+    after a Photo Try-On: `animate_photo(1)` (or the result named), which
+    animates that result, not a new video try-on. From another page it
+    opens Video Try-On and answers "needs_confirmation": ask "Shall I
+    generate?".
   - "redo the video for image 2": `remake_video(2)` (it asks first, like
     `generate`, when you changed the studio or the page this turn).
 - A generation takes one to three minutes; only one runs at a time. Never
@@ -245,6 +254,7 @@ def summary(st: dict[str, Any]) -> str:
         f"spin photos: {'; '.join(spin) or 'none'}",
         f"settings: {json.dumps(settings)}",
         f"try-on options: {json.dumps(options)}",
+        f"checks: {json.dumps(tryon_options(settings.get('tryon'), CHECKS))}",
     ]
     return "\n".join(lines)
 

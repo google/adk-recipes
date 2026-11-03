@@ -32,6 +32,8 @@ APP_TOOLS = {
     "studio_preview",
     "studio_gallery",
     "studio_upload",
+    "studio_upload_url",
+    "studio_upload_saved",
     "studio_catalog_search",
     "studio_job_start",
     "studio_job_status",
@@ -88,7 +90,7 @@ def test_tools_are_listed_with_their_visibility(client, path):
     tools = _rpc(client, path, "tools/list", {})["tools"]
     visibility = {t["name"]: t["_meta"]["ui"]["visibility"] for t in tools}
     assert set(visibility) == MODEL_TOOLS | APP_TOOLS
-    assert len(tools) == 9
+    assert len(tools) == 11
     for name, seen in visibility.items():
         assert seen == (["model", "app"] if name in MODEL_TOOLS else ["app"])
     for tool in tools:

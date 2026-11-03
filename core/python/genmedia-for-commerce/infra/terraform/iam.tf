@@ -66,7 +66,7 @@ resource "google_project_iam_member" "cloudrun" {
 
 # Everything the app stores is in the media bucket (runs/ and sessions/).
 resource "google_storage_bucket_iam_member" "cloudrun_media" {
-  bucket = google_storage_bucket.media.name
+  bucket = google_storage_bucket.gfc_media.name
   role   = "roles/storage.objectAdmin"
   member = local.cloudrun_sa
 }
@@ -136,17 +136,26 @@ resource "google_project_service_identity" "aiplatform" {
   depends_on = [google_project_service.apis]
 }
 
+# A just-created service agent is not usable in IAM for about a minute
+# ("does not exist"): wait once, when it is first created.
+resource "time_sleep" "aiplatform_agent" {
+  create_duration = "60s"
+  triggers = {
+    email = google_project_service_identity.aiplatform.email
+  }
+}
+
 # Granted on the project with a condition limiting it to the media bucket:
 # bucket IAM refuses a just-created service agent ("does not exist") on a
 # fresh project, project IAM accepts it.
 resource "google_project_iam_member" "aiplatform_media" {
   project = var.project_id
   role    = "roles/storage.objectViewer"
-  member  = "serviceAccount:${google_project_service_identity.aiplatform.email}"
+  member  = "serviceAccount:${time_sleep.aiplatform_agent.triggers["email"]}"
 
   condition {
     title       = "media-bucket-only"
     description = "Read the media bucket only"
-    expression  = "resource.name == \"projects/_/buckets/${google_storage_bucket.media.name}\" || resource.name.startsWith(\"projects/_/buckets/${google_storage_bucket.media.name}/\")"
+    expression  = "resource.name == \"projects/_/buckets/${google_storage_bucket.gfc_media.name}\" || resource.name.startsWith(\"projects/_/buckets/${google_storage_bucket.gfc_media.name}/\")"
   }
 }

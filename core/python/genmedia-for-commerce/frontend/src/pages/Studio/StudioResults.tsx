@@ -1,27 +1,31 @@
-/**
- * Copyright 2026 Google LLC
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     https://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2026 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
 import { useState } from "react";
 import type { StudioResult } from "../../api/studio";
-import { DownloadIcon, SpinnerIcon, StarIcon } from "../../components/icons";
+import {
+  DownloadIcon,
+  SpinnerIcon,
+  StarIcon,
+  VideoIcon,
+} from "../../components/icons";
 import ImageLightbox from "../../components/ImageLightbox";
 import { EmptyResults } from "../../components/RunControls";
+import type { LiveJob } from "./jobs";
 import { CAPS, safeUrl } from "./model";
+import { FailedNote, PendingCard } from "./Pending";
 import ScoreBadge from "./ScoreBadge";
-import type { LiveJob } from "./store";
 import TryonImages from "./TryonImages";
 import type { Studio } from "./useStudio";
 
@@ -33,6 +37,8 @@ const STEPS = {
   video_tryon: ["Add a person and products", "Pick the motion", "Generate"],
   spin: ["Add product photos or a spin set", "Generate"],
 };
+/** What one result of each page is. */
+const NOUNS = { tryon: "image", video_tryon: "video", spin: "spin" };
 
 /** The extension of a result's file: `mp4` a video (Video Try-On), anything else an image (a spin is an animated WebP). */
 const extOf = (r: StudioResult) =>
@@ -54,6 +60,9 @@ type CardProps = {
   /** Its try-on image is hovered or focused. */
   linked?: boolean;
   onLink?: (uri: string) => void;
+  /** "Animate" (a Photo Try-On front view): its videos on Video Try-On; `canAnimate`: no generation runs. */
+  onAnimate?: () => void;
+  canAnimate?: boolean;
 };
 
 function ResultCard({
@@ -64,12 +73,23 @@ function ResultCard({
   from,
   linked,
   onLink,
+  onAnimate,
+  canAnimate,
 }: CardProps) {
   const [zoomed, setZoomed] = useState(false);
   const ext = extOf(result);
   const video = ext === "mp4";
   const url = safeUrl(result.url);
+  // A spin's MP4: the video model's raw clip (not cut to the loop, not reversed); the WebP is the result shown.
+  const videoUrl = safeUrl(result.video_url);
   const rejected = result.status === "rejected";
+  // Made with its checks off: no score, never called publishable.
+  const checked = typeof result.score === "number";
+  const verdict = rejected
+    ? "Not publishable"
+    : checked
+      ? "Publishable"
+      : "Not checked";
   const link = (on: boolean) => onLink?.(on ? (result.source ?? "") : "");
   const ring = linked
     ? "ring-2 ring-gm-accent/60 shadow-accent-glow"
@@ -152,14 +172,48 @@ function ResultCard({
             aria-hidden="true"
             className={`w-1.5 h-1.5 rounded-full ${rejected ? "bg-gm-warning" : "bg-gm-success"}`}
           />
-          {rejected ? "Not publishable" : "Publishable"}
+          {verdict}
         </p>
-        {result.note && (
+        {result.note && result.note !== verdict && (
           <p className="text-xs leading-relaxed text-gm-text-secondary">
             {result.note}
           </p>
         )}
         <div className="flex items-center gap-2 mt-auto pt-1">
+          {url && (
+            <a
+              href={url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="glass-button rounded-lg h-8 px-3 text-xs font-medium flex items-center"
+            >
+              Open
+            </a>
+          )}
+          {videoUrl && (
+            <a
+              href={videoUrl}
+              download
+              target="_blank"
+              rel="noopener noreferrer"
+              className="glass-button rounded-lg h-8 px-3 text-xs font-medium flex items-center whitespace-nowrap"
+            >
+              Download video
+            </a>
+          )}
+          {onAnimate && (
+            <button
+              type="button"
+              onClick={onAnimate}
+              disabled={!canAnimate}
+              aria-label={`Animate ${name}`}
+              title="Make videos of this image on Video Try-On"
+              className="glass-button rounded-lg h-8 px-3 text-xs font-medium flex items-center gap-1.5 whitespace-nowrap"
+            >
+              <VideoIcon size={14} className="text-gm-accent" />
+              Animate
+            </button>
+          )}
           {url && (
             <a
               href={url}
@@ -226,6 +280,9 @@ export default function StudioResults({ studio }: { studio: Studio }) {
         ? live.images
         : studio.view.images;
   const ratio = cssRatio(studio.view.settings[cap].aspect_ratio);
+  // Shown while the job runs: a card per variation still coming.
+  const coming = running ? live.coming : { image_results: 0, results: 0 };
+  const failed = live?.failed ?? { image_results: 0, results: 0 };
   const canMake =
     studio.ready && !studio.view.job && !studio.following && !studio.starting;
   const imageOf = (r: StudioResult) =>
@@ -255,9 +312,11 @@ export default function StudioResults({ studio }: { studio: Studio }) {
   }
   return (
     <section className="flex flex-col gap-4">
-      {images.length > 0 && (
+      {images.length + coming.image_results + failed.image_results > 0 && (
         <TryonImages
           images={images}
+          coming={coming.image_results}
+          failed={failed.image_results}
           videos={results}
           making={running ? remake : ""}
           canMake={canMake}
@@ -275,30 +334,41 @@ export default function StudioResults({ studio }: { studio: Studio }) {
         <span className="chip bg-white/[0.06] text-gm-text-secondary">
           {results.length}
         </span>
+        <FailedNote count={failed.results} noun={NOUNS[cap]} />
         {running && (
           <span className="ml-auto chip bg-gm-accent/10 text-gm-accent ring-1 ring-inset ring-gm-accent/25 !py-1">
             <SpinnerIcon size={12} /> {studio.jobStatus || "Generating"}
           </span>
         )}
       </div>
-      {results.length > 0 && (
+      {results.length + coming.results > 0 && (
         <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 2xl:grid-cols-3">
           {results.map((r, i) => {
             const n = imageOf(r);
             return (
               <ResultCard
-                // biome-ignore lint/suspicious/noArrayIndexKey: a result can have no uri yet
-                key={`${r.uri ?? ""}-${i}`}
+                // By uri: a card (a playing video) stays when the results are ranked or more arrive.
+                key={r.uri || `#${i}`}
                 result={r}
                 name={`Variation ${(r.index ?? i) + 1}`}
                 ratio={ratio}
-                best={i === 0 && ranked}
+                best={i === 0 && ranked && typeof r.score === "number"}
                 from={n >= 0 ? `From image ${n + 1}` : undefined}
                 linked={n >= 0 && linked === r.source}
                 onLink={n >= 0 ? setLinked : undefined}
+                onAnimate={
+                  cap === "tryon" && r.view !== "back" && r.uri
+                    ? () => void studio.animate(r.uri ?? "")
+                    : undefined
+                }
+                canAnimate={canMake}
               />
             );
           })}
+          {Array.from({ length: coming.results }, (_, n) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: placeholders are all alike
+            <PendingCard key={`pending-${n}`} ratio={ratio} />
+          ))}
         </div>
       )}
     </section>

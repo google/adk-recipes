@@ -64,6 +64,7 @@ class TryOnRequest:
     style_guidelines: str | None = None  # None -> settings.style_guidelines
     scenario: str | None = None  # None -> settings.scenario
     generate_back: bool = True
+    check_images: bool = True  # False: every image passes, unjudged
     policy: RunPolicy | None = None  # None -> RunPolicy.from_settings()
     image: ImageParams | None = None  # None -> ImageParams()
 
@@ -92,6 +93,7 @@ class TryOnContext:
     params: ImageParams
     chosen: list[tuple[Product, ProductRef]] = field(default_factory=list)
     plan: CompositionPlan | None = None
+    check_images: bool = True  # see TryOnRequest
 
 
 @dataclass

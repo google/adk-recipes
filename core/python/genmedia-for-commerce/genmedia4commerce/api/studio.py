@@ -149,7 +149,8 @@ class JobBody(BaseModel):
     """``POST /api/studio/{studio_id}/jobs``: a job spec without its
     studio_id (person, reference_model, products, spin, settings; for a
     Video Try-On "Make video", tryon_image: one of the studio's video
-    try-on images, whose run record and back view the server adds)."""
+    try-on images or Photo Try-On front results, whose run record and back
+    view the server adds)."""
 
     model_config = ConfigDict(extra="allow")
 
