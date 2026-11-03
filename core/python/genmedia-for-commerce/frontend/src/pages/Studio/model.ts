@@ -65,6 +65,8 @@ const DEFAULTS: Record<StudioCapability, Settings> = {
     num_variations: "1",
     complete_look: true,
     upscale_crops: false,
+    check_images: false,
+    check_videos: false,
   },
   video_tryon: {
     motion: "auto",
@@ -126,6 +128,24 @@ export const RUN_OPTIONS: Record<StudioCapability, SelectSetting[]> = {
   ],
 };
 
+type CheckSwitch = { key: string; label: string; hint: string };
+const CHECK_IMAGES: CheckSwitch = {
+  key: "check_images",
+  label: "Check images",
+  hint: "Judge each try-on image with Gemini (slower). Off: images are not checked.",
+};
+const CHECK_VIDEOS: CheckSwitch = {
+  key: "check_videos",
+  label: "Check videos",
+  hint: "Judge each video with Gemini (slower). Off: videos are not checked.",
+};
+/** The check switches each page shows: one setting each, kept with the Photo Try-On settings (studio/patches.py CHECKS). */
+export const CHECKS: Record<StudioCapability, CheckSwitch[]> = {
+  tryon: [CHECK_IMAGES],
+  video_tryon: [CHECK_IMAGES, CHECK_VIDEOS],
+  spin: [CHECK_VIDEOS],
+};
+
 export function blank(): StudioView {
   return {
     capability: "tryon",
@@ -155,6 +175,7 @@ const RESULT_KEYS = [
   "note",
   "source",
   "passed",
+  "video_url",
 ] as const;
 
 const isObj = (x: unknown): x is Record<string, unknown> =>

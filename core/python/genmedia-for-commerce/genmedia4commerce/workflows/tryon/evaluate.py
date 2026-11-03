@@ -31,6 +31,7 @@ import asyncio
 import dataclasses
 from collections.abc import Sequence
 
+from genmedia4commerce.core.runner import skip_checks
 from genmedia4commerce.core.types import Product, Verdict, quality_score
 from genmedia4commerce.eval import outfit as outfit_eval
 from genmedia4commerce.workflows.tryon.types import (
@@ -91,8 +92,12 @@ def evaluator(
     """Return ``evaluate(image) -> (verdict, image)`` for the runner;
     ``products``: the drawing's, each judged on its first image.
 
-    The caller bounds each call with the run deadline.
+    The caller bounds each call with the run deadline. With
+    ``ctx.check_images`` off no judge is called: every image passes
+    (``runner.skip_checks``), so it never gets a fix pass either.
     """
+    if not ctx.check_images:
+        return skip_checks
     products = [p for p in products if p.refs]
     items = [
         outfit_eval.OutfitProduct(

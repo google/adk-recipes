@@ -416,8 +416,9 @@ describe("Studio page", () => {
       uri,
       url: `/api/media?uri=${encodeURIComponent(uri)}`,
     });
+    const mp4 = "/api/media?uri=video-0.mp4";
     const results = [
-      result(0, "gs://b/runs/a/outputs/video-0.webp"),
+      { ...result(0, "gs://b/runs/a/outputs/video-0.webp"), video_url: mp4 },
       result(1, "gs://b/runs/b/outputs/video-0.mp4"),
     ];
     const state = { capability: "spin", results: { spin: results } };
@@ -436,6 +437,15 @@ describe("Studio page", () => {
         .getByLabelText("Download Variation 1")
         .getAttribute("download"),
     ).toBe("variation-1.webp");
+    // Its MP4 (the video model's clip), only on a result that has one.
+    expect(
+      within(spin)
+        .getByRole("link", { name: "Download video" })
+        .getAttribute("href"),
+    ).toBe(mp4);
+    expect(within(older).queryByRole("link", { name: "Download video" })).toBe(
+      null,
+    );
     expect(older.querySelector("video")?.getAttribute("src")).toBe(
       results[1].url,
     );
@@ -547,6 +557,34 @@ describe("Studio page", () => {
         { settings: { complete_look: false }, page: "tryon" },
         { settings: { upscale_crops: true }, page: "tryon" },
       ]),
+    );
+  });
+
+  it("shows each page's check switches in Run options, off by default", async () => {
+    await renderStudio();
+    const events = recordActions();
+    const shown = () =>
+      ["Check images", "Check videos"].map(
+        (name) =>
+          screen
+            .queryByRole("switch", { name })
+            ?.getAttribute("aria-checked") ?? null,
+      );
+    expect(shown()).toEqual(["false", null]);
+    fireEvent.click(tab("Video Try-On"));
+    await waitFor(() => expect(shown()).toEqual(["false", "false"]));
+    fireEvent.click(tab("360° Spin"));
+    await waitFor(() => expect(shown()).toEqual([null, "false"]));
+    expect(screen.getByText(/Off: videos are not checked/)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("switch", { name: "Check videos" }));
+
+    expect(shown()).toEqual([null, "true"]);
+    await waitFor(() =>
+      expect(events).toContainEqual({
+        settings: { check_videos: true },
+        page: "tryon",
+      }),
     );
   });
 });

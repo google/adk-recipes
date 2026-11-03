@@ -30,6 +30,8 @@ is continued again from the same first half), then ``product_check``:
 rotation check, frame labels and glitch call at once (a spin that turns
 back or never comes back to its first view is rejected; an anticlockwise
 one is reversed; the clip is cut where it closes), product judge.
+With ``check_videos`` off, a spin of either route is only reversed and cut
+by the local checks (``product_check.shape``) and passes unjudged.
 """
 
 import asyncio
@@ -49,7 +51,12 @@ from genmedia4commerce.core.events import (
 )
 from genmedia4commerce.core.runner import RunPolicy, run_variations
 from genmedia4commerce.core.settings import get_settings
-from genmedia4commerce.core.types import Verdict, quality_score
+from genmedia4commerce.core.types import (
+    AnimatedImage,
+    Verdict,
+    quality_score,
+    unchecked,
+)
 from genmedia4commerce.eval import motion
 from genmedia4commerce.workflows import details
 from genmedia4commerce.workflows.spin import (
@@ -192,8 +199,9 @@ def _shoe_steps(
             gen.generate_video, images, prompt, params=params
         )
 
-    async def check(clip: bytes) -> tuple[Verdict, bytes]:
-        return await asyncio.to_thread(_evaluate, clip, judged, "shoes")
+    async def check(clip: bytes) -> tuple[Verdict, bytes, bytes]:
+        verdict, out = await asyncio.to_thread(_evaluate, clip, judged, "shoes")
+        return verdict, out, clip
 
     return make, check
 
@@ -240,6 +248,7 @@ def _product_steps(
     spin is checked, a spare continuation of the same first half (its first
     4 s stay as they are) is already being made; a rejected spin is judged
     again on it and the better one is kept (``CONTINUATIONS`` 1: no spare).
+    ``check`` also returns the video model's clip it kept.
     """
     images = list(refs.values()) + [c.image for c in closeups]
     first, second = orbit_turns(description, list(refs), closeups)
@@ -255,7 +264,7 @@ def _product_steps(
         half = await asyncio.to_thread(_first_half, images, first, params)
         return await asyncio.to_thread(extend, half)
 
-    async def check(clip: bytes) -> tuple[Verdict, bytes]:
+    async def check(clip: bytes) -> tuple[Verdict, bytes, bytes]:
         spare = None
         if CONTINUATIONS > 1 and getattr(clip, "extends", None):
             spare = asyncio.create_task(asyncio.to_thread(extend, clip))
@@ -264,13 +273,12 @@ def _product_steps(
                 _evaluate, clip, refs, "other"
             )
             if spare is None or verdict.publish or verdict.error:
-                return verdict, out
-            again = await asyncio.to_thread(
-                _evaluate, await spare, refs, "other"
-            )
-            return (
-                again if _score(again[0]) > _score(verdict) else (verdict, out)
-            )
+                return verdict, out, clip
+            other = await spare
+            again = await asyncio.to_thread(_evaluate, other, refs, "other")
+            if _score(again[0]) > _score(verdict):
+                return *again, other
+            return verdict, out, clip
         finally:
             if spare is not None and not spare.done():
                 spare.cancel()  # its result is not needed
@@ -278,9 +286,11 @@ def _product_steps(
     return make, check
 
 
-def _spin_steps(prep: Prepared, params: gen.VideoParams, closeups: list):
-    """``make`` and ``evaluate`` of the product's route; every spin comes
-    out as an animated WebP."""
+def _spin_steps(
+    prep: Prepared, params: gen.VideoParams, closeups: list, checked: bool
+):
+    """``make`` and ``evaluate`` of the product's route (``checked``: its
+    checks run); every spin comes out as an animated WebP."""
     if prep.classification.product_type == "shoes":
         mirrored = frozenset(prep.mirrored)
         make, check = _shoe_steps(prep.refs, params, mirrored)
@@ -289,11 +299,19 @@ def _spin_steps(prep: Prepared, params: gen.VideoParams, closeups: list):
         make, check = _product_steps(prep.refs, params, description, closeups)
 
     async def evaluate(clip: bytes) -> tuple[Verdict, bytes]:
-        verdict, clip = await check(clip)
-        verdict.details["score"] = _score(verdict)
+        raw = clip
+        if checked:
+            verdict, clip, raw = await check(clip)
+            verdict.details["score"] = _score(verdict)
+        else:  # the local turn and loop cut only, no spare continuation
+            verdict = unchecked()
+            clip = await asyncio.to_thread(product_check.shape, clip)
         # Every spin is an animated WebP, also one the checks kept as
-        # the video model's MP4.
-        return verdict, await asyncio.to_thread(core_video.to_webp, clip)
+        # the video model's MP4. The WebP is the result shown; the raw MP4
+        # (not cut to the loop, not reversed) goes with it unchanged,
+        # never decoded or encoded again, for a download.
+        webp = await asyncio.to_thread(core_video.to_webp, clip)
+        return verdict, AnimatedImage(webp, raw)
 
     return make, evaluate
 
@@ -336,7 +354,7 @@ async def run_spin(req: SpinRequest) -> AsyncGenerator[Event, None]:
             },
         )
         policy = req.policy or RunPolicy.from_settings()
-        make, evaluate = _spin_steps(prep, params, closeups)
+        make, evaluate = _spin_steps(prep, params, closeups, req.check_videos)
         yield ProgressEvent("generating", "Generating spin videos")
         variations = trace.scoped(
             run_variations(policy, make, evaluate), stage="video"

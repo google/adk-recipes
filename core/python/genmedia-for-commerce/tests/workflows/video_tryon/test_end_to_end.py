@@ -848,3 +848,20 @@ async def test_closing_the_stream_stops_every_branch(
         assert closed == [True]  # the image stage was closed too
     finally:
         release.set()
+
+
+async def test_with_the_checks_off_nothing_is_judged(
+    fake_gen, fake_eval, stage_one
+):
+    """``check_images`` goes to the image stage; with ``check_videos`` off
+    no whole-clip check or frame judge runs and each video passes."""
+    fake_gen.video(CLIP)
+    run = stage_one(image_stage())
+    req = request(policy=ONE, check_images=False, check_videos=False)
+    events = await collect(req)
+    assert run.requests[0].check_images is False
+    made = variations(events, stage="video")
+    assert len(made) == 2
+    assert (fake_eval.clip_calls, fake_eval.outfit_calls) == ([], [])
+    assert all(v.status == "ready" for v in made)
+    assert {v.verdict.description for v in made} == {"Not checked"}

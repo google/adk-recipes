@@ -80,7 +80,16 @@ function ResultCard({
   const ext = extOf(result);
   const video = ext === "mp4";
   const url = safeUrl(result.url);
+  // A spin's MP4: the video model's raw clip (not cut to the loop, not reversed); the WebP is the result shown.
+  const videoUrl = safeUrl(result.video_url);
   const rejected = result.status === "rejected";
+  // Made with its checks off: no score, never called publishable.
+  const checked = typeof result.score === "number";
+  const verdict = rejected
+    ? "Not publishable"
+    : checked
+      ? "Publishable"
+      : "Not checked";
   const link = (on: boolean) => onLink?.(on ? (result.source ?? "") : "");
   const ring = linked
     ? "ring-2 ring-gm-accent/60 shadow-accent-glow"
@@ -163,9 +172,9 @@ function ResultCard({
             aria-hidden="true"
             className={`w-1.5 h-1.5 rounded-full ${rejected ? "bg-gm-warning" : "bg-gm-success"}`}
           />
-          {rejected ? "Not publishable" : "Publishable"}
+          {verdict}
         </p>
-        {result.note && (
+        {result.note && result.note !== verdict && (
           <p className="text-xs leading-relaxed text-gm-text-secondary">
             {result.note}
           </p>
@@ -179,6 +188,17 @@ function ResultCard({
               className="glass-button rounded-lg h-8 px-3 text-xs font-medium flex items-center"
             >
               Open
+            </a>
+          )}
+          {videoUrl && (
+            <a
+              href={videoUrl}
+              download
+              target="_blank"
+              rel="noopener noreferrer"
+              className="glass-button rounded-lg h-8 px-3 text-xs font-medium flex items-center whitespace-nowrap"
+            >
+              Download video
             </a>
           )}
           {onAnimate && (
@@ -332,7 +352,7 @@ export default function StudioResults({ studio }: { studio: Studio }) {
                 result={r}
                 name={`Variation ${(r.index ?? i) + 1}`}
                 ratio={ratio}
-                best={i === 0 && ranked}
+                best={i === 0 && ranked && typeof r.score === "number"}
                 from={n >= 0 ? `From image ${n + 1}` : undefined}
                 linked={n >= 0 && linked === r.source}
                 onLink={n >= 0 ? setLinked : undefined}

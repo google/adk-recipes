@@ -54,19 +54,29 @@ def bump(job: dict[str, Any], name: str, key: str, n: int = 1) -> None:
 
 
 def result(v: dict[str, Any], video: bool) -> dict[str, Any] | None:
-    """One variation for the app and the history; ``None`` without media."""
+    """One variation for the app and the history; ``None`` without media.
+    One made with its checks off has no score (``types.unchecked``); a
+    spin's MP4 (``video_uri``) gets its own ``video_url``."""
     uri = v.get("media_uri") or ""
     if not uri:
         return None
+    verdict = v.get("verdict") or {}
+    checked = (verdict.get("details") or {}).get("checked") is not False
+    mp4 = v.get("video_uri") or ""
     return {
         "index": v.get("index"),
         "status": v.get("status"),
-        "score": v.get("score"),
+        "score": v.get("score") if checked else None,
         "uri": uri,
         "url": sm.preview_url(uri, video=video),
-        "note": (v.get("verdict") or {}).get("description", ""),
+        "note": verdict.get("description", ""),
         "view": (v.get("extra") or {}).get("view") or "front",
         "fixed": bool(v.get("fixed")),
+        **(
+            {"video_uri": mp4, "video_url": sm.preview_url(mp4, inline=False)}
+            if mp4
+            else {}
+        ),
     }
 
 

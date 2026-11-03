@@ -35,7 +35,7 @@ from google.genai import types
 
 from genmedia4commerce.core import catalog
 from genmedia4commerce.studio import media as sm
-from genmedia4commerce.studio.patches import tryon_options
+from genmedia4commerce.studio.patches import CHECKS, tryon_options
 
 __all__ = [
     "HEADLESS",
@@ -120,6 +120,12 @@ product visuals. {mode}
   photo each, so never use `find_product` for a spin. One photo works but
   the spin invents the sides and back: use a single photo only when the
   user insists, and pass on the warning.
+
+Checks ("checks" in the current studio, one switch each, shared by the
+pages): `check_images` (the try-on images of Photo and Video Try-On) and
+`check_videos` (Video Try-On's videos and the spins). Both are off by
+default: results are then not judged, pass and have no score. On, a model
+judges each result (slower).
 
 "Try-on", "VTO", "virtual try-on", "put it on her" or "dress him" mean Photo
 Try-On (`tryon`). Use Video Try-On only when the user asks for a video: "a
@@ -248,6 +254,7 @@ def summary(st: dict[str, Any]) -> str:
         f"spin photos: {'; '.join(spin) or 'none'}",
         f"settings: {json.dumps(settings)}",
         f"try-on options: {json.dumps(options)}",
+        f"checks: {json.dumps(tryon_options(settings.get('tryon'), CHECKS))}",
     ]
     return "\n".join(lines)
 
