@@ -70,15 +70,18 @@ def _register(monkeypatch, api):
     return ge.main()
 
 
-def test_reload_step_waits_until_the_action_is_loaded(
-    monkeypatch, gcloud_calls, terminal, caplog
+def test_reload_step_asks_again_until_the_action_is_loaded(
+    monkeypatch, gcloud_calls, terminal, sleeps, caplog
 ):
+    """Enter without the reload: 30 s of checks, then asked again."""
     api = fresh_project_api()
-    # data_store_ids, the first check, then one check per Enter.
+    old = connector_body(["studio_agent", "studio_open"])  # an older version's
+    # data_store_ids, the first check, six checks after the first Enter, one
+    # after the second.
     api.answers[("GET", CONNECTOR)] = [
         connector_body([]),
         connector_body([]),
-        connector_body(["studio_agent", "studio_open"]),
+        *[old] * 6,
         connector_body(["studio_agent"]),
     ]
     terminal.tty = True
@@ -87,7 +90,10 @@ def test_reload_step_waits_until_the_action_is_loaded(
     assert _register(monkeypatch, api) == 0
 
     assert terminal.prompts == [gea.ENTER, gea.ENTER]
-    assert "Reload custom actions" in caplog.text
+    assert sleeps.count(5) == 5  # every 5 s for 30 s after the first Enter
+    assert caplog.text.count("does not list studio_agent yet") == 1
+    assert "click Reload custom actions, then press Enter here" in caplog.text
+    assert "check that" not in caplog.text  # the script enables it itself
     assert (
         "https://console.cloud.google.com/gemini-enterprise/locations/global/"
         f"collections/{CID}/connector/actions?project=my-proj" in caplog.text
@@ -96,6 +102,26 @@ def test_reload_step_waits_until_the_action_is_loaded(
     assert "Done:" in caplog.text
     enabling = [u for _, u, _ in api.writes() if "bapConfig" in u]
     assert len(enabling) == 2  # enabled again once the reload has run
+
+
+def test_a_reload_that_shows_a_few_seconds_later_is_not_asked_again(
+    monkeypatch, gcloud_calls, terminal, sleeps, caplog
+):
+    api = fresh_project_api()
+    api.answers[("GET", CONNECTOR)] = [
+        connector_body([]),
+        connector_body([]),
+        connector_body([]),  # just after Enter: not shown yet
+        connector_body(["studio_agent"]),
+    ]
+    terminal.tty = True
+    caplog.set_level("INFO")
+
+    assert _register(monkeypatch, api) == 0
+
+    assert terminal.prompts == [gea.ENTER]
+    assert "does not list studio_agent yet" not in caplog.text
+    assert "is loaded and enabled" in caplog.text
 
 
 def test_reload_step_without_a_terminal_still_succeeds(

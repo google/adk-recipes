@@ -125,7 +125,7 @@ The command does everything it can and guides you through what only the console 
 
 1. **Start the subscription or the free trial**, in the console under Gemini Enterprise, before you register.
 2. **Allow custom MCP connectors:** Gemini Enterprise blocks them by default. The command asks to allow them for the project (Enter means yes; it needs the Organization Policy Administrator role) and waits until that applies. `make allow-mcp-connectors` does the same on its own; without a terminal the command prints what to run.
-3. **Reload custom actions** (Gemini Enterprise > Data stores > GenMedia Studio > Actions), then enable `studio_agent`. Do it again after a deploy that changes the Studio's tools.
+3. **Reload custom actions:** the command links the connector's Actions page; click Reload custom actions there and press Enter. It checks the reload happened (asking again if not) and enables `studio_agent` itself. Do it again after a deploy that changes the Studio's tools.
 
 When the project has no Gemini Enterprise licence yet, the command offers the 30-day free trial (as the console does with the first app): it assigns you a licence and gives every other user one at first sign-in. Otherwise give users a licence (Gemini Enterprise > Manage users). Then open the app and ask "Open the GenMedia Studio" (GenMedia Studio is on under Connectors). Upload images with the panel's Upload button: files attached in the chat do not reach the Studio.
 
