@@ -25,6 +25,20 @@ resource "google_storage_bucket" "media" {
   public_access_prevention    = "enforced"
   force_destroy               = false
 
+  # The Studio panel in Gemini Enterprise PUTs uploads with V4 signed URLs
+  # from a sandboxed frame whose origin is not known in advance: any origin,
+  # the signature is the access control.
+  cors {
+    origin = ["*"]
+    method = ["PUT"]
+    response_header = [
+      "Content-Type",
+      "x-goog-content-length-range",
+      "x-goog-if-generation-match",
+    ]
+    max_age_seconds = 3600
+  }
+
   # Run folders (inputs saved with GENMEDIA_INPUT=gcs or POST /api/uploads,
   # results saved with GENMEDIA_OUTPUT=gcs) are temporary.
   lifecycle_rule {
@@ -49,14 +63,15 @@ resource "google_storage_bucket" "media" {
     }
   }
 
-  # The photo try-on's preprocessing cache (GENMEDIA_USE_CACHE): what came
-  # from product photos (product_cache/), deleted after the same number of
-  # days. Nothing writes user_cache/ anymore: it stays so that the person
+  # The preprocessing caches (GENMEDIA_USE_CACHE): what came from product
+  # photos (product_cache/ for the photo try-on, spin_cache/ for the 360
+  # spin), deleted after the same number of days.
+  # Nothing writes user_cache/ anymore: it stays so that the person
   # photo results older versions kept there are deleted too.
   lifecycle_rule {
     condition {
       age            = var.media_retention_days
-      matches_prefix = ["user_cache/", "product_cache/"]
+      matches_prefix = ["user_cache/", "product_cache/", "spin_cache/"]
     }
     action {
       type = "Delete"

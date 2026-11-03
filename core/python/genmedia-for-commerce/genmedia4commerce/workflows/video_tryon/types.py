@@ -20,7 +20,7 @@ from typing import Literal
 from genmedia4commerce.core.errors import InputError
 from genmedia4commerce.core.gen import ImageParams, VideoParams
 from genmedia4commerce.core.runner import RunPolicy
-from genmedia4commerce.core.types import Classification, Framing
+from genmedia4commerce.core.types import Classification, Framing, Landmark
 from genmedia4commerce.workflows.details import Detail
 
 __all__ = [
@@ -118,6 +118,9 @@ class ReferenceSet:
     back: int | None = None  # index of the back view
     face: int | None = None  # index of the face close-up
     closeups: list[Closeup] = field(default_factory=list)
+    # A single garment's span: it frames the try-on image instead of
+    # ``framing`` (``tryon.framing``); None: ``framing`` does.
+    span: tuple[Landmark, Landmark] | None = None
 
 
 @dataclass

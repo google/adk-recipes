@@ -56,7 +56,7 @@ class Settings:
     videos_per_image: int = 2  # video try-on: videos of each animated image
     spin_closeups: bool = True  # close-up references of small details
     tryon_closeups: bool = True  # detail close-ups in the try-on prompt
-    use_cache: bool = True  # photo try-on preprocessing cache (core.cache)
+    use_cache: bool = True  # try-on and spin preprocessing cache (core.cache)
     upscale_face: bool = False  # upscale the try-on prompt's face crop
     tryon_fix: bool = False  # one fix pass for a judge-rejected try-on image
     input_mode: Mode = "inline"

@@ -30,8 +30,8 @@ is written by the server next to it (``upload_descriptions``), so a
 client never supplies the text the agent is shown about an image.
 
 Previews are catalogue thumbnails (``studio.picks.thumb``), small data URLs
-for uploads and V4 signed URLs for private outputs. The MCP App's resource
-declares ``storage.googleapis.com`` in its CSP so these load in its iframe.
+for uploads and V4 signed URLs for outputs (the MCP App's CSP allows
+``storage.googleapis.com``).
 """
 
 from __future__ import annotations
@@ -73,6 +73,7 @@ __all__ = [
     "thumb_data_url",
     "to_gcs",
     "upload_descriptions",
+    "upload_item",
 ]
 
 logger = logging.getLogger(__name__)
@@ -83,7 +84,8 @@ _THUMB_SIDE = 320
 #: because the bucket's lifecycle rule deletes ``runs/`` after 30 days.
 _COPIES: dict[str, tuple[str, str, float]] = {}
 _COPY_TTL_S = 24 * 3600
-_COPIERS = 8  # parallel uploads of one pick (a spin set's views)
+#: Parallel uploads, reads and preview URLs (``_pmap``).
+_COPIERS = 8
 _warned_unsigned = False  # the inline fallback is logged once per process
 #: A Studio run's input or output file (``core.runs``): group ``id`` is the
 #: studio, ``upload`` set for an upload (``save_image``).
@@ -103,9 +105,8 @@ _STUDIO_RECORD = re.compile(
 )
 _MAX_DESCRIPTION = 300
 #: ``mime_of``'s table: the extensions the app writes (``media.EXTENSIONS``).
-_MIME_OF_EXTENSION = {ext: mime for mime, ext in media.EXTENSIONS.items()} | {
-    "jpeg": "image/jpeg"
-}
+_MIME_OF_EXTENSION = {e: m for m, e in media.EXTENSIONS.items()}
+_MIME_OF_EXTENSION["jpeg"] = "image/jpeg"
 
 
 def thumb_data_url(data: bytes, side: int = _THUMB_SIDE) -> str:
@@ -118,6 +119,14 @@ def thumb_data_url(data: bytes, side: int = _THUMB_SIDE) -> str:
     buf = io.BytesIO()
     flat.save(buf, format="JPEG", quality=82)
     return "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()
+
+
+def _pmap(fn: Any, items: list[Any]) -> list[Any]:
+    """``fn`` of each item (a network call), in order, in parallel."""
+    if len(items) < 2:
+        return [fn(i) for i in items]
+    with ThreadPoolExecutor(min(_COPIERS, len(items))) as pool:
+        return list(pool.map(fn, items))
 
 
 def resolve(ref: str) -> str:
@@ -150,19 +159,21 @@ def save_upload(
 def save_image(
     data: bytes, filename: str, studio_id: str = "", *, field: str = "file"
 ) -> dict[str, str]:
-    """Save an uploaded image in a run's ``inputs/`` (as ``POST
-    /api/uploads`` does, with the same checks, errors naming ``field``);
-    return its ref, thumbnail and description.
-
-    PNG, JPEG and WebP are stored as sent (turned upright when their EXIF
-    says so), HEIC and AVIF as JPEG (``media.normalise_image``); the
-    file's extension and content type are its format's.
-    """
+    """Save an uploaded image in a run's ``inputs/`` (``POST /api/uploads``'s
+    checks, errors naming ``field``): PNG, JPEG and WebP as sent (upright
+    by EXIF), HEIC and AVIF as JPEG (``media.normalise_image``); return
+    its ref, thumbnail and description (``upload_item``)."""
     session = store.session_id(studio_id)  # InputError for a bad id
     data = check_image(data, field)
     run = runs.new_run(session_id=session)
     name = f"upload-{uuid.uuid4().hex[:8]}"
     uri = runs.save_inputs(run, {name: data})[name]
+    return upload_item(uri, data, filename)
+
+
+def upload_item(uri: str, data: bytes, filename: str) -> dict[str, str]:
+    """The ref, label, thumbnail and description of the upload ``data``
+    saved at ``uri``; the description is kept next to it."""
     description = _describe(data)[:_MAX_DESCRIPTION]
     _keep_description(uri, description)
     return {
@@ -217,11 +228,8 @@ def upload_descriptions(refs: list[str]) -> dict[str, str]:
         for ref in dict.fromkeys(refs)
         if (found := _studio_file(ref)) and found["upload"]
     ]
-    if not todo:
-        return {}
-    with ThreadPoolExecutor(min(_COPIERS, len(todo))) as pool:
-        texts = pool.map(_upload_description, todo)
-        return {r: t for r, t in zip(todo, texts, strict=True) if t}
+    texts = _pmap(_upload_description, todo)
+    return {r: t for r, t in zip(todo, texts, strict=True) if t}
 
 
 def _catalog_description(item_id: str) -> str:
@@ -266,10 +274,7 @@ def catalog_copies(refs: list[str]) -> dict[str, tuple[str, str]]:
     """``to_gcs`` of the catalogue refs among ``refs``, copied in parallel
     (a spin set's views): ``{ref: (gs:// copy, description)}``."""
     todo = list(dict.fromkeys(r for r in refs if catalog.is_ref(r)))
-    if not todo:
-        return {}
-    with ThreadPoolExecutor(min(_COPIERS, len(todo))) as pool:
-        return dict(zip(todo, pool.map(to_gcs, todo), strict=True))
+    return dict(zip(todo, _pmap(to_gcs, todo), strict=True))
 
 
 def _studio_file(ref: str) -> re.Match[str] | None:
@@ -328,20 +333,22 @@ def mime_of(ref: str) -> str:
 
 def previews(refs: list[str], *, inline: bool = True) -> dict[str, str]:
     """Browser URLs for refs the client has no thumbnail for (catalogue
-    thumbnails inline or not, as ``picks.thumb``)."""
-    out: dict[str, str] = {}
-    for ref in refs[:24]:
+    thumbnails inline or not, as ``picks.thumb``), made in parallel."""
+
+    def one(ref: str) -> str | None:
         try:
             if not allowed_ref(ref):
-                continue
+                return None
             if catalog.is_ref(ref):
-                out[ref] = picks.thumb(ref, inline=inline)
-            else:
-                video = mime_of(ref).startswith("video/")
-                out[ref] = preview_url(ref, video=video)
+                return picks.thumb(ref, inline=inline)
+            return preview_url(ref, video=mime_of(ref).startswith("video/"))
         except Exception as exc:
             logger.info("No preview for %s: %s", ref, exc)
-    return out
+            return None
+
+    todo = refs[:24]
+    urls = _pmap(one, todo)
+    return {r: u for r, u in zip(todo, urls, strict=True) if u is not None}
 
 
 def preview_url(uri: str, *, video: bool = False) -> str:
@@ -369,17 +376,25 @@ def preview_url(uri: str, *, video: bool = False) -> str:
     return thumb_data_url(data, side=1024)
 
 
-def refresh_urls(results: list[dict[str, Any]], *, video: bool) -> None:
-    """Give saved results new preview URLs (signed URLs expire).
+def refresh_urls(groups: list[tuple[list[Any], bool]]) -> None:
+    """Give saved results new preview URLs (signed URLs expire), all of
+    ``groups`` (``(results, video)`` pairs) signed in parallel; a URL valid
+    for half an hour more is kept, so a playing video does not reload.
 
     Each item on its own: one that fails gets ``url`` "" and the rest keep
     their previews.
     """
-    for r in results:
+
+    def one(item: tuple[dict[str, Any], bool]) -> None:
+        r, video = item
         if not (isinstance(r, dict) and r.get("uri")):
-            continue
+            return
+        if gcs.still_valid(str(r.get("url") or ""), 1800):
+            return
         try:
             r["url"] = preview_url(str(r["uri"]), video=video)
         except Exception as exc:
             logger.warning("No preview for %s: %s", r["uri"], exc)
             r["url"] = ""
+
+    _pmap(one, [(r, video) for results, video in groups for r in results])

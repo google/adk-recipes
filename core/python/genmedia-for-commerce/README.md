@@ -129,6 +129,8 @@ The command does everything it can and guides you through what only the console 
 
 When the project has no Gemini Enterprise licence yet, the command offers the 30-day free trial (as the console does with the first app): it assigns you a licence and gives every other user one at first sign-in. Otherwise give users a licence (Gemini Enterprise > Manage users). Then open the app and ask "Open the GenMedia Studio" (GenMedia Studio is on under Connectors). Upload images with the panel's Upload button: files attached in the chat do not reach the Studio.
 
+The panel puts each original photo straight into the media bucket; when it cannot, it sends a smaller JPEG copy instead. The direct upload uses tools added in this version: after deploying it, click Reload custom actions once on the connector's Actions page (the command does not ask, as the Studio's action, `studio_agent`, has not changed).
+
 ## Configuration
 
 `config.env.example` lists the deploy settings and `.env.example` every variable the code reads, with their defaults. The ones you are most likely to change:
@@ -162,7 +164,7 @@ curl -N http://localhost:8000/api/tryon -F product_images=@jacket.jpg -F person_
 
 - **One team per deployment:** everyone who can invoke the service, through IAM, IAP or the Gemini Enterprise app, can open any studio whose id they know. Grant access to that team only.
 - **One place for data:** everything is stored in the media bucket, and deleted 30 days after its last change. Preview links are signed URLs, valid for 60 minutes.
-- **Preprocessing cache:** so that the next photo try-on with the same product photos starts sooner, the server keeps what it worked out from the product photos only (their classification, the product crops, the detail close-ups and the styling plan) in the media bucket under `product_cache/`, in folders named by a hash of the photos and options; nothing from the person photo is kept. These are also deleted after 30 days, and are never served or accepted as image references. "Try again" after a failed generation recomputes them; `GENMEDIA_USE_CACHE=false` turns the cache off.
+- **Preprocessing cache:** so that the next photo try-on with the same product photos starts sooner, the server keeps what it worked out from the product photos only (their classification, the product crops, the detail close-ups and the styling plan) in the media bucket under `product_cache/`, in folders named by a hash of the photos and options; nothing from the person photo is kept. A 360° spin likewise keeps its product's classification, reference views and close-ups under `spin_cache/`; the videos are always made again. These are also deleted after 30 days, and are never served or accepted as image references. "Try again" after a failed generation recomputes them; `GENMEDIA_USE_CACHE=false` turns the cache off.
 - **Hardening:** the server checks every id and image reference, limits generations per studio, and refuses browser calls from other websites.
 
 ## Evaluate and develop

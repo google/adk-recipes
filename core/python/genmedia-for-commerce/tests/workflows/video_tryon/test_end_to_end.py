@@ -155,6 +155,13 @@ def image_stage(
     ]
 
 
+def head_to_knees() -> Classification:
+    """A single mini dress, framed from the top of the head to the knees."""
+    dress = classification("full_body", "dress")
+    dress.products[0].span = ("shoulders", "mid-thigh")
+    return dress
+
+
 # A single product with a back upload: each animated front gets a back view.
 WITH_BACK = Classification(
     "single",
@@ -285,7 +292,7 @@ async def test_image_selected_and_main_reference(
     assert selected.message == "Animating try-on variation 2"
     calls = video_calls(fake_gen)
     assert [c["raw_parts"] for c in calls] == [[FRONTS[1], FACE, *PRODUCTS]] * 2
-    assert fake_eval.unseen_calls == [[FRONTS[1]]] * 2
+    assert [c["front"] for c in fake_eval.clip_calls] == [FRONTS[1]] * 2
 
 
 async def test_stage_one_request(fake_gen, fake_eval, stage_one):
@@ -367,7 +374,8 @@ async def test_a_passing_front_gets_its_own_back_view_then_its_videos(
     assert selected.data == {"front_index": 1, "back_index": 1}
     parts = video_calls(fake_gen)[0]["raw_parts"]
     assert parts == [FRONTS[1], BACKS[1][1], FACE, *PRODUCTS]
-    assert fake_eval.unseen_calls == [[FRONTS[1], BACKS[1][1]]] * 2
+    clip = [(c["front"], c["back"]) for c in fake_eval.clip_calls]
+    assert clip == [(FRONTS[1], BACKS[1][1])] * 2
 
 
 async def test_no_ready_back_animates_the_front_alone(
@@ -421,9 +429,10 @@ async def test_framing_comes_from_the_classified_payload(
     fake_gen, fake_eval, stage_one, planner
 ):
     fake_gen.video(CLIP)
-    stage_one(image_stage(framing="footwear"))
+    stage_one(image_stage(framing="footwear", classified=head_to_knees()))
     await collect(request(classification=classification("head"), policy=ONE))
-    assert planner.calls[0][0].framing == "footwear"
+    refs = planner.calls[0][0]
+    assert (refs.framing, refs.span) == ("footwear", ("shoulders", "mid-thigh"))
 
 
 async def test_product_photos_are_the_ones_the_tryon_used(
@@ -634,6 +643,22 @@ async def test_shortcut_framing_from_request_classification(
     )
     await collect(req)
     assert planner.calls[0][0].framing == "footwear"
+    assert planner.calls[0][0].span is None
+
+
+async def test_shortcut_span_from_request_classification(
+    fake_gen, fake_eval, planner
+):
+    fake_gen.video(CLIP)
+    req = VideoTryOnRequest(
+        tryon_image=TRYON, classification=head_to_knees(), policy=ONE
+    )
+    await collect(req)
+    refs = planner.calls[0][0]
+    assert (refs.framing, refs.span) == (
+        "full_body",
+        ("shoulders", "mid-thigh"),
+    )
 
 
 @pytest.mark.parametrize(

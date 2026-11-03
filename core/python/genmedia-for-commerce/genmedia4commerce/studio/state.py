@@ -26,6 +26,7 @@ instances never overwrite each other. Patches and actions are applied by
 from __future__ import annotations
 
 import time
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from genmedia4commerce.core.errors import InputError, StorageError
@@ -142,7 +143,7 @@ def _prepare(
     """A checked copy of an app action with its catalogue picks as
     ``gs://`` copies (made in parallel, no model call); also ``{catalogue
     ref: gs:// uri}`` and ``{uri: description}`` (the server's, of the
-    catalogue copies and uploads)."""
+    catalogue copies and uploads, read while the copies are made)."""
     action = rules.check_action(action)
     if "job_started" in action:
         _check_job(studio_id, action["job_started"])
@@ -161,13 +162,20 @@ def _prepare(
         if not (isinstance(ref, str) and sm.allowed_ref(ref, studio_id)):
             raise InputError(f"Not an allowed image: {str(ref)[:200]}")
         picked.append(ref)
-    copies = sm.catalog_copies(picked)
+    with ThreadPoolExecutor(1) as pool:  # both are network calls
+        later = pool.submit(sm.upload_descriptions, picked)
+        copies = sm.catalog_copies(picked)
+        descriptions = later.result()
     refs: dict[str, str] = {}
-    descriptions = sm.upload_descriptions(picked)
     for item, ref in zip(items, picked, strict=True):
         if ref in copies:
             uri, desc = copies[ref]
             refs[item["ref"]], descriptions[uri], item["ref"] = uri, desc, uri
+    rm = action.get("remove")
+    if isinstance(rm, dict) and isinstance(rm.get("ref"), str):
+        # A catalogue pick removed before its add answered: its copy.
+        gone = picks.legacy(rm["ref"])
+        rm["ref"] = sm.catalog_copies([gone]).get(gone, (gone, ""))[0]
     return action, refs, descriptions
 
 
@@ -175,10 +183,8 @@ def _removed(action: dict[str, Any], st: dict[str, Any]) -> Any:
     """The item a ``remove`` or ``clear`` action takes away, if one."""
     rm, clear = action.get("remove") or {}, action.get("clear") or {}
     if rm.get("field") in rules.LIST_FIELDS:
-        items, i = (
-            st.get(rules.state_key(rm["field"])) or [],
-            rules.index_of(rm.get("index")),
-        )
+        items = st.get(rules.state_key(rm["field"])) or []
+        i = rules.remove_index(items, rm)
         return items[i] if 0 <= i < len(items) else None
     return (
         st.get(clear["field"])
@@ -189,8 +195,9 @@ def _removed(action: dict[str, Any], st: dict[str, Any]) -> Any:
 
 def apply_action(studio_id: str, action: Any) -> dict[str, Any]:
     """Apply a user action from the app to the saved state and note it in
-    the agent's history: ``{state, updated_at, refs}``, ``refs`` mapping the
-    catalogue picks to their ``gs://`` copies.
+    the agent's history (written after the answer, ``history.note_later``):
+    ``{state, updated_at, refs}``, ``refs`` mapping the catalogue picks to
+    their ``gs://`` copies.
 
     Raises ``InputError`` for an unknown action, setting or image, and
     ``StorageError`` when the state could not be saved.
@@ -205,7 +212,7 @@ def apply_action(studio_id: str, action: Any) -> dict[str, Any]:
 
     saved = _saved_or_raise(studio_id, change)
     if text := narrate_action(action, removed[0], descriptions):
-        sh.note(studio_id, text)
+        sh.note_later(studio_id, text)  # the answer does not wait for it
     return {**saved, "refs": refs}
 
 
@@ -309,10 +316,12 @@ def saved_state(studio_id: str) -> dict[str, Any]:
     doc = store.read(store.state_path(studio_id)) or {}
     state = doc.get("state") or {}
     picks.upgrade_state(state)
-    for cap, results in (state.get("results") or {}).items():
-        sm.refresh_urls(results or [], video=cap != "tryon")
-    for images in (state.get("images") or {}).values():
-        sm.refresh_urls(images or [], video=False)
+    results = (state.get("results") or {}).items()
+    images = (state.get("images") or {}).values()
+    sm.refresh_urls(
+        [(r or [], cap != "tryon") for cap, r in results]
+        + [(i or [], False) for i in images]
+    )
     return {
         "studio_id": studio_id,
         "saved": bool(state),

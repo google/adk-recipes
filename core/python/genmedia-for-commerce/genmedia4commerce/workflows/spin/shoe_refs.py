@@ -38,7 +38,8 @@
 
 No AI upscale: the video model gets each reference scaled to its 720p frame
 anyway, and an image model asked to upscale a shoe cut from a pair photo
-redrew the missing shoe in 6 of 12 tries.
+redrew the missing shoe in 6 of 12 tries. A call that fails is a fallback
+(``core.degraded``): the spin cache keeps no reference set built with one.
 """
 
 import itertools
@@ -48,7 +49,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from genmedia4commerce.core import gen, media, trace
+from genmedia4commerce.core import degraded, gen, media, trace
 from genmedia4commerce.core.models import get_models
 from genmedia4commerce.core.retry import ContextPool
 from genmedia4commerce.workflows.spin import shoe_split as split
@@ -149,6 +150,7 @@ def _masks(image: bytes, size: tuple[int, int]) -> list[dict]:
         return split.ask_masks(image, size)
     except Exception as exc:
         logger.warning(f"shoe mask call failed: {exc}")
+        degraded.report("shoe mask call")
         return []
 
 
@@ -219,6 +221,7 @@ def _nano(image: bytes) -> list[tuple[bytes, str]]:
         return [(split.png(trimmed), "missing")]
     except Exception as exc:
         logger.warning(f"nano clean-up failed: {exc}")
+        degraded.report("nano clean-up")
         return []
 
 
@@ -253,6 +256,7 @@ def _label_pieces(pieces: list[_Piece]) -> None:
         views = label_images([p.image for p in nano])
     except Exception as exc:
         logger.warning(f"piece labelling failed: {exc}")
+        degraded.report("piece labelling")
         return
     for piece, view in zip(nano, views, strict=True):
         piece.view = view
@@ -269,36 +273,31 @@ def _usable(pieces: list[_Piece]) -> list[_Piece]:
     ]
 
 
-def _foot(image: bytes) -> str | None:
-    """The foot the shoe is made for; None when the call fails."""
+def _ask(what: str, parts: list, system: str, schema: dict) -> dict:
+    """A judge call's answer; {} when the call fails (a fallback)."""
     try:
         raw = gen.generate_json(
-            [media.resize_max(image, _JUDGE_SIDE)],
-            system=FOOT_SYSTEM,
-            schema=FOOT_SCHEMA,
-            params=_params(),
+            parts, system=system, schema=schema, params=_params()
         )
     except Exception as exc:
-        logger.warning(f"foot call failed: {exc}")
-        return None
-    return raw.get("foot") if isinstance(raw, dict) else None
+        logger.warning(f"{what} call failed: {exc}")
+        degraded.report(f"{what} call")
+        return {}
+    return raw if isinstance(raw, dict) else {}
+
+
+def _foot(image: bytes) -> str | None:
+    """The foot the shoe is made for; None when the call fails."""
+    parts = [media.resize_max(image, _JUDGE_SIDE)]
+    return _ask("foot", parts, FOOT_SYSTEM, FOOT_SCHEMA).get("foot")
 
 
 def _pairwise(a: bytes, b: bytes) -> str:
     """same_side, opposite_sides or unsure (also when the call fails)."""
     parts: list[gen.Part] = ["IMAGE_A:", media.resize_max(a, _JUDGE_SIDE)]
     parts += ["IMAGE_B:", media.resize_max(b, _JUDGE_SIDE)]
-    try:
-        raw = gen.generate_json(
-            parts,
-            system=PAIRWISE_SYSTEM,
-            schema=PAIRWISE_SCHEMA,
-            params=_params(),
-        )
-    except Exception as exc:
-        logger.warning(f"pairwise call failed: {exc}")
-        return "unsure"
-    return (raw.get("answer") if isinstance(raw, dict) else None) or "unsure"
+    raw = _ask("pairwise", parts, PAIRWISE_SYSTEM, PAIRWISE_SCHEMA)
+    return raw.get("answer") or "unsure"
 
 
 def _judge(cands: list[_Candidate]):
