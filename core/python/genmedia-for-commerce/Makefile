@@ -254,7 +254,8 @@ eval "$$($(CONFIG_SH))" && \
 export TF_VAR_project_id=$${PROJECT_ID} && \
 export TF_VAR_region=$${DEFAULT_REGION:-us-central1} && \
 export TF_VAR_deployer_email=$$(gcloud config get-value account 2>/dev/null) && \
-export TF_VAR_service_name=$${SERVICE_NAME:-genmedia-for-commerce}
+export TF_VAR_service_name=$${SERVICE_NAME:-genmedia-for-commerce} && \
+export TF_VAR_media_bucket=$${MEDIA_BUCKET:-}
 endef
 
 # Setup with Terraform: APIs, Artifact Registry, media bucket, the runtime, build and web proxy service accounts, IAM. Run it once per project, and again after an upgrade, before make deploy (it creates genmedia-build, which make deploy builds as). The state is in the bucket <project>-genmedia-tfstate; asks [Y/n] before applying the plan (without a terminal: TF_AUTO_APPROVE=1)
