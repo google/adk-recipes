@@ -1,18 +1,16 @@
-/**
- * Copyright 2026 Google LLC
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     https://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2026 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
 // The client side of a studio, ported from the MCP App panel (mcp/static/studio.html):
 // the server owns the state; every user change is sent as an action, one at a time and
@@ -31,12 +29,11 @@ import {
   type StudioCapability,
   type StudioGallery,
   type StudioItem,
-  type StudioResult,
 } from "../../api/studio";
 import { ApiError } from "../../api/client";
 import { errorMessage } from "../../shared/files";
 import { ItemCommands, type UploadField } from "./items";
-import { JobFollower } from "./jobs";
+import { JobFollower, type LiveJob } from "./jobs";
 import {
   blank,
   fromServer,
@@ -48,16 +45,6 @@ import {
 } from "./model";
 import { newStudioId } from "./studioId";
 
-/**
- * The generation being followed: its results so far and (Video Try-On) the try-on images it animated so far;
- * `tryonImage`: the image of a "Make video" job, whose results replace only that image's videos ("" for a full run).
- */
-export type LiveJob = {
-  cap: StudioCapability;
-  results: StudioResult[];
-  images: StudioResult[];
-  tryonImage: string;
-};
 export type ChatEntry = ChatMessage & { error?: boolean };
 
 export type StudioSnapshot = {

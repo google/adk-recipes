@@ -21,11 +21,12 @@ available to later turns. The settings tool lives in
 ``studio.agent_settings``, the spin sets tool in ``studio.agent_spin``,
 the job spec ``generate`` starts in ``studio.agent_spec``.
 
-``generate`` and ``remake_video`` (a "Make video" of one of Video
-Try-On's images) start a job only with what the user has seen: when the
-agent changed the inputs, the page or the variations in the same turn, or
-asks for another page, they answer ``needs_confirmation`` and the model
-asks first (``studio.tool_order``); the job starts through the cost guards
+``generate``, ``remake_video`` (a "Make video" of one of Video Try-On's
+images) and ``animate_photo`` (videos of a Photo Try-On result) start a job
+only with what the user has seen: when the agent changed the inputs, the
+page or the variations in the same turn, or asks for another page, they
+answer ``needs_confirmation`` and the model asks first
+(``studio.tool_order``); the job starts through the cost guards
 (``studio.quota``). ADK runs the calls of one model response as concurrent
 tasks on the event loop (async tools on the loop; sync tools inline too, as
 the agent sets no tool thread pool), which ``tool_order`` accounts for.
@@ -57,6 +58,7 @@ from genmedia4commerce.studio.agent_spin import (
     spin_set_names,
 )
 from genmedia4commerce.studio.tool_order import (
+    NEEDS_CONFIRMATION,
     needs_confirmation,
     setup_tool,
     start_once,
@@ -72,14 +74,6 @@ _MAX_WAIT_S = 60
 _POLL_S = 3.0
 
 _FIELDS = rules.SLOT_FIELDS + rules.LIST_FIELDS
-#: What ``generate`` answers after the agent changed the inputs, the page
-#: or the variations this turn, or for another page.
-NEEDS_CONFIRMATION = {
-    "status": "needs_confirmation",
-    "message": "You changed the studio's inputs, page or variations in this "
-    'turn: say in one line what is set up and ask "Shall I generate?". '
-    "Generate only when the user confirms in their next message.",
-}
 #: What ``remake_video`` answers when Video Try-On has no try-on image.
 NO_IMAGES = (
     "Video Try-On has no try-on images yet: a video try-on from the person "
@@ -289,12 +283,37 @@ async def remake_video(image: int) -> dict[str, Any]:
         return {"error": NO_IMAGES}
     if not (1 <= image <= len(uris) and uris[image - 1]):
         return {"error": f"Choose an image from 1 to {len(uris)}."}
+    return await _video_of(uris[image - 1], "remake_video")
+
+
+async def animate_photo(result: int = 1) -> dict[str, Any]:
+    """Make videos of a Photo Try-On result ("animate it" after a Photo
+    Try-On), not a new video try-on: a full-body photo is animated as it
+    is, any other gets a 9:16 try-on image first. Asks first like
+    remake_video (it opens Video Try-On).
+
+    Args:
+        result: The result's number among Photo Try-On's front views, from
+            1 (the best).
+    """
+    uris = [
+        r["uri"]
+        for r in (_st().get("results") or {}).get("tryon") or []
+        if isinstance(r, dict) and r.get("uri") and r.get("view") != "back"
+    ]
+    if not 1 <= result <= len(uris):
+        return {"error": f"Photo Try-On has {len(uris)} result(s)."}
+    return await _video_of(str(uris[result - 1]), "animate_photo")
+
+
+async def _video_of(uri: str, tool: str) -> dict[str, Any]:
+    """Start the videos of try-on image ``uri`` (``needs_confirmation``)."""
     if await needs_confirmation("video_tryon"):
         open_capability("video_tryon")  # the user sees the page it would use
         return dict(NEEDS_CONFIRMATION)
-    spec, _missing = job_spec("video_tryon")  # the image needs no input
-    spec["tryon_image"] = uris[image - 1]
-    return await _start(spec, "remake_video")
+    spec, _missing = job_spec("video_tryon")  # a full-body photo needs none
+    spec["tryon_image"] = uri
+    return await _start(spec, tool)
 
 
 async def _start(spec: dict[str, Any], tool: str) -> dict[str, Any]:
@@ -311,7 +330,7 @@ async def _start(spec: dict[str, Any], tool: str) -> dict[str, Any]:
     if started is None:
         return {"error": quota.RUNNING}
     job = {"job_id": started["job_id"], "capability": cap}
-    if spec.get("tryon_image"):  # a "Make video": its start clears nothing
+    if tool == "remake_video":  # a "Make video": its start clears nothing
         job["tryon_image"] = spec["tryon_image"]
     _st()["job"] = job  # saved with the studio, so a reopened panel follows it
     turn.patch("job_started", job)
@@ -372,5 +391,6 @@ TOOLS = [
     update_settings,
     generate,
     remake_video,
+    animate_photo,
     check_generation,
 ]

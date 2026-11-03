@@ -1,18 +1,16 @@
-/**
- * Copyright 2026 Google LLC
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     https://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2026 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
@@ -382,7 +380,7 @@ describe("Studio page", () => {
     expect(bodies[0]).toContain("Content-Type: image/png");
   });
 
-  it("generates and shows the results, with no way to animate one", async () => {
+  it("generates and shows the results, each with Animate", async () => {
     await renderStudio(
       { set: { field: "person", item: EMMA } },
       { add: { field: "product", item: JEANS, replace_index: -1 } },
@@ -400,8 +398,8 @@ describe("Studio page", () => {
     expect(within(cards[0]).getByText("Best")).toBeTruthy();
     expect(within(cards[0]).getByText("Score 90")).toBeTruthy();
     expect(
-      within(cards[0]).queryByRole("button", { name: /animate/i }),
-    ).toBeNull();
+      within(cards[0]).getByRole("button", { name: "Animate Variation 1" }),
+    ).toBeTruthy();
     await waitFor(() =>
       expect(events.map((e) => Object.keys(e)[0])).toEqual([
         "job_started",

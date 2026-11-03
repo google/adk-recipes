@@ -325,6 +325,28 @@ async def test_remake_video_asks_after_a_setup_in_its_turn(started) -> None:
 
 
 @pytest.mark.asyncio
+async def test_animate_photo_asks_first_and_opens_video_tryon(started) -> None:
+    results = [
+        {"uri": output("front-0.png"), "view": "front"},
+        {"uri": output("back-0.png"), "view": "back"},
+        {"uri": output("front-1.png")},
+    ]
+    with scope({**ready(), "results": {"tryon": results}}) as sc:
+        assert "2 result(s)" in (await at.animate_photo(3))["error"]
+        assert await at.animate_photo(2) == at.NEEDS_CONFIRMATION
+        assert sc.st["capability"] == "video_tryon"
+    assert not started
+    # The user confirms in the next turn: the second front is animated.
+    with scope(sc.st) as sc:
+        assert (await at.animate_photo(2))["status"] == "started"
+    assert started[0]["capability"] == "video_tryon"
+    assert started[0]["tryon_image"] == output("front-1.png")
+    # It replaces Video Try-On's page, as a full run does.
+    job = {"job_id": "j1", "capability": "video_tryon"}
+    assert sc.out.patches == [{"job_started": job}]
+
+
+@pytest.mark.asyncio
 async def test_remake_video_asks_from_another_page(started) -> None:
     with scope(with_images("tryon")) as sc:
         assert await at.remake_video(1) == at.NEEDS_CONFIRMATION

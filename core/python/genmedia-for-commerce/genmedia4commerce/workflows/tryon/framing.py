@@ -38,7 +38,7 @@ from genmedia4commerce.workflows.tryon.types import (
     PromptSpec,
 )
 
-__all__ = ["LANDMARKS", "shows_feet", "shows_head", "text"]
+__all__ = ["LANDMARKS", "edges", "in_frame", "shows_feet", "shows_head", "text"]
 
 LANDMARKS: tuple[Landmark, ...] = get_args(Landmark)  # top to bottom
 _HEAD = "the top of the head"
@@ -64,13 +64,26 @@ def _name(index: int) -> str:
     return landmark if landmark.startswith("mid-") else f"the {landmark}"
 
 
+def edges(span: tuple[str, str]) -> str:
+    """The frame's edges, e.g. 'From the top of the head to the knees'."""
+    top, bottom = _edges(span)
+    return (
+        f"From {_HEAD if top == 0 else _name(top)} to "
+        f"{_GROUND if bottom > _ANKLES else _name(bottom)}"
+    )
+
+
+def in_frame(span: tuple[str, str], landmark: Landmark) -> bool:
+    """``landmark`` is in the frame of a garment that starts and ends at
+    ``span``."""
+    top, bottom = _edges(span)
+    return top <= LANDMARKS.index(landmark) <= bottom
+
+
 def text(span: tuple[str, str]) -> str:
     """The FRAMING of a garment that starts and ends at ``span``."""
     top, bottom = _edges(span)
-    lines = [
-        f"From {_HEAD if top == 0 else _name(top)} to "
-        f"{_GROUND if bottom > _ANKLES else _name(bottom)}."
-    ]
+    lines = [f"{edges(span)}."]
     if top <= _SHOULDERS and bottom >= _HIPS:
         lines.append(_ARMS)
     return " ".join([*lines, _IN_FRAME])
@@ -80,11 +93,11 @@ def shows_head(spec: PromptSpec) -> bool:
     """The face is in frame."""
     if spec.span is None:
         return spec.framing in HEAD_FRAMINGS
-    return _edges(spec.span)[0] == 0
+    return in_frame(spec.span, "head")
 
 
 def shows_feet(spec: PromptSpec) -> bool:
     """The feet are in frame."""
     if spec.span is None:
         return spec.framing in FEET_FRAMINGS
-    return _edges(spec.span)[1] > _ANKLES
+    return in_frame(spec.span, "feet")

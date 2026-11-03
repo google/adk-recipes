@@ -186,7 +186,7 @@ def test_only_the_servers_description_of_an_upload_is_noted(
     storage, fake_gen, monkeypatch
 ) -> None:
     notes: list[str] = []
-    monkeypatch.setattr(sh, "note", lambda sid, text: notes.append(text))
+    monkeypatch.setattr(sh, "note_later", lambda sid, text: notes.append(text))
     fake_gen.text("a red square")
     up = sm.save_upload(_png(), "red.png", "s1")
     assert sm.upload_descriptions([up["ref"], upload("x")]) == {

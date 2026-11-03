@@ -222,7 +222,8 @@ class Classification:
     photos: list[Photo] = field(default_factory=list)
 
     def to_dict(self) -> dict:
-        """Return a JSON-friendly summary without image bytes."""
+        """Return a JSON-friendly summary without image bytes (a
+        product's span only when it has one)."""
         return {
             "mode": self.mode,
             "framing": self.framing,
@@ -232,6 +233,7 @@ class Classification:
                     "category": p.category,
                     "description": p.description,
                     "refs": [{"view": r.view, "rank": r.rank} for r in p.refs],
+                    **({"span": list(p.span)} if p.span else {}),
                 }
                 for p in self.products
             ],

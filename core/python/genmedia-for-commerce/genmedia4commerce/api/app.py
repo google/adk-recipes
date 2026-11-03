@@ -47,7 +47,7 @@ from genmedia4commerce.api.security_headers import SecurityHeadersMiddleware
 from genmedia4commerce.app_utils.telemetry import setup_telemetry
 from genmedia4commerce.core.errors import ConfigError, InputError
 from genmedia4commerce.mcp import studio as studio_mcp
-from genmedia4commerce.studio import jobs, sessions
+from genmedia4commerce.studio import history, jobs, sessions
 
 __all__ = ["app", "create_app"]
 
@@ -77,7 +77,7 @@ _ROUTERS = (
 def _lifespan(mcp_server):
     """Startup: thread pool and the Studio MCP sessions. Shutdown: the Studio jobs still running
     here are marked interrupted, so the panel and the agent stop waiting
-    for them."""
+    for them, and the history notes still being written are waited for."""
 
     @contextlib.asynccontextmanager
     async def lifespan(_app: FastAPI):
@@ -90,6 +90,7 @@ def _lifespan(mcp_server):
         finally:
             if stopped := await jobs.interrupt_local():
                 logger.info(f"{stopped} running Studio job(s) interrupted")
+            await asyncio.to_thread(history.flush)
 
     return lifespan
 

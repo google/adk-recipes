@@ -373,7 +373,11 @@ def classify_products(
         parts,
         system=_system(len(photos)),
         schema=_SCHEMA,
-        params=TextParams(model=get_models().judge, thinking="LOW"),
+        params=TextParams(
+            model=get_models().judge,
+            thinking="LOW",
+            media_resolution=gen.MEDIUM_RES,
+        ),
     )
     rows = _rows(raw, len(photos))
     groups, missing, looks, backs = _sorted(rows[: len(images)])

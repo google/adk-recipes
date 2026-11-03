@@ -29,7 +29,7 @@ from genmedia4commerce.core.types import (
     ProductRef,
     Verdict,
 )
-from genmedia4commerce.eval import identity, orientation, outfit, unseen
+from genmedia4commerce.eval import clip_check, outfit
 from genmedia4commerce.workflows import details
 from genmedia4commerce.workflows.video_tryon import branch
 from genmedia4commerce.workflows.video_tryon.types import (
@@ -64,52 +64,51 @@ def passed() -> Verdict:
     return Verdict(True, details={"findings": []})
 
 
+SAME = {
+    "same_person": True,
+    "face_reason": "same person",
+    "invented_frames": [],
+    "invented_what": "",
+}
+
+
 @dataclass
 class FakeEval:
-    """Canned face crop, identity answer, still frames, view labels, blind
-    spots and judge verdicts.
+    """Canned face crop, whole-clip answer, still frames and judge
+    verdicts, with the side and the products each frame shows.
 
     The clip is 7.5 s at 0.4 fps: ``FRAMES`` are its frames 0, 1, 2 at 0,
     2.5 and 5 s, all stable and, by default, all still.
     """
 
     face_crop: bytes | BaseException | None = FACE
-    # identity.same_person's answer (same_person, reason), or its error
-    identity: tuple[bool, str] | BaseException = (True, "same person")
+    # clip_check.check_clip's answer, or its error
+    clip: dict | BaseException = field(default_factory=lambda: dict(SAME))
     still: list[int] = field(default_factory=lambda: [0, 1, 2])
-    views: list[str] | None = None  # per judged frame; None: all "front"
-    unseen: list[int] = field(default_factory=list)  # blind-spot frames
+    views: list[str] | None = None  # the judge's, per frame of FRAMES
+    # (product_filter, frame number in FRAMES) the judge does not see
+    hidden: set[tuple] = field(default_factory=set)
     # (product_filter, frame number in FRAMES) -> verdict; default passed()
     verdicts: dict[tuple, Verdict | BaseException] = field(default_factory=dict)
-    identity_calls: list[tuple[list[bytes], bytes]] = field(
-        default_factory=list
-    )
-    unseen_calls: list[list[bytes]] = field(default_factory=list)
-    label_calls: list[dict] = field(default_factory=list)
+    clip_calls: list[dict] = field(default_factory=list)
     judge_calls: list[dict] = field(default_factory=list)
     outfit_calls: list[tuple] = field(default_factory=list)  # per frame
 
-    def unseen_frames(self, clip, references):
-        self.unseen_calls.append(list(references))
-        return list(self.unseen), "the back" if self.unseen else ""
+    def check_clip(self, frames, front, back=None, face=None):
+        self.clip_calls.append(
+            {"frames": list(frames), "front": front, "back": back, "face": face}
+        )
+        if isinstance(self.clip, BaseException):
+            raise self.clip
+        return dict(self.clip)
 
     def crop_face(self, data, **_kwargs):
         if isinstance(self.face_crop, BaseException):
             raise self.face_crop
         return self.face_crop
 
-    def same_person(self, frames, reference_face):
-        self.identity_calls.append((list(frames), reference_face))
-        if isinstance(self.identity, BaseException):
-            raise self.identity
-        return self.identity
-
     def stillest_frames(self, clip, **_kwargs):
         return [(i, FRAMES[i]) for i in self.still]
-
-    def label_frames(self, frames, **kwargs):
-        self.label_calls.append({"frames": list(frames), **kwargs})
-        return list(self.views or ["front"] * len(frames))
 
     def judge(self, references, target, **kwargs):
         self.judge_calls.append(
@@ -124,14 +123,14 @@ class FakeEval:
     def outfit(self, products, target, *, video_frame=False, wearer=None):
         """Stands in for ``outfit.evaluate_outfit`` (one call per frame):
         each product is answered by ``judge``; any error is the frame's."""
-        self.outfit_calls.append(
-            (FRAMES.index(target), [p.product_filter for p in products])
-        )
+        frame = FRAMES.index(target)
+        self.outfit_calls.append((frame, [p.product_filter for p in products]))
         verdicts = [
             self.judge(
                 [p.reference],
                 target,
                 product_filter=p.product_filter,
+                back=p.back,
                 ignore_text_defects=video_frame,
             )
             for p in products
@@ -143,23 +142,27 @@ class FakeEval:
             v.details.get("findings") or ([] if v.publish else [v.description])
             for v in verdicts
         ]
+        shown = [(p.product_filter, frame) not in self.hidden for p in products]
         return Verdict(
             all(v.publish for v in verdicts),
             sum(v.imperfection_count for v in verdicts),
             "; ".join(v.description for v in verdicts if not v.publish),
             details={
+                "view": (self.views or ["front"] * 3)[frame],
                 "products": [
-                    {"index": k, "findings": f}
-                    for k, f in enumerate(found, start=1)
-                ]
+                    {"index": k, "findings": f, "visible": s}
+                    for k, (f, s) in enumerate(
+                        zip(found, shown, strict=True), start=1
+                    )
+                ],
             },
         )
 
 
 @pytest.fixture
 def fake_eval(monkeypatch) -> FakeEval:
-    """Fake the face crop, the frame pickers, the identity check, the view
-    labels, the blind spots and the product judge."""
+    """Fake the face crop, the frame pickers, the whole-clip check and the
+    product judge."""
     fake = FakeEval()
     monkeypatch.setattr(media, "crop_face", fake.crop_face)
     monkeypatch.setattr(
@@ -167,9 +170,7 @@ def fake_eval(monkeypatch) -> FakeEval:
     )
     monkeypatch.setattr(video, "stillest_frames", fake.stillest_frames)
     monkeypatch.setattr(video, "probe", lambda clip: (3, 0.4, 7500))
-    monkeypatch.setattr(identity, "same_person", fake.same_person)
-    monkeypatch.setattr(orientation, "label_frames", fake.label_frames)
-    monkeypatch.setattr(unseen, "unseen_frames", fake.unseen_frames)
+    monkeypatch.setattr(clip_check, "check_clip", fake.check_clip)
     monkeypatch.setattr(outfit, "evaluate_outfit", fake.outfit)
     return fake
 

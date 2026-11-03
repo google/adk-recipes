@@ -26,7 +26,8 @@ Patches and actions are ``{"<op>": {...}}``, applied by ``apply_patch``:
 - ``set``: ``{field, item}`` for person or reference_model, or
   ``{field, items}`` to replace the product or spin list;
 - ``add``: ``{field, item, replace_index}`` for product or spin;
-- ``remove``: ``{field, index}``; ``clear``: ``{field}``;
+- ``remove``: ``{field, index}``, or ``{field, ref}`` (the item with that
+  ref: a client's list can differ from the saved one); ``clear``: ``{field}``;
 - ``job_started``: ``{job_id, capability}``, a generation to follow (the
   results of its page, and Video Try-On's images, are cleared), or with
   ``tryon_image`` a "Make video" of one of Video Try-On's images (nothing
@@ -215,6 +216,17 @@ def _known(values: Any, page: Any) -> dict[str, tuple[str, Any]]:
     return out
 
 
+def remove_index(items: list[Any], rm: dict[str, Any]) -> int:
+    """The index a ``remove`` takes away: the item with its ``ref`` when it
+    names one (-1 when none has it, so never another item), else
+    ``index``."""
+    ref = rm.get("ref")
+    if isinstance(ref, str) and ref:
+        refs = [i.get("ref") if isinstance(i, dict) else None for i in items]
+        return refs.index(ref) if ref in refs else -1
+    return index_of(rm.get("index"))
+
+
 def _items(st: dict[str, Any], p: dict[str, Any]) -> None:
     """The ``set``, ``add``, ``remove`` and ``clear`` ops of a patch."""
     if isinstance(put := p.get("set"), dict):
@@ -234,8 +246,8 @@ def _items(st: dict[str, Any], p: dict[str, Any]) -> None:
             items.append(item)
     rm = p.get("remove")
     if isinstance(rm, dict) and rm.get("field") in LIST_FIELDS:
-        items, i = _list(st, rm["field"]), index_of(rm.get("index"))
-        if 0 <= i < len(items):
+        items = _list(st, rm["field"])
+        if 0 <= (i := remove_index(items, rm)) < len(items):
             items.pop(i)
     if isinstance(clear := p.get("clear"), dict):
         name = clear.get("field")
