@@ -888,7 +888,7 @@ def test_map_page_counts_a_whole_case_as_ingested() -> None:
         [{"trace_id": "t1", "spans": _turn_spans()}], MetricType.SINGLE_TURN
     )
 
-    assert dataclasses.astuple(fetcher.counts) == (0, 1, 0, 0)
+    assert dataclasses.astuple(fetcher.counts) == (0, 1, 0, 0, 0, 0)
 
 
 def test_map_page_counts_a_case_built_from_some_of_its_traces_as_partial() -> (
@@ -913,7 +913,7 @@ def test_map_page_counts_a_case_built_from_some_of_its_traces_as_partial() -> (
 
     # Still evaluated, and counted apart from the intact ones.
     assert len(cases) == 1
-    assert dataclasses.astuple(fetcher.counts) == (0, 0, 1, 0)
+    assert dataclasses.astuple(fetcher.counts) == (0, 0, 1, 0, 0, 0)
 
 
 def test_map_page_counts_a_dropped_row_as_failed() -> None:
@@ -926,7 +926,7 @@ def test_map_page_counts_a_dropped_row_as_failed() -> None:
     )
 
     assert cases == []
-    assert dataclasses.astuple(fetcher.counts) == (0, 0, 0, 1)
+    assert dataclasses.astuple(fetcher.counts) == (0, 0, 0, 1, 0, 0)
 
 
 def test_an_unreadable_gcs_payload_makes_the_case_partial() -> None:

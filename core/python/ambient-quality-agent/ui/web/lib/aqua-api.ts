@@ -974,6 +974,10 @@ export interface InvestigationCounters {
   traces_ingested: number;
   traces_ingested_partial: number;
   traces_ingested_failed: number;
+  /** Rows the ingestion query returned; zero when the source gave no count. */
+  traces_sampled: number;
+  /** Sampled trajectories a memory stop left unread. */
+  traces_unread: number;
   traces_evaluated: number;
   traces_eval_passed: number;
   traces_eval_failed: number;

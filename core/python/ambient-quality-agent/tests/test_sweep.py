@@ -492,6 +492,42 @@ def test_ingestion_is_recorded_once_however_many_evaluations_read_it(
     assert ctx.state["counters"]["traces_ingested"] == fetcher.counts.ingested
 
 
+def test_a_memory_stop_reaches_the_counters_and_names_what_it_left_unread(
+    ctx: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A stopped sweep is told apart from a smaller sample: the unread count is
+    a counter the dashboard can show, not only a note in the summary."""
+    cases = [make_agent_case("s0-0")]
+    fetcher = _wire(monkeypatch, [make_page(cases, memory_truncated=True)])
+    fetcher.counts.sampled = 10
+    fetcher.counts.unread = 3
+
+    lines = _sweep.run_sweep(
+        ctx, [_Recorder("one")], node_name="sweep", budget=100
+    )
+
+    assert ctx.state["counters"]["traces_sampled"] == 10
+    assert ctx.state["counters"]["traces_unread"] == 3
+    assert lines == [
+        "**one:** ok (stopped early near the memory limit; "
+        "3 sampled trajectories left unread)"
+    ]
+
+
+def test_a_sweep_read_in_full_reports_nothing_unread(
+    ctx: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fetcher = _wire(monkeypatch, _pages(2))
+    fetcher.counts.sampled = 2
+
+    lines = _sweep.run_sweep(
+        ctx, [_Recorder("one")], node_name="sweep", budget=100
+    )
+
+    assert ctx.state["counters"]["traces_unread"] == 0
+    assert lines == ["**one:** ok"]
+
+
 def _analyzer(
     outcomes: dict[str, str], *, findings: int = 0, rubrics: int = 0
 ) -> Any:

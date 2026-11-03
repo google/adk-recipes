@@ -190,6 +190,16 @@ class InvestigationCounters(BaseModel):
     """Sampled traces dropped before evaluation: unparseable telemetry, or no
     conversation content at all."""
 
+    traces_sampled: int = 0
+    """Traces the ingestion query returned: the sample drawn from
+    `traces_scanned`, bounded by the run's evaluation budget. Zero when the
+    telemetry source reported no row count."""
+
+    traces_unread: int = 0
+    """Sampled traces a memory stop left unread. Counted in none of the
+    ingested buckets, so a non-zero value is what marks a sweep that stopped
+    early rather than one that drew a smaller sample."""
+
     traces_evaluated: int = 0
     """Evaluation cases sent to the eval service."""
 

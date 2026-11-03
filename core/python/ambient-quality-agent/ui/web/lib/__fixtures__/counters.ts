@@ -23,6 +23,8 @@ const ZERO_COUNTERS: InvestigationCounters = {
   traces_ingested: 0,
   traces_ingested_partial: 0,
   traces_ingested_failed: 0,
+  traces_sampled: 0,
+  traces_unread: 0,
   traces_evaluated: 0,
   traces_eval_passed: 0,
   traces_eval_failed: 0,

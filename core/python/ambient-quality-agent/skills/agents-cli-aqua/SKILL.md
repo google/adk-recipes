@@ -229,6 +229,7 @@ AQuA is deployed. Otherwise, pick one of two ways:
 | `No AQuA deployment recorded for this project` | Run `agents-cli deploy --deploy-aqua`, [attach the agent](#deploy-aqua-on-its-own-and-attach-the-agent) to an AQuA deployed elsewhere, or set `AGENT_ENGINE_RESOURCE_ID=projects/…/reasoningEngines/…`. |
 | `AQuA: could not publish the source snapshot` or `AQuA: source snapshot skipped` | AQuA cannot diagnose this revision. Fix the cause the output names and deploy again. After `--no-wait`, run the publish command the message prints. |
 | `counters.traces_scanned` is zero | The agent name does not match, or the window had no traffic. |
+| `counters.traces_unread` is above zero | The run stopped early near its memory limit and never read that many sampled conversations, so its insights cover only what it did read. A smaller evaluation cap shrinks the sample it has to hold. |
 
 ## Dashboard
 
@@ -398,7 +399,8 @@ conversations that …"`. Approve its preview with
   you trust an empty result. `run` prints no JSON (see Talk to AQuA).
 - **An empty result is not a clean bill of health.** A finished run with no
   insights may have reviewed nothing. Check `counters.traces_scanned` and
-  `counters.traces_evaluated` on the run.
+  `counters.traces_evaluated` on the run, and `counters.traces_unread` for
+  sampled conversations it stopped before reading.
 - **Don't schedule investigations in a loop.** Each one costs model calls and
   takes several minutes. Schedule one with `--wait`, or poll `get-investigation`.
 - **Conversation traces are user data.** Quote only what the fix needs. Keep

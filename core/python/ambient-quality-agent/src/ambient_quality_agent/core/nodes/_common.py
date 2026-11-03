@@ -321,6 +321,8 @@ def add_ingestion_counts(state: ADKStateLike, fetcher: BaseFetcher) -> None:
         traces_ingested=counts.ingested,
         traces_ingested_partial=counts.partial,
         traces_ingested_failed=counts.failed,
+        traces_sampled=counts.sampled,
+        traces_unread=counts.unread,
     )
 
 
