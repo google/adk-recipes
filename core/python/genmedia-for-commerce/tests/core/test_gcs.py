@@ -80,7 +80,7 @@ def test_resolve_image_bytes_passthrough(monkeypatch):
     gcs.download.assert_not_called()
 
 
-MEDIA_BUCKET = "test-project-genmedia-for-commerce-media-payloads"
+MEDIA_BUCKET = "test-project-gfc-media"
 
 
 def test_resolve_image_gs_from_the_media_bucket(monkeypatch):

@@ -25,7 +25,7 @@ from genmedia4commerce.core.events import ProgressEvent, RecordEvent
 from genmedia4commerce.core.settings import Mode
 from genmedia4commerce.core.testing import png
 
-BUCKET = "test-project-genmedia-for-commerce-media-payloads"
+BUCKET = "test-project-gfc-media"
 RUN = runs.RunRef(run_id="abcdef012345", session_id="tab-1", date="2026-01-02")
 FOLDER = f"gs://{BUCKET}/runs/2026-01-02/tab-1/abcdef012345"
 PHOTO, CROP = png(8, 8, (1, 2, 3)), png(9, 9, (4, 5, 6))

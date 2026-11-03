@@ -29,6 +29,12 @@ variable "service_name" {
   default     = "genmedia-for-commerce"
 }
 
+variable "media_bucket" {
+  description = "Name of the media bucket (MEDIA_BUCKET in config.env). Empty: <project_id>-gfc-media. An existing bucket of the project is adopted, e.g. the <project_id>-genmedia-for-commerce-media-payloads of earlier deployments."
+  type        = string
+  default     = ""
+}
+
 variable "media_retention_days" {
   description = "Days before objects under runs/ (saved inputs and results) and sessions/ (chat history, Studio state and jobs) in the media bucket are deleted"
   type        = number

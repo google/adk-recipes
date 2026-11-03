@@ -76,10 +76,7 @@ class Settings:
     @property
     def media_bucket(self) -> str:
         """Return the bucket for user uploads and generated media."""
-        return (
-            self._media_bucket
-            or f"{self.project_id}-genmedia-for-commerce-media-payloads"
-        )
+        return self._media_bucket or f"{self.project_id}-gfc-media"
 
 
 def _env(name: str, default: str = "") -> str:

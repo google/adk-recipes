@@ -28,7 +28,7 @@ from genmedia4commerce.core.settings import get_settings
 from tests.api.conftest import IMAGE
 from tests.conftest import HEIC
 
-BUCKET = "test-project-genmedia-for-commerce-media-payloads"
+BUCKET = "test-project-gfc-media"
 TODAY = datetime.datetime.now(datetime.UTC).date().isoformat()
 
 

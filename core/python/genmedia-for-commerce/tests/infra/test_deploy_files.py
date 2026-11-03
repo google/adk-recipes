@@ -60,7 +60,7 @@ def test_no_project_wide_storage_or_act_as_roles():
             # Only when a condition limits it to the media bucket.
             assert "condition {" in block
             assert (
-                "projects/_/buckets/${google_storage_bucket.media.name}"
+                "projects/_/buckets/${google_storage_bucket.gfc_media.name}"
                 in block
             )
         assert "roles/iam.serviceAccountUser" not in block

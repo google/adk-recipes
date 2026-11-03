@@ -34,7 +34,7 @@ from genmedia4commerce.core.settings import get_settings
 from genmedia4commerce.core.testing import mp4_stub, png
 
 IMAGE = png(8, 8, (1, 2, 3))
-BUCKET = "test-project-genmedia-for-commerce-media-payloads"
+BUCKET = "test-project-gfc-media"
 RUN = runs.RunRef(run_id="abcdef012345", session_id="tab-1", date="2026-01-02")
 FOLDER = "runs/2026-01-02/tab-1/abcdef012345"
 
