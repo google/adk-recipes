@@ -15,6 +15,7 @@
 """Deployment script for Brand Search Optimization agent."""
 
 import os
+import shutil
 
 import vertexai
 from absl import app, flags
@@ -35,6 +36,9 @@ flags.mark_bool_flags_as_mutual_exclusive(["create", "delete"])
 
 
 def create(env_vars: dict) -> None:
+    # Clean up transient local SQLite database created by adk web before packaging
+    shutil.rmtree("./app/.adk", ignore_errors=True)
+
     adk_app = AdkApp(
         agent=root_agent,
         enable_tracing=True,
