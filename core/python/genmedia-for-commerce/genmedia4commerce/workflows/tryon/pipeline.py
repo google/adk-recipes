@@ -135,9 +135,8 @@ async def _prepare(
     settings = get_settings()
     guidelines = req.style_guidelines
     guidelines = settings.style_guidelines if guidelines is None else guidelines
-    upscale_face = settings.upscale_face
     (body, reference_face, wearer_face), plan = await asyncio.gather(
-        inputs.wearer(req.person_image, upscale_face=upscale_face),
+        inputs.wearer(req.person_image, upscale_face=settings.upscale_face),
         _plan(store, classification, chosen, guidelines),
     )
     for label, data in (
@@ -156,6 +155,7 @@ async def _prepare(
         params=req.image or ImageParams(),
         chosen=chosen,
         plan=plan,
+        check_images=req.check_images,
     )
 
 

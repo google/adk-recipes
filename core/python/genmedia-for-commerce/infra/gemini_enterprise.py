@@ -40,6 +40,7 @@ failure prints the error and the equivalent console steps.
 """
 
 import argparse
+import functools
 import logging
 import os
 import subprocess
@@ -54,6 +55,8 @@ from infra.gemini_enterprise_api import (
     UserStepNeeded,
     console_url,
     gcloud,
+    highlight,
+    retry_while,
 )
 from infra.gemini_enterprise_app import connect_existing_app, ensure_own_app
 from infra.gemini_enterprise_licence import ensure_licence
@@ -85,10 +88,15 @@ Custom MCP connectors may be blocked by an organisation policy, and you need the
 
 DONE = """
 {status}
-  App: {app} ({engine})
-  Console: {apps} > Apps > {app}
-  Users need a Gemini Enterprise licence assigned to use the app (Manage users): {licences}
-  To open the Studio: open the app's web app (Apps > {app} > Integration > the link to your web app), turn on {name} under Connectors in the chat and ask "Open the GenMedia Studio"."""
+  Open the app: {web_app}
+  App settings: {settings}"""
+WEB_APP = "https://vertexaisearch.cloud.google.com/home/cid/{cid}"
+
+
+AGENT_WAIT = (
+    "Waiting for the Discovery Engine service agent to exist (a new project "
+    "takes a minute)..."
+)
 
 
 def grant_invoker(api: DiscoveryEngine, run_args: list[str], dry_run: bool):
@@ -120,7 +128,11 @@ def grant_invoker(api: DiscoveryEngine, run_args: list[str], dry_run: bool):
         if dry_run:
             logger.info("[dry run] gcloud %s", " ".join(command))
         else:
-            gcloud(*command, "--quiet")
+            retry_while(
+                functools.partial(gcloud, *command, "--quiet"),
+                ("does not exist",),
+                AGENT_WAIT,
+            )
 
 
 def studio_url() -> tuple[list[str], str]:
@@ -224,16 +236,31 @@ def finish(api: DiscoveryEngine, engine: str, app_id: str, loaded: bool):
         if loaded
         else "Registered, except for the console step above."
     )
+    location, engine_id = engine.split("/")[3], engine.rsplit("/", 1)[-1]
+    page = f"locations/{location}/engines/{engine_id}/overview/dashboard"
     logger.info(
         DONE.format(
-            status=status,
-            app=engine.rsplit("/", 1)[-1] if app_id else DISPLAY_NAME,
-            engine=engine,
-            apps=console_url("gemini-enterprise/", api.project),
-            licences=console_url("gemini-enterprise/user-license", api.project),
-            name=DISPLAY_NAME,
+            status=highlight(status),
+            web_app=web_app(api, engine),
+            settings=console_url(f"gemini-enterprise/{page}", api.project),
         )
     )
+
+
+def web_app(api: DiscoveryEngine, engine: str) -> str:
+    """The link of the app's web app (its widget config's id), else where
+    the console shows it."""
+    try:
+        config = api.call(
+            "GET",
+            f"{engine}/widgetConfigs/default_search_widget_config",
+            version="v1",
+        )
+    except (GenMediaError, requests.RequestException):
+        config = {}
+    if engine.split("/")[3] == "global" and config.get("configId"):
+        return highlight(WEB_APP.format(cid=config["configId"]))
+    return "App settings below > Integration > the link to your web app"
 
 
 def allow_mcp_connectors() -> int:

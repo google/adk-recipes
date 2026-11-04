@@ -136,7 +136,8 @@ class VariationEvent(Event):
     The media travels as bytes (``media``) or, once saved to Cloud Storage,
     as ``media_uri`` (``gs://``) and ``media_url`` (``GET /api/media``).
     ``fixed``: the media is a rejected image corrected by a fix pass and
-    published (``Verdict.details["fixed"]``).
+    published (``Verdict.details["fixed"]``). ``video_uri`` and
+    ``video_url``: a spin's MP4, saved next to its WebP (``core.runs``).
     """
 
     type: str = field(init=False, default="variation")
@@ -153,6 +154,8 @@ class VariationEvent(Event):
     media_uri: str | None = None
     media_url: str | None = None
     fixed: bool = False
+    video_uri: str | None = None
+    video_url: str | None = None
 
     def to_dict(self) -> dict:
         """Return the dict with ``media`` as ``media_base64`` + ``media_mime``.

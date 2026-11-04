@@ -116,12 +116,85 @@ def test_free_text_filter_and_no_filter_labels(calls):
     assert parts[2] == "PRODUCT_2:"
 
 
+BACK = png(color=(5, 5, 5))
+
+
+def test_a_video_frame_shows_a_back_photo_after_its_front(calls):
+    shoes = OutfitProduct(SHOES, "footwear", back=BACK)
+    evaluate_outfit(
+        [OutfitProduct(SHIRT, "top"), shoes], TARGET, video_frame=True
+    )
+    (call,) = calls
+    hint = PRODUCT_FILTER_HINTS["footwear"]
+    assert call["parts"][:6] == [
+        f"PRODUCT_1 ({PRODUCT_FILTER_HINTS['top']}):",
+        media.to_png(SHIRT),
+        f"PRODUCT_2 ({hint}), front photo:",
+        media.to_png(SHOES),
+        "PRODUCT_2, back photo:",
+        media.to_png(BACK),
+    ]
+
+
+def test_a_video_frame_asks_for_the_view_and_each_product_seen(calls):
+    """The image try-on keeps its schema; a frame adds ``view`` and
+    ``visible``."""
+    evaluate_outfit(_products(), TARGET, video_frame=True)
+    evaluate_outfit(_products(), TARGET)
+    video, still = calls[0]["schema"], calls[1]["schema"]
+    assert video is outfit.VIDEO_SCHEMA and still is outfit.OUTFIT_SCHEMA
+    assert "view" not in still["properties"]
+    assert video["properties"]["view"]["enum"] == ["front", "back", "other"]
+    product = video["properties"]["products"]["items"]
+    assert "visible" in product["required"] and "view" in video["required"]
+    item = still["properties"]["products"]["items"]
+    assert item["required"] == ["product", "name", "defects"]
+    note = outfit.VIDEO_FRAME_NOTE
+    assert "visible false and no defects" in note and "back photo" in note
+
+
+def test_a_product_the_frame_does_not_show_has_no_defect(monkeypatch):
+    """Its defects are dropped; a rejection naming only them publishes."""
+    answer = {
+        "products": [
+            {"product": "PRODUCT_1", "name": "shirt", "defects": []},
+            {
+                "product": "PRODUCT_2",
+                "name": "shoes",
+                "defects": [DEFECT],
+                "visible": False,
+            },
+        ],
+        "publish": False,
+        "imperfection_count": 1,
+        "description": "The shoes are missing.",
+        "view": "sideways",
+    }
+    monkeypatch.setattr(gen, "generate_json", lambda parts, **kw: answer)
+    verdict = evaluate_outfit(_products(), TARGET, video_frame=True)
+    assert verdict.publish and verdict.imperfection_count == 0
+    shirt, shoes = verdict.details["products"]
+    assert shirt["visible"] and not shoes["visible"]
+    assert shoes["findings"] == [] and shoes["defects"] == []
+    assert verdict.details["view"] == "other"  # not one of the views
+
+
+def test_a_defect_of_a_shown_product_still_rejects_a_frame(monkeypatch):
+    answer = {**ANSWER, "view": "back"}
+    monkeypatch.setattr(gen, "generate_json", lambda parts, **kw: answer)
+    verdict = evaluate_outfit(_products(), TARGET, video_frame=True)
+    assert not verdict.publish and verdict.details["view"] == "back"
+    assert all(p["visible"] for p in verdict.details["products"])
+
+
 def test_verdict_and_details_per_product(calls):
     verdict = evaluate_outfit(_products(), TARGET)
     assert not verdict.publish and not verdict.error
     assert verdict.imperfection_count == 1
     assert verdict.description == "The shoes lost their laces."
+    assert "view" not in verdict.details  # an image: no view, no visible
     by_index = {p["index"]: p for p in verdict.details["products"]}
+    assert "visible" not in by_index[1]
     assert by_index[1]["findings"] == [] and by_index[1]["name"] == "shirt"
     assert by_index[2]["defects"] == [DEFECT]
     assert by_index[2]["findings"] == [
@@ -345,9 +418,9 @@ def test_the_face_crop_is_shown_next_to_the_wearer(calls):
 def test_no_wearer_sends_no_wearer_rules(calls):
     evaluate_outfit(_products(), TARGET, video_frame=True, face=FACE)
     (call,) = calls
-    assert call["schema"] is outfit.OUTFIT_SCHEMA
-    assert "body_defects" not in outfit.OUTFIT_SCHEMA["properties"]
-    assert "body_parts" not in outfit.OUTFIT_SCHEMA["properties"]
+    assert call["schema"] is outfit.VIDEO_SCHEMA
+    assert "body_defects" not in outfit.VIDEO_SCHEMA["properties"]
+    assert "body_parts" not in outfit.VIDEO_SCHEMA["properties"]
     assert outfit.WEARER_NOTE not in call["parts"]
     assert not any("WEARER" in str(p) for p in call["parts"])
     assert media.to_png(FACE) not in call["parts"]  # no face without one

@@ -53,7 +53,7 @@ def _finding(
     return Finding(
         expected_behavior=expected,
         actual_behavior=actual,
-        session_id=session_id,
+        trajectory_id=session_id,
         agent_id=agent_id,
     )
 
@@ -601,12 +601,12 @@ def test_validate_drops_unusable_clusters(cluster: Cluster) -> None:
 def test_validate_recomputes_item_count_from_the_ids() -> None:
     """The count is ours, not an assertion we take from the model."""
     cluster = Cluster(
-        label="made no tool call", finding_ids=[1, 2], item_count=99
+        label="made no tool call", finding_ids=[1, 2], finding_count=99
     )
 
     (kept,) = clustering.validate_clusters([cluster], finding_count=3)
 
-    assert kept.item_count == 2
+    assert kept.finding_count == 2
 
 
 # --- attach_examples ----------------------------------------------------------
@@ -619,15 +619,15 @@ def test_attach_examples_carries_the_conversation_trace() -> None:
     ]
     sessions = {"case-abc": [{"role": "user", "text": "the printer is jammed"}]}
     clusters = [
-        Cluster(label="made no tool call", finding_ids=[0], item_count=1)
+        Cluster(label="made no tool call", finding_ids=[0], finding_count=1)
     ]
 
     (enriched,) = clustering.attach_examples(clusters, findings, sessions)
 
     (example,) = enriched.examples
-    assert example.rubric.expected_behavior == "must call the tool"
-    assert example.eval_case_id == "case-abc"
-    assert "printer is jammed" in json.dumps(example.trace)
+    assert example.finding.expected_behavior == "must call the tool"
+    assert example.trajectory_id == "case-abc"
+    assert "printer is jammed" in json.dumps(example.turns)
 
 
 def test_attach_examples_is_capped() -> None:
@@ -643,7 +643,7 @@ def test_attach_examples_is_capped() -> None:
         Cluster(
             label="made no tool call",
             finding_ids=list(range(total)),
-            item_count=total,
+            finding_count=total,
         )
     ]
 
@@ -651,7 +651,7 @@ def test_attach_examples_is_capped() -> None:
 
     assert len(enriched.examples) == MAX_EXAMPLES
     # The cap trims evidence only -- the count still reflects the whole cluster.
-    assert enriched.item_count == total
+    assert enriched.finding_count == total
 
 
 def test_attach_examples_survives_a_finding_without_a_session() -> None:
@@ -659,15 +659,15 @@ def test_attach_examples_survives_a_finding_without_a_session() -> None:
     degraded evidence still counts."""
     findings = [_finding("must call the tool", "did not", session_id="")]
     clusters = [
-        Cluster(label="made no tool call", finding_ids=[0], item_count=1)
+        Cluster(label="made no tool call", finding_ids=[0], finding_count=1)
     ]
 
     (enriched,) = clustering.attach_examples(clusters, findings, {})
 
     (example,) = enriched.examples
-    assert example.rubric.expected_behavior == "must call the tool"
-    assert example.trace == []
-    assert example.eval_case_id == ""
+    assert example.finding.expected_behavior == "must call the tool"
+    assert example.turns == []
+    assert example.trajectory_id == ""
 
 
 def test_attach_examples_counts_one_trace_per_conversation() -> None:
@@ -680,13 +680,15 @@ def test_attach_examples_counts_one_trace_per_conversation() -> None:
     ]
     sessions = {"case-1": [{"t": 1}], "case-2": [{"t": 2}]}
     clusters = [
-        Cluster(label="made no tool call", finding_ids=[0, 1, 2], item_count=3)
+        Cluster(
+            label="made no tool call", finding_ids=[0, 1, 2], finding_count=3
+        )
     ]
 
     (enriched,) = clustering.attach_examples(clusters, findings, sessions)
 
-    assert enriched.trace_ids == ["case-1", "case-2"]
-    assert enriched.trace_count == 2
+    assert enriched.trajectory_ids == ["case-1", "case-2"]
+    assert enriched.trajectory_count == 2
 
 
 def test_attach_examples_counts_traces_past_the_example_cap() -> None:
@@ -699,14 +701,14 @@ def test_attach_examples_counts_traces_past_the_example_cap() -> None:
         Cluster(
             label="made no tool call",
             finding_ids=list(range(total)),
-            item_count=total,
+            finding_count=total,
         )
     ]
 
     (enriched,) = clustering.attach_examples(clusters, findings, sessions)
 
     assert len(enriched.examples) == MAX_EXAMPLES
-    assert enriched.trace_count == total
+    assert enriched.trajectory_count == total
 
 
 # --- call_clustering_model -------------------------------------------------------
@@ -829,7 +831,9 @@ def test_attach_examples_collects_the_distinct_revisions() -> None:
         ),
     ]
     clusters = [
-        Cluster(label="made no tool call", finding_ids=[0, 1, 2], item_count=3)
+        Cluster(
+            label="made no tool call", finding_ids=[0, 1, 2], finding_count=3
+        )
     ]
 
     (enriched,) = clustering.attach_examples(clusters, findings, {})
@@ -843,7 +847,7 @@ def test_attach_examples_leaves_unattributed_findings_without_a_revision() -> (
     """Sources that report no revision leave the cluster unattributed rather
     than inventing an unknown one."""
     clusters = [
-        Cluster(label="made no tool call", finding_ids=[0], item_count=1)
+        Cluster(label="made no tool call", finding_ids=[0], finding_count=1)
     ]
 
     (enriched,) = clustering.attach_examples(clusters, [_finding()], {})

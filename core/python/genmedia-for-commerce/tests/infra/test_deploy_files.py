@@ -60,7 +60,7 @@ def test_no_project_wide_storage_or_act_as_roles():
             # Only when a condition limits it to the media bucket.
             assert "condition {" in block
             assert (
-                "projects/_/buckets/${google_storage_bucket.media.name}"
+                "projects/_/buckets/${google_storage_bucket.gfc_media.name}"
                 in block
             )
         assert "roles/iam.serviceAccountUser" not in block
@@ -75,6 +75,14 @@ def test_every_bucket_prevents_public_access():
     assert len(enforced) == buckets
 
 
+def test_the_media_bucket_takes_signed_puts_from_the_panel():
+    cors = re.search(r"cors \{(.*?)\}", _read(TERRAFORM / "storage.tf"), re.S)
+    assert cors, "no cors block in storage.tf"
+    assert re.search(r'method\s*=\s*\["PUT"\]', cors[1])  # PUT only
+    for header in ("x-goog-content-length-range", "x-goog-if-generation-match"):
+        assert f'"{header}"' in cors[1]
+
+
 def test_the_image_runs_as_an_unprivileged_user():
     dockerfile = _read(ROOT / "Dockerfile")
     users = re.findall(r"^USER (\S+)", dockerfile, re.MULTILINE)
@@ -86,9 +94,10 @@ def test_setup_infra_retries_terraform_apply():
     # A fresh project's new APIs take a minute to be usable (403).
     makefile = _read(ROOT / "Makefile")
     recipe = makefile.split("\nsetup-infra:", 1)[1].split("\n\n", 1)[0]
-    assert "for attempt in 1 2 3" in recipe
-    assert "apply && exit 0" in recipe
-    assert "-auto-approve" not in recipe
+    assert recipe.endswith("@$(TF_VARS) && bash infra/setup_infra.sh")
+    script = _read(ROOT / "infra" / "setup_infra.sh")
+    assert "for attempt in 1 2 3" in script
+    assert "-auto-approve" not in script
 
 
 def test_the_makefile_has_no_jinja_markers():

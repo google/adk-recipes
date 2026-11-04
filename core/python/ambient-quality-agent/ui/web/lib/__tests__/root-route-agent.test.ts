@@ -29,8 +29,8 @@ describe("the root route", () => {
     const router = openAt("/insights?agent=acme-prod__support&status=new");
 
     const next = router.buildLocation({
-      to: "/investigations/$runId",
-      params: { runId: "r-1" },
+      to: "/investigations/$investigationId",
+      params: { investigationId: "r-1" },
     });
 
     expect(next.href).toBe("/investigations/r-1?agent=acme-prod__support");

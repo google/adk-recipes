@@ -24,7 +24,7 @@ you ask for, in about a second.
 
 What comes out is a single JSON file, `tools/mock_aqa_server.py` serves it, and
 the dashboard cannot tell the difference: every record is built as the agent's
-own model and serialized by the agent's own presenter (`format_run`,
+own model and serialized by the agent's own presenter (`format_investigation`,
 `InsightView`, `InsightOccurrence`), so the wire shapes are not a copy of the
 real ones -- they are the real ones. A model change breaks this script rather
 than quietly producing a fixture that lies.
@@ -91,11 +91,12 @@ from agentplatform._genai.types.evals import (
     ConversationTurn,
 )
 from ambient_quality_agent.config import Config, load
-from ambient_quality_agent.core.investigation.model import format_run
+from ambient_quality_agent.core.investigation.model import format_investigation
 from ambient_quality_agent.tools.insights.findings import Finding
 from ambient_quality_agent.tools.insights.models import (
     VERIFICATION_ANALYSIS_KEY,
     ClusterVerification,
+    FindingExample,
     Insight,
     InsightOccurrence,
     InsightStatus,
@@ -103,13 +104,14 @@ from ambient_quality_agent.tools.insights.models import (
     OccurrenceState,
     ProposedEdit,
     RootCause,
-    RubricExample,
 )
 from ambient_quality_agent.tools.investigations.models import (
+    STAGE_EVENT_SOURCE,
+    Investigation,
     InvestigationCounters,
     InvestigationEvent,
-    InvestigationRecord,
-    RunStatus,
+    InvestigationStatus,
+    StageProgress,
 )
 from ambient_quality_agent.tools.observed_agent_config.effective_config import (
     serialize_config,
@@ -532,11 +534,10 @@ class Scenario:
     verified_rate: float = 0.0
     """Share of sightings carrying a cluster-verification result.
 
-    Zero by default because that is what a deployment produces: `verify_clusters`
-    exists but nothing calls it, so no occurrence in BigQuery has an analysis and
-    a mock that generated them would show a dashboard nobody can get. Raise it to
-    see the diagnosed half of the insight pane, which is otherwise unreachable
-    without deploying the pass first."""
+    Defaults to 0.0 to match a default deployment where the verification pass
+    is off (enabled only via `aqua attach --verification`) and occurrences in
+    BigQuery carry no verification analysis. Increase above 0.0 to populate the
+    diagnosed half of the insight pane."""
 
     root_cause_rate: float = 0.0
     """Share of insights carrying a recorded root cause.
@@ -557,7 +558,7 @@ class Scenario:
     """Whether the observed agent has exported any telemetry at all.
 
     The state a customer is in before their agent has served traffic, and the
-    one b/563290003 was filed on: BigQuery infers the sink's ``labels`` STRUCT
+    first one they see: BigQuery infers the sink's ``labels`` STRUCT
     from the rows it holds, so a column no exported trace has carried does not
     exist and every sweep fails its first read with `_NO_TELEMETRY_ERROR`. It
     is not reachable from the other knobs -- those shape a pipeline that ran,
@@ -669,23 +670,23 @@ def _build_funnel_counters(
     failed_rubrics = min(rubrics, int(failed * rng.uniform(1.6, 3.1)))
     # A clustering chunk that raised takes its whole chunk's rubrics with it --
     # rare, and worth having in the data because it is drawn as a warning.
-    errored_rubrics = (
+    errored_findings = (
         _sample_binomial(rng, failed_rubrics, 0.35) if clustering_broke else 0
     )
-    unclustered = _sample_binomial(rng, failed_rubrics - errored_rubrics, 0.04)
+    unclustered = _sample_binomial(rng, failed_rubrics - errored_findings, 0.04)
 
     counters = InvestigationCounters(
-        traces_scanned=scanned,
-        traces_ingested=ingested,
-        traces_ingested_partial=partial,
-        traces_ingested_failed=dropped,
-        traces_evaluated=evaluated,
-        traces_eval_passed=passed,
-        traces_eval_failed=failed,
-        traces_eval_errored=errored,
+        trajectories_scanned=scanned,
+        trajectories_ingested=ingested,
+        trajectories_ingested_partial=partial,
+        trajectories_ingested_failed=dropped,
+        trajectories_evaluated=evaluated,
+        trajectories_eval_passed=passed,
+        trajectories_eval_failed=failed,
+        trajectories_eval_errored=errored,
         rubrics_generated=rubrics,
-        rubrics_errored=errored_rubrics,
-        rubrics_unclustered=unclustered,
+        findings_errored=errored_findings,
+        findings_unclustered=unclustered,
     )
     return counters, failed_rubrics
 
@@ -766,8 +767,8 @@ def _build_custom_metric_summary(
     """
     if not bucket:
         return {}
-    judged = counters.traces_evaluated
-    errored = counters.traces_eval_errored
+    judged = counters.trajectories_evaluated
+    errored = counters.trajectories_eval_errored
     by_name: dict[str, dict[str, int]] = {}
     detail: dict[str, dict[str, Any]] = {}
     for (
@@ -841,7 +842,7 @@ def build_dataset(scenario: Scenario, config: Config) -> dict[str, Any]:
     )
 
     # Cadence-aligned tumbling buckets, exactly as `derive_window_and_budget`
-    # lays them out for an ambient run: the newest window ends at the last
+    # lays them out for an ambient investigation: the newest window ends at the last
     # cadence boundary at or before the anchor.
     last_end = dt.datetime.fromtimestamp(
         (int(scenario.anchor.timestamp()) // cadence) * cadence, tz=dt.UTC
@@ -849,7 +850,7 @@ def build_dataset(scenario: Scenario, config: Config) -> dict[str, Any]:
 
     # A sweep that fails outright, and one whose trigger was redelivered. Both
     # end with no counters at all, which the dashboard has to render as "—"
-    # rather than as a run that measured zero of everything.
+    # rather than as an investigation that measured zero of everything.
     failed_index = total_runs - rng.randrange(9, 16)
     skipped_index = total_runs - rng.randrange(20, 30)
     # One sweep in the middle of the incident loses rubrics to a clustering error.
@@ -857,7 +858,7 @@ def build_dataset(scenario: Scenario, config: Config) -> dict[str, Any]:
         total_runs - int(scenario.incident_days_ago * scenario.runs_per_day) + 1
     )
     # It has to land on a sweep that ran: the failed and skipped ones record no
-    # counters, so a collision would drop the only `rubrics_errored` there is.
+    # counters, so a collision would drop the only `findings_errored` there is.
     while broken_clustering_index in (
         failed_index,
         skipped_index,
@@ -902,7 +903,7 @@ def build_dataset(scenario: Scenario, config: Config) -> dict[str, Any]:
         # created, so the per-run `insights_created` and the insight table's
         # `created_at` histogram cannot disagree -- which matters, because the
         # bar chart can be drawn from either.
-        if record.status is RunStatus.DONE:
+        if record.status is InvestigationStatus.DONE:
             clusters = _pick_clusters_for_run(
                 rng,
                 scenario=scenario,
@@ -912,14 +913,14 @@ def build_dataset(scenario: Scenario, config: Config) -> dict[str, Any]:
                 is_newest_sweep=index == newest_sweep_index,
             )
             created = 0
-            for defect, item_count, trace_count in clusters:
+            for defect, item_count, trajectory_count in clusters:
                 is_new = defect.key not in insights
                 insight_id = f"ins-{_compute_stable_id(defect.key)}"
                 if is_new:
                     created += 1
                     insights[defect.key] = Insight(
                         insight_id=insight_id,
-                        agent_name=config.observed_agent_name,
+                        observed_agent_key=config.observed_agent_name,
                         agent_id=defect.agent_id or config.observed_agent_name,
                         label=defect.label,
                         status=InsightStatus.NEW,
@@ -935,7 +936,7 @@ def build_dataset(scenario: Scenario, config: Config) -> dict[str, Any]:
                         }
                     )
                 seen_traces[defect.key] = (
-                    seen_traces.get(defect.key, 0) + trace_count
+                    seen_traces.get(defect.key, 0) + trajectory_count
                 )
                 seen_occurrences[defect.key] = (
                     seen_occurrences.get(defect.key, 0) + 1
@@ -945,11 +946,11 @@ def build_dataset(scenario: Scenario, config: Config) -> dict[str, Any]:
                         rng,
                         defect=defect,
                         insight_id=insight_id,
-                        run_id=record.run_id,
+                        investigation_id=record.investigation_id,
                         created_at=window_end,
                         agent_name=config.observed_agent_name,
                         item_count=item_count,
-                        trace_count=trace_count,
+                        trajectory_count=trajectory_count,
                         verified_rate=scenario.verified_rate,
                     )
                 )
@@ -970,7 +971,7 @@ def build_dataset(scenario: Scenario, config: Config) -> dict[str, Any]:
                 }
             )
 
-        runs.append(format_run(record))
+        runs.append(format_investigation(record))
 
     root_causes = _build_root_causes(occurrences, rate=scenario.root_cause_rate)
     views = _build_insight_views(
@@ -1021,7 +1022,7 @@ _NO_TELEMETRY_ERROR = (
 )
 """What a sweep of an agent with no exported telemetry fails with.
 
-Quoted from b/563290003 rather than paraphrased: the dashboard decides whether
+Quoted from a real failure rather than paraphrased: the dashboard decides whether
 a failure is really an empty deployment by reading this text, so a fixture that
 only resembles it would pass while the real message did not.
 """
@@ -1042,14 +1043,14 @@ def _build_run_record(
     failed_index: int,
     skipped_index: int,
     broken_clustering_index: int,
-) -> tuple[InvestigationRecord, int]:
-    """Builds a single investigation run record with lifecycle events and counters.
+) -> tuple[Investigation, int]:
+    """Builds a single investigation record with lifecycle events and counters.
 
     Args:
         rng: Seeded random number generator.
         scenario: Deployment scenario parameters.
         config: Effective AQA configuration.
-        index: Index of the run within the total generated run sequence.
+        index: Index of the investigation within the total generated run sequence.
         total_runs: Total count of runs being generated.
         window_start: Telemetry evaluation window start timestamp.
         window_end: Telemetry evaluation window end timestamp.
@@ -1061,7 +1062,7 @@ def _build_run_record(
         broken_clustering_index: Run index selected to simulate a clustering failure.
 
     Returns:
-        Tuple of `(InvestigationRecord, unallocated_failed_rubrics_count)`.
+        Tuple of `(Investigation, unallocated_failed_rubrics_count)`.
     """
     scanned = max(
         0,
@@ -1074,14 +1075,14 @@ def _build_run_record(
     )
     # Submitted a moment after the window closes, as the ambient tick does.
     created_at = window_end + dt.timedelta(seconds=rng.uniform(4, 40))
-    # Annotated because it is splatted into `InvestigationRecord` below: the
+    # Annotated because it is splatted into `Investigation` below: the
     # inferred value type is a union, and a checker cannot match that union back
     # up to the individual fields each key lands in.
     common: dict[str, Any] = {
-        "run_id": uuid.UUID(int=rng.getrandbits(128)).hex[:8],
+        "investigation_id": uuid.UUID(int=rng.getrandbits(128)).hex[:8],
         "created_at": created_at.isoformat(),
         "updated_at": created_at.isoformat(),
-        "observed_agent_name": config.observed_agent_name,
+        "observed_agent_key": config.observed_agent_name,
         "trigger_type": "scheduled",
         "window_start": window_start.isoformat(),
         "window_end": window_end.isoformat(),
@@ -1094,23 +1095,25 @@ def _build_run_record(
     }
 
     # Every sweep, including the newest: the read that fails is the first one,
-    # so no run ever reaches a stage that could make this sweep differ from the
+    # so no investigation ever reaches a stage that could make this sweep differ from the
     # one before it. A column of identical failures is the whole scenario.
     if scenario.no_telemetry:
         finished = created_at + dt.timedelta(seconds=rng.uniform(40, 90))
-        return InvestigationRecord(
+        return Investigation(
             **common,
-            status=RunStatus.FAILED,
+            status=InvestigationStatus.FAILED,
             finished_at=finished.isoformat(),
             error=_NO_TELEMETRY_ERROR,
         ), 0
 
     # The newest sweep is still going: it has events but no summary and no
     # counters, which is what the detail panel's live progress view is for.
+    # Its stage row is the one the eval-service sweep writes before its first
+    # page; built without `rng`, so every other figure is the same either way.
     if index == total_runs - 1:
-        return InvestigationRecord(
+        return Investigation(
             **common,
-            status=RunStatus.RUNNING,
+            status=InvestigationStatus.RUNNING,
             events=[
                 InvestigationEvent(
                     created_at=(
@@ -1120,15 +1123,27 @@ def _build_run_record(
                         config, window_start, window_end, budget
                     ),
                     source="init",
-                )
+                ),
+                InvestigationEvent(
+                    created_at=(
+                        created_at + dt.timedelta(seconds=5)
+                    ).isoformat(),
+                    text=StageProgress(
+                        stage="Multi-turn evaluation",
+                        evaluated=0,
+                        total=min(budget, scanned),
+                        findings=0,
+                    ).model_dump_json(exclude_none=True),
+                    source=STAGE_EVENT_SOURCE,
+                ),
             ],
         ), 0
 
     if index == failed_index:
         finished = created_at + dt.timedelta(seconds=rng.uniform(20, 60))
-        return InvestigationRecord(
+        return Investigation(
             **common,
-            status=RunStatus.FAILED,
+            status=InvestigationStatus.FAILED,
             finished_at=finished.isoformat(),
             error=(
                 "google.api_core.exceptions.ResourceExhausted: 429 Quota exceeded "
@@ -1142,9 +1157,9 @@ def _build_run_record(
         # before the graph and recorded nothing.
         finished = created_at + dt.timedelta(seconds=rng.uniform(1, 4))
         redelivered: dict[str, Any] = {**common, "trigger_type": "task_fire"}
-        return InvestigationRecord(
+        return Investigation(
             **redelivered,
-            status=RunStatus.SKIPPED,
+            status=InvestigationStatus.SKIPPED,
             finished_at=finished.isoformat(),
         ), 0
 
@@ -1175,11 +1190,11 @@ def _build_run_record(
     )
     # Long enough to be worth the elapsed column, and longer when there is more
     # to evaluate.
-    elapsed = 90 + counters.traces_evaluated * rng.uniform(0.7, 1.6)
+    elapsed = 90 + counters.trajectories_evaluated * rng.uniform(0.7, 1.6)
     finished_at = created_at + dt.timedelta(seconds=elapsed)
-    return InvestigationRecord(
+    return Investigation(
         **common,
-        status=RunStatus.DONE,
+        status=InvestigationStatus.DONE,
         finished_at=finished_at.isoformat(),
         counters=counters,
         summary={
@@ -1190,21 +1205,22 @@ def _build_run_record(
             "multi_turn_metrics": list(config.multi_turn_metrics),
             "single_turn_metrics": list(config.single_turn_metrics),
             "multi_turn_pages_evaluated": max(
-                1, counters.traces_evaluated // 25
+                1, counters.trajectories_evaluated // 25
             ),
             "single_turn_pages_evaluated": 0,
             # Per-(case, metric) outcomes: every evaluated trace is judged by
             # every metric, so these are the trace tallies times the metrics.
-            "metrics_passed": counters.traces_eval_passed * metric_count,
-            "metrics_failed": counters.traces_eval_failed * metric_count,
-            "metrics_errored": counters.traces_eval_errored * metric_count,
+            "metrics_passed": counters.trajectories_eval_passed * metric_count,
+            "metrics_failed": counters.trajectories_eval_failed * metric_count,
+            "metrics_errored": counters.trajectories_eval_errored
+            * metric_count,
             **_build_custom_metric_summary(counters, config.metrics_gcs_bucket),
         },
     ), max(
         0,
         failed_rubrics
-        - counters.rubrics_errored
-        - counters.rubrics_unclustered,
+        - counters.findings_errored
+        - counters.findings_unclustered,
     )
 
 
@@ -1228,9 +1244,9 @@ def _pick_clusters_for_run(
         is_newest_sweep: Whether this is the most recent completed sweep.
 
     Returns:
-        List of tuples `(defect, item_count, trace_count)` for each cluster.
+        List of tuples `(defect, item_count, trajectory_count)` for each cluster.
     """
-    if rubrics_to_place <= 0 or counters.traces_eval_failed <= 0:
+    if rubrics_to_place <= 0 or counters.trajectories_eval_failed <= 0:
         return []
 
     active = [
@@ -1260,15 +1276,15 @@ def _pick_clusters_for_run(
         # A defect usually breaks a couple of rubrics in the same conversation,
         # so it spans fewer traces than it has rubrics -- and never more traces
         # than the sweep saw fail.
-        trace_count = max(
+        trajectory_count = max(
             1,
             min(
-                counters.traces_eval_failed,
+                counters.trajectories_eval_failed,
                 item_count,
                 int(item_count / rng.uniform(1.0, 2.2)) or 1,
             ),
         )
-        clusters.append((defect, item_count, trace_count))
+        clusters.append((defect, item_count, trajectory_count))
     return clusters
 
 
@@ -1331,11 +1347,11 @@ def _build_occurrence(
     *,
     defect: Defect,
     insight_id: str,
-    run_id: str,
+    investigation_id: str,
     created_at: dt.datetime,
     agent_name: str,
     item_count: int,
-    trace_count: int,
+    trajectory_count: int,
     verified_rate: float,
 ) -> InsightOccurrence:
     """Builds an occurrence sighting with representative rubric examples.
@@ -1344,18 +1360,18 @@ def _build_occurrence(
         rng: Seeded random number generator.
         defect: Observed defect definition.
         insight_id: Parent insight identifier.
-        run_id: Investigation run identifier where sighting occurred.
+        investigation_id: Investigation identifier where sighting occurred.
         created_at: Timestamp when sighting was recorded.
         agent_name: Name of the observed agent.
         item_count: Total number of failed rubrics in this cluster.
-        trace_count: Total number of distinct traces exhibiting this defect.
+        trajectory_count: Total number of distinct traces exhibiting this defect.
         verified_rate: Probability of generating cluster-verification analysis.
 
     Returns:
         Populated `InsightOccurrence` instance.
     """
     trajectory_ids = [
-        f"case-{rng.randrange(16**6):06x}" for _ in range(trace_count)
+        f"case-{rng.randrange(16**6):06x}" for _ in range(trajectory_count)
     ]
     traces: dict[str, list[dict]] = {}
     examples = []
@@ -1364,33 +1380,35 @@ def _build_occurrence(
         if case_id not in traces:
             traces[case_id] = _build_trace(rng, defect, created_at)
         examples.append(
-            RubricExample(
-                rubric=Finding(
+            FindingExample(
+                finding=Finding(
                     expected_behavior=rng.choice(defect.expected),
                     actual_behavior=rng.choice(defect.actual).format(
                         case=case_id
                     ),
-                    session_id=case_id,
+                    trajectory_id=case_id,
                     agent_id=defect.agent_id,
                 ),
-                eval_case_id=case_id,
-                trace=traces[case_id],
+                trajectory_id=case_id,
+                turns=traces[case_id],
             )
         )
     # Off a stream of its own, keyed to this sighting, so that `verified_rate`
     # changes which sightings carry an analysis and nothing else. Drawing from
-    # `rng` would shift every value after it -- the runs and insights stayed
-    # identical but a case id sampled into one run's event prose did not, which
+    # `rng` would shift every value after it -- the investigations and insights stayed
+    # identical but a case id sampled into one investigation's event prose did not, which
     # is exactly the kind of difference that wastes an afternoon. One seed now
     # yields one deployment at any rate, so its diagnosed and undiagnosed
     # renderings can be put side by side.
-    verified_rng = random.Random(f"{insight_id}:{run_id}:verification")  # noqa: S311 - seeded for deterministic mock data
+    verified_rng = random.Random(  # noqa: S311 - seeded for deterministic mock data
+        f"{insight_id}:{investigation_id}:verification"
+    )
     analyses = (
         {
             VERIFICATION_ANALYSIS_KEY: _build_verification(
                 verified_rng,
                 defect=defect,
-                trace_count=trace_count,
+                trajectory_count=trajectory_count,
                 created_at=created_at,
             )
         }
@@ -1401,15 +1419,15 @@ def _build_occurrence(
         occurrence_id=f"occ-{uuid.UUID(int=rng.getrandbits(128)).hex[:12]}",
         insight_id=insight_id,
         occurrence_state=OccurrenceState.TRACKED,
-        run_id=run_id,
+        investigation_id=investigation_id,
         created_at=created_at,
-        agent_name=agent_name,
+        observed_agent_key=agent_name,
         label=defect.label,
-        item_count=item_count,
-        trace_count=trace_count,
+        finding_count=item_count,
+        trajectory_count=trajectory_count,
         trajectory_ids=trajectory_ids,
         analyses=analyses,
-        rubrics=examples,
+        examples=examples,
     )
 
 
@@ -1417,7 +1435,7 @@ def _build_verification(
     rng: random.Random,
     *,
     defect: Defect,
-    trace_count: int,
+    trajectory_count: int,
     created_at: dt.datetime,
 ) -> ClusterVerification:
     """Builds a cluster-verification analysis record for a defect sighting.
@@ -1425,7 +1443,7 @@ def _build_verification(
     Args:
         rng: Seeded random number generator.
         defect: Observed defect definition.
-        trace_count: Number of conversation traces exhibiting the defect.
+        trajectory_count: Number of conversation traces exhibiting the defect.
         created_at: Verification timestamp.
 
     Returns:
@@ -1436,7 +1454,7 @@ def _build_verification(
         valid=True,
         explanation=f"The agent {defect.label}. {rng.choice(defect.expected)}",
         rationale=(
-            f"Read {trace_count} conversation(s) in this cluster; every one of "
+            f"Read {trajectory_count} conversation(s) in this cluster; every one of "
             f"them showed the same departure, so it is the cluster's defect "
             f"rather than one conversation's."
         ),
@@ -1591,7 +1609,7 @@ def _build_insight_views(
     last_run = {}
     for occurrence in occurrences:
         last_run[occurrence.insight_id] = (
-            occurrence.run_id,
+            occurrence.investigation_id,
             occurrence.created_at,
         )
 
@@ -1611,16 +1629,18 @@ def _build_insight_views(
             resolved_at = _compute_next_sweep_after(
                 went_stale, anchor, cadence_seconds
             )
-        run_id, run_at = last_run.get(insight.insight_id, (None, None))
+        investigation_id, run_at = last_run.get(
+            insight.insight_id, (None, None)
+        )
         views.append(
             InsightView(
                 **insight.model_dump(exclude={"status", "resolved_at"}),
                 status=status,
                 resolved_at=resolved_at,
                 occurrence_count=occurrence_counts.get(key, 0),
-                trace_count=trace_counts.get(key, 0),
-                last_run_id=run_id,
-                last_run_at=run_at,
+                trajectory_count=trace_counts.get(key, 0),
+                last_investigation_id=investigation_id,
+                last_investigation_at=run_at,
                 has_root_cause=insight.insight_id in (diagnosed or frozenset()),
             )
         )
@@ -1681,14 +1701,14 @@ def _render_init_event(
 
 
 def _build_progress_events(
-    record: InvestigationRecord,
+    record: Investigation,
     clusters: list[tuple[Defect, int, int]],
     config: Config,
 ) -> list[InvestigationEvent]:
     """Builds progress log events simulating pipeline stage completion.
 
     Args:
-        record: Completed investigation run record.
+        record: Completed investigation record.
         clusters: Allocated defect clusters for the sweep.
         config: Effective AQA configuration.
 
@@ -1713,7 +1733,7 @@ def _build_progress_events(
         ),
         (
             "eval_multi_turn",
-            f"**MULTI_TURN evaluation:** {counters.traces_evaluated} case(s) "
+            f"**MULTI_TURN evaluation:** {counters.trajectories_evaluated} case(s) "
             f"evaluated.\n",
         ),
     ]
@@ -1755,8 +1775,8 @@ def _render_correlation_summary(
         return "**Insights:** no failed rubrics to correlate.\n"
     total_rubrics = (
         sum(item for _, item, _ in clusters)
-        + counters.rubrics_errored
-        + counters.rubrics_unclustered
+        + counters.findings_errored
+        + counters.findings_unclustered
     )
     header = (
         f"**Insights:** {total_rubrics} failed rubric(s) grouped into "
@@ -1764,17 +1784,17 @@ def _render_correlation_summary(
         f"{counters.insights_recurring} recurring.\n"
     )
     skipped = ""
-    if counters.rubrics_errored or counters.rubrics_unclustered:
+    if counters.findings_errored or counters.findings_unclustered:
         skipped = (
-            f"**Insights -- skipped rubric(s):** {counters.rubrics_errored} errored, "
-            f"{counters.rubrics_unclustered} unclustered (of {total_rubrics} total); "
+            f"**Insights -- skipped finding(s):** {counters.findings_errored} errored, "
+            f"{counters.findings_unclustered} unclustered (of {total_rubrics} total); "
             f"see the logs for details.\n"
         )
     lines = "".join(
         f"- _{defect.label}_ ({'new' if i < counters.insights_created else 'recurring'}): "
-        f"{item_count} rubric(s) across {trace_count} trace(s); cases: "
+        f"{item_count} rubric(s) across {trajectory_count} trace(s); cases: "
         f"case-{_compute_stable_case_id(defect.key, item_count)}\n"
-        for i, (defect, item_count, trace_count) in enumerate(clusters)
+        for i, (defect, item_count, trajectory_count) in enumerate(clusters)
     )
     return header + skipped + lines
 
@@ -2027,7 +2047,7 @@ def main(argv: list[str] | None = None) -> int:
         help=(
             "share of sightings carrying a cluster-verification result, which "
             "is what the dashboard renders as a diagnosis; 0 matches a real "
-            "deployment, where nothing calls the pass yet (default: %(default)s)."
+            "deployment, where the pass is off by default (default: %(default)s)."
         ),
     )
     parser.add_argument(
@@ -2072,7 +2092,7 @@ def main(argv: list[str] | None = None) -> int:
         help=(
             "generate a deployment whose agent has exported no telemetry, so "
             "every sweep fails its first read and nothing downstream runs -- "
-            "the state a new customer starts in (b/563290003)."
+            "the state a new customer starts in."
         ),
     )
     parser.add_argument(
@@ -2130,9 +2150,9 @@ def main(argv: list[str] | None = None) -> int:
         f"Wrote {out} ({out.stat().st_size / 1024:.0f} KiB)\n"
         f"  {len(dataset['runs'])} investigations over {args.days} day(s), "
         f"{args.runs_per_day}/day\n"
-        f"  {totals['traces_scanned']:,} traces scanned, "
-        f"{totals['traces_evaluated']:,} evaluated, "
-        f"{totals['traces_eval_failed']:,} failed\n"
+        f"  {totals['trajectories_scanned']:,} traces scanned, "
+        f"{totals['trajectories_evaluated']:,} evaluated, "
+        f"{totals['trajectories_eval_failed']:,} failed\n"
         f"  {len(dataset['insights'])} insights, "
         f"{len(dataset['occurrences'])} occurrences"
         f"{_render_diagnosed_note(dataset['occurrences'])}, "

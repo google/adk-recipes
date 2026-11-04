@@ -14,8 +14,8 @@
 
 """Unit tests for `get_full_trajectories`.
 
-Tests BigQuery query generation, payload parsing, status handling for missing or
-lossy archives, and pagination logic using mock BigQuery clients.
+Tests BigQuery query generation, manifest parsing, status handling for missing or
+lossy trajectory bundles, and pagination logic using mock BigQuery clients.
 """
 
 from __future__ import annotations
@@ -35,11 +35,11 @@ from ambient_quality_agent.tools.orchestrator import (
     paging,
     trajectory_tools,
 )
-from ambient_quality_agent.tools.trajectories import payloads
+from ambient_quality_agent.tools.trajectories import bundles
 from ambient_quality_agent.tools.trajectories.bigquery_reader import (
     BigQueryTrajectoryReader,
 )
-from ambient_quality_agent.tools.trajectories.models import PayloadStatus
+from ambient_quality_agent.tools.trajectories.models import TrajectoryStatus
 from google.api_core import exceptions as api_exceptions
 
 from .conftest import StateContext
@@ -153,9 +153,9 @@ def _insight_row(**overrides: Any) -> dict[str, Any]:
         "merged_into_insight_id": None,
         "merged_at": None,
         "occurrence_count": 1,
-        "trace_count": 2,
-        "last_run_at": _NOW,
-        "last_run_id": "run-9",
+        "trajectory_count": 2,
+        "last_investigation_at": _NOW,
+        "last_investigation_id": "run-9",
         "has_root_cause": False,
     }
     row.update(overrides)
@@ -196,7 +196,7 @@ def _payload_row(
     trajectory_id: str,
     *,
     turn_index: int | None = 0,
-    status: PayloadStatus = PayloadStatus.INGESTED,
+    status: TrajectoryStatus = TrajectoryStatus.INGESTED,
     turn_count: int = 1,
     text: str = "hello",
 ) -> dict[str, Any]:
@@ -267,7 +267,7 @@ def readers(monkeypatch: pytest.MonkeyPatch):
                 client=insight_client,
                 project_id=_PROJECT,
                 dataset=_DATASET,
-                agent_name=_AGENT,
+                observed_agent_key=_AGENT,
             ),
         )
         monkeypatch.setattr(
@@ -277,7 +277,7 @@ def readers(monkeypatch: pytest.MonkeyPatch):
                 client=payload_client,
                 project_id=_PROJECT,
                 dataset=_DATASET,
-                agent_name=_AGENT,
+                observed_agent_key=_AGENT,
             ),
         )
         return insight_client, payload_client
@@ -605,7 +605,7 @@ def test_an_unarchived_conversation_still_names_its_sighting(readers) -> None:
 
     entry = _call(insight_id="ins-1")["trajectories"][0]
 
-    assert entry["status"] == payloads.NOT_ARCHIVED
+    assert entry["status"] == bundles.NOT_ARCHIVED
     assert entry["occurrence_id"] == "occ-3"
     assert entry["agent_revision"] == "rev-3"
 
@@ -642,10 +642,10 @@ def test_a_conversation_comes_back_turn_by_turn(readers) -> None:
     entry = _call(insight_id="ins-1")["trajectories"][0]
 
     assert entry["status"] == "ingested"
-    assert entry["turn_count"] == 2
-    assert entry["turns_returned"] == 2
+    assert entry["step_count"] == 2
+    assert entry["steps_returned"] == 2
     assert entry["recorded_at"] == _NOW.isoformat()
-    assert [t["events"][0]["text"] for t in entry["turns"]] == [
+    assert [t["events"][0]["text"] for t in entry["steps"]] == [
         "first",
         "second",
     ]
@@ -661,10 +661,10 @@ def test_a_conversation_nobody_archived_is_labelled_not_archived(
     entry = _call(insight_id="ins-1")["trajectories"][0]
 
     assert entry["trajectory_id"] == "conv-gone"
-    assert entry["status"] == payloads.NOT_ARCHIVED
-    assert entry["turns"] == []
-    assert entry["turn_count"] == 0
-    assert entry["turns_returned"] == 0
+    assert entry["status"] == bundles.NOT_ARCHIVED
+    assert entry["steps"] == []
+    assert entry["step_count"] == 0
+    assert entry["steps_returned"] == 0
     assert entry["agents"] is None
     assert entry["recorded_at"] is None
 
@@ -681,13 +681,13 @@ def test_an_archived_conversation_with_no_turns_is_not_the_same_answer(
     entry = _call(insight_id="ins-1")["trajectories"][0]
 
     assert entry["status"] == "ingested"
-    assert entry["turn_count"] == 3
-    assert entry["turns_returned"] == 0
+    assert entry["step_count"] == 3
+    assert entry["steps_returned"] == 0
 
 
-@pytest.mark.parametrize("status", list(PayloadStatus))
+@pytest.mark.parametrize("status", list(TrajectoryStatus))
 def test_a_lossy_copy_carries_its_status(
-    readers, status: PayloadStatus
+    readers, status: TrajectoryStatus
 ) -> None:
     """Verifies payload status values (e.g. partial, truncated) are preserved in output."""
     readers(
@@ -706,7 +706,7 @@ def test_a_lossy_copy_carries_its_status(
 def test_the_archive_read_is_scoped_by_agent_and_the_ids_of_the_page(
     readers,
 ) -> None:
-    """Verifies payload queries filter by agent name and page trajectory IDs without run_id."""
+    """Verifies payload queries filter by agent name and page trajectory IDs without investigation_id."""
     _, payload_client = readers(
         occurrence_rows=[_occurrence_row(["conv-b", "conv-a"])],
         payload_rows=[_payload_row("conv-a"), _payload_row("conv-b")],
@@ -724,7 +724,7 @@ def test_the_archive_read_is_scoped_by_agent_and_the_ids_of_the_page(
 
 
 def test_one_query_serves_the_whole_page(readers) -> None:
-    """Verifies all trajectory payloads for a page are fetched in a single batch query."""
+    """Verifies all trajectory bundles for a page are fetched in a single batch query."""
     _, payload_client = readers(
         occurrence_rows=[_occurrence_row(["conv-a", "conv-b"])],
         payload_rows=[_payload_row("conv-a"), _payload_row("conv-b")],

@@ -1,0 +1,221 @@
+:root {
+  /* Surfaces, from the page out to raised elements inside a card. */
+  --bg-outer: #07080a;
+  --bg-outer-glow: rgba(26, 62, 138, 0.14);
+  --bg-stage: #101216;
+  --bg-stage-top: #121418;
+  --bg-stage-bottom: #0d0f14;
+  --stage-shadow: rgba(0, 0, 0, 0.65);
+  --bg-sheet: rgba(20, 23, 29, 0.94);
+  --surface-card: rgba(26, 30, 39, 0.84);
+  /* Elevation is a step in lightness, not an outline: inset < hover < raised. */
+  --surface-inset: rgba(255, 255, 255, 0.04);
+  --surface-hover: rgba(255, 255, 255, 0.07);
+  --surface-raised: rgba(255, 255, 255, 0.1);
+  --border-subtle: rgba(255, 255, 255, 0.08);
+  --border-highlight: rgba(255, 255, 255, 0.18);
+  /* Hairline dividers between rows and sections. */
+  --line: rgba(255, 255, 255, 0.06);
+  --line-strong: rgba(255, 255, 255, 0.13);
+
+  --text-primary: #f4f6fb;
+  --text-secondary: #a1a9b8;
+  --text-muted: #7d8697;
+  --text-faint: #4a5161;
+  --text-error: #fca5a5;
+  --icon-muted: #94a3b8;
+
+  /* The one accent: focus rings, selection, the Live button, switches. */
+  --accent: #4f8ff7;
+  --accent-amber: #f59e0b;
+  --accent-coral: #e53935;
+
+  /* What a state means, wherever it appears. */
+  --status-attention: #f4b860;
+  --status-running: var(--accent);
+  --status-success: #4cd6a0;
+  --status-danger: #ff7b72;
+
+  /* Solid fills: white knobs and labels on colored buttons, the call dock. */
+  --white: #ffffff;
+  --text-on-light: #0b0f19;
+  --dock-button: #1b1f27;
+  --dock-button-hover: #252a35;
+  --accent-coral-hover: #ef4444;
+  --accent-amber-soft: #fde68a;
+  /* Black for shadows and mask stops (only alpha matters in a mask). */
+  --black: #000000;
+
+  /* Translucent fills: the sheet scrim, floating stage chrome, inputs, wells. */
+  --scrim: rgba(5, 7, 11, 0.62);
+  --chrome-button: rgba(22, 26, 35, 0.78);
+  --chrome-button-hover: rgba(32, 38, 50, 0.85);
+  /* Recessed code, diff, and command wells. */
+  --well: rgba(0, 0, 0, 0.32);
+
+  /* The live status line over the aurora. */
+  --text-caption-status: rgba(219, 228, 245, 0.72);
+  --aurora-royal-rgb: 29, 78, 216;
+  --aurora-navy-rgb: 30, 58, 138;
+  --aurora-blue-rgb: 37, 99, 235;
+  --aurora-sky-rgb: 56, 189, 248;
+  --aurora-azure-rgb: 59, 130, 246;
+  --aurora-ice-rgb: 186, 230, 253;
+  --aurora-light-rgb: 96, 165, 250;
+  --aurora-fade-rgb: 15, 23, 42;
+
+  /* Drive file types. */
+  --file-doc: #6ea2f7;
+  --file-sheet: #4cbb82;
+  --file-slides: #f2c14e;
+  --file-pdf: #f07b6e;
+
+  /* A project's tint: its hue comes from the data (`--project-hue`), the rest from here. */
+  --tint-saturation: 72%;
+  --tint-lightness: 60%;
+  --tint-strength: 0.5;
+
+  /* The stage and its full-height overlays, cards, inner wells and rows, small tiles. */
+  --radius-stage: 34px;
+  --radius-card: 20px;
+  --radius-inner: 12px;
+  --radius-small: 8px;
+  --radius-pill: 999px;
+
+  /* Four sizes: titles, body, meta (most secondary text), micro (labels). */
+  --fs-title: 17px;
+  --fs-body: 15px;
+  --fs-meta: 13px;
+  --fs-micro: 11px;
+
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --dur-fast: 160ms;
+  --dur-med: 280ms;
+  --dur-slow: 480ms;
+
+  --font-sans:
+    "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  height: 100dvh;
+  background-color: var(--bg-outer);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  overflow: hidden;
+  user-select: none;
+  -webkit-font-smoothing: antialiased;
+}
+
+.md,
+.chat-turn-answer,
+.chat-user-bubble,
+.chat-turn-error,
+.thread-reply-summary,
+.thread-command-well,
+.ui-error-note,
+pre,
+code {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    /* biome-ignore lint/complexity/noImportantStyles: reduced-motion override must beat component durations */
+    animation-duration: 1ms !important;
+    /* biome-ignore lint/complexity/noImportantStyles: reduced-motion override must beat component durations */
+    animation-iteration-count: 1 !important;
+    /* biome-ignore lint/complexity/noImportantStyles: reduced-motion override must beat component durations */
+    transition-duration: 1ms !important;
+  }
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}
+
+/* Outer viewport shell: mobile full-bleed on phones, centered mobile studio frame + optional desktop view */
+.orchestrator-viewport {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100dvh;
+  background:
+    radial-gradient(circle at 50% 80%, var(--bg-outer-glow), transparent 65%),
+    var(--bg-outer);
+  padding: max(14px, env(safe-area-inset-top)) 14px
+    max(14px, env(safe-area-inset-bottom));
+}
+
+.mobile-device-shell {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 440px;
+  height: 100%;
+  max-height: 920px;
+  gap: 14px;
+}
+
+/* Rounded Gemini Live Stage Container */
+.gemini-stage-container {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  background: linear-gradient(
+    180deg,
+    var(--bg-stage-top) 0%,
+    var(--bg-stage-bottom) 100%
+  );
+  border-radius: var(--radius-stage);
+  border: 1px solid var(--border-subtle);
+  overflow: hidden;
+  isolation: isolate;
+  -webkit-mask-image: -webkit-radial-gradient(white, black);
+  box-shadow: 0 24px 60px var(--stage-shadow);
+}
+
+/* Bottom Aurora Canvas inside the Stage */
+.gemini-aurora-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  pointer-events: none;
+  z-index: 1;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}

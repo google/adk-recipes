@@ -30,6 +30,7 @@ from typing import Any
 
 import pytest
 from ambient_quality_agent.config import Config, ObservedAgentConfig
+from ambient_quality_agent.tools.ingestion import selector
 from ambient_quality_agent.tools.objects import store as objects
 from ambient_quality_agent.tools.objects.gcs_store import GcsObjectStore
 from ambient_quality_agent.tools.observed_agent_config import (
@@ -286,6 +287,47 @@ def test_a_payload_bucket_that_is_not_a_bucket_name_is_refused(
 
     assert "must be a bucket name" in result["error"]
     assert bucket.uploads == []
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("telemetry_dataset", ""),
+        ("telemetry_dataset", "agent_analytics`; DROP TABLE x; --"),
+        ("telemetry_dataset", "agent-analytics"),
+        ("telemetry_dataset", "project.agent_analytics"),
+        ("telemetry_table", ""),
+        ("telemetry_table", "agent_events` UNION ALL SELECT 1 --"),
+        ("telemetry_table", "agent_events.extra"),
+        ("telemetry_table", "agent_events_*"),
+        ("telemetry_table", "agent_events$20260101"),
+    ],
+)
+def test_a_telemetry_name_that_could_leave_its_quotes_is_refused(
+    bucket: FakeGcsClient, field: str, value: Any
+) -> None:
+    """Both names are spliced into SQL inside backticks."""
+    result = _attach(dry_run=True, **{field: value})
+
+    assert f"{field} must be a BigQuery" in result["error"]
+    assert bucket.uploads == []
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("telemetry_dataset", "Agent_Analytics_2"),
+        ("telemetry_table", "_AllSpans"),
+        ("telemetry_table", "agent events-2026"),
+        ("telemetry_table", "événements"),
+    ],
+)
+def test_a_telemetry_name_bigquery_accepts_is_attached(
+    bucket: FakeGcsClient, field: str, value: Any
+) -> None:
+    result = _attach(**{field: value})
+
+    assert result["written"] is True, result
 
 
 def test_a_dry_run_reports_a_table_in_another_format_as_json(
@@ -1444,3 +1486,358 @@ def test_a_key_names_an_attachment_and_keeps_its_project(
     )
 
     assert error in result["error"]
+
+
+# --- the stored selector ---------------------------------------------------------- #
+
+
+SELECTOR = (
+    "SELECT session_id AS target_id FROM agent_telemetry.events "
+    "WHERE timestamp BETWEEN @window_start AND @window_end "
+    "AND agent = @agent_name"
+)
+"""A selector the lexical checks accept."""
+
+
+def test_a_stored_selector_round_trips_through_attach_and_the_store(
+    bucket: FakeGcsClient,
+) -> None:
+    """Every investigation without a selector of its own reads it from the
+    effective configuration."""
+    result = _attach(investigation_selector_sql=SELECTOR)
+
+    assert _extract_changes(result) == {
+        "investigation_selector_sql": ("", SELECTOR)
+    }
+    record = _get_stored_record()
+    assert record is not None
+    assert record.config.investigation_selector_sql == SELECTOR
+    assert effective_config.load({}).investigation_selector_sql == SELECTOR
+
+
+@pytest.mark.parametrize(
+    ("sql", "explanation"),
+    [
+        (f"{SELECTOR}; DROP TABLE x", "remove the ';'"),
+        (
+            "SELECT session_id AS target_id FROM agent_telemetry.events "
+            "WHERE agent = @agent_name",
+            "@window_start and @window_end",
+        ),
+    ],
+)
+def test_a_selector_the_lexical_checks_refuse_is_never_stored(
+    bucket: FakeGcsClient, sql: str, explanation: str
+) -> None:
+    result = _attach(investigation_selector_sql=sql)
+
+    assert "investigation_selector_sql is refused" in result["error"]
+    assert explanation in result["error"]
+    assert _get_stored_record() is None
+
+
+def test_a_blank_selector_is_refused_rather_than_read_as_empty(
+    bucket: FakeGcsClient,
+) -> None:
+    """An investigation would read it as the random sample, while the stored object
+    showed a selector."""
+    result = _attach(investigation_selector_sql="  ")
+
+    assert "investigation_selector_sql must be a selector" in result["error"]
+    assert _get_stored_record() is None
+
+
+def test_an_empty_selector_clears_the_stored_one(bucket: FakeGcsClient) -> None:
+    _attach(investigation_selector_sql=SELECTOR)
+
+    result = _attach(investigation_selector_sql="")
+
+    assert _extract_changes(result) == {
+        "investigation_selector_sql": (SELECTOR, "")
+    }
+    record = _get_stored_record()
+    assert record is not None
+    assert record.config.investigation_selector_sql == ""
+
+
+@pytest.fixture
+def prechecked(monkeypatch: pytest.MonkeyPatch) -> types.SimpleNamespace:
+    """Replaces the selector precheck with one that records what it was asked
+    about in `calls`, and answers with `rejection`: None, accepting the
+    selector, until a test sets one."""
+    precheck = types.SimpleNamespace(calls=[], rejection=None)
+
+    def fake_precheck(
+        agent: ObservedAgentConfig, *, project_id: str, ai_model: str
+    ) -> selector.PrecheckResult:
+        precheck.calls.append((agent, project_id, ai_model))
+        return selector.PrecheckResult(rejection=precheck.rejection)
+
+    monkeypatch.setattr(
+        commands.access_check, "precheck_selector", fake_precheck
+    )
+    return precheck
+
+
+def _attach_checked(dry_run: bool = True, **fields: Any) -> dict[str, Any]:
+    """Runs the attach tool once as a dry run that checks access.
+
+    Args:
+        dry_run: Whether to plan without storing.
+        **fields: Fields to change.
+
+    Returns:
+        The tool's response.
+    """
+    return asyncio.run(
+        commands.attach_agent(
+            agent_name=WATCHED,
+            fields=fields,
+            dry_run=dry_run,
+            check_access=True,
+        )
+    )
+
+
+def test_a_dry_run_that_checks_access_prechecks_the_merged_selector(
+    bucket: FakeGcsClient, checked: list, prechecked: types.SimpleNamespace
+) -> None:
+    """The one about to be stored, over the attachment's lookback window."""
+    _attach(investigation_selector_sql=SELECTOR)
+
+    result = _attach_checked(data_lookback_window=30)
+
+    assert "error" not in result
+    assert result["access"] == {"service_account": "aqua@sa", "checks": []}
+    [(agent, project_id, ai_model)] = prechecked.calls
+    assert agent.investigation_selector_sql == SELECTOR
+    assert agent.data_lookback_window == 30
+    assert project_id == "test-project"
+    assert ai_model == commands.env_config.selector_ai_model
+
+
+def test_a_selector_the_precheck_refuses_refuses_the_attach(
+    bucket: FakeGcsClient, checked: list, prechecked: types.SimpleNamespace
+) -> None:
+    prechecked.rejection = selector.Rejection(
+        reason=selector.RejectionReason.UNAUTHORIZED_TABLE,
+        explanation="Read the selector table by name.",
+    )
+
+    result = _attach_checked(investigation_selector_sql=SELECTOR)
+
+    assert result["error"] == (
+        f"Refusing to attach {WATCHED_KEY}: investigation_selector_sql is "
+        "refused (unauthorized_table): Read the selector table by name."
+    )
+    assert bucket.uploads == []
+
+
+def test_a_precheck_that_fails_to_run_refuses_the_attach(
+    bucket: FakeGcsClient,
+    checked: list,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail(*args: Any, **kwargs: Any) -> selector.PrecheckResult:
+        raise RuntimeError("backend unavailable")
+
+    monkeypatch.setattr(commands.access_check, "precheck_selector", fail)
+
+    result = _attach_checked(investigation_selector_sql=SELECTOR)
+
+    assert result["error"] == (
+        f"Could not check investigation_selector_sql for {WATCHED_KEY}: "
+        "backend unavailable"
+    )
+
+
+@pytest.mark.parametrize(
+    ("dry_run", "check_access", "sql"),
+    [
+        (False, True, SELECTOR),
+        (True, False, SELECTOR),
+        (True, True, ""),
+    ],
+)
+def test_the_precheck_runs_only_for_a_dry_run_that_checks_a_selector(
+    bucket: FakeGcsClient,
+    checked: list,
+    prechecked: types.SimpleNamespace,
+    dry_run: bool,
+    check_access: bool,
+    sql: str,
+) -> None:
+    """Storing reads nothing from BigQuery: the caller checked in the dry run
+    it confirmed."""
+    result = asyncio.run(
+        commands.attach_agent(
+            agent_name=WATCHED,
+            fields={"investigation_selector_sql": sql},
+            dry_run=dry_run,
+            check_access=check_access,
+        )
+    )
+
+    assert "error" not in result
+    assert prechecked.calls == []
+
+
+def test_a_selector_on_an_eval_service_attachment_is_refused(
+    bucket: FakeGcsClient,
+) -> None:
+    """A selector narrows the sessions a session_review sweep reviews, the
+    mode custom investigations are confined to as well."""
+    result = _attach(
+        investigation_selector_sql=SELECTOR,
+        quality_analysis_mode="eval_service",
+    )
+
+    assert "session_review" in result["error"]
+    assert bucket.uploads == []
+
+
+def test_switching_a_selector_attachment_to_eval_service_is_refused(
+    bucket: FakeGcsClient,
+) -> None:
+    """The mode and the stored selector are checked together, after the merge."""
+    _attach(investigation_selector_sql=SELECTOR)
+
+    result = _attach(quality_analysis_mode="eval_service")
+
+    assert "session_review" in result["error"]
+
+
+STALE_SELECTOR = (
+    f"Refusing to attach {WATCHED_KEY}: the stored investigation_selector_sql "
+    "reads agent_analytics.agent_events, not {new}. With the CLI, change both "
+    "in one attach: give a selector for {new} with --selector-file, or clear it "
+    "with --selector-file /dev/null. On the dashboard, clear the selector in "
+    "the Investigation selector card first, then change the table."
+)
+
+
+@pytest.mark.parametrize(
+    ("fields", "new"),
+    [
+        ({"telemetry_table": "other_events"}, "agent_analytics.other_events"),
+        ({"telemetry_dataset": "eu_analytics"}, "eu_analytics.agent_events"),
+        (
+            {"telemetry_ingestion_source": "cloud_logging"},
+            "agent_analytics.completions_view",
+        ),
+    ],
+)
+@pytest.mark.parametrize(
+    ("dry_run", "check_access"), [(False, False), (True, False), (True, True)]
+)
+def test_a_table_change_that_leaves_the_stored_selector_behind_is_refused(
+    bucket: FakeGcsClient,
+    checked: list,
+    prechecked: types.SimpleNamespace,
+    fields: dict[str, Any],
+    new: str,
+    dry_run: bool,
+    check_access: bool,
+) -> None:
+    _attach(
+        investigation_selector_sql=SELECTOR,
+        telemetry_dataset="agent_analytics",
+        telemetry_table="agent_events",
+    )
+    uploads = len(bucket.uploads)
+
+    result = asyncio.run(
+        commands.attach_agent(
+            agent_name=WATCHED,
+            fields=fields,
+            dry_run=dry_run,
+            check_access=check_access,
+        )
+    )
+
+    assert result == {"error": STALE_SELECTOR.format(new=new)}
+    assert len(bucket.uploads) == uploads
+    assert prechecked.calls == []
+
+
+@pytest.mark.parametrize(
+    "sql", [SELECTOR.replace("events", "other_events"), ""]
+)
+def test_a_table_change_that_sets_or_clears_the_selector_is_attached(
+    bucket: FakeGcsClient, sql: str
+) -> None:
+    _attach(investigation_selector_sql=SELECTOR)
+
+    result = _attach(
+        telemetry_table="other_events", investigation_selector_sql=sql
+    )
+
+    assert result["written"] is True, result
+    record = _get_stored_record()
+    assert record is not None
+    assert record.config.telemetry_table == "other_events"
+    assert record.config.investigation_selector_sql == sql
+
+
+def test_a_change_that_keeps_the_selector_table_keeps_the_selector(
+    bucket: FakeGcsClient,
+) -> None:
+    _attach(investigation_selector_sql=SELECTOR)
+
+    result = _attach(data_lookback_window=30)
+
+    assert result["written"] is True, result
+
+
+@pytest.mark.parametrize(
+    "failed",
+    [
+        {"name": "table", "status": access_check.MISSING},
+        {"name": "schema", "status": access_check.MISMATCH},
+        {"name": "table", "status": access_check.ERROR},
+        {"name": "rows", "status": access_check.ERROR},
+    ],
+)
+@pytest.mark.parametrize("fields", [{"telemetry_table": "other_events"}, {}])
+def test_a_table_the_access_check_refuses_is_reported_before_the_selector(
+    bucket: FakeGcsClient,
+    monkeypatch: pytest.MonkeyPatch,
+    prechecked: types.SimpleNamespace,
+    failed: dict[str, str],
+    fields: dict[str, Any],
+) -> None:
+    access = {"service_account": "aqua@sa", "checks": [failed]}
+    monkeypatch.setattr(
+        commands.access_check, "check_access", lambda *a, **k: access
+    )
+    prechecked.rejection = selector.Rejection(
+        reason=selector.RejectionReason.UNAUTHORIZED_TABLE,
+        explanation="Read the selector table by name.",
+    )
+    _attach(investigation_selector_sql=SELECTOR)
+
+    result = _attach_checked(**fields)
+
+    assert "error" not in result
+    assert result["access"] == access
+    assert prechecked.calls == []
+
+
+@pytest.mark.parametrize(
+    "status", [access_check.PASSED, access_check.EMPTY, access_check.DENIED]
+)
+def test_a_table_the_access_check_accepts_still_prechecks_the_selector(
+    bucket: FakeGcsClient,
+    monkeypatch: pytest.MonkeyPatch,
+    prechecked: types.SimpleNamespace,
+    status: str,
+) -> None:
+    access = {"checks": [{"name": "rows", "status": status}]}
+    monkeypatch.setattr(
+        commands.access_check, "check_access", lambda *a, **k: access
+    )
+    _attach(investigation_selector_sql=SELECTOR)
+
+    _attach_checked()
+
+    assert len(prechecked.calls) == 1

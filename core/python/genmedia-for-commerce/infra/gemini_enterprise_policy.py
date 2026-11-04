@@ -29,7 +29,12 @@ import tempfile
 import time
 from collections.abc import Callable
 
-from infra.gemini_enterprise_api import RERUN, UserStepNeeded, gcloud
+from infra.gemini_enterprise_api import (
+    RERUN,
+    UserStepNeeded,
+    gcloud,
+    retry_while,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -40,11 +45,12 @@ POLICY_RETRY_S = 15
 POLICY_WAIT_S = 180
 
 QUESTION = """
-Gemini Enterprise blocks custom MCP connectors by default (org policy
-{policy}), and the Studio panel needs one.
-Allowing them for project {project} lets anyone who manages Gemini Enterprise in this project add any custom
-MCP server, not only this one. It needs the Organization Policy Administrator role."""
-ASK = "\nAllow custom MCP connectors for project {project}? [Y/n] "
+The Studio needs a custom MCP connector, which the organization policy
+{policy} blocks by default."""
+ASK = (
+    "Change the organization policy to allow custom MCP connectors in "
+    "project {project}? [Y/n] "
+)
 APPLYING = "Policy changed. Waiting for it to apply (usually 1-2 minutes)..."
 STILL_BLOCKED = "  still blocked, trying again in %d s (%d:%02d)"
 NOT_APPLIED = (
@@ -55,7 +61,14 @@ DECLINED = (
     "Policy not changed. To allow it later: make allow-mcp-connectors, "
     "then run make register-gemini-enterprise again."
 )
-DENIED = """Could not change the policy (needs the Organization Policy Administrator role). Ask an admin to run:
+# What a just-enabled API answers for a minute (a 403, but not a missing role)
+API_NOT_READY = ("SERVICE_DISABLED", "has not been used", "it is disabled")
+API_WAIT = (
+    "Waiting for the Organization Policy API to be ready (a new project "
+    "takes a minute)..."
+)
+DENIED = """Could not change the policy (needs the Organization Policy Administrator role): {error}
+Ask an admin to run:
 {steps}
 then run make register-gemini-enterprise again."""
 BLOCKED_STEPS = """
@@ -121,16 +134,19 @@ def allow(project: str) -> bool:
     with tempfile.NamedTemporaryFile("w", suffix=".yaml") as file:
         file.write(policy_yaml(project))
         file.flush()
+        command = ("org-policies", "set-policy", file.name)
         try:
-            gcloud(
-                *("org-policies", "set-policy", file.name),
-                f"--project={project}",
-                "--quiet",
+            retry_while(
+                lambda: gcloud(*command, f"--project={project}", "--quiet"),
+                API_NOT_READY,
+                API_WAIT,
             )
         except subprocess.CalledProcessError as exc:
-            if "permission" not in (exc.stderr or "").lower():
+            error = (exc.stderr or "").strip()
+            if "permission" not in error.lower():
                 raise
-            logger.error(DENIED.format(steps=manual_steps(project)))
+            steps = manual_steps(project)
+            logger.error(DENIED.format(error=error, steps=steps))
             return False
     return True
 

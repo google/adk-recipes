@@ -81,7 +81,7 @@ def _list_stored_tasks(bucket: str) -> Iterator[tuple[Any, dict[str, Any]]]:
     """Yields parsed task objects paired with their GCS blobs.
 
     Applies `TASKS_PREFIX` to restrict operations to task transcripts, preventing
-    access to investigation run state or `aqa-telemetry/` in the same bucket.
+    access to investigation state or `aqa-telemetry/` in the same bucket.
     Downloads each blob individually; this O(N) scan matches the current deployment
     scale with 90-day prefix lifecycle expiration.
 

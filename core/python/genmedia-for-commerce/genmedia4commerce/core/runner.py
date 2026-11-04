@@ -36,7 +36,7 @@ from genmedia4commerce.core.errors import user_message
 from genmedia4commerce.core.events import CompleteEvent, Event, VariationEvent
 from genmedia4commerce.core.retry import CANCEL
 from genmedia4commerce.core.settings import get_settings
-from genmedia4commerce.core.types import Verdict
+from genmedia4commerce.core.types import Verdict, unchecked
 
 __all__ = [
     "Evaluate",
@@ -46,6 +46,7 @@ __all__ = [
     "Variation",
     "default_rank_key",
     "run_variations",
+    "skip_checks",
 ]
 
 logger = logging.getLogger(__name__)
@@ -110,6 +111,12 @@ def default_rank_key(v: Variation | VariationEvent) -> tuple:
     publish = bool(v.verdict and v.verdict.publish)
     imperfections = v.verdict.imperfection_count if v.verdict else 0
     return (v.status != "ready", not publish, imperfections, -v.score)
+
+
+async def skip_checks(output: T) -> tuple[Verdict, T]:
+    """The ``Evaluate`` of a run with its model checks off: no model call,
+    ``output`` passes as made (``types.unchecked``)."""
+    return unchecked(), output
 
 
 def _default_score(verdict: Verdict) -> float:

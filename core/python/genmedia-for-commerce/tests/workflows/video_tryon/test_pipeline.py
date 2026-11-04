@@ -35,7 +35,6 @@ from genmedia4commerce.core.types import (
     Verdict,
     quality_score,
 )
-from genmedia4commerce.eval import unseen
 from genmedia4commerce.workflows.details import Detail
 from genmedia4commerce.workflows.video_tryon.pipeline import run_video_tryon
 from genmedia4commerce.workflows.video_tryon.prompt import render
@@ -49,6 +48,7 @@ from tests.workflows.video_tryon.conftest import (
     CLIP,
     FACE,
     FRAMES,
+    SAME,
     TRYON,
     classification,
     product_png,
@@ -249,13 +249,12 @@ async def test_the_back_view_is_judged_when_the_plan_turns(
 ):
     fake_gen.video(CLIP)
     planner.plan = TURN
-    fake_eval.views = ["front", "front", "back"]
     await collect(one(back_image=BACK))
     judged = {
-        FRAMES.index(c["target"]): c["references"]
+        FRAMES.index(c["target"]): (c["references"], c["back"])
         for c in fake_eval.judge_calls
     }
-    assert judged == {0: [TRYON], 1: [TRYON], 2: [BACK]}
+    assert judged == {k: ([TRYON], BACK) for k in range(3)}
     assert (
         "until the back faces the camera, matching <IMAGE_1>"
         in (fake_gen.calls[0]["prompt"])
@@ -263,37 +262,30 @@ async def test_the_back_view_is_judged_when_the_plan_turns(
 
 
 @pytest.mark.asyncio
-async def test_the_back_view_is_sent_and_seen_by_the_blind_spot_check(
+async def test_the_back_view_is_sent_and_seen_by_the_whole_clip_check(
     fake_gen, fake_eval
 ):
     fake_gen.video(CLIP)
     await collect(one(back_image=BACK))
     assert fake_gen.calls[0]["raw_parts"] == [TRYON, BACK, FACE]
-    # No frame faces away: every frame is judged against the front.
-    judged = [c["references"] for c in fake_eval.judge_calls]
-    assert judged == [[TRYON]] * 3
-    assert fake_eval.unseen_calls == [[TRYON, BACK]]  # the back is seen
+    (call,) = fake_eval.clip_calls
+    assert (call["front"], call["back"], call["face"]) == (TRYON, BACK, FACE)
 
 
 @pytest.mark.asyncio
-async def test_a_blind_spot_rejects_before_the_judges(fake_gen, fake_eval):
+async def test_invented_frames_reject_before_the_judges(fake_gen, fake_eval):
     fake_gen.video(CLIP)
-    fake_eval.unseen = [3, 4]
+    fake_eval.clip = {**SAME, "invented_frames": [1], "invented_what": "x"}
     (v,) = variations(await collect(one()))
     assert v.status == "rejected"
-    assert v.verdict.description == "shows what no reference shows: the back"
-    assert v.verdict.details["unseen_frames"] == [3, 4]
+    assert v.verdict.description == "shows what no reference shows: x"
+    assert v.verdict.details["clip_check"]["invented_frames"] == [1]
     assert "checks" not in v.verdict.details
 
 
 @pytest.mark.asyncio
-async def test_a_failed_blind_spot_check_does_not_reject(
-    fake_gen, fake_eval, monkeypatch
-):
-    def down(clip, references):
-        raise GenerationError("judge down")
-
-    monkeypatch.setattr(unseen, "unseen_frames", down)
+async def test_a_failed_whole_clip_check_does_not_reject(fake_gen, fake_eval):
+    fake_eval.clip = GenerationError("judge down")
     fake_gen.video(CLIP)
     (v,) = variations(await collect(one()))
     assert v.status == "ready"
@@ -304,24 +296,20 @@ async def test_a_failed_blind_spot_check_does_not_reject(
 async def test_same_person_then_each_product_is_judged(fake_gen, fake_eval):
     fake_gen.video(CLIP)
     (v,) = variations(await collect(one(product_images=[product_png(1)])))
-    (label,) = fake_eval.label_calls
-    assert label["frames"] == FRAMES and label["strategy"] == "gemini"
-    assert label["references"] == {"front": TRYON}
     judged = sorted(FRAMES.index(c["target"]) for c in fake_eval.judge_calls)
     assert judged == [0, 1, 2]
     assert all(
         c["references"] == [product_png(1)] and c["product_filter"] == "product"
         for c in fake_eval.judge_calls
     )
-    assert fake_eval.identity_calls == [(FRAMES, FACE)]
+    assert [c["face"] for c in fake_eval.clip_calls] == [FACE]
     assert v.status == "ready"
-    assert v.verdict.details["identity"]["same_person"] is True
+    assert v.verdict.details["clip_check"]["same_person"] is True
     assert sorted(v.verdict.details) == [
         "checks",
+        "clip_check",
         "frames",
-        "identity",
         "score",
-        "unseen_frames",
     ]
     assert v.score == quality_score(True, 0) == 100.0
 
@@ -338,7 +326,7 @@ async def test_a_rejected_check_rejects(fake_gen, fake_eval):
 
 
 @pytest.mark.asyncio
-async def test_no_face_in_tryon_image_skips_the_identity_check(
+async def test_no_face_in_tryon_image_asks_no_identity_question(
     fake_gen, fake_eval
 ):
     fake_gen.video(CLIP)
@@ -346,10 +334,9 @@ async def test_no_face_in_tryon_image_skips_the_identity_check(
     events = await collect(one())
     (v,) = variations(events)
     assert events[0].data["references"] == 1
-    assert fake_eval.identity_calls == []
+    assert [c["face"] for c in fake_eval.clip_calls] == [None]
     assert v.status == "ready"
-    assert v.verdict.details["identity"] is None
-    assert "face check" not in v.verdict.description
+    assert "skipped" not in v.verdict.description
     assert v.score == quality_score(True, 0) == 100.0
 
 
@@ -433,4 +420,4 @@ async def test_input_errors(fake_gen, fake_eval, kw):
     with pytest.raises(InputError):
         await collect(VideoTryOnRequest(**kw))
     assert fake_gen.calls == []
-    assert fake_eval.identity_calls == []
+    assert fake_eval.clip_calls == []

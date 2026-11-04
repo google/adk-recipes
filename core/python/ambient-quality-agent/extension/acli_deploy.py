@@ -48,6 +48,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import sys
 from pathlib import Path
@@ -103,6 +104,10 @@ _CONTENT_CAPTURE_ENV = {
     "OTEL_SEMCONV_STABILITY_OPT_IN": "gen_ai_latest_experimental",
     "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT": "SPAN_ONLY",
 }
+
+# Agent Runtime forwards some requests, such as A2A messages, unsampled; the
+# default `parentbased_always_on` sampler would drop every span they produce.
+_SAMPLER_ENV = "OTEL_TRACES_SAMPLER=always_on"
 
 # Name of the Terraform output holding the AQuA engine resource name.
 _ENGINE_OUTPUT = "engine_resource_name"
@@ -196,6 +201,38 @@ def merge_update_env_vars(argv: list[str]) -> str:
         if separator and key.strip():
             merged[key.strip()] = value
     return ",".join(f"{key}={value}" for key, value in merged.items())
+
+
+def build_observed_deploy_argv(
+    argv: list[str], project_root: Path | None
+) -> list[str]:
+    """Prepends `_SAMPLER_ENV` to the observed deploy's env vars, which win over it.
+
+    Skipped for read-only runs and when the project's `.env` sets the sampler,
+    since the built-in lets `--update-env-vars` override `.env`.
+    """
+    dotenv = (project_root or Path.cwd()) / ".env"
+    if any(flag in argv for flag in _READ_ONLY_FLAGS) or (
+        dotenv.is_file()
+        and re.search(
+            r"^\s*(export\s+)?OTEL_TRACES_SAMPLER\s*=",
+            dotenv.read_text(encoding="utf-8"),
+            re.MULTILINE,
+        )
+    ):
+        return argv
+    # The built-in's option has two names and, like any click option, takes the
+    # last value given; its parser lets a later duplicate key win.
+    rest, given = [], ""
+    args = iter(argv)
+    for arg in args:
+        name, equals, value = arg.partition("=")
+        if name in ("--update-env-vars", "--env-vars"):
+            given = value if equals else next(args, "")
+        else:
+            rest.append(arg)
+    env = f"{_SAMPLER_ENV},{given}" if given else _SAMPLER_ENV
+    return [*rest, "--update-env-vars", env]
 
 
 def publish_observed_source(project_root: Path, argv: list[str]) -> None:
@@ -358,7 +395,7 @@ def main(argv: list[str]) -> int:
                 f" engine is `<deployment>-aqua`, from {OBSERVED_DEPLOYMENT_NAME}."
             )
     else:
-        run_builtin(["deploy"], argv)
+        run_builtin(["deploy"], build_observed_deploy_argv(argv, project_root))
 
         # Read-only operations do not deploy changes. Snapshot the observed agent
         # for all actual deployments, after AQuA's own when it is deployed too,

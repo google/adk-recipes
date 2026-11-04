@@ -20,9 +20,9 @@ issues through these tools, accessible either via LLM tool calls or HTTP routes
 in `core.command_routes`:
 
 1. `list_insights`: Paginated triage summaries (label, status, occurrence
-   statistics) omitting heavy rubric payloads.
-2. `get_insight`: Detailed occurrence history for an issue, including full rubric
-   examples and recorded root causes, or a single sweep's occurrence.
+   statistics) omitting heavy finding examples.
+2. `get_insight`: Detailed occurrence history for an issue, including finding
+   examples and recorded root causes, or a single investigation's occurrence.
 3. `dismiss_insight` / `merge_insight`: Operator actions from the dashboard.
    Reachable only via HTTP routes; not exposed to chat agents because mutations
    are restricted.
@@ -222,7 +222,7 @@ async def list_insights(
     tool_context: LaunchContext,
     *,
     status: str = "",
-    run_id: str = "",
+    investigation_id: str = "",
     has_root_cause: str = "",
     page_token: str = "",
     window_start: str = "",
@@ -237,7 +237,7 @@ async def list_insights(
     Args:
         status: optional lifecycle filter -- ``NEW``, ``RECURRING``, or
             ``RESOLVED``; empty (the default) returns every status.
-        run_id: keep only issues seen in that sweep (empty = every sweep).
+        investigation_id: keep only issues seen in that sweep (empty = every sweep).
         has_root_cause: ``"true"`` keeps only diagnosed issues, ``"false"`` only
             undiagnosed ones; empty (the default) returns both.
         page_token: opaque token from a previous call's ``next_page_token``;
@@ -264,8 +264,8 @@ async def list_insights(
 
     Returns ``{"insights": [...], "total": N, "conversations": M,
     "next_page_token": str | None}``; each insight carries its label, status,
-    timestamps, occurrence stats and ``has_root_cause``, but not the rubric
-    evidence (use `get_insight` for that).
+    timestamps, occurrence stats and ``has_root_cause``, but not the finding
+    examples (use `get_insight` for that).
 
     ``conversations`` is the distinct conversations behind every insight the
     filters match, not just the returned page, so a caller can say how much
@@ -294,7 +294,7 @@ async def list_insights(
     state = tool_context.state
     filters: dict[str, Any] = {
         "statuses": statuses,
-        "run_id": run_id or None,
+        "investigation_id": investigation_id or None,
         "window_start": window_start or None,
         "window_end": window_end or None,
         "has_root_cause": diagnosed,
@@ -334,33 +334,35 @@ async def get_insight(
     tool_context: LaunchContext,
     *,
     insight_id: str = "",
-    run_id: str = "",
+    investigation_id: str = "",
     include_traces: bool = True,
     include_trajectories: bool | None = None,
     include_edits: bool = True,
     page_token: str = "",
 ) -> dict[str, Any]:
-    """Get one insight with its occurrences, rubric examples and root causes.
+    """Get one insight with its occurrences, finding examples, and root causes.
 
     Args:
         insight_id: the insight to fetch (required; from `list_insights`).
-        run_id: return only that sweep's occurrence; empty returns the full
-            occurrence history, newest first (paginated). The most recent run is
-            already known from `list_insights`' ``last_run_id``, so there is
-            no separate "latest" mode.
-        include_traces: include each rubric's conversation trace (default True) --
-            the large payloads a coding harness uses for root-cause analysis; set
-            False to scan labels/reasoning cheaply without them.
-        include_trajectories: resolve each occurrence's conversations to the
+        investigation_id: return only that investigation's occurrence; empty
+            returns the full occurrence history, newest first (paginated). The
+            most recent investigation is already known from `list_insights`'
+            ``last_investigation_id``, so there is no separate "latest" mode.
+        include_traces: include each finding example's conversation turns
+            (default True) -- the large payloads a coding harness uses for
+            root-cause analysis; set False to scan labels/reasoning cheaply
+            without them.
+        include_trajectories: resolve each occurrence's trajectories to the
             traces they were built from and a console link into each. Defaults
             to following ``include_traces``, which is what a harness wants --
             the conversations and their provenance together, or neither.
 
-            Separable because the two are different costs. A rubric's trace is
-            a heavy payload already on the row and merely withheld; this is one
-            extra query returning a handful of ids. A reader that wants a link
-            to the conversation but not the conversation itself has to be able
-            to ask for exactly that, and the dashboard is that reader.
+            Separable because the two are different costs. A finding example's
+            turns are a heavy payload already on the row and merely withheld;
+            this is one extra query returning a handful of ids. A reader that
+            wants a link to the conversation but not the conversation itself has
+            to be able to ask for exactly that, and the dashboard is that
+            reader.
         include_edits: include each proposed edit's ``before``/``after`` code
             (default True). False retains edit metadata without source bodies to
             reduce token consumption.
@@ -384,7 +386,7 @@ async def get_insight(
         detail = await asyncio.to_thread(
             lambda: reader.get_insight_with_occurrences(
                 insight_id=insight_id,
-                run_id=run_id or None,
+                investigation_id=investigation_id or None,
                 limit=OCCURRENCES_PAGE_SIZE,
                 offset=offset,
             )
@@ -399,7 +401,9 @@ async def get_insight(
         include_traces if include_trajectories is None else include_trajectories
     )
     trajectories = (
-        await _get_trajectories(state, occurrences) if resolve else {}
+        await _get_investigation_trajectories(state, occurrences)
+        if resolve
+        else {}
     )
     root_causes = await _list_root_causes(reader, insight_id)
     # Traces are kept in the observed agent's project, not AQuA's.
@@ -535,10 +539,10 @@ async def _list_root_causes(reader: Any, insight_id: str) -> list[Any]:
         return []
 
 
-async def _get_trajectories(
+async def _get_investigation_trajectories(
     state: ADKStateLike, occurrences: Sequence[Any]
 ) -> dict[tuple[str, str], Any]:
-    """Fetches trajectory rows for occurrences, keyed by run ID and trajectory ID.
+    """Fetches trajectory rows for occurrences, keyed by investigation ID and trajectory ID.
 
     Retrieves trace IDs and console links for conversations where insights were
     found. Runs as a best-effort query: failures log a warning and return empty
@@ -550,10 +554,10 @@ async def _get_trajectories(
         occurrences: Sequence of occurrence records containing trajectory IDs.
 
     Returns:
-        Mapping of (run_id, trajectory_id) tuples to trajectory records.
+        Mapping of (investigation_id, trajectory_id) tuples to trajectory records.
     """
     keys = [
-        (occurrence.run_id, trajectory_id)
+        (occurrence.investigation_id, trajectory_id)
         for occurrence in occurrences
         for trajectory_id in occurrence.trajectory_ids
     ]
@@ -561,9 +565,9 @@ async def _get_trajectories(
         return {}
     try:
         return await asyncio.to_thread(
-            lambda: trajectory_tools.reader_factory(state).get_trajectories(
-                keys
-            )
+            lambda: trajectory_tools.reader_factory(
+                state
+            ).get_investigation_trajectories(keys)
         )
     except Exception as exc:
         logger.warning(
@@ -585,8 +589,8 @@ def _format_occurrence(
 
     Args:
         occurrence: InsightOccurrence model instance.
-        include_traces: Whether to retain rubric conversation traces.
-        trajectories: Mapping of (run_id, trajectory_id) to resolved trajectories.
+        include_traces: Whether to retain finding examples' conversation turns.
+        trajectories: Mapping of (investigation_id, trajectory_id) to resolved trajectories.
         project_id: GCP project ID used to build console URLs.
         root_causes: Root-cause records for the parent insight; attached when
             matching the occurrence ID.
@@ -597,13 +601,13 @@ def _format_occurrence(
     """
     data = occurrence.model_dump(mode="json")
     if not include_traces:
-        for rubric in data.get("rubrics", []):
-            rubric["trace"] = []
+        for example in data.get("examples", []):
+            example["turns"] = []
     resolved = [
-        trajectories.get((occurrence.run_id, trajectory_id))
+        trajectories.get((occurrence.investigation_id, trajectory_id))
         for trajectory_id in occurrence.trajectory_ids
     ]
-    data["trajectories"] = [
+    data["investigation_trajectories"] = [
         trajectory_tools.format_linked_trajectory(found, project_id)
         for found in resolved
         if found

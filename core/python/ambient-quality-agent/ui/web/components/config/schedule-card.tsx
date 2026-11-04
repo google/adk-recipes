@@ -22,7 +22,7 @@ import {
   type ScheduleChange,
 } from "@/lib/aqua-api";
 import { formatCron } from "@/lib/cron";
-import { formatInstant } from "@/lib/run-summary";
+import { formatInstant } from "@/lib/investigation-summary";
 import { mono, textStyle } from "@/lib/typography";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -35,8 +35,8 @@ import { useAgentKey } from "@/lib/agent-selection";
 const TITLE = "Investigation schedule";
 
 /** When the selected agent is investigated: its cron, and whether its
- *  scheduled runs are on. Both are stored in its attachment, and the engine
- *  reads them on its next tick. */
+ *  scheduled investigations are on. Both are stored in its attachment, and the
+ *  engine reads them on its next tick. */
 export function ScheduleCard() {
   const selectedKey = useAgentKey();
   const { data, isLoading, error } = useQuery(scheduleQuery(selectedKey));

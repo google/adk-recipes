@@ -111,7 +111,7 @@ DEFAULT_BASE_MODEL = "gemini-3.8-flash"
 """Default model for the orchestrator and the dashboard chat agent."""
 
 DEFAULT_INSIGHTS_MODEL = "gemini-3.1-pro-preview"
-"""Default model for failed-rubric clustering."""
+"""Default model for clustering findings."""
 
 DEFAULT_INSIGHTS_MATCH_MODEL = "gemini-3.5-flash-lite"
 """Default model for the same-issue judge in insight matching."""
@@ -119,6 +119,14 @@ DEFAULT_INSIGHTS_MATCH_MODEL = "gemini-3.5-flash-lite"
 DEFAULT_VERIFICATION_MODEL = "gemini-3.7-flash"
 """Default model for the cluster verification pass. Held apart from
 `DEFAULT_INSIGHTS_MODEL`, whose four other callers are tuned against it."""
+
+DEFAULT_REVIEW_MODEL = "gemini-4-argon"
+"""Default model for the session reviewer, validated with its LOW thinking
+level. Separate from `DEFAULT_INSIGHTS_MODEL` so each role can change
+independently."""
+
+DEFAULT_REVIEW_PRUNE_WATERMARK_TOKENS = 400_000
+"""Default for `Config.review_prune_watermark_tokens`."""
 
 DEFAULT_SELECTOR_AI_MODEL = "gemini-3.5-flash-lite"
 """Default model for the `AI.IF` predicate in conversation selectors. Uses a
@@ -165,7 +173,7 @@ class Config:
     insights_model: Model = field(
         default_factory=lambda: Model(model=DEFAULT_INSIGHTS_MODEL)
     )
-    """Failed-rubric clustering model. Set via `AQA_INSIGHTS_MODEL` /
+    """Model for clustering findings. Set via `AQA_INSIGHTS_MODEL` /
     `AQA_INSIGHTS_LOCATION`."""
 
     verification_model: Model = field(
@@ -173,6 +181,22 @@ class Config:
     )
     """Cluster verification model. Set via `AQA_VERIFICATION_MODEL` /
     `AQA_VERIFICATION_LOCATION`."""
+
+    review_model: Model = field(
+        default_factory=lambda: Model(model=DEFAULT_REVIEW_MODEL)
+    )
+    """Session reviewer model. Set via `AQA_REVIEW_MODEL` /
+    `AQA_REVIEW_LOCATION`. Gemini models must support `thinking_level` (Gemini 3
+    or later). Model names starting with ``claude-`` (e.g.,
+    ``claude-opus-5-5`` at location ``global``) run Claude on Vertex AI in
+    `project_id` with adaptive thinking."""
+
+    review_prune_watermark_tokens: int = DEFAULT_REVIEW_PRUNE_WATERMARK_TOKENS
+    """Estimated next prompt size in tokens (the previous prompt plus the tool
+    results added after the last model turn) above which the session reviewer
+    stubs its oldest tool results until the estimate is at half this value.
+    Applies to Gemini and Claude review models. Set via
+    `AQA_REVIEW_PRUNE_WATERMARK_TOKENS`; must be positive."""
 
     insights_match_model: str = DEFAULT_INSIGHTS_MATCH_MODEL
     """Model name for the same-issue judge in insight matching. Serves from
@@ -199,15 +223,15 @@ class Config:
     insights_verification_enabled: bool | None = None
     """Whether to check each candidate issue against its own traces before it
     becomes an insight -- one model call per candidate, and the sweep's most
-    expensive step. ``None``, the default, means on, and is preserved as-is
-    through every override and round trip so an explicit ``False`` stays
-    distinguishable from it. Set by `aqua attach`."""
+    expensive step. ``None``, the default, means off, and is preserved as-is
+    through every override and round trip so an explicit ``False`` or ``True``
+    remains distinct from unset. Set by `aqua attach`."""
 
     insights_verification_enforced: bool | None = None
     """Whether a negative verdict withholds the candidate rather than being
-    recorded against it. ``None``, the default, means off, and is preserved
-    as-is on the same terms as `insights_verification_enabled`. Set by
-    `aqua attach`."""
+    recorded against it. Applies only when `insights_verification_enabled` is
+    true. ``None``, the default, means off, and is preserved as-is on the same
+    terms as `insights_verification_enabled`. Set by `aqua attach`."""
 
     aqa_engine_id: str = ""
     """AQA's *own* reasoning-engine id, used to submit the durable self-query.
@@ -238,8 +262,9 @@ class Config:
 
     quality_analysis_mode: str = DEFAULT_QUALITY_ANALYSIS_MODE
     """Quality analysis strategy: ``session_review`` reviews each session with
-    one LLM call, and ``eval_service`` scores it against eval metrics in Gemini platform.
-    Set by `aqua attach`."""
+    an LLM agent that reads a shortened copy of the session and queries the
+    full session with a tool, and ``eval_service`` scores it against eval
+    metrics in Gemini platform. Set by `aqua attach`."""
 
     metrics_gcs_bucket: str = ""
     """GCS bucket holding the code-metric library. Set via
@@ -280,7 +305,7 @@ class Config:
     jobs run in (e.g. ``"us-central1"``). Set by `aqua attach`."""
 
     data_evaluation_cap: int = 1000
-    """Maximum number of records to pull into a single evaluation run.
+    """Maximum number of trajectories to sample in a single investigation.
     Set by `aqua attach`."""
 
     multi_turn_metrics: list[str] = field(
@@ -299,6 +324,13 @@ class Config:
 
     data_lookback_window: int = 7
     """How many days of telemetry to consider. Set by `aqua attach`."""
+
+    investigation_selector_sql: str = ""
+    """The selector investigations without a selector or focus of their own
+    run with, in place of the random sample: scheduled, update-triggered and
+    manual ones. Empty means the random sample. Set by `aqua attach`; each
+    sweep prechecks it before its queries run, as it does a custom
+    investigation's."""
 
     sync_investigation: bool = False
     """Whether to run the investigation synchronously inline (for local dev).
@@ -320,8 +352,8 @@ class Config:
     `terraform apply`.
     """
 
-    pending_run_lease_minutes: int = 0
-    """How long a run may sit `pending` before the next submission fails it.
+    pending_investigation_lease_minutes: int = 0
+    """How long an investigation may sit `pending` before the next submission fails it.
     Off by default; 30 is the value to set, matching the dashboard's
     `STALE_AFTER_MS` and leaving a job still queued alone. Set via
     `AQA_PENDING_RUN_LEASE_MINUTES`."""
@@ -357,7 +389,7 @@ class Config:
         - **The sweep runs inline.** There is no Agent Runtime to submit to.
         - **The delayed update path is off.** It needs a queue, a caller service
           account and an engine id. Without all three it logs a warning and
-          no-ops on every run.
+          no-ops on every investigation.
         - **AQuA's own buckets are off.** Standalone writes nothing to a Cloud
           project. Without them, chat transcripts stay in memory and AQuA's
           spans are not exported. The goal, the memories and the attached
@@ -384,19 +416,21 @@ class Config:
     def __post_init__(self) -> None:
         """Validate and normalize fields.
 
-        Invalid enum-like values and broken ambient wiring raise; out-of-range
-        non-ambient numbers are clamped and unknown metrics dropped (logged). The
+        Invalid enum-like values, a non-positive review prune watermark, and
+        broken ambient wiring raise; out-of-range non-ambient numbers are clamped
+        and unknown metrics dropped (logged). The
         dataclass is frozen, so normalized values are written back via
         `object.__setattr__`.
         """
         # Coerce plain dicts back into `Model` for asdict()/JSON round-trips
-        # (`effective_config.load` and the durable-run boundary rebuild Config
-        # via `Config(**dataclasses.asdict(config))`, where nested Models have
-        # been flattened to dicts).
+        # (`effective_config.load` and the durable-investigation boundary rebuild
+        # Config via `Config(**dataclasses.asdict(config))`, where nested Models
+        # have been flattened to dicts).
         for model_field in (
             "base_model",
             "insights_model",
             "verification_model",
+            "review_model",
         ):
             value = getattr(self, model_field)
             if isinstance(value, dict):
@@ -437,6 +471,12 @@ class Config:
                 MAX_DATA_LOOKBACK_WINDOW,
             ),
         )
+        if self.review_prune_watermark_tokens < 1:
+            raise ValueError(
+                "review_prune_watermark_tokens "
+                "(AQA_REVIEW_PRUNE_WATERMARK_TOKENS) must be a positive "
+                f"integer, got {self.review_prune_watermark_tokens}."
+            )
         _require_non_negative(
             "agent_revision_trigger_delay_seconds",
             self.agent_revision_trigger_delay_seconds,
@@ -518,8 +558,8 @@ class Config:
         """Resolves the key AQuA's own rows for the agent are written under.
 
         Returns:
-            `agent_key`, or `observed_agent_name` when it is empty, as in a
-            run snapshot taken without a key.
+            `agent_key`, or `observed_agent_name` when it is empty, as in an
+            investigation snapshot taken without a key.
         """
         return self.agent_key or self.observed_agent_name
 
@@ -549,7 +589,7 @@ class ObservedAgentConfig:
     """The settings that change when AQuA is pointed at a different agent.
 
     A projection of `Config` rather than a member of it: `Config` is flattened
-    with `dataclasses.asdict` at boundaries that outlive the process (a run's
+    with `dataclasses.asdict` at boundaries that outlive the process (an investigation's
     stored `effective_config`, the `/config` route), so nesting would change
     the shape of rows already written. Names, types and defaults mirror
     `Config`; `tests/test_observed_agent_config.py` pins that, and pins the two
@@ -606,6 +646,11 @@ class ObservedAgentConfig:
     data_evaluation_cap: int = 1000
     """Most records one of its investigations pulls in."""
 
+    investigation_selector_sql: str = ""
+    """The selector its investigations without a selector or focus of their
+    own run with, in place of the random sample; empty means the random
+    sample."""
+
     insights_auto_resolve_days: int = 14
     """Triage policy: resolve one of its insights after this long unseen."""
 
@@ -641,16 +686,16 @@ def extract_agent_config(config: Config) -> ObservedAgentConfig:
 
 
 def extract_agent_key(state: Any) -> str:
-    """Extracts the key AQuA's rows are written under from a run's flat state.
+    """Extracts the key AQuA's rows are written under from an investigation's flat state.
 
     The workflow runs on `dataclasses.asdict(Config)` rather than on a
     `Config`, so this is `Config.resolve_agent_key` for that shape.
 
     Args:
-        state: Workflow state, or any mapping holding a run's configuration.
+        state: Workflow state, or any mapping holding an investigation's configuration.
 
     Returns:
-        `agent_key`, or `observed_agent_name` for a run snapshot without a key.
+        `agent_key`, or `observed_agent_name` for an investigation snapshot without a key.
     """
     return str(state.get("agent_key") or state.get("observed_agent_name") or "")
 
@@ -658,10 +703,12 @@ def extract_agent_key(state: Any) -> str:
 def is_verification_enabled(setting: bool | None) -> bool:
     """Determines whether the cluster verification pass should run.
 
-    On unless the flag says otherwise, under every analysis mode. The pass is
-    what writes an insight's description and the label a reader acts on, so a
-    sweep that skips it produces insights nobody can triage. The flag stays for
-    a deployment that needs the pass off while something else is investigated.
+    Off unless the flag is explicitly true. The pass puts each cluster's
+    example trajectories (up to `verification.MAX_EVIDENCE_TRAJECTORIES`) into
+    one prompt, and recorded turns are not shortened, so a long session can
+    push the prompt past the model's context window. With the pass off, an
+    insight keeps its clustering label and its occurrences carry no
+    `analyses.verification`.
 
     Resolved on demand rather than into a field of `Config`, because the flag
     can be overridden after the config was read.
@@ -672,17 +719,19 @@ def is_verification_enabled(setting: bool | None) -> bool:
     Returns:
         True if verification should run, False otherwise.
     """
-    return True if setting is None else setting
+    return bool(setting)
 
 
 def is_verification_enforced(setting: bool | None) -> bool:
     """Determines whether a negative verdict withholds the candidate insight.
 
-    Off unless the flag says otherwise. A trace that omits the tool error the
-    defect turns on reads to the judge as no defect, so an enforced pass drops
-    real issues; unenforced it still writes the label and description, and the
-    verdict rides along for a triager. Turn it on where the traces carry full
-    tool errors and a wrong insight costs more than a missed one.
+    Off unless the flag is explicitly true; applies only when
+    `insights_verification_enabled` is true. A trace that omits the tool error
+    the defect turns on reads to the judge as no defect, so an enforced pass
+    drops real issues; unenforced, the pass still writes the label and
+    description, and the verdict is recorded for triage. Turn it on where the
+    traces carry full tool errors and a wrong insight costs more than a missed
+    one.
 
     Resolved on demand rather than into a field of `Config`, because the flag
     can be overridden after the config was read.
@@ -693,7 +742,7 @@ def is_verification_enforced(setting: bool | None) -> bool:
     Returns:
         True if negative verdicts should withhold candidates, False otherwise.
     """
-    return False if setting is None else setting
+    return bool(setting)
 
 
 def _clamp(field_name: str, value: int, maximum: int) -> int:
@@ -731,7 +780,7 @@ def _clamp(field_name: str, value: int, maximum: int) -> int:
 def _log_ignored_setting(name: str, reason: str) -> None:
     """Logs, once per process, that standalone mode ignores a setting.
 
-    A `Config` is rebuilt several times at start-up and once per run, and each
+    A `Config` is rebuilt several times at start-up and once per investigation, and each
     rebuild applies the same correction. Logging it every time would bury it.
 
     Args:
@@ -945,6 +994,11 @@ def load() -> Config:
         verification_model=_resolve_model(
             "AQA_VERIFICATION", DEFAULT_VERIFICATION_MODEL
         ),
+        review_model=_resolve_model("AQA_REVIEW", DEFAULT_REVIEW_MODEL),
+        review_prune_watermark_tokens=_parse_int(
+            "AQA_REVIEW_PRUNE_WATERMARK_TOKENS",
+            DEFAULT_REVIEW_PRUNE_WATERMARK_TOKENS,
+        ),
         insights_match_model=os.environ.get(
             "AQA_INSIGHTS_MATCH_MODEL", DEFAULT_INSIGHTS_MATCH_MODEL
         ),
@@ -966,7 +1020,7 @@ def load() -> Config:
         in ("true", "1"),
         standalone=os.environ.get("AQA_STANDALONE", "").lower()
         in ("true", "1"),
-        pending_run_lease_minutes=_parse_int(
+        pending_investigation_lease_minutes=_parse_int(
             "AQA_PENDING_RUN_LEASE_MINUTES", 0
         ),
         delay_task_queue=os.environ.get("AQA_DELAY_TASK_QUEUE", ""),

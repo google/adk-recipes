@@ -72,6 +72,7 @@ async def tryon(
     mode: str = Form(""),
     aspect_ratio: str = Form("3:4"),
     image_size: str = Form("2K"),
+    check_images: bool = Form(True),
 ) -> StreamingResponse:
     """Try products on a person; streams run/classified/progress/variation events.
 
@@ -85,7 +86,8 @@ async def tryon(
     settings apply. ``complete_look``: products only the reference model
     (or a full-length photo of the whole look among the product images)
     shows are cut from it and added. ``upscale_crops``: added shoes are
-    upscaled to 2K first.
+    upscaled to 2K first. ``check_images`` false: no image is judged, each
+    passes.
     """
     build = functools.partial(
         tryon_request,
@@ -98,5 +100,6 @@ async def tryon(
         mode=mode,
         aspect_ratio=aspect_ratio,
         image_size=image_size,
+        check_images=check_images,
     )
     return await start(request, run, images, build, run_tryon)

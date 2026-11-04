@@ -30,7 +30,8 @@ from genmedia4commerce.core import gen
 from genmedia4commerce.core.errors import GenMediaError
 from genmedia4commerce.core.gen import Part, TextParams
 from genmedia4commerce.core.models import get_models
-from genmedia4commerce.core.types import Framing
+from genmedia4commerce.core.types import Framing, Landmark
+from genmedia4commerce.workflows.tryon import framing
 from genmedia4commerce.workflows.video_tryon.types import (
     Move,
     Plan,
@@ -39,7 +40,14 @@ from genmedia4commerce.workflows.video_tryon.types import (
     Transition,
 )
 
-__all__ = ["MAX_SECONDS", "MIN_SECONDS", "enforce", "plan_animation", "regions"]
+__all__ = [
+    "MAX_SECONDS",
+    "MIN_SECONDS",
+    "enforce",
+    "full_body",
+    "plan_animation",
+    "regions",
+]
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +69,15 @@ REGIONS: dict[Framing, list[str]] = {
     "footwear": ["shoes"],
     "head": ["head"],
     "hands": ["hands"],
+}
+# With a span (``ReferenceSet.span``): the landmark each region needs in
+# frame.
+REGION_AT: dict[str, Landmark] = {
+    "head": "head",
+    "upper body": "chest",
+    "waist": "waist",
+    "legs": "knees",
+    "shoes": "feet",
 }
 _TURN_WORDS = ("back", "behind", "away", "turn", "rotat", "spin", "around")
 
@@ -122,14 +139,29 @@ SCHEMA = {
 
 def regions(refs: ReferenceSet) -> list[str]:
     """The body regions the try-on image shows."""
+    if refs.span:
+        span = refs.span
+        return [r for r, at in REGION_AT.items() if framing.in_frame(span, at)]
     return REGIONS.get(refs.framing, REGIONS["full_body"])
+
+
+def full_body(refs: ReferenceSet) -> bool:
+    """The try-on image shows the person from the head to the feet."""
+    if refs.span:
+        span = refs.span
+        return framing.in_frame(span, "head") and framing.in_frame(span, "feet")
+    return refs.framing == "full_body"
 
 
 def _facts(refs: ReferenceSet) -> str:
     back = f"<IMAGE_{refs.back}>" if refs.back is not None else "none"
+    framed = (
+        framing.edges(refs.span).lower()
+        if refs.span
+        else refs.framing.replace("_", " ")
+    )
     lines = [
-        "- <IMAGE_0>: the try-on image, framed "
-        f"{refs.framing.replace('_', ' ')}.",
+        f"- <IMAGE_0>: the try-on image, framed {framed}.",
         f"- REGIONS shown in <IMAGE_0>: {', '.join(regions(refs))}.",
         f"- Back view: {back}.",
     ]
@@ -158,7 +190,12 @@ def plan_animation(refs: ReferenceSet, request: str | None = None) -> Plan:
             parts,
             system=SYSTEM.format(facts=_facts(refs), mode=mode),
             schema=SCHEMA,
-            params=TextParams(model=get_models().judge, thinking="MEDIUM"),
+            # The facts are in the text; the image is for taste only.
+            params=TextParams(
+                model=get_models().judge,
+                thinking="MEDIUM",
+                media_resolution=gen.MEDIUM_RES,
+            ),
         )
     except GenMediaError as exc:
         logger.warning(f"animation planner failed: {exc}; a single pose")
@@ -179,7 +216,7 @@ def _problem(move: str, region: str, to: str, refs: ReferenceSet) -> str:
         return f"a push-in on {region!r}, not shown in the try-on"
     if move == "tilt" and not (region in shown and to in shown):
         return f"a tilt from {region!r} to {to!r}, outside the try-on"
-    if move == "walk" and refs.framing != "full_body":
+    if move == "walk" and not full_body(refs):
         return "a walk without a full-body try-on"
     return ""
 

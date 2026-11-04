@@ -26,7 +26,7 @@ from genmedia4commerce.core.testing import png
 from tests.api.conftest import IMAGE, fake_workflow, frames
 from tests.api.test_streaming_routes import files
 
-BUCKET = "test-project-genmedia-for-commerce-media-payloads"
+BUCKET = "test-project-gfc-media"
 DAY = r"\d{4}-\d{2}-\d{2}"
 RUN_ID = "0123456789ab"
 UPLOADED = png(5, 5, (7, 7, 7))

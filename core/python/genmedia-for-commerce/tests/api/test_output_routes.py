@@ -25,7 +25,7 @@ from genmedia4commerce.core.settings import get_settings
 from tests.api.conftest import fake_workflow, frames
 from tests.api.test_streaming_routes import files
 
-BUCKET = "test-project-genmedia-for-commerce-media-payloads"
+BUCKET = "test-project-gfc-media"
 
 ROUTES = {
     "tryon": (

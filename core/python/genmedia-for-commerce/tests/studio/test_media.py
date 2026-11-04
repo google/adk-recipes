@@ -168,7 +168,7 @@ def test_refresh_urls_handles_each_result_on_its_own(
         "junk",
         {"uri": _media(OUTPUT), "url": "old"},
     ]
-    sm.refresh_urls(results, video=False)
+    sm.refresh_urls([(results, False)])
     assert results[0]["url"] == "" and results[1]["url"] == ""
     assert results[4]["url"].startswith("data:image/jpeg;base64,")
 

@@ -22,11 +22,13 @@ Patches and actions are ``{"<op>": {...}}``, applied by ``apply_patch``:
 - ``settings``: settings to merge, only the known keys of each page
   (``SETTING_KEYS``) with valid values; an action names the ``page`` its
   keys are for. The try-on options (``TRYON_OPTIONS``) are booleans
-  ``complete_look`` and ``upscale_crops``;
+  ``complete_look`` and ``upscale_crops``; the checks (``CHECKS``),
+  ``check_images`` and ``check_videos``, off unless set;
 - ``set``: ``{field, item}`` for person or reference_model, or
   ``{field, items}`` to replace the product or spin list;
 - ``add``: ``{field, item, replace_index}`` for product or spin;
-- ``remove``: ``{field, index}``; ``clear``: ``{field}``;
+- ``remove``: ``{field, index}``, or ``{field, ref}`` (the item with that
+  ref: a client's list can differ from the saved one); ``clear``: ``{field}``;
 - ``job_started``: ``{job_id, capability}``, a generation to follow (the
   results of its page, and Video Try-On's images, are cleared), or with
   ``tryon_image`` a "Make video" of one of Video Try-On's images (nothing
@@ -57,6 +59,7 @@ from genmedia4commerce.studio.events import (
 
 __all__ = [
     "CAPABILITIES",
+    "CHECKS",
     "IMAGE_KEYS",
     "LIST_FIELDS",
     "MAX_ITEMS",
@@ -85,13 +88,15 @@ LIST_FIELDS = ("product", "spin")
 _STATE_KEYS = {"product": "products", "spin": "spin"}
 #: The try-on options of the reference model, with their defaults.
 TRYON_OPTIONS = {"complete_look": True, "upscale_crops": False}
+#: The model checks of the results, with their defaults: off in the Studio.
+CHECKS = {"check_images": False, "check_videos": False}
 #: The values of the settings that take a fixed set of them.
-_CHOICES: dict[str, tuple[Any, ...]] = {
-    "complete_look": (True, False),
-    "upscale_crops": (True, False),
-}
-#: Settings kept on one page whichever page sets them.
-TRYON_KEYS = ("scenario", "style_guidelines", *TRYON_OPTIONS)
+_CHOICES: dict[str, tuple[Any, ...]] = dict.fromkeys(
+    (*TRYON_OPTIONS, *CHECKS), (True, False)
+)
+#: Settings kept on one page whichever page sets them (the checks too: one
+#: switch each, shown on the pages it applies to).
+TRYON_KEYS = ("scenario", "style_guidelines", *TRYON_OPTIONS, *CHECKS)
 VIDEO_KEYS = ("motion", "prompt")
 #: The settings each page keeps; nothing else is ever stored.
 _VIDEO = ("aspect_ratio", "resolution", "num_variations")
@@ -109,10 +114,10 @@ _NAMED = {"capability": CAPABILITIES}
 _ACTION_KEYS = ("source", "description", "page")
 _ITEM_KEYS = ("label", "ref")
 #: A result; a video's ``source`` is the try-on image it was made from;
-#: ``fixed``: corrected by the try-on's fix pass.
+#: ``fixed``: corrected by the try-on's fix pass; ``video_uri``: a spin's MP4.
 RESULT_KEYS: tuple[str, ...]
 RESULT_KEYS = ("index", "status", "score", "uri", "view", "note", "run")
-RESULT_KEYS += ("source", "fixed")
+RESULT_KEYS += ("source", "fixed", "video_uri")
 #: A try-on image a video try-on animated: ``passed`` its checks, and
 #: ``back``, the back view its videos used (for the server's "Make video");
 #: ``fixed`` as for a result.
@@ -137,13 +142,15 @@ def _valid(key: str, v: Any) -> bool:
     )
 
 
-def tryon_options(settings: Any) -> dict[str, Any]:
-    """The try-on options of the Photo Try-On settings, with the defaults
-    for the unset or invalid ones."""
+def tryon_options(
+    settings: Any, defaults: dict[str, bool] = TRYON_OPTIONS
+) -> dict[str, Any]:
+    """The try-on options (or other ``defaults``, e.g. ``CHECKS``) of the
+    Photo Try-On settings, with the defaults for the unset or invalid ones."""
     s = settings if isinstance(settings, dict) else {}
     return {
         k: s[k] if _valid(k, s.get(k)) else default
-        for k, default in TRYON_OPTIONS.items()
+        for k, default in defaults.items()
     }
 
 
@@ -215,6 +222,17 @@ def _known(values: Any, page: Any) -> dict[str, tuple[str, Any]]:
     return out
 
 
+def remove_index(items: list[Any], rm: dict[str, Any]) -> int:
+    """The index a ``remove`` takes away: the item with its ``ref`` when it
+    names one (-1 when none has it, so never another item), else
+    ``index``."""
+    ref = rm.get("ref")
+    if isinstance(ref, str) and ref:
+        refs = [i.get("ref") if isinstance(i, dict) else None for i in items]
+        return refs.index(ref) if ref in refs else -1
+    return index_of(rm.get("index"))
+
+
 def _items(st: dict[str, Any], p: dict[str, Any]) -> None:
     """The ``set``, ``add``, ``remove`` and ``clear`` ops of a patch."""
     if isinstance(put := p.get("set"), dict):
@@ -234,8 +252,8 @@ def _items(st: dict[str, Any], p: dict[str, Any]) -> None:
             items.append(item)
     rm = p.get("remove")
     if isinstance(rm, dict) and rm.get("field") in LIST_FIELDS:
-        items, i = _list(st, rm["field"]), index_of(rm.get("index"))
-        if 0 <= i < len(items):
+        items = _list(st, rm["field"])
+        if 0 <= (i := remove_index(items, rm)) < len(items):
             items.pop(i)
     if isinstance(clear := p.get("clear"), dict):
         name = clear.get("field")

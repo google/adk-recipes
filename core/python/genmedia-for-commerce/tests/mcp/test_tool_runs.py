@@ -39,7 +39,7 @@ from tests.mcp.test_tools import (
 
 pytestmark = pytest.mark.asyncio
 
-BUCKET = "test-project-genmedia-for-commerce-media-payloads"
+BUCKET = "test-project-gfc-media"
 DAY = r"\d{4}-\d{2}-\d{2}"
 TODAY = datetime.datetime.now(datetime.UTC).date().isoformat()
 IMAGE_STAGE = VariationEvent(

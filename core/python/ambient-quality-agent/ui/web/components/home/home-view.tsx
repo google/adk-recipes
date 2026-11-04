@@ -21,7 +21,7 @@ import {
   effectiveConfigQuery,
   type InsightOrder,
   insightsQuery,
-  runsQuery,
+  investigationsQuery,
   statsQuery,
 } from "@/lib/aqua-api";
 import { FailureNote } from "@/components/ui/failure-note";
@@ -29,7 +29,7 @@ import { FilterTabs } from "@/components/ui/filter-tabs";
 import { PageRefreshButton } from "@/components/ui/refresh-button";
 import { HelpPopover } from "@/components/ui/help-popover";
 import { InlineMarkdown } from "@/components/ui/inline-markdown";
-import { RunsTable } from "@/components/investigations/runs-table";
+import { InvestigationsTable } from "@/components/investigations/investigations-table";
 import {
   matchesTrigger,
   TRIGGER_FILTER_NAMES,
@@ -39,11 +39,11 @@ import {
 import { RunInvestigationButton } from "@/components/run-investigation-button";
 import { Funnel } from "@/components/stats/funnel";
 import { InsightTrend } from "@/components/stats/insight-trend";
-import { TracesPerDay } from "@/components/stats/traces-per-day";
+import { TrajectoriesPerDay } from "@/components/stats/trajectories-per-day";
 import { DASHBOARD_DAYS, HORIZON_LABEL } from "@/lib/day-buckets";
 import type { ListPage } from "@/lib/funnel";
 import { buildTrend, resolvedNote } from "@/lib/insight-trend";
-import { newestFirst } from "@/lib/runstate";
+import { newestFirst } from "@/lib/investigation-state";
 import { cn, formatSentenceCase } from "@/lib/utils";
 import { PageHeader } from "@/components/nav/page-header";
 import { link, textStyle } from "@/lib/typography";
@@ -51,9 +51,9 @@ import { StatBar } from "./stat-bar";
 import { useAgentKey } from "@/lib/agent-selection";
 
 /** How many investigations the Recent investigations list shows, of the
- *  capped page `runsQuery` returns. Few, so Home stays short; "View all"
- *  opens the rest. */
-const RECENT_RUNS = 5;
+ *  capped page `investigationsQuery` returns. Few, so Home stays short; "View
+ *  all" opens the rest. */
+const RECENT_INVESTIGATIONS = 5;
 
 /** How many issues the homepage strip shows. */
 const TOP_ISSUES = 5;
@@ -313,8 +313,9 @@ export function HomeView() {
   const insights = useQuery(
     insightsQuery(agentKey, { ...view.query, pageSize: TOP_ISSUES }),
   );
-  const runs = useQuery(runsQuery(agentKey));
-  const [runTrigger, setRunTrigger] = useState<TriggerFilter>("all");
+  const investigations = useQuery(investigationsQuery(agentKey));
+  const [investigationTrigger, setInvestigationTrigger] =
+    useState<TriggerFilter>("all");
   const daily = useQuery(dailyQuery(agentKey));
   // Resolved issues are fetched on their own rather than filtered out of the
   // list above: that list is impact-ordered and five rows long, so the resolved
@@ -327,14 +328,17 @@ export function HomeView() {
   const config = useQuery(effectiveConfigQuery(agentKey));
 
   const s = stats.data;
-  const evaluated = s?.traces_evaluated ?? 0;
+  const evaluated = s?.trajectories_evaluated ?? 0;
   const top = insights.data?.insights ?? [];
-  // The API returns runs oldest-first; a "recent" list reads the other way.
-  // Filtered before the cut, so "User-initiated" shows the five newest runs a
-  // user started rather than whichever of the five newest runs they started.
-  const recentRuns = newestFirst(runs.data ?? [])
-    .filter((run) => matchesTrigger(run, runTrigger))
-    .slice(0, RECENT_RUNS);
+  // The API returns investigations oldest-first; a "recent" list reads the
+  // other way. Filtered before the cut, so "User-initiated" shows the five
+  // newest investigations a user started rather than whichever of the five
+  // newest investigations they started.
+  const recentInvestigations = newestFirst(investigations.data ?? [])
+    .filter((investigation) =>
+      matchesTrigger(investigation, investigationTrigger),
+    )
+    .slice(0, RECENT_INVESTIGATIONS);
 
   const autoResolveDays = autoResolveWindow(config.data?.config);
   const resolved = resolvedInsights.data?.insights ?? [];
@@ -451,8 +455,10 @@ export function HomeView() {
                         <InlineMarkdown text={i.label} />
                       </p>
                       <span className={cn(textStyle.meta, "shrink-0")}>
-                        {i.trace_count}{" "}
-                        {i.trace_count === 1 ? "trajectory" : "trajectories"}
+                        {i.trajectory_count}{" "}
+                        {i.trajectory_count === 1
+                          ? "trajectory"
+                          : "trajectories"}
                       </span>
                     </div>
                     {i.diagnosis && (
@@ -484,7 +490,7 @@ export function HomeView() {
             isEmpty={(daily.data ?? []).length === 0}
             empty="No investigations have run."
           >
-            <TracesPerDay
+            <TrajectoriesPerDay
               days={daily.data ?? []}
               span={DASHBOARD_DAYS}
               height="h-20"
@@ -522,16 +528,18 @@ export function HomeView() {
       <Section
         title="Recent investigations"
         subtitle={
-          recentRuns.length > 0 ? `${recentRuns.length} most recent` : "\u00a0"
+          recentInvestigations.length > 0
+            ? `${recentInvestigations.length} most recent`
+            : "\u00a0"
         }
-        tour="recent-runs"
+        tour="recent-investigations"
         action={
           <div className="flex shrink-0 flex-wrap items-center gap-4">
             <FilterTabs
               label="Started by"
               options={TRIGGER_FILTER_NAMES}
-              value={runTrigger}
-              onSelect={setRunTrigger}
+              value={investigationTrigger}
+              onSelect={setInvestigationTrigger}
               labelOf={(name) => TRIGGER_FILTERS[name].label}
             />
             <RunInvestigationButton />
@@ -539,7 +547,9 @@ export function HomeView() {
             <SectionLink
               to="/investigations"
               search={
-                runTrigger === "all" ? undefined : { trigger: runTrigger }
+                investigationTrigger === "all"
+                  ? undefined
+                  : { trigger: investigationTrigger }
               }
             >
               View all
@@ -548,17 +558,20 @@ export function HomeView() {
         }
       >
         <Pane
-          query={runs}
+          query={investigations}
           what="the recent investigations"
-          isEmpty={(runs.data?.length ?? 0) === 0}
+          isEmpty={(investigations.data?.length ?? 0) === 0}
           empty="No investigations have run."
         >
-          {recentRuns.length > 0 ? (
-            <RunsTable runs={recentRuns} history={runs.data} />
+          {recentInvestigations.length > 0 ? (
+            <InvestigationsTable
+              investigations={recentInvestigations}
+              history={investigations.data}
+            />
           ) : (
             <Empty>
-              No {TRIGGER_FILTERS[runTrigger].noun}investigations among the most
-              recent.
+              No {TRIGGER_FILTERS[investigationTrigger].noun}investigations
+              among the most recent.
             </Empty>
           )}
         </Pane>

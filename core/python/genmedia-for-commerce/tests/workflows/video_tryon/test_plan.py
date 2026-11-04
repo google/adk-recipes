@@ -177,6 +177,7 @@ def test_the_planner_sees_the_images_and_what_they_allow(fake_gen):
     (call,) = fake_gen.calls
     assert call["params"].model == get_models().judge
     assert call["params"].thinking == "MEDIUM"
+    assert call["params"].media_resolution == "MEDIA_RESOLUTION_MEDIUM"
     assert call["raw_parts"] == [
         "<IMAGE_0>:",
         b"try-on",
@@ -195,6 +196,24 @@ def test_the_planner_sees_the_images_and_what_they_allow(fake_gen):
     assert "- Back view: <IMAGE_3>." in system
     assert "- PRODUCT 'bag': product photo <IMAGE_2>." in system
     assert "MODE: automatic" in system
+
+
+def test_a_head_to_knees_try_on_has_no_shoes_and_no_walk(fake_gen):
+    raw = [
+        shot("walk"),
+        shot("push_in", region="shoes"),
+        shot("tilt", region="head", to_region="legs"),
+    ]
+    fake_gen.json({"shots": raw, "note": ""})
+    knees = ReferenceSet([b"try-on"], span=("shoulders", "mid-thigh"))
+    assert [s.move for s in plan_animation(knees).shots] == ["tilt"]
+    system = fake_gen.calls[0]["system"]
+    assert "framed from the top of the head to the knees." in system
+    assert (
+        "REGIONS shown in <IMAGE_0>: head, upper body, waist, legs." in system
+    )
+    ground = ReferenceSet([b"try-on"], span=("shoulders", "ankles"))
+    assert enforce({"shots": [shot("walk")]}, ground).shots[0].move == "walk"
 
 
 def test_a_custom_request_reaches_the_planner(fake_gen):

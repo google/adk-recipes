@@ -41,7 +41,7 @@ class LocatedGemini(Gemini):
     location: str
 
     async def _preprocess_request(self, llm_request: LlmRequest) -> None:
-        """Stamps AQA's billing label on every ADK model call.
+        """Stamps AQA's billing label and engine product token on every ADK model call.
 
         This is the single chokepoint for all of AQA's ADK agents (orchestrator,
         metric builder, metric planner, RCA, summary): they set no
@@ -54,24 +54,32 @@ class LocatedGemini(Gemini):
         this model to Gemini platform, so in practice the label always survives.
         Caller-set labels win, so an explicit override is never clobbered.
 
+        The engine product token goes into the per-request headers because ADK
+        sets ``user-agent`` and ``x-goog-api-client`` there on every request,
+        overriding the client headers of the same name in genai. ADK prepends
+        its tracking tokens after this method runs and keeps existing tokens, so
+        AQuA's token survives.
+
         Args:
-            llm_request: Outgoing LLM request to label.
+            llm_request: Outgoing LLM request to label and to stamp with the
+                engine product token.
         """
         if llm_request.config is not None:
             llm_request.config.labels = build_request_labels() | (
                 llm_request.config.labels or {}
             )
+            http_options = (
+                llm_request.config.http_options or types.HttpOptions()
+            )
+            headers = _append_usage_tokens(http_options.headers or {})
+            # Empty while usage analytics is off: leave http_options untouched.
+            if headers:
+                http_options.headers = headers
+                llm_request.config.http_options = http_options
         await super()._preprocess_request(llm_request)
 
     def _tracking_headers(self) -> dict[str, str]:
         return _append_usage_tokens(super()._tracking_headers())
-
-    def _merge_tracking_headers(
-        self, headers: dict[str, str]
-    ) -> dict[str, str]:
-        # ADK sets these on every request, and they replace the client's own
-        # headers, so the token has to be added here as well.
-        return _append_usage_tokens(super()._merge_tracking_headers(headers))
 
     @property
     def api_client(self) -> Client:
@@ -91,11 +99,12 @@ class LocatedGemini(Gemini):
 
 
 def _append_usage_tokens(headers: dict[str, str]) -> dict[str, str]:
-    """Appends AQuA's engine product token to ADK's tracking headers.
+    """Appends AQuA's engine product token to the tracking headers.
 
     Args:
-        headers: Headers with ADK's lowercase ``user-agent`` and
-            ``x-goog-api-client`` keys.
+        headers: Client headers from ADK, or per-request headers (often empty
+            or set by the caller). Only the lowercase ``user-agent`` and
+            ``x-goog-api-client`` keys match; a missing key is created.
 
     Returns:
         A copy with the engine product token appended to both values, unless

@@ -107,7 +107,7 @@ def _use_lf_sse_frames() -> None:
     hold the separator as a class attribute, so one assignment covers every
     response the SDK builds.
 
-    Tracked in b/556488800; remove when that is fixed. Note there is no local
+    Remove this once Agent Runtime's relay accepts CRLF. Note there is no local
     reproduction: curl, uvicorn and the browser all parse CRLF frames happily,
     so this only ever shows up through a deployed Agent Runtime agent.
     """

@@ -50,6 +50,7 @@ from genmedia4commerce.studio import turn
 __all__ = [
     "COST_SETTINGS",
     "INPUT_OPS",
+    "NEEDS_CONFIRMATION",
     "needs_confirmation",
     "setup_tool",
     "start_once",
@@ -62,6 +63,14 @@ _CONFIRM_OPS = INPUT_OPS | {"capability"}
 #: The settings that change what a generation costs.
 COST_SETTINGS = frozenset({"num_variations", "resolution", "image_size"})
 
+#: What ``generate`` answers after the agent changed the inputs, the page
+#: or the variations this turn, or for another page.
+NEEDS_CONFIRMATION = {
+    "status": "needs_confirmation",
+    "message": "You changed the studio's inputs, page or variations in this "
+    'turn: say in one line what is set up and ask "Shall I generate?". '
+    "Generate only when the user confirms in their next message.",
+}
 #: How long ``generate`` lets the other calls of its model response start.
 _GRACE_S = 0.05
 

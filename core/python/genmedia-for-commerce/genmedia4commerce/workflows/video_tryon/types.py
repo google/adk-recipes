@@ -20,7 +20,7 @@ from typing import Literal
 from genmedia4commerce.core.errors import InputError
 from genmedia4commerce.core.gen import ImageParams, VideoParams
 from genmedia4commerce.core.runner import RunPolicy
-from genmedia4commerce.core.types import Classification, Framing
+from genmedia4commerce.core.types import Classification, Framing, Landmark
 from genmedia4commerce.workflows.details import Detail
 
 __all__ = [
@@ -72,6 +72,7 @@ class VideoTryOnRequest:
     style_guidelines: str | None = None
     scenario: str | None = None
     image: ImageParams | None = None  # stage-1 image params
+    check_images: bool = True  # see TryOnRequest
     # Shortcut: animate an existing try-on image
     tryon_image: bytes | None = None
     back_image: bytes | None = None  # its back view, when there is one
@@ -85,6 +86,8 @@ class VideoTryOnRequest:
     policy: RunPolicy | None = None
     video: VideoParams | None = None
     videos_per_image: int | None = None
+    # False: every video passes, no model check (``evaluate_clip``) made
+    check_videos: bool = True
 
     @property
     def animated_image(self) -> bytes:
@@ -118,6 +121,9 @@ class ReferenceSet:
     back: int | None = None  # index of the back view
     face: int | None = None  # index of the face close-up
     closeups: list[Closeup] = field(default_factory=list)
+    # A single garment's span: it frames the try-on image instead of
+    # ``framing`` (``tryon.framing``); None: ``framing`` does.
+    span: tuple[Landmark, Landmark] | None = None
 
 
 @dataclass

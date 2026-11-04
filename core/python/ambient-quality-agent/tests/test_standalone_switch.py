@@ -73,8 +73,8 @@ from .conftest import (
     FakeReviewCall,
     StateContext,
     ToolContext,
-    create_run,
-    get_run,
+    create_investigation,
+    get_stored_investigation,
     make_agent_case,
     make_config,
     make_page,
@@ -137,7 +137,7 @@ def test_standalone_survives_the_dict_round_trip() -> None:
 
 
 def test_a_workflow_state_seeded_from_config_is_still_standalone() -> None:
-    """The sweep reads `standalone` off the run's state to decide whether an
+    """The sweep reads `standalone` off the investigation's state to decide whether an
     empty window fails. `local_run.py` and the preview seed that state through
     `from_config`, so it has to carry the flag the durable seed already does."""
     assert (
@@ -150,7 +150,7 @@ def test_a_workflow_state_seeded_from_config_is_still_standalone() -> None:
 def test_standalone_drops_the_delayed_update_wiring_and_says_so(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """A stray environment variable must not leave a run half-deployed.
+    """A stray environment variable must not leave an investigation half-deployed.
 
     Dropping configuration is fine; dropping it silently is not.
     """
@@ -192,7 +192,7 @@ def test_standalone_drops_aquas_own_buckets_and_says_so(
 def test_an_ignored_setting_is_logged_once(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """A `Config` is rebuilt several times at start-up and once per run. The
+    """A `Config` is rebuilt several times at start-up and once per investigation. The
     correction applies every time; the warning is logged once."""
     with caplog.at_level("WARNING"):
         for _ in range(3):
@@ -311,7 +311,7 @@ def _standalone_config() -> Any:
     """Builds the effective configuration a standalone run executes under.
 
     Read through `effective_config` rather than built with make_config, so the
-    agent name matches between the sweep's run config and dashboard reads.
+    agent name matches between the sweep's investigation config and dashboard reads.
 
     Returns:
         Config instance with standalone mode enabled.
@@ -323,17 +323,17 @@ def _standalone_run(state: dict[str, Any]) -> Any:
     """Creates a PENDING standalone run ready for `execute_investigation`.
 
     Args:
-        state: Shared state dictionary for the run.
+        state: Shared state dictionary for the investigation.
 
     Returns:
         Created investigation record.
     """
     cfg = _standalone_config()
-    return create_run(
+    return create_investigation(
         state,
-        runs.InvestigationRecord(
-            status=runs.RunStatus.PENDING,
-            observed_agent_name=cfg.observed_agent_name,
+        runs.Investigation(
+            status=runs.InvestigationStatus.PENDING,
+            observed_agent_key=cfg.observed_agent_name,
             effective_config=dataclasses.asdict(cfg),
             **_WINDOW,
         ),
@@ -362,7 +362,9 @@ def test_a_sweep_runs_and_its_insights_read_back(
     with backends.override_providers(standalone=True, jobs_dir=jobs) as store:
         record = _standalone_run(state)
         result = asyncio.run(
-            execute.execute_investigation(record.run_id, StateContext(state))
+            execute.execute_investigation(
+                record.investigation_id, StateContext(state)
+            )
         )
 
         assert result["status"] == "done", result.get("error")
@@ -380,11 +382,11 @@ def test_a_sweep_runs_and_its_insights_read_back(
 def test_a_sweeps_events_reach_the_run_registry(
     patched_factories: dict[str, Any], no_bigquery: None, tmp_path: Path
 ) -> None:
-    """The nodes' events and the run record meet in one store.
+    """The nodes' events and the investigation record meet in one store.
 
     They travel through two providers, `core_state.event_writer` and
     `investigation_model.store_factory`. A backend that bound one and not the
-    other would leave the run detail page empty while the sweep reported
+    other would leave the investigation detail page empty while the sweep reported
     success.
     """
     jobs = tmp_path / "job"
@@ -394,12 +396,14 @@ def test_a_sweeps_events_reach_the_run_registry(
     with backends.override_providers(standalone=True, jobs_dir=jobs):
         record = _standalone_run(state)
         asyncio.run(
-            execute.execute_investigation(record.run_id, StateContext(state))
+            execute.execute_investigation(
+                record.investigation_id, StateContext(state)
+            )
         )
-        stored = get_run(state, record.run_id)
+        stored = get_stored_investigation(state, record.investigation_id)
 
     assert stored is not None
-    assert stored.status is runs.RunStatus.DONE
+    assert stored.status is runs.InvestigationStatus.DONE
     assert stored.events
 
 
@@ -409,7 +413,7 @@ def test_the_trajectory_halves_meet_over_one_store(
     """The recorder writes and the reader reads, through two separate providers.
 
     The sweep above does not cover this: `FakeFetcher` serves pages without
-    reporting to a recorder, so a run over it ingests nothing. Driving the two
+    reporting to a recorder, so an investigation over it ingests nothing. Driving the two
     factories directly is the narrower check, and the one that fails if either
     provider is bound to a store of its own.
     """
@@ -420,7 +424,7 @@ def test_the_trajectory_halves_meet_over_one_store(
     ctx = StateContext(
         {
             "observed_agent_name": agent,
-            "run_id": "run-1",
+            "investigation_id": "run-1",
             "telemetry_source": "cloud_ops",
         }
     )
@@ -437,7 +441,7 @@ def test_the_trajectory_halves_meet_over_one_store(
 
         found = trajectory_tools.reader_factory(
             {"observed_agent_name": agent}
-        ).get_trajectories([("run-1", "chat-1")])
+        ).get_investigation_trajectories([("run-1", "chat-1")])
 
     assert found["run-1", "chat-1"].source_trace_ids == ["trace-1"]
 
@@ -457,7 +461,7 @@ def test_rows_are_stored_and_read_under_the_agent_key(
         {
             "observed_agent_name": agent,
             "agent_key": keyed.agent_key,
-            "run_id": "run-1",
+            "investigation_id": "run-1",
             "telemetry_source": "cloud_ops",
         }
     )
@@ -473,14 +477,14 @@ def test_rows_are_stored_and_read_under_the_agent_key(
         recorder.flush()
 
         monkeypatch.setattr(effective_config, "load", lambda state: keyed)
-        by_key = trajectory_tools.reader_factory({}).get_trajectories(
-            [("run-1", "chat-1")]
-        )
+        by_key = trajectory_tools.reader_factory(
+            {}
+        ).get_investigation_trajectories([("run-1", "chat-1")])
         unkeyed = dataclasses.replace(keyed, agent_key="")
         monkeypatch.setattr(effective_config, "load", lambda state: unkeyed)
-        by_name = trajectory_tools.reader_factory({}).get_trajectories(
-            [("run-1", "chat-1")]
-        )
+        by_name = trajectory_tools.reader_factory(
+            {}
+        ).get_investigation_trajectories([("run-1", "chat-1")])
 
     assert ("run-1", "chat-1") in by_key
     assert by_name == {}
@@ -559,7 +563,7 @@ def test_a_memory_is_a_file_that_outlives_the_standalone_run(
     tmp_path: Path, no_gcs: None
 ) -> None:
     """What the chat remembers lands in `.aqua/job/agents/<agent>/memories/`,
-    is read back by `get_memories` in a later run, and the card's delete removes
+    is read back by `get_memories` in a later investigation, and the card's delete removes
     the file."""
     jobs = tmp_path / "job"
     _attach_agent_file(jobs)
