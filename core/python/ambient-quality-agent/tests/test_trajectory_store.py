@@ -31,7 +31,7 @@ from ambient_quality_agent.tools.trajectories.bigquery_store import (
 )
 from ambient_quality_agent.tools.trajectories.models import (
     IngestStatus,
-    Trajectory,
+    InvestigationTrajectory,
 )
 
 _PROJECT = "test-project"
@@ -39,12 +39,19 @@ _DATASET = "aqua_insights"
 _AGENT = "root_agent"
 _TRAJECTORIES_REF = f"{_PROJECT}.{_DATASET}.trajectories"
 
+_FIELD_TO_COLUMN = {
+    "investigation_id": "run_id",
+    "observed_agent_key": "agent_name",
+    "ingestion_source": "source",
+}
+"""Fields the trajectories table holds under a different column name."""
+
 _NOW = dt.datetime(2026, 6, 1, tzinfo=dt.UTC)
 
 # Only the required columns, so the writer's handling of the unset rest shows.
 _MINIMAL: dict[str, Any] = {
-    "run_id": "run-1",
-    "agent_name": _AGENT,
+    "investigation_id": "run-1",
+    "observed_agent_key": _AGENT,
     "trajectory_id": "case-1",
     "created_at": _NOW,
     "ingest_status": IngestStatus.INGESTED,
@@ -53,7 +60,10 @@ _MINIMAL: dict[str, Any] = {
 
 def _store(client: mock.MagicMock) -> BigQueryTrajectoryStore:
     return BigQueryTrajectoryStore(
-        client=client, project_id=_PROJECT, dataset=_DATASET, agent_name=_AGENT
+        client=client,
+        project_id=_PROJECT,
+        dataset=_DATASET,
+        observed_agent_key=_AGENT,
     )
 
 
@@ -69,36 +79,38 @@ def _params(call: Any) -> dict[str, Any]:
     return {p.name: p.value for p in call.kwargs["job_config"].query_parameters}
 
 
-def _record(**overrides: Any) -> Trajectory:
+def _record(**overrides: Any) -> InvestigationTrajectory:
     fields: dict[str, Any] = {
-        "run_id": "run-1",
-        "agent_name": _AGENT,
+        "investigation_id": "run-1",
+        "observed_agent_key": _AGENT,
         "trajectory_id": "case-1",
         "created_at": _NOW,
         "source": "cloud_ops",
         "ingest_status": IngestStatus.INGESTED,
     }
-    return Trajectory(**(fields | overrides))
+    return InvestigationTrajectory(**(fields | overrides))
 
 
 def test_cleanup_deletes_only_this_run_and_this_agent() -> None:
     """Two agents' sweeps share the table, so a retry that dropped the agent
     filter would erase another agent's run of the same id."""
     client = mock.MagicMock()
-    _store(client).delete_run_trajectories("run-1")
+    _store(client).delete_investigation_trajectories("run-1")
 
     call = client.query.call_args
     sql = call.args[0]
     assert f"DELETE FROM `{_TRAJECTORIES_REF}`" in sql  # noqa: S608 - trusted test constants
-    assert "WHERE run_id = @run_id AND agent_name = @agent_name" in sql
-    assert _params(call) == {"run_id": "run-1", "agent_name": _AGENT}
+    assert (
+        "WHERE run_id = @investigation_id AND agent_name = @agent_name" in sql
+    )
+    assert _params(call) == {"investigation_id": "run-1", "agent_name": _AGENT}
 
 
 def test_cleanup_labels_its_job_for_billing() -> None:
     """BigQuery bills bytes to the job, so AQA's label is the only handle
     Billing gives us on it."""
     client = mock.MagicMock()
-    _store(client).delete_run_trajectories("run-1")
+    _store(client).delete_investigation_trajectories("run-1")
 
     labels = client.query.call_args.kwargs["job_config"].labels
     assert labels.get("component") == "aqa"
@@ -106,7 +118,7 @@ def test_cleanup_labels_its_job_for_billing() -> None:
 
 def test_record_writes_one_row_per_trace() -> None:
     client = mock.MagicMock()
-    _store(client).record(
+    _store(client).record_investigation_trajectories(
         [_record(trajectory_id="a"), _record(trajectory_id="b")]
     )
 
@@ -119,7 +131,7 @@ def test_record_preserves_trace_id_order() -> None:
     """A multi-turn case links to its first trace -- the conversation's opening
     turn -- so the array is ordered evidence, not a set."""
     client = mock.MagicMock()
-    _store(client).record(
+    _store(client).record_investigation_trajectories(
         [_record(source_trace_ids=["first", "second", "third"])]
     )
 
@@ -128,10 +140,10 @@ def test_record_preserves_trace_id_order() -> None:
 
 
 def test_a_trajectory_nothing_could_be_made_of_keeps_its_ids() -> None:
-    """The most valuable link on the page: one the run could not ingest is the
+    """The most valuable link on the page: one the investigation could not ingest is the
     case where "what does this actually look like?" has no other answer."""
     client = mock.MagicMock()
-    _store(client).record(
+    _store(client).record_investigation_trajectories(
         [
             _record(
                 ingest_status=IngestStatus.NOT_INGESTED,
@@ -148,7 +160,9 @@ def test_a_trajectory_nothing_could_be_made_of_keeps_its_ids() -> None:
 def test_the_ingest_status_is_written_as_its_bare_string() -> None:
     """The column holds the value, not ``IngestStatus.PARTIAL``."""
     client = mock.MagicMock()
-    _store(client).record([_record(ingest_status=IngestStatus.PARTIAL)])
+    _store(client).record_investigation_trajectories(
+        [_record(ingest_status=IngestStatus.PARTIAL)]
+    )
 
     assert (
         client.load_table_from_json.call_args.args[0][0]["ingest_status"]
@@ -159,10 +173,10 @@ def test_the_ingest_status_is_written_as_its_bare_string() -> None:
 def test_a_row_carries_no_analysis_outcome() -> None:
     """The row is the end of ingestion. A sweep runs one analysis today and is
     expected to run several, so an outcome here would mean "whichever wrote
-    last"; the run counters hold the aggregate instead. `ingest_status` is the
+    last"; the investigation counters hold the aggregate instead. `ingest_status` is the
     one status on the row, and it is ingestion's."""
     client = mock.MagicMock()
-    _store(client).record([_record()])
+    _store(client).record_investigation_trajectories([_record()])
 
     row = client.load_table_from_json.call_args.args[0][0]
     assert [key for key in row if key.endswith("status")] == ["ingest_status"]
@@ -173,10 +187,14 @@ def test_record_writes_every_declared_column_even_when_unset() -> None:
     """Absent keys would be filled by the load job's defaults rather than by
     the writer, which is a second place for a column's meaning to live."""
     client = mock.MagicMock()
-    _store(client).record([Trajectory(**_MINIMAL)])
+    _store(client).record_investigation_trajectories(
+        [InvestigationTrajectory(**_MINIMAL)]
+    )
 
     row = client.load_table_from_json.call_args.args[0][0]
-    assert set(row) == set(Trajectory.model_fields)
+    assert set(row) == {
+        _FIELD_TO_COLUMN.get(f, f) for f in InvestigationTrajectory.model_fields
+    }
     assert row["source"] is None
     assert row["source_session_id"] is None
     assert row["source_trace_ids"] == []

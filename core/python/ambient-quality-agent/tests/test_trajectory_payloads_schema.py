@@ -22,9 +22,9 @@ in a load job against a deployed dataset.
 
 Three properties are load-bearing enough to be tested rather than trusted:
 
-* **The key has no `run_id`.** These tables record the *conversation*, so one
+* **The key has no `investigation_id`.** These tables record the *conversation*, so one
   copy serves every sweep that sampled it; `trajectories` records a *sweep's
-  ingestion* and is keyed by the run. Adding the run here would store the
+  ingestion* and is keyed by the investigation. Adding the investigation here would store the
   bulky copy once per sighting, which is the whole cost the split avoids.
 * **They expire and `trajectories` does not.** BigQuery expires partitions
   rather than columns, which is why the payload is a table and not a column:
@@ -45,20 +45,31 @@ from unittest import mock
 
 import pytest
 from ambient_quality_agent.tools.trajectories.bigquery_store import (
-    PAYLOADS_TABLE,
-    TURNS_TABLE,
+    MANIFESTS_TABLE,
+    STEPS_TABLE,
     BigQueryTrajectoryStore,
 )
+from ambient_quality_agent.tools.trajectories.bundles import TrajectoryBundle
 from ambient_quality_agent.tools.trajectories.models import (
     IngestStatus,
-    PayloadStatus,
-    TrajectoryPayload,
-    TrajectoryPayloadTurn,
+    TrajectoryManifest,
+    TrajectoryStatus,
+    TrajectoryStep,
 )
-from ambient_quality_agent.tools.trajectories.payloads import TrajectoryArchive
 from pydantic import BaseModel, ValidationError
 
 _REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
+
+_FIELD_TO_COLUMN = {
+    "observed_agent_key": "agent_name",
+    "step_count": "turn_count",
+    "step_index": "turn_index",
+    "step": "turn",
+}
+"""Model fields whose BigQuery column in trajectory_payloads and
+trajectory_payload_turns has a different name."""
+
+_COLUMN_TO_FIELD = {column: field for field, column in _FIELD_TO_COLUMN.items()}
 SCHEMA_DIR = _REPO_ROOT / "terraform" / "modules" / "aqa" / "schemas"
 MODULE_DIR = _REPO_ROOT / "terraform" / "modules" / "aqa"
 PAYLOADS_TF = MODULE_DIR / "trajectory_payloads.tf"
@@ -83,24 +94,24 @@ _NOW = dt.datetime(2026, 6, 1, tzinfo=dt.UTC)
 # by never being looked at.
 _TABLES: dict[str, tuple[type[BaseModel], BaseModel]] = {
     "trajectory_payloads": (
-        TrajectoryPayload,
-        TrajectoryPayload(
-            agent_name="root_agent",
+        TrajectoryManifest,
+        TrajectoryManifest(
+            observed_agent_key="root_agent",
             trajectory_id="session-abc",
             created_at=_NOW,
-            status=PayloadStatus.INGESTED,
-            turn_count=3,
+            status=TrajectoryStatus.INGESTED,
+            step_count=3,
             agents={"root_agent": {"instruction": "be helpful"}},
         ),
     ),
     "trajectory_payload_turns": (
-        TrajectoryPayloadTurn,
-        TrajectoryPayloadTurn(
-            agent_name="root_agent",
+        TrajectoryStep,
+        TrajectoryStep(
+            observed_agent_key="root_agent",
             trajectory_id="session-abc",
-            turn_index=0,
+            step_index=0,
             created_at=_NOW,
-            turn={"turn_index": 0, "events": [{"author": "user"}]},
+            step={"turn_index": 0, "events": [{"author": "user"}]},
         ),
     ),
 }
@@ -164,16 +175,18 @@ def _written() -> dict[str, list[dict[str, Any]]]:
         Dictionary mapping table names to lists of loaded row dictionaries.
     """
     client = mock.MagicMock()
-    payload = _TABLES[PAYLOADS_TABLE][1]
-    turn = _TABLES[TURNS_TABLE][1]
-    assert isinstance(payload, TrajectoryPayload)
-    assert isinstance(turn, TrajectoryPayloadTurn)
+    payload = _TABLES[MANIFESTS_TABLE][1]
+    turn = _TABLES[STEPS_TABLE][1]
+    assert isinstance(payload, TrajectoryManifest)
+    assert isinstance(turn, TrajectoryStep)
     BigQueryTrajectoryStore(
         client=client,
         project_id="test-project",
         dataset="aqua_insights",
-        agent_name="root_agent",
-    ).record_payloads([TrajectoryArchive(payload=payload, turns=(turn,))])
+        observed_agent_key="root_agent",
+    ).record_trajectory_bundles(
+        [TrajectoryBundle(manifest=payload, steps=(turn,))]
+    )
     return {
         call.args[1].rsplit(".", 1)[-1]: call.args[0]
         for call in client.load_table_from_json.call_args_list
@@ -185,7 +198,7 @@ def test_the_model_and_the_schema_hold_the_same_columns(table_id: str) -> None:
     """A field on one side alone is written nowhere and read as null."""
     model, _ = _TABLES[table_id]
     declared = set(_columns(table_id))
-    fields = set(model.model_fields)
+    fields = {_FIELD_TO_COLUMN.get(f, f) for f in model.model_fields}
 
     assert fields == declared, (
         f"{model.__name__} and {table_id} disagree: "
@@ -199,7 +212,8 @@ def test_the_model_holds_what_each_column_takes(table_id: str) -> None:
     model, record = _TABLES[table_id]
     columns = _columns(table_id)
 
-    for name, value in dict(record).items():
+    for field, value in dict(record).items():
+        name = _FIELD_TO_COLUMN.get(str(field), str(field))
         column_type, mode = columns[name]
         if value is None:
             assert mode == "NULLABLE", (
@@ -216,7 +230,8 @@ def test_the_model_holds_what_each_column_takes(table_id: str) -> None:
     unset = {
         name
         for name in required
-        if model.model_fields[name].is_required() is False
+        if model.model_fields[_COLUMN_TO_FIELD.get(name, name)].is_required()
+        is False
     }
     assert not unset, (
         f"{table_id} declares {sorted(unset)} REQUIRED, the model defaults it"
@@ -237,7 +252,7 @@ def test_a_json_column_holds_an_object(table_id: str) -> None:
     for name, (column_type, _) in _columns(table_id).items():
         if column_type != "JSON":
             continue
-        value = getattr(record, name)
+        value = getattr(record, _COLUMN_TO_FIELD.get(name, name))
         assert not isinstance(value, str), (
             f"{table_id}.{name} is JSON, held as text -- it would store a string scalar"
         )
@@ -247,7 +262,7 @@ def test_a_json_column_holds_an_object(table_id: str) -> None:
 def test_the_conversation_is_keyed_without_the_run(table_id: str) -> None:
     """`trajectories` is one sweep's ingestion and carries `run_id`; this is
     the conversation, which is the same thing whichever sweep sampled it.
-    Keying it by the run would store a 50 KB copy per sighting, and a payload
+    Keying it by the investigation would store a 50 KB copy per sighting, and a payload
     is referenced by every sweep that sampled it -- so there is also nothing a
     per-run cleanup could safely delete."""
     columns = _columns(table_id)
@@ -375,16 +390,16 @@ def test_the_stored_copy_and_one_sweeps_attempt_are_different_vocabularies() -> 
     sweep made of one attempt. They overlap on two values and differ on the
     third, which is the whole reason both exist: `truncated` is a decision we
     made, and ingestion has no equivalent of it."""
-    assert set(PayloadStatus) != set(IngestStatus)
-    assert PayloadStatus.TRUNCATED not in set(IngestStatus)
-    assert IngestStatus.NOT_INGESTED not in set(PayloadStatus), (
+    assert set(TrajectoryStatus) != set(IngestStatus)
+    assert TrajectoryStatus.TRUNCATED not in set(IngestStatus)
+    assert IngestStatus.NOT_INGESTED not in set(TrajectoryStatus), (
         "a conversation nothing could be made of has no payload to store"
     )
 
 
-@pytest.mark.parametrize("status", list(PayloadStatus))
+@pytest.mark.parametrize("status", list(TrajectoryStatus))
 def test_a_status_serializes_as_the_bare_string_the_column_holds(
-    status: PayloadStatus,
+    status: TrajectoryStatus,
 ) -> None:
     record = _TABLES["trajectory_payloads"][1].model_copy(
         update={"status": status}
@@ -400,11 +415,11 @@ def test_what_a_stored_copy_is_can_never_be_unstated() -> None:
     assert _columns("trajectory_payloads")["status"] == ("STRING", "REQUIRED")
 
     with pytest.raises(ValidationError):
-        TrajectoryPayload(
-            agent_name="root_agent",
+        TrajectoryManifest(
+            observed_agent_key="root_agent",
             trajectory_id="session-abc",
             created_at=_NOW,
-            turn_count=1,
+            step_count=1,
         )  # ty: ignore[missing-argument]
 
 
@@ -412,12 +427,12 @@ def test_a_conversation_cannot_claim_a_negative_number_of_turns() -> None:
     """`turn_count` is how many turn rows a reader should expect to find, so a
     nonsense value reads as a partly-written payload rather than as a bug."""
     with pytest.raises(ValidationError):
-        TrajectoryPayload(
-            agent_name="root_agent",
+        TrajectoryManifest(
+            observed_agent_key="root_agent",
             trajectory_id="session-abc",
             created_at=_NOW,
-            status=PayloadStatus.INGESTED,
-            turn_count=-1,
+            status=TrajectoryStatus.INGESTED,
+            step_count=-1,
         )
 
 

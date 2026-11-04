@@ -49,16 +49,14 @@ export interface TrendDay {
 /**
  * When an issue was resolved, or null if that cannot be said.
  *
- * Normally this just reads `resolved_at`, which the sweep that closed the issue
- * stamps. The fallback is for rows resolved before that column existed:
- * `resolve_stale_insights` deliberately never touched `updated_at` — it is the
- * last sighting, and the staleness query keys off it — so the most that can be
- * said of such a row is that some sweep closed it after its last sighting plus
- * the auto-resolve window.
+ * Reads `resolved_at`, stamped by `resolve_stale_insights` when a sweep closes
+ * the issue. When `resolved_at` is absent and auto-resolution is enabled,
+ * falls back to estimating the resolution date as the last sighting
+ * (`updated_at` or `last_investigation_at`) plus `autoResolveDays`.
  *
- * That makes the fallback an estimate, and `resolutionIsEstimated` is how the
- * chart knows to say so. With auto-resolution off there is no window to add, so
- * an unstamped row cannot be placed at all and is left out rather than guessed.
+ * `resolutionIsEstimated` reports when that fallback was used so the chart can
+ * note it. With auto-resolution disabled (`autoResolveDays` is 0 or null), an
+ * unstamped row cannot be placed and returns null.
  */
 export function resolutionDate(
   insight: InsightView,
@@ -67,7 +65,9 @@ export function resolutionDate(
   const recorded = Date.parse(insight.resolved_at || "");
   if (Number.isFinite(recorded)) return new Date(recorded);
   if (!autoResolveDays) return null;
-  const seen = Date.parse(insight.updated_at || insight.last_run_at || "");
+  const seen = Date.parse(
+    insight.updated_at || insight.last_investigation_at || "",
+  );
   if (!Number.isFinite(seen)) return null;
   return new Date(seen + autoResolveDays * 86_400_000);
 }
@@ -107,10 +107,10 @@ export function buildTrend({
   const buckets: TrendDay[] = columns.map(({ day, row, isToday }) => {
     const totalSweeps = Number(row?.investigations) || 0;
     const unmeasured = Number(row?.unmeasured) || 0;
-    const evaluated = Number(row?.traces_evaluated) || 0;
-    // A day whose every run recorded nothing is as blind as a day with no
-    // runs; counting unmeasured sweeps would draw a flat zero line instead of
-    // the hatch that says nothing was measured.
+    const evaluated = Number(row?.trajectories_evaluated) || 0;
+    // A day whose every investigation recorded nothing is as blind as a day
+    // with no investigations; counting unmeasured sweeps would draw a flat zero
+    // line instead of the hatch that says nothing was measured.
     const sweeps =
       evaluated === 0 && unmeasured > 0
         ? 0

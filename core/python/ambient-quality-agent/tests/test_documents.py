@@ -284,7 +284,7 @@ class _ReadFails(FakeClient):
 def test_a_goal_that_cannot_be_read_gives_no_goal_not_an_error(
     bucket: str,
 ) -> None:
-    """Not "unset" either: the developer may have written a goal, and the run's
+    """Not "unset" either: the developer may have written a goal, and the investigation's
     record has to say it ran without one it could not read."""
     loaded = goal_doc.load_investigation_goal(
         GcsObjectStore(bucket, client_factory=_ReadFails)

@@ -40,7 +40,7 @@ from agentplatform._genai.types import (
 from ambient_quality_agent.tools.evaluation.findings_adapter import (
     eval_results_to_finding_set,
 )
-from ambient_quality_agent.tools.insights.models import RubricExample
+from ambient_quality_agent.tools.insights.models import FindingExample
 from pydantic import ValidationError
 
 # --- builders -----------------------------------------------------------------
@@ -253,7 +253,7 @@ def test_returns_nothing_when_all_rubrics_pass() -> None:
     )
 
     assert finding_set.findings == []
-    assert finding_set.sessions == {}
+    assert finding_set.turns_by_trajectory == {}
 
 
 # --- expected / actual extraction ---------------------------------------------
@@ -299,9 +299,11 @@ def test_a_finding_carries_its_session_and_the_session_carries_its_turns() -> (
     finding_set = eval_results_to_finding_set([page])
 
     (finding,) = finding_set.findings
-    assert finding.session_id == "case-abc"
-    assert "case-abc" in finding_set.sessions
-    assert "printer is jammed" in str(finding_set.sessions["case-abc"])
+    assert finding.trajectory_id == "case-abc"
+    assert "case-abc" in finding_set.turns_by_trajectory
+    assert "printer is jammed" in str(
+        finding_set.turns_by_trajectory["case-abc"]
+    )
 
 
 def test_two_findings_in_one_session_share_one_trace() -> None:
@@ -314,8 +316,11 @@ def test_two_findings_in_one_session_share_one_trace() -> None:
 
     finding_set = eval_results_to_finding_set([page])
 
-    assert [f.session_id for f in finding_set.findings] == ["case-1", "case-1"]
-    assert list(finding_set.sessions) == ["case-1"]
+    assert [f.trajectory_id for f in finding_set.findings] == [
+        "case-1",
+        "case-1",
+    ]
+    assert list(finding_set.turns_by_trajectory) == ["case-1"]
 
 
 def test_only_sessions_that_produced_a_finding_are_materialized() -> None:
@@ -337,7 +342,7 @@ def test_only_sessions_that_produced_a_finding_are_materialized() -> None:
 
     finding_set = eval_results_to_finding_set(pages)
 
-    assert list(finding_set.sessions) == ["failed-case"]
+    assert list(finding_set.turns_by_trajectory) == ["failed-case"]
 
 
 def test_a_page_without_its_dataset_still_yields_a_finding() -> None:
@@ -350,8 +355,8 @@ def test_a_page_without_its_dataset_still_yields_a_finding() -> None:
     finding_set = eval_results_to_finding_set([page])
 
     (finding,) = finding_set.findings
-    assert finding.session_id == ""
-    assert finding_set.sessions == {}
+    assert finding.trajectory_id == ""
+    assert finding_set.turns_by_trajectory == {}
 
 
 def test_a_missing_case_index_leaves_a_finding_without_a_session() -> None:
@@ -364,8 +369,8 @@ def test_a_missing_case_index_leaves_a_finding_without_a_session() -> None:
     finding_set = eval_results_to_finding_set([page])
 
     (finding,) = finding_set.findings
-    assert finding.session_id == ""
-    assert finding_set.sessions == {}
+    assert finding.trajectory_id == ""
+    assert finding_set.turns_by_trajectory == {}
 
 
 # --- agent configurations -----------------------------------------------------
@@ -444,12 +449,12 @@ def test_a_stored_example_with_the_old_rubric_id_key_validates() -> None:
         "trace": [{"role": "user"}],
     }
 
-    example = RubricExample.model_validate(stored)
+    example = FindingExample.model_validate(stored)
 
-    assert example.rubric.expected_behavior == "call create_ticket"
-    assert example.rubric.actual_behavior == "no tool call was made"
-    assert example.eval_case_id == "case-1"
-    assert not hasattr(example.rubric, "rubric_id")
+    assert example.finding.expected_behavior == "call create_ticket"
+    assert example.finding.actual_behavior == "no tool call was made"
+    assert example.trajectory_id == "case-1"
+    assert not hasattr(example.finding, "rubric_id")
 
 
 # --- deployment revision ------------------------------------------------------

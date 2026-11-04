@@ -16,7 +16,7 @@
 
 Every test here runs twice, against the BigQuery store and against
 `InMemoryInvestigationStore`, and asserts the same answer from both. That is the
-point of the file. The two keep a run completely differently -- one as a history
+point of the file. The two keep an investigation completely differently -- one as a history
 of whole snapshots, because BigQuery has no cheap ``UPDATE``, the other as one
 record it edits -- and the only thing holding them to one behavior is a suite
 that cannot tell which it is talking to.
@@ -41,9 +41,10 @@ from ambient_quality_agent.standalone.investigations import (
 )
 from ambient_quality_agent.standalone.store import InMemoryStore
 from ambient_quality_agent.tools.investigations.models import (
+    STAGE_EVENT_SOURCE,
+    Investigation,
     InvestigationCounters,
-    InvestigationRecord,
-    RunStatus,
+    InvestigationStatus,
 )
 
 from .conftest import FakeInvestigationStore
@@ -56,7 +57,7 @@ def store(request: pytest.FixtureRequest) -> Any:
     """Both implementations of the contract, one test body.
 
     Carries a ``backdate`` handle the lease tests need. Every write restamps
-    ``updated_at`` and nothing in the contract sets it, so a run old enough to
+    ``updated_at`` and nothing in the contract sets it, so an investigation old enough to
     be stale cannot be made through the contract at all -- and how you reach
     past it is the one thing the two do differently. What is being tested
     either side of that handle is still one behavior.
@@ -64,9 +65,9 @@ def store(request: pytest.FixtureRequest) -> Any:
     if request.param == "bigquery":
         fake = FakeInvestigationStore()
 
-        def backdate(run_id: str, *, minutes: int) -> None:
+        def backdate(investigation_id: str, *, minutes: int) -> None:
             for row in fake.rows:
-                if row["run_id"] == run_id:
+                if row["run_id"] == investigation_id:
                     row["updated_at"] = _aged(minutes)
 
         fake.backdate = backdate  # type: ignore[attr-defined]
@@ -75,9 +76,9 @@ def store(request: pytest.FixtureRequest) -> Any:
     backing = InMemoryStore()
     in_memory = InMemoryInvestigationStore(backing)
 
-    def backdate_saved_run(run_id: str, *, minutes: int) -> None:
-        record = backing.runs[run_id]
-        backing.save_run(
+    def backdate_saved_run(investigation_id: str, *, minutes: int) -> None:
+        record = backing.investigations[investigation_id]
+        backing.save_investigation(
             record.model_copy(update={"updated_at": _aged(minutes)})
         )
 
@@ -99,30 +100,32 @@ def _aged(minutes: int) -> str:
     ).isoformat()
 
 
-def _run(run_id: str, **fields: Any) -> InvestigationRecord:
-    """Builds an InvestigationRecord for testing with default fields.
+def _run(investigation_id: str, **fields: Any) -> Investigation:
+    """Builds an Investigation for testing with default fields.
 
     Args:
-        run_id: Identifier for the investigation run.
+        investigation_id: Identifier for the investigation.
         **fields: Field overrides for the record.
 
     Returns:
-        Configured InvestigationRecord instance.
+        Configured Investigation instance.
     """
     defaults: dict[str, Any] = {
-        "observed_agent_name": _AGENT,
-        "status": RunStatus.DONE,
+        "observed_agent_key": _AGENT,
+        "status": InvestigationStatus.DONE,
         "trigger_type": "scheduled",
         "window_end": "2026-01-01T00:00:00+00:00",
     }
-    return InvestigationRecord(run_id=run_id, **{**defaults, **fields})
+    return Investigation(
+        investigation_id=investigation_id, **{**defaults, **fields}
+    )
 
 
 def _counters(**fields: int) -> InvestigationCounters:
     return InvestigationCounters(**fields)
 
 
-# --- writing a run --------------------------------------------------------- #
+# --- writing an investigation --------------------------------------------------------- #
 
 
 def test_a_stored_run_reads_back(store: Any) -> None:
@@ -131,7 +134,7 @@ def test_a_stored_run_reads_back(store: Any) -> None:
     record = store.get("r1")
 
     assert record is not None
-    assert record.run_id == "r1"
+    assert record.investigation_id == "r1"
     assert record.summary == {"note": "hello"}
 
 
@@ -145,16 +148,16 @@ def test_storing_a_run_twice_leaves_one_run_in_its_newer_state(
     """The contract's one genuinely load-bearing write rule.
 
     BigQuery gets a second snapshot and picks it on read; the local store
-    replaces the record. Either way the registry holds one run, in the state it
+    replaces the record. Either way the registry holds one investigation, in the state it
     was last given -- a caller must never see the superseded one, and must never
     see two.
     """
-    store.append(_run("r1", status=RunStatus.PENDING))
-    store.append(_run("r1", status=RunStatus.DONE, error="fell over"))
+    store.append(_run("r1", status=InvestigationStatus.PENDING))
+    store.append(_run("r1", status=InvestigationStatus.DONE, error="fell over"))
 
-    assert store.get("r1").status == RunStatus.DONE
+    assert store.get("r1").status == InvestigationStatus.DONE
     assert store.get("r1").error == "fell over"
-    assert [r.run_id for r in store.list_recent()] == ["r1"]
+    assert [r.investigation_id for r in store.list_recent()] == ["r1"]
 
 
 def test_appending_restamps_updated_at(store: Any) -> None:
@@ -193,9 +196,9 @@ def test_updating_a_run_does_not_drop_the_events_it_already_emitted(
     A sweep emits events while it runs and the record is rewritten at the end of
     it, so a write that carried the events would erase everything the nodes said.
     """
-    store.append(_run("r1", status=RunStatus.RUNNING))
+    store.append(_run("r1", status=InvestigationStatus.RUNNING))
     store.append_event("r1", "the sweep said something")
-    store.append(_run("r1", status=RunStatus.DONE))
+    store.append(_run("r1", status=InvestigationStatus.DONE))
 
     assert [e.text for e in store.get("r1").events] == [
         "the sweep said something"
@@ -206,8 +209,8 @@ def test_a_records_own_events_are_not_written_back(store: Any) -> None:
     """Only `append_event` creates an event.
 
     Asserted through `include_events=False`, the read that returns the record as
-    stored rather than overlaying the events on it -- and the read `update_run`
-    makes before rewriting a run. A write that kept the events it was handed
+    stored rather than overlaying the events on it -- and the read `update_investigation`
+    makes before rewriting an investigation. A write that kept the events it was handed
     would put them back into the record on every update.
     """
     store.append(_run("r1"))
@@ -219,6 +222,30 @@ def test_a_records_own_events_are_not_written_back(store: Any) -> None:
     assert [e.text for e in store.get("r1").events] == ["once"]
 
 
+def test_the_newest_stage_event_of_each_named_investigation(
+    store: Any,
+) -> None:
+    """What the list shows of an investigation still going: the last line its
+    sweep wrote about how far it got, and nothing for one that wrote none."""
+    for investigation_id in ("r1", "r2", "r3"):
+        store.append(_run(investigation_id, status=InvestigationStatus.RUNNING))
+    store.append_event("r1", "started", source="init")
+    store.append_event("r1", "Session review: 0/7", source=STAGE_EVENT_SOURCE)
+    store.append_event("r1", "Session review: 2/7", source=STAGE_EVENT_SOURCE)
+    store.append_event("r1", "review finished", source="review")
+    store.append_event(
+        "r2", "Clustering: 3 findings", source=STAGE_EVENT_SOURCE
+    )
+    store.append_event("r3", "started", source="init")
+
+    events = store.list_latest_stage_events(["r1", "r3"])
+
+    assert [(e.investigation_id, e.text) for e in events] == [
+        ("r1", "Session review: 2/7")
+    ]
+    assert store.list_latest_stage_events([]) == []
+
+
 # --- listing --------------------------------------------------------------- #
 
 
@@ -227,7 +254,11 @@ def test_the_list_is_oldest_first(store: Any) -> None:
     store.append(_run("new", created_at="2026-01-03T00:00:00+00:00"))
     store.append(_run("mid", created_at="2026-01-02T00:00:00+00:00"))
 
-    assert [r.run_id for r in store.list_recent()] == ["old", "mid", "new"]
+    assert [r.investigation_id for r in store.list_recent()] == [
+        "old",
+        "mid",
+        "new",
+    ]
 
 
 def test_the_cap_keeps_the_most_recent_and_still_reads_oldest_first(
@@ -240,29 +271,34 @@ def test_the_cap_keeps_the_most_recent_and_still_reads_oldest_first(
             _run(f"r{day}", created_at=f"2026-01-0{day}T00:00:00+00:00")
         )
 
-    assert [r.run_id for r in store.list_recent(limit=3)] == ["r3", "r4", "r5"]
+    assert [r.investigation_id for r in store.list_recent(limit=3)] == [
+        "r3",
+        "r4",
+        "r5",
+    ]
 
 
 def test_the_list_filters_on_the_run_current_status(store: Any) -> None:
     store.append(_run("done"))
-    store.append(_run("failed", status=RunStatus.FAILED))
+    store.append(_run("failed", status=InvestigationStatus.FAILED))
 
-    listed = store.list_recent(status=RunStatus.FAILED)
+    listed = store.list_recent(status=InvestigationStatus.FAILED)
 
-    assert [r.run_id for r in listed] == ["failed"]
+    assert [r.investigation_id for r in listed] == ["failed"]
 
 
 def test_a_run_that_moved_on_is_not_matched_on_its_old_status(
     store: Any,
 ) -> None:
-    """The status filter applies to what the run *is*, not to anything it was."""
-    store.append(_run("r1", status=RunStatus.RUNNING))
-    store.append(_run("r1", status=RunStatus.DONE))
+    """The status filter applies to what the investigation *is*, not to anything it was."""
+    store.append(_run("r1", status=InvestigationStatus.RUNNING))
+    store.append(_run("r1", status=InvestigationStatus.DONE))
 
-    assert store.list_recent(status=RunStatus.RUNNING) == []
-    assert [r.run_id for r in store.list_recent(status=RunStatus.DONE)] == [
-        "r1"
-    ]
+    assert store.list_recent(status=InvestigationStatus.RUNNING) == []
+    assert [
+        r.investigation_id
+        for r in store.list_recent(status=InvestigationStatus.DONE)
+    ] == ["r1"]
 
 
 def test_the_window_filters_on_what_a_sweep_covered_not_when_it_ran(
@@ -290,14 +326,14 @@ def test_the_window_filters_on_what_a_sweep_covered_not_when_it_ran(
         window_end="2026-03-03T00:00:00+00:00",
     )
 
-    assert [r.run_id for r in listed] == ["monday"]
+    assert [r.investigation_id for r in listed] == ["monday"]
 
 
 def test_a_run_with_no_window_falls_outside_every_period(store: Any) -> None:
     store.append(_run("windowless", window_end=None))
 
     assert store.list_recent(window_start="2026-01-01T00:00:00+00:00") == []
-    assert [r.run_id for r in store.list_recent()] == ["windowless"]
+    assert [r.investigation_id for r in store.list_recent()] == ["windowless"]
 
 
 # --- totals ---------------------------------------------------------------- #
@@ -312,14 +348,14 @@ def test_totals_sum_the_counters_and_report_the_span_actually_covered(
         _run(
             "r1",
             window_end="2026-02-01T00:00:00+00:00",
-            counters=_counters(insights_created=2, traces_scanned=10),
+            counters=_counters(insights_created=2, trajectories_scanned=10),
         )
     )
     store.append(
         _run(
             "r2",
             window_end="2026-02-05T00:00:00+00:00",
-            counters=_counters(insights_created=3, traces_scanned=7),
+            counters=_counters(insights_created=3, trajectories_scanned=7),
         )
     )
 
@@ -327,7 +363,7 @@ def test_totals_sum_the_counters_and_report_the_span_actually_covered(
 
     assert totals["investigations"] == 2
     assert totals["insights_created"] == 5
-    assert totals["traces_scanned"] == 17
+    assert totals["trajectories_scanned"] == 17
     assert covered == {
         "start": "2026-02-01T00:00:00+00:00",
         "end": "2026-02-05T00:00:00+00:00",
@@ -412,7 +448,7 @@ def test_a_run_that_measured_nothing_is_counted_as_unmeasured(
         _run(
             "measured",
             window_end="2026-04-02T06:00:00+00:00",
-            counters=_counters(traces_scanned=3),
+            counters=_counters(trajectories_scanned=3),
         )
     )
     store.append(_run("empty", window_end="2026-04-02T07:00:00+00:00"))
@@ -426,7 +462,9 @@ def test_a_run_that_measured_nothing_is_counted_as_unmeasured(
 def test_a_run_with_no_window_is_filed_under_no_day(store: Any) -> None:
     store.append(
         _run(
-            "windowless", window_end=None, counters=_counters(traces_scanned=9)
+            "windowless",
+            window_end=None,
+            counters=_counters(trajectories_scanned=9),
         )
     )
 
@@ -451,11 +489,11 @@ def test_the_watermark_is_the_newest_finished_ambient_window(
 @pytest.mark.parametrize(
     ("label", "fields"),
     [
-        ("unfinished", {"status": RunStatus.RUNNING}),
-        ("failed", {"status": RunStatus.FAILED}),
+        ("unfinished", {"status": InvestigationStatus.RUNNING}),
+        ("failed", {"status": InvestigationStatus.FAILED}),
         ("manual", {"trigger_type": "manual"}),
         ("a dry run", {"dry_run": True}),
-        ("another agent", {"observed_agent_name": "somebody-else"}),
+        ("another agent", {"observed_agent_key": "somebody-else"}),
     ],
 )
 def test_the_watermark_ignores_runs_that_must_not_move_it(
@@ -482,9 +520,9 @@ def test_the_watermark_is_none_before_any_run_finishes(store: Any) -> None:
 
 
 def test_a_pending_run_past_its_lease_is_found(store: Any) -> None:
-    """Nothing revisits a run once its submission returned, so a job that died
+    """Nothing revisits an investigation once its submission returned, so a job that died
     before writing `running` leaves a row that never settles."""
-    store.append(_run("abandoned", status=RunStatus.PENDING))
+    store.append(_run("abandoned", status=InvestigationStatus.PENDING))
     store.backdate("abandoned", minutes=120)
 
     assert store.list_stale_pending(lease_minutes=30) == ["abandoned"]
@@ -492,7 +530,7 @@ def test_a_pending_run_past_its_lease_is_found(store: Any) -> None:
 
 def test_a_pending_run_inside_its_lease_is_left_alone(store: Any) -> None:
     """A submitted job can sit queued a while before it writes anything."""
-    store.append(_run("fresh", status=RunStatus.PENDING))
+    store.append(_run("fresh", status=InvestigationStatus.PENDING))
     store.backdate("fresh", minutes=5)
 
     assert store.list_stale_pending(lease_minutes=30) == []
@@ -500,9 +538,16 @@ def test_a_pending_run_inside_its_lease_is_left_alone(store: Any) -> None:
 
 @pytest.mark.parametrize(
     "status",
-    [RunStatus.RUNNING, RunStatus.DONE, RunStatus.FAILED, RunStatus.SKIPPED],
+    [
+        InvestigationStatus.RUNNING,
+        InvestigationStatus.DONE,
+        InvestigationStatus.FAILED,
+        InvestigationStatus.SKIPPED,
+    ],
 )
-def test_only_pending_runs_are_stale(store: Any, status: RunStatus) -> None:
+def test_only_pending_runs_are_stale(
+    store: Any, status: InvestigationStatus
+) -> None:
     """Anything past `pending` has reported something about itself. A long
     `running` sweep is slow, not lost, and failing it would end a live run."""
     store.append(_run("moved-on", status=status))
@@ -512,9 +557,9 @@ def test_only_pending_runs_are_stale(store: Any, status: RunStatus) -> None:
 
 
 def test_a_run_that_left_pending_is_no_longer_stale(store: Any) -> None:
-    """The age is read off the run's current state, not off anything it was."""
-    store.append(_run("r1", status=RunStatus.PENDING))
-    store.append(_run("r1", status=RunStatus.DONE))
+    """The age is read off the investigation's current state, not off anything it was."""
+    store.append(_run("r1", status=InvestigationStatus.PENDING))
+    store.append(_run("r1", status=InvestigationStatus.DONE))
     store.backdate("r1", minutes=600)
 
     assert store.list_stale_pending(lease_minutes=30) == []
@@ -522,7 +567,9 @@ def test_a_run_that_left_pending_is_no_longer_stale(store: Any) -> None:
 
 def test_a_scheduled_run_past_its_grace_is_overdue(store: Any) -> None:
     """A deleted Cloud Task never fires, and nothing else moves the run on."""
-    store.append(_run("lost", status=RunStatus.SCHEDULED, due_at=_aged(120)))
+    store.append(
+        _run("lost", status=InvestigationStatus.SCHEDULED, due_at=_aged(120))
+    )
 
     assert store.list_overdue_scheduled(grace_minutes=60) == ["lost"]
 
@@ -533,16 +580,24 @@ def test_a_scheduled_run_inside_its_grace_is_left_alone(
 ) -> None:
     """Not yet due, or due a little while ago with a retry still to come."""
     store.append(
-        _run("waiting", status=RunStatus.SCHEDULED, due_at=_aged(minutes_ago))
+        _run(
+            "waiting",
+            status=InvestigationStatus.SCHEDULED,
+            due_at=_aged(minutes_ago),
+        )
     )
 
     assert store.list_overdue_scheduled(grace_minutes=60) == []
 
 
 def test_a_scheduled_run_that_started_is_not_overdue(store: Any) -> None:
-    """Read off the run's current state: its trigger fired and it moved on."""
-    store.append(_run("r1", status=RunStatus.SCHEDULED, due_at=_aged(120)))
-    store.append(_run("r1", status=RunStatus.PENDING, due_at=_aged(120)))
+    """Read off the investigation's current state: its trigger fired and it moved on."""
+    store.append(
+        _run("r1", status=InvestigationStatus.SCHEDULED, due_at=_aged(120))
+    )
+    store.append(
+        _run("r1", status=InvestigationStatus.PENDING, due_at=_aged(120))
+    )
 
     assert store.list_overdue_scheduled(grace_minutes=60) == []
 
@@ -550,10 +605,12 @@ def test_a_scheduled_run_that_started_is_not_overdue(store: Any) -> None:
 def test_a_scheduled_run_is_not_in_flight(store: Any) -> None:
     """Nothing runs for it until its trigger fires, so it must not hold back a
     custom investigation."""
-    store.append(_run("waiting", status=RunStatus.SCHEDULED, due_at=_aged(-15)))
-    store.append(_run("queued", status=RunStatus.PENDING))
-    store.append(_run("going", status=RunStatus.RUNNING))
-    store.append(_run("over", status=RunStatus.DONE))
+    store.append(
+        _run("waiting", status=InvestigationStatus.SCHEDULED, due_at=_aged(-15))
+    )
+    store.append(_run("queued", status=InvestigationStatus.PENDING))
+    store.append(_run("going", status=InvestigationStatus.RUNNING))
+    store.append(_run("over", status=InvestigationStatus.DONE))
 
     assert store.count_in_flight(_AGENT) == 2
 
@@ -572,11 +629,11 @@ def test_a_reader_never_sees_a_half_applied_write() -> None:
     store = InMemoryInvestigationStore(backing)
     store.append(_run("r1"))
 
-    before = backing.runs
+    before = backing.investigations
     store.append(_run("r2"))
 
     assert set(before) == {"r1"}, "the mapping a reader held changed under it"
-    assert set(backing.runs) == {"r1", "r2"}
+    assert set(backing.investigations) == {"r1", "r2"}
 
 
 def test_concurrent_writers_lose_nothing() -> None:
@@ -597,8 +654,8 @@ def test_concurrent_writers_lose_nothing() -> None:
     for thread in threads:
         thread.join(timeout=5)
 
-    assert len(backing.runs) == 8
-    assert len(backing.list_run_events("shared")) == 8
+    assert len(backing.investigations) == 8
+    assert len(backing.list_investigation_events("shared")) == 8
 
 
 def test_a_day_is_the_utc_day_whatever_offset_the_window_carries() -> None:
@@ -637,7 +694,7 @@ def test_a_naive_window_bound_is_read_as_utc() -> None:
         window_end="2026-06-02T00:00:00+00:00",
     )
 
-    assert [r.run_id for r in listed] == ["naive"]
+    assert [r.investigation_id for r in listed] == ["naive"]
 
 
 def test_the_store_starts_empty() -> None:
@@ -645,11 +702,11 @@ def test_the_store_starts_empty() -> None:
     which is what the bug asks for."""
     store = InMemoryStore()
 
-    assert store.runs == {}
-    assert store.list_run_events("anything") == ()
+    assert store.investigations == {}
+    assert store.list_investigation_events("anything") == ()
 
 
-# --- one agent's runs (standalone) ------------------------------------------ #
+# --- one agent's investigations (standalone) ------------------------------------------ #
 # The BigQuery side's scoping is SQL, which `test_investigation_store` covers;
 # `FakeInvestigationStore` replaces those reads, so it cannot be held to it here.
 
@@ -657,56 +714,58 @@ def test_the_store_starts_empty() -> None:
 def test_the_standalone_store_lists_only_its_agents_runs() -> None:
     backing = InMemoryStore()
     staging = InMemoryInvestigationStore(
-        backing, agent_name="acme-staging__it_support_agent"
+        backing, observed_agent_key="acme-staging__it_support_agent"
     )
     prod = InMemoryInvestigationStore(
-        backing, agent_name="acme-prod__it_support_agent"
+        backing, observed_agent_key="acme-prod__it_support_agent"
     )
-    for store, run_id in ((staging, "s1"), (prod, "p1")):
+    for store, investigation_id in ((staging, "s1"), (prod, "p1")):
         store.append(
-            InvestigationRecord(
-                run_id=run_id,
-                status=RunStatus.DONE,
-                observed_agent_name=store._agent_name,
+            Investigation(
+                investigation_id=investigation_id,
+                status=InvestigationStatus.DONE,
+                observed_agent_key=store._observed_agent_key,
                 window_end="2026-06-01T00:00:00+00:00",
             )
         )
 
-    assert [r.run_id for r in staging.list_recent()] == ["s1"]
+    assert [r.investigation_id for r in staging.list_recent()] == ["s1"]
     assert staging.sum_counters()[0]["investigations"] == 1
     assert [d["investigations"] for d in staging.sum_counters_by_day()] == [1]
 
 
 def test_the_standalone_store_reads_any_agents_run_by_its_id() -> None:
     """Run ids are unique across agents, so a job that selects no agent still
-    finds the run it was started for."""
+    finds the investigation it was started for."""
     backing = InMemoryStore()
-    staging = InMemoryInvestigationStore(backing, agent_name="staging")
+    staging = InMemoryInvestigationStore(backing, observed_agent_key="staging")
     staging.append(
-        InvestigationRecord(run_id="s1", observed_agent_name="staging")
+        Investigation(investigation_id="s1", observed_agent_key="staging")
     )
     staging.append_event("s1", "step\n")
 
-    record = InMemoryInvestigationStore(backing, agent_name="prod").get("s1")
+    record = InMemoryInvestigationStore(backing, observed_agent_key="prod").get(
+        "s1"
+    )
 
     assert record is not None
     assert [e.text for e in record.events] == ["step\n"]
 
 
 def test_the_standalone_store_fails_every_agents_lost_runs() -> None:
-    """Every agent's runs share one grace period, so any launch clears them
+    """Every agent's investigations share one grace period, so any launch clears them
     all."""
     backing = InMemoryStore()
     for agent in ("a", "b"):
-        InMemoryInvestigationStore(backing, agent_name=agent).append(
-            InvestigationRecord(
-                run_id=f"{agent}1",
-                status=RunStatus.SCHEDULED,
-                observed_agent_name=agent,
+        InMemoryInvestigationStore(backing, observed_agent_key=agent).append(
+            Investigation(
+                investigation_id=f"{agent}1",
+                status=InvestigationStatus.SCHEDULED,
+                observed_agent_key=agent,
                 due_at="2026-01-01T00:00:00+00:00",
             )
         )
 
-    store = InMemoryInvestigationStore(backing, agent_name="a")
+    store = InMemoryInvestigationStore(backing, observed_agent_key="a")
 
     assert sorted(store.list_overdue_scheduled(grace_minutes=1)) == ["a1", "b1"]

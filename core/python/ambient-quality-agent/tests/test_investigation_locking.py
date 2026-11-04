@@ -64,11 +64,11 @@ def test_only_one_of_many_threads_gets_the_claim() -> None:
     granted: list[str] = []
     guard = threading.Lock()
 
-    def claim(run_id: str) -> None:
+    def claim(investigation_id: str) -> None:
         start.wait(timeout=5)
-        if lock.acquire("agent-a", run_id) is None:
+        if lock.acquire("agent-a", investigation_id) is None:
             with guard:
-                granted.append(run_id)
+                granted.append(investigation_id)
 
     threads = [
         threading.Thread(target=claim, args=(f"run-{i}",)) for i in range(8)

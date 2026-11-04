@@ -124,13 +124,13 @@ def _parse_command_args(text: str, prefix: str) -> list[str]:
 async def _run_investigation_action(
     text: str, callback_context: CallbackContext
 ) -> genai_types.Content:
-    """Handles `RUN_KEYWORD <run_id>` by dispatching the durable investigation run.
+    """Handles `RUN_KEYWORD <investigation_id>` by dispatching the durable investigation.
 
     Woken by the self-issued long-running query, this executes the investigation
     graph via `job_execution` and completes the turn with a status note.
 
     Args:
-        text: Input message containing the run keyword and run ID.
+        text: Input message containing the investigation keyword and investigation ID.
         callback_context: ADK callback context for the invocation.
 
     Returns:
@@ -138,14 +138,16 @@ async def _run_investigation_action(
     """
     args = _parse_command_args(text, RUN_KEYWORD)
     if not args:
-        msg = f"{RUN_KEYWORD} received without a run id; ignoring."
+        msg = f"{RUN_KEYWORD} received without an investigation id; ignoring."
         logger.warning(msg)
         return _build_model_message(msg)
 
-    run_id = args[0]
-    result = await job_execution.execute_investigation(run_id, callback_context)
+    investigation_id = args[0]
+    result = await job_execution.execute_investigation(
+        investigation_id, callback_context
+    )
     return _build_model_message(
-        f"Investigation {run_id} finished with status {result.get('status')}."
+        f"Investigation {investigation_id} finished with status {result.get('status')}."
     )
 
 
@@ -213,11 +215,14 @@ what you can do, introduce these abilities:
 Behavior rules:
 - To start an investigation, call `schedule_investigation`. It returns
   immediately with a `pending` run that executes as a durable background job;
-  tell the user it started (give the `run_id`) and that they can ask for status.
+  tell the user it started (give the `investigation_id`) and that they can ask for status.
   Do not start a run if the user only asked a question; never launch the same
   run twice; do not wait for it to finish.
 - For status/results, call `get_investigation` (or `list_investigations`); a run
-  is finished when its status is `done` or `failed`. When a run is `done`, relay
+  is finished when its status is `done` or `failed`. While it is `pending` or
+  `running`, report its `progress` when present: the stage it is in and, where
+  given, `evaluated` of `total` trajectories, `findings` and `clusters` so far.
+  When a run is `done`, relay
   the workflow events in `summary.events` (the progress/diagnostic messages
   emitted while it ran, including the insight-correlation summary of failed
   rubrics grouped into new/recurring insights) so the user sees what happened.
@@ -226,7 +231,7 @@ Behavior rules:
   The run's findings live durably in the insight store; point the user at
   `list_insights` / `get_insight` to explore them.
 - For insights, call `list_insights` to show the agent's open issues (pass a
-  `status` or `run_id` to narrow), and `get_insight` with an `insight_id` for one
+  `status` or `investigation_id` to narrow), and `get_insight` with an `insight_id` for one
   issue's occurrences and failing-rubric evidence. Only when asked.
 - When asked why an insight happens or how to fix it, answer from the
   `root_causes` that `get_insight` returns: report the recorded summary and the

@@ -19,21 +19,29 @@ import { resolveSubAgent } from "../insight-agent";
 describe("resolveSubAgent", () => {
   it("returns the sub-agent a defect is attributed to", () => {
     expect(
-      resolveSubAgent({ agent_name: "travel_desk", agent_id: "expense_agent" }),
+      resolveSubAgent({
+        observed_agent_key: "travel_desk",
+        agent_id: "expense_agent",
+      }),
     ).toBe("expense_agent");
   });
 
   it("returns nothing for the observed root agent", () => {
     // Every insight of a single-agent deployment looks like this.
     expect(
-      resolveSubAgent({ agent_name: "travel_desk", agent_id: "travel_desk" }),
+      resolveSubAgent({
+        observed_agent_key: "travel_desk",
+        agent_id: "travel_desk",
+      }),
     ).toBeUndefined();
   });
 
   it("returns nothing for an unattributed insight", () => {
     expect(
-      resolveSubAgent({ agent_name: "travel_desk", agent_id: "" }),
+      resolveSubAgent({ observed_agent_key: "travel_desk", agent_id: "" }),
     ).toBeUndefined();
-    expect(resolveSubAgent({ agent_name: "travel_desk" })).toBeUndefined();
+    expect(
+      resolveSubAgent({ observed_agent_key: "travel_desk" }),
+    ).toBeUndefined();
   });
 });

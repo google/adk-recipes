@@ -31,20 +31,21 @@ async function run() {
       timeout: 45000,
     });
 
-    const runLinks = page.locator('a[href*="/investigations/"]');
-    const runCount = await runLinks.count();
-    if (runCount === 0) {
-      throw new Error("No investigation run links found on /investigations");
+    const investigationLinks = page.locator('a[href*="/investigations/"]');
+    const investigationCount = await investigationLinks.count();
+    if (investigationCount === 0) {
+      throw new Error("No investigation links found on /investigations");
     }
-    console.log(`  ✓ Found ${runCount} investigation run links`);
+    console.log(`  ✓ Found ${investigationCount} investigation links`);
 
-    // Most recent runs might be empty sweeps that produced no ledger.
-    // Walk the runs until we find one that actually has ledger data.
-    console.log("2. Opening an investigation run that has ledger data");
+    // The most recent investigations might be empty sweeps that produced no
+    // ledger. Walk the investigations until we find one that actually has
+    // ledger data.
+    console.log("2. Opening an investigation that has ledger data");
     let opened = false;
     let ledgerCount = 0;
-    for (let i = 0; i < Math.min(runCount, 12); i++) {
-      const link = runLinks.nth(i);
+    for (let i = 0; i < Math.min(investigationCount, 12); i++) {
+      const link = investigationLinks.nth(i);
       const row = (await link.textContent()) || "";
       if (/no data/i.test(row)) continue;
       await link.click();
@@ -66,11 +67,11 @@ async function run() {
 
     if (!opened || ledgerCount === 0) {
       throw new Error(
-        "Could not find any investigation run with non-empty ledger rows",
+        "Could not find any investigation with non-empty ledger rows",
       );
     }
     console.log(
-      `  ✓ Investigation run detail page loaded with ${ledgerCount} step ledger rows`,
+      `  ✓ Investigation detail page loaded with ${ledgerCount} step ledger rows`,
     );
 
     console.log("3. Inspecting a trajectory event row");
@@ -105,7 +106,7 @@ async function run() {
       await page.waitForSelector("h1", { timeout: 20000 });
       await page.waitForTimeout(1500);
 
-      const caseLinks = page.locator('a[href*="/cases/"]');
+      const caseLinks = page.locator('a[href*="/trajectories/"]');
       const caseCount = await caseLinks.count();
       if (caseCount > 0) {
         console.log(
@@ -115,44 +116,47 @@ async function run() {
         const targetHref = await caseLinks.first().getAttribute("href");
         console.log(`  ✓ Clicking trajectory link (href: ${targetHref})`);
         await caseLinks.first().click();
-        await page.waitForURL((url) => url.pathname.includes("/cases/"), {
-          timeout: 30000,
-        });
+        await page.waitForURL(
+          (url) => url.pathname.includes("/trajectories/"),
+          {
+            timeout: 30000,
+          },
+        );
         await page.waitForSelector("text=Trajectory", {
           timeout: 30000,
         });
         await page.waitForTimeout(1000);
 
         const currentUrl = page.url();
-        if (!currentUrl.includes("/cases/")) {
+        if (!currentUrl.includes("/trajectories/")) {
           throw new Error(
-            `Expected URL to include '/cases/', but got '${currentUrl}'`,
+            `Expected URL to include '/trajectories/', but got '${currentUrl}'`,
           );
         }
         console.log(`  ✓ URL navigated to trajectory view: ${currentUrl}`);
 
         const caseText = (await page.textContent("body")) || "";
         if (!caseText.includes("Trajectory")) {
-          throw new Error("Missing 'Trajectory' header on case page");
+          throw new Error("Missing 'Trajectory' header on trajectory page");
         }
-        // "Timeline Replay" only renders once the case conversation resolves
-        // (the section is gated on `data?.case`). The endpoint is fine -- a
-        // real case returns 200 with a `case` body -- but a stale or evidence-
-        // less case id yields an empty page, so wait for it rather than
-        // sampling the DOM the instant the URL changes.
+        // "Timeline Replay" only renders once the trajectory bundle resolves
+        // (the section is gated on `data?.trajectory_bundle`). The endpoint is
+        // fine -- a real trajectory returns 200 with a `trajectory_bundle` body
+        // -- but a stale or evidence-less trajectory id yields an empty page, so
+        // wait for it rather than sampling the DOM the instant the URL changes.
         await page
           .waitForSelector("text=Timeline Replay", { timeout: 30000 })
           .catch(() => {});
         const settled = (await page.textContent("body")) || "";
         if (!settled.includes("Timeline Replay")) {
           throw new Error(
-            "Missing 'Timeline Replay' on the case page. The route renders it " +
-              "only when the case conversation loads, so check " +
-              "/api/investigations/<run>/cases/<case> for this case id.",
+            "Missing 'Timeline Replay' on the trajectory page. The route renders it " +
+              "only when the trajectory bundle loads, so check " +
+              "/api/investigations/<investigation>/trajectories/<trajectory> for this id.",
           );
         }
         if (!settled.includes("Step Ledger")) {
-          throw new Error("Missing 'Step Ledger' section on case page");
+          throw new Error("Missing 'Step Ledger' section on trajectory page");
         }
         console.log(
           "  ✓ Case conversation trajectory & step ledger rendered successfully",
