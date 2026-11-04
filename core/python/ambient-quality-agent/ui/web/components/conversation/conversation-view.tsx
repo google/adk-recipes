@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import type { CaseConversation, ConversationToolCall } from "@/lib/aqua-api";
+import type { TrajectoryBundle, ConversationToolCall } from "@/lib/aqua-api";
 import { timelineOf } from "@/lib/conversation";
 import { Markdown } from "@/components/chat/markdown";
 import { mono, textStyle } from "@/lib/typography";
@@ -93,7 +93,7 @@ function ToolGroup({ calls }: { calls: ConversationToolCall[] }) {
 export function ConversationView({
   conversation,
 }: {
-  conversation: CaseConversation;
+  conversation: TrajectoryBundle;
 }) {
   const items = timelineOf(conversation);
 

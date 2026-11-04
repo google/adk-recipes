@@ -65,6 +65,17 @@ const FADE_MS = 250;
  *  occurrence yet. */
 const GRACE_MS = 900;
 
+/** How a step keeps its element in view while the page settles, in ms. It
+ *  scrolls the element in when it is out of view, but not within WHEEL_QUIET_MS
+ *  of a wheel event: the tail of a trackpad flick that ended as the tour
+ *  opened would stop a smooth scroll partway. It tries again at most every
+ *  RESCROLL_MS, longer than a smooth scroll takes, and stops once the element
+ *  has been in view with the page at rest, after which the reader may scroll
+ *  it away, or after SETTLE_MS, rather than hold the page. */
+const WHEEL_QUIET_MS = 150;
+const RESCROLL_MS = GLIDE_MS + 200;
+const SETTLE_MS = 3000;
+
 /**
  * The guided tour, drawn over the dashboard: a spotlight on the step's element
  * and a callout beside it that walks from one feature to the next. When the
@@ -481,8 +492,9 @@ interface Spotlight {
 /**
  * The spotlight on the element marked `data-tour={locate}`, or on the element
  * itself, or held where it is while `locate` is null. The element is followed
- * every frame as the page scrolls and reflows, and scrolled into view the
- * first time it is found unless it is in view already. The hole glides to it
+ * every frame as the page scrolls and reflows, and scrolled into view once it
+ * is found, until it has been in view with the page at rest (see SETTLE_MS).
+ * The hole glides to it
  * over GLIDE_MS from wherever the last element left it, then keeps to it
  * exactly. While the element is missing the hole holds its place for GRACE_MS,
  * so it can glide on from there once a new page renders the element; after
@@ -505,7 +517,14 @@ function useSpotlight(locate: string | HTMLElement | null): Spotlight {
     if (locate === null) return;
     const glideMs = prefersReducedMotion() ? 0 : GLIDE_MS;
     let frame = 0;
-    let scrolled = false;
+    let foundAt: number | null = null;
+    let settled = false;
+    let scrolledAt = Number.NEGATIVE_INFINITY;
+    let wheelAt = Number.NEGATIVE_INFINITY;
+    const onWheel = () => {
+      wheelAt = performance.now();
+    };
+    window.addEventListener("wheel", onWheel, { capture: true, passive: true });
     let missingSince: number | null = null;
     let box: DOMRect | null = null;
     let hole = drawn.current;
@@ -528,18 +547,22 @@ function useSpotlight(locate: string | HTMLElement | null): Spotlight {
       let goal: DOMRect | null = null;
       if (element && rect && rect.width > 0 && rect.height > 0) {
         missingSince = null;
-        if (!scrolled) {
-          scrolled = true;
-          const inView =
-            rect.top >= 0 &&
-            rect.left >= 0 &&
-            rect.bottom <= window.innerHeight &&
-            rect.right <= window.innerWidth;
-          if (!inView)
+        foundAt ??= now;
+        if (
+          !settled &&
+          now - foundAt < SETTLE_MS &&
+          now - wheelAt > WHEEL_QUIET_MS &&
+          now - scrolledAt > RESCROLL_MS
+        ) {
+          if (isInView(element, rect)) {
+            settled = true;
+          } else {
+            scrolledAt = now;
             element.scrollIntoView({
               block: "center",
               behavior: glideMs ? "smooth" : "auto",
             });
+          }
         }
         box = rect;
         goal = new DOMRect(
@@ -580,7 +603,10 @@ function useSpotlight(locate: string | HTMLElement | null): Spotlight {
       frame = requestAnimationFrame(follow);
     };
     follow();
-    return () => cancelAnimationFrame(frame);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener("wheel", onWheel, { capture: true });
+    };
   }, [locate]);
 
   // What was drawn for an earlier element has not arrived at this one.
@@ -595,6 +621,40 @@ function useSpotlight(locate: string | HTMLElement | null): Spotlight {
  *  where the spotlight's hole closes to. */
 function restingPoint(): DOMRect {
   return placeCallout(null, window.innerWidth, window.innerHeight).anchor;
+}
+
+/**
+ * Whether `rect`, the box of `element`, is in sight: inside the window, and
+ * inside the box of the nearest ancestor that scrolls it, which the tab bar
+ * sits above. An element taller than that box is in sight once it fills it.
+ *
+ * Args:
+ *   element: The element a tour step points at.
+ *   rect: The element's box, as measured on this frame.
+ *
+ * Returns:
+ *   True when the element is in sight; false otherwise, and always when the
+ *   ancestor that scrolls it is outside the window.
+ */
+function isInView(element: Element, rect: DOMRect): boolean {
+  let top = 0;
+  let bottom = window.innerHeight;
+  for (let el = element.parentElement; el; el = el.parentElement) {
+    const { overflowY } = getComputedStyle(el);
+    if (overflowY === "auto" || overflowY === "scroll") {
+      const scroller = el.getBoundingClientRect();
+      top = Math.max(top, scroller.top);
+      bottom = Math.min(bottom, scroller.bottom);
+      break;
+    }
+  }
+  // Nothing in an ancestor outside the window is in sight, though an element
+  // there would pass the check below for one that fills the ancestor's box.
+  if (bottom <= top) return false;
+  const fits = rect.top >= top && rect.bottom <= bottom;
+  const fills =
+    rect.height > bottom - top && rect.top <= top && rect.bottom >= bottom;
+  return (fits || fills) && rect.left >= 0 && rect.right <= window.innerWidth;
 }
 
 function isSameBox(a: DOMRect | null, b: DOMRect | null): boolean {

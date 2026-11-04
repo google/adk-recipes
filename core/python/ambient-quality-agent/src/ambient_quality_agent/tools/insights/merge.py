@@ -184,10 +184,10 @@ def _fold(kept: Cluster, folded: Cluster) -> Cluster:
     """
     return kept.model_copy(
         update={
-            "item_count": kept.item_count + folded.item_count,
+            "finding_count": kept.finding_count + folded.finding_count,
             "finding_ids": [*kept.finding_ids, *folded.finding_ids],
-            "trace_ids": list(
-                dict.fromkeys([*kept.trace_ids, *folded.trace_ids])
+            "trajectory_ids": list(
+                dict.fromkeys([*kept.trajectory_ids, *folded.trajectory_ids])
             ),
             "agent_revisions": list(
                 dict.fromkeys([*kept.agent_revisions, *folded.agent_revisions])

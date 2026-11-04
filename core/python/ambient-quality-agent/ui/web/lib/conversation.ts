@@ -15,7 +15,7 @@
  */
 
 import type {
-  CaseConversation,
+  TrajectoryBundle,
   ConversationPart,
   ConversationToolCall,
 } from "./aqua-api";
@@ -35,10 +35,10 @@ export interface ToolGroupItem {
 
 /** A turn that happened but produced no text and no tool call. This is the
  * shape of `empty_final_response`, one of AQuA's two built-in metrics: a tool
- * call earlier in the case raised, and the turn that should have answered the
- * user has nothing in it. Told apart from a function-call event's empty text
- * (genuine noise) by the one thing that distinguishes them: that event's turn
- * also has a tool call recorded against it; this one does not. */
+ * call earlier in the trajectory raised, and the turn that should have answered
+ * the user has nothing in it. Told apart from a function-call event's empty
+ * text (genuine noise) by the one thing that distinguishes them: that event's
+ * turn also has a tool call recorded against it; this one does not. */
 export interface EmptyResponseItem {
   kind: "emptyResponse";
   turnIndex: number;
@@ -73,26 +73,20 @@ function reportsError(response: unknown): boolean {
 }
 
 /**
- * One case's turns as an ordered timeline, grouping a turn's tool calls the
- * way horizon's `message-bubble.tsx::groupSegments` groups consecutive `tool`
- * segments.
+ * Converts a `TrajectoryBundle`'s steps into an ordered timeline, grouping
+ * consecutive tool calls within each step.
  *
- * Walks the stored shape directly -- turns, then each turn's events, then each
- * event's parts, all already in the order they happened. The fork read two flat
- * tables instead and could only order a turn's text against its tool calls by
- * convention, which is why its version rendered every bubble of a turn before
- * that turn's tools regardless of when they were called. Here a tool call sits
- * where it was made.
+ * Walks `steps`, then each step's `events`, then each event's `parts` in
+ * chronological order so tool calls appear at the position they were invoked.
  *
- * One ADK turn holds both sides of an exchange -- the user's prompt and the
- * agent's reply share a `turn_index` with different `author`s -- so consecutive
- * text merges into one bubble only while the author holds. The bubble breaks
- * the moment it changes, the same rule `groupSegments` uses to break on kind.
+ * Because a single ADK turn includes both the user's prompt and the agent's
+ * reply under the same `turn_index` with different `author`s, consecutive text
+ * parts merge into one bubble only while `author` remains the same.
  */
-export function timelineOf(convo: CaseConversation): TimelineItem[] {
+export function timelineOf(convo: TrajectoryBundle): TimelineItem[] {
   const items: TimelineItem[] = [];
 
-  for (const [position, turn] of (convo.turns ?? []).entries()) {
+  for (const [position, turn] of (convo.steps ?? []).entries()) {
     const turnIndex = turn.turn_index ?? position;
     // Pairing spans the whole turn, so a response that arrives after the group
     // it belongs to has already been emitted still lands on its own call --

@@ -34,7 +34,10 @@ import { endTour, useTourStep } from "@/lib/tour-state";
 import { TabBar } from "../tab-bar";
 
 /** Answers every AQuA endpoint; `health` overrides just `/api/health`. */
-function stubApi(health: unknown, runs: unknown[] = []): typeof fetch {
+function stubApi(
+  health: unknown,
+  investigations: unknown[] = [],
+): typeof fetch {
   return ((input: RequestInfo | URL) => {
     const url = typeof input === "string" ? input : input.toString();
     if (url.includes("/api/health")) {
@@ -44,7 +47,9 @@ function stubApi(health: unknown, runs: unknown[] = []): typeof fetch {
     }
     if (url.includes("/api/investigations")) {
       return Promise.resolve(
-        new Response(JSON.stringify({ runs }), { status: 200 }),
+        new Response(JSON.stringify({ investigations: investigations }), {
+          status: 200,
+        }),
       );
     }
     return Promise.resolve(
@@ -53,9 +58,9 @@ function stubApi(health: unknown, runs: unknown[] = []): typeof fetch {
   }) as typeof fetch;
 }
 
-const aRun = () => ({
-  run_id: "run-123",
-  observed_agent_name: "it_support_agent",
+const buildInvestigation = () => ({
+  investigation_id: "inv-123",
+  observed_agent_key: "it_support_agent",
   created_at: new Date(Date.now() - 3600000).toISOString(),
   finished_at: new Date(Date.now() - 3500000).toISOString(),
 });
@@ -98,10 +103,10 @@ describe("TabBar", () => {
         return Promise.resolve(
           new Response(
             JSON.stringify({
-              runs: [
+              investigations: [
                 {
-                  run_id: "run-123",
-                  observed_agent_name: "it_support_agent",
+                  investigation_id: "inv-123",
+                  observed_agent_key: "it_support_agent",
                   created_at: new Date(Date.now() - 3600000).toISOString(),
                   finished_at: new Date(Date.now() - 3500000).toISOString(),
                 },
@@ -122,10 +127,10 @@ describe("TabBar", () => {
     expect(await screen.findByText("it_support_agent")).toBeInTheDocument();
     // Freshness moved to the homepage stat bar, which reads it from the health
     // endpoint. Two sources for one fact disagreed on screen.
-    expect(screen.queryByText(/last run/)).toBeNull();
+    expect(screen.queryByText(/last investigation/i)).toBeNull();
   });
 
-  it("names the configured agent before any run or insight exists", async () => {
+  it("names the configured agent before any investigation or insight exists", async () => {
     // A new deployment has neither, and the badge used to fall back to a
     // hard-coded `it_support_agent` whatever AQuA was configured to observe.
     renderBar(((input: RequestInfo | URL) => {
@@ -142,7 +147,7 @@ describe("TabBar", () => {
       }
       if (url.includes("/api/investigations")) {
         return Promise.resolve(
-          new Response(JSON.stringify({ runs: [] }), { status: 200 }),
+          new Response(JSON.stringify({ investigations: [] }), { status: 200 }),
         );
       }
       return Promise.resolve(
@@ -165,7 +170,7 @@ describe("TabBar", () => {
           verdict: "never",
           reason: "no scheduled investigation has ever finished",
         },
-        [aRun()],
+        [buildInvestigation()],
       ),
     );
 
@@ -182,7 +187,9 @@ describe("TabBar", () => {
 
   it("pulses green only when AQuA is actually watching", async () => {
     renderBar(
-      stubApi({ verdict: "watching", reason: "ran 6 hours ago" }, [aRun()]),
+      stubApi({ verdict: "watching", reason: "ran 6 hours ago" }, [
+        buildInvestigation(),
+      ]),
     );
 
     const dot = await screen.findByTestId("agent-health-dot");
@@ -193,7 +200,7 @@ describe("TabBar", () => {
   // the wordmark: nothing between it and the viewport was positioned.
   it("offers the way back from a collapsed rail, after the wordmark", async () => {
     const toggle = vi.fn();
-    renderBar(stubApi({ verdict: "watching" }, [aRun()]));
+    renderBar(stubApi({ verdict: "watching" }, [buildInvestigation()]));
     act(() => publishRailState({ collapsed: true, toggle }));
 
     const wordmark = await screen.findByText("AQuA");
@@ -208,7 +215,7 @@ describe("TabBar", () => {
   });
 
   it("marks that control for the rail, which hands it focus", async () => {
-    renderBar(stubApi({ verdict: "watching" }, [aRun()]));
+    renderBar(stubApi({ verdict: "watching" }, [buildInvestigation()]));
     act(() => publishRailState({ collapsed: true, toggle: () => {} }));
 
     // The rail finds the button by this attribute, not by its label, which
@@ -218,7 +225,7 @@ describe("TabBar", () => {
   });
 
   it("hides that control while the rail is open", async () => {
-    renderBar(stubApi({ verdict: "watching" }, [aRun()]));
+    renderBar(stubApi({ verdict: "watching" }, [buildInvestigation()]));
     act(() => publishRailState({ collapsed: false, toggle: () => {} }));
 
     expect(await screen.findByText("AQuA")).toBeInTheDocument();
@@ -227,7 +234,7 @@ describe("TabBar", () => {
 
   it("opens the guided tour", async () => {
     const tour = renderHook(() => useTourStep());
-    renderBar(stubApi({ verdict: "watching" }, [aRun()]));
+    renderBar(stubApi({ verdict: "watching" }, [buildInvestigation()]));
 
     await userEvent.click(
       await screen.findByRole("button", { name: "Take the tour" }),
@@ -238,10 +245,34 @@ describe("TabBar", () => {
 
   it("stays neutral while health is unknown", async () => {
     // An unreachable health check must not read as either healthy or broken.
-    renderBar(stubApi({ error: "unreachable" }, [aRun()]));
+    renderBar(stubApi({ error: "unreachable" }, [buildInvestigation()]));
 
     const dot = await screen.findByTestId("agent-health-dot");
     await waitFor(() => expect(dot.className).toMatch(/muted-foreground/));
     expect(dot.className).not.toMatch(/emerald|amber|red/);
   });
+
+  it.each([
+    { demo: true, shown: true },
+    { demo: undefined, shown: false },
+  ])(
+    "says the data is demo data only when the engine says so (demo: $demo)",
+    async ({ demo, shown }) => {
+      // `make demo`'s mock engine says so; a deployed engine never does.
+      renderBar(((input: RequestInfo | URL) => {
+        const url = typeof input === "string" ? input : input.toString();
+        const body = url.includes("/api/config")
+          ? { config: { observed_agent_name: "travel_desk_agent" }, demo }
+          : url.includes("/api/investigations")
+            ? { investigations: [] }
+            : { insights: [], total: 0 };
+        return Promise.resolve(
+          new Response(JSON.stringify(body), { status: 200 }),
+        );
+      }) as typeof fetch);
+
+      expect(await screen.findByText("travel_desk_agent")).toBeInTheDocument();
+      expect(screen.queryByText("Demo data") !== null).toBe(shown);
+    },
+  );
 });

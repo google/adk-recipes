@@ -24,30 +24,27 @@ new storage.
 loop that is turning and failing is worse news than one that is merely late, so
 `failing` outranks `overdue`.
 
-1. ``failing`` -- the most recent finished run ended in `FAILED`. The loop is
+1. ``failing`` -- the most recent finished investigation ended in `FAILED`. The loop is
    turning and producing errors, which needs attention now whether or not the
    schedule is being kept.
 2. ``never`` -- nothing has ever finished. Either the scheduler has not fired
-   or every run so far is still in flight; the reason says which. A standalone
+   or every investigation so far is still in flight; the reason says which. A standalone
    run has no scheduler, so there the reason says to start a sweep instead.
-3. ``overdue`` -- the newest finished run is older than `OVERDUE_FACTOR` times
+3. ``overdue`` -- the newest finished investigation is older than `OVERDUE_FACTOR` times
    the interval this deployment actually runs at, and nothing is in flight.
 4. ``watching`` -- none of the above.
 
-**Where the expected interval comes from.** The gaps between recent scheduled
-runs -- the median, so one long outage does not redefine "normal". The cron the
-caller passes as `schedule` is shown beside the verdict, not used to judge it.
+**Where the expected interval comes from.** The median gap between recent
+scheduled investigations, so an isolated outage does not skew the cadence. The
+cron expression passed as `schedule` is displayed alongside the verdict without
+affecting the threshold.
 
-That has a consequence worth stating: **with fewer than
-`MIN_INTERVALS_FOR_OVERDUE` scheduled runs to measure, `overdue` is not
-reachable at all** and `max_age_hours` is null. A deployment that has run twice
-has no established rhythm to be late against, and inventing a threshold would
-put a red badge on a healthy new install. `watching` is the honest answer there,
-and the reason says the rhythm is not known yet.
+With fewer than `MIN_INTERVALS_FOR_OVERDUE` scheduled investigations, `overdue`
+is unreachable and `max_age_hours` is null, avoiding false alarms on newly
+attached agents.
 
-**Anything in flight counts as life.** A pending or running sweep means the loop
-is turning right now, so it suppresses `overdue` regardless of when the last one
-finished.
+**Anything in flight counts as active.** A pending or running investigation
+suppresses `overdue` regardless of when the previous one finished.
 """
 
 from __future__ import annotations
@@ -60,7 +57,7 @@ from typing import Any
 
 from ambient_quality_agent.tools.investigations.models import (
     NON_AMBIENT_TRIGGER_TYPES,
-    RunStatus,
+    InvestigationStatus,
 )
 
 WATCHING = "watching"
@@ -69,18 +66,19 @@ NEVER = "never"
 FAILING = "failing"
 
 OVERDUE_FACTOR = 2.0
-"""How many expected intervals may pass before the loop counts as late.
+"""Multiplier on the median interval before the ambient loop is marked `overdue`.
 
-Two, not one: a run that starts on time still takes time to finish, and
-scheduler jitter is normal. At 1.0 a healthy daily deployment would spend part
-of every day amber, which trains people to ignore the badge -- the failure mode
-that matters most for a signal like this."""
+Allows for execution duration and scheduler jitter so normal daily schedules do
+not flap into `overdue`.
+"""
 
 MIN_INTERVALS_FOR_OVERDUE = 3
-"""Scheduled runs needed before lateness can be judged: three runs, so there
-are two gaps and a median that is not a single measurement."""
+"""Minimum completed scheduled investigations required before judging `overdue`
+(three investigations yield two intervals for a median)."""
 
-IN_FLIGHT = frozenset({RunStatus.PENDING, RunStatus.RUNNING})
+IN_FLIGHT = frozenset(
+    {InvestigationStatus.PENDING, InvestigationStatus.RUNNING}
+)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -92,7 +90,7 @@ class Health:
     schedule: str | None
     max_age_hours: float | None
     last_scheduled_finish: str | None
-    last_run: dict[str, Any] | None
+    last_investigation: dict[str, Any] | None
     open_findings: int
     worst_finding: dict[str, str] | None
 
@@ -101,19 +99,19 @@ class Health:
 
 
 def assess(
-    runs: list[dict[str, Any]],
+    investigations: list[dict[str, Any]],
     insights: list[dict[str, Any]],
     *,
     now: dt.datetime | None = None,
     schedule: str | None = None,
     standalone: bool = False,
 ) -> Health:
-    """Computes deployment health verdict from investigation runs and open insights.
+    """Computes deployment health verdict from investigations and open insights.
 
-    Evaluates finished runs, active sweeps, and open findings against expected intervals.
+    Evaluates finished investigations, active sweeps, and open findings against expected intervals.
 
     Args:
-        runs: List of investigation run dictionaries.
+        investigations: List of investigation dictionaries.
         insights: List of insight dictionaries.
         now: Optional reference timestamp (defaults to UTC now).
         schedule: Optional cron schedule expression string.
@@ -124,13 +122,15 @@ def assess(
         Health instance containing verdict, reason, and summary metrics.
     """
     now = now or dt.datetime.now(tz=dt.UTC)
-    finished = _list_finished_runs(runs)
+    finished = _list_finished_investigations(investigations)
     scheduled = [
         r
         for r in finished
         if r.get("trigger_type") not in NON_AMBIENT_TRIGGER_TYPES
     ]
-    in_flight = [r for r in runs if str(r.get("status") or "") in IN_FLIGHT]
+    in_flight = [
+        r for r in investigations if str(r.get("status") or "") in IN_FLIGHT
+    ]
 
     expected_hours = _compute_expected_interval_hours(scheduled)
     max_age = expected_hours * OVERDUE_FACTOR if expected_hours else None
@@ -145,7 +145,9 @@ def assess(
         "last_scheduled_finish": last_scheduled_finish.isoformat()
         if last_scheduled_finish
         else None,
-        "last_run": _format_last_run(finished[-1]) if finished else None,
+        "last_investigation": _format_last_investigation(finished[-1])
+        if finished
+        else None,
         "open_findings": open_findings,
         "worst_finding": worst,
     }
@@ -162,7 +164,7 @@ def assess(
             reason = "No sweep has ever finished. The scheduler may never have fired."
         return Health(verdict=NEVER, reason=reason, **common)
 
-    if str(finished[-1].get("status") or "") == RunStatus.FAILED:
+    if str(finished[-1].get("status") or "") == InvestigationStatus.FAILED:
         return Health(
             verdict=FAILING,
             reason="The most recent sweep failed.",
@@ -207,40 +209,44 @@ def assess(
     )
 
 
-def _list_finished_runs(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Filters and orders runs that reached a terminal state.
+def _list_finished_investigations(
+    investigations: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Filters and orders investigations that reached a terminal state.
 
-    Orders runs by parsed timestamps to ensure consistent sorting across timezone
-    representations.
+    Orders investigations by parsed timestamps to ensure consistent sorting
+    across timezone representations.
 
     Args:
-        runs: List of run dictionaries.
+        investigations: List of investigation dictionaries.
 
     Returns:
-        Terminal run dictionaries sorted oldest first by completion time.
+        Terminal investigation dictionaries sorted oldest first by completion
+        time.
     """
-    stamped = [(_parse_finished_at(r), r) for r in runs]
+    stamped = [(_parse_finished_at(r), r) for r in investigations]
     dated = [(when, r) for when, r in stamped if when is not None]
     return [r for _, r in sorted(dated, key=lambda pair: pair[0])]
 
 
-def _parse_finished_at(run: dict[str, Any]) -> dt.datetime | None:
-    return _parse_instant(run.get("finished_at"))
+def _parse_finished_at(investigation: dict[str, Any]) -> dt.datetime | None:
+    return _parse_instant(investigation.get("finished_at"))
 
 
 def _compute_expected_interval_hours(
     scheduled: list[dict[str, Any]],
 ) -> float | None:
-    """Calculates median interval between scheduled sweeps in hours.
+    """Calculates median interval between scheduled investigations in hours.
 
     Uses median rather than mean to prevent isolated delays from redefining normal
     cadence.
 
     Args:
-        scheduled: Chronologically sorted scheduled run dictionaries.
+        scheduled: Chronologically sorted scheduled investigation dictionaries.
 
     Returns:
-        Median interval in hours, or None if fewer than MIN_INTERVALS_FOR_OVERDUE runs exist.
+        Median interval in hours, or None if fewer than
+        `MIN_INTERVALS_FOR_OVERDUE` investigations exist.
     """
     if len(scheduled) < MIN_INTERVALS_FOR_OVERDUE:
         return None
@@ -254,28 +260,30 @@ def _compute_expected_interval_hours(
     return statistics.median(positive) if positive else None
 
 
-def _format_last_run(run: dict[str, Any]) -> dict[str, Any]:
-    """Formats the latest finished run for badge rendering.
+def _format_last_investigation(
+    investigation: dict[str, Any],
+) -> dict[str, Any]:
+    """Formats the latest finished investigation for badge rendering.
 
-    Returns None for session counts and pass rates when a run evaluated zero traces,
-    avoiding an inaccurate 0% claim.
+    Returns None for trajectory counts and pass rates when an investigation
+    evaluated zero trajectories, avoiding an inaccurate 0% claim.
 
     Args:
-        run: Terminal run dictionary.
+        investigation: Terminal investigation dictionary.
 
     Returns:
-        Dictionary of formatted run metrics and status.
+        Dictionary of formatted investigation metrics and status.
     """
-    counters = run.get("counters") or {}
-    evaluated = int(counters.get("traces_evaluated") or 0)
-    passed = int(counters.get("traces_eval_passed") or 0)
+    counters = investigation.get("counters") or {}
+    evaluated = int(counters.get("trajectories_evaluated") or 0)
+    passed = int(counters.get("trajectories_eval_passed") or 0)
     return {
-        "run_id": str(run.get("run_id") or ""),
-        "finished_at": run.get("finished_at"),
-        "status": str(run.get("status") or ""),
-        "trigger_type": str(run.get("trigger_type") or ""),
-        "sessions": evaluated or None,
-        "sessions_passed": passed if evaluated else None,
+        "investigation_id": str(investigation.get("investigation_id") or ""),
+        "finished_at": investigation.get("finished_at"),
+        "status": str(investigation.get("status") or ""),
+        "trigger_type": str(investigation.get("trigger_type") or ""),
+        "trajectories": evaluated or None,
+        "trajectories_passed": passed if evaluated else None,
         "pass_rate": (passed / evaluated) if evaluated else None,
     }
 
@@ -294,7 +302,7 @@ def _summarize_open_findings(
     open_ = [i for i in insights if str(i.get("status") or "") != "RESOLVED"]
     if not open_:
         return 0, None
-    worst = max(open_, key=lambda i: int(i.get("trace_count") or 0))
+    worst = max(open_, key=lambda i: int(i.get("trajectory_count") or 0))
     return len(open_), {
         "insight_id": str(worst.get("insight_id") or ""),
         "label": str(worst.get("label") or ""),

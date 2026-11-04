@@ -28,7 +28,7 @@ const NOTE =
   "distinct insights.";
 
 /** NOTE for the funnel of one investigation, which adds nothing up. */
-const ONE_RUN_NOTE =
+const ONE_INVESTIGATION_NOTE =
   "All four are drawn to one scale, so each bar shows how much of the " +
   "previous stage reached it. The first three count trajectories; insights counts " +
   "this investigation's new and recurring insights, and one insight can count " +
@@ -173,7 +173,7 @@ export function Funnel({
         ))}
       </div>
       <p className={textStyle.meta}>
-        {stats.investigations === 1 ? ONE_RUN_NOTE : NOTE}
+        {stats.investigations === 1 ? ONE_INVESTIGATION_NOTE : NOTE}
       </p>
     </div>
   );

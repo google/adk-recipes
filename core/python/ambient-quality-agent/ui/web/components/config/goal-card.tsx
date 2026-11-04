@@ -21,7 +21,7 @@ import {
   saveGoal,
   type GoalVersionRow,
 } from "@/lib/aqua-api";
-import { formatInstant } from "@/lib/run-summary";
+import { formatInstant } from "@/lib/investigation-summary";
 import { mono, textStyle } from "@/lib/typography";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";

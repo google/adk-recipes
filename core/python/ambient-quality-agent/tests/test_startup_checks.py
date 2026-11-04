@@ -22,7 +22,9 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+import json
 import logging
+import pathlib
 from typing import Any
 from unittest import mock
 
@@ -52,6 +54,15 @@ def _table_with(columns: list[str]) -> mock.MagicMock:
     return table
 
 
+_SCHEMA_DIR = (
+    pathlib.Path(__file__).resolve().parents[1]
+    / "terraform"
+    / "modules"
+    / "aqa"
+    / "schemas"
+)
+
+
 def _investigation_store(get_table: Any) -> BigQueryInvestigationStore:
     client = mock.MagicMock()
     client.get_table = get_table
@@ -60,11 +71,24 @@ def _investigation_store(get_table: Any) -> BigQueryInvestigationStore:
     )
 
 
+def _terraform_columns(table_id: str) -> list[str]:
+    """Reads the column names a table's Terraform schema declares.
+
+    Args:
+        table_id: BigQuery table name.
+
+    Returns:
+        The declared column names.
+    """
+    path = _SCHEMA_DIR / f"{table_id}.json"
+    return [field["name"] for field in json.loads(path.read_text())["schema"]]
+
+
 def _insight_store(get_table: Any) -> BigQueryInsightStore:
     client = mock.MagicMock()
     client.get_table = get_table
     return BigQueryInsightStore(
-        client=client, project_id="p", dataset="d", agent_name="a"
+        client=client, project_id="p", dataset="d", observed_agent_key="a"
     )
 
 
@@ -105,6 +129,22 @@ def test_an_unreachable_table_is_none_rather_than_clean() -> None:
         raise RuntimeError("no such dataset")
 
     assert _investigation_store(explode).list_missing_columns() is None
+
+
+def test_insight_tables_with_their_deployed_columns_report_nothing_missing() -> (
+    None
+):
+    """The tables hold some fields under other column names (`run_id` for
+    `investigation_id`, `agent_name` for `observed_agent_key`, ...), and a
+    deployed table that has every column is not drift."""
+
+    def deployed(ref: str, **_k: Any) -> Any:
+        return _table_with(_terraform_columns(ref.rsplit(".", 1)[-1]))
+
+    assert _insight_store(deployed).list_missing_columns() == {
+        "insights": [],
+        "insight_occurrences": [],
+    }
 
 
 def test_each_insight_table_is_reported_on_its_own() -> None:

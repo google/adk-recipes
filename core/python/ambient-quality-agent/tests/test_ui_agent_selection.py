@@ -96,7 +96,12 @@ _ROUTES: list[tuple[str, str, str, dict[str, Any]]] = [
     ("GET", "/api/stats", "investigations/stats", {}),
     ("GET", "/api/daily", "investigations/daily", {}),
     ("GET", "/api/investigations/r1", "investigations/get", {}),
-    ("GET", "/api/investigations/r1/cases/c1", "trajectories/case", {}),
+    (
+        "GET",
+        "/api/investigations/n1/trajectories/t1",
+        "trajectories/bundle",
+        {},
+    ),
     ("GET", "/api/insights", "insights/list", {}),
     ("GET", "/api/insights/i1", "insights/get", {}),
     ("POST", "/api/insights/i1/dismiss", "insights/dismiss", {}),
@@ -121,13 +126,16 @@ def test_the_routes_cover_every_selectable_endpoint() -> None:
     exceptions = {
         "/api/agents",
         "/api/schedule",
+        "/api/selector",
+        "/api/selector/check",
         "/api/telemetry",
         "/api/telemetry/check",
         "/api/telemetry/grants",
     }
     covered = {
-        path.replace("r1", "{run_id}")
-        .replace("c1", "{case_id}")
+        path.replace("r1", "{investigation_id}")
+        .replace("n1", "{investigation_id}")
+        .replace("t1", "{trajectory_id}")
         .replace("i1", "{insight_id}")
         .replace("m1", "{memory_id}")
         for _, path, _, _ in _ROUTES

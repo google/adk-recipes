@@ -60,7 +60,7 @@ class FakeClient:
         documents: dict[str, Any] | None = None,
         health: dict[str, Any] | None = None,
         unpublished: dict[str, Any] | None = None,
-        case: dict[str, Any] | None = None,
+        trajectory_bundle: dict[str, Any] | None = None,
     ) -> None:
         self.runs = runs or []
         self.schedule_run = schedule_run
@@ -68,7 +68,7 @@ class FakeClient:
         self.stats = stats
         self.daily = daily
         self.health = health
-        self.case = case
+        self.trajectory_bundle = trajectory_bundle
         self.unpublished: dict[str, Any] = unpublished or {}
         """Canned payloads for `source`, keyed by route path. It answers
         `available: false` in every deployment today."""
@@ -94,15 +94,22 @@ class FakeClient:
         if path == "investigations/list":
             if self.runs_result is not None:
                 return self.runs_result
-            return {"runs": self.runs}
+            return {"investigations": self.runs}
         if path == "investigations/schedule":
             return self.schedule_run if self.schedule_run is not None else {}
         if path == "investigations/get":
-            run_id = (payload or {}).get("run_id")
+            investigation_id = (payload or {}).get("investigation_id")
             run = next(
-                (r for r in self.runs if r.get("run_id") == run_id), None
+                (
+                    r
+                    for r in self.runs
+                    if r.get("investigation_id") == investigation_id
+                ),
+                None,
             )
-            return run or {"error": f"No run found with id {run_id!r}."}
+            return run or {
+                "error": f"No investigation found with id {investigation_id!r}."
+            }
         if path == "insights/list":
             return self.insights if self.insights is not None else {}
         if path == "insights/get":
@@ -123,8 +130,12 @@ class FakeClient:
             return self.health if self.health is not None else {}
         if path == "source":
             return self.unpublished.get(path, {})
-        if path == "trajectories/case":
-            return self.case if self.case is not None else {}
+        if path == "trajectories/bundle":
+            return (
+                self.trajectory_bundle
+                if self.trajectory_bundle is not None
+                else {}
+            )
         raise AssertionError(f"unexpected command path {path!r}")
 
     def args_for(self, path: str) -> dict[str, Any]:
@@ -194,9 +205,9 @@ def _inject(monkeypatch: Any, client: Any) -> None:
 
 _RUNS: list[dict[str, Any]] = [
     {
-        "run_id": "aaa11111",
+        "investigation_id": "aaa11111",
         "status": "done",
-        "observed_agent_name": "poem_agent",
+        "observed_agent_key": "poem_agent",
         "created_at": "2026-07-03T10:00:00+00:00",
         "events": [
             {
@@ -207,9 +218,9 @@ _RUNS: list[dict[str, Any]] = [
         ],
     },
     {
-        "run_id": "bbb22222",
+        "investigation_id": "bbb22222",
         "status": "pending",
-        "observed_agent_name": "it_support_agent",
+        "observed_agent_key": "it_support_agent",
         "created_at": "2026-07-04T11:00:00+00:00",
     },
 ]
@@ -221,7 +232,10 @@ def test_list_investigations_returns_runs(monkeypatch) -> None:
     r = _get("/api/investigations?conversationId=c1")
     assert r.status_code == 200
     body = r.json()
-    assert [run["run_id"] for run in body["runs"]] == ["aaa11111", "bbb22222"]
+    assert [run["investigation_id"] for run in body["investigations"]] == [
+        "aaa11111",
+        "bbb22222",
+    ]
     # The dashboard drove the list command over its own route.
     assert fake.calls[0] == ("investigations/list", None)
 
@@ -269,7 +283,7 @@ def test_list_investigations_empty(monkeypatch) -> None:
     _inject(monkeypatch, FakeClient(runs=[]))
     r = _get("/api/investigations")
     assert r.status_code == 200
-    assert r.json() == {"runs": []}
+    assert r.json() == {"investigations": []}
 
 
 def test_list_investigations_error_degrades(monkeypatch) -> None:
@@ -277,24 +291,24 @@ def test_list_investigations_error_degrades(monkeypatch) -> None:
     r = _get("/api/investigations")
     assert r.status_code == 200
     body = r.json()
-    assert body["runs"] == []
+    assert body["investigations"] == []
     assert "backend exploded" in body["error"]
 
 
 def test_list_investigations_forwards_tool_error(monkeypatch) -> None:
     # The tool reports a failed BigQuery read in the payload rather than by
-    # raising: `{"runs": [], "error": ...}`. Dropping the key would draw the
+    # raising: `{"investigations": [], "error": ...}`. Dropping the key would draw the
     # outage as "No investigations yet", so it has to reach the SPA.
     fake = FakeClient()
     fake.runs_result = {
-        "runs": [],
+        "investigations": [],
         "error": "failed to list investigations: boom",
     }
     _inject(monkeypatch, fake)
     r = _get("/api/investigations")
     assert r.status_code == 200
     body = r.json()
-    assert body["runs"] == []
+    assert body["investigations"] == []
     assert "failed to list investigations" in body["error"]
 
 
@@ -312,11 +326,11 @@ def test_start_investigation_ok_without_run(monkeypatch) -> None:
 
 
 def test_start_investigation_returns_run(monkeypatch) -> None:
-    run = {"run_id": "ccc33333", "status": "pending"}
+    run = {"investigation_id": "ccc33333", "status": "pending"}
     _inject(monkeypatch, FakeClient(schedule_run=run))
     r = _post("/api/investigations")
     assert r.status_code == 200
-    assert r.json() == {"run": run}
+    assert r.json() == {"investigation": run}
 
 
 def test_start_investigation_error_degrades(monkeypatch) -> None:
@@ -327,11 +341,11 @@ def test_start_investigation_error_degrades(monkeypatch) -> None:
 
 
 def test_start_investigation_error_wins_over_run_id(monkeypatch) -> None:
-    # A run whose record was written but whose job failed to submit comes back
-    # with BOTH an error and a run_id (`format_run` always has one). The error
+    # An investigation whose record was written but whose job failed to submit comes back
+    # with BOTH an error and an investigation_id (`format_investigation` always has one). The error
     # has to win, or every such failure is reported to the user as "started".
     failed = {
-        "run_id": "ddd44444",
+        "investigation_id": "ddd44444",
         "status": "failed",
         "error": "failed to submit the durable job: quota exceeded",
     }
@@ -344,7 +358,7 @@ def test_start_investigation_error_wins_over_run_id(monkeypatch) -> None:
 
 
 # --------------------------------------------------------------------------- #
-# GET /api/investigations/{run_id}                                             #
+# GET /api/investigations/{investigation_id}                                             #
 # --------------------------------------------------------------------------- #
 
 
@@ -352,9 +366,9 @@ def test_get_investigation_record(monkeypatch) -> None:
     _inject(monkeypatch, FakeClient(runs=_RUNS))
     r = _get("/api/investigations/aaa11111")
     assert r.status_code == 200
-    run = r.json()["run"]
-    assert run["run_id"] == "aaa11111"
-    # The detail panel's payload carries the run's events; the list's does not.
+    run = r.json()["investigation"]
+    assert run["investigation_id"] == "aaa11111"
+    # The detail panel's payload carries the investigation's events; the list's does not.
     assert run["events"][0]["source"] == "init"
 
 
@@ -366,11 +380,46 @@ def test_get_investigation_not_found(monkeypatch) -> None:
     assert "run" not in r.json()
 
 
+class EmptyRecordClient(FakeClient):
+    """Stub engine whose `investigations/get` answers with nothing at all."""
+
+    async def post_command(
+        self, path: str, payload: dict[str, Any] | None = None
+    ) -> Any:
+        """Answers as `FakeClient` does, except that `investigations/get` returns
+        an empty record.
+
+        Args:
+            path: The command's route.
+            payload: The command's arguments.
+
+        Returns:
+            The stub's answer.
+        """
+        if path == "investigations/get":
+            return {}
+        return await super().post_command(path, payload)
+
+
+def test_an_empty_record_is_reported_by_its_investigation_id(
+    monkeypatch,
+) -> None:
+    _inject(monkeypatch, EmptyRecordClient())
+    r = _get("/api/investigations/aaa11111")
+    assert r.json() == {
+        "error": "No record returned for investigation 'aaa11111'."
+    }
+
+
 # --------------------------------------------------------------------------- #
 # GET /api/stats                                                               #
 # --------------------------------------------------------------------------- #
 
-_STATS = {"investigations": 3, "traces_scanned": 900, "traces_eval_failed": 12}
+_STATS = {
+    "investigations": 3,
+    "trajectories_scanned": 900,
+    "trajectories_eval_failed": 12,
+}
 
 
 def test_stats_returns_the_totals(monkeypatch) -> None:
@@ -378,7 +427,7 @@ def test_stats_returns_the_totals(monkeypatch) -> None:
     _inject(monkeypatch, fake)
     r = _get("/api/stats?conversationId=c1")
     assert r.status_code == 200
-    assert r.json()["stats"]["traces_scanned"] == 900
+    assert r.json()["stats"]["trajectories_scanned"] == 900
     # Unscoped totals send no window arguments.
     assert fake.calls[0] == ("investigations/stats", None)
 
@@ -403,10 +452,16 @@ def test_stats_forwards_a_period(monkeypatch) -> None:
 
 
 def test_daily_returns_the_buckets(monkeypatch) -> None:
-    """Aggregated by the agent over the period, not bucketed out of the runs
+    """Aggregated by the agent over the period, not bucketed out of the investigations
     list -- which returns 50 sweeps and would chart a fraction of a long
     period as though it were all of it."""
-    days = [{"day": "2026-08-20", "investigations": 4, "traces_eval_failed": 9}]
+    days = [
+        {
+            "day": "2026-08-20",
+            "investigations": 4,
+            "trajectories_eval_failed": 9,
+        }
+    ]
     fake = FakeClient(daily={"days": days})
     _inject(monkeypatch, fake)
     r = _get("/api/daily?windowStart=2026-08-01T00:00:00%2B00:00")
@@ -467,6 +522,66 @@ def test_config_returns_effective_config(monkeypatch) -> None:
     assert fake.calls[0] == ("config", None)
 
 
+class DemoClient(FakeClient):
+    """Stub engine that says its data is generated, as `make demo`'s mock does."""
+
+    async def post_command(
+        self, path: str, payload: dict[str, Any] | None = None
+    ) -> Any:
+        """Answers as `FakeClient` does, marking the config answer as demo data.
+
+        Args:
+            path: The command's route.
+            payload: The command's arguments.
+
+        Returns:
+            The stub's answer.
+        """
+        answer = await super().post_command(path, payload)
+        return {**answer, "demo": True} if path == "config" else answer
+
+
+def test_config_says_when_the_engine_serves_demo_data(monkeypatch) -> None:
+    _inject(monkeypatch, DemoClient(config=_CONFIG))
+    assert _get("/api/config").json()["demo"] is True
+
+    # A deployed engine never says so, and the answer stays as it was.
+    _inject(monkeypatch, FakeClient(config=_CONFIG))
+    assert "demo" not in _get("/api/config").json()
+
+
+class StarterClient(FakeClient):
+    """Stub engine whose config answer carries a starter selector."""
+
+    async def post_command(
+        self, path: str, payload: dict[str, Any] | None = None
+    ) -> Any:
+        """Answers as `FakeClient` does, adding the starter to the config answer.
+
+        Args:
+            path: The command's route.
+            payload: The command's arguments.
+
+        Returns:
+            The stub's answer.
+        """
+        answer = await super().post_command(path, payload)
+        if path != "config":
+            return answer
+        return {**answer, "starter_selector": "SELECT session_id AS target_id"}
+
+
+def test_config_passes_the_starter_selector_on(monkeypatch) -> None:
+    _inject(monkeypatch, StarterClient(config=_CONFIG))
+    body = _get("/api/config").json()
+    assert body["starter_selector"] == "SELECT session_id AS target_id"
+    assert body["config"] == _CONFIG
+
+    # An engine that sends none leaves the answer as it was.
+    _inject(monkeypatch, FakeClient(config=_CONFIG))
+    assert "starter_selector" not in _get("/api/config").json()
+
+
 def test_config_without_payload_errors(monkeypatch) -> None:
     # The turn produced no `show_config` result -> a clean error, not a 5xx.
     _inject(monkeypatch, FakeClient(config=None))
@@ -493,7 +608,7 @@ _INSIGHTS = {
             "label": "stopped before completing the request",
             "status": "NEW",
             "occurrence_count": 2,
-            "last_run_id": "aaa11111",
+            "last_investigation_id": "aaa11111",
         }
     ],
     "total": 1,
@@ -634,16 +749,15 @@ _INSIGHT_DETAIL = {
     "occurrences": [
         {
             "occurrence_id": "occ-1",
-            "run_id": "aaa11111",
+            "investigation_id": "aaa11111",
             "label": "stopped early",
-            "rubrics": [
+            "examples": [
                 {
-                    "rubric": {
-                        "rubric_id": "1",
+                    "finding": {
                         "expected_behavior": "completes the task",
                         "actual_behavior": "stopped after the first step",
                     },
-                    "eval_case_id": "case-1",
+                    "trajectory_id": "case-1",
                 }
             ],
         }
@@ -659,13 +773,13 @@ def test_get_insight_detail(monkeypatch) -> None:
     assert r.status_code == 200
     body = r.json()
     assert body["insight"]["insight_id"] == "ins-1"
-    assert body["occurrences"][0]["run_id"] == "aaa11111"
+    assert body["occurrences"][0]["investigation_id"] == "aaa11111"
     # The panel asks for the rubric evidence without the heavy traces -- but it
     # does ask for the trajectories, which are the links out to Cloud Trace and
     # cost one extra query rather than a conversation apiece.
     assert fake.args_for("insights/get") == {
         "insight_id": "ins-1",
-        "run_id": "",
+        "investigation_id": "",
         "page_token": "",
         "include_traces": False,
         "include_trajectories": True,
@@ -718,7 +832,9 @@ def test_the_insight_list_is_marked_too(monkeypatch) -> None:
     assert all("pre_dig" not in i for i in insights)
 
 
-def test_trajectory_ids_are_served_as_evidence_case_ids(monkeypatch) -> None:
+def test_trajectory_ids_are_served_as_evidence_trajectory_ids(
+    monkeypatch,
+) -> None:
     """#189 already writes the conversations behind a sighting. The dashboard
     calls that list something else; one column answers both."""
     detail = {
@@ -729,7 +845,7 @@ def test_trajectory_ids_are_served_as_evidence_case_ids(monkeypatch) -> None:
     }
     _inject(monkeypatch, FakeClient(insight_detail=detail))
     occurrence = _get("/api/insights/ins-1").json()["occurrences"][0]
-    assert occurrence["evidence_case_ids"] == ["t-1", "t-2"]
+    assert occurrence["evidence_trajectory_ids"] == ["t-1", "t-2"]
     # Projected, not moved: the name we store under is still the one we store.
     assert occurrence["trajectory_ids"] == ["t-1", "t-2"]
 
@@ -745,7 +861,7 @@ def test_an_occurrence_with_no_trajectories_gets_an_empty_list(
     _inject(monkeypatch, FakeClient(insight_detail=detail))
     assert (
         _get("/api/insights/ins-1").json()["occurrences"][0][
-            "evidence_case_ids"
+            "evidence_trajectory_ids"
         ]
         == []
     )
@@ -754,7 +870,7 @@ def test_an_occurrence_with_no_trajectories_gets_an_empty_list(
 def test_a_conversation_is_served_with_its_console_link(monkeypatch) -> None:
     """The point of the whole chain: an occurrence names its conversations, and
     each one carries a way to open the trace behind it. Keyed by case id, so
-    `evidence_case_ids` stays the panel's ordering and this only answers
+    `evidence_trajectory_ids` stays the panel's ordering and this only answers
     "where does this one go"."""
     detail = {
         "insight": {"insight_id": "ins-1"},
@@ -762,7 +878,7 @@ def test_a_conversation_is_served_with_its_console_link(monkeypatch) -> None:
             {
                 "occurrence_id": "o-1",
                 "trajectory_ids": ["t-1"],
-                "trajectories": [
+                "investigation_trajectories": [
                     {
                         "trajectory_id": "t-1",
                         "console_url": "https://console/x?tid=a",
@@ -786,7 +902,7 @@ def test_a_conversation_with_no_trace_gets_no_link(monkeypatch) -> None:
             {
                 "occurrence_id": "o-1",
                 "trajectory_ids": ["t-1", "t-2"],
-                "trajectories": [
+                "investigation_trajectories": [
                     {"trajectory_id": "t-1", "console_url": ""},
                     {
                         "trajectory_id": "t-2",
@@ -799,7 +915,7 @@ def test_a_conversation_with_no_trace_gets_no_link(monkeypatch) -> None:
     _inject(monkeypatch, FakeClient(insight_detail=detail))
     occurrence = _get("/api/insights/ins-1").json()["occurrences"][0]
     assert occurrence["console_urls"] == {"t-2": "https://console/x?tid=b"}
-    assert occurrence["evidence_case_ids"] == ["t-1", "t-2"]
+    assert occurrence["evidence_trajectory_ids"] == ["t-1", "t-2"]
 
 
 def test_an_engine_that_resolves_no_trajectories_still_serves_the_panel(
@@ -819,7 +935,7 @@ def test_an_engine_that_resolves_no_trajectories_still_serves_the_panel(
     )
 
 
-def test_an_engine_that_sends_its_own_evidence_case_ids_is_left_alone(
+def test_an_engine_that_sends_its_own_evidence_trajectory_ids_is_left_alone(
     monkeypatch,
 ) -> None:
     """So this adapter cannot overwrite a real dig-phase answer with the index
@@ -830,13 +946,13 @@ def test_an_engine_that_sends_its_own_evidence_case_ids_is_left_alone(
             {
                 "occurrence_id": "o-1",
                 "trajectory_ids": ["t-1", "t-2", "t-3"],
-                "evidence_case_ids": ["t-2"],
+                "evidence_trajectory_ids": ["t-2"],
             }
         ],
     }
     _inject(monkeypatch, FakeClient(insight_detail=detail))
     assert _get("/api/insights/ins-1").json()["occurrences"][0][
-        "evidence_case_ids"
+        "evidence_trajectory_ids"
     ] == ["t-2"]
 
 
@@ -846,7 +962,7 @@ def test_confidence_is_the_one_field_with_no_answer(monkeypatch) -> None:
     uncalculated or zeroed metric claims."""
     detail = {
         "insight": {"insight_id": "ins-1"},
-        "occurrences": [{"occurrence_id": "o-1", "trace_count": 4}],
+        "occurrences": [{"occurrence_id": "o-1", "trajectory_count": 4}],
     }
     _inject(monkeypatch, FakeClient(insight_detail=detail))
     body = _get("/api/insights/ins-1").json()
@@ -856,17 +972,17 @@ def test_confidence_is_the_one_field_with_no_answer(monkeypatch) -> None:
 
 def test_impact_is_the_traces_the_issue_touched(monkeypatch) -> None:
     """The dashboard sorts and ranks on `impact`, and nothing here ranks
-    clusters. `trace_count` is already SUM(o.trace_count) over the sightings,
+    clusters. `trajectory_count` is already SUM(o.trace_count) over the sightings,
     which is the closest thing we have to how much an issue matters."""
     detail = {
-        "insight": {"insight_id": "ins-1", "trace_count": 592},
+        "insight": {"insight_id": "ins-1", "trajectory_count": 592},
         "occurrences": [],
     }
     _inject(monkeypatch, FakeClient(insight_detail=detail))
     assert _get("/api/insights/ins-1").json()["insight"]["impact"] == 592
 
 
-def test_cases_checked_is_the_traces_the_sighting_was_evaluated_over(
+def test_trajectories_checked_is_the_traces_the_sighting_was_evaluated_over(
     monkeypatch,
 ) -> None:
     """The fork counts cases an independent Cloud Trace lookup confirmed. We run
@@ -874,11 +990,13 @@ def test_cases_checked_is_the_traces_the_sighting_was_evaluated_over(
     honest number."""
     detail = {
         "insight": {"insight_id": "ins-1"},
-        "occurrences": [{"occurrence_id": "o-1", "trace_count": 6}],
+        "occurrences": [{"occurrence_id": "o-1", "trajectory_count": 6}],
     }
     _inject(monkeypatch, FakeClient(insight_detail=detail))
     assert (
-        _get("/api/insights/ins-1").json()["occurrences"][0]["cases_checked"]
+        _get("/api/insights/ins-1").json()["occurrences"][0][
+            "trajectories_checked"
+        ]
         == 6
     )
 
@@ -1420,45 +1538,57 @@ def test_an_unreachable_source_read_is_still_an_unavailable_card(
 
 
 # --------------------------------------------------------------------------- #
-# GET /api/investigations/{run}/cases/{case}                                    #
+# GET /api/investigations/{investigation}/trajectories/{trajectory}           #
 # --------------------------------------------------------------------------- #
 
 
-def test_a_case_conversation_is_relayed(monkeypatch) -> None:
+def test_a_trajectory_bundle_is_relayed(monkeypatch) -> None:
     payload = {
-        "case": {"trajectory_id": "case-1", "status": "ingested", "turns": []}
+        "trajectory_bundle": {
+            "trajectory_id": "case-1",
+            "status": "ingested",
+            "turns": [],
+        }
     }
-    _inject(monkeypatch, FakeClient(case=payload))
+    _inject(monkeypatch, FakeClient(trajectory_bundle=payload))
 
-    assert _get("/api/investigations/run-1/cases/case-1").json() == payload
+    assert (
+        _get("/api/investigations/run-1/trajectories/case-1").json() == payload
+    )
 
 
-def test_the_case_route_forwards_both_ids(monkeypatch) -> None:
-    """The case id is the trajectory id -- an occurrence's `evidence_case_ids`
-    are projected from `trajectory_ids`, so no lookup stands between them."""
-    client = FakeClient(case={"case": {}})
+def test_the_trajectory_bundle_route_forwards_both_ids(monkeypatch) -> None:
+    """An occurrence's `evidence_trajectory_ids` are projected from `trajectory_ids`,
+    so no lookup stands between the URL and the trajectory id."""
+    client = FakeClient(trajectory_bundle={"trajectory_bundle": {}})
     _inject(monkeypatch, client)
 
-    _get("/api/investigations/run-42/cases/case-7")
+    _get("/api/investigations/run-42/trajectories/case-7")
 
-    assert client.args_for("trajectories/case") == {
+    assert client.args_for("trajectories/bundle") == {
         "trajectory_id": "case-7",
-        "run_id": "run-42",
+        "investigation_id": "run-42",
     }
 
 
-def test_an_unreachable_case_read_is_an_error(monkeypatch) -> None:
+def test_an_unreachable_trajectory_bundle_read_is_an_error(monkeypatch) -> None:
     """Unlike the source card, an empty conversation here is a claim about what
     the agent did. A failed read has to say it failed."""
     _inject(monkeypatch, BoomClient())
 
-    assert "error" in _get("/api/investigations/run-1/cases/case-1").json()
+    assert (
+        "error" in _get("/api/investigations/run-1/trajectories/case-1").json()
+    )
 
 
-def test_an_empty_case_payload_is_reported_too(monkeypatch) -> None:
-    _inject(monkeypatch, FakeClient(case={}))
+def test_an_empty_trajectory_bundle_payload_is_reported_too(
+    monkeypatch,
+) -> None:
+    _inject(monkeypatch, FakeClient(trajectory_bundle={}))
 
-    assert "error" in _get("/api/investigations/run-1/cases/case-1").json()
+    assert (
+        "error" in _get("/api/investigations/run-1/trajectories/case-1").json()
+    )
 
 
 # --------------------------------------------------------------------------- #

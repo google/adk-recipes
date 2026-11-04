@@ -35,14 +35,14 @@ const ROOT_AGENT = "travel_desk_agent";
 function buildInsightView(over: Partial<InsightView> = {}): InsightView {
   return {
     insight_id: "ins-1",
-    agent_name: ROOT_AGENT,
+    observed_agent_key: ROOT_AGENT,
     label: "skipped the receipt check",
     tool_name: "submit_expense",
     status: "NEW",
     occurrence_count: 1,
-    trace_count: 3,
+    trajectory_count: 3,
     impact: 12,
-    last_run_at: "2026-01-02T03:04:05Z",
+    last_investigation_at: "2026-01-02T03:04:05Z",
     diagnosis: "",
     confidence: 0,
     ...over,

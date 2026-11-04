@@ -27,19 +27,19 @@ from typing import Any
 
 import pytest
 from ambient_quality_agent.tools.orchestrator import trajectory_tools
+from ambient_quality_agent.tools.trajectories.bundles import (
+    NOT_ARCHIVED,
+    TrajectoryBundle,
+)
 from ambient_quality_agent.tools.trajectories.models import (
     DailyOutcome,
     IngestStatus,
-    PayloadStatus,
-    Trajectory,
-    TrajectoryPayload,
-    TrajectoryPayloadTurn,
+    InvestigationTrajectory,
+    InvestigationTrajectoryView,
+    TrajectoryManifest,
     TrajectoryProcessingState,
-    TrajectoryView,
-)
-from ambient_quality_agent.tools.trajectories.payloads import (
-    NOT_ARCHIVED,
-    TrajectoryArchive,
+    TrajectoryStatus,
+    TrajectoryStep,
 )
 
 from .conftest import StateContext
@@ -49,56 +49,62 @@ _NOW = dt.datetime(2026, 6, 1, 9, 30, tzinfo=dt.UTC)
 
 def _call_outcomes(*args: Any, **kwargs: Any) -> dict[str, Any]:
     return asyncio.run(
-        trajectory_tools.count_trajectory_outcomes(*args, **kwargs)
+        trajectory_tools.count_investigation_trajectory_outcomes(
+            *args, **kwargs
+        )
     )
 
 
 def _call_list(*args: Any, **kwargs: Any) -> dict[str, Any]:
-    return asyncio.run(trajectory_tools.list_trajectories(*args, **kwargs))
+    return asyncio.run(
+        trajectory_tools.list_investigation_trajectories(*args, **kwargs)
+    )
 
 
-def _call_case(*args: Any, **kwargs: Any) -> dict[str, Any]:
-    return asyncio.run(trajectory_tools.get_case_conversation(*args, **kwargs))
+def _call_get_trajectory_bundle(*args: Any, **kwargs: Any) -> dict[str, Any]:
+    return asyncio.run(trajectory_tools.get_trajectory_bundle(*args, **kwargs))
 
 
-def _archive(
+def _build_bundle(
     trajectory_id: str, turns: list[dict[str, Any]]
-) -> TrajectoryArchive:
-    """Builds a mock stored conversation as returned by get_archives.
+) -> TrajectoryBundle:
+    """Builds a mock stored conversation as returned by get_trajectory_bundles.
 
     Args:
         trajectory_id: Trajectory identifier string.
         turns: List of turn event dictionaries.
 
     Returns:
-        Configured TrajectoryArchive instance.
+        Configured TrajectoryBundle instance.
     """
-    return TrajectoryArchive(
-        payload=TrajectoryPayload(
-            agent_name="observed",
+    return TrajectoryBundle(
+        manifest=TrajectoryManifest(
+            observed_agent_key="observed",
             trajectory_id=trajectory_id,
             created_at=_NOW,
-            status=PayloadStatus.INGESTED,
-            turn_count=len(turns),
+            status=TrajectoryStatus.INGESTED,
+            step_count=len(turns),
             agents={"observed": {"instruction": "be helpful"}},
         ),
-        turns=tuple(
-            TrajectoryPayloadTurn(
-                agent_name="observed",
+        steps=tuple(
+            TrajectoryStep(
+                observed_agent_key="observed",
                 trajectory_id=trajectory_id,
-                turn_index=index,
+                step_index=index,
                 created_at=_NOW,
-                turn=turn,
+                step=turn,
             )
             for index, turn in enumerate(turns)
         ),
     )
 
 
-def _view(trajectory_id: str = "case-1", **overrides: Any) -> TrajectoryView:
+def _view(
+    trajectory_id: str = "case-1", **overrides: Any
+) -> InvestigationTrajectoryView:
     fields: dict[str, Any] = {
-        "run_id": "run-1",
-        "agent_name": "test-observed-agent",
+        "investigation_id": "run-1",
+        "observed_agent_key": "test-observed-agent",
         "trajectory_id": trajectory_id,
         "created_at": _NOW,
         "source": "cloud_ops",
@@ -108,7 +114,7 @@ def _view(trajectory_id: str = "case-1", **overrides: Any) -> TrajectoryView:
         "outcome": TrajectoryProcessingState.IN_AN_INSIGHT,
     }
     fields.update(overrides)
-    return TrajectoryView(**fields)
+    return InvestigationTrajectoryView(**fields)
 
 
 class _FakeReader:
@@ -116,15 +122,15 @@ class _FakeReader:
         self,
         *,
         days: list[DailyOutcome] | None = None,
-        rows: list[TrajectoryView] | None = None,
+        rows: list[InvestigationTrajectoryView] | None = None,
         total: int = 0,
-        archives: dict[str, TrajectoryArchive] | None = None,
-        pairs: dict[tuple[str, str], Trajectory] | None = None,
+        bundles: dict[str, TrajectoryBundle] | None = None,
+        pairs: dict[tuple[str, str], InvestigationTrajectory] | None = None,
     ) -> None:
         self._days = days or []
         self._rows = rows or []
         self._total = total
-        self._archives = archives or {}
+        self._bundles = bundles or {}
         self._pairs = pairs or {}
         self.daily_calls: list[dict[str, Any]] = []
         self.list_calls: list[dict[str, Any]] = []
@@ -137,12 +143,19 @@ class _FakeReader:
         )
         return self._days
 
-    def list_trajectories(
-        self, *, run_id, outcome, window_start, window_end, limit, offset
+    def list_investigation_trajectories(
+        self,
+        *,
+        investigation_id,
+        outcome,
+        window_start,
+        window_end,
+        limit,
+        offset,
     ):
         self.list_calls.append(
             {
-                "run_id": run_id,
+                "investigation_id": investigation_id,
                 "outcome": outcome,
                 "window_start": window_start,
                 "window_end": window_end,
@@ -152,11 +165,11 @@ class _FakeReader:
         )
         return self._rows, self._total
 
-    def get_archives(self, trajectory_ids):
+    def get_trajectory_bundles(self, trajectory_ids):
         self.payload_calls.append(list(trajectory_ids))
-        return {k: v for k, v in self._archives.items() if k in trajectory_ids}
+        return {k: v for k, v in self._bundles.items() if k in trajectory_ids}
 
-    def get_trajectories(self, keys):
+    def get_investigation_trajectories(self, keys):
         self.pair_calls.append(list(keys))
         return {k: v for k, v in self._pairs.items() if k in keys}
 
@@ -174,7 +187,7 @@ def use_reader(monkeypatch: pytest.MonkeyPatch):
     return _install
 
 
-# --- count_trajectory_outcomes ------------------------------------------------------
+# --- count_investigation_trajectory_outcomes ---------------------------------
 
 
 def test_outcomes_returns_a_day_per_bucket(use_reader) -> None:
@@ -238,7 +251,7 @@ def test_outcomes_reports_a_failed_read_rather_than_raising(use_reader) -> None:
     assert "dataset not found" in result["error"]
 
 
-# --- list_trajectories --------------------------------------------------------
+# --- list_investigation_trajectories -----------------------------------------
 
 
 def test_list_returns_a_page_and_its_next_token(use_reader) -> None:
@@ -248,7 +261,7 @@ def test_list_returns_a_page_and_its_next_token(use_reader) -> None:
 
     assert result["total"] == 250
     assert result["next_page_token"]
-    assert result["trajectories"][0]["trajectory_id"] == "case-1"
+    assert result["investigation_trajectories"][0]["trajectory_id"] == "case-1"
 
 
 def test_the_last_page_has_no_next_token(use_reader) -> None:
@@ -273,7 +286,7 @@ def test_a_page_token_becomes_an_offset(use_reader) -> None:
 def test_a_dot_carries_the_link_to_its_conversation(use_reader) -> None:
     use_reader(_FakeReader(rows=[_view()], total=1))
 
-    trajectory = _call_list(StateContext())["trajectories"][0]
+    trajectory = _call_list(StateContext())["investigation_trajectories"][0]
 
     assert trajectory["console_url"].endswith("&tid=trace-1")
     assert trajectory["source_trace_ids"] == ["trace-1", "trace-2"]
@@ -286,7 +299,12 @@ def test_a_source_with_no_trace_ids_gets_no_link(use_reader) -> None:
         _FakeReader(rows=[_view(source="big_query", source_trace_ids=[])])
     )
 
-    assert _call_list(StateContext())["trajectories"][0]["console_url"] == ""
+    assert (
+        _call_list(StateContext())["investigation_trajectories"][0][
+            "console_url"
+        ]
+        == ""
+    )
 
 
 @pytest.mark.parametrize(
@@ -322,7 +340,7 @@ def test_an_unknown_outcome_is_rejected_before_the_read(use_reader) -> None:
 
 def test_list_reports_a_failed_read_rather_than_raising(use_reader) -> None:
     class _Boom(_FakeReader):
-        def list_trajectories(self, **_: Any):
+        def list_investigation_trajectories(self, **_: Any):
             raise RuntimeError("table not found")
 
     use_reader(_Boom())
@@ -330,7 +348,7 @@ def test_list_reports_a_failed_read_rather_than_raising(use_reader) -> None:
     assert "table not found" in _call_list(StateContext())["error"]
 
 
-# --- get_case_conversation --------------------------------------------------------
+# --- get_trajectory_bundle ---------------------------------------------------
 
 _TURN = {
     "turn_index": 0,
@@ -345,23 +363,29 @@ _TURN = {
 
 
 def test_a_case_comes_back_as_its_turns(use_reader) -> None:
-    use_reader(_FakeReader(archives={"case-1": _archive("case-1", [_TURN])}))
+    use_reader(
+        _FakeReader(bundles={"case-1": _build_bundle("case-1", [_TURN])})
+    )
 
-    case = _call_case(StateContext(), trajectory_id="case-1")["case"]
+    case = _call_get_trajectory_bundle(StateContext(), trajectory_id="case-1")[
+        "trajectory_bundle"
+    ]
 
-    assert case["status"] == PayloadStatus.INGESTED.value
-    assert case["turn_count"] == 1
-    assert case["turns"] == [_TURN]
+    assert case["status"] == TrajectoryStatus.INGESTED.value
+    assert case["step_count"] == 1
+    assert case["steps"] == [_TURN]
 
 
 def test_the_turns_are_the_stored_shape_not_a_flattening(use_reader) -> None:
     """The nesting is the point: the dashboard reads the events in order, and
     a turn's tool call sits between the text before it and the text after."""
-    use_reader(_FakeReader(archives={"case-1": _archive("case-1", [_TURN])}))
+    use_reader(
+        _FakeReader(bundles={"case-1": _build_bundle("case-1", [_TURN])})
+    )
 
-    turn = _call_case(StateContext(), trajectory_id="case-1")["case"]["turns"][
-        0
-    ]
+    turn = _call_get_trajectory_bundle(StateContext(), trajectory_id="case-1")[
+        "trajectory_bundle"
+    ]["steps"][0]
 
     assert turn["events"][0]["content"]["parts"] == [{"text": "hi"}]
 
@@ -369,22 +393,26 @@ def test_the_turns_are_the_stored_shape_not_a_flattening(use_reader) -> None:
 def test_a_conversation_nobody_archived_says_so(use_reader) -> None:
     """Absent rather than empty, because "never stored" and "stored and empty"
     lead a reader to opposite conclusions."""
-    use_reader(_FakeReader(archives={}))
+    use_reader(_FakeReader(bundles={}))
 
-    case = _call_case(StateContext(), trajectory_id="case-gone")["case"]
+    case = _call_get_trajectory_bundle(
+        StateContext(), trajectory_id="case-gone"
+    )["trajectory_bundle"]
 
     assert case["status"] == NOT_ARCHIVED
-    assert case["turns"] == []
+    assert case["steps"] == []
 
 
 def test_a_case_is_read_by_id_alone(use_reader) -> None:
     """No run in the key: a payload records the conversation, not one sweep's
     ingestion of it."""
     reader = use_reader(
-        _FakeReader(archives={"case-1": _archive("case-1", [])})
+        _FakeReader(bundles={"case-1": _build_bundle("case-1", [])})
     )
 
-    _call_case(StateContext(), trajectory_id="case-1", run_id="run-9")
+    _call_get_trajectory_bundle(
+        StateContext(), trajectory_id="case-1", investigation_id="run-9"
+    )
 
     assert reader.payload_calls == [["case-1"]]
 
@@ -393,7 +421,10 @@ def test_a_missing_id_is_rejected_rather_than_read(use_reader) -> None:
     reader = use_reader(_FakeReader())
 
     assert (
-        "trajectory_id" in _call_case(StateContext(), trajectory_id="")["error"]
+        "trajectory_id"
+        in _call_get_trajectory_bundle(StateContext(), trajectory_id="")[
+            "error"
+        ]
     )
     assert reader.payload_calls == []
 
@@ -401,25 +432,25 @@ def test_a_missing_id_is_rejected_rather_than_read(use_reader) -> None:
 def test_the_run_resolves_the_trace_link_beside_the_conversation(
     use_reader,
 ) -> None:
-    pair = Trajectory(
-        run_id="run-9",
-        agent_name="observed",
+    pair = InvestigationTrajectory(
+        investigation_id="run-9",
+        observed_agent_key="observed",
         trajectory_id="case-1",
         created_at=_NOW,
-        source="cloud_logging",
+        ingestion_source="cloud_logging",
         source_trace_ids=["t1"],
         ingest_status=IngestStatus.INGESTED,
     )
     use_reader(
         _FakeReader(
-            archives={"case-1": _archive("case-1", [_TURN])},
+            bundles={"case-1": _build_bundle("case-1", [_TURN])},
             pairs={("run-9", "case-1"): pair},
         )
     )
 
-    case = _call_case(StateContext(), trajectory_id="case-1", run_id="run-9")[
-        "case"
-    ]
+    case = _call_get_trajectory_bundle(
+        StateContext(), trajectory_id="case-1", investigation_id="run-9"
+    )["trajectory_bundle"]
 
     assert case["trajectory"]["source_trace_ids"] == ["t1"]
     assert "console_url" in case["trajectory"]
@@ -429,25 +460,29 @@ def test_the_conversation_survives_an_unresolvable_run(use_reader) -> None:
     """The index row supplies a link, not the conversation. A `(run, id)` pair
     that never existed -- a hand-edited URL -- still replays."""
     use_reader(
-        _FakeReader(archives={"case-1": _archive("case-1", [_TURN])}, pairs={})
+        _FakeReader(
+            bundles={"case-1": _build_bundle("case-1", [_TURN])}, pairs={}
+        )
     )
 
-    case = _call_case(StateContext(), trajectory_id="case-1", run_id="nope")[
-        "case"
-    ]
+    case = _call_get_trajectory_bundle(
+        StateContext(), trajectory_id="case-1", investigation_id="nope"
+    )["trajectory_bundle"]
 
-    assert case["turns"] == [_TURN]
+    assert case["steps"] == [_TURN]
     assert "trajectory" not in case
 
 
 def test_a_failed_read_is_reported_rather_than_raised(use_reader) -> None:
     class _Boom(_FakeReader):
-        def get_archives(self, trajectory_ids):
+        def get_trajectory_bundles(self, trajectory_ids):
             raise RuntimeError("table not found")
 
     use_reader(_Boom())
 
     assert (
         "table not found"
-        in _call_case(StateContext(), trajectory_id="c")["error"]
+        in _call_get_trajectory_bundle(StateContext(), trajectory_id="c")[
+            "error"
+        ]
     )

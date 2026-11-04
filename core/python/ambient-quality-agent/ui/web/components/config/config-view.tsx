@@ -17,6 +17,7 @@ import { EffectiveConfigCard } from "@/components/config/effective-config-card";
 import { SourceCard } from "@/components/config/source-card";
 import { MemoryCard } from "./memory-card";
 import { ScheduleCard } from "./schedule-card";
+import { SelectorCard } from "./selector-card";
 import { TelemetryCard } from "./telemetry-card";
 import { PageHeader } from "@/components/nav/page-header";
 import { PageRefreshButton } from "@/components/ui/refresh-button";
@@ -26,13 +27,14 @@ export function ConfigView() {
     <div className="flex flex-col gap-6">
       <PageHeader
         title="Configuration"
-        description="Long-term guidance, the schedule, the telemetry table and procedural memory for AQuA investigations."
+        description="Long-term guidance, the schedule, the telemetry table, the investigation selector and procedural memory for AQuA investigations."
         aside={<PageRefreshButton />}
       />
 
       <GoalCard />
       <ScheduleCard />
       <TelemetryCard />
+      <SelectorCard />
       <SourceCard />
       <MemoryCard />
       <EffectiveConfigCard />
