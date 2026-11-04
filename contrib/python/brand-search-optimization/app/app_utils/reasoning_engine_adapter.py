@@ -26,11 +26,8 @@ import http
 import inspect
 import json
 
-try:
-    from agentplatform.frameworks.adk import AdkApp
-except ImportError:
-    from agentplatform.agent_engines.templates.adk import AdkApp
 from fastapi import FastAPI, HTTPException, Request, encoders, responses
+from vertexai.agent_engines.templates.adk import AdkApp
 
 from app.app_utils import services
 

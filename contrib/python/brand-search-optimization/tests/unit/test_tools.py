@@ -324,6 +324,34 @@ class TestBrowserComputer:
             assert isinstance(computer, MockBrowserComputer)
 
     @pytest.mark.asyncio
+    async def test_playwright_browser_computer_scroll_and_type_text(self):
+        computer = PlaywrightBrowserComputer()
+        mock_page = MagicMock()
+        computer._pages["default"] = mock_page
+
+        from unittest.mock import AsyncMock
+
+        mock_page.mouse.move = AsyncMock()
+        mock_page.mouse.wheel = AsyncMock()
+        mock_page.keyboard.type = AsyncMock()
+        mock_page.keyboard.press = AsyncMock()
+        mock_page.screenshot = AsyncMock(return_value=b"fake_screenshot")
+        mock_page.url = "https://www.google.com"
+
+        # Verify positional signature expected by ComputerUseToolset.scroll shim
+        await computer.scroll_at(100, 200, "down", 300)
+        mock_page.mouse.move.assert_awaited_once_with(100, 200)
+        mock_page.mouse.wheel.assert_awaited_once_with(0, 300)
+
+        # Verify coordinate-free type_text expected by ComputerUseToolset.type shim
+        await computer.type_text(text="running shoes", press_enter=False)
+        mock_page.keyboard.type.assert_awaited_once_with("running shoes")
+        mock_page.keyboard.press.assert_not_awaited()
+
+        await computer.type_text(text="trail shoes", press_enter=True)
+        mock_page.keyboard.press.assert_awaited_once_with("Enter")
+
+    @pytest.mark.asyncio
     async def test_get_computer_use_toolset(self):
         toolset = get_computer_use_toolset()
         assert isinstance(toolset, ComputerUseToolset)
@@ -335,6 +363,17 @@ class TestBrowserComputer:
         assert "navigate" in tool_names
         assert "click_at" in tool_names
         assert "type_text_at" in tool_names
+        # Native Gemini 3.x short-verb shims from google-adk >= 2.13.0
+        for modern_action in (
+            "click",
+            "move",
+            "type",
+            "scroll",
+            "take_screenshot",
+            "press_key",
+            "hotkey",
+        ):
+            assert modern_action in tool_names
 
 
 class TestModels:
