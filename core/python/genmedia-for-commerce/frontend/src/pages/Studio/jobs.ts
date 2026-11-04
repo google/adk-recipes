@@ -31,7 +31,7 @@ import { jobSpec, missingInput, resultsOf, type UrlCache } from "./model";
 import type { StudioStore } from "./store";
 
 /**
- * The generation being followed: its results so far and (Video Try-On) the try-on images it animated so far;
+ * The generation being followed: its results so far and (Video Try-On) the try-on images it made so far;
  * `tryonImage`: the image of a "Make video" job, whose results replace only that image's videos ("" for a full run);
  * `coming`: the front variations of each list still coming; `failed`: those that ended without media.
  */

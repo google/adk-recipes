@@ -20,6 +20,7 @@ from typing import Literal
 from genmedia4commerce.core.errors import InputError
 from genmedia4commerce.core.gen import ImageParams, VideoParams
 from genmedia4commerce.core.runner import RunPolicy
+from genmedia4commerce.core.settings import LookConflict
 from genmedia4commerce.core.types import Classification, Framing, Landmark
 from genmedia4commerce.workflows.details import Detail
 
@@ -69,6 +70,7 @@ class VideoTryOnRequest:
     reference_model_image: bytes | None = None
     complete_look: bool = True  # see TryOnRequest
     upscale_crops: bool = False  # see TryOnRequest
+    look_conflict: LookConflict | None = None  # see TryOnRequest
     style_guidelines: str | None = None
     scenario: str | None = None
     image: ImageParams | None = None  # stage-1 image params

@@ -227,7 +227,7 @@ def _ended(st: dict[str, Any], job_id: str) -> None:
 
 def _end_job(st: dict[str, Any], job_id: str, job: dict[str, Any]) -> None:
     """Stop following an ended job and record its results on its page: a
-    finished one's; a video try-on that animated try-on images also when
+    finished one's; a video try-on that made try-on images also when
     its videos failed, with those images (``images``); a "Make video"
     (``tryon_image``), done or not, in place of that image's videos."""
     st["job"] = None

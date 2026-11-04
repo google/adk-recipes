@@ -1037,6 +1037,45 @@ def test_an_uploaded_product_in_the_look_is_cropped_never_added(
     assert _drawn(crop) in _byte_parts(_image_calls(fake_gen)[0])
 
 
+@pytest.mark.parametrize("rule", ["upload", "look"])
+def test_the_look_conflict_rule_keeps_one_pair_of_shoes(
+    fake_gen, fakes, images, person, rule
+):
+    """The look's lace-up shoes would take the uploaded shoes' (B) place:
+    one progress line says which pair is kept; the other is neither drawn
+    nor judged."""
+    answer = _classified(
+        ("A", "top", [_img(0), _look(2, SHOES_ITEM)]),
+        ("B", "footwear", [_img(1)]),
+    )
+    fakes.boxes = {"lace-up shoes": SHOES}
+    fake_gen.json(_json_router(answer))
+    fake_gen.image(_images_counter())
+    model = png(20, 40, color=(9, 9, 9))
+    req = _request(
+        images, person, 2, reference_model_image=model, look_conflict=rule
+    )
+    events = _run(req)
+    products = events[0].payload["products"]
+    shoes = {"upload": "footwear item", "look": "lace-up shoes"}[rule]
+    assert [p["description"] for p in products] == ["top item", shoes]
+    assert [c["kept"] for c in events[0].payload["look_conflicts"]] == [rule]
+    (line,) = [e for e in events if getattr(e, "stage", "") == "look"]
+    assert (
+        line.message
+        == {
+            "upload": "Kept the uploaded footwear item and left out the look's "
+            "lace-up shoes",
+            "look": "Used the look's lace-up shoes instead of the uploaded "
+            "footwear item",
+        }[rule]
+    )
+    drawn = _byte_parts(_image_calls(fake_gen)[0])
+    assert (_drawn(SHOES) in drawn) is (rule == "look")
+    assert (_drawn(images[1]) in drawn) is (rule == "upload")
+    assert len(fakes.product_calls) == 2 * fakes.judge_calls  # top, shoes
+
+
 def test_without_complete_look_the_look_adds_nothing(
     fake_gen, fakes, images, person
 ):

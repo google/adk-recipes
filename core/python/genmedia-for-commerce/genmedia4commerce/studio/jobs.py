@@ -20,15 +20,15 @@ short ``tools/call`` round trips. The job runs the workflow's event stream
 (``tools.stream``) on the instance that started it and rewrites its
 document in the media bucket (``studio.store``) as events arrive: the
 progress line, each finished variation, and for a video try-on from photos
-the try-on images (``image_results``) and those it animates (``images``,
-each with ``passed`` and its back view); each result carries the URI of
+the try-on images (``image_results``; the fronts also in ``images``, each
+with ``passed`` and, the one it animates, its back view); each result carries the URI of
 its run record (``run``) and each video the image it was made from
 (``source``). A "Make video" job (``tryon_image``) animates one of them
 again; a video of a Photo Try-On result animates its one image
 (``images``) as a full run would. ``expected`` and ``failed`` count front
 variations per list (``{"image_results": n, "results": n}``), for the
 clients to draw placeholders: those the job will make (a video try-on from photos adds
-``GENMEDIA_VIDEOS_PER_IMAGE`` videos per image it animates) and those that
+``GENMEDIA_VIDEOS_PER_IMAGE`` videos once it picks the image to animate) and those that
 ended without media; back views are never counted, and documents saved
 before these fields have none (read as zeros). A job with ``refresh_cache: true`` (the "Try again" of a failed
 one) recomputes the preprocessing the cache keeps (``core.cache``). Any
@@ -134,9 +134,9 @@ async def _apply(job: dict[str, Any], event: Event, video: bool) -> bool:
         job["progress"] = " · ".join(
             filter(None, (job.get("path"), event.message))
         )
-        # A video try-on animates every passing image; each video names
-        # its own (``source``).
-        if event.stage == "image_selected" and je.animated(
+        # A video try-on animates one of its images; each video names it
+        # (``source``).
+        if event.stage == "image_selected" and je.record_animated(
             job, event.data or {}
         ):
             per_image = get_settings().videos_per_image
@@ -149,8 +149,9 @@ async def _apply(job: dict[str, Any], event: Event, video: bool) -> bool:
         item = await asyncio.to_thread(
             je.result, event.to_dict(), video and not image_stage
         )
+        back = event.extra.get("view") == "back"
         if item is None:  # back views are extras, never expected
-            if event.extra.get("view") == "back":
+            if back:
                 return False
             je.bump(job, "failed", key)
             return True
@@ -160,6 +161,8 @@ async def _apply(job: dict[str, Any], event: Event, video: bool) -> bool:
         if job.get("run"):
             item["run"] = job["run"]
         job[key].append(item)
+        if image_stage and not back:
+            je.add_image(job, item)
         return True
     if isinstance(event, CompleteEvent):
         job["results"] = je.ranked(

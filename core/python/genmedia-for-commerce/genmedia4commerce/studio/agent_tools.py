@@ -264,8 +264,9 @@ async def generate(capability: str = "") -> dict[str, Any]:
 
 
 async def remake_video(image: int) -> dict[str, Any]:
-    """Make the videos of one of Video Try-On's try-on images again ("redo
-    the video for image 2"): only that image's videos are replaced, the
+    """Make the videos of one of Video Try-On's try-on images, again ("redo
+    the video for image 2") or for the first time (an image not animated):
+    only that image's videos are replaced, the
     other videos and the images stay. Like generate, only with what the
     user has seen: after you changed the studio in this turn, or from
     another page (which it opens), it answers "needs_confirmation" and

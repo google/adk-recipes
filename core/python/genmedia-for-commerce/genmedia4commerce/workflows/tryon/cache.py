@@ -19,7 +19,8 @@ preparation (``inputs.wearer``) runs on every run.
 
 - The products, ``product_cache/<key>/analysis.json``. Key: the product
   photos' digests in their order, the reference model's (or "none"),
-  ``complete_look``, ``upscale_crops`` and ``GENMEDIA_TRYON_CLOSEUPS``.
+  ``complete_look``, ``upscale_crops``, the look conflict rule and
+  ``GENMEDIA_TRYON_CLOSEUPS``.
   Value (``Analysis``): the classification (each product with its photos,
   its hero first, and detail photos, the look photo, and each photo as the
   classifier saw it, with the products it shows whole), the crops by name
@@ -43,6 +44,7 @@ same cache, for a video try-on that classifies its photos itself.
 """
 
 import asyncio
+import functools
 import logging
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
@@ -59,7 +61,7 @@ from genmedia4commerce.core.types import (
     ProductRef,
 )
 from genmedia4commerce.workflows.details import Detail
-from genmedia4commerce.workflows.tryon import outfit, reference
+from genmedia4commerce.workflows.tryon import hero, outfit, reference
 from genmedia4commerce.workflows.tryon.closeups import Found
 from genmedia4commerce.workflows.tryon.types import (
     CompositionPlan,
@@ -105,15 +107,17 @@ def _product_parts(
     look: bytes | None,
     complete_look: bool,
     upscale_crops: bool,
+    look_conflict: str | None,
 ) -> dict:
     """The key parts of an analysis (hashes every photo: call in a
-    thread)."""
+    thread); the look conflict rule as it applies."""
     models = get_models()
     return {
         "products": [cache.digest(p) for p in product_images],
         "look": cache.digest(look) if look else "none",
         "complete_look": complete_look,
         "upscale_crops": upscale_crops,
+        "look_conflict": hero.resolved(look_conflict),
         "models": [models.judge, models.image],
     }
 
@@ -166,6 +170,7 @@ class TryOnCache:
             r.reference_model_image,
             r.complete_look,
             r.upscale_crops,
+            r.look_conflict,
         )
         closeups = get_settings().tryon_closeups
         self._key = cache.key(kind="tryon", closeups=closeups, **parts)
@@ -260,14 +265,22 @@ async def classify(
     complete_look: bool,
     *,
     upscale_crops: bool = False,
+    look_conflict: str | None = None,
 ) -> tuple[Classification, dict[str, bytes]]:
     """``reference.classify`` through the cache (entries of their own:
     these photos are not trimmed and get no close-up search)."""
     args = (product_images, reference_model_image, complete_look)
+    options = (upscale_crops, look_conflict)
+    run = functools.partial(
+        reference.classify,
+        *args,
+        upscale_crops=upscale_crops,
+        look_conflict=look_conflict,
+    )
     if not get_settings().use_cache:
-        return await reference.classify(*args, upscale_crops=upscale_crops)
+        return await run()
     refresh = cache.refresh_requested()
-    key = await asyncio.to_thread(_classify_key, *args, upscale_crops)
+    key = await asyncio.to_thread(_classify_key, *args, *options)
     lookup = Lookup()
     if not refresh:
         lookup = await asyncio.to_thread(
@@ -278,7 +291,7 @@ async def classify(
     if kept is not None:
         return kept.classification, kept.crops
     with degraded.tracking() as marker:
-        made = await reference.classify(*args, upscale_crops=upscale_crops)
+        made = await run()
     if not marker.ok:
         logger.info(f"try-on cache: not kept: {marker.reasons}")
         return made

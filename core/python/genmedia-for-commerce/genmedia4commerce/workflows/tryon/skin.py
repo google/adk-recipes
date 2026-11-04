@@ -14,8 +14,9 @@
 
 """The wearer's skin shade and brightness, face included, in the drawing
 prompt of both routes (``prompt``, ``outfit_prompt``): the system sentence,
-the identity rule and what a product photo on another person gives (or on
-a mannequin: a worn photo whose person became one, ``worn``).
+the identity rule, the body rule's skin sentence and what a product photo
+on another person gives (or on a mannequin: a worn photo whose person
+became one, ``worn``, whose grey body is never copied).
 """
 
 __all__ = [
@@ -24,6 +25,7 @@ __all__ = [
     "IDENTITY",
     "ONLY",
     "ONLY_MANNEQUIN",
+    "OWN_SKIN",
     "SKIN_STATE",
 ]
 
@@ -34,9 +36,10 @@ SKIN_STATE = (
     "skin tone, shade, undertone, and brightness/lightness of the wearer in "
     "{skin_from} (for example: fair, light tan, medium warm golden-brown, or "
     "deep dark brown) and state that all of the wearer's visible skin, the "
-    "face included, keeps the exact skin brightness and warm/cool shade of "
-    "{face} without darkening or lightening toward the skin tone of the "
-    "people shown in {others}."
+    "face, hands, feet and toes in open shoes included, keeps the exact "
+    "skin brightness and warm/cool shade of {face} without darkening or "
+    "lightening toward the skin tone of the people shown in {others}, and "
+    "is never grey, white or plastic like a mannequin's."
 )
 # The front's identity rule: {face} is the face's source, {body} the body's.
 IDENTITY = (
@@ -48,9 +51,20 @@ IDENTITY = (
     "stays three-quarter, a smile stays a smile; never turn the face towards "
     "the camera or copy the head angle of a catalogue model."
 )
+# The body rule's last sentence ({face}: the source of the skin tone).
+OWN_SKIN = (
+    " All of the wearer's visible skin (face, neck, arms, hands, legs and "
+    "feet, including toes in open shoes and sandals) is the wearer's own, in "
+    "the skin tone of {face}; a grey, white or plastic mannequin surface "
+    "shown in any product image or crop is never copied onto the wearer."
+)
 # A product photo on a person ({what}: the product's name).
 ONLY = "ONLY the {what} from it, never that person's face, skin or body"
-ONLY_MANNEQUIN = "ONLY the {what} from it"  # on a mannequin
+ONLY_MANNEQUIN = (  # on a mannequin
+    "ONLY the {what} from it; the mannequin's body (its grey skin, feet, "
+    "toes, hands) is not part of the product: where the product leaves skin "
+    "bare, draw the wearer's own skin"
+)
 # A REFERENCE CROP, after the products it shows: cut from a photo of
 # another person, or of a mannequin.
 CROP = (
@@ -60,5 +74,7 @@ CROP = (
 )
 CROP_MANNEQUIN = (
     " as worn on a mannequin, cropped from a photo of it; use it only for "
-    "how it is worn and for its details."
+    "how it is worn and for its details. The mannequin's body (its grey "
+    "skin, feet, toes, hands) is not part of the products: where they leave "
+    "skin bare, draw the wearer's own skin."
 )

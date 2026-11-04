@@ -62,12 +62,6 @@ export const UploadIcon = (p: IconProps) => (
     <path d="M12 15V3M12 3L8 7M12 3L16 7" />
   </Stroke>
 );
-export const DownloadIcon = (p: IconProps) => (
-  <Stroke {...p}>
-    <path d="M2 17v2a2 2 0 002 2h16a2 2 0 002-2v-2" />
-    <path d="M12 3v12M12 15l-4-4M12 15l4-4" />
-  </Stroke>
-);
 export const SparkleIcon = (p: IconProps) => (
   <Stroke {...p}>
     <path d="M12 3c.6 5 3.4 8.4 9 9-5.6.6-8.4 4-9 9-.6-5-3.4-8.4-9-9 5.6-.6 8.4-4 9-9z" />

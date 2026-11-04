@@ -394,7 +394,7 @@ describe("Studio page", () => {
     const cards = within(
       results.closest("section") as HTMLElement,
     ).getAllByRole("article");
-    expect(cards).toHaveLength(1);
+    expect(cards).toHaveLength(3); // the default: 3 variations
     expect(within(cards[0]).getByText("Best")).toBeTruthy();
     expect(within(cards[0]).getByText("Score 90")).toBeTruthy();
     expect(
@@ -408,7 +408,7 @@ describe("Studio page", () => {
     );
   });
 
-  it("shows a spin (an animated WebP) as an image and an older MP4 spin as a video, each downloaded in its format", async () => {
+  it("shows a spin (an animated WebP) as an image and an older MP4 spin as a video, with Download video only for its MP4", async () => {
     const result = (index: number, uri: string) => ({
       index,
       status: "ready",
@@ -432,11 +432,7 @@ describe("Studio page", () => {
     const [spin, older] = screen.getAllByRole("article");
     expect(spin.querySelector("video")).toBeNull();
     expect(spin.querySelector("img")?.getAttribute("src")).toBe(results[0].url);
-    expect(
-      within(spin)
-        .getByLabelText("Download Variation 1")
-        .getAttribute("download"),
-    ).toBe("variation-1.webp");
+    expect(within(spin).queryByLabelText("Download Variation 1")).toBeNull();
     // Its MP4 (the video model's clip), only on a result that has one.
     expect(
       within(spin)
@@ -449,11 +445,7 @@ describe("Studio page", () => {
     expect(older.querySelector("video")?.getAttribute("src")).toBe(
       results[1].url,
     );
-    expect(
-      within(older)
-        .getByLabelText("Download Variation 2")
-        .getAttribute("download"),
-    ).toBe("variation-2.mp4");
+    expect(older.querySelector("video")).not.toBeNull();
   });
 
   it("takes the Photo Try-On inputs on Video Try-On, with no image start, the reference model by upload only", async () => {

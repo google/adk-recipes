@@ -146,9 +146,9 @@
   const CAP_KEYS = ["tryon", "video_tryon", "spin"];
   // Shown until the studio sets them.
   const DEFAULTS = {
-    tryon: { scenario: "", style_guidelines: "", aspect_ratio: "3:4", image_size: "2K", num_variations: "1",
+    tryon: { scenario: "", style_guidelines: "", aspect_ratio: "3:4", image_size: "2K", num_variations: "3",
              complete_look: true, upscale_crops: false, check_images: false, check_videos: false },
-    video_tryon: { motion: "auto", prompt: "", aspect_ratio: "9:16", resolution: "720p", num_variations: "1" },
+    video_tryon: { motion: "auto", prompt: "", aspect_ratio: "9:16", resolution: "720p", num_variations: "3" },
     spin: { aspect_ratio: "auto", resolution: "720p", num_variations: "1" },
   };
   function blank() {
@@ -156,7 +156,7 @@
       capability: "tryon", person: null, reference_model: null, products: [], spin: [],
       settings: { tryon: { ...DEFAULTS.tryon }, video_tryon: { ...DEFAULTS.video_tryon }, spin: { ...DEFAULTS.spin } },
       results: { tryon: [], video_tryon: [], spin: [] },
-      images: [],  // the try-on images the last video try-on animated (state.images.video_tryon)
+      images: [],  // the try-on images of the last video try-on (state.images.video_tryon)
       job: null,
     };
   }
@@ -625,11 +625,11 @@
         el("div", { class: "hint" }, "Catalogue products photographed from several sides."),
         el("div", { class: "grid" }, G.spin.map(p => tile(p, () => useSet(p))))));
   }
-  // What Variations counts: Video Try-On makes try-on images, each animated into the deployment's
-  // videos per image (2 by default).
+  // What Variations counts: Video Try-On makes try-on images and animates one (the best, or with
+  // image checks off the first ready) into the deployment's videos per image (2 by default).
   function variations() {
     if (S.capability !== "video_tryon") return ["Variations", ""];
-    return ["Try-on images", "Try-on images to make. Each one animated gets 2 videos (unless the deployment sets another number)."];
+    return ["Try-on images", "Try-on images to make. The best one (with image checks off, the first one ready) is animated into 2 videos (unless the deployment sets another number)."];
   }
   function optionsSection() {
     const cap = S.capability;
@@ -779,7 +779,7 @@
     const more = placeholders(live, "image_results", ratioOf("video_tryon"));
     if (!v.images.length && !more.length) return null;
     return section("Try-on images", String(v.images.length),
-      el("div", { class: "hint" }, "The images the videos were made from. Make video makes only that image's videos again."),
+      el("div", { class: "hint" }, "The images made; the videos come from the one animated. Make video makes that image's videos."),
       failedNote(live, "image_results", "image"),
       el("div", { class: "imgs" }, v.images.map((m, i) => imageCard(m, i + 1, v)), more));
   }
@@ -1016,7 +1016,7 @@
         L.jobStatus = [str(st.progress), `${Number(st.elapsed_s) || 0} s`].filter(Boolean).join(" · ");
         // Each variation shows as soon as it is judged; the final order is the judge's.
         L.live.results = resultsOf(st.results);
-        L.live.images = imagesOf(st.images);  // a full video try-on's animated images so far
+        L.live.images = imagesOf(st.images);  // a full video try-on's images so far
         L.live.expected = counts(st.expected); L.live.failed = counts(st.failed);
         L.live.made = { image_results: fronts(st.image_results), results: fronts(st.results) };
         if (typeof st.tryon_image === "string") L.live.tryon = st.tryon_image;  // a Make video job's image

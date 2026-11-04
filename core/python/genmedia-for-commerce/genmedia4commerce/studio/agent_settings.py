@@ -103,9 +103,9 @@ def update_settings(
         _settings(cap)["aspect_ratio"] = changed["aspect_ratio"] = aspect_ratio
     # Only a new count is a change (``tool_order.COST_SETTINGS``: the
     # generation needs confirming again).
-    count = str(num_variations)
+    count, default = str(num_variations), rules.variations(cap)
     if num_variations in (1, 2, 3) and (
-        str(_settings(cap).get("num_variations")) != count
+        str(_settings(cap).get("num_variations", default)) != count
     ):
         _settings(cap)["num_variations"] = changed["num_variations"] = count
     switches = (complete_look, upscale_crops, check_images, check_videos)

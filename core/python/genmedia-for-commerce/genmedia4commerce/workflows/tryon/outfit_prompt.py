@@ -67,6 +67,8 @@ SYSTEM = (
     + prompt._POSE_STATE
     + " "
     + prompt._CHEST_STATE
+    + " "
+    + styling.WORN_STATE
 )
 ENTRY = "- {image} — {text}"
 CARD = (
@@ -131,9 +133,11 @@ RULE_ONLY = (
     "(WEARER BODY) is replaced: the wearer keeps none of their own clothes, "
     "scarves, jewellery, bags, belts or hats. Anything in frame that no "
     "product covers becomes a plain, neutral piece that goes with the "
-    "products. No extra accessories, bags, belts, hats or jewellery, even "
-    "if {body}, a product image or a crop shows them. Never copy any person, "
-    "body or face from {images}."
+    "products. No extra accessories, bags, belts, hats or jewellery, nor "
+    "anything they hold or carry that is not a product (a phone, a cup, "
+    "keys), even if {body}, a product image or a crop shows them: their "
+    "hands are empty or hold only a product. Never copy any person, body "
+    "or face from {images}."
 )
 RULE_COVERED = (
     "Covered parts stay covered: when one product covers part of another, "
@@ -313,7 +317,7 @@ def _rules(spec: PromptSpec, sent: list[_Sent]) -> str:
             )
         )
     rules += [
-        RULE_BODY.format(body=body),
+        RULE_BODY.format(body=body) + skin.OWN_SKIN.format(face=face or body),
         _fidelity(sent, shown),
         RULE_INVENTED.format(images=shown),
         RULE_MIRROR,
