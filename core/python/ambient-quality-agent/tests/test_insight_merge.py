@@ -46,7 +46,7 @@ def _fake_call(payload: Any) -> Any:
 
 def _candidates(*labels: str) -> list[Cluster]:
     return [
-        Cluster(cluster_id=i, label=label, finding_ids=[i], item_count=1)
+        Cluster(cluster_id=i, label=label, finding_ids=[i], finding_count=1)
         for i, label in enumerate(labels)
     ]
 
@@ -63,7 +63,7 @@ def test_merge_folds_two_wordings_of_one_defect() -> None:
     (merged,) = merge.merge_clusters(clusters, model_call=call)
 
     assert merged.label == "failed to call create_ticket"
-    assert merged.item_count == 2
+    assert merged.finding_count == 2
     assert merged.finding_ids == [0, 1]
     # The labels went out keyed by id, and the rubrics did not: the merge costs
     # one small call whatever the sweep's size.
@@ -82,7 +82,7 @@ def test_merge_keeps_distinct_defects_apart() -> None:
         "failed to call create_ticket",
         "produced an empty response",
     ]
-    assert [c.item_count for c in merged] == [1, 1]
+    assert [c.finding_count for c in merged] == [1, 1]
 
 
 def test_merge_keeps_a_candidate_the_model_left_out() -> None:
@@ -93,7 +93,7 @@ def test_merge_keeps_a_candidate_the_model_left_out() -> None:
     merged = merge.merge_clusters(clusters, model_call=call)
 
     assert [c.label for c in merged] == ["a", "c"]
-    assert [c.item_count for c in merged] == [2, 1]
+    assert [c.finding_count for c in merged] == [2, 1]
 
 
 @pytest.mark.parametrize(
@@ -119,7 +119,7 @@ def test_merge_leaves_a_shared_id_with_the_group_that_claimed_it_first(
     merged = merge.merge_clusters(clusters, model_call=call)
 
     assert [c.label for c in merged] == labels
-    assert [c.item_count for c in merged] == counts
+    assert [c.finding_count for c in merged] == counts
     assert sorted(rid for c in merged for rid in c.finding_ids) == [0, 1, 2]
 
 
@@ -129,7 +129,7 @@ def test_merge_ignores_an_id_it_was_never_given() -> None:
 
     merged = merge.merge_clusters(clusters, model_call=call)
 
-    assert [c.item_count for c in merged] == [1, 1]
+    assert [c.finding_count for c in merged] == [1, 1]
 
 
 @pytest.mark.parametrize(
@@ -179,23 +179,23 @@ def test_merge_unions_the_traces_of_the_folded_candidates() -> None:
             cluster_id=0,
             label="failed to call create_ticket",
             finding_ids=[0],
-            item_count=1,
-            trace_ids=["case-1", "case-2"],
+            finding_count=1,
+            trajectory_ids=["case-1", "case-2"],
         ),
         Cluster(
             cluster_id=1,
             label="did not call create_ticket",
             finding_ids=[1],
-            item_count=1,
-            trace_ids=["case-2", "case-3"],
+            finding_count=1,
+            trajectory_ids=["case-2", "case-3"],
         ),
     ]
     call = _fake_call({"groups": [{"ids": [0, 1]}]})
 
     (merged,) = merge.merge_clusters(clusters, model_call=call)
 
-    assert merged.trace_ids == ["case-1", "case-2", "case-3"]
-    assert merged.trace_count == 3
+    assert merged.trajectory_ids == ["case-1", "case-2", "case-3"]
+    assert merged.trajectory_count == 3
 
 
 def test_merge_unions_the_revisions_of_the_folded_candidates() -> None:
@@ -206,14 +206,14 @@ def test_merge_unions_the_revisions_of_the_folded_candidates() -> None:
             cluster_id=0,
             label="failed to call create_ticket",
             finding_ids=[0],
-            item_count=1,
+            finding_count=1,
             agent_revisions=["2"],
         ),
         Cluster(
             cluster_id=1,
             label="did not call create_ticket",
             finding_ids=[1],
-            item_count=1,
+            finding_count=1,
             agent_revisions=["2", "4"],
         ),
     ]

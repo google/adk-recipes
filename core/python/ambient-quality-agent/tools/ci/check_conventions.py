@@ -20,9 +20,12 @@ Currently enforces:
   - src/ambient_quality_agent/requirements.txt matches pyproject.toml.
   - Lockfiles resolve packages from public registries, not Artifact Registry.
   - ui/Dockerfile builds the front end with the Node major in ui/web/.nvmrc.
+  - Dockerfile and ui/Dockerfile use a python base image that satisfies
+    requires-python in pyproject.toml.
 """
 
 import argparse
+import operator
 import pathlib
 import re
 import subprocess
@@ -241,6 +244,159 @@ def check_ui_node_version(
     return True
 
 
+# Outside requires-python, `uv sync` ignores the image's interpreter and
+# downloads a managed CPython at build time, and `pip install` resolves
+# dependencies against a version they may publish no wheels for.
+PYTHON_DOCKERFILES = (pathlib.Path("Dockerfile"), UI_DOCKERFILE)
+_PYTHON_FROM = re.compile(
+    r"^FROM\s+(?:--\S+\s+)*(?:\S+/)?python:(\S+)", re.MULTILINE | re.IGNORECASE
+)
+_PYTHON_TAG_VERSION = re.compile(r"(\d+)\.(\d+)(?:\.\d+)?(?![\d.])")
+_REQUIRES_PYTHON_CLAUSE = re.compile(r"(>=|<)\s*(\d+)\.(\d+)")
+_VERSION_COMPARISONS = {">=": operator.ge, "<": operator.lt}
+
+
+def extract_dockerfile_python_tags(text: str) -> list[str]:
+    """Extract the tags of every python base image in a Dockerfile.
+
+    Args:
+        text: Contents of the Dockerfile.
+
+    Returns:
+        The tag of each `FROM python:<tag>` stage, in file order, e.g.
+        ["3.13-slim"]. Empty if no stage uses a tagged python image.
+    """
+    return _PYTHON_FROM.findall(text)
+
+
+def parse_python_tag_version(tag: str) -> tuple[int, int] | None:
+    """Parse the Python minor version from a python image tag.
+
+    Args:
+        tag: The image tag, e.g. "3.13-slim".
+
+    Returns:
+        The (major, minor) version, or None if the tag does not start with an
+        X.Y or X.Y.Z version (for example "slim" or "3-slim").
+    """
+    match = _PYTHON_TAG_VERSION.match(tag)
+    return (int(match.group(1)), int(match.group(2))) if match else None
+
+
+def parse_requires_python(
+    spec: str,
+) -> list[tuple[str, tuple[int, int]]] | None:
+    """Parse a requires-python specifier into comparison clauses.
+
+    Supports comma-separated `>=` and `<` clauses on an X.Y version, e.g.
+    ">=3.11,<3.14". Only these two operators compare exactly at minor-version
+    precision: a `python:3.13` image ships the latest 3.13.x patch, which PEP 440
+    would reject for `<=3.13` or `==3.13`. Other forms are rejected rather than
+    approximated, because `packaging` is only a transitive dependency here.
+
+    Args:
+        spec: The requires-python value from pyproject.toml.
+
+    Returns:
+        The (operator, (major, minor)) clauses, or None if any clause uses an
+        unsupported form.
+    """
+    clauses = []
+    for clause in spec.split(","):
+        match = _REQUIRES_PYTHON_CLAUSE.fullmatch(clause.strip())
+        if match is None:
+            return None
+        clauses.append(
+            (match.group(1), (int(match.group(2)), int(match.group(3))))
+        )
+    return clauses
+
+
+def matches_requires_python(
+    version: tuple[int, int], clauses: list[tuple[str, tuple[int, int]]]
+) -> bool:
+    """Check whether a Python minor version satisfies every clause.
+
+    Args:
+        version: The (major, minor) version to test.
+        clauses: Clauses from `parse_requires_python`.
+
+    Returns:
+        True if the version satisfies all clauses.
+    """
+    return all(
+        _VERSION_COMPARISONS[op](version, bound) for op, bound in clauses
+    )
+
+
+def check_python_base_images(
+    dockerfiles: tuple[pathlib.Path, ...] = PYTHON_DOCKERFILES,
+    pyproject: pathlib.Path = PYPROJECT,
+) -> bool:
+    """Check that every python base image satisfies requires-python.
+
+    Args:
+        dockerfiles: The Dockerfiles whose python stages to check.
+        pyproject: The pyproject.toml that declares requires-python.
+
+    Returns:
+        True if each Dockerfile has at least one python stage and every python
+        stage uses a Python minor that requires-python allows.
+    """
+    spec = (
+        tomllib.loads(pyproject.read_text(encoding="utf-8"))
+        .get("project", {})
+        .get("requires-python", "")
+    )
+    clauses = parse_requires_python(spec)
+    if clauses is None:
+        print(
+            f'\nCould not parse requires-python "{spec}" in {pyproject}. The'
+            " check supports comma-separated >= and < clauses on an X.Y"
+            " version.",
+            file=sys.stderr,
+        )
+        return False
+
+    ok = True
+    for dockerfile in dockerfiles:
+        tags = extract_dockerfile_python_tags(
+            dockerfile.read_text(encoding="utf-8")
+        )
+        if not tags:
+            print(
+                f"\nCould not read a Python version from {dockerfile}: it has"
+                " no FROM python:<X.Y> stage.",
+                file=sys.stderr,
+            )
+            ok = False
+        for tag in tags:
+            version = parse_python_tag_version(tag)
+            if version is None:
+                print(
+                    f"\nCould not read a Python version from {dockerfile}:"
+                    f" python:{tag} does not start with an X.Y or X.Y.Z"
+                    " version.",
+                    file=sys.stderr,
+                )
+                ok = False
+            elif not matches_requires_python(version, clauses):
+                print(
+                    f"\n{dockerfile} builds on python:{tag}, but {pyproject}"
+                    f' declares requires-python "{spec}". Use a python tag'
+                    " inside that range, or raise requires-python once the"
+                    " project supports the new version.",
+                    file=sys.stderr,
+                )
+                ok = False
+            else:
+                print(
+                    f"{dockerfile} builds on python:{tag}, which"
+                    f' requires-python "{spec}" allows.'
+                )
+    return ok
+
+
 def check_license_headers(fix: bool) -> bool:
     """Check and optionally fix missing license headers using addlicense.
 
@@ -350,6 +506,7 @@ def main() -> None:
         check_requirements_txt(args.fix),
         check_lockfile_registries(list_tracked_lockfiles()),
         check_ui_node_version(),
+        check_python_base_images(),
     ]
 
     if not all(checks):

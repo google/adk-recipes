@@ -19,7 +19,7 @@ describe("formatSentenceCase", () => {
   it("capitalizes the first letter and leaves the rest alone", () => {
     expect(formatSentenceCase("errors")).toBe("Errors");
     expect(formatSentenceCase("no data")).toBe("No data");
-    expect(formatSentenceCase("AQuA run")).toBe("AQuA run");
+    expect(formatSentenceCase("AQuA investigation")).toBe("AQuA investigation");
     expect(formatSentenceCase("")).toBe("");
   });
 });

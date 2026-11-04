@@ -51,7 +51,9 @@ def client() -> Iterator[TestClient]:
 @pytest.fixture
 def mock_schedule(monkeypatch: pytest.MonkeyPatch) -> mock.AsyncMock:
     """Patch the `_launch_investigation` seam the handler calls."""
-    fake = mock.AsyncMock(return_value={"run_id": "r1", "status": "pending"})
+    fake = mock.AsyncMock(
+        return_value={"investigation_id": "r1", "status": "pending"}
+    )
     monkeypatch.setattr(handler, "_launch_investigation", fake)
     return fake
 

@@ -15,10 +15,11 @@
  */
 
 /**
- * Three facts, not two. A run started from a chat, a run the ambient loop
- * started and so never had one, and a run a person asked for whose chat went
- * unrecorded. The middle case is most of them, and reporting it as "no chat
- * recorded" described a healthy deployment as if something were missing.
+ * Three facts, not two. An investigation started from a chat, an investigation
+ * the ambient loop started and so never had one, and an investigation a person
+ * asked for whose chat went unrecorded. The middle case is most of them, and
+ * reporting it as "no chat recorded" described a healthy deployment as if
+ * something were missing.
  */
 import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
@@ -55,14 +56,14 @@ function renderAt(contextId?: string | null, triggerType?: string | null) {
 }
 
 describe("ConversationLink", () => {
-  it("links to the chat that started the run", async () => {
+  it("links to the chat that started the investigation", async () => {
     renderAt("ctx-abc");
 
     const link = await screen.findByRole("link");
     expect(link.getAttribute("href")).toContain("ctx-abc");
   });
 
-  it("calls a scheduled run ambient rather than reporting a missing chat", async () => {
+  it("calls a scheduled investigation ambient rather than reporting a missing chat", async () => {
     renderAt(null, "scheduled");
 
     expect(await screen.findByText("ambient")).toBeTruthy();
@@ -75,7 +76,7 @@ describe("ConversationLink", () => {
     expect(await screen.findByText("ambient")).toBeTruthy();
   });
 
-  it("still reports a manual run with no chat as a gap, because it is one", async () => {
+  it("still reports a manual investigation with no chat as a gap, because it is one", async () => {
     // A person asked for this sweep and we did not record where from. Calling
     // that "ambient" would be false.
     renderAt(null, "manual");

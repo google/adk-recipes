@@ -121,7 +121,7 @@ def test_an_unrecognized_execution_is_refused_rather_than_run_in_process(
     Read as the `local` default instead, an unrecognized value runs the
     function here, on the engine's credentials. `Remote` is a plausible typo,
     and it would run precisely the code whose author asked to run it elsewhere
-    in this very process, with nothing in the run saying so.
+    in this very process, with nothing in the investigation saying so.
     """
     library = load_library(
         _config(
@@ -350,7 +350,7 @@ def test_a_config_agents_cli_refuses_is_named_not_silently_skipped(
     label: str, body: str
 ) -> None:
     """These raise under `agents-cli eval run`. Skipped at INFO instead, they
-    never reached `library.failures`, so the run summary reported a clean sweep
+    never reached `library.failures`, so the investigation summary reported a clean sweep
     that had in fact scored nothing."""
     library = load_library(
         _config("metrics_to_run: [m]\ncustom_metrics:\n  - name: m\n" + body)

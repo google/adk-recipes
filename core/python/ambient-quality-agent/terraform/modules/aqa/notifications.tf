@@ -65,17 +65,18 @@ resource "google_monitoring_alert_policy" "investigation_finished" {
         jsonPayload.should_notify=true
       EOT
 
-      # `run_id` keys the incident, so the two places that log one ending
-      # collapse into one email. Keep the rest short: a mail lists every label.
+      # `investigation_id` keys the incident, so the two places that log one
+      # ending collapse into one email. Keep the rest short: a mail lists every
+      # label.
       label_extractors = {
-        run_id              = "EXTRACT(jsonPayload.run_id)"
-        status              = "EXTRACT(jsonPayload.status)"
-        notify_reason       = "EXTRACT(jsonPayload.notify_reason)"
-        insights_created    = "EXTRACT(jsonPayload.insights_created)"
-        insights_recurring  = "EXTRACT(jsonPayload.insights_recurring)"
-        traces_evaluated    = "EXTRACT(jsonPayload.traces_evaluated)"
-        traces_eval_failed  = "EXTRACT(jsonPayload.traces_eval_failed)"
-        traces_eval_errored = "EXTRACT(jsonPayload.traces_eval_errored)"
+        investigation_id          = "EXTRACT(jsonPayload.investigation_id)"
+        status                    = "EXTRACT(jsonPayload.status)"
+        notify_reason             = "EXTRACT(jsonPayload.notify_reason)"
+        insights_created          = "EXTRACT(jsonPayload.insights_created)"
+        insights_recurring        = "EXTRACT(jsonPayload.insights_recurring)"
+        trajectories_evaluated    = "EXTRACT(jsonPayload.trajectories_evaluated)"
+        trajectories_eval_failed  = "EXTRACT(jsonPayload.trajectories_eval_failed)"
+        trajectories_eval_errored = "EXTRACT(jsonPayload.trajectories_eval_errored)"
       }
     }
   }
@@ -84,15 +85,15 @@ resource "google_monitoring_alert_policy" "investigation_finished" {
     # The provider marks this optional. The API rejects a policy without it.
     mime_type = "text/markdown"
 
-    subject = "AQuA: ${var.observed_deployment_name} investigation $${log.extracted_label.run_id}"
+    subject = "AQuA: ${var.observed_deployment_name} investigation $${log.extracted_label.investigation_id}"
     content = <<-EOT
       $${log.extracted_label.notify_reason} in ${var.observed_deployment_name}.
-      Run $${log.extracted_label.run_id} finished with status
+      Investigation $${log.extracted_label.investigation_id} finished with status
       $${log.extracted_label.status}: $${log.extracted_label.insights_created} new,
       $${log.extracted_label.insights_recurring} already tracked,
-      $${log.extracted_label.traces_eval_failed} of
-      $${log.extracted_label.traces_evaluated} trace(s) failed, and
-      $${log.extracted_label.traces_eval_errored} could not be judged.
+      $${log.extracted_label.trajectories_eval_failed} of
+      $${log.extracted_label.trajectories_evaluated} trajectories failed, and
+      $${log.extracted_label.trajectories_eval_errored} could not be judged.
 
       A trace that could not be judged is an evaluation fault on our side, not
       a defect in ${var.observed_deployment_name}: the sweep measured less than
@@ -110,12 +111,12 @@ resource "google_monitoring_alert_policy" "investigation_finished" {
           SELECT i.status, i.label, o.rubrics FROM
           `${var.project_id}.${google_bigquery_dataset.insights.dataset_id}.insight_occurrences` o
           JOIN `${var.project_id}.${google_bigquery_dataset.insights.dataset_id}.insights` i
-          USING (insight_id) WHERE o.run_id = "$${log.extracted_label.run_id}"
+          USING (insight_id) WHERE o.run_id = "$${log.extracted_label.investigation_id}"
 
       Run logs and failure details. Check these if the run failed, because a
       failed run writes no defects to BigQuery:
 
-          gcloud logging read 'jsonPayload.run_id="$${log.extracted_label.run_id}"' --project=${var.project_id} --freshness=1d
+          gcloud logging read 'jsonPayload.investigation_id="$${log.extracted_label.investigation_id}"' --project=${var.project_id} --freshness=1d
 
       AQuA investigations:
       https://console.cloud.google.com/bigquery?project=${var.project_id}&ws=!1m5!1m4!4m3!1s${var.project_id}!2s${google_bigquery_dataset.insights.dataset_id}!3sinvestigations

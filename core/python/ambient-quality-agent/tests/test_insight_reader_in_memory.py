@@ -58,20 +58,20 @@ def backing() -> InMemoryStore:
 
 @pytest.fixture
 def reader(backing: InMemoryStore) -> InMemoryInsightReader:
-    return InMemoryInsightReader(backing, agent_name=_AGENT)
+    return InMemoryInsightReader(backing, observed_agent_key=_AGENT)
 
 
 @pytest.fixture
 def writer(backing: InMemoryStore) -> InMemoryInsightStore:
     """The write side, for the tests that merge before reading."""
-    return InMemoryInsightStore(backing, agent_name=_AGENT)
+    return InMemoryInsightStore(backing, observed_agent_key=_AGENT)
 
 
 def _insight(
     insight_id: str, label: str = "an issue", **fields: Any
 ) -> Insight:
     defaults: dict[str, Any] = {
-        "agent_name": _AGENT,
+        "observed_agent_key": _AGENT,
         "status": InsightStatus.NEW,
         "created_at": _NOW,
         "updated_at": _NOW,
@@ -83,12 +83,12 @@ def _occurrence(
     occurrence_id: str, insight_id: str | None, **fields: Any
 ) -> InsightOccurrence:
     defaults: dict[str, Any] = {
-        "agent_name": _AGENT,
-        "run_id": "run-1",
+        "observed_agent_key": _AGENT,
+        "investigation_id": "run-1",
         "label": "an issue",
         "occurrence_state": OccurrenceState.TRACKED,
         "created_at": _NOW,
-        "trace_count": 1,
+        "trajectory_count": 1,
     }
     return InsightOccurrence(
         occurrence_id=occurrence_id,
@@ -167,7 +167,10 @@ def test_the_list_hides_a_merged_insight(
 def test_another_agents_insight_is_never_listed(
     reader: InMemoryInsightReader, backing: InMemoryStore
 ) -> None:
-    _seed(backing, [_insight("mine"), _insight("theirs", agent_name=_OTHER)])
+    _seed(
+        backing,
+        [_insight("mine"), _insight("theirs", observed_agent_key=_OTHER)],
+    )
 
     page, _ = reader.list_insights(limit=10, offset=0)
 
@@ -214,7 +217,7 @@ def test_an_unknown_insight_is_none(reader: InMemoryInsightReader) -> None:
 def test_another_agents_insight_does_not_resolve(
     reader: InMemoryInsightReader, backing: InMemoryStore
 ) -> None:
-    _seed(backing, [_insight("theirs", agent_name=_OTHER)])
+    _seed(backing, [_insight("theirs", observed_agent_key=_OTHER)])
 
     assert reader.get_insight("theirs") is None
 
@@ -229,9 +232,14 @@ def test_the_view_counts_sightings_and_conversations(
         backing,
         [_insight("i1")],
         [
-            _occurrence("o1", "i1", trace_count=2, trajectory_ids=["t1", "t2"]),
             _occurrence(
-                "o2", "i1", trace_count=3, trajectory_ids=["t2", "t3", "t4"]
+                "o1", "i1", trajectory_count=2, trajectory_ids=["t1", "t2"]
+            ),
+            _occurrence(
+                "o2",
+                "i1",
+                trajectory_count=3,
+                trajectory_ids=["t2", "t3", "t4"],
             ),
         ],
     )
@@ -240,7 +248,7 @@ def test_the_view_counts_sightings_and_conversations(
 
     assert view is not None
     assert view.occurrence_count == 2
-    assert view.trace_count == 5, "summed over sightings, not deduplicated"
+    assert view.trajectory_count == 5, "summed over sightings, not deduplicated"
 
 
 def test_the_view_names_the_most_recent_sweep(
@@ -251,16 +259,18 @@ def test_the_view_names_the_most_recent_sweep(
         backing,
         [_insight("i1")],
         [
-            _occurrence("old", "i1", run_id="run-old"),
-            _occurrence("new", "i1", run_id="run-new", created_at=later),
+            _occurrence("old", "i1", investigation_id="run-old"),
+            _occurrence(
+                "new", "i1", investigation_id="run-new", created_at=later
+            ),
         ],
     )
 
     view = reader.get_insight("i1")
 
     assert view is not None
-    assert view.last_run_id == "run-new"
-    assert view.last_run_at == later
+    assert view.last_investigation_id == "run-new"
+    assert view.last_investigation_at == later
 
 
 def test_an_insight_nothing_has_seen_reads_as_empty(
@@ -271,8 +281,11 @@ def test_an_insight_nothing_has_seen_reads_as_empty(
     view = reader.get_insight("i1")
 
     assert view is not None
-    assert (view.occurrence_count, view.trace_count) == (0, 0)
-    assert view.last_run_id is None and view.last_run_at is None
+    assert (view.occurrence_count, view.trajectory_count) == (0, 0)
+    assert (
+        view.last_investigation_id is None
+        and view.last_investigation_at is None
+    )
 
 
 def test_a_merge_moves_the_counts_onto_the_survivor(
@@ -286,8 +299,12 @@ def test_a_merge_moves_the_counts_onto_the_survivor(
         backing,
         [_insight("survivor"), _insight("absorbed")],
         [
-            _occurrence("o1", "survivor", trace_count=1, trajectory_ids=["t1"]),
-            _occurrence("o2", "absorbed", trace_count=4, trajectory_ids=["t2"]),
+            _occurrence(
+                "o1", "survivor", trajectory_count=1, trajectory_ids=["t1"]
+            ),
+            _occurrence(
+                "o2", "absorbed", trajectory_count=4, trajectory_ids=["t2"]
+            ),
         ],
     )
     writer.merge_insight(insight_id="absorbed", target_insight_id="survivor")
@@ -296,7 +313,7 @@ def test_a_merge_moves_the_counts_onto_the_survivor(
 
     assert view is not None
     assert view.occurrence_count == 2
-    assert view.trace_count == 5
+    assert view.trajectory_count == 5
 
 
 # --- ordering and paging ------------------------------------------------------ #
@@ -329,8 +346,8 @@ def test_impact_orders_by_conversations_affected(
         backing,
         [_insight("small"), _insight("big"), _insight("none")],
         [
-            _occurrence("o1", "small", trace_count=1),
-            _occurrence("o2", "big", trace_count=9),
+            _occurrence("o1", "small", trajectory_count=1),
+            _occurrence("o2", "big", trajectory_count=9),
         ],
     )
 
@@ -516,13 +533,16 @@ def test_the_day_and_run_filters_both_narrow_the_list(
             _insight("run-only", created_at=earlier, updated_at=earlier),
         ],
         [
-            _occurrence("o1", "both", run_id="the-sweep"),
-            _occurrence("o2", "run-only", run_id="the-sweep"),
+            _occurrence("o1", "both", investigation_id="the-sweep"),
+            _occurrence("o2", "run-only", investigation_id="the-sweep"),
         ],
     )
 
     page, total = reader.list_insights(
-        limit=10, offset=0, run_id="the-sweep", day=_NOW.date().isoformat()
+        limit=10,
+        offset=0,
+        investigation_id="the-sweep",
+        day=_NOW.date().isoformat(),
     )
 
     assert _ids(page) == ["both"]
@@ -539,11 +559,13 @@ def test_the_run_filter_selects_by_owner(
     _seed(
         backing,
         [_insight("survivor"), _insight("absorbed")],
-        [_occurrence("o1", "absorbed", run_id="the-sweep")],
+        [_occurrence("o1", "absorbed", investigation_id="the-sweep")],
     )
     writer.merge_insight(insight_id="absorbed", target_insight_id="survivor")
 
-    page, _ = reader.list_insights(limit=10, offset=0, run_id="the-sweep")
+    page, _ = reader.list_insights(
+        limit=10, offset=0, investigation_id="the-sweep"
+    )
 
     assert _ids(page) == ["survivor"]
 
@@ -573,7 +595,7 @@ def test_the_root_cause_filter_splits_diagnosed_from_not(
 def test_conversations_are_counted_once_however_many_sweeps_saw_them(
     reader: InMemoryInsightReader, backing: InMemoryStore
 ) -> None:
-    """`trace_count` counts a conversation again per sweep and per insight; this
+    """`trajectory_count` counts a conversation again per sweep and per insight; this
     is the number that does not."""
     _seed(
         backing,

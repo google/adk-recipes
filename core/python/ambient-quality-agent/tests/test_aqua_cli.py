@@ -61,7 +61,7 @@ def _patch_client(monkeypatch, client):
 # Subcommands: JSON-only stdout                                                #
 # --------------------------------------------------------------------------- #
 def test_list_investigations_emits_only_json_on_stdout(monkeypatch, runner):
-    result = {"runs": [{"run_id": "a", "status": "done"}]}
+    result = {"investigations": [{"investigation_id": "a", "status": "done"}]}
     client = _FakeCommandClient(lambda path, payload, n: result)
     _patch_client(monkeypatch, client)
 
@@ -75,7 +75,11 @@ def test_list_investigations_emits_only_json_on_stdout(monkeypatch, runner):
 
 
 def test_get_investigation_sends_run_id_and_returns_record(monkeypatch, runner):
-    record = {"run_id": "xyz", "status": "done", "summary": {"score": 1}}
+    record = {
+        "investigation_id": "xyz",
+        "status": "done",
+        "summary": {"score": 1},
+    }
     client = _FakeCommandClient(lambda path, payload, n: record)
     _patch_client(monkeypatch, client)
 
@@ -85,12 +89,12 @@ def test_get_investigation_sends_run_id_and_returns_record(monkeypatch, runner):
 
     assert res.exit_code == 0
     assert json.loads(res.stdout) == record
-    assert client.calls == [("investigations/get", {"run_id": "xyz"})]
+    assert client.calls == [("investigations/get", {"investigation_id": "xyz"})]
 
 
 def test_a_scheduled_run_is_a_run_record_with_its_due_time(monkeypatch, runner):
     record = {
-        "run_id": "sched01",
+        "investigation_id": "sched01",
         "status": "scheduled",
         "due_at": "2026-10-07T17:15:00+00:00",
         "error": None,
@@ -104,7 +108,7 @@ def test_a_scheduled_run_is_a_run_record_with_its_due_time(monkeypatch, runner):
 
     assert res.exit_code == aqua_cli.EXIT_OK
     assert json.loads(res.stdout)["due_at"] == record["due_at"]
-    assert "scheduled" in aqua_cli._RUN_STATUSES
+    assert "scheduled" in aqua_cli._INVESTIGATION_STATUSES
 
 
 def test_show_config_reads_the_config_route(monkeypatch, runner):
@@ -235,7 +239,7 @@ def test_list_insights_sends_filters_in_the_body(monkeypatch, runner):
             "list-insights",
             "--status",
             "RECURRING",
-            "--run-id",
+            "--investigation-id",
             "run-1",
             "--resource",
             "r",
@@ -244,7 +248,7 @@ def test_list_insights_sends_filters_in_the_body(monkeypatch, runner):
 
     assert res.exit_code == 0
     assert client.calls == [
-        ("insights/list", {"status": "RECURRING", "run_id": "run-1"})
+        ("insights/list", {"status": "RECURRING", "investigation_id": "run-1"})
     ]
 
 
@@ -262,7 +266,7 @@ def test_get_insight_sends_insight_id_and_flags(monkeypatch, runner):
         [
             "get-insight",
             "i1",
-            "--run-id",
+            "--investigation-id",
             "run-9",
             "--no-traces",
             "--resource",
@@ -275,7 +279,11 @@ def test_get_insight_sends_insight_id_and_flags(monkeypatch, runner):
     assert client.calls == [
         (
             "insights/get",
-            {"insight_id": "i1", "run_id": "run-9", "include_traces": False},
+            {
+                "insight_id": "i1",
+                "investigation_id": "run-9",
+                "include_traces": False,
+            },
         )
     ]
 
@@ -288,7 +296,7 @@ def test_failed_run_exits_2(monkeypatch, runner):
     # this the guard on `_extract_error`'s status check: treating any `error` as a
     # broken call would collapse this to EXIT_ERROR and lose the distinction
     # between "the investigation failed" and "the lookup failed".
-    record = {"run_id": "x", "status": "failed", "error": "boom"}
+    record = {"investigation_id": "x", "status": "failed", "error": "boom"}
     client = _FakeCommandClient(lambda path, payload, n: record)
     _patch_client(monkeypatch, client)
 
@@ -334,7 +342,7 @@ def test_transport_failure_exits_1(monkeypatch, runner):
 # the combination a caller branching on `$?` depends on.                       #
 # --------------------------------------------------------------------------- #
 def test_unknown_run_exits_1_and_still_prints_the_error(monkeypatch, runner):
-    envelope = {"error": "No run found with id 'nope'."}
+    envelope = {"error": "No investigation found with id 'nope'."}
     client = _FakeCommandClient(lambda path, payload, n: envelope)
     _patch_client(monkeypatch, client)
 
@@ -350,7 +358,10 @@ def test_failed_read_of_a_list_exits_1(monkeypatch, runner):
     # `list_investigations` answers a denied BigQuery read with an empty list
     # *and* an error. Exiting 0 would render an outage as a healthy, empty
     # account -- plausible JSON, and wrong.
-    envelope = {"runs": [], "error": "failed to list investigations: denied"}
+    envelope = {
+        "investigations": [],
+        "error": "failed to list investigations: denied",
+    }
     client = _FakeCommandClient(lambda path, payload, n: envelope)
     _patch_client(monkeypatch, client)
 
@@ -369,7 +380,7 @@ def test_wait_stops_on_an_error_envelope_instead_of_polling_out(
     # existing -- so a loop that does not treat the envelope as terminal only
     # rediscovers it until the deadline, then reports a timeout rather than the
     # error. At the default that is 1800s of polling.
-    envelope = {"error": "No run found with id 'nope'."}
+    envelope = {"error": "No investigation found with id 'nope'."}
 
     def script(path, payload, call_number):
         # A terminal record from the second poll on, so that a loop which fails
@@ -377,7 +388,7 @@ def test_wait_stops_on_an_error_envelope_instead_of_polling_out(
         # here, and neither outcome should depend on the wall clock.
         if call_number == 1:
             return envelope
-        return {"run_id": "nope", "status": "done"}
+        return {"investigation_id": "nope", "status": "done"}
 
     client = _FakeCommandClient(script)
     _patch_client(monkeypatch, client)
@@ -404,7 +415,10 @@ def test_wait_stops_on_an_error_envelope_instead_of_polling_out(
 # --------------------------------------------------------------------------- #
 def test_wait_polls_until_terminal(monkeypatch, runner):
     def script(path, payload, n):
-        return {"run_id": "x", "status": "running" if n < 3 else "done"}
+        return {
+            "investigation_id": "x",
+            "status": "running" if n < 3 else "done",
+        }
 
     client = _FakeCommandClient(script)
     _patch_client(monkeypatch, client)
@@ -429,7 +443,7 @@ def test_wait_polls_until_terminal(monkeypatch, runner):
 
 def test_wait_timeout_exits_3(monkeypatch, runner):
     client = _FakeCommandClient(
-        lambda path, payload, n: {"run_id": "x", "status": "running"}
+        lambda path, payload, n: {"investigation_id": "x", "status": "running"}
     )
     _patch_client(monkeypatch, client)
 
@@ -455,9 +469,12 @@ def test_wait_timeout_exits_3(monkeypatch, runner):
 def test_schedule_wait_polls_new_run_id(monkeypatch, runner):
     def script(path, payload, n):
         if path == "investigations/schedule":
-            return {"run_id": "new1", "status": "pending"}
+            return {"investigation_id": "new1", "status": "pending"}
         # subsequent get-investigation polls
-        return {"run_id": "new1", "status": "done" if n >= 2 else "running"}
+        return {
+            "investigation_id": "new1",
+            "status": "done" if n >= 2 else "running",
+        }
 
     client = _FakeCommandClient(script)
     _patch_client(monkeypatch, client)
@@ -475,15 +492,21 @@ def test_schedule_wait_polls_new_run_id(monkeypatch, runner):
     )
 
     assert res.exit_code == 0
-    assert json.loads(res.stdout) == {"run_id": "new1", "status": "done"}
+    assert json.loads(res.stdout) == {
+        "investigation_id": "new1",
+        "status": "done",
+    }
     assert client.calls[0] == ("investigations/schedule", None)
-    assert client.calls[1] == ("investigations/get", {"run_id": "new1"})
+    assert client.calls[1] == (
+        "investigations/get",
+        {"investigation_id": "new1"},
+    )
 
 
 # --------------------------------------------------------------------------- #
 # --agent-key and the key attach recorded                                      #
 # --------------------------------------------------------------------------- #
-_ANY_RESULT = {"run_id": "x", "status": "done", "available": True}
+_ANY_RESULT = {"investigation_id": "x", "status": "done", "available": True}
 """Satisfies every per-agent command: a terminal run, and memories read."""
 
 _PER_AGENT_COMMANDS = [

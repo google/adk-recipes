@@ -48,15 +48,19 @@ export interface StageSpec {
 /** Named for what the volume did, not for whether it was good news: the
  * colours track the stream, so sky carries on to the next stage, violet
  * carries on degraded, and anything that fell out of the pipeline is red.
- * Passed traces end here rather than continuing, hence teal and not more sky;
- * failed ones are the only stream into insights, so they warm towards it. */
+ * Passed trajectories end here rather than continuing, hence teal and not more
+ * sky; failed ones are the only stream into insights, so they warm towards it. */
 export const STAGES: readonly StageSpec[] = [
   {
     id: "window",
     label: "Trajectories in the window",
     href: "/investigations",
     segments: [
-      { key: "traces_scanned", label: "in the window", tone: "bg-sky-500" },
+      {
+        key: "trajectories_scanned",
+        label: "in the window",
+        tone: "bg-sky-500",
+      },
     ],
   },
   {
@@ -64,14 +68,14 @@ export const STAGES: readonly StageSpec[] = [
     label: "Ingested",
     href: "/investigations",
     segments: [
-      { key: "traces_ingested", label: "ingested", tone: "bg-sky-500" },
+      { key: "trajectories_ingested", label: "ingested", tone: "bg-sky-500" },
       {
-        key: "traces_ingested_partial",
+        key: "trajectories_ingested_partial",
         label: "partially ingested",
         tone: "bg-violet-500",
       },
       {
-        key: "traces_ingested_failed",
+        key: "trajectories_ingested_failed",
         label: "ingestion failed",
         tone: "bg-red-500",
       },
@@ -82,10 +86,14 @@ export const STAGES: readonly StageSpec[] = [
     label: "Evaluated",
     href: "/investigations",
     segments: [
-      { key: "traces_eval_passed", label: "passed", tone: "bg-teal-400" },
-      { key: "traces_eval_failed", label: "failed", tone: "bg-orange-400" },
+      { key: "trajectories_eval_passed", label: "passed", tone: "bg-teal-400" },
       {
-        key: "traces_eval_errored",
+        key: "trajectories_eval_failed",
+        label: "failed",
+        tone: "bg-orange-400",
+      },
+      {
+        key: "trajectories_eval_errored",
         label: "eval service errors",
         tone: "bg-red-500",
       },
@@ -125,7 +133,9 @@ export const STAGE_HELP: Readonly<Record<StageId, string>> = {
 
 /** STAGE_HELP where it differs for a funnel of one investigation, whose
  * window is its own rather than a sum over many. */
-export const STAGE_HELP_ONE_RUN: Readonly<Partial<Record<StageId, string>>> = {
+export const STAGE_HELP_ONE_INVESTIGATION: Readonly<
+  Partial<Record<StageId, string>>
+> = {
   window:
     "Trajectories in this investigation's time window, before sampling. The " +
     "next stages work on a sample of these.",
@@ -133,9 +143,10 @@ export const STAGE_HELP_ONE_RUN: Readonly<Partial<Record<StageId, string>>> = {
 
 /** What flows from one stage into the next. Each link names the *part* of the
  * source bar that feeds the target, which is the thing the bars alone cannot
- * say: evaluation takes the ingested traces but not the dropped ones, and only
- * the failing evaluations go on to produce findings. `span` returns that part
- * as `[from, to]` offsets in units, measured from the source bar's left edge. */
+ * say: evaluation takes the ingested trajectories but not the dropped ones, and
+ * only the failing evaluations go on to produce findings. `span` returns that
+ * part as `[from, to]` offsets in units, measured from the source bar's left
+ * edge. */
 export interface LinkSpec {
   from: number;
   to: number;
@@ -144,15 +155,15 @@ export interface LinkSpec {
 
 export const LINKS: readonly LinkSpec[] = [
   // Everything the window held is what sampling drew from.
-  { from: 0, to: 1, span: (s) => [0, count(s.traces_scanned)] },
-  // Ingested and partly-ingested traces are evaluated; the dropped ones,
+  { from: 0, to: 1, span: (s) => [0, count(s.trajectories_scanned)] },
+  // Ingested and partly-ingested trajectories are evaluated; the dropped ones,
   // stacked last, are where this ribbon stops short of the bar's end.
   {
     from: 1,
     to: 2,
     span: (s) => [
       0,
-      count(s.traces_ingested) + count(s.traces_ingested_partial),
+      count(s.trajectories_ingested) + count(s.trajectories_ingested_partial),
     ],
   },
   // Only failures reach clustering, so the ribbon starts after the passed
@@ -161,38 +172,40 @@ export const LINKS: readonly LinkSpec[] = [
     from: 2,
     to: 3,
     span: (s) => [
-      count(s.traces_eval_passed),
-      count(s.traces_eval_passed) + count(s.traces_eval_failed),
+      count(s.trajectories_eval_passed),
+      count(s.trajectories_eval_passed) + count(s.trajectories_eval_failed),
     ],
   },
 ];
 
-/** A counter as a non-negative number. An engine that predates a counter omits
- * it, and `undefined` in the arithmetic turns a whole bar into NaN%. */
+/** Converts a counter value to a non-negative number, defaulting missing or
+ * non-positive values to 0 so arithmetic never produces NaN%. */
 export function count(value: number | undefined): number {
   const n = Number(value);
   return Number.isFinite(n) && n > 0 ? n : 0;
 }
 
-/** The three evaluation outcomes, off either a run's counters or the totals. */
+/** The three evaluation outcomes, off either an investigation's counters or
+ *  the totals. */
 export interface EvalOutcomes {
-  traces_eval_passed?: number;
-  traces_eval_failed?: number;
-  traces_eval_errored?: number;
+  trajectories_eval_passed?: number;
+  trajectories_eval_failed?: number;
+  trajectories_eval_errored?: number;
 }
 
-/** Traces whose evaluation reached an outcome — what the Evaluated stage
+/** Trajectories whose evaluation reached an outcome — what the Evaluated stage
  * totals, and the one definition of the word anywhere it is shown.
  *
- * Not `traces_evaluated`, which counts cases sent to the eval service: a case
- * with neither verdicts nor a score lands in none of the three, so the sent
- * count is the larger number and splitting it by outcome leaves a gap. Not
- * `metrics_*` either, which count `(case, metric)` pairs and are larger again. */
-export function evaluatedTraces(c: EvalOutcomes): number {
+ * Not `trajectories_evaluated`, which counts trajectories sent to the eval
+ * service: a trajectory with neither verdicts nor a score lands in none of the
+ * three, so the sent count is the larger number and splitting it by outcome
+ * leaves a gap. Not `metrics_*` either, which count `(trajectory, metric)`
+ * pairs and are larger again. */
+export function countEvaluatedTrajectories(c: EvalOutcomes): number {
   return (
-    count(c.traces_eval_passed) +
-    count(c.traces_eval_failed) +
-    count(c.traces_eval_errored)
+    count(c.trajectories_eval_passed) +
+    count(c.trajectories_eval_failed) +
+    count(c.trajectories_eval_errored)
   );
 }
 
@@ -211,8 +224,8 @@ export interface Stage {
   /** Share of the widest stage, as a CSS width. This is what makes the bars
    * shrink down the funnel. */
   width: string;
-  /** Only the non-zero ones: a clean run should read as a short bar rather
-   * than a row of noughts. */
+  /** Only the non-zero ones: a clean investigation should read as a short bar
+   * rather than a row of noughts. */
   segments: Segment[];
   ariaLabel: string;
 }
@@ -220,10 +233,10 @@ export interface Stage {
 /** The four stages, measured against one shared scale.
  *
  * The shared scale is the point. Each stage passes on less than it received --
- * most traces are never sampled, some are dropped, most evaluations pass and
- * produce nothing -- and drawing each bar against its own total would hide that
- * entirely, showing four full-width bars for a pipeline that discards most of
- * what it starts with.
+ * most trajectories are never sampled, some are dropped, most evaluations pass
+ * and produce nothing -- and drawing each bar against its own total would hide
+ * that entirely, showing four full-width bars for a pipeline that discards most
+ * of what it starts with.
  *
  * The cost, accepted deliberately: the last bar can be a percent or two of the
  * first, so its split is a sliver. Every figure is written out beside the bar
@@ -250,7 +263,8 @@ export function layoutFunnel(stats: Stats): { stages: Stage[]; scale: number } {
       label: stage.label,
       href: stage.href,
       help:
-        (stats.investigations === 1 && STAGE_HELP_ONE_RUN[stage.id]) ||
+        (stats.investigations === 1 &&
+          STAGE_HELP_ONE_INVESTIGATION[stage.id]) ||
         STAGE_HELP[stage.id],
       total,
       width: total ? `${Math.max(0.4, (total / scale) * 100)}%` : "100%",

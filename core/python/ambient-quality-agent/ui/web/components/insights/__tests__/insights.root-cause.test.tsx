@@ -54,14 +54,14 @@ const RECORD: RootCause = {
 function insightView(over: Partial<InsightView> = {}): InsightView {
   return {
     insight_id: "ins-1",
-    agent_name: "it_support_agent",
+    observed_agent_key: "it_support_agent",
     label: "skipped the refund",
     tool_name: "issue_refund",
     status: "RECURRING",
     occurrence_count: 2,
-    trace_count: 9,
+    trajectory_count: 9,
     impact: 40,
-    last_run_at: "2026-01-02T03:04:05Z",
+    last_investigation_at: "2026-01-02T03:04:05Z",
     diagnosis: "",
     confidence: 0,
     ...over,
@@ -71,15 +71,15 @@ function insightView(over: Partial<InsightView> = {}): InsightView {
 function occurrence(over: Partial<InsightOccurrence> = {}): InsightOccurrence {
   return {
     occurrence_id: "occ-1",
-    run_id: "run-1",
+    investigation_id: "inv-1",
     created_at: "2026-01-02T03:04:05Z",
     confidence: 0,
     diagnosis: "",
     label: "skipped the refund",
-    item_count: 1,
-    trace_count: 1,
-    cases_checked: 0,
-    evidence_case_ids: [],
+    finding_count: 1,
+    trajectory_count: 1,
+    trajectories_checked: 0,
+    evidence_trajectory_ids: [],
     console_urls: {},
     ...over,
   };
@@ -237,9 +237,6 @@ describe("a recorded root cause with no autorater diagnosis", () => {
 
     await screen.findByTestId("root-cause-panel");
     expect(screen.queryByText("undiagnosed")).toBeNull();
-    expect(
-      screen.queryByText("This occurrence has no recorded root cause."),
-    ).toBeNull();
   });
 });
 
@@ -336,8 +333,13 @@ describe("the insight detail panel", () => {
       await screen.findByText("skipped the refund", { selector: "h1" }),
     ).toBeInTheDocument();
     expect(screen.getByText(autoraterReading)).toBeInTheDocument();
-    expect(screen.getByTestId("root-cause-panel")).toHaveTextContent(SUMMARY);
-    // Ensure the root-cause summary is confined to the dedicated panel.
+    expect(screen.getByRole("region", { name: "Summary" })).toHaveTextContent(
+      SUMMARY,
+    );
+    // The summary appears once, in the summary; the panel holds the edits.
+    expect(screen.getByTestId("root-cause-panel")).not.toHaveTextContent(
+      SUMMARY,
+    );
     expect(screen.queryByText(SUMMARY, { selector: "h1" })).toBeNull();
     expect(screen.queryByText(/Triage signature/)).toBeNull();
   });

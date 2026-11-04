@@ -24,6 +24,7 @@ from unittest import mock
 import pytest
 from ambient_quality_agent.core import command_routes as routes
 from ambient_quality_agent.core.investigation import model as runs
+from ambient_quality_agent.tools.ingestion import starter
 from ambient_quality_agent.tools.observed_agent_config import (
     effective_config,
     store,
@@ -32,7 +33,7 @@ from ambient_quality_shared import protocol
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from .conftest import create_run
+from .conftest import create_investigation
 
 
 @pytest.fixture
@@ -46,7 +47,9 @@ def client() -> Iterator[TestClient]:
 @pytest.fixture
 def mock_schedule(monkeypatch: pytest.MonkeyPatch) -> mock.AsyncMock:
     """Patch the scheduling tool, so no durable job is submitted."""
-    fake = mock.AsyncMock(return_value={"run_id": "r9", "status": "pending"})
+    fake = mock.AsyncMock(
+        return_value={"investigation_id": "r9", "status": "pending"}
+    )
     monkeypatch.setattr(routes.job_scheduling, "schedule_investigation", fake)
     return fake
 
@@ -54,32 +57,44 @@ def mock_schedule(monkeypatch: pytest.MonkeyPatch) -> mock.AsyncMock:
 def test_list_investigations_returns_the_recent_runs(
     client: TestClient,
 ) -> None:
-    create_run(
-        {}, runs.InvestigationRecord(run_id="r1", status=runs.RunStatus.PENDING)
+    create_investigation(
+        {},
+        runs.Investigation(
+            investigation_id="r1", status=runs.InvestigationStatus.PENDING
+        ),
     )
 
     response = client.post("/investigations/list")
 
     assert response.status_code == 200
-    assert [run["run_id"] for run in response.json()["runs"]] == ["r1"]
+    assert [
+        run["investigation_id"] for run in response.json()["investigations"]
+    ] == ["r1"]
 
 
 def test_get_investigation_returns_the_named_run(client: TestClient) -> None:
-    create_run(
-        {}, runs.InvestigationRecord(run_id="r1", status=runs.RunStatus.DONE)
+    create_investigation(
+        {},
+        runs.Investigation(
+            investigation_id="r1", status=runs.InvestigationStatus.DONE
+        ),
     )
 
-    response = client.post("/investigations/get", json={"run_id": "r1"})
+    response = client.post(
+        "/investigations/get", json={"investigation_id": "r1"}
+    )
 
     assert response.status_code == 200
-    assert response.json()["run_id"] == "r1"
+    assert response.json()["investigation_id"] == "r1"
 
 
 def test_get_investigation_surfaces_an_unknown_run_as_a_tool_error(
     client: TestClient,
 ) -> None:
     # An id nothing has created is a result the caller reads, not a bad request.
-    response = client.post("/investigations/get", json={"run_id": "nope"})
+    response = client.post(
+        "/investigations/get", json={"investigation_id": "nope"}
+    )
 
     assert response.status_code == 200
     assert "error" in response.json()
@@ -91,7 +106,7 @@ def test_get_investigation_without_a_run_id_is_rejected(
     response = client.post("/investigations/get", json={})
 
     assert response.status_code == 400
-    assert "run_id" in response.json()["detail"]
+    assert "investigation_id" in response.json()["detail"]
 
 
 def test_schedule_investigation_returns_the_new_run(
@@ -100,7 +115,7 @@ def test_schedule_investigation_returns_the_new_run(
     response = client.post("/investigations/schedule")
 
     assert response.status_code == 200
-    assert response.json()["run_id"] == "r9"
+    assert response.json()["investigation_id"] == "r9"
     mock_schedule.assert_awaited_once()
 
 
@@ -113,7 +128,7 @@ def test_list_insights_forwards_its_filters(
         context,
         *,
         status="",
-        run_id="",
+        investigation_id="",
         has_root_cause="",
         page_token="",
         window_start="",
@@ -125,7 +140,7 @@ def test_list_insights_forwards_its_filters(
     ):
         captured.update(
             status=status,
-            run_id=run_id,
+            investigation_id=investigation_id,
             has_root_cause=has_root_cause,
             page_token=page_token,
             window_start=window_start,
@@ -143,7 +158,7 @@ def test_list_insights_forwards_its_filters(
         "/insights/list",
         json={
             "status": "NEW",
-            "run_id": "r1",
+            "investigation_id": "r1",
             "order_by": "impact",
             "page_size": 10,
             "day": "2026-09-20",
@@ -155,7 +170,7 @@ def test_list_insights_forwards_its_filters(
     assert response.json()["total"] == 0
     assert captured == {
         "status": "NEW",
-        "run_id": "r1",
+        "investigation_id": "r1",
         "has_root_cause": "",
         "page_token": "",
         "window_start": "",
@@ -176,7 +191,7 @@ def test_list_insights_without_a_body_uses_the_tool_defaults(
         context,
         *,
         status="",
-        run_id="",
+        investigation_id="",
         has_root_cause="",
         page_token="",
         window_start="",
@@ -188,7 +203,7 @@ def test_list_insights_without_a_body_uses_the_tool_defaults(
     ):
         captured.update(
             status=status,
-            run_id=run_id,
+            investigation_id=investigation_id,
             has_root_cause=has_root_cause,
             page_token=page_token,
             window_start=window_start,
@@ -207,7 +222,7 @@ def test_list_insights_without_a_body_uses_the_tool_defaults(
     assert response.status_code == 200
     assert captured == {
         "status": "",
-        "run_id": "",
+        "investigation_id": "",
         "has_root_cause": "",
         "page_token": "",
         "window_start": "",
@@ -255,7 +270,7 @@ def test_get_insight_forwards_its_arguments(
         context,
         *,
         insight_id="",
-        run_id="",
+        investigation_id="",
         include_traces=True,
         include_trajectories=None,
         include_edits=True,
@@ -263,7 +278,7 @@ def test_get_insight_forwards_its_arguments(
     ):
         captured.update(
             insight_id=insight_id,
-            run_id=run_id,
+            investigation_id=investigation_id,
             include_traces=include_traces,
             include_trajectories=include_trajectories,
             include_edits=include_edits,
@@ -276,7 +291,7 @@ def test_get_insight_forwards_its_arguments(
         "/insights/get",
         json={
             "insight_id": "ins-1",
-            "run_id": "run-9",
+            "investigation_id": "run-9",
             "include_traces": False,
         },
     )
@@ -285,7 +300,7 @@ def test_get_insight_forwards_its_arguments(
     assert response.json()["insight"]["insight_id"] == "ins-1"
     assert captured == {
         "insight_id": "ins-1",
-        "run_id": "run-9",
+        "investigation_id": "run-9",
         "include_traces": False,
         # Unset stays unset, so the tool's own default -- follow
         # `include_traces` -- decides rather than the route.
@@ -297,7 +312,7 @@ def test_get_insight_forwards_its_arguments(
 def test_get_insight_without_an_insight_id_is_rejected(
     client: TestClient,
 ) -> None:
-    response = client.post("/insights/get", json={"run_id": "run-9"})
+    response = client.post("/insights/get", json={"investigation_id": "run-9"})
 
     assert response.status_code == 400
     assert "insight_id" in response.json()["detail"]
@@ -328,6 +343,24 @@ def test_show_config_returns_the_effective_configuration(
     config = response.json()["config"]
     assert config["observed_agent_name"] == "it_support_agent"
     assert config["agent_key"] == _DEFAULT_KEY
+
+
+def test_show_config_reports_the_starter_selector_for_the_agents_table(
+    client: TestClient, jobs_store: Any
+) -> None:
+    _attach_default_agent(jobs_store)
+
+    body = client.post("/config").json()
+
+    config = body["config"]
+    assert "starter_selector" not in config
+    assert "FROM `acme-prod." in body["starter_selector"]
+    assert body["starter_selector"] == starter.build_starter_selector(
+        config["telemetry_ingestion_source"],
+        project_id="acme-prod",
+        dataset=config["telemetry_dataset"],
+        telemetry_table=config["telemetry_table"],
+    )
 
 
 def test_show_config_reports_usage_analytics_on_by_default(
@@ -381,11 +414,13 @@ def test_trajectory_outcomes_forwards_the_window(
         return {"days": []}
 
     monkeypatch.setattr(
-        routes.trajectory_tools, "count_trajectory_outcomes", fake_outcomes
+        routes.trajectory_tools,
+        "count_investigation_trajectory_outcomes",
+        fake_outcomes,
     )
 
     response = client.post(
-        "/trajectories/outcomes",
+        "/investigation_trajectories/outcomes",
         json={
             "window_start": "2026-05-25T00:00:00Z",
             "window_end": "2026-06-01T00:00:00Z",
@@ -400,7 +435,7 @@ def test_trajectory_outcomes_forwards_the_window(
     }
 
 
-def test_list_trajectories_forwards_every_filter(
+def test_list_investigation_trajectories_forwards_every_filter(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     captured: dict = {}
@@ -408,30 +443,37 @@ def test_list_trajectories_forwards_every_filter(
     async def fake_list(
         context,
         *,
-        run_id="",
+        investigation_id="",
         outcome="",
         window_start="",
         window_end="",
         page_token="",
     ):
         captured.update(
-            run_id=run_id,
+            investigation_id=investigation_id,
             outcome=outcome,
             window_start=window_start,
             window_end=window_end,
             page_token=page_token,
         )
-        return {"trajectories": [], "total": 0, "next_page_token": None}
+        return {
+            "investigation_trajectories": [],
+            "total": 0,
+            "next_page_token": None,
+        }
 
-    monkeypatch.setattr(routes.trajectory_tools, "list_trajectories", fake_list)
+    monkeypatch.setattr(
+        routes.trajectory_tools, "list_investigation_trajectories", fake_list
+    )
 
     response = client.post(
-        "/trajectories/list", json={"outcome": "not_ingested", "run_id": "r1"}
+        "/investigation_trajectories/list",
+        json={"outcome": "not_ingested", "investigation_id": "r1"},
     )
 
     assert response.status_code == 200
     assert captured == {
-        "run_id": "r1",
+        "investigation_id": "r1",
         "outcome": "not_ingested",
         "window_start": "",
         "window_end": "",
@@ -448,9 +490,13 @@ def test_an_unusable_outcome_is_the_tools_answer_and_not_a_bad_request(
     async def fake_list(context, **kwargs):
         return {"error": "invalid outcome 'passed'"}
 
-    monkeypatch.setattr(routes.trajectory_tools, "list_trajectories", fake_list)
+    monkeypatch.setattr(
+        routes.trajectory_tools, "list_investigation_trajectories", fake_list
+    )
 
-    response = client.post("/trajectories/list", json={"outcome": "passed"})
+    response = client.post(
+        "/investigation_trajectories/list", json={"outcome": "passed"}
+    )
 
     assert response.status_code == 200
     assert "invalid outcome" in response.json()["error"]
@@ -991,8 +1037,8 @@ def test_scheduling_runs_under_the_selected_agent(
         protocol.GOAL_VERSIONS_ROUTE,
         protocol.MEMORIES_LIST_ROUTE,
         protocol.INSIGHTS_LIST_ROUTE,
-        protocol.TRAJECTORIES_OUTCOMES_ROUTE,
-        protocol.TRAJECTORIES_LIST_ROUTE,
+        protocol.INVESTIGATION_TRAJECTORIES_OUTCOMES_ROUTE,
+        protocol.INVESTIGATION_TRAJECTORIES_LIST_ROUTE,
         protocol.HEALTH_ROUTE,
         protocol.SOURCE_ROUTE,
         protocol.CONFIG_ROUTE,

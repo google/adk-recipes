@@ -22,7 +22,7 @@ import json
 import os
 import pathlib
 import types
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from types import SimpleNamespace
 from typing import Any
 
@@ -50,20 +50,25 @@ from agentplatform._genai.types.evals import (
 from ambient_quality_agent.config import Config
 from ambient_quality_agent.standalone.files import FileObjectStore
 from ambient_quality_agent.tools.ingestion.models import IngestionCounts, Page
+from ambient_quality_agent.tools.insights.findings import Finding
 from ambient_quality_agent.tools.insights.models import ProposedEdit, RootCause
 from ambient_quality_agent.tools.investigations.bigquery_store import (
     INVESTIGATIONS_TABLE,
     BigQueryInvestigationStore,
 )
 from ambient_quality_agent.tools.investigations.models import (
+    FIELD_TO_COLUMN,
     IN_FLIGHT_STATUSES,
     NON_AMBIENT_TRIGGER_TYPES,
+    STAGE_EVENT_SOURCE,
+    Investigation,
     InvestigationCounters,
     InvestigationEvent,
-    InvestigationRecord,
-    RunStatus,
+    InvestigationStatus,
 )
 from ambient_quality_agent.tools.investigations.store import DEFAULT_LIST_LIMIT
+from ambient_quality_agent.tools.review import agentic_reviewer
+from ambient_quality_agent.tools.review.agentic_reviewer import final_answer
 from google.auth.credentials import AnonymousCredentials, Credentials
 from google.cloud import bigquery
 from google.genai import types as gt
@@ -215,9 +220,10 @@ class FakeEvaluator:
 
 
 class FakeReviewCall:
-    """Test fake for session-review LLM calls.
+    """Reply script for `ScriptedReviewer`: one final reply per session.
 
-    Returns canned JSON and records prompts for assertion verification.
+    Returns canned text and records each rendered review prompt for assertion
+    verification.
     """
 
     def __init__(self, response: str = FAKE_REVIEW_RESPONSE) -> None:
@@ -227,6 +233,64 @@ class FakeReviewCall:
     def __call__(self, prompt: str) -> str:
         self.prompts.append(prompt)
         return self.response
+
+
+class ScriptedReviewer:
+    """Session reviewer that answers each review with a scripted final reply.
+
+    Builds the production review prompt and parses the reply with the
+    production parser, so workflow tests cover both without calling a model.
+    """
+
+    def __init__(self, reply: Callable[[str], str]) -> None:
+        """Bind the reviewer to a reply script.
+
+        Args:
+            reply: Returns the final reply text for a rendered review prompt
+                (system instruction, blank line, initial message); an
+                exception it raises fails that session's review.
+        """
+        self._reply = reply
+
+    def __call__(
+        self,
+        eval_case: Any,
+        revisions: Sequence[Any],
+        *,
+        session_review_focus: str,
+        goal: str,
+    ) -> list[Finding]:
+        """Review one session with the scripted reply.
+
+        Args:
+            eval_case: Evaluation case to review.
+            revisions: Agent definitions active during the session.
+            session_review_focus: Optional review scope.
+            goal: The developer's goal; empty for none.
+
+        Returns:
+            The findings parsed from the scripted reply.
+
+        Raises:
+            UnparsableReplyError: If the reply holds no findings JSON.
+        """
+        prompt = agentic_reviewer.build_review_prompt(
+            eval_case,
+            revisions,
+            session_review_focus=session_review_focus,
+            goal=goal,
+        )
+        text = self._reply(
+            prompt.system_instruction + "\n\n" + prompt.initial_message
+        )
+        parsed = final_answer.parse_final_text(
+            text,
+            str(getattr(eval_case, "eval_case_id", "") or ""),
+            {revision.agent_id for revision in revisions},
+        )
+        if parsed is None:
+            raise agentic_reviewer.UnparsableReplyError(text)
+        return parsed[0]
 
 
 class FakeInsightModelCall:
@@ -266,9 +330,9 @@ class FakeInsightStore:
         self.relabelled: dict[str, str] = {}
         self.resolve_calls: list[tuple[Any, int]] = []
 
-    def delete_failed_insights(self, run_id: str) -> None:
+    def delete_failed_insights(self, investigation_id: str) -> None:
         self.calls.append("cleanup")
-        self.cleanup_run_ids.append(run_id)
+        self.cleanup_run_ids.append(investigation_id)
 
     def find_existing_insights(self, candidates: Any) -> dict[int, str | None]:
         self.calls.append("find")
@@ -307,7 +371,7 @@ class FakeTrajectoryRecorder:
 
     Buffers like the real one so a test can tell a page that was flushed from
     one that was not, and keeps `records` flat across pages, which is how the
-    ingestion invariants are asserted -- the rows a whole run wrote against the
+    ingestion invariants are asserted -- the rows a whole investigation wrote against the
     counters that run reported.
     """
 
@@ -341,7 +405,7 @@ class FakeTrajectoryRecorder:
         self.records.extend(self._pending)
         self._pending.clear()
 
-    def delete_run_trajectories(self) -> None:
+    def delete_investigation_trajectories(self) -> None:
         self.cleanup_calls += 1
 
 
@@ -427,11 +491,24 @@ def golden_root_cause() -> RootCause:
 # --------------------------------------------------------------------------- #
 
 
+def _columns_to_fields(row: dict[str, Any]) -> dict[str, Any]:
+    """Renames a stored row's columns to the model fields they hold.
+
+    Args:
+        row: A row as the fake stores it, keyed by column name.
+
+    Returns:
+        The row keyed by field name.
+    """
+    by_column = {column: field for field, column in FIELD_TO_COLUMN.items()}
+    return {by_column.get(key, key): value for key, value in row.items()}
+
+
 class FakeInvestigationStore(BigQueryInvestigationStore):
     """`BigQueryInvestigationStore` backed by in-memory row lists.
 
     Only the BigQuery seams are replaced, so the row shapes, the JSON encoding
-    and the model validators are all production code: a test that writes a run
+    and the model validators are all production code: a test that writes an investigation
     and reads it back exercises the real snapshot round trip.
     """
 
@@ -446,26 +523,41 @@ class FakeInvestigationStore(BigQueryInvestigationStore):
         target = self.rows if table == INVESTIGATIONS_TABLE else self.event_rows
         target.extend(rows)
 
-    def get(self, run_id: str, *, include_events: bool = True):
-        snapshots = [row for row in self.rows if row["run_id"] == run_id]
+    def get(self, investigation_id: str, *, include_events: bool = True):
+        snapshots = [
+            row for row in self.rows if row["run_id"] == investigation_id
+        ]
         if not snapshots:
             return None
         # `max` keeps the first of equal keys, so scan in reverse: an in-memory
         # store can write two snapshots inside one clock tick, and the later
         # write is still the newer one.
         newest = max(reversed(snapshots), key=lambda row: row["updated_at"])
-        record = InvestigationRecord.model_validate(newest)
+        record = Investigation.model_validate(_columns_to_fields(newest))
         if include_events:
             record = record.model_copy(
-                update={"events": self._list_events(run_id)}
+                update={"events": self._list_events(investigation_id)}
             )
         return record
 
-    def _list_events(self, run_id: str) -> list[InvestigationEvent]:
+    def _list_events(self, investigation_id: str) -> list[InvestigationEvent]:
         return [
-            InvestigationEvent.model_validate(row)
+            InvestigationEvent.model_validate(_columns_to_fields(row))
             for row in sorted(self.event_rows, key=lambda r: r["created_at"])
-            if row["run_id"] == run_id
+            if row["run_id"] == investigation_id
+        ]
+
+    def list_latest_stage_events(self, investigation_ids):
+        # Oldest first, so each investigation's newest row is the last written.
+        newest = {
+            row["run_id"]: row
+            for row in sorted(self.event_rows, key=lambda r: r["created_at"])
+            if row["run_id"] in investigation_ids
+            and row.get("source") == STAGE_EVENT_SOURCE
+        }
+        return [
+            InvestigationEvent.model_validate(_columns_to_fields(row))
+            for row in newest.values()
         ]
 
     def list_recent(
@@ -476,8 +568,11 @@ class FakeInvestigationStore(BigQueryInvestigationStore):
         window_start: str | None = None,
         window_end: str | None = None,
     ):
-        run_ids = {row["run_id"] for row in self.rows}
-        found = [self.get(run_id, include_events=False) for run_id in run_ids]
+        investigation_ids = {row["run_id"] for row in self.rows}
+        found = [
+            self.get(investigation_id, include_events=False)
+            for investigation_id in investigation_ids
+        ]
         records = [r for r in found if r is not None]
         if status is not None:
             records = [r for r in records if r.status == status]
@@ -509,8 +604,10 @@ class FakeInvestigationStore(BigQueryInvestigationStore):
             List of per-day counter dictionaries sorted by date.
         """
         buckets: dict[str, dict[str, int | str]] = {}
-        run_ids = {row["run_id"] for row in self.rows}
-        for record in (self.get(r, include_events=False) for r in run_ids):
+        investigation_ids = {row["run_id"] for row in self.rows}
+        for record in (
+            self.get(r, include_events=False) for r in investigation_ids
+        ):
             if record is None or not record.window_end:
                 continue
             if not _in_window(record.window_end, window_start, window_end):
@@ -541,8 +638,11 @@ class FakeInvestigationStore(BigQueryInvestigationStore):
         Returns:
             Tuple of (aggregated counter totals dict, window coverage dict).
         """
-        run_ids = {row["run_id"] for row in self.rows}
-        records = [self.get(run_id, include_events=False) for run_id in run_ids]
+        investigation_ids = {row["run_id"] for row in self.rows}
+        records = [
+            self.get(investigation_id, include_events=False)
+            for investigation_id in investigation_ids
+        ]
         kept = [
             record
             for record in records
@@ -572,33 +672,39 @@ class FakeInvestigationStore(BigQueryInvestigationStore):
         deadline = dt.datetime.now(tz=dt.UTC) - dt.timedelta(
             minutes=lease_minutes
         )
-        run_ids = {row["run_id"] for row in self.rows}
-        records = [self.get(run_id, include_events=False) for run_id in run_ids]
+        investigation_ids = {row["run_id"] for row in self.rows}
+        records = [
+            self.get(investigation_id, include_events=False)
+            for investigation_id in investigation_ids
+        ]
         return [
-            record.run_id
+            record.investigation_id
             for record in records
             if record is not None
-            and record.status == RunStatus.PENDING
+            and record.status == InvestigationStatus.PENDING
             and _parse_iso(record.updated_at) < deadline
         ]
 
-    def count_in_flight(self, observed_agent_name: str) -> int:
+    def count_in_flight(self, observed_agent_key: str) -> int:
         """Count active, non-terminal runs for an observed agent using latest snapshots.
 
         Args:
-            observed_agent_name: Name of the observed agent to query.
+            observed_agent_key: Key of the observed agent to query.
 
         Returns:
             Number of in-flight runs.
         """
-        run_ids = {row["run_id"] for row in self.rows}
-        records = [self.get(run_id, include_events=False) for run_id in run_ids]
+        investigation_ids = {row["run_id"] for row in self.rows}
+        records = [
+            self.get(investigation_id, include_events=False)
+            for investigation_id in investigation_ids
+        ]
         return len(
             [
                 record
                 for record in records
                 if record is not None
-                and record.observed_agent_name == observed_agent_name
+                and record.observed_agent_key == observed_agent_key
                 and record.status in IN_FLIGHT_STATUSES
             ]
         )
@@ -607,34 +713,37 @@ class FakeInvestigationStore(BigQueryInvestigationStore):
         """The same pick the SQL makes: newest snapshot, scheduled, past due.
 
         Args:
-            grace_minutes: Minutes past `due_at` before a scheduled run is lost.
+            grace_minutes: Minutes past `due_at` before a scheduled investigation is lost.
 
         Returns:
-            List of overdue scheduled run IDs.
+            List of overdue scheduled investigation IDs.
         """
         deadline = dt.datetime.now(tz=dt.UTC) - dt.timedelta(
             minutes=grace_minutes
         )
-        run_ids = {row["run_id"] for row in self.rows}
-        records = [self.get(run_id, include_events=False) for run_id in run_ids]
+        investigation_ids = {row["run_id"] for row in self.rows}
+        records = [
+            self.get(investigation_id, include_events=False)
+            for investigation_id in investigation_ids
+        ]
         return [
-            record.run_id
+            record.investigation_id
             for record in records
             if record is not None
-            and record.status == RunStatus.SCHEDULED
+            and record.status == InvestigationStatus.SCHEDULED
             and record.due_at is not None
             and _parse_iso(record.due_at) < deadline
         ]
 
     def get_last_finished_window_end(
-        self, observed_agent_name: str
+        self, observed_agent_key: str
     ) -> str | None:
         ends = [
             record.window_end
             for record in self.list_recent(
-                status=RunStatus.DONE, limit=len(self.rows)
+                status=InvestigationStatus.DONE, limit=len(self.rows)
             )
-            if record.observed_agent_name == observed_agent_name
+            if record.observed_agent_key == observed_agent_key
             and record.trigger_type not in NON_AMBIENT_TRIGGER_TYPES
             and not record.dry_run
             and record.window_end
@@ -672,8 +781,8 @@ def _in_window(stamp: str | None, start: str | None, end: str | None) -> bool:
     return not (end and when > _parse_iso(end))
 
 
-def create_run(state: Any, record: Any) -> Any:
-    """`model.create_run`, driven to completion for a synchronous test.
+def create_investigation(state: Any, record: Any) -> Any:
+    """`model.create_investigation`, driven to completion for a synchronous test.
 
     The registry is async because its BigQuery reads are offloaded from the event
     loop; calling this helper lets synchronous tests seed runs without running
@@ -686,24 +795,26 @@ def create_run(state: Any, record: Any) -> Any:
     Returns:
         The created run record.
     """
-    return asyncio.run(run_model().create_run(state, record))
+    return asyncio.run(run_model().create_investigation(state, record))
 
 
-def get_run(state: Any, run_id: str) -> Any:
-    """`model.get_run`, driven to completion for a synchronous test.
+def get_stored_investigation(state: Any, investigation_id: str) -> Any:
+    """`model.get_stored_investigation`, driven to completion for a synchronous test.
 
     Args:
         state: State dictionary or context.
-        run_id: Investigation run identifier.
+        investigation_id: Investigation identifier.
 
     Returns:
         The fetched run record, or None if not found.
     """
-    return asyncio.run(run_model().get_run(state, run_id))
+    return asyncio.run(
+        run_model().get_stored_investigation(state, investigation_id)
+    )
 
 
 def run_model() -> Any:
-    """The run registry module, imported late (it builds config on import).
+    """The investigation registry module, imported late (it builds config on import).
 
     Returns:
         The `ambient_quality_agent.core.investigation.model` module.
@@ -734,10 +845,10 @@ def storage_backend() -> None:
 
 @pytest.fixture(autouse=True)
 def investigation_store() -> Iterator[FakeInvestigationStore]:
-    """Point the run registry and the node event writer at one in-memory store.
+    """Point the investigation registry and the node event writer at one in-memory store.
 
     Autouse so no test can reach BigQuery through the registry by omission, and
-    shared between the two seams so a run scheduled through the tools and the
+    shared between the two seams so an investigation scheduled through the tools and the
     events its nodes emit land in the same place -- as they do in a deployment.
     """
     from ambient_quality_agent.core import state as state_module
@@ -748,7 +859,7 @@ def investigation_store() -> Iterator[FakeInvestigationStore]:
     original_event_writer = state_module.event_writer
     run_model.store_factory = lambda state: store
     state_module.event_writer = lambda state, text, source: store.append_event(
-        state["run_id"], text, source=source
+        state["investigation_id"], text, source=source
     )
     try:
         yield store
@@ -819,7 +930,8 @@ def patched_factories() -> Iterator[dict[str, Any]]:
 
     Yields a dictionary of fake implementations (fetcher, evaluator, reviewer,
     model_call, verification_call, insight_store, trajectory_recorder, goal) to
-    avoid network calls during graph execution.
+    avoid network calls during graph execution. ``reviewer`` is the reply
+    script a `ScriptedReviewer` answers every session review with.
     """
     from ambient_quality_agent.core.nodes import _common
     from ambient_quality_agent.tools.documents.goal import InvestigationGoal
@@ -839,7 +951,7 @@ def patched_factories() -> Iterator[dict[str, Any]]:
     }
     original_fetcher = _common.fetcher_factory
     original_evaluator = _common.evaluator_factory
-    original_reviewer = _common.reviewer_factory
+    original_session_reviewer = _common.session_reviewer_factory
     original_model_call_factory = _common.model_call_factory
     original_verification_call_factory = _common.verification_call_factory
     original_insight_store_factory = _common.insight_store_factory
@@ -847,7 +959,9 @@ def patched_factories() -> Iterator[dict[str, Any]]:
     original_goal_loader = _common.goal_loader
     _common.fetcher_factory = lambda ctx: holder["fetcher"]
     _common.evaluator_factory = lambda ctx: holder["evaluator"]
-    _common.reviewer_factory = lambda ctx: holder["reviewer"]
+    _common.session_reviewer_factory = lambda ctx: ScriptedReviewer(
+        holder["reviewer"]
+    )
     _common.model_call_factory = lambda ctx: holder["model_call"]
     _common.verification_call_factory = lambda ctx: holder["verification_call"]
     _common.insight_store_factory = lambda ctx: holder["insight_store"]
@@ -860,7 +974,7 @@ def patched_factories() -> Iterator[dict[str, Any]]:
     finally:
         _common.fetcher_factory = original_fetcher
         _common.evaluator_factory = original_evaluator
-        _common.reviewer_factory = original_reviewer
+        _common.session_reviewer_factory = original_session_reviewer
         _common.model_call_factory = original_model_call_factory
         _common.verification_call_factory = original_verification_call_factory
         _common.insight_store_factory = original_insight_store_factory

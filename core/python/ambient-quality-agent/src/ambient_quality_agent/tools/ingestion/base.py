@@ -27,7 +27,8 @@ Wiring::
         │     │ load_table(), count_scanned(), get_payload_ref()
         │     ▼
     BigQueryJobFetcher ─┬─► BigQuery: query jobs, dry runs, result pages
-        ▲ subclass      ├─► selector: wrap(), find_table_violation()
+        ▲ subclass      ├─► selector: wrap(), find_table_violation(),
+        │               │             build_selector_table_ref()
         │               ├─► TrajectoryRecorder: add(), flush()
         │               └─► MemoryGuard: should_stop()
         │
@@ -79,6 +80,53 @@ AGENT_COUNT_LIMIT = 20
 """Most agent names `BaseFetcher.count_by_agent` returns. Its answer is quoted
 in an error message, where a shared telemetry table could otherwise list
 hundreds."""
+
+JOIN_BACK_MARGIN_DAYS = 7
+"""Days an ingestion query reads past each end of the window when it joins the
+selected sessions or traces back to the telemetry table for their rows. The
+bound lets BigQuery prune partitions and satisfies `require_partition_filter`.
+A session that started more than this margin before the window, or continues
+more than this margin after it, is read only within that range."""
+
+
+DEFAULT_JOB_TIMEOUT_MS = 30 * 60 * 1000
+"""Server-side timeout of a telemetry query job when the caller sets none."""
+
+MAX_BYTES_BILLED = 1 << 40
+"""Most bytes one telemetry query job may bill: 1 TiB. BigQuery fails a job
+that would bill more before it runs, and charges nothing for it."""
+
+_BYTES_BILLED_LIMIT_REASON = "bytesBilledLimitExceeded"
+"""BigQuery error reason of a job that `MAX_BYTES_BILLED` stopped."""
+
+
+class QueryTooLargeError(Exception):
+    """A telemetry query job would bill more than `MAX_BYTES_BILLED`."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            "The telemetry query would bill more than AQuA's limit of "
+            f"{MAX_BYTES_BILLED >> 40} TiB per query. Shorten the lookback "
+            "window (data_lookback_window) or use a narrower selector."
+        )
+
+
+def build_join_back_window(column: str) -> str:
+    """Builds the filter bounding a join-back read to the widened window.
+
+    Args:
+        column: Timestamp column of the telemetry table, qualified by its alias.
+
+    Returns:
+        A SQL boolean expression on `column` that binds `@window_start` and
+        `@window_end`, widened by `JOIN_BACK_MARGIN_DAYS` on both sides.
+    """
+    return (
+        f"{column} BETWEEN"
+        f" TIMESTAMP_SUB(@window_start, INTERVAL {JOIN_BACK_MARGIN_DAYS} DAY)"
+        f" AND TIMESTAMP_ADD(@window_end, INTERVAL {JOIN_BACK_MARGIN_DAYS} DAY)"
+    )
+
 
 # Cache file content for tool definitions and system instructions as the
 # filename is a hash of the content - no need to re-download the same
@@ -149,9 +197,10 @@ class BaseFetcher(abc.ABC):
         Verifies query syntax, projected columns, and table access (see
         `ambient_quality_agent.tools.ingestion.selector`). A lexical guard
         requires the selector to read the source's selector table by name and
-        name no other table of its footprint; dry runs of both the standalone
+        name no other table or view of its footprint, which a dry run of the
+        selector table itself resolves; dry runs of both the standalone
         selector and the wrapped ingestion query must then reference exactly
-        that footprint in the canonical project.
+        that footprint and call no routine outside it.
 
         Args:
             agent_name: Name of the target agent to bind in the query.
@@ -178,7 +227,7 @@ class BaseFetcher(abc.ABC):
         """Count the traces the window holds, before any sampling.
 
         The same selection `submit_query` makes, minus its ``ORDER BY RAND()``
-        and ``LIMIT`` -- so the answer is the population the run's budget
+        and ``LIMIT`` -- so the answer is the population the investigation's budget
         sampled from, and the denominator its ingestion counts are read
         against. Records the result on `counts` as well as returning it.
 
@@ -280,13 +329,24 @@ class BigQueryJobFetcher(BaseFetcher):
     binding, and the destination-table paging behind `fetch_page`.
 
     Subclasses supply only the parts that reflect their schema: the telemetry
-    source they serve (`TELEMETRY_SOURCE`), the SQL (`_build_ingestion_sql`,
+    source they serve (`TELEMETRY_SOURCE`), its selector table's time
+    column (`SELECTOR_TIME_COLUMN`) and starter selector
+    (`STARTER_SELECTOR`), the SQL (`_build_ingestion_sql`,
     `_build_count_sql` and `_build_count_by_agent_sql`), the required table
     schema (`SCHEMA_FILE`), and the row-to-case mapping (`_map_row`).
     """
 
     TELEMETRY_SOURCE: ClassVar[str]
     """Telemetry source key for this fetcher, determining its selector table."""
+
+    SELECTOR_TIME_COLUMN: ClassVar[str]
+    """Timestamp column of the selector table, which the footprint dry run
+    filters on the investigation window."""
+
+    STARTER_SELECTOR: ClassVar[str]
+    """Selector over the selector table that picks the sessions multi-turn
+    random sampling picks from, with a ``{table_ref}`` placeholder for the
+    selector table. See `starter.build_starter_selector`."""
 
     SCHEMA_FILE: ClassVar[str]
     """File in `ambient_quality_shared.schemas` listing the columns this
@@ -308,7 +368,7 @@ class BigQueryJobFetcher(BaseFetcher):
         recorder: TrajectoryRecorder | NullTrajectoryRecorder | None = None,
         selector_sql: str = "",
         selector_ai_model: str = "",
-        job_timeout_ms: int | None = None,
+        job_timeout_ms: int = DEFAULT_JOB_TIMEOUT_MS,
     ) -> None:
         """Initialize the fetcher.
 
@@ -322,10 +382,10 @@ class BigQueryJobFetcher(BaseFetcher):
                 owns `dataset`, when it is not `project_id`.
             memory_guard: Returns ``True`` when the process is near its
                 memory limit; mapping then stops early (see `_map_page`).
-                Inject a run-shared guard so both scopes measure growth from
+                Inject an investigation-shared guard so both scopes measure growth from
                 the same baseline; a fresh `MemoryGuard` is used when omitted.
             recorder: Where to report the trajectories this fetcher samples,
-                injected the way a logger is -- it knows which run and agent
+                injected the way a logger is -- it knows which investigation and agent
                 the rows belong to, which a fetcher does not. Omitted outside a
                 sweep, and then nothing is written.
             selector_sql: Agent-authored SQL query targeting specific sessions
@@ -336,8 +396,7 @@ class BigQueryJobFetcher(BaseFetcher):
                 `AI.IF` calls (see
                 `ambient_quality_agent.tools.ingestion.selector.wrap`).
             job_timeout_ms: Server-side execution timeout in milliseconds for
-                counting and ingestion query jobs. When None, query jobs run
-                without a server-side timeout.
+                every query job except dry runs, which do not execute.
         """
         self._project_id = project_id
         self._observed_project_id = observed_project_id or project_id
@@ -367,16 +426,6 @@ class BigQueryJobFetcher(BaseFetcher):
             The table, with its schema.
         """
         return self._client.get_table(self.table_ref)
-
-    @property
-    def selector_footprint(self) -> frozenset[str]:
-        """Table names in the telemetry dataset a legitimate selector resolves to.
-
-        See `selector.resolve_selector_footprint`.
-        """
-        return selector.resolve_selector_footprint(
-            self.TELEMETRY_SOURCE, self._table
-        )
 
     @property
     def selector_table_id(self) -> str:
@@ -409,7 +458,7 @@ class BigQueryJobFetcher(BaseFetcher):
         return template.format(table_ref=self.table_ref)
 
     def _resolve_targets(self, default_targets: str, id_column: str) -> str:
-        """Resolve the targets CTE fragment for the current run.
+        """Resolve the targets CTE fragment for the current investigation.
 
         Uses the wrapped agent selector when provided; otherwise falls back to
         the default window-scoped targets template with the table reference
@@ -490,6 +539,27 @@ class BigQueryJobFetcher(BaseFetcher):
         """
         raise NotImplementedError
 
+    def _build_job_config(
+        self, parameters: list[bigquery.ScalarQueryParameter]
+    ) -> bigquery.QueryJobConfig:
+        """Builds the configuration every query job of this fetcher runs with.
+
+        Args:
+            parameters: Scalar query parameters referenced by the query.
+
+        Returns:
+            A configuration binding `parameters`, labeled for billing, and
+            bounded by the job timeout and `MAX_BYTES_BILLED`.
+        """
+        return bigquery.QueryJobConfig(
+            query_parameters=parameters,
+            # Billing attributes BigQuery bytes to the job, not to the caller,
+            # so AQuA's label goes on the job.
+            labels=build_request_labels(),
+            job_timeout_ms=self._job_timeout_ms,
+            maximum_bytes_billed=MAX_BYTES_BILLED,
+        )
+
     def count_scanned(
         self,
         agent_name: str,
@@ -522,12 +592,12 @@ class BigQueryJobFetcher(BaseFetcher):
             Total matching trace count across the window.
         """
         sql = self._build_count_sql(metric_type)
-        job_config = bigquery.QueryJobConfig(
-            query_parameters=_build_scoping_parameters(agent_name, start, end),
-            labels=build_request_labels(),
-            job_timeout_ms=self._job_timeout_ms,
+        job_config = self._build_job_config(
+            _build_scoping_parameters(agent_name, start, end)
         )
-        rows = list(self._client.query(sql, job_config=job_config).result())
+        rows = list(
+            _wait_for_job(self._client.query(sql, job_config=job_config))
+        )
         scanned = int(rows[0]["scanned"] or 0) if rows else 0
         logger.log(
             logging.WARNING if scanned == 0 else logging.INFO,
@@ -547,7 +617,7 @@ class BigQueryJobFetcher(BaseFetcher):
     ) -> dict[str, int]:
         """Run the per-agent counting query.
 
-        Leaves `counts` alone: these traces are not the run's population.
+        Leaves `counts` alone: these traces are not the investigation's population.
 
         Args:
             metric_type: Evaluation metric scope.
@@ -562,17 +632,15 @@ class BigQueryJobFetcher(BaseFetcher):
             f"SELECT agent_name, scanned FROM ({self._build_count_by_agent_sql(metric_type)})\n"  # noqa: S608 - trusted identifiers and fixed SQL; values are parameterized
             f"ORDER BY scanned DESC, agent_name\nLIMIT {AGENT_COUNT_LIMIT}"
         )
-        job_config = bigquery.QueryJobConfig(
-            query_parameters=[
+        job_config = self._build_job_config(
+            [
                 bigquery.ScalarQueryParameter(
                     "window_start", "TIMESTAMP", start
                 ),
                 bigquery.ScalarQueryParameter("window_end", "TIMESTAMP", end),
-            ],
-            labels=build_request_labels(),
-            job_timeout_ms=self._job_timeout_ms,
+            ]
         )
-        rows = self._client.query(sql, job_config=job_config).result()
+        rows = _wait_for_job(self._client.query(sql, job_config=job_config))
         return {
             str(row["agent_name"]): int(row["scanned"] or 0) for row in rows
         }
@@ -616,13 +684,13 @@ class BigQueryJobFetcher(BaseFetcher):
         Returns:
             The reference, or None when the query returned none.
         """
-        job_config = bigquery.QueryJobConfig(
-            query_parameters=_build_scoping_parameters(agent_name, start, end),
-            labels=build_request_labels(),
-            job_timeout_ms=self._job_timeout_ms,
+        job_config = self._build_job_config(
+            _build_scoping_parameters(agent_name, start, end)
         )
         sql = self._substitute_table_ref(template)
-        rows = list(self._client.query(sql, job_config=job_config).result())
+        rows = list(
+            _wait_for_job(self._client.query(sql, job_config=job_config))
+        )
         return str(rows[0]["ref"]) if rows and rows[0]["ref"] else None
 
     def _map_page(
@@ -645,15 +713,15 @@ class BigQueryJobFetcher(BaseFetcher):
         otherwise.
 
         Every attempted row is also reported to the recorder, dropped ones
-        included: a row that produced no case is still a trajectory the run
+        included: a row that produced no case is still a trajectory the investigation
         sampled and failed to use, and it is what explains a sample smaller
         than the budget. Rows a memory stop left unread are reported to nobody,
         exactly as they land in none of the counters.
 
-        The case goes with the ids, so the recorder can archive the
-        conversation as well as name it. A dropped row passes ``None``, and is
-        the one case that gets an index row and no stored copy -- there is
-        nothing to store.
+        The case goes with the ids, so the recorder can store the trajectory
+        bundle as well as name it. A dropped row passes ``None``, and is the
+        one case that gets an investigation trajectory and no trajectory bundle
+        -- there is nothing to store.
 
         Args:
             rows: Raw result rows for the page.
@@ -716,19 +784,25 @@ class BigQueryJobFetcher(BaseFetcher):
     ) -> selector.PrecheckResult:
         """Validates this fetcher's selector using lexical checks and BigQuery dry runs.
 
-        After `selector.find_lexical_violation`, the lexical table guard
-        (`selector.find_table_violation`) requires the selector to name
-        `selector_table_id` and no other `selector_footprint` table; it is the
-        only check that distinguishes a view from its base tables. Two dry runs then enforce the data boundary (see
+        The selector table's footprint comes from a dry run of the selector
+        table itself, so a view the user attached as the telemetry table
+        brings whatever base tables that dry run reports, in any dataset. The
+        checks run in this order (see
         `ambient_quality_agent.tools.ingestion.selector`):
-        1. Wrapped multi-turn query: Verifies query validity and projection of
-           `TARGET_COLUMN`, anchors the canonical project on its telemetry-table
-           entry, and requires its referenced tables to equal the
-           `selector_footprint` in that project.
-        2. Standalone selector query: Requires the same equality for the
-           isolated selector, catching tables pruned by the outer query and
-           rejecting selectors that read no tables (e.g. literal ID lists) or
-           only part of a view's footprint.
+        1. `selector.find_lexical_violation`, then the lexical table guard
+           (`selector.find_table_violation`) requiring the selector to name
+           `selector_table_id`, both before any BigQuery call.
+        2. Footprint dry run: reads the selector table over the window; its
+           tables, views and routines form the footprint.
+        3. The table guard again, refusing every other footprint entry; it is
+           the only check that distinguishes a view from its base tables.
+        4. Wrapped multi-turn query: verifies query validity and projection of
+           `TARGET_COLUMN`, refuses routines outside the footprint, and
+           requires its referenced tables and views to equal the footprint.
+        5. Standalone selector query: requires the same for the isolated
+           selector, catching tables pruned by the outer query and rejecting
+           selectors that read no tables (e.g. literal ID lists) or only part
+           of a view's footprint.
 
         Args:
             agent_name: Observed agent name, bound as `@agent_name`.
@@ -737,7 +811,9 @@ class BigQueryJobFetcher(BaseFetcher):
             limit: Evaluation sampling limit, bound as `@limit`.
 
         Returns:
-            A `selector.PrecheckResult` indicating validation status and any rejection.
+            A `selector.PrecheckResult` indicating validation status and any
+            rejection; when valid, the investigation query's referenced tables
+            and estimated bytes.
 
         Raises:
             ValueError: If the fetcher does not have a configured `selector_sql`.
@@ -750,21 +826,62 @@ class BigQueryJobFetcher(BaseFetcher):
                 self._selector_sql,
                 dataset=self._dataset,
                 selector_table_id=self.selector_table_id,
-                other_table_ids=self.selector_footprint
-                - {self.selector_table_id},
+                other_tables=frozenset(),
             )
         if violation is not None:
             return selector.PrecheckResult(rejection=violation)
 
+        allowed = f"{self._dataset}.{self.selector_table_id}"
+        footprint_job = self._submit_dry_run(
+            self._build_footprint_sql(),
+            _build_window_parameters(start, end),
+            access_denied=selector.Rejection(
+                reason=selector.RejectionReason.SELECTOR_TABLE_UNREADABLE,
+                explanation=(
+                    f"AQuA cannot read the selector table {allowed}, so no "
+                    "selector over it can run. Grant AQuA's service account "
+                    "read access to it; rewriting the selector will not help."
+                ),
+            ),
+        )
+        if isinstance(footprint_job, selector.PrecheckResult):
+            return footprint_job
+        footprint = frozenset(_extract_referenced_tables(footprint_job))
+        footprint_routines = _extract_referenced_routines(footprint_job)
+        violation = selector.find_table_violation(
+            self._selector_sql,
+            dataset=self._dataset,
+            selector_table_id=self.selector_table_id,
+            other_tables=frozenset(
+                (entry.dataset_id, entry.table_id)
+                for entry in footprint
+                if not entry.matches(self._dataset, self.selector_table_id)
+            ),
+        )
+        if violation is not None:
+            return selector.PrecheckResult(rejection=violation)
+
+        reads_unreadable_table = selector.Rejection(
+            reason=selector.RejectionReason.UNAUTHORIZED_TABLE,
+            explanation=(
+                f"The selector may only read the selector table {allowed}. "
+                "It reads a table AQuA cannot read."
+            ),
+        )
         run_sql = self._build_ingestion_sql(MetricType.MULTI_TURN)
         run_job = self._submit_dry_run(
-            run_sql, _build_run_parameters(agent_name, start, end, limit)
+            run_sql,
+            _build_run_parameters(agent_name, start, end, limit),
+            access_denied=reads_unreadable_table,
         )
         if isinstance(run_job, selector.PrecheckResult):
             return run_job
+        if (
+            routine_call := _find_routine_violation(run_job, footprint_routines)
+        ) is not None:
+            return routine_call
         run_tables = _extract_referenced_tables(run_job)
-        expected = self._resolve_expected_tables(run_tables)
-        off_allowlist = self._find_footprint_violation(run_tables, expected)
+        off_allowlist = self._find_footprint_violation(run_tables, footprint)
         if off_allowlist is not None:
             return off_allowlist
 
@@ -776,11 +893,18 @@ class BigQueryJobFetcher(BaseFetcher):
                 ai_model=self._selector_ai_model,
             ),
             _build_scoping_parameters(agent_name, start, end),
+            access_denied=reads_unreadable_table,
         )
         if isinstance(selector_job, selector.PrecheckResult):
             return selector_job
+        if (
+            routine_call := _find_routine_violation(
+                selector_job, footprint_routines
+            )
+        ) is not None:
+            return routine_call
         off_selector_table = self._find_footprint_violation(
-            _extract_referenced_tables(selector_job), expected
+            _extract_referenced_tables(selector_job), footprint
         )
         if off_selector_table is not None:
             return off_selector_table
@@ -790,18 +914,46 @@ class BigQueryJobFetcher(BaseFetcher):
             estimated_bytes=int(run_job.total_bytes_processed or 0),
         )
 
+    def _build_footprint_sql(self) -> str:
+        """Builds the query whose dry run resolves the selector table's footprint.
+
+        It filters on the window as every legitimate selector does, so a table
+        that requires a partition filter accepts it.
+
+        Returns:
+            SQL reading every column of the selector table, binding
+            `@window_start` and `@window_end`.
+        """
+        table_ref = selector.build_selector_table_ref(
+            self.TELEMETRY_SOURCE,
+            project_id=self._observed_project_id,
+            dataset=self._dataset,
+            telemetry_table=self._table,
+        )
+        return (
+            f"SELECT * FROM `{table_ref}` "  # noqa: S608 - trusted identifiers from deployment configuration
+            f"WHERE {self.SELECTOR_TIME_COLUMN} BETWEEN @window_start AND @window_end"
+        )
+
     def _submit_dry_run(
-        self, sql: str, parameters: list[bigquery.ScalarQueryParameter]
+        self,
+        sql: str,
+        parameters: list[bigquery.ScalarQueryParameter],
+        *,
+        access_denied: selector.Rejection,
     ) -> bigquery.QueryJob | selector.PrecheckResult:
         """Executes a dry run to validate a query without running it.
 
         Args:
             sql: SQL query to validate.
             parameters: Scalar query parameters referenced by the query.
+            access_denied: Rejection to return when BigQuery refuses the dry
+                run with reason `accessDenied`.
 
         Returns:
             The planned BigQuery QueryJob, or a rejected `PrecheckResult` if
-            BigQuery returns a client error (4xx). Server errors (5xx) propagate.
+            BigQuery returns a client error (4xx). Server errors (5xx)
+            propagate.
         """
         job_config = bigquery.QueryJobConfig(
             query_parameters=parameters,
@@ -813,91 +965,38 @@ class BigQueryJobFetcher(BaseFetcher):
         try:
             return self._client.query(sql, job_config=job_config)
         except api_exceptions.ClientError as exc:
+            if _extract_error_reason(exc) == "accessDenied":
+                return selector.PrecheckResult(rejection=access_denied)
             return selector.PrecheckResult(
                 rejection=_build_sanitized_rejection(exc, sql)
             )
 
-    def _resolve_expected_tables(
-        self, run_tables: tuple[_Table, ...]
-    ) -> frozenset[_Table]:
-        """Resolves the selector footprint to tables in the canonical project.
-
-        The outer ingestion query always reads the telemetry table, so it should
-        match exactly one run-query entry by dataset and table; that entry's
-        project is canonical. The configured project may be a project number, while dry
-        runs report the project ID, so the configured value is not compared.
-
-        Args:
-            run_tables: Tables resolved by the wrapped ingestion query's dry run.
-
-        Returns:
-            The footprint tables in the canonical project, or an empty set when
-            the telemetry table matches zero entries or more than one (a
-            same-named table in another project).
-        """
-        projects = [
-            table.project
-            for table in run_tables
-            if table.matches(self._dataset, self._table)
-        ]
-        if not projects:
-            # The outer query always reads the telemetry table, so a miss points
-            # at configuration rather than the selector.
-            logger.warning(
-                "Run dry run resolved no %s.%s entry; check the telemetry config.",
-                self._dataset,
-                self._table,
-            )
-        if len(projects) != 1:
-            return frozenset()
-        expected = frozenset(
-            _Table(projects[0], self._dataset, name)
-            for name in self.selector_footprint
-        )
-        if not expected <= frozenset(run_tables):
-            # The table guard passed, so either the selector table's definition
-            # changed (such as an agents-cli view change) or the selector does
-            # not actually read it (such as a CTE shadowing the view's name).
-            logger.warning(
-                "Run dry run resolved %s; expected selector footprint %s. Either "
-                "the selector table's definition changed or the selector does "
-                "not read it (e.g. a CTE shadows its name).",
-                ", ".join(_format_table_names(run_tables)),
-                ", ".join(_format_table_names(tuple(sorted(expected)))),
-            )
-        return expected
-
     def _find_footprint_violation(
-        self, referenced: tuple[_Table, ...], expected: frozenset[_Table]
+        self, referenced: tuple[_Table, ...], footprint: frozenset[_Table]
     ) -> selector.PrecheckResult | None:
-        """Verifies that a dry run resolved exactly the expected footprint tables.
+        """Verifies that a dry run resolved exactly the selector table's footprint.
 
         Args:
-            referenced: Table references resolved during the dry run.
-            expected: Footprint tables in the canonical project, from
-                `_resolve_expected_tables`; empty when no canonical project was found.
+            referenced: Table and view references resolved during the dry run.
+            footprint: Tables and views the selector table's own dry run
+                resolved.
 
         Returns:
-            None if the referenced tables equal a non-empty `expected`; otherwise
-            a rejected PrecheckResult detailing the mismatch.
+            None if the referenced tables and views equal a non-empty
+            `footprint`; otherwise a rejected PrecheckResult detailing the
+            mismatch.
         """
-        if expected and frozenset(referenced) == expected:
+        if footprint and frozenset(referenced) == footprint:
             return None
-        if not expected:
-            explanation = _explain_unidentified_telemetry_table(
-                referenced, dataset=self._dataset, table=self._table
-            )
-        else:
-            explanation = _explain_table_mismatch(
-                referenced,
-                expected,
-                dataset=self._dataset,
-                selector_table_id=self.selector_table_id,
-            )
         return selector.PrecheckResult(
             rejection=selector.Rejection(
                 reason=selector.RejectionReason.UNAUTHORIZED_TABLE,
-                explanation=explanation,
+                explanation=_explain_table_mismatch(
+                    referenced,
+                    footprint,
+                    dataset=self._dataset,
+                    selector_table_id=self.selector_table_id,
+                ),
             ),
             referenced_tables=_format_table_names(referenced),
         )
@@ -927,14 +1026,8 @@ class BigQueryJobFetcher(BaseFetcher):
             The completed job's id, usable with `fetch_page`.
         """
         sql = self._build_ingestion_sql(metric_type)
-        job_config = bigquery.QueryJobConfig(
-            query_parameters=_build_run_parameters(
-                agent_name, start, end, limit
-            ),
-            # Billing attributes BigQuery bytes to the job, not to the caller,
-            # so AQA's label goes on the job.
-            labels=build_request_labels(),
-            job_timeout_ms=self._job_timeout_ms,
+        job_config = self._build_job_config(
+            _build_run_parameters(agent_name, start, end, limit)
         )
 
         query_job = self._client.query(sql, job_config=job_config)
@@ -945,7 +1038,7 @@ class BigQueryJobFetcher(BaseFetcher):
             agent_name,
             limit,
         )
-        query_job.result()
+        _wait_for_job(query_job)
         logger.info("Ingestion job %s completed.", query_job.job_id)
         return query_job.job_id
 
@@ -1037,6 +1130,23 @@ def _build_scoping_parameters(
     """
     return [
         bigquery.ScalarQueryParameter("agent_name", "STRING", agent_name),
+        *_build_window_parameters(start, end),
+    ]
+
+
+def _build_window_parameters(
+    start: dt.datetime, end: dt.datetime
+) -> list[bigquery.ScalarQueryParameter]:
+    """Constructs query parameters for the time window boundaries.
+
+    Args:
+        start: Start timestamp of the window (`@window_start`).
+        end: End timestamp of the window (`@window_end`).
+
+    Returns:
+        List of configured BigQuery scalar query parameters.
+    """
+    return [
         bigquery.ScalarQueryParameter("window_start", "TIMESTAMP", start),
         bigquery.ScalarQueryParameter("window_end", "TIMESTAMP", end),
     ]
@@ -1060,6 +1170,42 @@ def _build_run_parameters(
         *_build_scoping_parameters(agent_name, start, end),
         bigquery.ScalarQueryParameter("limit", "INT64", limit),
     ]
+
+
+def _wait_for_job(job: bigquery.QueryJob) -> bigquery.table.RowIterator:
+    """Waits for a query job to finish, translating a byte-cap failure.
+
+    Args:
+        job: Submitted query job.
+
+    Returns:
+        The job's result rows.
+
+    Raises:
+        QueryTooLargeError: If the job would bill more than `MAX_BYTES_BILLED`.
+    """
+    try:
+        return job.result()
+    except api_exceptions.GoogleAPICallError as exc:
+        # BigQuery reports the cap as a 500 whose error carries a server stack
+        # trace, so the reason identifies it and the original is not chained.
+        if _extract_error_reason(exc) == _BYTES_BILLED_LIMIT_REASON:
+            raise QueryTooLargeError() from None
+        raise
+
+
+def _extract_error_reason(exc: Exception) -> str | None:
+    """Extracts the reason of the first error a BigQuery failure reports.
+
+    Args:
+        exc: Exception raised by BigQuery.
+
+    Returns:
+        The reason, such as ``"invalidQuery"``, or None when there is none.
+    """
+    errors = getattr(exc, "errors", None) or []
+    first = errors[0] if errors else None
+    return first.get("reason") if isinstance(first, dict) else None
 
 
 @dataclasses.dataclass(frozen=True, order=True)
@@ -1086,22 +1232,90 @@ class _Table:
         return self.dataset_id == dataset and self.table_id == table
 
 
+def _extract_query_statistics(job: bigquery.QueryJob) -> dict[str, Any]:
+    """Extract the `statistics.query` section of a query job's resource.
+
+    The client library exposes `referencedTables` but neither
+    `referencedLogicalViews` nor `referencedRoutines`, and `to_api_repr` leaves
+    the statistics out, so they are read from the resource the job holds.
+
+    Args:
+        job: BigQuery query job.
+
+    Returns:
+        The job's query statistics, or an empty dict when it has none.
+    """
+    return job._properties.get("statistics", {}).get("query", {})
+
+
 def _extract_referenced_tables(job: bigquery.QueryJob) -> tuple[_Table, ...]:
-    """Extract sorted, deduplicated table references resolved by a dry run.
+    """Extract sorted, deduplicated table and view references resolved by a dry run.
 
     Args:
         job: BigQuery query job from a dry run.
 
     Returns:
-        Sorted tuple of unique tables referenced by the job.
+        Sorted tuple of the unique tables and logical views referenced by the
+        job.
     """
+    views = _extract_query_statistics(job).get("referencedLogicalViews", ())
     return tuple(
         sorted(
             {
                 _Table(table.project, table.dataset_id, table.table_id)
                 for table in job.referenced_tables
             }
+            | {
+                _Table(view["projectId"], view["datasetId"], view["tableId"])
+                for view in views
+            }
         )
+    )
+
+
+def _extract_referenced_routines(job: bigquery.QueryJob) -> frozenset[str]:
+    """Extracts the routines a dry run resolved.
+
+    Args:
+        job: BigQuery query job from a dry run.
+
+    Returns:
+        The routines, as ``project.dataset.routine``.
+    """
+    return frozenset(
+        f"{routine['projectId']}.{routine['datasetId']}.{routine['routineId']}"
+        for routine in _extract_query_statistics(job).get(
+            "referencedRoutines", ()
+        )
+    )
+
+
+def _find_routine_violation(
+    job: bigquery.QueryJob, allowed: frozenset[str]
+) -> selector.PrecheckResult | None:
+    """Verifies that a dry run resolved no routine beyond the allowed ones.
+
+    Args:
+        job: BigQuery query job from a dry run.
+        allowed: Routines the selector table's own definition calls, as
+            ``project.dataset.routine``; empty allows none.
+
+    Returns:
+        None if every routine the job references is in `allowed`; otherwise
+        a rejected PrecheckResult naming the others.
+    """
+    routines = sorted(_extract_referenced_routines(job) - allowed)
+    if not routines:
+        return None
+    return selector.PrecheckResult(
+        rejection=selector.Rejection(
+            reason=selector.RejectionReason.UNAUTHORIZED_ROUTINE,
+            explanation=(
+                "A selector may call only built-in functions and the routines "
+                f"its selector table calls; this one calls {', '.join(routines)}."
+            ),
+        ),
+        referenced_tables=_format_table_names(_extract_referenced_tables(job)),
     )
 
 
@@ -1129,8 +1343,8 @@ def _explain_table_mismatch(
     Names only table references to avoid leaking raw BigQuery error details.
 
     Args:
-        referenced: Tables resolved by the dry run.
-        expected: Footprint tables in the canonical project; non-empty.
+        referenced: Tables and views resolved by the dry run.
+        expected: Tables and views the selector table's own dry run resolved.
         dataset: Telemetry dataset holding the selector table.
         selector_table_id: Table ID of the one table the selector may read.
 
@@ -1159,46 +1373,6 @@ def _explain_table_mismatch(
     return " ".join(parts)
 
 
-def _explain_unidentified_telemetry_table(
-    referenced: tuple[_Table, ...], *, dataset: str, table: str
-) -> str:
-    """Generates an explanation when no canonical project can be anchored.
-
-    Args:
-        referenced: Tables resolved by the wrapped ingestion query's dry run.
-        dataset: Configured telemetry dataset.
-        table: Configured telemetry table.
-
-    Returns:
-        Explanation naming the telemetry table and why it was not identified.
-    """
-    telemetry = f"{dataset}.{table}"
-    parts = [
-        f"The telemetry table {telemetry} could not be identified in the dry run, "
-        "so no table can be allowed."
-    ]
-    matches = tuple(
-        entry for entry in referenced if entry.matches(dataset, table)
-    )
-    if matches:
-        parts.append(
-            f"It resolves {telemetry} in more than one project "
-            f"({', '.join(_format_table_names(matches))}): the selector may not read a "
-            "same-named table in another project."
-        )
-    else:
-        resolved = (
-            f" (only {', '.join(_format_table_names(referenced))})"
-            if referenced
-            else ""
-        )
-        parts.append(
-            f"It resolves no {telemetry}{resolved}, which points at the "
-            "telemetry configuration rather than the selector."
-        )
-    return " ".join(parts)
-
-
 _ERROR_LOCATION = re.compile(r"\[(\d+):\d+\]")
 """BigQuery line-column error pointer pattern."""
 
@@ -1219,9 +1393,7 @@ def _build_sanitized_rejection(exc: Exception, sql: str) -> selector.Rejection:
     Returns:
         A `selector.Rejection` with reason `INVALID_SQL`.
     """
-    errors = getattr(exc, "errors", None) or []
-    first = errors[0] if errors else None
-    reason = first.get("reason") if isinstance(first, dict) else None
+    reason = _extract_error_reason(exc)
     detail = f"BigQuery rejected the selector (reason: {reason or type(exc).__name__})."
     location = _ERROR_LOCATION.search(str(exc))
     if location is not None:
