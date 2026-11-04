@@ -321,8 +321,8 @@ async def _end_to_end(
                 continue
             if isinstance(event, CompleteEvent):
                 continue
-            first = not (req.check_images or started)
-            if _image_event(event, anim, fronts) and first:
+            animate_now = not (req.check_images or started)
+            if _image_event(event, anim, fronts) and animate_now:
                 _start(streams, anim, event, passed=True)
                 started = True
             yield event

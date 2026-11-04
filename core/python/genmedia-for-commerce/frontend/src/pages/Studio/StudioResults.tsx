@@ -248,6 +248,7 @@ export default function StudioResults({ studio }: { studio: Studio }) {
   const cap = studio.view.capability;
   const live = studio.live?.cap === cap ? studio.live : null;
   const running = !!live && studio.following;
+  const status = studio.jobStatus || "Generating";
   const remake = live?.tryonImage ?? "";
   const saved = studio.view.results[cap];
   const results = !live
@@ -320,11 +321,11 @@ export default function StudioResults({ studio }: { studio: Studio }) {
         {running && (
           // One line, cut to fit: the whole status is under the Generate button.
           <span
-            title={studio.jobStatus || "Generating"}
+            title={status}
             className="ml-auto min-w-0 chip bg-gm-accent/10 text-gm-accent ring-1 ring-inset ring-gm-accent/25 !py-1"
           >
             <SpinnerIcon size={12} className="shrink-0" />
-            <span className="truncate">{studio.jobStatus || "Generating"}</span>
+            <span className="truncate">{status}</span>
           </span>
         )}
       </div>

@@ -255,7 +255,7 @@ def tool_call(spec: dict[str, Any]) -> tuple[str, dict[str, Any]]:
     its checks off unless the spec's settings turn them on."""
     cap = spec.get("capability")
     checks = rules.tryon_options(spec.get("settings"), rules.CHECKS)
-    count = rules.VARIATIONS.get(str(cap), "1")  # the page's default
+    count = rules.variations(cap)
     common: dict[str, Any] = {
         "num_variations": int(_str(spec, "num_variations", count)),
         "aspect_ratio": _str(spec, "aspect_ratio"),

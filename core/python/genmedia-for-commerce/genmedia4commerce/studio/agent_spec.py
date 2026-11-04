@@ -44,7 +44,7 @@ def job_spec(cap: str) -> tuple[dict[str, Any], str]:
         "spin": [ref(p) for p in st.get("spin") or [] if ref(p)],
         "settings": {
             **settings.get("tryon", {}),
-            "num_variations": rules.VARIATIONS.get(cap, "1"),
+            "num_variations": rules.variations(cap),
             **settings.get(cap, {}),
         },
     }

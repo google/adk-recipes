@@ -81,6 +81,7 @@ __all__ = [
     "state_key",
     "tryon_options",
     "upgrade",
+    "variations",
 ]
 
 CAPABILITIES = tuple(CAPABILITY_NAMES)
@@ -143,6 +144,11 @@ def _valid(key: str, v: Any) -> bool:
     return choices is None or any(
         type(v) is type(c) and v == c for c in choices
     )
+
+
+def variations(cap: Any) -> str:
+    """Page ``cap``'s number of variations until the studio sets one."""
+    return VARIATIONS.get(str(cap), "1")
 
 
 def tryon_options(

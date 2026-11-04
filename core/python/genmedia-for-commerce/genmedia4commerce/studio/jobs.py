@@ -136,7 +136,7 @@ async def _apply(job: dict[str, Any], event: Event, video: bool) -> bool:
         )
         # A video try-on animates one of its images; each video names it
         # (``source``).
-        if event.stage == "image_selected" and je.animated(
+        if event.stage == "image_selected" and je.record_animated(
             job, event.data or {}
         ):
             per_image = get_settings().videos_per_image

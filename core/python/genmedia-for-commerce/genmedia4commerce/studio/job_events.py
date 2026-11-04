@@ -27,10 +27,10 @@ from genmedia4commerce.studio import patches as rules
 
 __all__ = [
     "add_image",
-    "animated",
     "bump",
     "expected",
     "ranked",
+    "record_animated",
     "result",
     "source",
 ]
@@ -40,7 +40,7 @@ def _variations(spec: dict[str, Any]) -> int:
     """The spec's ``settings.num_variations`` as an int, at least 1 (its
     page's default when unset: ``patches.VARIATIONS``)."""
     raw = (spec.get("settings") or {}).get("num_variations")
-    raw = raw or rules.VARIATIONS.get(str(spec.get("capability")), "1")
+    raw = raw or rules.variations(spec.get("capability"))
     try:
         return max(1, int(raw))
     except (TypeError, ValueError):
@@ -126,7 +126,7 @@ def add_image(job: dict[str, Any], front: dict[str, Any]) -> None:
     job.setdefault("images", []).append(image)
 
 
-def animated(job: dict[str, Any], data: dict[str, Any]) -> bool:
+def record_animated(job: dict[str, Any], data: dict[str, Any]) -> bool:
     """Record the back view of the try-on image a video try-on animates
     (``image_selected``) on that image; whether it is one of ``images``."""
     index = data.get("front_index")
