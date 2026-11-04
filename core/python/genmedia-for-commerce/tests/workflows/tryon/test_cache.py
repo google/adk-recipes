@@ -100,6 +100,7 @@ def _again(req: TryOnRequest, **changes) -> TryOnRequest:
         "reference_model_image": _copy(req.reference_model_image),
         "complete_look": req.complete_look,
         "upscale_crops": req.upscale_crops,
+        "look_conflict": req.look_conflict,
         "style_guidelines": req.style_guidelines,
         "policy": req.policy,
     }
@@ -232,6 +233,11 @@ def _closeups_off(monkeypatch):
     settings.get_settings.cache_clear()
 
 
+def _look_rule(monkeypatch):
+    monkeypatch.setenv("GENMEDIA_LOOK_CONFLICT", "look")
+    settings.get_settings.cache_clear()
+
+
 def _other_code(monkeypatch):
     monkeypatch.setattr(core_cache, "code_fingerprint", lambda: "other")
 
@@ -250,6 +256,8 @@ _CHANGES = {
     "a look photo": ({"reference_model_image": MODEL_PHOTO}, None),
     "complete_look": ({"complete_look": False}, None),
     "upscale_crops": ({"upscale_crops": True}, None),
+    "look_conflict": ({"look_conflict": "look"}, None),
+    "look conflict setting": ({}, _look_rule),
     "closeups switch": ({}, _closeups_off),
     "code": ({}, _other_code),
     "judge model": ({}, _other_model("GENMEDIA_JUDGE_MODEL")),
@@ -273,6 +281,16 @@ def test_anything_the_analysis_depends_on_changed_is_a_miss(
     _run(later)
     assert _classifier(fake_gen) == 2
     assert len(_indexes(store, "analysis")) == 2
+
+
+def test_the_look_conflict_rule_as_it_applies_is_the_key(
+    fake_gen, fakes, store, images, person
+):
+    """No rule asked: the deployment's, "upload", the same entry."""
+    req = _single(fake_gen, images, person)
+    _run(req)
+    _run(_again(req, look_conflict="upload"))
+    assert _classifier(fake_gen) == 1
 
 
 def test_nothing_from_the_person_photo_is_kept(
@@ -530,7 +548,7 @@ def test_a_cache_write_that_fails_only_logs(
 
 
 def _classified_by(calls: list, upscaled: bool = False):
-    async def classify(photos, look, complete_look, *, upscale_crops=False):
+    async def classify(photos, look, complete_look, **_options):
         calls.append(photos)
         if upscaled:
             reference.upscale_shoes(b"crop")

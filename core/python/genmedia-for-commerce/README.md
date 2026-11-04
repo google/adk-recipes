@@ -77,6 +77,7 @@ It runs all of the above. Open the web app with **Web Preview > Preview on port 
 | `GENMEDIA_*_MODEL` | The model of each task (text, judge, agent, image, video, embeddings) |
 | `GENMEDIA_STYLE_GUIDELINES`, `GENMEDIA_SCENARIO` | Brand styling rules and the default scene of try-on images |
 | `GENMEDIA_NUM_VARIATIONS` | Results per request (1 to 5, default 3) |
+| `GENMEDIA_LOOK_CONFLICT` | When the look photo shows another item in an uploaded product's place (other shoes, another skirt): `upload` (default) keeps the uploaded product, `look` the look's |
 | `GENMEDIA_CATALOG_PATH` | Your own catalogue, with the columns of `assets/catalog/products.parquet` |
 | `MEDIA_BUCKET` | The media bucket (default `<PROJECT_ID>-gfc-media`) |
 | `USE_IAP` | Browser sign-in with Identity-Aware Proxy |

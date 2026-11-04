@@ -305,6 +305,7 @@ async def test_stage_one_request(fake_gen, fake_eval, stage_one):
         scenario="a beach",
         complete_look=False,
         upscale_crops=True,
+        look_conflict="look",
         image=image,
     )
     await collect(req)
@@ -319,6 +320,7 @@ async def test_stage_one_request(fake_gen, fake_eval, stage_one):
     assert sent.generate_back is False  # each animated front draws its own
     assert sent.complete_look is False
     assert sent.upscale_crops is True
+    assert sent.look_conflict == "look"
     assert sent.policy is req.policy
     assert sent.image is image
 

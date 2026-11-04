@@ -139,6 +139,7 @@ def _tryon_request(
         reference_model_image=req.reference_model_image,
         complete_look=req.complete_look,
         upscale_crops=req.upscale_crops,
+        look_conflict=req.look_conflict,
         style_guidelines=req.style_guidelines,
         scenario=req.scenario,
         generate_back=False,
@@ -214,6 +215,7 @@ async def _classify(req: VideoTryOnRequest) -> VideoTryOnRequest | None:
             req.reference_model_image,
             req.complete_look,
             upscale_crops=req.upscale_crops,
+            look_conflict=req.look_conflict,
         )
     except Exception as exc:
         logger.warning(f"video try-on: classifying the products failed: {exc}")

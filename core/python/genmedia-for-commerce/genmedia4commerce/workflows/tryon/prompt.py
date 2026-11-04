@@ -129,6 +129,8 @@ SYSTEM = (
     + _POSE_STATE
     + " "
     + _CHEST_STATE
+    + " "
+    + styling.WORN_STATE
 )
 
 BACK_SYSTEM = (
@@ -212,7 +214,7 @@ _RULES = [
     + " FRAMING only changes the crop and, for head products, may tuck hair. Never add, remove or reshape any part of the body, or anything that is part of the person. Garments adapt to the body; the body never adapts to the garments: each garment falls on this exact body as it would in real life. It covers what its cut covers, the body's shape still showing under it, and it leaves bare what its cut leaves bare. Never reveal what a garment would cover.",
     _NOT_INVENTED,
     _NOT_MIRRORED,
-    "Only the supplied products. Every garment and accessory from WEARER BODY is replaced: the wearer keeps none of their own clothes, scarves, jewellery, bags, belts or hats. Anything in frame that no product covers becomes a plain, neutral piece that goes with the products (for example plain trousers under a supplied top). No extra accessories, bags, belts, hats or jewellery, even if WEARER BODY, a product photo on a person or a REFERENCE CROP shows them.",
+    "Only the supplied products. Every garment and accessory from WEARER BODY is replaced: the wearer keeps none of their own clothes, scarves, jewellery, bags, belts or hats. Anything in frame that no product covers becomes a plain, neutral piece that goes with the products (for example plain trousers under a supplied top). No extra accessories, bags, belts, hats or jewellery, nor anything they hold or carry that is not a product (a phone, a cup, keys), even if WEARER BODY, a product photo on a person or a REFERENCE CROP shows them: their hands are empty or hold only a product.",
     _NOT_BARE,
     _COVERED,
 ]
@@ -227,7 +229,7 @@ _BACK_RULES = [
     + " FRAMING only changes the crop and, for head products, may tuck hair. Never add, remove or reshape any part of the body, or anything that is part of the person. Garments adapt to the body; the body never adapts to the garments: each garment falls on this exact body as it would in real life. It covers what its cut covers, the body's shape still showing under it, and it leaves bare what its cut leaves bare. Never reveal what a garment would cover.",
     _NOT_INVENTED,
     _NOT_MIRRORED,
-    "Only the supplied products. Everything else the wearer wears comes from FRONT RESULT: anything in frame that no product covers is the plain, neutral piece FRONT RESULT shows, seen from the back. No extra accessories, bags, belts, hats or jewellery, even if a product photo on a person shows them.",
+    "Only the supplied products. Everything else the wearer wears comes from FRONT RESULT: anything in frame that no product covers is the plain, neutral piece FRONT RESULT shows, seen from the back. No extra accessories, bags, belts, hats or jewellery, nor anything they hold or carry that is not a product (a phone, a cup, keys), even if a product photo on a person shows them: their hands are empty or hold only a product.",
     _NOT_BARE,
     _COVERED,
 ]
@@ -248,8 +250,7 @@ def _photo(ref: ProductRef) -> str:
 
 
 def _fit(spec: PromptSpec, text: str) -> str:
-    """``text`` naming the wearer's body (FRONT RESULT for the back view)
-    when the single product is a garment, else ''."""
+    """``text`` naming the wearer's body for a single garment, else ''."""
     if spec.products[0].category not in GARMENTS:
         return ""
     back = spec.front_result is not None
@@ -350,22 +351,23 @@ def _photo_rule(spec: PromptSpec) -> str:
     )
 
 
-def _identity(spec: PromptSpec) -> list[str]:
-    """Identity only where the face shows."""
+def _identity(spec: PromptSpec, face: str) -> list[str]:
+    """Identity only where the face shows (``face``: its source)."""
     if not framing.shows_head(spec):
         return []
     if spec.front_result is not None:
         return [_BACK_IDENTITY]
-    source = "WEARER FACE" if spec.wearer_face is not None else "WEARER BODY"
-    return [skin.IDENTITY.format(face=source, body="WEARER BODY")]
+    return [skin.IDENTITY.format(face=face, body="WEARER BODY")]
 
 
 def _rules(spec: PromptSpec) -> str:
     """The front's rules, or the back view's (its wearer is FRONT RESULT)."""
     back = spec.front_result is not None
     body, *rest = _BACK_RULES if back else _RULES
+    face = "WEARER FACE" if spec.wearer_face is not None else "WEARER BODY"
+    body += skin.OWN_SKIN.format(face="FRONT RESULT" if back else face)
     fidelity = _FIDELITY + _fit(spec, _REGRADED)
-    rules = [*_identity(spec), body, fidelity, *rest]
+    rules = [*_identity(spec, face), body, fidelity, *rest]
     rules += [_photo_rule(spec), _OUTPUT_RULE]
     return "## RULES\n" + "\n".join(f"{i}. {r}" for i, r in enumerate(rules, 1))
 

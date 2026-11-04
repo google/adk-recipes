@@ -46,11 +46,7 @@ from collections.abc import AsyncGenerator, Callable
 
 from genmedia4commerce.core import catalog
 from genmedia4commerce.core import catalog_search as search
-from genmedia4commerce.core.errors import (
-    USER_ERRORS,
-    InputError,
-    user_message,
-)
+from genmedia4commerce.core.errors import USER_ERRORS, InputError, user_message
 from genmedia4commerce.core.events import (
     ClassifiedEvent,
     CompleteEvent,
@@ -197,6 +193,7 @@ async def try_on(
     reference_model_image_base64: str = "",
     complete_look: bool = True,
     upscale_crops: bool = False,
+    look_conflict: str = "",
     style_guidelines: str = "",
     scenario: str = "",
     generate_back: bool = True,
@@ -230,6 +227,9 @@ async def try_on(
             in the products only it shows, cut from its photo (e.g. its
             skirt and shoes when only the shirt was uploaded).
         upscale_crops: Upscale the added shoes to 2K first (slower).
+        look_conflict: When the look shows another item in an uploaded
+            product's place (other shoes): "upload" keeps the upload,
+            "look" uses the look's item; "" for the deployment setting.
         style_guidelines: Optional brand rules, e.g. "jackets closed".
         scenario: Optional background/setting; empty uses the default studio.
         generate_back: Also generate the back view when back photos exist.
@@ -260,6 +260,7 @@ async def video_try_on(
     reference_model_image_base64: str = "",
     complete_look: bool = True,
     upscale_crops: bool = False,
+    look_conflict: str = "",
     style_guidelines: str = "",
     scenario: str = "",
     tryon_image_base64: str = "",
@@ -298,6 +299,9 @@ async def video_try_on(
             in the products only it shows, cut from its photo (e.g. its
             skirt and shoes when only the shirt was uploaded).
         upscale_crops: Upscale the added shoes to 2K first (slower).
+        look_conflict: When the look shows another item in an uploaded
+            product's place (other shoes): "upload" keeps the upload,
+            "look" uses the look's item; "" for the deployment setting.
         style_guidelines: Optional brand rules, e.g. "jackets closed".
         scenario: Optional setting; empty uses the default studio.
         tryon_image_base64: An existing try-on image to animate (filename);
@@ -331,7 +335,6 @@ async def video_try_on(
             this run's folder; returns "media_uri" and "media_url" instead).
         run_id: Optional 12-character id of an existing run folder to use.
         session_id: Optional id (letters, digits, "_", "-") grouping runs.
-
     """
     return await _run(dict(locals()), video_tryon_request, run_video_tryon)
 
@@ -366,16 +369,13 @@ async def spin_360(
             this run's folder; returns "media_uri" and "media_url" instead).
         run_id: Optional 12-character id of an existing run folder to use.
         session_id: Optional id (letters, digits, "_", "-") grouping runs.
-
     """
     return await _run(dict(locals()), spin_request, run_spin)
 
 
 def _generation(tool: str) -> tuple:
-    """The tool, request builder and workflow of a generation tool.
-
-    Looked up on each call, so tests can replace the workflows.
-    """
+    """The tool, request builder and workflow of a generation tool, looked
+    up on each call, so tests can replace the workflows."""
     table = {
         "try_on": (try_on, tryon_request, run_tryon),
         "video_try_on": (video_try_on, video_tryon_request, run_video_tryon),

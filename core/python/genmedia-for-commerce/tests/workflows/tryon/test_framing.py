@@ -26,7 +26,7 @@ from genmedia4commerce.core.types import (
     Category,
     Landmark,
 )
-from genmedia4commerce.workflows.tryon import framing
+from genmedia4commerce.workflows.tryon import framing, styling
 from genmedia4commerce.workflows.tryon.prompt import FRAMING, build_prompt
 from genmedia4commerce.workflows.tryon.styling import NO_FOOTWEAR
 from tests.workflows.tryon import test_prompt as tp
@@ -185,5 +185,6 @@ def test_every_system_text_ends_asking_to_state_the_framing(case):
         " In your generation description, you MUST name what covers the "
         "wearer's chest: a product, or the plain top."
     )
+    worn = " " + styling.WORN_STATE
     back = case is tp.single_footwear_back
-    assert system.endswith(framing + ("" if back else pose + chest))
+    assert system.endswith(framing + ("" if back else pose + chest + worn))

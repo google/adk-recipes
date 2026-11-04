@@ -32,15 +32,21 @@ drawing's card, the styling plan and the judge get it. In order:
    (``outfit.best_upload``).
 
 A product the look adds (``added``) has no upload: it can only get a
-crop, also from a turned look photo and also covered.
+crop, also from a turned look photo and also covered. A look item in an
+uploaded product's place (``conflicts``) is added or not by the look
+conflict rule (``resolved``).
 """
 
 from collections.abc import Sequence
+from typing import cast
 
 from genmedia4commerce.core import media
+from genmedia4commerce.core.settings import LookConflict, get_settings
 from genmedia4commerce.core.types import (
+    SINGLE_SLOT,
     Classification,
     Photo,
+    PhotoItem,
     Product,
     ProductRef,
 )
@@ -50,8 +56,11 @@ __all__ = [
     "MIN_HERO_SHORT_SIDE",
     "MIN_HERO_SIDE",
     "added",
+    "conflict_message",
+    "conflicts",
     "crop_sources",
     "pick",
+    "resolved",
     "worn",
 ]
 
@@ -62,22 +71,63 @@ MIN_HERO_SIDE = 400
 MIN_HERO_SHORT_SIDE = 150
 
 
-def added(c: Classification) -> list[Product]:
-    """The products the look adds: the items of no uploaded product that the
-    look photo shows (without a look photo, any photo), each with the
-    category and name of its first appearance, its key ("g7") as id and no
-    image yet."""
+def resolved(look_conflict: str | None) -> LookConflict:
+    """``look_conflict``, else ``GENMEDIA_LOOK_CONFLICT``."""
+    return cast(LookConflict, look_conflict or get_settings().look_conflict)
+
+
+def _look_items(c: Classification) -> list[PhotoItem]:
+    """The items of no uploaded product that the look photo shows (without
+    a look photo, any photo), each at its first appearance."""
     look = c.look_photo
     photos = c.photos if look is None else [c.photos[look]]
     uploaded = {p.id for p in c.products}
-    new: dict[str, Product] = {}
+    first: dict[str, PhotoItem] = {}
     for photo in photos:
         for item in photo.items:
-            if item.product not in uploaded and item.product not in new:
-                new[item.product] = Product(
-                    item.product, item.category, item.name, []
-                )
-    return list(new.values())
+            if item.product not in uploaded:
+                first.setdefault(item.product, item)
+    return list(first.values())
+
+
+def _in_place_of(item: PhotoItem, p: Product) -> bool:
+    """The look item ``item`` would take the uploaded ``p``'s place."""
+    if item.category in SINGLE_SLOT:
+        return item.category == p.category
+    return item.instead_of == p.id
+
+
+def conflicts(c: Classification) -> list[tuple[PhotoItem, Product]]:
+    """Each look item (``_look_items``) in an uploaded product's place,
+    with that product: one of its ``SINGLE_SLOT`` category, else the one
+    the classifier says it would replace (``PhotoItem.instead_of``)."""
+    out = []
+    for item in _look_items(c):
+        rivals = [p for p in c.products if _in_place_of(item, p)]
+        out += [(item, rivals[0])] if rivals else []
+    return out
+
+
+def conflict_message(conflict: dict[str, str]) -> str:
+    """One line on a ``Classification.look_conflicts`` entry."""
+    look, upload = conflict["look_name"], conflict["upload_name"]
+    if conflict["kept"] == "look":
+        return f"Used the look's {look} instead of the uploaded {upload}"
+    return f"Kept the uploaded {upload} and left out the look's {look}"
+
+
+def added(c: Classification, look_conflict: str | None = None) -> list[Product]:
+    """The products the look adds: its items (``_look_items``) but, with
+    the rule "upload" (``resolved``), those in an uploaded product's place
+    (``conflicts``), each with its key ("g7") as id and no image yet."""
+    out = set()
+    if resolved(look_conflict) == "upload":
+        out = {item.product for item, _ in conflicts(c)}
+    return [
+        Product(i.product, i.category, i.name, [])
+        for i in _look_items(c)
+        if i.product not in out
+    ]
 
 
 def _shows(photo: Photo, p: Product, *, uncovered: bool = False) -> bool:
