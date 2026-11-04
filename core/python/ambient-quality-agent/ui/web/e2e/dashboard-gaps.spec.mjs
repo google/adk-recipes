@@ -110,7 +110,7 @@ out.push(['0 no "sweep" on investigations', !/sweep/i.test(invText), ""]);
 await p.goto(`${BASE}/c`, { waitUntil: "domcontentloaded" });
 await p.waitForSelector("textarea", { timeout: 45000 });
 
-// ---- 4: chip first + starts a real run
+// ---- 4: chip first + starts a real investigation
 const chips = await p
   .locator("button", { hasText: /Run a full investigation/ })
   .count();
@@ -124,7 +124,9 @@ out.push([
 ]);
 
 const before = await (await fetch(`${BASE}/api/investigations`)).json();
-const beforeIds = new Set((before.runs || []).map((r) => r.run_id));
+const beforeIds = new Set(
+  (before.investigations || []).map((r) => r.investigation_id),
+);
 // Locally the tool runs the investigation inline, so this turn lasts minutes.
 await p
   .locator("button", { hasText: /Run a full investigation/ })
@@ -133,19 +135,23 @@ await p
 await settle();
 const reply = await T();
 const after = await (await fetch(`${BASE}/api/investigations`)).json();
-const added = (after.runs || []).filter((r) => !beforeIds.has(r.run_id));
+const added = (after.investigations || []).filter(
+  (r) => !beforeIds.has(r.investigation_id),
+);
 const idInReply =
-  added.map((r) => r.run_id).find((id) => reply.includes(id)) ||
-  (after.runs || []).map((r) => r.run_id).find((id) => reply.includes(id));
+  added.map((r) => r.investigation_id).find((id) => reply.includes(id)) ||
+  (after.investigations || [])
+    .map((r) => r.investigation_id)
+    .find((id) => reply.includes(id));
 out.push([
-  "4 a new run was created",
+  "4 a new investigation was created",
   added.length > 0 || !!idInReply,
   `new=${added.length} id=${idInReply}`,
 ]);
 out.push([
-  "4 chat reported that run id",
+  "4 chat reported that investigation id",
   !!idInReply,
-  `run=${added.map((r) => r.run_id).join(",")} reported=${idInReply}`,
+  `investigation=${added.map((r) => r.investigation_id).join(",")} reported=${idInReply}`,
 ]);
 out.push([
   "4 chat did not fake results",
@@ -231,7 +237,7 @@ const persisted = await p.evaluate(() => {
 out.push(["7 reload paints under a second", warmMs < 1000, `${warmMs} ms`]);
 out.push([
   "7 the slow reads are persisted",
-  ["runs", "stats", "daily"].every((k) => persisted.includes(k)),
+  ["investigations", "stats", "daily"].every((k) => persisted.includes(k)),
   persisted.join(","),
 ]);
 

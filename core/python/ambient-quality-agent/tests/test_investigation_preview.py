@@ -35,9 +35,18 @@ from agentplatform._genai.types.evals import (
     ConversationTurn,
 )
 from ambient_quality_agent.core.investigation import locking, preview
+from ambient_quality_agent.core.nodes import _common
+from ambient_quality_agent.core.state import WorkflowState
 from ambient_quality_agent.tools.ingestion import selector
+from ambient_quality_agent.tools.ingestion.base import (
+    DEFAULT_JOB_TIMEOUT_MS,
+    BigQueryJobFetcher,
+)
 from ambient_quality_agent.tools.ingestion.models import Page
 from ambient_quality_agent.tools.trajectories.models import IngestStatus
+from ambient_quality_agent.tools.trajectories.recorder import (
+    NullTrajectoryRecorder,
+)
 from google.genai import types as gt
 
 from .conftest import StateContext, make_config
@@ -151,19 +160,20 @@ class FakePreviewFetcher:
         )
 
 
-class FakePayloadStore:
-    """Test fake for the payload store, recording archives and index writes."""
+class FakeBundleStore:
+    """Test fake for the trajectory store, recording bundles and investigation
+    trajectory writes."""
 
     def __init__(self) -> None:
-        self.archives: list[Any] = []
+        self.bundles: list[Any] = []
         self.index_writes: list[Any] = []
         self.thread_names: list[str] = []
 
-    def record_payloads(self, archives: Any) -> None:
-        self.archives.extend(archives)
+    def record_trajectory_bundles(self, bundles: Any) -> None:
+        self.bundles.extend(bundles)
         self.thread_names.append(threading.current_thread().name)
 
-    def record(self, trajectories: Any) -> None:
+    def record_investigation_trajectories(self, trajectories: Any) -> None:
         self.index_writes.extend(trajectories)
 
 
@@ -172,7 +182,7 @@ class Harness:
     """Test fixture bundle containing mock fetcher, store, and context."""
 
     fetcher: FakePreviewFetcher
-    store: FakePayloadStore
+    store: FakeBundleStore
     context: StateContext
 
 
@@ -180,7 +190,7 @@ class Harness:
 def harness(monkeypatch: pytest.MonkeyPatch) -> Harness:
     """Fixture providing a configured Harness with default mocks."""
     fetcher = FakePreviewFetcher(cases=[_case("s1")], matched=1)
-    store = FakePayloadStore()
+    store = FakeBundleStore()
 
     def fetcher_factory(
         config: Any, selector_sql: str, *, recorder: Any
@@ -261,10 +271,10 @@ def test_each_example_carries_what_makes_it_recognizable(
 
     assert example.trajectory_id == "s1"
     assert (
-        example.case_view_path
-        == f"/investigations/preview/cases/{example.trajectory_id}"
+        example.trajectory_view_path
+        == f"/investigations/preview/trajectories/{example.trajectory_id}"
     )
-    assert example.turn_count == 1
+    assert example.step_count == 1
     assert example.first_user_message == "Book me a flight to Zurich."
 
 
@@ -376,7 +386,7 @@ def test_the_previewed_conversations_are_archived(
 
     asyncio.run(_preview(harness))
 
-    assert [a.payload.trajectory_id for a in harness.store.archives] == [
+    assert [a.manifest.trajectory_id for a in harness.store.bundles] == [
         "s0",
         "s1",
         "s2",
@@ -399,7 +409,7 @@ def test_a_preview_writes_no_index_rows(
 def test_a_conversation_ingestion_gave_up_on_is_neither_archived_nor_shown(
     harness: Harness, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Verify that uningested rows are omitted from archives and preview examples."""
+    """Verify that uningested rows are omitted from bundles and preview examples."""
     fetcher = harness.fetcher
     _install(harness, monkeypatch)
 
@@ -421,7 +431,7 @@ def test_a_conversation_ingestion_gave_up_on_is_neither_archived_nor_shown(
     result = asyncio.run(_preview(harness))
 
     assert result.examples == ()
-    assert harness.store.archives == []
+    assert harness.store.bundles == []
 
 
 def test_the_preview_never_claims_the_agent(
@@ -432,11 +442,11 @@ def test_the_preview_never_claims_the_agent(
     claims: list[str] = []
 
     class RecordingLock:
-        def acquire(self, agent_name: str, run_id: str) -> str | None:
+        def acquire(self, agent_name: str, investigation_id: str) -> str | None:
             claims.append(agent_name)
             return None
 
-        def release(self, agent_name: str, run_id: str) -> None:
+        def release(self, agent_name: str, investigation_id: str) -> None:
             claims.append(agent_name)
 
     monkeypatch.setattr(
@@ -473,7 +483,7 @@ def test_the_real_factory_builds_a_capped_fetcher_that_reports_to_the_preview() 
         project_id=_PROJECT,
         telemetry_dataset="agent_analytics",
     )
-    collector = preview._ArchiveCollector(agent_name=_AGENT)
+    collector = preview._BundleCollector(observed_agent_key=_AGENT)
 
     with mock.patch(
         "ambient_quality_agent.tools.ingestion.base.bigquery.Client"
@@ -486,6 +496,27 @@ def test_the_real_factory_builds_a_capped_fetcher_that_reports_to_the_preview() 
     assert fetcher._selector_sql == _SELECTOR
     assert fetcher._job_timeout_ms == preview.JOB_TIMEOUT_MS
     assert client.called
+
+
+def test_a_sweep_fetcher_gets_the_default_job_timeout() -> None:
+    """Sweeps pass no timeout of their own; `build_fetcher`'s default bounds their jobs."""
+    state = WorkflowState.from_config(
+        make_config(
+            observed_agent_name=_AGENT,
+            project_id=_PROJECT,
+            telemetry_dataset="agent_analytics",
+        )
+    ).model_dump()
+
+    with mock.patch(
+        "ambient_quality_agent.tools.ingestion.base.bigquery.Client"
+    ):
+        fetcher = _common.build_fetcher(
+            StateContext(state), recorder=NullTrajectoryRecorder()
+        )
+
+    assert isinstance(fetcher, BigQueryJobFetcher)
+    assert fetcher._job_timeout_ms == DEFAULT_JOB_TIMEOUT_MS
 
 
 # --- the three refusals ----------------------------------------------------- #
@@ -522,7 +553,7 @@ def test_a_selector_the_dry_run_refuses_queries_nothing_beyond_the_precheck(
 
     assert result.rejection is rejection
     assert harness.fetcher.calls == ["precheck"]
-    assert harness.store.archives == []
+    assert harness.store.bundles == []
 
 
 def test_a_rejection_reaches_the_caller_as_data_it_can_act_on(
@@ -629,7 +660,7 @@ def test_a_standalone_preview_archives_in_process(
 ) -> None:
     """In standalone mode a preview's conversations go to the in-process store.
 
-    The preview archives what it tried through `store_factory`, a storage
+    The preview stores what it tried through `store_factory`, a storage
     provider. Standalone binds it to the same `InMemoryStore` the sweep writes
     to. Constructing a BigQuery client raises here, so a provider left on the
     BigQuery binding fails this test.
@@ -652,7 +683,7 @@ def test_a_standalone_preview_archives_in_process(
 
     monkeypatch.setattr(preview, "fetcher_factory", fetcher_factory)
     harness = Harness(
-        fetcher=fetcher, store=FakePayloadStore(), context=StateContext()
+        fetcher=fetcher, store=FakeBundleStore(), context=StateContext()
     )
     _install(harness, monkeypatch)
 
@@ -661,4 +692,4 @@ def test_a_standalone_preview_archives_in_process(
 
     assert store is not None
     assert [example.trajectory_id for example in result.examples] == ["s1"]
-    assert list(store.archives) == ["s1"]
+    assert list(store.trajectory_bundles) == ["s1"]

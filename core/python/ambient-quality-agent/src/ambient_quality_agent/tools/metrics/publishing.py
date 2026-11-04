@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""The published code-metric library: what `agents-cli aqua metrics` does, and what a run reads.
+"""The published code-metric library: what `agents-cli aqua metrics` does, and what an investigation reads.
 
 The CLI talks to AQuA only through its API, so it needs no grant on the metrics
 bucket: it sends a library to the command routes, and the engine validates it
@@ -39,7 +39,7 @@ mirrors the directory the CLI sent:
 A dry run stops after step 1 and returns the plan, so the CLI can ask before
 it deletes anything.
 
-Validating executes each local metric's module, as every run does. Whoever can
+Validating executes each local metric's module, as every investigation does. Whoever can
 publish can therefore run code in the engine; publishing is restricted to
 those who can call AQuA's API.
 """
@@ -118,11 +118,11 @@ def resolve_fallback_prefix(agent_key: str) -> str:
 
 
 def load_published_library(store: ObjectStore, agent_key: str) -> MetricLibrary:
-    """Loads an agent's published library, as a run scores with it.
+    """Loads an agent's published library, as an investigation scores with it.
 
     Args:
         store: The metrics store.
-        agent_key: Key of the run's agent; empty when no agent is resolved.
+        agent_key: Key of the investigation's agent; empty when no agent is resolved.
 
     Returns:
         The library; empty when nothing is published for the agent.
@@ -192,7 +192,7 @@ def publish(files: Any, *, agent_key: str, dry_run: bool) -> dict[str, Any]:
 
 
 def list_published(*, agent_key: str) -> dict[str, Any]:
-    """Lists an agent's library and validates it as a run would load it.
+    """Lists an agent's library and validates it as an investigation would load it.
 
     Args:
         agent_key: Key of the agent; empty when no agent is resolved.
@@ -395,7 +395,7 @@ def _validate_path(path: Any) -> str:
 
 
 def _validate_library(objects: dict[str, bytes]) -> dict[str, Any]:
-    """Loads a library as a run would and reports what it would run.
+    """Loads a library as an investigation would and reports what it would run.
 
     Args:
         objects: Each file's content, by its path in the library.

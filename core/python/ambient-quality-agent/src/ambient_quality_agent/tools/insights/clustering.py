@@ -30,7 +30,7 @@ from typing import TYPE_CHECKING, Any
 
 from ambient_quality_agent.tools import genai_json
 from ambient_quality_agent.tools.insights.findings import Finding
-from ambient_quality_agent.tools.insights.models import RubricExample
+from ambient_quality_agent.tools.insights.models import FindingExample
 from pydantic import BaseModel, Field
 
 if TYPE_CHECKING:
@@ -67,51 +67,52 @@ class Cluster(BaseModel):
     (not partition-local indices), as returned by the model under the response
     schema."""
 
-    item_count: int = 0
+    finding_count: int = 0
     """Findings covered. Stored rather than derived from ``examples``, which is
     capped."""
 
-    trace_ids: list[str] = Field(default_factory=list)
-    """Ids of the distinct sessions the covered findings came from, in
-    first-seen order. Ids rather than a number so `merge.merge_clusters` can
-    union two candidates without counting a shared conversation twice; only
-    their number is persisted."""
+    trajectory_ids: list[str] = Field(default_factory=list)
+    """Ids of the distinct trajectories the covered findings came from, in
+    first-seen order. Kept as IDs so `merge.merge_clusters` can union two
+    candidates without counting a shared trajectory twice, and persisted on
+    `InsightOccurrence.trajectory_ids`."""
 
     agent_revisions: list[str] = Field(default_factory=list)
     """Deployment revisions the covered findings came from, in first-seen order.
     Kept as the full set rather than one resolved value so `merge.merge_clusters`
     can union two candidates; the occurrence records the newest of them."""
 
-    examples: list[RubricExample] = Field(default_factory=list)
+    examples: list[FindingExample] = Field(default_factory=list)
     """Capped at `MAX_EXAMPLES`; persisted verbatim as JSON on the occurrence."""
 
     @property
-    def trace_count(self) -> int:
-        """How many conversations this issue was seen in.
+    def trajectory_count(self) -> int:
+        """How many trajectories this issue was seen in.
 
         Counted over every covered finding, not just the capped `examples`,
-        which would understate a widespread issue as a handful of cases.
+        which would understate a widespread issue as a handful of trajectories.
         """
-        return len(self.trace_ids)
+        return len(self.trajectory_ids)
 
 
 class ClusteringInfo(BaseModel):
-    """Findings that produced no insight this sweep, by cause.
+    """Findings that produced no insight this investigation, by cause.
 
-    Surfaced in the node summary so a shrunken sweep is visible, not just logged.
+    Surfaced in the node summary so a shrunken investigation is visible, not
+    just logged.
     """
 
-    errored_rubrics: int = 0
+    errored_findings: int = 0
     """Number of findings discarded due to LLM chunk processing failures."""
 
-    unclustered_rubrics: int = 0
+    unclustered_findings: int = 0
     """Number of findings omitted from valid clusters, or excluded
     because their text describes no problem."""
 
 
 MAX_EXAMPLES = 10
-"""Traces kept per cluster. Kept small because each example carries a full
-conversation trace and is persisted verbatim into the occurrence's JSON payload,
+"""Finding examples kept per cluster. Kept small because each example carries
+conversation turns and is persisted verbatim into the occurrence's JSON column,
 while a cluster can cover hundreds of findings."""
 
 CHUNK_CONCURRENCY = 4
@@ -556,15 +557,15 @@ def validate_clusters(
     """Drop clusters the model did not ground in the findings it was given.
 
     A finding id is grounded when it is an in-range position, i.e. below
-    ``finding_count``. ``item_count`` is recomputed here so the count is ours,
-    not the model's.
+    ``finding_count``. Each cluster's own ``finding_count`` is recomputed here,
+    so the count is ours, not the model's.
 
     Args:
         clusters: Candidate clusters to validate.
         finding_count: Total number of valid finding indices.
 
     Returns:
-        List of grounded clusters with updated item counts.
+        List of grounded clusters with updated finding counts.
     """
     in_range = range(finding_count)
     validated: list[Cluster] = []
@@ -575,7 +576,9 @@ def validate_clusters(
             dropped += 1
             continue
         validated.append(
-            cluster.model_copy(update={"item_count": len(cluster.finding_ids)})
+            cluster.model_copy(
+                update={"finding_count": len(cluster.finding_ids)}
+            )
         )
     if dropped:
         logger.warning(
@@ -591,21 +594,20 @@ def attach_examples(
     findings: Sequence[Finding],
     sessions: Mapping[str, list[dict]],
 ) -> list[Cluster]:
-    """Hang the evidence off each cluster: capped examples, trace ids, revisions.
+    """Attaches capped finding examples, trajectory IDs, and revisions to each cluster.
 
-    Up to `MAX_EXAMPLES` findings-with-traces, plus the sessions and deployment
-    revisions *all* of the cluster's findings came from.
-
-    Built from the findings and their session map, so no extra calls. A finding
-    whose session is absent from the map keeps an empty trace.
+    Attaches up to `MAX_EXAMPLES` `FindingExample` entries and collects the
+    distinct `trajectory_ids` and `agent_revisions` across all covered findings.
+    A finding whose trajectory is absent from `sessions` gets an empty `turns`
+    list.
 
     Args:
         clusters: Clusters to enrich.
         findings: Full sequence of findings indexed by ID.
-        sessions: Map of session ID to conversation turn history.
+        sessions: Mapping of trajectory ID to conversation turns.
 
     Returns:
-        List of clusters with attached examples, trace IDs, and revisions.
+        List of clusters with attached examples, trajectory IDs, and revisions.
     """
     return [
         _attach_evidence(cluster, findings, sessions) for cluster in clusters
@@ -617,15 +619,16 @@ def _attach_evidence(
     findings: Sequence[Finding],
     sessions: Mapping[str, list[dict]],
 ) -> Cluster:
-    """One cluster with its findings' evidence attached.
+    """Attaches evidence fields from covered findings to one cluster.
 
     Args:
         cluster: Cluster to enrich.
         findings: Sequence of findings indexed by ID.
-        sessions: Map of session ID to conversation turn history.
+        sessions: Mapping of trajectory ID to conversation turns.
 
     Returns:
-        Cluster copy with evidence fields populated.
+        Cluster copy with `examples`, `trajectory_ids`, and `agent_revisions`
+        populated.
     """
     covered = [
         findings[fid] for fid in cluster.finding_ids if 0 <= fid < len(findings)
@@ -636,8 +639,8 @@ def _attach_evidence(
                 _build_example(finding, sessions)
                 for finding in covered[:MAX_EXAMPLES]
             ],
-            "trace_ids": _deduplicate_non_empty(
-                finding.session_id for finding in covered
+            "trajectory_ids": _deduplicate_non_empty(
+                finding.trajectory_id for finding in covered
             ),
             "agent_revisions": _deduplicate_non_empty(
                 finding.agent_revision for finding in covered
@@ -647,7 +650,7 @@ def _attach_evidence(
 
 
 def _deduplicate_non_empty(values: Iterable[str]) -> list[str]:
-    """The non-empty values, deduplicated, in first-seen order.
+    """Returns non-empty strings deduplicated in first-seen order.
 
     Args:
         values: Iterable of string values.
@@ -660,27 +663,27 @@ def _deduplicate_non_empty(values: Iterable[str]) -> list[str]:
 
 def _build_example(
     finding: Finding, sessions: Mapping[str, list[dict]]
-) -> RubricExample:
-    """One finding as stored evidence: the finding, its session, its trace.
+) -> FindingExample:
+    """Builds a `FindingExample` from a finding and its trajectory's turns.
 
     Args:
-        finding: The finding providing rubric details.
-        sessions: Mapping of session IDs to turn history dicts.
+        finding: The finding to wrap.
+        sessions: Mapping of trajectory IDs to turn history dicts.
 
     Returns:
-        Populated RubricExample instance.
+        Populated `FindingExample` instance.
     """
-    return RubricExample(
-        rubric=finding,
-        eval_case_id=finding.session_id,
-        trace=sessions.get(finding.session_id, []),
+    return FindingExample(
+        finding=finding,
+        trajectory_id=finding.trajectory_id,
+        turns=sessions.get(finding.trajectory_id, []),
     )
 
 
 def _build_cluster_response_schema() -> Any:
     """Constrain the response to ``{"clusters": [{"label", "finding_ids"}]}``.
 
-    A deliberate subset of `Cluster` (``item_count`` and ``examples`` are
+    A deliberate subset of `Cluster` (``finding_count`` and ``examples`` are
     derived by us, not asked of the model), and the API wants a
     ``google.genai.types.Schema`` rather than pydantic's dict -- so keep it in
     sync with `Cluster` by hand.

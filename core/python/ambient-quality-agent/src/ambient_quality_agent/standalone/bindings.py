@@ -122,43 +122,44 @@ def build_bindings(
     source = FileObjectStore(jobs_dir.parent / SOURCE_DIR_NAME)
     metrics = FileObjectStore(jobs_dir.parent / METRICS_DIR_NAME)
     return {
-        # Investigation lifecycle tracking and run metadata.
+        # Investigation lifecycle tracking and metadata.
         "investigation_store": lambda state: InMemoryInvestigationStore(
-            store, agent_name=resolve_agent_key(state)
+            store, observed_agent_key=resolve_agent_key(state)
         ),
         # Appends workflow progress events to the investigation store.
         "event_writer": lambda state, text, source: InMemoryInvestigationStore(
             store
-        ).append_event(state["run_id"], text, source=source),
+        ).append_event(state["investigation_id"], text, source=source),
         # Writes sweep insights to memory while preserving model-based matching.
         "insight_writer": lambda ctx: InMemoryInsightStore(
             store,
-            agent_name=config_module.extract_agent_key(ctx.state),
+            observed_agent_key=config_module.extract_agent_key(ctx.state),
             matcher=_build_matcher(ctx),
         ),
         "trajectory_recorder": lambda ctx: TrajectoryRecorder(
             store=InMemoryTrajectoryStore(
-                store, agent_name=config_module.extract_agent_key(ctx.state)
+                store,
+                observed_agent_key=config_module.extract_agent_key(ctx.state),
             ),
-            run_id=ctx.state.get("run_id", ""),
-            agent_name=config_module.extract_agent_key(ctx.state),
+            investigation_id=ctx.state.get("investigation_id", ""),
+            observed_agent_key=config_module.extract_agent_key(ctx.state),
             source=ctx.state.get("telemetry_ingestion_source", ""),
         ),
         "root_cause_writer": lambda state: InMemoryRootCauseStore(store),
         # Read-only and interactive interfaces for dashboard and chat tools.
         "insight_reader": lambda state: InMemoryInsightReader(
-            store, agent_name=resolve_agent_key(state)
+            store, observed_agent_key=resolve_agent_key(state)
         ),
         "insight_store": lambda state: InMemoryInsightStore(
-            store, agent_name=resolve_agent_key(state)
+            store, observed_agent_key=resolve_agent_key(state)
         ),
         "trajectory_reader": lambda state: InMemoryTrajectoryReader(
-            store, agent_name=resolve_agent_key(state)
+            store, observed_agent_key=resolve_agent_key(state)
         ),
-        # A preview's conversations join the sweeps' in the one archive, as they
-        # do in BigQuery's `trajectory_payloads`.
+        # A preview's trajectory bundles share the store with investigations,
+        # matching BigQuery's `trajectory_payloads`.
         "preview_trajectory_store": lambda config: InMemoryTrajectoryStore(
-            store, agent_name=config.resolve_agent_key()
+            store, observed_agent_key=config.resolve_agent_key()
         ),
         # The goal, the memories and the attached agents' configurations.
         "jobs_store": lambda: jobs,

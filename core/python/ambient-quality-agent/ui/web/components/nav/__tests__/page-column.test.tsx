@@ -36,8 +36,8 @@ import { Route as ConfigRoute } from "@/src/routes/config";
 import { Route as HomeRoute } from "@/src/routes/index";
 import { Route as InsightRoute } from "@/src/routes/insights.$insightId";
 import { Route as InsightsRoute } from "@/src/routes/insights.index";
-import { Route as CaseRoute } from "@/src/routes/investigations.$runId.cases.$caseId";
-import { Route as InvestigationRoute } from "@/src/routes/investigations.$runId.index";
+import { Route as TrajectoryRoute } from "@/src/routes/investigations.$investigationId.trajectories.$trajectoryId";
+import { Route as InvestigationRoute } from "@/src/routes/investigations.$investigationId.index";
 import { Route as InvestigationsRoute } from "@/src/routes/investigations.index";
 
 // The rail and the chat sessions it lists over A2A are not what is under test.
@@ -51,10 +51,10 @@ vi.mock("@/lib/horizon-sessions", () => ({
 const WIDE_COLUMN = ["md:w-[80%]", "mx-auto", "p-6", "w-full"];
 const NARROW_COLUMN = ["md:w-[65%]", "mx-auto", "p-6", "w-full"];
 
-const RUN = {
-  run_id: "run-12345678",
+const INVESTIGATION = {
+  investigation_id: "inv-12345678",
   status: "done",
-  observed_agent_name: "travel_desk_agent",
+  observed_agent_key: "travel_desk_agent",
   created_at: "2026-09-14T06:00:00Z",
   events: [],
   summary: {},
@@ -64,20 +64,21 @@ function answer(url: string): Promise<Response> {
   const json = (body: unknown, status = 200) =>
     Promise.resolve(new Response(JSON.stringify(body), { status }));
   if (url.includes("/api/investigations/pending")) return new Promise(() => {});
-  if (/\/api\/investigations\/[^/?]+\/cases\//.test(url))
+  if (/\/api\/investigations\/[^/?]+\/trajectories\//.test(url))
     return new Promise(() => {});
-  if (/\/api\/investigations\/[^/?]+/.test(url)) return json({ run: RUN });
+  if (/\/api\/investigations\/[^/?]+/.test(url))
+    return json({ investigation: INVESTIGATION });
   if (url.includes("/api/insights/broken")) return json({ error: "boom" }, 500);
   if (/\/api\/insights\/[^/?]+/.test(url)) {
     return json({
       insight: {
         insight_id: "ins-1",
-        agent_name: "travel_desk_agent",
+        observed_agent_key: "travel_desk_agent",
         label: "the refund tool is never called",
         status: "NEW",
         occurrence_count: 1,
-        trace_count: 1,
-        last_run_at: "2026-09-14T06:00:00Z",
+        trajectory_count: 1,
+        last_investigation_at: "2026-09-14T06:00:00Z",
       },
     });
   }
@@ -93,8 +94,11 @@ function mount(at: string) {
   const pages = [
     [HomeRoute, "/"],
     [InvestigationsRoute, "/investigations/"],
-    [InvestigationRoute, "/investigations/$runId/"],
-    [CaseRoute, "/investigations/$runId/cases/$caseId"],
+    [InvestigationRoute, "/investigations/$investigationId/"],
+    [
+      TrajectoryRoute,
+      "/investigations/$investigationId/trajectories/$trajectoryId",
+    ],
     [InsightsRoute, "/insights/"],
     [InsightRoute, "/insights/$insightId"],
     [ConfigRoute, "/config"],
@@ -138,7 +142,7 @@ describe("the page column", () => {
     ["Investigations", "/investigations", WIDE_COLUMN, undefined],
     [
       "an investigation",
-      "/investigations/run-12345678",
+      "/investigations/inv-12345678",
       NARROW_COLUMN,
       "All investigations",
     ],
@@ -150,7 +154,7 @@ describe("the page column", () => {
     ],
     [
       "a trajectory",
-      "/investigations/run-12345678/cases/case-1",
+      "/investigations/inv-12345678/trajectories/case-1",
       NARROW_COLUMN,
       undefined,
     ],

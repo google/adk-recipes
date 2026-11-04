@@ -29,8 +29,8 @@ vi.mock("@tanstack/react-router", () => ({
 vi.mock("@/components/insights/top-issues-rail", () => ({
   TopIssuesRail: () => null,
 }));
-vi.mock("@/components/investigations/recent-runs-rail", () => ({
-  RecentRunsRail: () => null,
+vi.mock("@/components/investigations/recent-investigations-rail", () => ({
+  RecentInvestigationsRail: () => null,
 }));
 
 import {

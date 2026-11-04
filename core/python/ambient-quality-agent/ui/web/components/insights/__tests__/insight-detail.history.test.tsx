@@ -15,7 +15,7 @@
 // biome-ignore-all lint/style/noNonNullAssertion: a missing value fails the test either way; the assertion only narrows the type.
 
 /**
- * Every sighting carries its own rubrics -- what failed in that sweep. The
+ * Every sighting carries its own examples -- what failed in that sweep. The
  * History cards render them; only the conclusion drawn across sightings, and
  * the notice about it, are dropped as repetition.
  */
@@ -33,19 +33,19 @@ import { InsightDetailView } from "../insight-detail";
 
 const occurrence = (n: number, over: Record<string, unknown> = {}) => ({
   occurrence_id: `occ-${n}`,
-  run_id: `run-0000000${n}`,
+  investigation_id: `inv-0000000${n}`,
   created_at: `2026-09-0${n}T10:00:00Z`,
   confidence: 0,
   diagnosis: "",
   label: `sighting ${n}`,
-  item_count: 2,
-  trace_count: 2,
-  cases_checked: 0,
-  evidence_case_ids: [],
+  finding_count: 2,
+  trajectory_count: 2,
+  trajectories_checked: 0,
+  evidence_trajectory_ids: [],
   console_urls: {},
-  rubrics: [
+  examples: [
     {
-      rubric: {
+      finding: {
         actual_behavior: `agent did the wrong thing in sweep ${n}.`,
         expected_behavior: `it should have done the right thing in sweep ${n}.`,
       },
@@ -61,14 +61,14 @@ function renderDetail(occurrences: unknown[]) {
         JSON.stringify({
           insight: {
             insight_id: "ins-1",
-            agent_name: "it_support_agent",
+            observed_agent_key: "it_support_agent",
             label: "calls the tool with a bad category",
             tool_name: "create_ticket",
             status: "RECURRING",
             occurrence_count: occurrences.length,
-            trace_count: 9,
+            trajectory_count: 9,
             impact: 9,
-            last_run_at: "2026-09-03T10:00:00Z",
+            last_investigation_at: "2026-09-03T10:00:00Z",
             diagnosis: "",
             confidence: 0,
           },
@@ -89,8 +89,8 @@ function renderDetail(occurrences: unknown[]) {
     }),
     createRoute({
       getParentRoute: () => rootRoute,
-      path: "/investigations/$runId",
-      component: () => <div>Run</div>,
+      path: "/investigations/$investigationId",
+      component: () => <div>Investigation</div>,
     }),
     createRoute({
       getParentRoute: () => rootRoute,
@@ -162,7 +162,7 @@ describe("an insight's History sightings", () => {
   it("renders the one behaviour it has when the other is missing", async () => {
     renderDetail([
       occurrence(1, {
-        rubrics: [{ rubric: { actual_behavior: "it timed out." } }],
+        examples: [{ finding: { actual_behavior: "it timed out." } }],
       }),
     ]);
 
@@ -174,18 +174,9 @@ describe("an insight's History sightings", () => {
   it("falls back to an id when a finding carries neither behaviour", async () => {
     // A rubric shape we do not recognise is worth showing as its id rather
     // than as a blank row or a stack trace.
-    renderDetail([occurrence(1, { rubrics: [{ eval_case_id: "case-77" }] })]);
+    renderDetail([occurrence(1, { examples: [{ trajectory_id: "case-77" }] })]);
 
     expect(await screen.findByText("Finding case-77")).toBeInTheDocument();
-  });
-
-  it("says the engine records no cause once, not on every sighting", async () => {
-    renderDetail([occurrence(2), occurrence(1)]);
-
-    await screen.findByText(/agent did the wrong thing in sweep 2/);
-    expect(
-      screen.getAllByText(/This occurrence has no recorded root cause/),
-    ).toHaveLength(1);
   });
 
   it("does not repeat a diagnosis across the history", async () => {
@@ -203,11 +194,9 @@ describe("an insight's History sightings", () => {
   });
 
   it("renders a sighting that carries no rubrics without an empty list", async () => {
-    renderDetail([occurrence(1, { rubrics: [] })]);
+    renderDetail([occurrence(2), occurrence(1, { examples: [] })]);
 
-    const history = await screen.findByText(
-      /This occurrence has no recorded root cause/,
-    );
-    expect(within(history.parentElement!).queryByRole("list")).toBeNull();
+    const history = (await screen.findByText(/^History/)).closest("details")!;
+    expect(within(history).queryByRole("list")).toBeNull();
   });
 });
