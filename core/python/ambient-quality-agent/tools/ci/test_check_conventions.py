@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for the lockfile-registry and Node-version checks in check_conventions."""
+"""Tests for the lockfile-registry, Node-version and Python-version checks in check_conventions."""
 
 from __future__ import annotations
 
@@ -176,6 +176,170 @@ def test_repository_ui_node_versions_match() -> None:
     assert (
         cc.check_ui_node_version(
             _REPO_ROOT / cc.UI_DOCKERFILE, _REPO_ROOT / cc.NVMRC
+        )
+        is True
+    )
+
+
+@pytest.mark.parametrize(
+    ("dockerfile", "expected"),
+    [
+        ("FROM python:3.13-slim\n", ["3.13-slim"]),
+        (
+            "FROM node:26-slim AS web-builder\nFROM python:3.13-slim AS app\n",
+            ["3.13-slim"],
+        ),
+        ("FROM docker.io/library/python:3.12\n", ["3.12"]),
+        ("FROM --platform=linux/amd64 python:3.13-slim\n", ["3.13-slim"]),
+        ("from python:3.13-slim\n", ["3.13-slim"]),
+        (
+            "FROM python:3.12-slim\nFROM python:3.13-slim\n",
+            ["3.12-slim", "3.13-slim"],
+        ),
+        ("FROM node:22-slim\n", []),
+    ],
+)
+def test_extract_dockerfile_python_tags(
+    dockerfile: str, expected: list[str]
+) -> None:
+    assert cc.extract_dockerfile_python_tags(dockerfile) == expected
+
+
+@pytest.mark.parametrize(
+    ("tag", "expected"),
+    [
+        ("3.13-slim", (3, 13)),
+        ("3.13", (3, 13)),
+        ("3.15-slim-bookworm", (3, 15)),
+        ("3-slim", None),
+        ("3.13.7-slim", (3, 13)),
+        ("slim", None),
+    ],
+)
+def test_parse_python_tag_version(
+    tag: str, expected: tuple[int, int] | None
+) -> None:
+    assert cc.parse_python_tag_version(tag) == expected
+
+
+@pytest.mark.parametrize(
+    ("spec", "expected"),
+    [
+        (">=3.11,<3.14", [(">=", (3, 11)), ("<", (3, 14))]),
+        (">= 3.11, < 3.14", [(">=", (3, 11)), ("<", (3, 14))]),
+        ("<3.14", [("<", (3, 14))]),
+        ("<=3.13", None),
+        ("==3.13", None),
+        ("~=3.11", None),
+        (">=3.11.2", None),
+        ("==3.13.*", None),
+        ("", None),
+    ],
+)
+def test_parse_requires_python(
+    spec: str, expected: list[tuple[str, tuple[int, int]]] | None
+) -> None:
+    assert cc.parse_requires_python(spec) == expected
+
+
+@pytest.mark.parametrize(
+    ("version", "expected"),
+    [
+        ((3, 11), True),
+        ((3, 13), True),
+        ((3, 10), False),
+        ((3, 14), False),
+        ((3, 15), False),
+    ],
+)
+def test_matches_requires_python(
+    version: tuple[int, int], expected: bool
+) -> None:
+    clauses = [(">=", (3, 11)), ("<", (3, 14))]
+    assert cc.matches_requires_python(version, clauses) is expected
+
+
+def _write_pyproject(
+    tmp_path: pathlib.Path, requires_python: str
+) -> pathlib.Path:
+    """Writes a minimal pyproject.toml that declares requires-python.
+
+    Args:
+        tmp_path: The directory to write it in.
+        requires_python: The requires-python value.
+
+    Returns:
+        The path of the written file.
+    """
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text(f'[project]\nrequires-python = "{requires_python}"\n')
+    return pyproject
+
+
+def test_check_python_base_images_passes_on_allowed_version(
+    tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    dockerfile = tmp_path / "Dockerfile"
+    dockerfile.write_text("FROM python:3.13-slim\n")
+    pyproject = _write_pyproject(tmp_path, ">=3.11,<3.14")
+
+    assert cc.check_python_base_images((dockerfile,), pyproject) is True
+    assert "python:3.13-slim" in capsys.readouterr().out
+
+
+def test_check_python_base_images_rejects_version_above_range(
+    tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    allowed = tmp_path / "Dockerfile"
+    allowed.write_text("FROM python:3.13-slim\n")
+    too_new = tmp_path / "ui.Dockerfile"
+    too_new.write_text("FROM node:26-slim AS web\nFROM python:3.15-slim\n")
+    pyproject = _write_pyproject(tmp_path, ">=3.11,<3.14")
+
+    assert cc.check_python_base_images((allowed, too_new), pyproject) is False
+    err = capsys.readouterr().err
+    assert "python:3.15-slim" in err
+    assert "python:3.13-slim" not in err
+
+
+def test_check_python_base_images_fails_without_python_stage(
+    tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    dockerfile = tmp_path / "Dockerfile"
+    dockerfile.write_text("FROM node:26-slim\n")
+    pyproject = _write_pyproject(tmp_path, ">=3.11,<3.14")
+
+    assert cc.check_python_base_images((dockerfile,), pyproject) is False
+    assert "no FROM python:<X.Y> stage" in capsys.readouterr().err
+
+
+def test_check_python_base_images_fails_on_unversioned_tag(
+    tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    dockerfile = tmp_path / "Dockerfile"
+    dockerfile.write_text("FROM python:slim\n")
+    pyproject = _write_pyproject(tmp_path, ">=3.11,<3.14")
+
+    assert cc.check_python_base_images((dockerfile,), pyproject) is False
+    assert "python:slim" in capsys.readouterr().err
+
+
+def test_check_python_base_images_fails_on_unparseable_specifier(
+    tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    dockerfile = tmp_path / "Dockerfile"
+    dockerfile.write_text("FROM python:3.13-slim\n")
+    pyproject = _write_pyproject(tmp_path, "~=3.11")
+
+    assert cc.check_python_base_images((dockerfile,), pyproject) is False
+    assert 'Could not parse requires-python "~=3.11"' in capsys.readouterr().err
+
+
+def test_repository_python_base_images_satisfy_requires_python() -> None:
+    assert (
+        cc.check_python_base_images(
+            tuple(_REPO_ROOT / p for p in cc.PYTHON_DOCKERFILES),
+            _REPO_ROOT / cc.PYPROJECT,
         )
         is True
     )

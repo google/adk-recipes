@@ -38,8 +38,8 @@ Wiring::
     │     │                        then effective_config.load_fresh_agent_config()
     │     ├─ task_fire ──► _launch_agent_investigation() ──► _launch_investigation()
     │     └─ update ──► _schedule_delayed_update() ──► _build_engine_name()
-    │                     ├──► _record_scheduled_run() ──► model.create_run()
-    │                     ├──► _fail_unenqueued_run() ──► model.update_run()
+    │                     ├──► _record_scheduled_investigation() ──► model.create_investigation()
+    │                     ├──► _fail_unenqueued_investigation() ──► model.update_investigation()
     │                     │ cloudtasks.enqueue_http_task()
     └─────────────────────┘
 
@@ -54,17 +54,17 @@ update names the observed engine, and is for the agent whose attachment
 records that engine (`effective_config.resolve_engine_agent_key`). An update is
 deferred: it enqueues a delayed Cloud Task that fires back as a `task_fire`
 once the new revision's traces have had time to accumulate. While it waits, a
-`SCHEDULED` run record carrying the due time stands for it, so the wait shows
-in the run list; the `task_fire` then advances that same record
-(`_launch_investigation`'s `scheduled_run_id`), and is for the agent that
+`SCHEDULED` investigation record carrying the due time stands for it, so the wait shows
+in the investigation list; the `task_fire` then advances that same record
+(`_launch_investigation`'s `scheduled_investigation_id`), and is for the agent that
 record was written for. Every dispatch is logged with its outcome.
 
 Main rules: a `scheduled` trigger has no dedup id, so its key is computed from a
 timestamp -- `X-CloudScheduler-ScheduleTime`, or this container's clock -- which
-every attempt at one fire repeats. It also checks everything since the run that
+every attempt at one fire repeats. It also checks everything since the investigation that
 finished last. `update` and `task_fire` carry a
 `dedup_id`, the audit event's id, which names the delayed Cloud Task so repeated
-deliveries become one fire, and derives the scheduled record's run ID so they
+deliveries become one fire, and derives the scheduled record's investigation ID so they
 become one record. The update delay comes from the settings, not from the
 payload. The window is derived when the task fires, not when the update
 arrives, so that it holds the new revision's traces.
@@ -98,8 +98,8 @@ from ambient_quality_agent.core.session_state import (
 )
 from ambient_quality_agent.tools import cloudtasks
 from ambient_quality_agent.tools.investigations.models import (
-    InvestigationRecord,
-    RunStatus,
+    Investigation,
+    InvestigationStatus,
 )
 from ambient_quality_agent.tools.observed_agent_config import (
     effective_config,
@@ -239,7 +239,7 @@ async def dispatch_ambient_trigger(
         Human-readable summary message describing the dispatch action.
 
     Raises:
-        Exception: For an `update` or `task_fire`, whatever reading the run
+        Exception: For an `update` or `task_fire`, whatever reading the investigation
             store or the agent's attachment, enqueuing the delayed trigger, or
             launching the investigation raised; for a `scheduled` trigger,
             whatever an agent's launch raised. Either is delivered again. A
@@ -399,14 +399,16 @@ async def _launch_agent_investigation(
         ambient=True,
         trigger_type=trigger.type,
         anchor=anchor,
-        scheduled_run_id=compute_scheduled_run_id(trigger.dedup_id)
+        scheduled_investigation_id=compute_scheduled_investigation_id(
+            trigger.dedup_id
+        )
         if trigger.type == "task_fire" and trigger.dedup_id
         else None,
     )
-    if "run_id" in result:
+    if "investigation_id" in result:
         note = (
             f"Ambient {trigger.type} trigger for {config.resolve_agent_key()}: "
-            f"scheduled investigation run {result['run_id']} "
+            f"scheduled investigation run {result['investigation_id']} "
             f"(status {result['status']})."
         )
     else:
@@ -424,13 +426,13 @@ async def _resolve_trigger_agent_key(
     """Resolves the agent an `update` or `task_fire` trigger is for.
 
     1. A `task_fire` is for the agent of the `SCHEDULED` record its `update`
-       left. Run ids are unique across agents, so the record is found by its
-       id alone.
+       left. Investigation IDs are unique across agents, so the record is found
+       by its ID alone.
     2. Otherwise, and for an `update`, the agent whose attachment records the
        engine `resource_name` names (`effective_config.resolve_engine_agent_key`).
 
     Args:
-        state: Session state, which reaches the run store.
+        state: Session state, which reaches the investigation store.
         trigger: The `update` or `task_fire` trigger.
 
     Returns:
@@ -438,18 +440,20 @@ async def _resolve_trigger_agent_key(
         trigger's.
 
     Raises:
-        Exception: Whatever reading the run store or the attachments raised.
+        Exception: Whatever reading the investigation store or the attachments raised.
     """
     # Non-None here: `validate_trigger_payload` requires both on these types.
     resource_name = cast(str, trigger.resource_name)
     dedup_id = cast(str, trigger.dedup_id)
     if trigger.type == "task_fire":
-        run_id = compute_scheduled_run_id(dedup_id)
+        investigation_id = compute_scheduled_investigation_id(dedup_id)
         record = await asyncio.to_thread(
-            lambda: model.store_factory(state).get(run_id, include_events=False)
+            lambda: model.store_factory(state).get(
+                investigation_id, include_events=False
+            )
         )
-        if record is not None and record.observed_agent_name:
-            return record.observed_agent_name
+        if record is not None and record.observed_agent_key:
+            return record.observed_agent_key
     return await asyncio.to_thread(
         effective_config.resolve_engine_agent_key,
         engine_agent.extract_engine_id(resource_name),
@@ -525,8 +529,8 @@ async def _resolve_unscheduled_note(
     return ""
 
 
-def compute_scheduled_run_id(dedup_id: str) -> str:
-    """Derives the run ID of the scheduled record an update leaves.
+def compute_scheduled_investigation_id(dedup_id: str) -> str:
+    """Derives the investigation ID of the scheduled record an update leaves.
 
     Both hops compute it from the audit event's id: the `update` to create the
     record, and its `task_fire` to find it again. A redelivered event therefore
@@ -536,7 +540,7 @@ def compute_scheduled_run_id(dedup_id: str) -> str:
         dedup_id: The audit LogEntry's `operation.id`.
 
     Returns:
-        A 32-hex-digit run ID, the length of a generated one, so that it is
+        A 32-hex-digit investigation ID, the length of a generated one, so that it is
         unique across agents too.
     """
     return hashlib.sha256(dedup_id.encode()).hexdigest()[:32]
@@ -545,9 +549,10 @@ def compute_scheduled_run_id(dedup_id: str) -> str:
 async def _schedule_delayed_update(
     context: LaunchContext, config: Config, trigger: AmbientTrigger
 ) -> str:
-    """Records a scheduled run and enqueues the delayed Cloud Task that starts it.
+    """Records a scheduled investigation and enqueues the delayed Cloud Task that starts it.
 
-    1. Records a `SCHEDULED` run due when the task is (`_record_scheduled_run`).
+    1. Records a `SCHEDULED` investigation due when the task is
+       (`_record_scheduled_investigation`).
     2. Enqueues a Cloud Task delayed by `agent_revision_trigger_delay_seconds`,
        so traces from the new revision can accumulate. The task POSTs a
        `task_fire` to this engine's `/ambient/trigger` route using
@@ -604,13 +609,13 @@ async def _schedule_delayed_update(
         f"{engine_name}/api/ambient/trigger"
     )
     body = json.dumps(dataclasses.asdict(fire_back)).encode()
-    run_id = compute_scheduled_run_id(dedup_id)
-    recorded = await _record_scheduled_run(
+    investigation_id = compute_scheduled_investigation_id(dedup_id)
+    recorded = await _record_scheduled_investigation(
         context.state,
-        InvestigationRecord(
-            run_id=run_id,
-            status=RunStatus.SCHEDULED,
-            observed_agent_name=config.resolve_agent_key(),
+        Investigation(
+            investigation_id=investigation_id,
+            status=InvestigationStatus.SCHEDULED,
+            observed_agent_key=config.resolve_agent_key(),
             trigger_type=fire_back.type,
             idempotency_key=dedup_id,
             due_at=schedule_time.isoformat(),
@@ -635,24 +640,26 @@ async def _schedule_delayed_update(
             dedup_id,
         )
         if recorded:
-            await _fail_unenqueued_run(context.state, run_id, exc)
+            await _fail_unenqueued_investigation(
+                context.state, investigation_id, exc
+            )
         raise
     note = (
         f"Ambient update trigger for {config.resolve_agent_key()}: enqueued delayed "
         f"trigger (dedup_id {dedup_id}, delay {delay}s, scheduled "
-        f"{schedule_time.isoformat()}) for investigation run {run_id}."
+        f"{schedule_time.isoformat()}) for investigation run {investigation_id}."
     )
     logger.info("%s", note)
     return note
 
 
-async def _record_scheduled_run(
-    state: ADKStateLike, record: InvestigationRecord
+async def _record_scheduled_investigation(
+    state: ADKStateLike, record: Investigation
 ) -> bool:
     """Writes the scheduled record unless an earlier delivery already made it.
 
     A record already present stays as it is: a redelivered update must neither
-    move its due time nor reset a run that has started or finished. One that
+    move its due time nor reset an investigation that has started or finished. One that
     failed before it started (it has no window yet) is written again: a failed
     enqueue is what makes Pub/Sub redeliver, and this delivery retries it.
 
@@ -669,46 +676,50 @@ async def _record_scheduled_run(
     try:
         existing = await asyncio.to_thread(
             lambda: model.store_factory(state).get(
-                record.run_id, include_events=False
+                record.investigation_id, include_events=False
             )
         )
         if existing is not None and not (
-            existing.status == RunStatus.FAILED and existing.window_end is None
+            existing.status == InvestigationStatus.FAILED
+            and existing.window_end is None
         ):
             logger.info(
                 "Investigation run %s is already recorded as %s; leaving it.",
-                record.run_id,
+                record.investigation_id,
                 existing.status,
             )
             return False
-        await model.create_run(state, record)
+        await model.create_investigation(state, record)
     except Exception:
         logger.exception(
-            "could not record scheduled investigation run %s", record.run_id
+            "could not record scheduled investigation run %s",
+            record.investigation_id,
         )
         return False
     return True
 
 
-async def _fail_unenqueued_run(
-    state: ADKStateLike, run_id: str, exc: Exception
+async def _fail_unenqueued_investigation(
+    state: ADKStateLike, investigation_id: str, exc: Exception
 ) -> None:
     """Fails a scheduled record whose delayed trigger could not be enqueued.
 
     Args:
         state: State dictionary to access the investigation store.
-        run_id: ID of the scheduled record.
+        investigation_id: ID of the scheduled record.
         exc: The error the enqueue raised.
     """
     try:
-        await model.update_run(
+        await model.update_investigation(
             state,
-            run_id,
-            status=RunStatus.FAILED,
+            investigation_id,
+            status=InvestigationStatus.FAILED,
             error=(
                 "could not enqueue the delayed trigger: "
                 f"{type(exc).__name__}: {exc}"
             ),
         )
     except Exception:
-        logger.exception("could not fail investigation run %s", run_id)
+        logger.exception(
+            "could not fail investigation run %s", investigation_id
+        )

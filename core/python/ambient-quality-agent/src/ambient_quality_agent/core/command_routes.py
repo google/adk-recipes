@@ -52,6 +52,8 @@ from ambient_quality_shared.protocol import (
     INSIGHTS_GET_ROUTE,
     INSIGHTS_LIST_ROUTE,
     INSIGHTS_MERGE_ROUTE,
+    INVESTIGATION_TRAJECTORIES_LIST_ROUTE,
+    INVESTIGATION_TRAJECTORIES_OUTCOMES_ROUTE,
     INVESTIGATIONS_DAILY_ROUTE,
     INVESTIGATIONS_GET_ROUTE,
     INVESTIGATIONS_LIST_ROUTE,
@@ -66,9 +68,7 @@ from ambient_quality_shared.protocol import (
     SOURCE_COMMIT_ROUTE,
     SOURCE_ROUTE,
     SOURCE_UPLOAD_ROUTE,
-    TRAJECTORIES_CASE_ROUTE,
-    TRAJECTORIES_LIST_ROUTE,
-    TRAJECTORIES_OUTCOMES_ROUTE,
+    TRAJECTORY_BUNDLE_ROUTE,
 )
 from fastapi import APIRouter, HTTPException, Request
 
@@ -90,9 +90,9 @@ async def list_investigations(request: Request) -> dict[str, Any]:
 @router.post(f"/{INVESTIGATIONS_GET_ROUTE}")
 async def get_investigation(request: Request) -> dict[str, Any]:
     args = await _read_json_body(request)
-    run_id = _extract_required_field(args, "run_id")
+    investigation_id = _extract_required_field(args, "investigation_id")
     return await model.get_investigation(
-        run_id, await _build_route_context(args)
+        investigation_id, await _build_route_context(args)
     )
 
 
@@ -172,7 +172,7 @@ async def list_insights(request: Request) -> dict[str, Any]:
     return await insight_tools.list_insights(
         await _build_route_context(filters),
         status=str(filters.get("status", "")),
-        run_id=str(filters.get("run_id", "")),
+        investigation_id=str(filters.get("investigation_id", "")),
         has_root_cause=_encode_tri_state(filters.get("has_root_cause")),
         page_token=str(filters.get("page_token", "")),
         window_start=str(filters.get("window_start", "")),
@@ -190,7 +190,7 @@ async def get_insight(request: Request) -> dict[str, Any]:
     return await insight_tools.get_insight(
         await _build_route_context(args),
         insight_id=_extract_required_field(args, "insight_id"),
-        run_id=str(args.get("run_id", "")),
+        investigation_id=str(args.get("investigation_id", "")),
         include_traces=bool(args.get("include_traces", True)),
         include_trajectories=(
             None
@@ -225,22 +225,24 @@ async def merge_insight(request: Request) -> dict[str, Any]:
     )
 
 
-@router.post(f"/{TRAJECTORIES_OUTCOMES_ROUTE}")
-async def count_trajectory_outcomes(request: Request) -> dict[str, Any]:
+@router.post(f"/{INVESTIGATION_TRAJECTORIES_OUTCOMES_ROUTE}")
+async def count_investigation_trajectory_outcomes(
+    request: Request,
+) -> dict[str, Any]:
     window = await _read_json_body(request)
-    return await trajectory_tools.count_trajectory_outcomes(
+    return await trajectory_tools.count_investigation_trajectory_outcomes(
         await _build_route_context(window),
         window_start=str(window.get("window_start", "")),
         window_end=str(window.get("window_end", "")),
     )
 
 
-@router.post(f"/{TRAJECTORIES_LIST_ROUTE}")
-async def list_trajectories(request: Request) -> dict[str, Any]:
+@router.post(f"/{INVESTIGATION_TRAJECTORIES_LIST_ROUTE}")
+async def list_investigation_trajectories(request: Request) -> dict[str, Any]:
     filters = await _read_json_body(request)
-    return await trajectory_tools.list_trajectories(
+    return await trajectory_tools.list_investigation_trajectories(
         await _build_route_context(filters),
-        run_id=str(filters.get("run_id", "")),
+        investigation_id=str(filters.get("investigation_id", "")),
         outcome=str(filters.get("outcome", "")),
         window_start=str(filters.get("window_start", "")),
         window_end=str(filters.get("window_end", "")),
@@ -248,21 +250,21 @@ async def list_trajectories(request: Request) -> dict[str, Any]:
     )
 
 
-@router.post(f"/{TRAJECTORIES_CASE_ROUTE}")
-async def get_case_conversation(request: Request) -> dict[str, Any]:
-    """Retrieves one archived conversation for the dashboard's case view.
+@router.post(f"/{TRAJECTORY_BUNDLE_ROUTE}")
+async def get_trajectory_bundle(request: Request) -> dict[str, Any]:
+    """Retrieves one trajectory bundle for the dashboard's trajectory view.
 
     Args:
-        request: FastAPI HTTP request containing trajectory_id and run_id.
+        request: FastAPI HTTP request containing trajectory_id and investigation_id.
 
     Returns:
-        Archived conversation trajectory record.
+        The trajectory bundle under "trajectory_bundle", or {"error": ...}.
     """
     args = await _read_json_body(request)
-    return await trajectory_tools.get_case_conversation(
+    return await trajectory_tools.get_trajectory_bundle(
         await _build_route_context(args),
         trajectory_id=_extract_required_field(args, "trajectory_id"),
-        run_id=str(args.get("run_id", "")),
+        investigation_id=str(args.get("investigation_id", "")),
     )
 
 

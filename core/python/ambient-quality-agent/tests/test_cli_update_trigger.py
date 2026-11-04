@@ -206,6 +206,7 @@ def test_a_missing_sink_is_created_then_granted() -> None:
         _TOPIC,
         f"--member={update_trigger.WRITER_PLACEHOLDER}",
         f"--role={update_trigger.PUBLISHER_ROLE}",
+        "--format=none",
     )
 
 
@@ -298,6 +299,7 @@ def test_removing_deletes_the_sink_and_its_grant() -> None:
     revoke, delete = plan.commands
     assert revoke[3] == "remove-iam-policy-binding"
     assert f"--member={_WRITER}" in revoke
+    assert revoke[-1] == "--format=none"
     assert delete == (
         "gcloud",
         "logging",

@@ -19,22 +19,20 @@ import { MessagesSquare } from "lucide-react";
 import { link, textStyle } from "@/lib/typography";
 import { cn } from "@/lib/utils";
 
-/** `trigger_type` of a run a person or the CLI asked for. Mirrors
+/** `trigger_type` of an investigation a person or the CLI asked for. Mirrors
  *  `MANUAL_TRIGGER_TYPE` in `investigations/models.py`; the ambient loop's own
  *  types are `scheduled`, `task_fire` and `update`. */
 const MANUAL_TRIGGER = "manual";
 
 /**
- * Where a run came from: the chat that started it, or the loop that did.
+ * Where an investigation came from: the chat that started it, or the loop that
+ * did.
  *
- * Most runs have no conversation and never will — the ambient loop starts them
- * on a schedule, so a missing chat is not a gap in the record. Saying "no chat
- * recorded" of those, as this used to for every run, describes a deployment
- * working exactly as designed as though something were missing from it.
- *
- * `trigger_type` is what separates the second case from the third. Without it,
- * a manual run whose chat went unrecorded and a scheduled run that never had
- * one look identical, and calling both "ambient" would be false of the first.
+ * Ambient investigations have no chat conversation because the loop starts them
+ * on a schedule or after an agent update. `trigger_type` distinguishes a
+ * scheduled or update-triggered investigation (shown as `ambient`) from a
+ * manual investigation whose chat was not recorded (shown as `No chat
+ * recorded`).
  */
 export function ConversationLink({
   contextId,
