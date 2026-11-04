@@ -55,37 +55,30 @@ FENCED_JSON = re.compile(
 
 def extract_json(raw: str) -> dict[str, Any]:
     """Extract a JSON object from raw model output."""
-    raw = (raw or "").strip()
-    if not raw:
-        raise ValueError("Model output is empty.")
-
-    try:
-        data = json.loads(raw)
-        if isinstance(data, dict):
-            return data
-    except json.JSONDecodeError:
-        pass
-
-    match = FENCED_JSON.search(raw)
-    if match:
-        snippet = match.group(1).strip()
+    def load_json(text: str):
         try:
-            data = json.loads(snippet)
+            data = json.loads(text)
             if isinstance(data, dict):
                 return data
         except json.JSONDecodeError:
             pass
+    
+    raw = (raw or "").strip()
+    if not raw:
+        raise ValueError("Model output is empty.")
+
+    load_json(raw)
+
+    match = FENCED_JSON.search(raw)
+    if match:
+        snippet = match.group(1).strip()
+        load_json(snippet)
 
     first_brace = raw.find("{")
     last_brace = raw.rfind("}")
     if first_brace != -1 and last_brace != -1 and last_brace > first_brace:
         snippet = raw[first_brace : last_brace + 1].strip()
-        try:
-            data = json.loads(snippet)
-            if isinstance(data, dict):
-                return data
-        except json.JSONDecodeError:
-            pass
+        load_json(snippet)
 
     raise ValueError(
         f"Could not parse valid JSON object from model output:\n{raw[:300]}"
