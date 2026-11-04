@@ -40,6 +40,7 @@ __all__ = [
     "FIT",
     "FIT_MANNEQUIN",
     "NO_FOOTWEAR",
+    "WORN_STATE",
     "instructions",
     "kind",
     "name",
@@ -78,6 +79,20 @@ _CASUAL_WORDS = re.compile(
 )
 _UPPER = ("top", "full_body_outer", "dress")  # layered on the upper body
 _PLAN_FIELDS = ("tuck", "closure", "layer_order", "hem", "visibility")
+# The plan's closures that read as open ("bottom open"), said plainly.
+_CLOSURE_SAY = {
+    "top button(s) closed, bottom open": "buttoned closed, the fronts "
+    "overlapping: the top button(s) fastened, the bottom one left undone",
+    "bottom button(s) closed, top open": "buttoned at the bottom, the fronts "
+    "overlapping there: the bottom button(s) fastened, the top ones undone",
+}
+# In the system text, so the image model's own description keeps them.
+WORN_STATE = (
+    "In your generation description, you MUST state how each jacket or coat "
+    "is worn, as its product line says (for example: buttoned closed, the "
+    "fronts overlapping), and that the wearer's hands hold nothing but a "
+    "product."
+)
 
 Plan = dict[str, dict]  # product id -> plan item
 
@@ -165,6 +180,7 @@ def _planned(
     """(how it is worn, its layer, the rest) from its plan item."""
     item = plan[product.id]
     how = [_clean(item.get(k)) for k in ("tuck", "closure")]
+    how[1] = _CLOSURE_SAY.get(how[1], how[1])
     guided = bool((spec.style_guidelines or "").strip())
     if how[1] == "fully closed" and not guided and not _crop(product, spec):
         how[1] = f"fully closed, {_AS_SHOWN}"  # not wider open than shown

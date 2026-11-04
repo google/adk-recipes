@@ -104,6 +104,25 @@ async def test_tools_follow_the_deployment(deployment_defaults, monkeypatch):
     assert (policy.num_variations, policy.mode) == (1, "sequential")
 
 
+@pytest.mark.parametrize("kind", ["tryon", "video"])
+def test_a_request_may_choose_the_look_conflict_rule(kind):
+    """ "" leaves it to the deployment (None); anything else is rejected."""
+    assert BUILDS[kind]().look_conflict is None
+    assert BUILDS[kind](look_conflict="look").look_conflict == "look"
+    with pytest.raises(InputError, match="look_conflict must be one of"):
+        BUILDS[kind](look_conflict="both")
+
+
+@async_test
+async def test_the_try_on_tool_passes_the_look_conflict_rule(monkeypatch):
+    run = events(COMPLETE)
+    monkeypatch.setattr(tools, "run_tryon", run)
+
+    await tools.try_on([b64(PRODUCT)], b64(PERSON), look_conflict="look")
+
+    assert run.requests[0].look_conflict == "look"
+
+
 def test_video_runs_have_time_to_evaluate_after_the_video():
     """The video call, asked again once when it stalls, then evaluation."""
     video_budget = 2 * VideoParams().deadline_s + requests.EVAL_BUDGET_S

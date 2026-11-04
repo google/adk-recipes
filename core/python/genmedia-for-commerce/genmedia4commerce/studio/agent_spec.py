@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from genmedia4commerce.studio import patches as rules
 from genmedia4commerce.studio import turn
 
 __all__ = ["job_spec"]
@@ -41,7 +42,11 @@ def job_spec(cap: str) -> tuple[dict[str, Any], str]:
         "reference_model": ref(st.get("reference_model")),
         "products": [ref(p) for p in st.get("products") or [] if ref(p)],
         "spin": [ref(p) for p in st.get("spin") or [] if ref(p)],
-        "settings": {**settings.get("tryon", {}), **settings.get(cap, {})},
+        "settings": {
+            **settings.get("tryon", {}),
+            "num_variations": rules.variations(cap),
+            **settings.get(cap, {}),
+        },
     }
     if cap == "spin":
         return spec, "" if spec["spin"] else "photos of the product to spin"

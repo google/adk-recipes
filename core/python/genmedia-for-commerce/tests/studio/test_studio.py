@@ -456,7 +456,10 @@ async def test_generate_starts_a_job_with_the_working_state(
     assert res == {"status": "started", "job_id": "j1", "capability": "tryon"}
     assert started[0]["person"] == upload("me.png")
     assert started[0]["products"] == [asset("c/A.jpg")]
-    assert started[0]["settings"] == {"scenario": "beach"}
+    assert started[0]["settings"] == {
+        "scenario": "beach",
+        "num_variations": "3",
+    }
     assert sc.out.patches[-1] == {
         "job_started": {"job_id": "j1", "capability": "tryon"}
     }
@@ -623,6 +626,14 @@ def test_job_passes_the_try_on_options() -> None:
 
 
 @pytest.mark.parametrize(
+    ("cap", "count"), [("tryon", 3), ("video_tryon", 3), ("spin", 1)]
+)
+def test_a_job_without_a_count_makes_its_page_default(cap, count) -> None:
+    spec = {"capability": cap, "studio_id": "s1", "settings": {}}
+    assert job_call.tool_call(spec)[1]["num_variations"] == count
+
+
+@pytest.mark.parametrize(
     ("settings", "motion"),
     [
         ({"motion": "catwalk"}, "auto"),  # saved before "auto"
@@ -786,7 +797,7 @@ async def test_try_again_jobs_run_their_workflow_refreshing_the_cache(
 
 
 @pytest.mark.asyncio
-async def test_video_job_shows_the_try_on_image_it_animates(
+async def test_video_job_shows_every_try_on_image(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     async def events():
@@ -822,7 +833,10 @@ async def test_video_job_shows_the_try_on_image_it_animates(
         output("image-front-0.png"),
         output("image-front-1.png"),
     ]
-    assert [i["uri"] for i in job["images"]] == [output("image-front-1.png")]
+    assert [i["uri"] for i in job["images"]] == [
+        output("image-front-0.png"),
+        output("image-front-1.png"),
+    ]
     assert [r["uri"] for r in job["results"]] == [output("video-0.mp4")]
 
 

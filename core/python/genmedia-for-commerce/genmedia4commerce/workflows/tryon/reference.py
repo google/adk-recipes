@@ -27,14 +27,15 @@ trousers, a hem over a shoe). Each photo gives the crops of the products
 asked of it, and each product keeps its largest (pixel area; on a tie the
 look photo's, then upload order). With ``complete_look``, the products the
 look adds (``hero.added``) join, each with its crop as only image (added
-shoes are upscaled only with ``upscale_crops``). A lone look photo (no
-product photo besides) is the outfit to try on: every product it shows is
-added, whatever ``complete_look``. Which item is which product comes from
-the classifier's groups: no second classification, no name matching. Then
-each product's hero (``hero.pick``) becomes its first image; the largest
-upper-body hero crop of the look photo boxed like the top half gets the
-half itself, and so does the largest bottom one boxed like the bottom
-half; a half so taken is not sent again.
+shoes are upscaled only with ``upscale_crops``); of a look item and an
+upload in the same place, the look conflict rule keeps one (``_settle``). A
+lone look photo (no product photo besides) is the outfit to try on: every
+product it shows is added, whatever ``complete_look``. Which item is which
+product comes from the classifier's groups: no second classification, no
+name matching. Then each product's hero (``hero.pick``) becomes its first
+image; the largest upper-body hero crop of the look photo boxed like the
+top half gets the half itself, and so does the largest bottom one boxed
+like the bottom half; a half so taken is not sent again.
 """
 
 import asyncio
@@ -257,6 +258,30 @@ def _named(bands: dict[str, bytes], products: Sequence[Product]):
     return named
 
 
+def _settle(
+    c: Classification,
+    kept: list[Product],
+    keys: dict[int, str],
+    rule: str | None,
+) -> tuple[list[Product], list[dict[str, str]]]:
+    """``kept`` without each upload whose place a kept look item took (rule
+    "look"; ``keys``: each added product's key by identity), and each look
+    conflict (``hero.conflicts``) as settled; none without a ``rule``."""
+    if rule is None:
+        return kept, []
+    shown = {keys[id(p)] for p in kept if id(p) in keys}
+    settled, aside = [], set()
+    for item, upload in hero.conflicts(c):
+        if rule == "look" and item.product not in shown:
+            continue  # the look item was not cropped: the upload stays
+        aside |= {upload.id} if rule == "look" else set()
+        entry = {"kept": rule, "upload": upload.id}
+        entry |= {"upload_name": upload.description, "look_name": item.name}
+        logger.info(f"look: {hero.conflict_message(entry)}")
+        settled.append(entry)
+    return [p for p in kept if p.id not in aside], settled
+
+
 def _checked(c: Classification) -> Classification:
     """``c``; ``InputError`` when it has no product (a lone look photo
     where none was found)."""
@@ -272,11 +297,13 @@ async def complete(
     complete_look: bool,
     *,
     upscale_crops: bool = False,
+    look_conflict: str | None = None,
 ) -> tuple[Classification, dict[str, bytes]]:
     """Box the look photo and the crop sources (``_asked``, ``_box``): the
     halves go to the products of their categories, each crop to its
     product, and, with ``complete_look`` or a lone look photo, the products
-    the look adds join (added shoes upscaled with ``upscale_crops``); each
+    the look adds join (added shoes upscaled with ``upscale_crops``; a look
+    item in an upload's place by ``look_conflict``: ``_settle``); each
     product's hero is its first image. No product at all is an
     ``InputError``. Also returns every crop by name (halves, ``item-<k>``).
     """
@@ -284,12 +311,16 @@ async def complete(
     model = [] if reference_model_image is None else [reference_model_image]
     images = [*product_images, *model][: len(c.photos)]
     lone = not c.products  # only look photos: try on their outfit
-    added = hero.added(c) if complete_look or lone else []
+    rule = hero.resolved(look_conflict)
+    added = hero.added(c, rule) if complete_look or lone else []
+    keys = {id(p): p.id for p in added}
     products = [*c.products, *added]
     asked = _asked(c, products, images)
     boxed = await _box(images, asked, c.look_photo)
     kept = _heroes(c, products, _crops(c, asked, boxed), images)
+    kept, settled = _settle(c, kept, keys, rule if complete_look else None)
     done = _checked(routed(kept, c.look_photo, c.photos))
+    done.look_conflicts = settled
     k = c.look_photo
     look = None if k is None else boxed.get(k)
     bands = _halves([] if k is None else asked.get(k, []), look)
@@ -306,6 +337,7 @@ async def classify(
     complete_look: bool,
     *,
     upscale_crops: bool = False,
+    look_conflict: str | None = None,
 ) -> tuple[Classification, dict[str, bytes]]:
     """Classify the uploads and the reference model
     (``classify_products``), then box them (``complete``)."""
@@ -318,4 +350,5 @@ async def classify(
         reference_model_image,
         complete_look,
         upscale_crops=upscale_crops,
+        look_conflict=look_conflict,
     )

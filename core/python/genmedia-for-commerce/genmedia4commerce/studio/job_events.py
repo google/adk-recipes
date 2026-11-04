@@ -13,8 +13,8 @@
 # limitations under the License.
 
 """The parts of a Studio job document that ``studio.jobs`` folds its
-workflow's events into: the results, their order, the try-on images a video
-try-on animates, and the counts of the front variations expected and
+workflow's events into: the results, their order, the try-on images of a
+video try-on, and the counts of the front variations expected and
 failed (``expected`` and ``failed``, ``{"image_results": n, "results":
 n}``)."""
 
@@ -23,15 +23,26 @@ from __future__ import annotations
 from typing import Any
 
 from genmedia4commerce.studio import media as sm
+from genmedia4commerce.studio import patches as rules
 
-__all__ = ["animated", "bump", "expected", "ranked", "result", "source"]
+__all__ = [
+    "add_image",
+    "bump",
+    "expected",
+    "ranked",
+    "record_animated",
+    "result",
+    "source",
+]
 
 
 def _variations(spec: dict[str, Any]) -> int:
-    """The spec's ``settings.num_variations`` as an int, at least 1."""
+    """The spec's ``settings.num_variations`` as an int, at least 1 (its
+    page's default when unset: ``patches.VARIATIONS``)."""
     raw = (spec.get("settings") or {}).get("num_variations")
+    raw = raw or rules.variations(spec.get("capability"))
     try:
-        return max(1, int(raw or 1))
+        return max(1, int(raw))
     except (TypeError, ValueError):
         return 1
 
@@ -39,7 +50,7 @@ def _variations(spec: dict[str, Any]) -> int:
 def expected(spec: dict[str, Any]) -> dict[str, int]:
     """How many front variations a job makes in each list when it starts:
     a video try-on from photos makes its try-on images first, and its
-    videos are added as it picks images to animate (``bump``)."""
+    videos are added once it picks the image to animate (``bump``)."""
     n = _variations(spec)
     photos = spec.get("capability") == "video_tryon"
     photos = photos and not spec.get("tryon_image")
@@ -107,18 +118,24 @@ def _views(job: dict[str, Any], view: str) -> dict[Any, dict[str, Any]]:
     }
 
 
-def animated(job: dict[str, Any], data: dict[str, Any]) -> bool:
-    """Record a try-on image a video try-on animates (``image_selected``):
-    in ``images`` (``passed``: it passed its checks; ``back``: its back
-    view). Whether one was recorded."""
-    front = _views(job, "front").get(data.get("front_index"))
-    back = _views(job, "back").get(data.get("back_index")) or {}
-    if front is None:
-        return False
-    passed = front.get("status") == "ready"
-    image = {**front, "passed": passed, "back": back.get("uri") or ""}
+def add_image(job: dict[str, Any], front: dict[str, Any]) -> None:
+    """Show a video try-on's try-on image ``front`` in ``images``
+    (``passed``: it passed its checks; ``back``: set once animated)."""
+    image = {**front, "passed": front.get("status") == "ready", "back": ""}
     image.pop("view", None)
     job.setdefault("images", []).append(image)
+
+
+def record_animated(job: dict[str, Any], data: dict[str, Any]) -> bool:
+    """Record the back view of the try-on image a video try-on animates
+    (``image_selected``) on that image; whether it is one of ``images``."""
+    index = data.get("front_index")
+    images = job.get("images") or []
+    image = next((i for i in images if i.get("index") == index), None)
+    if image is None:
+        return False
+    back = _views(job, "back").get(data.get("back_index")) or {}
+    image["back"] = back.get("uri") or ""
     return True
 
 
