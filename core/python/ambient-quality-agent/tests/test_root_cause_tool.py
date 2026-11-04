@@ -92,9 +92,9 @@ def _occurrence(
         occurrence_id=occurrence_id,
         insight_id=insight_id,
         occurrence_state=OccurrenceState.TRACKED,
-        run_id="run-9",
+        investigation_id="run-9",
         created_at=_NOW,
-        agent_name="agent",
+        observed_agent_key="agent",
         agent_revision=agent_revision,
         label="invented an expense category",
     )

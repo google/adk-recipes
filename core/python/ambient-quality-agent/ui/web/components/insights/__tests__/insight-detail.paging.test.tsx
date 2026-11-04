@@ -30,17 +30,17 @@ import { InsightDetailView } from "../insight-detail";
 
 const occurrence = (n: number) => ({
   occurrence_id: `occ-${n}`,
-  run_id: `run-000000${String(n).padStart(2, "0")}`,
+  investigation_id: `inv-000000${String(n).padStart(2, "0")}`,
   created_at: `2026-09-14T10:00:00Z`,
   confidence: 0,
   diagnosis: "",
   label: `sighting ${n}`,
-  item_count: 1,
-  trace_count: 1,
-  cases_checked: 0,
-  evidence_case_ids: [],
+  finding_count: 1,
+  trajectory_count: 1,
+  trajectories_checked: 0,
+  evidence_trajectory_ids: [],
   console_urls: {},
-  rubrics: [],
+  examples: [],
 });
 
 /** Serves `shown` occurrences of an insight that records `recorded` of them. */
@@ -55,14 +55,14 @@ function renderDetail(
         JSON.stringify({
           insight: {
             insight_id: "ins-1",
-            agent_name: "it_support_agent",
+            observed_agent_key: "it_support_agent",
             label: "calls the tool with a bad category",
             tool_name: "create_ticket",
             status: "RECURRING",
             occurrence_count: recorded,
-            trace_count: 9,
+            trajectory_count: 9,
             impact: 9,
-            last_run_at: "2026-09-14T10:00:00Z",
+            last_investigation_at: "2026-09-14T10:00:00Z",
             diagnosis: "",
             confidence: 0,
           },
@@ -86,8 +86,8 @@ function renderDetail(
     }),
     createRoute({
       getParentRoute: () => rootRoute,
-      path: "/investigations/$runId",
-      component: () => <div>Run</div>,
+      path: "/investigations/$investigationId",
+      component: () => <div>Investigation</div>,
     }),
     createRoute({
       getParentRoute: () => rootRoute,

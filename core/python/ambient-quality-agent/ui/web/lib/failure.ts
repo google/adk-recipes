@@ -69,7 +69,7 @@ function messageOf(error: unknown): string {
   return String(error ?? "");
 }
 
-/** Classifies a failed read or a failed run. */
+/** Classifies a failed read or a failed investigation. */
 export function describeFailure(error: unknown): Failure {
   const detail = messageOf(error);
 

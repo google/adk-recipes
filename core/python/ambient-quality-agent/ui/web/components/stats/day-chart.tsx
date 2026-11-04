@@ -64,12 +64,12 @@ export interface LegendItem {
 /**
  * The per-day bar chart every day chart draws, so they look and read alike.
  *
- * Not a new chart: this is the drawing half of `TracesPerDay`, which since
- * #263 draws both Activity and Investigations, lifted out so `InsightTrend`
- * draws with it too instead of keeping its own copy. `lib/day-buckets.ts`
- * decides which days a chart shows; this decides how a day looks. Each chart
- * keeps only the mapping from its own rows (a traces day, an insights day) to
- * `ChartDay`.
+ * Not a new chart: this is the drawing half of `TrajectoriesPerDay`, which
+ * since #263 draws both Activity and Investigations, lifted out so
+ * `InsightTrend` draws with it too instead of keeping its own copy.
+ * `lib/day-buckets.ts` decides which days a chart shows; this decides how a day
+ * looks. Each chart keeps only the mapping from its own rows (a traces day, an
+ * insights day) to `ChartDay`.
  *
  * Each column is a figure, a bar of fixed height, and the day as the axis
  * prints it. The bar is one of three things, and they are three claims:

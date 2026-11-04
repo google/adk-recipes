@@ -24,7 +24,7 @@ import { cn } from "@/lib/utils";
  * shows no attribution. Inherits text size and color from the parent meta
  * container.
  *
- * @param props.insight - The insight, or its `agent_id` and `agent_name`
+ * @param props.insight - The insight, or its `agent_id` and `observed_agent_key`
  *   fields.
  * @returns The sub-agent element, or `null` when the insight has no distinct
  *   sub-agent.
@@ -32,7 +32,7 @@ import { cn } from "@/lib/utils";
 export function SubAgentItem({
   insight,
 }: {
-  insight: Pick<InsightView, "agent_id" | "agent_name">;
+  insight: Pick<InsightView, "agent_id" | "observed_agent_key">;
 }) {
   const subAgent = resolveSubAgent(insight);
   if (!subAgent) return null;

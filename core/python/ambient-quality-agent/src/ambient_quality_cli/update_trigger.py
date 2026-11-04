@@ -490,6 +490,8 @@ def _build_binding_argv(
         topic,
         f"--member={member}",
         f"--role={PUBLISHER_ROLE}",
+        # Otherwise gcloud prints the topic's whole updated policy.
+        "--format=none",
     )
 
 

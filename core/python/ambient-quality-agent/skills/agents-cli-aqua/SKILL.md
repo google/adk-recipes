@@ -9,7 +9,9 @@ description: >-
   when the user mentions AQuA or AQA, wants to monitor the quality of a
   deployed agent, mentions traces or observability, asks what is going wrong
   with their agent in production, wants to fix AQuA insights, or wants to
-  publish code metrics to AQuA. Don't use for offline evals of a local agent
+  publish code metrics to AQuA. Also propose it when traces from an
+  evaluation run are in the telemetry table AQuA reads. Don't use it for
+  scoring a local agent against a golden dataset
   (use google-agents-cli-eval) or for deploys without AQuA
   (google-agents-cli-deploy).
 metadata:
@@ -173,7 +175,7 @@ AQuA is deployed. Otherwise, pick one of two ways:
    ```
 
    Then run `agents-cli aqua schedule-investigation --wait` and expect exit `0`
-   with `counters.traces_scanned` above zero.
+   with `counters.trajectories_scanned` above zero.
 
 - `agents-cli aqua detach <agent key> --yes` deletes the attachment, revokes the
   grants `attach` recorded and removes the update trigger, from any directory.
@@ -228,7 +230,7 @@ AQuA is deployed. Otherwise, pick one of two ways:
 | `deploy` fails updating `<name>-aqua` because the engine does not exist | Run `agents-cli infra single-project --apply-aqua --apply` first. |
 | `No AQuA deployment recorded for this project` | Run `agents-cli deploy --deploy-aqua`, [attach the agent](#deploy-aqua-on-its-own-and-attach-the-agent) to an AQuA deployed elsewhere, or set `AGENT_ENGINE_RESOURCE_ID=projects/…/reasoningEngines/…`. |
 | `AQuA: could not publish the source snapshot` or `AQuA: source snapshot skipped` | AQuA cannot diagnose this revision. Fix the cause the output names and deploy again. After `--no-wait`, run the publish command the message prints. |
-| `counters.traces_scanned` is zero | The agent name does not match, or the window had no traffic. |
+| `counters.trajectories_scanned` is zero | The agent name does not match, or the window had no traffic. |
 
 ## Dashboard
 
@@ -275,29 +277,38 @@ To switch modes, change `TF_VAR_ui_iap_enabled` and run
 ## Fix what AQuA found
 
 1. **List the open insights.** They are ordered by most recently seen, 30 per
-   page. Repeat with `--page-token` while `next_page_token` is not null.
+   page. Repeat with `--page-token` while `next_page_token` is not null. Get
+   the dashboard URL with `agents-cli aqua info --ui-url`. If a URL is
+   available, format every insight and investigation you show the user as a
+   clickable link (`[<label> (<insight_id>)](<ui_url>/insights/<insight_id>)`
+   and `[Investigation <run_id>](<ui_url>/investigations/<run_id>)`). When IAP
+   is off, that URL is private. Use the localhost address from
+   `agents-cli aqua ui-proxy` as the base URL (see [Dashboard](#dashboard)).
 
    ```bash
+   agents-cli aqua info --ui-url
    agents-cli aqua list-insights | jq '.insights[]
      | select(.status != "RESOLVED")
-     | {insight_id, label, status, occurrence_count, trace_count, has_root_cause}'
+     | {insight_id, label, status, occurrence_count, trajectory_count, has_root_cause}'
    ```
 
-2. **Read one insight's evidence.** Start without the traces, which are the
-   large payload, and fetch them once you need the conversation turns.
+2. **Ask whether to fix one insight at a time.** If none are open, check that
+   recent runs reviewed traffic (see [Rules](#rules)) and stop. Otherwise, show
+   the user the open insights and ask how to proceed before you edit anything.
+   A request to fix what AQuA found doesn't answer this question, so ask even
+   then. You can first read each one with `get-insight --no-traces` (step 4),
+   so the question can name insights that share a cause. Offer two ways to
+   work:
 
-   ```bash
-   agents-cli aqua get-insight <insight_id> --no-traces
-   agents-cli aqua get-insight <insight_id>
-   ```
+   - **One insight at a time** (recommended), starting with the first in the
+     list. Each change stays small enough to test, review and roll back on its
+     own.
+   - **A group of insights that share one root cause**, fixed in one change.
+     Propose one group at a time and get the user's go-ahead before editing;
+     the next group waits for step 7.
 
-   Occurrences are listed newest first. In `occurrences[0]`, read
-   `analyses.verification.explanation` (why AQuA judged it a defect), each
-   `rubrics[].rubric.expected_behavior` against `actual_behavior`,
-   `rubrics[].rubric.agent_id` (the root or sub-agent at fault),
-   `rubrics[].trace` (the conversation), and `agent_revision` (the deployment
-   it ran on). `trajectories[].console_url` links each conversation to Cloud
-   Trace; only the full call fills it.
+   Skip the question only if one insight is open, or if the user already said
+   whether to fix the insights one at a time or together.
 
 3. **Read what the developer told AQuA.** Memories are what the developer
    asked AQuA to remember about the agent, such as where its prompt or tool
@@ -310,7 +321,25 @@ To switch modes, change `TF_VAR_ui_iap_enabled` and run
    agents-cli aqua list-memories | jq -r '.memories[].text'
    ```
 
-4. **Find the root cause.** If `root_causes` holds a diagnosis, start from its
+4. **Read the evidence.** Start with `--no-traces` for the insight (or each
+   insight in the group), and fetch the traces, which are the large payload,
+   once you need the conversation turns.
+
+   ```bash
+   agents-cli aqua get-insight <insight_id> --no-traces
+   agents-cli aqua get-insight <insight_id>
+   ```
+
+   Occurrences are listed newest first. In `occurrences[0]`, read
+   `analyses.verification.explanation` (why AQuA judged it a defect; present
+   only when the verification pass ran, which is off by default), each
+   `examples[].finding.expected_behavior` against `actual_behavior`,
+   `examples[].finding.agent_id` (the root or sub-agent at fault),
+   `examples[].turns` (the conversation), and `agent_revision` (the deployment
+   it ran on). `investigation_trajectories[].console_url` links each conversation to Cloud
+   Trace; only the full call fills it.
+
+5. **Find the root cause.** If `root_causes` holds a diagnosis, start from its
    `summary` and `edits`. Otherwise, pick one of two ways:
 
    - **Diagnose it yourself.** Walk the failing turns against the agent's
@@ -328,23 +357,37 @@ To switch modes, change `TF_VAR_ui_iap_enabled` and run
      ```
 
    Several insights often share one cause, such as a prompt instruction or a
-   tool schema, so compare them before you settle on one.
+   tool schema. For a group, check that one cause explains every insight; if
+   not, tell the user and agree which insights this change covers before editing
+   code. When fixing one insight at a time, diagnose only that insight; if its
+   cause in the code also explains other open insights, tell the user so they
+   can decide whether to include them.
 
-5. **Fix the code locally.** Treat proposed edits as a lead, not a patch. Their
+6. **Fix the code locally.** Treat proposed edits as a lead, not a patch. Their
    `start_line` and `end_line` (1-based, inclusive) refer to the snapshot at the
    diagnosis's `agent_revision`, and the working tree may have changed since.
    Find the code by its content (the edit's `before` text, prompt strings, tool
-   names), confirm the mechanism against the conversation turns, then edit. If
-   the project has an eval dataset, add a case that reproduces the failure (see
-   google-agents-cli-eval).
+   names), confirm the mechanism against the conversation turns, then edit. For
+   a code defect, such as one in a tool or its control flow, add a unit test
+   that fails before the fix. For a prompt defect, add an eval case that
+   reproduces the failure if the project has an eval dataset (see
+   google-agents-cli-eval); don't add a test that checks prompt wording, which
+   does not test agent behavior.
 
-6. **Ship and confirm.** Redeploy with `agents-cli deploy` once the user
-   agrees, then re-read the insight after the next investigation. Judge the fix
-   by the conversations, not by whether a new occurrence appeared. Each run
-   samples the whole lookback window (7 days by default), so it can add an
-   occurrence from conversations that predate the fix. Check whether the new
-   occurrence's conversations started after the redeploy: look at the event
-   times in `rubrics[].trace`, or at `trajectory_ids` already listed in earlier
+7. **Deploy and ask before the next insight.** Redeploy with
+   `agents-cli deploy` once the user agrees. After the redeploy, or if the user
+   declines it, summarize the fix. While insights from step 1 remain unfixed and
+   not set aside by the user, ask whether to start on the next insight (or
+   group), and on a yes repeat from step 4. If an investigation has finished
+   since step 1, list the insights again first.
+
+8. **Confirm after the next investigation.** Re-read each fixed insight after
+   the next investigation finishes, and judge the fix by the conversations,
+   not by whether a new occurrence appeared. Each run samples the whole
+   lookback window (7 days by default), so it can add an occurrence from
+   conversations that predate the fix. Check whether the new occurrence's
+   conversations started after the redeploy: look at the event times in
+   `examples[].turns`, or at `trajectory_ids` already listed in earlier
    occurrences. Don't rely on the occurrence's `agent_revision`, which can name
    the new revision even when some conversations ran on the old one. Pre-fix
    conversations stop recurring once they age out of the lookback window, and
@@ -377,12 +420,13 @@ conversations that …"`. Approve its preview with
 | Task | How |
 |---|---|
 | Run an investigation now | `agents-cli aqua schedule-investigation --wait` |
-| Inspect runs | `list-investigations`, `get-investigation <run_id>`, `investigation-stats` |
+| Inspect runs | `list-investigations`, `get-investigation <investigation_id>`, `investigation-stats` |
 | Read what the developer asked AQuA to remember | `agents-cli aqua list-memories`, newest first, with a `note` to read them as reference data. `agents-cli aqua run "Remember that …"` saves one when the developer asks |
 | Redeploy only the agent | `agents-cli deploy`, which still publishes the source snapshot AQuA diagnoses from. Add `--deploy-aqua` to redeploy AQuA and its dashboard too |
 | Score sessions with deterministic Python metrics | `agents-cli aqua metrics publish tests/eval --dry-run`, then again without `--dry-run`. Published code runs inside AQuA with its credentials, and a metric that calls a model costs one call per session per investigation |
 | Change a setting the user asked for | `agents-cli aqua attach --dry-run <flag>`, show the plan, then repeat with `--yes`. `show-config` reads the settings back |
 | Change the schedule | `agents-cli aqua attach --dry-run --schedule "<cron, UTC>"` (or `--no-scheduled-trigger` to pause it), show the plan, then repeat with `--yes`. The dashboard's Configuration page edits the same two settings for the agent AQuA investigates. AQuA runs the schedule of the agent it investigates, from its next 15-minute tick |
+| Review only some conversations in every investigation | Write a selector file: one `SELECT` that returns `target_id`, the session id. It must use `@window_start`, `@window_end` and `@agent_name`, and read only the telemetry table (`completions_view` for `cloud_logging`). Run `agents-cli aqua attach --dry-run --selector-file <file>`, show the plan, then repeat with `--yes`. `--selector-file /dev/null` clears it. The attachment must use `session_review` mode |
 | Change failure emails or trace readers | Set `TF_VAR_notification_emails` or `TF_VAR_trace_readers`, then run `agents-cli infra single-project --apply-aqua --apply`. Keep them exported for later applies, which otherwise restore the defaults |
 | Stop observing an attached agent | `agents-cli aqua detach <agent key> --yes` (the key `list-agents` shows) once the user confirms, which revokes the grants `attach` made and removes its update trigger |
 | Package AQuA's own spans for a bug report | `agents-cli aqua dump-traces --since 36h`. The spans hold conversations verbatim, so prefer adding the reader to `TF_VAR_trace_readers` over sending the zip |
@@ -397,8 +441,8 @@ conversations that …"`. Approve its preview with
   empty result beside a failed read's `error`, so check the exit code before
   you trust an empty result. `run` prints no JSON (see Talk to AQuA).
 - **An empty result is not a clean bill of health.** A finished run with no
-  insights may have reviewed nothing. Check `counters.traces_scanned` and
-  `counters.traces_evaluated` on the run.
+  insights may have reviewed nothing. Check `counters.trajectories_scanned` and
+  `counters.trajectories_evaluated` on the run.
 - **Don't schedule investigations in a loop.** Each one costs model calls and
   takes several minutes. Schedule one with `--wait`, or poll `get-investigation`.
 - **Conversation traces are user data.** Quote only what the fix needs. Keep

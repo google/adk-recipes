@@ -28,7 +28,8 @@ Wiring::
     InMemoryTrajectoryStore ─────────────────────► TrajectoryStore (Protocol)
     InMemoryTrajectoryReader ────────────────────► TrajectoryReader (Protocol)
     InMemoryRootCauseStore ──────────────────────► RootCauseWriter (Protocol)
-        │ save_run(), update_insights(), append_root_cause(), save_archive()
+        │ save_investigation(), update_insights(), append_root_cause(),
+        │ save_trajectory_bundle()
         ▼
     InMemoryStore
 
@@ -38,7 +39,7 @@ Wiring::
 `InMemoryStore` holds execution state in memory without requiring external cloud
 storage (such as BigQuery or Cloud Storage). Entity-specific adapters implement
 the storage contracts used by the workflow graph and dashboard:
-- Runs: `InMemoryInvestigationStore`
+- Investigations: `InMemoryInvestigationStore`
 - Insights: `InMemoryInsightStore` and `InMemoryInsightReader`
 - Trajectories: `InMemoryTrajectoryStore` and `InMemoryTrajectoryReader`
 - Diagnoses: `InMemoryRootCauseStore`
