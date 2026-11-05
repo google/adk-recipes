@@ -2,6 +2,8 @@
 
 Product images and videos for online shops, made with Gemini. Chat with the Studio agent ("put her in this jacket", "now make a video of it") or fill in the Studio yourself, in the web app or inside Gemini Enterprise.
 
+[![Watch the GenMedia for Commerce video on YouTube](https://img.youtube.com/vi/_r29H4ci1So/maxresdefault.jpg)](https://youtu.be/_r29H4ci1So)
+
 ## What you get
 
 - **Photo Try-On:** a person, or a preset model, wearing one product or an outfit of up to 20, with close-up details, brand styling rules and a back view.
