@@ -1,6 +1,6 @@
 # GenMedia for Commerce
 
-Product images and videos for online shops, made with Gemini. Chat with the Studio agent ("put her in this jacket", "now make a video of it") or fill in the Studio yourself, in the web app or inside Gemini Enterprise.
+<a href="https://youtu.be/_r29H4ci1So"><img src="assets/readme/video.jpg" alt="Watch the GenMedia for Commerce video on YouTube" width="480"></a>
 
 ## What you get
 
