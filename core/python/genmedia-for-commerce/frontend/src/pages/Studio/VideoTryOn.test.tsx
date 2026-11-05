@@ -156,7 +156,7 @@ describe("Video Try-On results", () => {
     expect(within(videos()[0]).getByText("From image 1")).toBeTruthy();
   });
 
-  it("links each video to its image and remakes one image's videos, live, leaving the others", async () => {
+  it("links each video to its image and makes another image's videos, live, leaving the others", async () => {
     await seedVideoTryOn();
     const specs = recordSpecs();
     fireEvent.click(
@@ -168,18 +168,19 @@ describe("Video Try-On results", () => {
     await waitFor(() =>
       expect(screen.getByRole("heading", { name: "Videos" })).toBeTruthy(),
     );
-    expect(fromImage(1)).toHaveLength(2);
-    expect(fromImage(2)).toHaveLength(2);
+    expect(fromImage(1)).toHaveLength(2); // one image animated
+    expect(fromImage(2)).toHaveLength(0);
+    expect(within(imageCard(2)).getByText("No video")).toBeTruthy();
     expect(best()).toEqual([videos()[0]]); // the judge's best of the run
     const kept = fromImage(1).map((v) =>
       v.querySelector("video")?.getAttribute("src"),
     );
 
     // Hovering a video highlights its image.
-    fireEvent.mouseEnter(fromImage(2)[0]);
-    expect(imageCard(2).className).toContain("ring-2");
-    expect(imageCard(1).className).not.toContain("ring-2");
-    fireEvent.mouseLeave(fromImage(2)[0]);
+    fireEvent.mouseEnter(fromImage(1)[0]);
+    expect(imageCard(1).className).toContain("ring-2");
+    expect(imageCard(2).className).not.toContain("ring-2");
+    fireEvent.mouseLeave(fromImage(1)[0]);
 
     // The Make video job runs until released, with one new video so far.
     let release = false;
@@ -220,11 +221,11 @@ describe("Video Try-On results", () => {
       tryon_image: expect.stringMatching(/image-1\.png$/),
     });
     await waitFor(() => expect(fromImage(2)).toHaveLength(1));
-    // Last, numbered after the saved videos (0 to 3), as the server saves it.
+    // Last, numbered after the saved videos (0 and 1), as the server saves it.
     expect(names(videos())).toEqual([
       "Variation 1 video",
       "Variation 2 video",
-      "Variation 5 video",
+      "Variation 3 video",
     ]);
     expect(
       fromImage(1).map((v) => v.querySelector("video")?.getAttribute("src")),
@@ -249,8 +250,8 @@ describe("Video Try-On results", () => {
     expect(names(videos())).toEqual([
       "Variation 1 video",
       "Variation 2 video",
-      "Variation 5 video",
-      "Variation 6 video",
+      "Variation 3 video",
+      "Variation 4 video",
     ]);
     expect(
       fromImage(1).map((v) => v.querySelector("video")?.getAttribute("src")),
@@ -355,7 +356,7 @@ describe("Try again", () => {
     fail = false;
     fireEvent.click(again);
 
-    await waitFor(() => expect(screen.getAllByRole("article")).toHaveLength(1));
+    await waitFor(() => expect(screen.getAllByRole("article")).toHaveLength(3));
     expect(specs).toHaveLength(2);
     expect(specs[1]).toEqual({ ...specs[0], refresh_cache: true });
     expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
@@ -417,7 +418,7 @@ describe("Animate a Photo Try-On result", () => {
       name: `Animate Variation ${n}`,
     }) as HTMLButtonElement;
 
-  it("shows Open, then Animate, then Download, Animate on front views only", async () => {
+  it("shows Open, then Animate, Animate on front views only", async () => {
     const [front, back] = ["gs://b/runs/a/front-0.png", "gs://b/runs/a/b.png"];
     const state = {
       capability: "tryon",
@@ -442,7 +443,7 @@ describe("Animate a Photo Try-On result", () => {
       [...row.children].map(
         (n) => n.getAttribute("aria-label") ?? n.textContent,
       ),
-    ).toEqual(["Open", "Animate Variation 1", "Download Variation 1"]);
+    ).toEqual(["Open", "Animate Variation 1"]);
     expect(within(two).queryByRole("button", { name: /Animate/ })).toBeNull();
   });
 

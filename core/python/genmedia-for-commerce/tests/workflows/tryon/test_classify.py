@@ -421,7 +421,12 @@ ITEMS = (
     "Every part of an uploaded product is that product: its lining, fur, "
     "hood, collar, cuffs or belt are never items of their own. Any other "
     "item gets a new group number, after every group of the photos; the "
-    "same item in two photos has the same group. A belt worn on a bottom is "
+    "same item in two photos has the same group. "
+    '"instead_of", only for an item in a new group: the group of the '
+    "uploaded product it would replace, when both are the same kind of item "
+    "worn in the same layer (a jacket and an uploaded jacket, a necklace and "
+    "an uploaded necklace; never a jacket worn over an uploaded shirt); else "
+    "leave it out. A belt worn on a bottom is "
     'part of that bottom. For a "full_body_look" photo whose "s" is "back", '
     '"items" is [].'
 )
@@ -437,6 +442,7 @@ def test_every_row_lists_the_products_shown_whole(fake_gen, images):
     item = photo["properties"]["items"]["items"]
     assert item["required"] == ["c", "d", "g", "covered"]
     assert item["properties"]["covered"] == {"type": "BOOLEAN"}
+    assert item["properties"]["instead_of"] == {"type": "INTEGER"}
     assert FULL_BODY_LOOK not in item["properties"]["c"]["enum"]
     assert "top" in item["properties"]["c"]["enum"]
 
@@ -485,6 +491,35 @@ def test_items_name_their_uploaded_product_else_their_own_group(
         ("tote", "g9", False),  # nobody uploaded it: its own group
     ]
     assert result.look_photo == 2
+
+
+def test_a_new_item_names_the_uploaded_product_it_would_replace(
+    fake_gen, images
+):
+    """``instead_of`` (a group) becomes that product's id; an unknown
+    group, or an item that is an uploaded product, gets none."""
+    jacket = {"c": "top", "d": "jacket", "g": 1, "instead_of": 2}
+    items = [
+        {"c": "top", "d": "blazer", "g": 5, "instead_of": 1},
+        {"c": "top", "d": "vest", "g": 6, "instead_of": 7},  # unknown
+        {"c": "top", "d": "cardigan", "g": 8, "instead_of": "A"},
+    ]
+    fake_gen.json(
+        {
+            "photos": [
+                row("top", 1, items=[jacket]),
+                {**look(-1), "items": items},
+            ]
+        }
+    )
+    result = classify_products(images[:2])
+    own, outfit = result.photos
+    assert [i.instead_of for i in own.items] == [None]
+    assert [(i.product, i.instead_of) for i in outfit.items] == [
+        ("g5", "A"),
+        ("g6", None),
+        ("g8", None),
+    ]
 
 
 def look_row(items=(), c=FULL_BODY_LOOK, s="front"):

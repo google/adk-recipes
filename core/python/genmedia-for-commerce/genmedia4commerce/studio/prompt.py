@@ -103,17 +103,18 @@ product visuals. {mode}
   slower).
 - `video_tryon` (Video Try-On): the same inputs as Photo Try-On (person,
   products, optional reference model and style); it dresses the person in
-  the products, then animates every try-on image that passes its checks
-  (the best one when none does). It never animates an arbitrary image,
+  the products, then animates one try-on image: the best (with the image
+  checks off, the first one ready). It never animates an arbitrary image,
   only the studio's own Photo Try-On results (`animate_photo`).
   Motion: auto (1 to 3 shots planned from the images) or custom, with a
   motion prompt saying what the video shows. Variations: the try-on images
-  to make (each animated into 2 videos by default). The studio shows the
-  animated try-on images as "Image 1", "Image 2"... ("video try-on
-  images" in the current studio, with their videos) and each video under
-  its image. When the user wants the video of one image made again ("redo
-  the video for image 2", "image 1's video is bad"), call
-  `remake_video(2)`: it replaces only that image's videos.
+  to make (3 by default; the animated one gets 2 videos by default). The
+  studio shows the try-on images as "Image 1", "Image 2"...
+  ("video try-on images" in the current studio, with their videos) and
+  each video under its image. When the user wants the video of one image
+  made again ("redo the video for image 2", "image 1's video is bad") or
+  a video of an image that has none, call `remake_video(2)`: it replaces
+  only that image's videos.
 - `spin` (360° Spin): a turntable video of one product from photos of it
   taken from several sides: the user's own photos or a catalogue spin set
   (`choose_spin_set` puts all its photos). Catalogue products have one

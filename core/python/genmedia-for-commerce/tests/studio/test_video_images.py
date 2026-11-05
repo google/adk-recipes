@@ -94,22 +94,18 @@ async def _job(events: list, tryon_image: str = "") -> dict[str, Any]:
     return job
 
 
-def _full_run_events(status_1: _Status = "ready") -> list:
+def _full_run_events() -> list:
     """Two passing fronts (and one rejected), a back view of the first
-    (numbered apart from the fronts), each animated; three videos."""
+    (numbered apart from the fronts), which alone is animated; two videos."""
     return [
         ProgressEvent("record", "Saved", data={"manifest": manifest()}),
         _variation(0, out("front-0.png"), stage="image", view="front"),
-        _variation(
-            1, out("front-1.png"), status_1, stage="image", view="front"
-        ),
+        _variation(1, out("front-1.png"), stage="image", view="front"),
         _variation(2, out("front-2.png"), "rejected", stage="image"),
         _variation(0, out("back-0.png"), stage="image", view="back"),
         _selected(0, back=0),
-        _selected(1),
         _variation(0, out("video-0.mp4"), source_index=0, stage="video"),
         _variation(1, out("video-1.mp4"), source_index=0, stage="video"),
-        _variation(2, out("video-2.mp4"), source_index=1, stage="video"),
     ]
 
 
@@ -130,7 +126,7 @@ def _state() -> dict[str, Any]:
 
 
 @pytest.mark.asyncio
-async def test_the_job_lists_the_animated_images_with_their_back_views():
+async def test_the_job_lists_every_try_on_image_the_animated_one_with_its_back():
     job = await _job(_full_run_events())
     assert job["images"] == [
         {
@@ -157,18 +153,26 @@ async def test_the_job_lists_the_animated_images_with_their_back_views():
             "passed": True,
             "back": "",
         },
+        {
+            "index": 2,
+            "status": "rejected",
+            "score": 52.0,
+            "uri": out("front-2.png"),
+            "url": f"https://p/{out('front-2.png')}",
+            "note": "",
+            "fixed": False,
+            "run": manifest(),
+            "passed": False,
+            "back": "",
+        },
     ]
     # The back view (index 0 too) never stands for the front of index 0.
     assert "selected" not in job
-    assert [r["source"] for r in job["results"]] == [
-        out("front-0.png"),
-        out("front-0.png"),
-        out("front-1.png"),
-    ]
+    assert [r["source"] for r in job["results"]] == [out("front-0.png")] * 2
 
 
 @pytest.mark.asyncio
-async def test_an_image_animated_though_none_passed_is_marked_so():
+async def test_images_that_did_not_pass_are_marked_so():
     events = [
         _variation(0, out("front-0.png"), "rejected", stage="image"),
         _variation(1, out("front-1.png"), "rejected", stage="image"),
@@ -176,7 +180,8 @@ async def test_an_image_animated_though_none_passed_is_marked_so():
     ]
     job = await _job(events)
     assert [(i["uri"], i["passed"]) for i in job["images"]] == [
-        (out("front-1.png"), False)
+        (out("front-0.png"), False),
+        (out("front-1.png"), False),
     ]
 
 
@@ -216,13 +221,13 @@ async def test_a_finished_run_saves_its_images_and_videos_with_their_source():
     assert [(i["uri"], i["passed"], i["back"]) for i in images] == [
         (out("front-0.png"), True, out("back-0.png")),
         (out("front-1.png"), True, ""),
+        (out("front-2.png"), False, ""),
     ]
     assert "url" not in images[0]  # signed again on every read
     videos = st["results"]["video_tryon"]
     assert [(v["index"], v["source"]) for v in videos] == [
         (0, out("front-0.png")),
         (1, out("front-0.png")),
-        (2, out("front-1.png")),
     ]
     assert "source" not in st
     read = ss.saved_state("s1")["state"]
@@ -232,10 +237,10 @@ async def test_a_finished_run_saves_its_images_and_videos_with_their_source():
 @pytest.mark.asyncio
 async def test_a_run_whose_videos_failed_still_saves_its_images():
     _follow("j1")
-    events = [*_full_run_events()[:7], ErrorEvent("No video came out")]
+    events = [*_full_run_events()[:6], ErrorEvent("No video came out")]
     job = {**await _job(events), "status": "error"}
     st = ss.finish_job("s1", "j1", job)["state"]
-    assert len(st["images"]["video_tryon"]) == 2
+    assert len(st["images"]["video_tryon"]) == 3
     assert st["results"]["video_tryon"] == []
     assert st["job"] is None
 

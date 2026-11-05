@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Video Try-On's try-on images: the ones its last full run animated, each with its videos'
+// Video Try-On's try-on images: those of its last full run, each with its videos'
 // count and "Make video", which remakes only that image's videos.
 import { useState } from "react";
 import type { StudioResult } from "../../api/studio";
@@ -107,7 +107,7 @@ function ImageCard({
         </div>
         {image.passed === false && (
           <span
-            title="None of the try-on images passed every check: this one, the best, was animated anyway."
+            title="This image did not pass every check."
             className="chip self-start ring-1 ring-inset text-gm-warning bg-gm-warning/10 ring-gm-warning/25"
           >
             Didn't pass every check

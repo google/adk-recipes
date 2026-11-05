@@ -30,8 +30,10 @@ look photo (``Classification.look_photo``), which ``reference`` cuts; the
 first from the back is the back photo of the product only when there is
 one product (its back view). Each photo also lists its items, the products
 shown whole in it (``Classification.photos``), each in the group of the
-uploaded product it is or in a new group of its own: ``hero`` picks each
-product's image and the products the look adds from them. A garment also
+uploaded product it is or in a new group of its own (with the uploaded
+product it would replace, ``PhotoItem.instead_of``): ``hero`` picks each
+product's image and the products the look adds from them. The prompt text
+and schema are in ``classify_prompt``. A garment also
 gets where it starts and ends (``Product.span``, which frames it alone:
 ``framing``); without a valid one its category frames it (warned).
 """
@@ -40,7 +42,7 @@ import logging
 import string
 from collections import Counter
 from collections.abc import Sequence
-from typing import cast, get_args
+from typing import cast
 
 from genmedia4commerce.core import degraded, gen
 from genmedia4commerce.core.errors import GenerationError
@@ -59,136 +61,18 @@ from genmedia4commerce.core.types import (
     ProductRef,
     View,
 )
+from genmedia4commerce.workflows.tryon import classify_prompt
+from genmedia4commerce.workflows.tryon.classify_prompt import (
+    CATEGORIES,
+    FULL_BODY_LOOK,
+    LANDMARKS,
+    SCHEMA,
+    VIEWS,
+)
 
 __all__ = ["classify_products", "routed"]
 
 logger = logging.getLogger(__name__)
-
-_CATEGORIES = get_args(Category)
-_VIEWS = get_args(View)
-_LANDMARKS = get_args(Landmark)  # top to bottom
-_FULL_BODY_LOOK = "full_body_look"  # a whole-outfit photo, never a product
-
-_CATEGORY_RULES = """Categories:
-- "top": shirts, t-shirts, blouses, sweaters, hoodies, turtlenecks, tank tops, vests, short jackets, cropped coats (any upper body garment that ends at or above the hips)
-- "full_body_outer": long coats, trench coats, long cardigans, dusters, any outerwear that extends below the hips/to the knees or longer
-- "bottom": pants, trousers, jeans, shorts, skirts (ONLY if no straps or bib — pure waist-down garments)
-- "dress": dresses, jumpsuits, rompers, overalls, bib shorts, bib pants, cycling bibs, dungarees, any garment with shoulder straps or bib construction (any single garment that extends both above and below the waist)
-- "footwear": any footwear (sneakers, heels, boots, sandals, slippers, cleats)
-- "headwear": hats, caps, beanies, headbands
-- "eyewear": glasses, sunglasses
-- "jewelry_head": earrings and other jewellery worn on the ears or face
-- "jewelry_neck": necklaces, pendants, chokers, scarves
-- "jewelry_hand": rings, bracelets, watches
-- "bag": handbags, shoulder bags, backpacks, totes, any carried bag"""
-
-# Where each garment starts and ends (``Product.span``).
-_GARMENT_RULES = (
-    'GARMENTS: "garments" has one entry per group of photos whose category '
-    "is "
-    + ", ".join(f'"{g}"' for g in GARMENTS[:-1])
-    + f' or "{GARMENTS[-1]}", none for any other: "g" its group, "starts" '
-    'the highest point and "ends" the lowest point the garment reaches on a '
-    "standing person, as its photos show it, each one of, from the top "
-    f"down: {', '.join(_LANDMARKS)}. Shoulder straps and a bib start at the "
-    "shoulders. For example: a t-shirt starts at the shoulders and ends at "
-    "the hips; cycling bib shorts start at the shoulders and end at "
-    "mid-thigh; trousers start at the waist and end at the ankles; a "
-    "knee-length coat starts at the shoulders and ends at the knees."
-)
-
-_SYSTEM = """You are a product classifier for virtual try-on. You receive {n} product photo(s), labelled IMAGE_0 to IMAGE_{last}, in upload order. Look at all of them together: comparing photos of the same item is how you tell front from back.
-
-Return one row per photo, in the same order:
-- "c": the CATEGORY, one of: {categories}. "full_body_look" is a full-body look photo (see FULL-BODY LOOK below); every other value is the category of the product the photo shows.
-- "d": a short generic NAME of the product: its type and cut in 1 to 4 words (e.g. "cycling bib shorts", "t-bar loafers", "sleeveless wrap coat"). No colour, material, pattern, logo, brand, text or hardware: the photos show those. Only when two different products would get the same name, add the one word that tells them apart. A "full_body_look" photo: "full model reference".
-- "s": the SIDE the photo shows: "front", "back" or "other".
-- "w": true when the product is photographed on a person and the photo focuses on it; false for a packshot, flat-lay, mannequin, or a person who is not the focus.
-- "x": true when the photo shows no product in full: it frames one or more parts of the product (a logo, a buckle, a pocket, the waist and the hip, a sleeve and its cuff, the fabric) and leaves the rest of the product outside the frame. false when the whole product is inside the frame, worn or flat, from any side, even small; a part hidden by another garment still counts as inside the frame. false also for a close-up whose main subject is something worn with the product (another garment, an accessory).
-- "g": the GROUP number. Photos of the same item (other angles, worn or flat, close-ups of its parts) share the group number, the category and the name. Number the groups 1, 2, 3, ... in order of first appearance. A "full_body_look" photo is a reference, not a product photo: its group is -1. Any other photo of a person wearing several uploaded items goes in the group of the item it focuses on. A belt is part of the bottom it is on (skirt, trousers), never a product of its own: its photos go in the group of that bottom.
-
-FULL-BODY LOOK: a photo of a person seen from head to feet (head to shoes) wearing a whole outfit, several garments with the shoes included, is a "full_body_look". It is a styling reference that shows how the products are worn together, never a photo of one product, even when one of the uploaded products is in it. A photo cut at the knees, the thighs or the waist, a photo that focuses on one garment, a close-up, a flat lay and a packshot are never a "full_body_look". A "full_body_look" photo has the name "full model reference" and the group -1; its "s" is the side it shows ("front", "back" or "other"), "w" is true and "x" is false.
-
-ITEMS: for every photo, "items" lists every product shown whole inside the frame, one entry per product: garments, shoes, bags, hats, glasses, jewellery and scarves. A part hidden by another garment still counts as inside the frame; a product cut off by the frame is never listed. For each item: "c" its category (a product category, never "full_body_look"), "d" its short name (the same rules as "d" above), "g" its group. "covered" is true when another garment hides most of the item (an inner layer under a jacket or coat, a shirt showing only its collar), else false. The group is the group of the uploaded product when the item is that product: the same item as in the other photos, even worn open instead of closed, seen from another side, or partly covered. Every part of an uploaded product is that product: its lining, fur, hood, collar, cuffs or belt are never items of their own. Any other item gets a new group number, after every group of the photos; the same item in two photos has the same group. A belt worn on a bottom is part of that bottom. For a "full_body_look" photo whose "s" is "back", "items" is [].
-
-{garment_rules}
-
-STRICT RULE: The entire product must be visible in the final photo. If a garment has ANY component that extends above the waist (shoulder straps, bib front, suspenders, crossed back straps), it MUST be classified as "dress" — even if the lower portion looks like shorts or pants. This includes cycling bib shorts, ski bib pants, fishing waders, overalls, dungarees, and any garment with built-in straps.
-
-You must also consider the LENGTH of the garment:
-- A short jacket (waist-length or hip-length) is a "top"
-- A long coat or trench coat that extends below the hips/to the knees or longer is a "full_body_outer"
-
-{category_rules}
-
-View classification for each image (worn photos too: a person facing the camera shows the front of what they wear):
-- "front": the front of the product squarely facing the camera, its left and right halves equally visible. For footwear, a side (lateral) or 3/4 view showing the shoe's main design counts as "front". For a zoom photo ("x" true): the part it frames is on the front of the product.
-- "back": any view of the back of the product, straight or turned, even slightly. For footwear, the heel view. For a zoom photo: the part it frames is on the back of the product.
-- "other": a front turned away from the camera, from a three-quarter to a side view (except footwear); a top-down or sole-only view; several products in one image; or not a valid product photo. For a zoom photo: the part it frames is on a side of the product, or has no side (a fabric swatch).
-
-How to determine front vs back — use these cues in order of reliability:
-1. **Closures and hardware**: buttons, main zippers, snaps, front clasps → FRONT. Back zippers (e.g. dresses) → BACK.
-2. **Pockets**: front hip pockets, chest pockets → FRONT. Back patch pockets (e.g. jeans, cycling jerseys) → BACK.
-3. **Garment construction and cut**: the FRONT of a garment typically has MORE fabric coverage and structure on the torso (wider panels, fuller coverage). The BACK typically has LESS coverage or thinner construction (racerback straps, cutaway shoulders, thinner panels, open-back designs). For example: vests have a full front panel but a thinner back; tank tops have wider straps in front but a racerback behind; cycling bibs have a bib panel covering the front abdomen while the back has a mesh racerback with a chamois pad in the seat area.
-4. **Neckline shape**: deeper V-neck, scoop neck, or decorative neckline → usually FRONT. Higher, simpler neckline → usually BACK.
-5. **Tags and labels**: small fabric tags at the inner neckline are typically at the BACK of the garment.
-
-Return JSON only."""
-
-_SCHEMA = {
-    "type": "OBJECT",
-    "properties": {
-        "photos": {
-            "type": "ARRAY",
-            "items": {
-                "type": "OBJECT",
-                "properties": {
-                    "c": {
-                        "type": "STRING",
-                        "enum": [*_CATEGORIES, _FULL_BODY_LOOK],
-                    },
-                    "d": {"type": "STRING"},
-                    "s": {"type": "STRING", "enum": list(_VIEWS)},
-                    "w": {"type": "BOOLEAN"},
-                    "x": {"type": "BOOLEAN"},
-                    "g": {"type": "INTEGER"},
-                    "items": {
-                        "type": "ARRAY",
-                        "items": {
-                            "type": "OBJECT",
-                            "properties": {
-                                "c": {
-                                    "type": "STRING",
-                                    "enum": list(_CATEGORIES),
-                                },
-                                "d": {"type": "STRING"},
-                                "g": {"type": "INTEGER"},
-                                "covered": {"type": "BOOLEAN"},
-                            },
-                            "required": ["c", "d", "g", "covered"],
-                        },
-                    },
-                },
-                "required": ["c", "d", "s", "w", "x", "g", "items"],
-            },
-        },
-        "garments": {
-            "type": "ARRAY",
-            "items": {
-                "type": "OBJECT",
-                "properties": {
-                    "g": {"type": "INTEGER"},
-                    "starts": {"type": "STRING", "enum": list(_LANDMARKS)},
-                    "ends": {"type": "STRING", "enum": list(_LANDMARKS)},
-                },
-                "required": ["g", "starts", "ends"],
-                "propertyOrdering": ["g", "starts", "ends"],
-            },
-        },
-    },
-    "required": ["photos", "garments"],
-    "propertyOrdering": ["photos", "garments"],
-}
 
 
 def _rows(raw, n: int) -> list[dict | None]:
@@ -211,8 +95,8 @@ def _spans(raw) -> dict[str, tuple[Landmark, Landmark]]:
         if isinstance(g, bool) or not isinstance(g, int):
             continue
         span = (entry.get("starts"), entry.get("ends"))
-        if all(x in _LANDMARKS for x in span):
-            if _LANDMARKS.index(span[0]) <= _LANDMARKS.index(span[1]):
+        if all(x in LANDMARKS for x in span):
+            if LANDMARKS.index(span[0]) <= LANDMARKS.index(span[1]):
                 spans.setdefault(f"g{g}", cast(tuple[Landmark, Landmark], span))
     return spans
 
@@ -240,7 +124,7 @@ def _product(letter: str, members: list[tuple[int, dict]], images) -> Product:
     close-ups are its detail photos, each with the side of the part it
     frames (a group of close-ups only keeps them as refs)."""
     counts: Counter[Category] = Counter(
-        r["c"] for _, r in members if r.get("c") in _CATEGORIES
+        r["c"] for _, r in members if r.get("c") in CATEGORIES
     )
     category: Category = counts.most_common(1)[0][0] if counts else "top"
     if not counts:
@@ -264,7 +148,7 @@ def _refs(members: list[tuple[int, dict]], images) -> list[ProductRef]:
     refs: list[ProductRef] = []
     ranks: Counter[View] = Counter()
     for index, row in members:
-        view: View = row["s"] if row.get("s") in _VIEWS else "other"
+        view: View = row["s"] if row.get("s") in VIEWS else "other"
         ranks[view] += 1
         presentation: Presentation = "worn" if row.get("w") is True else "flat"
         refs.append(ProductRef(images[index], view, ranks[view], presentation))
@@ -281,16 +165,6 @@ def _add_back(product: Product, images, index: int, row: dict) -> None:
         product.refs.append(
             ProductRef(images[index], "back", rank, presentation)
         )
-
-
-def _system(n: int) -> str:
-    return _SYSTEM.format(
-        n=n,
-        last=n - 1,
-        categories=", ".join([*_CATEGORIES, _FULL_BODY_LOOK]),
-        category_rules=_CATEGORY_RULES,
-        garment_rules=_GARMENT_RULES,
-    )
 
 
 def routed(
@@ -311,18 +185,20 @@ def routed(
 
 def _whole(row: dict, ids: dict[str, str]) -> list[PhotoItem]:
     """The products a row shows whole, each named by the uploaded product
-    it is (``ids``: group -> product id), else by its group; invalid ones
-    are skipped."""
+    it is (``ids``: group -> product id), else by its group with the
+    uploaded product it would replace, if any; invalid ones are skipped."""
     items = []
     for item in row.get("items") or []:
         g = item.get("g") if isinstance(item, dict) else None
         if isinstance(g, bool) or not isinstance(g, int) or g < 0:
             continue
-        if item.get("c") in _CATEGORIES:
+        if item.get("c") in CATEGORIES:
             name, key = str(item.get("d") or ""), f"g{g}"
             covered = item.get("covered") is True
+            named = f"g{item.get('instead_of')}"
+            instead = None if key in ids else ids.get(named)
             product = ids.get(key, key)
-            items.append(PhotoItem(item["c"], name, product, covered))
+            items.append(PhotoItem(item["c"], name, product, covered, instead))
     return items
 
 
@@ -330,7 +206,7 @@ def _photo(row: dict | None, product: str | None, ids) -> Photo:
     """A row as a ``Photo`` of ``product`` (None: a look or skipped
     photo)."""
     row = row or {}
-    view: View = row["s"] if row.get("s") in _VIEWS else "other"
+    view: View = row["s"] if row.get("s") in VIEWS else "other"
     worn, zoom = row.get("w") is True, row.get("x") is True
     return Photo(product, view, worn, zoom, _whole(row, ids))
 
@@ -346,7 +222,7 @@ def _sorted(rows: list[dict | None]):
     for index, row in enumerate(rows):
         if row is None:
             missing.append(index)
-        elif row.get("c") != _FULL_BODY_LOOK:
+        elif row.get("c") != FULL_BODY_LOOK:
             groups.setdefault(_group(row, index), []).append((index, row))
         elif row.get("s") == "back":  # a look photo: never a product's
             backs.append((index, row))
@@ -371,8 +247,8 @@ def classify_products(
         parts += [f"IMAGE_{i}:", image]
     raw = gen.generate_json(
         parts,
-        system=_system(len(photos)),
-        schema=_SCHEMA,
+        system=classify_prompt.system(len(photos)),
+        schema=SCHEMA,
         params=TextParams(
             model=get_models().judge,
             thinking="LOW",

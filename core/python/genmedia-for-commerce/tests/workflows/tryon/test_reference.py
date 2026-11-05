@@ -25,6 +25,7 @@ from PIL import Image
 from genmedia4commerce.core import degraded, media
 from genmedia4commerce.core.errors import GenerationError, InputError
 from genmedia4commerce.core.models import get_models
+from genmedia4commerce.core.settings import get_settings
 from genmedia4commerce.core.testing import png
 from genmedia4commerce.core.types import Classification, Product, ProductRef
 from genmedia4commerce.workflows.tryon import cut, hero, outfit, reference
@@ -382,7 +383,7 @@ def _crop(k: int, w: int = 500, h: int = 600) -> bytes:
 
 
 CROP, SCARF, SHOES, POLO_IMG = _crop(1), _crop(2), _crop(3), _crop(4)
-SKIRT, BAG, OWN_SHOES, VEST_IMG = _crop(5), _crop(6), _crop(7), _crop(8)
+SKIRT, BAG, VEST_IMG = _crop(5), _crop(6), _crop(8)
 JEANS_IMG = _crop(20)
 TINY = _crop(9, 399, 150)  # under MIN_HERO_SIDE
 UPSCALED = b"SHOES-2K"
@@ -916,7 +917,7 @@ def test_an_added_bottom_boxed_like_the_half_gets_it_as_its_photo(
     assert crops == {"top": TOP, "bottom": LOW, "item-0": SHOES}
 
 
-@pytest.mark.parametrize("category", reference.BAND_CATEGORIES["bottom"])
+@pytest.mark.parametrize("category", ["full_body_outer", "dress"])
 def test_an_uploaded_product_in_the_bottom_half_no_longer_keeps_it(
     fake_gen, monkeypatch, category
 ):
@@ -995,12 +996,12 @@ def test_a_covered_item_the_look_adds_keeps_its_crop(fake_gen, monkeypatch):
 def test_a_small_crop_gives_way_to_a_flat_front_upload(fake_gen, monkeypatch):
     """Only to a flat front upload: a side packshot does not beat it, and a
     product the look adds keeps its small crop."""
-    crops = {"footwear item": TINY, "bag item": TINY, "loafers": TINY}
+    crops = {"footwear item": TINY, "bag item": TINY, "cap": TINY}
     Boxes(monkeypatch, crops)
     rows = [
         row("footwear", 1, items=[own("footwear", 1)]),  # flat front
         row("bag", 2, "other", items=[own("bag", 2)]),  # a side view only
-        look(own("footwear", 1), own("bag", 2), ("footwear", "loafers", 3)),
+        look(own("footwear", 1), own("bag", 2), ("headwear", "cap", 3)),
     ]
     c, _ = _run(fake_gen, rows)
     assert [(p[3], p[4]) for p in _heroes(c)] == [
@@ -1018,10 +1019,10 @@ def test_a_thin_crop_gives_way_to_a_flat_front_upload(
     """Long enough, but under ``MIN_HERO_SHORT_SIDE`` px across (a bag
     hanging edge-on); a product the look adds keeps its thin crop."""
     thin = _crop(10, short, 600)
-    Boxes(monkeypatch, {"bag item": thin, "belt bag": thin})
+    Boxes(monkeypatch, {"bag item": thin, "long scarf": thin})
     rows = [
         row("bag", 1, items=[own("bag", 1)]),  # flat front
-        look(own("bag", 1), ("bag", "belt bag", 2)),
+        look(own("bag", 1), ("jewelry_neck", "long scarf", 2)),
     ]
     c, _ = _run(fake_gen, rows)
     uploaded = (thin, "model_crop") if short == 150 else (PHOTOS[0], "upload")
@@ -1060,16 +1061,127 @@ def test_upscale_crops_upscales_the_added_shoes_only(fake_gen, monkeypatch):
         return UPSCALED
 
     monkeypatch.setattr(reference, "upscale_shoes", upscale)
-    crops = {"loafers": SHOES, "footwear item": OWN_SHOES}
+    crops = {"loafers": SHOES, "top item": CROP}
     Boxes(monkeypatch, crops)
     rows = [
-        row("footwear", 1, items=[own("footwear", 1)]),  # uploaded shoes
-        look(own("footwear", 1), ("footwear", "loafers", 2)),
+        row("top", 1, items=[own("top", 1)]),  # an uploaded top
+        look(own("top", 1), ("footwear", "loafers", 2)),
     ]
     c, named = _run(fake_gen, rows, upscale_crops=True)
     uploaded, added = c.products
-    assert uploaded.refs[0].image == OWN_SHOES  # its crop, as it is
+    assert uploaded.refs[0].image == CROP  # its crop, as it is
     assert upscaled == [SHOES]
     assert added.refs[0].image == UPSCALED
     assert named["item-1"] == UPSCALED
-    assert named["item-0"] == OWN_SHOES
+    assert named["item-0"] == CROP
+
+
+def _mules(fake_gen, monkeypatch, *, same=False, **kwargs):
+    """Uploaded heeled mules; the look shows a skirt and its own sandals
+    (``same``: the mules themselves)."""
+    Boxes(monkeypatch, {"sandals": SHOES, "midi skirt": SKIRT})
+    shoes = own("footwear", 1) if same else ("footwear", "sandals", 2)
+    rows = [
+        row("footwear", 1, items=[own("footwear", 1)], d="heeled mules"),
+        look(shoes, ("bottom", "midi skirt", 3)),
+    ]
+    return _run(fake_gen, rows, **kwargs)[0]
+
+
+def test_the_look_showing_an_uploaded_product_changes_nothing(
+    fake_gen, monkeypatch
+):
+    c = _mules(fake_gen, monkeypatch, same=True, look_conflict="look")
+    assert [p[:3] for p in _heroes(c)] == [
+        ("A", "footwear", "heeled mules"),
+        ("B", "bottom", "midi skirt"),
+    ]
+    assert c.look_conflicts == []
+
+
+def test_by_default_the_look_item_in_an_uploads_place_is_left_out(
+    fake_gen, monkeypatch
+):
+    """GENMEDIA_LOOK_CONFLICT "upload" (the default): never two shoes."""
+    c = _mules(fake_gen, monkeypatch)
+    assert [p[:3] for p in _heroes(c)] == [
+        ("A", "footwear", "heeled mules"),
+        ("B", "bottom", "midi skirt"),
+    ]
+    (conflict,) = c.look_conflicts
+    assert hero.conflict_message(conflict) == (
+        "Kept the uploaded heeled mules and left out the look's sandals"
+    )
+    assert c.to_dict()["look_conflicts"] == [conflict]
+
+
+def test_with_the_look_rule_the_look_item_replaces_the_upload(
+    fake_gen, monkeypatch
+):
+    """The mules are set aside: no product, so neither drawn nor judged;
+    the added products never take their letter."""
+    c = _mules(fake_gen, monkeypatch, look_conflict="look")
+    assert [p[:4] for p in _heroes(c)] == [
+        ("B", "footwear", "sandals", SHOES),
+        ("C", "bottom", "midi skirt", SKIRT),
+    ]
+    assert c.look_conflicts == [
+        {
+            "kept": "look",
+            "upload": "A",
+            "upload_name": "heeled mules",
+            "look_name": "sandals",
+        }
+    ]
+    assert hero.conflict_message(c.look_conflicts[0]) == (
+        "Used the look's sandals instead of the uploaded heeled mules"
+    )
+
+
+def test_the_deployment_rule_applies_and_a_request_overrides_it(
+    fake_gen, monkeypatch
+):
+    monkeypatch.setenv("GENMEDIA_LOOK_CONFLICT", "look")
+    get_settings.cache_clear()
+    try:
+        assert [p.id for p in _mules(fake_gen, monkeypatch).products] == [
+            "B",
+            "C",
+        ]
+        c = _mules(fake_gen, monkeypatch, look_conflict="upload")
+        assert [p.id for p in c.products] == ["A", "B"]
+    finally:
+        monkeypatch.delenv("GENMEDIA_LOOK_CONFLICT")
+        get_settings.cache_clear()
+
+
+def test_a_look_item_that_cannot_be_cropped_leaves_the_upload(
+    fake_gen, monkeypatch
+):
+    Boxes(monkeypatch, {"midi skirt": SKIRT})  # the sandals not found
+    rows = [
+        row("footwear", 1, items=[own("footwear", 1)], d="heeled mules"),
+        look(("footwear", "sandals", 2), ("bottom", "midi skirt", 3)),
+    ]
+    c, _ = _run(fake_gen, rows, look_conflict="look")
+    assert [p[:3] for p in _heroes(c)] == [
+        ("A", "footwear", "heeled mules"),
+        ("B", "bottom", "midi skirt"),
+    ]
+    assert c.look_conflicts == []
+
+
+@pytest.mark.parametrize("instead_of", [None, 1])
+def test_a_top_conflicts_only_when_it_would_replace_the_upload(
+    fake_gen, monkeypatch, instead_of
+):
+    """A layer (a vest under an uploaded blazer) is added; a top the
+    classifier says would replace the uploaded one is not."""
+    Boxes(monkeypatch, {"vest": VEST_IMG})
+    shown = look(own("top", 1), ("top", "vest", 2))
+    shown["items"][1]["instead_of"] = instead_of
+    rows = [row("top", 1, w=True, items=[own("top", 1)], d="blazer"), shown]
+    c, _ = _run(fake_gen, rows)
+    names = [p.description for p in c.products]
+    assert names == (["blazer", "vest"] if instead_of is None else ["blazer"])
+    assert len(c.look_conflicts) == (instead_of is not None)

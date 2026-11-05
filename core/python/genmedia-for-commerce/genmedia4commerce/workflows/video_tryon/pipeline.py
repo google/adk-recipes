@@ -15,21 +15,23 @@
 """Video Try-On: dress a person (image try-on), then animate the result.
 
 End to end (no ``tryon_image``): every ``run_tryon`` event except its
-``complete`` (variations tagged ``extra.stage="image"``). Each front that
-passes its checks is animated at once, in its own branch (``branch.animate``)
-while the other images are still being made: for a single product with a
-back upload its own back view first (``progress("back")``, then variations
+``complete`` (variations tagged ``extra.stage="image"``). One front is
+animated (``branch.animate``): with ``check_images`` on, once every image
+is made and judged, the best that passed (``runner``'s order) or, with none
+passing, the best-scoring one (" (none passed every check)"); with it off,
+the first image made, while the others are still being made (they are
+shown, not animated). For a single product with a back upload its own back
+view comes first (``progress("back")``, then variations
 ``extra.view="back"`` with ``extra.source_index``), then
 ``progress("image_selected")`` with ``data={"front_index", "back_index"}``.
-With no front passing, the best-scoring one is animated
-(" (none passed every check)"). The try-on image follows the video's frame:
-9:16 for a 9:16 video (unless ``req.image`` sets the image params), else
-3:4. Each animated image then streams ``progress("plan")`` (the animation:
+The try-on image follows the video's frame: 9:16 for a 9:16 video (unless
+``req.image`` sets the image params), else 3:4. The animated image then
+streams ``progress("plan")`` (the animation:
 ``plan.plan_animation``, 1 to 3 shots, 8 to 10 seconds, in ``data={"shots",
 "note", "references", "videos", "source_index"}``) and
 ``settings.videos_per_image`` video variations (mp4, ``extra.stage="video"``
 and ``extra.source_index``), numbered across the run and checked by
-``evaluate.evaluate_clip``; an image whose animation cannot be prepared
+``evaluate.evaluate_clip``; when its animation cannot be prepared it
 reports its videos as errors. One ``complete`` ranks every video; with no
 video made at all, or no image, the run ends with one ``error`` instead.
 Each product a plan shows in a close-up gets a zoomed detail
@@ -44,8 +46,7 @@ and the close-ups found, no new search) or, as photos, are classified
 first like the try-on's (a ``classified`` event) and their details
 searched while the animation is prepared. With no product photo the video
 gets no product reference and the outfit is judged against the image.
-With ``check_images`` off every front passes unjudged, so each is
-animated; with ``check_videos`` off no video is checked.
+With ``check_videos`` off no video is checked.
 """
 
 import asyncio
@@ -65,7 +66,7 @@ from genmedia4commerce.core.events import (
     VariationEvent,
 )
 from genmedia4commerce.core.gen import ImageParams, VideoParams
-from genmedia4commerce.core.runner import RunPolicy
+from genmedia4commerce.core.runner import RunPolicy, default_rank_key
 from genmedia4commerce.core.types import Classification, Landmark
 from genmedia4commerce.workflows.tryon import cache, outfit
 from genmedia4commerce.workflows.tryon import pipeline as tryon_pipeline
@@ -138,6 +139,7 @@ def _tryon_request(
         reference_model_image=req.reference_model_image,
         complete_look=req.complete_look,
         upscale_crops=req.upscale_crops,
+        look_conflict=req.look_conflict,
         style_guidelines=req.style_guidelines,
         scenario=req.scenario,
         generate_back=False,
@@ -213,6 +215,7 @@ async def _classify(req: VideoTryOnRequest) -> VideoTryOnRequest | None:
             req.reference_model_image,
             req.complete_look,
             upscale_crops=req.upscale_crops,
+            look_conflict=req.look_conflict,
         )
     except Exception as exc:
         logger.warning(f"video try-on: classifying the products failed: {exc}")
@@ -250,11 +253,17 @@ async def _animate_image(
             anim.ahead.cancel()  # no-op once used
 
 
-def _best_scoring(fronts: Sequence[VariationEvent]) -> VariationEvent | None:
-    """With no front passing, the best-scoring one with an image is
-    animated anyway; None when no image was made at all."""
+def _choose(
+    fronts: Sequence[VariationEvent],
+) -> tuple[VariationEvent | None, bool]:
+    """The front to animate once every image is made, and whether it
+    passed: the best that passed (``runner``'s order), else the
+    best-scoring one with an image; None when no image was made at all."""
+    passing = [v for v in fronts if v.status == "ready" and v.media is not None]
+    if passing:
+        return min(passing, key=default_rank_key), True
     made = [v for v in fronts if v.media is not None]
-    return max(made, key=lambda v: v.score, default=None)
+    return max(made, key=lambda v: v.score, default=None), False
 
 
 def _start(
@@ -269,7 +278,7 @@ def _image_event(
     event: Event, anim: Animation, fronts: list[VariationEvent]
 ) -> TypeGuard[VariationEvent]:
     """Handle one stage-1 event to forward; True when it is a front that
-    passed (to animate)."""
+    passed."""
     if isinstance(event, ClassifiedEvent):
         _classified(anim, event)
     if not isinstance(event, VariationEvent):
@@ -284,8 +293,8 @@ async def _end_to_end(
     params: VideoParams,
     policy: RunPolicy,
 ) -> AsyncGenerator[Event, None]:
-    """Image try-on; each front that passes is animated at once (the best
-    one when none does); then every video ranked."""
+    """Image try-on; one front animated (the first made with the image
+    checks off, else the best once all are judged); every video ranked."""
     prepared = Prepared()
     anim = Animation(req, params, policy, backs=prepared)
     stage = tryon_pipeline.run_tryon(
@@ -306,15 +315,16 @@ async def _end_to_end(
                 continue
             if event is None:  # stage 1 ended
                 if not started:
-                    front = _best_scoring(fronts)
+                    front, passed = _choose(fronts)
                     if front is None:
                         yield ErrorEvent(message=NO_IMAGE, retryable=True)
                         return
-                    _start(streams, anim, front, passed=False)
+                    _start(streams, anim, front, passed)
                 continue
             if isinstance(event, CompleteEvent):
                 continue
-            if _image_event(event, anim, fronts):
+            animate_now = not (req.check_images or started)
+            if _image_event(event, anim, fronts) and animate_now:
                 _start(streams, anim, event, passed=True)
                 started = True
             yield event

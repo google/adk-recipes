@@ -14,13 +14,14 @@
 
 """``run_tryon``: classify, prepare, generate N variations, eval, rank, stream.
 
-Events: classified, progress("preprocessed"), record (``record.record``:
+Events: classified, progress("look") per look item in an upload's place
+(``hero.conflicts``), progress("preprocessed"), record (``record.record``:
 what the images are made from, for a later video of one of them),
-variation(view=front)*, then
-for a single product with back refs progress("back") and
-variation(view=back)* (of the best front; ``back_view`` draws the back of
-any front), then exactly one complete (front ranking). Any failure outside
-the runner ends the run with one error event.
+variation(view=front)*, then for a single product with back refs
+progress("back") and variation(view=back)* (of the best front;
+``back_view`` draws the back of any front), then exactly one complete
+(front ranking). Any failure outside the runner ends the run with one
+error event.
 """
 
 import asyncio
@@ -57,6 +58,7 @@ from genmedia4commerce.workflows.details import Detail
 from genmedia4commerce.workflows.tryon import (
     closeups,
     fix,
+    hero,
     inputs,
     outfit,
     record,
@@ -139,11 +141,8 @@ async def _prepare(
         inputs.wearer(req.person_image, upscale_face=settings.upscale_face),
         _plan(store, classification, chosen, guidelines),
     )
-    for label, data in (
-        ("wearer-body", body),
-        ("face-crop", reference_face),
-        ("plan", plan),
-    ):
+    traced = {"wearer-body": body, "face-crop": reference_face, "plan": plan}
+    for label, data in traced.items():
         trace.save(label, data)
     return TryOnContext(
         classification=classification,
@@ -287,11 +286,10 @@ def run_tryon(
 
 
 async def _classify(req: TryOnRequest, deadline: Deadline):
-    """One classifier call, the worn photos on a mannequin (``worn``);
-    then, at once, the box calls and the close-up search
-    (``closeups.search``) of each product's photos. Returns the request
-    with the converted photos, the classification, each product's hero,
-    the crops by name and the search."""
+    """One classifier call, the worn photos on a mannequin (``worn``); then,
+    at once, the box calls and the close-up search (``closeups.search``) of
+    each product's photos. Returns the request with the converted photos,
+    the classification, the heroes, the crops by name and the search."""
     found = await _within(
         deadline,
         asyncio.to_thread(
@@ -311,6 +309,7 @@ async def _classify(req: TryOnRequest, deadline: Deadline):
                 req.reference_model_image,
                 req.complete_look,
                 upscale_crops=req.upscale_crops,
+                look_conflict=req.look_conflict,
             ),
         )
     except BaseException:
@@ -344,17 +343,17 @@ async def _run_tryon(
         trimming = asyncio.to_thread(inputs.trimmed, req)
         req, hit = await _within(deadline, store.analysis(trimming))
         with degraded.tracking(marker):  # the analysis's fallbacks
-            req, classification, chosen, crops, search = await _analysis(
-                req, hit, deadline
-            )
+            analysed = await _analysis(req, hit, deadline)
+        req, classification, chosen, crops, search = analysed
         payload = record.payload(
             classification, chosen, req.product_images, crops
         )
         trace.save("classification", payload)
         yield ClassifiedEvent(payload=payload, classification=classification)
-        ctx = await _within(
-            deadline, _prepare(req, classification, chosen, store)
-        )
+        for conflict in classification.look_conflicts:
+            yield ProgressEvent("look", hero.conflict_message(conflict))
+        prepare = _prepare(req, classification, chosen, store)
+        ctx = await _within(deadline, prepare)
         prepared.ctx, prepared.policy, prepared.deadline = ctx, policy, deadline
         yield ProgressEvent("preprocessed", "Generating the front view")
 

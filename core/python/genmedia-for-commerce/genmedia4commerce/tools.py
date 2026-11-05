@@ -19,7 +19,7 @@ catalogue) or ``gs://`` URIs (``runs/`` in the media bucket); an empty
 string means absent. Each generation tool runs one workflow and
 folds its events into ``{"variations", "best_index", "ranked_indices",
 "classification", "run"}`` (end-to-end video try-on adds
-``image_variations`` and ``selected``, one entry per animated image);
+``image_variations`` and ``selected``, the animated image);
 ``catalog_search`` returns
 ``{"items"}`` (catalogue rows with their ``ref``). Failures return ``{"error", "retryable"}`` and never raise;
 a failure after the run started also carries ``run`` and the
@@ -46,11 +46,7 @@ from collections.abc import AsyncGenerator, Callable
 
 from genmedia4commerce.core import catalog
 from genmedia4commerce.core import catalog_search as search
-from genmedia4commerce.core.errors import (
-    USER_ERRORS,
-    InputError,
-    user_message,
-)
+from genmedia4commerce.core.errors import USER_ERRORS, InputError, user_message
 from genmedia4commerce.core.events import (
     ClassifiedEvent,
     CompleteEvent,
@@ -125,7 +121,7 @@ async def _collect(events: AsyncGenerator[Event, None]) -> dict:
     The run event's data goes to ``run``, with the ``manifest`` of the
     run record once it is saved (output gcs). Video try-on image-stage
     variations go to ``image_variations`` and the data of each
-    ``image_selected`` event (one per animated image) to the ``selected``
+    ``image_selected`` event (the animated image) to the ``selected``
     list. An error event ends the result with the error, the run and the
     image variations so far.
     """
@@ -197,6 +193,7 @@ async def try_on(
     reference_model_image_base64: str = "",
     complete_look: bool = True,
     upscale_crops: bool = False,
+    look_conflict: str = "",
     style_guidelines: str = "",
     scenario: str = "",
     generate_back: bool = True,
@@ -230,6 +227,9 @@ async def try_on(
             in the products only it shows, cut from its photo (e.g. its
             skirt and shoes when only the shirt was uploaded).
         upscale_crops: Upscale the added shoes to 2K first (slower).
+        look_conflict: When the look shows another item in an uploaded
+            product's place (other shoes): "upload" keeps the upload,
+            "look" uses the look's item; "" for the deployment setting.
         style_guidelines: Optional brand rules, e.g. "jackets closed".
         scenario: Optional background/setting; empty uses the default studio.
         generate_back: Also generate the back view when back photos exist.
@@ -260,6 +260,7 @@ async def video_try_on(
     reference_model_image_base64: str = "",
     complete_look: bool = True,
     upscale_crops: bool = False,
+    look_conflict: str = "",
     style_guidelines: str = "",
     scenario: str = "",
     tryon_image_base64: str = "",
@@ -282,10 +283,10 @@ async def video_try_on(
     """Make short videos of a person wearing products (video try-on).
 
     From product photos and a person photo it dresses the person first (do
-    not call try_on before) and animates each image that passes its checks
-    (the best one when none does); the images are in "image_variations",
-    the animated ones in "selected", each video's extra.source_index names
-    its image. Pass tryon_image_base64 only to animate an existing result,
+    not call try_on before) and animates one image: with check_images on,
+    the best once every image is judged; off, the first image made. The
+    images are in "image_variations", the animated one in "selected", each
+    video's extra.source_index names its image. Pass tryon_image_base64 only to animate an existing result,
     with source_run when it is a try_on result.
 
     Args:
@@ -298,6 +299,9 @@ async def video_try_on(
             in the products only it shows, cut from its photo (e.g. its
             skirt and shoes when only the shirt was uploaded).
         upscale_crops: Upscale the added shoes to 2K first (slower).
+        look_conflict: When the look shows another item in an uploaded
+            product's place (other shoes): "upload" keeps the upload,
+            "look" uses the look's item; "" for the deployment setting.
         style_guidelines: Optional brand rules, e.g. "jackets closed".
         scenario: Optional setting; empty uses the default studio.
         tryon_image_base64: An existing try-on image to animate (filename);
@@ -316,8 +320,8 @@ async def video_try_on(
         prompt: What the video should show when motion is "custom", in
             plain words; parts the images cannot show (e.g. the back without
             a back view) are adapted.
-        num_variations: From photos: how many try-on images (1-5); each
-            animated image then makes 2 videos (a deployment setting).
+        num_variations: From photos: how many try-on images (1-5); the
+            animated one then makes 2 videos (a deployment setting).
             With tryon_image_base64: how many videos (1-5). Default: the
             deployment settings.
         mode: "parallel" or "sequential"; "" for the deployment setting.
@@ -331,7 +335,6 @@ async def video_try_on(
             this run's folder; returns "media_uri" and "media_url" instead).
         run_id: Optional 12-character id of an existing run folder to use.
         session_id: Optional id (letters, digits, "_", "-") grouping runs.
-
     """
     return await _run(dict(locals()), video_tryon_request, run_video_tryon)
 
@@ -366,16 +369,13 @@ async def spin_360(
             this run's folder; returns "media_uri" and "media_url" instead).
         run_id: Optional 12-character id of an existing run folder to use.
         session_id: Optional id (letters, digits, "_", "-") grouping runs.
-
     """
     return await _run(dict(locals()), spin_request, run_spin)
 
 
 def _generation(tool: str) -> tuple:
-    """The tool, request builder and workflow of a generation tool.
-
-    Looked up on each call, so tests can replace the workflows.
-    """
+    """The tool, request builder and workflow of a generation tool, looked
+    up on each call, so tests can replace the workflows."""
     table = {
         "try_on": (try_on, tryon_request, run_tryon),
         "video_try_on": (video_try_on, video_tryon_request, run_video_tryon),

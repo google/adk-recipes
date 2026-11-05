@@ -20,6 +20,7 @@ import {
   FEATURED,
   resetStudioMock,
   STUDIO_GALLERY,
+  VIDEOS_PER_IMAGE,
 } from "../../test/studioMock";
 import {
   renderAt,
@@ -139,6 +140,29 @@ describe("Results still coming", () => {
       expect(screen.getByText("2 videos failed")).toBeTruthy(),
     );
     expect(pending()).toHaveLength(0);
+  });
+
+  it("waits on Video Try-On for the videos of one of its 3 try-on images", async () => {
+    const specs: Record<string, unknown>[] = [];
+    server.use(
+      http.post("/api/studio/:id/jobs", async ({ request }) => {
+        specs.push((await request.clone().json()) as Record<string, unknown>);
+      }),
+    );
+    const fronts = [0, 1, 2].map((i) =>
+      result(`gs://b/runs/a/image-${i}.png`, "front", i),
+    );
+    const status = () => ({
+      expected: { image_results: 3, results: VIDEOS_PER_IMAGE },
+      image_results: fronts,
+      images: fronts.map((f) => ({ ...f, passed: true })),
+    });
+    await generate(status, { capability: "video_tryon" });
+
+    await waitFor(() => expect(pending()).toHaveLength(VIDEOS_PER_IMAGE));
+    expect(pending(imagesRow())).toHaveLength(0);
+    expect(within(imagesRow()).getAllByRole("listitem")).toHaveLength(3);
+    expect(specs[0].settings).toMatchObject({ num_variations: "3" });
   });
 
   it("shows none when the server does not say how many are coming", async () => {

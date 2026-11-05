@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""A video try-on that animates several try-on images."""
+"""A video try-on's try-on images and the videos made from them."""
 
 import pytest
 
@@ -35,29 +35,26 @@ def _no_signing(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_videos_name_their_image_and_the_job_lists_the_animated():
+async def test_videos_name_their_image_and_the_job_lists_every_image():
     job = {"results": [], "image_results": []}
     for i in (0, 1):
         img = _variation(i, f"gs://b/runs/x/front-{i}.png", stage="image")
         await jobs._apply(job, img, video=True)
-    for i in (1, 0):  # one image_selected per animated image
-        data = {"front_index": i, "back_index": None}
-        event = ProgressEvent(stage="image_selected", message="", data=data)
-        await jobs._apply(job, event, video=True)
-    for n, src in enumerate((0, 1, 1)):
+    data = {"front_index": 1, "back_index": None}
+    event = ProgressEvent(stage="image_selected", message="", data=data)
+    await jobs._apply(job, event, video=True)
+    for n, src in enumerate((1, 1)):
         clip = _variation(n, f"gs://b/runs/x/video-{n}.mp4", source_index=src)
         await jobs._apply(job, clip, video=True)
 
     assert [i["uri"] for i in job["images"]] == [
-        "gs://b/runs/x/front-1.png",
         "gs://b/runs/x/front-0.png",
+        "gs://b/runs/x/front-1.png",
     ]
     assert "selected" not in job
     assert [r["source"] for r in job["results"]] == [
-        "gs://b/runs/x/front-0.png",
         "gs://b/runs/x/front-1.png",
-        "gs://b/runs/x/front-1.png",
-    ]
+    ] * 2
 
 
 @pytest.mark.asyncio
