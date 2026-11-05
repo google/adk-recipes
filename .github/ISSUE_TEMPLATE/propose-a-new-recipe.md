@@ -14,7 +14,7 @@ For `contrib/` recipes only. `core/` recipes follow a different process.
 1- What is the intent/purpose of your new recipe? In what way will it help the ADK community?
 
 
-2- What language is your recipe is implemented in (e.g. Python, Go, etc)?
+2- What language is your recipe implemented in (e.g. Python, Go, etc)?
 
 
 3- Will this be a deployable recipe, either by having a Dockerfile, or by utilizing Vertex AI?

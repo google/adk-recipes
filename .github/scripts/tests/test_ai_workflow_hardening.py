@@ -43,9 +43,10 @@ WORKFLOWS = Path(__file__).resolve().parents[3] / ".github" / "workflows"
 PR_REVIEW = WORKFLOWS / "_ai-pr-review-core.yml"
 ISSUE_TRIAGE = WORKFLOWS / "_ai-issue-triage-core.yml"
 ISSUE_RESPONSE = WORKFLOWS / "_ai-issue-response-core.yml"
+PROPOSAL_TRIAGE = WORKFLOWS / "_ai-recipe-proposal-triage-core.yml"
 
 # All workflows that hand an untrusted string to an agy agent.
-AGENT_WORKFLOWS = [PR_REVIEW, ISSUE_TRIAGE, ISSUE_RESPONSE]
+AGENT_WORKFLOWS = [PR_REVIEW, ISSUE_TRIAGE, ISSUE_RESPONSE, PROPOSAL_TRIAGE]
 
 
 def _load(path: Path) -> dict:
@@ -189,6 +190,12 @@ def test_the_job_that_can_write_holds_no_cloud_credential():
     [
         (PR_REVIEW, "review", "build_review", "post_review_comments.py"),
         (ISSUE_RESPONSE, "respond", "process", "process_issue_response.py"),
+        (
+            PROPOSAL_TRIAGE,
+            "triage",
+            "process",
+            "process_recipe_proposal_response.py",
+        ),
     ],
     ids=lambda item: getattr(item, "name", str(item)),
 )
