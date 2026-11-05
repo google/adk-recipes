@@ -33,7 +33,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools"))
 from ci_message import (
     EXIT_CI_FAULT,
     EXIT_OK,
+    guard,
 )
+
+CHECKER = "process_recipe_proposal_response.py"
 
 VALID_DECISIONS = {
     "ACCEPT",
@@ -206,4 +209,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(guard(CHECKER, main))

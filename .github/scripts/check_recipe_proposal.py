@@ -28,7 +28,12 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools"))
-from ci_message import EXIT_OK
+from ci_message import (
+    EXIT_OK,
+    guard,
+)
+
+CHECKER = "check_recipe_proposal.py"
 
 PROPOSAL_MARKER = "[RECIPE PROPOSAL]"
 MIN_TEMPLATE_SIGNALS = 3
@@ -219,4 +224,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(guard(CHECKER, main))
