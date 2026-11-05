@@ -450,18 +450,6 @@ def process_response(
 
         assignee = None
 
-    # When allow_comment is False (initial routing), or when Option 4 is chosen,
-    # resolve assignee based on path routing:
-    # if option == Option.ACKNOWLEDGE_AND_ASSIGN or not allow_comment:
-    #     if path:
-    #         assignee = resolve_assignee_from_path(path)
-    #     elif raw_assignee and raw_assignee.lower() in assignees_ci:
-    #         assignee = assignees_ci[raw_assignee.lower()]
-    #     else:
-    #         assignee = DEFAULT_ASSIGNEE
-    # else:
-    #     assignee = None
-
     return option, response_body, assignee, close_issue
 
 

@@ -29,6 +29,12 @@ import sys
 from pathlib import Path
 from typing import Any
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools"))
+from ci_message import (
+    EXIT_CI_FAULT,
+    EXIT_OK,
+)
+
 VALID_DECISIONS = {
     "ACCEPT",
     "DECLINE",
@@ -55,30 +61,35 @@ FENCED_JSON = re.compile(
 
 def extract_json(raw: str) -> dict[str, Any]:
     """Extract a JSON object from raw model output."""
-    def load_json(text: str):
+
+    def load_json(text: str) -> dict[str, Any] | None:
         try:
             data = json.loads(text)
             if isinstance(data, dict):
                 return data
         except json.JSONDecodeError:
             pass
-    
+        return None
+
     raw = (raw or "").strip()
     if not raw:
         raise ValueError("Model output is empty.")
 
-    load_json(raw)
+    if (data := load_json(raw)) is not None:
+        return data
 
     match = FENCED_JSON.search(raw)
     if match:
         snippet = match.group(1).strip()
-        load_json(snippet)
+        if (data := load_json(snippet)) is not None:
+            return data
 
     first_brace = raw.find("{")
     last_brace = raw.rfind("}")
     if first_brace != -1 and last_brace != -1 and last_brace > first_brace:
         snippet = raw[first_brace : last_brace + 1].strip()
-        load_json(snippet)
+        if (data := load_json(snippet)) is not None:
+            return data
 
     raise ValueError(
         f"Could not parse valid JSON object from model output:\n{raw[:300]}"
@@ -150,14 +161,14 @@ def main() -> int:
 
     if not args.result.exists():
         print(f"Error: Result file not found: {args.result}", file=sys.stderr)
-        return 2
+        return EXIT_CI_FAULT
 
     try:
         raw_text = args.result.read_text(encoding="utf-8")
         raw_envelope = json.loads(raw_text)
     except Exception as e:
         print(f"Error reading result JSON: {e}", file=sys.stderr)
-        return 2
+        return EXIT_CI_FAULT
 
     # agy envelope output
     model_response = raw_envelope.get("response", raw_text)
@@ -168,7 +179,7 @@ def main() -> int:
         )
     except Exception as e:
         print(f"Error processing proposal response: {e}", file=sys.stderr)
-        return 2
+        return EXIT_CI_FAULT
 
     try:
         _safe_write_text(args.comment_out, response_body + "\n")
@@ -185,13 +196,13 @@ def main() -> int:
                 f.write(f"close_issue={'true' if close_issue else 'false'}\n")
     except Exception as e:
         print(f"Error writing output files: {e}", file=sys.stderr)
-        return 2
+        return EXIT_CI_FAULT
 
     print(
         f"Issue #{args.issue_number}: Decision {decision} (Gate: {gate}, Close: {close_issue})"
     )
     print(f"Comment generated ({len(response_body)} chars).")
-    return 0
+    return EXIT_OK
 
 
 if __name__ == "__main__":

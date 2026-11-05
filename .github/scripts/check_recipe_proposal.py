@@ -27,7 +27,11 @@ import re
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools"))
+from ci_message import EXIT_OK
+
 PROPOSAL_MARKER = "[RECIPE PROPOSAL]"
+MIN_TEMPLATE_SIGNALS = 3
 
 TEMPLATE_SIGNALS = [
     "What is the intent/purpose of your new recipe?",
@@ -158,8 +162,8 @@ def is_template_proposal(
             f"template_format:marker_and_{len(matched_signals)}_signals",
         )
 
-    # Or if body contains at least 3 distinct template questions/sections even if user altered title:
-    if len(matched_signals) >= 3:
+    # Or if body contains at least MIN_TEMPLATE_SIGNALS distinct template questions/sections even if user altered title:
+    if len(matched_signals) >= MIN_TEMPLATE_SIGNALS:
         return True, f"template_format:{len(matched_signals)}_signals"
 
     return False, "not_template_format"
@@ -195,8 +199,8 @@ def main() -> int:
                 if isinstance(parsed, list):
                     labels = [str(x) for x in parsed]
             except json.JSONDecodeError:
-                labels = [x.strip() for x in stripped.split(",") if x.strip()]
-        else:
+                pass
+        if not labels:
             labels = [x.strip() for x in stripped.split(",") if x.strip()]
 
     if args.template_only:
@@ -211,7 +215,7 @@ def main() -> int:
             f.write(f"reason={reason}\n")
 
     print(json.dumps({"is_proposal": is_prop, "reason": reason}))
-    return 0
+    return EXIT_OK
 
 
 if __name__ == "__main__":
