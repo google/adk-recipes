@@ -1,0 +1,45 @@
+{
+  "eval_set_id": "basic_eval",
+  "name": "Evolutionary LLM Optimizer Evaluation",
+  "description": "Checks that each request runs the propose -> verify -> select workflow on a SQL query and returns a verified cost report.",
+  "eval_cases": [
+    {
+      "eval_id": "optimize_bundled_query",
+      "conversation": [
+        {
+          "user_content": {
+            "parts": [
+              {
+                "text": "Cut the bytes scanned by the station demand query."
+              }
+            ]
+          }
+        }
+      ],
+      "session_input": {
+        "app_name": "app",
+        "user_id": "eval_user",
+        "state": {}
+      }
+    },
+    {
+      "eval_id": "optimize_default_query",
+      "conversation": [
+        {
+          "user_content": {
+            "parts": [
+              {
+                "text": "Make my most expensive dashboard query cheaper and report the savings."
+              }
+            ]
+          }
+        }
+      ],
+      "session_input": {
+        "app_name": "app",
+        "user_id": "eval_user",
+        "state": {}
+      }
+    }
+  ]
+}
