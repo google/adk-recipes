@@ -288,6 +288,26 @@ def test_without_a_search_the_zoom_photos_go_as_they_are():
     assert _collected([tee], [("B", [])]) == []  # searched, nothing found
 
 
+def test_look_crop_shoes_also_send_their_upload_as_a_product_photo():
+    """The crop shows how the shoes are worn, their upload what they are:
+    the upload joins their card. Anything else whose hero is a look crop
+    (a bag), a hero that is the upload, or a crop of a look item with no
+    upload adds nothing."""
+    crop = ProductRef(b"C", "front", 1, "worn", "model_crop")
+    flat, side = ProductRef(b"F", "front"), ProductRef(b"S", "other")
+    shoes = Product("A", "footwear", "loafers", [crop, side, flat])
+    tee = Product("B", "top", "tee", [flat])
+    hat = Product("C", "headwear", "beanie", [crop])
+    bag = Product("D", "bag", "tote", [crop, flat])
+    photo = Detail(closeups.PHOTO, "", "front", "", b"F", name="product photo")
+    found = [("A", []), ("B", []), ("C", []), ("D", [])]
+    assert _collected([shoes, tee, hat, bag], found) == [("A", photo)]
+    assert _collected([shoes, tee]) == [("A", photo)]  # the search off
+    assert _collected([shoes]) is None  # one product: its upload goes anyway
+    assert closeups.label("A2", photo) == "A2: product photo"
+    assert closeups.item("A2", photo) == "A2 product photo"
+
+
 def test_a_failed_product_search_sends_its_zoom_photos_as_they_are(
     monkeypatch,
 ):
