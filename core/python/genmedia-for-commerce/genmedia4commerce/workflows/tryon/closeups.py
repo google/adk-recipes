@@ -255,17 +255,20 @@ async def collect(
     """(product id, close-up) for the front drawing, once ``task``
     (``search``) is over: what it found for each of ``products`` (each
     close-up traced) and, for a product not searched (the search off or
-    failed), each zoom photo as it is (``_as_is``); None with neither."""
+    failed), each zoom photo as it is (``_as_is``); then, in an outfit (a
+    single product sends its upload anyway), shoes' upload when their
+    hero is a look crop (``hero.product_photo``); None with none."""
     found = dict(await wait(task))
     out: list[tuple[str, Detail]] = []
     for p in products:
         hits = found.get(p.id)
         if hits is None:
-            out += [(p.id, _as_is(p, image)) for image in _zooms(p)]
-            continue
-        for k, detail in enumerate(hits):
-            trace.save(f"closeup-{p.id}-{k}", detail.image)
-        out += [(p.id, detail) for detail in hits]
+            hits = [_as_is(p, image) for image in _zooms(p)]
+        else:
+            for k, detail in enumerate(hits):
+                trace.save(f"closeup-{p.id}-{k}", detail.image)
+        extra = hero.product_photo(p) if len(products) > 1 else []
+        out += [(p.id, d) for d in [*hits, *extra]]
     return out if found or out else None
 
 

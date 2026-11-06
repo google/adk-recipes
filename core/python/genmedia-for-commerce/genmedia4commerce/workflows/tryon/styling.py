@@ -37,6 +37,7 @@ from genmedia4commerce.workflows.tryon.framing import shows_feet
 from genmedia4commerce.workflows.tryon.types import PromptProduct, PromptSpec
 
 __all__ = [
+    "ATTACHED",
     "FIT",
     "FIT_MANNEQUIN",
     "NO_FOOTWEAR",
@@ -48,6 +49,12 @@ __all__ = [
     "ref_label",
 ]
 
+# In the rule on extra accessories: what sits on a product is the product.
+ATTACHED = (
+    "Anything fixed to a product in its own image (a pin or brooch on a "
+    "lapel, a charm, a chain, a badge) is part of that product, never an "
+    "extra accessory: draw it as shown."
+)
 NO_FOOTWEAR = (
     "No footwear is supplied: the wearer wears plain shoes that match the "
     "outfit."

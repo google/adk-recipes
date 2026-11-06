@@ -406,8 +406,11 @@ def test_no_look_photo_without_one(fake_gen, images):
 
 
 ITEMS = (
-    'ITEMS: for every photo, "items" lists every product shown whole inside '
-    "the frame, one entry per product: garments, shoes, bags, hats, glasses, "
+    'ITEMS: "items" is [] for a photo of its product alone, nothing else '
+    "in the frame. For any other photo (the full-body look photo, a product "
+    'worn with other clothes, several products together), "items" lists '
+    "every product shown whole inside the frame, its own product included, "
+    "one entry per product: garments, shoes, bags, hats, glasses, "
     "jewellery and scarves. A part hidden by another garment still counts as "
     "inside the frame; a product cut off by the frame is never listed. For "
     'each item: "c" its category (a product category, never '
@@ -417,7 +420,11 @@ ITEMS = (
     "its collar), else false. The group is the group of the uploaded "
     "product when the item is that product: the same item as in the other "
     "photos, even worn open instead of closed, seen from another side, or "
-    "partly covered. "
+    "partly covered. It is that product only when its colour, material, "
+    "pattern and visible details (straps, tabs, buttons, hardware) match "
+    "the product's photos: an item of the same kind in another colour or "
+    "with other details (tan loafers with a strap and dark woven flats with "
+    "a tab, a navy and a black blazer) is another item, in a new group. "
     "Every part of an uploaded product is that product: its lining, fur, "
     "hood, collar, cuffs or belt are never items of their own. Any other "
     "item gets a new group number, after every group of the photos; the "

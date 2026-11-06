@@ -1034,7 +1034,10 @@ def test_an_uploaded_product_in_the_look_is_cropped_never_added(
     assert fakes.asked == [([("footwear", "footwear item")], True)]
     assert products[1]["chosen"]["source"] == "model_crop"
     assert fakes.upscaled == []
-    assert _drawn(crop) in _byte_parts(_image_calls(fake_gen)[0])
+    shoes = cards.card(
+        cards.tight(crop), [("B1: product photo", cards.tight(images[1]))]
+    )  # the crop, with the upload beside it (``hero.product_photo``)
+    assert shoes in _byte_parts(_image_calls(fake_gen)[0])
 
 
 @pytest.mark.parametrize("rule", ["upload", "look"])
