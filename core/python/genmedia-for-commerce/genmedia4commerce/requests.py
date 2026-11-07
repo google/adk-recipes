@@ -47,7 +47,7 @@ from genmedia4commerce.core.runs import (
     parse_mode,
     save_inputs,
 )
-from genmedia4commerce.core.settings import get_settings
+from genmedia4commerce.core.settings import LookConflict, get_settings
 from genmedia4commerce.core.types import Classification
 from genmedia4commerce.workflows.spin.pipeline import MAX_IMAGES as MAX_SPIN
 from genmedia4commerce.workflows.spin.types import SpinRequest
@@ -105,10 +105,8 @@ def _count(field: str, images: Sequence, low: int, high: int) -> None:
 
 
 def _policy(mode: str, num_variations: int | None, **fixed) -> RunPolicy:
-    """The deployment run policy with the options the request sets.
-
-    ``mode`` "" and ``num_variations`` None keep the deployment defaults.
-    """
+    """The deployment run policy with the options the request sets
+    (``mode`` "" and ``num_variations`` None: the deployment's)."""
     options = dict(fixed)
     if mode:
         _choice("mode", mode, RUN_MODES)
@@ -138,6 +136,7 @@ def tryon_request(
     reference_model_image: bytes | None = None,
     complete_look: bool = True,
     upscale_crops: bool = False,
+    look_conflict: str = "",
     style_guidelines: str = "",
     scenario: str = "",
     generate_back: bool = True,
@@ -153,12 +152,14 @@ def tryon_request(
         raise InputError("a person_image is required")
     _choice("aspect_ratio", aspect_ratio, gen.IMAGE_ASPECT_RATIOS)
     _choice("image_size", image_size, IMAGE_SIZES)
+    _choice("look_conflict", look_conflict or "upload", get_args(LookConflict))
     return TryOnRequest(
         product_images=product_images,
         person_image=person_image,
         reference_model_image=reference_model_image or None,
         complete_look=complete_look,
         upscale_crops=upscale_crops,
+        look_conflict=cast(LookConflict, look_conflict) or None,
         style_guidelines=style_guidelines or None,
         scenario=scenario or None,
         generate_back=generate_back,
@@ -189,6 +190,7 @@ def video_tryon_request(
     reference_model_image: bytes | None = None,
     complete_look: bool = True,
     upscale_crops: bool = False,
+    look_conflict: str = "",
     style_guidelines: str = "",
     scenario: str = "",
     tryon_image: bytes | None = None,
@@ -205,18 +207,15 @@ def video_tryon_request(
     check_images: bool = True,
     check_videos: bool = True,
 ) -> VideoTryOnRequest:
-    """Validate the request-level options and build a ``VideoTryOnRequest``.
-
-    Needs a ``tryon_image`` (animate it) or a ``person_image`` and product
+    """Validate the request-level options and build a ``VideoTryOnRequest``
+    from a ``tryon_image`` (animate it) or a ``person_image`` and product
     images (image try-on first). ``motion`` "auto" plans the animation from
-    the images; "custom" follows ``prompt``, within what they can show.
-    ``num_variations`` is the number of try-on images, or with a
-    ``tryon_image`` the number of videos. ``source_run`` (with a
+    the images; "custom" follows ``prompt``. ``num_variations``: the try-on
+    images, or with a ``tryon_image`` the videos. ``source_run`` (with a
     ``tryon_image``) names the try-on run that made it: the products,
     classification and close-ups of its run record replace
-    ``product_images`` and ``classification`` (``core.runs.load_record``);
-    a run without a record leaves them as they are.
-    """
+    ``product_images`` and ``classification`` (``core.runs.load_record``); a
+    run without a record leaves them as they are."""
     if not tryon_image and not (person_image and product_images):
         raise InputError(
             "a tryon_image, or a person_image and 1 to "
@@ -230,6 +229,7 @@ def video_tryon_request(
     _choice("aspect_ratio", aspect_ratio, gen.VIDEO_ASPECT_RATIOS)
     _choice("resolution", resolution, VIDEO_RESOLUTIONS)
     _choice("image_size", image_size, IMAGE_SIZES)
+    _choice("look_conflict", look_conflict or "upload", get_args(LookConflict))
     video = VideoParams(aspect_ratio=aspect_ratio, resolution=resolution)
     source = _from_run(source_run, tryon_image) if source_run else None
     if source is not None:
@@ -240,6 +240,7 @@ def video_tryon_request(
         reference_model_image=reference_model_image or None,
         complete_look=complete_look,
         upscale_crops=upscale_crops,
+        look_conflict=cast(LookConflict, look_conflict) or None,
         style_guidelines=style_guidelines or None,
         scenario=scenario or None,
         image=stage_one_image(video, image_size=image_size),
@@ -266,11 +267,9 @@ def spin_request(
     resolution: str = "720p",
     check_videos: bool = True,
 ) -> SpinRequest:
-    """Validate the request-level options and build a ``SpinRequest``.
-
-    ``aspect_ratio="auto"``: picked from the product's shape (9:16 when it is
-    taller than wide).
-    """
+    """Validate the request-level options and build a ``SpinRequest``;
+    ``aspect_ratio="auto"``: picked from the product's shape (9:16 when it
+    is taller than wide)."""
     _count("product_images", product_images, 1, MAX_SPIN)
     _choice("aspect_ratio", aspect_ratio, ("auto", *gen.VIDEO_ASPECT_RATIOS))
     _choice("resolution", resolution, VIDEO_RESOLUTIONS)
@@ -304,11 +303,9 @@ def check_image(data: bytes, field: str) -> bytes:
 
 
 def _input_day(ref: bytes | str, run: RunRef) -> str | None:
-    """The date folder of ``ref`` if it is a file of this run's ``inputs/``.
-
-    Any date: an upload just before midnight UTC still belongs to a request
-    sent just after it.
-    """
+    """The date folder of ``ref`` if it is a file of this run's ``inputs/``,
+    any date: an upload just before midnight UTC still belongs to a request
+    sent just after it."""
     bucket = re.escape(get_settings().media_bucket)
     folder = (
         rf"{RUNS_PREFIX}(\d{{4}}-\d{{2}}-\d{{2}})/{run.session_id}/{run.run_id}"

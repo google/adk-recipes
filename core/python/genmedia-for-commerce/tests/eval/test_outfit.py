@@ -466,6 +466,15 @@ def test_a_bare_chest_or_underwear_on_show_is_a_body_defect():
     assert "bare chest" not in OUTFIT_SYSTEM
 
 
+def test_any_part_of_a_mannequin_is_a_body_defect():
+    note = outfit.WEARER_NOTE
+    rule = "Any part of a mannequin on the TARGET is a body defect"
+    assert rule in note
+    assert "grey, white, chalky or plastic" in note
+    assert "the toes are grey mannequin toes instead of the WEARER" in note
+    assert note.index(rule) < note.index("Write each such defect")
+
+
 @pytest.mark.parametrize(
     "defects",
     [[], [RIB]],

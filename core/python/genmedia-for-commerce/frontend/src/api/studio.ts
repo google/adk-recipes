@@ -28,8 +28,8 @@ export type StudioCapability = "tryon" | "video_tryon" | "spin";
 export type StudioItem = { label: string; ref: string; thumb?: string };
 
 /**
- * One generated variation (`url`: its browser preview, absent in saved states until renewed), or a try-on image a
- * Video Try-On animated (`passed: false`: the best one, animated although none passed its checks).
+ * One generated variation (`url`: its browser preview, absent in saved states until renewed), or a try-on image of a
+ * Video Try-On (`passed: false`: it did not pass every check).
  */
 export type StudioResult = {
   index?: number;
@@ -122,7 +122,7 @@ export type JobStatus = {
   results?: StudioResult[];
   /** Video Try-On: the try-on images made so far (front and back views). */
   image_results?: StudioResult[];
-  /** Video Try-On: the try-on images animated so far. */
+  /** Video Try-On: the try-on fronts made so far, the animated one with its back view. */
   images?: StudioResult[];
   /** The front variations the job will make (absent from older servers). */
   expected?: Partial<JobCounts>;

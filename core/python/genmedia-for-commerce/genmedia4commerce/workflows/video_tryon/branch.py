@@ -16,10 +16,10 @@
 
 ``video_stage`` animates one image: its references, the plan, the zoomed
 details of the plan's close-ups, then ``Animation.videos`` videos, each
-checked by ``evaluate.evaluate_clip`` (none with ``check_videos`` off). ``animate`` is one branch of an
+checked by ``evaluate.evaluate_clip`` (none with ``check_videos`` off). ``animate`` is the branch of an
 end-to-end run: the back view drawn from its front first (a single product
 with a back upload), then ``progress("image_selected")`` and the video
-stage. ``Streams`` runs the image stage and the branches at once and merges
+stage. ``Streams`` runs the image stage and the branch at once and merges
 their events; ``finish`` ranks every video of the run.
 """
 
@@ -77,8 +77,7 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
-# Back images per animated image (the photo try-on draws num_variations):
-# up to 3 branches draw their back views at once.
+# Back images of the animated image (the photo try-on draws num_variations).
 BACK_VIEWS = 1
 
 NO_VIDEO = "No video was produced"
@@ -265,7 +264,7 @@ async def _back_view(
     if backs is None or backs.policy is None or image is None:
         logger.warning("video try-on: no back view to draw, front only")
         return
-    one = dataclasses.replace(  # several branches draw at once: 1 back each
+    one = dataclasses.replace(
         backs, policy=backs.policy.replace(num_variations=BACK_VIEWS)
     )
     drawn = trace.scoped(tryon_pipeline.back_view(one, image), stage="image")

@@ -39,7 +39,7 @@ export type StudioView = {
   spin: StudioItem[];
   settings: Record<StudioCapability, Settings>;
   results: Record<StudioCapability, StudioResult[]>;
-  /** The try-on images the last full Video Try-On animated, in display order ("Image 1", "Image 2"...). */
+  /** The try-on images of the last full Video Try-On, in display order ("Image 1", "Image 2"...). */
   images: StudioResult[];
   job: StudioJob | null;
 };
@@ -62,7 +62,7 @@ const DEFAULTS: Record<StudioCapability, Settings> = {
     style_guidelines: "",
     aspect_ratio: "3:4",
     image_size: "2K",
-    num_variations: "1",
+    num_variations: "3",
     complete_look: true,
     upscale_crops: false,
     check_images: false,
@@ -73,7 +73,7 @@ const DEFAULTS: Record<StudioCapability, Settings> = {
     prompt: "",
     aspect_ratio: "9:16",
     resolution: "720p",
-    num_variations: "1",
+    num_variations: "3",
   },
   spin: { aspect_ratio: "auto", resolution: "720p", num_variations: "1" },
 };
@@ -90,13 +90,13 @@ const RESOLUTION: SelectSetting = {
   options: ["720p", "1080p"],
 };
 
-/** What Variations counts on the current page: Video Try-On makes try-on images (each animated into the
- * deployment's videos per image, 2 by default). */
+/** What Variations counts on the current page: Video Try-On makes try-on images and animates one (the
+ * best, or with image checks off the first ready) into the deployment's videos per image, 2 by default. */
 export function variationsOf(v: StudioView): { label: string; hint: string } {
   return v.capability === "video_tryon"
     ? {
         label: "Try-on images",
-        hint: "Try-on images to make. Each one animated gets 2 videos (unless the deployment sets another number).",
+        hint: "Try-on images to make. The best one (with image checks off, the first one ready) is animated into 2 videos (unless the deployment sets another number).",
       }
     : { label: "Variations", hint: "" };
 }

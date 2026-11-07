@@ -14,12 +14,7 @@
 
 import { useState } from "react";
 import type { StudioResult } from "../../api/studio";
-import {
-  DownloadIcon,
-  SpinnerIcon,
-  StarIcon,
-  VideoIcon,
-} from "../../components/icons";
+import { SpinnerIcon, StarIcon, VideoIcon } from "../../components/icons";
 import ImageLightbox from "../../components/ImageLightbox";
 import { EmptyResults } from "../../components/RunControls";
 import type { LiveJob } from "./jobs";
@@ -179,7 +174,7 @@ function ResultCard({
             {result.note}
           </p>
         )}
-        <div className="flex items-center gap-2 mt-auto pt-1">
+        <div className="flex flex-wrap items-center gap-2 mt-auto pt-1">
           {url && (
             <a
               href={url}
@@ -213,19 +208,6 @@ function ResultCard({
               <VideoIcon size={14} className="text-gm-accent" />
               Animate
             </button>
-          )}
-          {url && (
-            <a
-              href={url}
-              download={`${name.toLowerCase().replace(/\s+/g, "-")}.${ext}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label={`Download ${name}`}
-              title="Download"
-              className="glass-button rounded-lg w-8 h-8 flex items-center justify-center"
-            >
-              <DownloadIcon size={15} />
-            </a>
           )}
         </div>
       </div>
@@ -266,6 +248,7 @@ export default function StudioResults({ studio }: { studio: Studio }) {
   const cap = studio.view.capability;
   const live = studio.live?.cap === cap ? studio.live : null;
   const running = !!live && studio.following;
+  const status = studio.jobStatus || "Generating";
   const remake = live?.tryonImage ?? "";
   const saved = studio.view.results[cap];
   const results = !live
@@ -326,8 +309,8 @@ export default function StudioResults({ studio }: { studio: Studio }) {
           ratio={ratio}
         />
       )}
-      <div className="flex items-center gap-2 min-h-[32px]">
-        <h2 className="text-h2">
+      <div className="flex items-center gap-2 min-h-[32px] min-w-0">
+        <h2 className="text-h2 whitespace-nowrap">
           {cap === "video_tryon" ? "Videos" : "Results"}
           {running ? " so far" : ""}
         </h2>
@@ -336,8 +319,13 @@ export default function StudioResults({ studio }: { studio: Studio }) {
         </span>
         <FailedNote count={failed.results} noun={NOUNS[cap]} />
         {running && (
-          <span className="ml-auto chip bg-gm-accent/10 text-gm-accent ring-1 ring-inset ring-gm-accent/25 !py-1">
-            <SpinnerIcon size={12} /> {studio.jobStatus || "Generating"}
+          // One line, cut to fit: the whole status is under the Generate button.
+          <span
+            title={status}
+            className="ml-auto min-w-0 chip bg-gm-accent/10 text-gm-accent ring-1 ring-inset ring-gm-accent/25 !py-1"
+          >
+            <SpinnerIcon size={12} className="shrink-0" />
+            <span className="truncate">{status}</span>
           </span>
         )}
       </div>
