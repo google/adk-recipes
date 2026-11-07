@@ -31,14 +31,16 @@ application instances.
 
 ## Configuration
 
-Copy the example environment file and fill it in:
+Copy the example environment file and export its values into your shell session (Java reads configuration directly from environment variables):
 
 ```bash
 cp .env.example .env
+export $(grep -v '^#' .env | xargs)
 ```
 
-Edit `.env` and set your project values. To use Vertex AI, authenticate with
-Application Default Credentials:
+Alternatively, you can set the environment variables directly in your terminal.
+
+To use Vertex AI, authenticate with Application Default Credentials:
 
 ```bash
 gcloud auth application-default login

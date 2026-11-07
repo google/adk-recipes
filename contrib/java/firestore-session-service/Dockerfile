@@ -30,12 +30,10 @@ WORKDIR /app
 
 COPY --from=build /build/target/classes ./target/classes
 COPY --from=build /build/target/dependency ./lib
-COPY src/main/resources ./target/classes
 
 RUN useradd --create-home --uid 10001 appuser && \
     chown -R appuser:appuser /app
 
 USER appuser
 
-CMD ["java", "-cp", "target/classes:lib/*", \
-    "com.google.adk.samples.agents.firestorerunner.FirestoreRunner"]
+CMD ["java", "-cp", "target/classes:lib/*", "com.google.adk.samples.agents.firestorerunner.FirestoreRunner"]

@@ -38,6 +38,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Scanner;
 import java.util.UUID;
+import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
@@ -117,7 +118,7 @@ public final class FirestoreRunner {
             });
       }
     } catch (Exception e) {
-      logger.severe("An error occurred: " + e.getMessage());
+      logger.log(Level.SEVERE, "An error occurred: " + e.getMessage(), e);
     }
 
     logger.info("FirestoreRunner finished execution.");
