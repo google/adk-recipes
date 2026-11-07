@@ -48,7 +48,7 @@ gcloud auth application-default login
 
 To use the Gemini API instead, set `GOOGLE_GENAI_USE_VERTEXAI=False` and
 `GOOGLE_API_KEY`. The `MODEL_NAME` variable controls which model the agent
-uses; it defaults to `gemini-3.5-flash` if unset.
+uses; it defaults to `gemini-3.7-flash` if unset.
 
 ## Running the agent
 
@@ -78,6 +78,21 @@ USER_ID=user-... SESSION_ID=session-... mvn compile exec:java -Dexec.mainClass="
 Without them, each run starts a brand-new session.
 
 ![Console Output](console_output.png)
+
+## Running with Docker
+
+You can also build and run the agent as a container image. Because `FirestoreRunner` is an interactive CLI agent running over standard input, allocate a pseudo-TTY and keep stdin open with `-it`:
+
+```bash
+docker build -t firestore-session-service .
+docker run -it --env-file .env firestore-session-service
+```
+
+To resume an existing conversation inside the container:
+
+```bash
+docker run -it --env-file .env -e USER_ID="user-..." -e SESSION_ID="session-..." firestore-session-service
+```
 
 ## Testing
 

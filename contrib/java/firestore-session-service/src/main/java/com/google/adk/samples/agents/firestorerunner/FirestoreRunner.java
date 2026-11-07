@@ -135,7 +135,7 @@ public final class FirestoreRunner {
 
   protected static BaseAgent initAgent(String agentName) {
     String modelEnv = System.getenv("MODEL_NAME");
-    String model = (modelEnv != null && !modelEnv.isBlank()) ? modelEnv : "gemini-3.5-flash";
+    String model = (modelEnv != null && !modelEnv.isBlank()) ? modelEnv : "gemini-3.7-flash";
     return LlmAgent.builder()
         .name(agentName)
         .description("Tells the current time in a specified city")
