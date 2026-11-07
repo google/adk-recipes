@@ -24,9 +24,12 @@ ingestion pipeline, and no Terraform — all "data" comes from the built-in
 
 - **Scenarios Path**: none — this recipe ships **no eval datasets** and no eval
   config: no `tests/eval/`, no `eval_config.yaml`, and no LLM-judge scoring.
-- The only test is `tests/test_runnability.py` — a **smoke test** that imports
-  `app.agent` (patching `google.auth.default`) and asserts `root_agent` and `app`
-  are defined. It is **not** wired into a `make test` target.
+- There are two tests, neither wired into a `make test` target:
+  `tests/test_runnability.py`, a **smoke test** that imports `app.agent`
+  (patching `google.auth.default`) and asserts `root_agent` and `app` are
+  defined, and `tests/test_collect_research_sources.py`, which checks that
+  `collect_research_sources_callback` records each cited claim once across
+  search rounds (no model call).
 - **To add eval:** create a `tests/eval/` directory with `datasets/` + an
   `eval_config.yaml` (see the RAG recipes for the `agents-cli` eval format) and
   run it via the agents CLI. Nothing here does that today — do not assume an eval
@@ -104,9 +107,9 @@ The loop stops early when `research_evaluator` grades `pass` (the custom
 5. **`app/__init__.py`** — env bootstrap: loads `.env`, resolves the GCP project,
    sets Vertex defaults, then imports `root_agent`. The import is intentionally
    below the bootstrap because the agent reads env vars **at import time**.
-6. **`tests/test_runnability.py`** — the sole test: a smoke import asserting
+6. **`tests/`** — `test_runnability.py`, a smoke import asserting
    `root_agent`/`app` exist (with `google.auth.default` patched so no ADC is
-   needed).
+   needed), and `test_collect_research_sources.py` for the sources callback.
 
 ## Data handling
 
@@ -144,7 +147,7 @@ The loop stops early when `research_evaluator` grades `pass` (the custom
   `EscalationChecker`) or after `max_search_iterations` (default `5`) — whichever
   comes first. Raising the cap raises latency and cost.
 - **No `make test` and no eval.** `make lint` runs codespell + ruff + mypy; run
-  the single smoke test manually with `uv run pytest tests/test_runnability.py`.
+  the tests manually with `uv run pytest tests`.
 - **`make dev` runs two servers.** It backgrounds `dev-backend` (ADK
   `api_server` on `:8000`) and `dev-frontend` (Vite on `:5173`); Vite proxies
   `/api/*` to `http://127.0.0.1:8000` (base path `/app/`).
@@ -156,7 +159,7 @@ The loop stops early when `research_evaluator` grades `pass` (the custom
 (`adk api_server app` on `:8000`), `make dev-frontend` (Vite dev server on
 `:5173`), `make playground` (`adk web` on `:8501` — ADK's built-in UI, no React),
 `make lint` (codespell + `ruff check` + `ruff format --check` + `mypy`). There is
-**no `make test`**: run `uv run pytest tests/test_runnability.py` directly. There
+**no `make test`**: run `uv run pytest tests` directly. There
 is **no eval**.
 
 ## Reuse (copy as-is)
