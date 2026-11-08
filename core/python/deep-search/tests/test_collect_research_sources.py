@@ -13,10 +13,10 @@
 # limitations under the License.
 """Tests for collect_research_sources_callback."""
 
-import os
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+import pytest
 from google.genai import types
 
 
@@ -42,10 +42,12 @@ def _grounded_event(url: str, claim: str) -> SimpleNamespace:
     )
 
 
-def test_each_claim_is_collected_once_across_search_rounds() -> None:
+def test_each_claim_is_collected_once_across_search_rounds(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Later callback calls must not re-add claims from earlier searches."""
-    os.environ.setdefault("GOOGLE_CLOUD_PROJECT", "test-project")
-    os.environ.setdefault("MODEL_NAME", "gemini-3.5-flash")
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "test-project")
+    monkeypatch.setenv("MODEL_NAME", "gemini-3.5-flash")
     with patch(
         "google.auth.default", return_value=(MagicMock(), "test-project")
     ):
