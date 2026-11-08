@@ -55,6 +55,7 @@ from genmedia4commerce.core.retry import (
 __all__ = [
     "IMAGE_ASPECT_RATIOS",
     "MAX_IMAGES",
+    "MEDIUM_RES",
     "VIDEO_ASPECT_RATIOS",
     "ImageParams",
     "Part",
@@ -80,6 +81,8 @@ IMAGE_ASPECT_RATIOS = tuple(
 VIDEO_ASPECT_RATIOS = ("16:9", "9:16")
 MAX_IMAGES = 14  # input images the image model takes in one request
 EMBED_DEADLINE_S = 120.0
+# A text call's media_resolution when it needs less detail than the default
+MEDIUM_RES = "MEDIA_RESOLUTION_MEDIUM"
 
 _HARMS = ("HATE_SPEECH", "DANGEROUS_CONTENT", "SEXUALLY_EXPLICIT", "HARASSMENT")
 _SAFETY_OFF = [

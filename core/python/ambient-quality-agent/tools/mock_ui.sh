@@ -17,7 +17,7 @@
 # Run the AQA dashboard against generated data -- no deployment, no cloud, no
 # model. One command:
 #
-#   tools/mock_ui.sh                      # http://localhost:8080
+#   tools/mock_ui.sh                      # http://localhost:8080/?tour
 #
 # It generates a month of investigations and insights
 # (`tools/mock_aqa_data.py`), serves them over the agent's command and A2A
@@ -38,10 +38,11 @@
 #   MOCK_RUNS     sweeps per day            (default 4)
 #   MOCK_SEED     RNG seed                  (default 7)
 #   MOCK_VERIFIED share of sightings with a  (default 0, matching a real
-#                 verification result, which  deployment: `verify_clusters`
-#                 the dashboard renders as    exists but nothing calls it. Raise
-#                 a diagnosis                 it to see the diagnosed half of
-#                                             the insight pane at all.)
+#                 verification result, which  deployment: the pass is off by
+#                 the dashboard renders as    default and runs only for an agent
+#                 a diagnosis                 attached with --verification. Raise
+#                                             it to see the diagnosed half of
+#                                             the insight pane.)
 #   MOCK_ROOT_CAUSE share of sightings with a (default 0, matching a real
 #                 recorded root cause, which   deployment: only an RCA chat turn
 #                 the dashboard marks on the   writes one. Raise it to see the
@@ -72,13 +73,14 @@
 #   MOCK_DROP_RATE=1    tools/mock_ui.sh    # nothing survives ingestion
 #   MOCK_NO_TELEMETRY=1 tools/mock_ui.sh    # nothing was ever exported
 #
-# The third is the state a customer meets AQuA in (b/563290003): the agent has
+# The third is the state a customer meets AQuA in: the agent has
 # served no traffic, so every sweep fails its first BigQuery read and the
 # dashboard has nothing but failures to draw. It is what the "no data" reading
 # of a failed run is checked against.
 #
-# And the state the pipeline cannot reach yet, because nothing calls the
-# verification pass -- the insight pane with a root cause on it:
+# And the state a default deployment does not reach, because the verification
+# pass is off by default (it runs only for an agent attached with
+# --verification) -- the insight pane with a root cause on it:
 #
 #   MOCK_VERIFIED=0.6   tools/mock_ui.sh
 #
@@ -145,5 +147,10 @@ curl -sf -o /dev/null --max-time 2 "${ADK_URL}/list-apps" \
 # `local_ui.sh` sees a server already listening at ADK_URL and starts only the
 # UI against it -- the same branch a hand-started agent server takes. The
 # mock is never standalone, and standalone refuses a running server.
+# The generated data has an insight and an investigation for every step of the
+# guided tour, so the demo offers its link first.
+echo
+echo "Guided tour on generated demo data: http://localhost:${UI_PORT:-8080}/?tour"
+echo
 AQA_STANDALONE= ADK_URL="$ADK_URL" ADK_APP="$ADK_APP" UI_PORT="${UI_PORT:-8080}" \
   "${REPO_ROOT}/tools/local_ui.sh"

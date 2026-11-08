@@ -22,7 +22,7 @@ _REGISTRY = {
     "text_lite": ("GENMEDIA_TEXT_LITE_MODEL", "gemini-3.5-flash-lite"),
     "judge": ("GENMEDIA_JUDGE_MODEL", "gemini-4-argon"),
     "image": ("GENMEDIA_IMAGE_MODEL", "gemini-nano-banana-2.1"),
-    "video": ("GENMEDIA_VIDEO_MODEL", "gemini-omni-1.1-flash-preview"),
+    "video": ("GENMEDIA_VIDEO_MODEL", "gemini-omni-1.2-flash"),
     "video_api_revision": ("GENMEDIA_VIDEO_API_REVISION", "2026-05-20"),
     "embed_catalog": ("GENMEDIA_EMBED_CATALOG_MODEL", "gemini-embedding-001"),
 }

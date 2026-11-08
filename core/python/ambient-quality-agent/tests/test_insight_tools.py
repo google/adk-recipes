@@ -29,13 +29,13 @@ from typing import Any
 import pytest
 from ambient_quality_agent.tools.insights.findings import Finding
 from ambient_quality_agent.tools.insights.models import (
+    FindingExample,
     InsightOccurrence,
     InsightStatus,
     InsightView,
     OccurrenceState,
     ProposedEdit,
     RootCause,
-    RubricExample,
 )
 from ambient_quality_agent.tools.insights.reader import InsightOrder
 from ambient_quality_agent.tools.orchestrator import (
@@ -45,7 +45,7 @@ from ambient_quality_agent.tools.orchestrator import (
 )
 from ambient_quality_agent.tools.trajectories.models import (
     IngestStatus,
-    Trajectory,
+    InvestigationTrajectory,
 )
 from google.api_core.exceptions import NotFound
 
@@ -83,41 +83,41 @@ def _call_get(*args: Any, **kwargs: Any) -> dict[str, Any]:
 def _summary(insight_id: str = "ins-1", count: int = 3) -> InsightView:
     return InsightView(
         insight_id=insight_id,
-        agent_name="agent",
+        observed_agent_key="agent",
         label="made no tool call",
         status=InsightStatus.RECURRING,
         created_at=_NOW,
         updated_at=_NOW,
         occurrence_count=count,
-        last_run_id="run-9",
-        last_run_at=_NOW,
+        last_investigation_id="run-9",
+        last_investigation_at=_NOW,
     )
 
 
 def _occurrence(
-    run_id: str = "run-9",
+    investigation_id: str = "run-9",
     with_trace: bool = True,
     trajectory_ids: list[str] | None = None,
 ) -> InsightOccurrence:
     return InsightOccurrence(
-        occurrence_id=f"occ-{run_id}",
+        occurrence_id=f"occ-{investigation_id}",
         insight_id="ins-1",
         occurrence_state=OccurrenceState.TRACKED,
-        run_id=run_id,
+        investigation_id=investigation_id,
         created_at=_NOW,
-        agent_name="agent",
+        observed_agent_key="agent",
         label="made no tool call",
-        item_count=1,
+        finding_count=1,
         trajectory_ids=trajectory_ids if trajectory_ids is not None else [],
-        rubrics=[
-            RubricExample(
-                rubric=Finding(
+        examples=[
+            FindingExample(
+                finding=Finding(
                     expected_behavior="call create_ticket",
                     actual_behavior="no tool call was made",
-                    session_id="case-1",
+                    trajectory_id="case-1",
                 ),
-                eval_case_id="case-1",
-                trace=[{"role": "user"}] if with_trace else [],
+                trajectory_id="case-1",
+                turns=[{"role": "user"}] if with_trace else [],
             )
         ],
     )
@@ -153,7 +153,7 @@ class _FakeReader:
         self,
         *,
         statuses,
-        run_id,
+        investigation_id,
         limit,
         offset,
         window_start=None,
@@ -166,7 +166,7 @@ class _FakeReader:
             {
                 "day": day,
                 "statuses": statuses,
-                "run_id": run_id,
+                "investigation_id": investigation_id,
                 "limit": limit,
                 "offset": offset,
                 "window_start": window_start,
@@ -181,7 +181,7 @@ class _FakeReader:
         self,
         *,
         statuses,
-        run_id,
+        investigation_id,
         window_start=None,
         window_end=None,
         has_root_cause=None,
@@ -191,7 +191,7 @@ class _FakeReader:
             {
                 "day": day,
                 "statuses": statuses,
-                "run_id": run_id,
+                "investigation_id": investigation_id,
                 "window_start": window_start,
                 "window_end": window_end,
                 "has_root_cause": has_root_cause,
@@ -208,11 +208,11 @@ class _FakeReader:
         )
         return [r for r in self._root_causes if r.insight_id == insight_id]
 
-    def list_occurrences(self, *, insight_id, run_id, limit, offset):
+    def list_occurrences(self, *, insight_id, investigation_id, limit, offset):
         self.occ_calls.append(
             {
                 "insight_id": insight_id,
-                "run_id": run_id,
+                "investigation_id": investigation_id,
                 "limit": limit,
                 "offset": offset,
             }
@@ -220,7 +220,7 @@ class _FakeReader:
         return self._occurrences, self._occ_total
 
     def get_insight_with_occurrences(
-        self, *, insight_id, run_id, limit, offset
+        self, *, insight_id, investigation_id, limit, offset
     ):
         # Mirror the real reader: compose the summary + occurrence reads, so the
         # tool tests still observe the recorded occurrence call.
@@ -228,7 +228,10 @@ class _FakeReader:
         if view is None:
             return None
         occurrences, total = self.list_occurrences(
-            insight_id=insight_id, run_id=run_id, limit=limit, offset=offset
+            insight_id=insight_id,
+            investigation_id=investigation_id,
+            limit=limit,
+            offset=offset,
         )
         return view, occurrences, total
 
@@ -313,7 +316,7 @@ def test_list_insights_counts_conversations_under_the_page_filters(
     _call_list(
         StateContext(),
         status="NEW",
-        run_id="run-7",
+        investigation_id="run-7",
         has_root_cause="true",
         window_start="2026-06-01T00:00:00Z",
     )
@@ -544,11 +547,11 @@ def test_get_insight_default_returns_full_history(use_reader) -> None:
     out = _call_get(StateContext(), insight_id="ins-1")
 
     assert out["insight"]["insight_id"] == "ins-1"
-    # Default view pages the whole occurrence history (no run_id filter).
+    # Default view pages the whole occurrence history (no investigation_id filter).
     assert len(out["occurrences"]) == 30
     assert out["next_page_token"] is not None
     assert reader.occ_calls[0]["limit"] == insight_tools.OCCURRENCES_PAGE_SIZE
-    assert reader.occ_calls[0]["run_id"] is None
+    assert reader.occ_calls[0]["investigation_id"] is None
 
 
 def test_get_insight_run_id_filters_occurrence(use_reader) -> None:
@@ -558,9 +561,11 @@ def test_get_insight_run_id_filters_occurrence(use_reader) -> None:
         )
     )
 
-    out = _call_get(StateContext(), insight_id="ins-1", run_id="run-3")
+    out = _call_get(
+        StateContext(), insight_id="ins-1", investigation_id="run-3"
+    )
 
-    assert reader.occ_calls[0]["run_id"] == "run-3"
+    assert reader.occ_calls[0]["investigation_id"] == "run-3"
     assert out["next_page_token"] is None
 
 
@@ -575,7 +580,7 @@ def test_get_insight_can_strip_traces(use_reader) -> None:
 
     out = _call_get(StateContext(), insight_id="ins-1", include_traces=False)
 
-    assert out["occurrences"][0]["rubrics"][0]["trace"] == []
+    assert out["occurrences"][0]["examples"][0]["turns"] == []
 
 
 def test_get_insight_keeps_traces_by_default(use_reader) -> None:
@@ -589,7 +594,7 @@ def test_get_insight_keeps_traces_by_default(use_reader) -> None:
 
     out = _call_get(StateContext(), insight_id="ins-1")
 
-    assert out["occurrences"][0]["rubrics"][0]["trace"] == [{"role": "user"}]
+    assert out["occurrences"][0]["examples"][0]["turns"] == [{"role": "user"}]
 
 
 # --- resolving an occurrence's trajectories -----------------------------------
@@ -599,12 +604,12 @@ class _FakeTrajectoryReader:
     """Returns canned trajectory rows for the pairs it is asked about."""
 
     def __init__(
-        self, rows: dict[tuple[str, str], Trajectory] | None = None
+        self, rows: dict[tuple[str, str], InvestigationTrajectory] | None = None
     ) -> None:
         self._rows = rows or {}
         self.calls: list[list[tuple[str, str]]] = []
 
-    def get_trajectories(self, keys):
+    def get_investigation_trajectories(self, keys):
         self.calls.append(list(keys))
         return {key: row for key, row in self._rows.items() if key in set(keys)}
 
@@ -628,13 +633,13 @@ def use_trajectories(monkeypatch: pytest.MonkeyPatch):
 
 def _trajectory(
     trajectory_id: str, trace_ids: list[str] | None = None
-) -> Trajectory:
-    return Trajectory(
-        run_id="run-9",
-        agent_name="agent",
+) -> InvestigationTrajectory:
+    return InvestigationTrajectory(
+        investigation_id="run-9",
+        observed_agent_key="agent",
         trajectory_id=trajectory_id,
         created_at=_NOW,
-        source="cloud_ops",
+        ingestion_source="cloud_ops",
         source_trace_ids=["trace-1"] if trace_ids is None else trace_ids,
         ingest_status=IngestStatus.INGESTED,
     )
@@ -658,7 +663,7 @@ def test_an_occurrence_names_its_conversations_and_links_to_them(
 
     out = _call_get(StateContext(), insight_id="ins-1")
 
-    trajectories = out["occurrences"][0]["trajectories"]
+    trajectories = out["occurrences"][0]["investigation_trajectories"]
     assert [t["trajectory_id"] for t in trajectories] == ["case-1"]
     assert trajectories[0]["console_url"].endswith("&tid=trace-1")
 
@@ -685,7 +690,8 @@ def test_the_conversations_keep_the_order_the_occurrence_stored(
     out = _call_get(StateContext(), insight_id="ins-1")
 
     assert [
-        t["trajectory_id"] for t in out["occurrences"][0]["trajectories"]
+        t["trajectory_id"]
+        for t in out["occurrences"][0]["investigation_trajectories"]
     ] == [
         "case-2",
         "case-1",
@@ -711,7 +717,8 @@ def test_an_id_the_store_never_saw_is_left_out(
     out = _call_get(StateContext(), insight_id="ins-1")
 
     assert [
-        t["trajectory_id"] for t in out["occurrences"][0]["trajectories"]
+        t["trajectory_id"]
+        for t in out["occurrences"][0]["investigation_trajectories"]
     ] == ["case-1"]
 
 
@@ -721,8 +728,12 @@ def test_the_page_is_resolved_in_one_read(use_reader, use_trajectories) -> None:
         _FakeReader(
             insight=_summary(),
             occurrences=[
-                _occurrence(run_id="run-9", trajectory_ids=["case-1"]),
-                _occurrence(run_id="run-8", trajectory_ids=["case-2"]),
+                _occurrence(
+                    investigation_id="run-9", trajectory_ids=["case-1"]
+                ),
+                _occurrence(
+                    investigation_id="run-8", trajectory_ids=["case-2"]
+                ),
             ],
             occ_total=2,
         )
@@ -761,8 +772,10 @@ def test_the_links_can_be_had_without_the_conversations(
     )
 
     occurrence = out["occurrences"][0]
-    assert occurrence["trajectories"][0]["console_url"].endswith("&tid=trace-1")
-    assert all(rubric["trace"] == [] for rubric in occurrence["rubrics"])
+    assert occurrence["investigation_trajectories"][0]["console_url"].endswith(
+        "&tid=trace-1"
+    )
+    assert all(example["turns"] == [] for example in occurrence["examples"])
 
 
 def test_the_conversations_can_be_had_without_the_links(
@@ -787,7 +800,7 @@ def test_the_conversations_can_be_had_without_the_links(
     )
 
     assert reader.calls == []
-    assert out["occurrences"][0]["trajectories"] == []
+    assert out["occurrences"][0]["investigation_trajectories"] == []
 
 
 def test_unset_the_links_follow_the_conversations(
@@ -808,7 +821,7 @@ def test_unset_the_links_follow_the_conversations(
 
     out = _call_get(StateContext(), insight_id="ins-1", include_traces=True)
 
-    assert out["occurrences"][0]["trajectories"] != []
+    assert out["occurrences"][0]["investigation_trajectories"] != []
 
 
 def test_stripping_traces_also_skips_the_extra_read(
@@ -831,7 +844,7 @@ def test_stripping_traces_also_skips_the_extra_read(
     out = _call_get(StateContext(), insight_id="ins-1", include_traces=False)
 
     assert reader.calls == []
-    assert out["occurrences"][0]["trajectories"] == []
+    assert out["occurrences"][0]["investigation_trajectories"] == []
 
 
 def test_an_occurrence_with_no_ids_asks_for_nothing(
@@ -848,7 +861,7 @@ def test_an_occurrence_with_no_ids_asks_for_nothing(
     out = _call_get(StateContext(), insight_id="ins-1")
 
     assert reader.calls == []
-    assert out["occurrences"][0]["trajectories"] == []
+    assert out["occurrences"][0]["investigation_trajectories"] == []
 
 
 def test_a_failed_resolution_does_not_cost_the_caller_its_evidence(
@@ -858,7 +871,7 @@ def test_a_failed_resolution_does_not_cost_the_caller_its_evidence(
     the rubrics are still what a harness came for."""
 
     class _Boom(_FakeTrajectoryReader):
-        def get_trajectories(self, keys):
+        def get_investigation_trajectories(self, keys):
             raise RuntimeError("table not found")
 
     use_reader(
@@ -873,8 +886,8 @@ def test_a_failed_resolution_does_not_cost_the_caller_its_evidence(
     out = _call_get(StateContext(), insight_id="ins-1")
 
     assert "error" not in out
-    assert out["occurrences"][0]["trajectories"] == []
-    assert out["occurrences"][0]["rubrics"][0]["trace"] == [{"role": "user"}]
+    assert out["occurrences"][0]["investigation_trajectories"] == []
+    assert out["occurrences"][0]["examples"][0]["turns"] == [{"role": "user"}]
 
 
 # --- root causes --------------------------------------------------------------
@@ -977,8 +990,8 @@ def test_a_root_cause_is_injected_into_the_sighting_it_names(
         _FakeReader(
             insight=_summary(),
             occurrences=[
-                _occurrence(run_id="run-9"),
-                _occurrence(run_id="run-8"),
+                _occurrence(investigation_id="run-9"),
+                _occurrence(investigation_id="run-8"),
             ],
             occ_total=2,
             root_causes=[_root_cause(occurrence_id="occ-run-9")],
@@ -999,7 +1012,7 @@ def test_a_record_whose_sighting_is_gone_still_surfaces(use_reader) -> None:
     use_reader(
         _FakeReader(
             insight=_summary(),
-            occurrences=[_occurrence(run_id="run-9")],
+            occurrences=[_occurrence(investigation_id="run-9")],
             occ_total=1,
             root_causes=[_root_cause(occurrence_id="occ-retired")],
         )
@@ -1072,7 +1085,7 @@ def test_a_failed_root_cause_read_does_not_cost_the_evidence(
     result = _call_get(StateContext({}), insight_id="ins-1")
 
     assert result["root_causes"] == []
-    assert result["occurrences"][0]["rubrics"]
+    assert result["occurrences"][0]["examples"]
 
 
 def test_get_insight_builds_one_reader(monkeypatch: pytest.MonkeyPatch) -> None:

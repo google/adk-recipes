@@ -35,7 +35,7 @@ Wiring::
         ├── deployed ───► gcs_store.GcsObjectStore      gs://<source bucket>/<name>
         └── standalone ─► standalone.files.FileObjectStore  .aqua/source/<name>
 
-    metrics.publishing ◄── core.command_routes, core.nodes._common (each run)
+    metrics.publishing ◄── core.command_routes, core.nodes._common (each investigation)
         │ takes an ObjectStore
         │ └──► documents.agent_scope: whether the agent is the default one
         ▼

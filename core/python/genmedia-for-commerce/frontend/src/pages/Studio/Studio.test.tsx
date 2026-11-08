@@ -1,18 +1,16 @@
-/**
- * Copyright 2026 Google LLC
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     https://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2026 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
@@ -382,7 +380,7 @@ describe("Studio page", () => {
     expect(bodies[0]).toContain("Content-Type: image/png");
   });
 
-  it("generates and shows the results, with no way to animate one", async () => {
+  it("generates and shows the results, each with Animate", async () => {
     await renderStudio(
       { set: { field: "person", item: EMMA } },
       { add: { field: "product", item: JEANS, replace_index: -1 } },
@@ -396,12 +394,12 @@ describe("Studio page", () => {
     const cards = within(
       results.closest("section") as HTMLElement,
     ).getAllByRole("article");
-    expect(cards).toHaveLength(1);
+    expect(cards).toHaveLength(3); // the default: 3 variations
     expect(within(cards[0]).getByText("Best")).toBeTruthy();
     expect(within(cards[0]).getByText("Score 90")).toBeTruthy();
     expect(
-      within(cards[0]).queryByRole("button", { name: /animate/i }),
-    ).toBeNull();
+      within(cards[0]).getByRole("button", { name: "Animate Variation 1" }),
+    ).toBeTruthy();
     await waitFor(() =>
       expect(events.map((e) => Object.keys(e)[0])).toEqual([
         "job_started",
@@ -410,7 +408,7 @@ describe("Studio page", () => {
     );
   });
 
-  it("shows a spin (an animated WebP) as an image and an older MP4 spin as a video, each downloaded in its format", async () => {
+  it("shows a spin (an animated WebP) as an image and an older MP4 spin as a video, with Download video only for its MP4", async () => {
     const result = (index: number, uri: string) => ({
       index,
       status: "ready",
@@ -418,8 +416,9 @@ describe("Studio page", () => {
       uri,
       url: `/api/media?uri=${encodeURIComponent(uri)}`,
     });
+    const mp4 = "/api/media?uri=video-0.mp4";
     const results = [
-      result(0, "gs://b/runs/a/outputs/video-0.webp"),
+      { ...result(0, "gs://b/runs/a/outputs/video-0.webp"), video_url: mp4 },
       result(1, "gs://b/runs/b/outputs/video-0.mp4"),
     ];
     const state = { capability: "spin", results: { spin: results } };
@@ -433,19 +432,20 @@ describe("Studio page", () => {
     const [spin, older] = screen.getAllByRole("article");
     expect(spin.querySelector("video")).toBeNull();
     expect(spin.querySelector("img")?.getAttribute("src")).toBe(results[0].url);
+    expect(within(spin).queryByLabelText("Download Variation 1")).toBeNull();
+    // Its MP4 (the video model's clip), only on a result that has one.
     expect(
       within(spin)
-        .getByLabelText("Download Variation 1")
-        .getAttribute("download"),
-    ).toBe("variation-1.webp");
+        .getByRole("link", { name: "Download video" })
+        .getAttribute("href"),
+    ).toBe(mp4);
+    expect(within(older).queryByRole("link", { name: "Download video" })).toBe(
+      null,
+    );
     expect(older.querySelector("video")?.getAttribute("src")).toBe(
       results[1].url,
     );
-    expect(
-      within(older)
-        .getByLabelText("Download Variation 2")
-        .getAttribute("download"),
-    ).toBe("variation-2.mp4");
+    expect(older.querySelector("video")).not.toBeNull();
   });
 
   it("takes the Photo Try-On inputs on Video Try-On, with no image start, the reference model by upload only", async () => {
@@ -549,6 +549,34 @@ describe("Studio page", () => {
         { settings: { complete_look: false }, page: "tryon" },
         { settings: { upscale_crops: true }, page: "tryon" },
       ]),
+    );
+  });
+
+  it("shows each page's check switches in Run options, off by default", async () => {
+    await renderStudio();
+    const events = recordActions();
+    const shown = () =>
+      ["Check images", "Check videos"].map(
+        (name) =>
+          screen
+            .queryByRole("switch", { name })
+            ?.getAttribute("aria-checked") ?? null,
+      );
+    expect(shown()).toEqual(["false", null]);
+    fireEvent.click(tab("Video Try-On"));
+    await waitFor(() => expect(shown()).toEqual(["false", "false"]));
+    fireEvent.click(tab("360° Spin"));
+    await waitFor(() => expect(shown()).toEqual([null, "false"]));
+    expect(screen.getByText(/Off: videos are not checked/)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("switch", { name: "Check videos" }));
+
+    expect(shown()).toEqual([null, "true"]);
+    await waitFor(() =>
+      expect(events).toContainEqual({
+        settings: { check_videos: true },
+        page: "tryon",
+      }),
     );
   });
 });

@@ -93,7 +93,7 @@ class Page:
     memory_truncated: bool = False
     """Whether mapping stopped early because the process neared its memory
     limit. When set, the fetcher also clears `next_page_token` so paging
-    stops; the flag lets callers report the run as truncated."""
+    stops; the flag lets callers report the investigation as truncated."""
 
     revisions: dict[str, str] = dataclasses.field(default_factory=dict)
     """Deployment revision per case, keyed by ``eval_case_id`` (session ID for

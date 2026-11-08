@@ -62,9 +62,11 @@ logger = logging.getLogger(__name__)
 class InMemoryInsightReader:
     """One agent's insights, read out of the in-process `InMemoryStore`."""
 
-    def __init__(self, store: InMemoryStore, *, agent_name: str) -> None:
+    def __init__(
+        self, store: InMemoryStore, *, observed_agent_key: str
+    ) -> None:
         self._store = store
-        self._agent_name = agent_name
+        self._observed_agent_key = observed_agent_key
 
     # --- The list, and the header above it ----------------------------------- #
 
@@ -72,7 +74,7 @@ class InMemoryInsightReader:
         self,
         *,
         statuses: Sequence[InsightStatus] | None = None,
-        run_id: str | None = None,
+        investigation_id: str | None = None,
         limit: int,
         offset: int,
         window_start: str | None = None,
@@ -85,7 +87,7 @@ class InMemoryInsightReader:
 
         Args:
             statuses: Optional sequence of insight statuses to filter by.
-            run_id: Optional investigation run ID to filter occurrences by.
+            investigation_id: Optional investigation ID to filter occurrences by.
             limit: Maximum number of insight views to return.
             offset: Number of matching insights to skip.
             window_start: Optional ISO timestamp lower bound for last sighting.
@@ -98,7 +100,12 @@ class InMemoryInsightReader:
             A tuple of (paginated list of InsightView records, total match count).
         """
         matching = self._list_matching_insights(
-            statuses, run_id, window_start, window_end, has_root_cause, day=day
+            statuses,
+            investigation_id,
+            window_start,
+            window_end,
+            has_root_cause,
+            day=day,
         )
         views = [self._build_insight_view(insight) for insight in matching]
         views.sort(key=_ORDER_KEYS[order_by])
@@ -108,7 +115,7 @@ class InMemoryInsightReader:
         self,
         *,
         statuses: Sequence[InsightStatus] | None = None,
-        run_id: str | None = None,
+        investigation_id: str | None = None,
         window_start: str | None = None,
         window_end: str | None = None,
         has_root_cause: bool | None = None,
@@ -121,7 +128,7 @@ class InMemoryInsightReader:
 
         Args:
             statuses: Optional sequence of insight statuses to filter by.
-            run_id: Optional investigation run ID to filter occurrences by.
+            investigation_id: Optional investigation ID to filter occurrences by.
             window_start: Optional ISO timestamp lower bound for last sighting.
             window_end: Optional ISO timestamp upper bound for last sighting.
             has_root_cause: Optional boolean filter for whether diagnoses exist.
@@ -132,7 +139,12 @@ class InMemoryInsightReader:
         """
         conversations: set[str] = set()
         for insight in self._list_matching_insights(
-            statuses, run_id, window_start, window_end, has_root_cause, day=day
+            statuses,
+            investigation_id,
+            window_start,
+            window_end,
+            has_root_cause,
+            day=day,
         ):
             for occurrence in self._list_owned_occurrences(insight.insight_id):
                 conversations.update(occurrence.trajectory_ids)
@@ -161,7 +173,7 @@ class InMemoryInsightReader:
         self,
         *,
         insight_id: str,
-        run_id: str | None = None,
+        investigation_id: str | None = None,
         limit: int,
         offset: int,
     ) -> tuple[InsightView, list[InsightOccurrence], int] | None:
@@ -169,7 +181,7 @@ class InMemoryInsightReader:
 
         Args:
             insight_id: Unique identifier of the insight.
-            run_id: Optional run ID to filter occurrences by.
+            investigation_id: Optional investigation ID to filter occurrences by.
             limit: Maximum number of occurrences to return.
             offset: Number of occurrences to skip.
 
@@ -181,7 +193,10 @@ class InMemoryInsightReader:
         if view is None:
             return None
         occurrences, total = self.list_occurrences(
-            insight_id=insight_id, run_id=run_id, limit=limit, offset=offset
+            insight_id=insight_id,
+            investigation_id=investigation_id,
+            limit=limit,
+            offset=offset,
         )
         return view, occurrences, total
 
@@ -189,7 +204,7 @@ class InMemoryInsightReader:
         self,
         *,
         insight_id: str | None = None,
-        run_id: str | None = None,
+        investigation_id: str | None = None,
         occurrence_id: str | None = None,
         limit: int,
         offset: int,
@@ -198,7 +213,7 @@ class InMemoryInsightReader:
 
         Args:
             insight_id: Optional insight ID to filter occurrences by.
-            run_id: Optional investigation run ID to filter occurrences by.
+            investigation_id: Optional investigation ID to filter occurrences by.
             occurrence_id: Optional occurrence ID to fetch a specific occurrence.
             limit: Maximum number of occurrences to return.
             offset: Number of matching occurrences to skip.
@@ -215,12 +230,15 @@ class InMemoryInsightReader:
             )
         matching = [
             occurrence
-            for occurrence in self._store.occurrences
-            if occurrence.agent_name == self._agent_name
+            for occurrence in self._store.insight_occurrences
+            if occurrence.observed_agent_key == self._observed_agent_key
             # Exclude unconfirmed or rejected candidate occurrences that lack an insight ID.
             and occurrence.insight_id is not None
             and (insight_id is None or occurrence.insight_id == insight_id)
-            and (run_id is None or occurrence.run_id == run_id)
+            and (
+                investigation_id is None
+                or occurrence.investigation_id == investigation_id
+            )
             and (
                 occurrence_id is None
                 or occurrence.occurrence_id == occurrence_id
@@ -267,26 +285,26 @@ class InMemoryInsightReader:
     # --- Shared rules ---------------------------------------------------------- #
 
     def _is_mine(self, insight: Insight) -> bool:
-        return insight.agent_name == self._agent_name
+        return insight.observed_agent_key == self._observed_agent_key
 
     def _list_matching_insights(
         self,
         statuses: Sequence[InsightStatus] | None,
-        run_id: str | None,
+        investigation_id: str | None,
         window_start: str | None,
         window_end: str | None,
         has_root_cause: bool | None,
         *,
         day: str | None = None,
     ) -> list[Insight]:
-        """Filters insights by lifecycle status, run, sighting window, and diagnoses.
+        """Filters insights by lifecycle status, investigation, sighting window, and diagnoses.
 
         Dismissed and merged insights are excluded so user actions immediately
         remove rows from listing views.
 
         Args:
             statuses: Optional sequence of insight statuses to filter by.
-            run_id: Optional run ID to filter occurrences by.
+            investigation_id: Optional investigation ID to filter occurrences by.
             window_start: Optional ISO timestamp lower bound for last sighting.
             window_end: Optional ISO timestamp upper bound for last sighting.
             has_root_cause: Optional boolean filter for diagnosis presence.
@@ -318,8 +336,8 @@ class InMemoryInsightReader:
                 continue
             if end is not None and insight.updated_at > end:
                 continue
-            if run_id is not None and not any(
-                o.run_id == run_id
+            if investigation_id is not None and not any(
+                o.investigation_id == investigation_id
                 for o in self._list_owned_occurrences(insight.insight_id)
             ):
                 continue
@@ -346,8 +364,8 @@ class InMemoryInsightReader:
         """
         return [
             occurrence
-            for occurrence in self._store.occurrences
-            if occurrence.agent_name == self._agent_name
+            for occurrence in self._store.insight_occurrences
+            if occurrence.observed_agent_key == self._observed_agent_key
             and occurrence.insight_id == insight_id
         ]
 
@@ -358,7 +376,8 @@ class InMemoryInsightReader:
             insight: Base insight record.
 
         Returns:
-            `InsightView` combining insight attributes with occurrence and trace counts.
+            `InsightView` combining insight attributes with occurrence and
+            trajectory counts.
         """
         owned = self._list_owned_occurrences(insight.insight_id)
         newest = max(
@@ -367,9 +386,9 @@ class InMemoryInsightReader:
         return InsightView(
             **insight.model_dump(),
             occurrence_count=len(owned),
-            trace_count=sum(o.trace_count for o in owned),
-            last_run_id=newest.run_id if newest else None,
-            last_run_at=newest.created_at if newest else None,
+            trajectory_count=sum(o.trajectory_count for o in owned),
+            last_investigation_id=newest.investigation_id if newest else None,
+            last_investigation_at=newest.created_at if newest else None,
             has_root_cause=bool(self.list_root_causes(insight.insight_id)),
         )
 
@@ -425,7 +444,7 @@ def _compute_impact_key(view: InsightView) -> tuple[object, ...]:
     Returns:
         Tuple representing the sort key.
     """
-    return (-view.trace_count, view.insight_id)
+    return (-view.trajectory_count, view.insight_id)
 
 
 _ORDER_KEYS = {

@@ -27,11 +27,19 @@ from typing import Literal, cast, get_args
 
 from genmedia4commerce.core.errors import ConfigError
 
-__all__ = ["Mode", "Settings", "export_genai_env", "get_settings"]
+__all__ = [
+    "LookConflict",
+    "Mode",
+    "Settings",
+    "export_genai_env",
+    "get_settings",
+]
 
 _REPO_ROOT = Path(__file__).parents[2]
 Mode = Literal["inline", "gcs"]  # where inputs / results are kept
 RunMode = Literal["parallel", "sequential"]
+# A look item in an uploaded product's slot: keep the upload or the look's.
+LookConflict = Literal["upload", "look"]
 
 
 @dataclass(frozen=True)
@@ -56,9 +64,10 @@ class Settings:
     videos_per_image: int = 2  # video try-on: videos of each animated image
     spin_closeups: bool = True  # close-up references of small details
     tryon_closeups: bool = True  # detail close-ups in the try-on prompt
-    use_cache: bool = True  # photo try-on preprocessing cache (core.cache)
+    use_cache: bool = True  # try-on and spin preprocessing cache (core.cache)
     upscale_face: bool = False  # upscale the try-on prompt's face crop
     tryon_fix: bool = False  # one fix pass for a judge-rejected try-on image
+    look_conflict: LookConflict = "upload"  # see LookConflict
     input_mode: Mode = "inline"
     output_mode: Mode = "inline"
     debug_dir: Path | None = None  # local folder for run traces (core.trace)
@@ -76,10 +85,7 @@ class Settings:
     @property
     def media_bucket(self) -> str:
         """Return the bucket for user uploads and generated media."""
-        return (
-            self._media_bucket
-            or f"{self.project_id}-genmedia-for-commerce-media-payloads"
-        )
+        return self._media_bucket or f"{self.project_id}-gfc-media"
 
 
 def _env(name: str, default: str = "") -> str:
@@ -156,6 +162,12 @@ def get_settings() -> Settings:
         use_cache=_env_bool("GENMEDIA_USE_CACHE", True),
         upscale_face=_env_bool("GENMEDIA_UPSCALE_FACE", False),
         tryon_fix=_env_bool("GENMEDIA_TRYON_FIX", False),
+        look_conflict=cast(
+            LookConflict,
+            _env_choice(
+                "GENMEDIA_LOOK_CONFLICT", "upload", get_args(LookConflict)
+            ),
+        ),
         input_mode=cast(
             Mode, _env_choice("GENMEDIA_INPUT", "inline", get_args(Mode))
         ),

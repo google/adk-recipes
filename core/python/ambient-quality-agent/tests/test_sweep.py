@@ -211,7 +211,7 @@ def test_sessions_are_counted_once_not_once_per_evaluation(
         ctx, [_Recorder("one"), _Recorder("two")], node_name="sweep", budget=100
     )
 
-    assert ctx.state["counters"]["traces_evaluated"] == 3
+    assert ctx.state["counters"]["trajectories_evaluated"] == 3
 
 
 def test_one_failing_evaluation_does_not_discard_the_others_work(
@@ -241,7 +241,10 @@ def test_an_empty_window_skips_without_finishing_anything(
 
     assert "Skipped" in lines[0]
     assert not only.finished
-    assert ctx.state["counters"]["traces_ingested"] == fetcher.counts.ingested
+    assert (
+        ctx.state["counters"]["trajectories_ingested"]
+        == fetcher.counts.ingested
+    )
 
 
 # --- what an empty window says ------------------------------------------- #
@@ -347,7 +350,7 @@ def test_the_empty_window_line_is_the_first_one(
 def test_a_standalone_window_holding_nothing_fails_and_names_the_agents_present(
     ctx: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Locally the run was started by hand to see results, so an empty window is
+    """Locally the investigation was started by hand to see results, so an empty window is
     a setting to fix. The names the telemetry does record are the fix."""
     fetcher = _wire(monkeypatch, _pages(0), scanned=0)
     fetcher.by_agent = {"it_support_agent": 12, "other_agent": 3}
@@ -489,7 +492,10 @@ def test_ingestion_is_recorded_once_however_many_evaluations_read_it(
         budget=100,
     )
 
-    assert ctx.state["counters"]["traces_ingested"] == fetcher.counts.ingested
+    assert (
+        ctx.state["counters"]["trajectories_ingested"]
+        == fetcher.counts.ingested
+    )
 
 
 def _analyzer(
@@ -520,7 +526,7 @@ def test_a_session_several_analyzers_judged_counts_once() -> None:
     """One session is one number, collapsed the way `compute_metric_status` already
     ranks the metrics within one eval case.
 
-    The dashboard reads `traces_eval_passed` and `traces_eval_failed`, so
+    The dashboard reads `trajectories_eval_passed` and `trajectories_eval_failed`, so
     letting each analyzer add its own tally inflated both the moment anyone
     published a metric beside the reviewer.
     """
@@ -578,7 +584,7 @@ def test_analyzers_key_the_same_case_the_same_way() -> None:
     page = make_page(cases)
 
     reviewer = review.ReviewEvaluation(
-        lambda _prompt: "[]", InvestigationGoal()
+        lambda _case, _revisions, **_scope: [], InvestigationGoal()
     )
     metric = CodeMetric(
         name="always_passes",

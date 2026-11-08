@@ -19,14 +19,14 @@ import type { InsightView } from "./aqua-api";
  * The tab bar and insights page header already show the observed root agent, so
  * repeating it on every insight of a single-agent deployment adds noise.
  *
- * @param insight - The insight, or its `agent_id` and `agent_name` fields.
+ * @param insight - The insight, or its `agent_id` and `observed_agent_key` fields.
  * @returns The sub-agent name, or `undefined` when the insight belongs to the
  *   observed root agent or is unattributed.
  */
 export function resolveSubAgent(
-  insight: Pick<InsightView, "agent_id" | "agent_name">,
+  insight: Pick<InsightView, "agent_id" | "observed_agent_key">,
 ): string | undefined {
   const agentId = insight.agent_id;
-  if (!agentId || agentId === insight.agent_name) return undefined;
+  if (!agentId || agentId === insight.observed_agent_key) return undefined;
   return agentId;
 }

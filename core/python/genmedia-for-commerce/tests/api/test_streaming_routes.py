@@ -80,10 +80,12 @@ def test_tryon_builds_request_from_form(client, run_tryon):
             "generate_back": "false",
             "complete_look": "false",
             "upscale_crops": "true",
+            "look_conflict": "look",
             "num_variations": "2",
             "mode": "sequential",
             "aspect_ratio": "1:1",
             "image_size": "4K",
+            "check_images": "false",
         },
     )
 
@@ -95,6 +97,8 @@ def test_tryon_builds_request_from_form(client, run_tryon):
     assert req.generate_back is False
     assert req.complete_look is False
     assert req.upscale_crops is True
+    assert req.look_conflict == "look"
+    assert req.check_images is False
     assert (req.policy.mode, req.policy.num_variations) == ("sequential", 2)
     assert req.image == ImageParams(aspect_ratio="1:1", image_size="4K")
 
@@ -109,6 +113,8 @@ def test_tryon_defaults(client, run_tryon):
     assert req.generate_back is True
     assert req.complete_look is True
     assert req.upscale_crops is False
+    assert req.look_conflict is None  # the deployment's
+    assert req.check_images is True  # the checks stay on outside the Studio
     assert req.reference_model_image is None
     assert req.image == ImageParams()
 
@@ -180,6 +186,7 @@ def test_video_tryon_builds_request(client, run_video):
             "prompt": "walks, then the bag",
             "complete_look": "false",
             "upscale_crops": "true",
+            "look_conflict": "upload",
             "num_variations": "1",
             "aspect_ratio": "16:9",
             "resolution": "1080p",
@@ -196,6 +203,7 @@ def test_video_tryon_builds_request(client, run_video):
     assert (req.motion, req.prompt) == ("custom", "walks, then the bag")
     assert req.complete_look is False
     assert req.upscale_crops is True
+    assert req.look_conflict == "upload"
     assert req.video == VideoParams(aspect_ratio="16:9", resolution="1080p")
     assert req.videos_per_image == 1  # an image: num_variations videos
 
@@ -228,6 +236,7 @@ def test_video_tryon_defaults(client, run_video):
     assert req.person_image is None
     assert (req.motion, req.prompt) == ("auto", None)
     assert req.video == VideoParams(aspect_ratio="9:16")
+    assert (req.check_images, req.check_videos) == (True, True)
 
 
 def test_video_tryon_motion_defaults_to_auto_with_a_back_view(
@@ -365,6 +374,7 @@ def test_spin_builds_request(client, run_spin):
             "num_variations": "2",
             "mode": "sequential",
             "aspect_ratio": "9:16",
+            "check_videos": "false",
         },
     )
 
@@ -377,6 +387,7 @@ def test_spin_builds_request(client, run_spin):
     assert len(req.product_images) == 3
     assert (req.policy.mode, req.policy.num_variations) == ("sequential", 2)
     assert req.video == VideoParams(aspect_ratio="9:16", resolution="720p")
+    assert req.check_videos is False
 
 
 def test_spin_rejects_bad_resolution(client, run_spin):

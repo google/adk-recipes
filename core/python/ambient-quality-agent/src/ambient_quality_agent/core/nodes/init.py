@@ -19,7 +19,7 @@ boundary (`derive_window_and_budget`, seeded into state before the graph runs).
 This node renders a progress message from resolved inputs and sets
 `quality_analysis_mode` as the event route to select the workflow producer branch.
 
-It also erases the trajectory rows a previous attempt of this run left behind.
+It also erases the trajectory rows a previous attempt of this investigation left behind.
 That has to happen here rather than in the node that writes them, because both
 producers write and this node is the one that runs first and once.
 """
@@ -53,7 +53,7 @@ def init_node(ctx: Context) -> Event:
     """
     state = ctx.state
     mode = state.get("quality_analysis_mode", DEFAULT_QUALITY_ANALYSIS_MODE)
-    _delete_run_trajectories(ctx)
+    _delete_investigation_trajectories(ctx)
 
     text = (
         f"## Ambient Quality Agent\n\n"
@@ -88,8 +88,8 @@ def _render_metric_lines(state: ADKStateLike, mode: str) -> str:
     )
 
 
-def _delete_run_trajectories(ctx: Context) -> None:
-    """Erase any trajectory rows a prior attempt of this run wrote.
+def _delete_investigation_trajectories(ctx: Context) -> None:
+    """Erase any trajectory rows a prior attempt of this investigation wrote.
 
     Enforces idempotent retries by clearing partial trajectory records.
     Catches exceptions so BigQuery errors during cleanup do not abort initialization.
@@ -98,10 +98,12 @@ def _delete_run_trajectories(ctx: Context) -> None:
         ctx: Workflow execution context.
     """
     try:
-        _common.trajectory_recorder_factory(ctx).delete_run_trajectories()
+        _common.trajectory_recorder_factory(
+            ctx
+        ).delete_investigation_trajectories()
     except Exception as exc:
         logger.warning(
             "init: could not erase run %s's earlier trajectory rows: %s",
-            ctx.state.get("run_id", ""),
+            ctx.state.get("investigation_id", ""),
             exc,
         )

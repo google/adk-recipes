@@ -32,20 +32,22 @@ _RATIOS = {
     "spin": ("auto", *gen.VIDEO_ASPECT_RATIOS),
 }
 _SWITCH = {"on": True, "off": False}
+#: The try-on options and the checks, in ``update_settings``' order.
+_SWITCHES = (*rules.TRYON_OPTIONS, *rules.CHECKS)
 
 
 def _settings(cap: str) -> dict[str, Any]:
     return rules.settings_of(turn.current().st, cap)
 
 
-def _options(complete_look: str, upscale_crops: str) -> dict[str, Any]:
-    """The try-on options given as "on" or "off", set on the Photo Try-On
-    page; the others are left unchanged."""
-    values = {
-        "complete_look": _SWITCH.get(complete_look),
-        "upscale_crops": _SWITCH.get(upscale_crops),
+def _options(*values: str) -> dict[str, Any]:
+    """The switches (``_SWITCHES``) given as "on" or "off", set on the
+    Photo Try-On page; the others are left unchanged."""
+    changed = {
+        k: _SWITCH[v]
+        for k, v in zip(_SWITCHES, values, strict=True)
+        if v in _SWITCH
     }
-    changed = {k: v for k, v in values.items() if v is not None}
     _settings("tryon").update(changed)
     return changed
 
@@ -59,6 +61,8 @@ def update_settings(
     num_variations: int = 0,
     complete_look: str = "",
     upscale_crops: str = "",
+    check_images: str = "",
+    check_videos: str = "",
 ) -> dict[str, Any]:
     """Fill in settings. Empty arguments stay unchanged.
 
@@ -77,6 +81,8 @@ def update_settings(
             person in what only the reference model wears (on by default).
         upscale_crops: "on" or "off": sharpen the shoes cut from the
             reference model photo first, slower (off by default).
+        check_images: "on" or "off": judge try-on images (off by default).
+        check_videos: "on" or "off": check videos and spins (off by default).
     """
     cap = str(turn.current().st.get("capability") or "tryon")
     changed: dict[str, Any] = {}
@@ -97,11 +103,12 @@ def update_settings(
         _settings(cap)["aspect_ratio"] = changed["aspect_ratio"] = aspect_ratio
     # Only a new count is a change (``tool_order.COST_SETTINGS``: the
     # generation needs confirming again).
-    count = str(num_variations)
+    count, default = str(num_variations), rules.variations(cap)
     if num_variations in (1, 2, 3) and (
-        str(_settings(cap).get("num_variations")) != count
+        str(_settings(cap).get("num_variations", default)) != count
     ):
         _settings(cap)["num_variations"] = changed["num_variations"] = count
-    changed.update(_options(complete_look, upscale_crops))
+    switches = (complete_look, upscale_crops, check_images, check_videos)
+    changed.update(_options(*switches))
     turn.patch("settings", changed)
     return {"settings": changed}

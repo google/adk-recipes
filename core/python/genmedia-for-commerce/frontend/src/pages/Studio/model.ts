@@ -1,18 +1,16 @@
-/**
- * Copyright 2026 Google LLC
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     https://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2026 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
 // The studio as the page renders it, built from the server's state (studio/patches.py),
 // as the MCP App panel does (mcp/static/studio.html): known keys and plain values only.
@@ -41,7 +39,7 @@ export type StudioView = {
   spin: StudioItem[];
   settings: Record<StudioCapability, Settings>;
   results: Record<StudioCapability, StudioResult[]>;
-  /** The try-on images the last full Video Try-On animated, in display order ("Image 1", "Image 2"...). */
+  /** The try-on images of the last full Video Try-On, in display order ("Image 1", "Image 2"...). */
   images: StudioResult[];
   job: StudioJob | null;
 };
@@ -64,16 +62,18 @@ const DEFAULTS: Record<StudioCapability, Settings> = {
     style_guidelines: "",
     aspect_ratio: "3:4",
     image_size: "2K",
-    num_variations: "1",
+    num_variations: "3",
     complete_look: true,
     upscale_crops: false,
+    check_images: false,
+    check_videos: false,
   },
   video_tryon: {
     motion: "auto",
     prompt: "",
     aspect_ratio: "9:16",
     resolution: "720p",
-    num_variations: "1",
+    num_variations: "3",
   },
   spin: { aspect_ratio: "auto", resolution: "720p", num_variations: "1" },
 };
@@ -90,13 +90,13 @@ const RESOLUTION: SelectSetting = {
   options: ["720p", "1080p"],
 };
 
-/** What Variations counts on the current page: Video Try-On makes try-on images (each animated into the
- * deployment's videos per image, 2 by default). */
+/** What Variations counts on the current page: Video Try-On makes try-on images and animates one (the
+ * best, or with image checks off the first ready) into the deployment's videos per image, 2 by default. */
 export function variationsOf(v: StudioView): { label: string; hint: string } {
   return v.capability === "video_tryon"
     ? {
         label: "Try-on images",
-        hint: "Try-on images to make. Each one animated gets 2 videos (unless the deployment sets another number).",
+        hint: "Try-on images to make. The best one (with image checks off, the first one ready) is animated into 2 videos (unless the deployment sets another number).",
       }
     : { label: "Variations", hint: "" };
 }
@@ -128,6 +128,24 @@ export const RUN_OPTIONS: Record<StudioCapability, SelectSetting[]> = {
   ],
 };
 
+type CheckSwitch = { key: string; label: string; hint: string };
+const CHECK_IMAGES: CheckSwitch = {
+  key: "check_images",
+  label: "Check images",
+  hint: "Judge each try-on image with Gemini (slower). Off: images are not checked.",
+};
+const CHECK_VIDEOS: CheckSwitch = {
+  key: "check_videos",
+  label: "Check videos",
+  hint: "Judge each video with Gemini (slower). Off: videos are not checked.",
+};
+/** The check switches each page shows: one setting each, kept with the Photo Try-On settings (studio/patches.py CHECKS). */
+export const CHECKS: Record<StudioCapability, CheckSwitch[]> = {
+  tryon: [CHECK_IMAGES],
+  video_tryon: [CHECK_IMAGES, CHECK_VIDEOS],
+  spin: [CHECK_VIDEOS],
+};
+
 export function blank(): StudioView {
   return {
     capability: "tryon",
@@ -157,6 +175,7 @@ const RESULT_KEYS = [
   "note",
   "source",
   "passed",
+  "video_url",
 ] as const;
 
 const isObj = (x: unknown): x is Record<string, unknown> =>

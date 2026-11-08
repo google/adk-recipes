@@ -22,7 +22,9 @@ see the modes. Inline output passes the events through (media as base64);
 ``gcs`` uploads each variation's image or video to
 ``outputs/<stage-view-index>.<ext>`` and the event carries ``media_uri`` and
 ``media_url`` (``GET /api/media``) instead of the bytes. A failed upload
-keeps that variation inline.
+keeps that variation inline. The video model's MP4 of an animated image
+(``types.AnimatedImage``, a spin) goes next to it unchanged, under the same
+name (``video_uri``, ``video_url``); none when its upload fails.
 
 A workflow's ``RecordEvent`` (what its results were made from) is kept, in
 output mode ``gcs`` only, as the run's ``manifest.json``: its payload plus
@@ -61,6 +63,7 @@ from genmedia4commerce.core.events import (
 from genmedia4commerce.core.media import EXTENSIONS, sniff_mime
 from genmedia4commerce.core.retry import ContextPool
 from genmedia4commerce.core.settings import Mode, get_settings
+from genmedia4commerce.core.types import AnimatedImage
 
 __all__ = [
     "MANIFEST",
@@ -263,8 +266,21 @@ async def _to_gcs(event: VariationEvent, run: RunRef) -> VariationEvent:
         logger.warning(f"upload of output {name} failed; inline: {exc}")
         extra = {**event.extra, "output_fallback": "inline"}
         return dataclasses.replace(event, extra=extra)
+    video = None
+    if isinstance(event.media, AnimatedImage) and event.media.video:
+        try:
+            video = await asyncio.to_thread(
+                _upload, run, "outputs", name, event.media.video
+            )
+        except Exception as exc:
+            logger.warning(f"upload of the video {name} failed: {exc}")
     return dataclasses.replace(
-        event, media=None, media_uri=uri, media_url=media_url(uri)
+        event,
+        media=None,
+        media_uri=uri,
+        media_url=media_url(uri),
+        video_uri=video,
+        video_url=media_url(video) if video else None,
     )
 
 

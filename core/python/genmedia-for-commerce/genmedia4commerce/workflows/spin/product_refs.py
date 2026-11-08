@@ -35,7 +35,7 @@ import cv2
 import numpy as np
 from PIL import Image, ImageOps
 
-from genmedia4commerce.core import gen, media
+from genmedia4commerce.core import degraded, gen, media
 from genmedia4commerce.core.models import get_models
 from genmedia4commerce.core.retry import ContextPool
 from genmedia4commerce.workflows.spin import shoe_split as split
@@ -168,7 +168,8 @@ def _mask(
 
     A photo on a model is cut by ``name``. A busy background, or a cut by
     name that fails or finds almost nothing, gives an empty mask: the photo
-    is then used as it is (no segmentation model).
+    is then used as it is (no segmentation model; for a cut by name, a
+    fallback: ``degraded.report``).
     """
     if not name:
         plain = media.content_mask(img, plain=_PACKSHOT_PLAIN)
@@ -182,6 +183,7 @@ def _mask(
             logger.info(f"cut by name found no {name!r}; photo used as is")
         except Exception as exc:
             logger.warning(f"cut by name failed ({exc}); photo used as is")
+        degraded.report("cut by name")
     return np.zeros((img.height, img.width), bool), None
 
 

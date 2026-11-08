@@ -31,6 +31,9 @@ is one (``WEARER_NOTE``): any body defect, a face that is not the
 wearer's among them, rejects and the description starts with
 ``BODY_NOTE``. Each body defect comes with a short name of the body part
 or feature it concerns (``body_parts``, aligned one-to-one).
+
+On a video frame the judge also says which side it shows and which
+products it shows: one it does not show has no defect (``_unseen_dropped``).
 """
 
 import logging
@@ -70,8 +73,8 @@ THINKING = "MEDIUM"
 # A normal answer takes 10-40 s; a call that stalls past it is asked again
 # once by ``core.gen``.
 DEADLINE_S = 90
-# A video frame takes 8-18 s: a stalled call and its retry fit in the
-# video check's cap (``video_tryon.checks.JUDGE_CAP_S``).
+# A video frame takes 8-18 s; the video check stops waiting earlier, at
+# its cap (``video_tryon.checks.JUDGE_CAP_S``).
 VIDEO_DEADLINE_S = 50
 MAX_OUTPUT_TOKENS = 8192  # a verdict uses under 1k tokens with thinking
 
@@ -131,6 +134,28 @@ WEARER_SCHEMA = {
     },
     "required": [*OUTFIT_SCHEMA["required"], "body_defects", "body_parts"],
 }
+VIEWS = ("front", "back", "other")
+
+
+def _plus(schema: dict, **fields: Any) -> dict:
+    """``schema`` with more required ``fields`` (one it has is replaced)."""
+    return {
+        **schema,
+        "properties": {**schema["properties"], **fields},
+        "required": [*dict.fromkeys([*schema["required"], *fields])],
+    }
+
+
+# On a video frame: the side it shows and whether it shows each product.
+_SEEN = _plus(
+    OUTFIT_SCHEMA["properties"]["products"]["items"],
+    visible={"type": "BOOLEAN"},
+)
+VIDEO_SCHEMA = _plus(
+    OUTFIT_SCHEMA,
+    view={"type": "STRING", "enum": list(VIEWS)},
+    products={"type": "ARRAY", "items": _SEEN},
+)
 BODY_NOTE = "Body defect:"
 # Defect categories that lower the score but never reject on their own.
 MINOR = frozenset({"fabric_texture"})
@@ -144,11 +169,12 @@ def _is_minor(defect: dict) -> bool:
 
 @dataclass(frozen=True)
 class OutfitProduct:
-    """One product to judge: its photo, category and visible part."""
+    """One product to judge: its photo, category, visible part, back photo."""
 
     reference: bytes
     product_filter: str | None = None
     visibility: str | None = None
+    back: bytes | None = None
 
 
 def _label(k: int, product: OutfitProduct) -> str:
@@ -157,6 +183,8 @@ def _label(k: int, product: OutfitProduct) -> str:
         product.product_filter, product.product_filter
     )
     label = f"PRODUCT_{k}" + (f" ({focus})" if focus else "")
+    if product.back is not None:
+        label += ", front photo"
     if product.visibility:
         label += (
             " - worn under other garments by design: only "
@@ -179,6 +207,8 @@ def _parts(
     parts: list = []
     for k, product in enumerate(products, start=1):
         parts += [_label(k, product), media.to_png(product.reference)]
+        if product.back is not None:
+            parts += [f"PRODUCT_{k}, back photo:", media.to_png(product.back)]
     parts += ["TARGET (the generated image):", media.to_png(target)]
     if video_frame:
         parts.append(VIDEO_FRAME_NOTE)
@@ -219,7 +249,8 @@ def _body(answer: dict) -> tuple[list[str], list[str]]:
 def _details(answer: dict) -> dict:
     """``{"products": [{index, name, defects, findings, minor}],
     "body_defects": [...], "body_parts": [...]}`` from the answer;
-    ``minor``: the findings of its ``MINOR`` defects."""
+    ``minor``: the findings of its ``MINOR`` defects. A video-frame answer
+    adds ``view`` and each product's ``visible``."""
     body, parts = _body(answer)
     products = []
     for n, entry in enumerate(answer.get("products") or [], start=1):
@@ -231,9 +262,11 @@ def _details(answer: dict) -> dict:
                 "defects": defects,
                 "findings": [_finding(d) for d in defects],
                 "minor": [_finding(d) for d in defects if _is_minor(d)],
+                **{k: entry[k] for k in ("visible",) if k in entry},
             }
         )
-    return {"products": products, "body_defects": body, "body_parts": parts}
+    found = {"products": products, "body_defects": body, "body_parts": parts}
+    return {**found, **{k: answer[k] for k in ("view",) if k in answer}}
 
 
 def _settle(answer: dict, details: dict) -> tuple[bool, int, str]:
@@ -259,6 +292,25 @@ def _settle(answer: dict, details: dict) -> tuple[bool, int, str]:
     elif not publish and only_minor:
         publish, description = True, f"{description} {MINOR_NOTE}".strip()
     return publish, count, description
+
+
+def _unseen_dropped(answer: dict) -> dict:
+    """A video-frame answer with its ``view`` (one of ``VIEWS``) and each
+    product's ``visible`` (True unless it says not), without the defects of
+    the products it does not show; a rejection naming only those publishes.
+    """
+    products = [
+        {**e, "visible": e.get("visible") is not False}
+        for e in answer.get("products") or []
+    ]
+    dropped = any(not e["visible"] and e.get("defects") for e in products)
+    for e in products:
+        e["defects"] = e.get("defects") if e["visible"] else []
+    view = answer.get("view") if answer.get("view") in VIEWS else "other"
+    answer = {**answer, "products": products, "view": view}
+    if dropped and not any(e["defects"] for e in products):
+        return {**answer, "publish": True, "imperfection_count": 0}
+    return answer
 
 
 def _ask_twice(parts: list, deadline_s: float, schema: dict) -> dict:
@@ -302,7 +354,8 @@ def evaluate_outfit(
 
     ``video_frame``: ``target`` is a frame of a video (``VIDEO_FRAME_NOTE``:
     blur, small unreadable text and limb poses are not defects;
-    ``VIDEO_DEADLINE_S``).
+    ``VIDEO_DEADLINE_S``; ``VIDEO_SCHEMA``: the details add ``view`` and
+    each product's ``visible``).
     ``wearer``: the person before the try-on; the judge also checks that
     the body and the face are kept (``WEARER_NOTE``, ``WEARER_SCHEMA``): a
     body defect rejects, the description starting with ``BODY_NOTE``.
@@ -324,6 +377,8 @@ def evaluate_outfit(
     parts = _parts(products, target, video_frame, wearer, face)
     deadline_s = VIDEO_DEADLINE_S if video_frame else DEADLINE_S
     schema = OUTFIT_SCHEMA if wearer is None else WEARER_SCHEMA
+    if video_frame and wearer is None:
+        schema = VIDEO_SCHEMA
     try:
         answer = _ask_twice(parts, deadline_s, schema)
     except Exception as exc:
@@ -333,6 +388,8 @@ def evaluate_outfit(
             error=True,
             description=f"eval incomplete: judge failed (transient) — {exc}",
         )
+    if schema is VIDEO_SCHEMA:
+        answer = _unseen_dropped(answer)
     details = _details(answer)
     publish, count, description = _settle(answer, details)
     return Verdict(

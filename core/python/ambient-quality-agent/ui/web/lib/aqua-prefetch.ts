@@ -23,7 +23,7 @@ import {
   INSIGHTS_PAGE_SIZE,
   insightsQuery,
   memoriesQuery,
-  runsQuery,
+  investigationsQuery,
   statsQuery,
 } from "./aqua-api";
 
@@ -58,7 +58,7 @@ export function usePrefetchAqua(): void {
     );
     void queryClient.prefetchQuery(statsQuery(agentKey));
     void queryClient.prefetchQuery(dailyQuery(agentKey));
-    void queryClient.prefetchQuery(runsQuery(agentKey));
+    void queryClient.prefetchQuery(investigationsQuery(agentKey));
     // The config page's three reads. They are the slowest in the app (each is
     // a GCS or agent round trip) and the page is small, so warming them here
     // is the difference between it opening instantly and taking seconds.
