@@ -47,19 +47,23 @@ _LOCK = threading.Lock()
 
 def tracking_headers() -> dict[str, str]:
     """The recipe's identifier on every Gemini call, so its usage can be
-    counted (the same identifier the recipe has always sent). The SDK keeps
-    these headers and puts its own label in front
+    counted. Usage data reads the version from the ``gccl/`` token of
+    ``x-goog-api-client``, which must be one segment followed by a space or
+    the end of the header (``gccl/<version>-genmedia-for-commerce``): since
+    2026-10-30 a second ``/`` after it means the token is not read. The SDK
+    keeps these headers and puts its own label in front
     (``google.genai._api_client.append_library_version_headers``); the keys
     are lowercase, as the SDK merges on them."""
     try:
         version = package_version(PACKAGE_NAME)
     except PackageNotFoundError:
         version = "0.0.0"
-    agent = f"{version}-{PACKAGE_NAME}/{version}-{PACKAGE_NAME}"
+    label = f"{version}-{PACKAGE_NAME}"
+    agent = f"{label}/{label}"
     python = ".".join(str(n) for n in sys.version_info[:3])
     return {
         "user-agent": agent,
-        "x-goog-api-client": f"{agent} gl-python/{python} gccl/{agent}",
+        "x-goog-api-client": f"{agent} gl-python/{python} gccl/{label}",
     }
 
 
