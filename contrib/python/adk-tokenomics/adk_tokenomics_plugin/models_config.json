@@ -1,0 +1,320 @@
+{
+  "models": [
+    {
+      "id": "publishers/google/models/gemini-3.8-flash",
+      "name": "Gemini 3.8 Flash",
+      "provider": "google",
+      "pricing": {
+        "input": 0.75,
+        "cached": 0.075,
+        "output": 3.75,
+        "input_per_million": 0.75,
+        "cached_per_million": 0.075,
+        "output_per_million": 3.75
+      },
+      "thinking_budget": 4096,
+      "max_output_tokens": 8192,
+      "allowed_thinking_budgets": [0, 1024, 4096, -1],
+      "allowed_max_output_tokens": [1024, 2048, 4096, 8192, 16384, 65536]
+    },
+    {
+      "id": "publishers/google/models/gemini-4-argon",
+      "name": "Gemini 4 Argon",
+      "provider": "google",
+      "pricing": {
+        "input": 2.0,
+        "cached": 0.1,
+        "output": 10.0,
+        "input_per_million": 2.0,
+        "cached_per_million": 0.1,
+        "output_per_million": 10.0
+      },
+      "thinking_budget": "medium",
+      "max_output_tokens": 65536,
+      "allowed_thinking_budgets": ["low", "medium", "high"],
+      "allowed_max_output_tokens": [4096, 8192, 16384, 32768, 65536]
+    },
+    {
+      "id": "claude-3-5-haiku",
+      "name": "Claude 3.5 Haiku",
+      "provider": "anthropic",
+      "pricing": {
+        "input": 0.8,
+        "cached": 0.08,
+        "output": 4.0,
+        "input_per_million": 0.8,
+        "cached_per_million": 0.08,
+        "output_per_million": 4.0
+      },
+      "thinking_budget": "off",
+      "max_output_tokens": 8192,
+      "allowed_thinking_budgets": ["off"],
+      "allowed_max_output_tokens": [1024, 2048, 4096, 8192]
+    },
+    {
+      "id": "claude-3-5-sonnet-v2@20241022",
+      "name": "Claude 3.5 Sonnet v2",
+      "provider": "anthropic",
+      "pricing": {
+        "input": 3.0,
+        "cached": 0.3,
+        "output": 15.0,
+        "input_per_million": 3.0,
+        "cached_per_million": 0.3,
+        "output_per_million": 15.0
+      },
+      "thinking_budget": 0,
+      "max_output_tokens": 8192
+    },
+    {
+      "id": "claude-3-7-sonnet",
+      "name": "Claude 3.7 Sonnet",
+      "provider": "anthropic",
+      "pricing": {
+        "input": 3.0,
+        "cached": 0.3,
+        "output": 15.0,
+        "input_per_million": 3.0,
+        "cached_per_million": 0.3,
+        "output_per_million": 15.0
+      },
+      "thinking_budget": 4096,
+      "max_output_tokens": 8192
+    },
+    {
+      "id": "claude-sonnet-5",
+      "name": "Claude Sonnet 5",
+      "provider": "anthropic",
+      "pricing": {
+        "input": 3.0,
+        "cached": 0.3,
+        "output": 15.0,
+        "input_per_million": 3.0,
+        "cached_per_million": 0.3,
+        "output_per_million": 15.0
+      },
+      "thinking_budget": "high",
+      "max_output_tokens": 8192,
+      "allowed_thinking_budgets": ["off", "low", "medium", "high"],
+      "allowed_max_output_tokens": [1024, 2048, 4096, 8192, 16384]
+    },
+    {
+      "id": "claude-opus-4",
+      "name": "Claude Opus 4",
+      "provider": "anthropic",
+      "pricing": {
+        "input": 15.0,
+        "cached": 1.5,
+        "output": 75.0,
+        "input_per_million": 15.0,
+        "cached_per_million": 1.5,
+        "output_per_million": 75.0
+      },
+      "thinking_budget": 4096,
+      "max_output_tokens": 8192
+    },
+    {
+      "id": "gpt-4o-mini",
+      "name": "OpenAI GPT-4o Mini",
+      "provider": "openai",
+      "pricing": {
+        "input": 0.15,
+        "cached": 0.075,
+        "output": 0.6,
+        "input_per_million": 0.15,
+        "cached_per_million": 0.075,
+        "output_per_million": 0.6
+      },
+      "thinking_budget": 0,
+      "max_output_tokens": 4096
+    },
+    {
+      "id": "gpt-4o",
+      "name": "OpenAI GPT-4o",
+      "provider": "openai",
+      "pricing": {
+        "input": 2.5,
+        "cached": 1.25,
+        "output": 10.0,
+        "input_per_million": 2.5,
+        "cached_per_million": 1.25,
+        "output_per_million": 10.0
+      },
+      "thinking_budget": 0,
+      "max_output_tokens": 4096,
+      "allowed_thinking_budgets": [0],
+      "allowed_max_output_tokens": [1024, 2048, 4096]
+    },
+    {
+      "id": "gpt-5",
+      "name": "OpenAI GPT-5",
+      "provider": "openai",
+      "pricing": {
+        "input": 1.25,
+        "cached": 0.125,
+        "output": 10.0,
+        "input_per_million": 1.25,
+        "cached_per_million": 0.125,
+        "output_per_million": 10.0
+      },
+      "thinking_budget": 4096,
+      "max_output_tokens": 8192
+    },
+    {
+      "id": "meta/llama-3.1-8b-instruct",
+      "name": "Llama 3.1 8B Instruct (Open Weight)",
+      "provider": "open_weight",
+      "pricing": {
+        "input": 0.05,
+        "cached": 0.01,
+        "output": 0.08,
+        "input_per_million": 0.05,
+        "cached_per_million": 0.01,
+        "output_per_million": 0.08
+      },
+      "thinking_budget": 0,
+      "max_output_tokens": 8192,
+      "allowed_thinking_budgets": [0],
+      "allowed_max_output_tokens": [1024, 2048, 4096, 8192]
+    },
+    {
+      "id": "meta/llama-3.3-70b-instruct",
+      "name": "Llama 3.3 70B Instruct (Open Weight)",
+      "provider": "open_weight",
+      "pricing": {
+        "input": 0.6,
+        "cached": 0.15,
+        "output": 0.6,
+        "input_per_million": 0.6,
+        "cached_per_million": 0.15,
+        "output_per_million": 0.6
+      },
+      "thinking_budget": 0,
+      "max_output_tokens": 8192,
+      "allowed_thinking_budgets": [0],
+      "allowed_max_output_tokens": [1024, 2048, 4096, 8192]
+    },
+    {
+      "id": "meta/llama-3.1-405b-instruct",
+      "name": "Llama 3.1 405B Instruct (Open Weight)",
+      "provider": "open_weight",
+      "pricing": {
+        "input": 1.8,
+        "cached": 0.45,
+        "output": 1.8,
+        "input_per_million": 1.8,
+        "cached_per_million": 0.45,
+        "output_per_million": 1.8
+      },
+      "thinking_budget": 0,
+      "max_output_tokens": 8192
+    },
+    {
+      "id": "deepseek/deepseek-v3",
+      "name": "DeepSeek V3 (Open Weight)",
+      "provider": "open_weight",
+      "pricing": {
+        "input": 0.27,
+        "cached": 0.07,
+        "output": 1.1,
+        "input_per_million": 0.27,
+        "cached_per_million": 0.07,
+        "output_per_million": 1.1
+      },
+      "thinking_budget": 0,
+      "max_output_tokens": 8192
+    },
+    {
+      "id": "deepseek/deepseek-r1",
+      "name": "DeepSeek R1 (Open Weight)",
+      "provider": "open_weight",
+      "pricing": {
+        "input": 0.55,
+        "cached": 0.14,
+        "output": 2.19,
+        "input_per_million": 0.55,
+        "cached_per_million": 0.14,
+        "output_per_million": 2.19
+      },
+      "thinking_budget": 4096,
+      "max_output_tokens": 8192,
+      "allowed_thinking_budgets": [0, 1024, 4096],
+      "allowed_max_output_tokens": [1024, 2048, 4096, 8192]
+    },
+    {
+      "id": "mistralai/mistral-small",
+      "name": "Mistral Small (Open Weight)",
+      "provider": "open_weight",
+      "pricing": {
+        "input": 0.1,
+        "cached": 0.025,
+        "output": 0.3,
+        "input_per_million": 0.1,
+        "cached_per_million": 0.025,
+        "output_per_million": 0.3
+      },
+      "thinking_budget": 0,
+      "max_output_tokens": 8192
+    },
+    {
+      "id": "mistralai/mistral-large",
+      "name": "Mistral Large (Open Weight)",
+      "provider": "open_weight",
+      "pricing": {
+        "input": 2.0,
+        "cached": 0.5,
+        "output": 6.0,
+        "input_per_million": 2.0,
+        "cached_per_million": 0.5,
+        "output_per_million": 6.0
+      },
+      "thinking_budget": 0,
+      "max_output_tokens": 8192
+    },
+    {
+      "id": "qwen/qwen-2.5-72b-instruct",
+      "name": "Qwen 2.5 72B Instruct (Open Weight)",
+      "provider": "open_weight",
+      "pricing": {
+        "input": 0.35,
+        "cached": 0.09,
+        "output": 0.4,
+        "input_per_million": 0.35,
+        "cached_per_million": 0.09,
+        "output_per_million": 0.4
+      },
+      "thinking_budget": 0,
+      "max_output_tokens": 8192
+    },
+    {
+      "id": "google/gemma-3-27b-it",
+      "name": "Gemma 3 27B IT (Open Weight)",
+      "provider": "open_weight",
+      "pricing": {
+        "input": 0.1,
+        "cached": 0.025,
+        "output": 0.2,
+        "input_per_million": 0.1,
+        "cached_per_million": 0.025,
+        "output_per_million": 0.2
+      },
+      "thinking_budget": 0,
+      "max_output_tokens": 8192
+    },
+    {
+      "id": "ollama/local-open-weight",
+      "name": "Local Ollama / vLLM (Self-Hosted Open Weight)",
+      "provider": "open_weight",
+      "pricing": {
+        "input": 0.0,
+        "cached": 0.0,
+        "output": 0.0,
+        "input_per_million": 0.0,
+        "cached_per_million": 0.0,
+        "output_per_million": 0.0
+      },
+      "thinking_budget": 0,
+      "max_output_tokens": 8192
+    }
+  ]
+}

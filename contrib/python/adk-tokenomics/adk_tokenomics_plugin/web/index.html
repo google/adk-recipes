@@ -1,0 +1,652 @@
+<!DOCTYPE html>
+<!--
+  Copyright 2026 Google LLC
+
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+
+      https://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+-->
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ADK Agent Token Control Tower</title>
+  <link rel="stylesheet" href="styles.css?v=35">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js" integrity="sha384-NrKB+u6Ts6AtkIhwPixiKTzgSKNblyhlk0Sohlgar9UHUBzai/sgnNNWWd291xqt" crossorigin="anonymous"></script>
+</head>
+<body class="premium-theme">
+  <!-- Glowing ambient Aurora light spots -->
+  <div class="glow-blob blob-blue"></div>
+  <div class="glow-blob blob-purple"></div>
+  <div class="glow-blob blob-pink"></div>
+
+  <div class="dashboard-wrapper" id="dashboard-wrapper">
+    
+    <!-- Top Navigation Bar -->
+    <header class="top-navbar glass-card">
+      <div class="brand-group">
+        <div class="brand-icon-wrapper">
+          <span class="icon-flash">⚡</span>
+        </div>
+        <div class="brand-text">
+          <h1 class="brand-title">Token Control Tower</h1>
+          <p class="brand-subtitle">ADK Agent Telemetry &amp; FinOps Observatory</p>
+        </div>
+      </div>
+      
+      <div class="header-actions">
+        <div class="badge" style="background:#282a2c; color:#a8c7fa; border:1px solid #3c4043; font-weight:600; display:flex; align-items:center; gap:0.4rem; padding:0.45rem 0.85rem; border-radius:8px;" title="Configured via .env or CLI flags">
+          <span id="header-source-icon">🗄️ Source:</span>
+          <span id="header-bq-dataset-badge" style="font-family:var(--font-mono); font-size:0.8rem; color:#e3e3e3;">bq_adk_ds.v_llm_response</span>
+        </div>
+
+        <button type="button" class="poll-status-pill" id="btn-header-poll-toggle" style="cursor:pointer; border:1px solid rgba(129,201,149,0.35);" title="Click to toggle live auto-refresh">
+          <span class="pulse-dot green" id="header-poll-dot"></span>
+          <span id="header-poll-label">Syncing</span>
+        </button>
+
+        <button class="btn btn-premium-primary" id="btn-manage-models">
+          Rate Card ⚙️
+        </button>
+      </div>
+    </header>
+
+    <!-- Organized Compact Control Toolbar -->
+    <section class="controls-toolbar glass-card">
+      <div class="control-row">
+        <div class="control-select-wrapper" style="display:flex; align-items:center; gap:0.45rem;">
+          <label class="control-label-inline" for="adk-session-select">Session:</label>
+          <select id="adk-session-select" class="select-premium" style="min-width:290px;">
+            <option value="latest" selected>🟢 Latest Active Session (Live Auto-Follow)</option>
+            <option value="global">🌐 All Sessions (Global Aggregate)</option>
+          </select>
+          <button type="button" id="btn-session-latest" class="btn btn-sm" style="background:rgba(129,201,149,0.12); border:1px solid rgba(129,201,149,0.35); color:#81c995; font-size:0.74rem; font-weight:600; padding:0.32rem 0.65rem; border-radius:6px; cursor:pointer; white-space:nowrap;" title="Jump to the most recently active session">
+            ⚡ Latest
+          </button>
+        </div>
+
+        <div class="control-select-wrapper">
+          <label class="control-label-inline" for="adk-app-select">Agent:</label>
+          <select id="adk-app-select" class="select-premium">
+            <option value="all">All Agents</option>
+          </select>
+        </div>
+
+        <div class="control-select-wrapper" style="display:flex; align-items:center; gap:0.45rem;">
+          <span class="control-label-inline">Turns:</span>
+          <span id="toolbar-turns-badge" class="badge badge-secondary" style="font-family:var(--font-mono); font-size:0.8rem; padding:0.35rem 0.65rem;">0 turns</span>
+        </div>
+
+        <div class="control-select-wrapper" style="display:flex; align-items:center; gap:0.45rem;">
+          <span class="control-label-inline">Spend:</span>
+          <span id="toolbar-cost-badge" class="badge badge-success" style="font-family:var(--font-mono); font-size:0.8rem; padding:0.35rem 0.65rem;">$0.00000</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Primary Tab Navigation Bar -->
+    <nav class="tab-navigation glass-card">
+      <button type="button" id="tab-btn-telemetry" class="main-tab-btn active">
+        📊 Session Overview
+      </button>
+      <button type="button" id="tab-btn-bq" class="main-tab-btn">
+        🗄️ Raw BigQuery Logs
+      </button>
+    </nav>
+
+    <!-- TAB PANE 1 (Default): Session Overview & Progressive Deep Dives -->
+    <div id="tab-pane-telemetry" class="main-tab-pane active">
+      
+      <!-- Level 1A: Top Hero KPI Cards Row -->
+      <section class="kpi-row" style="margin-bottom: 1.5rem;">
+        <!-- Card 1: Total Cost -->
+        <div class="kpi-card glass-card">
+          <div class="kpi-icon-wrapper kpi-primary">💵</div>
+          <div class="kpi-content">
+            <span class="kpi-label">Accumulated Session Spend</span>
+            <h2 class="kpi-value" id="kpi-total-cost">$0.00000</h2>
+            <span class="kpi-trend" id="kpi-cost-desc">Avg $0.00000 / turn</span>
+          </div>
+        </div>
+
+        <!-- Card 2: Context Cache Efficiency -->
+        <div class="kpi-card glass-card">
+          <div class="kpi-icon-wrapper kpi-success">💾</div>
+          <div class="kpi-content">
+            <span class="kpi-label">Context Cache Efficiency</span>
+            <h2 class="kpi-value" id="kpi-cache-ratio">0.0%</h2>
+            <div class="kpi-progress-bar-container">
+              <div class="kpi-progress-bar" id="kpi-cache-bar" style="width: 0%;"></div>
+            </div>
+            <span class="kpi-trend" id="kpi-cache-desc">Saved $0.00000 (0.0% off bill)</span>
+          </div>
+        </div>
+
+        <!-- Card 3: Input Context Tokens -->
+        <div class="kpi-card glass-card">
+          <div class="kpi-icon-wrapper kpi-warning">📥</div>
+          <div class="kpi-content">
+            <span class="kpi-label">Input Context Tokens</span>
+            <h2 class="kpi-value" id="kpi-max-savings" style="color: var(--color-primary);">0</h2>
+            <span class="kpi-trend" id="kpi-savings-desc">Fresh: 0 | Cached: 0</span>
+          </div>
+        </div>
+
+        <!-- Card 4: Reasoning & Output Tokens -->
+        <div class="kpi-card glass-card">
+          <div class="kpi-icon-wrapper" style="background: rgba(197, 138, 249, 0.12); border: 1px solid rgba(197, 138, 249, 0.25); color: #c58af9;">🧠</div>
+          <div class="kpi-content">
+            <span class="kpi-label">Reasoning &amp; Output Tokens</span>
+            <h2 class="kpi-value" id="kpi-output-tokens" style="color: #c58af9;">0</h2>
+            <span class="kpi-trend" id="kpi-output-desc">Visible: 0 | Thoughts: 0 (0%)</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Level 1B: Core At-a-Glance Agent Breakdown (Full-Width) -->
+      <div class="glass-card table-panel" style="margin-bottom: 1.5rem;">
+        <div class="panel-header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.5rem;">
+          <div>
+            <h3 class="panel-title">Agent Breakdown</h3>
+            <p class="panel-subtitle">Click any agent row to filter turn logs and attribution charts</p>
+          </div>
+          <button type="button" id="btn-reset-subagent-filter" class="btn" style="display:none; padding:0.25rem 0.65rem; font-size:0.75rem; background:rgba(138,180,248,0.14); color:#8ab4f8; border:1px solid rgba(138,180,248,0.3); border-radius:6px; cursor:pointer;">
+            ✕ Clear Filter
+          </button>
+        </div>
+        <div class="table-container">
+          <table class="premium-table">
+            <thead>
+              <tr>
+                <th>Agent</th>
+                <th style="text-align:center;">Turns</th>
+                <th>Fresh Input</th>
+                <th>Cached Input</th>
+                <th>Output</th>
+                <th>Thinking</th>
+                <th>Est. Cost</th>
+                <th>Cost Share (%)</th>
+              </tr>
+            </thead>
+            <tbody id="adk-live-table-body">
+              <tr>
+                <td colspan="8" style="text-align: center; color: var(--color-text-muted); padding: 3rem;">
+                  <div class="loading-spinner"></div>
+                  Awaiting session trace synchronization...
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Level 2A (Progressive Disclosure): Expandable Turn-by-Turn Waterfall & Inspector -->
+      <details id="details-turn-history" open class="glass-card table-card" style="margin-bottom: 1.25rem; padding: 1rem 1.25rem;">
+        <summary style="cursor:pointer; list-style:none; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.5rem; outline:none;">
+          <div>
+            <h3 class="panel-title" style="color:var(--color-primary-light); display:flex; align-items:center; gap:0.5rem; margin:0;">
+              <span>🔍</span> Deep Dive: Turn-by-Turn Waterfall &amp; Prompt Inspector
+            </h3>
+            <p class="panel-subtitle" style="margin:0.2rem 0 0 0;">Click to expand chronological turn logs — click any row to inspect full prompt, response &amp; raw JSON</p>
+          </div>
+          <div style="display:flex; align-items:center; gap:0.6rem;">
+            <span id="session-turns-count-badge" class="badge badge-primary" style="font-size:0.8rem;">0 Turns</span>
+            <span style="font-size:0.8rem; color:var(--color-primary); font-weight:600;">Expand ▾</span>
+          </div>
+        </summary>
+        <div class="table-container" style="max-height: 480px; overflow-y: auto; margin-top: 1rem; border-top: 1px solid var(--border-color); padding-top: 0.75rem;">
+          <table class="premium-table">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Time</th>
+                <th>Agent</th>
+                <th>User Query</th>
+                <th>Response Snippet</th>
+                <th>Tokens (Fresh / Cached / Out / Think)</th>
+                <th>Latency</th>
+                <th>Cost ($)</th>
+                <th>🛠️ Invoked Tools</th>
+                <th>⚡ Invoked Skills</th>
+              </tr>
+            </thead>
+            <tbody id="session-turns-history-table-body">
+              <tr>
+                <td colspan="10" style="text-align: center; color: var(--color-text-muted); padding: 2rem;">
+                  No turns recorded in this session yet.
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </details>
+
+      <!-- Level 2B (Progressive Disclosure): Expandable Tool Invocations & Agent Attribution -->
+      <details id="details-tools-arena" class="glass-card table-card" style="margin-bottom: 2rem; padding: 1rem 1.25rem;">
+        <summary style="cursor:pointer; list-style:none; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.5rem; outline:none;">
+          <div>
+            <h3 class="panel-title" style="color:var(--color-primary-light); display:flex; align-items:center; gap:0.5rem; margin:0;">
+              <span>🛠️</span> Deep Dive: Tool Invocations &amp; Agent Attribution
+            </h3>
+            <p class="panel-subtitle" style="margin:0.2rem 0 0 0;">Click to inspect tool call frequency and compare token &amp; cost share across agents</p>
+          </div>
+          <div style="display:flex; align-items:center; gap:0.6rem;">
+            <span id="session-tools-total-badge" class="badge badge-primary" style="font-size:0.8rem;">0 Tool Invocations</span>
+            <span style="font-size:0.8rem; color:var(--color-primary); font-weight:600;">Expand ▾</span>
+          </div>
+        </summary>
+        <div class="telemetry-tab-grid" style="margin-top: 1rem; border-top: 1px solid var(--border-color); padding-top: 1rem;">
+          <div class="glass-card chart-card" style="background:#131314;">
+            <div class="panel-header">
+              <h4 style="margin:0; font-size:0.95rem; color:var(--color-primary-light);">Cumulative Session Spend</h4>
+              <p class="panel-subtitle">Chronological turn-by-turn cost progression ($)</p>
+            </div>
+            <div class="canvas-container" style="min-height: 260px;">
+              <canvas id="costLineChart"></canvas>
+            </div>
+          </div>
+
+          <div class="glass-card chart-card" style="background:#131314;">
+            <div class="panel-header">
+              <h4 style="margin:0; font-size:0.95rem; color:var(--color-success);">Agent Token &amp; Cost Attribution</h4>
+              <p class="panel-subtitle">Stacked token footprint (Fresh Input / Cached / Output) &amp; spend per agent</p>
+            </div>
+            <div class="canvas-container" style="min-height: 260px;">
+              <canvas id="whatIfBarChart"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <div class="glass-card table-card" style="background:#131314; margin-top: 1.25rem;">
+          <div class="panel-header">
+            <h4 style="margin:0; font-size:0.95rem; color:var(--color-text);">Active Session Tool &amp; Skill Invocations</h4>
+          </div>
+          <div class="table-container">
+            <table class="premium-table">
+              <thead>
+                <tr>
+                  <th>Tool / Skill</th>
+                  <th>Category</th>
+                  <th style="text-align:center;">Invocations</th>
+                  <th>Parameters &amp; Targets</th>
+                </tr>
+              </thead>
+              <tbody id="session-tools-table-body">
+                <tr>
+                  <td colspan="4" style="text-align: center; color: var(--color-text-muted); padding: 1.5rem;">
+                    No tool or skill invocations recorded in this session yet.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </details>
+
+    </div>
+
+    <!-- TAB PANE 3: Dedicated BigQuery Table Logs Explorer -->
+    <div id="tab-pane-bq" class="main-tab-pane" style="display:none;">
+      
+      <!-- Top BigQuery Header & Stats KPI Cards -->
+      <div class="glass-card panel-card" style="margin-bottom: 1.5rem;">
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:1rem;">
+          <div>
+            <h2 style="font-size:1.35rem; font-weight:700; color:var(--color-primary-light); display:flex; align-items:center; gap:0.5rem; margin-bottom:0.25rem;">
+              <span>🗄️</span> BigQuery Table Logs Explorer
+            </h2>
+            <p style="color:var(--color-text-muted); font-size:0.85rem;">
+              Direct on-demand view of <code id="bq-explorer-target-label">bq_adk_ds.v_llm_response</code> (partitioned by <code>DAY</code>).
+            </p>
+          </div>
+          <div style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap;">
+            <button type="button" id="btn-bq-refresh" class="btn btn-premium-primary" style="padding:0.5rem 1rem; font-size:0.85rem; font-weight:600; display:flex; align-items:center; gap:0.4rem;">
+              <span>🔄</span> Refresh Logs
+            </button>
+            <button type="button" id="btn-bq-export-csv" class="btn" style="padding:0.5rem 1rem; font-size:0.85rem; font-weight:600; background:rgba(255,255,255,0.08); color:var(--color-text); border:1px solid rgba(255,255,255,0.12); border-radius:8px; cursor:pointer; display:flex; align-items:center; gap:0.4rem;">
+              <span>📥</span> Export CSV
+            </button>
+            <button type="button" id="btn-bq-export-json" class="btn" style="padding:0.5rem 1rem; font-size:0.85rem; font-weight:600; background:rgba(255,255,255,0.08); color:var(--color-text); border:1px solid rgba(255,255,255,0.12); border-radius:8px; cursor:pointer; display:flex; align-items:center; gap:0.4rem;">
+              <span>📋</span> Export JSON
+            </button>
+          </div>
+        </div>
+
+        <!-- Quick Summary Stats Row -->
+        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap:1rem; margin-top:1.25rem; padding-top:1.25rem; border-top:1px solid rgba(255,255,255,0.08);">
+          <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.07); border-radius:8px; padding:0.75rem 1rem;">
+            <div style="font-size:0.75rem; color:var(--color-text-muted); text-transform:uppercase;">Total Turns Logged</div>
+            <div id="bq-stat-total-turns" style="font-size:1.3rem; font-weight:700; color:var(--color-primary-light); margin-top:0.2rem;">-</div>
+          </div>
+          <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.07); border-radius:8px; padding:0.75rem 1rem;">
+            <div style="font-size:0.75rem; color:var(--color-text-muted); text-transform:uppercase;">Total Lifetime Spend</div>
+            <div id="bq-stat-total-cost" style="font-size:1.3rem; font-weight:700; color:var(--color-success); margin-top:0.2rem;">-</div>
+          </div>
+          <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.07); border-radius:8px; padding:0.75rem 1rem;">
+            <div style="font-size:0.75rem; color:var(--color-text-muted); text-transform:uppercase;">Total Tokens (Fresh / Cached)</div>
+            <div id="bq-stat-total-tokens" style="font-size:1.15rem; font-weight:700; color:#cbd5e1; margin-top:0.2rem;">-</div>
+          </div>
+          <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.07); border-radius:8px; padding:0.75rem 1rem;">
+            <div style="font-size:0.75rem; color:var(--color-text-muted); text-transform:uppercase;">Unique Sessions</div>
+            <div id="bq-stat-unique-sessions" style="font-size:1.3rem; font-weight:700; color:#c084fc; margin-top:0.2rem;">-</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Filter & Search Toolbar -->
+      <div class="glass-card panel-card" style="margin-bottom: 1.25rem; padding: 1rem 1.25rem;">
+        <div style="display:flex; flex-wrap:wrap; gap:1rem; align-items:flex-end;">
+          <div style="flex:1; min-width:180px;">
+            <label style="display:block; font-size:0.75rem; font-weight:600; color:var(--color-text-muted); margin-bottom:0.35rem;">Filter by Agent:</label>
+            <select id="bq-filter-app" class="select-premium" style="width:100%;">
+              <option value="all">All Agents</option>
+            </select>
+          </div>
+
+          <div style="flex:1.5; min-width:220px;">
+            <label style="display:block; font-size:0.75rem; font-weight:600; color:var(--color-text-muted); margin-bottom:0.35rem;">Search Session ID / Content:</label>
+            <input type="text" id="bq-search-query" placeholder="Search session ID, query text, or tool..." style="width:100%; padding:0.55rem 0.75rem; border-radius:8px; border:1px solid rgba(255,255,255,0.15); background:rgba(15,23,42,0.6); color:#fff; font-size:0.85rem;">
+          </div>
+
+          <div style="min-width:120px;">
+            <label style="display:block; font-size:0.75rem; font-weight:600; color:var(--color-text-muted); margin-bottom:0.35rem;">Rows Per Page:</label>
+            <select id="bq-filter-limit" class="select-premium" style="width:100%;">
+              <option value="25">25 Rows</option>
+              <option value="50" selected>50 Rows (Default)</option>
+              <option value="100">100 Rows</option>
+            </select>
+          </div>
+
+          <div>
+            <button type="button" id="btn-bq-apply-filter" class="btn btn-premium-primary" style="padding:0.55rem 1.25rem; font-size:0.85rem; font-weight:600;">
+              Apply Filters
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Main BigQuery Raw Logs Ledger Table -->
+      <div class="glass-card table-card" style="margin-bottom: 2rem;">
+        <div class="panel-header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.5rem;">
+          <div>
+            <h3 class="panel-title" style="color:var(--color-primary-light);">
+              <span>⚡</span> Google ADK Agent Analytics Event Explorer
+            </h3>
+            <p class="panel-subtitle">Direct trace event stream from <code style="color:var(--color-primary);">adk_agent_events</code> / <code style="color:var(--color-primary);">v_llm_response</code></p>
+          </div>
+          <span id="bq-table-count-badge" class="badge badge-primary" style="font-size:0.8rem;">Loading rows...</span>
+        </div>
+
+        <div class="table-container" style="max-height: 540px; overflow-y: auto;">
+          <table class="premium-table" style="font-size:0.85rem;">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>UTC Timestamp</th>
+                <th>Event Type</th>
+                <th>Agent</th>
+                <th>Model</th>
+                <th>Prompt / Input Snippet</th>
+                <th>Tokens (Fresh / Cache / Out / Think)</th>
+                <th>Latency</th>
+                <th>Cost ($)</th>
+                <th style="text-align:center;">Action</th>
+              </tr>
+            </thead>
+            <tbody id="bq-logs-table-body">
+              <tr>
+                <td colspan="10" style="text-align:center; padding:2rem; color:var(--color-text-muted);">
+                  Loading BigQuery records...
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Pagination Controls Bar -->
+        <div style="display:flex; justify-content:space-between; align-items:center; padding:1rem 1.25rem; border-top:1px solid rgba(255,255,255,0.08); flex-wrap:wrap; gap:0.75rem;">
+          <div style="font-size:0.85rem; color:var(--color-text-muted);">
+            Showing <span id="bq-page-range" style="color:#fff; font-weight:600;">0 - 0</span> of <span id="bq-total-count" style="color:#fff; font-weight:600;">0</span> records
+          </div>
+          <div style="display:flex; gap:0.5rem; align-items:center;">
+            <button type="button" id="btn-bq-prev-page" class="btn" style="padding:0.4rem 0.85rem; font-size:0.8rem; background:rgba(255,255,255,0.08); color:var(--color-text); border:1px solid rgba(255,255,255,0.12); border-radius:6px; cursor:pointer;" disabled>
+              &larr; Previous
+            </button>
+            <span id="bq-page-current" style="font-size:0.85rem; font-weight:600; color:var(--color-primary-light); padding:0 0.5rem;">Page 1</span>
+            <button type="button" id="btn-bq-next-page" class="btn" style="padding:0.4rem 0.85rem; font-size:0.8rem; background:rgba(255,255,255,0.08); color:var(--color-text); border:1px solid rgba(255,255,255,0.12); border-radius:6px; cursor:pointer;" disabled>
+              Next &rarr;
+            </button>
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+
+  </div> <!-- End #dashboard-wrapper -->
+
+  <!-- BigQuery Row JSON & Transcript Inspector Modal -->
+  <div id="bq-row-modal-overlay" class="modal-overlay hidden" style="display:none;">
+    <div class="modal-card glass-card" style="max-width: 780px;">
+      <div class="modal-header">
+        <div>
+          <h2 class="modal-title">BigQuery Record Details & Raw JSON</h2>
+          <p class="modal-subtitle">Turn inspection with unclipped prompts, responses, and BigQuery row attributes</p>
+        </div>
+        <button id="btn-close-bq-modal" class="btn-close-modal">&times;</button>
+      </div>
+
+      <div class="modal-body">
+        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap:0.75rem; margin-bottom:1rem;">
+          <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:8px; padding:0.6rem 0.75rem;">
+            <div style="font-size:0.7rem; color:var(--color-text-muted); text-transform:uppercase;">Agent</div>
+            <div id="modal-bq-app" style="font-size:0.95rem; font-weight:700; color:var(--color-primary-light);">-</div>
+          </div>
+          <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:8px; padding:0.6rem 0.75rem;">
+            <div style="font-size:0.7rem; color:var(--color-text-muted); text-transform:uppercase;">Model Name</div>
+            <div id="modal-bq-model" style="font-size:0.95rem; font-weight:700; color:#34d399;">-</div>
+          </div>
+          <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:8px; padding:0.6rem 0.75rem;">
+            <div style="font-size:0.7rem; color:var(--color-text-muted); text-transform:uppercase;">Estimated Cost</div>
+            <div id="modal-bq-cost" style="font-size:0.95rem; font-weight:700; color:var(--color-success);">-</div>
+          </div>
+          <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:8px; padding:0.6rem 0.75rem;">
+            <div style="font-size:0.7rem; color:var(--color-text-muted); text-transform:uppercase;">Latency</div>
+            <div id="modal-bq-latency" style="font-size:0.95rem; font-weight:700; color:#38bdf8;">-</div>
+          </div>
+          <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:8px; padding:0.6rem 0.75rem;">
+            <div style="font-size:0.7rem; color:var(--color-text-muted); text-transform:uppercase;">Timestamp (UTC)</div>
+            <div id="modal-bq-time" style="font-size:0.8rem; font-weight:600; color:#cbd5e1; word-break:break-all;">-</div>
+          </div>
+        </div>
+
+        <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:8px; padding:0.75rem 1rem; margin-bottom:1rem;">
+          <div style="font-size:0.75rem; text-transform:uppercase; color:var(--color-primary-light); font-weight:700; margin-bottom:0.25rem;">User Query</div>
+          <div id="modal-bq-query" style="font-size:0.9rem; color:var(--color-text); line-height:1.5; white-space:pre-wrap;">-</div>
+        </div>
+
+        <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:8px; padding:0.75rem 1rem; margin-bottom:1rem; max-height:200px; overflow-y:auto;">
+          <div style="font-size:0.75rem; text-transform:uppercase; color:var(--color-accent); font-weight:700; margin-bottom:0.25rem;">Agent Response</div>
+          <div id="modal-bq-response" style="font-size:0.85rem; color:#e2e8f0; line-height:1.5; white-space:pre-wrap;">-</div>
+        </div>
+
+        <div style="background:rgba(15,23,42,0.8); border:1px solid rgba(255,255,255,0.1); border-radius:8px; padding:0.75rem 1rem;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.4rem;">
+            <span style="font-size:0.75rem; text-transform:uppercase; color:#94a3b8; font-weight:700;">Raw BigQuery Row JSON</span>
+            <button type="button" id="btn-copy-bq-json" style="background:transparent; border:none; color:var(--color-primary-light); font-size:0.75rem; cursor:pointer; font-weight:600;">📋 Copy JSON</button>
+          </div>
+          <pre id="modal-bq-raw-json" style="max-height:150px; overflow:auto; font-size:0.75rem; color:#a7f3d0; font-family:monospace; margin:0; line-height:1.4;"></pre>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Model Management Modal -->
+  <div id="model-modal-overlay" class="modal-overlay hidden" style="display:none;">
+    <div class="modal-card glass-card">
+      <div class="modal-header">
+        <div>
+          <h2 class="modal-title">Model Registry Management</h2>
+          <p class="modal-subtitle">Add, edit, or delete AI model parameter configurations &amp; rate cards (JSON)</p>
+          <div style="margin-top:0.35rem; font-size:0.75rem; color:var(--color-text-muted);">
+            Active Config: <code id="modal-models-config-path" style="color:var(--color-primary-light); font-family:var(--font-mono); word-break:break-all;">models_config.json</code>
+          </div>
+        </div>
+        <button id="btn-close-modal" class="btn-close-modal">&times;</button>
+      </div>
+
+      <!-- Modal Tab Controls -->
+      <div class="modal-tabs" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.5rem; border-bottom:1px solid rgba(255,255,255,0.1); padding-bottom:0.75rem; margin-bottom:1.25rem;">
+        <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
+          <button id="tab-btn-visual" class="modal-tab-btn active" style="padding:0.4rem 1rem; font-size:0.85rem; font-weight:600; border-radius:8px; border:none; background:var(--color-primary); color:#fff; cursor:pointer;">
+            📊 Visual Rate Card
+          </button>
+          <button id="tab-btn-raw" class="modal-tab-btn" style="padding:0.4rem 1rem; font-size:0.85rem; font-weight:600; border-radius:8px; border:none; background:rgba(255,255,255,0.08); color:var(--color-text-muted); cursor:pointer;">
+            📝 Raw JSON Code Editor
+          </button>
+        </div>
+        <button type="button" id="btn-add-new-model" class="btn" style="padding:0.38rem 0.85rem; font-size:0.8rem; font-weight:600; border-radius:8px; border:1px solid rgba(16,185,129,0.4); background:rgba(16,185,129,0.14); color:#6ee7b7; cursor:pointer;">
+          + Add Model
+        </button>
+      </div>
+
+      <div class="modal-body">
+        <!-- Tab 1: Visual Form & Table -->
+        <div id="modal-tab-visual">
+          <div id="modal-models-table-container" class="table-container" style="max-height: 460px; overflow-y: auto; margin-bottom: 0.75rem;">
+            <table class="premium-table">
+              <thead>
+                <tr>
+                  <th>Model ID</th>
+                  <th>Display Name</th>
+                  <th>Provider</th>
+                  <th>Input $/1M</th>
+                  <th>Cache $/1M</th>
+                  <th>Output $/1M</th>
+                  <th style="text-align:center;">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="modal-models-table-body">
+                <!-- Dynamically populated -->
+              </tbody>
+            </table>
+          </div>
+
+          <div id="modal-form-section" class="modal-form-section hidden" style="display:none;">
+            <h3 id="modal-form-title" style="font-size:1.05rem; font-weight:600; color:var(--color-primary); margin-bottom:0.75rem;">Add New Model Configuration</h3>
+            <form id="model-editor-form">
+              <div class="form-row">
+                <div class="form-group">
+                  <label for="form-model-id">Model ID / Path:</label>
+                  <input type="text" id="form-model-id" class="input-premium" placeholder="e.g. publishers/google/models/gemini-3.8-flash" required>
+                </div>
+                <div class="form-group">
+                  <label for="form-model-name">Display Name:</label>
+                  <input type="text" id="form-model-name" class="input-premium" placeholder="e.g. Gemini 3.8 Flash" required>
+                </div>
+                <div class="form-group">
+                  <label for="form-model-provider">Provider:</label>
+                  <select id="form-model-provider" class="select-premium">
+                    <option value="google">Google</option>
+                    <option value="anthropic">Anthropic</option>
+                    <option value="openai">OpenAI</option>
+                    <option value="open_weight">Open Weight</option>
+                    <option value="custom">Custom</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="form-row">
+                <div class="form-group">
+                  <label for="form-price-input">Input Cost ($/1M):</label>
+                  <input type="number" step="any" min="0" id="form-price-input" class="input-premium" placeholder="0.30" required>
+                </div>
+                <div class="form-group">
+                  <label for="form-price-cached">Cached Cost ($/1M):</label>
+                  <input type="number" step="any" min="0" id="form-price-cached" class="input-premium" placeholder="0.075" required>
+                </div>
+                <div class="form-group">
+                  <label for="form-price-output">Output Cost ($/1M):</label>
+                  <input type="number" step="any" min="0" id="form-price-output" class="input-premium" placeholder="2.50" required>
+                </div>
+              </div>
+
+              <div class="form-row">
+                <div class="form-group">
+                  <label for="form-thinking-budget">Default Thinking Budget / Effort:</label>
+                  <select id="form-thinking-budget" class="select-premium">
+                    <option value="0">0 (Disabled)</option>
+                    <option value="1024">1024 Tokens</option>
+                    <option value="2048">2048 Tokens</option>
+                    <option value="4096">4096 Tokens</option>
+                    <option value="8192">8192 Tokens</option>
+                    <option value="16384">16384 Tokens</option>
+                    <option value="32768">32768 Tokens</option>
+                    <option value="-1">-1 (Dynamic)</option>
+                    <option value="off">off (Effort Tier)</option>
+                    <option value="low">low (Effort Tier)</option>
+                    <option value="medium">medium (Effort Tier)</option>
+                    <option value="high">high (Effort Tier)</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label for="form-max-tokens">Default Max Output Tokens:</label>
+                  <select id="form-max-tokens" class="select-premium">
+                    <option value="1024">1024 Tokens</option>
+                    <option value="2048">2048 Tokens</option>
+                    <option value="4096">4096 Tokens</option>
+                    <option value="8192" selected>8192 Tokens</option>
+                    <option value="16384">16384 Tokens</option>
+                    <option value="32768">32768 Tokens</option>
+                    <option value="65536">65536 Tokens</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="form-actions" style="margin-top:1rem; display:flex; justify-content:flex-end; gap:0.5rem;">
+                <button type="button" id="btn-cancel-edit" class="btn" style="background:rgba(255,255,255,0.08); color:var(--color-text-muted);">Cancel</button>
+                <button type="submit" class="btn btn-premium-primary" style="background:linear-gradient(135deg, #10b981, #059669); color:#fff; border:none; font-weight:600;">Save Model Configuration</button>
+              </div>
+            </form>
+          </div>
+        </div>
+
+        <!-- Tab 2: Raw JSON Code Editor -->
+        <div id="modal-tab-raw" style="display:none;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem;">
+            <span style="font-size:0.85rem; font-weight:600; color:var(--color-text-muted);">Edit raw <code style="color:var(--color-primary);">models_config.json</code>:</span>
+            <div style="display:flex; gap:0.5rem;">
+              <button type="button" id="btn-format-raw-json" class="btn" style="padding:0.3rem 0.6rem; font-size:0.75rem; background:rgba(59,130,246,0.15); color:#60a5fa; border:1px solid rgba(59,130,246,0.3); border-radius:6px; cursor:pointer;">
+                🧹 Format JSON
+              </button>
+              <button type="button" id="btn-copy-raw-json" class="btn" style="padding:0.3rem 0.6rem; font-size:0.75rem; background:rgba(16,185,129,0.15); color:#a7f3d0; border:1px solid rgba(16,185,129,0.3); border-radius:6px; cursor:pointer;">
+                📋 Copy
+              </button>
+            </div>
+          </div>
+
+          <textarea id="raw-json-editor-textarea" style="width:100%; height:280px; font-family:monospace; font-size:0.8rem; color:#a7f3d0; background:#070d19; border:1px solid rgba(255,255,255,0.15); border-radius:10px; padding:1rem; outline:none; resize:vertical; box-sizing:border-box; line-height:1.4;"></textarea>
+
+          <div id="raw-json-status-msg" style="margin-top:0.5rem; font-size:0.8rem; font-weight:600;"></div>
+
+          <div style="margin-top:1rem; display:flex; justify-content:flex-end; gap:0.5rem;">
+            <button type="button" id="btn-save-raw-json" class="btn btn-premium-primary" style="background:linear-gradient(135deg, #3b82f6, #6366f1); color:#fff; border:none; font-weight:600; padding:0.5rem 1.25rem;">
+              💾 Save Raw JSON Config
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js?v=50"></script>
+</body>
+</html>

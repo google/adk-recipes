@@ -1,0 +1,65 @@
+[build-system]
+requires = ["setuptools>=77.0.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "adk-tokenomics"
+version = "1.0.2"
+description = "Turn-level AI unit economics, context profiling, model tiering, and CI budget gates for Google ADK agents."
+readme = "README.md"
+authors = [{ name = "Kartic Narayanan", email = "karticn@google.com" }]
+license = "Apache-2.0"
+requires-python = ">=3.11"
+dependencies = [
+    "python-dotenv>=1.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/google/adk-recipes/tree/main/contrib/python/adk-tokenomics"
+Repository = "https://github.com/google/adk-recipes/tree/main/contrib/python/adk-tokenomics"
+Issues = "https://github.com/google/adk-recipes/issues"
+
+[project.optional-dependencies]
+adk = [
+    "google-adk>=1.0.0",
+    "google-genai>=1.0.0",
+    "python-dotenv>=1.0.0",
+]
+bigquery = [
+    "google-cloud-bigquery>=3.25.0",
+    "google-cloud-core>=2.3.0",
+]
+all = [
+    "google-adk>=1.0.0",
+    "google-genai>=1.0.0",
+    "python-dotenv>=1.0.0",
+    "google-cloud-bigquery>=3.25.0",
+    "google-cloud-core>=2.3.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3.5",
+    "python-dotenv>=1.0.0",
+    "setuptools>=77.0.0",
+    "wheel>=0.43.0",
+]
+
+[project.scripts]
+adk-tokenomics = "adk_tokenomics_plugin.cli:main"
+adk-finops = "adk_tokenomics_plugin.cli:main"
+token-tower = "adk_tokenomics_plugin.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["adk_tokenomics_plugin*"]
+
+[tool.setuptools.package-data]
+adk_tokenomics_plugin = ["web/*", "models_config.json"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+
+[[tool.uv.index]]
+url = "https://pypi.org/simple/"
+default = true

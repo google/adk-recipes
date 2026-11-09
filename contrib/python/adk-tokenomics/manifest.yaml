@@ -1,0 +1,34 @@
+type: "standalone"
+status: "active"
+language: "python"
+description: "Turn-level AI unit economics, context profiling, model tiering, and CI budget gates for Google ADK agents."
+deployable: true
+
+architecture:
+  agent: "multi"
+  stateful: false
+  datasources:
+    - "hardcoded"
+    - "local"
+    - "external"
+
+dependencies:
+  libraries:
+    - "ADK"
+  services:
+    - "GCP Project"
+    - "BigQuery"
+    - "Cloud Run"
+
+ownership:
+  team: "Google Cloud Customer Engineering - AI/ML"
+  poc: "karthecoder"
+
+tags:
+  - "finops"
+  - "observability"
+  - "plugins"
+  - "context-caching"
+  - "gemini"
+
+license: "Apache-2.0"
