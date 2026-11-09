@@ -27,7 +27,12 @@ from genmedia4commerce.core.errors import GenerationError, InputError
 from genmedia4commerce.core.models import get_models
 from genmedia4commerce.core.settings import get_settings
 from genmedia4commerce.core.testing import png
-from genmedia4commerce.core.types import Classification, Product, ProductRef
+from genmedia4commerce.core.types import (
+    Classification,
+    PhotoItem,
+    Product,
+    ProductRef,
+)
 from genmedia4commerce.workflows.tryon import cut, hero, outfit, reference
 from genmedia4commerce.workflows.tryon.cut import Boxed
 
@@ -1042,15 +1047,20 @@ def test_a_worn_or_flat_photo_that_does_not_list_its_product_is_no_hero(
     rows = [
         row("top", 1, w=True, items=[("top", "sweater", 9)]),  # lists not A
         row("top", 1, "other", items=[own("top", 1)]),
-        row("bag", 2, items=[]),  # a flat packshot that lists nothing
+        row("bag", 2, items=[]),  # a flat packshot: the bag alone
+        row("bag", 2, x=True, items=[]),  # a close-up of its handle
     ]
     c, _ = _run(fake_gen, rows)
     coat, bag = c.products
     # no worn hero: the fallback, its best front upload (the worn photo)
     assert coat.refs[0].image is PHOTOS[0]
     assert bag.refs[0].image is PHOTOS[2]
-    tiers = [hero.pick(p, None, c, PHOTOS[:3])[0] for p in (coat, bag)]
-    assert tiers == ["fallback", "fallback"]
+    tiers = [hero.pick(p, None, c, PHOTOS[:4])[0] for p in (coat, bag)]
+    assert tiers == ["fallback", "flat"]
+    assert [p.items for p in c.photos[2:4]] == [
+        [PhotoItem("bag", "bag item", "B", False, None)],
+        [],
+    ]
 
 
 def test_upscale_crops_upscales_the_added_shoes_only(fake_gen, monkeypatch):

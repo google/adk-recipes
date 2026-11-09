@@ -214,7 +214,8 @@ _RULES = [
     + " FRAMING only changes the crop and, for head products, may tuck hair. Never add, remove or reshape any part of the body, or anything that is part of the person. Garments adapt to the body; the body never adapts to the garments: each garment falls on this exact body as it would in real life. It covers what its cut covers, the body's shape still showing under it, and it leaves bare what its cut leaves bare. Never reveal what a garment would cover.",
     _NOT_INVENTED,
     _NOT_MIRRORED,
-    "Only the supplied products. Every garment and accessory from WEARER BODY is replaced: the wearer keeps none of their own clothes, scarves, jewellery, bags, belts or hats. Anything in frame that no product covers becomes a plain, neutral piece that goes with the products (for example plain trousers under a supplied top). No extra accessories, bags, belts, hats or jewellery, nor anything they hold or carry that is not a product (a phone, a cup, keys), even if WEARER BODY, a product photo on a person or a REFERENCE CROP shows them: their hands are empty or hold only a product.",
+    "Only the supplied products. Every garment and accessory from WEARER BODY is replaced: the wearer keeps none of their own clothes, scarves, jewellery, bags, belts or hats. Anything in frame that no product covers becomes a plain, neutral piece that goes with the products (for example plain trousers under a supplied top). No extra accessories, bags, belts, hats or jewellery, nor anything they hold or carry that is not a product (a phone, a cup, keys), even if WEARER BODY, a product photo on a person or a REFERENCE CROP shows them: their hands are empty or hold only a product. "
+    + styling.ATTACHED,
     _NOT_BARE,
     _COVERED,
 ]
@@ -229,7 +230,8 @@ _BACK_RULES = [
     + " FRAMING only changes the crop and, for head products, may tuck hair. Never add, remove or reshape any part of the body, or anything that is part of the person. Garments adapt to the body; the body never adapts to the garments: each garment falls on this exact body as it would in real life. It covers what its cut covers, the body's shape still showing under it, and it leaves bare what its cut leaves bare. Never reveal what a garment would cover.",
     _NOT_INVENTED,
     _NOT_MIRRORED,
-    "Only the supplied products. Everything else the wearer wears comes from FRONT RESULT: anything in frame that no product covers is the plain, neutral piece FRONT RESULT shows, seen from the back. No extra accessories, bags, belts, hats or jewellery, nor anything they hold or carry that is not a product (a phone, a cup, keys), even if a product photo on a person shows them: their hands are empty or hold only a product.",
+    "Only the supplied products. Everything else the wearer wears comes from FRONT RESULT: anything in frame that no product covers is the plain, neutral piece FRONT RESULT shows, seen from the back. No extra accessories, bags, belts, hats or jewellery, nor anything they hold or carry that is not a product (a phone, a cup, keys), even if a product photo on a person shows them: their hands are empty or hold only a product. "
+    + styling.ATTACHED,
     _NOT_BARE,
     _COVERED,
 ]

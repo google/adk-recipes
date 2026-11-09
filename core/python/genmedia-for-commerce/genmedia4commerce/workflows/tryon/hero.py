@@ -50,6 +50,7 @@ from genmedia4commerce.core.types import (
     Product,
     ProductRef,
 )
+from genmedia4commerce.workflows.details import Detail
 from genmedia4commerce.workflows.tryon.outfit import best_upload
 
 __all__ = [
@@ -60,6 +61,7 @@ __all__ = [
     "conflicts",
     "crop_sources",
     "pick",
+    "product_photo",
     "resolved",
     "worn",
 ]
@@ -230,3 +232,19 @@ def _big(crop: ProductRef) -> bool:
     width, height = media.image_size(crop.image)
     short, long = sorted((width, height))
     return long >= MIN_HERO_SIDE and short >= MIN_HERO_SHORT_SIDE
+
+
+def product_photo(p: Product) -> list[Detail]:
+    """Shoes' first whole front upload, as a close-up photo (the kind
+    ``closeups.PHOTO``) on their card, when their hero is a crop of the
+    look photo: the crop shows how they are worn, the photo what they are
+    (a strap, a toe cap or lettering the look hides); [] otherwise."""
+    if p.category != "footwear":
+        return []
+    if not p.refs or p.refs[0].source != "model_crop":
+        return []
+    front = [r for r in p.refs if r.source == "upload" and r.view == "front"]
+    if not front:
+        return []
+    image = front[0].image
+    return [Detail("photo", "", "front", "", image, name="product photo")]

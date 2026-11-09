@@ -204,11 +204,17 @@ def _whole(row: dict, ids: dict[str, str]) -> list[PhotoItem]:
 
 def _photo(row: dict | None, product: str | None, ids) -> Photo:
     """A row as a ``Photo`` of ``product`` (None: a look or skipped
-    photo)."""
+    photo); no items on a whole photo of ``product`` is ``product``
+    alone."""
     row = row or {}
     view: View = row["s"] if row.get("s") in VIEWS else "other"
     worn, zoom = row.get("w") is True, row.get("x") is True
-    return Photo(product, view, worn, zoom, _whole(row, ids))
+    items = _whole(row, ids)
+    if not items and product and not zoom and row.get("c") in CATEGORIES:
+        # [] is a photo of its product alone: it shows that product whole
+        name = str(row.get("d") or "")
+        items = [PhotoItem(row["c"], name, product, False, None)]
+    return Photo(product, view, worn, zoom, items)
 
 
 def _sorted(rows: list[dict | None]):

@@ -1026,7 +1026,7 @@ def test_outfit_rules_name_the_images():
     assert "(for example" not in rules[5]
     assert rules[5].endswith(
         "Never copy any person, body or face from image_2.png, image_3.png "
-        "and image_4.png."
+        "and image_4.png. " + styling.ATTACHED
     )
     assert rules[9] == (
         "10. Output exactly one image of one person. No duplicates, split "

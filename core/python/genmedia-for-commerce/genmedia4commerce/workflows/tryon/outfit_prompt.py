@@ -137,7 +137,7 @@ RULE_ONLY = (
     "anything they hold or carry that is not a product (a phone, a cup, "
     "keys), even if {body}, a product image or a crop shows them: their "
     "hands are empty or hold only a product. Never copy any person, body "
-    "or face from {images}."
+    "or face from {images}. " + styling.ATTACHED
 )
 RULE_COVERED = (
     "Covered parts stay covered: when one product covers part of another, "
