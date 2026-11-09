@@ -2,6 +2,7 @@
 .gitignore
 .env
 .env.*
+!.env.example
 docs/
 artifacts/
 build/
