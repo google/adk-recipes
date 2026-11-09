@@ -409,6 +409,7 @@ class BigQueryJobFetcher(BaseFetcher):
         )
         self._memory_truncated = False
         self._rows_listed: dict[str, int] = {}
+        self._sample_sizes: dict[str, int] = {}
         self._recorder = recorder or NullTrajectoryRecorder()
         self._selector_sql = selector_sql
         self._selector_ai_model = selector_ai_model
@@ -1066,8 +1067,12 @@ class BigQueryJobFetcher(BaseFetcher):
         rows, next_page_token, total_rows = self._fetch_page_rows(
             execution_id, page_token
         )
-        if page_token is None and total_rows is not None:
+        if total_rows is not None and execution_id not in self._sample_sizes:
+            # Every page of a query reports the same table total, so count it
+            # once, from the first page that reports one.
+            self._sample_sizes[execution_id] = total_rows
             self.counts.sampled += total_rows
+        sample_size = self._sample_sizes.get(execution_id)
         listed = self._rows_listed.get(execution_id, 0) + len(rows)
         self._rows_listed[execution_id] = listed
         attempted_before = self._count_attempted_rows()
@@ -1082,9 +1087,9 @@ class BigQueryJobFetcher(BaseFetcher):
         )
         if unread_on_page > 0:
             # The pages after this one are never listed, so their rows are
-            # known only from the destination table's row count.
+            # known only from the query's sample size.
             unlisted = (
-                max(0, total_rows - listed) if total_rows is not None else 0
+                max(0, sample_size - listed) if sample_size is not None else 0
             )
             self.counts.unread += unread_on_page + unlisted
         if self._memory_truncated:

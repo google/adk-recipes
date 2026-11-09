@@ -530,6 +530,7 @@ def test_a_sweep_read_in_full_reports_nothing_unread(
         ctx, [_Recorder("one")], node_name="sweep", budget=100
     )
 
+    assert ctx.state["counters"]["trajectories_sampled"] == 2
     assert ctx.state["counters"]["trajectories_unread"] == 0
     assert lines == ["**one:** ok"]
 

@@ -448,10 +448,51 @@ def test_fetch_page_counts_the_stopped_page_when_the_total_is_unknown() -> None:
     fetcher = _make_fetcher(client)
     fetcher._memory_guard = lambda: True
 
-    fetcher.fetch_page("job-1", MetricType.MULTI_TURN)
+    page = fetcher.fetch_page("job-1", MetricType.MULTI_TURN)
 
+    assert page.memory_truncated is True
     assert fetcher.counts.sampled == 0
     assert fetcher.counts.unread == 3
+
+
+def test_fetch_page_counts_unlisted_rows_from_an_earlier_pages_total() -> None:
+    """A later page that reports no total still counts the unlisted rows.
+
+    Five rows sampled (reported by the first page only), two listed per page,
+    the guard firing before the second row of the second page: three rows
+    attempted, one left on the page, one never listed.
+    """
+    client = mock.MagicMock()
+    _configure_paging(
+        client,
+        page_rows=[_multi_turn_row(), _multi_turn_row()],
+        next_page_token="tok-next",
+        total_rows=5,
+    )
+    fetcher = _make_fetcher(client)
+    calls = {"n": 0}
+
+    def guard() -> bool:
+        calls["n"] += 1
+        return calls["n"] > 3
+
+    fetcher._memory_guard = guard
+    fetcher.fetch_page("job-1", MetricType.MULTI_TURN)
+
+    _configure_paging(
+        client,
+        page_rows=[_multi_turn_row(), _multi_turn_row()],
+        next_page_token="tok-last",
+        total_rows=None,
+    )
+    page = fetcher.fetch_page(
+        "job-1", MetricType.MULTI_TURN, page_token="tok-next"
+    )
+
+    assert page.memory_truncated is True
+    assert fetcher.counts.sampled == 5
+    assert fetcher.counts.ingested == 3
+    assert fetcher.counts.unread == 2
 
 
 def test_fetch_page_empty_destination_returns_no_cases() -> None:
