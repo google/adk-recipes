@@ -1658,8 +1658,11 @@ function baseFetch(metricsFn, extra = {}) {
   process.exit(1);
 });
 """
+        node_bin = shutil.which("node")
+        if not node_bin:
+            self.skipTest("Node.js runtime not available on PATH")
         proc = subprocess.run(
-            ["/usr/bin/node", "-e", node_script],
+            [node_bin, "-e", node_script],
             env={**os.environ, "REPO_ROOT": REPO_ROOT},
             capture_output=True,
             text=True,
@@ -2061,8 +2064,11 @@ function jsonResp(obj, ok = true, status = 200) {
   process.exit(1);
 });
 """
+        node_bin = shutil.which("node")
+        if not node_bin:
+            self.skipTest("Node.js runtime not available on PATH")
         proc = subprocess.run(
-            ["/usr/bin/node", "-e", node_script],
+            [node_bin, "-e", node_script],
             env={**os.environ, "REPO_ROOT": REPO_ROOT},
             capture_output=True,
             text=True,

@@ -1359,8 +1359,11 @@ def _run_node_frontend_vm(
         env["E2E_ENABLE_CHART"] = "1" if enable_chart else "0"
         env["E2E_RUN_BQ_CSV"] = "1" if run_bq_csv else "0"
         env["E2E_SESSION_ID"] = session_id
+        node_bin = shutil.which("node")
+        if not node_bin:
+            raise unittest.SkipTest("Node.js runtime not available on PATH")
         proc = subprocess.run(
-            ["/usr/bin/node", harness_path],
+            [node_bin, harness_path],
             env=env,
             capture_output=True,
             text=True,
