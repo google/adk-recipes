@@ -252,7 +252,7 @@ class InvestigationGoal:
     source: str = "unset"
     """``saved`` when read from goal.md; ``unset`` when none is saved;
     ``unreadable`` when goal.md could not be read or is over `GOAL_MAX_BYTES`,
-    so the run went without the goal the developer may have written; ``file``
+    so the investigation went without the goal the developer may have written; ``file``
     when the quality harness supplied it."""
 
     @property

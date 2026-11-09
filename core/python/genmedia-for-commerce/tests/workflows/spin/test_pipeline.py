@@ -316,7 +316,10 @@ async def test_the_shoe_clip_is_the_one_the_turn_check_returns(
     )
     assert fidelity.calls[0]["video"] == REVERSED
     # Already an animated WebP: not encoded again.
-    assert [e.media for e in events if e.type == "variation"] == [REVERSED]
+    [spin] = [e.media for e in events if e.type == "variation"]
+    assert spin == REVERSED
+    # The video model's MP4 goes with it, as it came (not reversed or cut).
+    assert spin.video is CLIP
 
 
 async def test_shoes_without_fidelity_views_publish_a_valid_spin(
@@ -561,6 +564,7 @@ async def test_a_product_spin_is_a_first_half_then_its_continuation(
     assert second["raw_parts"] == first["raw_parts"]  # the same references
     [variation] = [e for e in events if e.type == "variation"]
     assert variation.status == "ready" and variation.media == SPIN
+    assert variation.media.video == CLIP  # the whole continued video
 
 
 async def test_a_first_half_that_turns_back_is_made_again_before_continuing(
@@ -591,6 +595,8 @@ async def test_a_rejected_spin_is_continued_again_from_its_first_half(
         "evaluate_video_fidelity",
         lambda video, references, **kw: next(verdicts),
     )
+    video, made = fake_gen._responders["video"][0], []
+    fake_gen.video(lambda *a, **kw: made.append(video(*a, **kw)) or made[-1])
     events = await _collect(
         SpinRequest(images, policy=RunPolicy(num_variations=1))
     )
@@ -603,6 +609,7 @@ async def test_a_rejected_spin_is_continued_again_from_its_first_half(
     ]
     [variation] = [e for e in events if e.type == "variation"]
     assert variation.status == "ready"
+    assert variation.media.video is made[2]  # the spare's MP4, as it came
 
 
 async def test_the_spare_continuation_starts_before_the_verdict(
@@ -920,3 +927,52 @@ async def test_closeups_are_off_by_default(
     await _collect(SpinRequest(images, policy=RunPolicy(num_variations=1)))
     first = next(c for c in fake_gen.calls if c["fn"] == "generate_video")
     assert "close-up" not in first["prompt"]
+
+
+# ---------------------------------------------------------------- checks off
+
+
+def _unjudged(events) -> list:
+    """The variations, each passing unjudged with no score."""
+    variations = [e for e in events if e.type == "variation"]
+    for v in variations:
+        assert (v.status, v.verdict.description) == ("ready", "Not checked")
+        assert v.verdict.details == {"checked": False}
+    return variations
+
+
+async def test_with_check_videos_off_a_product_spin_is_only_turned_and_cut(
+    product, fidelity, fake_gen, monkeypatch, images
+):
+    """No frame labels, glitch call, judge or spare continuation: the
+    local rotation check still reverses an anticlockwise spin."""
+    product["rotation"] = "anticlockwise"
+    monkeypatch.setattr(core_video, "reverse", lambda clip: REVERSED)
+    monkeypatch.setattr(
+        product_check,
+        "label_frames",
+        lambda *_a: pytest.fail("frames labelled with the checks off"),
+    )
+    req = SpinRequest(
+        images, policy=RunPolicy(num_variations=1), check_videos=False
+    )
+    [variation] = _unjudged(await _collect(req))
+    assert variation.media == REVERSED
+    assert variation.media.video == CLIP  # not reversed
+    assert (product["glitches"], fidelity.calls) == ([], [])
+    calls = [c for c in fake_gen.calls if c["fn"] == "generate_video"]
+    assert [c["store"] for c in calls] == [True, False]  # no spare
+
+
+async def test_with_check_videos_off_a_shoe_spin_is_never_labelled(
+    shoes, fidelity, monkeypatch, images
+):
+    monkeypatch.setattr(motion, "check_rotation", lambda clip: "clockwise")
+    monkeypatch.setattr(
+        shoe_check,
+        "check_turn",
+        lambda clip: pytest.fail("frames labelled with the checks off"),
+    )
+    events = await _collect(SpinRequest(images, check_videos=False))
+    assert len(_unjudged(events)) == 3
+    assert fidelity.calls == []

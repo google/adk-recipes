@@ -27,7 +27,7 @@ Wiring::
     match_candidates_by_scope() ◄────────── BigQueryInsightStore
       └─► match_candidates(), per agent       │ query, load jobs
                                               ▼
-    RootCauseStore ─── load jobs ─────────► BigQuery ◄─ query ─ BigQueryInsightReader
+    BigQueryRootCauseStore ── load jobs ──► BigQuery ◄─ query ─ BigQueryInsightReader
       │ implements                                                │ implements
       ▼                                                           ▼
     RootCauseWriter (Protocol)                                  InsightReader (Protocol)
@@ -38,7 +38,7 @@ Wiring::
 A sweep's findings are clustered into labeled candidate issues (`clustering`)
 and correlated against what earlier sweeps recorded, so a recurring defect is
 tracked as one insight with history rather than resurfacing as a new finding
-every run. See `models` and `findings` for the vocabulary.
+every investigation. See `models` and `findings` for the vocabulary.
 """
 
 from ambient_quality_agent.tools.insights.bigquery_reader import (
@@ -56,11 +56,11 @@ from ambient_quality_agent.tools.insights.clustering import (
 from ambient_quality_agent.tools.insights.findings import Finding, FindingSet
 from ambient_quality_agent.tools.insights.merge import merge_clusters
 from ambient_quality_agent.tools.insights.models import (
+    FindingExample,
     Insight,
     InsightOccurrence,
     InsightStatus,
     InsightView,
-    RubricExample,
     mint_id,
 )
 from ambient_quality_agent.tools.insights.reader import InsightReader
@@ -71,6 +71,7 @@ __all__ = [
     "BigQueryInsightStore",
     "Cluster",
     "Finding",
+    "FindingExample",
     "FindingSet",
     "Insight",
     "InsightOccurrence",
@@ -78,7 +79,6 @@ __all__ = [
     "InsightStatus",
     "InsightStore",
     "InsightView",
-    "RubricExample",
     "attach_examples",
     "cluster_and_label",
     "merge_clusters",

@@ -16,10 +16,10 @@
 
 ``video_stage`` animates one image: its references, the plan, the zoomed
 details of the plan's close-ups, then ``Animation.videos`` videos, each
-checked by ``evaluate.evaluate_clip``. ``animate`` is one branch of an
+checked by ``evaluate.evaluate_clip`` (none with ``check_videos`` off). ``animate`` is the branch of an
 end-to-end run: the back view drawn from its front first (a single product
 with a back upload), then ``progress("image_selected")`` and the video
-stage. ``Streams`` runs the image stage and the branches at once and merges
+stage. ``Streams`` runs the image stage and the branch at once and merges
 their events; ``finish`` ranks every video of the run.
 """
 
@@ -46,9 +46,10 @@ from genmedia4commerce.core.runner import (
     RunPolicy,
     default_rank_key,
     run_variations,
+    skip_checks,
 )
 from genmedia4commerce.core.settings import get_settings
-from genmedia4commerce.core.types import Framing, Verdict
+from genmedia4commerce.core.types import Framing, Landmark, Verdict
 from genmedia4commerce.workflows.tryon import pipeline as tryon_pipeline
 from genmedia4commerce.workflows.tryon.types import Prepared
 from genmedia4commerce.workflows.video_tryon.evaluate import evaluate_clip
@@ -76,8 +77,7 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
-# Back images per animated image (the photo try-on draws num_variations):
-# up to 3 branches draw their back views at once.
+# Back images of the animated image (the photo try-on draws num_variations).
 BACK_VIEWS = 1
 
 NO_VIDEO = "No video was produced"
@@ -88,7 +88,8 @@ class Animation:
     """What every animated image of a run shares.
 
     ``req``: the request, with the product photos the try-on used;
-    ``framing``: of the try-on images; ``ahead``: the detail search started
+    ``framing``: of the try-on images; ``span``: their single garment's
+    (``ReferenceSet.span``); ``ahead``: the detail search started
     during the image stage (crops, not upscaled); ``backs``: what draws the
     back views (None, or no back upload: none). The counters number the
     back views and the videos across the run.
@@ -98,6 +99,7 @@ class Animation:
     params: VideoParams
     policy: RunPolicy
     framing: Framing | None = None
+    span: tuple[Landmark, Landmark] | None = None
     ahead: asyncio.Task | None = None
     backs: Prepared | None = None
     back_ids: Iterator[int] = field(default_factory=itertools.count)
@@ -198,7 +200,11 @@ async def video_stage(
             media.crop_face, req.animated_image
         )
         refs = await asyncio.to_thread(
-            build_references, req, face=reference_face, framing=anim.framing
+            build_references,
+            req,
+            face=reference_face,
+            framing=anim.framing,
+            span=anim.span,
         )
         request = req.prompt if req.motion == "custom" else None
         plan = await asyncio.to_thread(plan_animation, refs, request)
@@ -236,8 +242,9 @@ async def video_stage(
         return verdict, clip
 
     policy = anim.policy.replace(num_variations=count)
+    check = evaluate if req.check_videos else skip_checks
     variations = trace.scoped(
-        run_variations(policy, make, evaluate), stage="video"
+        run_variations(policy, make, check), stage="video"
     )
     async with contextlib.aclosing(variations):
         async for event in variations:
@@ -257,7 +264,7 @@ async def _back_view(
     if backs is None or backs.policy is None or image is None:
         logger.warning("video try-on: no back view to draw, front only")
         return
-    one = dataclasses.replace(  # several branches draw at once: 1 back each
+    one = dataclasses.replace(
         backs, policy=backs.policy.replace(num_variations=BACK_VIEWS)
     )
     drawn = trace.scoped(tryon_pipeline.back_view(one, image), stage="image")

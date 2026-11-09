@@ -303,7 +303,7 @@ def test_client_from_env_unconfigured(_clean_env):
 def test_agent_engine_command_wire(monkeypatch):
     calls: list[dict] = []
     _install_fake_httpx(
-        monkeypatch, calls, _FakeResp(json_data={"run_id": "r1"})
+        monkeypatch, calls, _FakeResp(json_data={"investigation_id": "r1"})
     )
 
     monkeypatch.setattr(ac, "get_adc_token", lambda: "tok")  # skip real ADC
@@ -311,16 +311,18 @@ def test_agent_engine_command_wire(monkeypatch):
         resource_id="projects/p/locations/us-central1/reasoningEngines/9"
     )
 
-    result = _run(c.post_command("investigations/get", {"run_id": "r1"}))
+    result = _run(
+        c.post_command("investigations/get", {"investigation_id": "r1"})
+    )
 
-    assert result == {"run_id": "r1"}
+    assert result == {"investigation_id": "r1"}
     # Container routes hang off the `reasoningEngines/v1` prefix and the
     # container's own `/api`. The standard `/v1` prefix answers 404.
     assert calls[0]["url"] == (
         "https://us-central1-aiplatform.googleapis.com/reasoningEngines/v1/"
         "projects/p/locations/us-central1/reasoningEngines/9/api/investigations/get"
     )
-    assert calls[0]["json"] == {"run_id": "r1"}
+    assert calls[0]["json"] == {"investigation_id": "r1"}
     # The deployed route is behind the platform's own IAM check, so the call
     # carries the caller's bearer token like every other engine request.
     assert calls[0]["headers"]["Authorization"] == "Bearer tok"

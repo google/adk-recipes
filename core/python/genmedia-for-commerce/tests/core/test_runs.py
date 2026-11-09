@@ -32,9 +32,10 @@ from genmedia4commerce.core.events import (
 )
 from genmedia4commerce.core.settings import get_settings
 from genmedia4commerce.core.testing import mp4_stub, png
+from genmedia4commerce.core.types import AnimatedImage
 
 IMAGE = png(8, 8, (1, 2, 3))
-BUCKET = "test-project-genmedia-for-commerce-media-payloads"
+BUCKET = "test-project-gfc-media"
 RUN = runs.RunRef(run_id="abcdef012345", session_id="tab-1", date="2026-01-02")
 FOLDER = "runs/2026-01-02/tab-1/abcdef012345"
 
@@ -289,6 +290,43 @@ async def test_gcs_object_name_and_extension(uploads, media, extra, name):
     await collect([variation(1, media, **extra)], mode="gcs")
 
     assert uploads[0]["path"] == f"{FOLDER}/outputs/{name}"
+
+
+WEBP = b"RIFF\x00\x00\x00\x00WEBPVP8 "
+
+
+@pytest.mark.asyncio
+async def test_gcs_saves_a_spins_mp4_next_to_its_webp(uploads):
+    clip = mp4_stub(frames=2)
+    spin = variation(3, AnimatedImage(WEBP, clip))
+
+    _, event = await collect([spin], mode="gcs")
+
+    webp, mp4 = uploads
+    assert webp["path"] == f"{FOLDER}/outputs/3.webp"
+    assert mp4["path"] == f"{FOLDER}/outputs/3.mp4"
+    assert mp4["data"] == clip and mp4["content_type"] == "video/mp4"
+    uri = f"gs://{BUCKET}/{FOLDER}/outputs/3.mp4"
+    assert (event.video_uri, event.video_url) == (uri, runs.media_url(uri))
+    assert event.to_dict()["video_url"] == runs.media_url(uri)
+
+
+@pytest.mark.asyncio
+async def test_a_failed_mp4_upload_keeps_the_webp(monkeypatch, uploads):
+    saved = gcs.upload
+
+    def upload(data, **kw):
+        if kw["path"].endswith(".mp4"):
+            raise RuntimeError("quota")
+        return saved(data, **kw)
+
+    monkeypatch.setattr(gcs, "upload", upload)
+    image = AnimatedImage(WEBP, mp4_stub(frames=2))
+
+    _, event = await collect([variation(0, image)], mode="gcs")
+
+    assert event.media_uri.endswith("/outputs/0.webp")
+    assert event.video_uri is None and event.video_url is None
 
 
 @pytest.mark.asyncio

@@ -36,6 +36,7 @@ class Models:
     video: str
     video_api_revision: str
     embed_catalog: str
+    assistant: str
 
 
 def _env(name: str, default: str) -> str:
@@ -51,9 +52,10 @@ def get_models() -> Models:
         judge=_env("GENMEDIA_JUDGE_MODEL", "gemini-4-argon"),
         studio_agent=_env("GENMEDIA_STUDIO_AGENT_MODEL", "gemini-4-argon"),
         image=_env("GENMEDIA_IMAGE_MODEL", "gemini-nano-banana-2.1"),
-        video=_env("GENMEDIA_VIDEO_MODEL", "gemini-omni-1.1-flash-preview"),
+        video=_env("GENMEDIA_VIDEO_MODEL", "gemini-omni-1.2-flash"),
         video_api_revision=_env("GENMEDIA_VIDEO_API_REVISION", "2026-05-20"),
         embed_catalog=_env(
             "GENMEDIA_EMBED_CATALOG_MODEL", "gemini-embedding-001"
         ),
+        assistant=_env("GENMEDIA_ASSISTANT_MODEL", "gemini-3.8-flash"),
     )

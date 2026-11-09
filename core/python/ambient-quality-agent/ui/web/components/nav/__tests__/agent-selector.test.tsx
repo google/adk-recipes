@@ -30,7 +30,7 @@ describe("resolveAgentSwitchPath", () => {
     ["/", "/"],
     ["/insights", "/insights"],
     ["/insights/i-1", "/insights"],
-    ["/investigations/r-1/cases/c-1", "/investigations"],
+    ["/investigations/r-1/trajectories/c-1", "/investigations"],
     ["/config", "/config"],
     ["/c", "/c"],
   ])("leaves %s for %s", (from, to) => {
@@ -54,7 +54,7 @@ describe("AgentSelector", () => {
     expect(screen.queryByRole("button")).toBeNull();
   });
 
-  it("names the agent from the runs before the list loads", () => {
+  it("names the agent from the investigations before the list loads", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(() => new Promise<Response>(() => {})),

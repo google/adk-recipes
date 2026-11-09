@@ -25,8 +25,8 @@ import pytest
 
 from genmedia4commerce.core.types import Verdict
 from genmedia4commerce.eval import (
+    clip_check,
     garment,
-    identity,
     motion,
     orientation,
     outfit,
@@ -54,9 +54,11 @@ CONTRACT = {
         ("wearer", KW, None),
         ("face", KW, None),
     ],
-    identity.same_person: [
+    clip_check.check_clip: [
         ("frames", POS, NO),
-        ("reference_face", POS, NO),
+        ("front", POS, NO),
+        ("back", POS, None),
+        ("face", POS, None),
     ],
     orientation.label_frames: [
         ("frames", POS, NO),

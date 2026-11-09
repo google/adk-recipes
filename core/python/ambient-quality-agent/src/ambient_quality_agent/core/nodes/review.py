@@ -23,10 +23,11 @@ library turns them on and publishing none leaves the reviewer running alone.
 
 from __future__ import annotations
 
+import contextvars
 import hashlib
 import logging
 from concurrent import futures
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from ambient_quality_agent.core._logging import log_node_run
 from ambient_quality_agent.core.nodes import (
@@ -43,14 +44,18 @@ from ambient_quality_agent.tools.agent_revision import (
 )
 from ambient_quality_agent.tools.documents.goal import InvestigationGoal
 from ambient_quality_agent.tools.evaluation.results import build_outcome_keys
-from ambient_quality_agent.tools.insights.findings import Finding, FindingSet
-from ambient_quality_agent.tools.review import session_review
+from ambient_quality_agent.tools.insights.findings import (
+    Finding,
+    FindingSet,
+    extract_trajectory_turns,
+)
+from ambient_quality_agent.tools.review import agentic_reviewer
 from google.adk.agents.context import Context
 from google.adk.events.event import Event
 from google.adk.workflow import node
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Mapping
+    from collections.abc import Mapping
 
     from ambient_quality_agent.tools.ingestion.models import Page
 
@@ -61,6 +66,9 @@ NODE_NAME = "review"
 
 REVIEW_CONCURRENCY = 8
 """Maximum concurrent session review requests per page."""
+
+_CaseResult = tuple[list[Finding], list[AgentRevision], Exception | None]
+"""One review's findings, agent configurations, and error, if any."""
 
 
 @node(name=NODE_NAME)
@@ -84,9 +92,9 @@ def review_node(ctx: Context) -> Event:
             NODE_NAME,
         )
 
-    # Read once, so every session in the run is reviewed with the same goal.
+    # Read once, so every session in the investigation is reviewed with the same goal.
     goal = _common.goal_loader(ctx)
-    section = session_review.render_goal_section(goal.text)
+    section = agentic_reviewer.render_goal_section(goal.text)
     state["goal"] = {
         "version": goal.version,
         "source": goal.source,
@@ -101,10 +109,10 @@ def review_node(ctx: Context) -> Event:
     # metrics are evaluated on ingested pages, while an empty or failed library
     # leaves review running alone.
     #
-    # TODO(b/558291983): Decouple custom metrics into an independent producer
+    # TODO: Decouple custom metrics into an independent producer
     # node once shared ingestion caching is available.
     evaluations: list[_sweep.Evaluation] = [
-        ReviewEvaluation(_common.reviewer_factory(ctx), goal)
+        ReviewEvaluation(_common.session_reviewer_factory(ctx), goal)
     ]
     library, warning = _common.metric_library_factory(ctx)
     # Register evaluation pass even with only declined or refused metrics so finish()
@@ -131,12 +139,12 @@ def review_node(ctx: Context) -> Event:
 
 
 class ReviewEvaluation:
-    """Reviews each page with one model call per session."""
+    """Reviews each page with one session reviewer run per session."""
 
     name = "session_review"
 
     def __init__(
-        self, reviewer: Callable[[str], str], goal: InvestigationGoal
+        self, reviewer: _common.SessionReviewFn, goal: InvestigationGoal
     ) -> None:
         self._reviewer = reviewer
         self._goal = goal
@@ -166,7 +174,10 @@ class ReviewEvaluation:
 
     def finish(self, state: ADKStateLike) -> None:
         tally = self._tally
-        # Fail the sweep if every session review errored, indicating an infrastructure outage.
+        # Fail the sweep if every review errored and at least one error was
+        # not an unparsable reply, which indicates an infrastructure outage.
+        # An unparsable reply is the model's output failing, not the service,
+        # so `first_error` never holds one.
         if tally.first_error is not None and tally.errored == tally.reviewed:
             raise tally.first_error
 
@@ -195,20 +206,21 @@ class ReviewStats:
         self.errored = 0
         self.findings = 0
         self.first_error: Exception | None = None
-        """First encountered review exception, re-raised if all reviews fail."""
+        """First review exception other than an unparsable reply, re-raised if
+        all reviews fail."""
 
 
 def _review_page(
     state: ADKStateLike,
     page: Page,
     revision_cache: AgentRevisionCache,
-    reviewer: Callable[[str], str],
+    reviewer: _common.SessionReviewFn,
     tally: ReviewStats,
     *,
     outcomes: dict[str, str],
     goal: str,
 ) -> None:
-    """Review sessions in a page and append resulting FindingSet to state.
+    """Review turns_by_trajectory in a page and append resulting FindingSet to state.
 
     The page carries the deployment revision each session ran on, which keys the
     agent-configuration cache and attributes findings to release builds.
@@ -217,7 +229,7 @@ def _review_page(
         state: Workflow execution state.
         page: Ingested telemetry page.
         revision_cache: Cache for agent instructions and tool configurations.
-        reviewer: Reviewer model callable.
+        reviewer: Session reviewer run for every session.
         tally: Statistics tracker for review outcomes.
         outcomes: Dictionary collecting per-case outcome statuses.
         goal: The developer's goal every session is reviewed with; empty for none.
@@ -233,22 +245,28 @@ def _review_page(
         len(eval_cases),
     )
     with futures.ThreadPoolExecutor(max_workers=REVIEW_CONCURRENCY) as pool:
-        results = list(
-            pool.map(
-                lambda case: _review_case(
-                    case,
-                    revisions,
-                    revision_cache,
-                    reviewer,
-                    session_review_focus=focus,
-                    goal=goal,
-                ),
-                eval_cases,
+        # Each review runs in its own copy of this thread's context, so its
+        # telemetry spans are children of the node's span and its log records
+        # carry the investigation ID. A context cannot be entered by two
+        # threads at once, so every review gets a fresh copy.
+        submitted = [
+            pool.submit(
+                contextvars.copy_context().run,
+                _review_case,
+                case,
+                revisions,
+                revision_cache,
+                reviewer,
+                session_review_focus=focus,
+                goal=goal,
             )
-        )
+            for case in eval_cases
+        ]
+        # ty cannot infer the return type through `Context.run`.
+        results = [cast("_CaseResult", future.result()) for future in submitted]
 
     findings: list[Finding] = []
-    sessions: dict[str, list[dict]] = {}
+    turns_by_trajectory: dict[str, list[dict]] = {}
     agent_revisions: dict[str, list[AgentRevision]] = {}
     keys = build_outcome_keys(eval_cases, tally.reviewed)
     # Preserve deterministic page order when aggregating findings across threads.
@@ -256,12 +274,14 @@ def _review_page(
         zip(eval_cases, results, strict=True)
     ):
         tally.reviewed += 1
-        case_id = str(getattr(eval_case, "eval_case_id", "") or "")
+        trajectory_id = str(getattr(eval_case, "eval_case_id", "") or "")
         outcome_key = keys[position]
         if error is not None:
             tally.errored += 1
             outcomes[outcome_key] = "errored"
-            if tally.first_error is None:
+            if tally.first_error is None and not isinstance(
+                error, agentic_reviewer.UnparsableReplyError
+            ):
                 tally.first_error = error
             continue
         if not found:
@@ -270,20 +290,19 @@ def _review_page(
             continue
         tally.failed += 1
         outcomes[outcome_key] = "failed"
-        session_id = case_id
-        revision = revisions.get(session_id, "")
+        revision = revisions.get(trajectory_id, "")
         findings.extend(
             finding.model_copy(update={"agent_revision": revision})
             if revision
             else finding
             for finding in found
         )
-        if session_id and session_id not in sessions:
-            sessions[session_id] = session_review.extract_session_turns(
+        if trajectory_id and trajectory_id not in turns_by_trajectory:
+            turns_by_trajectory[trajectory_id] = extract_trajectory_turns(
                 eval_case
             )
             if case_revisions:
-                agent_revisions[session_id] = case_revisions
+                agent_revisions[trajectory_id] = case_revisions
 
     tally.findings += len(findings)
     tally.pages += 1
@@ -292,7 +311,7 @@ def _review_page(
         *(state.get("finding_sets") or []),
         FindingSet(
             findings=findings,
-            sessions=sessions,
+            turns_by_trajectory=turns_by_trajectory,
             agent_revisions=agent_revisions,
         ).model_dump(),
     ]
@@ -305,11 +324,11 @@ def _review_case(
     eval_case: Any,
     revisions: Mapping[str, str],
     revision_cache: AgentRevisionCache,
-    reviewer: Callable[[str], str],
+    reviewer: _common.SessionReviewFn,
     *,
     session_review_focus: str,
     goal: str,
-) -> tuple[list[Finding], list[AgentRevision], Exception | None]:
+) -> _CaseResult:
     """Review one session, returning findings, configurations, and any error.
 
     Errors are returned rather than raised to isolate individual failures.
@@ -318,23 +337,22 @@ def _review_case(
         eval_case: Individual evaluation case representing a conversation.
         revisions: Mapping of session IDs to agent revision strings.
         revision_cache: Cache for parsed agent configurations.
-        reviewer: Reviewer model callable.
+        reviewer: Session reviewer run for the session.
         session_review_focus: Review focus prompt instructions.
         goal: The developer's goal to review with; empty for none.
 
     Returns:
         Tuple of (extracted findings, agent revisions, caught exception or None).
     """
-    session_id = str(getattr(eval_case, "eval_case_id", "") or "")
+    trajectory_id = str(getattr(eval_case, "eval_case_id", "") or "")
     try:
         case_revisions = revision_cache.build_revisions(
-            eval_case, revisions.get(session_id, "")
+            eval_case, revisions.get(trajectory_id, "")
         )
         return (
-            session_review.extract_findings(
+            reviewer(
                 eval_case,
                 case_revisions,
-                reviewer,
                 session_review_focus=session_review_focus,
                 goal=goal,
             ),
@@ -347,5 +365,8 @@ def _review_case(
             NODE_NAME,
             getattr(eval_case, "eval_case_id", "<unknown>"),
             exc,
+            # An unparsable reply is an expected model outcome, and the
+            # reviewer already logs it.
+            exc_info=not isinstance(exc, agentic_reviewer.UnparsableReplyError),
         )
         return [], [], exc

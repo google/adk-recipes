@@ -718,16 +718,24 @@ def test_every_example_clears_the_table_guard(source: str, sql: str) -> None:
     """Verifies that all examples pass the runtime table guard for their source."""
     cfg = _config(source)
     table_id = selector.resolve_selector_table_id(source, cfg.telemetry_table)
+    # The tables `completions_view` joins, which a selector may not name.
+    view_base_tables = (
+        frozenset(
+            {
+                (cfg.telemetry_dataset, cfg.telemetry_table),
+                (cfg.telemetry_dataset, "completions"),
+            }
+        )
+        if source == selector.CLOUD_LOGGING_SOURCE
+        else frozenset()
+    )
 
     assert (
         selector.find_table_violation(
             sql,
             dataset=cfg.telemetry_dataset,
             selector_table_id=table_id,
-            other_table_ids=selector.resolve_selector_footprint(
-                source, cfg.telemetry_table
-            )
-            - {table_id},
+            other_tables=view_base_tables,
         )
         is None
     )
@@ -933,11 +941,11 @@ def test_the_skill_gives_a_markdown_template_for_linking_every_example(
     instructions = _flat(_read_instructions(source))
 
     assert (
-        "- [<trajectory_id>](<case_view_path>) -- <turn_count> turns -- "
+        "- [<trajectory_id>](<trajectory_view_path>) -- <step_count> turns -- "
         '"<first_user_message>" -- [Cloud Trace](<trace_url>)' in instructions
     )
     assert (
-        "Every example gets its `case_view_path` link, every time."
+        "Every example gets its `trajectory_view_path` link, every time."
         in instructions
     )
     assert (

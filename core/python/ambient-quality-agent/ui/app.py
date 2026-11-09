@@ -51,11 +51,11 @@ rather than a chat turn, so the UI never depends on the LLM to route a click.
 Endpoints
 ---------
 GET  /                          -> the dashboard shell (static_v2/index.html)
-GET  /api/config                -> {config: {...}} -- the effective configuration
-GET  /api/investigations        -> {runs: [...]} for the investigations table
-POST /api/investigations        -> start a run -> {run: {...}} | {ok: true} | {error}
-GET  /api/stats                 -> {stats: {...}} totals across every run
-GET  /api/investigations/{id}   -> {run: {...}} for one run
+GET  /api/config                -> {config: {...}, starter_selector} -- the effective configuration
+GET  /api/investigations        -> {investigations: [...]} for the investigations table
+POST /api/investigations        -> start one -> {investigation: {...}} | {ok: true} | {error}
+GET  /api/stats                 -> {stats: {...}} totals across every investigation
+GET  /api/investigations/{id}   -> {investigation: {...}} for one investigation
 GET  /api/daily                 -> {days: [...]} per-day figures for the charts
 GET  /api/insights              -> {insights: [...], total, next_page_token}
 GET  /api/insights/{id}         -> {insight: {...}, occurrences: [...], next_page_token}
@@ -68,14 +68,18 @@ PUT  /api/schedule              -> the agent's reply -- change an attached agent
 POST /api/telemetry/check       -> {checks, filled, grants, refusal, ...} -- check a table
 PUT  /api/telemetry             -> the agent's reply -- change an attached agent's table
 POST /api/telemetry/grants      -> {recorded} -- record grants on an attachment
+POST /api/selector/check        -> {refusal, changes} -- check an investigation selector
+PUT  /api/selector              -> the agent's reply -- store or clear the selector
 GET  /api/source                -> {available, reason} -- can findings cite code
-GET  /api/investigations/{id}/cases/{case} -> {case: {...}} -- one conversation
+GET  /api/investigations/{id}/trajectories/{trajectory}
+                                -> {trajectory_bundle: {...}} -- one trajectory
 GET  /healthz                   -> liveness probe
 
 Every ``/api/*`` route but ``/api/agents`` reads the agent the dashboard has
 selected from an ``?agent_key=`` query parameter and passes it on in its
-command body (``PUT /api/schedule`` and the ``/api/telemetry`` routes take it
-in the request body). Without one, the agent answers for its default agent.
+command body (``PUT /api/schedule`` and the ``/api/telemetry`` and
+``/api/selector`` routes take it in the request body). Without one, the agent
+answers for its default agent.
 
 ``/`` serves the dashboard: ``/assets/*`` and any other file in the bundle are
 served beside it, every unclaimed path falls through to the shell so the
@@ -88,6 +92,7 @@ import functools
 import json
 import logging
 import os
+import re
 from collections.abc import AsyncIterator
 from typing import Any, TypeVar
 
@@ -124,15 +129,15 @@ from ambient_quality_shared.protocol import (
     MEMORIES_DELETE_ROUTE,
     MEMORIES_LIST_ROUTE,
     SOURCE_ROUTE,
-    TRAJECTORIES_CASE_ROUTE,
+    TRAJECTORY_BUNDLE_ROUTE,
     AgentKeyArgs,
     AttachAgentArgs,
     DeleteMemoryArgs,
     DismissInsightArgs,
-    GetCaseConversationArgs,
     GetInsightArgs,
     GetInvestigationArgs,
     GetSourceSnapshotArgs,
+    GetTrajectoryBundleArgs,
     ListInsightsArgs,
     MergeInsightArgs,
     RecordAppliedArgs,
@@ -312,7 +317,7 @@ async def serve_dashboard_shell() -> Response:
 # Routes catch failures into an ``{"error": ...}`` body (``/api/source`` into
 # ``{available, reason}``), which mutation routes pair with a 400/404/502 status,
 # so the UI degrades gracefully instead of surfacing a raw 5xx. Route ordering is irrelevant: FastAPI path
-# params don't span ``/``, so ``/{run_id}`` and its siblings never collide.
+# params don't span ``/``, so ``/{investigation_id}`` and its siblings never collide.
 # --------------------------------------------------------------------------- #
 
 _NOT_DEPLOYED = (
@@ -396,7 +401,11 @@ async def get_effective_config(request: Request) -> dict:
         request: Incoming HTTP request.
 
     Returns:
-        Dictionary containing the configuration object or an error message.
+        Dictionary containing the configuration object or an error message;
+        `starter_selector`, the SQL the selector editor starts from, when the
+        agent sends one; and `demo: true` when the agent serves generated
+        data, as the mock `make demo` runs does; a deployed agent never says
+        so.
     """
     try:
         result = await _get_backend_client().post_command(
@@ -407,7 +416,13 @@ async def get_effective_config(request: Request) -> dict:
     config = (result or {}).get("config")
     if not isinstance(config, dict):
         return {"error": "The agent returned no configuration."}
-    return {"config": config}
+    answer: dict[str, Any] = {"config": config}
+    starter = result.get("starter_selector")
+    if isinstance(starter, str):
+        answer["starter_selector"] = starter
+    if result.get("demo") is True:
+        answer["demo"] = True
+    return answer
 
 
 @app.get("/api/health")
@@ -502,8 +517,9 @@ _TELEMETRY_FIELDS = (
 """The attachment fields the telemetry card changes: the fields a user enters,
 plus the location and source filled in from the table.
 
-The dashboard changes only these and the schedule fields. Every other field is
-left to `aqua attach`, which discovers and checks them before storing them."""
+The dashboard changes only these, the schedule fields and the investigation
+selector. Every other field is left to `aqua attach`, which discovers and checks
+them before storing them."""
 
 _BINDING_FIELDS = frozenset({"resource", "role", "member"})
 """The keys of a grant recorded on an attachment."""
@@ -519,7 +535,7 @@ async def get_schedule(request: Request) -> dict:
 
     Returns:
         Dictionary with `available`, and the agent's key, name, cron, whether
-        its scheduled runs are on and when its attachment was last saved; or
+        its scheduled investigations are on and when its attachment was last saved; or
         `available: false` with the reason; or an error message when the agent
         cannot be reached.
     """
@@ -739,6 +755,137 @@ async def record_telemetry_grants(request: Request) -> Any:
     return {"recorded": len(granted)}
 
 
+_SELECTOR_FIELD = "investigation_selector_sql"
+
+_SELECTOR_REFUSAL_RE = re.compile(
+    rf"{_SELECTOR_FIELD} is refused \([a-z_]+\): (?P<explanation>.+)", re.DOTALL
+)
+"""Matches the refusal `commands._render_selector_refusal` renders."""
+
+_SELECTOR_MODE_REFUSAL = f"{_SELECTOR_FIELD} needs quality_analysis_mode"
+"""Starts the refusal `commands._validate_selector_mode` renders."""
+
+
+@app.post("/api/selector/check")
+async def check_selector(request: Request) -> Any:
+    """Checks whether an attached agent may store an investigation selector.
+
+    Asks the agent for an `aqua attach` dry run with the access check, which
+    also prechecks the selector in BigQuery. Nothing is stored.
+
+    Args:
+        request: Incoming HTTP request with a JSON body holding `agent_key`
+            and `investigation_selector_sql`.
+
+    Returns:
+        Why the selector cannot be saved (`refusal`, empty when it can) and
+        the changes a save would make; a 400 with the reason when the body or
+        the agent refuses the request for another reason; or a 502 when the
+        agent cannot be reached or sends nothing back.
+    """
+    body = await _read_selector_change(request)
+    if isinstance(body, JSONResponse):
+        return body
+    return await _check_selector(body["agent_key"], body[_SELECTOR_FIELD])
+
+
+@app.put("/api/selector")
+async def save_selector(request: Request) -> Any:
+    """Stores an investigation selector on an attached agent.
+
+    Checks a selector first, as `POST /api/selector/check` does, so that a
+    stale page or another client cannot store one every investigation refuses.
+
+    Args:
+        request: Incoming HTTP request with a JSON body holding `agent_key`
+            and `investigation_selector_sql`, empty to clear the selector.
+
+    Returns:
+        The changes, whether they were stored, and when; a 400 with the reason
+        when the body, the check or the agent refuses; or a 502 when the agent
+        cannot be reached or sends nothing back.
+    """
+    body = await _read_selector_change(request)
+    if isinstance(body, JSONResponse):
+        return body
+    agent_key, sql = body["agent_key"], body[_SELECTOR_FIELD]
+    if sql:
+        checked = await _check_selector(agent_key, sql)
+        if isinstance(checked, JSONResponse):
+            return checked
+        if checked["refusal"]:
+            return JSONResponse({"error": checked["refusal"]}, status_code=400)
+    return await _store_fields(agent_key, {_SELECTOR_FIELD: sql})
+
+
+async def _check_selector(
+    agent_key: str, sql: str
+) -> dict[str, Any] | JSONResponse:
+    """Asks the agent whether it may store a selector, without storing it.
+
+    Args:
+        agent_key: The attachment to check against.
+        sql: The selector to check.
+
+    Returns:
+        `{refusal, changes}`, with the refusal's explanation alone for a
+        refused selector and empty when it may be stored; a 400 with the
+        agent's message when it fails for another reason; or a 502 when the
+        agent cannot be reached or sends nothing back.
+    """
+    try:
+        plan = await _get_backend_client().post_command(
+            AGENTS_ATTACH_ROUTE,
+            AttachAgentArgs(
+                agent_key=agent_key,
+                fields={_SELECTOR_FIELD: sql},
+                dry_run=True,
+                check_access=True,
+            ),
+        )
+    except Exception as exc:
+        return JSONResponse({"error": _format_error(exc)}, status_code=502)
+    if not plan:
+        return JSONResponse(
+            {"error": "The agent returned no plan."}, status_code=502
+        )
+    if error := plan.get("error"):
+        # The card's heading already says the selector is refused.
+        if refused := _SELECTOR_REFUSAL_RE.search(error):
+            return {"refusal": refused["explanation"], "changes": []}
+        if _SELECTOR_MODE_REFUSAL in error:
+            return {"refusal": error, "changes": []}
+        return JSONResponse({"error": error}, status_code=400)
+    # The agent prechecks the selector only on a table it can read.
+    checks = (plan.get("access") or {}).get("checks") or []
+    return {
+        "refusal": _find_refusal(checks),
+        "changes": plan.get("changes") or [],
+    }
+
+
+async def _read_selector_change(
+    request: Request,
+) -> dict[str, Any] | JSONResponse:
+    """Reads the JSON body of a selector change.
+
+    Args:
+        request: Incoming HTTP request whose body names the agent in
+            `agent_key` and holds `investigation_selector_sql`.
+
+    Returns:
+        The body, or a 400 response saying what it lacks.
+    """
+    body = await _read_change(request)
+    if not isinstance(body, JSONResponse) and not isinstance(
+        body.get(_SELECTOR_FIELD), str
+    ):
+        return JSONResponse(
+            {"error": f"{_SELECTOR_FIELD} is required."}, status_code=400
+        )
+    return body
+
+
 async def _read_change(request: Request) -> dict[str, Any] | JSONResponse:
     """Reads the JSON body of a change to an attached agent.
 
@@ -891,34 +1038,39 @@ def _build_source_args(request: Request) -> GetSourceSnapshotArgs:
     return args
 
 
-@app.get("/api/investigations/{run_id}/cases/{case_id}")
-async def get_case_conversation(
-    run_id: str, case_id: str, request: Request
+@app.get("/api/investigations/{investigation_id}/trajectories/{trajectory_id}")
+async def get_trajectory_bundle(
+    investigation_id: str, trajectory_id: str, request: Request
 ) -> dict:
-    """Retrieves a full conversation trace for a specific evaluation case.
+    """Retrieves the trajectory bundle of one trajectory an investigation sampled.
 
-    Fetches the observed agent's user session rather than investigation run steps.
+    Fetches the observed agent's conversation rather than investigation steps.
 
     Args:
-        run_id: Investigation run identifier.
-        case_id: Evaluated conversation trajectory identifier.
+        investigation_id: Investigation identifier.
+        trajectory_id: Trajectory identifier.
         request: Incoming HTTP request.
 
     Returns:
-        Dictionary containing the case conversation or an error message.
+        Dictionary containing the trajectory bundle or an error message.
     """
     try:
         result = await _get_backend_client().post_command(
-            TRAJECTORIES_CASE_ROUTE,
+            TRAJECTORY_BUNDLE_ROUTE,
             _add_selected_agent(
-                GetCaseConversationArgs(trajectory_id=case_id, run_id=run_id),
+                GetTrajectoryBundleArgs(
+                    trajectory_id=trajectory_id,
+                    investigation_id=investigation_id,
+                ),
                 request,
             ),
         )
     except Exception as exc:
         return {"error": _format_error(exc)}
     if not result:
-        return {"error": f"No conversation returned for case {case_id!r}."}
+        return {
+            "error": f"No trajectory bundle returned for {trajectory_id!r}."
+        }
     if result.get("error"):
         return {"error": result["error"]}
     return result
@@ -926,16 +1078,16 @@ async def get_case_conversation(
 
 @app.get("/api/investigations")
 async def list_investigations(request: Request) -> dict:
-    """Lists investigation runs matching the optional time window.
+    """Lists investigations matching the optional time window.
 
     Forwards backend errors so storage read failures are not rendered as
-    empty run history.
+    empty investigation history.
 
     Args:
         request: Incoming HTTP request containing optional time window parameters.
 
     Returns:
-        Dictionary containing investigation runs and optional error message.
+        Dictionary containing investigations and optional error message.
     """
     try:
         result = await _get_backend_client().post_command(
@@ -943,26 +1095,26 @@ async def list_investigations(request: Request) -> dict:
             _add_selected_agent(_extract_window_args(request), request) or None,
         )
     except Exception as exc:
-        return {"runs": [], "error": _format_error(exc)}
+        return {"investigations": [], "error": _format_error(exc)}
     result = result or {}
-    runs = result.get("runs") or []
+    investigations = result.get("investigations") or []
     if result.get("error"):
-        return {"runs": runs, "error": result["error"]}
-    return {"runs": runs}
+        return {"investigations": investigations, "error": result["error"]}
+    return {"investigations": investigations}
 
 
 @app.post("/api/investigations")
 async def start_investigation(request: Request) -> dict:
-    """Starts an investigation run.
+    """Starts an investigation.
 
-    Schedules the execution job and returns the new run record or confirmation.
-    Prioritizes error reporting over run IDs if job submission fails.
+    Schedules the execution job and returns the new investigation record or confirmation.
+    Prioritizes error reporting over investigation IDs if job submission fails.
 
     Args:
         request: Incoming HTTP request.
 
     Returns:
-        Dictionary containing the scheduled run details, success confirmation, or error.
+        Dictionary containing the scheduled investigation details, success confirmation, or error.
     """
     try:
         result = await _get_backend_client().post_command(
@@ -973,14 +1125,14 @@ async def start_investigation(request: Request) -> dict:
         return {"error": _format_error(exc)}
     if result and result.get("error"):
         return {"error": result["error"]}
-    if result and result.get("run_id"):
-        return {"run": result}
+    if result and result.get("investigation_id"):
+        return {"investigation": result}
     return {"ok": True}
 
 
 @app.get("/api/stats")
 async def get_investigation_stats(request: Request) -> dict:
-    """Aggregates counter totals across investigation runs in the time window.
+    """Aggregates counter totals across investigations in the time window.
 
     Args:
         request: Incoming HTTP request with optional window boundaries.
@@ -1003,29 +1155,35 @@ async def get_investigation_stats(request: Request) -> dict:
     return {"stats": stats, "window": window}
 
 
-@app.get("/api/investigations/{run_id}")
-async def get_investigation_record(run_id: str, request: Request) -> dict:
-    """Retrieves an investigation run record with full event history.
+@app.get("/api/investigations/{investigation_id}")
+async def get_investigation_record(
+    investigation_id: str, request: Request
+) -> dict:
+    """Retrieves an investigation record with full event history.
 
     Args:
-        run_id: Identifier of the investigation run.
+        investigation_id: Identifier of the investigation.
         request: Incoming HTTP request.
 
     Returns:
-        Dictionary containing the investigation run record or error message.
+        Dictionary containing the investigation record or error message.
     """
     try:
         result = await _get_backend_client().post_command(
             INVESTIGATIONS_GET_ROUTE,
-            _add_selected_agent(GetInvestigationArgs(run_id=run_id), request),
+            _add_selected_agent(
+                GetInvestigationArgs(investigation_id=investigation_id), request
+            ),
         )
     except Exception as exc:
         return {"error": _format_error(exc)}
     if not result:
-        return {"error": f"No record returned for run {run_id!r}."}
-    if result.get("error") and not result.get("run_id"):
+        return {
+            "error": f"No record returned for investigation {investigation_id!r}."
+        }
+    if result.get("error") and not result.get("investigation_id"):
         return {"error": result["error"]}
-    return {"run": result}
+    return {"investigation": result}
 
 
 @app.get("/api/daily")
@@ -1061,7 +1219,7 @@ async def list_insights(request: Request) -> dict:
 
     Args:
         request: Incoming HTTP request with optional query filters (status,
-            runId, hasRootCause, pageToken, page, orderBy, pageSize, day,
+            investigationId, hasRootCause, pageToken, page, orderBy, pageSize, day,
             window).
 
     Returns:
@@ -1074,8 +1232,8 @@ async def list_insights(request: Request) -> dict:
     )
     if status := params.get("status"):
         args["status"] = status
-    if run_id := params.get("runId"):
-        args["run_id"] = run_id
+    if investigation_id := params.get("investigationId"):
+        args["investigation_id"] = investigation_id
     if has_root_cause := _encode_tri_state(params.get("hasRootCause")):
         args["has_root_cause"] = has_root_cause
     if page_token := params.get("pageToken"):
@@ -1224,7 +1382,7 @@ def _format_insight_for_v2(
         refined_label = str(occurrences[0].get("refined_label") or "")
     return {
         **insight,
-        "impact": insight.get("impact", insight.get("trace_count", 0)),
+        "impact": insight.get("impact", insight.get("trajectory_count", 0)),
         "diagnosis": diagnosis,
         "has_root_cause": diagnosed,
         "refined_label": refined_label,
@@ -1234,8 +1392,8 @@ def _format_insight_for_v2(
 def _format_occurrence_for_v2(occurrence: dict) -> dict:
     """Formats a sighting occurrence for the dashboard interface.
 
-    1. Projects `trajectory_ids` to `evidence_case_ids`.
-    2. Maps `trace_count` to `cases_checked`.
+    1. Projects `trajectory_ids` to `evidence_trajectory_ids`.
+    2. Maps `trajectory_count` to `trajectories_checked`.
     3. Populates Cloud Trace console links keyed by trajectory ID.
     4. Extracts `diagnosis` and `refined_label` from verification analyses without
        conflating autorater evaluations with human or agent diagnoses.
@@ -1247,8 +1405,12 @@ def _format_occurrence_for_v2(occurrence: dict) -> dict:
         Formatted occurrence dictionary for dashboard display.
     """
     view = dict(occurrence)
-    view.setdefault("evidence_case_ids", occurrence.get("trajectory_ids") or [])
-    view.setdefault("cases_checked", int(occurrence.get("trace_count") or 0))
+    view.setdefault(
+        "evidence_trajectory_ids", occurrence.get("trajectory_ids") or []
+    )
+    view.setdefault(
+        "trajectories_checked", int(occurrence.get("trajectory_count") or 0)
+    )
     view.setdefault("console_urls", _extract_console_urls(occurrence))
     view["root_causes"] = occurrence.get("root_causes") or []
     if not view.get("diagnosis"):
@@ -1264,7 +1426,7 @@ def _extract_console_urls(occurrence: dict) -> dict[str, str]:
     """Maps conversation trajectory IDs to their Cloud Trace console URLs.
 
     Returns a dictionary keyed by trajectory ID so caller-defined iteration order
-    in `evidence_case_ids` is preserved.
+    in `evidence_trajectory_ids` is preserved.
 
     Args:
         occurrence: Sighting occurrence record containing trajectory metadata.
@@ -1274,7 +1436,7 @@ def _extract_console_urls(occurrence: dict) -> dict[str, str]:
     """
     return {
         trajectory["trajectory_id"]: trajectory["console_url"]
-        for trajectory in occurrence.get("trajectories") or []
+        for trajectory in occurrence.get("investigation_trajectories") or []
         if trajectory.get("trajectory_id") and trajectory.get("console_url")
     }
 
@@ -1289,7 +1451,7 @@ async def get_insight_detail(insight_id: str, request: Request) -> dict:
     Args:
         insight_id: Unique insight identifier.
         request: Incoming HTTP request containing optional query parameters
-            (`runId`, `pageToken`, `includeTraces`).
+            (`investigationId`, `pageToken`, `includeTraces`).
 
     Returns:
         Dictionary containing the formatted insight, occurrences, root causes,
@@ -1298,7 +1460,7 @@ async def get_insight_detail(insight_id: str, request: Request) -> dict:
     params = request.query_params
     args = GetInsightArgs(
         insight_id=insight_id,
-        run_id=params.get("runId") or "",
+        investigation_id=params.get("investigationId") or "",
         page_token=params.get("pageToken") or "",
         include_traces=params.get("includeTraces") in ("1", "true"),
         # The links, without the conversations they link to. The panel shows

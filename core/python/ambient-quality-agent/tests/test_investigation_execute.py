@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for execution: running the graph and driving scheduled runs.
+"""Tests for execution: running the graph and driving scheduled investigations.
 
 `run_investigation_graph` runs the `investigation_workflow` graph and
 summarizes its results.
@@ -35,8 +35,8 @@ from ambient_quality_agent.tools.investigations.models import CustomOverrides
 from .conftest import (
     FakeGcsClient,
     StateContext,
-    create_run,
-    get_run,
+    create_investigation,
+    get_stored_investigation,
     make_config,
 )
 
@@ -79,7 +79,7 @@ def test_run_investigation_returns_done_summary(
     assert summary["single_turn_pages_evaluated"] == 1
     # The summary carries the workflow events (progress snippets), including the
     # insight_correlation node's per-sweep summary, so the orchestrator can
-    # surface what the run did. The run's findings live in the insight store.
+    # surface what the investigation did. The investigation's findings live in the insight store.
     events = summary["events"]
     assert any("MULTI_TURN evaluation" in e for e in events)
     assert any("SINGLE_TURN evaluation" in e for e in events)
@@ -117,21 +117,24 @@ def test_failure_path_returns_failed(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 _OVERRIDES = CustomOverrides(
-    selector_sql="SELECT session_id FROM t", session_review_focus="refund flows"
+    selector_sql="SELECT session_id FROM t", review_focus="refund flows"
 )
 
 
 def _seeded_state(
-    monkeypatch: pytest.MonkeyPatch, **kwargs: Any
+    monkeypatch: pytest.MonkeyPatch,
+    config: dict[str, Any] | None = None,
+    **kwargs: Any,
 ) -> dict[str, Any]:
     """Capture initial workflow state passed to a graph execution.
 
     Args:
         monkeypatch: Pytest monkeypatch fixture to mock the Runner.
+        config: The investigation's configuration snapshot; `_config()` if None.
         **kwargs: Additional keyword arguments passed to run_investigation_graph.
 
     Returns:
-        Dictionary of seeded state captured during the run.
+        Dictionary of seeded state captured during the investigation.
     """
     seen: dict[str, Any] = {}
 
@@ -156,7 +159,9 @@ def _seeded_state(
     monkeypatch.setattr(execute, "Runner", CapturingRunner)
     assert (
         asyncio.run(
-            execute.run_investigation_graph(_config(), **_WINDOW, **kwargs)
+            execute.run_investigation_graph(
+                config or _config(), **_WINDOW, **kwargs
+            )
         )["status"]
         == "done"
     )
@@ -172,18 +177,70 @@ def test_the_overrides_reach_the_graph_as_flat_state(
     )
 
     assert state["selector_sql"] == _OVERRIDES.selector_sql
-    assert state["session_review_focus"] == _OVERRIDES.session_review_focus
+    assert state["session_review_focus"] == _OVERRIDES.review_focus
     assert state["trigger_type"] == "custom"
 
 
 def test_an_ambient_sweep_seeds_the_overrides_empty(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Verify override keys default to empty strings during ambient runs."""
+    """Verify override keys default to empty strings during ambient investigations."""
     state = _seeded_state(monkeypatch)
 
     assert state["selector_sql"] == ""
     assert state["session_review_focus"] == ""
+
+
+_STORED_SELECTOR = (
+    "SELECT session_id AS target_id FROM d.t "
+    "WHERE ts BETWEEN @window_start AND @window_end AND agent = @agent_name"
+)
+
+
+@pytest.mark.parametrize(
+    "trigger_type", ["scheduled", "update", "task_fire", "manual"]
+)
+def test_a_run_without_overrides_reviews_what_the_stored_selector_picks(
+    monkeypatch: pytest.MonkeyPatch, trigger_type: str
+) -> None:
+    state = _seeded_state(
+        monkeypatch,
+        _config(investigation_selector_sql=_STORED_SELECTOR),
+        trigger_type=trigger_type,
+    )
+
+    assert state["selector_sql"] == _STORED_SELECTOR
+    assert state["session_review_focus"] == ""
+
+
+def test_a_custom_runs_own_selector_wins_over_the_stored_one(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state = _seeded_state(
+        monkeypatch,
+        _config(investigation_selector_sql=_STORED_SELECTOR),
+        custom_overrides=_OVERRIDES,
+        trigger_type="custom",
+    )
+
+    assert state["selector_sql"] == _OVERRIDES.selector_sql
+    assert state["session_review_focus"] == _OVERRIDES.review_focus
+
+
+def test_a_custom_focus_only_run_keeps_the_random_sample(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A focus is a custom investigation of its own: the user asked for that
+    focus over the usual sample, not over the stored selection."""
+    state = _seeded_state(
+        monkeypatch,
+        _config(investigation_selector_sql=_STORED_SELECTOR),
+        custom_overrides=CustomOverrides(review_focus="refund flows"),
+        trigger_type="custom",
+    )
+
+    assert state["selector_sql"] == ""
+    assert state["session_review_focus"] == "refund flows"
 
 
 def test_the_workflow_state_declares_what_is_seeded() -> None:
@@ -205,19 +262,25 @@ def test_a_dry_run_with_overrides_fails_the_run() -> None:
 
 
 def test_a_custom_run_is_not_worth_an_email() -> None:
-    """Verify completed custom runs suppress email notifications."""
+    """Verify completed custom investigations suppress email notifications."""
     counters = {"insights_created": 3}
 
-    assert execute._should_notify(runs.RunStatus.DONE, counters, "custom") == (
+    assert execute._should_notify(
+        runs.InvestigationStatus.DONE, counters, "custom"
+    ) == (
         False,
         "",
     )
     # Verify non-custom triggers retain standard notification behavior.
-    assert execute._should_notify(runs.RunStatus.DONE, counters, "scheduled")[0]
+    assert execute._should_notify(
+        runs.InvestigationStatus.DONE, counters, "scheduled"
+    )[0]
 
 
 def test_a_failed_custom_run_is_not_worth_an_email() -> None:
-    assert not execute._should_notify(runs.RunStatus.FAILED, {}, "custom")[0]
+    assert not execute._should_notify(
+        runs.InvestigationStatus.FAILED, {}, "custom"
+    )[0]
 
 
 # --- _summarize -------------------------------------------------------- #
@@ -286,19 +349,21 @@ def test_execute_investigation_drives_run_to_done(
     monkeypatch.setattr(execute, "run_investigation_graph", fake_graph)
 
     state: dict[str, Any] = {}
-    record = create_run(
+    record = create_investigation(
         state,
-        runs.InvestigationRecord(
-            status=runs.RunStatus.PENDING, effective_config={}
+        runs.Investigation(
+            status=runs.InvestigationStatus.PENDING, effective_config={}
         ),
     )
     ctx = StateContext(state)
 
-    result = asyncio.run(execute.execute_investigation(record.run_id, ctx))
+    result = asyncio.run(
+        execute.execute_investigation(record.investigation_id, ctx)
+    )
 
     assert result["status"] == "done"
-    persisted = get_run(state, record.run_id)
-    assert persisted.status == runs.RunStatus.DONE
+    persisted = get_stored_investigation(state, record.investigation_id)
+    assert persisted.status == runs.InvestigationStatus.DONE
     assert persisted.summary == {"k": "v"}
 
 
@@ -306,33 +371,33 @@ def test_run_investigation_threads_run_id_to_terminal_state(
     patched_factories: dict[str, Any],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # The seeded run_id survives the whole graph and is present in the terminal
+    # The seeded investigation_id survives the whole graph and is present in the terminal
     # state. `_summarize` is the single place handed the final state, so snapshot
     # it there to observe what the graph ended with.
     seen: dict[str, Any] = {}
     original = execute._summarize
 
     def _spy(state: dict[str, Any], config: Any) -> dict[str, Any]:
-        seen["run_id"] = state.get("run_id")
+        seen["investigation_id"] = state.get("investigation_id")
         return original(state, config)
 
     monkeypatch.setattr(execute, "_summarize", _spy)
 
     result = asyncio.run(
         execute.run_investigation_graph(
-            _config(), run_id="sweep-123", **_WINDOW
+            _config(), investigation_id="sweep-123", **_WINDOW
         )
     )
 
     assert result["status"] == "done"
-    assert seen["run_id"] == "sweep-123"
+    assert seen["investigation_id"] == "sweep-123"
 
 
 def test_execute_investigation_forwards_run_id_and_retry_reuses_it(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # execute_investigation forwards the record's run_id to the graph, and a
-    # retry (same run_id) forwards the SAME id -- which is what makes run-scoped
+    # execute_investigation forwards the record's investigation_id to the graph, and a
+    # retry (same investigation_id) forwards the SAME id -- which is what makes run-scoped
     # cleanup idempotent across retries.
     fake_graph = mock.AsyncMock(return_value={"status": "done", "summary": {}})
     monkeypatch.setattr(execute, "run_investigation_graph", fake_graph)
@@ -341,14 +406,14 @@ def test_execute_investigation_forwards_run_id_and_retry_reuses_it(
     record = _pending_run(state)
     ctx = StateContext(state)
 
-    asyncio.run(execute.execute_investigation(record.run_id, ctx))
-    asyncio.run(execute.execute_investigation(record.run_id, ctx))
+    asyncio.run(execute.execute_investigation(record.investigation_id, ctx))
+    asyncio.run(execute.execute_investigation(record.investigation_id, ctx))
 
     assert fake_graph.await_count == 2
     first_kwargs = fake_graph.await_args_list[0].kwargs
     second_kwargs = fake_graph.await_args_list[1].kwargs
-    assert first_kwargs["run_id"] == record.run_id
-    assert second_kwargs["run_id"] == record.run_id
+    assert first_kwargs["investigation_id"] == record.investigation_id
+    assert second_kwargs["investigation_id"] == record.investigation_id
 
 
 def test_execute_investigation_records_failure(
@@ -360,16 +425,21 @@ def test_execute_investigation_records_failure(
     monkeypatch.setattr(execute, "run_investigation_graph", fake_graph)
 
     state: dict[str, Any] = {}
-    record = create_run(
-        state, runs.InvestigationRecord(status=runs.RunStatus.PENDING)
+    record = create_investigation(
+        state, runs.Investigation(status=runs.InvestigationStatus.PENDING)
     )
 
     result = asyncio.run(
-        execute.execute_investigation(record.run_id, StateContext(state))
+        execute.execute_investigation(
+            record.investigation_id, StateContext(state)
+        )
     )
 
     assert result["status"] == "failed"
-    assert get_run(state, record.run_id).status == runs.RunStatus.FAILED
+    assert (
+        get_stored_investigation(state, record.investigation_id).status
+        == runs.InvestigationStatus.FAILED
+    )
 
 
 def test_execute_investigation_unknown_run() -> None:
@@ -383,28 +453,27 @@ def test_execute_investigation_unknown_run() -> None:
 # --- execute_investigation (idempotency marker, Phase 2.4) ------------ #
 
 
-def _pending_run(
-    state: dict[str, Any], **fields: Any
-) -> runs.InvestigationRecord:
+def _pending_run(state: dict[str, Any], **fields: Any) -> runs.Investigation:
     """Creates a PENDING investigation record with valid default effective configuration.
 
     Args:
         state: State dictionary to populate with the record.
-        **fields: InvestigationRecord field overrides.
+        **fields: Investigation field overrides.
 
     Returns:
-        Created InvestigationRecord instance.
+        Created Investigation instance.
     """
     fields.setdefault("effective_config", _config())
-    return create_run(
-        state, runs.InvestigationRecord(status=runs.RunStatus.PENDING, **fields)
+    return create_investigation(
+        state,
+        runs.Investigation(status=runs.InvestigationStatus.PENDING, **fields),
     )
 
 
 def test_execute_investigation_claims_marker_then_runs(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # An ambient run (idempotency key + jobs bucket) claims its marker and then
+    # An ambient investigation (idempotency key + jobs bucket) claims its marker and then
     # runs the graph -- the happy path is unchanged by the guard.
     fake_graph = mock.AsyncMock(
         return_value={"status": "done", "summary": {"k": "v"}}
@@ -421,12 +490,17 @@ def test_execute_investigation_claims_marker_then_runs(
     )
 
     result = asyncio.run(
-        execute.execute_investigation(record.run_id, StateContext(state))
+        execute.execute_investigation(
+            record.investigation_id, StateContext(state)
+        )
     )
 
     assert result["status"] == "done"
     fake_graph.assert_awaited_once()
-    assert get_run(state, record.run_id).status == runs.RunStatus.DONE
+    assert (
+        get_stored_investigation(state, record.investigation_id).status
+        == runs.InvestigationStatus.DONE
+    )
     # The marker was claimed under the hashed key path (the raw key is sha256'd
     # into the object name to bound length and sanitize the charset).
     object_name = (
@@ -438,8 +512,8 @@ def test_execute_investigation_claims_marker_then_runs(
 def test_execute_investigation_skips_duplicate_trigger(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # A redelivered trigger (fresh run_id, SAME idempotency key) finds the marker
-    # already present, so its run is SKIPPED and the graph runs only once.
+    # A redelivered trigger (fresh investigation_id, SAME idempotency key) finds the marker
+    # already present, so its investigation is SKIPPED and the graph runs only once.
     fake_graph = mock.AsyncMock(return_value={"status": "done", "summary": {}})
     monkeypatch.setattr(execute, "run_investigation_graph", fake_graph)
     fake_gcs = FakeGcsClient()  # one shared marker store across both runs
@@ -457,17 +531,22 @@ def test_execute_investigation_skips_duplicate_trigger(
         effective_config=_config(jobs_gcs_bucket="jobs"),
         idempotency_key="dup",
     )
-    assert first.run_id != second.run_id
+    assert first.investigation_id != second.investigation_id
 
-    first_result = asyncio.run(execute.execute_investigation(first.run_id, ctx))
+    first_result = asyncio.run(
+        execute.execute_investigation(first.investigation_id, ctx)
+    )
     second_result = asyncio.run(
-        execute.execute_investigation(second.run_id, ctx)
+        execute.execute_investigation(second.investigation_id, ctx)
     )
 
     assert first_result["status"] == "done"
     assert second_result == {"status": "skipped", "reason": "duplicate"}
-    assert get_run(state, second.run_id).status == runs.RunStatus.SKIPPED
-    fake_graph.assert_awaited_once()  # only the first run reached the graph
+    assert (
+        get_stored_investigation(state, second.investigation_id).status
+        == runs.InvestigationStatus.SKIPPED
+    )
+    fake_graph.assert_awaited_once()  # only the first investigation reached the graph
 
 
 def test_execute_investigation_crash_retry_reruns_despite_marker(
@@ -494,13 +573,18 @@ def test_execute_investigation_crash_retry_reruns_despite_marker(
     )
 
     result = asyncio.run(
-        execute.execute_investigation(record.run_id, StateContext(state))
+        execute.execute_investigation(
+            record.investigation_id, StateContext(state)
+        )
     )
 
     # Proceeded past the guard (RUNNING -> DONE) instead of being SKIPPED.
     assert result["status"] == "done"
     fake_graph.assert_awaited_once()
-    assert get_run(state, record.run_id).status == runs.RunStatus.DONE
+    assert (
+        get_stored_investigation(state, record.investigation_id).status
+        == runs.InvestigationStatus.DONE
+    )
 
 
 def test_execute_investigation_no_idempotency_key_skips_marker(
@@ -524,7 +608,9 @@ def test_execute_investigation_no_idempotency_key_skips_marker(
     )
 
     result = asyncio.run(
-        execute.execute_investigation(record.run_id, StateContext(state))
+        execute.execute_investigation(
+            record.investigation_id, StateContext(state)
+        )
     )
 
     assert result["status"] == "done"
@@ -548,7 +634,9 @@ def test_execute_investigation_no_bucket_skips_marker(
     record = _pending_run(state, idempotency_key="k")  # _config() has no bucket
 
     result = asyncio.run(
-        execute.execute_investigation(record.run_id, StateContext(state))
+        execute.execute_investigation(
+            record.investigation_id, StateContext(state)
+        )
     )
 
     assert result["status"] == "done"
@@ -578,10 +666,15 @@ def test_execute_investigation_failed_keeps_marker(
         idempotency_key="k1",
     )
 
-    result = asyncio.run(execute.execute_investigation(record.run_id, ctx))
+    result = asyncio.run(
+        execute.execute_investigation(record.investigation_id, ctx)
+    )
 
     assert result["status"] == "failed"
-    assert get_run(state, record.run_id).status == runs.RunStatus.FAILED
+    assert (
+        get_stored_investigation(state, record.investigation_id).status
+        == runs.InvestigationStatus.FAILED
+    )
     # The marker was NOT released: it survives and no delete was recorded.
     object_name = (
         f"aqa-idempotency-keys/{hashlib.sha256(b'k1').hexdigest()}.json"
@@ -601,11 +694,14 @@ def test_execute_investigation_failed_keeps_marker(
         idempotency_key="k1",
     )
     redelivery_result = asyncio.run(
-        execute.execute_investigation(redelivery.run_id, ctx)
+        execute.execute_investigation(redelivery.investigation_id, ctx)
     )
 
     assert redelivery_result == {"status": "skipped", "reason": "duplicate"}
-    assert get_run(state, redelivery.run_id).status == runs.RunStatus.SKIPPED
+    assert (
+        get_stored_investigation(state, redelivery.investigation_id).status
+        == runs.InvestigationStatus.SKIPPED
+    )
     fake_graph_ok.assert_not_awaited()  # the redelivery never reached the graph
 
 
@@ -625,10 +721,10 @@ def test_the_counters_carry_the_insight_tallies_the_alert_reads() -> None:
 
 
 def test_the_counters_report_no_insights_when_the_node_never_ran() -> None:
-    """A run that failed before correlation reports zeros, not missing keys.
+    """An investigation that failed before correlation reports zeros, not missing keys.
 
     `EXTRACT` copies a missing field into the mail as `NULL_VALUE`, so every
-    counter the policy labels on has to be present on every finished run.
+    counter the policy labels on has to be present on every finished investigation.
     """
     counters = execute._extract_counters({})
 

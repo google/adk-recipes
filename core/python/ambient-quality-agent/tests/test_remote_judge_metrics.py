@@ -298,7 +298,7 @@ def test_a_judge_shape_the_service_errors_on_every_session_is_refused_at_load(
     entry: dict[str, Any], said: str
 ) -> None:
     """Measured live: each of these 400s on every case, so the metric never
-    reaches a verdict and the run fails. Refused here by name instead, as a
+    reaches a verdict and the investigation fails. Refused here by name instead, as a
     remote function that visibly returns a mapping is."""
     library = load_library(
         _config({"name": "m", "prompt_template": _TEMPLATE, **entry})

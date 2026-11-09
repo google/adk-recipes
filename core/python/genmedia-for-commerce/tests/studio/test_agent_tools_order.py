@@ -181,6 +181,7 @@ async def test_settings_and_the_same_page_need_no_confirmation(
     assert not any("capability" in p for p in sc.out.patches)
     assert started[0]["settings"] == {
         "scenario": "a beach",
+        "num_variations": "3",  # the page's default
         "aspect_ratio": "1:1",
     }
 
@@ -210,19 +211,20 @@ async def test_generate_on_another_page_opens_it_and_asks(started) -> None:
 
 
 @pytest.mark.asyncio
-async def test_more_variations_need_confirmation_the_same_count_not(
+async def test_a_new_count_needs_confirmation_the_same_count_not(
     started,
 ) -> None:
     with scope(ready()) as sc:
-        assert at.update_settings(num_variations=3) == {
-            "settings": {"num_variations": "3"}
+        assert at.update_settings(num_variations=3) == {"settings": {}}
+        assert at.update_settings(num_variations=2) == {
+            "settings": {"num_variations": "2"}
         }
         assert await at.generate() == at.NEEDS_CONFIRMATION
     assert not started
-    with scope(sc.st):  # "yes, 3 variations": nothing changes, it starts
-        assert at.update_settings(num_variations=3) == {"settings": {}}
+    with scope(sc.st):  # "yes, 2 variations": nothing changes, it starts
+        assert at.update_settings(num_variations=2) == {"settings": {}}
         assert (await at.generate())["status"] == "started"
-    assert started[0]["settings"]["num_variations"] == "3"
+    assert started[0]["settings"]["num_variations"] == "2"
 
 
 @pytest.mark.asyncio
@@ -325,6 +327,28 @@ async def test_remake_video_asks_after_a_setup_in_its_turn(started) -> None:
 
 
 @pytest.mark.asyncio
+async def test_animate_photo_asks_first_and_opens_video_tryon(started) -> None:
+    results = [
+        {"uri": output("front-0.png"), "view": "front"},
+        {"uri": output("back-0.png"), "view": "back"},
+        {"uri": output("front-1.png")},
+    ]
+    with scope({**ready(), "results": {"tryon": results}}) as sc:
+        assert "2 result(s)" in (await at.animate_photo(3))["error"]
+        assert await at.animate_photo(2) == at.NEEDS_CONFIRMATION
+        assert sc.st["capability"] == "video_tryon"
+    assert not started
+    # The user confirms in the next turn: the second front is animated.
+    with scope(sc.st) as sc:
+        assert (await at.animate_photo(2))["status"] == "started"
+    assert started[0]["capability"] == "video_tryon"
+    assert started[0]["tryon_image"] == output("front-1.png")
+    # It replaces Video Try-On's page, as a full run does.
+    job = {"job_id": "j1", "capability": "video_tryon"}
+    assert sc.out.patches == [{"job_started": job}]
+
+
+@pytest.mark.asyncio
 async def test_remake_video_asks_from_another_page(started) -> None:
     with scope(with_images("tryon")) as sc:
         assert await at.remake_video(1) == at.NEEDS_CONFIRMATION
@@ -414,7 +438,10 @@ async def test_an_adk_turn_sets_up_and_the_next_one_generates(
     assert len(started) == 1
     assert started[0]["person"] == media("runs/studio_catalog/m_w1")
     assert started[0]["products"] == [tee_ref]
-    assert started[0]["settings"] == {"scenario": "a beach"}
+    assert started[0]["settings"] == {
+        "scenario": "a beach",
+        "num_variations": "3",
+    }
     assert out.patches == [
         {"job_started": {"job_id": "j1", "capability": "tryon"}}
     ]

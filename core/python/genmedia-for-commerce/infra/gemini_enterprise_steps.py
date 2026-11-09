@@ -42,8 +42,11 @@ DISPLAY_NAME = "GenMedia Studio"
 STUDIO_ACTIONS = ["studio_agent"]
 
 RELOAD_STEP = """
-Last step, in the console (it has no public API yet): Gemini Enterprise > Data stores > {name} ({cid}) > Actions > Reload custom actions, then enable {actions}.
+Last step, in the console (it has no public API): open the {name} connector's actions and click Reload custom actions, then press Enter here.
   {url}"""
+# After Enter, the reload can take a few seconds to show in the API.
+RELOAD_POLL_S = 5
+RELOAD_WAIT_S = 30
 
 
 def action_config(mcp_url: str) -> dict:
@@ -171,17 +174,28 @@ def actions_loaded(api: DiscoveryEngine, cid: str) -> bool:
 
 def wait_for_actions(api: DiscoveryEngine, cid: str) -> bool:
     """Make sure the Studio's action is loaded: reading the tools ("Reload
-    custom actions", ``refreshDataConnectorTools``) is console-only, so guide
-    the user until ``dynamicTools`` lists it. False when stdin is not a
-    terminal (the step is printed; the rest of the registration is done)."""
+    custom actions") is console-only (the console's unlisted
+    ``refreshDataConnectorTools`` answers 404 on the public endpoint, in
+    v1alpha and v1beta), so guide the user until ``dynamicTools`` lists it,
+    then enable it. False when stdin is not a terminal (the step is
+    printed; the rest of the registration is done)."""
     actions = ", ".join(STUDIO_ACTIONS)
     if not actions_loaded(api, cid):
-        url = console_url("gemini-enterprise/data-stores", api.project)
-        step = RELOAD_STEP.format(
-            name=DISPLAY_NAME, cid=cid, actions=actions, url=url
+        location = api.parent.split("/")[3]
+        page = f"locations/{location}/collections/{cid}/connector/actions"
+        url = console_url(f"gemini-enterprise/{page}", api.project)
+        step = RELOAD_STEP.format(name=DISPLAY_NAME, url=url)
+        retry = (
+            f"Gemini Enterprise does not list {actions} yet: click Reload "
+            "custom actions on the page above, then press Enter."
         )
-        retry = f"Gemini Enterprise does not list {actions} yet."
-        if not guide_user(step, lambda: actions_loaded(api, cid), retry):
+
+        def reloaded() -> bool:
+            return poll(
+                lambda: actions_loaded(api, cid), RELOAD_POLL_S, RELOAD_WAIT_S
+            )
+
+        if not guide_user(step, reloaded, retry):
             return False
         enable_actions(api, cid)  # idempotent: enabled even if not ticked
     logger.info("The Studio's action %s is loaded and enabled.", actions)

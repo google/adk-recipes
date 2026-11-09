@@ -1026,7 +1026,7 @@ def test_outfit_rules_name_the_images():
     assert "(for example" not in rules[5]
     assert rules[5].endswith(
         "Never copy any person, body or face from image_2.png, image_3.png "
-        "and image_4.png."
+        "and image_4.png. " + styling.ATTACHED
     )
     assert rules[9] == (
         "10. Output exactly one image of one person. No duplicates, split "
@@ -1243,7 +1243,7 @@ def test_every_system_asks_for_the_wearer_build(case, body, others):
         + (
             ""
             if case is single_footwear_back
-            else f" {STATE_POSE} {STATE_CHEST}"
+            else f" {STATE_POSE} {STATE_CHEST} {styling.WORN_STATE}"
         )
     )
 
@@ -1282,10 +1282,11 @@ def test_every_system_states_the_wearer_skin_shade_and_brightness(
         "skin tone, shade, undertone, and brightness/lightness of the wearer "
         f"in {skin_from} (for example: fair, light tan, medium warm "
         "golden-brown, or deep dark brown) and state that all of the "
-        "wearer's visible skin, the face included, keeps the exact skin "
-        f"brightness and warm/cool shade of {face} without darkening or lightening "
-        f"toward the skin tone of the people shown in {others}. The wearer's "
-        "identity and body come only from "
+        "wearer's visible skin, the face, hands, feet and toes in open shoes "
+        "included, keeps the exact skin brightness and warm/cool shade of "
+        f"{face} without darkening or lightening toward the skin tone of the "
+        f"people shown in {others}, and is never grey, white or plastic like "
+        "a mannequin's. The wearer's identity and body come only from "
     ) in system
     assert "never the skin tone or limbs" not in system
 

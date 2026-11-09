@@ -7,7 +7,7 @@ submitted against itself (`run_query_job` / `:asyncQuery`):
 2. The orchestrator runs the investigation inside a platform-managed
    long-running operation (LRO) lasting up to 7 days, surviving beyond the user
    session.
-3. The agent receives the self-issued `__RUN_INVESTIGATION__ <run_id>` message,
+3. The agent receives the self-issued `__RUN_INVESTIGATION__ <investigation_id>` message,
    executes the investigation graph, and writes results to `app:`-scoped session
    state.
 
@@ -192,7 +192,7 @@ while `BigQueryInsightStore` manages insights and occurrences.
 **Archiving a conversation is a critical write operation.** While other write
 errors are logged and skipped (costing only a single dashboard entry), losing an
 archived conversation discards the evidence backing an insight. Therefore,
-`BigQueryTrajectoryStore.record_payloads` retries and raises on failure. You
+`BigQueryTrajectoryStore.record_trajectory_bundles` retries and raises on failure. You
 must create both payload tables before deploying an engine that writes to them;
 otherwise, sweeps fail immediately.
 
@@ -330,9 +330,9 @@ gcloud storage ls -r "gs://your-gcp-project-aqua-jobs/aqa-jobs/"
 ```
 
 To verify an investigation interactively in chat:
-1. Request an investigation. The agent returns a `run_id` immediately with a
+1. Request an investigation. The agent returns an `investigation_id` immediately with a
    `pending` status.
-2. Check the status using `status of <run_id>`. The state transitions to
+2. Check the status using `status of <investigation_id>`. The state transitions to
    `running`.
 3. Check status again once the durable LRO completes; the state reports `done`
    along with an investigation summary.

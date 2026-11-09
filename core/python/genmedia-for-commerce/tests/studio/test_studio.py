@@ -199,8 +199,10 @@ async def test_resource_declares_app_mime_and_csp() -> None:
     dump = res.model_dump(by_alias=True, exclude_none=True, mode="json")
     assert dump["uri"] == studio.STUDIO_URI
     assert dump["mimeType"] == "text/html;profile=mcp-app"
-    csp = dump["_meta"]["ui"]["csp"]["resourceDomains"]
-    assert csp == ["https://storage.googleapis.com"]
+    csp = dump["_meta"]["ui"]["csp"]
+    assert csp["resourceDomains"] == ["https://storage.googleapis.com"]
+    # the panel PUTs uploads there with a signed URL
+    assert csp["connectDomains"] == ["https://storage.googleapis.com"]
     html = studio._HTML.read_text(encoding="utf-8")
     for needle in (
         "ui/update-model-context",
@@ -211,8 +213,25 @@ async def test_resource_declares_app_mime_and_csp() -> None:
         "Try again",
         "Spin sets",  # the spin picker: multi-view sets, no single photos
         "arr(p.thumbs)[i]",  # each view of a spin set shows its own image
+        "counts(st.expected)",  # placeholders for the variations still coming
+        "studio_upload_url",  # the original file straight into the bucket
+        "studio_upload_saved",
+        'method: "PUT"',
+        "Uploading…",  # each file shows where it will land until saved
+        "createImageBitmap(file)",  # previews without blob: URLs (CSP)
+        # a removal finds its item in the saved studio
+        "await settled()",  # a state read meanwhile never undoes pending actions
+        '"Animate")',  # a Photo Try-On result's videos, as a full run
+        'start("video_tryon", spec("video_tryon", uri), "")',
+        'gallery("spinSets"',  # spin sets folded until opened
+        "limited(4, send)",  # up to 4 uploads at once
+        '"source", "video_url"]',  # a spin's MP4
+        # only when the result has one
+        'safeUrl(r.video_url) ? el("a", { href: safeUrl(r.video_url)',
     ):
         assert needle in html
+    assert html.index('"Open")') < html.index('"Animate")')  # Open first
+    assert html.index('"Open")') < html.index('"Download video")')
 
 
 @pytest.mark.asyncio
@@ -236,6 +255,8 @@ async def test_every_tool_points_at_the_studio_and_one_reaches_the_model() -> (
         "studio_preview",
         "studio_gallery",
         "studio_upload",
+        "studio_upload_url",
+        "studio_upload_saved",
         "studio_catalog_search",
         "studio_job_start",
         "studio_job_status",
@@ -435,7 +456,10 @@ async def test_generate_starts_a_job_with_the_working_state(
     assert res == {"status": "started", "job_id": "j1", "capability": "tryon"}
     assert started[0]["person"] == upload("me.png")
     assert started[0]["products"] == [asset("c/A.jpg")]
-    assert started[0]["settings"] == {"scenario": "beach"}
+    assert started[0]["settings"] == {
+        "scenario": "beach",
+        "num_variations": "3",
+    }
     assert sc.out.patches[-1] == {
         "job_started": {"job_id": "j1", "capability": "tryon"}
     }
@@ -602,6 +626,14 @@ def test_job_passes_the_try_on_options() -> None:
 
 
 @pytest.mark.parametrize(
+    ("cap", "count"), [("tryon", 3), ("video_tryon", 3), ("spin", 1)]
+)
+def test_a_job_without_a_count_makes_its_page_default(cap, count) -> None:
+    spec = {"capability": cap, "studio_id": "s1", "settings": {}}
+    assert job_call.tool_call(spec)[1]["num_variations"] == count
+
+
+@pytest.mark.parametrize(
     ("settings", "motion"),
     [
         ({"motion": "catwalk"}, "auto"),  # saved before "auto"
@@ -765,7 +797,7 @@ async def test_try_again_jobs_run_their_workflow_refreshing_the_cache(
 
 
 @pytest.mark.asyncio
-async def test_video_job_shows_the_try_on_image_it_animates(
+async def test_video_job_shows_every_try_on_image(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     async def events():
@@ -801,7 +833,10 @@ async def test_video_job_shows_the_try_on_image_it_animates(
         output("image-front-0.png"),
         output("image-front-1.png"),
     ]
-    assert [i["uri"] for i in job["images"]] == [output("image-front-1.png")]
+    assert [i["uri"] for i in job["images"]] == [
+        output("image-front-0.png"),
+        output("image-front-1.png"),
+    ]
     assert [r["uri"] for r in job["results"]] == [output("video-0.mp4")]
 
 

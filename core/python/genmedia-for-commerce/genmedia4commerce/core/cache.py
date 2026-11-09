@@ -15,10 +15,10 @@
 """A cache of preprocessing results in the media bucket.
 
 An entry lives in the folder ``<prefix><key>/`` of the media bucket
-(``PRODUCT_CACHE``, for what comes from product photos only: nothing
-derived from a person photo is ever cached; top-level, so no image
-reference rule, ``gcs.resolve_image``, ``studio.media.allowed_ref`` or
-``GET /api/media``, ever reaches it). The key (``key``) hashes what the
+(``PRODUCT_CACHE`` and ``SPIN_CACHE``, for what comes from product photos
+only: nothing derived from a person photo is ever cached; top-level, so no
+image reference rule, ``gcs.resolve_image``, ``studio.media.allowed_ref``
+or ``GET /api/media``, ever reaches it). The key (``key``) hashes what the
 result depends on: the callers' parts (the input images' ``digest``,
 options, model ids), the format ``VERSION`` and the code
 (``code_fingerprint``: any change to the package's source starts a new
@@ -61,6 +61,7 @@ from genmedia4commerce.core.settings import get_settings
 
 __all__ = [
     "PRODUCT_CACHE",
+    "SPIN_CACHE",
     "VERSION",
     "Draft",
     "Lookup",
@@ -77,7 +78,8 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
-PRODUCT_CACHE = "product_cache/"
+PRODUCT_CACHE = "product_cache/"  # the photo try-on's
+SPIN_CACHE = "spin_cache/"  # the 360 spin's
 VERSION = 2  # 2: garments have a span (``Product.span``)
 _PACKAGE = Path(__file__).parents[1]
 _SOURCES = (".py", ".md", ".txt")  # code and prompts

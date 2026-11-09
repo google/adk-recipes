@@ -30,8 +30,8 @@ File-based TanStack Router routes in `src/routes/`, with the generated tree in
 | `index.tsx` → `/` | the home dashboard and its ask bar |
 | `c.tsx` → `/c` | the chat panel, with a typed `?id=` conversation param |
 | `investigations.index.tsx` | the sweep list |
-| `investigations.$runId.index.tsx` | one sweep: counters, step ledger, findings |
-| `investigations.$runId.cases.$caseId.tsx` | one trajectory, replayed turn by turn |
+| `investigations.$investigationId.index.tsx` | one sweep: counters, step ledger, findings |
+| `investigations.$investigationId.trajectories.$trajectoryId.tsx` | one trajectory, replayed turn by turn |
 | `insights.index.tsx` | the insight list, with merge and dismiss |
 | `insights.$insightId.tsx` | one insight: occurrences, rubrics, permalink |
 | `config.tsx` | the effective configuration, the goal and the memories |
@@ -140,7 +140,8 @@ feature at a time: a spotlight that glides to the feature and a callout that
 says what it is for. When the next feature lives on another page, a pointer
 clicks the link that leads there, so the reader learns the way. `?tour` in
 the address opens it on load, so a link can hand someone the tour —
-`make demo`, then `http://localhost:8080/?tour`, shows it on generated data.
+`make demo` prints `http://localhost:8080/?tour`, which shows every step on
+generated data, under a "Demo data" badge in the tab bar.
 
 The steps are in `components/tour/tour-steps.ts`. Each points at an element
 marked `data-tour="<name>"`, and a step whose page needs an id out of the data

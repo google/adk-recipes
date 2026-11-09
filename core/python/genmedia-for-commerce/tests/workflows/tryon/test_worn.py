@@ -118,7 +118,8 @@ def test_a_worn_photo_reaches_every_step_on_a_mannequin(
     assert [p.mannequin for p in c.photos] == [True, False]
     text = tp._text_parts(drawing)
     assert "PRODUCT A top item (photo on a mannequin, front view)" in text
-    assert "Take ONLY the top item from it." in text
+    assert f"Take {skin.ONLY_MANNEQUIN.format(what='top item')}." in text
+    assert "is not part of the product: where the product leaves skin" in text
     assert f"A — top item: worn untucked; {styling.FIT_MANNEQUIN}." in text
 
 
@@ -143,12 +144,17 @@ def test_an_outfit_and_its_look_photo_are_drawn_on_a_mannequin(
     text = tp._text_parts(drawing)
     assert (
         "- image_2.png — PRODUCT A (top item), shown on a mannequin: take "
-        "ONLY the top item from it; worn as in its REFERENCE CROP." in text
+        "ONLY the top item from it; the mannequin's body (its grey skin, "
+        "feet, toes, hands) is not part of the product: where the product "
+        "leaves skin bare, draw the wearer's own skin; worn as in its "
+        "REFERENCE CROP." in text
     )
     assert (
         "- image_4.png — REFERENCE CROP: PRODUCT A top item as worn on a "
         "mannequin, cropped from a photo of it; use it only for how it is "
-        "worn and for its details." in text
+        "worn and for its details. The mannequin's body (its grey skin, "
+        "feet, toes, hands) is not part of the products: where they leave "
+        "skin bare, draw the wearer's own skin." in text
     )
     assert "another person" not in text
     assert "different person" not in text

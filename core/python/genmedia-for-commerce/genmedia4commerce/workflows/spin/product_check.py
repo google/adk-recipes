@@ -47,7 +47,7 @@ from genmedia4commerce.eval import motion, video_fidelity
 from genmedia4commerce.workflows.spin.product_refs import PRODUCT_VIEWS
 from genmedia4commerce.workflows.spin.shoe_check import loop_end
 
-__all__ = ["evaluate", "label_frames", "read_close"]
+__all__ = ["evaluate", "label_frames", "read_close", "shape"]
 
 logger = logging.getLogger(__name__)
 
@@ -180,6 +180,15 @@ def _close_loop(
     if len(frames) - cut < 2:  # it already ends on (or next to) its best match
         return clip, None
     return core_video.trim(clip, start_frame=0, end_frame=cut), cut
+
+
+def shape(clip: bytes) -> bytes:
+    """A spin with its checks off: reversed when the rotation check finds it
+    anticlockwise, cut where it closes (``_close_loop``); no model call and
+    never rejected."""
+    if motion.check_rotation(clip) == "anticlockwise":
+        clip = core_video.reverse(clip)
+    return _close_loop(clip)[0]
 
 
 def _sampled(clip: bytes, refs: dict[str, bytes]):

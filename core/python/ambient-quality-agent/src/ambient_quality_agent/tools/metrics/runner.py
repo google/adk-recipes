@@ -34,8 +34,11 @@ from ambient_quality_agent.tools.evaluation.results import (
     build_outcome_keys,
     list_failed_rubric_verdicts,
 )
-from ambient_quality_agent.tools.insights.findings import Finding, FindingSet
-from ambient_quality_agent.tools.review import session_review
+from ambient_quality_agent.tools.insights.findings import (
+    Finding,
+    FindingSet,
+    extract_trajectory_turns,
+)
 from google.genai import types as genai_types
 
 if TYPE_CHECKING:
@@ -62,7 +65,7 @@ class Tally:
     passed: int = 0
     failed: int = 0
     errored: int = 0
-    """Cases where any metric errored, matching `traces_eval_errored`."""
+    """Cases where any metric errored, matching `trajectories_eval_errored`."""
 
     findings: int = 0
     scored_metrics: set[str] = dataclasses.field(default_factory=set)
@@ -131,18 +134,18 @@ def score_page(
         FindingSet containing all detected findings and turn histories.
     """
     findings: list[Finding] = []
-    sessions: dict[str, list[dict]] = {}
+    turns_by_trajectory: dict[str, list[dict]] = {}
 
     eval_cases = page.dataset.eval_cases or []
     keys = build_outcome_keys(eval_cases, tally.cases)
     for position, eval_case in enumerate(eval_cases):
-        session_id = str(getattr(eval_case, "eval_case_id", "") or "")
+        trajectory_id = str(getattr(eval_case, "eval_case_id", "") or "")
         case_findings, errored = _run_case(
-            eval_case, library, session_id, tally
+            eval_case, library, trajectory_id, tally
         )
         tally.cases += 1
         outcome_key = keys[position]
-        # Errors take precedence over failures to match traces_eval_errored alerting.
+        # Errors take precedence over failures to match trajectories_eval_errored alerting.
         if errored:
             tally.errored += 1
             tally.outcomes[outcome_key] = "errored"
@@ -153,20 +156,22 @@ def score_page(
             tally.passed += 1
             tally.outcomes[outcome_key] = "passed"
         if case_findings:
-            revision = page.revisions.get(session_id, "")
+            revision = page.revisions.get(trajectory_id, "")
             findings.extend(
                 f.model_copy(update={"agent_revision": revision})
                 if revision
                 else f
                 for f in case_findings
             )
-            if session_id and session_id not in sessions:
-                sessions[session_id] = session_review.extract_session_turns(
+            if trajectory_id and trajectory_id not in turns_by_trajectory:
+                turns_by_trajectory[trajectory_id] = extract_trajectory_turns(
                     eval_case
                 )
 
     tally.findings += len(findings)
-    return FindingSet(findings=findings, sessions=sessions)
+    return FindingSet(
+        findings=findings, turns_by_trajectory=turns_by_trajectory
+    )
 
 
 def merge_breakdown(
@@ -303,7 +308,7 @@ def _run_case(
             Finding(
                 expected_behavior=metric.expected,
                 actual_behavior=actual,
-                session_id=session_id,
+                trajectory_id=session_id,
             )
         )
     return findings, errored

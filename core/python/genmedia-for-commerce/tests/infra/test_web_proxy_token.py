@@ -210,6 +210,20 @@ def test_kill_pid_stops_the_watcher_and_the_proxy(fake, background):
     assert wait_for(lambda: _stopped(fake), 5)
 
 
+# A new service refuses genmedia-web for a minute (403) after a deploy
+@pytest.mark.parametrize(
+    "background", ["export FAKE_FORBIDDEN=2; "], indirect=True
+)
+def test_the_background_start_waits_until_the_service_lets_it_in(
+    fake, background
+):
+    out, watcher, _ = background
+    assert watcher, out
+    assert out.count("Waiting for the service to let the web app in") == 1
+    assert out.index("Waiting for") < out.index("is running in the background")
+    assert "still answers 403" not in out
+
+
 # SIGHUP ignored: the session leader's end alone, as when no hangup comes
 @pytest.mark.parametrize("background", ['trap "" HUP; '], indirect=True)
 def test_the_proxy_stops_when_the_terminal_session_ends(fake, background):

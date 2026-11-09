@@ -1,18 +1,16 @@
-/**
- * Copyright 2026 Google LLC
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     https://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2026 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
 // The inline SVG icons used in more than one place. Stroke icons inherit currentColor.
 import type { ReactNode } from "react";
@@ -62,12 +60,6 @@ export const UploadIcon = (p: IconProps) => (
   <Stroke {...p}>
     <path d="M2 17v2a2 2 0 002 2h16a2 2 0 002-2v-2" />
     <path d="M12 15V3M12 3L8 7M12 3L16 7" />
-  </Stroke>
-);
-export const DownloadIcon = (p: IconProps) => (
-  <Stroke {...p}>
-    <path d="M2 17v2a2 2 0 002 2h16a2 2 0 002-2v-2" />
-    <path d="M12 3v12M12 15l-4-4M12 15l4-4" />
   </Stroke>
 );
 export const SparkleIcon = (p: IconProps) => (

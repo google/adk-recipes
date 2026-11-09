@@ -16,8 +16,8 @@
 
 A video of one of its images (``source_run``) reuses it instead of
 classifying the products again and searching their close-ups: the
-classification (framing, each product's category and description), every
-photo of each product as the try-on used it (uploads cropped to the
+classification (framing, each product's category, description and span),
+every photo of each product as the try-on used it (uploads cropped to the
 product, reference-model crops), the one chosen for the drawing (its hero),
 and the close-ups found in its photos.
 ``payload`` is the classified event's payload;
@@ -44,6 +44,7 @@ from genmedia4commerce.core.types import (
     Category,
     Classification,
     Framing,
+    Landmark,
     Mode,
     Presentation,
     Product,
@@ -217,6 +218,15 @@ def _detail(entry: dict, files: Mapping[str, bytes]) -> Detail:
     )
 
 
+def _span(value: Any) -> tuple[Landmark, Landmark] | None:
+    """A recorded span; None when missing or not two landmarks."""
+    try:
+        start, end = value
+        return _choice(start, Landmark), _choice(end, Landmark)
+    except (TypeError, ValueError):
+        return None
+
+
 def _product(
     meta: dict, entry: dict, files: Mapping[str, bytes]
 ) -> tuple[Product, bytes, list[Detail] | None]:
@@ -224,6 +234,7 @@ def _product(
     refs = [_ref(r, files) for r in entry["refs"]]
     category = _choice(meta["category"], Category)
     product = Product(meta["id"], category, meta.get("description", ""), refs)
+    product.span = _span(meta.get("span"))
     found = entry.get("closeups")
     closeups = None if found is None else [_detail(d, files) for d in found]
     return product, best_upload(product).image, closeups

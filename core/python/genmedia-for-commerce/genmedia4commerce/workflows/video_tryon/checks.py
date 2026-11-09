@@ -19,12 +19,14 @@ Like the image try-on, the products are judged by the one-call outfit judge
 by its category; the judge lists defects per product, so one product cannot
 hide another (an older whole-outfit judge passed a bag with an invented
 padlock next to a good coat). The frames are the stillest of each half of
-the clip and the middle of each close shot (``pick_frames``), each with a
-view (``label_views``). One lite call lists the products each frame shows
-(``visible``); then one judge call per frame with every product it shows,
-all in parallel, each given ``JUDGE_CAP_S`` (``start_judges``,
-``collect``). A frame with no answer by then is "not checked", never a
-rejection. A product whose only findings are minor (``outfit.MINOR``: a
+the clip and the middle of each close shot (``pick_frames``). One judge
+call per frame gets every product, with its back photo when it has one;
+the judge says which side the frame shows and which products it shows
+(a product it does not show is no defect there). All run in parallel,
+each given ``JUDGE_CAP_S`` (``start_judges``, ``collect``). A frame with
+no answer by then is "not checked", never a rejection. A product shown on
+no answered frame but the close-ups is missing: one defect, ``MISSING``
+(``_mark_missing``). A product whose only findings are minor (``outfit.MINOR``: a
 fabric texture difference) passes its check and costs the score one
 imperfection per minor finding of its frame with the most (not per frame).
 ``summarize`` turns the checks into the verdict's parts.
@@ -35,14 +37,12 @@ import time
 from collections.abc import Sequence
 from concurrent.futures import Executor, Future
 from concurrent.futures import TimeoutError as FutureTimeout
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
-from genmedia4commerce.core import gen, media, video
-from genmedia4commerce.core.errors import EvalError, user_message
-from genmedia4commerce.core.gen import Part, TextParams
-from genmedia4commerce.core.models import get_models
+from genmedia4commerce.core import video
+from genmedia4commerce.core.errors import user_message
 from genmedia4commerce.core.types import Verdict
-from genmedia4commerce.eval import orientation, outfit
+from genmedia4commerce.eval import outfit
 from genmedia4commerce.workflows.tryon.evaluate import _eval_refs
 from genmedia4commerce.workflows.video_tryon.refs import (
     classified,
@@ -61,31 +61,20 @@ __all__ = [
     "Item",
     "collect",
     "frame_details",
-    "label_views",
-    "pairs",
     "pick_frames",
     "products",
     "start_judges",
     "summarize",
-    "visible",
 ]
 
 logger = logging.getLogger(__name__)
 
-JUDGE_CAP_S = 120  # seconds for each judge call, from when the judges start
+JUDGE_CAP_S = 45  # seconds for each judge call, from when the judges start
 SETTLE_S = 0.5  # a crossfade may blend a shot's first and last half second
 CLOSEUP_GAP_S = 0.5  # a close-up frame nearer a still frame is a repeat
-VISIBILITY_SIDE = 512
 MAX_NAMED = 4  # rejected checks named in the description
 OUTFIT = "outfit"
-NOTHING = "no product photo to check"
-
-VISIBILITY_SYSTEM = (
-    "You see the products of an outfit, one per line as 'id: name', then "
-    "{n} frames of a fashion video (FRAME_0 to FRAME_{last}). For each "
-    "frame, list the ids of the products visible in it, even partly (a "
-    "sleeve, a strap, the tip of a shoe). Return JSON only."
-)
+MISSING = "not visible in the video"
 
 
 @dataclass
@@ -93,10 +82,9 @@ class Item:
     """One product to check, with its references per view."""
 
     id: str  # its close-up name ("bag", "top 2"), or "outfit"
-    name: str  # what the visibility call calls it, e.g. "crossbody bag"
     product_filter: str | None  # its category; None: the whole outfit
-    front: list[bytes]  # for front, side and close-up frames
-    back: list[bytes]  # for back frames; empty: not judged there
+    front: list[bytes]  # its front photo
+    back: list[bytes]  # its back photo; empty: none
 
 
 @dataclass
@@ -107,31 +95,30 @@ class Frame:
     second: float
     image: bytes
     closeup: bool = False  # inside a detail shot
-    view: str = "front"
-    visible: list[str] = field(default_factory=list)  # ids of its items
+    view: str | None = None  # the side the judge saw; None: no answer
 
 
 def products(req: VideoTryOnRequest, refs: ReferenceSet) -> list[Item]:
     """One item per product, in order, photo sent to the video or not (a
     garment gets none: ``refs``).
 
-    A classified product is judged against its best upload of the view
-    (``tryon.evaluate._eval_refs``, no crops), on back frames only when it
-    has a back upload. Without uploads (a direct animation through the API
-    sends none), against its photo as the video gets it, on front frames.
-    Unclassified, each close-up against the photo sent to the video, on
-    front frames. With no product photo at all, the whole outfit is judged
-    against the try-on images, unfiltered.
+    A classified product is judged against its best front upload
+    (``tryon.evaluate._eval_refs``, no crops) and its best back upload
+    when it has one. Without uploads (a direct animation through the API
+    sends none), against its photo as the video gets it. Unclassified,
+    each close-up against the photo sent to the video. With no product
+    photo at all, the whole outfit is judged against the try-on images
+    (front and back), unfiltered.
     """
     sent = {c.name: refs.images[c.index] for c in refs.closeups}
-    items = [Item(n, n, n, [photo], []) for n, photo in sent.items()]
+    items = [Item(n, n, [photo], []) for n, photo in sent.items()]
     if classified(req):
         names = [name for name, _ in product_names(req)]
         items = [_item(req, k, name, sent) for k, name in enumerate(names)]
     if items:
         return items
     back = [req.back_image] if req.back_image else []
-    return [Item(OUTFIT, OUTFIT, None, [req.animated_image], back)]
+    return [Item(OUTFIT, None, [req.animated_image], back)]
 
 
 def _item(req: VideoTryOnRequest, k: int, name: str, sent: dict) -> Item:
@@ -140,7 +127,6 @@ def _item(req: VideoTryOnRequest, k: int, name: str, sent: dict) -> Item:
     back = any(r.view == "back" and r.source == "upload" for r in p.refs)
     return Item(
         name,
-        p.description or name,
         p.category,
         _eval_refs(p, "front") or [sent.get(name) or product_photo(req, k)],
         _eval_refs(p, "back") if back else [],
@@ -188,110 +174,26 @@ def pick_frames(
     return sorted(frames, key=lambda f: f.index)
 
 
-def label_views(frames: list[Frame], references: dict[str, bytes]) -> None:
-    """Set the view of each frame (one Gemini call, ``references`` guiding
-    it). A close-up is no back view: always "front". If labelling fails,
-    every frame is front."""
-    try:
-        labels = orientation.label_frames(
-            [f.image for f in frames], strategy="gemini", references=references
-        )
-    except Exception as exc:  # a lost view must not lose the video
-        logger.warning(f"frame views failed, all judged as front: {exc}")
-        labels = ["front"] * len(frames)
-    for f, label in zip(frames, labels, strict=True):
-        f.view = "front" if f.closeup else label
-
-
-def _visibility_schema(ids: list[str]) -> dict:
-    shown = {"type": "ARRAY", "items": {"type": "STRING", "enum": ids}}
-    row = {
-        "type": "OBJECT",
-        "properties": {"frame": {"type": "INTEGER"}, "visible": shown},
-        "required": ["frame", "visible"],
-    }
-    return {
-        "type": "OBJECT",
-        "properties": {"frames": {"type": "ARRAY", "items": row}},
-        "required": ["frames"],
-    }
-
-
-def visible(frames: Sequence[Frame], items: Sequence[Item]) -> list[list[str]]:
-    """The ids of the items each frame shows (one lite-model call).
-
-    The whole outfit needs no call: it is always shown. On a failure, or for
-    a frame the answer leaves out, every item counts: a check too many costs
-    a call, one too few lets a defect through.
-    """
-    ids = [item.id for item in items]
-    if not frames or all(item.product_filter is None for item in items):
-        return [ids for _ in frames]
-    lines = "\n".join(f"{item.id}: {item.name}" for item in items)
-    parts: list[Part] = [f"PRODUCTS:\n{lines}"]
-    for k, f in enumerate(frames):
-        parts += [f"FRAME_{k}:", media.resize_max(f.image, VISIBILITY_SIDE)]
-    system = VISIBILITY_SYSTEM.format(n=len(frames), last=len(frames) - 1)
-    try:
-        raw = gen.generate_json(
-            parts,
-            system=system,
-            schema=_visibility_schema(ids),
-            params=TextParams(model=get_models().text_lite, thinking="LOW"),
-        )
-        if not isinstance(raw, dict):
-            raise EvalError(f"not a JSON object: {raw!r:.200}")
-        answer = {
-            row["frame"]: [i for i in ids if i in row["visible"]]
-            for row in raw["frames"]
-        }
-    except Exception as exc:
-        logger.warning(f"visibility check failed, every product counts: {exc}")
-        return [ids for _ in frames]
-    return [answer.get(k, ids) for k in range(len(frames))]
-
-
-def pairs(
-    frames: Sequence[Frame], items: Sequence[Item]
-) -> list[tuple[Frame, Item, list[bytes]]]:
-    """(frame, item, references) to judge: each item on the frames showing
-    it, against its references for the frame's view (none: skipped). An item
-    no frame shows is judged on the first front frame, where every product
-    should show, so a vanished product cannot pass unchecked."""
-    seen = {i for f in frames for i in f.visible}
-    first = next((f for f in frames if f.view != "back"), None)
-    found = []
-    for f in frames:
-        for item in items:
-            refs = item.back if f.view == "back" else item.front
-            shown = item.id in f.visible or (item.id not in seen and f is first)
-            if shown and refs:
-                found.append((f, item, refs))
-    return found
-
-
 def start_judges(
-    pool: Executor, judged: list[tuple[Frame, Item, list[bytes]]]
+    pool: Executor, frames: Sequence[Frame], items: Sequence[Item]
 ) -> list[tuple[Frame, list[Item], Future]]:
-    """Submit one outfit judge per frame, with every product it shows."""
-    by_frame: dict[int, tuple[Frame, list[tuple[Item, list[bytes]]]]] = {}
-    for f, item, refs in judged:
-        by_frame.setdefault(f.index, (f, []))[1].append((item, refs))
+    """Submit one outfit judge per frame, each with every product: its
+    front photo, and its back photo when it has one."""
+    products = [
+        outfit.OutfitProduct(
+            item.front[0], item.product_filter, back=next(iter(item.back), None)
+        )
+        for item in items
+    ]
     return [
         (
             f,
-            [item for item, _ in shown],
+            list(items),
             pool.submit(
-                outfit.evaluate_outfit,
-                [
-                    outfit.OutfitProduct(refs[0], item.product_filter)
-                    for item, refs in shown
-                ],
-                f.image,
-                video_frame=True,
+                outfit.evaluate_outfit, products, f.image, video_frame=True
             ),
         )
-        for f, shown in by_frame.values()
+        for f in frames
     ]
 
 
@@ -300,21 +202,24 @@ def _frame_checks(
 ) -> list[dict]:
     """The ``details["checks"]`` entries of one frame, one per product; no
     verdict and no error: the judge did not finish in time. A rejected
-    frame rejects the products with defects other than minor ones (all of
-    them when it names none); ``minor``: the findings that only lower the
-    score (``outfit.MINOR``)."""
+    frame rejects the products with defects other than minor ones (all
+    those it shows when it names none); ``minor``: the findings that only
+    lower the score (``outfit.MINOR``); ``visible``: whether the judge saw
+    the product in the frame."""
     checked = verdict is not None and not verdict.error
     if verdict is not None and verdict.error:
         error = verdict.description or "judge error"
-    found, minor = {}, {}
+    found, minor, shown = {}, {}, {}
     if checked and verdict is not None:
         judged = verdict.details.get("products") or []
         found = {p.get("index"): p.get("findings") or [] for p in judged}
         minor = {p.get("index"): p.get("minor") or [] for p in judged}
+        shown = {p.get("index"): p.get("visible", True) for p in judged}
         if not verdict.publish and not any(found.values()):
             found = {
                 k: [verdict.description or "rejected"]
                 for k in range(1, len(items) + 1)
+                if shown.get(k, True)
             }
     entries = []
     for k, item in enumerate(items, start=1):
@@ -327,6 +232,8 @@ def _frame_checks(
                 "frame_index": f.index,
                 "second": round(f.second, 1),
                 "view": f.view,
+                "closeup": f.closeup,
+                "visible": shown.get(k, True) if checked else None,
                 "publish": (verdict.publish or not blocking)
                 if checked and verdict is not None
                 else None,
@@ -344,7 +251,8 @@ def collect(
     pending: list[tuple[Frame, list[Item], Future]], started: float
 ) -> list[dict]:
     """The checks; each frame's judge is waited for until ``JUDGE_CAP_S``
-    after ``started`` (``time.monotonic``)."""
+    after ``started`` (``time.monotonic``). Each answered frame gets the
+    view the judge saw."""
     found = []
     for f, items, future in pending:
         timeout = max(0.0, started + JUDGE_CAP_S - time.monotonic())
@@ -355,8 +263,27 @@ def collect(
         except Exception as exc:
             logger.warning(f"judge of frame {f.index}: {exc}")
             verdict, error = None, user_message(exc)
+        if verdict is not None and not verdict.error:
+            f.view = verdict.details.get("view")
         found += _frame_checks(f, items, verdict, error)
+    _mark_missing(found)
     return found
+
+
+def _mark_missing(found: list[dict]) -> None:
+    """A product the judge saw on no answered frame but the close-ups is
+    missing: its first such check gets one defect, ``MISSING``. A product
+    not seen in a close-up is fine."""
+    for product in dict.fromkeys(c["product"] for c in found):
+        wide = [
+            c
+            for c in found
+            if c["product"] == product and c["checked"] and not c["closeup"]
+        ]
+        if wide and not any(c["visible"] for c in wide):
+            wide[0].update(
+                publish=False, imperfections=1, findings=[MISSING], minor=[]
+            )
 
 
 def _minor(passed: list[dict]) -> tuple[int, str]:
@@ -378,12 +305,9 @@ def summarize(found: list[dict]) -> tuple[bool, int, str, bool]:
     """(publish, imperfections, description, error) of the checks.
 
     Publish when no checked pair rejects. When no pair was checked (judges
-    late or failing) the verdict is an error: retryable. No pair at all:
-    nothing to judge, publish. Minor findings of passed checks only add
-    imperfections (``_minor``).
+    late or failing) the verdict is an error: retryable. Minor findings of
+    passed checks only add imperfections (``_minor``).
     """
-    if not found:
-        return True, 0, NOTHING, False
     checked = [c for c in found if c["checked"]]
     failed = [c for c in checked if not c["publish"]]
     late = sum(not c["checked"] and not c["error"] for c in found)
@@ -414,13 +338,14 @@ def summarize(found: list[dict]) -> tuple[bool, int, str, bool]:
 
 
 def frame_details(frames: Sequence[Frame]) -> list[dict]:
-    """``details["frames"]``: the judged frames without their images."""
+    """``details["frames"]``: the judged frames without their images, each
+    with the view the judge saw (None: no answer)."""
     return [
         {
             "index": f.index,
             "second": round(f.second, 1),
             "view": f.view,
-            "visible": f.visible,
+            "closeup": f.closeup,
         }
         for f in frames
     ]

@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""The entry a log-based alert policy selects on when a run finishes."""
+"""The entry a log-based alert policy selects on when an investigation finishes."""
 
 import asyncio
 import json
@@ -27,18 +27,20 @@ from .conftest import StateContext
 
 
 def _record(
-    agent: str = "flight_booker", run_id: str = "abc123"
-) -> model.InvestigationRecord:
+    agent: str = "flight_booker", investigation_id: str = "abc123"
+) -> model.Investigation:
     """Creates an investigation record fixture for finished log tests.
 
     Args:
         agent: Observed agent name.
-        run_id: Investigation run identifier.
+        investigation_id: Investigation identifier.
 
     Returns:
-        Configured InvestigationRecord instance.
+        Configured Investigation instance.
     """
-    return model.InvestigationRecord(run_id=run_id, observed_agent_name=agent)
+    return model.Investigation(
+        investigation_id=investigation_id, observed_agent_key=agent
+    )
 
 
 def _emitted(caplog: pytest.LogCaptureFixture) -> dict[str, object]:
@@ -52,20 +54,20 @@ def _emitted(caplog: pytest.LogCaptureFixture) -> dict[str, object]:
 
 def test_carries_what_an_alert_needs(caplog: pytest.LogCaptureFixture) -> None:
     caplog.set_level(logging.INFO)
-    job_execution._log_run_finished(
+    job_execution._log_investigation_finished(
         _record(),
         {
             "status": "done",
-            "counters": {"traces_eval_failed": 2},
+            "counters": {"trajectories_eval_failed": 2},
             "summary": {"multi_turn_pages_evaluated": 7},
         },
     )
 
     payload = _emitted(caplog)
-    assert payload["run_id"] == "abc123"
-    assert payload["agent"] == "flight_booker"
+    assert payload["investigation_id"] == "abc123"
+    assert payload["observed_agent_key"] == "flight_booker"
     assert payload["status"] == "done"
-    assert payload["traces_eval_failed"] == 2
+    assert payload["trajectories_eval_failed"] == 2
     assert payload["pages"] == 7
 
 
@@ -73,7 +75,7 @@ def test_reports_a_failure_with_its_reason(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     caplog.set_level(logging.INFO)
-    job_execution._log_run_finished(
+    job_execution._log_investigation_finished(
         _record(), {"status": "failed", "error": "boom"}
     )
 
@@ -85,10 +87,10 @@ def test_reports_a_failure_with_its_reason(
 def test_a_broken_announcement_is_swallowed_and_logged(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """A run that finished must not be reported failed because saying so broke."""
+    """An investigation that finished must not be reported failed because saying so broke."""
     caplog.set_level(logging.INFO)
 
-    job_execution._log_run_finished(None, {"status": "done"})  # type: ignore[arg-type]
+    job_execution._log_investigation_finished(None, {"status": "done"})  # type: ignore[arg-type]
 
     assert "could not log run" in caplog.text
 
@@ -97,7 +99,7 @@ def test_truncates_an_error_before_it_reaches_the_log(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     caplog.set_level(logging.INFO)
-    job_execution._log_run_finished(
+    job_execution._log_investigation_finished(
         _record(), {"status": "failed", "error": "x" * 500}
     )
 
@@ -106,7 +108,7 @@ def test_truncates_an_error_before_it_reaches_the_log(
 
 def test_counts_both_kinds_of_page(caplog: pytest.LogCaptureFixture) -> None:
     caplog.set_level(logging.INFO)
-    job_execution._log_run_finished(
+    job_execution._log_investigation_finished(
         _record(),
         {
             "status": "done",
@@ -124,13 +126,13 @@ def test_counts_both_kinds_of_page(caplog: pytest.LogCaptureFixture) -> None:
 # Named here so a change to the emitted shape fails instead of going quiet.
 _POLICY_KEYS = (
     "event",
-    "run_id",
+    "investigation_id",
     "status",
     "insights_created",
     "insights_recurring",
-    "traces_evaluated",
-    "traces_eval_failed",
-    "traces_eval_errored",
+    "trajectories_evaluated",
+    "trajectories_eval_failed",
+    "trajectories_eval_errored",
     "error",
 )
 
@@ -153,7 +155,7 @@ def test_the_policy_reads_no_field_this_never_writes(
     looks exactly like a period with no failures.
     """
     caplog.set_level(logging.INFO)
-    job_execution._log_run_finished(
+    job_execution._log_investigation_finished(
         _record(), {"status": "failed", "error": "boom", "summary": {}}
     )
     payload = _emitted(caplog)
@@ -178,20 +180,20 @@ def test_the_alert_policy_can_read_what_is_emitted(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     caplog.set_level(logging.INFO)
-    job_execution._log_run_finished(
-        _record(run_id="r-42"),
+    job_execution._log_investigation_finished(
+        _record(investigation_id="r-42"),
         {
             "status": "failed",
             "error": "boom",
-            "counters": {"traces_eval_failed": 3},
+            "counters": {"trajectories_eval_failed": 3},
         },
     )
     payload = _emitted(caplog)
 
     missing = [k for k in _POLICY_KEYS if k not in payload]
     assert not missing, f"policy selects on {missing}, which is absent"
-    assert payload["run_id"] == "r-42"
-    assert payload["traces_eval_failed"] == 3
+    assert payload["investigation_id"] == "r-42"
+    assert payload["trajectories_eval_failed"] == 3
 
 
 def test_a_run_that_never_started_is_announced(
@@ -199,13 +201,13 @@ def test_a_run_that_never_started_is_announced(
 ) -> None:
     """Submission failing is the silence the alarm exists to catch."""
     caplog.set_level(logging.INFO)
-    job_execution._log_run_finished(
-        _record(run_id="never"),
+    job_execution._log_investigation_finished(
+        _record(investigation_id="never"),
         {"status": "failed", "error": "failed: RuntimeError: submit blew up"},
     )
 
     payload = _emitted(caplog)
-    assert payload["run_id"] == "never"
+    assert payload["investigation_id"] == "never"
     assert payload["status"] == "failed"
     assert payload["pages"] == 0
 
@@ -213,11 +215,14 @@ def test_a_run_that_never_started_is_announced(
 def test_status_serialises_as_a_bare_value(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """An enum would reach the mail as `RunStatus.DONE`."""
+    """An enum would reach the mail as `InvestigationStatus.DONE`."""
     caplog.set_level(logging.INFO)
-    job_execution._log_run_finished(
+    job_execution._log_investigation_finished(
         _record(),
-        {"status": model.RunStatus.DONE, "counters": {"traces_eval_failed": 0}},
+        {
+            "status": model.InvestigationStatus.DONE,
+            "counters": {"trajectories_eval_failed": 0},
+        },
     )
 
     assert '"status": "done"' in next(
@@ -230,11 +235,11 @@ def test_a_failed_run_still_carries_countable_numbers(
 ) -> None:
     """A failure records no counters, and the mail interpolates them anyway."""
     caplog.set_level(logging.INFO)
-    job_execution._log_run_finished(
+    job_execution._log_investigation_finished(
         _record(), {"status": "failed", "error": "boom"}
     )
 
-    assert _emitted(caplog)["traces_eval_failed"] == 0
+    assert _emitted(caplog)["trajectories_eval_failed"] == 0
 
 
 def test_a_run_whose_record_is_gone_is_announced(
@@ -253,7 +258,7 @@ def test_a_run_whose_record_is_gone_is_announced(
 
     assert result["status"] == "failed"
     payload = _emitted(caplog)
-    assert payload["run_id"] == "vanished"
+    assert payload["investigation_id"] == "vanished"
     assert payload["status"] == "failed"
 
 
@@ -276,26 +281,28 @@ def test_a_crash_outside_the_graph_is_still_announced(
     state: dict[str, object] = {}
 
     async def _drive() -> str:
-        record = await model.create_run(
+        record = await model.create_investigation(
             state,
-            model.InvestigationRecord(
-                status=model.RunStatus.PENDING,
+            model.Investigation(
+                status=model.InvestigationStatus.PENDING,
                 effective_config={"jobs_gcs_bucket": "b"},
                 idempotency_key="k",
             ),
         )
         with pytest.raises(PermissionError):
             await job_execution.execute_investigation(
-                record.run_id, StateContext(state)
+                record.investigation_id, StateContext(state)
             )
-        stored = await model.get_run(state, record.run_id)
-        assert stored.status == model.RunStatus.FAILED
-        return record.run_id
+        stored = await model.get_stored_investigation(
+            state, record.investigation_id
+        )
+        assert stored.status == model.InvestigationStatus.FAILED
+        return record.investigation_id
 
-    run_id = asyncio.run(_drive())
+    investigation_id = asyncio.run(_drive())
 
     payload = _emitted(caplog)
-    assert payload["run_id"] == run_id
+    assert payload["investigation_id"] == investigation_id
     assert payload["status"] == "failed"
     assert "PermissionError" in str(payload["error"])
 
@@ -305,13 +312,13 @@ def test_carries_the_insight_counts_the_rule_reads(
 ) -> None:
     """A sweep that only re-saw known problems must not read as a finding."""
     caplog.set_level(logging.INFO)
-    job_execution._log_run_finished(
+    job_execution._log_investigation_finished(
         _record(),
         {
-            "status": model.RunStatus.DONE,
+            "status": model.InvestigationStatus.DONE,
             "counters": {
-                "traces_evaluated": 9,
-                "traces_eval_failed": 7,
+                "trajectories_evaluated": 9,
+                "trajectories_eval_failed": 7,
                 "insights_created": 0,
                 "insights_recurring": 3,
             },
@@ -321,9 +328,9 @@ def test_carries_the_insight_counts_the_rule_reads(
     payload = _emitted(caplog)
     assert payload["insights_created"] == 0
     assert payload["insights_recurring"] == 3
-    assert payload["traces_eval_failed"] == 7
-    assert payload["traces_evaluated"] == 9
-    assert payload["traces_eval_errored"] == 0
+    assert payload["trajectories_eval_failed"] == 7
+    assert payload["trajectories_evaluated"] == 9
+    assert payload["trajectories_eval_errored"] == 0
 
 
 def test_a_run_that_went_well_carries_an_empty_reason(
@@ -331,9 +338,12 @@ def test_a_run_that_went_well_carries_an_empty_reason(
 ) -> None:
     """A null reaches the mail as the literal `NULL_VALUE`, on every clean run."""
     caplog.set_level(logging.INFO)
-    job_execution._log_run_finished(
+    job_execution._log_investigation_finished(
         _record(),
-        {"status": model.RunStatus.DONE, "counters": {"insights_created": 1}},
+        {
+            "status": model.InvestigationStatus.DONE,
+            "counters": {"insights_created": 1},
+        },
     )
 
     assert _emitted(caplog)["error"] == ""
@@ -352,7 +362,7 @@ def test_a_newly_found_defect_is_worth_an_email() -> None:
         counters={"insights_created": 2, "insights_recurring": 0}
     )
     notify, reason = job_execution._should_notify(
-        model.RunStatus.DONE, counters
+        model.InvestigationStatus.DONE, counters
     )
     assert notify, "a new defect must reach a human"
     assert "2" in reason
@@ -362,21 +372,25 @@ def test_a_defect_already_tracked_is_not() -> None:
     counters = _counters_from_state(
         counters={"insights_created": 0, "insights_recurring": 3}
     )
-    notify, _ = job_execution._should_notify(model.RunStatus.DONE, counters)
+    notify, _ = job_execution._should_notify(
+        model.InvestigationStatus.DONE, counters
+    )
     assert not notify, "a tracked defect would resend on every sweep"
 
 
 def test_a_clean_run_is_not() -> None:
-    counters = _counters_from_state(counters={"traces_eval_passed": 5})
-    assert not job_execution._should_notify(model.RunStatus.DONE, counters)[0]
+    counters = _counters_from_state(counters={"trajectories_eval_passed": 5})
+    assert not job_execution._should_notify(
+        model.InvestigationStatus.DONE, counters
+    )[0]
 
 
 def test_failures_that_grouped_into_nothing_are() -> None:
     counters = _counters_from_state(
-        counters={"traces_eval_passed": 1, "traces_eval_failed": 4}
+        counters={"trajectories_eval_passed": 1, "trajectories_eval_failed": 4}
     )
     notify, reason = job_execution._should_notify(
-        model.RunStatus.DONE, counters
+        model.InvestigationStatus.DONE, counters
     )
     assert notify, (
         "traces failed and nothing was grouped: it would go unreported"
@@ -388,14 +402,14 @@ def test_a_trace_the_evaluator_could_not_judge_is_worth_an_email() -> None:
     """Case status ranks ERRORED above FAILED, so a trace that both
     failed a metric and hit an API error counts only as errored.
 
-    Reading `traces_eval_failed` alone therefore misses a whole sweep of
-    them -- a run measuring nothing at all would read as a quiet, healthy one.
+    Reading `trajectories_eval_failed` alone therefore misses a whole sweep of
+    them -- an investigation measuring nothing at all would read as a quiet, healthy one.
     """
     counters = _counters_from_state(
-        counters={"traces_evaluated": 5, "traces_eval_errored": 5}
+        counters={"trajectories_evaluated": 5, "trajectories_eval_errored": 5}
     )
     notify, reason = job_execution._should_notify(
-        model.RunStatus.DONE, counters
+        model.InvestigationStatus.DONE, counters
     )
     assert notify, "a sweep that judged nothing must not pass for a clean one"
     assert "5" in reason and "judge" in reason
@@ -407,10 +421,10 @@ def test_an_eval_error_reports_even_when_the_defect_is_already_tracked() -> (
     """The `recurring` guard exists so a tracked defect does not resend every
     sweep. It says nothing about the evaluator failing, which is ours to fix."""
     counters = _counters_from_state(
-        counters={"insights_recurring": 2, "traces_eval_errored": 1}
+        counters={"insights_recurring": 2, "trajectories_eval_errored": 1}
     )
     notify, reason = job_execution._should_notify(
-        model.RunStatus.DONE, counters
+        model.InvestigationStatus.DONE, counters
     )
     assert notify
     assert "judge" in reason
@@ -420,19 +434,25 @@ def test_a_defect_outranks_an_eval_error_in_the_reason() -> None:
     """Both reach the body as counts; the reason leads with the one that sends
     the reader to the observed agent rather than to our own logs."""
     counters = _counters_from_state(
-        counters={"insights_created": 2, "traces_eval_errored": 3}
+        counters={"insights_created": 2, "trajectories_eval_errored": 3}
     )
-    _, reason = job_execution._should_notify(model.RunStatus.DONE, counters)
+    _, reason = job_execution._should_notify(
+        model.InvestigationStatus.DONE, counters
+    )
     assert reason == "2 newly found problem(s)"
 
 
 def test_a_failed_run_is() -> None:
-    notify, reason = job_execution._should_notify(model.RunStatus.FAILED, {})
+    notify, reason = job_execution._should_notify(
+        model.InvestigationStatus.FAILED, {}
+    )
     assert notify and "failed" in reason
 
 
 def test_a_duplicate_trigger_is_not() -> None:
-    notify, _ = job_execution._should_notify(model.RunStatus.SKIPPED, {})
+    notify, _ = job_execution._should_notify(
+        model.InvestigationStatus.SKIPPED, {}
+    )
     assert not notify, "the idempotency guard working is not a fault"
 
 
@@ -440,9 +460,12 @@ def test_the_entry_carries_the_decision_and_the_body(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     caplog.set_level(logging.INFO)
-    job_execution._log_run_finished(
+    job_execution._log_investigation_finished(
         _record(),
-        {"status": model.RunStatus.DONE, "counters": {"insights_created": 1}},
+        {
+            "status": model.InvestigationStatus.DONE,
+            "counters": {"insights_created": 1},
+        },
     )
     payload = _emitted(caplog)
     assert payload["should_notify"] is True
@@ -453,7 +476,9 @@ def test_a_quiet_run_carries_no_reason(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     caplog.set_level(logging.INFO)
-    job_execution._log_run_finished(_record(), {"status": model.RunStatus.DONE})
+    job_execution._log_investigation_finished(
+        _record(), {"status": model.InvestigationStatus.DONE}
+    )
     payload = _emitted(caplog)
     assert payload["should_notify"] is False
     assert payload["notify_reason"] == ""
@@ -461,7 +486,7 @@ def test_a_quiet_run_carries_no_reason(
 
 def test_the_entry_carries_the_reason_the_email_leads_with() -> None:
     _, reason = job_execution._should_notify(
-        model.RunStatus.DONE, {"insights_created": 2}
+        model.InvestigationStatus.DONE, {"insights_created": 2}
     )
     assert reason == "2 newly found problem(s)"
 
@@ -474,8 +499,8 @@ def test_the_policy_filter_reads_only_the_decision() -> None:
     for leaked in (
         "insights_created",
         "insights_recurring",
-        "traces_eval_failed",
-        "traces_eval_errored",
+        "trajectories_eval_failed",
+        "trajectories_eval_errored",
     ):
         assert leaked not in condition, (
             f"{leaked} is the rule leaking back into HCL"

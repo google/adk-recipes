@@ -1,18 +1,16 @@
-/**
- * Copyright 2026 Google LLC
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     https://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2026 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
@@ -339,7 +337,30 @@ describe("useStudio", () => {
     );
   });
 
-  it("generates Video Try-On from photos and keeps the try-on images it animated, each video naming its image", async () => {
+  it("sends the check switches in the job, off unless turned on", async () => {
+    await seedTryOn();
+    await seed({ capability: "video_tryon" });
+    const specs = recordSpecs();
+    const { result } = await renderStudio();
+    const settings = () => specs[specs.length - 1]?.settings;
+
+    await act(() => result.current.generate());
+    expect(settings()).toMatchObject({
+      check_images: false,
+      check_videos: false,
+    });
+    await waitFor(() => expect(result.current.view.job).toBeNull());
+    await waitFor(() => expect(result.current.following).toBe(false));
+
+    act(() => result.current.setSetting("tryon", "check_videos", true));
+    await act(() => result.current.generate());
+    expect(settings()).toMatchObject({
+      check_images: false,
+      check_videos: true,
+    });
+  });
+
+  it("generates Video Try-On from photos and keeps every try-on image, the first one animated, each video naming it", async () => {
     await seedTryOn();
     await seed(
       { capability: "video_tryon" },
@@ -365,10 +386,11 @@ describe("useStudio", () => {
     });
     expect(
       result.current.view.results.video_tryon.map((r) => r.source),
-    ).toEqual([one.uri, one.uri, two.uri, two.uri]);
+    ).toEqual([one.uri, one.uri]); // VIDEOS_PER_IMAGE videos of one image
+    expect(two).toMatchObject({ index: 1, passed: true });
   });
 
-  it("makes the video of one try-on image again, replacing only that image's videos", async () => {
+  it("makes the videos of another try-on image, leaving the other image's videos", async () => {
     await seedTryOn();
     await seed(
       { capability: "video_tryon" },
@@ -381,7 +403,7 @@ describe("useStudio", () => {
     const { result } = await renderStudio();
     await act(() => result.current.generate());
     await waitFor(() =>
-      expect(result.current.view.results.video_tryon).toHaveLength(4),
+      expect(result.current.view.results.video_tryon).toHaveLength(2),
     );
     const before = result.current.view.results.video_tryon;
     const [one, two] = result.current.view.images;
@@ -396,12 +418,9 @@ describe("useStudio", () => {
       settings: expect.objectContaining({ resolution: "1080p" }),
     });
     const after = result.current.view.results.video_tryon;
-    expect(after.slice(0, 2)).toEqual(before.slice(0, 2)); // image 1's videos are untouched
+    expect(after.slice(0, 2)).toEqual(before); // image 1's videos are untouched
     expect(after.slice(2).map((r) => r.source)).toEqual([two.uri, two.uri]);
-    expect(after.slice(2).map((r) => r.uri)).not.toEqual(
-      before.slice(2).map((r) => r.uri),
-    );
-    expect(after.map((r) => r.index)).toEqual([0, 1, 4, 5]);
+    expect(after.map((r) => r.index)).toEqual([0, 1, 2, 3]);
     expect(result.current.view.images.map((r) => r.uri)).toEqual([
       one.uri,
       two.uri,
@@ -450,11 +469,11 @@ describe("useStudio", () => {
       expect(result.current.jobError).toBe("interrupted: the server restarted"),
     );
     await waitFor(() => expect(result.current.view.job).toBeNull());
-    act(() => result.current.setSetting("tryon", "num_variations", "3"));
+    act(() => result.current.setSetting("tryon", "num_variations", "2"));
     fail = false;
     await act(() => result.current.tryAgain());
     await waitFor(() =>
-      expect(result.current.view.results.tryon).toHaveLength(1),
+      expect(result.current.view.results.tryon).toHaveLength(3),
     );
 
     expect(specs).toHaveLength(2);
@@ -469,8 +488,15 @@ describe("useStudio", () => {
       variationsOf({ ...blank(), capability: "video_tryon" }),
     ).toMatchObject({
       label: "Try-on images",
-      hint: expect.stringMatching(/2 videos/),
+      hint: expect.stringMatching(/best one .*first one ready.* 2 videos/),
     });
+  });
+
+  it("makes 3 variations by default on Photo and Video Try-On, 1 on 360° Spin", () => {
+    const { settings } = blank();
+    expect(settings.tryon.num_variations).toBe("3");
+    expect(settings.video_tryon.num_variations).toBe("3");
+    expect(settings.spin.num_variations).toBe("1");
   });
 
   it("reads the try-on images of a studio and the image of its Make video job, and ignores the image start", () => {
@@ -652,7 +678,7 @@ describe("useStudio", () => {
     expect(result.current.starting).toBe(true);
     await act(() => Promise.all([first, result.current.generate()]));
     await waitFor(() =>
-      expect(result.current.view.results.tryon).toHaveLength(1),
+      expect(result.current.view.results.tryon).toHaveLength(3),
     );
 
     expect(starts).toBe(1);

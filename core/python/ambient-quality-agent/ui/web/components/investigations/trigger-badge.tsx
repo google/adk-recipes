@@ -13,15 +13,19 @@
 // limitations under the License.
 
 import { CalendarClock, SlidersHorizontal, UserRound } from "lucide-react";
-import { resolveTriggerKind, type TriggerKind } from "@/lib/run-summary";
+import {
+  resolveTriggerKind,
+  type TriggerKind,
+} from "@/lib/investigation-summary";
 import { textStyle } from "@/lib/typography";
 import { cn } from "@/lib/utils";
 
-/** Each kind's word, icon, tooltip and colour. A run somebody started is
- *  violet, since it is the one they are waiting on; a sweep is muted, since
- *  the loop starts dozens of them. Violet is fixed rather than the theme's
- *  primary, which is slate by default and changes with the accent skin, and it
- *  stays apart from the red, amber and teal the run tables use for outcomes. */
+/** Each kind's word, icon, tooltip and colour. An investigation somebody
+ *  started is violet, since it is the one they are waiting on; a sweep is
+ *  muted, since the loop starts dozens of them. Violet is fixed rather than the
+ *  theme's primary, which is slate by default and changes with the accent skin,
+ *  and it stays apart from the red, amber and teal the investigation tables use
+ *  for outcomes. */
 const USER_TEXT = "text-violet-700 dark:text-violet-300";
 const USER_TONE = "border-violet-500/40 bg-violet-500/10";
 
@@ -59,22 +63,22 @@ const KINDS: Record<
 };
 
 /**
- * Who started a run, as a small badge: "Custom" or "Manual" for a run a user
- * asked for, "Scheduled" for one the loop started.
+ * Who started an investigation, as a small badge: "Custom" or "Manual" for an
+ * investigation a user asked for, "Scheduled" for one the loop started.
  */
 export function TriggerBadge({
-  run,
+  investigation,
   iconOnly = false,
   className,
 }: {
-  run: { trigger_type?: string | null };
+  investigation: { trigger_type?: string | null };
   /** Draw the icon alone, for a slot too narrow for the word. The word stays
    *  in the tooltip and for a screen reader. */
   iconOnly?: boolean;
   className?: string;
 }) {
-  const kind = KINDS[resolveTriggerKind(run)];
-  const trigger = run.trigger_type?.trim();
+  const kind = KINDS[resolveTriggerKind(investigation)];
+  const trigger = investigation.trigger_type?.trim();
   // The raw trigger type is kept for the tooltip: a Scheduled badge covers
   // three of them.
   const title = trigger ? `${kind.hint} (trigger: ${trigger})` : kind.hint;

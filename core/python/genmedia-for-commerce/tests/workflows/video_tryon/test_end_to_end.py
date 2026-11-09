@@ -12,8 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""End-to-end Video Try-On: the image try-on stage, then each passing image
-animated at once (its own back view first when there can be one)."""
+"""End-to-end Video Try-On: the image try-on stage, then one image
+animated (its own back view first when there can be one)."""
 
 import asyncio
 import json
@@ -155,6 +155,13 @@ def image_stage(
     ]
 
 
+def head_to_knees() -> Classification:
+    """A single mini dress, framed from the top of the head to the knees."""
+    dress = classification("full_body", "dress")
+    dress.products[0].span = ("shoulders", "mid-thigh")
+    return dress
+
+
 # A single product with a back upload: each animated front gets a back view.
 WITH_BACK = Classification(
     "single",
@@ -285,7 +292,7 @@ async def test_image_selected_and_main_reference(
     assert selected.message == "Animating try-on variation 2"
     calls = video_calls(fake_gen)
     assert [c["raw_parts"] for c in calls] == [[FRONTS[1], FACE, *PRODUCTS]] * 2
-    assert fake_eval.unseen_calls == [[FRONTS[1]]] * 2
+    assert [c["front"] for c in fake_eval.clip_calls] == [FRONTS[1]] * 2
 
 
 async def test_stage_one_request(fake_gen, fake_eval, stage_one):
@@ -298,6 +305,7 @@ async def test_stage_one_request(fake_gen, fake_eval, stage_one):
         scenario="a beach",
         complete_look=False,
         upscale_crops=True,
+        look_conflict="look",
         image=image,
     )
     await collect(req)
@@ -312,6 +320,7 @@ async def test_stage_one_request(fake_gen, fake_eval, stage_one):
     assert sent.generate_back is False  # each animated front draws its own
     assert sent.complete_look is False
     assert sent.upscale_crops is True
+    assert sent.look_conflict == "look"
     assert sent.policy is req.policy
     assert sent.image is image
 
@@ -367,7 +376,8 @@ async def test_a_passing_front_gets_its_own_back_view_then_its_videos(
     assert selected.data == {"front_index": 1, "back_index": 1}
     parts = video_calls(fake_gen)[0]["raw_parts"]
     assert parts == [FRONTS[1], BACKS[1][1], FACE, *PRODUCTS]
-    assert fake_eval.unseen_calls == [[FRONTS[1], BACKS[1][1]]] * 2
+    clip = [(c["front"], c["back"]) for c in fake_eval.clip_calls]
+    assert clip == [(FRONTS[1], BACKS[1][1])] * 2
 
 
 async def test_no_ready_back_animates_the_front_alone(
@@ -381,27 +391,6 @@ async def test_no_ready_back_animates_the_front_alone(
     assert selected.data == {"front_index": 1, "back_index": None}
     parts = video_calls(fake_gen)[0]["raw_parts"]
     assert parts == [FRONTS[1], FACE, *PRODUCTS]
-
-
-async def test_back_views_are_numbered_across_the_images(
-    fake_gen, fake_eval, stage_one, backs
-):
-    fake_gen.video(CLIP)
-    stage_one(image_stage(front(0), front(1), front(2, "rejected")), back=True)
-    events = await collect(request())
-    assert sorted(backs.fronts) == sorted(FRONTS[:2])
-    drawn = variations(events, view="back")
-    assert sorted(e.index for e in drawn) == [0, 1, 2, 3]
-    chosen = {
-        e.data["front_index"]: e.data["back_index"] for e in selections(events)
-    }
-    for k, index in chosen.items():
-        (best,) = [e for e in drawn if e.index == index]
-        assert best.media == BACKS[k][1]
-        assert best.extra["source_index"] == k
-    for call in video_calls(fake_gen):
-        k = FRONTS.index(call["raw_parts"][0])
-        assert call["raw_parts"][1] == BACKS[k][1]
 
 
 async def test_an_outfit_draws_no_back_view(
@@ -421,9 +410,10 @@ async def test_framing_comes_from_the_classified_payload(
     fake_gen, fake_eval, stage_one, planner
 ):
     fake_gen.video(CLIP)
-    stage_one(image_stage(framing="footwear"))
+    stage_one(image_stage(framing="footwear", classified=head_to_knees()))
     await collect(request(classification=classification("head"), policy=ONE))
-    assert planner.calls[0][0].framing == "footwear"
+    refs = planner.calls[0][0]
+    assert (refs.framing, refs.span) == ("footwear", ("shoulders", "mid-thigh"))
 
 
 async def test_product_photos_are_the_ones_the_tryon_used(
@@ -634,6 +624,22 @@ async def test_shortcut_framing_from_request_classification(
     )
     await collect(req)
     assert planner.calls[0][0].framing == "footwear"
+    assert planner.calls[0][0].span is None
+
+
+async def test_shortcut_span_from_request_classification(
+    fake_gen, fake_eval, planner
+):
+    fake_gen.video(CLIP)
+    req = VideoTryOnRequest(
+        tryon_image=TRYON, classification=head_to_knees(), policy=ONE
+    )
+    await collect(req)
+    refs = planner.calls[0][0]
+    assert (refs.framing, refs.span) == (
+        "full_body",
+        ("shoulders", "mid-thigh"),
+    )
 
 
 @pytest.mark.parametrize(
@@ -681,10 +687,10 @@ async def test_debug_trace_saves_the_selection_and_labels_the_video_stage(
         assert json.loads(verdict.read_text())["verdict"]["publish"] is True
 
 
-# --- each passing image is animated at once ---------------------------------
+# --- one image is animated ---------------------------------------------------
 
 
-async def test_a_passing_image_starts_its_videos_before_a_slower_one_finishes(
+async def test_with_checks_off_the_first_image_made_is_animated_at_once(
     fake_gen, fake_eval, monkeypatch
 ):
     started = threading.Event()  # a video call was made
@@ -696,58 +702,50 @@ async def test_a_passing_image_starts_its_videos_before_a_slower_one_finishes(
     async def run(req, prepared=None):
         payload = {"mode": "single", "framing": "full_body", "products": []}
         yield ClassifiedEvent(payload)
-        yield front(0)
-        for _ in range(500):  # front 1 is slow: done once a video started
+        yield front(2)  # done first
+        for _ in range(500):  # the others are slow: done once a video started
             if started.is_set():
                 break
             await asyncio.sleep(0.01)
         run.started_first = started.is_set()
-        yield front(1, "rejected")
-        yield CompleteEvent([0, 1], 0)
+        yield front(0)
+        yield front(1)
+        yield CompleteEvent([0, 1, 2], 0)
 
     fake_gen.video(make_video)
     monkeypatch.setattr(tryon_pipeline, "run_tryon", run)
-    events = await collect(request())
+    events = await collect(request(check_images=False))
     assert run.started_first, "the videos waited for every image"
-    slow = variations(events, view="front")[1]
+    assert [e.data["front_index"] for e in selections(events)] == [2]
+    sent = [c["raw_parts"][0] for c in video_calls(fake_gen)]
+    assert sent == [FRONTS[2]] * 2
+    later = variations(events, view="front")[1]
     plan = next(e for e in events if getattr(e, "stage", "") == "plan")
-    assert events.index(plan) < events.index(slow)
+    assert events.index(plan) < events.index(later)
+    assert len(variations(events, view="front")) == 3  # all still shown
     assert isinstance(events[-1], CompleteEvent)
 
 
-async def test_each_passing_image_gets_two_videos_numbered_across_the_run(
+async def test_with_checks_on_the_best_image_is_animated_once_all_are_made(
     fake_gen, fake_eval, stage_one
 ):
     fake_gen.video(CLIP)
-    stage_one(image_stage(front(0), front(1, "rejected"), front(2)))
-    events = await collect(request())
-    assert [e.data for e in selections(events)] == [
-        {"front_index": 0, "back_index": None},
-        {"front_index": 2, "back_index": None},
-    ]
-    plans = [e for e in events if getattr(e, "stage", "") == "plan"]
-    assert sorted(p.data["source_index"] for p in plans) == [0, 2]
+    good, best, failed = front(0), front(1), front(2, "rejected")
+    best.score, failed.score = 80.0, 90.0
+    stage_one(image_stage(good, best, failed))
+    events = await collect(request(check_images=True))
+    (selected,) = selections(events)
+    assert selected.data == {"front_index": 1, "back_index": None}
+    last_image = max(events.index(v) for v in (good, best, failed))
+    assert events.index(selected) > last_image  # waited for every image
     videos = variations(events, stage="video")
-    assert sorted(v.index for v in videos) == [0, 1, 2, 3]
-    by_source = sorted(v.extra["source_index"] for v in videos)
-    assert by_source == [0, 0, 2, 2]
-    sent = sorted(
-        FRONTS.index(c["raw_parts"][0]) for c in video_calls(fake_gen)
-    )
-    assert sent == [0, 0, 2, 2]
+    assert sorted(v.index for v in videos) == [0, 1]
+    assert [v.extra["source_index"] for v in videos] == [1, 1]
+    sent = [c["raw_parts"][0] for c in video_calls(fake_gen)]
+    assert sent == [FRONTS[1]] * 2
     last = events[-1]
     assert isinstance(last, CompleteEvent)
-    assert sorted(last.ranked_indices) == [0, 1, 2, 3]
-    assert last.best_index in last.ranked_indices
-
-
-async def test_the_detail_search_is_shared_by_every_image(
-    fake_gen, fake_eval, stage_one, zoom
-):
-    fake_gen.video(CLIP)
-    stage_one(image_stage(front(0), front(1), classified=look()))
-    await collect(request(product_images=LOOK))
-    assert len(zoom.calls) == 2  # once per bag and shoes photo, not per image
+    assert sorted(last.ranked_indices) == [0, 1]
 
 
 async def test_no_video_made_is_an_error_not_complete(
@@ -757,7 +755,7 @@ async def test_no_video_made_is_an_error_not_complete(
     stage_one(image_stage(front(0), front(1)))
     events = await collect(request())
     videos = variations(events, stage="video")
-    assert [v.status for v in videos] == ["error"] * 4
+    assert [v.status for v in videos] == ["error"] * 2
     last = events[-1]
     assert isinstance(last, ErrorEvent)
     assert last.message == "No video was produced: quota"
@@ -766,28 +764,21 @@ async def test_no_video_made_is_an_error_not_complete(
 
 
 async def test_an_image_that_cannot_be_animated_reports_its_videos_as_errors(
-    fake_gen, fake_eval, stage_one, planner, monkeypatch
+    fake_gen, fake_eval, stage_one, monkeypatch
 ):
     def plan(refs, request=None):
-        if refs.images[0] == FRONTS[0]:
-            raise RuntimeError("planner down")
-        return planner(refs, request)
+        raise RuntimeError("planner down")
 
     monkeypatch.setattr(branch, "plan_animation", plan)
     fake_gen.video(CLIP)
-    stage_one(image_stage(front(0), front(1)))
+    stage_one(image_stage())
     events = await collect(request())
-    failed = variations(events, stage="video", source_index=0)
+    failed = variations(events, stage="video", source_index=1)
     assert [v.status for v in failed] == ["error", "error"]
     # The generic message, not the exception's text.
     assert all(v.error.endswith(SERVER_FAILED) for v in failed)
-    made = variations(events, stage="video", source_index=1)
-    assert [v.status for v in made] == ["ready", "ready"]
-    videos = failed + made
-    assert sorted(v.index for v in videos) == [0, 1, 2, 3]
-    last = events[-1]
-    assert isinstance(last, CompleteEvent)
-    assert last.best_index in {v.index for v in made}
+    assert isinstance(events[-1], ErrorEvent)
+    assert video_calls(fake_gen) == []
 
 
 async def test_closing_the_stream_stops_every_branch(
@@ -810,7 +801,7 @@ async def test_closing_the_stream_stops_every_branch(
 
     fake_gen.video(make_video)
     monkeypatch.setattr(tryon_pipeline, "run_tryon", run)
-    stream = run_video_tryon(request())
+    stream = run_video_tryon(request(check_images=False))
     try:
         async for event in stream:
             if getattr(event, "stage", "") == "plan":
@@ -823,3 +814,20 @@ async def test_closing_the_stream_stops_every_branch(
         assert closed == [True]  # the image stage was closed too
     finally:
         release.set()
+
+
+async def test_with_the_checks_off_nothing_is_judged(
+    fake_gen, fake_eval, stage_one
+):
+    """``check_images`` goes to the image stage; with ``check_videos`` off
+    no whole-clip check or frame judge runs and each video passes."""
+    fake_gen.video(CLIP)
+    run = stage_one(image_stage())
+    req = request(policy=ONE, check_images=False, check_videos=False)
+    events = await collect(req)
+    assert run.requests[0].check_images is False
+    made = variations(events, stage="video")
+    assert len(made) == 2
+    assert (fake_eval.clip_calls, fake_eval.outfit_calls) == ([], [])
+    assert all(v.status == "ready" for v in made)
+    assert {v.verdict.description for v in made} == {"Not checked"}

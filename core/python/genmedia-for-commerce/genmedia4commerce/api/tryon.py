@@ -68,10 +68,12 @@ async def tryon(
     generate_back: bool = Form(True),
     complete_look: bool = Form(True),
     upscale_crops: bool = Form(False),
+    look_conflict: str = Form(""),
     num_variations: int | None = Form(None),
     mode: str = Form(""),
     aspect_ratio: str = Form("3:4"),
     image_size: str = Form("2K"),
+    check_images: bool = Form(True),
 ) -> StreamingResponse:
     """Try products on a person; streams run/classified/progress/variation events.
 
@@ -84,8 +86,11 @@ async def tryon(
     ``num_variations`` / ``mode`` the deployment
     settings apply. ``complete_look``: products only the reference model
     (or a full-length photo of the whole look among the product images)
-    shows are cut from it and added. ``upscale_crops``: added shoes are
-    upscaled to 2K first.
+    shows are cut from it and added. ``look_conflict``: of a look item and
+    an uploaded product in the same place, "upload" keeps the upload,
+    "look" the look's, "" as the deployment setting. ``upscale_crops``:
+    added shoes are upscaled to 2K first. ``check_images`` false: no image
+    is judged, each passes.
     """
     build = functools.partial(
         tryon_request,
@@ -94,9 +99,11 @@ async def tryon(
         generate_back=generate_back,
         complete_look=complete_look,
         upscale_crops=upscale_crops,
+        look_conflict=look_conflict,
         num_variations=num_variations,
         mode=mode,
         aspect_ratio=aspect_ratio,
         image_size=image_size,
+        check_images=check_images,
     )
     return await start(request, run, images, build, run_tryon)

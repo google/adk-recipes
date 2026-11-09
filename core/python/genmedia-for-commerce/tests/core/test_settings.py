@@ -39,6 +39,7 @@ _ENV_VARS = (
     "GENMEDIA_USE_CACHE",
     "GENMEDIA_UPSCALE_FACE",
     "GENMEDIA_TRYON_FIX",
+    "GENMEDIA_LOOK_CONFLICT",
     "GENMEDIA_OUTPUT",
     "GENMEDIA_INPUT",
 )
@@ -52,6 +53,12 @@ def clean_env(monkeypatch):
     return monkeypatch
 
 
+def test_the_default_media_bucket_fits_the_longest_project_id(clean_env):
+    # Project ids have up to 30 characters, bucket names up to 63.
+    clean_env.setenv("PROJECT_ID", "p" * 30)
+    assert len(get_settings().media_bucket) <= 63
+
+
 def test_defaults(clean_env):
     clean_env.setenv("PROJECT_ID", "p1")
     s = get_settings()
@@ -59,7 +66,7 @@ def test_defaults(clean_env):
     assert s.location == "global"
     assert s.region == "us-central1"
     assert s.google_api_key is None
-    assert s.media_bucket == "p1-genmedia-for-commerce-media-payloads"
+    assert s.media_bucket == "p1-gfc-media"
     assert s.catalog_path == (
         Path(__file__).parents[2] / "assets" / "catalog" / "products.parquet"
     )
@@ -240,6 +247,17 @@ def test_the_try_on_fix_pass_is_off_unless_turned_on(clean_env):
     clean_env.setenv("GENMEDIA_TRYON_FIX", "true")
     get_settings.cache_clear()
     assert get_settings().tryon_fix is True
+
+
+def test_the_look_conflict_keeps_the_upload_unless_set(clean_env):
+    assert get_settings().look_conflict == "upload"
+    clean_env.setenv("GENMEDIA_LOOK_CONFLICT", "look")
+    get_settings.cache_clear()
+    assert get_settings().look_conflict == "look"
+    clean_env.setenv("GENMEDIA_LOOK_CONFLICT", "both")
+    get_settings.cache_clear()
+    with pytest.raises(ConfigError, match="GENMEDIA_LOOK_CONFLICT"):
+        get_settings()
 
 
 def test_bool_setting_invalid(clean_env):

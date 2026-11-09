@@ -1,18 +1,16 @@
-/**
- * Copyright 2026 Google LLC
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     https://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2026 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
@@ -158,7 +156,7 @@ describe("Video Try-On results", () => {
     expect(within(videos()[0]).getByText("From image 1")).toBeTruthy();
   });
 
-  it("links each video to its image and remakes one image's videos, live, leaving the others", async () => {
+  it("links each video to its image and makes another image's videos, live, leaving the others", async () => {
     await seedVideoTryOn();
     const specs = recordSpecs();
     fireEvent.click(
@@ -170,18 +168,19 @@ describe("Video Try-On results", () => {
     await waitFor(() =>
       expect(screen.getByRole("heading", { name: "Videos" })).toBeTruthy(),
     );
-    expect(fromImage(1)).toHaveLength(2);
-    expect(fromImage(2)).toHaveLength(2);
+    expect(fromImage(1)).toHaveLength(2); // one image animated
+    expect(fromImage(2)).toHaveLength(0);
+    expect(within(imageCard(2)).getByText("No video")).toBeTruthy();
     expect(best()).toEqual([videos()[0]]); // the judge's best of the run
     const kept = fromImage(1).map((v) =>
       v.querySelector("video")?.getAttribute("src"),
     );
 
     // Hovering a video highlights its image.
-    fireEvent.mouseEnter(fromImage(2)[0]);
-    expect(imageCard(2).className).toContain("ring-2");
-    expect(imageCard(1).className).not.toContain("ring-2");
-    fireEvent.mouseLeave(fromImage(2)[0]);
+    fireEvent.mouseEnter(fromImage(1)[0]);
+    expect(imageCard(1).className).toContain("ring-2");
+    expect(imageCard(2).className).not.toContain("ring-2");
+    fireEvent.mouseLeave(fromImage(1)[0]);
 
     // The Make video job runs until released, with one new video so far.
     let release = false;
@@ -222,11 +221,11 @@ describe("Video Try-On results", () => {
       tryon_image: expect.stringMatching(/image-1\.png$/),
     });
     await waitFor(() => expect(fromImage(2)).toHaveLength(1));
-    // Last, numbered after the saved videos (0 to 3), as the server saves it.
+    // Last, numbered after the saved videos (0 and 1), as the server saves it.
     expect(names(videos())).toEqual([
       "Variation 1 video",
       "Variation 2 video",
-      "Variation 5 video",
+      "Variation 3 video",
     ]);
     expect(
       fromImage(1).map((v) => v.querySelector("video")?.getAttribute("src")),
@@ -251,8 +250,8 @@ describe("Video Try-On results", () => {
     expect(names(videos())).toEqual([
       "Variation 1 video",
       "Variation 2 video",
-      "Variation 5 video",
-      "Variation 6 video",
+      "Variation 3 video",
+      "Variation 4 video",
     ]);
     expect(
       fromImage(1).map((v) => v.querySelector("video")?.getAttribute("src")),
@@ -357,7 +356,7 @@ describe("Try again", () => {
     fail = false;
     fireEvent.click(again);
 
-    await waitFor(() => expect(screen.getAllByRole("article")).toHaveLength(1));
+    await waitFor(() => expect(screen.getAllByRole("article")).toHaveLength(3));
     expect(specs).toHaveLength(2);
     expect(specs[1]).toEqual({ ...specs[0], refresh_cache: true });
     expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
@@ -409,5 +408,95 @@ describe("Try again", () => {
     await waitFor(() =>
       expect(screen.queryByRole("button", { name: "Try again" })).toBeNull(),
     );
+  });
+});
+
+describe("Animate a Photo Try-On result", () => {
+  const tab = (name: string) => screen.getByRole("tab", { name });
+  const animate = (n: number) =>
+    screen.getByRole("button", {
+      name: `Animate Variation ${n}`,
+    }) as HTMLButtonElement;
+
+  it("shows Open, then Animate, Animate on front views only", async () => {
+    const [front, back] = ["gs://b/runs/a/front-0.png", "gs://b/runs/a/b.png"];
+    const state = {
+      capability: "tryon",
+      results: {
+        tryon: [
+          { index: 0, status: "ready", uri: front, url: media(front) },
+          { index: 1, uri: back, url: media(back), view: "back" },
+        ],
+      },
+    };
+    server.use(
+      http.get("/api/studio/:id/state", () =>
+        HttpResponse.json({ studio_id: ID, saved: true, updated_at: 1, state }),
+      ),
+    );
+    await renderStudio();
+
+    const [one, two] = screen.getAllByRole("article");
+    const row = within(one).getByRole("button", { name: "Animate Variation 1" })
+      .parentElement as HTMLElement;
+    expect(
+      [...row.children].map(
+        (n) => n.getAttribute("aria-label") ?? n.textContent,
+      ),
+    ).toEqual(["Open", "Animate Variation 1"]);
+    expect(within(two).queryByRole("button", { name: /Animate/ })).toBeNull();
+  });
+
+  it("opens Video Try-On and starts the videos of that result at once", async () => {
+    await renderStudio(
+      { set: { field: "person", item: EMMA } },
+      { add: { field: "product", item: JEANS, replace_index: -1 } },
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Generate Photo Try-On" }),
+    );
+    await waitFor(() => expect(animate(1).disabled).toBe(false));
+    const photo = screen
+      .getByRole("img", { name: "Variation 1" })
+      .getAttribute("src");
+    const frame = "gs://b/runs/a/outputs/0-9x16.png";
+    const specs: Record<string, unknown>[] = [];
+    server.use(
+      http.post("/api/studio/:id/jobs", async ({ request }) => {
+        specs.push((await request.json()) as Record<string, unknown>);
+        return HttpResponse.json({ job_id: "anim1", status: "running" });
+      }),
+      http.get("/api/studio/jobs/anim1", () =>
+        HttpResponse.json({
+          job_id: "anim1",
+          status: "running",
+          progress: "Animating your photo",
+          tryon_image: "",
+          images: [{ index: 0, uri: frame, url: media(frame), passed: true }],
+          results: [],
+          expected: { image_results: 0, results: 2 },
+        }),
+      ),
+    );
+
+    fireEvent.click(animate(1));
+
+    await waitFor(() =>
+      expect(tab("Video Try-On").getAttribute("aria-selected")).toBe("true"),
+    );
+    expect(specs).toHaveLength(1);
+    expect(specs[0]).toMatchObject({ capability: "video_tryon" });
+    expect(media(String(specs[0].tryon_image))).toBe(photo);
+    // The job's image shows as Video Try-On's image while its videos come.
+    await waitFor(() =>
+      expect(within(imagesRow()).getAllByRole("listitem")).toHaveLength(1),
+    );
+    expect(screen.getAllByText(/Animating your photo/).length).toBeGreaterThan(
+      0,
+    );
+
+    // While it runs, no other result can be animated.
+    fireEvent.click(tab("Photo Try-On"));
+    expect(animate(1).disabled).toBe(true);
   });
 });

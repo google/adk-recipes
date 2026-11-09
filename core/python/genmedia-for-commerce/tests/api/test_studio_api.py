@@ -46,6 +46,7 @@ def _offline(storage, monkeypatch: pytest.MonkeyPatch) -> None:
         sm, "preview_url", lambda uri, video=False: f"https://p/{uri}"
     )
     monkeypatch.setattr(sh, "note", lambda studio_id, text: True)
+    monkeypatch.setattr(sh, "note_later", lambda studio_id, text: None)
 
 
 def media(path: str) -> str:

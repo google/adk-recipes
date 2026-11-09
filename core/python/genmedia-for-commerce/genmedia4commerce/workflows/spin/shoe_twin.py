@@ -29,7 +29,7 @@ from collections.abc import Sequence
 import numpy as np
 from PIL import Image, ImageOps
 
-from genmedia4commerce.core import gen
+from genmedia4commerce.core import degraded, gen
 from genmedia4commerce.core.retry import ContextPool
 from genmedia4commerce.workflows.spin import shoe_split as split
 from genmedia4commerce.workflows.spin.shoe_prompts import twin_prompt
@@ -68,7 +68,8 @@ def flipped(output: bytes, image: bytes) -> bool:
 
 def twin(image: bytes, view: str, mirrored_view: str) -> bytes | None:
     """The mirror twin (PNG) of a shoe seen from ``view``; None when no try
-    flips it or the image model refuses the photo."""
+    flips it (a fallback: ``degraded.report``) or the image model refuses
+    the photo (as it would every time)."""
     prompt = twin_prompt(view, mirrored_view)
     for attempt in range(1, TRIES + 1):
         try:
@@ -81,6 +82,7 @@ def twin(image: bytes, view: str, mirrored_view: str) -> bytes | None:
         if flipped(out, image):
             return split.png(split.open_rgb(out))
         logger.info(f"mirror twin, try {attempt}: not flipped")
+    degraded.report("mirror twin")
     return None
 
 
