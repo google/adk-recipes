@@ -81,17 +81,29 @@ Without them, each run starts a brand-new session.
 
 ## Running with Docker
 
-You can also build and run the agent as a container image. Because `FirestoreRunner` is an interactive CLI agent running over standard input, allocate a pseudo-TTY and keep stdin open with `-it`:
+You can also build and run the agent as a container image. Because `FirestoreRunner` is an interactive CLI agent running over standard input, allocate a pseudo-TTY and keep stdin open with `-it`.
+
+When running locally with Application Default Credentials (ADC), mount your host's credentials file into the container and set `GOOGLE_APPLICATION_CREDENTIALS` (when deployed to Google Cloud services like Cloud Run, credentials are provided automatically by the attached service account):
 
 ```bash
 docker build -t firestore-session-service .
-docker run -it --env-file .env firestore-session-service
+docker run -it \
+  --env-file .env \
+  -v ~/.config/gcloud/application_default_credentials.json:/app/credentials.json:ro \
+  -e GOOGLE_APPLICATION_CREDENTIALS=/app/credentials.json \
+  firestore-session-service
 ```
 
 To resume an existing conversation inside the container:
 
 ```bash
-docker run -it --env-file .env -e USER_ID="user-..." -e SESSION_ID="session-..." firestore-session-service
+docker run -it \
+  --env-file .env \
+  -v ~/.config/gcloud/application_default_credentials.json:/app/credentials.json:ro \
+  -e GOOGLE_APPLICATION_CREDENTIALS=/app/credentials.json \
+  -e USER_ID="user-..." \
+  -e SESSION_ID="session-..." \
+  firestore-session-service
 ```
 
 ## Testing
