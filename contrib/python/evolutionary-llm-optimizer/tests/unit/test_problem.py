@@ -20,7 +20,7 @@ import duckdb
 import pytest
 
 from app import problem
-from app.sandbox import TABLE, run_sql, validate_sql
+from app.sandbox import TABLE, first_line, run_sql, validate_sql
 
 DATA = str(problem.DATA_PATH)
 
@@ -150,6 +150,50 @@ def test_values_are_normalized_across_engines() -> None:
         )
         is None
     )
+
+
+def test_infinite_and_huge_floats_do_not_raise() -> None:
+    assert problem.normalize_rows([[float("inf"), float("-inf"), 1e300]]) == [
+        ["Infinity", "-Infinity", 1e300]
+    ]
+    assert (
+        problem.compare_results([[float("inf")]], [[float("inf")]], True)
+        is None
+    )
+    assert problem.compare_results([[float("inf")]], [[1.0]], True)
+
+
+@pytest.mark.parametrize(
+    ("sql", "ordered"),
+    [
+        ("SELECT a, COUNT(*) FROM t GROUP BY a ORDER BY COUNT(*) DESC", True),
+        ("SELECT name FROM t ORDER BY LOWER(name), id LIMIT 5", True),
+        (
+            "WITH c AS (SELECT a FROM t ORDER BY a) SELECT a FROM c ORDER BY 1",
+            True,
+        ),
+        ("SELECT a FROM t UNION ALL SELECT b FROM u ORDER BY 1", True),
+        ("SELECT * FROM (SELECT a FROM t ORDER BY a) AS s", False),
+        (
+            "WITH c AS (SELECT a FROM t ORDER BY a LIMIT 3) SELECT a FROM c",
+            False,
+        ),
+        ("SELECT SUM(x) OVER (ORDER BY d) AS s FROM t", False),
+        ("SELECT 'order by' AS label FROM t", False),
+        ("SELECT a FROM t -- ORDER BY a", False),
+        ("SELECT a /* order by a */ FROM t", False),
+        ('SELECT "order by" FROM t', False),
+        ("SELECT a AS reorder_by FROM t", False),
+    ],
+)
+def test_top_level_order_by_detection(sql: str, ordered: bool) -> None:
+    assert problem.has_top_level_order_by(sql) is ordered
+
+
+def test_first_line_handles_errors_without_text() -> None:
+    assert first_line(TimeoutError()) == "TimeoutError"
+    assert first_line(ValueError("\n  \nboom\nmore detail")) == "boom"
+    assert len(first_line(ValueError("x" * 900))) == 500
 
 
 def test_select_query_uses_fenced_custom_sql() -> None:

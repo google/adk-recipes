@@ -31,6 +31,8 @@ from app.agent import (
     PROPOSE,
     Candidate,
     build_report,
+    canonical_sql,
+    create_proposer,
     create_workflow,
     deliver,
     format_bytes,
@@ -82,6 +84,24 @@ def test_format_bytes() -> None:
     assert format_bytes(234_600) == "234.60 KB"
     assert format_bytes(1_342_803) == "1.34 MB"
     assert format_bytes(None) is None
+    # Negative differences scale across units like positive ones.
+    assert format_bytes(-234_600) == "-234.60 KB"
+    assert format_bytes(-999) == "-999 B"
+
+
+def test_canonical_sql_keeps_literals_and_identifiers() -> None:
+    assert canonical_sql("SELECT  a\nFROM t;") == canonical_sql(
+        "select a from t"
+    )
+    assert canonical_sql("SELECT 'ABC'") != canonical_sql("select 'abc'")
+    assert canonical_sql('SELECT "Col"') != canonical_sql('select "col"')
+    assert canonical_sql("SELECT 'It''s  X'") == "select 'It''s  X'"
+
+
+def test_unset_model_name_fails_early(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("MODEL_NAME", raising=False)
+    with pytest.raises(RuntimeError, match="MODEL_NAME is not set"):
+        create_proposer()
 
 
 def test_init_runs_baseline_and_seeds_state(ctx: SimpleNamespace) -> None:
@@ -147,6 +167,19 @@ def test_non_select_is_rejected(ctx: SimpleNamespace) -> None:
     assert checked.output["error"] == "must be a SELECT, got DELETE"
 
 
+def test_rewrites_differing_only_in_literal_case_are_not_duplicates(
+    ctx: SimpleNamespace,
+) -> None:
+    init(ctx, MESSAGE)
+    upper = STATION_DEMAND_REWRITE.replace(
+        "SELECT start", "SELECT 'X' AS k, start"
+    )
+    lower = upper.replace("'X'", "'x'")
+    verify(ctx, Candidate(idea="upper", sql=upper))
+    checked = verify(ctx, Candidate(idea="lower", sql=lower))
+    assert "identical" not in (checked.output["error"] or "")
+
+
 def test_duplicate_sql_is_rejected_without_running(
     ctx: SimpleNamespace,
 ) -> None:
@@ -182,6 +215,43 @@ def test_report_uses_verified_numbers(ctx: SimpleNamespace) -> None:
     assert final.output.startswith(ctx.state["evolve_report"])
     assert ctx.state["evolve_report"].startswith("## SQL cost report: ")
     assert final.output.endswith("### Summary\nShort.")
+
+
+def test_report_reuses_stored_metrics_without_running_queries(
+    ctx: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    init(ctx, MESSAGE)
+    checked, _ = _verify_and_select(ctx, "range", STATION_DEMAND_REWRITE)
+
+    def no_queries(*args: object, **kwargs: object) -> None:
+        raise AssertionError("report must not run queries again")
+
+    monkeypatch.setattr("app.engines.DuckDBEngine.run", no_queries)
+    numbers = build_report(ctx.state)
+    assert numbers["improved"]
+    assert numbers["best_bytes_scanned"] == checked.output["bytes_scanned"]
+    assert numbers["best_runtime_ms"] == checked.output["runtime_ms"]
+    assert (
+        numbers["baseline_bytes_scanned"]
+        == ctx.state["evolve_baseline"]["bytes_scanned"]
+    )
+
+
+def test_report_says_when_no_rewrite_beat_the_baseline(
+    ctx: SimpleNamespace,
+) -> None:
+    init(ctx, MESSAGE)
+    _verify_and_select(ctx, "bad", NOT_A_SELECT)
+    _verify_and_select(ctx, "wrong", WRONG_RESULT)
+    numbers = build_report(ctx.state)
+    assert numbers["best_id"] == 0
+    assert not numbers["improved"]
+    assert numbers["bytes_saved"] == 0
+    text = render_report(numbers)
+    assert "No rewrite scanned fewer bytes than the baseline" in text
+    assert "Best verified rewrite" not in text
+    assert "### Best rewrite" not in text
+    assert report(ctx).output["improved"] is False
 
 
 # --- workflow graph ---------------------------------------------------------

@@ -49,7 +49,7 @@ flowchart LR
 | `propose` | `Agent(mode="single_turn")` | Gets a `ProposalBrief` (dialect, engine notes, schema, question, baseline SQL and bytes, expected result preview, parents with SQL, every rewrite tried, last feedback) and returns a `Candidate` (`idea`, `sql`). Sees only this brief, not the chat history. |
 | `verify` | function | Rejects duplicates, non-`SELECT` statements and oversized SQL, runs the rewrite on the query engine and compares its result with the baseline's. No model involved. |
 | `select` | function | Updates the population (fewest bytes first, runtime breaks ties) and returns `Event(route="continue")` or `Event(route="done")`. The loop is bounded by `MAX_EVALUATIONS`. |
-| `report` | function | Re-runs the baseline and the best rewrite, re-checks the result, and renders the Markdown report from verifier numbers only. |
+| `report` | function | Renders the Markdown report from the metrics `init` and `verify` already measured and stored in state, so nothing is re-run (or re-billed in BigQuery mode). Says so plainly when no rewrite beat the baseline. |
 | `narrate` | `Agent(mode="single_turn")` | Adds a short summary and is told to quote only numbers from the report. |
 | `deliver` | function | Sends the report and the summary as one final message, which is what A2A clients such as the Gemini agent show as the answer. |
 | `reject` | function | Explains why a pasted query could not run. |

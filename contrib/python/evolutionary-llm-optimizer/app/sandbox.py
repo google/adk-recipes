@@ -126,6 +126,18 @@ sys.stdout.write(json.dumps({
 """
 
 
+def first_line(error: BaseException, limit: int = _MAX_ERROR_CHARS) -> str:
+    """Returns the first non-empty line of an error message, for the model.
+
+    Some exceptions (for example a bare TimeoutError) have no message at all;
+    those are reported by their type name instead.
+    """
+    for line in str(error).splitlines():
+        if line.strip():
+            return line.strip()[:limit]
+    return type(error).__name__
+
+
 def validate_sql(sql: str) -> str | None:
     """Checks that `sql` is exactly one read-only SELECT statement.
 
@@ -135,7 +147,7 @@ def validate_sql(sql: str) -> str | None:
     try:
         statements = duckdb.extract_statements(sql)
     except duckdb.Error as error:
-        return f"does not parse: {str(error).splitlines()[0]}"
+        return f"does not parse: {first_line(error)}"
     if len(statements) != 1:
         return f"must be exactly one statement, got {len(statements)}"
     if statements[0].type != duckdb.StatementType.SELECT:

@@ -38,8 +38,8 @@ result, and meters the bytes it scans::
   bytes scanned and runtime. No model involved.
 - select (function): updates the population and routes to another proposal
   or to the report, bounded by MAX_EVALUATIONS.
-- report (function): re-runs the baseline and the best rewrite and builds the
-  cost report from verifier numbers only.
+- report (function): builds the cost report from the numbers the verifier
+  already measured and stored in session state (nothing is re-run).
 - narrate (single_turn Agent): adds a short summary for the data team,
   quoting only numbers that are in the report.
 - deliver (function): sends the report and the summary as one final answer.
@@ -140,9 +140,25 @@ def get_engine() -> Engine:
     )
 
 
+# String literals and quoted identifiers, with doubled quotes as escapes.
+_QUOTED = re.compile(r"""('(?:[^']|'')*'|"(?:[^"]|"")*"|`[^`]*`)""")
+
+
+def canonical_sql(sql: str) -> str:
+    """Normalizes whitespace and keyword case for duplicate detection.
+
+    Only text outside quotes is lowercased and whitespace-collapsed, so two
+    queries that differ in a literal (`'ABC'` vs `'abc'`) stay different.
+    """
+    parts = _QUOTED.split(sql.strip().rstrip(";").strip())
+    return "".join(
+        part if index % 2 else re.sub(r"\s+", " ", part).lower()
+        for index, part in enumerate(parts)
+    )
+
+
 def _sql_hash(sql: str) -> str:
-    canonical = " ".join(sql.strip().rstrip(";").split()).lower()
-    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    return hashlib.sha256(canonical_sql(sql).encode("utf-8")).hexdigest()
 
 
 def _tiebreak(runtime_ms: float) -> float:
@@ -156,7 +172,8 @@ def format_bytes(count: int | None) -> str | None:
         return None
     value = float(count)
     for unit in ("B", "KB", "MB", "GB", "TB"):
-        if value < 1000 or unit == "TB":
+        # abs() so a negative difference scales across units like a positive.
+        if abs(value) < 1000 or unit == "TB":
             return (
                 f"{value:,.0f} {unit}"
                 if unit == "B"
@@ -441,32 +458,33 @@ def select(ctx: Context, node_input: dict[str, Any]) -> Event:
 
 
 def build_report(state: Any) -> dict[str, Any]:
-    """Re-runs the baseline and the best rewrite; returns the numbers."""
+    """Returns the report numbers from the metrics already in session state.
+
+    `init` measured the baseline and `verify` measured and checked every
+    rewrite, so nothing is run again here (in BigQuery mode that would bill
+    both queries a second time).
+    """
     best = pop.best(state.get(_POPULATION_KEY, []))
     if best is None:
         raise RuntimeError("No verified candidates; run init first.")
     query = state[_QUERY_KEY]
-    engine = get_engine()
-    baseline = engine.run(query["sql"])
-    if not baseline["ok"]:
-        raise RuntimeError(f"Baseline no longer runs: {baseline['error']}")
-    plan = verify_sql(best["sql"], baseline, query["ordered"])
-    if not plan["valid"]:
-        raise RuntimeError(f"Best rewrite no longer verifies: {plan['error']}")
-    saved = baseline["bytes_scanned"] - plan["bytes_scanned"]
+    baseline = state[_BASELINE_KEY]
+    saved = baseline["bytes_scanned"] - best["score"]
     history = state.get(_HISTORY_KEY, [])
     return {
         "query_title": query["title"],
         "question": query["question"],
-        "engine": engine.name,
+        "engine": get_engine().name,
+        # Candidate 0 is the baseline itself: no rewrite scanned fewer bytes.
+        "improved": best["id"] != 0,
         "baseline_bytes_scanned": baseline["bytes_scanned"],
-        "best_bytes_scanned": plan["bytes_scanned"],
+        "best_bytes_scanned": best["score"],
         "bytes_saved": saved,
         "reduction_percent": round(100 * saved / baseline["bytes_scanned"], 1)
         if baseline["bytes_scanned"]
         else 0.0,
         "baseline_runtime_ms": baseline["runtime_ms"],
-        "best_runtime_ms": plan["runtime_ms"],
+        "best_runtime_ms": best["runtime_ms"],
         "result_rows": len(baseline["rows"]),
         "evaluations_used": state.get(_EVALUATIONS_KEY, 0),
         "rejected": sum(1 for h in history if not h["valid"]),
@@ -487,26 +505,39 @@ def _cell(text: str) -> str:
 
 def render_report(report: dict[str, Any]) -> str:
     """Formats the verifier's numbers as a Markdown report."""
+    improved = report["improved"]
     lines = [
         f"## SQL cost report: {report['query_title']}",
         "",
-        f"_{report['question']}_ Engine: `{report['engine']}`. Every rewrite"
-        f" below was run and returned the same {report['result_rows']} rows"
+        f"_{report['question']}_ Engine: `{report['engine']}`. Every accepted"
+        f" rewrite was run and returned the same {report['result_rows']} rows"
         " as the baseline.",
         "",
         "| | Bytes scanned | Runtime |",
         "| --- | --- | --- |",
         f"| Baseline query | {format_bytes(report['baseline_bytes_scanned'])} |"
         f" {report['baseline_runtime_ms']:.1f} ms |",
-        f"| Best verified rewrite (candidate {report['best_id']}) |"
-        f" **{format_bytes(report['best_bytes_scanned'])}** |"
-        f" {report['best_runtime_ms']:.1f} ms |",
-        f"| Reduction | **{format_bytes(report['bytes_saved'])}"
-        f" ({report['reduction_percent']}%)** | |",
-        "",
-        "BigQuery on-demand pricing bills bytes processed, so the same"
-        " reduction in bytes is the same reduction in that query's on-demand"
-        " cost.",
+    ]
+    if improved:
+        lines += [
+            f"| Best verified rewrite (candidate {report['best_id']}) |"
+            f" **{format_bytes(report['best_bytes_scanned'])}** |"
+            f" {report['best_runtime_ms']:.1f} ms |",
+            f"| Reduction | **{format_bytes(report['bytes_saved'])}"
+            f" ({report['reduction_percent']}%)** | |",
+            "",
+            "BigQuery on-demand pricing bills bytes processed, so the same"
+            " reduction in bytes is the same reduction in that query's"
+            " on-demand cost.",
+        ]
+    else:
+        lines += [
+            "",
+            "**No rewrite scanned fewer bytes than the baseline**, so the"
+            " baseline is still the cheapest verified query. Keep it, or run"
+            " again with a larger `MAX_EVALUATIONS`.",
+        ]
+    lines += [
         "",
         f"### Rewrites tried ({report['evaluations_used']} evaluations,"
         f" {report['rejected']} rejected by the verifier)",
@@ -521,13 +552,16 @@ def render_report(report: dict[str, Any]) -> str:
             else f"rejected: {_cell(t['error'])[:120]}"
         )
         lines.append(f"| {t['id']} | {_cell(t['idea'])} | {cost} |")
+    if improved:
+        lines += [
+            "",
+            "### Best rewrite",
+            "",
+            "```sql",
+            report["best_sql"].rstrip(),
+            "```",
+        ]
     lines += [
-        "",
-        "### Best rewrite",
-        "",
-        "```sql",
-        report["best_sql"].rstrip(),
-        "```",
         "",
         "<details><summary>Baseline query</summary>",
         "",
@@ -624,7 +658,9 @@ and every idea tried.
 
 Write at most 120 words of Markdown under the heading "### Summary": what
 the best rewrite changed and why it scans less (in terms of columns read,
-data skipped and number of scans), and how much it saves. Quote only numbers
+data skipped and number of scans), and how much it saves. If `improved` is
+false, no rewrite beat the baseline: say so, recommend keeping the baseline
+query, and do not claim any saving. Quote only numbers
 that appear in the input, exactly as written but without quotation marks;
 never compute, round or estimate a new number. End by noting that the
 rewrite returned the same result in verification and should be reviewed
@@ -635,7 +671,7 @@ shown above your summary.
 
 def _model() -> Gemini:
     return Gemini(
-        model=os.getenv("MODEL_NAME"),
+        model=_required_env("MODEL_NAME", os.getenv("MODEL_NAME")),
         retry_options=types.HttpRetryOptions(attempts=3),
     )
 

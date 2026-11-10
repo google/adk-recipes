@@ -13,6 +13,7 @@
 # limitations under the License.
 """Unit tests for the query engines, with a fake BigQuery client."""
 
+import concurrent.futures
 from types import SimpleNamespace
 from typing import Any, ClassVar
 
@@ -96,6 +97,13 @@ def test_bigquery_errors_become_feedback() -> None:
     assert result == {"ok": False, "error": "400 Unrecognized name: nope"}
 
 
+def test_bigquery_errors_without_text_become_feedback() -> None:
+    client = _FakeClient()
+    client.fail_with = concurrent.futures.TimeoutError()
+    result = _engine(client).run("SELECT cheap")
+    assert result == {"ok": False, "error": "TimeoutError"}
+
+
 def test_bigquery_caps_result_size() -> None:
     client = _FakeClient()
     client.rows = [("s", 1)] * 10_001
@@ -114,5 +122,10 @@ def test_create_engine() -> None:
     assert engine.table == "p.d.t"
     with pytest.raises(RuntimeError, match="BIGQUERY_MAX_BYTES_BILLED"):
         create_engine("bigquery", timeout_seconds=5)
+    # 0 is a valid (if very strict) billing cap, not "unset".
+    zero_cap = create_engine("bigquery", timeout_seconds=5, max_bytes_billed=0)
+    assert isinstance(zero_cap, BigQueryEngine)
+    with pytest.raises(RuntimeError, match=">= 0"):
+        create_engine("bigquery", timeout_seconds=5, max_bytes_billed=-1)
     with pytest.raises(RuntimeError, match="Unknown QUERY_ENGINE"):
         create_engine("spark", timeout_seconds=5)

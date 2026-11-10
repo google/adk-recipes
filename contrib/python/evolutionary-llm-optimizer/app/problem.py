@@ -211,7 +211,58 @@ LIMIT 20""",
 ]
 
 _FENCED_SQL = re.compile(r"```(?:sql)?\s*(.+?)```", re.IGNORECASE | re.DOTALL)
-_TOP_LEVEL_ORDER_BY = re.compile(r"\border\s+by\b[^()]*$", re.IGNORECASE)
+_ORDER_BY = re.compile(r"\border\s+by\b", re.IGNORECASE)
+
+
+def _top_level_code(sql: str) -> str:
+    """Returns the SQL with everything inside parentheses, string literals,
+    quoted identifiers and comments blanked out, so only the outermost query
+    clauses remain visible."""
+    out: list[str] = []
+    depth = 0
+    i = 0
+    while i < len(sql):
+        char = sql[i]
+        if sql.startswith("--", i):
+            end = sql.find("\n", i)
+            i = len(sql) if end < 0 else end
+            continue
+        if sql.startswith("/*", i):
+            end = sql.find("*/", i + 2)
+            i = len(sql) if end < 0 else end + 2
+            out.append(" ")
+            continue
+        if char in "'\"`":
+            end = i + 1
+            while end < len(sql):
+                if sql[end] == char:
+                    # A doubled quote is an escaped quote inside the literal.
+                    if end + 1 < len(sql) and sql[end + 1] == char:
+                        end += 2
+                        continue
+                    break
+                end += 1
+            i = end + 1
+            out.append(" ")
+            continue
+        if char == "(":
+            depth += 1
+        elif char == ")":
+            depth = max(0, depth - 1)
+        elif depth == 0:
+            out.append(char)
+            i += 1
+            continue
+        out.append(" ")
+        i += 1
+    return "".join(out)
+
+
+def has_top_level_order_by(sql: str) -> bool:
+    """True if the outermost query sorts its result (ORDER BY outside any
+    parentheses), ignoring ORDER BY in subqueries, CTEs, window clauses,
+    string literals and comments."""
+    return bool(_ORDER_BY.search(_top_level_code(sql)))
 
 
 def query_by_id(query_id: str) -> dict[str, Any]:
@@ -238,7 +289,7 @@ def select_query(message: str, engine: str, table: str) -> dict[str, Any]:
             "title": "Your query",
             "question": "The query you pasted.",
             "anti_pattern": "unknown",
-            "ordered": bool(_TOP_LEVEL_ORDER_BY.search(sql)),
+            "ordered": has_top_level_order_by(sql),
             "sql": sql,
         }
     text = (message or "").lower()
@@ -265,7 +316,11 @@ def _normalize(value: Any) -> Any:
         number = float(value)
         if math.isnan(number):
             return "NaN"
-        if number == int(number) and abs(number) < 2**53:
+        if math.isinf(number):
+            return "Infinity" if number > 0 else "-Infinity"
+        # Check the magnitude first: int() of a huge float is slow and of an
+        # infinite one raises OverflowError.
+        if abs(number) < 2**53 and number == int(number):
             return int(number)
         return float(f"{number:.9g}")
     if isinstance(value, (datetime.datetime, datetime.date, datetime.time)):

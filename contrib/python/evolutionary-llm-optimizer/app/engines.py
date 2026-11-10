@@ -34,7 +34,7 @@ from collections.abc import Callable
 from typing import Any, Protocol
 
 from . import problem
-from .sandbox import TABLE, run_sql
+from .sandbox import TABLE, first_line, run_sql
 
 _MAX_RESULT_ROWS = 10_000
 
@@ -137,7 +137,7 @@ class BigQueryEngine:
             rows = [list(row.values()) for row in result]
             runtime_ms = round((time.perf_counter() - start) * 1000, 2)
         except Exception as error:  # reported to the model as feedback
-            return {"ok": False, "error": str(error).splitlines()[0][:500]}
+            return {"ok": False, "error": first_line(error)}
         if len(rows) > _MAX_RESULT_ROWS:
             return {
                 "ok": False,
@@ -170,10 +170,12 @@ def create_engine(
     if engine == "duckdb":
         return DuckDBEngine(str(problem.DATA_PATH), timeout_seconds)
     if engine == "bigquery":
-        if not max_bytes_billed:
+        if max_bytes_billed is None:
             raise RuntimeError(
                 "QUERY_ENGINE=bigquery needs BIGQUERY_MAX_BYTES_BILLED."
             )
+        if max_bytes_billed < 0:
+            raise RuntimeError("BIGQUERY_MAX_BYTES_BILLED must be >= 0.")
         return BigQueryEngine(
             lambda: _bigquery_client(bigquery_project),
             bigquery_table or problem.DEFAULT_BIGQUERY_TABLE,
