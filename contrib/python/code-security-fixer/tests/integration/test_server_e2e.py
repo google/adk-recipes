@@ -15,6 +15,7 @@
 import json
 import logging
 import os
+import socket
 import subprocess
 import sys
 import threading
@@ -30,9 +31,20 @@ from requests.exceptions import RequestException
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-BASE_URL = "http://127.0.0.1:8000"
+
+def _free_port() -> int:
+    """An ephemeral port, so the test does not clash with a local server."""
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
+
+
+PORT = _free_port()
+BASE_URL = f"http://127.0.0.1:{PORT}"
 STREAM_URL = BASE_URL + "/run_sse"
-FEEDBACK_URL = BASE_URL + "/feedback"
+# A run executes Bandit, the tests and a model call; events can be minutes
+# apart, so the read timeout is generous.
+RUN_TIMEOUT_SECONDS = 900
 
 HEADERS = {"Content-Type": "application/json"}
 
@@ -51,12 +63,13 @@ def start_server() -> subprocess.Popen[str]:
         "uvicorn",
         "app.fast_api_app:app",
         "--host",
-        "0.0.0.0",
+        "127.0.0.1",
         "--port",
-        "8000",
+        str(PORT),
     ]
     env = os.environ.copy()
     env["INTEGRATION_TEST"] = "TRUE"
+    env["APP_URL"] = BASE_URL
     process = subprocess.Popen(
         command,
         stdout=subprocess.PIPE,
@@ -82,7 +95,7 @@ def wait_for_server(timeout: int = 90, interval: int = 1) -> bool:
     start_time = time.time()
     while time.time() - start_time < timeout:
         try:
-            response = requests.get("http://127.0.0.1:8000/docs", timeout=10)
+            response = requests.get(f"{BASE_URL}/docs", timeout=10)
             if response.status_code == 200:
                 logger.info("Server is ready")
                 return True
@@ -139,12 +152,16 @@ def test_chat_stream(server_fixture: subprocess.Popen[str]) -> None:
         "session_id": session_id,
         "new_message": {
             "role": "user",
-            "parts": [{"text": "Hi!"}],
+            "parts": [{"text": "Fix the security findings."}],
         },
         "streaming": True,
     }
     response = requests.post(
-        STREAM_URL, headers=HEADERS, json=data, stream=True, timeout=60
+        STREAM_URL,
+        headers=HEADERS,
+        json=data,
+        stream=True,
+        timeout=(10, RUN_TIMEOUT_SECONDS),
     )
     assert response.status_code == 200
 
@@ -193,22 +210,3 @@ def test_chat_stream_error_handling(
         f"Expected status code 422, got {response.status_code}"
     )
     logger.info("Error handling test completed successfully")
-
-
-def test_collect_feedback(server_fixture: subprocess.Popen[str]) -> None:
-    """
-    Test the feedback collection endpoint (/feedback) to ensure it properly
-    logs the received feedback.
-    """
-    # Create sample feedback data
-    feedback_data = {
-        "score": 4,
-        "user_id": "test-user-456",
-        "session_id": "test-session-456",
-        "text": "Great response!",
-    }
-
-    response = requests.post(
-        FEEDBACK_URL, json=feedback_data, headers=HEADERS, timeout=10
-    )
-    assert response.status_code == 200

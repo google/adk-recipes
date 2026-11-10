@@ -21,6 +21,7 @@ import asyncio
 import hashlib
 import os
 import shutil
+import sys
 from pathlib import Path
 
 import pytest
@@ -36,7 +37,7 @@ from reference_fixes import (
     INCOMPLETE,
 )
 
-from app import agent, config, scanner, validator, workspace
+from app import agent, config, sandbox, scanner, validator, workspace
 
 TIMEOUT = 60
 EXPLOIT_2021 = {
@@ -113,6 +114,75 @@ def test_baseline_on_the_django_cve(baseline: dict) -> None:
     passed = scanner.passed_tests(baseline)
     assert "tests.test_archive.TestArchive.test_extract_function" in passed
     assert len(passed) == 3
+
+
+@pytest.mark.parametrize(
+    "stdout",
+    [
+        '@@RESULT@@{"tests": [{"id": "t", "sta',  # truncated JSON
+        "@@RESULT@@[]",  # valid JSON, wrong shape
+        '@@RESULT@@{"other": 1}',  # missing key
+        '@@RESULT@@{"tests": "nope"}',  # tests is not a list
+    ],
+)
+def test_malformed_harness_output_is_an_error_not_a_crash(stdout: str) -> None:
+    run = {"returncode": 0, "stdout": stdout, "stderr": "", "timed_out": False}
+    result = scanner._parse_unittest(run)
+    assert result == {
+        "tests": [],
+        "error": "test harness output could not be parsed",
+    }
+
+
+def test_test_command_resolves_venv_console_scripts(tmp_path: Path) -> None:
+    """TEST_COMMAND can call `pytest` directly, not only `python -m pytest`."""
+    assert sandbox.child_path().split(os.pathsep)[0] == os.path.dirname(
+        sys.executable
+    )
+    (tmp_path / "test_ok.py").write_text("def test_ok():\n    assert True\n")
+    result = scanner.run_tests(
+        str(tmp_path), TIMEOUT, "pytest -rA -q -p no:cacheprovider"
+    )
+    assert result["error"] is None
+    assert result["tests"] == [
+        {"id": "test_ok.py::test_ok", "status": "passed", "detail": ""}
+    ]
+
+
+def test_missing_test_command_is_reported(tmp_path: Path) -> None:
+    result = scanner.run_tests(str(tmp_path), TIMEOUT, "no-such-test-runner -q")
+    assert result["tests"] == []
+    assert "cannot run 'no-such-test-runner'" in result["error"]
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        ("x = 1  # nosec\n", 1),
+        ("x = 1  #nosec B602\n", 1),
+        ("x = 1  # noqa: S1 # nosec\n", 1),
+        ("nosec_count = 0\n", 0),  # identifier
+        ('policy = "use # nosec sparingly"\n', 0),  # string literal
+        ("# see the nosec policy in SECURITY.md\n", 0),  # prose comment
+        ("def broken(:  # nosec\n", 1),  # untokenizable: line fallback
+    ],
+)
+def test_nosec_directives_counts_only_real_markers(
+    source: str, expected: int
+) -> None:
+    assert validator.nosec_directives(source) == expected
+
+
+def test_mentioning_nosec_is_not_a_suppression(
+    work: Path, baseline: dict
+) -> None:
+    content = FIX_2025.replace(
+        "import os\n", "import os\n\nNOSEC_POLICY = 'never add nosec'\n", 1
+    )
+    verdict = validator.validate_patch(
+        work, ARCHIVE, content, baseline, TIMEOUT, None, SKIPS
+    )
+    assert verdict["accepted"], verdict["reasons"]
 
 
 def test_generic_test_command_parsing() -> None:

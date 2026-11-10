@@ -102,6 +102,8 @@ def run_bandit(
     if skips:
         argv += ["-s", skips]
     run = run_limited(argv, work_dir, timeout_seconds)
+    if run["error"]:
+        return {"findings": [], "error": run["error"][:_MAX_DETAIL_CHARS]}
     if run["timed_out"]:
         return {"findings": [], "error": "bandit timed out"}
     try:
@@ -144,8 +146,15 @@ def _parse_unittest(run: dict[str, Any]) -> dict[str, Any]:
             "tests": [],
             "error": f"test run crashed: {tail[0][:_MAX_DETAIL_CHARS]}",
         }
-    payload = json.loads(run["stdout"][marker + len("@@RESULT@@") :])
-    return {"tests": payload["tests"], "error": None}
+    try:
+        payload = json.loads(run["stdout"][marker + len("@@RESULT@@") :])
+        tests = payload["tests"]
+    except (json.JSONDecodeError, KeyError, TypeError):
+        # Truncated (output limit, killed process) or otherwise malformed.
+        return {"tests": [], "error": "test harness output could not be parsed"}
+    if not isinstance(tests, list):
+        return {"tests": [], "error": "test harness output could not be parsed"}
+    return {"tests": tests, "error": None}
 
 
 def _parse_generic(run: dict[str, Any]) -> dict[str, Any]:
@@ -198,6 +207,8 @@ def run_tests(
     else:
         argv = python_argv("-c", _UNITTEST_HARNESS, tests_dir)
     run = run_limited(argv, work_dir, timeout_seconds)
+    if run["error"]:
+        return {"tests": [], "error": run["error"][:_MAX_DETAIL_CHARS]}
     if run["timed_out"]:
         return {
             "tests": [],

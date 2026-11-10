@@ -35,6 +35,6 @@ pythonpath = "."
 # Integration tests require live credentials and are excluded from CI.
 # Run them locally with: uv run pytest tests/integration
 addopts = "--ignore=tests/integration"
-# Only collect the recipe's own tests. The bundled sample target under
-# app/sample_target/ ships exploit tests that FAIL on purpose until fixed.
+# Only collect the recipe's own tests. The bundled target under
+# app/django_archive/ ships exploit tests that FAIL on purpose until fixed.
 testpaths = ["tests"]

@@ -45,10 +45,26 @@ def _limit_resources(cpu_seconds: int) -> None:  # pragma: no cover - child
     )
 
 
+# System directories searched after the recipe's own interpreter directory.
+_SYSTEM_PATH = ("/usr/local/bin", "/usr/bin", "/bin")
+
+
+def child_path() -> str:
+    """PATH for child processes: this interpreter's bin directory first.
+
+    That is the virtualenv's `bin/` when the recipe runs under `uv run` (or in
+    the container), so a TEST_COMMAND such as `pytest -rA` or another console
+    script installed next to the interpreter resolves, followed by the system
+    directories.
+    """
+    bin_dir = os.path.dirname(sys.executable)
+    return os.pathsep.join(dict.fromkeys((bin_dir, *_SYSTEM_PATH)))
+
+
 def _child_env(cwd: str) -> dict[str, str]:
     """A minimal environment: no credentials or API keys leak to the target."""
     return {
-        "PATH": "/usr/local/bin:/usr/bin:/bin",
+        "PATH": child_path(),
         "HOME": cwd,
         "LANG": "C.UTF-8",
         "PYTHONDONTWRITEBYTECODE": "1",
@@ -74,7 +90,8 @@ def run_limited(
 
     Returns:
         `{"returncode": int | None, "stdout": str, "stderr": str,
-        "timed_out": bool}`.
+        "timed_out": bool, "error": str | None}`. `error` is set when the
+        command cannot be started (for example, not found on the child PATH).
     """
     preexec = None
     if os.name == "posix":
@@ -101,10 +118,23 @@ def run_limited(
             "stdout": _text(exc.stdout)[-_MAX_STDOUT_CHARS:],
             "stderr": _text(exc.stderr)[-_MAX_STDERR_CHARS:],
             "timed_out": True,
+            "error": None,
+        }
+    except OSError as exc:  # FileNotFoundError, PermissionError, ...
+        return {
+            "returncode": None,
+            "stdout": "",
+            "stderr": "",
+            "timed_out": False,
+            "error": (
+                f"cannot run {argv[0]!r}: {exc.strerror or exc}"
+                f" (child PATH: {child_path()})"
+            ),
         }
     return {
         "returncode": proc.returncode,
         "stdout": proc.stdout[-_MAX_STDOUT_CHARS:],
         "stderr": proc.stderr[-_MAX_STDERR_CHARS:],
         "timed_out": False,
+        "error": None,
     }

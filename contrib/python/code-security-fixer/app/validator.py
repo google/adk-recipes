@@ -25,12 +25,41 @@ only if, compared with the working copy before the patch:
 The model's own claims play no part in the decision.
 """
 
+import io
+import re
 import shutil
 import tempfile
+import tokenize
 from pathlib import Path
 from typing import Any
 
 from . import scanner, workspace
+
+# Bandit's suppression marker: "#" then optional spaces then "nosec", inside a
+# comment (`# nosec`, `#nosec`, `# nosec B602`).
+_NOSEC = re.compile(r"#\s*nosec\b")
+
+
+def nosec_directives(source: str) -> int:
+    """Counts Bandit `# nosec` directives in comments.
+
+    Identifiers (`nosec_count`), strings (`"nosec"`) and prose comments
+    (`# see the nosec policy`) are not directives. Falls back to scanning
+    lines when the source cannot be tokenized (the syntax check reports that).
+    """
+    try:
+        comments = [
+            tok.string
+            for tok in tokenize.generate_tokens(io.StringIO(source).readline)
+            if tok.type == tokenize.COMMENT
+        ]
+    except (tokenize.TokenError, IndentationError, SyntaxError):
+        comments = [
+            line[line.index("#") :]
+            for line in source.splitlines()
+            if "#" in line
+        ]
+    return sum(len(_NOSEC.findall(comment)) for comment in comments)
 
 
 def _precheck(work_dir: Path, rel_path: str, new_content: str) -> str | None:
@@ -45,7 +74,7 @@ def _precheck(work_dir: Path, rel_path: str, new_content: str) -> str | None:
         return f"new content exceeds {workspace.MAX_FILE_CHARS} characters"
     if new_content == old:
         return "new content is identical to the current file"
-    if new_content.count("nosec") > old.count("nosec"):
+    if nosec_directives(new_content) > nosec_directives(old):
         return "suppressing findings with '# nosec' is not a fix"
     if rel_path.endswith(".py"):
         try:
