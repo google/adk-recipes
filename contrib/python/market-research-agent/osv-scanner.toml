@@ -1,0 +1,13 @@
+# osv-scanner reads this file for ./uv.lock (the CVE scan in
+# .github/workflows/dependency-cve-scan.yml). Only vulnerabilities that cannot
+# be fixed in this recipe belong here; remove each entry once a fix lands.
+
+[[IgnoredVulns]]
+id = "GHSA-xcq7-p3pf-p88h"
+ignoreUntil = 2026-12-27
+reason = "Fixed in opentelemetry-api 1.45.1, but every google-adk release caps it at <=1.44. Overriding the cap breaks the pinned OTel SDK and OTLP exporters at import, so the recipe could not start. Same version every other Python recipe in this repo locks; remove once google-adk admits 1.45.1."
+
+[[IgnoredVulns]]
+id = "CVE-2026-114603"
+ignoreUntil = 2026-12-27
+reason = "Alias of GHSA-xcq7-p3pf-p88h above; same rationale."
