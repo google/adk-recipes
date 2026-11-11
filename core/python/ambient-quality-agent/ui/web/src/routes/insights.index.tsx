@@ -24,10 +24,11 @@ import { PageShell } from "@/components/nav/page-shell";
 import { parseDay } from "@/lib/day-buckets";
 
 export const Route = createFileRoute("/insights/")({
-  // Every layer below this already filtered by run -- `insightsQuery({runId})`,
-  // the `?runId=` param on `ui/app.py`, and an EXISTS over
-  // `insight_occurrences.run_id` in the reader. The route was the only one that
-  // could not say it, so one sweep's findings had no address of their own.
+  // Every layer below this already filtered by investigation --
+  // `insightsQuery({investigationId})`, the `?investigationId=` param on
+  // `ui/app.py`, and an EXISTS over `insight_occurrences.run_id` in the reader.
+  // The route was the only one that could not say it, so one sweep's findings
+  // had no address of their own.
   //
   // The status filter lives here too, so a filtered list can be linked,
   // reloaded, and returned to with Back from a page it led to. A status the
@@ -44,7 +45,7 @@ export const Route = createFileRoute("/insights/")({
   validateSearch: (
     search: Record<string, unknown>,
   ): {
-    runId?: string;
+    investigationId?: string;
     status?: InsightStatusFilter;
     day?: string;
     page?: number;
@@ -52,19 +53,22 @@ export const Route = createFileRoute("/insights/")({
     const day = parseDay(search.day);
     const status = INSIGHT_STATUS_FILTERS.find((s) => s === search.status);
     return {
-      runId: typeof search.runId === "string" ? search.runId : undefined,
+      investigationId:
+        typeof search.investigationId === "string"
+          ? search.investigationId
+          : undefined,
       status: day && status === "recurring" ? undefined : status,
       day,
       page: parsePageNumber(search.page),
     };
   },
   component: function Page() {
-    const { runId, status, day, page } = Route.useSearch();
+    const { investigationId, status, day, page } = Route.useSearch();
     const navigate = Route.useNavigate();
     return (
       <PageShell>
         <InsightsView
-          runId={runId}
+          investigationId={investigationId}
           status={status}
           // Replaced rather than pushed, so Back leaves the page instead of
           // stepping through every tab and page that was tried on it. A new

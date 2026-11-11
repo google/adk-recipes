@@ -279,7 +279,7 @@ def test_a_remote_metric_that_will_not_parse_is_a_named_failure() -> None:
 def test_a_remote_metric_naming_no_function_is_named_not_dropped() -> None:
     """`execution: remote` with nothing to run is the shape a typo lands in.
 
-    Skipped quietly it never reached the run summary, so the operator saw a
+    Skipped quietly it never reached the investigation summary, so the operator saw a
     sweep that scored nothing and said nothing about why.
     """
     library = load_library(_config({"name": "nothing", "execution": "remote"}))
@@ -505,7 +505,7 @@ def test_a_failing_score_becomes_a_finding_with_the_services_explanation() -> (
     assert [f.expected_behavior for f in finding_set.findings] == [
         "The agent answers."
     ]
-    assert [f.session_id for f in finding_set.findings] == ["s1"]
+    assert [f.trajectory_id for f in finding_set.findings] == ["s1"]
     assert (tally.cases, tally.failed, tally.passed) == (1, 1, 0)
 
 
@@ -674,7 +674,7 @@ def test_a_failing_case_carries_its_turns_and_revision() -> None:
     )
 
     assert [f.agent_revision for f in finding_set.findings] == ["rev-7"]
-    assert list(finding_set.sessions) == ["s1"]
+    assert list(finding_set.turns_by_trajectory) == ["s1"]
 
 
 def test_every_case_of_the_page_is_counted_once() -> None:
@@ -697,7 +697,7 @@ def test_every_case_of_the_page_is_counted_once() -> None:
     # The unanswered case is errored, not passed: the service said nothing
     # about it, which is not the same as the agent behaving.
     assert tally.outcomes == {"s1": "failed", "s2": "errored"}
-    assert [f.session_id for f in finding_set.findings] == ["s1"]
+    assert [f.trajectory_id for f in finding_set.findings] == ["s1"]
 
 
 def test_a_service_that_answers_about_nothing_does_not_report_a_clean_sweep() -> (
@@ -979,7 +979,7 @@ def test_a_service_outage_is_recorded_rather_than_raised_mid_sweep() -> None:
     """Uncaught, a 503 leaves `run_sweep` from inside the page loop, before the
     peers have finished their pages or any counter has been written.
 
-    Caught, the sweep completes and `finish` decides the run. This does not make
+    Caught, the sweep completes and `finish` decides the investigation. This does not make
     the evaluation non-fatal: `finish` still raises when nothing scored.
     """
     evaluation = RemoteCodeMetricEvaluation(_DeadEvaluator(), [_metric()])
@@ -998,7 +998,7 @@ def test_an_evaluator_that_cannot_be_built_is_recorded_not_raised() -> None:
     """Building the SDK client resolves credentials and can raise.
 
     Done in the node, it escaped before any evaluation ran. Deferred, the page
-    is recorded errored and `finish` decides the run.
+    is recorded errored and `finish` decides the investigation.
     """
 
     def factory() -> Any:

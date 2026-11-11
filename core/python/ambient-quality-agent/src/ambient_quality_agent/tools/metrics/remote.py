@@ -50,13 +50,16 @@ from ambient_quality_agent.tools.evaluation.results import (
     build_outcome_keys,
     walk_metric_results,
 )
-from ambient_quality_agent.tools.insights.findings import Finding, FindingSet
+from ambient_quality_agent.tools.insights.findings import (
+    Finding,
+    FindingSet,
+    extract_trajectory_turns,
+)
 from ambient_quality_agent.tools.metrics import runner
 from ambient_quality_agent.tools.metrics.library import (
     REMOTE_KIND,
     RemoteJudgeMetric,
 )
-from ambient_quality_agent.tools.review import session_review
 from google.genai import types as genai_types
 
 if TYPE_CHECKING:
@@ -174,7 +177,7 @@ def score_page_results(
     cases = list(page.dataset.eval_cases or [])
     keys = build_outcome_keys(cases, tally.cases)
     findings: list[Finding] = []
-    sessions: dict[str, list[dict]] = {}
+    turns_by_trajectory: dict[str, list[dict]] = {}
     # Map case position to combined status across all evaluating metrics.
     statuses: dict[int, str] = {}
     # Track which metrics evaluated each case to ensure all requested metrics answered.
@@ -192,7 +195,7 @@ def score_page_results(
             )
             continue
         eval_case = cases[case_index]
-        session_id = str(getattr(eval_case, "eval_case_id", "") or "")
+        trajectory_id = str(getattr(eval_case, "eval_case_id", "") or "")
         # Record evaluation before parsing to prevent double-counting malformed verdicts as silent.
         judged.setdefault(case_index, set()).add(metric.service_name)
         try:
@@ -214,7 +217,7 @@ def score_page_results(
             logger.warning(
                 "Remote metric %r failed on session %s: %s",
                 metric.name,
-                session_id,
+                trajectory_id,
                 exc,
             )
             continue
@@ -238,12 +241,12 @@ def score_page_results(
             Finding(
                 expected_behavior=metric.expected,
                 actual_behavior=actual,
-                session_id=session_id,
-                agent_revision=page.revisions.get(session_id, ""),
+                trajectory_id=trajectory_id,
+                agent_revision=page.revisions.get(trajectory_id, ""),
             )
         )
-        if session_id and session_id not in sessions:
-            sessions[session_id] = session_review.extract_session_turns(
+        if trajectory_id and trajectory_id not in turns_by_trajectory:
+            turns_by_trajectory[trajectory_id] = extract_trajectory_turns(
                 eval_case
             )
 
@@ -256,7 +259,9 @@ def score_page_results(
             runner.record_metric(tally, metrics[service_name].name, ERRORED)
     _tally_cases(tally, keys, statuses)
     tally.findings += len(findings)
-    return FindingSet(findings=findings, sessions=sessions)
+    return FindingSet(
+        findings=findings, turns_by_trajectory=turns_by_trajectory
+    )
 
 
 def _tally_cases(

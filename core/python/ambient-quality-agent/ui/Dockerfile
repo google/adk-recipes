@@ -38,7 +38,7 @@ RUN cd web && npm run build
 
 # --- the service -------------------------------------------------------------- #
 # FastAPI dashboard — single, compact Cloud Run image.
-FROM python:3.15-slim
+FROM python:3.13-slim
 
 ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \

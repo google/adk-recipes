@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Which agent's goal and memories a request or a run reads and writes.
+"""Which agent's goal and memories a request or an investigation reads and writes.
 
 Each attached agent keeps its documents under ``agents/<agent key>/`` in the
 jobs store, beside its attachment object ``agents/<agent key>.json``.
@@ -29,7 +29,7 @@ and the instance's documents follow it. The code-metric library belongs to the
 default agent the same way, but is read whole, never merged file by file with
 the agent's own (`metrics.publishing`).
 
-A request or a run that resolves no agent, because none is attached, reads and
+A request or an investigation that resolves no agent, because none is attached, reads and
 writes the instance's documents. One whose default agent cannot be resolved,
 because the attachments cannot be read, fails rather than falling back to the
 instance's documents, where its writes would land unseen.

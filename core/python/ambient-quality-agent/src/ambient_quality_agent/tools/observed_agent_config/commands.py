@@ -46,6 +46,11 @@ table it is read from.
 `access_check` on the merged fields. The check runs here, in the engine, so it
 reads as AQuA's service account rather than as whoever runs the CLI.
 
+**Whether its selector may run** is checked by the same dry run: a stored
+`investigation_selector_sql` goes through `access_check.precheck_selector`, the
+precheck each sweep runs it through, and a refused selector refuses the attach.
+A request that sets it gets the lexical checks too, which read nothing.
+
 **What the table decides**, its location and source, is filled in before the
 check by a dry run that asks for it, wherever the request leaves it out. The
 plan names those values in `filled`, and the caller sends them back in
@@ -76,6 +81,7 @@ import dataclasses
 import datetime as dt
 import logging
 import re
+import unicodedata
 from typing import Any
 
 from ambient_quality_agent import config as config_module
@@ -85,6 +91,7 @@ from ambient_quality_agent.tools.evaluation.models import (
     MULTI_TURN_METRICS,
     SINGLE_TURN_METRICS,
 )
+from ambient_quality_agent.tools.ingestion import selector
 from ambient_quality_agent.tools.objects import store as objects
 from ambient_quality_agent.tools.observed_agent_config import (
     access_check,
@@ -131,6 +138,34 @@ _BUCKET_NAME_RE = re.compile(r"[a-z0-9][a-z0-9._-]{1,220}[a-z0-9]")
 The access check puts it into a request path unquoted, and a grant command
 built from it accepts no other shape."""
 
+_DATASET_NAME_RE = re.compile(r"\w{1,1024}", re.ASCII)
+"""A BigQuery dataset name, the shape `telemetry_dataset` takes.
+
+Ingestion splices it into its SQL inside backticks, where a name of any other
+shape could end the quoting."""
+
+
+def _is_table_name(name: str) -> bool:
+    """Checks whether a value is a BigQuery table name, the shape `telemetry_table` takes.
+
+    BigQuery allows up to 1,024 UTF-8 bytes of letters, marks, numbers,
+    connectors such as the underscore, dashes and spaces. Ingestion splices the
+    name into its SQL inside backticks, where a name of any other shape could
+    end the quoting.
+
+    Args:
+        name: Candidate table name.
+
+    Returns:
+        True if `name` is a BigQuery table name.
+    """
+    return 0 < len(name.encode()) <= 1024 and all(
+        unicodedata.category(char)[0] in "LMN"
+        or unicodedata.category(char) in ("Pc", "Pd", "Zs")
+        for char in name
+    )
+
+
 _NO_BUCKET = (
     "This deployment has no jobs bucket, so there is nowhere to store an "
     "attachment. Set AQA_JOBS_GCS_BUCKET, or run AQuA standalone."
@@ -163,15 +198,20 @@ async def attach_agent(
        resolved key that is not well formed, or a name the stored attachment
        does not hold; without an object, start from the defaults.
     4. Merge the fields and validate the result through `Config.copy_with_agent`.
-    5. Refuse a merge that changes the key, or re-points an attachment at
-       another engine.
+    5. Refuse a merge that changes the key, re-points an attachment at
+       another engine, or stores a selector outside ``session_review`` mode.
     6. For a dry run that checks access and asks, fill in the settings the
        telemetry table decides otherwise and `fields` leaves out.
-    7. Compute the plan: each changed field with its value before and after.
-    8. For a dry run that asks, check that AQuA can read the telemetry the
-       result points at.
-    9. Store the result, unless this is a dry run or an attached agent does not
-       change.
+    7. Refuse a result that moves an unchanged stored selector to another
+       selector table (after step 9 when checking access).
+    8. Compute the plan: each changed field with its value before and after.
+    9. For a dry run that asks, check that AQuA can read the telemetry the
+       result points at. If the check refuses the table, return before any
+       selector refusal.
+    10. For a dry run that asks, refuse a result whose stored selector fails
+        the precheck every sweep runs it through.
+    11. Store the result, unless this is a dry run or an attached agent does
+        not change.
 
     Args:
         agent_name: Agent to attach. Empty means the agent `agent_key` names.
@@ -236,6 +276,8 @@ async def attach_agent(
         return {"error": f"Refusing to attach {key}: {exc}"}
     if stored is not None and (refusal := _validate_merged_key(stored, after)):
         return {"error": refusal}
+    if refusal := _validate_selector_mode(after):
+        return {"error": refusal}
     filled: list[access_check.TableSetting] = []
     if dry_run and check_access and fill_from_table:
         filled = [
@@ -249,6 +291,10 @@ async def attach_agent(
         ]
         if filled:
             after = _merge_fields(after, {s.field: s.value for s in filled})
+    # After the fill, which can change the source.
+    stale_selector = _validate_selector_table(before, after, fields)
+    if stale_selector and not (dry_run and check_access):
+        return {"error": stale_selector}
 
     changes = _compute_changes(before, after)
     is_default = await asyncio.to_thread(_is_default_once_saved, jobs, after)
@@ -287,6 +333,33 @@ async def attach_agent(
             project_id=env_config.project_id,
             payload_bucket=after.telemetry_payload_bucket,
         )
+        if _refuses_table(result["access"]["checks"]):
+            return result
+        if stale_selector:
+            return {"error": stale_selector}
+        if after.config.investigation_selector_sql:
+            try:
+                precheck = await asyncio.to_thread(
+                    access_check.precheck_selector,
+                    after.config,
+                    project_id=env_config.project_id,
+                    ai_model=env_config.selector_ai_model,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "attach: prechecking the selector for %s failed",
+                    key,
+                    exc_info=True,
+                )
+                return {
+                    "error": "Could not check investigation_selector_sql for "
+                    f"{key}: {exc}"
+                }
+            if precheck.rejection is not None:
+                return {
+                    "error": f"Refusing to attach {key}: "
+                    + _render_selector_refusal(precheck.rejection)
+                }
     # A first attach is written even when it changes nothing: storing it is what
     # attaches the agent.
     if dry_run or (stored is not None and not changes):
@@ -704,6 +777,17 @@ def _validate_command(name: str, fields: dict[str, Any]) -> str:
             f"UTC that names a real date, got {cron!r}; the default is "
             f"{store.DEFAULT_INVESTIGATION_SCHEDULE!r}"
         )
+    sql = fields.get("investigation_selector_sql")
+    if isinstance(sql, str) and sql:
+        if not sql.strip():
+            # An investigation reads it as the random sample, while the plan and the
+            # stored object would show a selector.
+            wrong.append(
+                "investigation_selector_sql must be a selector, or empty for "
+                f"the random sample, got {sql!r}"
+            )
+        elif violation := selector.find_lexical_violation(sql):
+            wrong.append(_render_selector_refusal(violation))
     bucket = fields.get("telemetry_payload_bucket")
     if (
         isinstance(bucket, str)
@@ -714,7 +798,125 @@ def _validate_command(name: str, fields: dict[str, Any]) -> str:
             "telemetry_payload_bucket must be a bucket name, without gs:// or a "
             f"path, got {bucket!r}"
         )
+    dataset = fields.get("telemetry_dataset")
+    if isinstance(dataset, str) and not _DATASET_NAME_RE.fullmatch(dataset):
+        wrong.append(
+            "telemetry_dataset must be a BigQuery dataset name, of letters, "
+            f"digits and underscores, got {dataset!r}"
+        )
+    table = fields.get("telemetry_table")
+    if isinstance(table, str) and not _is_table_name(table):
+        wrong.append(
+            "telemetry_table must be a BigQuery table name, of letters, digits, "
+            f"underscores, dashes and spaces, got {table!r}"
+        )
     return "; ".join(wrong)
+
+
+_SELECTOR_MODE = "session_review"
+"""The quality analysis mode a stored selector needs.
+
+A selector narrows only the sessions a ``session_review`` sweep reviews, which
+is why custom investigations are confined to that mode as well."""
+
+
+def _validate_selector_mode(after: store.AgentRecord) -> str:
+    """Checks that a merged attachment with a selector runs the mode that reads it.
+
+    Args:
+        after: The merged record.
+
+    Returns:
+        The reason the merge is refused, or an empty string if it is not.
+    """
+    mode = after.config.quality_analysis_mode
+    if not after.config.investigation_selector_sql or mode == _SELECTOR_MODE:
+        return ""
+    return (
+        f"Refusing to attach {after.agent_key}: investigation_selector_sql "
+        f"needs quality_analysis_mode {_SELECTOR_MODE!r}, which reviews the "
+        f"sessions a selector picks, and this attachment runs {mode!r}. Set "
+        f"quality_analysis_mode to {_SELECTOR_MODE!r}, or clear the selector."
+    )
+
+
+def _validate_selector_table(
+    before: store.AgentRecord,
+    after: store.AgentRecord,
+    fields: dict[str, Any],
+) -> str:
+    """Checks that a merge keeps the selector table a stored selector reads.
+
+    A selector may read only its selector table, so one left over from another
+    table would refuse every later investigation at its precheck.
+
+    Args:
+        before: How the agent is observed now.
+        after: The merged record.
+        fields: Requested fields.
+
+    Returns:
+        The reason the merge is refused, or an empty string if it is not.
+    """
+
+    def name_selector_table(config: ObservedAgentConfig) -> str:
+        table = selector.resolve_selector_table_id(
+            config.telemetry_ingestion_source, config.telemetry_table
+        )
+        return f"{config.telemetry_dataset}.{table}"
+
+    old = name_selector_table(before.config)
+    new = name_selector_table(after.config)
+    if (
+        "investigation_selector_sql" in fields
+        or not after.config.investigation_selector_sql
+        or old == new
+    ):
+        return ""
+    return (
+        f"Refusing to attach {after.agent_key}: the stored "
+        f"investigation_selector_sql reads {old}, not {new}. With the CLI, "
+        f"change both in one attach: give a selector for {new} with "
+        "--selector-file, or clear it with --selector-file /dev/null. On the "
+        "dashboard, clear the selector in the Investigation selector card "
+        "first, then change the table."
+    )
+
+
+def _refuses_table(checks: list[dict[str, Any]]) -> bool:
+    """Checks whether access check results refuse the table, by `aqua attach`'s rule.
+
+    An empty table or a denied read does not: a new agent may have had no
+    traffic yet, and a grant can follow.
+
+    Args:
+        checks: `access_check.check_access` results, as dictionaries.
+
+    Returns:
+        True if any check refuses the table.
+    """
+    return any(
+        c["status"] in (access_check.MISSING, access_check.MISMATCH)
+        or (
+            c["status"] == access_check.ERROR and c["name"] in ("table", "rows")
+        )
+        for c in checks
+    )
+
+
+def _render_selector_refusal(rejection: selector.Rejection) -> str:
+    """Renders why `investigation_selector_sql` is refused.
+
+    Args:
+        rejection: The selector check's verdict.
+
+    Returns:
+        The reason code and the explanation, naming the field.
+    """
+    return (
+        f"investigation_selector_sql is refused ({rejection.reason.value}): "
+        f"{rejection.explanation}"
+    )
 
 
 def _validate_applied(

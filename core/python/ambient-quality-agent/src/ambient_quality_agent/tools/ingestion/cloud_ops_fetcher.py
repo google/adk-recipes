@@ -21,14 +21,16 @@ BigQuery).
 The two query shapes mirror the two evaluation scopes in Gemini platform:
 
 * ``MetricType.MULTI_TURN`` — one row per session
-  (``gen_ai.conversation.id``), with every span across the session's
-  traces aggregated and ordered. Each trace becomes a conversation turn.
+  (``gen_ai.conversation.id``), with the spans of the session's traces
+  aggregated and ordered. Each trace becomes a conversation turn.
 * ``MetricType.SINGLE_TURN`` — one row per trace (one turn), with that
   trace's spans aggregated.
 
 Both attach spans to an evaluation case by ``trace_id``. Because execution-level
 spans (such as ``call_llm`` and ``execute_tool``) omit ``gen_ai.conversation.id``,
 session ids are first resolved to trace ids to retain tool execution telemetry.
+Both read a selected session's or trace's spans only within
+`JOIN_BACK_MARGIN_DAYS` of the window (see `build_join_back_window`).
 
 Span payloads are converted to `AgentData` for evaluation.
 """
@@ -45,9 +47,11 @@ from agentplatform._genai.types import EvalCase
 from ambient_quality_agent.tools.evaluation.models import MetricType
 from ambient_quality_agent.tools.ingestion import selector
 from ambient_quality_agent.tools.ingestion.base import (
+    DEFAULT_JOB_TIMEOUT_MS,
     BigQueryJobFetcher,
     CachingGcsReader,
     GcsReader,
+    build_join_back_window,
 )
 from ambient_quality_agent.tools.ingestion.log_fetcher import LogFetcher
 from ambient_quality_agent.tools.ingestion.models import MappedRow
@@ -127,17 +131,32 @@ _LATEST_SPAN_REVISION = (
     "[SAFE_OFFSET(0)]"
 )
 
+_JOIN_BACK_WINDOW = build_join_back_window("s.start_time")
+
+
 # Default target definitions for multi-turn and single-turn queries.
 # The counting and sampling queries share the same targets CTE so both measure
 # the exact same population.
-_MULTI_TURN_TARGETS = f"""
-  SELECT JSON_VALUE(attributes, '$."{ATTR_SESSION_ID}"') AS session_id
+def _build_multi_turn_targets(id_column: str) -> str:
+    """Builds the multi-turn targets subquery projecting the session as `id_column`.
+
+    Args:
+        id_column: Column name the session ID is projected and grouped as.
+
+    Returns:
+        SQL subquery template containing a ``{table_ref}`` placeholder.
+    """
+    return f"""
+  SELECT JSON_VALUE(attributes, '$."{ATTR_SESSION_ID}"') AS {id_column}
   FROM `{{table_ref}}`
   WHERE start_time BETWEEN @window_start AND @window_end
     AND JSON_VALUE(attributes, '$."{ATTR_AGENT_NAME}"') = @agent_name
     AND JSON_VALUE(attributes, '$."{ATTR_SESSION_ID}"') IS NOT NULL
-  GROUP BY session_id
+  GROUP BY {id_column}
 """  # noqa: S608 - trusted identifiers and fixed SQL; values are parameterized
+
+
+_MULTI_TURN_TARGETS = _build_multi_turn_targets("session_id")
 
 _SINGLE_TURN_TARGETS = f"""
   SELECT trace_id
@@ -245,6 +264,7 @@ TargetTraces AS (
   FROM `{table_ref}` AS s
   JOIN TargetSessions AS t
     ON JSON_VALUE(s.attributes, '$."{ATTR_SESSION_ID}"') = t.session_id
+  WHERE {_JOIN_BACK_WINDOW}
   GROUP BY trace_id, session_id
 ),
 Sessions AS (
@@ -267,6 +287,7 @@ Sessions AS (
       ARRAY_AGG({_SPAN_STRUCT} ORDER BY s.start_time ASC) AS spans
     FROM `{table_ref}` AS s
     JOIN TargetTraces AS t USING (trace_id)
+    WHERE {_JOIN_BACK_WINDOW}
     GROUP BY s.trace_id, t.session_id
   )
   GROUP BY session_id
@@ -306,6 +327,7 @@ SELECT
   )] AS log_windows
 FROM `{{table_ref}}` AS s
 JOIN TargetTraces AS t USING (trace_id)
+WHERE {_JOIN_BACK_WINDOW}
 GROUP BY s.trace_id
 """  # noqa: S608 - trusted identifiers and fixed SQL; values are parameterized
 
@@ -320,6 +342,8 @@ class CloudOpsFetcher(BigQueryJobFetcher):
     """
 
     TELEMETRY_SOURCE = selector.CLOUD_OPS_SOURCE
+    SELECTOR_TIME_COLUMN = "start_time"
+    STARTER_SELECTOR = _build_multi_turn_targets(selector.TARGET_COLUMN)
     SCHEMA_FILE = "all_spans.schema.json"
     FOLLOWS_PAYLOAD_REFS = True
 
@@ -336,7 +360,7 @@ class CloudOpsFetcher(BigQueryJobFetcher):
         recorder: TrajectoryRecorder | NullTrajectoryRecorder | None = None,
         selector_sql: str = "",
         selector_ai_model: str = "",
-        job_timeout_ms: int | None = None,
+        job_timeout_ms: int = DEFAULT_JOB_TIMEOUT_MS,
     ) -> None:
         """Initialize the fetcher.
 

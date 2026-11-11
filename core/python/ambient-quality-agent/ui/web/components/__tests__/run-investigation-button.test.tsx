@@ -16,24 +16,27 @@
  * The control guards a sweep that costs money, so these check what it does with
  * the list it is given -- not that it renders.
  *
- * `lib/__tests__/runstate.test.ts` covers the predicates underneath. What is
- * left to pin here is the wiring: that the guard follows the *list* rather than
- * the click, that a refused start says so, and that the note never contradicts
- * the button beside it.
+ * `lib/__tests__/investigation-state.test.ts` covers the predicates underneath.
+ * What is left to pin here is the wiring: that the guard follows the *list*
+ * rather than the click, that a refused start says so, and that the note never
+ * contradicts the button beside it.
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { RunInvestigationButton } from "../run-investigation-button";
-import type { Run } from "@/lib/aqua-api";
+import type { InvestigationListItem } from "@/lib/aqua-api";
 
 const NOW = Date.now();
 
-function run(status: string, minutesAgo: number): Run {
+function buildInvestigation(
+  status: string,
+  minutesAgo: number,
+): InvestigationListItem {
   return {
-    run_id: `${status}-${minutesAgo}`,
-    observed_agent_name: "travel_desk_agent",
+    investigation_id: `${status}-${minutesAgo}`,
+    observed_agent_key: "travel_desk_agent",
     created_at: new Date(NOW - minutesAgo * 60_000).toISOString(),
     finished_at: null,
     status,
@@ -45,9 +48,9 @@ function run(status: string, minutesAgo: number): Run {
   };
 }
 
-/** Serves `runs` to every GET and `post` to the POST. */
+/** Serves `investigations` to every GET and `post` to the POST. */
 function mount(
-  runs: Run[],
+  investigations: InvestigationListItem[],
   post?: { body: unknown; status?: number } | "reject",
 ) {
   const fetchMock = vi.fn(async (_url: unknown, init?: RequestInit) => {
@@ -57,7 +60,9 @@ function mount(
         status: post?.status ?? 200,
       });
     }
-    return new Response(JSON.stringify({ runs }), { status: 200 });
+    return new Response(JSON.stringify({ investigations: investigations }), {
+      status: 200,
+    });
   });
   vi.stubGlobal("fetch", fetchMock);
 
@@ -79,14 +84,14 @@ afterEach(() => {
 });
 
 describe("what the list says", () => {
-  it("offers the run when nothing is in flight", async () => {
-    mount([run("done", 30)]);
+  it("offers the investigation when nothing is in flight", async () => {
+    mount([buildInvestigation("done", 30)]);
     await waitFor(() => expect(button()).toBeEnabled());
     expect(button()).toHaveTextContent("Run investigation");
   });
 
   it("is disabled while a sweep is in flight, and names how many", async () => {
-    mount([run("running", 2), run("pending", 1)]);
+    mount([buildInvestigation("running", 2), buildInvestigation("pending", 1)]);
     await waitFor(() => expect(button()).toBeDisabled());
     expect(button()).toHaveTextContent("2 running…");
     expect(screen.getByText("Checking every 30s")).toBeInTheDocument();
@@ -95,7 +100,7 @@ describe("what the list says", () => {
   it("stays available for a sweep nobody is waiting on, and says why", async () => {
     // A wedged `running` row would otherwise disable the only control that
     // starts a sweep, permanently and across reloads.
-    mount([run("running", 90)]);
+    mount([buildInvestigation("running", 90)]);
     // `findBy`, not `getBy`: an enabled button is also the pre-load state, so
     // waiting on that alone would assert before the list has arrived.
     expect(
@@ -107,7 +112,7 @@ describe("what the list says", () => {
   it("counts a sweep this tab did not start", async () => {
     // The guard is the list, not the click: an ambient or cron-started sweep
     // has to disable the button just as a clicked one does.
-    mount([run("running", 1)]);
+    mount([buildInvestigation("running", 1)]);
     await waitFor(() => expect(button()).toBeDisabled());
     expect(button()).toHaveTextContent("Running…");
   });
@@ -115,7 +120,7 @@ describe("what the list says", () => {
 
 describe("starting one", () => {
   it("posts to /api/investigations and re-reads the list", async () => {
-    const fetchMock = mount([run("done", 30)]);
+    const fetchMock = mount([buildInvestigation("done", 30)]);
     await waitFor(() => expect(button()).toBeEnabled());
 
     await userEvent.click(button());
@@ -141,7 +146,9 @@ describe("starting one", () => {
   });
 
   it("reports an agent that refused, and hands the button back", async () => {
-    mount([run("done", 30)], { body: { error: "no telemetry in the window" } });
+    mount([buildInvestigation("done", 30)], {
+      body: { error: "no telemetry in the window" },
+    });
     await waitFor(() => expect(button()).toBeEnabled());
 
     await userEvent.click(button());
@@ -154,7 +161,7 @@ describe("starting one", () => {
   });
 
   it("reports an agent that did not answer", async () => {
-    mount([run("done", 30)], "reject");
+    mount([buildInvestigation("done", 30)], "reject");
     await waitFor(() => expect(button()).toBeEnabled());
 
     await userEvent.click(button());
@@ -167,13 +174,15 @@ describe("starting one", () => {
     // list settles it, and a red note beside a "Running…" button contradicts
     // it. This is the real shape of the case: the POST reported a failure and
     // the sweep started anyway.
-    const runs = [run("done", 30)];
+    const investigations = [buildInvestigation("done", 30)];
     const fetchMock = vi.fn(async (_url: unknown, init?: RequestInit) => {
       if (init?.method === "POST") {
-        runs.push(run("running", 0));
+        investigations.push(buildInvestigation("running", 0));
         return new Response(JSON.stringify({ error: "boom" }), { status: 200 });
       }
-      return new Response(JSON.stringify({ runs }), { status: 200 });
+      return new Response(JSON.stringify({ investigations: investigations }), {
+        status: 200,
+      });
     });
     vi.stubGlobal("fetch", fetchMock);
 
@@ -200,7 +209,7 @@ describe("starting one", () => {
     expect(screen.queryByText(/boom/)).not.toBeInTheDocument();
   });
 
-  it("shows Starting… while the POST /api/runs request is in flight", async () => {
+  it("shows Starting… while the POST /api/investigations request is in flight", async () => {
     let resolvePost!: (res: Response) => void;
     const fetchMock = vi.fn((_url: unknown, init?: RequestInit) => {
       if (init?.method === "POST") {
@@ -209,7 +218,7 @@ describe("starting one", () => {
         });
       }
       return Promise.resolve(
-        new Response(JSON.stringify({ runs: [] }), { status: 200 }),
+        new Response(JSON.stringify({ investigations: [] }), { status: 200 }),
       );
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -234,9 +243,12 @@ describe("starting one", () => {
     expect(button()).toBeDisabled();
     expect(button()).toHaveTextContent("Starting…");
     resolvePost(
-      new Response(JSON.stringify({ run_id: "r-new", status: "running" }), {
-        status: 200,
-      }),
+      new Response(
+        JSON.stringify({ investigation_id: "r-new", status: "running" }),
+        {
+          status: 200,
+        },
+      ),
     );
   });
 });

@@ -53,7 +53,7 @@ def _reader(client: mock.MagicMock) -> BigQueryInsightReader:
         client=client,
         project_id=_PROJECT,
         dataset=_DATASET,
-        agent_name=_AGENT,
+        observed_agent_key=_AGENT,
     )
 
 
@@ -109,9 +109,9 @@ def _summary_row(insight_id: str = "ins-1", **overrides: Any) -> dict[str, Any]:
         "merged_into_insight_id": None,
         "merged_at": None,
         "occurrence_count": 3,
-        "trace_count": 7,
-        "last_run_at": _NOW,
-        "last_run_id": "run-9",
+        "trajectory_count": 7,
+        "last_investigation_at": _NOW,
+        "last_investigation_id": "run-9",
         "has_root_cause": False,
     }
     row.update(overrides)
@@ -127,14 +127,14 @@ def test_list_insights_returns_summaries_and_total() -> None:
     reader = _reader(client)
 
     summaries, total = reader.list_insights(
-        statuses=None, run_id=None, limit=30, offset=0
+        statuses=None, investigation_id=None, limit=30, offset=0
     )
 
     assert total == 5
     assert [s.insight_id for s in summaries] == ["ins-1"]
     assert summaries[0].occurrence_count == 3
-    assert summaries[0].trace_count == 7
-    assert summaries[0].last_run_id == "run-9"
+    assert summaries[0].trajectory_count == 7
+    assert summaries[0].last_investigation_id == "run-9"
     # Page query aggregates occurrences and orders newest-updated first.
     page_sql = _sql(client.query.call_args_list[1])
     assert "COUNT(owned.occurrence_id) AS occurrence_count" in page_sql
@@ -191,7 +191,7 @@ def reader_list(client: Any) -> tuple[list[Any], int]:
         Tuple of (insight_summaries, total_count).
     """
     return _reader(client).list_insights(
-        statuses=None, run_id=None, limit=30, offset=0
+        statuses=None, investigation_id=None, limit=30, offset=0
     )
 
 
@@ -217,11 +217,13 @@ def test_list_insights_run_id_filter_uses_exists_subquery() -> None:
     client = _query_returning([{"total": 0}], [])
     reader = _reader(client)
 
-    reader.list_insights(run_id="run-7", limit=30, offset=0)
+    reader.list_insights(investigation_id="run-7", limit=30, offset=0)
 
     count_sql = _sql(client.query.call_args_list[0])
     assert "EXISTS (SELECT 1 FROM" in count_sql
-    assert _params(client.query.call_args_list[0])["run_id"] == "run-7"
+    assert (
+        _params(client.query.call_args_list[0])["investigation_id"] == "run-7"
+    )
 
 
 def test_list_insights_period_filters_on_last_seen() -> None:
@@ -317,11 +319,11 @@ def test_list_insights_day_reads_a_status_as_the_change_it_names(
 
 
 def test_list_insights_day_and_run_id_both_narrow_the_list() -> None:
-    """A day and a run are two filters, ANDed: the day does not replace the run."""
+    """A day and an investigation are two filters, ANDed: the day does not replace the investigation."""
     client = _query_returning([{"total": 0}], [])
 
     _reader(client).list_insights(
-        limit=10, offset=0, run_id="run-7", day="2026-09-20"
+        limit=10, offset=0, investigation_id="run-7", day="2026-09-20"
     )
 
     count_sql = _sql(client.query.call_args_list[0])
@@ -329,9 +331,9 @@ def test_list_insights_day_and_run_id_both_narrow_the_list() -> None:
         "(DATE(i.created_at) = @day OR DATE(i.resolved_at) = @day) AND EXISTS"
         in (count_sql)
     )
-    assert "o.run_id = @run_id" in count_sql
+    assert "o.run_id = @investigation_id" in count_sql
     params = _params(client.query.call_args_list[0])
-    assert params["run_id"] == "run-7"
+    assert params["investigation_id"] == "run-7"
     assert params["day"] == dt.date(2026, 9, 20)
 
 
@@ -364,7 +366,7 @@ def _conversations(n: int) -> list[dict[str, Any]]:
 def test_affected_conversations_deduplicates_across_sweeps_and_insights() -> (
     None
 ):
-    """The union is the whole point: summing `trace_count` instead counts a
+    """The union is the whole point: summing `trajectory_count` instead counts a
     conversation once per sweep that saw it and once per insight it matches."""
     client = _query_returning(_conversations(5))
 
@@ -404,13 +406,13 @@ def test_affected_conversations_takes_the_list_filters() -> None:
 
     _reader(client).count_affected_conversations(
         statuses=[InsightStatus.NEW],
-        run_id="run-3",
+        investigation_id="run-3",
         window_start="2026-06-01T00:00:00+00:00",
     )
 
     params = _params(client.query.call_args)
     assert params["statuses"] == ["NEW"]
-    assert params["run_id"] == "run-3"
+    assert params["investigation_id"] == "run-3"
     assert params["window_start"] == dt.datetime(2026, 6, 1, tzinfo=dt.UTC)
     assert "i.updated_at >= @window_start" in _sql(client.query.call_args)
 
@@ -477,7 +479,7 @@ def test_get_insight_with_occurrences_merges_summary_and_occurrences() -> None:
     assert view.insight_id == "ins-1"
     assert total == 2
     assert (
-        occurrences[0].rubrics[0].rubric.expected_behavior
+        occurrences[0].examples[0].finding.expected_behavior
         == "call create_ticket"
     )
 
@@ -544,10 +546,10 @@ def test_list_occurrences_rehydrates_rubrics_from_json_string() -> None:
 
     assert total == 1
     assert (
-        occurrences[0].rubrics[0].rubric.expected_behavior
+        occurrences[0].examples[0].finding.expected_behavior
         == "call create_ticket"
     )
-    assert occurrences[0].rubrics[0].eval_case_id == "case-1"
+    assert occurrences[0].examples[0].trajectory_id == "case-1"
 
 
 def test_list_occurrences_names_every_trajectory_behind_the_sighting() -> None:
@@ -581,7 +583,7 @@ def test_list_occurrences_reads_an_occurrence_written_before_the_column() -> (
     )
 
     assert occurrences[0].trajectory_ids == []
-    assert occurrences[0].trace_count == 2
+    assert occurrences[0].trajectory_count == 2
 
 
 def test_list_occurrences_rehydrates_rubrics_from_parsed_value() -> None:
@@ -594,7 +596,7 @@ def test_list_occurrences_rehydrates_rubrics_from_parsed_value() -> None:
     )
 
     assert (
-        occurrences[0].rubrics[0].rubric.expected_behavior
+        occurrences[0].examples[0].finding.expected_behavior
         == "call create_ticket"
     )
 
@@ -686,7 +688,7 @@ def test_list_occurrences_skips_malformed_rubric_entry() -> None:
     )
 
     # The junk entry is dropped; the valid one survives.
-    assert [e.rubric.expected_behavior for e in occurrences[0].rubrics] == [
+    assert [e.finding.expected_behavior for e in occurrences[0].examples] == [
         "call create_ticket"
     ]
 
@@ -696,12 +698,14 @@ def test_list_occurrences_run_id_filter_binds() -> None:
     reader = _reader(client)
 
     reader.list_occurrences(
-        insight_id="ins-1", run_id="run-3", limit=1, offset=0
+        insight_id="ins-1", investigation_id="run-3", limit=1, offset=0
     )
 
     page_sql = _sql(client.query.call_args_list[1])
-    assert "o.run_id = @run_id" in page_sql
-    assert _params(client.query.call_args_list[1])["run_id"] == "run-3"
+    assert "o.run_id = @investigation_id" in page_sql
+    assert (
+        _params(client.query.call_args_list[1])["investigation_id"] == "run-3"
+    )
 
 
 def test_list_occurrences_occurrence_id_filter_binds() -> None:
@@ -818,7 +822,7 @@ def test_the_marker_is_a_correlated_subquery_on_the_insight_id() -> None:
     # sum traces, off the `owned` CTE that resolves each sighting to the insight
     # it counts for.
     assert "COUNT(owned.occurrence_id) AS occurrence_count" in page_sql
-    assert "SUM(owned.trace_count) AS trace_count" in page_sql
+    assert "SUM(owned.trace_count) AS trajectory_count" in page_sql
     assert (
         "GROUP BY i.insight_id, i.agent_name, i.agent_id, i.label, i.status,"
         in (page_sql)
@@ -1164,7 +1168,7 @@ def test_the_run_filter_resolves_ownership_too() -> None:
     client = _query_returning([{"total": 0}], [])
     reader = _reader(client)
 
-    reader.list_insights(run_id="run-7", limit=30, offset=0)
+    reader.list_insights(investigation_id="run-7", limit=30, offset=0)
 
     count_sql = _sql(client.query.call_args_list[0])
     assert "EXISTS (SELECT 1 FROM" in count_sql

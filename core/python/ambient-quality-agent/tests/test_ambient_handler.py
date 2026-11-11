@@ -31,15 +31,15 @@ from ambient_quality_agent.core.ambient import handler
 from ambient_quality_agent.core.investigation import model
 from ambient_quality_agent.tools import cloudtasks
 from ambient_quality_agent.tools.investigations.models import (
-    InvestigationRecord,
-    RunStatus,
+    Investigation,
+    InvestigationStatus,
 )
 from ambient_quality_agent.tools.observed_agent_config import (
     effective_config,
     store,
 )
 
-from .conftest import CallbackContext, get_run, make_config
+from .conftest import CallbackContext, get_stored_investigation, make_config
 
 _RESOURCE = "projects/p/locations/l/reasoningEngines/1"
 
@@ -194,7 +194,9 @@ def test_parse_blank_dedup_id_coerced_to_none() -> None:
 @pytest.fixture
 def mock_schedule(monkeypatch: pytest.MonkeyPatch) -> mock.AsyncMock:
     """Patch the shared `_launch_investigation` seam the handler calls."""
-    fake = mock.AsyncMock(return_value={"run_id": "r1", "status": "pending"})
+    fake = mock.AsyncMock(
+        return_value={"investigation_id": "r1", "status": "pending"}
+    )
     monkeypatch.setattr(handler, "_launch_investigation", fake)
     return fake
 
@@ -290,7 +292,7 @@ def test_handle_scheduled_schedules_without_a_key(
     assert kwargs["ambient"] is True
     assert kwargs["anchor"] == _DUE_TICK
     # A tick advances no scheduled record: none was made for it.
-    assert kwargs["scheduled_run_id"] is None
+    assert kwargs["scheduled_investigation_id"] is None
     assert "r1" in note and "pending" in note
     assert "agent-x" in note
 
@@ -340,7 +342,9 @@ def test_handle_task_fire_passes_its_dedup_id(
     assert kwargs["idempotency_key"] == "d3"
     assert kwargs["ambient"] is True
     # The same ID the update derived, so the fire advances that record.
-    assert kwargs["scheduled_run_id"] == handler.compute_scheduled_run_id("d3")
+    assert kwargs[
+        "scheduled_investigation_id"
+    ] == handler.compute_scheduled_investigation_id("d3")
     assert "r1" in note
     assert "agent-x" in note
 
@@ -611,7 +615,7 @@ def test_a_call_off_the_grid_counts_as_the_tick_before_it(
 def test_a_tick_without_a_schedule_time_is_checked_at_the_clock(
     monkeypatch: pytest.MonkeyPatch, mock_schedule: mock.AsyncMock
 ) -> None:
-    """The run is keyed on the instant it was checked at, so the two agree."""
+    """The investigation is keyed on the instant it was checked at, so the two agree."""
     _use_config(monkeypatch, observed_agent_name="agent-x")
     monkeypatch.setattr(
         handler, "_read_utc_clock", lambda: _DUE_TICK + dt.timedelta(minutes=3)
@@ -776,7 +780,7 @@ def test_a_launch_that_raises_is_raised_after_every_agent_is_tried(
     _use_agents(monkeypatch, {_PROD: None, _STAGING: None})
     mock_schedule.side_effect = [
         RuntimeError("store down"),
-        {"run_id": "r2", "status": "pending"},
+        {"investigation_id": "r2", "status": "pending"},
     ]
 
     with pytest.raises(RuntimeError, match="store down"):
@@ -827,9 +831,11 @@ def test_an_update_is_for_the_agent_that_records_its_engine(
     note = _dispatch_update("op-1")
 
     assert engines == ["1"]
-    record = get_run({}, handler.compute_scheduled_run_id("op-1"))
+    record = get_stored_investigation(
+        {}, handler.compute_scheduled_investigation_id("op-1")
+    )
     assert record is not None
-    assert record.observed_agent_name == _STAGING
+    assert record.observed_agent_key == _STAGING
     assert _STAGING in note
     # The delayed trigger finds its agent through that record, so its body
     # stays as it was.
@@ -882,12 +888,14 @@ def test_a_task_fire_is_for_the_agent_of_its_scheduled_record(
         effective_config, "resolve_engine_agent_key", lambda engine_id: _PROD
     )
     asyncio.run(
-        model.create_run(
+        model.create_investigation(
             {},
-            InvestigationRecord(
-                run_id=handler.compute_scheduled_run_id("op-1"),
-                status=RunStatus.SCHEDULED,
-                observed_agent_name=_STAGING,
+            Investigation(
+                investigation_id=handler.compute_scheduled_investigation_id(
+                    "op-1"
+                ),
+                status=InvestigationStatus.SCHEDULED,
+                observed_agent_key=_STAGING,
                 trigger_type="task_fire",
             ),
         )
@@ -977,18 +985,18 @@ def _dispatch_update(dedup_id: str = "op-1") -> str:
 def test_an_update_records_a_scheduled_run_due_with_its_task(
     monkeypatch: pytest.MonkeyPatch, mock_enqueue: mock.Mock
 ) -> None:
-    """The wait shows in the run list as soon as the update arrives."""
+    """The wait shows in the investigation list as soon as the update arrives."""
     _update_config(monkeypatch)
     now = dt.datetime(2026, 1, 2, 3, 4, 5, tzinfo=dt.UTC)
     monkeypatch.setattr(handler, "_read_utc_clock", lambda: now)
 
     note = _dispatch_update("op-1")
 
-    run_id = handler.compute_scheduled_run_id("op-1")
-    record = get_run({}, run_id)
+    investigation_id = handler.compute_scheduled_investigation_id("op-1")
+    record = get_stored_investigation({}, investigation_id)
     assert record is not None
     assert record.status == "scheduled"
-    assert record.observed_agent_name == "agent-x"
+    assert record.observed_agent_key == "agent-x"
     assert record.trigger_type == "task_fire"
     assert record.idempotency_key == "op-1"
     assert (
@@ -997,7 +1005,7 @@ def test_an_update_records_a_scheduled_run_due_with_its_task(
     )
     # The window is left to the fire, so it holds the new revision's traces.
     assert record.window_start is None and record.window_end is None
-    assert run_id in note
+    assert investigation_id in note
 
 
 def test_the_scheduled_record_is_keyed_by_the_agent_key(
@@ -1014,8 +1022,10 @@ def test_the_scheduled_record_is_keyed_by_the_agent_key(
 
     _dispatch_update("op-1")
 
-    record = get_run({}, handler.compute_scheduled_run_id("op-1"))
-    assert record.observed_agent_name == "acme-staging__agent-x"
+    record = get_stored_investigation(
+        {}, handler.compute_scheduled_investigation_id("op-1")
+    )
+    assert record.observed_agent_key == "acme-staging__agent-x"
 
 
 def test_a_redelivered_update_keeps_the_first_due_time(
@@ -1033,7 +1043,9 @@ def test_a_redelivered_update_keeps_the_first_due_time(
 
     _dispatch_update("op-1")
 
-    record = get_run({}, handler.compute_scheduled_run_id("op-1"))
+    record = get_stored_investigation(
+        {}, handler.compute_scheduled_investigation_id("op-1")
+    )
     assert dt.datetime.fromisoformat(record.due_at) == first + dt.timedelta(
         seconds=120
     )
@@ -1045,12 +1057,14 @@ def test_a_redelivered_update_leaves_a_started_run_alone(
 ) -> None:
     _update_config(monkeypatch)
     _dispatch_update("op-1")
-    run_id = handler.compute_scheduled_run_id("op-1")
-    asyncio.run(model.update_run({}, run_id, status="running"))
+    investigation_id = handler.compute_scheduled_investigation_id("op-1")
+    asyncio.run(
+        model.update_investigation({}, investigation_id, status="running")
+    )
 
     _dispatch_update("op-1")
 
-    assert get_run({}, run_id).status == "running"
+    assert get_stored_investigation({}, investigation_id).status == "running"
 
 
 def test_a_redelivered_update_leaves_a_run_that_failed_while_running(
@@ -1059,11 +1073,11 @@ def test_a_redelivered_update_leaves_a_run_that_failed_while_running(
     """Its window says it started; only a failure before that is retried."""
     _update_config(monkeypatch)
     _dispatch_update("op-1")
-    run_id = handler.compute_scheduled_run_id("op-1")
+    investigation_id = handler.compute_scheduled_investigation_id("op-1")
     asyncio.run(
-        model.update_run(
+        model.update_investigation(
             {},
-            run_id,
+            investigation_id,
             status="failed",
             window_start="2026-01-01T00:00:00+00:00",
             window_end="2026-01-02T00:00:00+00:00",
@@ -1072,7 +1086,7 @@ def test_a_redelivered_update_leaves_a_run_that_failed_while_running(
 
     _dispatch_update("op-1")
 
-    assert get_run({}, run_id).status == "failed"
+    assert get_stored_investigation({}, investigation_id).status == "failed"
 
 
 def test_a_failed_enqueue_fails_the_record_and_is_retried(
@@ -1081,13 +1095,13 @@ def test_a_failed_enqueue_fails_the_record_and_is_retried(
     """Raising makes Pub/Sub redeliver; the failed record says why meanwhile,
     and the redelivery that gets through schedules it again."""
     _update_config(monkeypatch)
-    run_id = handler.compute_scheduled_run_id("op-1")
+    investigation_id = handler.compute_scheduled_investigation_id("op-1")
     mock_enqueue.side_effect = RuntimeError("permission denied")
 
     with pytest.raises(RuntimeError):
         _dispatch_update("op-1")
 
-    record = get_run({}, run_id)
+    record = get_stored_investigation({}, investigation_id)
     assert record.status == "failed"
     assert "could not enqueue" in record.error
     assert "permission denied" in record.error
@@ -1095,7 +1109,7 @@ def test_a_failed_enqueue_fails_the_record_and_is_retried(
     mock_enqueue.side_effect = None
     _dispatch_update("op-1")
 
-    assert get_run({}, run_id).status == "scheduled"
+    assert get_stored_investigation({}, investigation_id).status == "scheduled"
 
 
 def test_an_update_still_enqueues_when_the_record_cannot_be_written(
@@ -1124,16 +1138,27 @@ def test_an_update_without_wiring_records_nothing(
 
     _dispatch_update("op-1")
 
-    assert get_run({}, handler.compute_scheduled_run_id("op-1")) is None
+    assert (
+        get_stored_investigation(
+            {}, handler.compute_scheduled_investigation_id("op-1")
+        )
+        is None
+    )
 
 
 def test_the_scheduled_run_id_is_stable_and_shaped_like_a_generated_one() -> (
     None
 ):
-    first = handler.compute_scheduled_run_id("projects/1/operations/2")
+    first = handler.compute_scheduled_investigation_id(
+        "projects/1/operations/2"
+    )
 
-    assert first == handler.compute_scheduled_run_id("projects/1/operations/2")
-    assert first != handler.compute_scheduled_run_id("projects/1/operations/3")
+    assert first == handler.compute_scheduled_investigation_id(
+        "projects/1/operations/2"
+    )
+    assert first != handler.compute_scheduled_investigation_id(
+        "projects/1/operations/3"
+    )
     assert re.fullmatch(r"[0-9a-f]{32}", first)
     # As long as a generated one, so it is as unique across agents.
-    assert len(first) == len(model.InvestigationRecord().run_id)
+    assert len(first) == len(model.Investigation().investigation_id)

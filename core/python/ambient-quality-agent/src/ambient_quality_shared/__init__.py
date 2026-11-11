@@ -23,4 +23,4 @@ ADK or `ambient_quality_agent`.
 """
 
 # Read by hatch as the distribution version, and sent in usage analytics headers.
-__version__ = "0.2.0"
+__version__ = "0.3.0"

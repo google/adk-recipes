@@ -45,20 +45,20 @@ mock-specific branch. Selecting it is one env var:
 Two behaviours are deliberately copied from the real store rather than made
 convenient:
 
-* the investigations list is capped at `LIST_LIMIT` runs, as
-  `InvestigationStore.list_recent` caps it, so a chart built here against "the
-  runs list" meets the same ceiling it will meet in production;
-* the totals are summed over **every** run, not over that page, as
+* the investigations list is capped at `LIST_LIMIT` investigations, as
+  `InvestigationStore.list_recent` caps it, so a chart built here against the
+  investigations list meets the same ceiling it will meet in production;
+* the totals are summed over **every** investigation, not over that page, as
   `InvestigationStore.sum_counters` does -- which is exactly why the two can disagree,
-  and why a period-scoped chart has to be built from the runs and not the
+  and why a period-scoped chart has to be built from the investigations and not the
   totals.
 
-Scheduling a run appends a `pending` record, as a real async deployment does --
+Scheduling an investigation appends a `pending` record, as a real async deployment does --
 nothing here can actually run an investigation. It then *settles* that record
 after `SETTLE_SECONDS`, giving it the counters of the newest completed sweep.
 The fiction is deliberate: the dashboard derives ▶ Run investigation from the
 records and keeps it disabled while any sweep is in flight, so a mock that left
-every run pending forever would demo a button that never comes back. The same
+every investigation pending forever would demo a button that never comes back. The same
 goes for the fixture's own newest sweep, which the generator leaves `running` --
 see `_queue_fixture_settles`. Pass `--settle-seconds 0` to keep everything
 pending and see that state on purpose. Regenerate the dataset for fresh numbers.
@@ -109,29 +109,29 @@ from ambient_quality_shared.protocol import (
     MEMORIES_DELETE_ROUTE,
     MEMORIES_LIST_ROUTE,
     SOURCE_ROUTE,
-    TRAJECTORIES_CASE_ROUTE,
+    TRAJECTORY_BUNDLE_ROUTE,
 )
 
 DATASET_VERSION = 3
 """Layout this server understands; `mock_aqa_data.py` stamps it on the file."""
 
 LIST_LIMIT = 50
-"""Runs the investigations list returns. Mirrors
+"""Investigations the investigations list returns. Mirrors
 `investigations.store.DEFAULT_LIST_LIMIT` -- a mock that returned more would hide
 the real ceiling from whatever is being built against it."""
 
 SETTLE_SECONDS = 40
-"""How long a scheduled run stays `pending` before this server finishes it.
+"""How long a scheduled investigation stays `pending` before this server finishes it.
 Longer than the dashboard's 30s poll, so the wait is watched at least once
 rather than being over before the first re-read."""
 
 STALE_AFTER_SECONDS = 30 * 60
-"""When the dashboard stops waiting on a run that still calls itself in flight.
-A hand-copy of `STALE_AFTER_MS` in `static/runstate.js`, used only to decide
-which of the fixture's own runs this server has to finish (see
-`_queue_fixture_settles`). Drift is harmless in both directions: too low and a
-run finishes that was never blocking anything, too high and one is finished that
-the dashboard had already written off."""
+"""When the dashboard stops waiting on an investigation that still calls itself in flight.
+A hand-copy of `STALE_AFTER_MS` in `ui/web/lib/investigation-state.ts`, used only
+to decide which of the fixture's own investigations this server has to finish
+(see `_queue_fixture_settles`). Drift is harmless in both directions: too low
+and an investigation finishes that was never blocking anything, too high and one
+is finished that the dashboard had already written off."""
 
 INSIGHTS_PAGE_SIZE = 30
 """Mirrors `insight_tools.INSIGHTS_PAGE_SIZE`."""
@@ -165,8 +165,11 @@ DEFAULT_INVESTIGATION_SCHEDULE = "0 12 * * *"
 """Mirrors `observed_agent_config.store.DEFAULT_INVESTIGATION_SCHEDULE`."""
 
 SCHEDULE_FIELDS = ("investigation_schedule", "scheduled_trigger_enabled")
-"""The attachment fields `agents/attach` changes here. The dashboard edits only
-these; every other field is `aqua attach`'s, which has no mock."""
+"""The schedule fields `agents/attach` changes here."""
+
+SELECTOR_FIELD = "investigation_selector_sql"
+"""The other field `agents/attach` changes here. The dashboard edits only these;
+every other field is `aqua attach`'s, which has no mock."""
 
 MOCK_SOURCE_BUCKET = "mock-source"
 """Stands in for the source-snapshot bucket in the `gs://` link the Source card
@@ -179,8 +182,9 @@ INSIGHT_STATUSES = ("NEW", "RECURRING", "RESOLVED")
 cannot leave the mock rejecting it as invalid."""
 
 IN_FLIGHT = frozenset({"pending", "running"})
-"""Run states this server counts as a sweep in progress. Hand-copied from
-`RunStatus`, as `INSIGHT_STATUSES` is, and pinned by the same tests."""
+"""Investigation states this server counts as a sweep in progress. Hand-copied
+from `InvestigationStatus`, as `INSIGHT_STATUSES` is, and pinned by the same
+tests."""
 
 WATCHING = "watching"
 OVERDUE = "overdue"
@@ -222,7 +226,7 @@ class Dataset:
                 "with tools/mock_aqa_data.py."
             )
         self.settle_seconds = settle_seconds
-        # Scheduled runs still owed a finish: run_id -> (due, finished record).
+        # Scheduled investigations still owed a finish: investigation_id -> (due, finished record).
         # Held here rather than on the record so nothing that goes over the wire
         # carries a field the real store has never heard of.
         self._settling: dict[str, tuple[dt.datetime, dict[str, Any]]] = {}
@@ -232,7 +236,7 @@ class Dataset:
         """When the fixture was generated, as a datetime. What the generated
         conversations hang their timestamps off, so two reads agree."""
         # Oldest first, the order `list_recent` returns and the dashboard's
-        # stable tie-breaker for runs with equal timestamps.
+        # stable tie-breaker for investigations with equal timestamps.
         self.runs: list[dict[str, Any]] = sorted(
             payload.get("runs") or [], key=lambda r: r.get("created_at") or ""
         )
@@ -263,6 +267,9 @@ class Dataset:
         self.agent_key: str = str(self.config.get("observed_agent_name") or "")
         self.investigation_schedule: str = DEFAULT_INVESTIGATION_SCHEDULE
         self.scheduled_trigger_enabled: bool = True
+        self.investigation_selector_sql: str = str(
+            self.config.get(SELECTOR_FIELD) or ""
+        )
         self.agent_updated_at: str = self.anchor.isoformat()
         self._queue_fixture_settles()
 
@@ -276,7 +283,7 @@ class Dataset:
         stalled, which is a state worth demoing and needs nothing from us.
         Younger, it disables ▶ Run investigation -- and nothing here would ever
         finish it, so the demo would open with a dead button for the rest of the
-        half hour. Give it the same finish a scheduled run gets.
+        half hour. Give it the same finish a scheduled investigation gets.
         """
         if self.settle_seconds <= 0:
             return
@@ -293,8 +300,8 @@ class Dataset:
                 run.get("created_at") or run.get("window_end")
             )
             if started is None or started > cutoff:
-                self.finish_run_later(
-                    str(run.get("run_id")),
+                self.finish_investigation_later(
+                    str(run.get("investigation_id")),
                     _build_finished_run_fields(self.runs),
                 )
 
@@ -306,17 +313,18 @@ class Dataset:
 
     # --- investigations ---------------------------------------------------- #
 
-    def list_recent_runs(
+    def list_recent_investigations(
         self, window_start: str = "", window_end: str = ""
     ) -> list[dict[str, Any]]:
-        """Lists recent investigation runs within the window without event details.
+        """Lists recent investigations within the window without event details.
 
         Args:
             window_start: Optional window start boundary string.
             window_end: Optional window end boundary string.
 
         Returns:
-            List of up to `LIST_LIMIT` run dictionaries sorted chronologically.
+            List of up to `LIST_LIMIT` investigation dictionaries sorted
+            chronologically.
         """
         kept = [
             run
@@ -357,13 +365,22 @@ class Dataset:
                 bucket[name] = int(bucket.get(name, 0)) + int(value or 0)
         return [buckets[day] for day in sorted(buckets)]
 
-    def get_run(self, run_id: str) -> dict[str, Any] | None:
-        return next((r for r in self.runs if r.get("run_id") == run_id), None)
+    def get_stored_investigation(
+        self, investigation_id: str
+    ) -> dict[str, Any] | None:
+        return next(
+            (
+                r
+                for r in self.runs
+                if r.get("investigation_id") == investigation_id
+            ),
+            None,
+        )
 
     def sum_counters(
         self, window_start: str = "", window_end: str = ""
     ) -> tuple[dict[str, int], dict[str, str | None]]:
-        """Sums investigation counters across matching runs and computes time coverage.
+        """Sums investigation counters across matching investigations and computes time coverage.
 
         Args:
             window_start: Optional window start boundary string.
@@ -388,41 +405,43 @@ class Dataset:
         }
         return totals, covered
 
-    def append_run(self, run: dict[str, Any]) -> None:
+    def append_investigation(self, run: dict[str, Any]) -> None:
         self.runs.append(run)
 
-    def finish_run_later(self, run_id: str, finished: dict[str, Any]) -> None:
-        """Queues completion fields to apply to a pending run after settle_seconds.
+    def finish_investigation_later(
+        self, investigation_id: str, finished: dict[str, Any]
+    ) -> None:
+        """Queues completion fields to apply to a pending investigation after `settle_seconds`.
 
         Args:
-            run_id: Identifier of the pending run.
-            finished: Completed run fields to merge upon settlement.
+            investigation_id: Identifier of the pending investigation.
+            finished: Completed investigation fields to merge upon settlement.
         """
         if self.settle_seconds <= 0:
             return
         due = dt.datetime.now(tz=dt.UTC) + dt.timedelta(
             seconds=self.settle_seconds
         )
-        self._settling[str(run_id)] = (due, finished)
+        self._settling[str(investigation_id)] = (due, finished)
 
     def settle_due(self, now: dt.datetime | None = None) -> int:
-        """Transitions due pending runs to completed status.
+        """Transitions due pending investigations to completed status.
 
         Args:
             now: Current timestamp (defaults to UTC now).
 
         Returns:
-            Count of runs settled.
+            Count of investigations settled.
         """
         if not self._settling:
             return 0
         now = now or dt.datetime.now(tz=dt.UTC)
         settled = 0
-        for run_id, (due, finished) in list(self._settling.items()):
+        for investigation_id, (due, finished) in list(self._settling.items()):
             if due > now:
                 continue
-            del self._settling[run_id]
-            record = self.get_run(run_id)
+            del self._settling[investigation_id]
+            record = self.get_stored_investigation(investigation_id)
             if record is None:
                 continue
             record.update(finished)
@@ -484,11 +503,13 @@ class Dataset:
             reverse=True,
         )
 
-    def list_insight_ids_in_run(self, run_id: str) -> set[str]:
-        """Collects canonical insight IDs observed in a specific run.
+    def list_insight_ids_in_investigation(
+        self, investigation_id: str
+    ) -> set[str]:
+        """Collects canonical insight IDs observed in a specific investigation.
 
         Args:
-            run_id: Investigation run identifier.
+            investigation_id: Investigation identifier.
 
         Returns:
             Set of canonical insight ID strings.
@@ -496,7 +517,7 @@ class Dataset:
         return {
             self.resolve_owner_id(str(o.get("insight_id") or ""))
             for o in self.occurrences
-            if o.get("run_id") == run_id
+            if o.get("investigation_id") == investigation_id
         }
 
     def list_root_causes(self, insight_id: str) -> list[dict[str, Any]]:
@@ -540,13 +561,13 @@ class Dataset:
         return newest
 
     def compute_case_index(self, case_id: str) -> int:
-        """Finds the index of a conversation case within its sighting's trajectory list.
+        """Finds a trajectory's index within its sighting's trajectory list.
 
         Args:
             case_id: Evaluated conversation trajectory identifier.
 
         Returns:
-            Integer index of the case within its sighting, or 0 if not found.
+            Index of the trajectory within its sighting, or 0 if not found.
         """
         for occurrence in self.occurrences:
             ids = occurrence.get("trajectory_ids") or []
@@ -570,7 +591,7 @@ def _list_investigations(data: Dataset, args: dict[str, Any]) -> dict[str, Any]:
     # cards are on screen.
     data.settle_due()
     return {
-        "runs": data.list_recent_runs(
+        "investigations": data.list_recent_investigations(
             str(args.get("window_start") or ""),
             str(args.get("window_end") or ""),
         )
@@ -594,8 +615,9 @@ def _get_investigation_stats(
     stats, covered = data.sum_counters(window_start, window_end)
     return {
         "stats": stats,
-        # Both the period asked for and the one the counted runs cover: they
-        # rarely match, and the second is what the figures are really of.
+        # Both the period asked for and the one the counted investigations
+        # cover: they rarely match, and the second is what the figures are
+        # really of.
         "window": {
             "start": window_start or None,
             "end": window_end or None,
@@ -605,23 +627,25 @@ def _get_investigation_stats(
     }
 
 
-def _get_investigation(data: Dataset, run_id: str) -> dict[str, Any]:
-    if not run_id:
-        return {"error": "run_id is required"}
-    run = data.get_run(run_id)
+def _get_investigation(data: Dataset, investigation_id: str) -> dict[str, Any]:
+    if not investigation_id:
+        return {"error": "investigation_id is required"}
+    run = data.get_stored_investigation(investigation_id)
     if run is None:
-        return {"error": f"No run found with id {run_id!r}."}
+        return {
+            "error": f"No investigation found with id {investigation_id!r}."
+        }
     return run
 
 
 def _build_finished_run_fields(runs: list[dict[str, Any]]) -> dict[str, Any]:
-    """Extracts completed run fields and counters from the newest completed run.
+    """Extracts fields and counters from the newest completed investigation.
 
     Args:
-        runs: List of existing run dictionaries.
+        runs: List of existing investigation dictionaries.
 
     Returns:
-        Dictionary of completed run attributes to apply to a settled run.
+        Dictionary of completed fields to apply to a settled investigation.
     """
     results: dict[str, Any] = next(
         (
@@ -637,6 +661,7 @@ def _build_finished_run_fields(runs: list[dict[str, Any]]) -> dict[str, Any]:
         "counters": copy.deepcopy(results.get("counters") or {}),
         "summary": copy.deepcopy(results.get("summary")),
         "events": copy.deepcopy(results.get("events") or []),
+        "progress": None,
         "metrics_passed": results.get("metrics_passed"),
         "metrics_failed": results.get("metrics_failed"),
         "metrics_errored": results.get("metrics_errored"),
@@ -644,13 +669,14 @@ def _build_finished_run_fields(runs: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def _schedule_investigation(data: Dataset) -> dict[str, Any]:
-    """Schedules a new pending investigation run modelled on the newest run.
+    """Schedules a new pending investigation modeled on the newest one.
 
     Args:
         data: Active mock dataset.
 
     Returns:
-        Newly created pending run dictionary, or error dictionary if empty.
+        Newly created pending investigation dictionary, or error dictionary if
+        empty.
     """
     if not data.runs:
         return {"error": "the dataset holds no runs to model a new one on."}
@@ -662,7 +688,7 @@ def _schedule_investigation(data: Dataset) -> dict[str, Any]:
     )
     run = {
         **template,
-        "run_id": uuid.uuid4().hex,
+        "investigation_id": uuid.uuid4().hex,
         "status": "pending",
         "trigger_type": "adhoc",
         "created_at": now.isoformat(),
@@ -674,13 +700,16 @@ def _schedule_investigation(data: Dataset) -> dict[str, Any]:
         "error": None,
         "summary": None,
         "events": [],
+        "progress": None,
         "counters": dict.fromkeys(template.get("counters") or {}, 0),
         "metrics_passed": None,
         "metrics_failed": None,
         "metrics_errored": None,
     }
-    data.append_run(run)
-    data.finish_run_later(run["run_id"], _build_finished_run_fields(data.runs))
+    data.append_investigation(run)
+    data.finish_investigation_later(
+        run["investigation_id"], _build_finished_run_fields(data.runs)
+    )
     return run
 
 
@@ -709,28 +738,31 @@ def _get_source_snapshot(data: Dataset) -> dict[str, Any]:
     }
 
 
-def _get_case_conversation(
+def _get_trajectory_bundle(
     data: Dataset, args: dict[str, Any]
 ) -> dict[str, Any]:
-    """Retrieves an archived conversation for a case with linked trajectory metadata.
+    """Retrieves a trajectory bundle with its linked investigation trajectory.
 
     Args:
         data: Active mock dataset.
-        args: Command arguments containing `trajectory_id` and optional `run_id`.
+        args: Command arguments containing `trajectory_id` and optional `investigation_id`.
 
     Returns:
-        Dictionary mapping "case" to the conversation structure, or error dictionary.
+        Dictionary mapping "trajectory_bundle" to the bundle, or an error
+        dictionary.
     """
-    case_id = str(args.get("trajectory_id") or "")
-    if not case_id:
+    trajectory_id = str(args.get("trajectory_id") or "")
+    if not trajectory_id:
         return {"error": "trajectory_id is required"}
-    case = _build_conversation(case_id, data.anchor)
-    run_id = str(args.get("run_id") or "")
-    if run_id:
-        case["trajectory"] = _build_mock_trajectory(
-            run_id, case_id, data.compute_case_index(case_id)
+    bundle = _build_conversation(trajectory_id, data.anchor)
+    investigation_id = str(args.get("investigation_id") or "")
+    if investigation_id:
+        bundle["trajectory"] = _build_mock_trajectory(
+            investigation_id,
+            trajectory_id,
+            data.compute_case_index(trajectory_id),
         )
-    return {"case": case}
+    return {"trajectory_bundle": bundle}
 
 
 GOAL_MAX_BYTES = 8 * 1024
@@ -936,15 +968,89 @@ def _show_config(data: Dataset) -> dict[str, Any]:
         including the attachment's key, which the engine sets from the
         attachment.
     """
-    return {"config": {**data.config, "agent_key": data.agent_key}}
+    return {
+        "config": {
+            **data.config,
+            "agent_key": data.agent_key,
+            SELECTOR_FIELD: data.investigation_selector_sql,
+        },
+        "starter_selector": _build_starter_selector(data.config),
+    }
+
+
+_STARTER_SELECTORS = {
+    "big_query": (
+        "SELECT session_id AS target_id\n"
+        "FROM `{table}`\n"
+        "WHERE timestamp BETWEEN @window_start AND @window_end\n"
+        "  AND COALESCE(JSON_VALUE(attributes, '$.root_agent_name'), agent) = @agent_name\n"
+        "  AND session_id IS NOT NULL\n"
+        "GROUP BY session_id"
+    ),
+    "cloud_ops": (
+        """SELECT JSON_VALUE(attributes, '$."gen_ai.conversation.id"') AS target_id\n"""
+        "FROM `{table}`\n"
+        "WHERE start_time BETWEEN @window_start AND @window_end\n"
+        """  AND JSON_VALUE(attributes, '$."gen_ai.agent.name"') = @agent_name\n"""
+        """  AND JSON_VALUE(attributes, '$."gen_ai.conversation.id"') IS NOT NULL\n"""
+        "GROUP BY target_id"
+    ),
+    "cloud_logging": (
+        "SELECT conversation_id AS target_id\n"
+        "FROM `{table}`\n"
+        "WHERE timestamp BETWEEN @window_start AND @window_end\n"
+        "  AND agent_name = @agent_name\n"
+        "  AND conversation_id IS NOT NULL\n"
+        "GROUP BY conversation_id"
+    ),
+}
+"""A hand-copy of each fetcher's `STARTER_SELECTOR`, with ``{table}`` for the
+selector table. `tools/test_mock_aqa.py` pins it against
+`starter.build_starter_selector`."""
+
+
+def _build_starter_selector(config: dict[str, Any]) -> str:
+    """Builds the starter selector, as `starter.build_starter_selector` does.
+
+    Args:
+        config: The dataset's generated configuration.
+
+    Returns:
+        The selector that picks what random sampling picks.
+    """
+    project = config.get("observed_project_id") or config.get("project_id")
+    table = f"{project}.{_name_selector_table(config)}"
+    return _STARTER_SELECTORS[config["telemetry_ingestion_source"]].format(
+        table=table
+    )
+
+
+def _name_selector_table(config: dict[str, Any]) -> str:
+    """Names the selector table, as `selector.resolve_selector_table_id` does.
+
+    Args:
+        config: The dataset's generated configuration.
+
+    Returns:
+        The ``dataset.table`` a selector may read.
+    """
+    table = (
+        "completions_view"
+        if config.get("telemetry_ingestion_source") == "cloud_logging"
+        else config.get("telemetry_table")
+    )
+    return f"{config.get('telemetry_dataset')}.{table}"
 
 
 def _attach_agent(data: Dataset, args: dict[str, Any]) -> dict[str, Any]:
-    """Changes the schedule of the dataset's attachment.
+    """Changes the schedule or the selector of the dataset's attachment.
 
-    Covers what the dashboard sends: an existing key, the schedule fields and
-    no dry run. The cron check is the field count only; the engine also refuses
-    syntax beyond unix-cron and a cron that names no real date.
+    Covers what the dashboard sends: an existing key, the schedule fields or
+    the selector, and a dry run that returns the plan without storing it. The
+    cron check is the field count only; the engine also refuses syntax beyond
+    unix-cron and a cron that names no real date. As in the engine, only a
+    dry run that checks access prechecks a selector, here with
+    `_find_selector_refusal`.
 
     Args:
         data: Active mock dataset.
@@ -957,16 +1063,17 @@ def _attach_agent(data: Dataset, args: dict[str, Any]) -> dict[str, Any]:
     if key != data.agent_key:
         return {"error": f"No agent is attached as {key!r}."}
     fields = args.get("fields") or {}
-    unknown = sorted(set(fields) - set(SCHEDULE_FIELDS))
-    if unknown or args.get("dry_run"):
+    unknown = sorted(set(fields) - {*SCHEDULE_FIELDS, SELECTOR_FIELD})
+    if unknown:
         return {
             "error": "The mock changes only "
-            f"{' and '.join(SCHEDULE_FIELDS)}, and never as a dry run."
+            f"{', '.join(SCHEDULE_FIELDS)} and {SELECTOR_FIELD}."
         }
     cron = fields.get("investigation_schedule", data.investigation_schedule)
     enabled = fields.get(
         "scheduled_trigger_enabled", data.scheduled_trigger_enabled
     )
+    sql = fields.get(SELECTOR_FIELD, data.investigation_selector_sql)
     if not isinstance(cron, str) or len(cron.split()) != 5:
         return {
             "error": "investigation_schedule must be a five-field cron "
@@ -977,6 +1084,11 @@ def _attach_agent(data: Dataset, args: dict[str, Any]) -> dict[str, Any]:
         return {
             "error": f"scheduled_trigger_enabled must be bool, got {enabled!r}"
         }
+    if not isinstance(sql, str):
+        return {"error": f"{SELECTOR_FIELD} must be str, got {sql!r}"}
+    prechecks = args.get("dry_run") and args.get("check_access")
+    if sql and prechecks and (refusal := _find_selector_refusal(data, sql)):
+        return {"error": f"Refusing to attach {key}: {refusal}"}
     changes = [
         {"field": field, "before": before, "after": after}
         for field, before, after in (
@@ -986,6 +1098,7 @@ def _attach_agent(data: Dataset, args: dict[str, Any]) -> dict[str, Any]:
                 data.scheduled_trigger_enabled,
                 enabled,
             ),
+            (SELECTOR_FIELD, data.investigation_selector_sql, sql),
         )
         if before != after
     ]
@@ -997,16 +1110,45 @@ def _attach_agent(data: Dataset, args: dict[str, Any]) -> dict[str, Any]:
         "changes": changes,
         "written": False,
     }
-    if not changes:
+    if not changes or args.get("dry_run"):
         return result
     data.investigation_schedule = cron
     data.scheduled_trigger_enabled = enabled
+    data.investigation_selector_sql = sql
     data.agent_updated_at = dt.datetime.now(tz=dt.UTC).isoformat()
     return {**result, "written": True, "updated_at": data.agent_updated_at}
 
 
+def _find_selector_refusal(data: Dataset, sql: str) -> str:
+    """Refuses a selector the way the engine's BigQuery precheck would.
+
+    Stands in for the precheck with two text checks: the selector names
+    `target_id`, and every table it reads is the selector table.
+
+    Args:
+        data: Active mock dataset, whose config names the selector table.
+        sql: The selector to check.
+
+    Returns:
+        The refusal, worded as the engine words it, or an empty string.
+    """
+    if not re.search(r"\btarget_id\b", sql, re.IGNORECASE):
+        return (
+            f"{SELECTOR_FIELD} is refused (invalid_sql): The selector must "
+            "project one column, target_id, the conversation's session id."
+        )
+    allowed = _name_selector_table(data.config)
+    read = re.findall(r"\b(?:FROM|JOIN)\s+`?([\w.-]+)`?", sql, re.IGNORECASE)
+    if read and all(t == allowed or t.endswith(f".{allowed}") for t in read):
+        return ""
+    return (
+        f"{SELECTOR_FIELD} is refused (unauthorized_table): A selector must "
+        f"read the selector table {allowed} by name and name no other table."
+    )
+
+
 def _get_ambient_health(data: Dataset) -> dict[str, Any]:
-    """Calculates an ambient loop health verdict based on recent runs.
+    """Calculates an ambient loop health verdict based on recent investigations.
 
     Args:
         data: Active mock dataset.
@@ -1023,7 +1165,7 @@ def _get_ambient_health(data: Dataset) -> dict[str, Any]:
     open_findings = [i for i in data.insights if i.get("status") != "RESOLVED"]
     worst = max(
         open_findings,
-        key=lambda i: int(i.get("trace_count") or 0),
+        key=lambda i: int(i.get("trajectory_count") or 0),
         default=None,
     )
 
@@ -1045,7 +1187,9 @@ def _get_ambient_health(data: Dataset) -> dict[str, Any]:
         "last_scheduled_finish": last_run.get("finished_at")
         if last_run
         else None,
-        "last_run": _format_last_run(last_run) if last_run else None,
+        "last_investigation": _format_last_investigation(last_run)
+        if last_run
+        else None,
         "open_findings": len(open_findings),
         "worst_finding": {
             "insight_id": str(worst.get("insight_id") or ""),
@@ -1057,13 +1201,13 @@ def _get_ambient_health(data: Dataset) -> dict[str, Any]:
 
 
 def _is_running(run: dict[str, Any]) -> bool:
-    """Checks whether a run is currently in progress and not stalled.
+    """Checks whether an investigation is currently in progress and not stalled.
 
     Args:
-        run: Run dictionary containing status and timestamps.
+        run: Investigation dictionary containing status and timestamps.
 
     Returns:
-        True if the run is pending or running within STALE_AFTER_SECONDS.
+        True if the investigation is pending or running within STALE_AFTER_SECONDS.
     """
     if str(run.get("status") or "") not in IN_FLIGHT:
         return False
@@ -1074,32 +1218,32 @@ def _is_running(run: dict[str, Any]) -> bool:
     return age <= STALE_AFTER_SECONDS
 
 
-def _format_last_run(run: dict[str, Any]) -> dict[str, Any]:
-    """Formats the newest finished run into the health check summary format.
+def _format_last_investigation(run: dict[str, Any]) -> dict[str, Any]:
+    """Formats the newest finished investigation into the health check summary format.
 
     Args:
-        run: Completed run dictionary.
+        run: Completed investigation dictionary.
 
     Returns:
-        Formatted summary dictionary with session counts and pass rate.
+        Formatted summary dictionary with trajectory counts and pass rate.
     """
     counters = run.get("counters") or {}
-    evaluated = int(counters.get("traces_evaluated") or 0)
-    passed = int(counters.get("traces_eval_passed") or 0)
+    evaluated = int(counters.get("trajectories_evaluated") or 0)
+    passed = int(counters.get("trajectories_eval_passed") or 0)
     return {
-        "run_id": str(run.get("run_id") or ""),
+        "investigation_id": str(run.get("investigation_id") or ""),
         "finished_at": run.get("finished_at"),
         "status": str(run.get("status") or ""),
         "trigger_type": str(run.get("trigger_type") or ""),
-        "sessions": evaluated or None,
-        "sessions_passed": passed if evaluated else None,
+        "trajectories": evaluated or None,
+        "trajectories_passed": passed if evaluated else None,
         "pass_rate": (passed / evaluated) if evaluated else None,
     }
 
 
 def _list_insights(data: Dataset, args: dict[str, Any]) -> dict[str, Any]:
     status = str(args.get("status") or "").strip()
-    run_id = str(args.get("run_id") or "").strip()
+    investigation_id = str(args.get("investigation_id") or "").strip()
     order_by = str(args.get("order_by") or "").strip().lower() or "recent"
     if order_by not in INSIGHT_ORDERS:
         return {
@@ -1148,8 +1292,8 @@ def _list_insights(data: Dataset, args: dict[str, Any]) -> dict[str, Any]:
         ]
     elif wanted:
         insights = [i for i in insights if i.get("status") == wanted]
-    if run_id:
-        in_run = data.list_insight_ids_in_run(run_id)
+    if investigation_id:
+        in_run = data.list_insight_ids_in_investigation(investigation_id)
         insights = [i for i in insights if i.get("insight_id") in in_run]
     # Filter on has_root_cause matching list view indicators.
     has_root_cause = str(args.get("has_root_cause") or "")
@@ -1183,7 +1327,7 @@ def _list_insights(data: Dataset, args: dict[str, Any]) -> dict[str, Any]:
     # Ranked over everything that matched and only then sliced, as the ``ORDER
     # BY ... LIMIT`` does. A mock that paged an unranked list would hand the
     # dashboard a first page the deployment would never send. Impact ranks on
-    # the folded `trace_count`, so the views are built before the sort.
+    # the folded `trajectory_count`, so the views are built before the sort.
     views = _sort_insight_views(
         [_build_insight_view(data, i) for i in insights], order_by
     )
@@ -1273,7 +1417,7 @@ def _sort_insight_views(
         return sorted(
             views,
             key=lambda v: (
-                -int(v.get("trace_count") or 0),
+                -int(v.get("trajectory_count") or 0),
                 str(v.get("insight_id") or ""),
             ),
         )
@@ -1300,9 +1444,11 @@ def _build_insight_view(
     return {
         **insight,
         "occurrence_count": len(owned),
-        "trace_count": sum(int(o.get("trace_count") or 0) for o in owned),
-        "last_run_id": newest.get("run_id"),
-        "last_run_at": newest.get("created_at"),
+        "trajectory_count": sum(
+            int(o.get("trajectory_count") or 0) for o in owned
+        ),
+        "last_investigation_id": newest.get("investigation_id"),
+        "last_investigation_at": newest.get("created_at"),
         "has_root_cause": bool(data.list_root_causes(insight_id)),
     }
 
@@ -1380,8 +1526,12 @@ def _get_insight(data: Dataset, args: dict[str, Any]) -> dict[str, Any]:
         return {"error": f"No insight found with id {insight_id!r}."}
 
     occurrences = data.list_occurrences(insight_id)
-    if run_id := str(args.get("run_id") or ""):
-        occurrences = [o for o in occurrences if o.get("run_id") == run_id]
+    if investigation_id := str(args.get("investigation_id") or ""):
+        occurrences = [
+            o
+            for o in occurrences
+            if o.get("investigation_id") == investigation_id
+        ]
     offset = _decode_page_token(str(args.get("page_token") or ""))
     page = occurrences[offset : offset + OCCURRENCES_PAGE_SIZE]
     next_offset = offset + len(page)
@@ -1430,15 +1580,16 @@ def _format_occurrence(
     root_causes: Iterable[dict[str, Any]] = (),
     include_edits: bool = True,
 ) -> dict[str, Any]:
-    """Format an occurrence dictionary for API responses.
+    """Formats an occurrence dictionary for API responses.
 
-    Strips heavy rubric traces, resolves trajectory conversations, and attaches
-    sighting-specific root-cause records.
+    Strips finding examples' conversation turns when `include_traces` is False,
+    resolves investigation trajectories, and attaches sighting-specific
+    root-cause records.
 
     Args:
         occurrence: Raw occurrence record.
-        include_traces: Whether to include rubric traces.
-        include_trajectories: Whether to resolve trajectory data.
+        include_traces: Whether to include finding examples' conversation turns.
+        include_trajectories: Whether to resolve investigation trajectories.
         root_causes: Root-cause records to filter and attach.
         include_edits: Whether to keep code diffs in attached records.
 
@@ -1447,12 +1598,12 @@ def _format_occurrence(
     """
     view = copy.deepcopy(occurrence)
     if not include_traces:
-        for rubric in view.get("rubrics") or []:
-            rubric["trace"] = []
+        for example in view.get("examples") or []:
+            example["turns"] = []
     if include_trajectories:
-        view["trajectories"] = [
+        view["investigation_trajectories"] = [
             _build_mock_trajectory(
-                occurrence.get("run_id") or "", case_id, index
+                occurrence.get("investigation_id") or "", case_id, index
             )
             for index, case_id in enumerate(
                 occurrence.get("trajectory_ids") or []
@@ -1494,14 +1645,14 @@ def _format_root_cause(
 
 
 def _build_mock_trajectory(
-    run_id: str, case_id: str, index: int
+    investigation_id: str, case_id: str, index: int
 ) -> dict[str, Any]:
     """Builds a mock trajectory record with console links.
 
     Args:
-        run_id: Investigation run identifier.
+        investigation_id: Investigation identifier.
         case_id: Conversation trajectory identifier.
-        index: Index of the case within the occurrence.
+        index: Index of the trajectory within the occurrence.
 
     Returns:
         Dictionary matching the linked trajectory schema.
@@ -1509,9 +1660,9 @@ def _build_mock_trajectory(
     linkable = index % 3 != 2
     trace_ids = [f"{abs(hash((case_id, index))):032x}"[:32]] if linkable else []
     return {
-        "run_id": run_id,
+        "investigation_id": investigation_id,
         "trajectory_id": case_id,
-        "source": "cloud_logging" if linkable else "big_query",
+        "ingestion_source": "cloud_logging" if linkable else "big_query",
         "source_trace_ids": trace_ids,
         "ingest_status": "ingested",
         "console_url": (
@@ -1523,12 +1674,12 @@ def _build_mock_trajectory(
 
 
 PAYLOAD_STATUSES = ("ingested", "partial", "truncated")
-"""What a stored copy of a conversation is. A hand-copy of `PayloadStatus`, as
+"""What a stored copy of a conversation is. A hand-copy of `TrajectoryStatus`, as
 the other vocabularies in this file are, pinned by `tools/test_mock_aqa.py`."""
 
 NOT_ARCHIVED = "not_archived"
 """And what an id with no stored copy is. Outside the enum above, deliberately:
-`payloads.NOT_ARCHIVED` is the agent's spelling and the same test holds them
+`bundles.NOT_ARCHIVED` is the agent's spelling and the same test holds them
 level."""
 
 _TOOLS = (
@@ -1539,14 +1690,14 @@ _TOOLS = (
 
 
 def _build_conversation(case_id: str, anchor: dt.datetime) -> dict[str, Any]:
-    """Builds a mock archived conversation trace for a specific case ID.
+    """Builds a mock trajectory bundle for a specific trajectory ID.
 
     Args:
         case_id: Unique conversation identifier.
         anchor: Reference timestamp anchoring event times.
 
     Returns:
-        Dictionary matching the archived conversation schema.
+        Dictionary matching the trajectory bundle schema.
     """
     rng = random.Random(f"conversation:{case_id}")  # noqa: S311 - seeded for deterministic mock data
     ordinal = int(
@@ -1559,9 +1710,9 @@ def _build_conversation(case_id: str, anchor: dt.datetime) -> dict[str, Any]:
         return {
             "trajectory_id": case_id,
             "status": NOT_ARCHIVED,
-            "turn_count": 0,
-            "turns_returned": 0,
-            "turns": [],
+            "step_count": 0,
+            "steps_returned": 0,
+            "steps": [],
             "agents": None,
             "recorded_at": None,
         }
@@ -1572,9 +1723,9 @@ def _build_conversation(case_id: str, anchor: dt.datetime) -> dict[str, Any]:
         "trajectory_id": case_id,
         # Mostly whole; every seventeenth copy came from lossy telemetry.
         "status": "partial" if ordinal % 17 == 0 else "ingested",
-        "turn_count": len(turns),
-        "turns_returned": 0 if expired else len(turns),
-        "turns": [] if expired else turns,
+        "step_count": len(turns),
+        "steps_returned": 0 if expired else len(turns),
+        "steps": [] if expired else turns,
         "agents": {
             "travel_desk_agent": {
                 "instruction": (
@@ -2134,13 +2285,13 @@ class Chat:
     def _render_top_insights(self) -> str:
         ranked = sorted(
             self.data.insights,
-            key=lambda i: int(i.get("trace_count") or 0),
+            key=lambda i: int(i.get("trajectory_count") or 0),
             reverse=True,
         )[:3]
         if not ranked:
             return "No insights in this dataset -- it was generated with nothing failing."
         lines = "\n".join(
-            f"{n}. **{i.get('label')}** -- {i.get('trace_count')} traces over "
+            f"{n}. **{i.get('label')}** -- {i.get('trajectory_count')} traces over "
             f"{i.get('occurrence_count')} sightings, {i.get('status')}."
             for n, i in enumerate(ranked, start=1)
         )
@@ -2152,12 +2303,12 @@ class Chat:
             return "This dataset holds no sweeps."
         counters = run.get("counters") or {}
         return (
-            f"The newest sweep is `{run.get('run_id')}` ({run.get('status')}), "
+            f"The newest sweep is `{run.get('investigation_id')}` ({run.get('status')}), "
             f"triggered {run.get('trigger_type')} and covering up to "
             f"{run.get('window_end')}. It scanned "
-            f"{counters.get('traces_scanned', 0)} traces, evaluated "
-            f"{counters.get('traces_evaluated', 0)} of them, and "
-            f"{counters.get('traces_eval_failed', 0)} failed a metric."
+            f"{counters.get('trajectories_scanned', 0)} traces, evaluated "
+            f"{counters.get('trajectories_evaluated', 0)} of them, and "
+            f"{counters.get('trajectories_eval_failed', 0)} failed a metric."
         )
 
     def _render_orientation(self) -> str:
@@ -2241,12 +2392,12 @@ class Chat:
         if not confirmed:
             return "Left it alone, then. Nothing was scheduled."
         run = _schedule_investigation(self.data)
-        # A refusal is `{"error": ...}` and nothing else; a run record carries
+        # A refusal is `{"error": ...}` and nothing else; an investigation record carries
         # an `error` key of its own, set to None, so its presence proves nothing.
-        if "run_id" not in run:
+        if "investigation_id" not in run:
             return f"Could not schedule it: {run.get('error')}"
         return (
-            f"Scheduled. Sweep `{run['run_id']}` is pending; the investigations "
+            f"Scheduled. Sweep `{run['investigation_id']}` is pending; the investigations "
             "list will show it finish."
         )
 
@@ -2410,7 +2561,7 @@ def build_app(data: Dataset, *, app_name: str, latency_ms: int) -> FastAPI:
     @app.post(f"/{INVESTIGATIONS_GET_ROUTE}")
     async def get_investigation(request: Request) -> dict[str, Any]:
         args = await _read_route_args(request)
-        return _get_investigation(data, str(args.get("run_id", "")))
+        return _get_investigation(data, str(args.get("investigation_id", "")))
 
     @app.post(f"/{INSIGHTS_LIST_ROUTE}")
     async def list_insights(request: Request) -> dict[str, Any]:
@@ -2448,9 +2599,9 @@ def build_app(data: Dataset, *, app_name: str, latency_ms: int) -> FastAPI:
     async def delete_memory(request: Request) -> dict[str, Any]:
         return _delete_memory(data, await _read_route_args(request))
 
-    @app.post(f"/{TRAJECTORIES_CASE_ROUTE}")
-    async def get_case_conversation(request: Request) -> dict[str, Any]:
-        return _get_case_conversation(data, await _read_route_args(request))
+    @app.post(f"/{TRAJECTORY_BUNDLE_ROUTE}")
+    async def get_trajectory_bundle(request: Request) -> dict[str, Any]:
+        return _get_trajectory_bundle(data, await _read_route_args(request))
 
     @app.post(f"/{HEALTH_ROUTE}")
     async def get_ambient_health() -> dict[str, Any]:
@@ -2470,7 +2621,8 @@ def build_app(data: Dataset, *, app_name: str, latency_ms: int) -> FastAPI:
 
     @app.post(f"/{CONFIG_ROUTE}")
     async def show_config() -> dict[str, Any]:
-        return _show_config(data)
+        # Says the data is generated, so the dashboard shows it is demo data.
+        return {**_show_config(data), "demo": True}
 
     # The chat agent's name is its callers' business, not this server's, so it
     # is a path parameter rather than a hand-copy of `CHAT_A2A_APP`.

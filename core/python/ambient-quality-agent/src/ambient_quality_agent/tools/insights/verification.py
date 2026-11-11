@@ -38,7 +38,7 @@ if TYPE_CHECKING:
         ToolDefinition,
     )
     from ambient_quality_agent.tools.insights.clustering import Cluster
-    from ambient_quality_agent.tools.insights.models import RubricExample
+    from ambient_quality_agent.tools.insights.models import FindingExample
 
 from ambient_quality_agent.tools.agent_revision import UNRECORDED_PARAMETERS
 from ambient_quality_agent.tools.insights.models import ClusterVerification
@@ -49,11 +49,11 @@ VERIFY_CONCURRENCY = 4
 """Concurrent verification calls, matching CHUNK_CONCURRENCY in clustering."""
 
 MAX_VERIFIED_CLUSTERS = 50
-"""Largest clusters verified per sweep, by item_count. Nothing caps cluster
+"""Largest clusters verified per sweep, by finding_count. Nothing caps cluster
 count upstream -- validate_clusters checks labels and id ranges only -- so the
 arithmetic ceiling is one cluster per finding."""
 
-MAX_EVIDENCE_TRACES = 3
+MAX_EVIDENCE_TRAJECTORIES = 3
 """Maximum conversation trajectories shown per cluster."""
 
 MAX_TRACE_CHARS = 250_000
@@ -115,7 +115,7 @@ with no types and no per-parameter descriptions. Present only when every shown
 trace ran under the same configuration.
 
 - evidence: up to three traces that are examples of the issue, each entry naming
-the conversation it came from in `eval_case_id` and pairing one `trajectory`
+the conversation it came from in `trajectory_id` and pairing one `trajectory`
 with the `quality_checks` that failed on it. When the shown traces ran under
 different configurations there is no top-level `agent_definition` and each entry
 carries its own `system_prompt` and `tool_declarations` instead.
@@ -906,42 +906,42 @@ def _clip_turns(
     return clipped, truncated
 
 
-def _build_evidence(examples: Sequence[RubricExample]) -> list[dict[str, Any]]:
-    """Format up to MAX_EVIDENCE_TRACES sorted evidence entries, grouping rubrics per case.
+def _build_evidence(examples: Sequence[FindingExample]) -> list[dict[str, Any]]:
+    """Formats up to `MAX_EVIDENCE_TRAJECTORIES` sorted evidence entries, grouping findings per trajectory.
 
     Args:
-        examples: Rubric examples associated with the cluster.
+        examples: Finding examples associated with the cluster.
 
     Returns:
         List of formatted evidence dictionaries for prompt injection.
     """
-    by_case: dict[str, list[RubricExample]] = {}
-    for ex in sorted(examples, key=lambda e: e.eval_case_id):
-        if not ex.eval_case_id or not ex.trace:
+    by_case: dict[str, list[FindingExample]] = {}
+    for ex in sorted(examples, key=lambda e: e.trajectory_id):
+        if not ex.trajectory_id or not ex.turns:
             continue
-        by_case.setdefault(ex.eval_case_id, []).append(ex)
+        by_case.setdefault(ex.trajectory_id, []).append(ex)
 
     evidence: list[dict[str, Any]] = []
     spent = 0
-    for case_id in sorted(by_case.keys())[:MAX_EVIDENCE_TRACES]:
+    for case_id in sorted(by_case.keys())[:MAX_EVIDENCE_TRAJECTORIES]:
         case_examples = by_case[case_id]
         first_ex = case_examples[0]
         # The block ceiling is what remains of it, so three traces cannot each
         # spend the per-trace ceiling.
         budget = min(MAX_TRACE_CHARS, max(0, MAX_EVIDENCE_CHARS - spent))
-        trace_payload, _ = _clip_turns(first_ex.trace, budget)
+        trace_payload, _ = _clip_turns(first_ex.turns, budget)
         spent += len(json.dumps(trace_payload, ensure_ascii=False, default=str))
         quality_checks = []
         for ex in case_examples:
             pair = {
-                "expected": ex.rubric.expected_behavior,
-                "actual": ex.rubric.actual_behavior,
+                "expected": ex.finding.expected_behavior,
+                "actual": ex.finding.actual_behavior,
             }
             if pair not in quality_checks:
                 quality_checks.append(pair)
         evidence.append(
             {
-                "eval_case_id": case_id,
+                "trajectory_id": case_id,
                 "trajectory": trace_payload,
                 "quality_checks": quality_checks,
             }
@@ -1032,7 +1032,7 @@ def _build_prompt(
 
     Args:
         cluster: Candidate cluster to verify.
-        agent_definitions: Optional map of session ID to its agent revisions.
+        agent_definitions: Optional map of trajectory ID to its agent revisions.
 
     Returns:
         Complete verification prompt string.
@@ -1040,7 +1040,7 @@ def _build_prompt(
     evidence = _build_evidence(cluster.examples)
     definitions = [
         _build_agent_definition(
-            (agent_definitions or {}).get(entry["eval_case_id"], [])
+            (agent_definitions or {}).get(entry["trajectory_id"], [])
         )
         for entry in evidence
     ]
@@ -1101,7 +1101,7 @@ class ClusterVerificationOutcome(BaseModel):
     """
 
     verification: ClusterVerification
-    examined_case_ids: list[str] = Field(default_factory=list)
+    examined_trajectory_ids: list[str] = Field(default_factory=list)
 
     @property
     def rejected(self) -> bool:
@@ -1123,8 +1123,8 @@ def verify_clusters(
     `insight_correlation` withholds its insight rather than presenting an
     unchecked finding as a verified one.
 
-    ``agent_definitions`` maps a session id to the configurations that session
-    ran under, as `FindingSet.agent_revisions` carries them.
+    ``agent_definitions`` maps a trajectory ID to the configurations that
+    trajectory ran under, as `FindingSet.agent_revisions` carries them.
 
     Raises the first exception when every attempted call failed, matching
     `clustering.cluster_and_label` and the session reviewer: everything failing is
@@ -1134,7 +1134,7 @@ def verify_clusters(
         clusters: Candidate clusters to evaluate.
         model_call: Optional prompt-to-text callable; `call_verification_model`
             when omitted.
-        agent_definitions: Mapping of session ID to agent revisions.
+        agent_definitions: Mapping of trajectory ID to agent revisions.
 
     Returns:
         Tuple of (outcomes_dict, verify_info_tally).
@@ -1149,18 +1149,18 @@ def verify_clusters(
     outcomes: dict[int, ClusterVerificationOutcome] = {}
     tally = VerifyInfo()
 
-    # Cap the pass to the largest clusters by item_count. Nothing bounds cluster
+    # Cap the pass to the largest clusters by finding_count. Nothing bounds cluster
     # count upstream, and this is the most expensive call in the pipeline.
     sorted_indices = sorted(
         range(len(clusters)),
-        key=lambda idx: clusters[idx].item_count,
+        key=lambda idx: clusters[idx].finding_count,
         reverse=True,
     )
     eligible = set(sorted_indices[:MAX_VERIFIED_CLUSTERS])
 
     to_evaluate: list[int] = []
     for idx, cluster in enumerate(clusters):
-        if idx not in eligible or not any(ex.trace for ex in cluster.examples):
+        if idx not in eligible or not any(ex.turns for ex in cluster.examples):
             # No evidence is not a verdict: a cluster the model could not read
             # is left unjudged rather than rejected, because a judgement this
             # pass never reached has no business in the audit trail. The caller
@@ -1219,7 +1219,9 @@ def verify_clusters(
                 refined_label=proposed_label,
                 created_at=dt.datetime.now(dt.UTC),
             ),
-            examined_case_ids=_list_examined_case_ids(clusters[idx]),
+            examined_trajectory_ids=_list_examined_trajectory_ids(
+                clusters[idx]
+            ),
         )
 
     if len(failures) == len(to_evaluate):
@@ -1228,19 +1230,23 @@ def verify_clusters(
     return outcomes, tally
 
 
-def _list_examined_case_ids(cluster: Cluster) -> list[str]:
-    """The cases `_build_evidence` put in front of the model, in the same order.
+def _list_examined_trajectory_ids(cluster: Cluster) -> list[str]:
+    """Lists the trajectory IDs `_build_evidence` selects for the prompt, in the same order.
 
-    Kept in step with that function deliberately: a caller marks these examples
-    `examined`, and a mark that does not match what was shown is worse than none.
+    Kept in step with `_build_evidence` so callers mark `examined` on the exact
+    examples shown to the verification model.
 
     Args:
         cluster: Evaluated cluster.
 
     Returns:
-        List of session IDs whose traces were examined.
+        List of trajectory IDs whose turns were examined.
     """
     with_trace = sorted(
-        {e.eval_case_id for e in cluster.examples if e.trace and e.eval_case_id}
+        {
+            e.trajectory_id
+            for e in cluster.examples
+            if e.turns and e.trajectory_id
+        }
     )
-    return with_trace[:MAX_EVIDENCE_TRACES]
+    return with_trace[:MAX_EVIDENCE_TRAJECTORIES]
