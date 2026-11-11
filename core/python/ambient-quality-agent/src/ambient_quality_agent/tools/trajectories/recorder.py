@@ -17,7 +17,7 @@
 Injected into a fetcher the way a logger is: the fetcher calls `add` for every
 row it attempts and `flush` at the end of each page, and knows nothing about
 BigQuery, the sweep it is serving, or whether anyone is listening. Everything
-the row needs but a fetcher cannot know -- which run, which agent, which
+the row needs but a fetcher cannot know -- which investigation, which agent, which
 telemetry source, and when -- is bound here once, by whoever built the fetcher.
 
 That is what keeps the ids out of the ingestion layer's return values. They are
@@ -36,18 +36,18 @@ import datetime as dt
 import logging
 from typing import TYPE_CHECKING
 
+from ambient_quality_agent.tools.trajectories.bundles import build_bundle
 from ambient_quality_agent.tools.trajectories.models import (
     IngestStatus,
-    Trajectory,
+    InvestigationTrajectory,
 )
-from ambient_quality_agent.tools.trajectories.payloads import build_archive
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from agentplatform._genai.types import EvalCase
-    from ambient_quality_agent.tools.trajectories.payloads import (
-        TrajectoryArchive,
+    from ambient_quality_agent.tools.trajectories.bundles import (
+        TrajectoryBundle,
     )
     from ambient_quality_agent.tools.trajectories.store import TrajectoryStore
 
@@ -79,7 +79,7 @@ class NullTrajectoryRecorder:
 
 
 class TrajectoryRecorder(NullTrajectoryRecorder):
-    """Writes one agent's sampled trajectories for one run.
+    """Writes one agent's sampled trajectories for one investigation.
 
     Buffers a page's worth and writes them together, because that is the unit
     ingestion produces and one write per page is what the store is sized for.
@@ -95,25 +95,26 @@ class TrajectoryRecorder(NullTrajectoryRecorder):
         self,
         *,
         store: TrajectoryStore,
-        run_id: str,
-        agent_name: str,
+        investigation_id: str,
+        observed_agent_key: str,
         source: str,
     ) -> None:
         """Bind the recorder to one sweep.
 
         Args:
-            store: Where both the index rows and the conversations go.
-            run_id: The sweep every row is attributed to, and the key its retry
+            store: Where both the investigation trajectories and the trajectory
+                bundles go.
+            investigation_id: The sweep every row is attributed to, and the key its retry
                 cleanup deletes by.
-            agent_name: Observed agent, denormalized onto every row.
+            observed_agent_key: Observed agent, denormalized onto every row.
             source: Telemetry source the rows were ingested from.
         """
         self._store = store
-        self._run_id = run_id
-        self._agent_name = agent_name
+        self._investigation_id = investigation_id
+        self._observed_agent_key = observed_agent_key
         self._source = source
-        self._pending: list[Trajectory] = []
-        self._pending_archives: list[TrajectoryArchive] = []
+        self._pending: list[InvestigationTrajectory] = []
+        self._pending_bundles: list[TrajectoryBundle] = []
 
     def add(
         self,
@@ -125,7 +126,7 @@ class TrajectoryRecorder(NullTrajectoryRecorder):
         case: EvalCase | None = None,
         agent_revision: str = "",
     ) -> None:
-        """Buffers an attempted trajectory and its assembled payload for writing.
+        """Buffers an attempted trajectory and its trajectory bundle for writing.
 
         Args:
             trajectory_id: Identifier for the conversation trajectory.
@@ -137,12 +138,12 @@ class TrajectoryRecorder(NullTrajectoryRecorder):
         """
         recorded_at = dt.datetime.now(dt.UTC)
         self._pending.append(
-            Trajectory(
-                run_id=self._run_id,
-                agent_name=self._agent_name,
+            InvestigationTrajectory(
+                investigation_id=self._investigation_id,
+                observed_agent_key=self._observed_agent_key,
                 trajectory_id=trajectory_id,
                 created_at=recorded_at,
-                source=self._source or None,
+                ingestion_source=self._source or None,
                 source_session_id=session_id,
                 source_trace_ids=list(trace_ids),
                 ingest_status=status,
@@ -150,10 +151,10 @@ class TrajectoryRecorder(NullTrajectoryRecorder):
         )
         if case is None:
             return
-        self._pending_archives.append(
-            build_archive(
+        self._pending_bundles.append(
+            build_bundle(
                 case,
-                agent_name=self._agent_name,
+                observed_agent_key=self._observed_agent_key,
                 trajectory_id=trajectory_id,
                 created_at=recorded_at,
                 partial=status is IngestStatus.PARTIAL,
@@ -162,30 +163,33 @@ class TrajectoryRecorder(NullTrajectoryRecorder):
         )
 
     def flush(self) -> None:
-        """Flushes buffered index rows and conversation payloads.
+        """Flushes buffered investigation trajectories and trajectory bundles.
 
         Writes proceed in two steps:
-        1. Write index rows (best-effort; failures are logged so sweep execution continues).
-        2. Write conversation payloads (retried on failure; raises on final error to protect evidence).
+        1. Write investigation trajectories (best-effort; failures are logged so
+           sweep execution continues).
+        2. Write trajectory bundles (retried on failure; raises on final error
+           to protect evidence).
 
-        A failed index write does not stop the payload write, so it can leave payloads
-        without index rows. Buffers are cleared regardless of write outcome.
+        A failed investigation trajectory write does not stop the bundle write,
+        so it can leave bundles without investigation trajectories. Buffers are
+        cleared regardless of write outcome.
         """
         pending, self._pending = self._pending, []
-        archives, self._pending_archives = self._pending_archives, []
+        bundles, self._pending_bundles = self._pending_bundles, []
         if pending:
             try:
-                self._store.record(pending)
+                self._store.record_investigation_trajectories(pending)
             except Exception as exc:
                 logger.warning(
                     "Could not record %d sampled trajectory(s) of run %s: %s",
                     len(pending),
-                    self._run_id,
+                    self._investigation_id,
                     exc,
                 )
-        if archives:
-            self._store.record_payloads(archives)
+        if bundles:
+            self._store.record_trajectory_bundles(bundles)
 
-    def delete_run_trajectories(self) -> None:
-        """Deletes index rows written by an earlier attempt of this run before retrying."""
-        self._store.delete_run_trajectories(self._run_id)
+    def delete_investigation_trajectories(self) -> None:
+        """Deletes investigation trajectories an earlier attempt of this investigation wrote."""
+        self._store.delete_investigation_trajectories(self._investigation_id)

@@ -34,33 +34,34 @@ Wiring::
     _build_records_to_save() ──► InsightWriter.save_investigation_result()
         │
         ▼
-    InsightWriter.resolve_stale_insights(), skipped on custom-triggered runs
+    InsightWriter.resolve_stale_insights(), skipped on custom-triggered investigations
 
-Clusters this sweep's failed rubrics into labeled candidate issues, one
-attributed agent (root or sub-agent) at a time. Unless
-``insights_verification_enabled`` is false, verifies the largest
-`MAX_VERIFIED_CLUSTERS` clusters against their own traces. Matches unrejected
-candidates against insights from earlier sweeps for the same attributed agent,
-and writes one occurrence per candidate so recurring defects are tracked as a
-single insight with history rather than reported as new findings every run.
+Clusters this investigation's findings into labeled candidate issues, one
+attributed agent (root or sub-agent) at a time. When
+``insights_verification_enabled`` is true (it is off by default), verifies the
+largest `MAX_VERIFIED_CLUSTERS` clusters against their own trajectories. Matches
+unrejected candidates against insights from earlier investigations for the same
+attributed agent, and writes one occurrence per candidate so recurring defects
+are tracked as a single insight with history rather than reported as new
+findings every investigation.
 
-flow: failed rubrics -> candidate clusters -> one occurrence per candidate, and
-then, on the verdict that candidate got:
+Flow: findings -> candidate clusters -> one occurrence per candidate, and then,
+based on the candidate's verification verdict:
 
   - tracked and matched: that insight is marked recurring;
   - tracked and unmatched: a new insight is minted;
   - unjudged, the pass having skipped the candidate or failed on it: nothing is
     minted and the occurrence names no insight, but a matched insight is dated
-    to this sweep so it does not age out unseen;
+    to this investigation so it does not age out unseen;
   - rejected: never matched, nothing minted, the occurrence names no insight.
 
 A negative verdict only rejects under ``insights_verification_enforced``.
-Unenforced, the candidate stays tracked with the verdict attached, so a trace
-too thin to prove the defect leaves a triager the judge's reading rather than
-silence.
+Unenforced, the candidate stays tracked with the verdict attached, so a
+trajectory too thin to prove the defect leaves a triager the judge's reading
+rather than silence.
 
-With the pass off no candidate is judged and none is withheld: every one takes
-one of the first two branches, as they all did before the pass existed.
+When verification is disabled, no candidate is judged or withheld, and every
+candidate takes one of the first two branches.
 """
 
 from __future__ import annotations
@@ -124,8 +125,9 @@ class _Verdict:
     """The verdict as `InsightOccurrence.analyses` carries it, empty unless the
     pass reached one."""
 
-    examined_case_ids: frozenset[str] = frozenset()
-    """The cases the pass was shown, which its occurrence marks ``examined``."""
+    examined_trajectory_ids: frozenset[str] = frozenset()
+    """Trajectories the verification pass inspected, marked ``examined`` on the
+    occurrence's examples."""
 
     @property
     def flagged(self) -> bool:
@@ -173,13 +175,13 @@ verification pass settled on for it."""
 @node(name="insight_correlation")
 @log_node_run("insight_correlation")
 def insight_correlation_node(ctx: Context) -> Event:
-    """Correlate this sweep's failed rubrics into deduplicated insights and store them in a db."""
+    """Correlate this sweep's findings into deduplicated insights and store them in a db."""
     state = ctx.state
     # This node runs inside the durable investigation LRO, whose only window is
     # Cloud Logging -- the record_progress_event goes to the chat stream, not the logs.
     # So log each milestone at INFO (once per sweep, not noisy) so a deployed run
     # is observable without reading BigQuery.
-    run_id = state.get("run_id", "")
+    investigation_id = state.get("investigation_id", "")
     auto_resolve_days = state.get("insights_auto_resolve_days", 0)
     trigger_type = state.get("trigger_type", "")
     verification_enabled = config_module.is_verification_enabled(
@@ -191,25 +193,25 @@ def insight_correlation_node(ctx: Context) -> Event:
     store = _common.insight_store_factory(ctx)
     now = dt.datetime.now(dt.UTC)
 
-    # Erase any prior attempt of this run before anything else, so a crash-retry
+    # Erase any prior attempt of this investigation before anything else, so a crash-retry
     # cannot leave the earlier attempt's insights orphaned or double-counted.
-    store.delete_failed_insights(run_id)
+    store.delete_failed_insights(investigation_id)
 
     # Merge findings across all sweep scopes to establish stable finding IDs.
     raw_sets = state.get("finding_sets") or []
     finding_set = merge_finding_sets(raw_sets)
     findings = finding_set.findings
     logger.info(
-        "insight_correlation: run_id=%s cleaned prior attempt; merged %d finding "
+        "insight_correlation: investigation_id=%s cleaned prior attempt; merged %d finding "
         "set(s) into %d failed rubric(s) and the agent configuration(s) of "
         "%d session(s).",
-        run_id,
+        investigation_id,
         len(raw_sets),
         len(findings),
         len(finding_set.agent_revisions),
     )
     if findings:
-        clusters, rubrics_skipped_to_errors = clustering.cluster_and_label(
+        clusters, findings_skipped_to_errors = clustering.cluster_and_label(
             findings,
             root_agent_id=state["observed_agent_name"],
             model_call=_common.model_call_factory(ctx),
@@ -217,13 +219,13 @@ def insight_correlation_node(ctx: Context) -> Event:
         clusters = clustering.validate_clusters(clusters, len(findings))
         clustered = len({fid for c in clusters for fid in c.finding_ids})
         clustering_info = ClusteringInfo(
-            errored_rubrics=rubrics_skipped_to_errors,
-            unclustered_rubrics=len(findings)
-            - rubrics_skipped_to_errors
+            errored_findings=findings_skipped_to_errors,
+            unclustered_findings=len(findings)
+            - findings_skipped_to_errors
             - clustered,
         )
         clusters = clustering.attach_examples(
-            clusters, findings, finding_set.sessions
+            clusters, findings, finding_set.turns_by_trajectory
         )
         # After the evidence, so a folded candidate keeps a real trace, and
         # before the store, which matches candidates against saved insights but
@@ -284,8 +286,8 @@ def insight_correlation_node(ctx: Context) -> Event:
             clusters_verify_failed=verdicts.tally.failed,
             insights_created=len(new_insights),
             insights_recurring=len(recurring_ids),
-            rubrics_errored=clustering_info.errored_rubrics,
-            rubrics_unclustered=clustering_info.unclustered_rubrics,
+            findings_errored=clustering_info.errored_findings,
+            findings_unclustered=clustering_info.unclustered_findings,
         )
         text = _render_correlation_summary(
             findings,
@@ -296,10 +298,10 @@ def insight_correlation_node(ctx: Context) -> Event:
             root_agent_id=state["observed_agent_name"],
         )
         logger.info(
-            "insight_correlation: run_id=%s persisted %d cluster(s) as %d new "
+            "insight_correlation: investigation_id=%s persisted %d cluster(s) as %d new "
             "insight(s) + %d recurring; %d flagged by the judge and %d "
             "unjudged; %d occurrence(s).",
-            run_id,
+            investigation_id,
             len(clusters),
             len(new_insights),
             len(recurring_ids),
@@ -310,8 +312,8 @@ def insight_correlation_node(ctx: Context) -> Event:
     else:
         text = "**Insights:** no failed rubrics to correlate.\n"
         logger.info(
-            "insight_correlation: run_id=%s no failed rubrics; nothing to persist.",
-            run_id,
+            "insight_correlation: investigation_id=%s no failed rubrics; nothing to persist.",
+            investigation_id,
         )
 
     # Auto-resolution runs on ambient sweeps to retire stale insights based on
@@ -321,19 +323,19 @@ def insight_correlation_node(ctx: Context) -> Event:
     # Custom sweeps still record sightings for matched telemetry, which is
     # mostly right: their selector ran against real production telemetry. The
     # residual wrong case is a selector naming an old window, refreshing recency
-    # as though the defect were seen today. Bounded, and visible on the run
+    # as though the defect were seen today. Bounded, and visible on the investigation
     # record; the fix if it bites is a `last_ambient_seen_at` column that only
     # ambient sweeps advance.
     if trigger_type == CUSTOM_TRIGGER_TYPE:
         logger.info(
-            "insight_correlation: run_id=%s custom run; skipped auto-resolution.",
-            run_id,
+            "insight_correlation: investigation_id=%s custom run; skipped auto-resolution.",
+            investigation_id,
         )
     else:
         store.resolve_stale_insights(now, auto_resolve_days)
         logger.info(
-            "insight_correlation: run_id=%s resolved insights stale beyond %s day(s).",
-            run_id,
+            "insight_correlation: investigation_id=%s resolved insights stale beyond %s day(s).",
+            investigation_id,
             auto_resolve_days,
         )
 
@@ -350,21 +352,25 @@ def _verify(
     enabled: bool,
     enforced: bool,
 ) -> _Verdicts:
-    """Judge this sweep's candidates and say what each one is worth.
+    """Judges candidate clusters and returns their verification verdicts.
 
-    Switched off, this makes no model call at all -- it is the sweep's most
-    expensive step -- and tracks every candidate, so the sweep mints and matches
-    exactly as it did before the pass existed. Its empty tally is what keeps the
-    summary line and the four counters from reporting a pass that never ran.
+    When `enabled` is False, skips model calls and marks every candidate
+    `TRACKED` with an empty `VerifyInfo` tally so summary lines and counters do
+    not report a verification pass that did not run.
 
-    `enforced` decides what a negative verdict costs. Enforced, the candidate is
-    `REJECTED` and withheld from minting and matching; unenforced it stays
-    `TRACKED`, keeping the label and explanation the judge wrote and carrying
-    the verdict for a triager to weigh.
+    When `enforced` is True, a negative verdict marks the candidate `REJECTED`
+    and withholds it from minting or matching an insight; when False, the
+    candidate remains `TRACKED` with the verdict attached in `analyses`.
 
-    Every candidate comes back with a verdict either way, so `enabled` stops
-    here: nothing downstream has to tell a pass that withheld nothing from one
-    that was never asked.
+    Args:
+        clusters: Candidate clusters to verify.
+        ctx: Workflow execution context.
+        agent_definitions: Mapping of trajectory ID to agent revisions.
+        enabled: Whether verification is enabled.
+        enforced: Whether negative verdicts reject candidates.
+
+    Returns:
+        `_Verdicts` containing per-cluster verdicts and outcome counts.
     """
     if not enabled:
         return _Verdicts(
@@ -406,7 +412,9 @@ def _verify(
             _Verdict(
                 state,
                 analyses={verification.ANALYSIS_STEP: outcome.verification},
-                examined_case_ids=frozenset(outcome.examined_case_ids),
+                examined_trajectory_ids=frozenset(
+                    outcome.examined_trajectory_ids
+                ),
             )
         )
     return _Verdicts(per_cluster, tally)
@@ -421,7 +429,7 @@ def _render_correlation_summary(
     enforced: bool,
     root_agent_id: str,
 ) -> str:
-    """Format the correlation result as human-readable markdown for the run log.
+    """Format the correlation result as human-readable markdown for the investigation log.
 
     Summarizes the grouping of findings into candidate clusters, recurrence
     matches against existing insights, and cluster status breakdown. Includes a
@@ -460,11 +468,11 @@ def _render_correlation_summary(
         )
         if cluster.agent_id and cluster.agent_id != root_agent_id:
             shown = f"{shown}, agent `{cluster.agent_id}`"
-        cases = [e.eval_case_id for e in cluster.examples if e.eval_case_id]
+        cases = [e.trajectory_id for e in cluster.examples if e.trajectory_id]
         cases_text = ", ".join(cases) if cases else "no case ids"
         lines.append(
-            f"- _{cluster.label}_ ({shown}): {cluster.item_count} rubric(s) "
-            f"across {cluster.trace_count} trace(s); cases: {cases_text}\n"
+            f"- _{cluster.label}_ ({shown}): {cluster.finding_count} rubric(s) "
+            f"across {cluster.trajectory_count} trace(s); cases: {cases_text}\n"
         )
     header = (
         f"**Insights:** {len(findings)} failed rubric(s) grouped into "
@@ -473,23 +481,23 @@ def _render_correlation_summary(
     )
     return (
         header
-        + _render_skipped_rubrics_line(clustering_info, len(findings))
+        + _render_skipped_findings_line(clustering_info, len(findings))
         + _render_verification_line(verify_info, enforced=enforced)
         + "".join(lines)
     )
 
 
-def _render_skipped_rubrics_line(
+def _render_skipped_findings_line(
     clustering_info: ClusteringInfo, total: int
 ) -> str:
-    """One line for the rubrics that produced no insight, omitted when none did."""
+    """One line for the findings that produced no insight, omitted when none did."""
     if not (
-        clustering_info.errored_rubrics or clustering_info.unclustered_rubrics
+        clustering_info.errored_findings or clustering_info.unclustered_findings
     ):
         return ""
     return (
-        f"**Insights -- skipped rubric(s):** {clustering_info.errored_rubrics} errored, "
-        f"{clustering_info.unclustered_rubrics} unclustered (of {total} total); "
+        f"**Insights -- skipped finding(s):** {clustering_info.errored_findings} errored, "
+        f"{clustering_info.unclustered_findings} unclustered (of {total} total); "
         f"see the logs for details.\n"
     )
 
@@ -585,7 +593,7 @@ def _build_records_to_save(
     stored, and the occurrences to write.
     """
     agent_name = config_module.extract_agent_key(state)
-    run_id = state.get("run_id", "")
+    investigation_id = state.get("investigation_id", "")
 
     new_insights: list[Insight] = []
     seen_ids: list[str] = []
@@ -617,7 +625,7 @@ def _build_records_to_save(
             new_insights.append(
                 Insight(
                     insight_id=insight_id,
-                    agent_name=agent_name,
+                    observed_agent_key=agent_name,
                     agent_id=cluster.agent_id,
                     label=_resolve_best_label(cluster, verdict),
                     status=InsightStatus.NEW,
@@ -630,21 +638,18 @@ def _build_records_to_save(
                 occurrence_id=mint_id(),
                 insight_id=insight_id,
                 occurrence_state=verdict.state,
-                run_id=run_id,
+                investigation_id=investigation_id,
                 created_at=now,
-                agent_name=agent_name,
+                observed_agent_key=agent_name,
                 agent_revision=resolve_latest_revision(cluster.agent_revisions),
                 label=cluster.label,
-                item_count=cluster.item_count,
-                trace_count=cluster.trace_count,
+                finding_count=cluster.finding_count,
+                trajectory_count=cluster.trajectory_count,
                 analyses=verdict.analyses,
-                # `Cluster.trace_ids` already holds trajectory ids, and
-                # `trace_count` is their number; both are written so a row
-                # stays readable next to the ones written before the ids were.
-                trajectory_ids=cluster.trace_ids,
-                rubrics=[
+                trajectory_ids=cluster.trajectory_ids,
+                examples=[
                     example.model_copy(update={"examined": True})
-                    if example.eval_case_id in verdict.examined_case_ids
+                    if example.trajectory_id in verdict.examined_trajectory_ids
                     else example
                     for example in cluster.examples
                 ],

@@ -17,7 +17,9 @@
 `CloudLoggingFetcher` reads agent telemetry from a BigQuery table populated
 by a Cloud Logging sink that exports the
 ``gen_ai.client.inference.operation.details`` log (the shape produced by
-agents deployed with agents-cli).
+agents deployed with agents-cli). Ingestion reads a selected session's or
+trace's rows only within `JOIN_BACK_MARGIN_DAYS` of the window (see
+`build_join_back_window`).
 """
 
 from __future__ import annotations
@@ -32,9 +34,11 @@ from agentplatform._genai.types import EvalCase
 from ambient_quality_agent.tools.evaluation.models import MetricType
 from ambient_quality_agent.tools.ingestion import selector
 from ambient_quality_agent.tools.ingestion.base import (
+    DEFAULT_JOB_TIMEOUT_MS,
     BigQueryJobFetcher,
     CachingGcsReader,
     GcsReader,
+    build_join_back_window,
 )
 from ambient_quality_agent.tools.ingestion.models import MappedRow
 from ambient_quality_agent.tools.ingestion.trace_converter import (
@@ -97,6 +101,8 @@ _INLINE_LABEL_TO_ATTR = {
 }
 
 _CONTENT_LABEL_TO_ATTR = {**_REF_LABEL_TO_ATTR, **_INLINE_LABEL_TO_ATTR}
+
+_JOIN_BACK_WINDOW = build_join_back_window("s.timestamp")
 
 
 def _build_label_expression(
@@ -327,6 +333,7 @@ FROM (
   FROM `{table_ref}` AS s
   JOIN TargetSessions AS t
     ON {_build_label_expression(_LABEL_SESSION_ID, labels)} = t.session_id
+  WHERE {_JOIN_BACK_WINDOW}
   GROUP BY s.trace
 )
 GROUP BY session_id
@@ -355,6 +362,7 @@ SELECT
   ARRAY_AGG({_build_row_struct(labels)} ORDER BY s.timestamp ASC) AS inference_rows
 FROM `{{table_ref}}` AS s
 JOIN TargetTraces AS t ON s.trace = t.trace_id
+WHERE {_JOIN_BACK_WINDOW}
 GROUP BY s.trace
 """  # noqa: S608 - trusted identifiers and fixed SQL; values are parameterized
 
@@ -363,6 +371,19 @@ class CloudLoggingFetcher(BigQueryJobFetcher):
     """Fetches and shapes agent telemetry from a Cloud Logging export table."""
 
     TELEMETRY_SOURCE = selector.CLOUD_LOGGING_SOURCE
+    # The column of `selector.CLOUD_LOGGING_SELECTOR_VIEW`, the selector
+    # table, rather than of the sink this fetcher ingests from.
+    SELECTOR_TIME_COLUMN = "timestamp"
+    # `_build_multi_turn_targets` over the view: its `conversation_id` and
+    # `agent_name` are the sink's `_LABEL_SESSION_ID` and `_LABEL_AGENT_NAME`.
+    STARTER_SELECTOR = f"""
+  SELECT conversation_id AS {selector.TARGET_COLUMN}
+  FROM `{{table_ref}}`
+  WHERE timestamp BETWEEN @window_start AND @window_end
+    AND agent_name = @agent_name
+    AND conversation_id IS NOT NULL
+  GROUP BY conversation_id
+"""  # noqa: S608 - trusted identifiers and fixed SQL; values are parameterized
     # Omits `labels`: missing `labels` fields are read as NULL until the sink
     # creates them.
     SCHEMA_FILE = "gen_ai_client_inference_operation_details.schema.json"
@@ -381,7 +402,7 @@ class CloudLoggingFetcher(BigQueryJobFetcher):
         recorder: TrajectoryRecorder | NullTrajectoryRecorder | None = None,
         selector_sql: str = "",
         selector_ai_model: str = "",
-        job_timeout_ms: int | None = None,
+        job_timeout_ms: int = DEFAULT_JOB_TIMEOUT_MS,
     ) -> None:
         """Initialize the fetcher.
 
@@ -425,7 +446,7 @@ class CloudLoggingFetcher(BigQueryJobFetcher):
         """Discovers subfields present in the table's ``labels`` STRUCT.
 
         Cached per fetcher instance because the sink table schema remains static
-        during a run, avoiding redundant metadata RPCs. `functools.cached_property`
+        during an investigation, avoiding redundant metadata RPCs. `functools.cached_property`
         is not thread-safe, so this relies on `run_sweep` building one fetcher per
         sweep via `fetcher_factory`: an instance is never shared across the threads
         its nodes run on. Pooling or sharing fetchers would allow concurrent
@@ -443,7 +464,7 @@ class CloudLoggingFetcher(BigQueryJobFetcher):
         )
         # A missing labels struct usually means the wrong table, but a fresh
         # deployment whose sink table holds no labelled entries yet looks the
-        # same, so warn and read every label as NULL instead of failing the run.
+        # same, so warn and read every label as NULL instead of failing the investigation.
         if not available:
             logger.warning(
                 "Table %s exposes no %r sub-fields; every label reads as NULL.",

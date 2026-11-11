@@ -60,42 +60,45 @@ class InMemoryInsightStore:
         self,
         store: InMemoryStore,
         *,
-        agent_name: str,
+        observed_agent_key: str,
         matcher: matching.Matcher | None = None,
     ) -> None:
         """Initializes the insight store scoped to one observed agent.
 
         Args:
             store: The in-memory backing store for insights and occurrences.
-            agent_name: Key of the observed agent to isolate storage queries.
+            observed_agent_key: Key of the observed agent to isolate storage queries.
             matcher: Matcher callable to detect duplicate issues. Defaults to
                 `matching.match_candidates`.
         """
         self._store = store
-        self._agent_name = agent_name
+        self._observed_agent_key = observed_agent_key
         self._matcher = matcher or matching.match_candidates
 
     # --- The sweep's write path ---------------------------------------------- #
 
-    def delete_failed_insights(self, run_id: str) -> None:
-        """Deletes occurrences and orphaned insights from a previous run attempt.
+    def delete_failed_insights(self, investigation_id: str) -> None:
+        """Deletes occurrences and orphaned insights from a previous investigation attempt.
 
         Args:
-            run_id: Investigation run identifier to clean up.
+            investigation_id: Investigation identifier to clean up.
         """
 
         def change(current: Insights) -> Insights:
             kept = [
                 o
-                for o in current.occurrences
-                if not (o.run_id == run_id and o.agent_name == self._agent_name)
+                for o in current.insight_occurrences
+                if not (
+                    o.investigation_id == investigation_id
+                    and o.observed_agent_key == self._observed_agent_key
+                )
             ]
             # Evaluate referenced insights against remaining occurrences to prune newly orphaned insights.
             referenced = {o.insight_id for o in kept}
             surviving = {
                 insight_id: insight
                 for insight_id, insight in current.insights.items()
-                if insight.agent_name != self._agent_name
+                if insight.observed_agent_key != self._observed_agent_key
                 or insight_id in referenced
             }
             return Insights(surviving, kept, current.root_causes)
@@ -129,8 +132,14 @@ class InMemoryInsightStore:
         if not open_insights:
             return dict.fromkeys(range(len(candidates)))
         hits = matching.match_candidates_by_scope(
-            [(c.agent_id or self._agent_name, c.label) for c in candidates],
-            [(i.agent_id or i.agent_name, i.label) for i in open_insights],
+            [
+                (c.agent_id or self._observed_agent_key, c.label)
+                for c in candidates
+            ],
+            [
+                (i.agent_id or i.observed_agent_key, i.label)
+                for i in open_insights
+            ],
             self._matcher,
         )
         return {
@@ -169,7 +178,10 @@ class InMemoryInsightStore:
             # Atomically update timestamps, labels, and recurring status for seen insights.
             for insight_id in seen:
                 insight = updated.get(insight_id)
-                if insight is None or insight.agent_name != self._agent_name:
+                if (
+                    insight is None
+                    or insight.observed_agent_key != self._observed_agent_key
+                ):
                     continue
                 fields: dict[str, object] = {"updated_at": now}
                 if insight_id in renames:
@@ -179,7 +191,7 @@ class InMemoryInsightStore:
                 updated[insight_id] = insight.model_copy(update=fields)
             return Insights(
                 updated,
-                [*current.occurrences, *occurrences],
+                [*current.insight_occurrences, *occurrences],
                 current.root_causes,
             )
 
@@ -214,7 +226,9 @@ class InMemoryInsightStore:
                 )
                 for insight_id, insight in current.insights.items()
             }
-            return Insights(resolved, current.occurrences, current.root_causes)
+            return Insights(
+                resolved, current.insight_occurrences, current.root_causes
+            )
 
         self._store.update_insights(change)
 
@@ -246,7 +260,9 @@ class InMemoryInsightStore:
                     update={"dismissed_at": _read_utc_clock()}
                 ),
             }
-            return Insights(hidden, current.occurrences, current.root_causes)
+            return Insights(
+                hidden, current.insight_occurrences, current.root_causes
+            )
 
         self._store.update_insights(change)
         return found
@@ -314,7 +330,7 @@ class InMemoryInsightStore:
                 o.model_copy(update={"insight_id": target_insight_id})
                 if o.insight_id in absorbed
                 else o
-                for o in current.occurrences
+                for o in current.insight_occurrences
             ]
             # Reassign root cause diagnoses to the target insight to keep diagnosis counts consistent.
             diagnoses = [
@@ -331,7 +347,7 @@ class InMemoryInsightStore:
     # --- Shared rules --------------------------------------------------------- #
 
     def _is_mine(self, insight: Insight) -> bool:
-        return insight.agent_name == self._agent_name
+        return insight.observed_agent_key == self._observed_agent_key
 
     def _list_open_insights(self) -> list[Insight]:
         """Returns open insights eligible for duplicate matching, newest first.

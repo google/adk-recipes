@@ -33,14 +33,14 @@ import { InsightsView } from "../insights-view";
 
 const INSIGHT: InsightView = {
   insight_id: "9f2c4b7e1a8d4c3fae5b60d7c1290f34",
-  agent_name: "it_support_agent",
+  observed_agent_key: "it_support_agent",
   label: "crashed with priority",
   tool_name: "create_ticket",
   status: "RECURRING",
   occurrence_count: 7,
-  trace_count: 134,
+  trajectory_count: 134,
   impact: 400,
-  last_run_at: "2026-08-28T18:35:34Z",
+  last_investigation_at: "2026-08-28T18:35:34Z",
   diagnosis: "Priority value must be High, Medium, Low.",
   confidence: 1.0,
 };

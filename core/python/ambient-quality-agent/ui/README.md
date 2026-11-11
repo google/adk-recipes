@@ -3,7 +3,7 @@
 This directory makes the AQA dashboard an ordinary `agents-cli` Cloud Run
 project, so that `agents-cli deploy` builds and pushes its image the way it does
 for any other project, instead of [`deploy_ui_cloud_run.sh`](deploy_ui_cloud_run.sh) doing it by
-hand. Tracking bug: b/550103956.
+hand.
 
 `agents-cli deploy --deploy-aqua` deploys from here, as the third step the AQuA
 extension adds, and `--skip-aqua-ui` leaves it out. That step is
@@ -59,11 +59,6 @@ producing an image that starts and immediately dies.
   It is not obviously right — the service's environment references the AQuA
   engine, which lives in the other root — so it waits on the ownership question
   above.
-- **Two cards say "not yet" and will until something publishes.** `/api/source`
-  and `/api/investigations/{run}/artifact` answer `available: false` with a
-  reason the cards render: no source snapshot is published at deploy time, and
-  no phase writes a per-run artifact. Both are agent-side already, so the writer
-  is the only thing left to add.
 - **Two dead exports survive in `web/`** — `useScheduledSessions`, and
   `setChatWindow` behind a guard nothing populates. Both have tests, so removing
   them is a code change with its own review rather than a documentation one.

@@ -24,9 +24,9 @@ Wiring::
     build_deployed_bindings()                 standalone.bindings
       build_bigquery_bindings()                 create_store() ──► InMemoryStore
         BigQueryInvestigationStore,             build_bindings()
-        BigQueryInsightStore, RootCauseStore,     InMemory* adapters,
-        TrajectoryRecorder,                       FileObjectStore(.aqua/job/),
-                                                  FileObjectStore(.aqua/source/),
+        BigQueryInsightStore,                     InMemory* adapters,
+        BigQueryRootCauseStore,                   FileObjectStore(.aqua/job/),
+        TrajectoryRecorder,                       FileObjectStore(.aqua/source/),
                                                   FileObjectStore(.aqua/metrics/)
         BigQueryTrajectoryStore,
         BigQueryInsightReader,
@@ -72,7 +72,7 @@ An entry point that binds nothing therefore fails at its first write, naming
 the provider.
 
 The alternative is worse. A provider that defaulted to BigQuery would work in a
-deployment and be wrong in a standalone run, with nothing to say so: the run
+deployment and be wrong in a standalone run, with nothing to say so: the investigation
 reports success and the rows go to a real project's tables.
 
 ## `configure_providers()` is called, not imported
@@ -110,10 +110,12 @@ from ambient_quality_agent.tools import gcs
 from ambient_quality_agent.tools.insights.bigquery_reader import (
     BigQueryInsightReader,
 )
+from ambient_quality_agent.tools.insights.bigquery_root_cause_store import (
+    BigQueryRootCauseStore,
+)
 from ambient_quality_agent.tools.insights.bigquery_store import (
     BigQueryInsightStore,
 )
-from ambient_quality_agent.tools.insights.root_cause_store import RootCauseStore
 from ambient_quality_agent.tools.investigations.bigquery_store import (
     BigQueryInvestigationStore,
 )
@@ -204,7 +206,7 @@ def build_bigquery_bindings() -> dict[str, Callable[..., Any]]:
             ),
             project_id=state["project_id"],
             dataset=state.get("aqa_dataset", "aqua_insights"),
-            agent_name=config_module.extract_agent_key(state),
+            observed_agent_key=config_module.extract_agent_key(state),
             match_call=_common.match_call_factory(ctx),
         )
 
@@ -218,16 +220,16 @@ def build_bigquery_bindings() -> dict[str, Callable[..., Any]]:
                 ),
                 project_id=state["project_id"],
                 dataset=state.get("aqa_dataset", "aqua_insights"),
-                agent_name=config_module.extract_agent_key(state),
+                observed_agent_key=config_module.extract_agent_key(state),
             ),
-            run_id=state.get("run_id", ""),
-            agent_name=config_module.extract_agent_key(state),
+            investigation_id=state.get("investigation_id", ""),
+            observed_agent_key=config_module.extract_agent_key(state),
             source=state.get("telemetry_ingestion_source", ""),
         )
 
-    def build_root_cause_writer(state: Any) -> RootCauseStore:
+    def build_root_cause_writer(state: Any) -> BigQueryRootCauseStore:
         cfg = effective_config.load(state)
-        return RootCauseStore(
+        return BigQueryRootCauseStore(
             client=_create_bigquery_client(cfg),
             project_id=cfg.project_id,
             dataset=cfg.aqa_dataset,
@@ -239,7 +241,7 @@ def build_bigquery_bindings() -> dict[str, Callable[..., Any]]:
             client=_create_bigquery_client(cfg),
             project_id=cfg.project_id,
             dataset=cfg.aqa_dataset,
-            agent_name=cfg.resolve_agent_key(),
+            observed_agent_key=cfg.resolve_agent_key(),
         )
 
     def build_insight_store(state: Any) -> BigQueryInsightStore:
@@ -249,7 +251,7 @@ def build_bigquery_bindings() -> dict[str, Callable[..., Any]]:
             client=_create_bigquery_client(cfg),
             project_id=cfg.project_id,
             dataset=cfg.aqa_dataset,
-            agent_name=cfg.resolve_agent_key(),
+            observed_agent_key=cfg.resolve_agent_key(),
         )
 
     def build_trajectory_reader(state: Any) -> BigQueryTrajectoryReader:
@@ -258,7 +260,7 @@ def build_bigquery_bindings() -> dict[str, Callable[..., Any]]:
             client=_create_bigquery_client(cfg),
             project_id=cfg.project_id,
             dataset=cfg.aqa_dataset,
-            agent_name=cfg.resolve_agent_key(),
+            observed_agent_key=cfg.resolve_agent_key(),
         )
 
     return {
@@ -269,7 +271,7 @@ def build_bigquery_bindings() -> dict[str, Callable[..., Any]]:
         # session, so this one cannot go through `effective_config`.
         "event_writer": lambda state, text, source: (
             BigQueryInvestigationStore.from_workflow_state(state).append_event(
-                state["run_id"], text, source=source
+                state["investigation_id"], text, source=source
             )
         ),
         "insight_writer": build_insight_writer,
@@ -278,12 +280,12 @@ def build_bigquery_bindings() -> dict[str, Callable[..., Any]]:
         "insight_reader": build_insight_reader,
         "insight_store": build_insight_store,
         "trajectory_reader": build_trajectory_reader,
-        # A custom-investigation preview archives the conversations it tried.
+        # A custom-investigation preview stores the trajectory bundles it tried.
         "preview_trajectory_store": lambda config: BigQueryTrajectoryStore(
             client=_create_bigquery_client(config),
             project_id=config.project_id,
             dataset=config.aqa_dataset,
-            agent_name=config.resolve_agent_key(),
+            observed_agent_key=config.resolve_agent_key(),
         ),
     }
 
