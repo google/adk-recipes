@@ -1,0 +1,25 @@
+{
+  "criteria": {
+    "rubric_based_final_response_quality_v1": {
+      "threshold": 0.8,
+      "judgeModelOptions": {
+        "judgeModel": "gemini-3.7-flash",
+        "numSamples": 1
+      },
+      "rubrics": [
+        {
+          "rubricId": "relevance",
+          "rubricContent": { "textProperty": "The response directly addresses the user's query." }
+        },
+        {
+          "rubricId": "grounded_results",
+          "rubricContent": { "textProperty": "If the response claims findings were fixed, it reports them per finding with test results before and after, consistent with validator tool results, and does not claim fixes the validator rejected." }
+        },
+        {
+          "rubricId": "human_review",
+          "rubricContent": { "textProperty": "If the response includes a patch, it is a unified diff and the response states that nothing was committed and a human must review it." }
+        }
+      ]
+    }
+  }
+}
