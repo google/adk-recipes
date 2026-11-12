@@ -275,8 +275,8 @@ class FinOpsAggregator:
             total_thinking += think_tok
 
             rates = pricing.get_rate(model_id)
-            in_rate = _safe_float(rates.get("input", 0.30))
-            cache_rate = _safe_float(rates.get("cached", 0.075))
+            in_rate = _safe_float(rates.get("input", 0.0))
+            cache_rate = _safe_float(rates.get("cached", 0.0))
             savings_dollars += max(
                 0.0, (cache_tok / 1_000_000.0) * (in_rate - cache_rate)
             )

@@ -163,6 +163,17 @@ class TestTokenomicsCLI(unittest.TestCase):
         ):
             self.assertIsNone(detect_default_gcp_project())
 
+        # Unexpected non-auth/import errors (e.g., RuntimeError) propagate rather than being silently swallowed
+        class _BrokenClient:
+            def __init__(self):
+                raise RuntimeError("unexpected client bug")
+
+        with (
+            _scoped_fake_bigquery(_BrokenClient),
+            self.assertRaises(RuntimeError),
+        ):
+            detect_default_gcp_project()
+
     def test_find_available_port(self):
         # Bind a real ephemeral loopback socket so start_port is genuinely occupied
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as occupied_sock:
@@ -1513,9 +1524,24 @@ class TestTokenomicsCLI(unittest.TestCase):
                 )
             os.chmod(fake_gcloud, 0o755)
 
-            env = {
+            missing_proj_env = {
                 "PATH": fake_bin + os.pathsep + (os.environ.get("PATH") or ""),
                 "HOME": tmp_dir,
+            }
+            missing_proc = subprocess.run(
+                ["bash", "deploy.sh"],
+                cwd=tmp_dir,
+                env=missing_proj_env,
+                capture_output=True,
+                text=True,
+                timeout=20,
+            )
+            self.assertNotEqual(missing_proc.returncode, 0)
+            self.assertIn("GOOGLE_CLOUD_PROJECT", missing_proc.stderr)
+
+            env = {
+                **missing_proj_env,
+                "GOOGLE_CLOUD_PROJECT": "test-gcp-project",
             }
             proc = subprocess.run(
                 ["bash", "deploy.sh"],
@@ -2062,6 +2088,7 @@ class TestTokenomicsCLI(unittest.TestCase):
             env = {
                 "PATH": fake_bin + os.pathsep + (os.environ.get("PATH") or ""),
                 "HOME": tmp_dir,
+                "GOOGLE_CLOUD_PROJECT": "test-gcp-project",
                 "PORT": "9090",
                 "TOKENOMICS_ALLOWED_HOSTS": "tower.corp.example.com,*.run.app",
             }
@@ -3365,6 +3392,7 @@ class TestTokenomicsCLI(unittest.TestCase):
             env = {
                 "PATH": fake_bin + os.pathsep + (os.environ.get("PATH") or ""),
                 "HOME": tmp_dir,
+                "GOOGLE_CLOUD_PROJECT": "test-gcp-project",
                 "TOKENOMICS_ALLOWED_HOSTS": "user@proxy.example.com,*.run.app",
             }
             proc = subprocess.run(

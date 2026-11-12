@@ -781,7 +781,7 @@ class TokenomicsConfig:
             if "input" in mp
             else mp.get(
                 "input_per_million",
-                base_p.get("input_per_million", base_p.get("input", 0.30)),
+                base_p.get("input_per_million", base_p.get("input", 0.0)),
             )
         )
         cache_val = (
@@ -789,7 +789,7 @@ class TokenomicsConfig:
             if "cached" in mp
             else mp.get(
                 "cached_per_million",
-                base_p.get("cached_per_million", base_p.get("cached", 0.075)),
+                base_p.get("cached_per_million", base_p.get("cached", 0.0)),
             )
         )
         out_val = (
@@ -797,7 +797,7 @@ class TokenomicsConfig:
             if "output" in mp
             else mp.get(
                 "output_per_million",
-                base_p.get("output_per_million", base_p.get("output", 1.20)),
+                base_p.get("output_per_million", base_p.get("output", 0.0)),
             )
         )
         p = {**base_p, **mp}
@@ -893,7 +893,7 @@ class TokenomicsConfig:
             custom_id = canonicalize_model_id(str(raw_custom_id))
             existing_entry = merged_by_id.get(custom_id) or {}
             in_val = float(
-                custom_p.get("input_per_million", custom_p.get("input", 0.30))
+                custom_p.get("input_per_million", custom_p.get("input", 0.0))
             )
             cache_val = float(
                 custom_p.get(
@@ -901,7 +901,7 @@ class TokenomicsConfig:
                 )
             )
             out_val = float(
-                custom_p.get("output_per_million", custom_p.get("output", 1.20))
+                custom_p.get("output_per_million", custom_p.get("output", 0.0))
             )
             raw_name = custom_p.get("name")
             resolved_name = (

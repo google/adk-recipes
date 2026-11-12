@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# ruff: noqa: S110
 """
 Tokenomics SDK - Core TokenTracker Engine
 Extracts token usage, computes costs, calculates cache ratios, and dispatches turns to sinks.
@@ -20,6 +19,7 @@ Extracts token usage, computes costs, calculates cache ratios, and dispatches tu
 
 import datetime
 import json
+import logging
 import os
 import tempfile
 import threading
@@ -29,6 +29,8 @@ from typing import Any
 from adk_tokenomics_plugin.core.config import TokenomicsConfig
 from adk_tokenomics_plugin.core.pricing import PricingEngine, _safe_nonneg_int
 from adk_tokenomics_plugin.core.sinks import BaseSink, create_sink
+
+logger = logging.getLogger(__name__)
 
 
 class TokenTracker:
@@ -69,6 +71,10 @@ class TokenTracker:
                 description="Estimated USD cost and context cache savings per model generate_content operation.",
             )
         except Exception:
+            logger.debug(
+                "Failed to initialize OpenTelemetry cost histogram",
+                exc_info=True,
+            )
             self._otel_cost_histogram = None
 
     def _emit_otel_metrics(
@@ -101,7 +107,10 @@ class TokenTracker:
                     },
                 )
         except Exception:
-            pass
+            logger.debug(
+                "Failed to record OpenTelemetry cost metric",
+                exc_info=True,
+            )
 
     @staticmethod
     def _turn_dedup_key(t: dict[str, Any]) -> tuple[Any, ...]:

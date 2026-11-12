@@ -169,12 +169,16 @@ def detect_default_gcp_project() -> str | None:
     if project and project.strip():
         return project.strip()
     try:
+        from google.auth.exceptions import GoogleAuthError
+    except ImportError:
+        GoogleAuthError = ImportError  # type: ignore[misc,assignment]
+    try:
         from google.cloud import bigquery
 
         client = bigquery.Client()
         if getattr(client, "project", None):
             return client.project
-    except Exception:
+    except (ImportError, GoogleAuthError, OSError):
         pass
     try:
         import google.auth
@@ -182,7 +186,7 @@ def detect_default_gcp_project() -> str | None:
         _, auth_project = google.auth.default()
         if auth_project:
             return auth_project
-    except Exception:
+    except (ImportError, GoogleAuthError, OSError):
         pass
     return None
 

@@ -15,6 +15,8 @@
 
 set -e
 
+_ENV_GCP_PROJECT="${GOOGLE_CLOUD_PROJECT:-}"
+
 # Load local .env if present
 if [ -f .env ]; then
   set -a
@@ -23,7 +25,11 @@ if [ -f .env ]; then
 fi
 
 # Configuration (Parameterized via .env or environment variables)
-PROJECT_ID="${GOOGLE_CLOUD_PROJECT:-your-gcp-project-id}"
+PROJECT_ID="${GOOGLE_CLOUD_PROJECT:-$_ENV_GCP_PROJECT}"
+if [ -z "$PROJECT_ID" ]; then
+  echo "[ERROR] GOOGLE_CLOUD_PROJECT must be set via environment or .env." >&2
+  exit 1
+fi
 if [ -n "${CLOUD_RUN_REGION:-}" ] && [ "${CLOUD_RUN_REGION}" != "global" ]; then
   REGION="$CLOUD_RUN_REGION"
 elif [ -n "${GOOGLE_CLOUD_LOCATION:-}" ] && [ "${GOOGLE_CLOUD_LOCATION}" != "global" ]; then

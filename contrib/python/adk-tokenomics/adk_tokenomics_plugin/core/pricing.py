@@ -130,11 +130,11 @@ class PricingEngine:
             if not m_id or m_id in custom_ids:
                 continue
             p = m.get("pricing", {})
-            in_rate = float(p.get("input_per_million", p.get("input", 0.30)))
+            in_rate = float(p.get("input_per_million", p.get("input", 0.0)))
             cache_rate = float(
-                p.get("cached_per_million", p.get("cached", 0.075))
+                p.get("cached_per_million", p.get("cached", 0.0))
             )
-            out_rate = float(p.get("output_per_million", p.get("output", 1.20)))
+            out_rate = float(p.get("output_per_million", p.get("output", 0.0)))
             rate_entry = {
                 "id": m_id,
                 "name": m.get("name", m_id),
@@ -170,7 +170,7 @@ class PricingEngine:
         ).items():
             custom_id = canonicalize_model_id(str(raw_custom_id))
             in_rate = float(
-                custom_p.get("input_per_million", custom_p.get("input", 0.30))
+                custom_p.get("input_per_million", custom_p.get("input", 0.0))
             )
             cache_rate = float(
                 custom_p.get(
@@ -178,7 +178,7 @@ class PricingEngine:
                 )
             )
             out_rate = float(
-                custom_p.get("output_per_million", custom_p.get("output", 1.20))
+                custom_p.get("output_per_million", custom_p.get("output", 0.0))
             )
             raw_custom_name = custom_p.get("name")
             resolved_name = (

@@ -3984,6 +3984,83 @@ class TestTokenomicsSDK(TokenomicsTestCase):
         self.assertEqual(t_async["output_tokens"], 40)
         self.assertEqual(t_async["thinking_tokens"], 10)
 
+    def test_missing_pricing_defaults_to_zero_and_structured_logging(self):
+        import json
+        import tempfile
+
+        from adk_tokenomics_plugin.finops.bq_schema import (
+            provision_bigquery_table,
+        )
+
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".json", delete=False, encoding="utf-8"
+        ) as tf:
+            json.dump(
+                {
+                    "models": [
+                        {
+                            "id": "custom/sparse-file-model",
+                            "name": "Sparse File Model",
+                            "provider": "custom",
+                            "pricing": {},
+                        }
+                    ]
+                },
+                tf,
+            )
+            cfg_path = tf.name
+
+        try:
+            cfg = TokenomicsConfig(
+                models_config_path=cfg_path,
+                custom_pricing={"custom/sparse-override": {}},
+            )
+            engine = PricingEngine(cfg)
+            for mid in ("custom/sparse-file-model", "custom/sparse-override"):
+                rate = engine.get_rate(mid)
+                self.assertEqual(rate["input_per_million"], 0.0)
+                self.assertEqual(rate["cached_per_million"], 0.0)
+                self.assertEqual(rate["output_per_million"], 0.0)
+        finally:
+            os.remove(cfg_path)
+
+        tracker = TokenTracker()
+
+        class _FailingHistogram:
+            def record(self, *args, **kwargs):
+                raise RuntimeError("otel exporter disconnected")
+
+        tracker._otel_cost_histogram = _FailingHistogram()
+        with self.assertLogs(
+            "adk_tokenomics_plugin.core.tracker", level="DEBUG"
+        ) as otel_logs:
+            tracker._emit_otel_metrics(
+                agent_name="test_agent",
+                model_name="gemini-3.8-flash",
+                total_cost=0.01,
+                cache_savings=0.005,
+            )
+        self.assertTrue(
+            any(
+                "Failed to record OpenTelemetry cost metric" in m
+                for m in otel_logs.output
+            )
+        )
+
+        with self.assertLogs(
+            "adk_tokenomics_plugin.finops.bq_schema", level="ERROR"
+        ) as bq_logs:
+            ok = provision_bigquery_table(
+                project_id="valid-proj", dataset_id="invalid;drop"
+            )
+        self.assertFalse(ok)
+        self.assertTrue(
+            any(
+                "Invalid BigQuery identifier for provisioning" in m
+                for m in bq_logs.output
+            )
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

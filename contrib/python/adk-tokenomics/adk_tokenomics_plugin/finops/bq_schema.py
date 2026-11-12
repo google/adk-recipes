@@ -17,10 +17,14 @@ Tokenomics SDK - BigQuery Schema Auto-Provisioner
 Provisions partitioned and clustered BigQuery telemetry tables and FinOps views.
 """
 
+import logging
+
 from adk_tokenomics_plugin.core.config import (
     validate_bq_identifier,
     validate_bq_project_id,
 )
+
+logger = logging.getLogger(__name__)
 
 ADK_AGENT_EVENTS_DDL = """
 CREATE TABLE IF NOT EXISTS `{project_id}.{dataset_id}.{table_id}` (
@@ -199,19 +203,16 @@ def provision_bigquery_table(
         if view_id and not legacy_flat_schema:
             view_id = validate_bq_identifier(view_id, "view_id")
     except ValueError as ve:
-        print(
-            f"[ERROR] Invalid BigQuery identifier for provisioning: {ve}",
-            flush=True,
-        )
+        logger.error("Invalid BigQuery identifier for provisioning: %s", ve)
         return False
 
     try:
         from google.cloud import bigquery
     except ImportError as ie:
-        print(
-            f"[ERROR] google-cloud-bigquery is not installed ({ie}). "
+        logger.error(
+            "google-cloud-bigquery is not installed (%s). "
             "Install with: pip install 'adk-tokenomics-plugin[bigquery]'",
-            flush=True,
+            ie,
         )
         return False
 
@@ -223,9 +224,9 @@ def provision_bigquery_table(
         dataset_ref.location = location
         try:
             client.create_dataset(dataset_ref, exists_ok=True)
-            print(f"[OK] Dataset {project_id}.{dataset_id} ready.", flush=True)
+            logger.info("Dataset %s.%s ready.", project_id, dataset_id)
         except Exception as e:
-            print(f"[INFO] Dataset check: {e}", flush=True)
+            logger.info("Dataset check: %s", e)
 
         # 2. Create Partitioned Table (ADK event schema by default; flat schema only when legacy_flat_schema=True)
         if legacy_flat_schema:
@@ -237,9 +238,11 @@ def provision_bigquery_table(
                 project_id=project_id, dataset_id=dataset_id, table_id=table_id
             )
         client.query(ddl).result()
-        print(
-            f"[OK] Table {project_id}.{dataset_id}.{table_id} partitioned & clustered successfully.",
-            flush=True,
+        logger.info(
+            "Table %s.%s.%s partitioned & clustered successfully.",
+            project_id,
+            dataset_id,
+            table_id,
         )
 
         # 3. Provision v_llm_response Analytics View via CREATE VIEW IF NOT EXISTS when using ADK schema
@@ -251,12 +254,14 @@ def provision_bigquery_table(
                 view_id=view_id,
             )
             client.query(view_ddl).result()
-            print(
-                f"[OK] Analytics View {project_id}.{dataset_id}.{view_id} ready.",
-                flush=True,
+            logger.info(
+                "Analytics View %s.%s.%s ready.",
+                project_id,
+                dataset_id,
+                view_id,
             )
 
         return True
     except Exception as e:
-        print(f"[ERROR] Failed to provision BigQuery table: {e}", flush=True)
+        logger.error("Failed to provision BigQuery table: %s", e)
         return False
