@@ -163,7 +163,7 @@ To test the full Pub/Sub trigger flow, send an expense in another terminal:
 ```bash
 curl -s http://localhost:8080/apps/expense_agent/trigger/pubsub \
   -H "Content-Type: application/json" \
-  -d "{\"message\":{\"data\":\"$(echo '{"amount":250,"submitter":"alice@company.com","category":"travel","description":"Flight to NYC","date":"2026-04-10"}' | base64)\",\"attributes\":{\"source\":\"test\"}},\"subscription\":\"test-sub\"}"
+  -d "{\"message\":{\"data\":\"$(echo '{"amount":250,"submitter":"alice@company.com","category":"travel","description":"Flight to NYC","date":"2026-04-10"}' | base64 | tr -d '\n')\",\"attributes\":{\"source\":\"test\"}},\"subscription\":\"test-sub\"}"
 ```
 
 This $250 expense triggers review + HITL approval. Open the approval UI
