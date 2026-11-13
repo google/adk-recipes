@@ -338,6 +338,8 @@ def add_ingestion_counts(state: ADKStateLike, fetcher: BaseFetcher) -> None:
         trajectories_ingested=counts.ingested,
         trajectories_ingested_partial=counts.partial,
         trajectories_ingested_failed=counts.failed,
+        trajectories_sampled=counts.sampled,
+        trajectories_unread=counts.unread,
     )
 
 

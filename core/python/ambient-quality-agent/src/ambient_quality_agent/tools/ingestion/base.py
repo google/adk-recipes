@@ -408,6 +408,8 @@ class BigQueryJobFetcher(BaseFetcher):
             memory_guard or MemoryGuard().should_stop
         )
         self._memory_truncated = False
+        self._rows_listed: dict[str, int] = {}
+        self._sample_sizes: dict[str, int] = {}
         self._recorder = recorder or NullTrajectoryRecorder()
         self._selector_sql = selector_sql
         self._selector_ai_model = selector_ai_model
@@ -1062,11 +1064,34 @@ class BigQueryJobFetcher(BaseFetcher):
             A `Page` wrapping an `EvaluationDataset` and the token for the
             next page (``page.is_exhausted`` is ``True`` once none remain).
         """
-        rows, next_page_token = self._fetch_page_rows(execution_id, page_token)
+        rows, next_page_token, total_rows = self._fetch_page_rows(
+            execution_id, page_token
+        )
+        if total_rows is not None and execution_id not in self._sample_sizes:
+            # Every page of a query reports the same table total, so count it
+            # once, from the first page that reports one.
+            self._sample_sizes[execution_id] = total_rows
+            self.counts.sampled += total_rows
+        sample_size = self._sample_sizes.get(execution_id)
+        listed = self._rows_listed.get(execution_id, 0) + len(rows)
+        self._rows_listed[execution_id] = listed
+        attempted_before = self._count_attempted_rows()
         cases, revisions = self._map_page(rows, metric_type)
         # One write per page: the unit ingestion produces, and what the store
         # is sized for.
         self._recorder.flush()
+        # Only a memory stop leaves a listed row unattempted: `_map_page`
+        # puts every row it reaches into exactly one outcome counter.
+        unread_on_page = len(rows) - (
+            self._count_attempted_rows() - attempted_before
+        )
+        if unread_on_page > 0:
+            # The pages after this one are never listed, so their rows are
+            # known only from the query's sample size.
+            unlisted = (
+                max(0, sample_size - listed) if sample_size is not None else 0
+            )
+            self.counts.unread += unread_on_page + unlisted
         if self._memory_truncated:
             next_page_token = None
         logger.debug(
@@ -1083,9 +1108,17 @@ class BigQueryJobFetcher(BaseFetcher):
             revisions=revisions,
         )
 
+    def _count_attempted_rows(self) -> int:
+        """Count the rows `_map_page` has attempted across this fetcher's scope.
+
+        Returns:
+            The sum of the ingested, partial and failed counters.
+        """
+        return self.counts.ingested + self.counts.partial + self.counts.failed
+
     def _fetch_page_rows(
         self, execution_id: str, page_token: str | None
-    ) -> tuple[list[dict[str, Any]], str | None]:
+    ) -> tuple[list[dict[str, Any]], str | None, int | None]:
         """Read one page of a completed job's destination table.
 
         Args:
@@ -1093,8 +1126,9 @@ class BigQueryJobFetcher(BaseFetcher):
             page_token: Next page token, or None for the initial page.
 
         Returns:
-            The page's raw rows (as dicts) and the next page token, or
-            ``None`` once no pages remain.
+            The page's raw rows (as dicts), the next page token or ``None``
+            once no pages remain, and the destination table's total row count,
+            or ``None`` when BigQuery did not report one.
         """
         query_job = self._client.get_job(execution_id, location=self._location)
         if not isinstance(query_job, bigquery.QueryJob):
@@ -1112,7 +1146,14 @@ class BigQueryJobFetcher(BaseFetcher):
         )
         page = next(row_iterator.pages)
         rows = [dict(row.items()) for row in page]
-        return rows, (row_iterator.next_page_token or None)
+        # `RowIterator.total_rows` is optional: it stays unset until a page
+        # response reports it.
+        total_rows = row_iterator.total_rows
+        return (
+            rows,
+            (row_iterator.next_page_token or None),
+            total_rows if isinstance(total_rows, int) else None,
+        )
 
 
 def _build_scoping_parameters(

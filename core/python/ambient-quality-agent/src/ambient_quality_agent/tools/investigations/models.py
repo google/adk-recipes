@@ -208,6 +208,11 @@ class InvestigationCounters(BaseModel):
     (`BaseFetcher.count_scanned`). Serves as the denominator for sampling and
     ingestion rates."""
 
+    trajectories_sampled: int = 0
+    """Trajectories the ingestion query returned: the sample drawn from
+    `trajectories_scanned`, bounded by the investigation's evaluation budget.
+    Zero when the telemetry source reported no row count."""
+
     trajectories_ingested: int = Field(
         default=0,
         validation_alias=AliasChoices(
@@ -236,6 +241,11 @@ class InvestigationCounters(BaseModel):
     )
     """Sampled trajectories dropped before evaluation because their telemetry
     could not be parsed or had no conversation content."""
+
+    trajectories_unread: int = 0
+    """Sampled trajectories a memory stop left unread. Counted in none of the
+    ingested buckets, so a non-zero value is what marks a sweep that stopped
+    early rather than one that drew a smaller sample."""
 
     trajectories_evaluated: int = Field(
         default=0,

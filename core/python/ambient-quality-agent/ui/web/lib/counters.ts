@@ -27,6 +27,11 @@ export const COUNTER_FIELDS: readonly CounterField[] = [
     help: "Everything in the window before sampling -- the denominator for the rest.",
   },
   {
+    key: "trajectories_sampled",
+    label: "Trajectories sampled",
+    help: "What the ingestion query returned: the sample drawn from the window, bounded by the evaluation budget.",
+  },
+  {
     key: "trajectories_ingested",
     label: "Trajectories ingested",
     help: "Sampled trajectories that were completely ingested for evaluation.",
@@ -40,6 +45,11 @@ export const COUNTER_FIELDS: readonly CounterField[] = [
     key: "trajectories_ingested_failed",
     label: "Ingestion failed",
     help: "Ingestion failed before evaluation: unparseable, or no trajectory content at all.",
+  },
+  {
+    key: "trajectories_unread",
+    label: "Left unread",
+    help: "Sampled trajectories the investigation stopped before reading because it neared its memory limit. They were never evaluated.",
   },
   {
     key: "trajectories_evaluated",

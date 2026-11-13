@@ -20,9 +20,11 @@ import type { InvestigationCounters } from "@/lib/aqua-api";
  */
 const ZERO_COUNTERS: InvestigationCounters = {
   trajectories_scanned: 0,
+  trajectories_sampled: 0,
   trajectories_ingested: 0,
   trajectories_ingested_partial: 0,
   trajectories_ingested_failed: 0,
+  trajectories_unread: 0,
   trajectories_evaluated: 0,
   trajectories_eval_passed: 0,
   trajectories_eval_failed: 0,

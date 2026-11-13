@@ -1013,9 +1013,13 @@ export interface InvestigationEvent {
 
 export interface InvestigationCounters {
   trajectories_scanned: number;
+  /** Rows the ingestion query returned; zero when the source gave no count. */
+  trajectories_sampled: number;
   trajectories_ingested: number;
   trajectories_ingested_partial: number;
   trajectories_ingested_failed: number;
+  /** Sampled trajectories a memory stop left unread. */
+  trajectories_unread: number;
   trajectories_evaluated: number;
   trajectories_eval_passed: number;
   trajectories_eval_failed: number;
