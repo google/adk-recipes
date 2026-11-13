@@ -824,6 +824,10 @@ check_exemptions:
       reason: >-
         Agent Runtime image built by `agents-cli deploy`; starts only as a
         deployed engine with Application Default Credentials.
+    - path: contrib/java/firestore-session-service
+      reason: >-
+        Interactive CLI over stdin (FirestoreRunner), not an HTTP service;
+        it never binds a port, so it cannot respond to an HTTP probe.
 
 # --------------------------------------------------------------------------
 # Automated PR review — read by .github/scripts/review_budget.py, which the
