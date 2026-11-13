@@ -102,6 +102,59 @@ class TestDefaultSeed:
         assert result.get("confirmation_required") is True
         assert "error" in result
 
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "true x#;rm -rf /",
+            "ls x#;rm -rf ~",
+            "echo a#b && rm -rf /",
+            "true\nrm -rf ~",
+            "true # it's\nrm -rf ~\n# '",
+            'true # "\nrm -rf /\n# "',
+            "true \\ #;rm -rf ~",
+            "r\\\nm -rf ~",
+            "rm -rf ~\\",
+        ],
+    )
+    async def test_midword_hash_does_not_hide_rm_rf_root(
+        self, policies_env: Path, command: str
+    ):
+        # A shell treats a mid-word `#` as an ordinary character, runs each
+        # line as its own command, and ignores quotes inside a comment. The
+        # floor must see every command the shell will run.
+        from horizon.guardrails.policies import policies_guard
+
+        result = await policies_guard(
+            tool=SimpleNamespace(name="bash"),
+            args={"command": command},
+            tool_context=SimpleNamespace(),
+        )
+        assert isinstance(result, dict)
+        assert "error" in result
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "echo a#b",
+            "git commit -m 'fix #12'",
+            "ls # a real comment",
+            "ls # e.g. rm -rf /",
+            "ls # do not run; rm -rf ~",
+            "echo 'x # rm -rf /'",
+        ],
+    )
+    async def test_hash_in_benign_command_is_not_blocked(
+        self, policies_env: Path, command: str
+    ):
+        from horizon.guardrails.policies import policies_guard
+
+        result = await policies_guard(
+            tool=SimpleNamespace(name="bash"),
+            args={"command": command},
+            tool_context=SimpleNamespace(),
+        )
+        assert result is None
+
     async def test_seed_allows_benign_terminal(self, policies_env: Path):
         from horizon.guardrails.policies import policies_guard
 
@@ -841,3 +894,83 @@ async def test_wrapped_catastrophic_blocks_both_chains(cmd, ask_is_deny):
         ask_is_deny=ask_is_deny,
     )
     assert res is not None, cmd
+
+
+def test_shell_decision_denies_a_floor_segment_even_with_an_allow_grant():
+    # The permission layer re-splits the raw command. A segment that
+    # command_safety classifies as "deny" is refused here as well, so the floor
+    # does not depend on policies_guard having seen that segment. A grant that
+    # allows the tool does not lift it.
+    from horizon.guardrails.permission_guard import _shell_decision
+    from horizon.guardrails.permission_rules import PermissionRule
+
+    grant = PermissionRule(
+        tool_names=("bash",),
+        command_prefixes=(),
+        command_regex=None,
+        args_pattern=None,
+        decision="allow",
+        deny_message=None,
+        subagent=None,
+        source="grant",
+    )
+    hidden = [
+        "true x#;rm -rf ~",
+        "true\nrm -rf ~",
+        "true # it's\nrm -rf ~\n# '",
+        "true \\ #;rm -rf ~",
+        "r\\\nm -rf ~",
+        "rm -rf ~\\",
+    ]
+    for command in hidden:
+        for rules in ([], [grant]):
+            decision, _rule, prefixes = _shell_decision(
+                rules, "bash", command, None
+            )
+            assert decision == "deny", command
+            assert prefixes == []
+    # Text inside a real comment is not a command: with the grant it is allowed.
+    for command in ["ls # e.g. rm -rf /", "ls # do not run; rm -rf ~"]:
+        decision, _rule, _prefixes = _shell_decision(
+            [grant], "bash", command, None
+        )
+        assert decision == "allow", command
+
+
+@pytest.mark.parametrize(
+    ("command", "expected"),
+    [
+        ("true x#;rm", "true x#;rm"),
+        ("true # c\nrm", "true \nrm"),
+        ("true # it's\nrm\n# '", "true \nrm\n"),
+        ("true #c;rm", "true "),
+        ("true;#c\nrm", "true;\nrm"),
+        ("echo '# q' ; rm", "echo '# q' ; rm"),
+        ('echo "# q" ; rm', 'echo "# q" ; rm'),
+        ("echo \\# ; rm", "echo \\# ; rm"),
+        ("echo $# ; rm", "echo $# ; rm"),
+        ("echo ${#HOME};rm", "echo ${#HOME};rm"),
+        ("(true #c\nrm)", "(true \nrm)"),
+        ("true&#c\nrm", "true&\nrm"),
+        # An escaped space is part of a word, so the `#` after it is not a comment.
+        ("true \\ #;rm", "true \\ #;rm"),
+        # Backslash-newline joins two lines, also inside double quotes.
+        ("r\\\nm", "rm"),
+        ('echo "a\\\nb"', 'echo "ab"'),
+        ("true \\\n# c\nrm", "true \nrm"),
+        # A lone backslash at the very end is ignored by the shell.
+        ("rm\\", "rm"),
+    ],
+)
+def test_strip_comments_matches_a_posix_shell(command: str, expected: str):
+    from horizon.guardrails.command_classify import strip_comments
+
+    assert strip_comments(command) == expected
+
+
+def test_strip_comments_can_turn_newlines_into_separators():
+    from horizon.guardrails.command_classify import strip_comments
+
+    assert strip_comments("a # c\nb", newline=" ; ") == "a  ; b"
+    # A newline inside quotes is part of the string and is kept.
+    assert strip_comments("echo 'a\nb'", newline=" ; ") == "echo 'a\nb'"
