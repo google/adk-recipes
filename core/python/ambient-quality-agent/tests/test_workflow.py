@@ -18,7 +18,6 @@ drives the graph end to end (schedule -> keyword dispatch -> execute)."""
 from __future__ import annotations
 
 import asyncio
-import dataclasses
 import datetime as dt
 import hashlib
 import json
@@ -43,10 +42,10 @@ from agentplatform._genai.types import (
     RubricVerdict,
 )
 from ambient_quality_agent import backends
-from ambient_quality_agent.config import Config
+from ambient_quality_agent.config import Config, ObservedAgentConfig
 from ambient_quality_agent.core import nodes, orchestrator
 from ambient_quality_agent.core.investigation import job_scheduling as schedule
-from ambient_quality_agent.core.investigation.model import RunStatus
+from ambient_quality_agent.core.investigation.model import InvestigationStatus
 from ambient_quality_agent.core.nodes import _common
 from ambient_quality_agent.core.state import WorkflowState
 from ambient_quality_agent.core.workflow import investigation_workflow
@@ -70,8 +69,11 @@ from ambient_quality_agent.tools.metrics.library import (
     RemoteCodeMetric,
     RemoteJudgeMetric,
 )
-from ambient_quality_agent.tools.observed_agent_config import effective_config
-from ambient_quality_agent.tools.review import session_review
+from ambient_quality_agent.tools.observed_agent_config import (
+    effective_config,
+    store,
+)
+from ambient_quality_agent.tools.review import agentic_reviewer
 from google.adk import Runner
 from google.adk.sessions import InMemorySessionService
 from google.adk.workflow import START
@@ -84,7 +86,7 @@ from .conftest import (
     FakeReviewCall,
     StateContext,
     ToolContext,
-    get_run,
+    get_stored_investigation,
     make_agent_case,
     make_code_metric,
     make_config,
@@ -290,7 +292,7 @@ def test_init_emits_progress_from_seeded_state() -> None:
     assert "test-agent" in text and "task_success" in text and "safety" in text
     # Render-only: emits the seeded budget/window, not re-derived values.
     assert "`50`" in text and "2026-01-08" in text
-    # The emitted snippet is also recorded in the run's progress log.
+    # The emitted snippet is also recorded in the investigation's progress log.
     assert ctx.state["progress_log"] == [text]
 
 
@@ -400,7 +402,7 @@ def test_eval_logs_around_each_page(
 ) -> None:
     """Each non-empty page logs its evaluate -> store bracket.
 
-    Memory is not asserted here: it is prepended per line by the run-scoped
+    Memory is not asserted here: it is prepended per line by the investigation-scoped
     log factory (covered in test_logging), not by these call sites.
     """
     state = _state(MetricType.MULTI_TURN, ["task_success"])
@@ -543,13 +545,13 @@ def test_eval_counts_the_traces_through_every_stage(
     nodes.eval_multi_turn_node._func(_ctx(state))
 
     counters = state["counters"]
-    assert counters["traces_scanned"] == 90
-    assert counters["traces_ingested"] == 2
-    assert counters["traces_ingested_partial"] == 1
-    assert counters["traces_ingested_failed"] == 3
-    assert counters["traces_evaluated"] == 2
-    assert counters["traces_eval_failed"] == 1
-    assert counters["traces_eval_passed"] == 1
+    assert counters["trajectories_scanned"] == 90
+    assert counters["trajectories_ingested"] == 2
+    assert counters["trajectories_ingested_partial"] == 1
+    assert counters["trajectories_ingested_failed"] == 3
+    assert counters["trajectories_evaluated"] == 2
+    assert counters["trajectories_eval_failed"] == 1
+    assert counters["trajectories_eval_passed"] == 1
     assert counters["rubrics_generated"] == 2
 
 
@@ -568,9 +570,9 @@ def test_eval_counts_ingestion_even_with_nothing_to_evaluate(
 
     nodes.eval_multi_turn_node._func(_ctx(state))
 
-    assert state["counters"]["traces_scanned"] == 40
-    assert state["counters"]["traces_ingested_failed"] == 40
-    assert state["counters"].get("traces_evaluated", 0) == 0
+    assert state["counters"]["trajectories_scanned"] == 40
+    assert state["counters"]["trajectories_ingested_failed"] == 40
+    assert state["counters"].get("trajectories_evaluated", 0) == 0
 
 
 def test_an_empty_window_explains_itself_in_the_run_event(
@@ -579,8 +581,9 @@ def test_an_empty_window_explains_itself_in_the_run_event(
     """The delivery end to end: the node emits the warning as its own event.
 
     An eval node renders `lines[0]` through `record_progress_event`, which becomes an
-    `investigation_events` row and is drawn by `RunEventLedger` -- so covering
-    the event here covers the dashboard, and no UI change is needed to show it.
+    `investigation_events` row and is drawn by `InvestigationEventLedger` -- so
+    covering the event here covers the dashboard, and no UI change is needed to
+    show it.
     """
     state = _state(MetricType.MULTI_TURN, ["task_success"])
     patched_factories["fetcher"] = FakeFetcher(
@@ -594,8 +597,8 @@ def test_an_empty_window_explains_itself_in_the_run_event(
 
     event = "\n".join(state["progress_log"])
     assert "no traces at all" in event
-    assert "AQA_OBSERVED_AGENT_NAME" in event
-    assert state["counters"]["traces_scanned"] == 0
+    assert "agents-cli aqua attach" in event
+    assert state["counters"]["trajectories_scanned"] == 0
 
 
 def test_a_window_that_dropped_every_trace_is_not_blamed_on_the_agent_name(
@@ -615,7 +618,7 @@ def test_a_window_that_dropped_every_trace_is_not_blamed_on_the_agent_name(
 
     event = "\n".join(state["progress_log"])
     assert "no traces at all" not in event
-    assert "AQA_OBSERVED_AGENT_NAME" not in event
+    assert "agents-cli aqua attach" not in event
 
 
 def test_eval_counts_nothing_when_the_scope_is_skipped(
@@ -636,7 +639,7 @@ def test_eval_counts_nothing_when_the_scope_is_skipped(
 def test_eval_survives_a_failing_scanned_count(
     patched_factories: dict[str, Any],
 ) -> None:
-    """Counting the window is one extra query for a figure the run reports, not
+    """Counting the window is one extra query for a figure the investigation reports, not
     one it needs; losing it must not cost the evaluation."""
     state = _state(MetricType.MULTI_TURN, ["task_success"])
     fetcher = FakeFetcher(
@@ -655,8 +658,8 @@ def test_eval_survives_a_failing_scanned_count(
 
     nodes.eval_multi_turn_node._func(_ctx(state))
 
-    assert state["counters"]["traces_scanned"] == 0
-    assert state["counters"]["traces_evaluated"] == 1
+    assert state["counters"]["trajectories_scanned"] == 0
+    assert state["counters"]["trajectories_evaluated"] == 1
 
 
 # --------------------------------------------------------------------------- #
@@ -834,19 +837,22 @@ def test_review_counts_each_session_outcome(
     nodes.review_node._func(_ctx(state))
 
     counters = state["counters"]
-    assert counters["traces_scanned"] == 30
-    assert counters["traces_evaluated"] == 3
-    assert counters["traces_eval_passed"] == 1
-    assert counters["traces_eval_failed"] == 1
-    assert counters["traces_eval_errored"] == 1
+    assert counters["trajectories_scanned"] == 30
+    assert counters["trajectories_evaluated"] == 3
+    assert counters["trajectories_eval_passed"] == 1
+    assert counters["trajectories_eval_failed"] == 1
+    assert counters["trajectories_eval_errored"] == 1
     # Verify distinct defects remain unmerged.
     assert counters["findings_generated"] == 2
     # Rubrics counter is not incremented during session review.
     assert counters.get("rubrics_generated", 0) == 0
     (finding_set,) = state["finding_sets"]
-    assert [f["session_id"] for f in finding_set["findings"]] == ["bad", "bad"]
+    assert [f["trajectory_id"] for f in finding_set["findings"]] == [
+        "bad",
+        "bad",
+    ]
     # Store traces only for sessions with reported findings.
-    assert list(finding_set["sessions"]) == ["bad"]
+    assert list(finding_set["turns_by_trajectory"]) == ["bad"]
 
 
 def test_review_passes_the_session_review_focus_to_every_session(
@@ -1059,7 +1065,7 @@ def test_review_attributes_findings_to_the_session_revision(
 
     (finding_set,) = state["finding_sets"]
     by_session = {
-        f["session_id"]: f["agent_revision"] for f in finding_set["findings"]
+        f["trajectory_id"]: f["agent_revision"] for f in finding_set["findings"]
     }
     assert by_session["a"] == "4"
     # A session the telemetry did not attribute keeps the single unnamed
@@ -1107,14 +1113,14 @@ def test_review_skips_when_no_sessions_are_found(
     nodes.review_node._func(_ctx(state))
 
     assert state["finding_sets"] == []
-    assert state["counters"]["traces_scanned"] == 40
-    assert state["counters"].get("traces_evaluated", 0) == 0
+    assert state["counters"]["trajectories_scanned"] == 40
+    assert state["counters"].get("trajectories_evaluated", 0) == 0
 
 
 def test_review_sends_the_goal_with_every_session_and_records_it(
     patched_factories: dict[str, Any],
 ) -> None:
-    """Read once per run, sent with every review, and recorded on the run with
+    """Read once per investigation, sent with every review, and recorded on the run with
     the hash of the exact text it added to the prompt."""
     state = _review_state()
     patched_factories["fetcher"] = FakeFetcher(
@@ -1138,10 +1144,10 @@ def test_review_sends_the_goal_with_every_session_and_records_it(
         nodes.review_node._func(_ctx(state))
 
     loader.assert_called_once()
-    section = session_review.render_goal_section("Refunds first.")
+    section = agentic_reviewer.render_goal_section("Refunds first.")
     prompts = patched_factories["reviewer"].prompts
     assert len(prompts) == 3
-    assert all(prompt.endswith(section) for prompt in prompts)
+    assert all(section + "## Session\n" in prompt for prompt in prompts)
     assert state["goal"] == {
         "version": goal.version,
         "source": "saved",
@@ -1167,7 +1173,7 @@ def test_review_without_a_readable_goal_reviews_without_one(
     nodes.review_node._func(_ctx(state))
 
     (prompt,) = patched_factories["reviewer"].prompts
-    assert prompt.endswith(session_review._REVIEW_TASK)
+    assert "## Additional information" not in prompt
     assert state["goal"] == {
         "version": None,
         "source": "unreadable",
@@ -1217,6 +1223,24 @@ def test_the_default_goal_loader_reads_the_jobs_store(
     _common._load_default_goal(_ctx({"jobs_gcs_bucket": "aqa-jobs"}))
 
     assert stores == [jobs_store]
+
+
+def test_the_default_goal_loader_reads_the_runs_agents_goal(
+    monkeypatch: pytest.MonkeyPatch, jobs_store: Any
+) -> None:
+    from ambient_quality_agent.tools.documents import agent_scope
+
+    goal_doc.save_goal(
+        agent_scope.AgentDocumentStore(jobs_store, "acme-prod__support"),
+        "Prod's goal.",
+    )
+    goal_doc.save_goal(jobs_store, "The instance's goal.")
+
+    loaded = _common._load_default_goal(
+        _ctx({"jobs_gcs_bucket": "aqa-jobs", "agent_key": "acme-prod__support"})
+    )
+
+    assert loaded.text == "Prod's goal."
 
 
 def test_full_workflow_runs_through_adk(
@@ -1289,9 +1313,9 @@ def test_full_workflow_runs_through_adk(
     # review tallies each session it reviewed; the fake reviewer
     # returns no findings, so the one session passes.
     counters = final_state["counters"]
-    assert counters["traces_evaluated"] == 1
-    assert counters["traces_eval_passed"] == 1
-    assert counters["traces_eval_failed"] == 0
+    assert counters["trajectories_evaluated"] == 1
+    assert counters["trajectories_eval_passed"] == 1
+    assert counters["trajectories_eval_failed"] == 0
 
 
 def test_review_mode_workflow_runs_the_review_branch_only(
@@ -1356,13 +1380,17 @@ def test_review_mode_workflow_runs_the_review_branch_only(
 
 @pytest.fixture
 def mocked_telemetry(
-    patched_factories: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+    patched_factories: dict[str, Any],
+    monkeypatch: pytest.MonkeyPatch,
+    jobs_store: Any,
 ) -> Iterator[None]:
     """Wire fakes through the node factories and stub the self-query submit.
 
     Reuses the graph-level `FakeFetcher`/`FakeEvaluator`; the background run
-    invocation is simulated by `_dispatch_run` via the keyword route.
+    invocation is simulated by `_dispatch_run` via the keyword route. Attaches
+    an agent with default settings, since a deployment with none starts no investigation.
     """
+    _attach_watched_agent(jobs_store)
     one_page = Page(
         dataset=EvaluationDataset(eval_cases=[EvalCase(), EvalCase()]),
         next_page_token=None,
@@ -1373,66 +1401,74 @@ def mocked_telemetry(
     monkeypatch.setattr(
         schedule,
         "submit_investigation",
-        lambda run_id, ctx: {"job_name": "op/1"},
+        lambda investigation_id, ctx: {"job_name": "op/1"},
     )
     yield
 
 
-def _dispatch_run(state: dict[str, Any], run_id: str) -> Any:
+def _dispatch_run(state: dict[str, Any], investigation_id: str) -> Any:
     """Simulates the background run invocation hitting the keyword route.
 
     Args:
-        state: Shared state dictionary for the run.
-        run_id: Investigation run identifier.
+        state: Shared state dictionary for the investigation.
+        investigation_id: Investigation identifier.
 
     Returns:
         Response from the before_agent callback.
     """
-    cb = CallbackContext(f"{orchestrator.RUN_KEYWORD} {run_id}", state)
+    cb = CallbackContext(
+        f"{orchestrator.RUN_KEYWORD} {investigation_id}", state
+    )
     return asyncio.run(orchestrator.before_agent(cb))
 
 
-def _configure(monkeypatch: pytest.MonkeyPatch, **fields: Any) -> None:
-    """Pins the deploy-time configuration the run reads.
+def _attach_watched_agent(jobs_store: Any, **fields: Any) -> None:
+    """Attaches the agent the investigation is about, with the settings it reads.
 
-    The only way in: nothing in a session can change what a run is scheduled
+    The only way in: nothing in a session can change what an investigation is scheduled
     with, so a test that needs a non-default setting states it here.
 
     Args:
-        monkeypatch: Pytest monkeypatch fixture.
-        **fields: Config field overrides to set on env_config.
+        jobs_store: The test's jobs store.
+        **fields: `ObservedAgentConfig` fields to set.
     """
-    monkeypatch.setattr(
-        effective_config,
-        "env_config",
-        dataclasses.replace(effective_config.env_config, **fields),
+    store.save_agent_record(
+        jobs_store,
+        store.AgentRecord(
+            config=ObservedAgentConfig(
+                observed_agent_name="watched-agent",
+                agent_key="watched-agent",
+                **fields,
+            )
+        ),
     )
+    effective_config.clear_cache()
 
 
 def test_investigation_end_to_end(
     mocked_telemetry: None,
     investigation_store: Any,
-    monkeypatch: pytest.MonkeyPatch,
+    jobs_store: Any,
 ) -> None:
-    # Metric scoring, so the run walks both evaluation scopes and the event
+    # Metric scoring, so the investigation walks both evaluation scopes and the event
     # sources below name all four nodes.
-    _configure(monkeypatch, quality_analysis_mode="eval_service")
+    _attach_watched_agent(jobs_store, quality_analysis_mode="eval_service")
     tc = ToolContext()
 
     # 1. Submit -> pending, returns immediately. The scheduled inputs are the
     #    run's first row.
     result = asyncio.run(orchestrator.schedule_investigation(tc))
-    assert result["status"] == RunStatus.PENDING
-    run_id = result["run_id"]
+    assert result["status"] == InvestigationStatus.PENDING
+    investigation_id = result["investigation_id"]
     assert result["trigger_type"] == "manual"
 
     # 2. The keyword route runs the real graph in a background invocation.
-    out = _dispatch_run(tc.state, run_id)
-    assert out is not None and run_id in out.parts[0].text
+    out = _dispatch_run(tc.state, investigation_id)
+    assert out is not None and investigation_id in out.parts[0].text
 
     # 3. Run is done with a summary, visible via get_investigation.
-    fetched = asyncio.run(orchestrator.get_investigation(run_id, tc))
-    assert fetched["status"] == RunStatus.DONE
+    fetched = asyncio.run(orchestrator.get_investigation(investigation_id, tc))
+    assert fetched["status"] == InvestigationStatus.DONE
     assert fetched["summary"]["multi_turn_pages_evaluated"] >= 1
 
     # 4. Each node that emitted a progress event wrote its own row against the
@@ -1447,9 +1483,9 @@ def test_investigation_end_to_end(
         e["text"] for e in fetched["events"]
     ]
 
-    # 5. ...and the list view carries the same run without those events.
-    listed = asyncio.run(orchestrator.list_investigations(tc))["runs"]
-    assert [r["run_id"] for r in listed] == [run_id]
+    # 5. ...and the list view carries the same investigation without those events.
+    listed = asyncio.run(orchestrator.list_investigations(tc))["investigations"]
+    assert [r["investigation_id"] for r in listed] == [investigation_id]
     assert listed[0]["events"] == []
     assert "events" not in listed[0]["summary"]
 
@@ -1478,11 +1514,11 @@ def test_investigation_end_to_end_on_code_metrics(
     tc = ToolContext()
 
     result = asyncio.run(orchestrator.schedule_investigation(tc))
-    run_id = result["run_id"]
-    _dispatch_run(tc.state, run_id)
+    investigation_id = result["investigation_id"]
+    _dispatch_run(tc.state, investigation_id)
 
-    fetched = asyncio.run(orchestrator.get_investigation(run_id, tc))
-    assert fetched["status"] == RunStatus.DONE
+    fetched = asyncio.run(orchestrator.get_investigation(investigation_id, tc))
+    assert fetched["status"] == InvestigationStatus.DONE
     assert [e["source"] for e in fetched["events"]] == [
         "init",
         "review",
@@ -1495,27 +1531,27 @@ def test_investigation_end_to_end_on_code_metrics(
     # cases evaluated: the reviewer and the code metric agreeing on a case is
     # one verdict, and the fixture's two id-less cases are two, not one.
     counters = fetched["counters"]
-    assert counters["traces_evaluated"] == 2
+    assert counters["trajectories_evaluated"] == 2
     outcomes = (
-        "traces_eval_passed",
-        "traces_eval_failed",
-        "traces_eval_errored",
+        "trajectories_eval_passed",
+        "trajectories_eval_failed",
+        "trajectories_eval_errored",
     )
     assert sum(counters[name] for name in outcomes) == 2
 
 
 def test_the_configured_window_sets_the_runs_window(
-    mocked_telemetry: None, monkeypatch: pytest.MonkeyPatch
+    mocked_telemetry: None, jobs_store: Any
 ) -> None:
     """The lookback window is the observed agent's setting, and it reaches the
     run through the config the scheduling turn reads."""
-    _configure(monkeypatch, data_lookback_window=14)
+    _attach_watched_agent(jobs_store, data_lookback_window=14)
     tc = ToolContext()
 
     result = asyncio.run(orchestrator.schedule_investigation(tc))
-    _dispatch_run(tc.state, result["run_id"])
+    _dispatch_run(tc.state, result["investigation_id"])
 
-    record = get_run(tc.state, result["run_id"])
+    record = get_stored_investigation(tc.state, result["investigation_id"])
     window_span_days = (
         dt.datetime.fromisoformat(record.window_end)
         - dt.datetime.fromisoformat(record.window_start)
@@ -1541,7 +1577,7 @@ def test_fetcher_factory_builds_each_source_from_unified_config(
         # The factory also binds the recorder ingestion writes through, so it
         # needs the sweep's identity as well as the telemetry config.
         "observed_agent_name": "watched-agent",
-        "run_id": "run-1",
+        "investigation_id": "run-1",
         "telemetry_ingestion_source": source,
         "telemetry_dataset": "some_dataset",
         "telemetry_table": "some_table",
@@ -1549,7 +1585,7 @@ def test_fetcher_factory_builds_each_source_from_unified_config(
     }
     with (
         mock.patch.object(backends.bigquery, "Client") as bq_client,
-        mock.patch.object(_common.storage, "Client"),
+        mock.patch("google.cloud.storage.Client"),
     ):
         fetcher = _common._create_default_fetcher(StateContext(state))
 
@@ -1559,13 +1595,15 @@ def test_fetcher_factory_builds_each_source_from_unified_config(
 
 
 def test_fetcher_factory_requires_a_dataset() -> None:
-    """A source with no dataset default fails naming the unified setting."""
+    """A source with no dataset default fails naming the attach flag that sets it."""
     state = {
         "project_id": "p",
         "telemetry_ingestion_source": "cloud_logging",
         "telemetry_dataset": "",
     }
-    with pytest.raises(ValueError, match="AQA_TELEMETRY_DATASET"):
+    with pytest.raises(
+        ValueError, match="agents-cli aqua attach --telemetry-dataset"
+    ):
         _common._create_default_fetcher(StateContext(state))
 
 

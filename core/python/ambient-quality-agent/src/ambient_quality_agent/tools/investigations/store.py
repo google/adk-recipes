@@ -12,19 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""What a store of investigation runs has to answer, apart from how it keeps them.
+"""Storage contract for investigations and their progress events.
 
-`bigquery_store.BigQueryInvestigationStore` is one implementation;
-`standalone.InMemoryInvestigationStore` is another. Naming the contract
-separately is what lets a caller be typed to the question rather than to the
-answer, and what makes the difference between the two reviewable: they are free
-to keep a run quite differently as long as they answer these the same way.
+Implemented by `bigquery_store.BigQueryInvestigationStore` for deployments and
+`standalone.InMemoryInvestigationStore` for standalone mode.
 
-Two writes and eight reads. The reads are where they diverge most. BigQuery has
-no cheap ``UPDATE``, so a run there is a history of whole snapshots and every
-read reconstructs the current one; a store that can simply change the record it
-holds reconstructs nothing. That is a difference in storage and not in
-behaviour, and this is the line it must not cross.
+In BigQuery, an investigation is stored as an append-only series of snapshots
+and reconstructed on read; in-memory storage replaces the record directly. Both
+implementations satisfy the same behavioral contract.
 """
 
 from __future__ import annotations
@@ -32,155 +27,184 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from ambient_quality_agent.tools.investigations.models import (
-        InvestigationRecord,
-        RunStatus,
+        Investigation,
+        InvestigationEvent,
+        InvestigationStatus,
     )
 
 DEFAULT_LIST_LIMIT = 50
-"""Runs one `list_recent` page holds."""
+"""Maximum investigations returned by one `list_recent` query."""
 
 IN_FLIGHT_HORIZON_HOURS = 24
-"""Maximum age in hours for an unfinished run to be counted by `count_in_flight`.
+"""Maximum age in hours for an unfinished investigation to be counted by `count_in_flight`.
 
-Runs untouched longer than this threshold are considered abandoned so crashed
-processes do not permanently block concurrency limits.
+Investigations untouched longer than this threshold are treated as abandoned so
+crashed processes do not permanently block concurrency limits.
 """
 
 
 class InvestigationStore(Protocol):
-    """One deployment's investigations, and the events they emitted."""
+    """Storage interface for one agent's investigations and progress events.
 
-    def append(self, record: InvestigationRecord) -> InvestigationRecord:
-        """Persists a new snapshot of an investigation run.
+    A store is bound to one agent's key when constructed. `list_recent`,
+    `sum_counters`, and `sum_counters_by_day` scope to investigations matching
+    that `observed_agent_key` (or all investigations when bound to an empty
+    key). `get`, `list_latest_stage_events`, `list_stale_pending`, and
+    `list_overdue_scheduled` query across all agents because investigation IDs
+    are globally unique and share one housekeeping pass.
+    """
 
-        Restamps updated_at on the record. Does not persist events, which must be
-        written using append_event.
+    def append(self, record: Investigation) -> Investigation:
+        """Persists a new snapshot of an investigation.
+
+        Restamps `updated_at` on the record. Does not persist `events`, which
+        are written separately via `append_event`.
 
         Args:
-            record: Investigation record state to store.
+            record: Investigation state to store.
 
         Returns:
-            The stored investigation record snapshot.
+            The stored investigation snapshot.
         """
 
-    def append_event(self, run_id: str, text: str, *, source: str = "") -> None:
-        """Appends a progress event to a run.
+    def append_event(
+        self, investigation_id: str, text: str, *, source: str = ""
+    ) -> None:
+        """Appends a progress event to an investigation.
 
         Args:
-            run_id: Investigation run identifier.
+            investigation_id: Investigation identifier.
             text: Markdown text of the event.
             source: Emitting workflow node or component identifier.
         """
 
     def get(
-        self, run_id: str, *, include_events: bool = True
-    ) -> InvestigationRecord | None:
-        """Loads an investigation run by ID.
+        self, investigation_id: str, *, include_events: bool = True
+    ) -> Investigation | None:
+        """Loads an investigation by ID.
 
         Args:
-            run_id: Investigation run identifier.
+            investigation_id: Investigation identifier.
             include_events: Whether to load associated progress events.
 
         Returns:
-            The investigation record snapshot, or None if not found.
+            The investigation snapshot, or None if not found.
         """
 
     def list_recent(
         self,
         *,
-        status: RunStatus | None = None,
+        status: InvestigationStatus | None = None,
         limit: int = DEFAULT_LIST_LIMIT,
         window_start: str | None = None,
         window_end: str | None = None,
-    ) -> list[InvestigationRecord]:
-        """Queries recent investigation runs ordered chronologically without events.
+    ) -> list[Investigation]:
+        """Lists the most recent investigations ordered oldest first, without events.
 
         Args:
-            status: Optional run status filter.
-            limit: Maximum number of runs to return.
-            window_start: Optional ISO timestamp lower bound on telemetry window end.
-            window_end: Optional ISO timestamp upper bound on telemetry window end.
+            status: Optional investigation status filter.
+            limit: Maximum number of investigations to return.
+            window_start: Optional ISO timestamp lower bound on `window_end`.
+            window_end: Optional ISO timestamp upper bound on `window_end`.
 
         Returns:
-            List of investigation records sorted oldest first.
+            List of `Investigation` records sorted oldest first.
+        """
+
+    def list_latest_stage_events(
+        self, investigation_ids: Sequence[str]
+    ) -> list[InvestigationEvent]:
+        """Finds the newest stage event of each named investigation.
+
+        A stage event (`STAGE_EVENT_SOURCE`) says how far a running
+        investigation got. `list_recent` reads no events, so the list asks
+        for these separately for the investigations still going.
+
+        Args:
+            investigation_ids: Investigations to look up; may be empty.
+
+        Returns:
+            One event per named investigation that wrote a stage event, in no
+            particular order.
         """
 
     def sum_counters(
         self, *, window_start: str | None = None, window_end: str | None = None
     ) -> tuple[dict[str, int], dict[str, str | None]]:
-        """Aggregates counters across investigation runs within a time window.
+        """Sums counters across investigations within a telemetry window.
 
         Args:
-            window_start: Optional ISO timestamp lower bound on telemetry window end.
-            window_end: Optional ISO timestamp upper bound on telemetry window end.
+            window_start: Optional ISO timestamp lower bound on `window_end`.
+            window_end: Optional ISO timestamp upper bound on `window_end`.
 
         Returns:
-            Tuple of (mapping of counter name to sum, dictionary of covered window bounds).
+            Tuple of `(counter_totals, covered_window_bounds)`.
         """
 
     def sum_counters_by_day(
         self, *, window_start: str | None = None, window_end: str | None = None
     ) -> list[dict[str, int | str]]:
-        """Aggregates counters grouped by calendar day of telemetry window end.
+        """Sums counters grouped by UTC calendar day of `window_end`.
 
         Args:
-            window_start: Optional ISO timestamp lower bound on telemetry window end.
-            window_end: Optional ISO timestamp upper bound on telemetry window end.
+            window_start: Optional ISO timestamp lower bound on `window_end`.
+            window_end: Optional ISO timestamp upper bound on `window_end`.
 
         Returns:
-            List of daily summary dictionaries ordered chronologically.
+            List of daily counter summary dicts ordered chronologically.
         """
 
     def get_last_finished_window_end(
-        self, observed_agent_name: str
+        self, observed_agent_key: str
     ) -> str | None:
-        """Returns the latest telemetry window end timestamp for finished ambient runs.
+        """Returns the latest `window_end` among completed ambient investigations.
 
-        Excludes dry runs and non-ambient triggers (`NON_AMBIENT_TRIGGER_TYPES`) to
-        prevent custom or manual sweeps from advancing or resetting the ambient
-        telemetry watermark.
+        Excludes dry runs and non-ambient triggers (`NON_AMBIENT_TRIGGER_TYPES`)
+        so manual or custom investigations do not move the ambient watermark.
 
         Args:
-            observed_agent_name: Name of the observed agent.
+            observed_agent_key: Key of the observed agent.
 
         Returns:
-            ISO 8601 timestamp of the latest completed window end, or None if no
-            completed ambient run exists.
+            ISO 8601 timestamp of the latest completed `window_end`, or None if
+            no completed ambient investigation exists.
         """
 
-    def count_in_flight(self, observed_agent_name: str) -> int:
-        """Counts currently active investigation runs for an agent.
+    def count_in_flight(self, observed_agent_key: str) -> int:
+        """Counts active in-flight investigations for an agent.
 
-        Counts runs whose latest status is pending or running and updated within
-        `IN_FLIGHT_HORIZON_HOURS`. The time horizon ensures abandoned or crashed
-        processes do not consume concurrency capacity indefinitely. A scheduled
-        run is not counted: nothing runs for it until its trigger fires.
+        Counts investigations whose latest status is ``PENDING`` or ``RUNNING``
+        and updated within `IN_FLIGHT_HORIZON_HOURS`. Excludes ``SCHEDULED``
+        investigations because nothing runs until their delayed trigger fires.
 
         Args:
-            observed_agent_name: Name of the observed agent.
+            observed_agent_key: Key of the observed agent.
 
         Returns:
             Number of in-flight investigations.
         """
 
     def list_stale_pending(self, *, lease_minutes: int) -> list[str]:
-        """Identifies run IDs remaining in pending status beyond the lease duration.
+        """Lists investigation IDs left in ``PENDING`` status beyond `lease_minutes`.
 
         Args:
-            lease_minutes: Number of minutes after creation before a pending run is considered stale.
+            lease_minutes: Minutes after `updated_at` before a pending
+                investigation is considered stale.
 
         Returns:
-            List of stale run IDs.
+            List of stale pending investigation IDs.
         """
 
     def list_overdue_scheduled(self, *, grace_minutes: int) -> list[str]:
-        """Identifies scheduled run IDs whose trigger is overdue by more than the grace.
+        """Lists ``SCHEDULED`` investigation IDs whose `due_at` passed by more than `grace_minutes`.
 
         Args:
-            grace_minutes: Minutes past `due_at` a scheduled run may wait for its
-                trigger before it is considered lost.
+            grace_minutes: Minutes past `due_at` a scheduled investigation may
+                wait for its delayed trigger before it is considered lost.
 
         Returns:
-            List of overdue scheduled run IDs.
+            List of overdue scheduled investigation IDs.
         """

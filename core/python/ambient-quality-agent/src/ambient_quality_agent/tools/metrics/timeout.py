@@ -16,7 +16,7 @@
 
 A metric is operator-written Python. One with an accidental `while True`, or a
 call to something that never answers, would otherwise hang the sweep: the node
-waits forever, the run never finishes, and because the window only advances on a
+waits forever, the investigation never finishes, and because the window only advances on a
 completed run, every later sweep waits behind it too.
 
 This bounds the wait, not the metric. Python cannot interrupt a thread that is
@@ -24,8 +24,8 @@ not cooperating, so a timed-out metric keeps running on a daemon thread until
 the process exits. That is the honest trade: one leaked thread per hung metric,
 against an investigation that never completes. It is a guard against a mistake,
 not against hostile code -- code published here executes in this process with
-this process's credentials either way, and the gate for that is IAM on the
-bucket.
+this process's credentials either way, and the gate for that is who can call
+AQuA's API to publish it.
 """
 
 from __future__ import annotations

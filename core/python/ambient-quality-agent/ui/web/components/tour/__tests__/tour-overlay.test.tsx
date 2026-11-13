@@ -30,6 +30,7 @@ import {
   Outlet,
   RouterProvider,
 } from "@tanstack/react-router";
+import { AgentSelectionProvider } from "@/lib/agent-selection";
 import { endTour, showTourStep, startTour } from "@/lib/tour-state";
 import { placeCallout, TourOverlay } from "../tour-overlay";
 import { HOME_SIDE_BY_SIDE, TOUR_STEPS } from "../tour-steps";
@@ -42,20 +43,21 @@ const callout = () => screen.queryByRole("dialog");
  *  grace to run out. */
 const SLOW = { timeout: 3000 };
 
-/** Answers the two reads the tour makes: the top insight and the runs. */
+/** Answers the two reads the tour makes: the top insight and the
+ *  investigations. */
 function stubApi({ insights }: { insights: boolean }): typeof fetch {
   return ((input: RequestInfo | URL) => {
     const url = typeof input === "string" ? input : input.toString();
     const body = url.includes("/api/investigations")
       ? {
-          runs: [
+          investigations: [
             {
-              run_id: "run-done",
+              investigation_id: "inv-done",
               status: "done",
               created_at: "2026-09-28T08:00:00Z",
             },
             {
-              run_id: "run-running",
+              investigation_id: "inv-running",
               status: "running",
               created_at: "2026-09-29T08:00:00Z",
             },
@@ -92,14 +94,14 @@ function renderDashboard({
   });
   const rootRoute = createRootRoute({
     component: () => (
-      <>
+      <AgentSelectionProvider>
         <button type="button" data-tour="tour-button">
           Take the tour
         </button>
         {links && (
           <Link
-            to="/investigations/$runId"
-            params={{ runId: "run-done" }}
+            to="/investigations/$investigationId"
+            params={{ investigationId: "inv-done" }}
             aria-label="Latest investigation"
           >
             🔬
@@ -114,7 +116,7 @@ function renderDashboard({
           <Outlet />
         </main>
         <TourOverlay />
-      </>
+      </AgentSelectionProvider>
     ),
   });
   const page = (path: string, targets: string[], extra?: () => JSX.Element) =>
@@ -134,12 +136,18 @@ function renderDashboard({
     routeTree: rootRoute.addChildren([
       page(
         "/",
-        ["health", "ask", "insights-strip", "pipeline", "recent-runs"],
+        [
+          "health",
+          "ask",
+          "insights-strip",
+          "pipeline",
+          "recent-investigations",
+        ],
         () => (links ? <Link to="/insights">View all</Link> : <></>),
       ),
       page("/insights", ["insights-triage"]),
       page("/insights/$insightId", ["insight-evidence", "insight-actions"]),
-      page("/investigations/$runId", ["run-header"]),
+      page("/investigations/$investigationId", ["investigation-header"]),
     ]),
     history: createMemoryHistory({ initialEntries: [at] }),
   });
@@ -276,7 +284,7 @@ describe("TourOverlay", () => {
       expect(router.state.location.pathname).toBe("/insights"),
     );
 
-    act(() => showTourStep(stepAt("recent-runs")));
+    act(() => showTourStep(stepAt("recent-investigations")));
     await waitFor(() => expect(router.state.location.pathname).toBe("/"));
   });
 
@@ -288,10 +296,10 @@ describe("TourOverlay", () => {
       expect(router.state.location.pathname).toBe("/insights/ins-1"),
     );
 
-    // The newer run is still going and has nothing to show yet.
-    act(() => showTourStep(stepAt("run-header")));
+    // The newer investigation is still going and has nothing to show yet.
+    act(() => showTourStep(stepAt("investigation-header")));
     await waitFor(() =>
-      expect(router.state.location.pathname).toBe("/investigations/run-done"),
+      expect(router.state.location.pathname).toBe("/investigations/inv-done"),
     );
   });
 
@@ -305,7 +313,9 @@ describe("TourOverlay", () => {
     // No insight to open, so both insight steps are passed over.
     await user.click(screen.getByRole("button", { name: "Next" }));
     expect(
-      await screen.findByRole("dialog", { name: titleOf("run-header") }),
+      await screen.findByRole("dialog", {
+        name: titleOf("investigation-header"),
+      }),
     ).toBeInTheDocument();
 
     // And on the way back, Back lands before them rather than bouncing forward.
@@ -315,14 +325,59 @@ describe("TourOverlay", () => {
     ).toBeInTheDocument();
   });
 
+  // Counting the skipped steps made the counter jump past numbers it never
+  // showed, which read as a broken tour.
+  it("counts only the steps it will show", async () => {
+    const user = userEvent.setup();
+    renderDashboard({ insights: false });
+    // The two insight steps have no insight to open.
+    const shown = TOUR_STEPS.length - 2;
+    const triage = stepAt("insights-triage") + 1;
+
+    act(() => startTour());
+    expect(
+      await screen.findByRole("dialog", { name: titleOf("health") }),
+    ).toHaveTextContent(`1 of ${shown}`);
+
+    act(() => showTourStep(stepAt("insights-triage")));
+    expect(
+      await screen.findByRole("dialog", { name: titleOf("insights-triage") }),
+    ).toHaveTextContent(`${triage} of ${shown}`);
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    expect(
+      await screen.findByRole("dialog", {
+        name: titleOf("investigation-header"),
+      }),
+    ).toHaveTextContent(`${triage + 1} of ${shown}`);
+  });
+
+  // The tour stays open when the reader selects another agent, and the pages
+  // found for the first one would lead to an insight the other does not have.
+  it("counts the steps again for an agent selected while it is open", async () => {
+    const router = renderDashboard({ insights: false });
+    act(() => startTour());
+    expect(
+      await screen.findByRole("dialog", { name: titleOf("health") }),
+    ).toHaveTextContent(`1 of ${TOUR_STEPS.length - 2}`);
+
+    // The other agent has an insight to open.
+    vi.stubGlobal("fetch", stubApi({ insights: true }));
+    await act(() => router.navigate({ href: "/?agent=other" }));
+    await waitFor(() =>
+      expect(callout()).toHaveTextContent(`1 of ${TOUR_STEPS.length}`),
+    );
+  });
+
   // Changing pages without showing how left the reader no way to get back
   // there on their own.
   it("points at and clicks the link to the next page, the page's own over the sidebar's", async () => {
     const user = userEvent.setup();
     const router = renderDashboard({ links: true });
 
-    act(() => showTourStep(stepAt("recent-runs")));
-    await screen.findByRole("dialog", { name: titleOf("recent-runs") });
+    act(() => showTourStep(stepAt("recent-investigations")));
+    await screen.findByRole("dialog", {
+      name: titleOf("recent-investigations"),
+    });
     await user.click(screen.getByRole("button", { name: "Next" }));
 
     // The sidebar has an "All" and Home a "View all" to the same page; the
@@ -351,8 +406,10 @@ describe("TourOverlay", () => {
   it("sets the pointer off from the button that was pressed", async () => {
     const user = userEvent.setup();
     renderDashboard({ links: true });
-    act(() => showTourStep(stepAt("recent-runs")));
-    await screen.findByRole("dialog", { name: titleOf("recent-runs") });
+    act(() => showTourStep(stepAt("recent-investigations")));
+    await screen.findByRole("dialog", {
+      name: titleOf("recent-investigations"),
+    });
     const next = screen.getByRole("button", { name: "Next" });
     // Its own box, not the prototype's stand-in, which a spy on the element
     // would reuse and so move every element with it.
@@ -371,7 +428,7 @@ describe("TourOverlay", () => {
   it("names an icon link by its label", async () => {
     renderDashboard({ links: true });
 
-    act(() => showTourStep(stepAt("run-header")));
+    act(() => showTourStep(stepAt("investigation-header")));
     expect(await screen.findByTestId("tour-pointer")).toHaveTextContent(
       "Click “Latest investigation”",
     );
@@ -384,9 +441,9 @@ describe("TourOverlay", () => {
     );
     const router = renderDashboard({ links: true });
 
-    act(() => showTourStep(stepAt("run-header")));
+    act(() => showTourStep(stepAt("investigation-header")));
     await waitFor(() =>
-      expect(router.state.location.pathname).toBe("/investigations/run-done"),
+      expect(router.state.location.pathname).toBe("/investigations/inv-done"),
     );
     expect(screen.queryByTestId("tour-pointer")).toBeNull();
   });
@@ -411,11 +468,82 @@ describe("TourOverlay", () => {
     await waitFor(() => expect(callout()).toBeNull());
   });
 
+  it("brings its element into view, and back once a scroll still going stops", async () => {
+    // Below the fold, and it stays there: this environment does not scroll,
+    // so every scroll the tour asks for leaves the element where it was.
+    sizeElements({ health: new DOMRect(40, 2000, 200, 40) });
+    const scrolls = vi
+      .spyOn(Element.prototype, "scrollIntoView")
+      .mockImplementation(() => {});
+    renderDashboard();
+
+    act(() => startTour());
+    await waitFor(() => expect(scrolls).toHaveBeenCalledTimes(1));
+
+    // The tail of a trackpad flick, for longer than a smooth scroll takes:
+    // the tour leaves the page alone while it goes on.
+    for (let i = 0; i < 18; i += 1) {
+      window.dispatchEvent(new WheelEvent("wheel", { deltaY: 30 }));
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    expect(scrolls).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(scrolls).toHaveBeenCalledTimes(2));
+  });
+
+  it("brings its element into view when the container that scrolls it is out of sight", async () => {
+    // The container sits below the window, and the element at its top.
+    vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(
+      function (this: Element) {
+        if (this.tagName === "MAIN") return new DOMRect(0, 1000, 1024, 600);
+        if (this.getAttribute("data-tour") === "health")
+          return new DOMRect(40, 1000, 200, 40);
+        return this.getAttribute("data-tour") !== null || this.tagName === "A"
+          ? new DOMRect(40, 60, 200, 40)
+          : new DOMRect(0, 0, 0, 0);
+      },
+    );
+    const scrolls = vi
+      .spyOn(Element.prototype, "scrollIntoView")
+      .mockImplementation(() => {});
+    renderDashboard();
+    await screen.findByRole("button", { name: "Take the tour" });
+    const main = document.querySelector("main");
+    if (main) main.style.overflowY = "auto";
+
+    act(() => startTour());
+    await waitFor(() => expect(scrolls).toHaveBeenCalled());
+  });
+
+  it("stops scrolling to its element once it has been in view, or after a while", async () => {
+    const scrolls = vi
+      .spyOn(Element.prototype, "scrollIntoView")
+      .mockImplementation(() => {});
+    renderDashboard();
+    act(() => startTour());
+    await screen.findByRole("dialog", { name: titleOf("health") });
+    await new Promise((resolve) => setTimeout(resolve, 300));
+
+    // In view at rest, so the reader may now scroll it away.
+    sizeElements({ health: new DOMRect(40, 2000, 200, 40) });
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    expect(scrolls).not.toHaveBeenCalled();
+
+    // Never in view: the tour gives up rather than hold the page forever.
+    // Sized before the step opens, since it finds its element at once.
+    sizeElements({ ask: new DOMRect(40, 2000, 200, 40) });
+    act(() => showTourStep(stepAt("ask")));
+    await new Promise((resolve) => setTimeout(resolve, 3500));
+    const given = scrolls.mock.calls.length;
+    expect(given).toBeGreaterThan(1);
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    expect(scrolls).toHaveBeenCalledTimes(given);
+  }, 10_000);
+
   it("ends on Escape while the pointer is on its way", async () => {
     const user = userEvent.setup();
     const router = renderDashboard({ links: true });
 
-    act(() => showTourStep(stepAt("run-header")));
+    act(() => showTourStep(stepAt("investigation-header")));
     await screen.findByTestId("tour-pointer");
     await user.keyboard("{Escape}");
 

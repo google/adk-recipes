@@ -1,0 +1,16 @@
+# Copy to terraform.tfvars (gitignored, loaded automatically) to change the defaults.
+# project_id and region come from `make deploy` (PROJECT= / REGION=), not from here.
+# Secret values never go in tfvars: `make deploy` copies them from .env to Secret Manager.
+
+# Who may open the app through IAP (whoever runs terraform is added automatically).
+iap_users = [
+  "user:you@example.com",
+  # "group:team@example.com",
+]
+
+# Durable thread history in Cloud SQL for PostgreSQL instead of SQLite in the container.
+enable_cloud_sql = true
+db_tier          = "db-custom-1-3840" # 1 vCPU / 3.75 GB; db-f1-micro is the cheap default
+
+# Skip the Google APIs and MCP servers if you don't offer the Google app.
+# enable_workspace_apis = false

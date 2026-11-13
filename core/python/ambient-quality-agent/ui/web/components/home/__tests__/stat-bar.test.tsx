@@ -37,13 +37,13 @@ const healthy: AmbientHealth = {
   schedule: "0 12 * * *",
   max_age_hours: 48,
   last_scheduled_finish: new Date(Date.now() - 6 * 3600_000).toISOString(),
-  last_run: {
-    run_id: "run-abc",
+  last_investigation: {
+    investigation_id: "inv-abc",
     finished_at: new Date(Date.now() - 6 * 3600_000).toISOString(),
     status: "done",
     trigger_type: "scheduled",
-    sessions: 410,
-    sessions_passed: 295,
+    trajectories: 410,
+    trajectories_passed: 295,
     pass_rate: 0.7195,
   },
   open_findings: 4,
@@ -73,12 +73,22 @@ function renderPanel(body: unknown, status = 200) {
     getParentRoute: () => root,
     path: "/insights/$insightId",
   });
-  const run = createRoute({
+  const investigationRoute = createRoute({
     getParentRoute: () => root,
-    path: "/investigations/$runId",
+    path: "/investigations/$investigationId",
+  });
+  const config = createRoute({
+    getParentRoute: () => root,
+    path: "/config",
   });
   const router = createRouter({
-    routeTree: root.addChildren([index, insights, insight, run]),
+    routeTree: root.addChildren([
+      index,
+      insights,
+      insight,
+      investigationRoute,
+      config,
+    ]),
     history: createMemoryHistory({ initialEntries: ["/"] }),
   });
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -103,20 +113,23 @@ describe("StatBar", () => {
     expect(screen.getByText("Open insights")).toBeInTheDocument();
     expect(screen.getByText("Last investigation")).toBeInTheDocument();
     expect(
-      screen.getByText(/Scheduled investigation run-abc/),
+      screen.getByText(/Scheduled investigation inv-abc/),
     ).toBeInTheDocument();
     // 0.7195 must read as 72%, not 0.7195 or 71.95.
     expect(screen.getByText("72%")).toBeInTheDocument();
   });
 
   it("says so when the schedule has never fired", async () => {
-    // Simulates a configured schedule that has never finished an investigation run.
+    // Simulates a configured schedule that has never finished an investigation.
     renderPanel({
       ...healthy,
       verdict: "never",
       reason: "no scheduled investigation has ever finished",
       last_scheduled_finish: null,
-      last_run: { ...healthy.last_run!, trigger_type: "manual" },
+      last_investigation: {
+        ...healthy.last_investigation!,
+        trigger_type: "manual",
+      },
     });
 
     expect(await screen.findByText("Never run")).toBeInTheDocument();
@@ -151,12 +164,34 @@ describe("StatBar", () => {
     expect(screen.queryByText("0")).toBeNull();
   });
 
+  it("names the worst insight without its markdown", async () => {
+    // A one-line caption that truncates: no room for code styling, and a
+    // backtick there is noise.
+    const plain = "create_ticket declares no parameters";
+    renderPanel({
+      ...healthy,
+      worst_finding: {
+        insight_id: "i-1",
+        label: "`create_ticket` declares no parameters",
+      },
+    });
+
+    expect(await screen.findByText(plain)).toHaveAttribute("title", plain);
+  });
+
   it("writes the schedule as a sentence, not a crontab", async () => {
     renderPanel(healthy);
 
     // "0 12 * * *" renders as glitched asterisks.
     expect(await screen.findByText(/daily at 12:00 UTC/)).toBeInTheDocument();
     expect(screen.queryByText(/\* \* \*/)).toBeNull();
+  });
+
+  it("links the schedule to the page that edits it", async () => {
+    renderPanel(healthy);
+
+    const schedule = await screen.findByText(/daily at 12:00 UTC/);
+    expect(schedule.closest("a")).toHaveAttribute("href", "/config");
   });
 
   it("shows a crontab it cannot phrase rather than guessing", async () => {
@@ -185,12 +220,16 @@ describe("StatBar", () => {
     expect(screen.queryByText("Watching")).toBeNull();
   });
 
-  it("omits a pass rate the run does not have", async () => {
-    // Null, not zero: a run that evaluated nothing has no pass rate, and 0%
-    // reads as every trace failing.
+  it("omits a pass rate the investigation does not have", async () => {
+    // Null, not zero: an investigation that evaluated nothing has no pass rate,
+    // and 0% reads as every trace failing.
     renderPanel({
       ...healthy,
-      last_run: { ...healthy.last_run!, sessions: null, pass_rate: null },
+      last_investigation: {
+        ...healthy.last_investigation!,
+        trajectories: null,
+        pass_rate: null,
+      },
     });
 
     expect(await screen.findByText("Watching")).toBeInTheDocument();

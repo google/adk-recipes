@@ -1,4 +1,4 @@
-# Copyright 2025 Google LLC
+# Copyright 2026 Google LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,11 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-output "service_url" {
-  description = "URL of the deployed Cloud Run service"
-  value       = google_cloud_run_v2_service.main.uri
-}
-
 output "project_id" {
   description = "GCP Project ID"
   value       = var.project_id
@@ -27,11 +22,6 @@ output "region" {
   value       = var.region
 }
 
-output "service_name" {
-  description = "Cloud Run service name"
-  value       = google_cloud_run_v2_service.main.name
-}
-
 output "artifact_registry_repo" {
   description = "Artifact Registry repository URL"
   value       = "${var.region}-docker.pkg.dev/${var.project_id}/${google_artifact_registry_repository.docker.repository_id}"
@@ -40,4 +30,14 @@ output "artifact_registry_repo" {
 output "cloudrun_service_account" {
   description = "Cloud Run service account email"
   value       = google_service_account.cloudrun.email
+}
+
+output "build_service_account" {
+  description = "Cloud Build service account of make deploy (source builds)"
+  value       = google_service_account.build.email
+}
+
+output "web_service_account" {
+  description = "Account make web mints the proxy's identity token as (Cloud Run Invoker on the service, granted by make deploy)"
+  value       = google_service_account.web.email
 }

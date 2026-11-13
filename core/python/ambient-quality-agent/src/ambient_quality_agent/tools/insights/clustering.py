@@ -12,10 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Group a sweep's findings into labeled candidate issues."""
+"""Group a sweep's findings into labeled candidate issues.
+
+Findings are partitioned by attributed agent before any model call so each
+prompt and cluster contains findings from a single agent. Similar defects in a
+sub-agent and the root agent require separate fixes, and verification can
+reject a cluster that mixes them as not one coherent issue.
+"""
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import logging
 from concurrent import futures
@@ -23,7 +30,7 @@ from typing import TYPE_CHECKING, Any
 
 from ambient_quality_agent.tools import genai_json
 from ambient_quality_agent.tools.insights.findings import Finding
-from ambient_quality_agent.tools.insights.models import RubricExample
+from ambient_quality_agent.tools.insights.models import FindingExample
 from pydantic import BaseModel, Field
 
 if TYPE_CHECKING:
@@ -46,60 +53,66 @@ class Cluster(BaseModel):
     cluster_id: int = 0
     """Ordinal identifier assigned for cluster deduplication and merging."""
 
+    agent_id: str = ""
+    """Attributed agent for all covered findings (`Finding.agent_id`, or the
+    observed root agent when empty). Populated by `cluster_and_label` from the
+    partition key rather than the model output."""
+
     label: str
     """Short controlled-vocabulary description, e.g. "made no tool call". The
     entire matching key -- the only thing `insights.matching` compares."""
 
     finding_ids: list[int] = Field(default_factory=list)
-    """The finding positions the model answered with. A finding's id is its
-    index in the list handed to `cluster_and_label`, and the key the prompt and
-    `_build_cluster_response_schema` ask the model to return them under."""
+    """Global indices into the `findings` sequence passed to `cluster_and_label`
+    (not partition-local indices), as returned by the model under the response
+    schema."""
 
-    item_count: int = 0
+    finding_count: int = 0
     """Findings covered. Stored rather than derived from ``examples``, which is
     capped."""
 
-    trace_ids: list[str] = Field(default_factory=list)
-    """Ids of the distinct sessions the covered findings came from, in
-    first-seen order. Ids rather than a number so `merge.merge_clusters` can
-    union two candidates without counting a shared conversation twice; only
-    their number is persisted."""
+    trajectory_ids: list[str] = Field(default_factory=list)
+    """Ids of the distinct trajectories the covered findings came from, in
+    first-seen order. Kept as IDs so `merge.merge_clusters` can union two
+    candidates without counting a shared trajectory twice, and persisted on
+    `InsightOccurrence.trajectory_ids`."""
 
     agent_revisions: list[str] = Field(default_factory=list)
     """Deployment revisions the covered findings came from, in first-seen order.
     Kept as the full set rather than one resolved value so `merge.merge_clusters`
     can union two candidates; the occurrence records the newest of them."""
 
-    examples: list[RubricExample] = Field(default_factory=list)
+    examples: list[FindingExample] = Field(default_factory=list)
     """Capped at `MAX_EXAMPLES`; persisted verbatim as JSON on the occurrence."""
 
     @property
-    def trace_count(self) -> int:
-        """How many conversations this issue was seen in.
+    def trajectory_count(self) -> int:
+        """How many trajectories this issue was seen in.
 
         Counted over every covered finding, not just the capped `examples`,
-        which would understate a widespread issue as a handful of cases.
+        which would understate a widespread issue as a handful of trajectories.
         """
-        return len(self.trace_ids)
+        return len(self.trajectory_ids)
 
 
 class ClusteringInfo(BaseModel):
-    """Findings that produced no insight this sweep, by cause.
+    """Findings that produced no insight this investigation, by cause.
 
-    Surfaced in the node summary so a shrunken sweep is visible, not just logged.
+    Surfaced in the node summary so a shrunken investigation is visible, not
+    just logged.
     """
 
-    errored_rubrics: int = 0
+    errored_findings: int = 0
     """Number of findings discarded due to LLM chunk processing failures."""
 
-    unclustered_rubrics: int = 0
+    unclustered_findings: int = 0
     """Number of findings omitted from valid clusters, or excluded
     because their text describes no problem."""
 
 
 MAX_EXAMPLES = 10
-"""Traces kept per cluster. Kept small because each example carries a full
-conversation trace and is persisted verbatim into the occurrence's JSON payload,
+"""Finding examples kept per cluster. Kept small because each example carries
+conversation turns and is persisted verbatim into the occurrence's JSON column,
 while a cluster can cover hundreds of findings."""
 
 CHUNK_CONCURRENCY = 4
@@ -284,16 +297,26 @@ Failed tuples:
 """
 
 
-def _build_prompt(findings: Sequence[Finding], start: int) -> str:
-    """The full clustering prompt: instructions, then the tuples.
+@dataclasses.dataclass(frozen=True)
+class _Chunk:
+    """One clustering call's input: up to `CHUNK_SIZE` findings of one agent."""
 
-    ``start`` is the chunk's offset in the whole findings list, so the ``id`` a
-    finding carries is its global position -- the id `validate_clusters` and
-    `attach_examples` address it by.
+    agent_id: str
+    """The partition key every finding in `members` shares."""
+
+    members: list[tuple[int, Finding]]
+    """Each finding with its global index, in input order."""
+
+
+def _build_prompt(members: Sequence[tuple[int, Finding]]) -> str:
+    """Build the clustering prompt from instructions and finding tuples.
+
+    Uses each finding's global index as its ``id`` because `validate_clusters`
+    and `attach_examples` index into the full sweep list; IDs within an agent's
+    partition need not be contiguous.
 
     Args:
-        findings: Findings included in this prompt chunk.
-        start: Global index offset for these findings.
+        members: The chunk's findings, each paired with its global index.
 
     Returns:
         Rendered prompt string.
@@ -301,11 +324,11 @@ def _build_prompt(findings: Sequence[Finding], start: int) -> str:
     payload = json.dumps(
         [
             {
-                "id": start + offset,
+                "id": index,
                 "expected_behavior": finding.expected_behavior,
                 "actual_behavior": finding.actual_behavior,
             }
-            for offset, finding in enumerate(findings)
+            for index, finding in members
         ],
         ensure_ascii=False,
     )
@@ -318,67 +341,172 @@ def _build_prompt(findings: Sequence[Finding], start: int) -> str:
     return _CLUSTER_INSTRUCTIONS + _TUPLES_HEADER + payload
 
 
+def _group_findings_by_agent(
+    findings: Sequence[Finding], root_agent_id: str
+) -> dict[str, list[tuple[int, Finding]]]:
+    """Partition findings by attributed agent.
+
+    Findings with an empty `Finding.agent_id` default to `root_agent_id` so a
+    single-agent sweep does not split between producers that omit `agent_id`
+    and session review, which sets the root agent name.
+
+    Args:
+        findings: The sweep's findings.
+        root_agent_id: Name of the observed root agent.
+
+    Returns:
+        Mapping of agent ID to `(global_index, finding)` pairs, preserving
+        first-seen order for both keys and members.
+    """
+    groups: dict[str, list[tuple[int, Finding]]] = {}
+    for index, finding in enumerate(findings):
+        groups.setdefault(finding.agent_id or root_agent_id, []).append(
+            (index, finding)
+        )
+    return groups
+
+
+def _build_chunks(
+    findings: Sequence[Finding], root_agent_id: str
+) -> list[_Chunk]:
+    """Split each agent's partition into chunks of at most `CHUNK_SIZE`.
+
+    Args:
+        findings: The sweep's findings.
+        root_agent_id: Name of the observed root agent.
+
+    Returns:
+        Chunks ordered by agent partition (in first-seen order) and by input
+        order within each partition.
+    """
+    return [
+        _Chunk(agent_id, members[start : start + CHUNK_SIZE])
+        for agent_id, members in _group_findings_by_agent(
+            findings, root_agent_id
+        ).items()
+        for start in range(0, len(members), CHUNK_SIZE)
+    ]
+
+
+def _drop_clusters_outside_chunk(
+    clusters: Iterable[Cluster], chunk: _Chunk
+) -> list[Cluster]:
+    """Drop clusters that reference a finding ID outside `chunk`.
+
+    The model can return an ID it was not given (for example, a hallucinated or
+    mistyped one) that is still a valid sweep index from another chunk.
+    `validate_clusters` checks only that IDs are in range for the entire sweep,
+    so without this check a cluster could mix findings across agents. Any
+    cluster with an out-of-chunk ID is dropped entirely because ungrounded
+    evidence invalidates the grouping.
+
+    Args:
+        clusters: Clusters parsed from the chunk's response.
+        chunk: The chunk passed to the model.
+
+    Returns:
+        Clusters whose `finding_ids` all belong to `chunk`.
+    """
+    given = {index for index, _ in chunk.members}
+    kept: list[Cluster] = []
+    dropped = 0
+    for cluster in clusters:
+        if all(fid in given for fid in cluster.finding_ids):
+            kept.append(cluster)
+        else:
+            dropped += 1
+    if dropped:
+        logger.warning(
+            "insights: dropped %d cluster(s) of agent %r naming finding ids "
+            "outside their chunk.",
+            dropped,
+            chunk.agent_id,
+        )
+    return kept
+
+
 def cluster_and_label(
-    findings: Sequence[Finding], model_call: Any | None = None
+    findings: Sequence[Finding],
+    *,
+    root_agent_id: str,
+    model_call: Any | None = None,
 ) -> tuple[list[Cluster], int]:
-    """Group the findings into labelled clusters, `CHUNK_SIZE` at a time.
+    """Group findings into labeled clusters, one agent at a time.
+
+    Steps:
+
+    1. Partition the findings by agent (`_group_findings_by_agent`).
+    2. Split each partition into chunks of at most `CHUNK_SIZE` findings.
+    3. Cluster every chunk with up to `CHUNK_CONCURRENCY` concurrent calls.
+    4. Drop clusters that reference a finding outside their chunk, and set
+       `Cluster.agent_id` from the chunk.
 
     Args:
         findings: The sweep's findings, from a `FindingSet`.
-        model_call: Prompt-to-text callable; `call_clustering_model` when omitted.
+        root_agent_id: Name of the observed root agent. Findings with an empty
+            `Finding.agent_id` are attributed to this agent.
+        model_call: Prompt-to-text callable; defaults to `call_clustering_model`.
 
     Returns:
-        The chunks' clusters, numbered from zero in `cluster_id`, and the count
-        of findings dropped because their chunk's clustering call failed.
+        A tuple of `(clusters, skipped_findings_count)`, where `clusters` are
+        numbered sequentially in `cluster_id` starting from 0, and
+        `skipped_findings_count` is the number of findings in chunks whose
+        clustering call failed.
+
+    Raises:
+        Exception: The exception raised by `model_call`, if every chunk failed.
     """
     if not findings:
         return [], 0
 
     call = model_call or call_clustering_model
-    starts = list(range(0, len(findings), CHUNK_SIZE))
+    chunks = _build_chunks(findings, root_agent_id)
 
-    def cluster_chunk(start: int) -> tuple[list[Cluster], Exception | None]:
-        chunk = findings[start : start + CHUNK_SIZE]
+    def cluster_chunk(chunk: _Chunk) -> tuple[list[Cluster], Exception | None]:
         logger.info(
-            "insights: clustering findings %d-%d of %d.",
-            start,
-            start + len(chunk),
+            "insights: clustering %d finding(s) of agent %r, from finding %d "
+            "of %d.",
+            len(chunk.members),
+            chunk.agent_id,
+            chunk.members[0][0],
             len(findings),
         )
         try:
-            return _parse_clusters(call(_build_prompt(chunk, start))), None
+            parsed = _parse_clusters(call(_build_prompt(chunk.members)))
         except Exception as exc:
             return [], exc
+        return [
+            cluster.model_copy(update={"agent_id": chunk.agent_id})
+            for cluster in _drop_clusters_outside_chunk(parsed, chunk)
+        ], None
 
     with futures.ThreadPoolExecutor(max_workers=CHUNK_CONCURRENCY) as pool:
-        results = list(pool.map(cluster_chunk, starts))
+        results = list(pool.map(cluster_chunk, chunks))
 
     clusters: list[Cluster] = []
     failures: list[Exception] = []
     findings_skipped_to_errors = 0
-    # Collected in the input's order, not completion's, so a sweep's
+    # Collected in chunk order, not completion order, so a sweep's
     # `cluster_id`s and the merge prompt built from them do not depend on which
     # chunk happened to finish first.
-    for start, (found, exc) in zip(starts, results, strict=True):
+    for chunk, (found, exc) in zip(chunks, results, strict=True):
         if exc is not None:
             failures.append(exc)
-            findings_skipped_to_errors += len(
-                findings[start : start + CHUNK_SIZE]
-            )
+            findings_skipped_to_errors += len(chunk.members)
             logger.warning(
-                "insights: clustering chunk at finding %d failed: %s",
-                start,
+                "insights: clustering chunk of agent %r at finding %d failed: %s",
+                chunk.agent_id,
+                chunk.members[0][0],
                 exc,
             )
         clusters.extend(found)
-    chunk_count = len(starts)
     if failures:
         logger.warning(
             "insights: %d of %d clustering chunk(s) failed; their findings are ignored.",
             len(failures),
-            chunk_count,
+            len(chunks),
         )
-        if len(failures) == chunk_count:
+        if len(failures) == len(chunks):
             raise failures[0]
     numbered = [
         cluster.model_copy(update={"cluster_id": index})
@@ -429,15 +557,15 @@ def validate_clusters(
     """Drop clusters the model did not ground in the findings it was given.
 
     A finding id is grounded when it is an in-range position, i.e. below
-    ``finding_count``. ``item_count`` is recomputed here so the count is ours,
-    not the model's.
+    ``finding_count``. Each cluster's own ``finding_count`` is recomputed here,
+    so the count is ours, not the model's.
 
     Args:
         clusters: Candidate clusters to validate.
         finding_count: Total number of valid finding indices.
 
     Returns:
-        List of grounded clusters with updated item counts.
+        List of grounded clusters with updated finding counts.
     """
     in_range = range(finding_count)
     validated: list[Cluster] = []
@@ -448,7 +576,9 @@ def validate_clusters(
             dropped += 1
             continue
         validated.append(
-            cluster.model_copy(update={"item_count": len(cluster.finding_ids)})
+            cluster.model_copy(
+                update={"finding_count": len(cluster.finding_ids)}
+            )
         )
     if dropped:
         logger.warning(
@@ -464,21 +594,20 @@ def attach_examples(
     findings: Sequence[Finding],
     sessions: Mapping[str, list[dict]],
 ) -> list[Cluster]:
-    """Hang the evidence off each cluster: capped examples, trace ids, revisions.
+    """Attaches capped finding examples, trajectory IDs, and revisions to each cluster.
 
-    Up to `MAX_EXAMPLES` findings-with-traces, plus the sessions and deployment
-    revisions *all* of the cluster's findings came from.
-
-    Built from the findings and their session map, so no extra calls. A finding
-    whose session is absent from the map keeps an empty trace.
+    Attaches up to `MAX_EXAMPLES` `FindingExample` entries and collects the
+    distinct `trajectory_ids` and `agent_revisions` across all covered findings.
+    A finding whose trajectory is absent from `sessions` gets an empty `turns`
+    list.
 
     Args:
         clusters: Clusters to enrich.
         findings: Full sequence of findings indexed by ID.
-        sessions: Map of session ID to conversation turn history.
+        sessions: Mapping of trajectory ID to conversation turns.
 
     Returns:
-        List of clusters with attached examples, trace IDs, and revisions.
+        List of clusters with attached examples, trajectory IDs, and revisions.
     """
     return [
         _attach_evidence(cluster, findings, sessions) for cluster in clusters
@@ -490,15 +619,16 @@ def _attach_evidence(
     findings: Sequence[Finding],
     sessions: Mapping[str, list[dict]],
 ) -> Cluster:
-    """One cluster with its findings' evidence attached.
+    """Attaches evidence fields from covered findings to one cluster.
 
     Args:
         cluster: Cluster to enrich.
         findings: Sequence of findings indexed by ID.
-        sessions: Map of session ID to conversation turn history.
+        sessions: Mapping of trajectory ID to conversation turns.
 
     Returns:
-        Cluster copy with evidence fields populated.
+        Cluster copy with `examples`, `trajectory_ids`, and `agent_revisions`
+        populated.
     """
     covered = [
         findings[fid] for fid in cluster.finding_ids if 0 <= fid < len(findings)
@@ -509,8 +639,8 @@ def _attach_evidence(
                 _build_example(finding, sessions)
                 for finding in covered[:MAX_EXAMPLES]
             ],
-            "trace_ids": _deduplicate_non_empty(
-                finding.session_id for finding in covered
+            "trajectory_ids": _deduplicate_non_empty(
+                finding.trajectory_id for finding in covered
             ),
             "agent_revisions": _deduplicate_non_empty(
                 finding.agent_revision for finding in covered
@@ -520,7 +650,7 @@ def _attach_evidence(
 
 
 def _deduplicate_non_empty(values: Iterable[str]) -> list[str]:
-    """The non-empty values, deduplicated, in first-seen order.
+    """Returns non-empty strings deduplicated in first-seen order.
 
     Args:
         values: Iterable of string values.
@@ -533,27 +663,27 @@ def _deduplicate_non_empty(values: Iterable[str]) -> list[str]:
 
 def _build_example(
     finding: Finding, sessions: Mapping[str, list[dict]]
-) -> RubricExample:
-    """One finding as stored evidence: the finding, its session, its trace.
+) -> FindingExample:
+    """Builds a `FindingExample` from a finding and its trajectory's turns.
 
     Args:
-        finding: The finding providing rubric details.
-        sessions: Mapping of session IDs to turn history dicts.
+        finding: The finding to wrap.
+        sessions: Mapping of trajectory IDs to turn history dicts.
 
     Returns:
-        Populated RubricExample instance.
+        Populated `FindingExample` instance.
     """
-    return RubricExample(
-        rubric=finding,
-        eval_case_id=finding.session_id,
-        trace=sessions.get(finding.session_id, []),
+    return FindingExample(
+        finding=finding,
+        trajectory_id=finding.trajectory_id,
+        turns=sessions.get(finding.trajectory_id, []),
     )
 
 
 def _build_cluster_response_schema() -> Any:
     """Constrain the response to ``{"clusters": [{"label", "finding_ids"}]}``.
 
-    A deliberate subset of `Cluster` (``item_count`` and ``examples`` are
+    A deliberate subset of `Cluster` (``finding_count`` and ``examples`` are
     derived by us, not asked of the model), and the API wants a
     ``google.genai.types.Schema`` rather than pydantic's dict -- so keep it in
     sync with `Cluster` by hand.
@@ -597,7 +727,11 @@ def fetch_clustering_response(prompt: str) -> Any:
     Returns:
         Full Gemini API response object.
     """
-    return genai_json.call_gemini(prompt, _build_cluster_response_schema())
+    return genai_json.call_gemini(
+        prompt,
+        _build_cluster_response_schema(),
+        timeout_ms=genai_json.LONG_CALL_TIMEOUT_MS,
+    )
 
 
 def call_clustering_model(prompt: str) -> str:

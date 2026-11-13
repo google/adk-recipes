@@ -31,6 +31,23 @@ def test_version_available() -> None:
     assert ambient_quality_agent.__version__
 
 
+def test_version_lives_in_the_shared_package() -> None:
+    """The dashboard image ships only the shared package, so the version that
+    every surface reports is defined there and re-exported here."""
+    import tomllib
+    from pathlib import Path
+
+    import ambient_quality_agent
+    import ambient_quality_shared
+
+    assert (
+        ambient_quality_agent.__version__ == ambient_quality_shared.__version__
+    )
+    pyproject = Path(__file__).resolve().parent.parent / "pyproject.toml"
+    hatch = tomllib.loads(pyproject.read_text())["tool"]["hatch"]["version"]
+    assert hatch["path"] == "src/ambient_quality_shared/__init__.py"
+
+
 def test_a2a_server_routes_importable() -> None:
     """The A2A server surface must import, not just the bare a2a-sdk.
 

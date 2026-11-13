@@ -46,7 +46,7 @@ function renderHome(fetchImpl: typeof fetch) {
     "/insights",
     "/insights/$insightId",
     "/investigations",
-    "/investigations/$runId",
+    "/investigations/$investigationId",
   ];
   const [index, ...rest] = paths.map((path) =>
     createRoute({
@@ -78,6 +78,25 @@ const answers = (body: Record<string, unknown>) =>
 describe("HomeView", () => {
   beforeEach(() => vi.unstubAllGlobals());
   afterEach(() => vi.unstubAllGlobals());
+
+  it("re-reads its figures from the refresh button in its header", async () => {
+    let statsReads = 0;
+    renderHome((async (input: RequestInfo | URL) => {
+      const url = new URL(String(input), "http://x");
+      if (url.pathname === "/api/stats") statsReads += 1;
+      return new Response(JSON.stringify({}), { status: 200 });
+    }) as typeof fetch);
+    const header = (
+      await screen.findByRole("heading", { level: 1, name: "Home" })
+    ).closest("header")!;
+    await vi.waitFor(() => expect(statsReads).toBe(1));
+
+    await userEvent.click(
+      within(header).getByRole("button", { name: "Refresh the data" }),
+    );
+
+    await vi.waitFor(() => expect(statsReads).toBe(2));
+  });
 
   it("does not claim there is nothing while it is still loading", async () => {
     renderHome(never);
@@ -148,9 +167,40 @@ describe("HomeView", () => {
     );
   });
 
+  it("renders code spans in a listed insight's label and diagnosis as code", async () => {
+    const listed = {
+      insight_id: "i-1",
+      label: "failed to call `create_ticket`",
+      diagnosis: "The `book_shift` declaration lists no parameters.",
+      trajectory_count: 3,
+    };
+    renderHome((async (input: RequestInfo | URL) => {
+      const url = new URL(String(input), "http://x");
+      const insights = url.searchParams.get("pageSize") === "5" ? [listed] : [];
+      return new Response(
+        JSON.stringify({
+          insights,
+          total: insights.length,
+          investigations: [],
+          days: [],
+        }),
+        { status: 200 },
+      );
+    }) as typeof fetch);
+
+    expect((await screen.findByText("create_ticket")).tagName).toBe("CODE");
+    expect(screen.getByText("book_shift").tagName).toBe("CODE");
+  });
+
   it("says a section is empty once it knows that it is", async () => {
     renderHome(
-      answers({ insights: [], total: 0, runs: [], days: [], stats: {} }),
+      answers({
+        insights: [],
+        total: 0,
+        investigations: [],
+        days: [],
+        stats: {},
+      }),
     );
 
     expect(await screen.findByText(/Nothing found yet/)).toBeInTheDocument();
@@ -167,7 +217,7 @@ describe("HomeView", () => {
       answers({
         insights: [],
         total: 0,
-        runs: [],
+        investigations: [],
         days: [],
         stats: { investigations: 3 },
       }),
@@ -180,7 +230,13 @@ describe("HomeView", () => {
 
   it("points each chart section at the page that lists what it counts", async () => {
     renderHome(
-      answers({ insights: [], total: 0, runs: [], days: [], stats: {} }),
+      answers({
+        insights: [],
+        total: 0,
+        investigations: [],
+        days: [],
+        stats: {},
+      }),
     );
 
     // The titles stay headings; the way to the page is a link beside them.
@@ -213,7 +269,13 @@ describe("HomeView", () => {
 
   it("focuses every header link the same way", async () => {
     renderHome(
-      answers({ insights: [], total: 0, runs: [], days: [], stats: {} }),
+      answers({
+        insights: [],
+        total: 0,
+        investigations: [],
+        days: [],
+        stats: {},
+      }),
     );
 
     // The sections clip overflow, so an outline drawn outside a link is cut off.
@@ -230,7 +292,13 @@ describe("HomeView", () => {
   it("explains each chart behind a button beside its title", async () => {
     const user = userEvent.setup();
     renderHome(
-      answers({ insights: [], total: 0, runs: [], days: [], stats: {} }),
+      answers({
+        insights: [],
+        total: 0,
+        investigations: [],
+        days: [],
+        stats: {},
+      }),
     );
 
     await user.click(
@@ -255,7 +323,7 @@ describe("HomeView", () => {
       answers({
         insights: [],
         total: 0,
-        runs: [],
+        investigations: [],
         days: [],
         stats: {},
         config: { insights_auto_resolve_days: 14 },
@@ -300,14 +368,14 @@ describe("HomeView", () => {
       answers({
         insights: [],
         total: 0,
-        runs: [],
+        investigations: [],
         days: [],
         stats: {
-          traces_scanned: 20,
-          traces_ingested: 10,
-          traces_evaluated: 10,
-          traces_eval_passed: 6,
-          traces_eval_failed: 4,
+          trajectories_scanned: 20,
+          trajectories_ingested: 10,
+          trajectories_evaluated: 10,
+          trajectories_eval_passed: 6,
+          trajectories_eval_failed: 4,
           insights_created: 1,
           insights_recurring: 2,
         },
@@ -348,11 +416,11 @@ describe("HomeView", () => {
       answers({
         insights: [],
         total: 0,
-        runs: [],
+        investigations: [],
         days: [],
         stats: {
-          traces_evaluated: 4,
-          traces_eval_passed: 4,
+          trajectories_evaluated: 4,
+          trajectories_eval_passed: 4,
           insights_created: 1,
         },
       }),
@@ -399,13 +467,16 @@ describe("HomeView", () => {
         total: 0,
         days: [],
         stats: {},
-        runs: [
+        investigations: [
           {
-            run_id: "ede2106b",
+            investigation_id: "ede2106b",
             status: "failed",
             created_at: "2026-09-15T20:09:49Z",
             error: "BigQuery query timed out",
-            counters: { traces_evaluated: 0, traces_eval_passed: 0 },
+            counters: {
+              trajectories_evaluated: 0,
+              trajectories_eval_passed: 0,
+            },
           },
         ],
       }),
@@ -421,27 +492,35 @@ describe("HomeView", () => {
   });
 
   it("lists the newest five investigations and counts those, not the page", async () => {
-    const runs = Array.from({ length: 25 }, (_, i) => ({
-      run_id: `run-${String(i).padStart(2, "0")}`,
+    const investigations = Array.from({ length: 25 }, (_, i) => ({
+      investigation_id: `inv-${String(i).padStart(2, "0")}`,
       status: "done",
       created_at: new Date(Date.UTC(2026, 8, 1 + i, 8)).toISOString(),
       error: null,
       counters: {
-        traces_eval_passed: 3,
-        traces_eval_failed: 1,
+        trajectories_eval_passed: 3,
+        trajectories_eval_failed: 1,
         insights_created: i === 24 ? 2 : 0,
         insights_recurring: 5,
       },
     }));
-    renderHome(answers({ insights: [], total: 0, days: [], stats: {}, runs }));
+    renderHome(
+      answers({
+        insights: [],
+        total: 0,
+        days: [],
+        stats: {},
+        investigations: investigations,
+      }),
+    );
 
     expect(await screen.findByText("5 most recent")).toBeInTheDocument();
     expect(screen.queryByText("25 most recent")).toBeNull();
     // The newest five, newest first.
-    const ids = screen.getAllByText(/^run-\d\d$/).map((el) => el.textContent);
+    const ids = screen.getAllByText(/^inv-\d\d$/).map((el) => el.textContent);
     expect(ids).toHaveLength(5);
-    expect(ids[0]).toBe("run-24");
-    expect(ids).not.toContain("run-19");
+    expect(ids[0]).toBe("inv-24");
+    expect(ids).not.toContain("inv-19");
     // Each row carries its outcome and the insights it recorded, as bare
     // counts under the New and Recurring headers.
     expect(screen.getAllByText("75%")).toHaveLength(5);
@@ -460,55 +539,69 @@ describe("HomeView", () => {
   });
 
   describe("Recent investigations rows", () => {
-    const run = (over: Record<string, unknown>) => ({
-      run_id: "run-00",
-      observed_agent_name: "travel_desk_agent",
+    const buildInvestigation = (over: Record<string, unknown>) => ({
+      investigation_id: "inv-00",
+      observed_agent_key: "travel_desk_agent",
       status: "done",
       created_at: "2026-09-20T08:00:00Z",
       error: null,
-      counters: { traces_eval_passed: 3, traces_eval_failed: 1 },
+      counters: { trajectories_eval_passed: 3, trajectories_eval_failed: 1 },
       ...over,
     });
-    const home = (runs: unknown[]) =>
+    const home = (investigations: unknown[]) =>
       renderHome(
-        answers({ insights: [], total: 0, days: [], stats: {}, runs }),
+        answers({
+          insights: [],
+          total: 0,
+          days: [],
+          stats: {},
+          investigations: investigations,
+        }),
       );
     const listedIds = () =>
-      screen.getAllByText(/^(run|old|und)-\d\d$/).map((el) => el.textContent);
+      screen.getAllByText(/^(inv|old|und)-\d\d$/).map((el) => el.textContent);
 
     it("dates and sorts a record without created_at by its window end", async () => {
       home([
-        run({ run_id: "run-01", created_at: "2026-09-20T08:00:00Z" }),
-        run({
-          run_id: "old-01",
+        buildInvestigation({
+          investigation_id: "inv-01",
+          created_at: "2026-09-20T08:00:00Z",
+        }),
+        buildInvestigation({
+          investigation_id: "old-01",
           created_at: undefined,
           window_end: "2026-09-22T08:00:00Z",
         }),
-        run({ run_id: "und-01", created_at: undefined, window_end: null }),
+        buildInvestigation({
+          investigation_id: "und-01",
+          created_at: undefined,
+          window_end: null,
+        }),
       ]);
 
       expect(await screen.findByText("3 most recent")).toBeInTheDocument();
       // Newest first by whichever start time the record carries; undated last.
-      expect(listedIds()).toEqual(["old-01", "run-01", "und-01"]);
+      expect(listedIds()).toEqual(["old-01", "inv-01", "und-01"]);
       expect(screen.getAllByText("Undated")).toHaveLength(1);
     });
 
-    it("names a run's state where it has no split to draw", async () => {
+    it("names an investigation's state where it has no split to draw", async () => {
       home([
-        run({
-          run_id: "run-01",
+        buildInvestigation({
+          investigation_id: "inv-01",
           status: "running",
-          // Recent: a run claiming to be in flight for days reads as stalled.
+          // Recent: an investigation claiming to be in flight for days reads as
+          // stalled.
           created_at: new Date().toISOString(),
-          counters: { traces_eval_passed: 2 },
+          counters: { trajectories_eval_passed: 2 },
         }),
-        run({
-          run_id: "run-02",
+        buildInvestigation({
+          investigation_id: "inv-02",
           error: "BigQuery query timed out",
           status: "failed",
         }),
-        run({ run_id: "run-03", counters: {} }),
-        run({ run_id: "run-04", counters: undefined }),
+        buildInvestigation({ investigation_id: "inv-03", counters: {} }),
+        buildInvestigation({ investigation_id: "inv-04", counters: undefined }),
       ]);
 
       expect(await screen.findByText("Running")).toBeInTheDocument();
@@ -521,11 +614,13 @@ describe("HomeView", () => {
       expect(screen.queryByText(/^\d+\/\d+$/)).toBeNull();
     });
 
-    it("draws a run whose every evaluation errored rather than hiding it", async () => {
-      home([run({ counters: { traces_eval_errored: 5 } })]);
+    it("draws an investigation whose every evaluation errored rather than hiding it", async () => {
+      home([
+        buildInvestigation({ counters: { trajectories_eval_errored: 5 } }),
+      ]);
 
       // No rate to give, since nothing was judged; the errors are counted instead.
-      const link = await screen.findByRole("link", { name: "run-00" });
+      const link = await screen.findByRole("link", { name: "inv-00" });
       const headers = within(screen.getByRole("table"))
         .getAllByRole("columnheader")
         .map((th) => th.textContent);
@@ -534,23 +629,26 @@ describe("HomeView", () => {
       expect(cells[headers.indexOf("Errors")]).toHaveTextContent(/^5$/);
     });
 
-    it("compares its last row with the run before it, which it does not show", async () => {
+    it("compares its last row with the investigation before it, which it does not show", async () => {
       home([
         ...[0, 1, 2, 3, 4].map((i) =>
-          run({
-            run_id: `run-0${i}`,
+          buildInvestigation({
+            investigation_id: `inv-0${i}`,
             created_at: `2026-09-20T0${8 - i}:00:00Z`,
           }),
         ),
         // The sixth, off the list: 25% before the fifth row's 75%.
-        run({
-          run_id: "old-01",
+        buildInvestigation({
+          investigation_id: "old-01",
           created_at: "2026-09-20T02:00:00Z",
-          counters: { traces_eval_passed: 1, traces_eval_failed: 3 },
+          counters: {
+            trajectories_eval_passed: 1,
+            trajectories_eval_failed: 3,
+          },
         }),
       ]);
 
-      const link = await screen.findByRole("link", { name: "run-04" });
+      const link = await screen.findByRole("link", { name: "inv-04" });
       expect(link.closest("tr")).toHaveTextContent(/up 50%/);
       expect(screen.queryByRole("link", { name: "old-01" })).toBeNull();
     });
@@ -562,6 +660,99 @@ describe("HomeView", () => {
         await screen.findAllByText(/No investigations have run/),
       ).not.toHaveLength(0);
       expect(screen.queryByText(/most recent/)).toBeNull();
+    });
+  });
+
+  describe("Recent investigations trigger filter", () => {
+    const buildInvestigation = (
+      id: string,
+      day: number,
+      trigger_type: string,
+    ) => ({
+      investigation_id: id,
+      observed_agent_key: "travel_desk_agent",
+      status: "done",
+      trigger_type,
+      created_at: new Date(Date.UTC(2026, 8, day, 8)).toISOString(),
+      error: null,
+      counters: { trajectories_eval_passed: 3, trajectories_eval_failed: 1 },
+    });
+    const home = (investigations: unknown[]) =>
+      renderHome(
+        answers({
+          insights: [],
+          total: 0,
+          days: [],
+          stats: {},
+          investigations: investigations,
+        }),
+      );
+    const section = async () =>
+      (
+        await screen.findByRole("heading", { name: "Recent investigations" })
+      ).closest("section")!;
+    const ids = (el: HTMLElement) =>
+      within(el)
+        .queryAllByText(/^\w{3}-\d\d$/)
+        .map((node) => node.textContent);
+
+    it("adds no section of its own for user-initiated investigations", async () => {
+      home([buildInvestigation("cus-01", 1, "custom")]);
+
+      await section();
+      expect(
+        screen.queryByRole("heading", {
+          name: "User-initiated investigations",
+        }),
+      ).toBeNull();
+    });
+
+    it("shows the newest five of the kind picked, and links View all to it", async () => {
+      home([
+        buildInvestigation("cus-01", 1, "custom"),
+        buildInvestigation("man-02", 2, "manual"),
+        ...[3, 4, 5, 6, 7, 8].map((d) =>
+          buildInvestigation(`swp-0${d}`, d, "scheduled"),
+        ),
+      ]);
+      const recent = await section();
+      await within(recent).findByText("swp-08");
+      expect(ids(recent)).toEqual([
+        "swp-08",
+        "swp-07",
+        "swp-06",
+        "swp-05",
+        "swp-04",
+      ]);
+
+      await userEvent.click(
+        within(recent).getByRole("button", { name: "User-initiated" }),
+      );
+      expect(ids(recent)).toEqual(["man-02", "cus-01"]);
+      expect(
+        within(recent).getByRole("link", { name: /view all/i }),
+      ).toHaveAttribute("href", "/investigations?trigger=user");
+
+      await userEvent.click(
+        within(recent).getByRole("button", { name: "Scheduled" }),
+      );
+      expect(ids(recent)).toHaveLength(5);
+      expect(ids(recent)).not.toContain("cus-01");
+    });
+
+    it("says so when no recent investigation is of the kind picked", async () => {
+      home([buildInvestigation("swp-01", 1, "scheduled")]);
+      const recent = await section();
+      await within(recent).findByText("swp-01");
+
+      await userEvent.click(
+        within(recent).getByRole("button", { name: "User-initiated" }),
+      );
+      expect(
+        within(recent).getByText(
+          "No user-initiated investigations among the most recent.",
+        ),
+      ).toBeInTheDocument();
     });
   });
 });

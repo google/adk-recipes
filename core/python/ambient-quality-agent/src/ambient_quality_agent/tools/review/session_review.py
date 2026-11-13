@@ -29,7 +29,11 @@ from ambient_quality_agent.tools.agent_revision import UNRECORDED_PARAMETERS
 from ambient_quality_agent.tools.ingestion.message_parts import (
     is_attachment_placeholder,
 )
-from ambient_quality_agent.tools.insights.findings import Finding
+from ambient_quality_agent.tools.insights import findings as findings_module
+from ambient_quality_agent.tools.insights.findings import (
+    Finding,
+    extract_trajectory_turns,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -37,9 +41,6 @@ if TYPE_CHECKING:
     from ambient_quality_agent.tools.agent_revision import AgentRevision
 
 logger = logging.getLogger(__name__)
-
-MAX_FINDINGS_PER_SESSION = 10
-"""Maximum number of findings extracted per session to bound payload size."""
 
 _REVIEW_INSTRUCTIONS = """\
 You are a quality analyst reviewing one conversation handled by a production AI
@@ -367,43 +368,19 @@ def extract_findings(
         goal: The developer's goal to review with; empty reviews without one.
 
     Returns:
-        List of up to `MAX_FINDINGS_PER_SESSION` findings extracted from the model response.
+        List of up to `findings.MAX_FINDINGS_PER_TRAJECTORY` findings extracted
+        from the model response.
     """
     call = model_call or call_review_model
-    session_id = str(getattr(eval_case, "eval_case_id", "") or "")
+    trajectory_id = str(getattr(eval_case, "eval_case_id", "") or "")
     prompt = build_prompt(
         revisions,
-        extract_session_turns(eval_case),
+        extract_trajectory_turns(eval_case),
         session_review_focus=session_review_focus,
         goal=goal,
     )
     known_agent_ids = {revision.agent_id for revision in revisions}
-    return _parse_findings(call(prompt), session_id, known_agent_ids)
-
-
-def extract_session_turns(eval_case: Any) -> list[dict]:
-    """Extract conversation turns as serializable dictionaries.
-
-    Args:
-        eval_case: Evaluation case containing the conversation turns.
-
-    Returns:
-        List of serialized conversation turn dictionaries, or an empty list
-        if turns are missing or serialization fails.
-    """
-    agent_data = getattr(eval_case, "agent_data", None) if eval_case else None
-    turns = getattr(agent_data, "turns", None) if agent_data else None
-    if not turns:
-        return []
-    try:
-        return [
-            turn.model_dump(mode="json", exclude_none=True) for turn in turns
-        ]
-    except Exception as exc:
-        logger.warning(
-            "review: could not serialize a conversation trace: %s", exc
-        )
-        return []
+    return _parse_findings(call(prompt), trajectory_id, known_agent_ids)
 
 
 def _parse_findings(
@@ -413,7 +390,7 @@ def _parse_findings(
 
     1. Decode JSON response and extract the findings list.
     2. Convert and validate each finding against known agent identifiers.
-    3. Truncate the list to `MAX_FINDINGS_PER_SESSION`.
+    3. Truncate the list to `findings.MAX_FINDINGS_PER_TRAJECTORY`.
 
     Args:
         response: Raw JSON response text from the review model.
@@ -421,8 +398,8 @@ def _parse_findings(
         known_agent_ids: Valid agent identifiers for the session.
 
     Returns:
-        Validated findings capped at `MAX_FINDINGS_PER_SESSION`, or an empty list
-        if parsing fails.
+        Validated findings capped at `findings.MAX_FINDINGS_PER_TRAJECTORY`, or an
+        empty list if parsing fails.
     """
     try:
         decoded = json.loads(response or "")
@@ -444,14 +421,16 @@ def _parse_findings(
         finding = _parse_finding(raw, session_id, known_agent_ids)
         if finding is not None:
             findings.append(finding)
-    if len(findings) > MAX_FINDINGS_PER_SESSION:
+    # Read through the module so run-time overrides of the cap take effect.
+    max_findings = findings_module.MAX_FINDINGS_PER_TRAJECTORY
+    if len(findings) > max_findings:
         logger.warning(
             "review: session %s reported %d findings; keeping the first %d.",
             session_id or "<unknown>",
             len(findings),
-            MAX_FINDINGS_PER_SESSION,
+            max_findings,
         )
-    return findings[:MAX_FINDINGS_PER_SESSION]
+    return findings[:max_findings]
 
 
 def _parse_finding(
@@ -489,7 +468,7 @@ def _parse_finding(
     return Finding(
         expected_behavior=expected,
         actual_behavior=actual,
-        session_id=session_id,
+        trajectory_id=session_id,
         agent_id=agent_id,
     )
 

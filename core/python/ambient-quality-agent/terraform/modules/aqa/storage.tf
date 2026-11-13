@@ -79,13 +79,14 @@ resource "google_storage_bucket" "jobs" {
     }
   }
 
-  # Chat transcripts (the A2A task store). Without a rule they accumulate for
-  # the life of the deployment, and every one of them is downloaded whenever
-  # the dashboard lists conversations.
+  # Chat transcripts (the A2A task store) and saved chat names. Without a rule
+  # they accumulate for the life of the deployment, and the dashboard reads
+  # both whenever it lists conversations. A name ages from its last rename, so
+  # 90 days later other browsers fall back to the chat's oldest stored message.
   lifecycle_rule {
     condition {
       age            = 90
-      matches_prefix = ["tasks/"]
+      matches_prefix = ["tasks/", "chat-titles/"]
     }
     action {
       type = "Delete"
@@ -106,8 +107,8 @@ resource "google_storage_bucket" "jobs" {
 }
 
 # Code-metric library. Published code runs in the agent's process, so write
-# access equals deploy access. Read access is granted to the agent; write access
-# is restricted to `var.metrics_writers`.
+# access equals deploy access. Only the agent writes it, when a library is
+# published through its API.
 resource "google_storage_bucket" "metrics" {
   project                     = var.project_id
   name                        = "${local.bucket_prefix}-metrics"

@@ -170,7 +170,7 @@ jobs:
           allow-unsafe-pr-checkout: true
 
       - name: 'Set up Python'
-        uses: 'actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97' # ratchet:actions/setup-python@v7.0.0
+        uses: 'actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0' # ratchet:actions/setup-python@v7.1.0
         with:
           python-version: '3.11'
 
@@ -294,7 +294,7 @@ jobs:
       - name: 'Upload the payload'
         if: |-
           steps.payload.outputs.has_payload == 'true'
-        uses: 'actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a' # ratchet:actions/upload-artifact@v7.0.1
+        uses: 'actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9' # ratchet:actions/upload-artifact@v7.0.2
         with:
           name: 'house-rules-payload'
           path: 'review_payload.json'
@@ -305,7 +305,7 @@ jobs:
       - name: 'Upload the dry-run inputs'
         if: |-
           always() && github.event.inputs.dry_run == 'true'
-        uses: 'actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a' # ratchet:actions/upload-artifact@v7.0.1
+        uses: 'actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9' # ratchet:actions/upload-artifact@v7.0.2
         with:
           name: 'house-rules-dryrun'
           path: |-
@@ -336,7 +336,7 @@ jobs:
         id: 'generate_token'
         if: |-
           ${{ vars.APP_ID != '' }}
-        uses: 'actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1' # ratchet:actions/create-github-app-token@v2
+        uses: 'actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510' # ratchet:actions/create-github-app-token@v2
         with:
           app-id: '${{ vars.APP_ID }}'
           private-key: '${{ secrets.APP_PRIVATE_KEY }}'
@@ -344,7 +344,7 @@ jobs:
           permission-pull-requests: 'write'
 
       - name: 'Download the payload'
-        uses: 'actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c' # ratchet:actions/download-artifact@v8.0.1
+        uses: 'actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333' # ratchet:actions/download-artifact@v8.0.2
         with:
           name: 'house-rules-payload'
 

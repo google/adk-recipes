@@ -20,17 +20,21 @@ and shapes it into evaluation dataset form.
 
 The two query shapes mirror the two evaluation scopes in Gemini platform:
 
-* ``MetricType.MULTI_TURN`` — one row per session, with the full ordered
-  event trajectory aggregated into an ``events`` array (session-level).
+* ``MetricType.MULTI_TURN`` — one row per session, with the ordered event
+  trajectory aggregated into an ``events`` array (session-level).
 * ``MetricType.SINGLE_TURN`` — one row per invocation/turn, with that
   turn's ordered events aggregated into an ``events`` array
   (invocation-level).
+
+Both read a selected session's or invocation's events only within
+`JOIN_BACK_MARGIN_DAYS` of the window (see `build_join_back_window`).
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import re
 from collections.abc import Mapping
 from typing import Any, NamedTuple
 
@@ -43,7 +47,10 @@ from agentplatform._genai.types.evals import (
 )
 from ambient_quality_agent.tools.evaluation.models import MetricType
 from ambient_quality_agent.tools.ingestion import selector
-from ambient_quality_agent.tools.ingestion.base import BigQueryJobFetcher
+from ambient_quality_agent.tools.ingestion.base import (
+    BigQueryJobFetcher,
+    build_join_back_window,
+)
 from ambient_quality_agent.tools.ingestion.instruction_changes import (
     TurnInstructionTracker,
 )
@@ -94,6 +101,14 @@ _EVENT_A2A_INTERACTION = "A2A_INTERACTION"
 _PLUGIN_BUDGET_MARKER = "[SANITIZE_BUDGET_EXCEEDED]"
 _PLUGIN_PLACEHOLDERS = frozenset(
     {_PLUGIN_BUDGET_MARKER, "[MAX_DEPTH_EXCEEDED]", "[UNSUPPORTED_OBJECT]"}
+)
+
+
+# The plugin's `_format_content` output, matched as the plugin's own evaluation
+# views match it.
+_FORMATTED_TEXT = re.compile(r"(?s)text: '(.*)'")
+_FORMATTED_OTHER_PART = re.compile(
+    r" \| (?:call: |resp: |Executable code |Code execution result |other(?: \| |\Z))"
 )
 
 
@@ -150,14 +165,45 @@ _OBSERVED_AGENT_NAME_SQL = (
     "COALESCE(JSON_VALUE(attributes, '$.root_agent_name'), agent)"
 )
 
-_MULTI_TURN_TARGETS = f"""
-  SELECT session_id
+# The agent that authored each event. The plugin logs AGENT_RESPONSE from the
+# Runner's event callback, whose context holds the agent the invocation started
+# at, so `agent` names that agent even when a sub-agent wrote the reply. The
+# real author is in `attributes.source_event_author`. An AGENT_RESPONSE logged
+# when a final response tool completes has no such key, and its `agent` already
+# names the tool's agent. HITL request and A2A_INTERACTION rows come from the
+# same callback without an author attribute, so they keep `agent`.
+_EVENT_AUTHOR_SQL = """COALESCE(
+        IF(
+          e.event_type = 'AGENT_RESPONSE',
+          JSON_VALUE(e.attributes, '$.source_event_author'),
+          NULL
+        ),
+        e.agent
+      )"""
+
+_JOIN_BACK_WINDOW = build_join_back_window("e.timestamp")
+
+
+def _build_multi_turn_targets(projection: str) -> str:
+    """Builds the multi-turn targets subquery projecting `projection`.
+
+    Args:
+        projection: The select list: ``session_id``, optionally aliased.
+
+    Returns:
+        SQL subquery template containing a ``{table_ref}`` placeholder.
+    """
+    return f"""
+  SELECT {projection}
   FROM `{{table_ref}}`
   WHERE timestamp BETWEEN @window_start AND @window_end
     AND {_OBSERVED_AGENT_NAME_SQL} = @agent_name
     AND session_id IS NOT NULL
   GROUP BY session_id
 """  # noqa: S608 - trusted identifiers and fixed SQL; values are parameterized
+
+
+_MULTI_TURN_TARGETS = _build_multi_turn_targets("session_id")
 
 _SINGLE_TURN_TARGETS = f"""
   SELECT invocation_id
@@ -230,9 +276,8 @@ SELECT
     STRUCT(
       e.invocation_id,
       e.event_type,
-      e.agent,
+      {_EVENT_AUTHOR_SQL} AS agent,
       IF(e.event_type = 'LLM_REQUEST', NULL, e.content) AS content,
-      IF(e.event_type = 'LLM_REQUEST', NULL, e.content_parts) AS content_parts,
       e.error_message,
       IF(
         e.event_type = 'LLM_REQUEST',
@@ -249,7 +294,8 @@ SELECT
   ) AS events
 FROM `{table_ref}` AS e
 JOIN TargetSessions AS t USING (session_id)
-WHERE e.event_type IN (
+WHERE {_JOIN_BACK_WINDOW}
+  AND e.event_type IN (
     'USER_MESSAGE_RECEIVED',
     'AGENT_STARTING',
     'LLM_REQUEST',
@@ -287,9 +333,8 @@ SELECT
   ARRAY_AGG(
     STRUCT(
       e.event_type,
-      e.agent,
+      {_EVENT_AUTHOR_SQL} AS agent,
       IF(e.event_type = 'LLM_REQUEST', NULL, e.content) AS content,
-      IF(e.event_type = 'LLM_REQUEST', NULL, e.content_parts) AS content_parts,
       e.error_message,
       IF(
         e.event_type = 'LLM_REQUEST',
@@ -306,7 +351,8 @@ SELECT
   ) AS events
 FROM `{{table_ref}}` AS e
 JOIN TargetInvocations AS t USING (invocation_id)
-WHERE e.event_type IN (
+WHERE {_JOIN_BACK_WINDOW}
+  AND e.event_type IN (
     'USER_MESSAGE_RECEIVED',
     'AGENT_STARTING',
     'LLM_REQUEST',
@@ -338,6 +384,11 @@ class BigQueryFetcher(BigQueryJobFetcher):
     """
 
     TELEMETRY_SOURCE = selector.BIG_QUERY_SOURCE
+    SELECTOR_TIME_COLUMN = "timestamp"
+    STARTER_SELECTOR = _build_multi_turn_targets(
+        f"session_id AS {selector.TARGET_COLUMN}"
+    )
+    SCHEMA_FILE = "agent_events.schema.json"
 
     def _build_ingestion_sql(self, metric_type: MetricType) -> str:
         if metric_type is MetricType.MULTI_TURN:
@@ -804,7 +855,7 @@ def _build_event_part(event: Mapping[str, Any]) -> Part:
     if event_type == _EVENT_USER_MESSAGE:
         return Part(text=content.get("text_summary"))
     if event_type == _EVENT_AGENT_RESPONSE:
-        return Part(text=content.get("response"))
+        return Part(text=_unwrap_formatted_text(content.get("response")))
     if event_type == _EVENT_TOOL_STARTING or event_type in _HITL_REQUEST_EVENTS:
         return Part(
             function_call=FunctionCall(
@@ -843,6 +894,27 @@ def _build_event_part(event: Mapping[str, Any]) -> Part:
             )
         )
     return Part()
+
+
+def _unwrap_formatted_text(value: Any) -> Any:
+    """Recovers the model's text from a reply the plugin formatted.
+
+    A reply made only of text parts loses its `text: '...'` wrappers, its parts
+    joined by newlines.
+
+    Args:
+        value: The ``response`` the plugin logged.
+
+    Returns:
+        The reply's text, or ``value`` unchanged when it holds another kind of
+        part or is not in the plugin's format.
+    """
+    if not isinstance(value, str):
+        return value
+    text = _FORMATTED_TEXT.fullmatch(value)
+    if text is None or _FORMATTED_OTHER_PART.search(value):
+        return value
+    return text.group(1).replace("' | text: '", "\n")
 
 
 def _resolve_error_message(

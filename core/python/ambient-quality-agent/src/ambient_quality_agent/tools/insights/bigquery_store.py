@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import functools
 import json
 import logging
 from typing import TYPE_CHECKING, Any
@@ -27,6 +28,8 @@ from ambient_quality_agent.tools.insights.models import (
     Insight,
     InsightOccurrence,
     InsightStatus,
+    list_insight_columns,
+    list_occurrence_columns,
 )
 from google.cloud import bigquery
 
@@ -54,7 +57,7 @@ class BigQueryInsightStore:
         client: bigquery.Client,
         project_id: str,
         dataset: str,
-        agent_name: str,
+        observed_agent_key: str,
         match_call: Callable[[str], str] | None = None,
     ) -> None:
         """Bind the store to one agent's dataset.
@@ -64,7 +67,7 @@ class BigQueryInsightStore:
                 across fetchers/stores (its location fixes the job region).
             project_id: GCP project owning the dataset, for table references.
             dataset: BigQuery dataset holding the two insight tables.
-            agent_name: The observed agent this store is scoped to; every query
+            observed_agent_key: The observed agent this store is scoped to; every query
                 filters on it.
             match_call: Prompt-to-text callable the same-issue judge runs on;
                 `matching.call_match_model` when omitted.
@@ -72,7 +75,7 @@ class BigQueryInsightStore:
         self._client = client
         self._project_id = project_id
         self._dataset = dataset
-        self._agent_name = agent_name
+        self._observed_agent_key = observed_agent_key
         self._match_call = match_call
 
     def _build_table_ref(self, table: str) -> str:
@@ -87,7 +90,7 @@ class BigQueryInsightStore:
         return f"{self._project_id}.{self._dataset}.{table}"
 
     def list_missing_columns(self) -> dict[str, list[str] | None]:
-        """Columns `Insight` and `InsightOccurrence` declare that the tables lack.
+        """Columns `Insight` and `InsightOccurrence` are stored in that the tables lack.
 
         One entry per table, so one unreachable table does not hide whether the
         other has drifted. `None` reads as `InvestigationStore.list_missing_columns`
@@ -98,10 +101,10 @@ class BigQueryInsightStore:
         """
         return {
             _INSIGHTS_TABLE: self._list_missing_columns_in(
-                _INSIGHTS_TABLE, Insight.model_fields
+                _INSIGHTS_TABLE, list_insight_columns()
             ),
             _OCCURRENCES_TABLE: self._list_missing_columns_in(
-                _OCCURRENCES_TABLE, InsightOccurrence.model_fields
+                _OCCURRENCES_TABLE, list_occurrence_columns()
             ),
         }
 
@@ -171,27 +174,29 @@ class BigQueryInsightStore:
         job.result()
         return int(job.num_dml_affected_rows or 0)
 
-    def delete_failed_insights(self, run_id: str) -> None:
-        """Erase a prior attempt of ``run_id`` so a retry starts clean.
+    def delete_failed_insights(self, investigation_id: str) -> None:
+        """Erase a prior attempt of ``investigation_id`` so a retry starts clean.
 
         Order of operations matters because the orphan check reads the post-delete
         occurrence set:
 
-        1. Delete occurrences matching ``run_id`` and agent.
+        1. Delete occurrences matching ``investigation_id`` and agent.
         2. Delete insights left with no remaining occurrences.
 
         Args:
-            run_id: Identifier of the run whose prior attempt is cleared.
+            investigation_id: Identifier of the investigation whose prior attempt is cleared.
         """
         params = [
-            bigquery.ScalarQueryParameter("run_id", "STRING", run_id),
             bigquery.ScalarQueryParameter(
-                "agent_name", "STRING", self._agent_name
+                "investigation_id", "STRING", investigation_id
+            ),
+            bigquery.ScalarQueryParameter(
+                "agent_name", "STRING", self._observed_agent_key
             ),
         ]
         self._run(
             f"DELETE FROM `{self._build_table_ref(_OCCURRENCES_TABLE)}` "  # noqa: S608 - trusted identifiers and fixed SQL; values are parameterized
-            "WHERE run_id = @run_id AND agent_name = @agent_name",
+            "WHERE run_id = @investigation_id AND agent_name = @agent_name",
             params,
         )
         self._run(
@@ -211,7 +216,9 @@ class BigQueryInsightStore:
         Two steps:
 
         1. Read this agent's open insights, most recently updated first.
-        2. Hand them to `matching.match_candidates`, which chooses among them.
+        2. Pass them to `matching.match_candidates_by_scope`, which restricts
+           each candidate to insights of the same attributed agent and delegates
+           selection to `matching.match_candidates`.
 
         The judge is a `generateContent` call, so the query carries no AI.
 
@@ -227,6 +234,9 @@ class BigQueryInsightStore:
           way, and skipping it would mint a fresh insight every sweep for
           exactly the defect somebody asked not to see.
 
+        Scope is taken from `Cluster.agent_id` and ``agent_id``, defaulting to
+        this store's root agent when empty.
+
         Args:
             candidates: Candidate clusters from the current sweep.
 
@@ -235,8 +245,8 @@ class BigQueryInsightStore:
             ``None`` values both mean no match.
 
         Raises:
-            Exception: Whatever the judge raised, if it answered for no
-                candidate at all -- see `matching.match_candidates`.
+            Exception: The exception raised by the judge, if every scope call
+                failed -- see `matching.match_candidates_by_scope`.
         """
         if not candidates:
             return {}
@@ -246,7 +256,7 @@ class BigQueryInsightStore:
         # decides which batch a label lands in, and the first batch to answer
         # wins.
         sql = f"""
-SELECT insight_id, label
+SELECT insight_id, agent_id, label
 FROM `{self._build_table_ref(_INSIGHTS_TABLE)}`
 WHERE agent_name = @agent_name
   AND status != '{InsightStatus.RESOLVED.value}'
@@ -258,7 +268,7 @@ ORDER BY updated_at DESC, insight_id
                 sql,
                 [
                     bigquery.ScalarQueryParameter(
-                        "agent_name", "STRING", self._agent_name
+                        "agent_name", "STRING", self._observed_agent_key
                     )
                 ],
             )
@@ -266,10 +276,18 @@ ORDER BY updated_at DESC, insight_id
         if not rows:
             return dict.fromkeys(range(len(candidates)))
 
-        hits = matching.match_candidates(
-            [c.label for c in candidates],
-            [row["label"] for row in rows],
-            model_call=self._match_call,
+        hits = matching.match_candidates_by_scope(
+            [
+                (c.agent_id or self._observed_agent_key, c.label)
+                for c in candidates
+            ],
+            [
+                (row.get("agent_id") or self._observed_agent_key, row["label"])
+                for row in rows
+            ],
+            functools.partial(
+                matching.match_candidates, model_call=self._match_call
+            ),
         )
         return {
             index: (rows[hit]["insight_id"] if hit is not None else None)
@@ -322,7 +340,8 @@ ORDER BY updated_at DESC, insight_id
         rows = [
             {
                 "insight_id": i.insight_id,
-                "agent_name": i.agent_name,
+                "agent_name": i.observed_agent_key,
+                "agent_id": i.agent_id,
                 "label": i.label,
                 "status": i.status.value,
                 "created_at": i.created_at.isoformat(),
@@ -353,14 +372,14 @@ ORDER BY updated_at DESC, insight_id
                 "occurrence_id": o.occurrence_id,
                 "insight_id": o.insight_id,
                 "occurrence_state": o.occurrence_state.value,
-                "run_id": o.run_id,
+                "run_id": o.investigation_id,
                 "created_at": o.created_at.isoformat(),
-                "agent_name": o.agent_name,
+                "agent_name": o.observed_agent_key,
                 "agent_revision": o.agent_revision,
                 "analysis_mode": o.analysis_mode,
                 "label": o.label,
-                "item_count": o.item_count,
-                "trace_count": o.trace_count,
+                "item_count": o.finding_count,
+                "trace_count": o.trajectory_count,
                 # BigQuery has no null array: a REPEATED column is written
                 # empty, never null, or the load job rejects the row.
                 "trajectory_ids": list(o.trajectory_ids),
@@ -371,8 +390,13 @@ ORDER BY updated_at DESC, insight_id
                     },
                     ensure_ascii=False,
                 ),
+                # By alias, so new rows hold the keys existing rows hold
+                # (`rubric`, `eval_case_id`, `session_id`).
                 "rubrics": json.dumps(
-                    [r.model_dump(mode="json") for r in o.rubrics],
+                    [
+                        example.model_dump(mode="json", by_alias=True)
+                        for example in o.examples
+                    ],
                     ensure_ascii=False,
                 ),
             }
@@ -382,7 +406,7 @@ ORDER BY updated_at DESC, insight_id
 
     def _insert_rows(self, table: str, rows: list[dict[str, Any]]) -> None:
         """Load rows via a load job rather than the streaming API, so they are
-        immediately queryable by the same run (streamed rows sit in a buffer that
+        immediately queryable by the same investigation (streamed rows sit in a buffer that
         DML cannot touch for minutes).
 
         Args:
@@ -440,7 +464,7 @@ ORDER BY updated_at DESC, insight_id
             ),
             bigquery.ScalarQueryParameter("now", "TIMESTAMP", now),
             bigquery.ScalarQueryParameter(
-                "agent_name", "STRING", self._agent_name
+                "agent_name", "STRING", self._observed_agent_key
             ),
         ]
         # No renames, no clause and no parameter: an array of structs carries its
@@ -521,7 +545,7 @@ ORDER BY updated_at DESC, insight_id
                     "now", "TIMESTAMP", _read_utc_clock()
                 ),
                 bigquery.ScalarQueryParameter(
-                    "agent_name", "STRING", self._agent_name
+                    "agent_name", "STRING", self._observed_agent_key
                 ),
                 bigquery.ScalarQueryParameter(
                     "insight_id", "STRING", insight_id
@@ -575,7 +599,7 @@ ORDER BY updated_at DESC, insight_id
                     "now", "TIMESTAMP", _read_utc_clock()
                 ),
                 bigquery.ScalarQueryParameter(
-                    "agent_name", "STRING", self._agent_name
+                    "agent_name", "STRING", self._observed_agent_key
                 ),
                 bigquery.ScalarQueryParameter(
                     "insight_id", "STRING", insight_id
@@ -614,7 +638,7 @@ ORDER BY updated_at DESC, insight_id
             bigquery.ScalarQueryParameter("now", "TIMESTAMP", now),
             bigquery.ScalarQueryParameter("days", "INT64", window_days),
             bigquery.ScalarQueryParameter(
-                "agent_name", "STRING", self._agent_name
+                "agent_name", "STRING", self._observed_agent_key
             ),
         ]
         self._run(

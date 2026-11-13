@@ -98,6 +98,9 @@ export function buildConfirmationDataPart(item: ConfirmationItem): Part {
 
 export interface CreateLhaClientOptions {
   contextId: string;
+  /** The agent the conversation is about, read at each send: the agent list
+   *  that names the default agent may answer after the client is built. */
+  resolveAgentKey?: () => string | undefined;
   /** Aborts the agent-card retry loop (e.g. when the boot effect tears down). */
   signal?: AbortSignal;
 }
@@ -290,7 +293,15 @@ export async function createLhaClient(
     })),
   };
 
-  const { contextId } = opts;
+  const { contextId, resolveAgentKey } = opts;
+
+  // On the request, where the agent reads it (ADK hands request metadata to
+  // the chat agent's `before_agent`), and on the message, which is what the
+  // transcript keeps and the conversation list reads the agent from.
+  function buildAgentMetadata(): Record<string, unknown> | undefined {
+    const agentKey = resolveAgentKey?.();
+    return agentKey ? { agent_key: agentKey } : undefined;
+  }
 
   // `legacyCompat` is deliberately omitted: it defaults to disabled, which
   // selects the native transport. Our card also advertises a compatibility
@@ -308,13 +319,15 @@ export async function createLhaClient(
     text: string,
     opts: SendOptions = {},
   ): AsyncGenerator<unknown, void, void> {
+    const metadata = buildAgentMetadata();
     const message = makeUserMessage({
       messageId: opts.messageId ?? newId(),
       contextId,
       parts: buildMessageParts(text, opts.extraParts),
+      metadata,
     });
     for await (const event of client.sendMessageStream(
-      { tenant: "", message, configuration: undefined, metadata: undefined },
+      { tenant: "", message, configuration: undefined, metadata },
       { signal: opts.signal },
     )) {
       yield event;
@@ -324,13 +337,15 @@ export async function createLhaClient(
   async function* sendConfirmation(
     opts: SendConfirmationOptions,
   ): AsyncGenerator<unknown, void, void> {
+    const metadata = buildAgentMetadata();
     const message = makeUserMessage({
       messageId: opts.messageId ?? newId(),
       contextId,
       parts: [buildConfirmationDataPart(opts)],
+      metadata,
     });
     for await (const event of client.sendMessageStream(
-      { tenant: "", message, configuration: undefined, metadata: undefined },
+      { tenant: "", message, configuration: undefined, metadata },
       { signal: opts.signal },
     )) {
       yield event;
@@ -341,13 +356,15 @@ export async function createLhaClient(
     items: ConfirmationItem[],
     opts: { signal?: AbortSignal; messageId?: string } = {},
   ): AsyncGenerator<unknown, void, void> {
+    const metadata = buildAgentMetadata();
     const message = makeUserMessage({
       messageId: opts.messageId ?? newId(),
       contextId,
       parts: items.map(buildConfirmationDataPart),
+      metadata,
     });
     for await (const event of client.sendMessageStream(
-      { tenant: "", message, configuration: undefined, metadata: undefined },
+      { tenant: "", message, configuration: undefined, metadata },
       { signal: opts.signal },
     )) {
       yield event;

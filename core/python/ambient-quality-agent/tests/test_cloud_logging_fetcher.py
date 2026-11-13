@@ -18,13 +18,20 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import re
 from typing import Any
 from unittest import mock
 
 import pytest
 from agentplatform._genai.types import EvalCase
 from ambient_quality_agent.tools.evaluation.models import MetricType
-from ambient_quality_agent.tools.ingestion.base import BaseFetcher
+from ambient_quality_agent.tools.ingestion.base import (
+    DEFAULT_JOB_TIMEOUT_MS,
+    JOIN_BACK_MARGIN_DAYS,
+    MAX_BYTES_BILLED,
+    BaseFetcher,
+    QueryTooLargeError,
+)
 from ambient_quality_agent.tools.ingestion.cloud_logging_fetcher import (
     _INLINE_LABEL_TO_ATTR,
     _LABEL_AGENT_NAME,
@@ -34,7 +41,9 @@ from ambient_quality_agent.tools.ingestion.cloud_logging_fetcher import (
     CloudLoggingFetcher,
     _rows_to_spans,
 )
+from ambient_quality_agent.tools.telemetry.schema import load_required_schema
 from ambient_quality_agent.tools.trajectories.models import IngestStatus
+from google.api_core import exceptions as api_exceptions
 from google.cloud import bigquery
 
 from .conftest import FakeTrajectoryRecorder
@@ -875,7 +884,7 @@ def test_a_single_turn_page_reports_the_session_the_turn_belongs_to() -> None:
 
 
 def test_a_dropped_row_is_reported_beside_the_mapped_ones() -> None:
-    """The page yields one case and two trajectories: the run sampled both, and
+    """The page yields one case and two trajectories: the investigation sampled both, and
     only the account that includes the second explains the size of the sample.
     """
     client = mock.MagicMock()
@@ -1042,6 +1051,27 @@ def test_the_single_turn_query_has_no_selector_path() -> None:
     assert fetcher._build_count_sql(
         MetricType.SINGLE_TURN
     ) == default._build_count_sql(MetricType.SINGLE_TURN)
+
+
+@pytest.mark.parametrize(
+    "metric_type", [MetricType.MULTI_TURN, MetricType.SINGLE_TURN]
+)
+def test_the_join_back_reads_only_the_window_widened_by_the_margin(
+    metric_type: MetricType,
+) -> None:
+    """An unbounded join back to the table reads its whole history."""
+    fetcher = _make_fetcher(mock.MagicMock())
+    bound = (
+        "WHERE s.timestamp BETWEEN"
+        f" TIMESTAMP_SUB(@window_start, INTERVAL {JOIN_BACK_MARGIN_DAYS} DAY)"
+        f" AND TIMESTAMP_ADD(@window_end, INTERVAL {JOIN_BACK_MARGIN_DAYS} DAY)"
+    )
+
+    sql = _sql_words(fetcher._build_ingestion_sql(metric_type))
+    join_backs = sql.split(" JOIN Target")[1:]
+
+    assert len(join_backs) == 1
+    assert bound in join_backs[0].split(" GROUP BY ")[0]
 
 
 # --- Tests for missing table labels -------------------------------------------
@@ -1313,6 +1343,32 @@ def test_get_payload_ref_reads_only_the_ref_columns_the_table_has() -> None:
     sql = client.query.call_args.args[0]
     assert "labels.gen_ai_output_messages_ref" in sql
     assert "gen_ai_input_messages_ref" not in sql
+
+
+def test_get_payload_ref_is_capped_and_timed_out_by_default() -> None:
+    client = mock.MagicMock()
+    client.query.return_value.result.return_value = []
+    fetcher = _make_fetcher(client)
+
+    fetcher.get_payload_ref("agent-a", _START, _END)
+
+    job_config = client.query.call_args.kwargs["job_config"]
+    assert job_config.maximum_bytes_billed == MAX_BYTES_BILLED
+    assert int(job_config.job_timeout_ms) == DEFAULT_JOB_TIMEOUT_MS
+
+
+def test_get_payload_ref_over_the_cap_raises_query_too_large() -> None:
+    client = mock.MagicMock()
+    client.query.return_value.result.side_effect = (
+        api_exceptions.InternalServerError(
+            "Query exceeded limit for bytes billed: 1.",
+            errors=[{"reason": "bytesBilledLimitExceeded"}],
+        )
+    )
+    fetcher = _make_fetcher(client)
+
+    with pytest.raises(QueryTooLargeError):
+        fetcher.get_payload_ref("agent-a", _START, _END)
 
 
 def test_get_payload_ref_without_ref_columns_runs_no_query() -> None:
@@ -1607,3 +1663,26 @@ def test_counting_query_ignores_the_inline_labels(
     sql = client.query.call_args.args[0]
     for label in _INLINE_LABELS:
         assert label not in sql
+
+
+def test_every_column_the_schema_file_lists_is_read() -> None:
+    """A listed column the queries do not read would refuse tables that
+    ingest fine."""
+    fetcher = _make_fetcher(mock.MagicMock())
+    sql = "\n".join(
+        build(metric_type)
+        for build in (
+            fetcher._build_ingestion_sql,
+            fetcher._build_count_sql,
+            fetcher._build_count_by_agent_sql,
+        )
+        for metric_type in (MetricType.MULTI_TURN, MetricType.SINGLE_TURN)
+    )
+
+    unread = [
+        column.name
+        for column in load_required_schema(CloudLoggingFetcher.SCHEMA_FILE)
+        if not re.search(rf"\b{column.name}\b", sql)
+    ]
+
+    assert unread == []

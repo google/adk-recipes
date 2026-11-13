@@ -12,26 +12,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""BigQuery persistence for investigation runs.
+"""BigQuery persistence for investigations and their progress events.
 
-The deployed implementation of `store.InvestigationStore`. That module is where
-the behaviour a store owes its callers is written down; this is how BigQuery
-answers for it.
+Implements `store.InvestigationStore` over two append-only tables in
+`Config.aqa_dataset`: ``investigations`` (one snapshot row per lifecycle
+transition) and ``investigation_events`` (progress events emitted by workflow
+nodes).
 
-Two append-only tables in the dataset the agent owns for its own tables
-(`Config.aqa_dataset` -- the same one the insight tables live in):
-`investigations`, holding a snapshot of a run per lifecycle step, and
-`investigation_events`, holding the progress events its workflow nodes emitted.
+A store is bound to one agent's `observed_agent_key` (stored in the
+``observed_agent_name`` column). List and counter aggregation queries filter by
+that key, while `get`, `list_latest_stage_events`, `list_stale_pending`, and
+`list_overdue_scheduled` query across all agents because investigation IDs are
+globally unique.
 
-Five operations, and no lifecycle knowledge behind any of them: append a
-snapshot, append an event, read one run, list the recent ones, and total every
-run's counters. What a run's lifecycle *is* -- who may create one, what a status
-transition implies -- belongs to `core.investigation.model`, which drives this.
-
-Nothing here updates or deletes a row. A run changes by gaining a newer
-snapshot, and a crashed run that retries simply appends more; every read takes
-the newest. Rows are written with load jobs rather than the streaming API,
-so a row is immediately queryable by the invocation that follows.
+Rows are written with load jobs rather than streaming inserts so they are
+immediately visible to subsequent queries and DML.
 """
 
 from __future__ import annotations
@@ -41,17 +36,23 @@ import json
 import logging
 from typing import TYPE_CHECKING, Any
 
+from ambient_quality_agent import clients
+from ambient_quality_agent import config as config_module
 from ambient_quality_agent.core.session_state import ADKStateLike
 from ambient_quality_agent.tools.investigations.models import (
     EVENTS_FIELD,
     IN_FLIGHT_STATUSES,
     NON_AMBIENT_TRIGGER_TYPES,
+    STAGE_EVENT_SOURCE,
+    Investigation,
     InvestigationEvent,
-    InvestigationRecord,
-    RunStatus,
+    InvestigationStatus,
+    counter_to_key,
+    field_to_column,
     list_counter_names,
-    list_event_columns,
+    list_event_fields,
     list_snapshot_columns,
+    list_snapshot_fields,
 )
 from ambient_quality_agent.tools.investigations.store import (
     DEFAULT_LIST_LIMIT,
@@ -73,7 +74,7 @@ _SCHEMA_CHECK_TIMEOUT_SECONDS = 10
 """Cap on the boot-time schema read: a wedged metadata call must not hold up
 the first request over a check that only logs."""
 
-# The config snapshot is only ever read back for a single run, by the durable
+# The config snapshot is only ever read back for a single investigation, by the durable
 # job that runs the graph from it, so the list leaves it in the table.
 _LIST_SKIPS = frozenset({"effective_config"})
 
@@ -93,7 +94,7 @@ def _build_counter_sql(name: str) -> str:
     """Generates SQL expression to extract a counter as INT64 from JSON.
 
     Args:
-        name: Counter field name.
+        name: Key the counter is stored under in the ``counters`` column.
 
     Returns:
         SQL expression string with COALESCE to default missing keys to 0.
@@ -106,7 +107,8 @@ def _build_window_conditions(
 ) -> tuple[list[str], list[Any]]:
     """Builds SQL WHERE conditions and query parameters for telemetry window filtering.
 
-    Filters on `window_end` so runs correspond to inspected telemetry data.
+    Filters on `window_end` so investigations are grouped by the telemetry
+    period they inspected.
 
     Args:
         window_start: Optional ISO timestamp lower bound.
@@ -133,7 +135,7 @@ def _build_window_conditions(
 
 
 class BigQueryInvestigationStore:
-    """Appends and reads one deployment's investigations and their events."""
+    """Appends and reads one agent's investigations and their events."""
 
     def __init__(
         self,
@@ -141,17 +143,22 @@ class BigQueryInvestigationStore:
         client: bigquery.Client,
         project_id: str,
         dataset: str,
+        observed_agent_key: str = "",
     ) -> None:
-        """Bind the store to the investigation tables.
+        """Bind the store to the investigation tables and one agent.
 
         Args:
             client: BigQuery client; its location fixes the job region.
             project_id: GCP project owning the dataset, for table references.
             dataset: BigQuery dataset holding the tables (`Config.aqa_dataset`).
+            observed_agent_key: Key of the agent whose investigations the investigation list and counter
+                totals cover. Empty for a deployment with no agent, whose
+                list and totals are not scoped.
         """
         self._client = client
         self._project_id = project_id
         self._dataset = dataset
+        self._observed_agent_key = observed_agent_key
 
     @classmethod
     def from_config(cls, config: Config) -> BigQueryInvestigationStore:
@@ -164,11 +171,12 @@ class BigQueryInvestigationStore:
             Configured BigQueryInvestigationStore instance.
         """
         return cls(
-            client=bigquery.Client(
-                project=config.project_id, location=config.aqa_dataset_location
+            client=clients.create_bigquery_client(
+                config.project_id, config.aqa_dataset_location
             ),
             project_id=config.project_id,
             dataset=config.aqa_dataset,
+            observed_agent_key=config.resolve_agent_key(),
         )
 
     @classmethod
@@ -184,18 +192,19 @@ class BigQueryInvestigationStore:
             Configured BigQueryInvestigationStore instance.
         """
         return cls(
-            client=bigquery.Client(
-                project=state["project_id"],
-                location=state.get("aqa_dataset_location", "us-central1"),
+            client=clients.create_bigquery_client(
+                state["project_id"],
+                state.get("aqa_dataset_location", "us-central1"),
             ),
             project_id=state["project_id"],
             dataset=state.get("aqa_dataset", "aqua_insights"),
+            observed_agent_key=config_module.extract_agent_key(state),
         )
 
     # --- Writes ------------------------------------------------------------ #
 
-    def append(self, record: InvestigationRecord) -> InvestigationRecord:
-        """Appends record as the latest snapshot for the investigation run.
+    def append(self, record: Investigation) -> Investigation:
+        """Appends record as the latest snapshot for the investigation.
 
         Restamps updated_at. Excludes events, which are written to the events table.
 
@@ -212,72 +221,77 @@ class BigQueryInvestigationStore:
         )
         return stored
 
-    def append_event(self, run_id: str, text: str, *, source: str = "") -> None:
+    def append_event(
+        self, investigation_id: str, text: str, *, source: str = ""
+    ) -> None:
         """Appends a progress event to the events table.
 
         Args:
-            run_id: Investigation run identifier.
+            investigation_id: Investigation identifier.
             text: Markdown content emitted by the node.
             source: Identifier of the emitting node or component.
         """
         event = InvestigationEvent(
-            run_id=run_id, text=text, source=source or None
+            investigation_id=investigation_id, text=text, source=source or None
         )
         self._insert_rows(EVENTS_TABLE, [_record_to_row(event)])
 
     # --- Reads --------------------------------------------------------------#
 
     def get(
-        self, run_id: str, *, include_events: bool = True
-    ) -> InvestigationRecord | None:
-        """Loads the latest snapshot of an investigation run by ID.
+        self, investigation_id: str, *, include_events: bool = True
+    ) -> Investigation | None:
+        """Loads the latest snapshot of an investigation by ID.
 
         Args:
-            run_id: Investigation run identifier.
+            investigation_id: Investigation identifier.
             include_events: Whether to load associated progress events.
 
         Returns:
             The investigation record snapshot, or None if not found.
         """
-        params = [bigquery.ScalarQueryParameter("run_id", "STRING", run_id)]
+        params = [
+            bigquery.ScalarQueryParameter(
+                "investigation_id", "STRING", investigation_id
+            )
+        ]
         rows = self._run(
-            f"SELECT {_build_select_list(list_snapshot_columns())} "  # noqa: S608 - trusted identifiers and fixed SQL; values are parameterized
+            f"SELECT {_build_select_list(list_snapshot_fields())} "  # noqa: S608 - trusted identifiers and fixed SQL; values are parameterized
             f"FROM `{self._build_table_ref(INVESTIGATIONS_TABLE)}` "
-            "WHERE run_id = @run_id ORDER BY updated_at DESC LIMIT 1",
+            "WHERE run_id = @investigation_id ORDER BY updated_at DESC LIMIT 1",
             params,
         )
         if not rows:
             return None
-        record = InvestigationRecord.model_validate(_drop_null_columns(rows[0]))
+        record = Investigation.model_validate(_drop_null_columns(rows[0]))
         if include_events:
             record = record.model_copy(
-                update={"events": self._list_events(run_id)}
+                update={"events": self._list_events(investigation_id)}
             )
         return record
 
     def list_recent(
         self,
         *,
-        status: RunStatus | None = None,
+        status: InvestigationStatus | None = None,
         limit: int = DEFAULT_LIST_LIMIT,
         window_start: str | None = None,
         window_end: str | None = None,
-    ) -> list[InvestigationRecord]:
-        """Queries the most recent investigation runs within an optional window.
+    ) -> list[Investigation]:
+        """Queries the most recent investigations within an optional window.
 
         Args:
-            status: Optional run status filter.
-            limit: Maximum number of runs to return.
+            status: Optional investigation status filter.
+            limit: Maximum number of investigations to return.
             window_start: Optional ISO timestamp lower bound for telemetry window end.
             window_end: Optional ISO timestamp upper bound for telemetry window end.
 
         Returns:
             List of recent investigation records ordered chronologically.
         """
-        columns = [c for c in list_snapshot_columns() if c not in _LIST_SKIPS]
-        params: list[Any] = [
-            bigquery.ScalarQueryParameter("limit", "INT64", limit)
-        ]
+        fields = [f for f in list_snapshot_fields() if f not in _LIST_SKIPS]
+        agent, params = self._build_agent_filter()
+        params.append(bigquery.ScalarQueryParameter("limit", "INT64", limit))
         conditions: list[str] = []
         if status is not None:
             conditions.append("status = @status")
@@ -293,8 +307,8 @@ class BigQueryInvestigationStore:
         rows = self._run(
             f"""
 SELECT * FROM (
-  SELECT {_build_select_list(columns)}
-  FROM `{self._build_table_ref(INVESTIGATIONS_TABLE)}`
+  SELECT {_build_select_list(fields)}
+  FROM `{self._build_table_ref(INVESTIGATIONS_TABLE)}`{agent}
   QUALIFY ROW_NUMBER() OVER (PARTITION BY run_id ORDER BY updated_at DESC) = 1)
 {where}
 ORDER BY created_at DESC
@@ -303,14 +317,48 @@ LIMIT @limit
             params,
         )
         return [
-            InvestigationRecord.model_validate(_drop_null_columns(row))
+            Investigation.model_validate(_drop_null_columns(row))
             for row in reversed(rows)
+        ]
+
+    def list_latest_stage_events(
+        self, investigation_ids: Sequence[str]
+    ) -> list[InvestigationEvent]:
+        """Queries the newest stage event of each named investigation.
+
+        Args:
+            investigation_ids: Investigations to look up; empty costs no
+                query.
+
+        Returns:
+            One event per named investigation that wrote a stage event.
+        """
+        if not investigation_ids:
+            return []
+        rows = self._run(
+            f"SELECT {_build_select_list(list_event_fields())} "  # noqa: S608 - trusted identifiers and fixed SQL; values are parameterized
+            f"FROM `{self._build_table_ref(EVENTS_TABLE)}` "
+            "WHERE run_id IN UNNEST(@investigation_ids) AND source = @source "
+            "QUALIFY ROW_NUMBER() "
+            "OVER (PARTITION BY run_id ORDER BY created_at DESC) = 1",
+            [
+                bigquery.ArrayQueryParameter(
+                    "investigation_ids", "STRING", list(investigation_ids)
+                ),
+                bigquery.ScalarQueryParameter(
+                    "source", "STRING", STAGE_EVENT_SOURCE
+                ),
+            ],
+        )
+        return [
+            InvestigationEvent.model_validate(_drop_null_columns(row))
+            for row in rows
         ]
 
     def sum_counters(
         self, *, window_start: str | None = None, window_end: str | None = None
     ) -> tuple[dict[str, int], dict[str, str | None]]:
-        """Aggregates all counters across investigation runs in BigQuery.
+        """Aggregates all counters across investigations in BigQuery.
 
         Args:
             window_start: Optional ISO timestamp lower bound for telemetry window end.
@@ -320,11 +368,13 @@ LIMIT @limit
             Tuple of (counter name to total mapping, covered window bounds dict).
         """
         sums = ",\n  ".join(
-            f"SUM({_build_counter_sql(name)}) AS {name}"
+            f"SUM({_build_counter_sql(counter_to_key(name))}) AS {name}"
             for name in list_counter_names()
         )
         conditions, params = _build_window_conditions(window_start, window_end)
         where = f"\nWHERE {' AND '.join(conditions)}" if conditions else ""
+        agent, agent_params = self._build_agent_filter()
+        params += agent_params
         rows = self._run(
             f"""
 SELECT
@@ -334,7 +384,7 @@ SELECT
   {sums}
 FROM (
   SELECT run_id, window_end, {_UNWRAPPED_COUNTERS} AS counters
-  FROM `{self._build_table_ref(INVESTIGATIONS_TABLE)}`
+  FROM `{self._build_table_ref(INVESTIGATIONS_TABLE)}`{agent}
   QUALIFY ROW_NUMBER() OVER (PARTITION BY run_id ORDER BY updated_at DESC) = 1){where}
 """,  # noqa: S608 - trusted identifiers and fixed SQL; values are parameterized
             params,
@@ -353,20 +403,21 @@ FROM (
         return {name: int(value or 0) for name, value in row.items()}, covered
 
     def list_stale_pending(self, *, lease_minutes: int) -> list[str]:
-        """Queries IDs of runs remaining in pending status beyond the lease duration.
+        """Queries IDs of investigations remaining in pending status beyond the lease duration.
 
         Args:
-            lease_minutes: Number of minutes after creation before a run is considered stale.
+            lease_minutes: Number of minutes after update before an
+                investigation is considered stale.
 
         Returns:
-            List of stale run IDs.
+            List of stale pending investigation IDs.
         """
         deadline = (
             dt.datetime.now(tz=dt.UTC) - dt.timedelta(minutes=lease_minutes)
         ).isoformat()
         params = [
             bigquery.ScalarQueryParameter(
-                "status", "STRING", RunStatus.PENDING.value
+                "status", "STRING", InvestigationStatus.PENDING.value
             ),
             bigquery.ScalarQueryParameter("deadline", "TIMESTAMP", deadline),
         ]
@@ -383,21 +434,21 @@ WHERE status = @status AND updated_at < @deadline
         return [row["run_id"] for row in rows]
 
     def list_overdue_scheduled(self, *, grace_minutes: int) -> list[str]:
-        """Queries IDs of scheduled runs whose trigger is overdue beyond the grace.
+        """Queries IDs of scheduled investigations whose trigger is overdue beyond the grace.
 
         Args:
-            grace_minutes: Minutes past `due_at` a scheduled run may wait for its
+            grace_minutes: Minutes past `due_at` a scheduled investigation may wait for its
                 trigger before it is considered lost.
 
         Returns:
-            List of overdue scheduled run IDs.
+            List of overdue scheduled investigation IDs.
         """
         deadline = dt.datetime.now(tz=dt.UTC) - dt.timedelta(
             minutes=grace_minutes
         )
         params = [
             bigquery.ScalarQueryParameter(
-                "status", "STRING", RunStatus.SCHEDULED.value
+                "status", "STRING", InvestigationStatus.SCHEDULED.value
             ),
             bigquery.ScalarQueryParameter("deadline", "TIMESTAMP", deadline),
         ]
@@ -414,30 +465,31 @@ WHERE status = @status AND due_at < @deadline
         return [row["run_id"] for row in rows]
 
     def get_last_finished_window_end(
-        self, observed_agent_name: str
+        self, observed_agent_key: str
     ) -> str | None:
-        """Returns the latest telemetry window end timestamp for finished ambient runs.
+        """Returns the latest telemetry window end timestamp for finished ambient investigations.
 
         Excludes dry runs and non-ambient triggers (`NON_AMBIENT_TRIGGER_TYPES`) because
         ad-hoc or custom sweeps use custom windows that would misalign the ambient
         telemetry watermark.
 
         Args:
-            observed_agent_name: Name of the observed agent.
+            observed_agent_key: The agent's key, which investigations record in
+                `observed_agent_key`.
 
         Returns:
             ISO 8601 timestamp of the latest completed window end, or None if no
-            completed ambient run exists.
+            completed ambient investigation exists.
 
-        TODO: a run stopped by its evaluation budget still ends ``done``, so the
+        TODO: an investigation stopped by its evaluation budget still ends ``done``, so the
         point advances past unevaluated telemetry.
         """
         params = [
             bigquery.ScalarQueryParameter(
-                "status", "STRING", RunStatus.DONE.value
+                "status", "STRING", InvestigationStatus.DONE.value
             ),
             bigquery.ScalarQueryParameter(
-                "agent", "STRING", observed_agent_name
+                "agent", "STRING", observed_agent_key
             ),
             bigquery.ArrayQueryParameter(
                 "non_ambient", "STRING", sorted(NON_AMBIENT_TRIGGER_TYPES)
@@ -459,19 +511,22 @@ WHERE status = @status
         mark = rows[0]["mark"] if rows else None
         return mark.isoformat() if isinstance(mark, dt.datetime) else mark
 
-    def count_in_flight(self, observed_agent_name: str) -> int:
-        """Counts active in-flight investigation runs for an agent.
+    def count_in_flight(self, observed_agent_key: str) -> int:
+        """Counts active in-flight investigations for an agent.
 
-        Because durable runs execute in external processes, active counts are
-        queried from the store rather than tracked in memory. Runs untouched for
-        longer than `IN_FLIGHT_HORIZON_HOURS` are excluded so aborted or crashed
-        processes do not permanently consume concurrency capacity.
+        Because durable investigations execute in separate processes, active
+        counts are queried from the store rather than tracked in memory.
+        Investigations untouched for longer than `IN_FLIGHT_HORIZON_HOURS` are
+        excluded so aborted or crashed processes do not permanently consume
+        concurrency capacity.
 
         Args:
-            observed_agent_name: Name of the observed agent.
+            observed_agent_key: The agent's key, which investigations record in
+                `observed_agent_key`.
 
         Returns:
-            Number of pending or running runs updated within the horizon.
+            Number of pending or running investigations updated within the
+            horizon.
         """
         since = (
             dt.datetime.now(tz=dt.UTC)
@@ -479,7 +534,7 @@ WHERE status = @status
         ).isoformat()
         params = [
             bigquery.ScalarQueryParameter(
-                "agent", "STRING", observed_agent_name
+                "agent", "STRING", observed_agent_key
             ),
             bigquery.ArrayQueryParameter(
                 "in_flight",
@@ -508,8 +563,8 @@ WHERE observed_agent_name = @agent
         """Aggregates counter totals grouped by calendar day of telemetry window end.
 
         Aggregates in SQL over the specified time range so the results reflect the full
-        window rather than a paginated subset. Days with no runs are omitted.
-        Includes an `unmeasured` count for runs where all counters are zero.
+        window rather than a paginated subset. Days with no investigations are omitted.
+        Includes an `unmeasured` count for investigations where all counters are zero.
 
         Args:
             window_start: Optional ISO timestamp lower bound for telemetry window end.
@@ -520,14 +575,19 @@ WHERE observed_agent_name = @agent
         """
         names = list_counter_names()
         sums = ",\n  ".join(
-            f"SUM({_build_counter_sql(n)}) AS {n}" for n in names
+            f"SUM({_build_counter_sql(counter_to_key(n))}) AS {n}"
+            for n in names
         )
         # "Measured nothing" means every counter is zero, rather than a NULL column.
-        measured = " + ".join(_build_counter_sql(n) for n in names)
+        measured = " + ".join(
+            _build_counter_sql(counter_to_key(n)) for n in names
+        )
         conditions, params = _build_window_conditions(window_start, window_end)
-        # A run with no window cannot be filed under a day at all, so it is out
-        # of this read entirely rather than bucketed under a guess.
+        # Exclude investigations without a `window_end` so they are not bucketed
+        # under an arbitrary day.
         conditions.insert(0, "window_end IS NOT NULL")
+        agent, agent_params = self._build_agent_filter()
+        params += agent_params
         rows = self._run(
             f"""
 SELECT
@@ -537,7 +597,7 @@ SELECT
   {sums}
 FROM (
   SELECT run_id, window_end, {_UNWRAPPED_COUNTERS} AS counters
-  FROM `{self._build_table_ref(INVESTIGATIONS_TABLE)}`
+  FROM `{self._build_table_ref(INVESTIGATIONS_TABLE)}`{agent}
   QUALIFY ROW_NUMBER() OVER (PARTITION BY run_id ORDER BY updated_at DESC) = 1)
 WHERE {" AND ".join(conditions)}
 GROUP BY day
@@ -556,20 +616,24 @@ ORDER BY day
             for row in rows
         ]
 
-    def _list_events(self, run_id: str) -> list[InvestigationEvent]:
-        """Queries all progress events for a run, ordered by creation time.
+    def _list_events(self, investigation_id: str) -> list[InvestigationEvent]:
+        """Queries all progress events for an investigation, ordered by creation time.
 
         Args:
-            run_id: Investigation run identifier.
+            investigation_id: Investigation identifier.
 
         Returns:
             List of InvestigationEvent objects sorted oldest first.
         """
         rows = self._run(
-            f"SELECT {_build_select_list(list_event_columns())} "  # noqa: S608 - trusted identifiers and fixed SQL; values are parameterized
+            f"SELECT {_build_select_list(list_event_fields())} "  # noqa: S608 - trusted identifiers and fixed SQL; values are parameterized
             f"FROM `{self._build_table_ref(EVENTS_TABLE)}` "
-            "WHERE run_id = @run_id ORDER BY created_at",
-            [bigquery.ScalarQueryParameter("run_id", "STRING", run_id)],
+            "WHERE run_id = @investigation_id ORDER BY created_at",
+            [
+                bigquery.ScalarQueryParameter(
+                    "investigation_id", "STRING", investigation_id
+                )
+            ],
         )
         return [
             InvestigationEvent.model_validate(_drop_null_columns(row))
@@ -597,6 +661,21 @@ ORDER BY day
         return [name for name in list_snapshot_columns() if name not in have]
 
     # --- Plumbing ---------------------------------------------------------- #
+
+    def _build_agent_filter(self) -> tuple[str, list[Any]]:
+        """Builds the WHERE clause that scopes queries to the store's agent.
+
+        Returns:
+            Tuple of (SQL fragment with a leading space, or empty when the
+            store has no agent; its query parameters).
+        """
+        if not self._observed_agent_key:
+            return "", []
+        return " WHERE observed_agent_name = @agent", [
+            bigquery.ScalarQueryParameter(
+                "agent", "STRING", self._observed_agent_key
+            )
+        ]
 
     def _build_table_ref(self, table: str) -> str:
         """Constructs a fully qualified `project.dataset.table` reference.
@@ -631,35 +710,41 @@ ORDER BY day
         ).result()
 
 
-def _build_select_list(columns: Sequence[str]) -> str:
-    """Builds a comma-separated column list for SQL SELECT statements.
+def _build_select_list(fields: Sequence[str]) -> str:
+    """Builds the SELECT list that reads model fields from their columns.
+
+    A column whose name differs from its field is selected under the field's
+    name, so a row validates straight into the model.
 
     Args:
-        columns: Sequence of column names.
+        fields: Sequence of model field names.
 
     Returns:
-        Formatted comma-separated column string.
+        Formatted comma-separated select list.
     """
-    return ", ".join(columns)
+    return ", ".join(
+        f if field_to_column(f) == f else f"{field_to_column(f)} AS {f}"
+        for f in fields
+    )
 
 
 def _record_to_row(
-    record: InvestigationRecord | InvestigationEvent,
+    record: Investigation | InvestigationEvent,
     *,
     exclude: set[str] | None = None,
 ) -> dict[str, Any]:
     """Converts a model instance into a dictionary for BigQuery JSON loading.
 
     Args:
-        record: InvestigationRecord or InvestigationEvent instance.
+        record: Investigation or InvestigationEvent instance.
         exclude: Optional set of field names to omit.
 
     Returns:
         Dictionary formatted for BigQuery JSON insertion.
     """
-    if isinstance(record, InvestigationRecord) and record.summary is not None:
+    if isinstance(record, Investigation) and record.summary is not None:
         # The events are rows of their own; carrying them here too would repeat
-        # a run's largest payload in every snapshot after the one that ran it.
+        # an investigation's largest payload in every snapshot after the one that ran it.
         record = record.model_copy(
             update={
                 "summary": {
@@ -667,12 +752,14 @@ def _record_to_row(
                 }
             }
         )
-    row = record.model_dump(mode="json", exclude=exclude, exclude_none=True)
+    row = record.model_dump(
+        mode="json", exclude=exclude, exclude_none=True, by_alias=True
+    )
     return {
-        column: json.dumps(value, ensure_ascii=False)
+        field_to_column(field): json.dumps(value, ensure_ascii=False)
         if isinstance(value, dict | list)
         else value
-        for column, value in row.items()
+        for field, value in row.items()
     }
 
 

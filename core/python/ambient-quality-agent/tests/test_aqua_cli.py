@@ -26,6 +26,7 @@ from __future__ import annotations
 import json
 import signal
 import types
+from typing import Any
 
 import pytest
 from ambient_quality_cli import aqua_cli
@@ -60,7 +61,7 @@ def _patch_client(monkeypatch, client):
 # Subcommands: JSON-only stdout                                                #
 # --------------------------------------------------------------------------- #
 def test_list_investigations_emits_only_json_on_stdout(monkeypatch, runner):
-    result = {"runs": [{"run_id": "a", "status": "done"}]}
+    result = {"investigations": [{"investigation_id": "a", "status": "done"}]}
     client = _FakeCommandClient(lambda path, payload, n: result)
     _patch_client(monkeypatch, client)
 
@@ -74,7 +75,11 @@ def test_list_investigations_emits_only_json_on_stdout(monkeypatch, runner):
 
 
 def test_get_investigation_sends_run_id_and_returns_record(monkeypatch, runner):
-    record = {"run_id": "xyz", "status": "done", "summary": {"score": 1}}
+    record = {
+        "investigation_id": "xyz",
+        "status": "done",
+        "summary": {"score": 1},
+    }
     client = _FakeCommandClient(lambda path, payload, n: record)
     _patch_client(monkeypatch, client)
 
@@ -84,12 +89,12 @@ def test_get_investigation_sends_run_id_and_returns_record(monkeypatch, runner):
 
     assert res.exit_code == 0
     assert json.loads(res.stdout) == record
-    assert client.calls == [("investigations/get", {"run_id": "xyz"})]
+    assert client.calls == [("investigations/get", {"investigation_id": "xyz"})]
 
 
 def test_a_scheduled_run_is_a_run_record_with_its_due_time(monkeypatch, runner):
     record = {
-        "run_id": "sched01",
+        "investigation_id": "sched01",
         "status": "scheduled",
         "due_at": "2026-10-07T17:15:00+00:00",
         "error": None,
@@ -103,7 +108,7 @@ def test_a_scheduled_run_is_a_run_record_with_its_due_time(monkeypatch, runner):
 
     assert res.exit_code == aqua_cli.EXIT_OK
     assert json.loads(res.stdout)["due_at"] == record["due_at"]
-    assert "scheduled" in aqua_cli._RUN_STATUSES
+    assert "scheduled" in aqua_cli._INVESTIGATION_STATUSES
 
 
 def test_show_config_reads_the_config_route(monkeypatch, runner):
@@ -234,7 +239,7 @@ def test_list_insights_sends_filters_in_the_body(monkeypatch, runner):
             "list-insights",
             "--status",
             "RECURRING",
-            "--run-id",
+            "--investigation-id",
             "run-1",
             "--resource",
             "r",
@@ -243,7 +248,7 @@ def test_list_insights_sends_filters_in_the_body(monkeypatch, runner):
 
     assert res.exit_code == 0
     assert client.calls == [
-        ("insights/list", {"status": "RECURRING", "run_id": "run-1"})
+        ("insights/list", {"status": "RECURRING", "investigation_id": "run-1"})
     ]
 
 
@@ -261,7 +266,7 @@ def test_get_insight_sends_insight_id_and_flags(monkeypatch, runner):
         [
             "get-insight",
             "i1",
-            "--run-id",
+            "--investigation-id",
             "run-9",
             "--no-traces",
             "--resource",
@@ -274,7 +279,11 @@ def test_get_insight_sends_insight_id_and_flags(monkeypatch, runner):
     assert client.calls == [
         (
             "insights/get",
-            {"insight_id": "i1", "run_id": "run-9", "include_traces": False},
+            {
+                "insight_id": "i1",
+                "investigation_id": "run-9",
+                "include_traces": False,
+            },
         )
     ]
 
@@ -287,7 +296,7 @@ def test_failed_run_exits_2(monkeypatch, runner):
     # this the guard on `_extract_error`'s status check: treating any `error` as a
     # broken call would collapse this to EXIT_ERROR and lose the distinction
     # between "the investigation failed" and "the lookup failed".
-    record = {"run_id": "x", "status": "failed", "error": "boom"}
+    record = {"investigation_id": "x", "status": "failed", "error": "boom"}
     client = _FakeCommandClient(lambda path, payload, n: record)
     _patch_client(monkeypatch, client)
 
@@ -333,7 +342,7 @@ def test_transport_failure_exits_1(monkeypatch, runner):
 # the combination a caller branching on `$?` depends on.                       #
 # --------------------------------------------------------------------------- #
 def test_unknown_run_exits_1_and_still_prints_the_error(monkeypatch, runner):
-    envelope = {"error": "No run found with id 'nope'."}
+    envelope = {"error": "No investigation found with id 'nope'."}
     client = _FakeCommandClient(lambda path, payload, n: envelope)
     _patch_client(monkeypatch, client)
 
@@ -349,7 +358,10 @@ def test_failed_read_of_a_list_exits_1(monkeypatch, runner):
     # `list_investigations` answers a denied BigQuery read with an empty list
     # *and* an error. Exiting 0 would render an outage as a healthy, empty
     # account -- plausible JSON, and wrong.
-    envelope = {"runs": [], "error": "failed to list investigations: denied"}
+    envelope = {
+        "investigations": [],
+        "error": "failed to list investigations: denied",
+    }
     client = _FakeCommandClient(lambda path, payload, n: envelope)
     _patch_client(monkeypatch, client)
 
@@ -368,7 +380,7 @@ def test_wait_stops_on_an_error_envelope_instead_of_polling_out(
     # existing -- so a loop that does not treat the envelope as terminal only
     # rediscovers it until the deadline, then reports a timeout rather than the
     # error. At the default that is 1800s of polling.
-    envelope = {"error": "No run found with id 'nope'."}
+    envelope = {"error": "No investigation found with id 'nope'."}
 
     def script(path, payload, call_number):
         # A terminal record from the second poll on, so that a loop which fails
@@ -376,7 +388,7 @@ def test_wait_stops_on_an_error_envelope_instead_of_polling_out(
         # here, and neither outcome should depend on the wall clock.
         if call_number == 1:
             return envelope
-        return {"run_id": "nope", "status": "done"}
+        return {"investigation_id": "nope", "status": "done"}
 
     client = _FakeCommandClient(script)
     _patch_client(monkeypatch, client)
@@ -403,7 +415,10 @@ def test_wait_stops_on_an_error_envelope_instead_of_polling_out(
 # --------------------------------------------------------------------------- #
 def test_wait_polls_until_terminal(monkeypatch, runner):
     def script(path, payload, n):
-        return {"run_id": "x", "status": "running" if n < 3 else "done"}
+        return {
+            "investigation_id": "x",
+            "status": "running" if n < 3 else "done",
+        }
 
     client = _FakeCommandClient(script)
     _patch_client(monkeypatch, client)
@@ -428,7 +443,7 @@ def test_wait_polls_until_terminal(monkeypatch, runner):
 
 def test_wait_timeout_exits_3(monkeypatch, runner):
     client = _FakeCommandClient(
-        lambda path, payload, n: {"run_id": "x", "status": "running"}
+        lambda path, payload, n: {"investigation_id": "x", "status": "running"}
     )
     _patch_client(monkeypatch, client)
 
@@ -454,9 +469,12 @@ def test_wait_timeout_exits_3(monkeypatch, runner):
 def test_schedule_wait_polls_new_run_id(monkeypatch, runner):
     def script(path, payload, n):
         if path == "investigations/schedule":
-            return {"run_id": "new1", "status": "pending"}
+            return {"investigation_id": "new1", "status": "pending"}
         # subsequent get-investigation polls
-        return {"run_id": "new1", "status": "done" if n >= 2 else "running"}
+        return {
+            "investigation_id": "new1",
+            "status": "done" if n >= 2 else "running",
+        }
 
     client = _FakeCommandClient(script)
     _patch_client(monkeypatch, client)
@@ -474,9 +492,136 @@ def test_schedule_wait_polls_new_run_id(monkeypatch, runner):
     )
 
     assert res.exit_code == 0
-    assert json.loads(res.stdout) == {"run_id": "new1", "status": "done"}
+    assert json.loads(res.stdout) == {
+        "investigation_id": "new1",
+        "status": "done",
+    }
     assert client.calls[0] == ("investigations/schedule", None)
-    assert client.calls[1] == ("investigations/get", {"run_id": "new1"})
+    assert client.calls[1] == (
+        "investigations/get",
+        {"investigation_id": "new1"},
+    )
+
+
+# --------------------------------------------------------------------------- #
+# --agent-key and the key attach recorded                                      #
+# --------------------------------------------------------------------------- #
+_ANY_RESULT = {"investigation_id": "x", "status": "done", "available": True}
+"""Satisfies every per-agent command: a terminal run, and memories read."""
+
+_PER_AGENT_COMMANDS = [
+    ["list-investigations"],
+    ["investigation-stats"],
+    ["get-investigation", "x"],
+    ["get-investigation", "x", "--wait", "--interval", "0"],
+    ["schedule-investigation"],
+    ["schedule-investigation", "--wait", "--interval", "0"],
+    ["list-insights"],
+    ["get-insight", "i"],
+    ["show-config"],
+    ["list-memories"],
+]
+
+
+def _write_agent_record(directory, agent_key, target):
+    """Writes `.aqua/attached_aqua.json` as `attach` leaves it.
+
+    Args:
+        directory: The project directory.
+        agent_key: The recorded key.
+        target: The AQuA it was recorded for.
+    """
+    state = directory / ".aqua"
+    state.mkdir()
+    (state / "attached_aqua.json").write_text(
+        json.dumps({"agent_key": agent_key, "agent_key_target": target}),
+        encoding="utf-8",
+    )
+
+
+@pytest.mark.parametrize("command", _PER_AGENT_COMMANDS)
+def test_every_per_agent_command_sends_the_agent_key(
+    monkeypatch, runner, tmp_path, command
+):
+    monkeypatch.chdir(tmp_path)
+    client = _FakeCommandClient(lambda path, payload, n: _ANY_RESULT)
+    _patch_client(monkeypatch, client)
+
+    res = runner.invoke(
+        aqua_cli.cli, [*command, "--resource", "r", "--agent-key", "p__bot"]
+    )
+
+    assert res.exit_code == 0, res.output
+    assert client.calls
+    assert all(payload["agent_key"] == "p__bot" for _, payload in client.calls)
+    assert "(agent key p__bot)" in res.stderr
+
+
+@pytest.mark.parametrize("command", _PER_AGENT_COMMANDS)
+def test_the_key_attach_recorded_here_is_sent_without_the_flag(
+    monkeypatch, runner, tmp_path, command
+):
+    monkeypatch.chdir(tmp_path)
+    _write_agent_record(tmp_path, "p__bot", "r/")
+    client = _FakeCommandClient(lambda path, payload, n: _ANY_RESULT)
+    _patch_client(monkeypatch, client)
+
+    res = runner.invoke(aqua_cli.cli, [*command, "--resource", "r"])
+
+    assert res.exit_code == 0, res.output
+    assert all(payload["agent_key"] == "p__bot" for _, payload in client.calls)
+
+
+def test_the_key_recorded_for_the_env_configured_aqua_is_sent(
+    monkeypatch, runner, tmp_path
+):
+    """agents-cli names the AQuA it recorded in AGENT_ENGINE_RESOURCE_ID."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("AGENT_ENGINE_RESOURCE_ID", "projects/p/x")
+    _write_agent_record(tmp_path, "p__bot", "projects/p/x")
+    client = _FakeCommandClient(lambda path, payload, n: _ANY_RESULT)
+    _patch_client(monkeypatch, client)
+
+    res = runner.invoke(aqua_cli.cli, ["show-config"])
+
+    assert res.exit_code == 0, res.output
+    assert client.calls == [("config", {"agent_key": "p__bot"})]
+
+
+def test_a_key_recorded_for_another_aqua_is_not_sent(
+    monkeypatch, runner, tmp_path
+):
+    """A key names an attachment on one AQuA only."""
+    monkeypatch.chdir(tmp_path)
+    _write_agent_record(tmp_path, "p__bot", "another")
+    client = _FakeCommandClient(lambda path, payload, n: _ANY_RESULT)
+    _patch_client(monkeypatch, client)
+
+    res = runner.invoke(aqua_cli.cli, ["show-config", "--resource", "r"])
+
+    assert res.exit_code == 0, res.output
+    assert client.calls == [("config", None)]
+    assert "agent key" not in res.stderr
+
+
+@pytest.mark.parametrize(
+    ("flag", "sent"), [("other_bot", {"agent_key": "other_bot"}), ("", None)]
+)
+def test_the_flag_wins_over_the_recorded_key(
+    monkeypatch, runner, tmp_path, flag, sent
+):
+    """`--agent-key ''` selects AQuA's default agent."""
+    monkeypatch.chdir(tmp_path)
+    _write_agent_record(tmp_path, "p__bot", "r")
+    client = _FakeCommandClient(lambda path, payload, n: _ANY_RESULT)
+    _patch_client(monkeypatch, client)
+
+    res = runner.invoke(
+        aqua_cli.cli, ["show-config", "--resource", "r", "--agent-key", flag]
+    )
+
+    assert res.exit_code == 0, res.output
+    assert client.calls == [("config", sent)]
 
 
 # --------------------------------------------------------------------------- #
@@ -901,28 +1046,45 @@ def test_run_rejects_json(agents_cli_calls, runner):
 # --------------------------------------------------------------------------- #
 # publish summary
 # --------------------------------------------------------------------------- #
+def _build_judged_metric(name: str, **fields: Any) -> dict[str, Any]:
+    """Builds a judged metric as the engine's report carries it.
+
+    Args:
+        name: The metric's name.
+        **fields: Report fields to add, such as `judge_samples`.
+
+    Returns:
+        The metric's report entry.
+    """
+    return {
+        "name": name,
+        "source_path": f"<prompt_template:{name}>",
+        "expected": "Polite.",
+        "model_modules": [],
+        "judged": True,
+        **fields,
+    }
+
+
 def test_the_publish_summary_prices_a_judged_metric():
     """A judged metric costs a model call per session, so the summary says so.
 
     The line sits beside the model-client warning because it is the same
     caveat -- one call per session per sweep -- from a different payer.
     """
-    judged = aqua_cli.metrics_lib.Metric(
-        name="reply_is_polite",
-        source_path="<prompt_template:reply_is_polite>",
-        expected="The reply is polite.",
-        model_modules=(),
-        judged=True,
-    )
-    code = aqua_cli.metrics_lib.Metric(
-        name="reply_is_short",
-        source_path="short.py",
-        expected="Short.",
-        model_modules=(),
-    )
-    report = aqua_cli.metrics_lib.Report((code, judged), ())
+    code = {
+        "name": "reply_is_short",
+        "source_path": "short.py",
+        "expected": "Short.",
+        "model_modules": [],
+        "judged": False,
+    }
+    report = {
+        "metrics": [code, _build_judged_metric("reply_is_polite")],
+        "skipped": [],
+    }
 
-    lines = aqua_cli._render_report_lines(report)
+    lines = aqua_cli.metrics_lib.render_report_lines(report)
 
     assert "2 metric(s) AQuA will run:" == lines[0]
     assert (
@@ -933,47 +1095,22 @@ def test_the_publish_summary_prices_a_judged_metric():
 
 
 def test_the_publish_summary_counts_each_judge_sample_as_a_call():
-    def judged(name: str, samples: int) -> aqua_cli.metrics_lib.Metric:
-        return aqua_cli.metrics_lib.Metric(
-            name=name,
-            source_path=f"<prompt_template:{name}>",
-            expected="Polite.",
-            model_modules=(),
-            judged=True,
-            judge_samples=samples,
-        )
+    render = aqua_cli.metrics_lib.render_report_lines
+    report = {
+        "metrics": [
+            _build_judged_metric("once", judge_samples=1),
+            _build_judged_metric("thrice", judge_samples=3),
+        ]
+    }
 
-    report = aqua_cli.metrics_lib.Report(
-        (judged("once", 1), judged("thrice", 3)), ()
-    )
-    rated = aqua_cli.metrics_lib.Metric(
-        name="rated",
-        source_path="<prompt_template:rated>",
-        expected="Rated.",
-        model_modules=(),
-        judged=True,
-        scores_only=True,
-    )
-    asks = aqua_cli.metrics_lib.Metric(
-        name="asks",
-        source_path="<prompt_template:asks>",
-        expected="Answers.",
-        model_modules=(),
-        judged=True,
-        reads_prompt=True,
-    )
     assert (
         "  asks: reads {prompt}, which is set only on single-turn sessions, as in "
         "agents-cli; it errors on multi-turn ones"
-    ) in aqua_cli._render_report_lines(aqua_cli.metrics_lib.Report((asks,), ()))
-    assert (
-        "  rated: scores only -- no threshold, so it files no findings"
-        in aqua_cli._render_report_lines(
-            aqua_cli.metrics_lib.Report((rated,), ())
-        )
+    ) in render({"metrics": [_build_judged_metric("asks", reads_prompt=True)]})
+    assert "  rated: scores only -- no threshold, so it files no findings" in (
+        render({"metrics": [_build_judged_metric("rated", scores_only=True)]})
     )
-
     assert (
         "2 metric(s) are judged by the eval service's model, 4 model call(s) per "
         "session per sweep: once, thrice (3 samples)"
-    ) in aqua_cli._render_report_lines(report)
+    ) in render(report)

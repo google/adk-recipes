@@ -15,7 +15,7 @@
 """Tests for `BigQueryInvestigationStore`'s plumbing (offline, no BigQuery).
 
 Asserts on the rows it loads and the SQL it emits. The lifecycle driving it --
-who may create a run, what a status transition implies -- belongs to the
+who may create an investigation, what a status transition implies -- belongs to the
 registry and is covered by `test_investigation_run`, which drives the same store
 over an in-memory row list.
 """
@@ -34,14 +34,17 @@ from ambient_quality_agent.tools.investigations.bigquery_store import (
 )
 from ambient_quality_agent.tools.investigations.models import (
     NON_AMBIENT_TRIGGER_TYPES,
+    Investigation,
     InvestigationCounters,
-    InvestigationRecord,
-    RunStatus,
+    InvestigationStatus,
+    counter_to_key,
     list_snapshot_columns,
 )
 from ambient_quality_agent.tools.investigations.store import (
     IN_FLIGHT_HORIZON_HOURS,
 )
+
+from .conftest import make_config
 
 _PROJECT = "test-project"
 _DATASET = "aqua_insights"
@@ -110,7 +113,7 @@ def _row(**overrides: Any) -> dict[str, Any]:
         Row dictionary matching BigQuery client output format.
     """
     row = {
-        "run_id": "r1",
+        "investigation_id": "r1",
         "created_at": dt.datetime(2026, 6, 1, tzinfo=dt.UTC),
         "updated_at": dt.datetime(2026, 6, 1, tzinfo=dt.UTC),
     }
@@ -121,12 +124,12 @@ def _row(**overrides: Any) -> dict[str, Any]:
 def test_append_writes_the_whole_record_as_one_row() -> None:
     client = mock.MagicMock()
     stored = _store(client).append(
-        InvestigationRecord(
-            run_id="r1",
-            observed_agent_name="watched",
+        Investigation(
+            investigation_id="r1",
+            observed_agent_key="watched",
             metrics={"multi_turn": ["task_success"]},
             budget_per_metric=10,
-            status=RunStatus.RUNNING,
+            status=InvestigationStatus.RUNNING,
         )
     )
 
@@ -138,7 +141,7 @@ def test_append_writes_the_whole_record_as_one_row() -> None:
     assert row["status"] == "running"
     # JSON columns go in as JSON text, the convention the insight tables use.
     assert json.loads(row["metrics"]) == {"multi_turn": ["task_success"]}
-    # Restamped, which is what makes this snapshot the newest of its run.
+    # Restamped, which is what makes this snapshot the newest of its investigation.
     assert row["updated_at"] == stored.updated_at
     # Appending reads nothing: the caller brought the whole record.
     client.query.assert_not_called()
@@ -146,7 +149,7 @@ def test_append_writes_the_whole_record_as_one_row() -> None:
 
 def test_append_keeps_the_events_out_of_the_snapshot() -> None:
     client = mock.MagicMock()
-    _store(client).append(InvestigationRecord(run_id="r1"))
+    _store(client).append(Investigation(investigation_id="r1"))
 
     (row,) = _loaded_rows(client)
     assert "events" not in row
@@ -155,8 +158,9 @@ def test_append_keeps_the_events_out_of_the_snapshot() -> None:
 def test_append_drops_the_events_from_the_stored_summary() -> None:
     client = mock.MagicMock()
     _store(client).append(
-        InvestigationRecord(
-            run_id="r1", summary={"metrics_passed": 1, "events": ["a\n"]}
+        Investigation(
+            investigation_id="r1",
+            summary={"metrics_passed": 1, "events": ["a\n"]},
         )
     )
 
@@ -174,7 +178,7 @@ def test_append_event_writes_one_row_to_the_events_table() -> None:
     assert row["text"] == "**step**\n"
     assert row["source"] == "init"
     assert row["created_at"]
-    # An event is the event: no run columns ride along with it.
+    # An event is the event: no investigation columns ride along with it.
     assert "status" not in row and "observed_agent_name" not in row
     # And it reads nothing first, which is what makes it cheap in a node.
     client.query.assert_not_called()
@@ -186,7 +190,7 @@ def test_get_asks_bigquery_for_the_newest_snapshot_and_the_events() -> None:
         [_row(status="running")],
         [
             {
-                "run_id": "r1",
+                "investigation_id": "r1",
                 "created_at": dt.datetime(2026, 6, 1, tzinfo=dt.UTC),
                 "text": "step\n",
                 "source": "init",
@@ -204,7 +208,7 @@ def test_get_asks_bigquery_for_the_newest_snapshot_and_the_events() -> None:
     assert f"FROM `{_EVENTS_REF}`" in events_sql
     assert "ORDER BY created_at" in events_sql
     assert record is not None
-    assert record.status == RunStatus.RUNNING
+    assert record.status == InvestigationStatus.RUNNING
     assert [e.text for e in record.events] == ["step\n"]
 
 
@@ -222,6 +226,40 @@ def test_get_on_an_unknown_run_is_none() -> None:
     client = mock.MagicMock()
     client.query.return_value.result.return_value = []
     assert _store(client).get("nope") is None
+
+
+def test_latest_stage_events_read_one_row_per_named_investigation() -> None:
+    client = mock.MagicMock()
+    client.query.return_value.result.return_value = [
+        {
+            "investigation_id": "r1",
+            "created_at": dt.datetime(2026, 6, 1, tzinfo=dt.UTC),
+            "text": "Session review: 2/7 trajectories, 1 finding",
+            "source": "stage",
+        }
+    ]
+
+    events = _store(client).list_latest_stage_events(["r1", "r2"])
+
+    sql, params = _query_call(client)
+    assert f"FROM `{_EVENTS_REF}`" in sql
+    assert "run_id IN UNNEST(@investigation_ids)" in sql
+    assert "source = @source" in sql
+    assert (
+        "QUALIFY ROW_NUMBER() OVER (PARTITION BY run_id ORDER BY created_at DESC) = 1"
+        in sql
+    )
+    assert params == {"investigation_ids": ["r1", "r2"], "source": "stage"}
+    assert [(e.investigation_id, e.text) for e in events] == [
+        ("r1", "Session review: 2/7 trajectories, 1 finding")
+    ]
+
+
+def test_latest_stage_events_of_no_investigation_cost_no_query() -> None:
+    client = mock.MagicMock()
+
+    assert _store(client).list_latest_stage_events([]) == []
+    client.query.assert_not_called()
 
 
 def test_list_recent_takes_one_snapshot_per_run_and_skips_the_config() -> None:
@@ -246,10 +284,10 @@ def test_list_recent_filters_status_after_picking_the_newest_snapshot() -> None:
     client = mock.MagicMock()
     client.query.return_value.result.return_value = []
 
-    _store(client).list_recent(status=RunStatus.DONE)
+    _store(client).list_recent(status=InvestigationStatus.DONE)
 
     sql, params = _query_call(client)
-    # The filter sits outside the QUALIFY subquery, so a run that has moved on
+    # The filter sits outside the QUALIFY subquery, so an investigation that has moved on
     # is absent rather than matched on a superseded snapshot.
     assert sql.index("QUALIFY") < sql.index("status = @status")
     assert params["status"] == "done"
@@ -259,13 +297,19 @@ def test_list_recent_returns_oldest_first() -> None:
     client = mock.MagicMock()
     # BigQuery orders newest first (the LIMIT needs it); the store flips them.
     client.query.return_value.result.return_value = [
-        _row(run_id="new", created_at=dt.datetime(2026, 6, 2, tzinfo=dt.UTC)),
-        _row(run_id="old", created_at=dt.datetime(2026, 6, 1, tzinfo=dt.UTC)),
+        _row(
+            investigation_id="new",
+            created_at=dt.datetime(2026, 6, 2, tzinfo=dt.UTC),
+        ),
+        _row(
+            investigation_id="old",
+            created_at=dt.datetime(2026, 6, 1, tzinfo=dt.UTC),
+        ),
     ]
 
     records = _store(client).list_recent()
 
-    assert [r.run_id for r in records] == ["old", "new"]
+    assert [r.investigation_id for r in records] == ["old", "new"]
 
 
 # --- counters ------------------------------------------------------------------
@@ -274,68 +318,91 @@ def test_list_recent_returns_oldest_first() -> None:
 def test_append_writes_every_counter_as_json() -> None:
     client = mock.MagicMock()
     _store(client).append(
-        InvestigationRecord(run_id="r1", counters={"traces_scanned": 12})
+        Investigation(
+            investigation_id="r1", counters={"trajectories_scanned": 12}
+        )
     )
 
     (row,) = _loaded_rows(client)
     stored = json.loads(row["counters"])
     assert stored["traces_scanned"] == 12
     # Every counter is written, not just the one that was set, so the totals
-    # query finds the same keys on every run.
+    # query finds the same keys on every investigation.
     assert stored["clusters_created"] == 0
 
 
 def test_counters_read_back_from_the_stored_json() -> None:
-    record = InvestigationRecord.model_validate(
-        {"run_id": "r1", "counters": '{"traces_ingested": 4}'}
+    """The column holds the eight trajectory counters under `traces_*` keys,
+    and a stored row reads back into the `trajectories_*` fields."""
+    record = Investigation.model_validate(
+        {"investigation_id": "r1", "counters": '{"traces_ingested": 4}'}
     )
-    assert record.counters.traces_ingested == 4
+    assert record.counters.trajectories_ingested == 4
 
 
-def test_format_run_survives_counters_copied_on_as_a_plain_dict() -> None:
+def test_the_api_and_the_store_name_a_counter_differently() -> None:
+    """Only the BigQuery store dumps by alias; everything else, the API and the
+    in-memory store included, sees the field names."""
+    counters = InvestigationCounters(trajectories_scanned=3)
+
+    assert counters.model_dump()["trajectories_scanned"] == 3
+    assert counters.model_dump(by_alias=True)["traces_scanned"] == 3
+    assert counter_to_key("trajectories_scanned") == "traces_scanned"
+    assert counter_to_key("insights_created") == "insights_created"
+
+
+def test_format_investigation_survives_counters_copied_on_as_a_plain_dict() -> (
+    None
+):
     """`model_copy(update=...)` does not coerce, and the alert logger copies the
     very changes `execute_investigation` writes -- a plain ``counters`` dict --
     onto the record before formatting it.
 
     Reaching for `.model_dump()` on that dict raised inside the one caller that
-    wraps this in a try/except, so a finished run logged "could not log run for
+    wraps this in a try/except, so a finished investigation logged "could not log run for
     alerting" and its email was never sent. Silent by construction: the guard
-    that keeps a logging fault from failing the run also hid this.
+    that keeps a logging fault from failing the investigation also hid this.
     """
-    from ambient_quality_agent.core.investigation.model import format_run
+    from ambient_quality_agent.core.investigation.model import (
+        format_investigation,
+    )
 
-    record = InvestigationRecord(run_id="r1").model_copy(
+    record = Investigation(investigation_id="r1").model_copy(
         update={"counters": {"insights_created": 1}}
     )
 
-    view = format_run(record)
+    view = format_investigation(record)
 
     assert view["counters"]["insights_created"] == 1
-    assert view["counters"]["traces_scanned"] == 0
+    assert view["counters"]["trajectories_scanned"] == 0
 
 
 def test_a_run_recorded_without_counters_reads_as_zero() -> None:
     """A snapshot predating the column, or one whose payload will not parse,
     counted nothing -- which is a zeroed model, not a validation error."""
-    without = InvestigationRecord.model_validate({"run_id": "r1"})
-    unparseable = InvestigationRecord.model_validate(
-        {"run_id": "r1", "counters": "{not json"}
+    without = Investigation.model_validate({"investigation_id": "r1"})
+    unparseable = Investigation.model_validate(
+        {"investigation_id": "r1", "counters": "{not json"}
     )
-    assert without.counters.traces_scanned == 0
-    assert unparseable.counters.traces_scanned == 0
+    assert without.counters.trajectories_scanned == 0
+    assert unparseable.counters.trajectories_scanned == 0
 
 
 def test_totals_sums_every_counter_over_one_snapshot_per_run() -> None:
     client = mock.MagicMock()
     client.query.return_value.result.return_value = [
-        {"investigations": 2, "traces_scanned": 30, "traces_ingested": 9}
+        {
+            "investigations": 2,
+            "trajectories_scanned": 30,
+            "trajectories_ingested": 9,
+        }
     ]
 
     totals, _ = _store(client).sum_counters()
 
     sql, params = _query_call(client)
     assert params == {}
-    # One row per run before summing, or a run updated five times would count
+    # One row per investigation before summing, or an investigation updated five times would count
     # its counters five times over.
     assert (
         "QUALIFY ROW_NUMBER() OVER (PARTITION BY run_id ORDER BY updated_at DESC) = 1"
@@ -349,8 +416,8 @@ def test_totals_sums_every_counter_over_one_snapshot_per_run() -> None:
         assert f"AS {name}" in sql
     assert totals == {
         "investigations": 2,
-        "traces_scanned": 30,
-        "traces_ingested": 9,
+        "trajectories_scanned": 30,
+        "trajectories_ingested": 9,
     }
 
 
@@ -361,7 +428,7 @@ def test_totals_unwraps_a_counters_column_stored_as_json_text() -> None:
 
     Measured against a deployed table on 2026-08-19: `JSON_TYPE(counters)` was
     `string`, `JSON_VALUE(counters, '$.traces_scanned')` was NULL, and the
-    unwrapped read was `1`, while the run's own record showed the right counts
+    unwrapped read was `1`, while the investigation's own record showed the right counts
     all along -- the Python read path decodes the double encoding and this
     query is the only thing that reads a JSON column in SQL.
     """
@@ -429,14 +496,14 @@ def test_the_mark_ignores_the_windows_a_person_named() -> None:
 
 
 def test_counting_the_runs_in_flight_counts_only_pending_and_running() -> None:
-    """Finished runs are over, and a scheduled one has not been handed work."""
+    """Finished investigations are over, and a scheduled one has not been handed work."""
     client = mock.MagicMock()
     client.query.return_value.result.return_value = [{"in_flight": 2}]
 
     assert _store(client).count_in_flight("watched") == 2
 
     sql, params = _query_call(client)
-    # Deduplicate by run_id using QUALIFY to evaluate only the latest snapshot per run.
+    # Deduplicate by run_id using QUALIFY to evaluate only the latest snapshot per investigation.
     assert sql.index("QUALIFY") < sql.index(
         "WHERE observed_agent_name = @agent"
     )
@@ -452,10 +519,10 @@ def test_overdue_scheduled_runs_are_read_off_the_newest_snapshot() -> None:
     assert _store(client).list_overdue_scheduled(grace_minutes=60) == ["late"]
 
     sql, params = _query_call(client)
-    # A run that left `scheduled` must not match on its older snapshot.
+    # An investigation that left `scheduled` must not match on its older snapshot.
     assert sql.index("QUALIFY") < sql.index("WHERE status = @status")
     assert "due_at < @deadline" in sql
-    assert params["status"] == RunStatus.SCHEDULED.value
+    assert params["status"] == InvestigationStatus.SCHEDULED.value
     age = dt.datetime.now(tz=dt.UTC) - params["deadline"]
     assert abs(age - dt.timedelta(minutes=60)) < dt.timedelta(seconds=5)
 
@@ -533,7 +600,7 @@ def test_totals_can_be_scoped_to_a_period() -> None:
         "window_end": dt.datetime(2026, 8, 8, tzinfo=dt.UTC),
     }
     # Applied outside the QUALIFY, so the period selects runs by their window
-    # instead of letting a superseded snapshot stand in for a run that has since
+    # instead of letting a superseded snapshot stand in for an investigation that has since
     # moved out of it.
     assert sql.index("WHERE window_end >=") > sql.index("QUALIFY ROW_NUMBER()")
 
@@ -548,7 +615,7 @@ def test_totals_report_the_span_the_counted_runs_cover() -> None:
             "investigations": 2,
             "covered_start": dt.datetime(2026, 8, 6, tzinfo=dt.UTC),
             "covered_end": dt.datetime(2026, 8, 7, tzinfo=dt.UTC),
-            "traces_scanned": 30,
+            "trajectories_scanned": 30,
         }
     ]
 
@@ -562,7 +629,7 @@ def test_totals_report_the_span_the_counted_runs_cover() -> None:
     }
     # They are aggregates, not counters, so they stay out of the summed mapping.
     assert "covered_start" not in totals
-    assert totals["traces_scanned"] == 30
+    assert totals["trajectories_scanned"] == 30
 
 
 def test_totals_over_nothing_cover_nothing() -> None:
@@ -597,7 +664,7 @@ def test_totals_takes_either_bound_on_its_own() -> None:
 
 
 def test_unscoped_totals_filter_on_nothing() -> None:
-    """No period means every run, the ones that never derived a window
+    """No period means every investigation, the ones that never derived a window
     included -- a WHERE here would silently drop them."""
     client = mock.MagicMock()
     client.query.return_value.result.return_value = []
@@ -626,7 +693,7 @@ def test_list_recent_can_be_scoped_to_a_period() -> None:
     assert params["window_start"] == dt.datetime(2026, 8, 1, tzinfo=dt.UTC)
     assert params["window_end"] == dt.datetime(2026, 8, 8, tzinfo=dt.UTC)
     # Outside the QUALIFY for the same reason `totals` puts it there: filtering
-    # inside would let a superseded snapshot represent a run whose current one
+    # inside would let a superseded snapshot represent an investigation whose current one
     # has moved out of the period.
     assert sql.index("WHERE") > sql.index("QUALIFY ROW_NUMBER()")
 
@@ -651,18 +718,19 @@ def test_list_recent_combines_a_status_with_a_period() -> None:
     client.query.return_value.result.return_value = []
 
     _store(client).list_recent(
-        status=RunStatus.DONE, window_start="2026-08-01T00:00:00+00:00"
+        status=InvestigationStatus.DONE,
+        window_start="2026-08-01T00:00:00+00:00",
     )
 
     sql, params = _query_call(client)
     assert "status = @status" in sql
     assert "window_end >= @window_start" in sql
-    assert params["status"] == RunStatus.DONE.value
+    assert params["status"] == InvestigationStatus.DONE.value
     assert params["window_start"] == dt.datetime(2026, 8, 1, tzinfo=dt.UTC)
 
 
 def test_list_recent_without_a_period_has_no_window_filter() -> None:
-    """No period means every run, including those that never derived a window
+    """No period means every investigation, including those that never derived a window
     -- which a bounded comparison would silently drop."""
     client = mock.MagicMock()
     client.query.return_value.result.return_value = []
@@ -711,7 +779,7 @@ def test_counters_by_day_groups_by_the_window_day() -> None:
 
 
 def test_counters_by_day_excludes_runs_with_no_window() -> None:
-    """A run that never derived a window cannot be filed under a day, so it is
+    """An investigation that never derived a window cannot be filed under a day, so it is
     out of the read rather than bucketed under a guess."""
     client = mock.MagicMock()
     client.query.return_value.result.return_value = []
@@ -733,7 +801,104 @@ def test_counters_by_day_counts_zeroed_runs_as_unmeasured() -> None:
     sql, _ = _query_call(client)
     assert "unmeasured" in sql
     assert "CASE WHEN (" in sql
-    # Every counter participates in the "measured nothing" test, so a run that
+    # Every counter participates in the "measured nothing" test, so an investigation that
     # recorded only a counter added later still counts as measured.
     for name in InvestigationCounters.model_fields:
-        assert f"'$.{name}'" in sql
+        assert f"'$.{counter_to_key(name)}'" in sql
+
+
+# --- one agent's investigations --------------------------------------------------------- #
+
+_KEY = "acme-prod__it_support_agent"
+
+
+def _build_scoped_store(client: mock.MagicMock) -> BigQueryInvestigationStore:
+    """Builds a store bound to `_KEY`.
+
+    Args:
+        client: Mock BigQuery client.
+
+    Returns:
+        The store.
+    """
+    return BigQueryInvestigationStore(
+        client=client,
+        project_id=_PROJECT,
+        dataset=_DATASET,
+        observed_agent_key=_KEY,
+    )
+
+
+@mock.patch.object(BigQueryInvestigationStore, "_run", return_value=[])
+def test_the_run_list_and_totals_are_scoped_before_the_newest_snapshot(
+    run: mock.MagicMock,
+) -> None:
+    """One agent's investigations must not show in another's list, totals or trends."""
+    store = _build_scoped_store(mock.MagicMock())
+
+    store.list_recent()
+    store.sum_counters()
+    store.sum_counters_by_day()
+
+    assert run.call_count == 3
+    for call in run.call_args_list:
+        sql, params = call.args
+        # Filtered inside the subquery, where the agent is the same on every
+        # snapshot of an investigation, so the newest snapshot is picked among its own.
+        assert (
+            f"FROM `{_TABLE_REF}` WHERE observed_agent_name = @agent\n"
+            "  QUALIFY" in sql
+        )
+        assert {p.name: p.value for p in params}["agent"] == _KEY
+
+
+@mock.patch.object(BigQueryInvestigationStore, "_run", return_value=[])
+def test_a_run_and_the_runs_to_fail_are_read_across_agents(
+    run: mock.MagicMock,
+) -> None:
+    """An investigation id is unique across agents, so the durable job finds its investigation
+    with no agent selected; every agent's investigations share one lease."""
+    store = _build_scoped_store(mock.MagicMock())
+
+    store.get("r1")
+    store.list_stale_pending(lease_minutes=30)
+    store.list_overdue_scheduled(grace_minutes=30)
+
+    for call in run.call_args_list:
+        sql, params = call.args
+        assert "@agent" not in sql
+        assert "agent" not in {p.name for p in params}
+
+
+@mock.patch.object(BigQueryInvestigationStore, "_run", return_value=[])
+def test_a_store_with_no_agent_lists_every_run(run: mock.MagicMock) -> None:
+    _store(mock.MagicMock()).list_recent()
+
+    sql, params = run.call_args.args
+    assert "@agent" not in sql
+    assert "agent" not in {p.name for p in params}
+
+
+def test_a_store_from_a_config_is_scoped_to_its_key() -> None:
+    store = BigQueryInvestigationStore.from_config(
+        make_config(observed_agent_name="it_support_agent", agent_key=_KEY)
+    )
+
+    assert store._observed_agent_key == _KEY
+
+
+def test_a_store_from_a_runs_state_is_scoped_to_its_key() -> None:
+    store = BigQueryInvestigationStore.from_workflow_state(
+        {
+            "project_id": _PROJECT,
+            "observed_agent_name": "it_support_agent",
+            "agent_key": _KEY,
+        }
+    )
+
+    assert store._observed_agent_key == _KEY
+
+
+def test_new_run_ids_are_full_uuids() -> None:
+    """Unique across agents, so an investigation is found by its id alone."""
+    assert len(Investigation().investigation_id) == 32

@@ -31,33 +31,36 @@ import {
   RouterProvider,
 } from "@tanstack/react-router";
 import { Route as InvestigationsRoute } from "@/src/routes/investigations.index";
-import { RUNS_LIST_LIMIT } from "@/lib/aqua-api";
+import { INVESTIGATIONS_LIST_LIMIT } from "@/lib/aqua-api";
 
 // The sidebar reads chat sessions over A2A, which is not what is under test.
 vi.mock("@/components/nav/page-shell", () => ({
   PageShell: ({ children }: { children: ReactNode }) => <>{children}</>,
 }));
 
-const run = (runId: string, failed: number) => ({
-  run_id: runId,
-  observed_agent_name: "travel_desk_agent",
+const buildInvestigation = (investigationId: string, failed: number) => ({
+  investigation_id: investigationId,
+  observed_agent_key: "travel_desk_agent",
   created_at: "2026-09-14T06:00:00Z",
   status: "done",
   error: null,
   counters: {
-    traces_evaluated: 4,
-    traces_eval_passed: 4 - failed,
-    traces_eval_failed: failed,
+    trajectories_evaluated: 4,
+    trajectories_eval_passed: 4 - failed,
+    trajectories_eval_failed: failed,
   },
 });
 
 function mountPage(
   at: string,
   {
-    runs = [run("cleaaaaa11", 0), run("failfail22", 1)],
+    investigations = [
+      buildInvestigation("cleaaaaa11", 0),
+      buildInvestigation("failfail22", 1),
+    ],
     days = [] as Record<string, unknown>[],
     // What a read for one day returns, when it differs from the whole list.
-    dayRuns = undefined as Record<string, unknown>[] | undefined,
+    dayInvestigations = undefined as Record<string, unknown>[] | undefined,
   } = {},
 ) {
   const urls: string[] = [];
@@ -66,7 +69,12 @@ function mountPage(
     vi.fn(async (url: string) => {
       urls.push(url);
       const body = url.includes("/api/investigations")
-        ? { runs: dayRuns && url.includes("windowStart=") ? dayRuns : runs }
+        ? {
+            investigations:
+              dayInvestigations && url.includes("windowStart=")
+                ? dayInvestigations
+                : investigations,
+          }
         : url.includes("/api/stats")
           ? { stats: {} }
           : { days };
@@ -82,7 +90,7 @@ function mountPage(
   } as any);
   const detail = createRoute({
     getParentRoute: () => root,
-    path: "/investigations/$runId",
+    path: "/investigations/$investigationId",
   });
   const router = createRouter({
     routeTree: root.addChildren([page, detail]),
@@ -171,7 +179,7 @@ describe("the /investigations page narrowed to a day", () => {
   const DAY_READ =
     "/api/investigations?windowStart=2026-09-20T00%3A00%3A00.000Z&windowEnd=2026-09-20T23%3A59%3A59.999999Z";
 
-  it("asks for the runs whose window closed that UTC day, as the chart buckets them", async () => {
+  it("asks for the investigations whose window closed that UTC day, as the chart buckets them", async () => {
     const router = mountPage("/investigations?day=2026-09-20&failures=only");
 
     await screen.findByRole("link", { name: "failfail" });
@@ -188,31 +196,36 @@ describe("the /investigations page narrowed to a day", () => {
     ).toBeInTheDocument();
   });
 
-  it("compares a day's first run with the one before it, outside the day", async () => {
-    const sweep = (runId: string, created: string, passed: number) => ({
-      ...run(runId, 4 - passed),
+  it("compares a day's first investigation with the one before it, outside the day", async () => {
+    const sweep = (
+      investigationId: string,
+      created: string,
+      passed: number,
+    ) => ({
+      ...buildInvestigation(investigationId, 4 - passed),
       created_at: created,
     });
     const first = sweep("dayfirst01", "2026-09-20T02:00:00Z", 3);
     mountPage("/investigations?day=2026-09-20", {
-      dayRuns: [first],
-      runs: [first, sweep("daybefore1", "2026-09-19T20:00:00Z", 2)],
+      dayInvestigations: [first],
+      investigations: [first, sweep("daybefore1", "2026-09-19T20:00:00Z", 2)],
     });
 
-    // 75% after 50%, though the read for the day holds only the first run.
+    // 75% after 50%, though the read for the day holds only the first
+    // investigation.
     const link = await screen.findByRole("link", { name: "dayfirst" });
     await waitFor(() => expect(link.closest("tr")).toHaveTextContent(/up 25%/));
   });
 
   it("says the day was empty rather than the deployment", async () => {
-    mountPage("/investigations?day=2026-09-20", { runs: [] });
+    mountPage("/investigations?day=2026-09-20", { investigations: [] });
 
     expect(
       await screen.findByText("No investigations on 2026-09-20 (UTC)."),
     ).toBeInTheDocument();
   });
 
-  it("says when the day holds more runs than one read returns", async () => {
+  it("says when the day holds more investigations than one read returns", async () => {
     mountPage("/investigations?day=2026-09-20", {
       days: [{ day: "2026-09-20", investigations: 60 }],
     });
@@ -243,21 +256,22 @@ describe("the /investigations page narrowed to a day", () => {
   });
 
   it("warns of a cut when a day outside the chart's span fills the read", async () => {
-    const runs = Array.from({ length: RUNS_LIST_LIMIT }, (_, i) =>
-      run(`run${String(i).padStart(4, "0")}xx`, 0),
+    const investigations = Array.from(
+      { length: INVESTIGATIONS_LIST_LIMIT },
+      (_, i) => buildInvestigation(`inv${String(i).padStart(4, "0")}xx`, 0),
     );
-    mountPage("/investigations?day=2026-09-20", { runs });
+    mountPage("/investigations?day=2026-09-20", { investigations });
 
     expect(
       await screen.findByText(
-        `Showing the newest ${RUNS_LIST_LIMIT} investigations on 2026-09-20 (UTC); the day may hold more.`,
+        `Showing the newest ${INVESTIGATIONS_LIST_LIMIT} investigations on 2026-09-20 (UTC); the day may hold more.`,
       ),
     ).toBeInTheDocument();
   });
 
-  it("says the day's runs all passed, not every run", async () => {
+  it("says the day's investigations all passed, not every investigation", async () => {
     mountPage("/investigations?day=2026-09-20&failures=only", {
-      runs: [run("cleaaaaa11", 0)],
+      investigations: [buildInvestigation("cleaaaaa11", 0)],
     });
 
     expect(
@@ -282,5 +296,73 @@ describe("the /investigations page narrowed to a day", () => {
     );
     expect(router.urls).toContain("/api/investigations");
     expect(document.activeElement).toBe(checkbox());
+  });
+});
+
+describe("the /investigations trigger filter", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  const investigations = [
+    { ...buildInvestigation("custom0011", 0), trigger_type: "custom" },
+    { ...buildInvestigation("manual0022", 1), trigger_type: "manual" },
+    { ...buildInvestigation("sweep00033", 1), trigger_type: "scheduled" },
+  ];
+  const tab = (name: string) => screen.getByRole("button", { name });
+  const listed = () =>
+    ["custom00", "manual00", "sweep000"].filter(
+      (name) => screen.queryByRole("link", { name }) !== null,
+    );
+
+  it("keeps trigger=user and trigger=scheduled, and drops anything else", () => {
+    expect(validate({ trigger: "user" }).trigger).toBe("user");
+    expect(validate({ trigger: "scheduled" }).trigger).toBe("scheduled");
+    for (const trigger of ["all", "custom", "USER", "", 1]) {
+      expect(validate({ trigger }).trigger).toBeUndefined();
+    }
+  });
+
+  it("opens on the user-initiated investigations when the URL says trigger=user", async () => {
+    mountPage("/investigations?trigger=user", { investigations });
+
+    await screen.findByRole("link", { name: "custom00" });
+    expect(tab("User-initiated")).toHaveAttribute("aria-pressed", "true");
+    expect(listed()).toEqual(["custom00", "manual00"]);
+  });
+
+  it("writes the tab into the URL, and All as no param", async () => {
+    const router = mountPage("/investigations", { investigations });
+    await screen.findByRole("link", { name: "sweep000" });
+    const entries = router.history.length;
+
+    await userEvent.click(tab("Scheduled"));
+    await waitFor(() =>
+      expect(router.state.location.search).toEqual({ trigger: "scheduled" }),
+    );
+    expect(listed()).toEqual(["sweep000"]);
+
+    await userEvent.click(tab("All"));
+    await waitFor(() => expect(router.state.location.searchStr).toBe(""));
+    expect(listed()).toEqual(["custom00", "manual00", "sweep000"]);
+    expect(router.history.length).toBe(entries);
+  });
+
+  it("combines with Only with failures", async () => {
+    mountPage("/investigations?trigger=user&failures=only", { investigations });
+
+    await screen.findByRole("link", { name: "manual00" });
+    expect(listed()).toEqual(["manual00"]);
+  });
+
+  it("says when no investigation of the chosen kind is among the newest", async () => {
+    // Only the sweep.
+    mountPage("/investigations?trigger=user", {
+      investigations: investigations.slice(2),
+    });
+
+    expect(
+      await screen.findByText(
+        "No user-initiated investigations among the most recent.",
+      ),
+    ).toBeInTheDocument();
   });
 });

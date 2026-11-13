@@ -103,7 +103,6 @@ from typing import Any
 # Disable `.env` loading from the agent package so the run uses only
 # explicitly exported environment variables and the defaults below.
 os.environ.setdefault("PYTHON_DOTENV_DISABLED", "1")
-os.environ.setdefault("AQA_OBSERVED_AGENT_NAME", "insights-load-test")
 os.environ.setdefault("GOOGLE_CLOUD_PROJECT", "local-dev-project")
 
 from agentplatform._genai.types import (
@@ -958,14 +957,19 @@ def run_clustering(
         else _build_instrumented_model_call(attempt)
     )
     try:
-        parsed, _ = clustering.cluster_and_label(findings, model_call=call)
+        # The corpus does not set `Finding.agent_id`. Passing `root_agent_id=""`
+        # keeps all findings in a single partition and leaves `Cluster.agent_id`
+        # empty, so the correlation store defaults them to its throwaway agent.
+        parsed, _ = clustering.cluster_and_label(
+            findings, root_agent_id="", model_call=call
+        )
     except Exception as exc:
         attempt.error = f"{type(exc).__name__}: {exc}"
         return attempt, []
     attempt.settle_status()
     validated = clustering.validate_clusters(parsed, len(findings))
     enriched = clustering.attach_examples(
-        validated, findings, finding_set.sessions
+        validated, findings, finding_set.turns_by_trajectory
     )
     attempt.clusters_before_merge = len(enriched)
     merge_call = (
@@ -1529,9 +1533,9 @@ def run_correlation(
         client=client,
         project_id=config.project_id,
         dataset=config.aqa_dataset,
-        agent_name=agent_name,
+        observed_agent_key=agent_name,
     )
-    run_id = f"loadtest-{uuid.uuid4().hex[:8]}"
+    investigation_id = f"loadtest-{uuid.uuid4().hex[:8]}"
     now = dt.datetime.now(dt.UTC)
     # Staggered by a second per insight, oldest first, so "the newest insight
     # for this defect" is a fact rather than a coin toss. Production ties them
@@ -1540,7 +1544,7 @@ def run_correlation(
     insights = [
         Insight(
             insight_id=mint_id(),
-            agent_name=agent_name,
+            observed_agent_key=agent_name,
             label=entry.cluster.label,
             status=InsightStatus.NEW,
             created_at=now,
@@ -1553,14 +1557,14 @@ def run_correlation(
             occurrence_id=mint_id(),
             insight_id=insight.insight_id,
             occurrence_state=OccurrenceState.TRACKED,
-            run_id=run_id,
+            investigation_id=investigation_id,
             created_at=now,
-            agent_name=agent_name,
+            observed_agent_key=agent_name,
             label=entry.cluster.label,
-            item_count=entry.cluster.item_count,
+            finding_count=entry.cluster.finding_count,
             # The evidence `attach_examples` produced, traces and all, so the
             # load job writes the payload a real occurrence carries.
-            rubrics=entry.cluster.examples,
+            examples=entry.cluster.examples,
         )
         for entry, insight in zip(seeded, insights, strict=True)
     ]
@@ -1620,9 +1624,9 @@ def run_correlation(
         result.error = f"{type(exc).__name__}: {exc}"
     finally:
         if not keep:
-            # Deletes this run's occurrences and then the insights left without
-            # any -- which is all of them, since the run minted them itself.
-            store.delete_failed_insights(run_id)
+            # Deletes this investigation's occurrences and then the insights left without
+            # any -- which is all of them, since the investigation minted them itself.
+            store.delete_failed_insights(investigation_id)
     return result
 
 

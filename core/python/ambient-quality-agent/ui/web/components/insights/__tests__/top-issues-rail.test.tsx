@@ -37,14 +37,14 @@ import { TopIssuesRail } from "../top-issues-rail";
 function insight(patch: Partial<InsightView>): InsightView {
   return {
     insight_id: "i1",
-    agent_name: "a",
+    observed_agent_key: "a",
     label: "calls file_expense with a category outside the accepted set",
     tool_name: "t",
     status: "RECURRING",
     occurrence_count: 1,
-    trace_count: 715,
+    trajectory_count: 715,
     impact: 1,
-    last_run_at: null,
+    last_investigation_at: null,
     diagnosis: "",
     confidence: 1,
     ...patch,
@@ -54,19 +54,21 @@ function insight(patch: Partial<InsightView>): InsightView {
 interface Payloads {
   insights?: InsightView[];
   total?: number;
-  runs?: unknown[];
+  investigations?: unknown[];
   status?: number;
 }
 
 function renderRail(
-  { insights = [], total, runs = [], status = 200 }: Payloads = {},
+  { insights = [], total, investigations = [], status = 200 }: Payloads = {},
   path = "/",
 ) {
   const fetchMock = vi.fn<typeof fetch>(async (input) => {
     const url = String(input);
     if (status !== 200) return new Response("{}", { status });
     if (url.includes("/api/investigations")) {
-      return new Response(JSON.stringify({ runs }), { status: 200 });
+      return new Response(JSON.stringify({ investigations: investigations }), {
+        status: 200,
+      });
     }
     return new Response(
       JSON.stringify({ insights, total: total ?? insights.length }),
@@ -138,14 +140,14 @@ describe("TopIssuesRail", () => {
     ).not.toContain("flex-1");
   });
 
-  it("says nothing is failing when runs evaluated traces and found no issue", async () => {
+  it("says nothing is failing when investigations evaluated traces and found no issue", async () => {
     renderRail({
-      runs: [
+      investigations: [
         {
-          run_id: "r1",
+          investigation_id: "r1",
           created_at: "2026-09-14T00:00:00Z",
           status: "done",
-          counters: { traces_eval_passed: 40 },
+          counters: { trajectories_eval_passed: 40 },
         },
       ],
     });
@@ -170,11 +172,11 @@ describe("TopIssuesRail", () => {
   it("shows traces first, then whether the issue is diagnosed", async () => {
     renderRail({
       insights: [
-        insight({ insight_id: "a", trace_count: 715 }),
+        insight({ insight_id: "a", trajectory_count: 715 }),
         insight({
           insight_id: "b",
           label: "big",
-          trace_count: 1_234_567,
+          trajectory_count: 1_234_567,
           diagnosis: "why",
         }),
       ],
@@ -196,6 +198,27 @@ describe("TopIssuesRail", () => {
     expect(title).toHaveAttribute("title", long);
     expect(title).toHaveAttribute("dir", "auto");
     expect(title.className).toContain("break-words");
+  });
+
+  it("renders a code span in the title as code, and keeps the tooltip plain", async () => {
+    const plain = "calls file_expense with a category outside the accepted set";
+    renderRail({
+      insights: [
+        insight({
+          label:
+            "calls `file_expense` with a category outside the accepted set",
+        }),
+      ],
+    });
+
+    const row = await rowLink(/calls file_expense with/);
+    expect(within(row).getByText("file_expense").tagName).toBe("CODE");
+    expect(row.querySelector("[title]")).toHaveAttribute("title", plain);
+    expect(
+      screen.getByRole("button", {
+        name: `Diagnose insight in chat: ${plain}`,
+      }),
+    ).toBeInTheDocument();
   });
 
   it("names an insight with a blank label", async () => {

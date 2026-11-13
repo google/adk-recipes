@@ -24,8 +24,14 @@ import threading
 from typing import Any
 from unittest import mock
 
+import agentplatform
 import pytest
-from ambient_quality_agent.config import Config, ObservedAgentConfig
+from agentplatform._genai.runtimes import Runtimes
+from ambient_quality_agent.config import (
+    MAX_DATA_LOOKBACK_WINDOW,
+    Config,
+    ObservedAgentConfig,
+)
 from ambient_quality_agent.core.investigation import job_scheduling as schedule
 from ambient_quality_agent.core.investigation import locking
 from ambient_quality_agent.core.investigation import model as runs
@@ -41,8 +47,8 @@ from .conftest import (
     CallbackContext,
     StateContext,
     ToolContext,
-    create_run,
-    get_run,
+    create_investigation,
+    get_stored_investigation,
     make_config,
 )
 
@@ -67,6 +73,25 @@ def test_derive_window_and_budget_splits_cap() -> None:
     assert budget == 50
     span = dt.datetime.fromisoformat(end) - dt.datetime.fromisoformat(start)
     assert span == dt.timedelta(days=7)
+
+
+def test_derive_window_and_budget_spans_a_long_lookback_in_full() -> None:
+    start, end, _ = schedule.derive_window_and_budget(
+        _eval_config(data_lookback_window=365)
+    )
+    span = dt.datetime.fromisoformat(end) - dt.datetime.fromisoformat(start)
+    assert span == dt.timedelta(days=365)
+
+
+def test_derive_window_and_budget_spans_the_max_for_an_oversized_lookback() -> (
+    None
+):
+    """Config validation caps the window so subtracting it from `now` cannot overflow."""
+    start, end, _ = schedule.derive_window_and_budget(
+        _eval_config(data_lookback_window=999999)
+    )
+    span = dt.datetime.fromisoformat(end) - dt.datetime.fromisoformat(start)
+    assert span == dt.timedelta(days=MAX_DATA_LOOKBACK_WINDOW)
 
 
 def test_derive_window_and_budget_zero_without_metrics() -> None:
@@ -178,31 +203,63 @@ def mock_submit(monkeypatch: pytest.MonkeyPatch) -> mock.MagicMock:
     return fake
 
 
+_WATCHED = "test-observed-agent"
+
+
+def _attach_agent(
+    jobs_store: Any,
+    name: str,
+    *,
+    key: str = "",
+    default: bool = False,
+    **config_fields: Any,
+) -> None:
+    """Stores an attachment the way `agents-cli aqua attach` does.
+
+    Args:
+        jobs_store: The test's jobs store.
+        name: The agent's name, which its telemetry is filtered by.
+        key: What the attachment is stored under; the bare name if empty.
+        default: Whether the agent serves requests that select none.
+        **config_fields: `ObservedAgentConfig` fields to set.
+    """
+    store.save_agent_record(
+        jobs_store,
+        store.AgentRecord(
+            config=ObservedAgentConfig(
+                observed_agent_name=name,
+                agent_key=key or name,
+                **config_fields,
+            ),
+            default=default,
+        ),
+    )
+    effective_config.clear_cache()
+
+
+@pytest.fixture(autouse=True)
+def watched_agent(jobs_store: Any) -> None:
+    """Attach the agent the investigations here are about, so that a request selecting
+    none has an agent to investigate."""
+    _attach_agent(jobs_store, _WATCHED)
+
+
 def test_a_run_is_scheduled_with_the_attached_agents_settings(
     mock_submit: mock.MagicMock,
     investigation_store: Any,
     jobs_store: Any,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The scheduling turn is where a run reads the configuration, and what it
-    reads it snapshots -- so re-attaching mid-run cannot change a run already in
+    """The scheduling turn is where an investigation reads the configuration, and what it
+    reads it snapshots -- so re-attaching mid-run cannot change an investigation already in
     flight."""
-    monkeypatch.setattr(
-        effective_config,
-        "env_config",
-        make_config(observed_agent_name="watched-agent"),
-    )
-    jobs_store.write_text(
-        store.build_object_name("watched-agent"),
-        json.dumps(
-            {"schema_version": 1, "agent": {"data_lookback_window": 14}}
-        ),
-    )
+    _attach_agent(jobs_store, _WATCHED, data_lookback_window=14)
 
     tc = StateContext()
-    run_id = asyncio.run(schedule.schedule_investigation(tc))["run_id"]
+    investigation_id = asyncio.run(schedule.schedule_investigation(tc))[
+        "investigation_id"
+    ]
 
-    record = get_run(tc.state, run_id)
+    record = get_stored_investigation(tc.state, investigation_id)
     assert record.effective_config["data_lookback_window"] == 14
     span = dt.datetime.fromisoformat(
         record.window_end
@@ -210,14 +267,111 @@ def test_a_run_is_scheduled_with_the_attached_agents_settings(
     assert span == dt.timedelta(days=14)
 
 
+_STAGING_KEY = "acme-staging__it_support_agent"
+
+
+def _attach_staging_agent(
+    jobs_store: Any, *, keep_watched: bool = False
+) -> None:
+    """Attaches an agent in another project.
+
+    Args:
+        jobs_store: The test's jobs store.
+        keep_watched: Whether to keep the watched agent attached; otherwise it
+            is detached, and the staging agent, the only one attached, is the
+            default.
+    """
+    if not keep_watched:
+        store.delete_agent_record(jobs_store, _WATCHED)
+    _attach_agent(
+        jobs_store,
+        "it_support_agent",
+        key=_STAGING_KEY,
+        observed_project_id="acme-staging",
+    )
+
+
+def test_a_run_and_its_dedup_key_are_keyed_by_the_agent_key(
+    mock_submit: mock.MagicMock,
+    investigation_store: Any,
+    jobs_store: Any,
+) -> None:
+    """Staging and prod share the agent's name, so its investigations are recorded
+    under the key; its telemetry is still filtered by the name."""
+    _attach_staging_agent(jobs_store)
+    ctx = StateContext()
+
+    investigation_id = asyncio.run(
+        schedule._launch_investigation(ctx, ambient=True)
+    )["investigation_id"]
+
+    record = get_stored_investigation(ctx.state, investigation_id)
+    assert record.observed_agent_key == _STAGING_KEY
+    assert record.idempotency_key.startswith(f"{_STAGING_KEY}:")
+    assert record.effective_config["observed_agent_name"] == "it_support_agent"
+    assert record.effective_config["agent_key"] == _STAGING_KEY
+
+
+def test_an_ambient_run_starts_where_the_agent_keys_last_run_ended(
+    mock_submit: mock.MagicMock,
+    investigation_store: Any,
+    jobs_store: Any,
+) -> None:
+    """An investigation under the bare name belongs to the agent in AQuA's own project,
+    and does not move this agent's window."""
+    _attach_staging_agent(jobs_store)
+    ctx = StateContext()
+    ended = dt.datetime.now(dt.UTC) - dt.timedelta(hours=1)
+    for agent, window_end in (
+        (_STAGING_KEY, ended),
+        ("it_support_agent", ended + dt.timedelta(minutes=30)),
+    ):
+        create_investigation(
+            ctx.state,
+            runs.Investigation(
+                status=runs.InvestigationStatus.DONE,
+                observed_agent_key=agent,
+                trigger_type="scheduled",
+                window_start=(window_end - dt.timedelta(hours=1)).isoformat(),
+                window_end=window_end.isoformat(),
+            ),
+        )
+
+    investigation_id = asyncio.run(
+        schedule._launch_investigation(ctx, ambient=True)
+    )["investigation_id"]
+
+    record = get_stored_investigation(ctx.state, investigation_id)
+    assert dt.datetime.fromisoformat(record.window_start) == ended
+
+
+def test_a_run_for_the_selected_agent_is_its_own(
+    mock_submit: mock.MagicMock,
+    investigation_store: Any,
+    jobs_store: Any,
+) -> None:
+    """A request selects an agent besides the default; the investigation and its
+    settings are that agent's."""
+    _attach_agent(jobs_store, _WATCHED, default=True)
+    _attach_staging_agent(jobs_store, keep_watched=True)
+    ctx = StateContext({effective_config.AGENT_KEY_STATE: _STAGING_KEY})
+
+    investigation_id = asyncio.run(
+        schedule._launch_investigation(ctx, ambient=True)
+    )["investigation_id"]
+
+    record = get_stored_investigation(ctx.state, investigation_id)
+    assert record.observed_agent_key == _STAGING_KEY
+    assert record.effective_config["observed_agent_name"] == "it_support_agent"
+
+
 def test_a_deployment_with_no_agent_starts_no_run(
     mock_submit: mock.MagicMock,
     investigation_store: Any,
-    monkeypatch: pytest.MonkeyPatch,
+    jobs_store: Any,
 ) -> None:
-    monkeypatch.setattr(
-        effective_config, "env_config", make_config(observed_agent_name="")
-    )
+    store.delete_agent_record(jobs_store, _WATCHED)
+    effective_config.clear_cache()
 
     result = asyncio.run(schedule.schedule_investigation(StateContext()))
 
@@ -230,12 +384,12 @@ def test_schedule_tool_returns_pending(mock_submit: mock.MagicMock) -> None:
     result = asyncio.run(schedule.schedule_investigation(tc))
 
     # Non-blocking: returns a pending run immediately.
-    assert result["status"] == runs.RunStatus.PENDING
-    # A durable job was submitted for this run.
+    assert result["status"] == runs.InvestigationStatus.PENDING
+    # A durable job was submitted for this investigation.
     mock_submit.assert_called_once()
-    assert mock_submit.call_args.args[0] == result["run_id"]
+    assert mock_submit.call_args.args[0] == result["investigation_id"]
     # The config snapshot is stashed for the durable invocation to use.
-    record = get_run(tc.state, result["run_id"])
+    record = get_stored_investigation(tc.state, result["investigation_id"])
     assert record.effective_config
     assert record.job_name == "op/123"
 
@@ -247,7 +401,7 @@ def test_schedule_tool_records_submit_failure(
     monkeypatch.setattr(schedule, "submit_investigation", fake)
 
     result = asyncio.run(schedule.schedule_investigation(StateContext()))
-    assert result["status"] == runs.RunStatus.FAILED
+    assert result["status"] == runs.InvestigationStatus.FAILED
     assert "boom" in result["error"]
 
 
@@ -260,12 +414,17 @@ def test_submitting_a_run_fails_the_ones_left_pending(
     regularly, so that moment needs no job of its own to deploy and watch."""
     _lease(monkeypatch, minutes=30)
     tc = StateContext()
-    wedged = asyncio.run(schedule.schedule_investigation(tc))["run_id"]
+    wedged = asyncio.run(schedule.schedule_investigation(tc))[
+        "investigation_id"
+    ]
     _age_run(investigation_store, wedged, hours=2)
 
     asyncio.run(schedule.schedule_investigation(tc))
 
-    assert get_run(tc.state, wedged).status == runs.RunStatus.FAILED
+    assert (
+        get_stored_investigation(tc.state, wedged).status
+        == runs.InvestigationStatus.FAILED
+    )
 
 
 def test_the_lease_is_off_unless_a_deployment_sets_one(
@@ -277,12 +436,17 @@ def test_the_lease_is_off_unless_a_deployment_sets_one(
     of a deployment that never asked for it."""
     _lease(monkeypatch, minutes=0)
     tc = StateContext()
-    wedged = asyncio.run(schedule.schedule_investigation(tc))["run_id"]
+    wedged = asyncio.run(schedule.schedule_investigation(tc))[
+        "investigation_id"
+    ]
     _age_run(investigation_store, wedged, hours=48)
 
     asyncio.run(schedule.schedule_investigation(tc))
 
-    assert get_run(tc.state, wedged).status == runs.RunStatus.PENDING
+    assert (
+        get_stored_investigation(tc.state, wedged).status
+        == runs.InvestigationStatus.PENDING
+    )
 
 
 def test_the_lease_is_not_part_of_an_agents_configuration() -> None:
@@ -291,24 +455,24 @@ def test_the_lease_is_not_part_of_an_agents_configuration() -> None:
     attaching an agent writes."""
     agent_fields = {f.name for f in dataclasses.fields(ObservedAgentConfig)}
 
-    assert "pending_run_lease_minutes" not in agent_fields
+    assert "pending_investigation_lease_minutes" not in agent_fields
 
 
 def test_failing_the_stale_runs_never_stops_the_submission(
     mock_submit: mock.MagicMock, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Housekeeping on other runs; the run being asked for comes first."""
+    """Housekeeping on other investigations; the investigation being asked for comes first."""
     _lease(monkeypatch, minutes=30)
 
     async def boom(*_a: Any, **_k: Any) -> list[str]:
         await asyncio.sleep(0)  # a real sweep yields to the loop; so does this
         raise RuntimeError("bigquery is having a moment")
 
-    monkeypatch.setattr(runs, "fail_stale_pending_runs", boom)
+    monkeypatch.setattr(runs, "fail_stale_pending_investigations", boom)
 
     result = asyncio.run(schedule.schedule_investigation(StateContext()))
 
-    assert result["status"] == runs.RunStatus.PENDING
+    assert result["status"] == runs.InvestigationStatus.PENDING
 
 
 def _lease(monkeypatch: pytest.MonkeyPatch, *, minutes: int) -> None:
@@ -321,26 +485,26 @@ def _lease(monkeypatch: pytest.MonkeyPatch, *, minutes: int) -> None:
     monkeypatch.setattr(
         effective_config,
         "env_config",
-        make_config(pending_run_lease_minutes=minutes),
+        make_config(pending_investigation_lease_minutes=minutes),
     )
 
 
-def _age_run(store, run_id: str, *, hours: int) -> None:
-    """Backdates snapshots of `run_id` by the specified number of hours.
+def _age_run(store, investigation_id: str, *, hours: int) -> None:
+    """Backdates snapshots of `investigation_id` by the specified number of hours.
 
     Args:
         store: Mock investigation store containing snapshots.
-        run_id: Investigation run identifier to age.
+        investigation_id: Investigation identifier to age.
         hours: Number of hours to offset `updated_at`.
     """
     when = (dt.datetime.now(tz=dt.UTC) - dt.timedelta(hours=hours)).isoformat()
     for row in store.rows:
-        if row["run_id"] == run_id:
+        if row["run_id"] == investigation_id:
             row["updated_at"] = when
 
 
-def _window_span(record: runs.InvestigationRecord) -> dt.timedelta:
-    """Calculates duration of the run's evaluation window.
+def _window_span(record: runs.Investigation) -> dt.timedelta:
+    """Calculates duration of the investigation's evaluation window.
 
     Args:
         record: Investigation record with ISO timestamp bounds.
@@ -365,7 +529,7 @@ def test_launch_investigation_ambient_keeps_an_explicit_key(
             ctx, idempotency_key="trigger-7", ambient=True
         )
     )
-    record = get_run(ctx.state, result["run_id"])
+    record = get_stored_investigation(ctx.state, result["investigation_id"])
     assert record.idempotency_key == "trigger-7"
     assert result["idempotency_key"] == "trigger-7"
 
@@ -378,16 +542,18 @@ def test_launch_investigation_scheduled_derives_a_clock_key(
 
     monkeypatch.setattr(schedule, "_read_utc_clock", lambda: base)
     r1 = asyncio.run(schedule._launch_investigation(ctx, ambient=True))
-    rec1 = get_run(ctx.state, r1["run_id"])
+    rec1 = get_stored_investigation(ctx.state, r1["investigation_id"])
     assert rec1.idempotency_key is not None
-    assert rec1.idempotency_key.startswith(f"{rec1.observed_agent_name}:")
+    assert rec1.idempotency_key.startswith(f"{rec1.observed_agent_key}:")
 
     monkeypatch.setattr(
         schedule, "_read_utc_clock", lambda: base + dt.timedelta(seconds=30)
     )
     r2 = asyncio.run(schedule._launch_investigation(ctx, ambient=True))
     assert (
-        get_run(ctx.state, r2["run_id"]).idempotency_key
+        get_stored_investigation(
+            ctx.state, r2["investigation_id"]
+        ).idempotency_key
         == rec1.idempotency_key  # gitleaks:allow
     )
 
@@ -398,7 +564,10 @@ def test_launch_investigation_scheduled_derives_a_clock_key(
     )
     r3 = asyncio.run(schedule._launch_investigation(ctx, ambient=True))
     assert (
-        get_run(ctx.state, r3["run_id"]).idempotency_key != rec1.idempotency_key
+        get_stored_investigation(
+            ctx.state, r3["investigation_id"]
+        ).idempotency_key
+        != rec1.idempotency_key
     )
 
 
@@ -429,8 +598,15 @@ def test_launch_investigation_anchor_keys_on_the_sender_clock(
         schedule._launch_investigation(ctx, ambient=True, anchor=anchor)
     )
 
-    key = get_run(ctx.state, first["run_id"]).idempotency_key
-    assert key == get_run(ctx.state, retry["run_id"]).idempotency_key
+    key = get_stored_investigation(
+        ctx.state, first["investigation_id"]
+    ).idempotency_key
+    assert (
+        key
+        == get_stored_investigation(
+            ctx.state, retry["investigation_id"]
+        ).idempotency_key
+    )
     assert key is not None
 
 
@@ -440,7 +616,7 @@ def test_launch_investigation_adhoc_uses_day_window_and_no_keys(
     # No ambient params (the tool's call shape): day-based window, no keys.
     ctx = StateContext()
     result = asyncio.run(schedule._launch_investigation(ctx))
-    record = get_run(ctx.state, result["run_id"])
+    record = get_stored_investigation(ctx.state, result["investigation_id"])
     assert _window_span(record) == dt.timedelta(days=7)
     assert record.idempotency_key is None
 
@@ -450,7 +626,7 @@ def test_schedule_tool_stays_adhoc(mock_submit: mock.MagicMock) -> None:
     # a day-based window and no idempotency key.
     tc = StateContext()
     result = asyncio.run(schedule.schedule_investigation(tc))
-    record = get_run(tc.state, result["run_id"])
+    record = get_stored_investigation(tc.state, result["investigation_id"])
     assert _window_span(record) == dt.timedelta(days=7)
     assert record.idempotency_key is None
     assert result["idempotency_key"] is None
@@ -471,15 +647,26 @@ def _session_tool_context() -> ToolContext:
 
 
 @pytest.fixture
-def fake_agentplatform(monkeypatch: pytest.MonkeyPatch) -> mock.MagicMock:
-    """Stub `agentplatform.Client` so submit() makes no real calls."""
-    job = mock.MagicMock()
-    job.job_name = "projects/p/locations/us-central1/operations/op-1"
-    client = mock.MagicMock()
-    client.agent_engines.run_query_job.return_value = job
+def fake_agentplatform(
+    monkeypatch: pytest.MonkeyPatch,
+) -> mock.NonCallableMagicMock:
+    """Stub `agentplatform.Client` so submit() makes no real calls.
+
+    The stub is spec'd against the real classes, so a call to an attribute or
+    keyword the installed SDK lacks fails here as it would in production.
+    """
+    job = agentplatform.types.RunQueryJobResult(
+        job_name="projects/p/locations/us-central1/operations/op-1"
+    )
+    client = mock.create_autospec(agentplatform.Client, instance=True)
+    # Autospec leaves a property's value unspec'd, so spec it explicitly.
+    client.runtimes = mock.create_autospec(Runtimes, instance=True)
+    client.runtimes.run_query_job.return_value = job
 
     monkeypatch.setattr(
-        schedule.agentplatform, "Client", mock.MagicMock(return_value=client)
+        agentplatform,
+        "Client",
+        mock.create_autospec(agentplatform.Client, return_value=client),
     )
     monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "p")
     monkeypatch.setenv("GOOGLE_CLOUD_LOCATION", "us-central1")
@@ -487,14 +674,23 @@ def fake_agentplatform(monkeypatch: pytest.MonkeyPatch) -> mock.MagicMock:
     return client
 
 
+def test_fake_client_rejects_the_attributes_the_sdk_lacks(
+    fake_agentplatform: mock.NonCallableMagicMock,
+) -> None:
+    # Guards the spec: a bare MagicMock would accept `agent_engines`, which the
+    # installed `agentplatform.Client` does not have.
+    with pytest.raises(AttributeError):
+        _ = fake_agentplatform.agent_engines
+
+
 def test_submit_builds_self_query_with_keyword(
-    fake_agentplatform: mock.MagicMock,
+    fake_agentplatform: mock.NonCallableMagicMock,
 ) -> None:
     tc = _session_tool_context()
     result = schedule.submit_investigation("abcd1234", tc)
 
     assert result["job_name"].endswith("op-1")
-    call = fake_agentplatform.agent_engines.run_query_job.call_args
+    call = fake_agentplatform.runtimes.run_query_job.call_args
     # Targets THIS engine (self-query) using the injected engine id.
     assert call.kwargs["name"].endswith("/reasoningEngines/12345")
     query = json.loads(call.kwargs["config"]["query"])
@@ -506,25 +702,24 @@ def test_submit_builds_self_query_with_keyword(
 
 
 def test_submit_falls_back_to_session_app_name(
-    fake_agentplatform: mock.MagicMock, monkeypatch: pytest.MonkeyPatch
+    fake_agentplatform: mock.NonCallableMagicMock,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.delenv("GOOGLE_CLOUD_AGENT_ENGINE_ID", raising=False)
     schedule.submit_investigation("r1", _session_tool_context())
-    name = fake_agentplatform.agent_engines.run_query_job.call_args.kwargs[
-        "name"
-    ]
+    name = fake_agentplatform.runtimes.run_query_job.call_args.kwargs["name"]
     assert name.endswith("/reasoningEngines/engine-from-session")
 
 
 def test_submit_without_a_session_lets_the_job_open_one(
-    fake_agentplatform: mock.MagicMock,
+    fake_agentplatform: mock.NonCallableMagicMock,
 ) -> None:
     # An HTTP trigger has no session to reuse. Omitting `session_id` leaves
     # `async_stream_query` to create one; naming a session that does not exist
     # would let this call succeed and kill the job later.
     schedule.submit_investigation("abcd1234", RouteContext())
 
-    call = fake_agentplatform.agent_engines.run_query_job.call_args
+    call = fake_agentplatform.runtimes.run_query_job.call_args
     query = json.loads(call.kwargs["config"]["query"])
     assert query["input"] == {
         "message": f"{schedule.RUN_KEYWORD} abcd1234",
@@ -534,7 +729,7 @@ def test_submit_without_a_session_lets_the_job_open_one(
 
 
 def test_submit_reads_session_from_callback_context(
-    fake_agentplatform: mock.MagicMock,
+    fake_agentplatform: mock.NonCallableMagicMock,
 ) -> None:
     # The scheduling tool and `before_agent` both reach the session via the
     # public `.session` accessor, exactly as for a ToolContext (both are the
@@ -545,7 +740,7 @@ def test_submit_reads_session_from_callback_context(
     result = schedule.submit_investigation("abcd1234", cc)
 
     assert result["job_name"].endswith("op-1")
-    call = fake_agentplatform.agent_engines.run_query_job.call_args
+    call = fake_agentplatform.runtimes.run_query_job.call_args
     query = json.loads(call.kwargs["config"]["query"])
     assert query["input"]["message"] == f"{schedule.RUN_KEYWORD} abcd1234"
     assert query["input"]["session_id"] == "sess-1"
@@ -597,7 +792,7 @@ def test_schedule_tool_sync_run(
     result = asyncio.run(schedule.schedule_investigation(tc))
 
     fake_execute.assert_called_once()
-    assert fake_execute.call_args.args[0] == result["run_id"]
+    assert fake_execute.call_args.args[0] == result["investigation_id"]
     fake_submit.assert_not_called()
 
 
@@ -607,7 +802,9 @@ def test_the_inline_sweep_runs_off_the_event_loop_thread(
     _sync_config(monkeypatch)
     seen: dict[str, int] = {}
 
-    async def fake_execute(run_id: str, context: Any) -> dict[str, Any]:
+    async def fake_execute(
+        investigation_id: str, context: Any
+    ) -> dict[str, Any]:
         seen["thread"] = threading.get_ident()
         return {"status": "done"}
 
@@ -621,7 +818,7 @@ def test_the_inline_sweep_runs_off_the_event_loop_thread(
 
     loop_thread, result = asyncio.run(main())
     assert seen["thread"] != loop_thread
-    assert result["run_id"]
+    assert result["investigation_id"]
 
 
 def test_the_loop_keeps_serving_while_the_inline_sweep_runs(
@@ -640,7 +837,9 @@ def test_the_loop_keeps_serving_while_the_inline_sweep_runs(
     release = threading.Event()
     blocked: list[bool] = []
 
-    async def fake_execute(run_id: str, context: Any) -> dict[str, Any]:
+    async def fake_execute(
+        investigation_id: str, context: Any
+    ) -> dict[str, Any]:
         inside.set()
         # Long enough that only a blocked loop runs it out, not a loaded
         # runner; a working loop releases it at once.
@@ -658,7 +857,7 @@ def test_the_loop_keeps_serving_while_the_inline_sweep_runs(
         release.set()
         return await sweep
 
-    assert asyncio.run(main())["run_id"]
+    assert asyncio.run(main())["investigation_id"]
     assert blocked == [False], (
         "the loop was blocked for the length of the sweep"
     )
@@ -671,13 +870,19 @@ def test_the_launch_waits_and_answers_with_the_terminal_record(
     # `pending`, which is not what the dashboard reads off the response.
     _sync_config(monkeypatch)
 
-    async def fake_execute(run_id: str, context: Any) -> dict[str, Any]:
-        await runs.update_run(context.state, run_id, status=runs.RunStatus.DONE)
+    async def fake_execute(
+        investigation_id: str, context: Any
+    ) -> dict[str, Any]:
+        await runs.update_investigation(
+            context.state,
+            investigation_id,
+            status=runs.InvestigationStatus.DONE,
+        )
         return {"status": "done"}
 
     _sweep(monkeypatch, fake_execute)
     result = asyncio.run(schedule.schedule_investigation(StateContext()))
-    assert result["status"] == runs.RunStatus.DONE
+    assert result["status"] == runs.InvestigationStatus.DONE
 
 
 class _AdkStateContext:
@@ -698,7 +903,9 @@ def test_the_sweep_thread_gets_a_detached_copy_of_the_state(
     live = State(value={"seeded_before_the_sweep": {"nested": 5}}, delta={})
     seen: dict[str, Any] = {}
 
-    async def fake_execute(run_id: str, context: Any) -> dict[str, Any]:
+    async def fake_execute(
+        investigation_id: str, context: Any
+    ) -> dict[str, Any]:
         seen["state"] = context.state
         seen["session"] = context.session
         context.state["written_on_the_thread"] = True
@@ -732,6 +939,32 @@ def _shared_lock(
     return lock
 
 
+def test_the_lock_is_keyed_by_the_agent_key(
+    mock_submit: mock.MagicMock,
+    investigation_store: Any,
+    jobs_store: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A sweep of the same agent in AQuA's own project holds its bare name,
+    which leaves the staging agent free to sweep."""
+    _attach_staging_agent(jobs_store)
+    lock = _shared_lock(monkeypatch)
+    lock.acquire("it_support_agent", "other-run")
+    seen: list[str | None] = []
+
+    def _probe(investigation_id: str, context: Any) -> dict[str, Any]:
+        seen.append(lock.acquire(_STAGING_KEY, "probe"))
+        return {}
+
+    monkeypatch.setattr(schedule, "submit_investigation", _probe)
+
+    result = asyncio.run(schedule._launch_investigation(StateContext()))
+
+    assert result["status"] == runs.InvestigationStatus.PENDING
+    # The launch holds the key while it submits.
+    assert seen == [result["investigation_id"]]
+
+
 def test_a_second_sweep_is_refused_and_answers_with_the_running_one(
     monkeypatch: pytest.MonkeyPatch, investigation_store: Any
 ) -> None:
@@ -740,7 +973,9 @@ def test_a_second_sweep_is_refused_and_answers_with_the_running_one(
     inside = threading.Event()
     release = threading.Event()
 
-    async def fake_execute(run_id: str, context: Any) -> dict[str, Any]:
+    async def fake_execute(
+        investigation_id: str, context: Any
+    ) -> dict[str, Any]:
         inside.set()
         release.wait(timeout=5)
         return {"status": "done"}
@@ -758,10 +993,10 @@ def test_a_second_sweep_is_refused_and_answers_with_the_running_one(
         return await first, second
 
     first, second = asyncio.run(main())
-    assert second["run_id"] == first["run_id"]
+    assert second["investigation_id"] == first["investigation_id"]
     # And no second `pending` record was minted for it.
     assert {row["run_id"] for row in investigation_store.rows} == {
-        first["run_id"]
+        first["investigation_id"]
     }
 
 
@@ -771,13 +1006,15 @@ def test_the_next_sweep_runs_once_the_previous_one_has_finished(
     _sync_config(monkeypatch)
     _shared_lock(monkeypatch)
 
-    async def fake_execute(run_id: str, context: Any) -> dict[str, Any]:
+    async def fake_execute(
+        investigation_id: str, context: Any
+    ) -> dict[str, Any]:
         return {"status": "done"}
 
     _sweep(monkeypatch, fake_execute)
     first = asyncio.run(schedule.schedule_investigation(StateContext()))
     second = asyncio.run(schedule.schedule_investigation(StateContext()))
-    assert first["run_id"] != second["run_id"]
+    assert first["investigation_id"] != second["investigation_id"]
 
 
 def test_a_sweep_that_raises_still_gives_the_agent_back(
@@ -786,14 +1023,16 @@ def test_a_sweep_that_raises_still_gives_the_agent_back(
     _sync_config(monkeypatch)
     _shared_lock(monkeypatch)
 
-    async def fake_execute(run_id: str, context: Any) -> dict[str, Any]:
+    async def fake_execute(
+        investigation_id: str, context: Any
+    ) -> dict[str, Any]:
         raise RuntimeError("the graph fell over")
 
     _sweep(monkeypatch, fake_execute)
     first = asyncio.run(schedule.schedule_investigation(StateContext()))
     second = asyncio.run(schedule.schedule_investigation(StateContext()))
-    assert first["status"] == runs.RunStatus.FAILED
-    assert second["run_id"] != first["run_id"]
+    assert first["status"] == runs.InvestigationStatus.FAILED
+    assert second["investigation_id"] != first["investigation_id"]
 
 
 def test_the_durable_path_is_left_unguarded(
@@ -804,7 +1043,7 @@ def test_the_durable_path_is_left_unguarded(
     # strength of a sweep this process cannot see.
     first = asyncio.run(schedule.schedule_investigation(StateContext()))
     second = asyncio.run(schedule.schedule_investigation(StateContext()))
-    assert first["run_id"] != second["run_id"]
+    assert first["investigation_id"] != second["investigation_id"]
     assert mock_submit.call_count == 2
 
 
@@ -848,19 +1087,19 @@ def _seed_run(state: dict, **fields: object) -> None:
 
     Args:
         state: Workflow state dictionary.
-        **fields: InvestigationRecord field overrides.
+        **fields: Investigation field overrides.
     """
     defaults = {
-        "status": runs.RunStatus.DONE,
-        "observed_agent_name": "test-observed-agent",
+        "status": runs.InvestigationStatus.DONE,
+        "observed_agent_key": _WATCHED,
         "trigger_type": "scheduled",
         "window_end": "2026-01-01T00:00:00+00:00",
     }
-    create_run(state, runs.InvestigationRecord(**{**defaults, **fields}))
+    create_investigation(state, runs.Investigation(**{**defaults, **fields}))
 
 
 def _ambient_window_start(state: dict) -> str:
-    """Launches an ambient run and extracts its resolved window start.
+    """Launches an ambient investigation and extracts its resolved window start.
 
     Args:
         state: Workflow state dictionary containing run history.
@@ -870,7 +1109,9 @@ def _ambient_window_start(state: dict) -> str:
     """
     ctx = CallbackContext(state=state)
     result = asyncio.run(schedule._launch_investigation(ctx, ambient=True))
-    return get_run(ctx.state, result["run_id"]).window_start
+    return get_stored_investigation(
+        ctx.state, result["investigation_id"]
+    ).window_start
 
 
 @pytest.fixture
@@ -906,11 +1147,11 @@ def test_the_newest_finished_run_sets_the_start(
 @pytest.mark.parametrize(
     ("reason", "fields"),
     [
-        ("a failed run", {"status": runs.RunStatus.FAILED}),
+        ("a failed run", {"status": runs.InvestigationStatus.FAILED}),
         ("a dry run", {"dry_run": True}),
         ("a manual run", {"trigger_type": schedule.MANUAL_TRIGGER_TYPE}),
         ("a custom run", {"trigger_type": schedule.CUSTOM_TRIGGER_TYPE}),
-        ("another agent", {"observed_agent_name": "other-agent"}),
+        ("another agent", {"observed_agent_key": "other-agent"}),
     ],
 )
 def test_a_run_that_covered_nothing_does_not_set_the_start(
@@ -931,7 +1172,7 @@ def test_the_dedup_grain_is_five_minutes() -> None:
 # --- custom investigations ------------------------------------------------ #
 
 _OVERRIDES = CustomOverrides(
-    selector_sql="SELECT session_id FROM t", session_review_focus="refund flows"
+    selector_sql="SELECT session_id FROM t", review_focus="refund flows"
 )
 
 
@@ -959,7 +1200,7 @@ def _custom(ctx: Any, **kwargs: Any) -> dict[str, Any]:
 def test_a_custom_run_keeps_the_window_it_was_given(
     mock_submit: mock.MagicMock, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Verify custom runs retain explicit time windows without lookback clamping."""
+    """Verify custom investigations retain explicit time windows without lookback clamping."""
     monkeypatch.setattr(
         schedule,
         "_read_utc_clock",
@@ -967,7 +1208,9 @@ def test_a_custom_run_keeps_the_window_it_was_given(
     )
     ctx = StateContext()
 
-    record = get_run(ctx.state, _custom(ctx)["run_id"])
+    record = get_stored_investigation(
+        ctx.state, _custom(ctx)["investigation_id"]
+    )
 
     assert record.window_start == "2026-02-10T13:00:00+00:00"
     assert record.window_end == "2026-02-10T17:00:00+00:00"
@@ -976,11 +1219,13 @@ def test_a_custom_run_keeps_the_window_it_was_given(
 def test_a_custom_run_still_takes_its_budget_from_the_cap(
     mock_submit: mock.MagicMock, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Verify custom runs derive metric budgets from the evaluation cap."""
+    """Verify custom investigations derive metric budgets from the evaluation cap."""
     monkeypatch.setattr(effective_config, "load", lambda state: _eval_config())
     ctx = StateContext()
 
-    record = get_run(ctx.state, _custom(ctx)["run_id"])
+    record = get_stored_investigation(
+        ctx.state, _custom(ctx)["investigation_id"]
+    )
 
     # Evaluation cap of 100 divided across 2 metrics yields 50 per metric.
     assert record.budget_per_metric == 50
@@ -991,7 +1236,9 @@ def test_a_custom_run_stores_its_overrides_and_trigger_type(
 ) -> None:
     ctx = StateContext()
 
-    record = get_run(ctx.state, _custom(ctx)["run_id"])
+    record = get_stored_investigation(
+        ctx.state, _custom(ctx)["investigation_id"]
+    )
 
     assert record.custom_overrides == _OVERRIDES
     assert record.trigger_type == schedule.CUSTOM_TRIGGER_TYPE
@@ -1002,7 +1249,7 @@ def test_an_ordinary_run_stores_no_overrides(
 ) -> None:
     ctx = StateContext()
     result = asyncio.run(schedule._launch_investigation(ctx))
-    record = get_run(ctx.state, result["run_id"])
+    record = get_stored_investigation(ctx.state, result["investigation_id"])
     assert record.custom_overrides is None
     assert record.trigger_type == schedule.MANUAL_TRIGGER_TYPE
 
@@ -1066,7 +1313,7 @@ def test_a_dry_run_cannot_carry_overrides(mock_submit: mock.MagicMock) -> None:
 def test_a_refused_custom_run_is_not_handed_someone_elses_sweep(
     monkeypatch: pytest.MonkeyPatch, investigation_store: Any
 ) -> None:
-    """Verify custom runs return an error instead of attaching to an unrelated running sweep."""
+    """Verify custom investigations return an error instead of attaching to an unrelated running sweep."""
     cfg = _sync_config(monkeypatch)
     lock = _shared_lock(monkeypatch)
     lock.acquire(cfg.observed_agent_name, "someone-elses-run")
@@ -1074,8 +1321,8 @@ def test_a_refused_custom_run_is_not_handed_someone_elses_sweep(
     result = _custom(StateContext())
 
     assert "not started" in result["error"]
-    assert result["running_run_id"] == "someone-elses-run"
-    assert "run_id" not in result
+    assert result["running_investigation_id"] == "someone-elses-run"
+    assert "investigation_id" not in result
     assert investigation_store.rows == []
 
 
@@ -1091,27 +1338,30 @@ def test_a_refused_ambient_run_still_answers_with_the_running_sweep(
         schedule._launch_investigation(StateContext(), ambient=True)
     )
 
-    assert result["run_id"] == "someone-elses-run"
+    assert result["investigation_id"] == "someone-elses-run"
 
 
 def test_a_custom_run_is_refused_once_too_many_are_in_flight(
     mock_submit: mock.MagicMock,
 ) -> None:
-    """Verify custom runs are rejected when concurrent in-flight runs reach MAX_RUNS_IN_FLIGHT."""
+    """Verify custom investigations are rejected when concurrent in-flight runs reach MAX_INVESTIGATIONS_IN_FLIGHT."""
     ctx = StateContext()
-    for _ in range(schedule.MAX_RUNS_IN_FLIGHT):
-        create_run(
+    for _ in range(schedule.MAX_INVESTIGATIONS_IN_FLIGHT):
+        create_investigation(
             ctx.state,
-            runs.InvestigationRecord(
-                status=runs.RunStatus.RUNNING,
-                observed_agent_name="test-observed-agent",
+            runs.Investigation(
+                status=runs.InvestigationStatus.RUNNING,
+                observed_agent_key=_WATCHED,
             ),
         )
 
     result = _custom(ctx)
 
     assert "in flight" in result["error"]
-    assert result["runs_in_flight"] == schedule.MAX_RUNS_IN_FLIGHT
+    assert (
+        result["investigations_in_flight"]
+        == schedule.MAX_INVESTIGATIONS_IN_FLIGHT
+    )
     mock_submit.assert_not_called()
 
 
@@ -1119,60 +1369,60 @@ def test_finished_runs_do_not_count_against_the_limit(
     mock_submit: mock.MagicMock,
 ) -> None:
     ctx = StateContext()
-    for _ in range(schedule.MAX_RUNS_IN_FLIGHT + 2):
-        create_run(
+    for _ in range(schedule.MAX_INVESTIGATIONS_IN_FLIGHT + 2):
+        create_investigation(
             ctx.state,
-            runs.InvestigationRecord(
-                status=runs.RunStatus.DONE,
-                observed_agent_name="test-observed-agent",
+            runs.Investigation(
+                status=runs.InvestigationStatus.DONE,
+                observed_agent_key=_WATCHED,
             ),
         )
 
-    assert _custom(ctx)["run_id"]
+    assert _custom(ctx)["investigation_id"]
 
 
 def test_an_ambient_run_is_never_refused_for_being_busy(
     mock_submit: mock.MagicMock,
 ) -> None:
-    """Verify scheduled ambient runs are not blocked by in-flight run count limits."""
+    """Verify scheduled ambient investigations are not blocked by in-flight run count limits."""
     ctx = CallbackContext(state={})
-    for _ in range(schedule.MAX_RUNS_IN_FLIGHT + 1):
-        create_run(
+    for _ in range(schedule.MAX_INVESTIGATIONS_IN_FLIGHT + 1):
+        create_investigation(
             ctx.state,
-            runs.InvestigationRecord(
-                status=runs.RunStatus.RUNNING,
-                observed_agent_name="test-observed-agent",
+            runs.Investigation(
+                status=runs.InvestigationStatus.RUNNING,
+                observed_agent_key=_WATCHED,
             ),
         )
 
     assert asyncio.run(schedule._launch_investigation(ctx, ambient=True))[
-        "run_id"
+        "investigation_id"
     ]
 
 
-# --- a run an observed-agent update scheduled ------------------------------ #
+# --- an investigation an observed-agent update scheduled ------------------------------ #
 
 
 def _seed_scheduled_run(
-    ctx: Any, run_id: str, *, minutes_overdue: int = 0
-) -> runs.InvestigationRecord:
-    """Records the scheduled run an observed-agent update leaves.
+    ctx: Any, investigation_id: str, *, minutes_overdue: int = 0
+) -> runs.Investigation:
+    """Records the scheduled investigation an observed-agent update leaves.
 
     Args:
         ctx: Context whose state resolves the store.
-        run_id: ID the update derived from its audit event.
+        investigation_id: ID the update derived from its audit event.
         minutes_overdue: Minutes since the due time; negative for not yet due.
 
     Returns:
         The stored scheduled record.
     """
     due = dt.datetime.now(tz=dt.UTC) - dt.timedelta(minutes=minutes_overdue)
-    return create_run(
+    return create_investigation(
         ctx.state,
-        runs.InvestigationRecord(
-            run_id=run_id,
-            status=runs.RunStatus.SCHEDULED,
-            observed_agent_name="test-observed-agent",
+        runs.Investigation(
+            investigation_id=investigation_id,
+            status=runs.InvestigationStatus.SCHEDULED,
+            observed_agent_key=_WATCHED,
             trigger_type="task_fire",
             idempotency_key="op-1",
             due_at=due.isoformat(),
@@ -1183,7 +1433,7 @@ def _seed_scheduled_run(
 def test_the_fired_trigger_advances_the_scheduled_record(
     mock_submit: mock.MagicMock, investigation_store: Any
 ) -> None:
-    """One redeploy reads as one run, from the update arriving to the result."""
+    """One redeploy reads as one investigation, from the update arriving to the result."""
     ctx = CallbackContext(state={})
     scheduled = _seed_scheduled_run(ctx, "sched01")
 
@@ -1193,14 +1443,14 @@ def test_the_fired_trigger_advances_the_scheduled_record(
             idempotency_key="op-1",
             ambient=True,
             trigger_type="task_fire",
-            scheduled_run_id="sched01",
+            scheduled_investigation_id="sched01",
         )
     )
 
-    assert result["run_id"] == "sched01"
+    assert result["investigation_id"] == "sched01"
     assert {row["run_id"] for row in investigation_store.rows} == {"sched01"}
-    record = get_run(ctx.state, "sched01")
-    assert record.status == runs.RunStatus.PENDING
+    record = get_stored_investigation(ctx.state, "sched01")
+    assert record.status == runs.InvestigationStatus.PENDING
     assert record.due_at == scheduled.due_at
     # The window is derived now, when the trigger fires, so it holds the new
     # revision's traces.
@@ -1215,7 +1465,7 @@ def test_a_redelivered_trigger_does_not_rewrite_a_run_that_moved_on(
     left for the idempotency marker to skip."""
     ctx = CallbackContext(state={})
     _seed_scheduled_run(ctx, "sched01")
-    asyncio.run(runs.update_run(ctx.state, "sched01", status="done"))
+    asyncio.run(runs.update_investigation(ctx.state, "sched01", status="done"))
 
     result = asyncio.run(
         schedule._launch_investigation(
@@ -1223,26 +1473,35 @@ def test_a_redelivered_trigger_does_not_rewrite_a_run_that_moved_on(
             idempotency_key="op-1",
             ambient=True,
             trigger_type="task_fire",
-            scheduled_run_id="sched01",
+            scheduled_investigation_id="sched01",
         )
     )
 
-    assert result["run_id"] != "sched01"
-    assert get_run(ctx.state, "sched01").status == runs.RunStatus.DONE
+    assert result["investigation_id"] != "sched01"
+    assert (
+        get_stored_investigation(ctx.state, "sched01").status
+        == runs.InvestigationStatus.DONE
+    )
 
 
 def test_a_submission_fails_the_scheduled_runs_whose_trigger_was_lost(
     mock_submit: mock.MagicMock,
 ) -> None:
     ctx = CallbackContext(state={})
-    lost_age = schedule.SCHEDULED_RUN_GRACE_MINUTES + 30
+    lost_age = schedule.SCHEDULED_INVESTIGATION_GRACE_MINUTES + 30
     _seed_scheduled_run(ctx, "lost0001", minutes_overdue=lost_age)
     _seed_scheduled_run(ctx, "wait0001", minutes_overdue=-10)
 
     asyncio.run(schedule.schedule_investigation(ctx))
 
-    assert get_run(ctx.state, "lost0001").status == runs.RunStatus.FAILED
-    assert get_run(ctx.state, "wait0001").status == runs.RunStatus.SCHEDULED
+    assert (
+        get_stored_investigation(ctx.state, "lost0001").status
+        == runs.InvestigationStatus.FAILED
+    )
+    assert (
+        get_stored_investigation(ctx.state, "wait0001").status
+        == runs.InvestigationStatus.SCHEDULED
+    )
 
 
 def test_a_late_trigger_still_advances_its_own_record(
@@ -1251,7 +1510,7 @@ def test_a_late_trigger_still_advances_its_own_record(
     """The overdue sweep runs in the same submission, and must not fail the
     run whose trigger is the one arriving."""
     ctx = CallbackContext(state={})
-    late_age = schedule.SCHEDULED_RUN_GRACE_MINUTES + 30
+    late_age = schedule.SCHEDULED_INVESTIGATION_GRACE_MINUTES + 30
     _seed_scheduled_run(ctx, "late0001", minutes_overdue=late_age)
 
     result = asyncio.run(
@@ -1260,12 +1519,15 @@ def test_a_late_trigger_still_advances_its_own_record(
             idempotency_key="op-1",
             ambient=True,
             trigger_type="task_fire",
-            scheduled_run_id="late0001",
+            scheduled_investigation_id="late0001",
         )
     )
 
-    assert result["run_id"] == "late0001"
-    assert get_run(ctx.state, "late0001").status == runs.RunStatus.PENDING
+    assert result["investigation_id"] == "late0001"
+    assert (
+        get_stored_investigation(ctx.state, "late0001").status
+        == runs.InvestigationStatus.PENDING
+    )
 
 
 def test_a_scheduled_run_whose_trigger_finds_a_sweep_running_is_skipped(
@@ -1273,7 +1535,7 @@ def test_a_scheduled_run_whose_trigger_finds_a_sweep_running_is_skipped(
 ) -> None:
     """Left scheduled, it would wait for a trigger that has come and gone."""
     lock = _shared_lock(monkeypatch)
-    lock.acquire("test-observed-agent", "holder01")
+    lock.acquire(_WATCHED, "holder01")
     ctx = CallbackContext(state={})
     _seed_scheduled_run(ctx, "sched01")
 
@@ -1283,12 +1545,12 @@ def test_a_scheduled_run_whose_trigger_finds_a_sweep_running_is_skipped(
             idempotency_key="op-1",
             ambient=True,
             trigger_type="task_fire",
-            scheduled_run_id="sched01",
+            scheduled_investigation_id="sched01",
         )
     )
 
-    assert result["run_id"] == "holder01"
-    record = get_run(ctx.state, "sched01")
-    assert record.status == runs.RunStatus.SKIPPED
+    assert result["investigation_id"] == "holder01"
+    record = get_stored_investigation(ctx.state, "sched01")
+    assert record.status == runs.InvestigationStatus.SKIPPED
     assert "holder01" in (record.error or "")
     mock_submit.assert_not_called()

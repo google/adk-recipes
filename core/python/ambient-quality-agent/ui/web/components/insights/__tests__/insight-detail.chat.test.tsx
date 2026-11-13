@@ -24,7 +24,7 @@ import {
   createRouter,
   RouterProvider,
 } from "@tanstack/react-router";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { InsightView } from "@/lib/aqua-api";
@@ -33,14 +33,14 @@ import { insightRcaPrompt } from "../insight-rca-prompt";
 
 const INSIGHT: InsightView = {
   insight_id: "9f2c4b7e1a8d4c3fae5b60d7c1290f34",
-  agent_name: "it_support_agent",
+  observed_agent_key: "it_support_agent",
   label: "crashed with priority",
   tool_name: "create_ticket",
   status: "RECURRING",
   occurrence_count: 7,
-  trace_count: 134,
+  trajectory_count: 134,
   impact: 400,
-  last_run_at: "2026-08-28T18:35:34Z",
+  last_investigation_at: "2026-08-28T18:35:34Z",
   diagnosis: "Priority value must be High, Medium, Low.",
   confidence: 1.0,
 };
@@ -48,13 +48,14 @@ const INSIGHT: InsightView = {
 /**
  * Renders InsightDetailView within a mock router and query client environment.
  *
+ * @param insight The insight the stubbed engine serves.
  * @returns Function returning the current router location href.
  */
-function renderDetail() {
+function renderDetail(insight: InsightView = INSIGHT) {
   vi.stubGlobal(
     "fetch",
     (async () =>
-      new Response(JSON.stringify({ insight: INSIGHT, occurrences: [] }), {
+      new Response(JSON.stringify({ insight, occurrences: [] }), {
         status: 200,
       })) as typeof fetch,
   );
@@ -67,7 +68,7 @@ function renderDetail() {
   const indexRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: "/",
-    component: () => <InsightDetailView insightId={INSIGHT.insight_id} />,
+    component: () => <InsightDetailView insightId={insight.insight_id} />,
   });
   const listRoute = createRoute({
     getParentRoute: () => rootRoute,
@@ -126,6 +127,20 @@ describe("the detail header's Chat action", () => {
     await userEvent.keyboard("{Enter}");
 
     await waitFor(() => expect(href()).toContain("/c?"));
+  });
+
+  it("is named in plain text when the heading renders code", async () => {
+    renderDetail({
+      ...INSIGHT,
+      refined_label: "`create_ticket` declares no parameters",
+    });
+
+    const heading = await screen.findByRole("heading", { level: 1 });
+    expect(within(heading).getByText("create_ticket").tagName).toBe("CODE");
+    expect(heading).toHaveTextContent("create_ticket declares no parameters");
+    expect(await chatButton()).toHaveAccessibleName(
+      "Diagnose insight in chat: create_ticket declares no parameters",
+    );
   });
 
   it("sits beside the bug-report action without disturbing it", async () => {

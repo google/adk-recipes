@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import json
+import time
 from typing import Any
 
 import pytest
@@ -45,7 +46,7 @@ def _fake_call(payload: Any) -> Any:
 
 def _candidates(*labels: str) -> list[Cluster]:
     return [
-        Cluster(cluster_id=i, label=label, finding_ids=[i], item_count=1)
+        Cluster(cluster_id=i, label=label, finding_ids=[i], finding_count=1)
         for i, label in enumerate(labels)
     ]
 
@@ -62,7 +63,7 @@ def test_merge_folds_two_wordings_of_one_defect() -> None:
     (merged,) = merge.merge_clusters(clusters, model_call=call)
 
     assert merged.label == "failed to call create_ticket"
-    assert merged.item_count == 2
+    assert merged.finding_count == 2
     assert merged.finding_ids == [0, 1]
     # The labels went out keyed by id, and the rubrics did not: the merge costs
     # one small call whatever the sweep's size.
@@ -81,7 +82,7 @@ def test_merge_keeps_distinct_defects_apart() -> None:
         "failed to call create_ticket",
         "produced an empty response",
     ]
-    assert [c.item_count for c in merged] == [1, 1]
+    assert [c.finding_count for c in merged] == [1, 1]
 
 
 def test_merge_keeps_a_candidate_the_model_left_out() -> None:
@@ -92,7 +93,7 @@ def test_merge_keeps_a_candidate_the_model_left_out() -> None:
     merged = merge.merge_clusters(clusters, model_call=call)
 
     assert [c.label for c in merged] == ["a", "c"]
-    assert [c.item_count for c in merged] == [2, 1]
+    assert [c.finding_count for c in merged] == [2, 1]
 
 
 @pytest.mark.parametrize(
@@ -118,7 +119,7 @@ def test_merge_leaves_a_shared_id_with_the_group_that_claimed_it_first(
     merged = merge.merge_clusters(clusters, model_call=call)
 
     assert [c.label for c in merged] == labels
-    assert [c.item_count for c in merged] == counts
+    assert [c.finding_count for c in merged] == counts
     assert sorted(rid for c in merged for rid in c.finding_ids) == [0, 1, 2]
 
 
@@ -128,7 +129,7 @@ def test_merge_ignores_an_id_it_was_never_given() -> None:
 
     merged = merge.merge_clusters(clusters, model_call=call)
 
-    assert [c.item_count for c in merged] == [1, 1]
+    assert [c.finding_count for c in merged] == [1, 1]
 
 
 @pytest.mark.parametrize(
@@ -178,23 +179,23 @@ def test_merge_unions_the_traces_of_the_folded_candidates() -> None:
             cluster_id=0,
             label="failed to call create_ticket",
             finding_ids=[0],
-            item_count=1,
-            trace_ids=["case-1", "case-2"],
+            finding_count=1,
+            trajectory_ids=["case-1", "case-2"],
         ),
         Cluster(
             cluster_id=1,
             label="did not call create_ticket",
             finding_ids=[1],
-            item_count=1,
-            trace_ids=["case-2", "case-3"],
+            finding_count=1,
+            trajectory_ids=["case-2", "case-3"],
         ),
     ]
     call = _fake_call({"groups": [{"ids": [0, 1]}]})
 
     (merged,) = merge.merge_clusters(clusters, model_call=call)
 
-    assert merged.trace_ids == ["case-1", "case-2", "case-3"]
-    assert merged.trace_count == 3
+    assert merged.trajectory_ids == ["case-1", "case-2", "case-3"]
+    assert merged.trajectory_count == 3
 
 
 def test_merge_unions_the_revisions_of_the_folded_candidates() -> None:
@@ -205,14 +206,14 @@ def test_merge_unions_the_revisions_of_the_folded_candidates() -> None:
             cluster_id=0,
             label="failed to call create_ticket",
             finding_ids=[0],
-            item_count=1,
+            finding_count=1,
             agent_revisions=["2"],
         ),
         Cluster(
             cluster_id=1,
             label="did not call create_ticket",
             finding_ids=[1],
-            item_count=1,
+            finding_count=1,
             agent_revisions=["2", "4"],
         ),
     ]
@@ -221,3 +222,106 @@ def test_merge_unions_the_revisions_of_the_folded_candidates() -> None:
     (merged,) = merge.merge_clusters(clusters, model_call=call)
 
     assert merged.agent_revisions == ["2", "4"]
+
+
+# --- per-agent merging ---------------------------------------------------------
+
+
+def _read_merge_ids(prompt: str) -> list[int]:
+    """Extract the candidate cluster IDs from a rendered merge prompt.
+
+    Args:
+        prompt: Rendered merge prompt string.
+
+    Returns:
+        Cluster IDs in the order they appear in the prompt payload.
+    """
+    payload = prompt.rsplit(merge._MERGE_INSTRUCTIONS, maxsplit=1)[-1]
+    return [entry["id"] for entry in json.loads(payload)]
+
+
+def test_candidates_of_different_agents_never_share_a_merge_call() -> None:
+    """One wording in two agents is two defects with two fixes, so the model
+    is never given the chance to fold them together."""
+    clusters = [
+        Cluster(
+            cluster_id=0, label="failed to call create_ticket", agent_id="a"
+        ),
+        Cluster(
+            cluster_id=1, label="failed to call create_ticket", agent_id="b"
+        ),
+        Cluster(cluster_id=2, label="did not call create_ticket", agent_id="a"),
+        Cluster(cluster_id=3, label="did not call create_ticket", agent_id="b"),
+    ]
+    prompts: list[str] = []
+
+    def call(prompt: str) -> str:
+        prompts.append(prompt)
+        return json.dumps({"groups": [{"ids": _read_merge_ids(prompt)}]})
+
+    merged = merge.merge_clusters(clusters, model_call=call)
+
+    assert sorted(_read_merge_ids(p) for p in prompts) == [[0, 2], [1, 3]]
+    # Each agent's pair folds onto its first candidate, and the result keeps
+    # the input order of the candidates that were kept.
+    assert [(c.cluster_id, c.agent_id) for c in merged] == [(0, "a"), (1, "b")]
+
+
+def test_an_agent_with_one_candidate_costs_no_merge_call() -> None:
+    """Nothing to fold, so nothing to ask, while the other agent still merges."""
+    clusters = [
+        Cluster(cluster_id=0, label="x", agent_id="a"),
+        Cluster(cluster_id=1, label="y", agent_id="lonely"),
+        Cluster(cluster_id=2, label="x again", agent_id="a"),
+    ]
+    call = _fake_call({"groups": [{"ids": [0, 2]}]})
+
+    merged = merge.merge_clusters(clusters, model_call=call)
+
+    assert len(call.prompts) == 1
+    assert _read_merge_ids(call.prompts[0]) == [0, 2]
+    assert [c.cluster_id for c in merged] == [0, 1]
+    assert merged[0].agent_id == "a"
+
+
+def test_a_failed_merge_call_keeps_only_that_agents_candidates_unmerged() -> (
+    None
+):
+    clusters = [
+        Cluster(cluster_id=0, label="x", agent_id="a"),
+        Cluster(cluster_id=1, label="y", agent_id="b"),
+        Cluster(cluster_id=2, label="x again", agent_id="a"),
+        Cluster(cluster_id=3, label="y again", agent_id="b"),
+    ]
+
+    def call(prompt: str) -> str:
+        ids = _read_merge_ids(prompt)
+        if ids == [0, 2]:
+            raise RuntimeError("503 UNAVAILABLE")
+        return json.dumps({"groups": [{"ids": ids}]})
+
+    merged = merge.merge_clusters(clusters, model_call=call)
+
+    assert [c.cluster_id for c in merged] == [0, 1, 2]
+
+
+def test_merged_candidates_keep_the_input_order_whichever_call_finishes_first() -> (
+    None
+):
+    """The per-agent calls run concurrently, so the result must not depend on
+    which one answered first."""
+    clusters = [
+        Cluster(cluster_id=0, label="x", agent_id="slow"),
+        Cluster(cluster_id=1, label="y", agent_id="fast"),
+        Cluster(cluster_id=2, label="x again", agent_id="slow"),
+        Cluster(cluster_id=3, label="y again", agent_id="fast"),
+    ]
+
+    def call(prompt: str) -> str:
+        ids = _read_merge_ids(prompt)
+        time.sleep(0.05 if ids[0] == 0 else 0.0)
+        return json.dumps({"groups": [{"ids": [i]} for i in ids]})
+
+    merged = merge.merge_clusters(clusters, model_call=call)
+
+    assert [c.cluster_id for c in merged] == [0, 1, 2, 3]

@@ -32,7 +32,9 @@ from ambient_quality_agent.config import (
 from ambient_quality_agent.core.session_state import ADKStateLike
 from ambient_quality_agent.tools.insights.findings import FindingSet
 from ambient_quality_agent.tools.investigations.models import (
+    STAGE_EVENT_SOURCE,
     InvestigationCounters,
+    StageProgress,
 )
 from google.adk.events.event import Event
 from google.adk.sessions.state import State
@@ -44,12 +46,12 @@ logger = logging.getLogger(__name__)
 # State key under which `record_progress_event` accumulates emitted snippets.
 PROGRESS_LOG_KEY = "progress_log"
 
-# State key under which `add_counts` accumulates the run's stage counters.
+# State key under which `add_counts` accumulates the investigation's stage counters.
 COUNTERS_KEY = "counters"
 
 
 def add_counts(state: ADKStateLike, **deltas: int) -> None:
-    """Adds `deltas` to the run's counters in `state`.
+    """Adds `deltas` to the investigation's counters in `state`.
 
     Stages accumulate counts independently and never read running totals back,
     ensuring counters remain accurate even if earlier stages were skipped or
@@ -79,17 +81,22 @@ event_writer: Callable[[ADKStateLike, str, str], None] = (
 
 
 class WorkflowState(BaseModel):
-    """Shared, typed state for one investigation run.
+    """Shared, typed state for one investigation.
 
     This is the object mutated in place by the ADK 2.0 workflow nodes.
     It carries the process configuration inputs (copied from
-    `Config`) plus values derived during the run.
+    `Config`) plus values derived during the investigation.
     """
 
     # --- Configuration inputs (copied from Config) ---
 
     observed_agent_name: str
-    """Name of the watched agent under evaluation."""
+    """Name of the watched agent under evaluation, which telemetry is filtered
+    by."""
+
+    agent_key: str = ""
+    """Key of the watched agent, which AQuA's own rows are written under
+    (`config.extract_agent_key`)."""
 
     project_id: str
     """Google Cloud project that hosts the watched agent."""
@@ -101,15 +108,9 @@ class WorkflowState(BaseModel):
     """Quality analysis strategy (``session_review`` or ``eval_service``);
     also emitted by `init` to route to the appropriate producer branch."""
 
-    metrics_gcs_bucket: str = ""
-    """GCS bucket holding the code-metric library.
-
-    Empty, or holding no metric, leaves session review running on its own.
-    """
-
     jobs_gcs_bucket: str = ""
     """GCS bucket holding the developer's goal (`goal.md`), which the session
-    review reads once per run."""
+    review reads once per investigation."""
 
     telemetry_ingestion_source: str = "big_query"
     """Where telemetry is pulled from."""
@@ -131,7 +132,7 @@ class WorkflowState(BaseModel):
     client)."""
 
     data_evaluation_cap: int = 1000
-    """Maximum number of records to pull into a single evaluation run."""
+    """Maximum number of trajectories to sample in a single investigation."""
 
     multi_turn_metrics: list[str] = Field(
         default_factory=lambda: [
@@ -183,11 +184,11 @@ class WorkflowState(BaseModel):
     `Config.standalone`). A standalone sweep fails on a window that holds no
     traces, where a deployed one reports it and completes."""
 
-    # --- Calculated during the run ---
+    # --- Calculated during the investigation ---
 
-    run_id: str = ""
-    """Identifier of the sweep this graph run belongs to, seeded from the
-    orchestrator's `InvestigationRecord.run_id` (or generated for local runs)."""
+    investigation_id: str = ""
+    """Identifier of the investigation this workflow run belongs to, seeded from
+    `Investigation.investigation_id` (or generated for local runs)."""
 
     budget_per_metric: int = 0
     """Per-metric evaluation budget, derived from `data_evaluation_cap`
@@ -200,41 +201,47 @@ class WorkflowState(BaseModel):
     """Inclusive end of the telemetry time window (typically "now")."""
 
     trigger_type: str = ""
-    """Trigger category identifying run origin (e.g. manual, custom, scheduled)."""
+    """Trigger category identifying investigation origin (e.g. manual, custom,
+    scheduled)."""
 
     selector_sql: str = ""
-    """Custom SQL query specifying target conversations, replacing the random sample.
+    """SQL query specifying target conversations, replacing the random sample.
 
-    Empty for ambient runs.
+    A custom investigation's own selector, or the attachment's
+    `investigation_selector_sql` for an investigation that brings neither a
+    selector nor a focus. Empty for the random sample.
     """
 
     session_review_focus: str = ""
     """Additional focus instructions appended to the reviewer prompt.
 
-    Empty for ambient runs.
+    Empty unless a custom investigation brings one.
     """
 
     finding_sets: list[FindingSet] = Field(default_factory=list)
     """Finding sets collected from evaluated pages across all evaluation scopes.
 
-    Each entry contains failed rubrics, their session traces and the agent
-    configurations those sessions ran under, pruned of passing cases to
-    minimize memory overhead. Stored as serialized dicts to support durable
+    Each entry contains findings, their trajectory turns, and the agent
+    configurations those trajectories ran under, pruned of passing trajectories
+    to minimize memory overhead. Stored as serialized dicts to support durable
     state persistence across workflow transitions.
     """
 
     multi_turn_pages_evaluated: int = 0
-    """Count of evaluated multi-turn pages, recorded for run summarization."""
+    """Count of evaluated multi-turn pages, recorded for investigation
+    summarization."""
 
     single_turn_pages_evaluated: int = 0
-    """Count of evaluated single-turn pages, recorded for run summarization."""
+    """Count of evaluated single-turn pages, recorded for investigation
+    summarization."""
 
     eval_outcome_counts: dict[str, int] = Field(
         default_factory=lambda: {"passed": 0, "failed": 0, "errored": 0}
     )
-    """Per-investigation pass/fail/error tally over every ``(case, metric)``
-    outcome, accumulated by both `eval` nodes. ``N/A`` outcomes (no
-    rubric verdicts and no numeric score) are counted as neither."""
+    """Per-investigation pass/fail/error tally over every
+    ``(trajectory, metric)`` outcome, accumulated by the evaluation nodes.
+    ``N/A`` outcomes (no rubric verdicts and no numeric score) are counted as
+    neither."""
 
     metrics_by_name: dict[str, dict[str, int]] = Field(default_factory=dict)
     """Per-metric pass, fail, and error counts across evaluated trajectories."""
@@ -249,23 +256,24 @@ class WorkflowState(BaseModel):
     the text it added to every review prompt. Empty when no review ran."""
 
     counters: dict[str, int] = Field(default_factory=dict)
-    """The run's stage counters, added to by the nodes via `add_counts` and
-    stored on the run record as `InvestigationCounters`. A plain mapping here
+    """The investigation's stage counters, added to by the nodes via `add_counts` and
+    stored on the investigation record as `InvestigationCounters`. A plain mapping here
     rather than that model: it crosses the durable JSON state boundary, and
     every writer only ever adds to one name."""
 
     progress_log: list[str] = Field(default_factory=list)
     """Markdown progress/diagnostic snippets emitted by nodes during the
-    run (via `record_progress_event`), accumulated in emission order. These are
-    surfaced to the orchestrator (folded into the run summary) and printed
-    by the local runners; they may carry useful detail about errors or
-    skipped steps."""
+    investigation (via `record_progress_event`), accumulated in emission order.
+    These are surfaced to the orchestrator (folded into the investigation
+    summary) and printed by the local runners; they may carry useful detail
+    about errors or skipped steps."""
 
     @classmethod
     def from_config(cls, config: Config | None = None) -> WorkflowState:
         """Seeds a fresh workflow state from a `Config` instance.
 
-        Copies configuration parameters; calculated run fields retain defaults.
+        Copies configuration parameters; calculated investigation fields retain
+        defaults.
 
         Args:
             config: Optional Config instance; defaults to global config.
@@ -281,10 +289,10 @@ class WorkflowState(BaseModel):
             cfg = config
         return cls(
             observed_agent_name=cfg.observed_agent_name,
+            agent_key=cfg.agent_key,
             project_id=cfg.project_id,
             location=cfg.location,
             quality_analysis_mode=cfg.quality_analysis_mode,
-            metrics_gcs_bucket=cfg.metrics_gcs_bucket,
             jobs_gcs_bucket=cfg.jobs_gcs_bucket,
             telemetry_ingestion_source=cfg.telemetry_ingestion_source,
             observed_project_id=cfg.observed_project_id,
@@ -327,7 +335,7 @@ class WorkflowState(BaseModel):
     def record_progress_event(
         state: State, text: str, source: str = ""
     ) -> Event:
-        """Records `text` in the run's progress log and returns it as an event.
+        """Records `text` in the investigation's progress log and returns it as an event.
 
         Every emitted snippet is recorded three ways:
         1. Appended to ``state[PROGRESS_LOG_KEY]`` for orchestrator and local runner display.
@@ -348,7 +356,7 @@ class WorkflowState(BaseModel):
         log = list(state.get(PROGRESS_LOG_KEY) or [])
         log.append(text)
         state[PROGRESS_LOG_KEY] = log
-        if state.get("run_id"):
+        if state.get("investigation_id"):
             try:
                 event_writer(state, text, source)
             except Exception as exc:
@@ -356,3 +364,32 @@ class WorkflowState(BaseModel):
                     "investigations: could not record event row: %s", exc
                 )
         return WorkflowState.build_model_event(text)
+
+    @staticmethod
+    def record_stage_event(
+        state: ADKStateLike, progress: StageProgress
+    ) -> None:
+        """Records how far the investigation got, for its live view.
+
+        Unlike `record_progress_event`, the row stays out of the progress log
+        and the chat stream: a sweep writes one every few minutes, and only the
+        newest says anything. Best-effort for the same reason as there.
+
+        Args:
+            state: Workflow state carrying the ``investigation_id`` to write
+                under.
+            progress: The stage and its counts so far, written as the row's
+                text in JSON.
+        """
+        if not state.get("investigation_id"):
+            return
+        try:
+            event_writer(
+                state,
+                progress.model_dump_json(exclude_none=True),
+                STAGE_EVENT_SOURCE,
+            )
+        except Exception as exc:
+            logger.warning(
+                "investigations: could not record stage row: %s", exc
+            )

@@ -40,14 +40,15 @@ from typing import Any
 
 import httpx
 import pytest
+from ambient_quality_agent.tools.ingestion import starter
 from ambient_quality_agent.tools.insights.models import (
     InsightOccurrence,
     InsightStatus,
     InsightView,
 )
 from ambient_quality_agent.tools.investigations.models import (
+    Investigation,
     InvestigationCounters,
-    InvestigationRecord,
     list_counter_names,
 )
 
@@ -91,13 +92,13 @@ def dataset() -> dict[str, Any]:
     scenario = mock_data.Scenario(
         days=_DAYS, runs_per_day=4, seed=11, anchor=_ANCHOR
     )
-    return mock_data.build_dataset(scenario, mock_data.load())
+    return mock_data.build_dataset(scenario, mock_data.load_mock_config())
 
 
 @pytest.fixture(scope="module")
 def served(dataset: dict[str, Any]) -> Any:
     # Nothing settles under this fixture. It is module-scoped and the scheduling
-    # test appends a run to it, so a wall-clock deadline would let a slow suite
+    # test appends an investigation to it, so a wall-clock deadline would let a slow suite
     # finish that run halfway through the module and move every total that
     # follows -- a failure that only reproduces on a loaded machine.
     return mock_server.Dataset(dataset, settle_seconds=0)
@@ -113,13 +114,13 @@ def served(dataset: dict[str, Any]) -> Any:
 
 def test_runs_validate_as_investigation_records(dataset) -> None:
     for run in dataset["runs"]:
-        record = InvestigationRecord.model_validate(run)
-        assert record.run_id == run["run_id"]
+        record = Investigation.model_validate(run)
+        assert record.investigation_id == run["investigation_id"]
         assert record.status.value == run["status"]
 
 
 def test_every_run_carries_every_counter(dataset) -> None:
-    # `format_run` promises a full mapping on every run, whatever it was
+    # `format_investigation` promises a full mapping on every investigation, whatever it was
     # recorded by, so a chart can read the same keys off all of them.
     for run in dataset["runs"]:
         assert tuple(run["counters"]) == list_counter_names()
@@ -130,6 +131,15 @@ def test_insights_and_occurrences_validate(dataset) -> None:
         InsightView.model_validate(insight)
     for occurrence in dataset["occurrences"]:
         InsightOccurrence.model_validate(occurrence)
+
+
+def test_insights_are_attributed_to_the_root_and_to_sub_agents(dataset) -> None:
+    # Include both root and sub-agent insights so the dashboard demo shows
+    # sub-agent attribution alongside root-agent defects.
+    root = dataset["config"]["observed_agent_name"]
+    agents = {insight["agent_id"] for insight in dataset["insights"]}
+    assert root in agents
+    assert agents - {root}
 
 
 def test_config_is_the_serialized_effective_config(dataset) -> None:
@@ -168,21 +178,24 @@ def _measured(dataset) -> list[InvestigationCounters]:
 def test_ingestion_splits_the_sample(dataset) -> None:
     for c in _measured(dataset):
         sampled = (
-            c.traces_ingested
-            + c.traces_ingested_partial
-            + c.traces_ingested_failed
+            c.trajectories_ingested
+            + c.trajectories_ingested_partial
+            + c.trajectories_ingested_failed
         )
-        assert sampled <= c.traces_scanned
+        assert sampled <= c.trajectories_scanned
         assert (
-            c.traces_evaluated == c.traces_ingested + c.traces_ingested_partial
+            c.trajectories_evaluated
+            == c.trajectories_ingested + c.trajectories_ingested_partial
         )
 
 
 def test_evaluation_outcomes_partition_the_evaluated(dataset) -> None:
     for c in _measured(dataset):
         assert (
-            c.traces_eval_passed + c.traces_eval_failed + c.traces_eval_errored
-            == (c.traces_evaluated)
+            c.trajectories_eval_passed
+            + c.trajectories_eval_failed
+            + c.trajectories_eval_errored
+            == (c.trajectories_evaluated)
         )
 
 
@@ -191,24 +204,26 @@ def test_findings_partition_into_new_and_recurring(dataset) -> None:
         assert c.insights_created + c.insights_recurring == c.clusters_created
         # A cluster needs a failing trace behind it, and evidence to be built of.
         if c.clusters_created:
-            assert c.traces_eval_failed > 0
-        assert c.rubrics_errored + c.rubrics_unclustered <= c.rubrics_generated
+            assert c.trajectories_eval_failed > 0
+        assert (
+            c.findings_errored + c.findings_unclustered <= c.rubrics_generated
+        )
 
 
 def test_sampling_actually_bites(dataset) -> None:
     """At least some windows hold more traces than the budget lets through.
 
-    The point of `traces_scanned` next to `traces_ingested` is that they differ;
+    The point of `trajectories_scanned` next to `trajectories_ingested` is that they differ;
     a fixture where the budget never binds would let a chart drop the
     distinction and still look right.
     """
     sampled_away = [
         c
         for c in _measured(dataset)
-        if c.traces_scanned
-        > c.traces_ingested
-        + c.traces_ingested_partial
-        + c.traces_ingested_failed
+        if c.trajectories_scanned
+        > c.trajectories_ingested
+        + c.trajectories_ingested_partial
+        + c.trajectories_ingested_failed
     ]
     assert sampled_away
 
@@ -258,13 +273,13 @@ def test_totals_can_be_scoped_to_a_period(dataset, served) -> None:
     ]
     assert scoped["investigations"] == len(expected)
     assert 0 < scoped["investigations"] < len(dataset["runs"])
-    assert scoped["traces_scanned"] == sum(
-        r["counters"]["traces_scanned"] for r in expected
+    assert scoped["trajectories_scanned"] == sum(
+        r["counters"]["trajectories_scanned"] for r in expected
     )
 
 
 def test_a_period_is_not_a_page(dataset, served) -> None:
-    """The whole table is aggregated, so a window wider than the runs list still
+    """The whole table is aggregated, so a window wider than the investigations list still
     counts every run in it -- which is the reason the period exists rather than
     being summed off `list_recent`."""
     wide, _ = served.sum_counters(
@@ -273,17 +288,17 @@ def test_a_period_is_not_a_page(dataset, served) -> None:
 
     assert wide["investigations"] == len(dataset["runs"])
     assert wide["investigations"] > mock_server.LIST_LIMIT
-    assert len(served.list_recent_runs()) == mock_server.LIST_LIMIT
+    assert len(served.list_recent_investigations()) == mock_server.LIST_LIMIT
 
 
 def test_recent_runs_honours_a_period(served) -> None:
     """The list is scoped like the totals, so the mock exercises the dashboard's
     single period control the way the deployment will."""
     week = (_ANCHOR - dt.timedelta(days=7)).isoformat()
-    scoped = served.list_recent_runs(week, "")
+    scoped = served.list_recent_investigations(week, "")
 
     assert scoped, "a week of a 30-day dataset should not be empty"
-    assert len(scoped) < len(served.list_recent_runs())
+    assert len(scoped) < len(served.list_recent_investigations())
     assert all(run["window_end"] >= week for run in scoped)
 
 
@@ -292,7 +307,7 @@ def test_recent_runs_caps_after_the_period_not_before(dataset, served) -> None:
     the cap applied first, a wide period would be filtered down from one page
     and could return far fewer runs than it holds."""
     wide = (_ANCHOR - dt.timedelta(days=90)).isoformat()
-    runs = served.list_recent_runs(wide, "")
+    runs = served.list_recent_investigations(wide, "")
 
     assert len(dataset["runs"]) > mock_server.LIST_LIMIT
     assert len(runs) == mock_server.LIST_LIMIT
@@ -377,8 +392,8 @@ def test_counters_by_day_totals_reconcile_with_the_totals(served) -> None:
     stats, _ = served.sum_counters(window, "")
 
     for counter in (
-        "traces_eval_failed",
-        "traces_eval_passed",
+        "trajectories_eval_failed",
+        "trajectories_eval_passed",
         "insights_created",
     ):
         assert sum(int(d.get(counter, 0)) for d in days) == stats[counter]
@@ -445,14 +460,16 @@ def test_the_incident_lifts_the_failure_rate(dataset) -> None:
     during: list[tuple[int, int]] = []
     for run in dataset["runs"]:
         c = run["counters"]
-        if not c["traces_evaluated"]:
+        if not c["trajectories_evaluated"]:
             continue
         bucket = (
             during
             if dt.datetime.fromisoformat(run["window_end"]) >= incident_start
             else before
         )
-        bucket.append((c["traces_eval_failed"], c["traces_evaluated"]))
+        bucket.append(
+            (c["trajectories_eval_failed"], c["trajectories_evaluated"])
+        )
 
     def rate(rows: list[tuple[int, int]]) -> float:
         return sum(f for f, _ in rows) / sum(e for _, e in rows)
@@ -470,26 +487,26 @@ def test_a_failed_run_carries_an_error_and_no_counters(dataset) -> None:
 
 
 def test_a_deployment_with_no_telemetry_only_ever_fails() -> None:
-    """`--no-telemetry`: the state a customer meets AQuA in (b/563290003).
+    """`--no-telemetry`: the state a customer meets AQuA in.
 
     Nothing has been exported, so every sweep fails its first BigQuery read and
     none reaches a stage that could produce a finding. The dashboard reads those
     failures as an empty deployment rather than a broken one, and this is the
     only fixture that puts it in that state.
     """
-    dataset = mock_data.build_dataset(
+    built = mock_data.build_dataset(
         mock_data.Scenario(days=3, runs_per_day=2, no_telemetry=True),
-        mock_data.load(),
+        mock_data.load_mock_config(),
     )
 
-    runs = dataset["runs"]
+    runs = built["runs"]
     assert runs
     assert {r["status"] for r in runs} == {"failed"}
     for run in runs:
         assert run["error"] == mock_data._NO_TELEMETRY_ERROR
         assert not any(run["counters"].values())
-    assert dataset["insights"] == []
-    assert dataset["occurrences"] == []
+    assert built["insights"] == []
+    assert built["occurrences"] == []
 
 
 def test_the_no_telemetry_error_is_the_one_the_dashboard_classifies() -> None:
@@ -510,8 +527,8 @@ def test_generation_is_deterministic_for_a_seed() -> None:
     scenario = mock_data.Scenario(
         days=3, runs_per_day=2, seed=3, anchor=_ANCHOR
     )
-    first = mock_data.build_dataset(scenario, mock_data.load())
-    second = mock_data.build_dataset(scenario, mock_data.load())
+    first = mock_data.build_dataset(scenario, mock_data.load_mock_config())
+    second = mock_data.build_dataset(scenario, mock_data.load_mock_config())
     # `generated_at` is wall-clock by design; everything else has to repeat.
     for payload in (first, second):
         payload.pop("generated_at")
@@ -570,7 +587,7 @@ def test_the_list_is_capped_like_list_recent(dataset) -> None:
     big = mock_server.Dataset(
         {**dataset, "runs": dataset["runs"] * 3}  # more runs than the cap
     )
-    runs = big.list_recent_runs()
+    runs = big.list_recent_investigations()
     assert len(runs) == DEFAULT_LIST_LIMIT
     # Oldest first, the order `list_recent` returns.
     assert [r["created_at"] for r in runs] == sorted(
@@ -579,7 +596,9 @@ def test_the_list_is_capped_like_list_recent(dataset) -> None:
 
 
 def test_the_list_view_carries_no_events(served) -> None:
-    assert all(run["events"] == [] for run in served.list_recent_runs())
+    assert all(
+        run["events"] == [] for run in served.list_recent_investigations()
+    )
 
 
 def test_the_detail_view_carries_events(served) -> None:
@@ -587,7 +606,30 @@ def test_the_detail_view_carries_events(served) -> None:
         run for run in served.runs if run["status"] in ("done", "running")
     ]
     assert with_events
-    assert served.get_run(with_events[-1]["run_id"])["events"]
+    assert served.get_stored_investigation(with_events[-1]["investigation_id"])[
+        "events"
+    ]
+
+
+def test_only_a_running_sweep_says_how_far_it_got(dataset) -> None:
+    """The fixture's running sweep carries the stage row the dashboard shows
+    beside it. A sweep this server schedules starts without its template's,
+    and one it finishes ends without one, as a deployed agent's do."""
+    # Its own copy: scheduling appends to the dataset, and `served` is shared.
+    served = mock_server.Dataset(copy.deepcopy(dataset), settle_seconds=0)
+
+    staged = [
+        run
+        for run in served.list_recent_investigations()
+        if run.get("progress")
+    ]
+    assert [run["status"] for run in staged] == ["running"]
+    assert staged[0]["progress"]["stage"] == "Multi-turn evaluation"
+    assert staged[0]["progress"]["evaluated"] == 0
+    assert mock_server._schedule_investigation(served)["progress"] is None
+    assert (
+        mock_server._build_finished_run_fields(served.runs)["progress"] is None
+    )
 
 
 def test_insight_pages_are_opaque_and_round_trip(served) -> None:
@@ -623,8 +665,22 @@ def test_the_insight_list_pages_a_ranking_of_every_match(served) -> None:
 
     assert len(seen) == len(served.list_visible_insights())
     assert len({i["insight_id"] for i in seen}) == len(seen)
-    traces = [int(i["trace_count"]) for i in seen]
+    traces = [int(i["trajectory_count"]) for i in seen]
     assert traces == sorted(traces, reverse=True)
+
+
+def test_the_insight_list_serves_a_page_by_number(served) -> None:
+    """Page 2 by number is the page the first page's token leads to."""
+    args = {"order_by": "impact", "page_size": 10}
+    first = mock_server._list_insights(served, args)
+    by_token = mock_server._list_insights(
+        served, {**args, "page_token": first["next_page_token"]}
+    )
+
+    by_number = mock_server._list_insights(served, {**args, "page": 2})
+
+    assert by_number["insights"] == by_token["insights"]
+    assert by_number["insights"] != first["insights"]
 
 
 def test_the_insight_list_refuses_an_order_it_does_not_have(served) -> None:
@@ -663,14 +719,14 @@ def test_traces_are_opt_out(served) -> None:
         served, {"insight_id": insight, "include_traces": False}
     )
     assert any(
-        rubric["trace"]
+        example["turns"]
         for occurrence in by_default["occurrences"]
-        for rubric in occurrence["rubrics"]
+        for example in occurrence["examples"]
     )
     assert all(
-        not rubric["trace"]
+        not example["turns"]
         for occurrence in declined["occurrences"]
-        for rubric in occurrence["rubrics"]
+        for example in occurrence["examples"]
     )
 
 
@@ -684,9 +740,11 @@ def test_a_sighting_resolves_its_conversations_with_links(served) -> None:
         o for o in detail["occurrences"] if o.get("trajectory_ids")
     )
     assert [
-        t["trajectory_id"] for t in occurrence["trajectories"]
+        t["trajectory_id"] for t in occurrence["investigation_trajectories"]
     ] == occurrence["trajectory_ids"]
-    assert any(t["console_url"] for t in occurrence["trajectories"])
+    assert any(
+        t["console_url"] for t in occurrence["investigation_trajectories"]
+    )
 
 
 def test_some_conversations_have_no_trace_to_open(served) -> None:
@@ -700,7 +758,7 @@ def test_some_conversations_have_no_trace_to_open(served) -> None:
         for o in detail["occurrences"]
         if len(o.get("trajectory_ids") or []) >= 3
     )
-    assert any(not t["console_url"] for t in wide["trajectories"])
+    assert any(not t["console_url"] for t in wide["investigation_trajectories"])
 
 
 def test_the_links_are_opt_out_independently_of_the_traces(served) -> None:
@@ -719,18 +777,22 @@ def test_the_links_are_opt_out_independently_of_the_traces(served) -> None:
         served, {"insight_id": insight, "include_trajectories": False}
     )
 
-    assert any(o.get("trajectories") for o in linked["occurrences"])
-    assert all(
-        not rubric["trace"]
-        for occurrence in linked["occurrences"]
-        for rubric in occurrence["rubrics"]
+    assert any(
+        o.get("investigation_trajectories") for o in linked["occurrences"]
     )
-    assert all("trajectories" not in o for o in declined["occurrences"])
+    assert all(
+        not example["turns"]
+        for occurrence in linked["occurrences"]
+        for example in occurrence["examples"]
+    )
+    assert all(
+        "investigation_trajectories" not in o for o in declined["occurrences"]
+    )
 
 
 def test_unknown_ids_report_the_same_errors_the_tools_do(served) -> None:
     assert (
-        "No run found with id"
+        "No investigation found with id"
         in mock_server._get_investigation(served, "nope")["error"]
     )
     assert (
@@ -747,11 +809,11 @@ def test_scheduling_appends_a_pending_run(served) -> None:
     before = len(served.runs)
     run = mock_server._schedule_investigation(served)
     assert run["status"] == "pending"
-    assert run["run_id"]
+    assert run["investigation_id"]
     assert not any(run["counters"].values())
     assert len(served.runs) == before + 1
-    # It has to be shaped like every other run, or the list breaks on it.
-    InvestigationRecord.model_validate(run)
+    # It has to be shaped like every other investigation, or the list breaks on it.
+    Investigation.model_validate(run)
 
 
 def test_a_scheduled_run_finishes_once_its_delay_is_up(dataset) -> None:
@@ -760,19 +822,22 @@ def test_a_scheduled_run_finishes_once_its_delay_is_up(dataset) -> None:
     served = mock_server.Dataset(dataset, settle_seconds=40)
     run = mock_server._schedule_investigation(served)
     assert served.settle_due() == 0
-    assert served.get_run(run["run_id"])["status"] == "pending"
+    assert (
+        served.get_stored_investigation(run["investigation_id"])["status"]
+        == "pending"
+    )
 
     settled = served.settle_due(
         dt.datetime.now(tz=dt.UTC) + dt.timedelta(seconds=41)
     )
     assert settled == 1
-    record = served.get_run(run["run_id"])
+    record = served.get_stored_investigation(run["investigation_id"])
     assert record["status"] == "done"
     assert record["finished_at"]
     # It finishes with results: a sweep that completed with every counter at
     # zero reads as broken rather than as done.
     assert any(record["counters"].values())
-    InvestigationRecord.model_validate(record)
+    Investigation.model_validate(record)
     # Nothing is owed twice.
     assert (
         served.settle_due(dt.datetime.now(tz=dt.UTC) + dt.timedelta(days=1))
@@ -788,20 +853,25 @@ def test_the_list_read_is_what_settles_a_due_run(dataset) -> None:
     would stay `pending` and the button would never come back.
     """
     served = mock_server.Dataset(dataset, settle_seconds=40)
-    run_id = mock_server._schedule_investigation(served)["run_id"]
+    investigation_id = mock_server._schedule_investigation(served)[
+        "investigation_id"
+    ]
     # Not due yet, so listing leaves it alone and the button stays disabled.
-    assert _listed(served, run_id)["status"] == "pending"
+    assert _listed(served, investigation_id)["status"] == "pending"
 
     # Bring its due time forward rather than sleeping through the delay.
-    due, finished = served._settling[run_id]
-    served._settling[run_id] = (due - dt.timedelta(seconds=41), finished)
+    due, finished = served._settling[investigation_id]
+    served._settling[investigation_id] = (
+        due - dt.timedelta(seconds=41),
+        finished,
+    )
 
-    assert _listed(served, run_id)["status"] == "done"
+    assert _listed(served, investigation_id)["status"] == "done"
 
 
-def _listed(data, run_id: str) -> dict[str, Any]:
-    runs = mock_server._list_investigations(data, {})["runs"]
-    return next(r for r in runs if r["run_id"] == run_id)
+def _listed(data, investigation_id: str) -> dict[str, Any]:
+    runs = mock_server._list_investigations(data, {})["investigations"]
+    return next(r for r in runs if r["investigation_id"] == investigation_id)
 
 
 def test_the_fixtures_own_running_sweep_is_finished_only_if_it_would_block(
@@ -827,7 +897,10 @@ def test_the_fixtures_own_running_sweep_is_finished_only_if_it_would_block(
         served.settle_due(dt.datetime.now(tz=dt.UTC) + dt.timedelta(seconds=41))
         == 1
     )
-    assert served.get_run(fresh_run["run_id"])["status"] == "done"
+    assert (
+        served.get_stored_investigation(fresh_run["investigation_id"])["status"]
+        == "done"
+    )
 
     stale_payload = copy.deepcopy(dataset)
     stale_run = max(stale_payload["runs"], key=lambda r: r["created_at"])
@@ -838,7 +911,12 @@ def test_the_fixtures_own_running_sweep_is_finished_only_if_it_would_block(
     ignored = mock_server.Dataset(stale_payload, settle_seconds=40)
     assert ignored.settle_due(now + dt.timedelta(days=1)) == 0
     assert (
-        str(ignored.get_run(stale_run["run_id"])["status"]).lower() == "running"
+        str(
+            ignored.get_stored_investigation(stale_run["investigation_id"])[
+                "status"
+            ]
+        ).lower()
+        == "running"
     )
 
 
@@ -849,7 +927,267 @@ def test_settle_seconds_zero_leaves_the_run_pending(dataset) -> None:
         served.settle_due(dt.datetime.now(tz=dt.UTC) + dt.timedelta(days=1))
         == 0
     )
-    assert served.get_run(run["run_id"])["status"] == "pending"
+    assert (
+        served.get_stored_investigation(run["investigation_id"])["status"]
+        == "pending"
+    )
+
+
+def test_the_schedule_constants_the_mock_copies_match_the_store() -> None:
+    from ambient_quality_agent.tools.observed_agent_config import store
+
+    assert mock_server.AGENTS_PREFIX == store.AGENTS_PREFIX
+    assert (
+        mock_server.DEFAULT_INVESTIGATION_SCHEDULE
+        == store.DEFAULT_INVESTIGATION_SCHEDULE
+    )
+    assert set(mock_server.SCHEDULE_FIELDS) <= store.RECORD_FIELDS
+
+
+def test_the_listed_attachment_is_the_investigated_agent(dataset) -> None:
+    served = mock_server.Dataset(dataset, settle_seconds=0)
+    listing = mock_server._list_agents(served)
+    (agent,) = listing["agents"]
+    assert agent["agent_key"] == dataset["config"]["observed_agent_name"]
+    assert agent["watched"] is True
+    assert agent["investigation_schedule"] == "0 12 * * *"
+    assert agent["scheduled_trigger_enabled"] is True
+
+
+def test_the_config_names_the_attachment_it_is_for(dataset) -> None:
+    """Verifies that the config includes the attachment key, matching the
+    engine, so the telemetry card can send checks and saves for that key."""
+    served = mock_server.Dataset(dataset, settle_seconds=0)
+    config = mock_server._show_config(served)["config"]
+    assert config["agent_key"] == dataset["config"]["observed_agent_name"]
+
+
+@pytest.mark.parametrize(
+    ("source", "observed_project_id"),
+    [
+        ("big_query", ""),
+        ("big_query", "acme-prod"),
+        ("cloud_ops", ""),
+        ("cloud_logging", "acme-prod"),
+    ],
+)
+def test_the_config_carries_the_engines_starter_selector(
+    dataset, source: str, observed_project_id: str
+) -> None:
+    """The mock writes the starter itself, so it is pinned to the engine's."""
+    served = mock_server.Dataset(dataset, settle_seconds=0)
+    served.config = {
+        **served.config,
+        "telemetry_ingestion_source": source,
+        "observed_project_id": observed_project_id,
+    }
+    config = served.config
+    assert mock_server._show_config(served)[
+        "starter_selector"
+    ] == starter.build_starter_selector(
+        source,
+        project_id=observed_project_id or config["project_id"],
+        dataset=config["telemetry_dataset"],
+        telemetry_table=config["telemetry_table"],
+    )
+
+
+def test_a_schedule_change_reaches_the_listing_and_the_health(dataset) -> None:
+    served = mock_server.Dataset(dataset, settle_seconds=0)
+    key = served.agent_key
+    result = mock_server._attach_agent(
+        served,
+        {"agent_key": key, "fields": {"investigation_schedule": "0 6 * * *"}},
+    )
+    assert result["written"] is True
+    assert result["changes"] == [
+        {
+            "field": "investigation_schedule",
+            "before": "0 12 * * *",
+            "after": "0 6 * * *",
+        }
+    ]
+    assert (
+        mock_server._list_agents(served)["agents"][0]["investigation_schedule"]
+        == "0 6 * * *"
+    )
+    assert mock_server._get_ambient_health(served)["schedule"] == "0 6 * * *"
+
+
+def test_a_paused_schedule_is_none_in_the_health(dataset) -> None:
+    # As the engine reports it: a paused agent has no schedule its ticks run.
+    served = mock_server.Dataset(dataset, settle_seconds=0)
+    mock_server._attach_agent(
+        served,
+        {
+            "agent_key": served.agent_key,
+            "fields": {"scheduled_trigger_enabled": False},
+        },
+    )
+    assert mock_server._get_ambient_health(served)["schedule"] is None
+    assert (
+        mock_server._list_agents(served)["agents"][0][
+            "scheduled_trigger_enabled"
+        ]
+        is False
+    )
+
+
+def test_an_unchanged_schedule_is_not_written(dataset) -> None:
+    served = mock_server.Dataset(dataset, settle_seconds=0)
+    result = mock_server._attach_agent(
+        served,
+        {
+            "agent_key": served.agent_key,
+            "fields": {"investigation_schedule": "0 12 * * *"},
+        },
+    )
+    assert result["written"] is False
+    assert result["changes"] == []
+
+
+@pytest.mark.parametrize(
+    ("args", "message"),
+    [
+        (
+            {
+                "agent_key": "nope",
+                "fields": {"investigation_schedule": "0 6 * * *"},
+            },
+            "No agent is attached as 'nope'",
+        ),
+        (
+            {"fields": {"investigation_schedule": "every day"}},
+            "five-field cron",
+        ),
+        (
+            {"fields": {"scheduled_trigger_enabled": "false"}},
+            "scheduled_trigger_enabled must be bool",
+        ),
+        (
+            {"fields": {"telemetry_table": "a.b.c"}},
+            "The mock changes only",
+        ),
+    ],
+)
+def test_a_refused_attach_changes_nothing(dataset, args, message) -> None:
+    served = mock_server.Dataset(dataset, settle_seconds=0)
+    result = mock_server._attach_agent(
+        served, {"agent_key": served.agent_key, **args}
+    )
+    assert message in result["error"]
+    assert served.investigation_schedule == "0 12 * * *"
+    assert served.scheduled_trigger_enabled is True
+
+
+def _build_mock_selector(table: str = "agent_analytics.agent_events") -> str:
+    return (
+        f"SELECT DISTINCT session_id AS target_id FROM {table} "  # noqa: S608 - trusted test constants
+        "WHERE timestamp BETWEEN @window_start AND @window_end "
+        "AND agent = @agent_name"
+    )
+
+
+def test_a_checked_selector_is_not_stored(dataset) -> None:
+    served = mock_server.Dataset(dataset, settle_seconds=0)
+    sql = _build_mock_selector()
+    result = mock_server._attach_agent(
+        served,
+        {
+            "agent_key": served.agent_key,
+            "fields": {"investigation_selector_sql": sql},
+            "dry_run": True,
+            "check_access": True,
+        },
+    )
+    assert "error" not in result
+    assert result["changes"] == [
+        {"field": "investigation_selector_sql", "before": "", "after": sql}
+    ]
+    assert result["written"] is False
+    assert (
+        mock_server._show_config(served)["config"]["investigation_selector_sql"]
+        == ""
+    )
+
+
+def test_a_saved_selector_reaches_the_config_and_an_empty_one_clears_it(
+    dataset,
+) -> None:
+    served = mock_server.Dataset(dataset, settle_seconds=0)
+    sql = _build_mock_selector()
+
+    def save(selector: str) -> dict[str, Any]:
+        return mock_server._attach_agent(
+            served,
+            {
+                "agent_key": served.agent_key,
+                "fields": {"investigation_selector_sql": selector},
+            },
+        )
+
+    assert save(sql)["written"] is True
+    config = mock_server._show_config(served)["config"]
+    assert config["investigation_selector_sql"] == sql
+    assert save("")["written"] is True
+    config = mock_server._show_config(served)["config"]
+    assert config["investigation_selector_sql"] == ""
+
+
+@pytest.mark.parametrize(
+    ("sql", "reason"),
+    [
+        (
+            _build_mock_selector().replace(" AS target_id", ""),
+            "(invalid_sql)",
+        ),
+        (
+            _build_mock_selector("agent_analytics.other_events"),
+            "(unauthorized_table)",
+        ),
+        (
+            _build_mock_selector(
+                "agent_analytics.agent_events JOIN other.sessions USING (session_id)"
+            ),
+            "(unauthorized_table)",
+        ),
+    ],
+)
+def test_a_selector_the_engine_would_refuse_is_refused(
+    dataset, sql: str, reason: str
+) -> None:
+    served = mock_server.Dataset(dataset, settle_seconds=0)
+    result = mock_server._attach_agent(
+        served,
+        {
+            "agent_key": served.agent_key,
+            "fields": {"investigation_selector_sql": sql},
+            "dry_run": True,
+            "check_access": True,
+        },
+    )
+    assert result["error"].startswith(
+        f"Refusing to attach {served.agent_key}: "
+        f"investigation_selector_sql is refused {reason}: "
+    )
+    config = mock_server._show_config(served)["config"]
+    assert config["investigation_selector_sql"] == ""
+
+
+def test_a_save_stores_a_selector_without_the_precheck(dataset) -> None:
+    """As the engine does: only a dry run that checks access prechecks it."""
+    served = mock_server.Dataset(dataset, settle_seconds=0)
+    sql = _build_mock_selector("agent_analytics.other_events")
+    result = mock_server._attach_agent(
+        served,
+        {
+            "agent_key": served.agent_key,
+            "fields": {"investigation_selector_sql": sql},
+        },
+    )
+    assert result["written"] is True
+    config = mock_server._show_config(served)["config"]
+    assert config["investigation_selector_sql"] == sql
 
 
 # --------------------------------------------------------------------------- #
@@ -877,6 +1215,21 @@ def test_list_apps_names_the_mock_app(app) -> None:
     assert asyncio.run(call()).json() == ["mock_aqa"]
 
 
+def test_the_config_answer_says_its_data_is_generated(app) -> None:
+    """So the dashboard says it shows demo data, as it does on `make demo`."""
+
+    async def call() -> httpx.Response:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://mock"
+        ) as c:
+            return await c.post("/config", json={})
+
+    answer = asyncio.run(call()).json()
+    assert answer["demo"] is True
+    assert answer["config"]["observed_agent_name"]
+
+
 # --------------------------------------------------------------------------- #
 # A2A: the chat sidebar's wire                                                 #
 # --------------------------------------------------------------------------- #
@@ -893,7 +1246,7 @@ _CHAT_APP = "aqa_chat"
 def chat_data(dataset) -> Any:
     """A dataset of the chat's own, settling nothing.
 
-    Approving the confirmation card schedules a run, so these tests mutate what
+    Approving the confirmation card schedules an investigation, so these tests mutate what
     they are served; and `settle_seconds=0` keeps that run pending rather than
     letting a wall-clock deadline finish it partway through the module -- the
     same reason `served` is built that way.
@@ -1080,13 +1433,13 @@ def test_the_chunks_rejoin_into_exactly_the_reply(chat_app) -> None:
 
 def test_the_replies_are_keyed_off_the_dataset(chat_app, chat_data) -> None:
     """A canned reply that disagreed with the panels would be worse than none."""
-    worst = max(chat_data.insights, key=lambda i: i["trace_count"])
+    worst = max(chat_data.insights, key=lambda i: i["trajectory_count"])
     assert worst["label"] in _streamed_text(
         _say(chat_app, "what insights are there?")
     )
 
     newest = chat_data.runs[-1]
-    assert newest["run_id"] in _streamed_text(
+    assert newest["investigation_id"] in _streamed_text(
         _say(chat_app, "how did the last run go?")
     )
 
@@ -1188,7 +1541,7 @@ def test_approving_opens_its_own_task_and_schedules_a_run(
         results[-1]["statusUpdate"]["status"]["state"] == "TASK_STATE_COMPLETED"
     )
     assert len(chat_data.runs) == before + 1
-    assert chat_data.runs[-1]["run_id"] in _streamed_text(results)
+    assert chat_data.runs[-1]["investigation_id"] in _streamed_text(results)
     assert chat_data.runs[-1]["status"] == "pending"
 
 
@@ -1360,14 +1713,14 @@ def test_an_unknown_task_is_reported_rather_than_invented(chat_app) -> None:
 
 
 def test_no_sighting_is_diagnosed_by_default() -> None:
-    """Because none is in production: `verify_clusters` exists and nothing calls
-    it, so no occurrence in BigQuery carries an analysis. A mock that generated
-    them by default would demo a dashboard nobody can actually get."""
+    """The verification pass is off by default and runs only for an agent
+    attached with `--verification`, so occurrences in a default deployment carry
+    no verification analysis."""
     scenario = mock_data.Scenario(
         days=7, runs_per_day=2, seed=5, anchor=_ANCHOR
     )
-    dataset = mock_data.build_dataset(scenario, mock_data.load())
-    assert all(not o["analyses"] for o in dataset["occurrences"])
+    built = mock_data.build_dataset(scenario, mock_data.load_mock_config())
+    assert all(not o["analyses"] for o in built["occurrences"])
 
 
 def test_the_knob_produces_results_the_agent_model_accepts() -> None:
@@ -1379,10 +1732,10 @@ def test_the_knob_produces_results_the_agent_model_accepts() -> None:
     scenario = mock_data.Scenario(
         days=7, runs_per_day=2, seed=5, anchor=_ANCHOR, verified_rate=1.0
     )
-    dataset = mock_data.build_dataset(scenario, mock_data.load())
+    built = mock_data.build_dataset(scenario, mock_data.load_mock_config())
 
-    assert dataset["occurrences"]
-    for occurrence in dataset["occurrences"]:
+    assert built["occurrences"]
+    for occurrence in built["occurrences"]:
         analysis = occurrence["analyses"][VERIFICATION_ANALYSIS_KEY]
         verification = ClusterVerification.model_validate(analysis)
         assert verification.explanation
@@ -1402,9 +1755,9 @@ def test_the_explanation_describes_the_sighting_it_is_attached_to() -> None:
     scenario = mock_data.Scenario(
         days=7, runs_per_day=2, seed=5, anchor=_ANCHOR, verified_rate=1.0
     )
-    dataset = mock_data.build_dataset(scenario, mock_data.load())
+    built = mock_data.build_dataset(scenario, mock_data.load_mock_config())
 
-    for occurrence in dataset["occurrences"]:
+    for occurrence in built["occurrences"]:
         analysis = occurrence["analyses"][VERIFICATION_ANALYSIS_KEY]
         assert occurrence["label"] in analysis["explanation"]
 
@@ -1413,13 +1766,14 @@ def test_the_knob_changes_the_analyses_and_nothing_else() -> None:
     """So one seed is one deployment at any rate, and its diagnosed and
     undiagnosed renderings can be put side by side. The verification draws from
     a stream of its own for this: taken from the shared one, they shifted a case
-    id sampled into a run's event prose."""
+    id sampled into an investigation's event prose."""
     kwargs = {"days": 7, "runs_per_day": 2, "seed": 5, "anchor": _ANCHOR}
     plain = mock_data.build_dataset(
-        mock_data.Scenario(**kwargs), mock_data.load()
+        mock_data.Scenario(**kwargs), mock_data.load_mock_config()
     )
     verified = mock_data.build_dataset(
-        mock_data.Scenario(**kwargs, verified_rate=1.0), mock_data.load()
+        mock_data.Scenario(**kwargs, verified_rate=1.0),
+        mock_data.load_mock_config(),
     )
 
     assert plain["runs"] == verified["runs"]
@@ -1453,10 +1807,15 @@ def test_the_document_paths_match_the_agent() -> None:
     """The mock restates them rather than importing the agent. Nothing but this
     holds the copies level, and a rename would leave the config page linking at
     a path nothing is stored under."""
-    from ambient_quality_agent.tools.documents import goal, memories
+    from ambient_quality_agent.tools.documents import (
+        agent_scope,
+        goal,
+        memories,
+    )
 
     assert mock_server.GOAL_OBJECT == goal.GOAL_OBJECT
     assert mock_server.MEMORIES_PREFIX == memories.MEMORIES_PREFIX
+    assert mock_server.AGENTS_PREFIX == agent_scope.AGENT_DOCUMENTS_PREFIX
     assert mock_server.MAX_MEMORY_CHARS == memories.MAX_MEMORY_CHARS
 
 
@@ -1591,7 +1950,9 @@ def test_the_health_vocabulary_is_the_agents(dataset) -> None:
     assert mock_server.OVERDUE == health.OVERDUE
     assert mock_server.NEVER == health.NEVER
     assert mock_server.IN_FLIGHT == {s.value for s in health.IN_FLIGHT}
-    assert mock_server.IN_FLIGHT <= {s.value for s in models.RunStatus}
+    assert mock_server.IN_FLIGHT <= {
+        s.value for s in models.InvestigationStatus
+    }
 
 
 def test_health_answers_in_the_shape_the_badge_reads(dataset) -> None:
@@ -1606,7 +1967,7 @@ def test_health_answers_in_the_shape_the_badge_reads(dataset) -> None:
     assert payload["reason"]
     # The generated month has finished sweeps and open insights, so the badge
     # has something to say about both.
-    assert payload["last_run"]["run_id"]
+    assert payload["last_investigation"]["investigation_id"]
     assert payload["open_findings"] > 0
     assert payload["worst_finding"]["insight_id"]
 
@@ -1659,7 +2020,7 @@ def test_a_stale_sweep_does_not_pin_the_badge_amber(dataset) -> None:
 
 
 def _schedule_investigation_without_settling(data) -> None:
-    """Queues a run and keeps it pending without settling.
+    """Queues an investigation and keeps it pending without settling.
 
     Args:
         data: Mock Dataset instance to queue the run on.
@@ -1695,12 +2056,12 @@ def test_the_source_card_reads_a_published_snapshot(served) -> None:
 
 
 def test_an_unpublished_deployment_is_the_other_card() -> None:
-    dataset = mock_data.build_dataset(
+    built = mock_data.build_dataset(
         mock_data.Scenario(days=2, runs_per_day=1, source_published=False),
-        mock_data.load(),
+        mock_data.load_mock_config(),
     )
 
-    body = mock_server._get_source_snapshot(mock_server.Dataset(dataset))
+    body = mock_server._get_source_snapshot(mock_server.Dataset(built))
 
     assert body["available"] is False
     assert mock_server.MOCK_SOURCE_BUCKET in body["reason"]
@@ -1714,14 +2075,14 @@ def test_a_source_directory_is_summarized_as_itself(tmp_path) -> None:
     (tmp_path / ".git").mkdir()
     (tmp_path / ".git" / "HEAD").write_text("ignored")
 
-    dataset = mock_data.build_dataset(
+    built = mock_data.build_dataset(
         mock_data.Scenario(days=2, runs_per_day=1, source_dir=str(tmp_path)),
-        mock_data.load(),
+        mock_data.load_mock_config(),
     )
 
-    assert dataset["source"]["file_count"] == 2
-    assert dataset["source"]["total_bytes"] == 150
-    assert dataset["source"]["agent_directory"] == tmp_path.name
+    assert built["source"]["file_count"] == 2
+    assert built["source"]["total_bytes"] == 150
+    assert built["source"]["agent_directory"] == tmp_path.name
 
 
 def test_a_file_over_the_cap_is_reported_as_truncated(tmp_path) -> None:
@@ -1729,13 +2090,13 @@ def test_a_file_over_the_cap_is_reported_as_truncated(tmp_path) -> None:
     (tmp_path / "big.bin").write_bytes(b"z" * (mock_data.MAX_FILE_BYTES + 1))
     (tmp_path / "small.py").write_text("ok")
 
-    dataset = mock_data.build_dataset(
+    built = mock_data.build_dataset(
         mock_data.Scenario(days=2, runs_per_day=1, source_dir=str(tmp_path)),
-        mock_data.load(),
+        mock_data.load_mock_config(),
     )
 
-    assert dataset["source"]["truncated_files"] == 1
-    assert dataset["source"]["total_bytes"] == mock_data.MAX_FILE_BYTES + 2
+    assert built["source"]["truncated_files"] == 1
+    assert built["source"]["total_bytes"] == mock_data.MAX_FILE_BYTES + 2
 
 
 # --------------------------------------------------------------------------- #
@@ -1748,10 +2109,10 @@ def test_no_insight_is_diagnosed_by_default() -> None:
     scenario = mock_data.Scenario(
         days=7, runs_per_day=2, seed=5, anchor=_ANCHOR
     )
-    dataset = mock_data.build_dataset(scenario, mock_data.load())
+    built = mock_data.build_dataset(scenario, mock_data.load_mock_config())
 
-    assert dataset["root_causes"] == []
-    assert all(not i["has_root_cause"] for i in dataset["insights"])
+    assert built["root_causes"] == []
+    assert all(not i["has_root_cause"] for i in built["insights"])
 
 
 def test_the_knob_produces_records_the_agent_model_accepts() -> None:
@@ -1760,10 +2121,10 @@ def test_the_knob_produces_records_the_agent_model_accepts() -> None:
     scenario = mock_data.Scenario(
         days=7, runs_per_day=2, seed=5, anchor=_ANCHOR, root_cause_rate=1.0
     )
-    dataset = mock_data.build_dataset(scenario, mock_data.load())
+    built = mock_data.build_dataset(scenario, mock_data.load_mock_config())
 
-    assert dataset["root_causes"]
-    for record in dataset["root_causes"]:
+    assert built["root_causes"]
+    for record in built["root_causes"]:
         parsed = RootCause.model_validate(record)
         assert parsed.summary
         assert parsed.edits
@@ -1775,12 +2136,10 @@ def test_a_diagnosed_insight_is_marked_in_the_list_view() -> None:
     scenario = mock_data.Scenario(
         days=7, runs_per_day=2, seed=5, anchor=_ANCHOR, root_cause_rate=1.0
     )
-    dataset = mock_data.build_dataset(scenario, mock_data.load())
+    built = mock_data.build_dataset(scenario, mock_data.load_mock_config())
 
-    diagnosed = {r["insight_id"] for r in dataset["root_causes"]}
-    marked = {
-        i["insight_id"] for i in dataset["insights"] if i["has_root_cause"]
-    }
+    diagnosed = {r["insight_id"] for r in built["root_causes"]}
+    marked = {i["insight_id"] for i in built["insights"] if i["has_root_cause"]}
     assert marked == diagnosed
 
 
@@ -1789,14 +2148,14 @@ def test_a_record_names_a_sighting_the_dataset_holds() -> None:
     scenario = mock_data.Scenario(
         days=7, runs_per_day=2, seed=5, anchor=_ANCHOR, root_cause_rate=1.0
     )
-    dataset = mock_data.build_dataset(scenario, mock_data.load())
+    built = mock_data.build_dataset(scenario, mock_data.load_mock_config())
 
     newest: dict[str, dict[str, Any]] = {}
-    for occurrence in dataset["occurrences"]:
+    for occurrence in built["occurrences"]:
         current = newest.get(occurrence["insight_id"])
         if current is None or occurrence["created_at"] > current["created_at"]:
             newest[occurrence["insight_id"]] = occurrence
-    for record in dataset["root_causes"]:
+    for record in built["root_causes"]:
         assert (
             record["occurrence_id"]
             == newest[record["insight_id"]]["occurrence_id"]
@@ -1807,10 +2166,11 @@ def test_the_knob_changes_the_root_causes_and_nothing_else() -> None:
     """Verifies root_cause_rate does not alter runs, occurrences, or other insight fields."""
     kwargs = {"days": 7, "runs_per_day": 2, "seed": 5, "anchor": _ANCHOR}
     plain = mock_data.build_dataset(
-        mock_data.Scenario(**kwargs), mock_data.load()
+        mock_data.Scenario(**kwargs), mock_data.load_mock_config()
     )
     diagnosed = mock_data.build_dataset(
-        mock_data.Scenario(**kwargs, root_cause_rate=1.0), mock_data.load()
+        mock_data.Scenario(**kwargs, root_cause_rate=1.0),
+        mock_data.load_mock_config(),
     )
 
     assert plain["runs"] == diagnosed["runs"]
@@ -1834,7 +2194,8 @@ def diagnosed_served() -> Any:
         days=7, runs_per_day=2, seed=5, anchor=_ANCHOR, root_cause_rate=1.0
     )
     return mock_server.Dataset(
-        mock_data.build_dataset(scenario, mock_data.load()), settle_seconds=0
+        mock_data.build_dataset(scenario, mock_data.load_mock_config()),
+        settle_seconds=0,
     )
 
 
@@ -2021,11 +2382,13 @@ def test_an_undiagnosed_dataset_serves_an_empty_records_list(served) -> None:
 def test_the_payload_vocabulary_is_the_agents() -> None:
     """The hand-copy problem once more: the dashboard branches on these, so a
     status the mock invented would demo a state production cannot produce."""
-    from ambient_quality_agent.tools.trajectories import payloads
-    from ambient_quality_agent.tools.trajectories.models import PayloadStatus
+    from ambient_quality_agent.tools.trajectories import bundles
+    from ambient_quality_agent.tools.trajectories.models import TrajectoryStatus
 
-    assert set(mock_server.PAYLOAD_STATUSES) == {s.value for s in PayloadStatus}
-    assert mock_server.NOT_ARCHIVED == payloads.NOT_ARCHIVED
+    assert set(mock_server.PAYLOAD_STATUSES) == {
+        s.value for s in TrajectoryStatus
+    }
+    assert mock_server.NOT_ARCHIVED == bundles.NOT_ARCHIVED
 
 
 def test_a_generated_turn_is_a_real_conversation_turn() -> None:
@@ -2035,7 +2398,7 @@ def test_a_generated_turn_is_a_real_conversation_turn() -> None:
 
     case = mock_server._build_conversation("case-abc123", _ANCHOR)
 
-    for turn in case["turns"]:
+    for turn in case["steps"]:
         parsed = ConversationTurn.model_validate(turn)
         assert parsed.events
 
@@ -2051,7 +2414,7 @@ def test_a_conversation_is_the_same_on_every_read() -> None:
 def test_a_tool_call_sits_between_the_text_around_it() -> None:
     """The interleaving is the thing the dashboard renders and the thing a flat
     two-table copy cannot express."""
-    events = mock_server._build_conversation("case-abc123", _ANCHOR)["turns"][
+    events = mock_server._build_conversation("case-abc123", _ANCHOR)["steps"][
         0
     ]["events"]
     kinds = [next(iter(e["content"]["parts"][0])) for e in events]
@@ -2073,35 +2436,43 @@ def test_both_degradations_are_reachable() -> None:
         c
         for n in range(200)
         if (c := mock_server._build_conversation(f"case-{n:06x}", _ANCHOR))[
-            "turn_count"
+            "step_count"
         ]
-        > c["turns_returned"]
+        > c["steps_returned"]
     ]
     assert expired
 
 
-def test_the_case_route_answers_the_shape_the_agent_does(served) -> None:
-    case_id = served.occurrences[0]["trajectory_ids"][0]
+def test_the_trajectory_bundle_route_answers_the_shape_the_agent_does(
+    served,
+) -> None:
+    trajectory_id = served.occurrences[0]["trajectory_ids"][0]
 
-    body = mock_server._get_case_conversation(
+    body = mock_server._get_trajectory_bundle(
         served,
-        {"trajectory_id": case_id, "run_id": served.occurrences[0]["run_id"]},
+        {
+            "trajectory_id": trajectory_id,
+            "investigation_id": served.occurrences[0]["investigation_id"],
+        },
     )
 
-    assert set(body["case"]) >= {
+    assert set(body["trajectory_bundle"]) >= {
         "trajectory_id",
         "status",
-        "turn_count",
-        "turns_returned",
-        "turns",
+        "step_count",
+        "steps_returned",
+        "steps",
         "agents",
         "recorded_at",
     }
-    assert body["case"]["trajectory"]["trajectory_id"] == case_id
+    assert (
+        body["trajectory_bundle"]["trajectory"]["trajectory_id"]
+        == trajectory_id
+    )
 
 
-def test_the_case_route_needs_an_id() -> None:
-    assert "error" in mock_server._get_case_conversation(None, {})
+def test_the_trajectory_bundle_route_needs_an_id() -> None:
+    assert "error" in mock_server._get_trajectory_bundle(None, {})
 
 
 # --------------------------------------------------------------------------- #
@@ -2136,9 +2507,9 @@ def test_the_served_stats_reproduce_the_generators_own_numbers(judged) -> None:
         original = generated[served_insight["insight_id"]]
         for field in (
             "occurrence_count",
-            "trace_count",
-            "last_run_id",
-            "last_run_at",
+            "trajectory_count",
+            "last_investigation_id",
+            "last_investigation_at",
         ):
             assert served_insight[field] == original[field], field
 
@@ -2190,7 +2561,10 @@ def test_merging_moves_the_duplicates_sightings_into_the_targets_counts(
         after["occurrence_count"]
         == before["occurrence_count"] + moved["occurrence_count"]
     )
-    assert after["trace_count"] == before["trace_count"] + moved["trace_count"]
+    assert (
+        after["trajectory_count"]
+        == before["trajectory_count"] + moved["trajectory_count"]
+    )
     # And the duplicate now owns none of its own, so its page cannot claim
     # evidence its header counts as zero.
     emptied = mock_server._get_insight(judged, {"insight_id": duplicate})
@@ -2209,7 +2583,8 @@ def judged_diagnosed() -> Any:
         days=7, runs_per_day=2, seed=5, anchor=_ANCHOR, root_cause_rate=0.5
     )
     return mock_server.Dataset(
-        mock_data.build_dataset(scenario, mock_data.load()), settle_seconds=0
+        mock_data.build_dataset(scenario, mock_data.load_mock_config()),
+        settle_seconds=0,
     )
 
 
@@ -2312,12 +2687,12 @@ def test_merging_an_insight_into_itself_is_refused(judged) -> None:
 def test_a_merged_insight_still_shows_under_the_run_that_found_it(
     judged,
 ) -> None:
-    """Under the target, since the duplicate is hidden. Resolving the run filter
+    """Under the target, since the duplicate is hidden. Resolving the investigation filter
     by owner too is what keeps a sweep's own view from listing neither."""
     duplicate, target = _visible_ids(judged)[:2]
-    run_id = mock_server._get_insight(judged, {"insight_id": duplicate})[
-        "occurrences"
-    ][0]["run_id"]
+    investigation_id = mock_server._get_insight(
+        judged, {"insight_id": duplicate}
+    )["occurrences"][0]["investigation_id"]
 
     mock_server._merge_insight(
         judged, {"insight_id": duplicate, "target_insight_id": target}
@@ -2325,9 +2700,9 @@ def test_a_merged_insight_still_shows_under_the_run_that_found_it(
 
     in_run = {
         i["insight_id"]
-        for i in mock_server._list_insights(judged, {"run_id": run_id})[
-            "insights"
-        ]
+        for i in mock_server._list_insights(
+            judged, {"investigation_id": investigation_id}
+        )["insights"]
     }
     assert duplicate not in in_run
     assert target in in_run

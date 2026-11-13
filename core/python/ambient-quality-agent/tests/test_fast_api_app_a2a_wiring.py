@@ -38,7 +38,7 @@ from fastapi import FastAPI
 def test_sse_frames_end_with_lf_not_crlf() -> None:
     """Agent Runtime's relay dispatches only on a blank LF line, and
     `sse_starlette` writes CRLF. Without this the browser gets exactly one
-    frame and the chat hangs -- no error, no log, just silence (b/556488800).
+    frame and the chat hangs -- no error, no log, just silence.
 
     Importing `fast_api_app` is what applies it, so this also pins that the
     patch runs at import and not somewhere a later refactor could skip.
@@ -133,6 +133,28 @@ def test_saved_artifacts_are_attached_to_the_a2a_events(
     assert include_artifacts_in_a2a_event_interceptor in (
         executor._config.execute_interceptors
     )
+
+
+def test_the_card_defaults_to_the_package_version(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import ambient_quality_shared
+
+    monkeypatch.delenv("AGENT_VERSION", raising=False)
+    monkeypatch.setattr(ambient_quality_shared, "__version__", "9.8.7")
+
+    versions: list[str] = []
+    builder = a2a_module.AgentCardBuilder
+
+    def _record(**kwargs: Any) -> Any:
+        versions.append(kwargs["agent_version"])
+        return builder(**kwargs)
+
+    monkeypatch.setattr(a2a_module, "AgentCardBuilder", _record)
+
+    _captured_handler(monkeypatch)
+
+    assert versions == ["9.8.7"]
 
 
 # --- trap T2: the wire dialect ------------------------------------------------ #

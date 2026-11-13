@@ -15,17 +15,22 @@
 import { useEffect, useRef, useState } from "react";
 import { Play } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { runsQuery, startInvestigation } from "@/lib/aqua-api";
+import {
+  buildAgentScope,
+  investigationsQuery,
+  startInvestigation,
+} from "@/lib/aqua-api";
 import {
   POLL_INTERVAL_MS,
   inFlightAge,
-  inFlightRuns,
-  newestRun,
+  listInFlightInvestigations,
+  resolveNewestInvestigation,
   runButtonLabel,
-  stalledRuns,
-} from "@/lib/runstate";
+  listStalledInvestigations,
+} from "@/lib/investigation-state";
 import { textStyle } from "@/lib/typography";
 import { cn } from "@/lib/utils";
+import { useAgentKey } from "@/lib/agent-selection";
 
 /** What the note says, and why. Composed from state rather than written at each
  *  turn, so a refresh landing after a failed start cannot quietly wipe the
@@ -34,7 +39,7 @@ import { cn } from "@/lib/utils";
 function note(
   error: string,
   inFlight: number,
-  stalled: ReturnType<typeof stalledRuns>,
+  stalled: ReturnType<typeof listStalledInvestigations>,
 ): { text: string; title: string; error: boolean } | null {
   if (error) return { text: error, title: error, error: true };
   if (inFlight > 0) {
@@ -46,7 +51,7 @@ function note(
   }
   if (stalled.length) {
     // Why the button is available with a "running" row above it.
-    const age = inFlightAge(newestRun(stalled));
+    const age = inFlightAge(resolveNewestInvestigation(stalled));
     return {
       text:
         stalled.length === 1
@@ -64,11 +69,11 @@ function note(
 /**
  * Run investigation: the only control that starts a sweep by hand.
  *
- * **The disabled state is derived from the runs list, not from the click.** A
- * run costs money, and the list is the only thing that knows about sweeps this
- * tab did not start -- an ambient one, the cron, another browser. Deriving it
- * from server state is also what makes the guard survive a reload, which a
- * client-side "I clicked it" flag would not.
+ * **The disabled state is derived from the investigations list, not from the
+ * click.** An investigation costs money, and the list is the only thing that
+ * knows about sweeps this tab did not start -- an ambient one, the cron,
+ * another browser. Deriving it from server state is also what makes the guard
+ * survive a reload, which a client-side "I clicked it" flag would not.
  *
  * While something is in flight the list is re-read every `POLL_INTERVAL_MS` and
  * the button's fill sweeps over the same interval, so a disabled control shows
@@ -76,15 +81,16 @@ function note(
  */
 export function RunInvestigationButton({ className }: { className?: string }) {
   const queryClient = useQueryClient();
+  const agentKey = useAgentKey();
   const [error, setError] = useState("");
-  const runs = useQuery(runsQuery());
+  const investigations = useQuery(investigationsQuery(agentKey));
 
-  const live = inFlightRuns(runs.data);
+  const live = listInFlightInvestigations(investigations.data);
   const inFlight = live.length;
-  const stalled = stalledRuns(runs.data);
+  const stalled = listStalledInvestigations(investigations.data);
 
   const start = useMutation({
-    mutationFn: startInvestigation,
+    mutationFn: () => startInvestigation(agentKey),
     onMutate: () => setError(""), // this click supersedes whatever the last said
     onSuccess: (body) => {
       if (body.error) setError(`Couldn't start it: ${body.error}`);
@@ -92,14 +98,16 @@ export function RunInvestigationButton({ className }: { className?: string }) {
     onError: () => setError("Couldn't start it — the agent didn't answer."),
     // Clean or refused, the list is what says whether a sweep is really going.
     onSettled: () =>
-      queryClient.invalidateQueries({ queryKey: runsQuery().queryKey }),
+      queryClient.invalidateQueries({
+        queryKey: investigationsQuery(agentKey).queryKey,
+      }),
   });
 
   // Poll only while there is something to wait for. `refetchInterval` is set on
-  // the shared runs key, so the table on the same page refreshes with it rather
-  // than keeping a second timer of its own.
+  // the shared investigations key, so the table on the same page refreshes with
+  // it rather than keeping a second timer of its own.
   useQuery({
-    ...runsQuery(),
+    ...investigationsQuery(agentKey),
     refetchInterval: inFlight > 0 ? POLL_INTERVAL_MS : false,
   });
 
@@ -119,9 +127,11 @@ export function RunInvestigationButton({ className }: { className?: string }) {
     if (!watching.current) return;
     watching.current = false;
     for (const key of ["stats", "daily", "insights", "health"]) {
-      void queryClient.invalidateQueries({ queryKey: ["aqua", key] });
+      void queryClient.invalidateQueries({
+        queryKey: [...buildAgentScope(agentKey), key],
+      });
     }
-  }, [inFlight, queryClient]);
+  }, [inFlight, queryClient, agentKey]);
 
   const starting = start.isPending;
   const label =
@@ -169,7 +179,7 @@ export function RunInvestigationButton({ className }: { className?: string }) {
           // one event. The duration comes from the constant the poll uses, so
           // the two cannot drift.
           <span
-            key={runs.dataUpdatedAt}
+            key={investigations.dataUpdatedAt}
             aria-hidden
             className="pointer-events-none absolute inset-y-0 left-0 w-0 animate-[run-dwell_linear_forwards] bg-white/25 motion-reduce:animate-none"
             style={{ animationDuration: `${POLL_INTERVAL_MS}ms` }}

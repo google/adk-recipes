@@ -45,13 +45,13 @@ describe("insightQuery", () => {
       ],
     });
 
-    const detail = await insightQuery("ins-1").queryFn();
+    const detail = await insightQuery(undefined, "ins-1").queryFn();
     const [occurrence] = detail.occurrences;
 
-    // `occurrence.evidence_case_ids.length` is read with no guard; undefined
-    // here is the TypeError that blanked the pane.
-    expect(occurrence.evidence_case_ids).toEqual([]);
-    expect(occurrence.cases_checked).toBe(0);
+    // `occurrence.evidence_trajectory_ids.length` is read with no guard;
+    // undefined here is the TypeError that blanked the pane.
+    expect(occurrence.evidence_trajectory_ids).toEqual([]);
+    expect(occurrence.trajectories_checked).toBe(0);
     expect(occurrence.diagnosis).toBe("");
     expect(occurrence.confidence).toBe(0);
   });
@@ -59,7 +59,7 @@ describe("insightQuery", () => {
   it("fills the insight fields too, which this query used to skip", async () => {
     respondWith({ insight: { insight_id: "ins-1" }, occurrences: [] });
 
-    const { insight } = await insightQuery("ins-1").queryFn();
+    const { insight } = await insightQuery(undefined, "ins-1").queryFn();
 
     expect(insight.diagnosis).toBe("");
     expect(insight.impact).toBe(0);
@@ -69,20 +69,24 @@ describe("insightQuery", () => {
     respondWith({
       insight: { insight_id: "ins-1", diagnosis: "drops the tenant id" },
       occurrences: [
-        { occurrence_id: "o-1", evidence_case_ids: ["t-1"], cases_checked: 3 },
+        {
+          occurrence_id: "o-1",
+          evidence_trajectory_ids: ["t-1"],
+          trajectories_checked: 3,
+        },
       ],
     });
 
-    const detail = await insightQuery("ins-1").queryFn();
+    const detail = await insightQuery(undefined, "ins-1").queryFn();
 
     expect(detail.insight.diagnosis).toBe("drops the tenant id");
-    expect(detail.occurrences[0].evidence_case_ids).toEqual(["t-1"]);
-    expect(detail.occurrences[0].cases_checked).toBe(3);
+    expect(detail.occurrences[0].evidence_trajectory_ids).toEqual(["t-1"]);
+    expect(detail.occurrences[0].trajectories_checked).toBe(3);
   });
 
   it("survives a payload with neither half", async () => {
     respondWith({});
-    const detail = await insightQuery("ins-1").queryFn();
+    const detail = await insightQuery(undefined, "ins-1").queryFn();
     expect(detail.occurrences).toEqual([]);
   });
 });

@@ -36,6 +36,8 @@ AQA_OWNED_FIELDS = frozenset(
         "base_model",
         "insights_model",
         "verification_model",
+        "review_model",
+        "review_prune_watermark_tokens",
         "insights_match_model",
         "selector_ai_model",
         "aqa_dataset",
@@ -51,7 +53,7 @@ AQA_OWNED_FIELDS = frozenset(
         "ambient_topic",
         "sync_investigation",
         "standalone",
-        "pending_run_lease_minutes",
+        "pending_investigation_lease_minutes",
     }
 )
 """The `Config` fields one AQuA deployment owns, whatever it is watching.
@@ -94,7 +96,7 @@ def _config() -> Config:
         base_model=Model(model="gemini-x", location="europe-west4"),
         jobs_gcs_bucket="jobs-bucket",
         metrics_gcs_bucket="metrics-bucket",
-        pending_run_lease_minutes=30,
+        pending_investigation_lease_minutes=30,
     )
 
 
@@ -136,7 +138,7 @@ def test_projecting_and_merging_back_is_the_config_it_started_from() -> None:
 
 
 def test_merging_leaves_every_aqa_field_alone() -> None:
-    """`copy_with_agent` is how an attached agent's settings reach a run, so it must
+    """`copy_with_agent` is how an attached agent's settings reach an investigation, so it must
     not be able to repoint AQuA's own models, datasets or buckets."""
     config = _config()
 
@@ -170,12 +172,12 @@ def test_a_merged_value_is_validated_like_an_environment_one() -> None:
     merged = config.copy_with_agent(
         ObservedAgentConfig(
             observed_agent_name="other-agent",
-            data_lookback_window=9999,
+            data_evaluation_cap=9999,
             multi_turn_metrics=["task_success", "not_a_metric"],
         )
     )
 
-    assert merged.data_lookback_window == 64
+    assert merged.data_evaluation_cap == 1000
     assert merged.multi_turn_metrics == ["task_success"]
 
     with pytest.raises(

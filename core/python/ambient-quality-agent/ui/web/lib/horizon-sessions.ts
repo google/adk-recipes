@@ -20,13 +20,19 @@ import { qk } from "./query-keys";
 import { queryClient } from "./query-client";
 import { readErrorDetail } from "./read-error-detail";
 import {
+  buildConversationTitle,
   conversationsSnapshot,
   forgetConversation,
   listConversations,
   renameConversation,
   subscribeConversations,
 } from "./aqua-conversations";
-import { forgetLastChat } from "./last-chat";
+import { forgetDeletedChat } from "./last-chat";
+import {
+  type AgentSelection,
+  isConversationShown,
+  useAgentSelection,
+} from "./agent-selection";
 
 export interface HorizonSessionSummary {
   id: string;
@@ -117,6 +123,12 @@ export type StoredContext = {
   context_id: string;
   task_ids: string[];
   updated_at: string;
+  /** The name saved on rename, or null when the chat was never renamed. */
+  title?: string | null;
+  /** The text of the chat's first user message, or null when it has none. */
+  first_message?: string | null;
+  /** The agent the chat is about, or null when its messages name none. */
+  agent_key?: string | null;
 };
 
 async function fetchContexts(): Promise<StoredContext[]> {
@@ -155,6 +167,8 @@ export function buildLhaContextsQuery() {
  * browser already has chats of its own; an empty array means neither the
  * store nor the last engine answer had any (a failed fetch counts as an empty
  * answer — the error is not surfaced).
+ *
+ * Only the conversations about the agent the dashboard shows are listed.
  */
 export function useLhaSessions(query = ""): {
   data: HorizonSessionSummary[] | undefined;
@@ -167,14 +181,15 @@ export function useLhaSessions(query = ""): {
     conversationsSnapshot,
     serverSessions,
   );
-  // The engine is the source of truth for *which* conversations exist -- the
-  // browser store only knows the ones this browser started, which is why a
-  // fresh browser used to show "no chats yet" against a busy engine. Titles
-  // still come from the store: the engine keeps tasks, not names.
+  // The engine is the source of truth for which conversations exist because
+  // the browser store only tracks conversations started locally.
+  // `/lha/contexts` also returns server-saved names, which take precedence
+  // over local titles.
   const server = useQuery({
     ...buildLhaContextsQuery(),
     refetchOnWindowFocus: true,
   });
+  const { shownKey, defaultKey } = useAgentSelection();
 
   const data = useMemo(() => {
     const term = query.trim().toLowerCase();
@@ -192,15 +207,27 @@ export function useLhaSessions(query = ""): {
         Date.parse(c.updated_at) || 0,
       ]),
     );
+    const remote = new Map((server.data ?? []).map((c) => [c.context_id, c]));
     return [...ids]
+      .filter((id) =>
+        isConversationShown(
+          local.get(id)?.agentKey ?? remote.get(id)?.agent_key ?? undefined,
+          { shownKey, defaultKey },
+        ),
+      )
       .map((id) => {
         const c = local.get(id);
+        const r = remote.get(id);
         return {
           id,
-          // A conversation this browser never saw has no title. "Untitled
-          // chat" is the honest label; inventing one from the id would read
-          // as a name someone chose.
-          title: c?.title ?? "Untitled chat",
+          // Fall back to "Untitled chat" when neither a saved name nor message
+          // text is available, rather than exposing the raw context ID.
+          title:
+            r?.title ||
+            (c && !c.derivedTitle ? c.title : "") ||
+            buildConversationTitle(r?.first_message) ||
+            c?.title ||
+            "Untitled chat",
           createdAt: c?.createdAt ?? serverStamp.get(id) ?? 0,
           lastUpdated: c?.lastUpdated ?? serverStamp.get(id) ?? 0,
           source: "user" as const,
@@ -210,7 +237,7 @@ export function useLhaSessions(query = ""): {
       })
       .filter((c) => !term || c.title.toLowerCase().includes(term))
       .sort((a, b) => b.lastUpdated - a.lastUpdated);
-  }, [conversations, query, server.data]);
+  }, [conversations, query, server.data, shownKey, defaultKey]);
 
   // isPending, not isLoading: a paused (offline) or retrying query has no
   // answer yet either, and must not fall through to "No chats yet.".
@@ -249,16 +276,59 @@ export function useScheduledSessions(
 }
 
 /**
- * Renames a conversation stored in local storage.
+ * Renames a conversation on the server and in local storage.
+ *
+ * Persists the name on the server so other browsers display it. An HTTP 501
+ * response indicates the deployment has no jobs bucket, in which case the
+ * rename applies only in this browser.
  *
  * @param sessionId - Identifier of the conversation to rename.
  * @param title - New title for the conversation.
+ * @throws Error if the server request fails; local state is then left
+ *   unchanged.
  */
 export async function renameLhaSession(
   sessionId: string,
   title: string,
 ): Promise<void> {
+  const url = `/lha/contexts/${encodeURIComponent(sessionId)}/title`;
+  const r = await fetch(url, {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ title }),
+  });
+  if (r.status === 501) {
+    renameConversation(sessionId, title);
+    return;
+  }
+  if (!r.ok) {
+    const detail = await readErrorDetail(r);
+    throw new Error(
+      `rename-chat ${r.status}: ${detail.slice(0, 200) || "rename failed"}`,
+    );
+  }
   renameConversation(sessionId, title);
+  setCachedContextTitle(sessionId, title);
+  // Trigger background invalidation without awaiting: the cache is already
+  // updated, and awaiting the full bucket scan would keep the rename input
+  // disabled.
+  void queryClient.invalidateQueries({ queryKey: ["lha", "contexts"] });
+}
+
+/**
+ * Updates a conversation's title in the cached `/lha/contexts` query data.
+ *
+ * Because the cached server title takes precedence over the local title,
+ * updating the cache immediately prevents the old name from displaying while
+ * the background refetch runs.
+ *
+ * @param contextId - Identifier of the renamed conversation.
+ * @param title - Saved conversation title.
+ */
+function setCachedContextTitle(contextId: string, title: string): void {
+  queryClient.setQueryData<StoredContext[]>(["lha", "contexts"], (cached) =>
+    cached?.map((c) => (c.context_id === contextId ? { ...c, title } : c)),
+  );
 }
 
 export async function setChatWindow(
@@ -327,7 +397,7 @@ function dropCachedContext(contextId: string): void {
 export async function deleteLhaSession(sessionId: string): Promise<void> {
   await deleteContext(sessionId);
   forgetConversation(sessionId);
-  forgetLastChat(sessionId);
+  forgetDeletedChat(sessionId);
   dropCachedContext(sessionId);
   await queryClient.invalidateQueries({ queryKey: ["lha", "contexts"] });
 }
@@ -338,16 +408,27 @@ export interface DeleteAllResult {
 }
 
 /**
- * Deletes all conversations from backend storage and local state.
+ * Deletes all of the shown agent's conversations from backend storage and
+ * local state, the ones the list shows.
  *
  * Deletes each conversation remotely before removing its local record.
  *
+ * @param selection - Which agent's conversations to delete.
  * @returns An object containing the count of successfully deleted and failed conversations.
  * @throws Error if listing backend contexts fails.
  */
-export async function deleteAllLhaSessions(): Promise<DeleteAllResult> {
-  const ids = new Set<string>(listConversations().map((c) => c.id));
-  for (const c of await fetchContexts()) ids.add(c.context_id);
+export async function deleteAllLhaSessions(
+  selection: Pick<AgentSelection, "shownKey" | "defaultKey">,
+): Promise<DeleteAllResult> {
+  const ids = new Set<string>();
+  for (const c of listConversations()) {
+    if (isConversationShown(c.agentKey, selection)) ids.add(c.id);
+  }
+  for (const c of await fetchContexts()) {
+    if (isConversationShown(c.agent_key ?? undefined, selection)) {
+      ids.add(c.context_id);
+    }
+  }
 
   let deleted = 0;
   let failed = 0;
@@ -355,7 +436,7 @@ export async function deleteAllLhaSessions(): Promise<DeleteAllResult> {
     try {
       await deleteContext(id);
       forgetConversation(id);
-      forgetLastChat(id);
+      forgetDeletedChat(id);
       dropCachedContext(id);
       deleted += 1;
     } catch {

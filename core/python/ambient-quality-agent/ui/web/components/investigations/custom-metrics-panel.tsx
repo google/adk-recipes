@@ -122,10 +122,10 @@ export function CustomMetricsPanel({
       </table>
       {hasPredefined && (
         <p className={cn(textStyle.meta, "px-3 pt-2")}>
-          Predefined metrics run from deployment configuration using{" "}
-          <code className={mono}>MULTI_TURN_METRICS</code> and{" "}
-          <code className={mono}>SINGLE_TURN_METRICS</code> rather than the
-          published library, so matching entries are skipped here.
+          Predefined metrics run from the attached agent's{" "}
+          <code className={mono}>--multi-turn-metric</code> and{" "}
+          <code className={mono}>--single-turn-metric</code> settings rather
+          than the published library, so matching entries are skipped here.
         </p>
       )}
     </div>

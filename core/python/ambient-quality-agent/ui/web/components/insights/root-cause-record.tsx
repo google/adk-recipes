@@ -17,6 +17,7 @@
 import { AlertTriangle, Loader2 } from "lucide-react";
 
 import { DiffBlock } from "@/components/chat/tool-views";
+import { InlineMarkdown } from "@/components/ui/inline-markdown";
 import type { ProposedEdit, RootCause } from "@/lib/aqua-api";
 import { mono, textStyle } from "@/lib/typography";
 import { cn } from "@/lib/utils";
@@ -73,11 +74,14 @@ export function RootCauseRecord({
   record,
   warnings = [],
   note,
+  hideSummary,
 }: {
   record: RootCause;
   warnings?: string[];
-  /** Optional informational note displayed above the summary. */
+  /** Optional informational note displayed above the record. */
   note?: string;
+  /** Leave the summary out, for a page that already shows it elsewhere. */
+  hideSummary?: boolean;
 }) {
   const edits = record.edits ?? [];
   return (
@@ -86,7 +90,11 @@ export function RootCauseRecord({
       className="flex w-full max-w-full flex-col gap-2"
     >
       {note && <p className={textStyle.meta}>{note}</p>}
-      <p className={cn(textStyle.meta, "text-foreground")}>{record.summary}</p>
+      {!hideSummary && (
+        <p className={cn(textStyle.meta, "text-foreground")}>
+          <InlineMarkdown text={record.summary} />
+        </p>
+      )}
       {edits.length === 0 ? (
         <p className={textStyle.meta}>No code changes proposed.</p>
       ) : (
@@ -103,7 +111,11 @@ function EditBlock({ edit }: { edit: ProposedEdit }) {
       <span className={cn(textStyle.meta, mono)}>
         {edit.path}:{lineRange(edit)}
       </span>
-      {edit.rationale && <p className={textStyle.meta}>{edit.rationale}</p>}
+      {edit.rationale && (
+        <p className={textStyle.meta}>
+          <InlineMarkdown text={edit.rationale} />
+        </p>
+      )}
       <DiffBlock oldString={edit.before ?? ""} newString={edit.after ?? ""} />
     </div>
   );

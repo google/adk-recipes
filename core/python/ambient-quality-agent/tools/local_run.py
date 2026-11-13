@@ -18,14 +18,16 @@ This mirrors how Agent Runtime drives the deployed workflow, but uses
 ADK's `InMemoryRunner` so you can exercise the pipeline end-to-end on
 your machine without deploying.
 
-The AQA `config` module reads its inputs from the environment at import
-time (see `ambient_quality_agent.config`). This script sets sensible
-local defaults for the required vars before importing the agent, so a
-bare `uv run python tools/local_run.py` works out of the box. Override
-any of them by exporting the matching env var first, for example:
+AQuA's own settings come from the environment at import time (see
+`ambient_quality_agent.config`); this script sets local defaults for the
+required ones before importing the agent. The observed agent comes from its
+attachment, as in a deployment: the default attached agent, or the one
+`--agent-key` names. In a standalone run (`AQA_STANDALONE=1`) attachments are
+files under `.aqua/job/`, written by the `attach` command against the local
+server (see "Run locally" in README.md):
 
-    AQA_OBSERVED_AGENT_NAME=my-agent GOOGLE_CLOUD_PROJECT=my-project \
-        uv run python tools/local_run.py
+    AQA_STANDALONE=1 GOOGLE_CLOUD_PROJECT=my-project \
+        uv run python tools/local_run.py --agent-key my_agent
 
 This drives the ``investigation_workflow`` graph directly (the same graph
 the deployed agent runs in its durable background job via
@@ -46,6 +48,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import dataclasses
 import json
 import os
 import pathlib
@@ -62,7 +65,6 @@ if TYPE_CHECKING:
 # Disable `.env` loading from the agent package so the run uses only
 # explicitly exported environment variables and the defaults below.
 os.environ.setdefault("PYTHON_DOTENV_DISABLED", "1")
-os.environ.setdefault("AQA_OBSERVED_AGENT_NAME", "local-observed-agent")
 os.environ.setdefault("GOOGLE_CLOUD_PROJECT", "local-dev-project")
 
 # `config.location` is the single region used for BOTH BigQuery jobs and
@@ -77,15 +79,6 @@ _location = os.environ.get("GOOGLE_CLOUD_LOCATION", "")
 if not _location or _location.lower() == "global":
     os.environ["GOOGLE_CLOUD_LOCATION"] = _DEFAULT_LOCATION
 
-# Keep local runs fast and cheap. Each fetched session/turn is scored by
-# the judge model once per metric, so a large pull makes a local
-# run take many minutes. `DATA_EVALUATION_CAP` bounds the total records
-# pulled per run (budget_per_metric = cap // active_metric_count), and
-# `DATA_LOOKBACK_WINDOW` bounds the telemetry window in days. Override
-# either by exporting the matching env var.
-os.environ.setdefault("DATA_EVALUATION_CAP", "10")
-os.environ.setdefault("DATA_LOOKBACK_WINDOW", "7")
-
 _APP_NAME = "aqa-local-run"
 _USER_ID = "local-user"
 _SESSION_ID = "local-session"
@@ -99,11 +92,38 @@ def _parse_args() -> argparse.Namespace:
     """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
+        "--agent-key",
+        default="",
+        help="The attached agent to investigate; the default attached agent if unset.",
+    )
+    parser.add_argument(
+        "--agent-name",
+        default="",
+        help=(
+            "Telemetry agent name to investigate in place of the attachment's,"
+            " for a replay that records its traces under a name of its own."
+        ),
+    )
+    parser.add_argument(
+        "--lookback-days",
+        type=int,
+        default=0,
+        help="Days of telemetry to consider, in place of the attachment's.",
+    )
+    # Each fetched session or turn is scored by the judge model once per
+    # metric, so the attachment's cap would make a local run take many minutes.
+    parser.add_argument(
+        "--evaluation-cap",
+        type=int,
+        default=10,
+        help="Most records the run pulls in, in place of the attachment's.",
+    )
+    parser.add_argument(
         "--dump-dir",
         help=(
             "Write the run's intermediates here: each producer's finding set"
             " verbatim, the merged findings derived from them, plus every"
-            " session-review prompt and response under reviews/."
+            " session-review prompt and its findings under reviews/."
             " Diffing two runs' dumps is how a telemetry-source or prompt"
             " change gets compared."
         ),
@@ -112,46 +132,67 @@ def _parse_args() -> argparse.Namespace:
 
 
 def _tee_reviewer_prompts(directory: pathlib.Path) -> Callable[[], int]:
-    """Record all session-review prompts and model responses under ``directory``.
+    """Record every session-review prompt and its findings under ``directory``.
 
-    Intercepts the ``reviewer_factory`` seam, so what lands on disk is the exact
-    string handed to the model. Prompts are written before the call, so a review
-    that raises still leaves its prompt behind.
+    Wraps the ``session_reviewer_factory`` seam. For each review:
+    1. Builds the review prompt and writes it, so a review that raises still
+       leaves its prompt behind.
+    2. Runs the wrapped reviewer and writes the findings it returns.
 
     Args:
-        directory: Destination folder for recorded prompts and responses.
+        directory: Destination folder for recorded prompts and findings.
 
     Returns:
         Callable reporting total number of reviews captured.
     """
     from ambient_quality_agent.core.nodes import _common
+    from ambient_quality_agent.tools.review import agentic_reviewer
 
     directory.mkdir(parents=True, exist_ok=True)
-    original = _common.reviewer_factory
+    original = _common.session_reviewer_factory
     # `review` reviews sessions concurrently, so the index needs a lock.
     lock = threading.Lock()
     captured = 0
 
     def create_recording_reviewer(ctx):
-        call = original(ctx)
+        reviewer = original(ctx)
 
-        def review(prompt: str) -> str:
+        def review(eval_case, revisions, *, session_review_focus, goal):
             nonlocal captured
             with lock:
                 index = captured
                 captured += 1
+            prompt = agentic_reviewer.build_review_prompt(
+                eval_case,
+                revisions,
+                session_review_focus=session_review_focus,
+                goal=goal,
+            )
             (directory / f"prompt_{index:03d}.txt").write_text(
-                prompt, encoding="utf-8"
+                prompt.system_instruction
+                + "\n\n===== initial user message =====\n\n"
+                + prompt.initial_message,
+                encoding="utf-8",
             )
-            response = call(prompt)
-            (directory / f"response_{index:03d}.json").write_text(
-                response, encoding="utf-8"
+            findings = reviewer(
+                eval_case,
+                revisions,
+                session_review_focus=session_review_focus,
+                goal=goal,
             )
-            return response
+            (directory / f"findings_{index:03d}.json").write_text(
+                json.dumps(
+                    [finding.model_dump(mode="json") for finding in findings],
+                    indent=2,
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            return findings
 
         return review
 
-    _common.reviewer_factory = create_recording_reviewer
+    _common.session_reviewer_factory = create_recording_reviewer
     return lambda: captured
 
 
@@ -187,17 +228,20 @@ def _dump_intermediates(
 
 
 async def main() -> None:
-    """Seed state from `config` and run one workflow invocation."""
+    """Seed state from the attached agent's configuration and run the workflow."""
     args = _parse_args()
     # Imported here (not at module top) so the env defaults above are in
     # place before `ambient_quality_agent.config` is evaluated.
     from ambient_quality_agent import backends
-    from ambient_quality_agent.config import config
+    from ambient_quality_agent.config import extract_agent_config
     from ambient_quality_agent.core.investigation.job_scheduling import (
         derive_window_and_budget,
     )
     from ambient_quality_agent.core.state import WorkflowState
     from ambient_quality_agent.core.workflow import investigation_workflow
+    from ambient_quality_agent.tools.observed_agent_config import (
+        effective_config,
+    )
     from google.adk import Runner
     from google.adk.sessions import InMemorySessionService
     from google.genai import types as genai_types
@@ -205,9 +249,31 @@ async def main() -> None:
     # Storage is chosen here, as in every entry point. Without it the seams
     # stay unset and the first write raises.
     backends.configure_providers()
+    config = effective_config.load(
+        {effective_config.AGENT_KEY_STATE: args.agent_key}
+    )
+    if not config.observed_agent_name:
+        raise SystemExit(
+            "No agent is attached in the jobs store: .aqua/job/ with "
+            "AQA_STANDALONE=1, else AQA_JOBS_GCS_BUCKET. Attach one with "
+            "`agents-cli aqua attach`."
+        )
+    # Through `copy_with_agent`, so the overrides are validated and clamped
+    # like an attached value.
+    agent = extract_agent_config(config)
+    config = config.copy_with_agent(
+        dataclasses.replace(
+            agent,
+            observed_agent_name=args.agent_name or agent.observed_agent_name,
+            data_lookback_window=args.lookback_days
+            or agent.data_lookback_window,
+            data_evaluation_cap=args.evaluation_cap,
+        )
+    )
 
     # Patch the reviewer seam before the graph runs; the node resolves
-    # `reviewer_factory` per call, so this reaches every review.
+    # `session_reviewer_factory` each time it runs, so this reaches every
+    # review.
     reviews_captured = (
         _tee_reviewer_prompts(pathlib.Path(args.dump_dir) / "reviews")
         if args.dump_dir
@@ -225,7 +291,7 @@ async def main() -> None:
     )
 
     # The AQA workflow is state-driven: seed the typed WorkflowState from
-    # the process config rather than sending a chat message. Nodes bind
+    # the effective config rather than sending a chat message. Nodes bind
     # their parameters from session state, so the state must be set on the
     # session at creation time. Derive the window and budget here (matching
     # orchestrator submission) and seed them alongside config inputs.
@@ -233,15 +299,17 @@ async def main() -> None:
         config
     )
     initial_state = WorkflowState.from_config(config)
-    # Local runs have no orchestrator `InvestigationRecord`, so mint a fresh run id
+    # Local runs have no orchestrator `Investigation`, so mint a fresh run id
     # (matching the record's scheme) for run-scoped state.
-    run_id = uuid.uuid4().hex[:8]
+    investigation_id = uuid.uuid4().hex[:8]
     seed_state = {
         **initial_state.model_dump(),
-        "run_id": run_id,
+        "investigation_id": investigation_id,
         "window_start": window_start,
         "window_end": window_end,
         "budget_per_metric": budget_per_metric,
+        # A local run brings no selector of its own, like a manual one.
+        "selector_sql": config.investigation_selector_sql,
     }
 
     print(f"Creating session '{_SESSION_ID}'...")
@@ -253,7 +321,7 @@ async def main() -> None:
     )
 
     print("Running workflow...")
-    print(f"  run_id              = {run_id}")
+    print(f"  investigation_id    = {investigation_id}")
     print(f"  observed_agent_name = {initial_state.observed_agent_name}")
     print(f"  project_id          = {initial_state.project_id}")
     print(f"  location            = {initial_state.location}")
@@ -298,7 +366,7 @@ async def main() -> None:
         )
 
     # The workflow events (progress/diagnostic snippets emitted by the nodes)
-    # carry the run's findings -- in particular the insight_correlation node's
+    # carry the investigation's findings -- in particular the insight_correlation node's
     # per-sweep summary of failed rubrics grouped into new/recurring insights.
     # The insights themselves are persisted durably to the insight store.
     events = state.get("progress_log") or []

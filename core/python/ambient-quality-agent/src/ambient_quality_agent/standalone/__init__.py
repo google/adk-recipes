@@ -28,25 +28,28 @@ Wiring::
     InMemoryTrajectoryStore ─────────────────────► TrajectoryStore (Protocol)
     InMemoryTrajectoryReader ────────────────────► TrajectoryReader (Protocol)
     InMemoryRootCauseStore ──────────────────────► RootCauseWriter (Protocol)
-        │ save_run(), update_insights(), append_root_cause(), save_archive()
+        │ save_investigation(), update_insights(), append_root_cause(),
+        │ save_trajectory_bundle()
         ▼
     InMemoryStore
 
     FileObjectStore ─────────────────────────────► ObjectStore (Protocol)
-        │ .aqua/job/<name>, .aqua/source/<name>
+        │ .aqua/job/<name>, .aqua/source/<name>, .aqua/metrics/<name>
 
 `InMemoryStore` holds execution state in memory without requiring external cloud
 storage (such as BigQuery or Cloud Storage). Entity-specific adapters implement
 the storage contracts used by the workflow graph and dashboard:
-- Runs: `InMemoryInvestigationStore`
+- Investigations: `InMemoryInvestigationStore`
 - Insights: `InMemoryInsightStore` and `InMemoryInsightReader`
 - Trajectories: `InMemoryTrajectoryStore` and `InMemoryTrajectoryReader`
 - Diagnoses: `InMemoryRootCauseStore`
 
 `FileObjectStore` keeps what a deployment keeps in its jobs bucket -- the goal,
 the memories and the attached agents' configurations -- as files under
-`.aqua/job/`, and what it keeps in its source bucket -- the observed agents'
-source snapshots -- under `.aqua/source/`. Both outlive the process.
+`.aqua/job/`, what it keeps in its source bucket -- the observed agents'
+source snapshots -- under `.aqua/source/`, and what it keeps in its metrics
+bucket -- the published code-metric library -- under `.aqua/metrics/`. All
+three outlive the process.
 
 `build_bindings` maps storage providers to these adapters, registered via
 `backends.configure_providers()` when `AQA_STANDALONE=1`.

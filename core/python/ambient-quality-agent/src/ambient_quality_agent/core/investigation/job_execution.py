@@ -20,8 +20,8 @@ Wiring::
                     │ run self-query                        │ sync_investigation
                     └──────────────────┬────────────────────┘
                                        ▼
-    model.get_run(),   ◄──────── execute_investigation()
-    model.update_run()                 │
+    model.get_stored_investigation(),   ◄──────── execute_investigation()
+    model.update_investigation()                 │
             ▲                          ▼
             └─────────────── _claim_marker_and_run() ──► gcs.claim_once() ──► GCS
                                        │
@@ -33,15 +33,15 @@ Wiring::
                                └──► telemetry.setup.flush_spans()
 
     execute_investigation(), job_scheduling._dispatch()
-        └──► _log_run_finished() ──► _should_notify()
+        └──► _log_investigation_finished() ──► _should_notify()
                     └──► Cloud Logging (alert policy)
 
 Executes inside the durable LRO invocation triggered by the `RUN_KEYWORD`
 self-query (submitted by `job_scheduling`):
 1. Claim idempotency marker (skips as duplicate if already present).
-2. Transition the run status to `RUNNING`.
+2. Transition the investigation status to `RUNNING`.
 3. Run `investigation_workflow` via `run_investigation_graph` using the submit-time config snapshot.
-4. Record terminal `DONE` or `FAILED` status and summary back to the run registry.
+4. Record terminal `DONE` or `FAILED` status and summary back to the investigation registry.
 """
 
 from __future__ import annotations
@@ -58,7 +58,7 @@ from ambient_quality_agent.config import Config
 from ambient_quality_agent.core import _logging
 from ambient_quality_agent.core import _memory as memory
 from ambient_quality_agent.core.investigation import job_scheduling, model
-from ambient_quality_agent.core.investigation.model import RunStatus
+from ambient_quality_agent.core.investigation.model import InvestigationStatus
 from ambient_quality_agent.core.session_state import LaunchContext
 from ambient_quality_agent.core.state import COUNTERS_KEY
 from ambient_quality_agent.core.workflow import investigation_workflow
@@ -100,38 +100,40 @@ def _read_task_attempt() -> int:
 
 
 async def execute_investigation(
-    run_id: str, context: LaunchContext
+    investigation_id: str, context: LaunchContext
 ) -> dict[str, Any]:
-    """Execute a scheduled investigation run and record its terminal status.
+    """Execute a scheduled investigation and record its terminal status.
 
     Executes the following sequence:
     1. Fetch the stored investigation record; fail if unknown.
     2. Claim the idempotency marker to prevent duplicate execution.
-    3. Transition the run status to `RUNNING`.
+    3. Transition the investigation status to `RUNNING`.
     4. Execute the workflow graph with the submit-time configuration snapshot.
     5. Record the final status (`DONE`, `FAILED`, or `SKIPPED`) and summary.
 
     Args:
-        run_id: Unique identifier of the investigation run.
+        investigation_id: Unique identifier of the investigation.
         context: Launch context containing workflow state.
 
     Returns:
         Dictionary reporting execution status ('done', 'failed', or 'skipped')
-        and associated run details.
+        and associated investigation details.
     """
     state = context.state
-    record = await model.get_run(state, run_id)
+    record = await model.get_stored_investigation(state, investigation_id)
     if record is None:
-        # Fail immediately and log because an unknown run cannot be tracked further.
-        error = f"unknown run {run_id!r}"
-        changes: dict[str, Any] = {"status": RunStatus.FAILED, "error": error}
-        placeholder = model.InvestigationRecord(
-            run_id=run_id,
-            observed_agent_name=effective_config.load(
-                state
-            ).observed_agent_name,
+        # Fail immediately and log because an unknown investigation cannot be
+        # tracked further.
+        error = f"unknown run {investigation_id!r}"
+        changes: dict[str, Any] = {
+            "status": InvestigationStatus.FAILED,
+            "error": error,
+        }
+        placeholder = model.Investigation(
+            investigation_id=investigation_id,
+            observed_agent_key=effective_config.load(state).resolve_agent_key(),
         )
-        _log_run_finished(placeholder, changes)
+        _log_investigation_finished(placeholder, changes)
         return {"status": "failed", "error": error}
 
     logged = False
@@ -141,40 +143,43 @@ async def execute_investigation(
         if logged:
             return
         logged = True
-        _log_run_finished(record, changes)
+        _log_investigation_finished(record, changes)
 
     try:
         return await _claim_marker_and_run(
-            state, run_id, record, log_result_for_alerting
+            state, investigation_id, record, log_result_for_alerting
         )
     except BaseException as exc:
         # Graph-external failure handler: ensure cancellations or unexpected crashes
-        # record a terminal FAILED state rather than leaving the run abandoned.
+        # record a terminal FAILED state rather than leaving the investigation abandoned.
         changes = {
-            "status": RunStatus.FAILED,
+            "status": InvestigationStatus.FAILED,
             "error": f"{type(exc).__name__}: {exc}",
         }
         log_result_for_alerting(changes)
         try:
-            await model.update_run(state, run_id, **changes)
+            await model.update_investigation(state, investigation_id, **changes)
         except Exception:
-            logger.exception("could not record the failure of run %s", run_id)
+            logger.exception(
+                "could not record the failure of run %s", investigation_id
+            )
         raise
 
 
 async def _claim_marker_and_run(
     state: Any,
-    run_id: str,
-    record: model.InvestigationRecord,
+    investigation_id: str,
+    record: model.Investigation,
     log_result_for_alerting: Callable[[dict[str, Any]], None],
 ) -> dict[str, Any]:
-    """Claim the dedup marker, run the graph, and record the terminal run state.
+    """Claims the dedup marker, runs the graph, and records the terminal investigation state.
 
     Args:
-        state: Workflow state storing run records.
-        run_id: Unique identifier of the investigation run.
+        state: Workflow state storing investigation records.
+        investigation_id: Unique identifier of the investigation.
         record: Stored investigation record.
-        log_result_for_alerting: Callback to log terminal run result for alerting.
+        log_result_for_alerting: Callback to log terminal investigation result
+            for alerting.
 
     Returns:
         Dictionary reporting workflow execution result.
@@ -193,22 +198,26 @@ async def _claim_marker_and_run(
             attempt = _read_task_attempt()
             if attempt == 0:
                 skipped: dict[str, Any] = {
-                    "status": RunStatus.SKIPPED,
+                    "status": InvestigationStatus.SKIPPED,
                     "error": "duplicate trigger; skipped",
                 }
-                await model.update_run(state, run_id, **skipped)
+                await model.update_investigation(
+                    state, investigation_id, **skipped
+                )
                 log_result_for_alerting(skipped)
                 return {"status": "skipped", "reason": "duplicate"}
             logger.info(
                 "crash-retry attempt %d for run %s; re-running despite existing marker",
                 attempt,
-                run_id,
+                investigation_id,
             )
 
-    await model.update_run(state, run_id, status=RunStatus.RUNNING)
+    await model.update_investigation(
+        state, investigation_id, status=InvestigationStatus.RUNNING
+    )
     result = await run_investigation_graph(
         record.effective_config,
-        run_id=record.run_id,
+        investigation_id=record.investigation_id,
         window_start=record.window_start,
         window_end=record.window_end,
         budget_per_metric=record.budget_per_metric,
@@ -219,18 +228,18 @@ async def _claim_marker_and_run(
 
     if result.get("status") == "done":
         changes = {
-            "status": RunStatus.DONE,
+            "status": InvestigationStatus.DONE,
             "summary": result.get("summary") or {},
             "counters": result.get("counters") or {},
         }
     else:
         changes = {
-            "status": RunStatus.FAILED,
+            "status": InvestigationStatus.FAILED,
             "error": result.get("error", "unknown error"),
         }
     # The marker persists on completion and failure so subsequent deliveries deduplicate;
     # only container crash-retries re-execute.
-    await model.update_run(state, run_id, **changes)
+    await model.update_investigation(state, investigation_id, **changes)
     log_result_for_alerting(changes)
     return result
 
@@ -238,9 +247,9 @@ async def _claim_marker_and_run(
 _ALERT_COUNTS = (
     "insights_created",
     "insights_recurring",
-    "traces_evaluated",
-    "traces_eval_failed",
-    "traces_eval_errored",
+    "trajectories_evaluated",
+    "trajectories_eval_failed",
+    "trajectories_eval_errored",
 )
 """Counters extracted from investigation results for alert email bodies."""
 
@@ -266,7 +275,7 @@ def _truncate_error(error: object) -> str:
 def _should_notify(
     status: object, counters: dict[str, Any], trigger_type: str = ""
 ) -> tuple[bool, str]:
-    """Determine whether a completed run requires an email notification.
+    """Determines whether a completed investigation requires an email notification.
 
     Notifies on evaluation failures or API errors. Custom investigations are excluded
     from email notifications because they are interactively triggered by the user.
@@ -274,8 +283,8 @@ def _should_notify(
     In Python rather than the policy's filter, so it can be tested.
 
     Args:
-        status: Terminal status of the investigation run.
-        counters: Metric counters recorded during the run.
+        status: Terminal status of the investigation.
+        counters: Metric counters recorded during the investigation.
         trigger_type: Trigger identifier (e.g. 'custom', 'scheduled').
 
     Returns:
@@ -283,39 +292,40 @@ def _should_notify(
     """
     if trigger_type == CUSTOM_TRIGGER_TYPE:
         return False, ""
-    if status == RunStatus.SKIPPED:
+    if status == InvestigationStatus.SKIPPED:
         return False, ""
-    if status != RunStatus.DONE:
+    if status != InvestigationStatus.DONE:
         return True, "the investigation failed"
     new = counters.get("insights_created") or 0
     recurring = counters.get("insights_recurring") or 0
-    errored = counters.get("traces_eval_errored") or 0
+    errored = counters.get("trajectories_eval_errored") or 0
     if new:
         return True, f"{new} newly found problem(s)"
     if errored:
         return True, f"{errored} trace(s) the evaluator could not judge"
-    if (counters.get("traces_eval_failed") or 0) and not recurring:
+    if (counters.get("trajectories_eval_failed") or 0) and not recurring:
         # Unreported failure guard: send alert if failures were not grouped into insights.
         return True, "failed traces that could not be grouped"
     # Known recurring issues are omitted to avoid repetitive alert emails on every sweep.
     return False, ""
 
 
-def _log_run_finished(
-    record: model.InvestigationRecord, changes: dict[str, Any]
+def _log_investigation_finished(
+    record: model.Investigation, changes: dict[str, Any]
 ) -> None:
-    """Write one structured log entry when a run finishes.
+    """Writes one structured log entry when an investigation finishes.
 
     Selected by alert policies to send email notifications. Never raises so
-    logging errors do not mask successful run completion.
+    logging errors do not mask successful investigation completion.
 
     Args:
         record: Target investigation record.
-        changes: Terminal run updates containing status, summary, and counters.
+        changes: Terminal investigation updates containing status, summary, and
+            counters.
     """
     try:
         # Use a copy because callers may log before database writes complete or lack stored records.
-        view = model.format_run(record.model_copy(update=changes))
+        view = model.format_investigation(record.model_copy(update=changes))
         summary = view.get("summary") or {}
         counters = view.get("counters") or {}
         # Default missing counts to zero because Cloud Logging extracts JSON null as literal 'NULL_VALUE'.
@@ -327,8 +337,8 @@ def _log_run_finished(
             json.dumps(
                 {
                     "event": "aqa_investigation_finished",
-                    "run_id": view.get("run_id"),
-                    "agent": view.get("observed_agent_name"),
+                    "investigation_id": view.get("investigation_id"),
+                    "observed_agent_key": view.get("observed_agent_key"),
                     "status": view.get("status"),
                     "error": _truncate_error(view.get("error")),
                     "window_start": view.get("window_start"),
@@ -344,14 +354,15 @@ def _log_run_finished(
         )
     except Exception:
         logger.exception(
-            "could not log run %s for alerting", getattr(record, "run_id", "?")
+            "could not log run %s for alerting",
+            getattr(record, "investigation_id", "?"),
         )
 
 
 async def run_investigation_graph(
     effective_config: dict[str, Any],
     *,
-    run_id: str = "",
+    investigation_id: str = "",
     window_start: str | None = None,
     window_end: str | None = None,
     budget_per_metric: int = 0,
@@ -364,24 +375,26 @@ async def run_investigation_graph(
     Seeds execution configuration, time window, budget, trigger type, and custom
     overrides into workflow state, executes the workflow graph, and returns summary
     and counter outputs. `trigger_type` and `custom_overrides` are read off the
-    persisted record by the caller: the durable dispatch carries only a run id
+    persisted record by the caller: the durable dispatch carries only an investigation id
     across the boundary.
 
     Args:
-        effective_config: Serialized configuration dictionary for this run.
-        run_id: Unique identifier for the investigation run.
+        effective_config: Serialized configuration dictionary for this investigation.
+        investigation_id: Unique identifier for the investigation.
         window_start: Telemetry evaluation window start timestamp.
         window_end: Telemetry evaluation window end timestamp.
         budget_per_metric: Maximum evaluation budget allocated per metric.
         dry_run: Whether this is a lightweight verification run.
-        trigger_type: Origin of the run (e.g. 'custom', 'scheduled', 'manual').
-        custom_overrides: Custom conversation selector and review focus overrides.
+        trigger_type: Origin of the investigation (e.g. 'custom', 'scheduled', 'manual').
+        custom_overrides: Custom conversation selector and review focus
+            overrides. Without either, the investigation reviews what the
+            config's `investigation_selector_sql` picks.
 
     Returns:
         Dictionary with status ('done' or 'failed'), along with summary and counters
         on success or error message on failure. The counters are stored in a
         column of their own rather than inside the summary, so they can be summed
-        across runs.
+        across investigations.
     """
     overrides = custom_overrides or CustomOverrides()
     try:
@@ -403,17 +416,26 @@ async def run_investigation_graph(
             node=investigation_workflow,
             session_service=InMemorySessionService(),
         )
+        # A custom investigation reviews exactly what it asked for, so a
+        # focus-only one keeps the random sample; every other investigation
+        # reviews what the stored selector picks, or the random sample when
+        # none is stored.
+        selector_sql = (
+            overrides.selector_sql
+            if overrides.is_custom()
+            else config.investigation_selector_sql
+        )
         # Seed resolved inputs directly into state so init does not re-derive them.
-        # Run ID is preserved across retries for idempotent persistence.
+        # Investigation ID is preserved across retries for idempotent persistence.
         seed_state = {
             **dataclasses.asdict(config),
-            "run_id": run_id,
+            "investigation_id": investigation_id,
             "window_start": window_start,
             "window_end": window_end,
             "budget_per_metric": budget_per_metric,
             "trigger_type": trigger_type,
-            "selector_sql": overrides.selector_sql,
-            "session_review_focus": overrides.session_review_focus,
+            "selector_sql": selector_sql,
+            "session_review_focus": overrides.review_focus,
             "memory_baseline_mb": memory.read_cgroup_current_mb(),
         }
         session = await runner.session_service.create_session(
@@ -421,9 +443,9 @@ async def run_investigation_graph(
             user_id=_RUN_USER_ID,
             state=seed_state,
         )
-        # Tag graph execution logs with run_id to correlate container log entries.
-        _logging.install_run_id_logging()
-        with _logging.tag_logs_with_run_id(run_id):
+        # Tag graph execution logs with investigation_id to correlate container log entries.
+        _logging.install_investigation_id_logging()
+        with _logging.tag_logs_with_investigation_id(investigation_id):
             async for _ in runner.run_async(
                 user_id=_RUN_USER_ID,
                 session_id=session.id,
@@ -468,7 +490,7 @@ def _extract_counters(state: dict[str, Any]) -> dict[str, int]:
 
 
 def _summarize(state: dict[str, Any], config: Config) -> dict[str, Any]:
-    """Build a compact summary from terminal workflow state.
+    """Builds a compact summary from terminal workflow state.
 
     Collects execution progress events, evaluation outcome counts, and per-metric
     statistics into a single summary dictionary for status reporting.
@@ -478,9 +500,9 @@ def _summarize(state: dict[str, Any], config: Config) -> dict[str, Any]:
         config: Effective agent configuration.
 
     Returns:
-        Dictionary containing run window bounds, evaluated counts, metric
-        summaries, and the goal the session review ran with
-        (`WorkflowState.goal`), so runs can be compared by goal.
+        Dictionary containing investigation window bounds, evaluated counts,
+        metric summaries, and the goal the session review ran with
+        (`WorkflowState.goal`), so investigations can be compared by goal.
     """
     counts = state.get("eval_outcome_counts") or {}
     return {

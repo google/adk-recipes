@@ -83,7 +83,7 @@ class EmptyWindowError(RuntimeError):
     """A standalone sweep found no traces at all for the observed agent.
 
     Deployed, an empty window is a warning: AQuA cannot know the agent's traffic
-    pattern, and an idle hour must not fail a scheduled run. A standalone run is
+    pattern, and an idle hour must not fail a scheduled investigation. A standalone run is
     started by hand to see what AQuA finds, so a window with nothing in it is
     almost always a setting to fix, and failing names the setting.
     """
@@ -123,7 +123,7 @@ class Evaluation(Protocol):
         """Judge one page and record what it found."""
 
     def render_summary(self) -> str:
-        """One markdown line for the run's progress event."""
+        """One markdown line for the investigation's progress event."""
 
     def finish(self, state: ADKStateLike) -> None:
         """Finalize evaluation state and raise if it failed outright."""
@@ -150,7 +150,7 @@ def run_sweep(
         Summary lines from each evaluation for progress reporting.
 
     Raises:
-        selector.SelectorRefused: If the run carries an invalid or unauthorized
+        selector.SelectorRefused: If the investigation carries an invalid or unauthorized
             SQL selector before any query executes.
         EmptyWindowError: If a standalone run's window holds no traces for the
             observed agent, and no selector narrowed it.
@@ -247,10 +247,10 @@ def run_sweep(
     )
     add_counts(
         state,
-        traces_evaluated=trajectories,
-        traces_eval_passed=outcomes[PASSED],
-        traces_eval_failed=outcomes[FAILED],
-        traces_eval_errored=outcomes[ERRORED],
+        trajectories_evaluated=trajectories,
+        trajectories_eval_passed=outcomes[PASSED],
+        trajectories_eval_failed=outcomes[FAILED],
+        trajectories_eval_errored=outcomes[ERRORED],
         findings_generated=sum(e.findings_count for e in evaluations),
         rubrics_generated=sum(e.rubrics_count for e in evaluations),
     )
@@ -285,10 +285,10 @@ def render_nothing_evaluated_line(
     """Generate the summary explanation when a sweep evaluates zero cases.
 
     Handles three distinct cases:
-    - Target selector matched zero sessions: notifies that the custom criteria
-      found no matching conversations in the window.
-    - Window contained zero traces: indicates an idle agent or a mismatched
-      `AQA_OBSERVED_AGENT_NAME` configuration.
+    - Target selector matched zero sessions: notifies that the selector's
+      criteria found no matching conversations in the window.
+    - Window contained zero traces: indicates an idle agent or an agent
+      attached under a name its telemetry does not record.
     - Otherwise: traces existed but none were ingested, or the trace count is
       unknown (`scanned` is None).
 
@@ -315,8 +315,8 @@ def render_nothing_evaluated_line(
         "_Skipped: the window held no traces at all._ Nothing in "
         f"`{source}` matched agent `{agent_name}` between {_format_window_bound(start)} and "
         f"{_format_window_bound(end)}. Either the agent served no traffic in that window, or "
-        "`AQA_OBSERVED_AGENT_NAME` is not the name its telemetry records it "
-        "under."
+        "it is attached under a name its telemetry does not record; "
+        "`agents-cli aqua attach` sets the name."
     )
 
 
@@ -329,7 +329,7 @@ def render_empty_window_error(
 ) -> str:
     """Explain a standalone sweep's empty window, naming what to change.
 
-    Plain text rather than markdown, because it becomes the run's error.
+    Plain text rather than markdown, because it becomes the investigation's error.
 
     Args:
         state: Execution state dictionary.
@@ -360,8 +360,8 @@ def render_empty_window_error(
     if present is None:
         return (
             f"{head} The agent names it does record could not be listed. Check "
-            "that AQA_OBSERVED_AGENT_NAME is the name the agent's telemetry "
-            "records, and that the agent served traffic in that window."
+            "that the agent is attached under the name its telemetry records, "
+            "and that the agent served traffic in that window."
         )
     if not present:
         return (
@@ -376,8 +376,8 @@ def render_empty_window_error(
         else ""
     )
     return (
-        f"{head} Agents with traces there{busiest}: {names}. Set "
-        "AQA_OBSERVED_AGENT_NAME to the one to watch."
+        f"{head} Agents with traces there{busiest}: {names}. Attach the one "
+        "to watch with `agents-cli aqua attach <agent name>`."
     )
 
 
@@ -406,7 +406,7 @@ def collapse_outcomes(outcomes: Iterable[Mapping[str, str]]) -> dict[str, int]:
     would report six verdicts over three trajectories the moment a second
     analyzer joined the sweep.
 
-    The unit is one trajectory, which is what `traces_evaluated` counts: a whole
+    The unit is one trajectory, which is what `trajectories_evaluated` counts: a whole
     session under ``MULTI_TURN`` and a single turn under ``SINGLE_TURN``.
     """
     worst: dict[str, str] = {}

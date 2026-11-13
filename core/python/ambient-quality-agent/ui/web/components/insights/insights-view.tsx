@@ -19,9 +19,10 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { Link, useNavigate } from "@tanstack/react-router";
+import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 import { AlertCircle, Merge, Stethoscope, Trash2 } from "lucide-react";
 import {
+  buildAgentScope,
   dismissInsight,
   INSIGHTS_PAGE_SIZE,
   insightQuery,
@@ -31,17 +32,21 @@ import {
   mergeInsights,
   type InsightView,
 } from "@/lib/aqua-api";
+import { stripMarkdownForSummary } from "@/lib/aqa-markdown";
 import { MergeBar } from "./merge-bar";
 import { DiagnoseInChatButton } from "./diagnose-in-chat-button";
+import { SubAgentItem } from "./sub-agent-item";
 import { Button } from "@/components/ui/button";
 import { FailureNote } from "@/components/ui/failure-note";
-import { RefreshButton } from "@/components/ui/refresh-button";
+import { InlineMarkdown } from "@/components/ui/inline-markdown";
+import { PageRefreshButton } from "@/components/ui/refresh-button";
 import { DayFilterChip } from "@/components/ui/day-filter-chip";
 import { FilterTabs } from "@/components/ui/filter-tabs";
 import { cn, formatSentenceCase } from "@/lib/utils";
 import { link, mono, textStyle } from "@/lib/typography";
 import { PageHeader } from "@/components/nav/page-header";
 import { LoadingPane } from "@/components/ui/loading";
+import { useAgentKey } from "@/lib/agent-selection";
 
 /** The statuses the list can be narrowed to, spelled as the URL spells them.
  *  No status is the whole list. */
@@ -50,21 +55,36 @@ export type InsightStatusFilter = (typeof INSIGHT_STATUS_FILTERS)[number];
 const STATUS_TABS = [undefined, ...INSIGHT_STATUS_FILTERS] as const;
 
 /**
+ * Reads a `?page=` search param as the list's 1-based page.
+ *
+ * Page 1 is no param, so that every link without one opens the list at its
+ * top. Anything that is not a whole number above 1 reads as page 1 rather than
+ * as a page the pager cannot draw.
+ *
+ * @param value The raw search param.
+ * @returns The page, or undefined for the first one.
+ */
+export function parsePageNumber(value: unknown): number | undefined {
+  const page = typeof value === "string" ? Number(value) : value;
+  return typeof page === "number" && Number.isInteger(page) && page > 1
+    ? page
+    : undefined;
+}
+
+/**
  * The insights list.
  *
- * `runId` and `embedded` are two questions, and were one prop until they were
- * separated here: `runId` narrows the read to one sweep's findings, `embedded`
- * says this list is inside another page and should bring no chrome of its own
- * — no heading, no scroll container, no page padding, no list-wide actions.
- *
- * They correlated perfectly while the run detail was the only embedder, which
- * is what hid the overload. They come apart the moment the standalone page
- * wants `?runId=`: that is a filtered list that still owns its page.
+ * `investigationId` and `embedded` are independent props: `investigationId`
+ * narrows the read to one investigation's findings, while `embedded` renders
+ * the list inside another page without standalone page chrome (no heading,
+ * scroll container, page padding, or list-wide actions).
  *
  * The status filter is the caller's when it passes `onStatusChange`: `status`
  * is then the only record of it, and a tab click asks the caller to change it.
- * Without one the list keeps the filter itself, which is what an embedder
- * wants: the run detail narrows its list without the tab taking over its URL.
+ * Without one the list keeps the filter itself. `page` and `onPageChange` work
+ * the same way for the pager. A caller that keeps both in its URL lets Back
+ * from an insight return to the page it was opened from, and lets a link name
+ * the page.
  *
  * `day` narrows the list to the insights found or resolved on that UTC day,
  * the status tab choosing which, and `onDayClear` is how the chip naming it
@@ -72,40 +92,53 @@ const STATUS_TABS = [undefined, ...INSIGHT_STATUS_FILTERS] as const;
  * day rather than the page they arrived on.
  */
 export function InsightsView({
-  runId,
+  investigationId,
   embedded = false,
   status,
   onStatusChange,
   day,
   onDayClear,
+  page: pageParam,
+  onPageChange,
 }: {
-  runId?: string;
+  investigationId?: string;
   embedded?: boolean;
   status?: InsightStatusFilter;
   onStatusChange?: (status: InsightStatusFilter | undefined) => void;
   day?: string;
   onDayClear?: () => void;
+  /** The 1-based page; undefined is the first. */
+  page?: number;
+  /** Called with undefined for the first page, as the URL spells it. */
+  onPageChange?: (page: number | undefined) => void;
 } = {}) {
   const [localStatus, setLocalStatus] = useState<InsightStatusFilter>();
   const statusFilter = onStatusChange ? status : localStatus;
   const setStatusFilter = onStatusChange ?? setLocalStatus;
-  // The token for each page after the first, pushed as the reader walks
-  // forward. Tokens are opaque, so the only way back to page N is the token
-  // that reached it; keeping the trail is what makes Previous a read the
-  // engine can serve rather than a slice of something already fetched.
-  const [pageTokens, setPageTokens] = useState<string[]>([]);
-  // A token addresses a position in the list it was issued for, so a new
-  // filter starts at its own first page. Reset while rendering rather than in
-  // an effect: an effect lets one render commit with the new filter and the
-  // old token, and that page of the new list is fetched only to be discarded.
-  const [pagedList, setPagedList] = useState({ runId, statusFilter, day });
+  const [localPage, setLocalPage] = useState(1);
+  const page = onPageChange ? (pageParam ?? 1) : localPage;
+  const setPage = (next: number) =>
+    onPageChange
+      ? onPageChange(next > 1 ? next : undefined)
+      : setLocalPage(next);
+  // A page number counts into the list it was reached in, so a new filter
+  // starts at its own first page. A caller that owns the page resets it with
+  // the filter in one navigation; the list resets its own while rendering
+  // rather than in an effect, because an effect lets one render commit with
+  // the new filter and the old page, and that read is fetched only to be
+  // discarded.
+  const [pagedList, setPagedList] = useState({
+    investigationId,
+    statusFilter,
+    day,
+  });
   if (
-    runId !== pagedList.runId ||
+    investigationId !== pagedList.investigationId ||
     statusFilter !== pagedList.statusFilter ||
     day !== pagedList.day
   ) {
-    setPagedList({ runId, statusFilter, day });
-    setPageTokens([]);
+    setPagedList({ investigationId, statusFilter, day });
+    setLocalPage(1);
   }
   const tabsRef = useRef<HTMLDivElement>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -113,27 +146,31 @@ export function InsightsView({
   const [activeIndex, setActiveIndex] = useState(0);
 
   const queryClient = useQueryClient();
+  const agentKey = useAgentKey();
   const navigate = useNavigate();
+  const listHref = useLocation({ select: (location) => location.href });
 
   const queryArgs = {
-    runId,
+    investigationId,
     status: statusFilter?.toUpperCase(),
     pageSize: INSIGHTS_PAGE_SIZE,
     orderBy: "impact" as const,
-    pageToken: pageTokens[pageTokens.length - 1],
+    page,
     day,
   };
   const { data, isLoading, isError, error, refetch, isFetching } = useQuery({
-    ...insightsQuery(queryArgs),
+    ...insightsQuery(agentKey, queryArgs),
     // Each page is its own query key, so without this the list unmounts into
     // the loading pane on every Next and the reader loses their place.
     placeholderData: keepPreviousData,
   });
 
   const dismiss = useMutation({
-    mutationFn: dismissInsight,
+    mutationFn: (insightId: string) => dismissInsight(agentKey, insightId),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["aqua", "insights"] });
+      void queryClient.invalidateQueries({
+        queryKey: [...buildAgentScope(agentKey), "insights"],
+      });
     },
   });
 
@@ -147,12 +184,14 @@ export function InsightsView({
     }) => {
       await Promise.all(
         sourceIds.map((insightId) =>
-          mergeInsights({ insightId, targetInsightId }),
+          mergeInsights(agentKey, { insightId, targetInsightId }),
         ),
       );
     },
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["aqua", "insights"] });
+      void queryClient.invalidateQueries({
+        queryKey: [...buildAgentScope(agentKey), "insights"],
+      });
       setSelected(new Set());
       setPicking(false);
     },
@@ -180,12 +219,13 @@ export function InsightsView({
   // Drawn exactly as it arrived: this page is already the engine's answer to
   // "the ten highest-impact issues matching this filter".
   const insights = data?.insights ?? [];
-  const page = pageTokens.length + 1;
   // `total` counts every match, so it outlives the page. An engine that omits
   // it answers 0, and the rows in hand are a better floor than that.
   const matching = Math.max(data?.total ?? 0, insights.length);
   const totalPages = Math.max(1, Math.ceil(matching / INSIGHTS_PAGE_SIZE));
-  const nextPageToken = data?.next_page_token ?? null;
+  // The engine offers a token while a page follows; the number is what is
+  // asked for, so the token only says whether to offer Next.
+  const hasNextPage = Boolean(data?.next_page_token);
   // The server's count over every matching insight, not this page. Undefined
   // from an agent deployed before the field, and then nothing is claimed.
   const conversations = data?.conversations;
@@ -215,11 +255,12 @@ export function InsightsView({
           void navigate({
             to: "/insights/$insightId",
             params: { insightId: target.insight_id },
+            state: { insightsListHref: listHref },
           });
         }
       }
     },
-    [insights, activeIndex, navigate, picking, toggleSelect],
+    [insights, activeIndex, navigate, picking, toggleSelect, listHref],
   );
 
   if (isLoading) {
@@ -227,8 +268,8 @@ export function InsightsView({
   }
   if (isError) {
     // Embedded, this sits under a page that has already explained the state --
-    // the run detail's own read fails for the same reason -- and inside a card
-    // that `Centered` would try to fill.
+    // the investigation detail's own read fails for the same reason -- and
+    // inside a card that `Centered` would try to fill.
     const note = (
       <FailureNote
         lead="Couldn't load insights"
@@ -247,15 +288,10 @@ export function InsightsView({
   // else's page. Not once it has been paged, though: then the empty page needs
   // its pager, because Previous is the way off it. Nor once a status narrows
   // it: the tabs are the way back to the rest.
-  if (
-    embedded &&
-    insights.length === 0 &&
-    pageTokens.length === 0 &&
-    !statusFilter
-  ) {
+  if (embedded && insights.length === 0 && page === 1 && !statusFilter) {
     return (
       <p className={cn(textStyle.meta, "py-2")}>
-        {emptyText(runId, day, statusFilter)}
+        {emptyText(investigationId, day, statusFilter)}
       </p>
     );
   }
@@ -295,7 +331,7 @@ export function InsightsView({
           // The selected tab leaves the status alone, so the reset above
           // never fires; clicking it still means "from the top".
           onSelect={(s) =>
-            s === statusFilter ? setPageTokens([]) : setStatusFilter(s)
+            s === statusFilter ? setPage(1) : setStatusFilter(s)
           }
           labelOf={(s) => formatSentenceCase(s ?? "all")}
         />
@@ -304,10 +340,6 @@ export function InsightsView({
 
       {!embedded && (
         <div className="flex items-center gap-2">
-          <RefreshButton
-            onRefresh={() => void refetch()}
-            refreshing={isFetching}
-          />
           {!picking ? (
             <Button
               size="sm"
@@ -342,13 +374,15 @@ export function InsightsView({
           <PageHeader
             data-tour="insights-triage"
             className="gap-2"
-            title={insights[0]?.agent_name || "Insights"}
+            title={insights[0]?.observed_agent_key || "Insights"}
             description={counts}
+            aside={<PageRefreshButton />}
           >
-            {runId && (
+            {investigationId && (
               <p className={textStyle.meta}>
                 Showing only what investigation{" "}
-                <span className={mono}>{runId.slice(0, 8)}</span> found.{" "}
+                <span className={mono}>{investigationId.slice(0, 8)}</span>{" "}
+                found.{" "}
                 <Link to="/insights" search={{}} className={link.inline}>
                   Show all insights
                 </Link>
@@ -394,7 +428,7 @@ export function InsightsView({
 
         {insights.length === 0 ? (
           <p className={cn(textStyle.description, "py-6")}>
-            {emptyText(runId, day, statusFilter)}
+            {emptyText(investigationId, day, statusFilter)}
           </p>
         ) : (
           <div className="flex flex-col gap-2.5">
@@ -415,7 +449,7 @@ export function InsightsView({
           </div>
         )}
 
-        {(pageTokens.length > 0 || nextPageToken) && (
+        {(page > 1 || hasNextPage) && (
           <div
             className={cn(
               textStyle.meta,
@@ -425,8 +459,10 @@ export function InsightsView({
             <Button
               size="sm"
               variant="outline"
-              disabled={pageTokens.length === 0 || isFetching}
-              onClick={() => setPageTokens((tokens) => tokens.slice(0, -1))}
+              disabled={page === 1 || isFetching}
+              // From past the end, as a stale link can be, straight to the
+              // last page rather than through every empty one before it.
+              onClick={() => setPage(Math.min(page - 1, totalPages))}
               className="h-7"
             >
               Previous
@@ -438,12 +474,8 @@ export function InsightsView({
             <Button
               size="sm"
               variant="outline"
-              disabled={!nextPageToken || isFetching}
-              onClick={() =>
-                setPageTokens((tokens) =>
-                  nextPageToken ? [...tokens, nextPageToken] : tokens,
-                )
-              }
+              disabled={!hasNextPage || isFetching}
+              onClick={() => setPage(page + 1)}
               className="h-7"
             >
               Next
@@ -473,7 +505,12 @@ export function IssueCard({
   dismissing?: boolean;
 }) {
   const queryClient = useQueryClient();
+  const agentKey = useAgentKey();
+  // Where this card is drawn, page and status included, for the insight's
+  // back link to return to.
+  const listHref = useLocation({ select: (location) => location.href });
   const headline = insight.diagnosis || insight.label;
+  const plainHeadline = stripMarkdownForSummary(headline);
 
   const cardContent = (
     <div className="flex items-start gap-2.5">
@@ -484,7 +521,7 @@ export function IssueCard({
           onClick={(e) => e.stopPropagation()}
           onChange={() => onToggleSelect?.()}
           className="mt-1 h-3.5 w-3.5 rounded border-border text-primary focus:ring-1 focus:ring-primary"
-          aria-label={`Select ${headline} for merging`}
+          aria-label={`Select ${plainHeadline} for merging`}
         />
       )}
 
@@ -499,7 +536,9 @@ export function IssueCard({
 
       <div className="min-w-0 flex-1">
         <div className="flex items-start justify-between gap-2">
-          <p className={textStyle.itemTitle}>{headline}</p>
+          <p className={textStyle.itemTitle}>
+            <InlineMarkdown text={headline} />
+          </p>
           <div className="flex shrink-0 items-center gap-0.5">
             {insight.has_root_cause && (
               <span
@@ -519,7 +558,7 @@ export function IssueCard({
               <DiagnoseInChatButton
                 insightId={insight.insight_id}
                 label={insight.label}
-                ariaLabel={`Diagnose insight in chat: ${headline}`}
+                ariaLabel={`Diagnose insight in chat: ${plainHeadline}`}
                 className="h-6 px-1.5 text-muted-foreground hover:text-foreground"
               />
             )}
@@ -534,7 +573,7 @@ export function IssueCard({
                   onDismiss();
                 }}
                 className="h-6 px-1.5 text-muted-foreground hover:text-destructive"
-                aria-label={`Dismiss insight: ${headline}`}
+                aria-label={`Dismiss insight: ${plainHeadline}`}
               >
                 <Trash2 className="h-3 w-3 mr-1" />
                 {dismissing ? "Dismissing…" : "Dismiss"}
@@ -557,9 +596,10 @@ export function IssueCard({
             {insight.occurrence_count === 1 ? "occurrence" : "occurrences"}
           </span>
           <span>
-            {insight.trace_count}{" "}
-            {insight.trace_count === 1 ? "trajectory" : "trajectories"}
+            {insight.trajectory_count}{" "}
+            {insight.trajectory_count === 1 ? "trajectory" : "trajectories"}
           </span>
+          <SubAgentItem insight={insight} />
           <span className="ml-auto">{insight.impact} impact</span>
         </p>
       </div>
@@ -589,8 +629,9 @@ export function IssueCard({
     <Link
       to="/insights/$insightId"
       params={{ insightId: insight.insight_id }}
+      state={{ insightsListHref: listHref }}
       onMouseEnter={() =>
-        queryClient.prefetchQuery(insightQuery(insight.insight_id))
+        queryClient.prefetchQuery(insightQuery(agentKey, insight.insight_id))
       }
       className={cn(
         "block rounded-lg border p-3 transition-colors hover:border-foreground/30",
@@ -604,18 +645,18 @@ export function IssueCard({
 }
 
 /** Why the list is empty, which depends on what was asked for rather than on
- *  where the list is drawn — so the run detail and a `?runId=` page give the
- *  same answer. */
+ *  where the list is drawn — so the investigation detail and a
+ *  `?investigationId=` page give the same answer. */
 function emptyText(
-  runId?: string,
+  investigationId?: string,
   day?: string,
   status?: InsightStatusFilter,
 ): string {
-  if (runId) {
-    const run = runId.slice(0, 8);
+  if (investigationId) {
+    const shortId = investigationId.slice(0, 8);
     return status
-      ? `None of investigation ${run}'s insights are ${status}.`
-      : `Investigation ${run} produced no insights.`;
+      ? `None of investigation ${shortId}'s insights are ${status}.`
+      : `Investigation ${shortId} produced no insights.`;
   }
   if (day) return `No insights were ${dayChange(status)} ${day} (UTC).`;
   return "No insights found for this filter.";

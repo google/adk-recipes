@@ -21,6 +21,55 @@
 
 import { DASHBOARD_DAYS, dayWindow, windowStart } from "./day-buckets";
 
+/** The agent a read or a write is for: its key, or undefined for the agent
+ *  AQuA answers a request that names none (its default agent). */
+export type AgentKey = string | undefined;
+
+/** The start of every agent's query keys.
+ *
+ * Each agent's reads are cached apart, and persisted apart, so switching
+ * agents never paints one agent's data for another. Invalidating this prefix
+ * refreshes everything the dashboard holds for the agent. */
+export const buildAgentScope = (agentKey: AgentKey) =>
+  ["aqua", "agent", agentKey ?? null] as const;
+
+/** Adds the selected agent to a dashboard path, which `ui/app.py` passes on to
+ *  the agent's command route. No parameter selects the default agent. */
+export function buildAgentPath(path: string, agentKey: AgentKey): string {
+  if (!agentKey) return path;
+  const separator = path.includes("?") ? "&" : "?";
+  return `${path}${separator}agent_key=${encodeURIComponent(agentKey)}`;
+}
+
+/** One agent attached to AQuA, as `/api/agents` lists it. */
+export interface AttachedAgent {
+  agent_key: string;
+  /** The root agent name its telemetry carries. Two attachments share it
+   *  when one agent is deployed into two projects. */
+  agent_name: string | null;
+  /** The project an agent outside AQuA's own runs in; null for one in
+   *  AQuA's own project, which keeps its bare name as its key. */
+  project_id: string | null;
+  /** Whether a request that selects no agent gets this one. */
+  default: boolean;
+  /** Why the attachment could not be read. */
+  error?: string;
+}
+
+export interface AgentsResponse {
+  agents: AttachedAgent[];
+  /** The agent a request that selects none gets, attached or not. */
+  default_agent_key?: string | null;
+  error?: string;
+}
+
+/** The agents the selector offers. Instance-wide, so not under `buildAgentScope`. */
+export const agentsQuery = () => ({
+  queryKey: ["aqua", "agents"] as const,
+  queryFn: () => getJson<AgentsResponse>("/api/agents"),
+  staleTime: 5 * 60_000,
+});
+
 /** Carries the HTTP status so the retry policy can tell permanent from transient. */
 export class HttpError extends Error {
   constructor(
@@ -64,19 +113,23 @@ export interface RootCause {
 
 export interface InsightView {
   insight_id: string;
-  agent_name: string;
+  observed_agent_key: string;
+  /** The root agent or sub-agent the defect is attributed to. Empty on an
+   *  unattributed insight, which belongs to `observed_agent_key`. See
+   *  `resolveSubAgent` in `lib/insight-agent`. */
+  agent_id?: string;
   label: string;
   tool_name: string;
   status: "NEW" | "RECURRING" | "RESOLVED";
   occurrence_count: number;
-  trace_count: number;
+  trajectory_count: number;
   impact: number;
-  last_run_id?: string | null;
-  last_run_at: string | null;
+  last_investigation_id?: string | null;
+  last_investigation_at: string | null;
   /** When the issue was first recorded, and when a sweep closed it. Both come
    *  off the `Insight` model the server's `InsightView` extends; `resolved_at`
-   *  is null for an issue still open, and also for one resolved before the
-   *  column existed — see `resolutionDate` in `lib/insight-trend`. */
+   *  is null for an issue still open, and for unrecorded resolution timestamps —
+   *  see `resolutionDate` in `lib/insight-trend`. */
   created_at?: string | null;
   updated_at?: string | null;
   resolved_at?: string | null;
@@ -86,9 +139,7 @@ export interface InsightView {
   /** A sharper name for the defect, proposed by cluster verification. Empty
    * when it proposed none. `label` stays the stored recurrence key. */
   refined_label?: string;
-  /** Where the defect originates: `agent_behavior` when the agent departed from
-   * a specification it was given, `agent_definition` when the specification
-   * itself is at fault. Empty when the pass did not run. */
+  /** Certainty score when reported by the backend; 0 when unset. */
   confidence: number;
   /** Whether a root cause has been recorded for this insight. */
   has_root_cause?: boolean;
@@ -110,7 +161,7 @@ export interface InsightsPage {
   total: number;
   /** Distinct conversations across every matching insight, not just this page. */
   conversations?: number;
-  /** Pass back as `pageToken` for the next page; null on the last one. */
+  /** Set while a page follows this one; null on the last one. */
   next_page_token?: string | null;
   error?: string;
 }
@@ -127,8 +178,8 @@ export type InsightOrder = "recent" | "impact";
  */
 export const INSIGHTS_PAGE_SIZE = 10;
 
-/** One figure per `InvestigationCounters` field, summed over the runs in the
- * window, plus how many runs produced them.
+/** One figure per `InvestigationCounters` field, summed over the investigations
+ * in the window, plus how many investigations produced them.
  *
  * Not every field the agent declares is here — only the ones something
  * renders. Adding one is a type change and nothing else: `counter_totals` sums
@@ -136,50 +187,47 @@ export const INSIGHTS_PAGE_SIZE = 10;
  * wire. */
 export interface Stats {
   investigations: number;
-  traces_scanned: number;
-  traces_ingested: number;
+  trajectories_scanned: number;
+  trajectories_ingested: number;
   /** Ingested, but on less telemetry than the agent produced. */
-  traces_ingested_partial: number;
+  trajectories_ingested_partial: number;
   /** Sampled and then dropped before evaluation. */
-  traces_ingested_failed: number;
-  traces_evaluated: number;
-  traces_eval_passed: number;
-  traces_eval_failed: number;
-  traces_eval_errored: number;
+  trajectories_ingested_failed: number;
+  trajectories_evaluated: number;
+  trajectories_eval_passed: number;
+  trajectories_eval_failed: number;
+  trajectories_eval_errored: number;
   insights_created: number;
   insights_recurring: number;
 }
 
 const ZERO_STATS: Stats = {
   investigations: 0,
-  traces_scanned: 0,
-  traces_ingested: 0,
-  traces_ingested_partial: 0,
-  traces_ingested_failed: 0,
-  traces_evaluated: 0,
-  traces_eval_passed: 0,
-  traces_eval_failed: 0,
-  traces_eval_errored: 0,
+  trajectories_scanned: 0,
+  trajectories_ingested: 0,
+  trajectories_ingested_partial: 0,
+  trajectories_ingested_failed: 0,
+  trajectories_evaluated: 0,
+  trajectories_eval_passed: 0,
+  trajectories_eval_failed: 0,
+  trajectories_eval_errored: 0,
   insights_created: 0,
   insights_recurring: 0,
 };
 
-/** An engine deployed before a counter existed omits it, and a deployment with
- * no runs at all answers with `{}`. Either way the arithmetic downstream turns
- * `undefined` into NaN% and paints a blank bar, so the zeros are filled once,
- * here, rather than guessed at by every consumer. */
+/** Missing counter fields or empty `{}` responses are filled with zeros here so
+ * downstream arithmetic never divides by `undefined` to produce NaN%. */
 export function withStatsDefaults(raw: Partial<Stats> | undefined): Stats {
   return { ...ZERO_STATS, ...(raw ?? {}) };
 }
 
 export interface Day {
   day: string;
-  traces_evaluated: number;
-  traces_eval_passed: number;
-  traces_eval_failed: number;
-  traces_eval_errored: number;
-  /** Issues seen for the first time that day. `counters_by_day` sums every
-   *  counter, so this has always been on the wire. */
+  trajectories_evaluated: number;
+  trajectories_eval_passed: number;
+  trajectories_eval_failed: number;
+  trajectories_eval_errored: number;
+  /** Issues seen for the first time that day. */
   insights_created?: number;
   /** Sweeps that closed a telemetry window on this day. Zero days are absent
    *  from the response entirely, so this is what tells "swept and found
@@ -191,49 +239,52 @@ export interface Day {
   unmeasured?: number;
 }
 
-export interface Run {
-  run_id: string;
-  /** The chat that started this run, or null when the scheduler did. */
+export interface InvestigationListItem {
+  investigation_id: string;
+  /** The chat that started this investigation, or null when the scheduler
+   *  did. */
   context_id?: string | null;
-  observed_agent_name: string;
-  /** What launched the sweep: `manual` for a person or the CLI, otherwise the
-   *  ambient trigger's own type (`scheduled`, `task_fire`, `update`). Empty on
-   *  a record that predates the field. */
+  observed_agent_key: string;
+  /** What launched the sweep: `manual` for a person or the CLI, `custom` for a
+   *  custom investigation, or the ambient trigger's type (`scheduled`,
+   *  `task_fire`, `update`). Empty when unrecorded. */
   trigger_type?: string | null;
-  /** Traces the run was allowed to evaluate per metric, fixed from the config
-   *  when it was submitted. `0` is the model default and a real answer — it
-   *  bounds nothing — so it is rendered rather than treated as unset. */
+  /** What a `custom` investigation was told to review, or null for any
+   *  other investigation. */
+  custom_overrides?: InvestigationCustomOverrides | null;
+  /** Trajectories the investigation was allowed to evaluate per metric, fixed
+   *  from the config when it was submitted. `0` is the model default and a real
+   *  answer — it bounds nothing — so it is rendered rather than treated as
+   *  unset. */
   budget_per_metric?: number | null;
   created_at: string;
   finished_at: string | null;
   /** Lifecycle state: scheduled / pending / running / done / failed /
-   *  skipped. What `lib/runstate` reads to decide whether a sweep is still in
-   *  flight, and the only field that says a run has not finished.
-   *
-   *  `format_run` also passes an `rca_status` through from the stored summary.
-   *  It is deliberately not declared here: nothing has written it since RCA was
-   *  removed in #77, and `test_summarize_carries_metric_counts` pins it absent.
-   *  Reading it as a run's status is a mistake this view already made once. */
+   *  skipped. What `lib/investigation-state` reads to decide whether a sweep is
+   *  still in flight, and the only field that says an investigation has not
+   *  finished. */
   status: string;
   /** Start of the telemetry window the sweep covered. With `window_end` it is
-   *  the period the run looked at, which is not when the run happened — and is
-   *  what tells two sweeps of the same agent apart on the list. */
+   *  the period the investigation looked at, which is not when the
+   *  investigation happened — and is what tells two sweeps of the same agent
+   *  apart on the list. */
   window_start?: string | null;
-  /** End of the telemetry window. Stands in as a start time for older records,
-   *  written before `created_at` existed. */
+  /** End of the telemetry window. Fallback start timestamp when `created_at`
+   *  is absent. */
   window_end?: string | null;
-  /** When a `scheduled` run's delayed trigger is due to start it. The window
-   *  is unset until then: it is worked out when the run starts. */
+  /** When a `scheduled` investigation's delayed trigger is due to start it. The
+   *  window is unset until then: it is worked out when the investigation
+   *  starts. */
   due_at?: string | null;
   elapsed_seconds: number | null;
-  /** `(case, metric)` outcomes — several per trace. Not what the funnel or the
-   *  lists count; see `counters` for that. */
+  /** `(trajectory, metric)` outcomes — several per trajectory. Not what the
+   *  funnel or the lists count; see `counters` for that. */
   metrics_passed: number;
   metrics_failed: number;
   metrics_errored: number;
-  /** The run's own trace counters, always a full mapping — all-zero for a run
-   *  that has produced none yet, and for one recorded before they existed.
-   *  `format_run` emits it on list rows as well as on the detail record. */
+  /** The investigation's stage counters, always a full mapping — all-zero for
+   *  an investigation that has produced none yet. `format_investigation` emits
+   *  it on list rows as well as on the detail record. */
   counters?: InvestigationCounters;
   error: string | null;
 }
@@ -245,12 +296,14 @@ export interface Run {
  * the second is worth a retry.
  *
  * No timeout is imposed. With `sync_investigation` the POST blocks for minutes,
- * and in async mode it returns a pending run at once; in both cases the runs
- * list is what says whether a sweep is really going, so the caller re-reads it
- * either way.
+ * and in async mode it returns a pending investigation at once; in both cases
+ * the investigations list is what says whether a sweep is really going, so the
+ * caller re-reads it either way.
  */
-export async function startInvestigation(): Promise<{ error?: string }> {
-  const r = await fetch("/api/investigations", {
+export async function startInvestigation(
+  agentKey: AgentKey,
+): Promise<{ error?: string }> {
+  const r = await fetch(buildAgentPath("/api/investigations", agentKey), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: "{}",
@@ -264,7 +317,7 @@ export async function startInvestigation(): Promise<{ error?: string }> {
 
 export interface InsightOccurrence {
   occurrence_id: string;
-  run_id?: string;
+  investigation_id?: string;
   created_at: string;
   /** Kept on the wire for an engine that reports one; nothing renders it.
    * No phase in this pipeline measures a confidence. */
@@ -272,18 +325,18 @@ export interface InsightOccurrence {
   diagnosis: string;
   refined_label?: string;
   label: string;
-  item_count: number;
-  trace_count: number;
-  /** Cases a Cloud Trace lookup confirmed or cleared. Zero means the
+  finding_count: number;
+  trajectory_count: number;
+  /** Trajectories a Cloud Trace lookup confirmed or cleared. Zero means the
    * diagnosis rests on what the model read, not on an independent check. */
-  cases_checked: number;
-  evidence_case_ids: string[];
-  /** Cloud Trace console link per entry of `evidence_case_ids`. A case with no
-   * entry has no trace to open: it was sampled before the trajectory store
-   * existed, or came from the `big_query` source, whose analytics schema
-   * carries no trace ids. */
+  trajectories_checked: number;
+  evidence_trajectory_ids: string[];
+  /** Cloud Trace console link per entry of `evidence_trajectory_ids`. A
+   * trajectory with no entry has no trace to open: none was recorded for it, or
+   * it came from the `big_query` source, whose analytics schema carries no
+   * trace ids. */
   console_urls: Record<string, string>;
-  rubrics?: Array<Record<string, unknown>>;
+  examples?: Array<Record<string, unknown>>;
   /** Root-cause records associated with this occurrence. */
   root_causes?: RootCause[];
 }
@@ -373,35 +426,41 @@ async function getJson<T>(path: string): Promise<T> {
  * plotted on, and a matching `windowStart` would filter out precisely the
  * resolutions the chart is drawing.
  */
-export const insightsQuery = (args?: {
-  runId?: string;
-  status?: string;
-  /** Filter by diagnosis status. Omit to return all insights. */
-  hasRootCause?: boolean;
-  /** How many issues to fetch. Omit to take the engine's page size. */
-  pageSize?: number;
-  /** Omit for the engine's default order (last seen first). */
-  orderBy?: InsightOrder;
-  /** `next_page_token` from the previous page; omit for the first. */
-  pageToken?: string;
-  /** A UTC day, `YYYY-MM-DD`: only the insights found or resolved on it, with
-   *  `status` choosing which of the two. Omit for every day. */
-  day?: string;
-}) => ({
+export const insightsQuery = (
+  agentKey: AgentKey,
+  args?: {
+    investigationId?: string;
+    status?: string;
+    /** Filter by diagnosis status. Omit to return all insights. */
+    hasRootCause?: boolean;
+    /** How many issues to fetch. Omit to take the engine's page size. */
+    pageSize?: number;
+    /** Omit for the engine's default order (last seen first). */
+    orderBy?: InsightOrder;
+    /** The 1-based page of `pageSize` issues; omit for the first. A number
+     *  rather than the engine's token, so a URL can name the page. */
+    page?: number;
+    /** A UTC day, `YYYY-MM-DD`: only the insights found or resolved on it, with
+     *  `status` choosing which of the two. Omit for every day. */
+    day?: string;
+  },
+) => ({
   queryKey: [
-    "aqua",
+    ...buildAgentScope(agentKey),
     "insights",
-    args?.runId ?? null,
+    args?.investigationId ?? null,
     args?.status ?? null,
     args?.hasRootCause ?? null,
     args?.pageSize ?? null,
     args?.orderBy ?? null,
-    args?.pageToken ?? null,
+    // Page 1 and no page are the same read, so they share one cache entry.
+    args?.page && args.page > 1 ? args.page : null,
     args?.day ?? null,
   ] as const,
   queryFn: async (): Promise<InsightsPage> => {
     const params = new URLSearchParams();
-    if (args?.runId) params.set("runId", args.runId);
+    if (args?.investigationId)
+      params.set("investigationId", args.investigationId);
     if (args?.status) params.set("status", args.status);
     // Forward as a string so false is not dropped by falsy-filtering routes.
     if (args?.hasRootCause !== undefined) {
@@ -409,11 +468,11 @@ export const insightsQuery = (args?: {
     }
     if (args?.pageSize) params.set("pageSize", String(args.pageSize));
     if (args?.orderBy) params.set("orderBy", args.orderBy);
-    if (args?.pageToken) params.set("pageToken", args.pageToken);
+    if (args?.page && args.page > 1) params.set("page", String(args.page));
     if (args?.day) params.set("day", args.day);
     const qs = params.toString();
     const page = await getJson<InsightsPage>(
-      qs ? `/api/insights?${qs}` : "/api/insights",
+      buildAgentPath(qs ? `/api/insights?${qs}` : "/api/insights", agentKey),
     );
     return { ...page, insights: (page.insights ?? []).map(withDefaults) };
   },
@@ -421,10 +480,14 @@ export const insightsQuery = (args?: {
 });
 
 export async function dismissInsight(
+  agentKey: AgentKey,
   insightId: string,
 ): Promise<{ dismissed: boolean }> {
   const r = await fetch(
-    `/api/insights/${encodeURIComponent(insightId)}/dismiss`,
+    buildAgentPath(
+      `/api/insights/${encodeURIComponent(insightId)}/dismiss`,
+      agentKey,
+    ),
     {
       method: "POST",
     },
@@ -436,12 +499,18 @@ export async function dismissInsight(
   return { dismissed: Boolean(body.dismissed) };
 }
 
-export async function mergeInsights(args: {
-  insightId: string;
-  targetInsightId: string;
-}): Promise<{ merged: boolean }> {
+export async function mergeInsights(
+  agentKey: AgentKey,
+  args: {
+    insightId: string;
+    targetInsightId: string;
+  },
+): Promise<{ merged: boolean }> {
   const r = await fetch(
-    `/api/insights/${encodeURIComponent(args.insightId)}/merge`,
+    buildAgentPath(
+      `/api/insights/${encodeURIComponent(args.insightId)}/merge`,
+      agentKey,
+    ),
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -469,28 +538,80 @@ export interface AmbientHealth {
   schedule: string | null;
   max_age_hours: number | null;
   last_scheduled_finish: string | null;
-  last_run: {
-    run_id: string;
+  last_investigation: {
+    investigation_id: string;
     finished_at: string | null;
     status: string;
     trigger_type: string;
-    /** Null when the run evaluated nothing, never 0. */
-    sessions: number | null;
+    /** Null when the investigation evaluated nothing, never 0. */
+    trajectories: number | null;
     /** Absolute count behind `pass_rate`; null when nothing was evaluated. */
-    sessions_passed: number | null;
+    trajectories_passed: number | null;
     pass_rate: number | null;
   } | null;
   open_findings: number;
   worst_finding: { insight_id: string; label: string } | null;
 }
 
-export const healthQuery = () => ({
-  queryKey: ["aqua", "health"] as const,
-  queryFn: () => getJson<AmbientHealth & { error?: string }>("/api/health"),
+export const healthQuery = (agentKey: AgentKey) => ({
+  queryKey: [...buildAgentScope(agentKey), "health"] as const,
+  queryFn: () =>
+    getJson<AmbientHealth & { error?: string }>(
+      buildAgentPath("/api/health", agentKey),
+    ),
   // The homepage's first paint. Shorter than the lists: a stale "watching" is
   // the one wrong answer this panel must not give.
   staleTime: 15_000,
 });
+
+/** The selected agent's schedule, from its attachment. */
+export interface ScheduleResponse {
+  available: boolean;
+  /** Why there is no schedule to edit, when `available` is false. */
+  reason?: string | null;
+  agent_key?: string;
+  agent_name?: string;
+  /** Five-field unix cron, in UTC. */
+  investigation_schedule?: string;
+  /** Whether the agent is investigated on its schedule at all. */
+  scheduled_trigger_enabled?: boolean;
+  updated_at?: string | null;
+}
+
+export const scheduleQuery = (agentKey: AgentKey) => ({
+  queryKey: [...buildAgentScope(agentKey), "schedule"] as const,
+  queryFn: () =>
+    getJson<ScheduleResponse>(buildAgentPath("/api/schedule", agentKey)),
+  staleTime: 30_000,
+});
+
+export interface ScheduleChange {
+  agentKey: string;
+  investigationSchedule?: string;
+  scheduledTriggerEnabled?: boolean;
+}
+
+export async function saveSchedule(
+  change: ScheduleChange,
+): Promise<{ written: boolean }> {
+  const r = await fetch("/api/schedule", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      agent_key: change.agentKey,
+      investigation_schedule: change.investigationSchedule,
+      scheduled_trigger_enabled: change.scheduledTriggerEnabled,
+    }),
+  });
+  const body = (await r.json().catch(() => ({}))) as {
+    written?: boolean;
+    error?: string;
+  };
+  // The agent's reason first: "-> 400" alone does not say what the cron lacks.
+  if (body.error) throw new Error(body.error);
+  if (!r.ok) throw new Error(`PUT /api/schedule -> ${r.status}`);
+  return { written: Boolean(body.written) };
+}
 
 /**
  * `?windowStart=…`, the dashboard's horizon, for the reads that aggregate.
@@ -506,30 +627,33 @@ const scoped = (path: string): string =>
  * The funnel's figures, over the dashboard's horizon.
  *
  * Scoped, unlike the two lists below, because these are a *sum over a period*
- * and the period went unstated: with no window the server totals every run
- * ever recorded, so the funnel described the deployment's whole life while the
- * chart beside it described a fortnight, and neither said which.
+ * and the period went unstated: with no window the server totals every
+ * investigation ever recorded, so the funnel described the deployment's whole
+ * life while the chart beside it described a fortnight, and neither said which.
  */
-export const statsQuery = () => ({
-  queryKey: ["aqua", "stats"] as const,
+export const statsQuery = (agentKey: AgentKey) => ({
+  queryKey: [...buildAgentScope(agentKey), "stats"] as const,
   queryFn: () =>
-    getJson<{ stats: Partial<Stats> }>(scoped("/api/stats")).then((r) =>
-      withStatsDefaults(r.stats),
-    ),
+    getJson<{ stats: Partial<Stats> }>(
+      buildAgentPath(scoped("/api/stats"), agentKey),
+    ).then((r) => withStatsDefaults(r.stats)),
   staleTime: 30_000,
 });
 
 /** The per-day rows the charts are drawn from, over the span they draw. */
-export const dailyQuery = () => ({
-  queryKey: ["aqua", "daily"] as const,
+export const dailyQuery = (agentKey: AgentKey) => ({
+  queryKey: [...buildAgentScope(agentKey), "daily"] as const,
   queryFn: () =>
-    getJson<{ days: Day[] }>(scoped("/api/daily")).then((r) => r.days ?? []),
+    getJson<{ days: Day[] }>(
+      buildAgentPath(scoped("/api/daily"), agentKey),
+    ).then((r) => r.days ?? []),
   staleTime: 30_000,
 });
 
-/** The most runs one read of `/api/investigations` returns: the server's
- *  `DEFAULT_LIST_LIMIT`, which the endpoint does not let a caller raise. */
-export const RUNS_LIST_LIMIT = 50;
+/** The most investigations one read of `/api/investigations` returns: the
+ *  server's `DEFAULT_LIST_LIMIT`, which the endpoint does not let a caller
+ *  raise. */
+export const INVESTIGATIONS_LIST_LIMIT = 50;
 
 /**
  * The most recent sweeps — deliberately *not* scoped to the horizon.
@@ -539,21 +663,28 @@ export const RUNS_LIST_LIMIT = 50;
  * date. A window can only make it shorter: on a deployment sweeping daily it
  * would trade fifty rows of history for fourteen, and a log is read for depth.
  *
- * `day` is the exception, and a different question: the runs one column of the
- * per-day chart counts. So it windows on the field that chart buckets by, a
- * run's `window_end`, over that UTC day. The unscoped key stays a prefix of the
- * day's, so invalidating the recent runs refreshes every day read with them.
+ * `day` is the exception, and a different question: the investigations one
+ * column of the per-day chart counts. So it windows on the field that chart
+ * buckets by, an investigation's `window_end`, over that UTC day. The unscoped
+ * key stays a prefix of the day's, so invalidating the recent investigations
+ * refreshes every day read with them.
  */
-export const runsQuery = (day?: string) => ({
+export const investigationsQuery = (agentKey: AgentKey, day?: string) => ({
   queryKey: (day
-    ? ["aqua", "runs", day]
-    : ["aqua", "runs"]) as readonly string[],
+    ? [...buildAgentScope(agentKey), "investigations", day]
+    : [...buildAgentScope(agentKey), "investigations"]) as readonly (
+    | string
+    | null
+  )[],
   queryFn: () =>
-    getJson<{ runs: Run[] }>(
-      day
-        ? `/api/investigations?${new URLSearchParams(dayWindow(day))}`
-        : "/api/investigations",
-    ).then((r) => r.runs ?? []),
+    getJson<{ investigations: InvestigationListItem[] }>(
+      buildAgentPath(
+        day
+          ? `/api/investigations?${new URLSearchParams(dayWindow(day))}`
+          : "/api/investigations",
+        agentKey,
+      ),
+    ).then((r) => r.investigations ?? []),
   staleTime: 30_000,
 });
 
@@ -608,23 +739,189 @@ export interface SourceResponse {
   reason?: string | null;
 }
 
-export const sourceQuery = () => ({
-  queryKey: ["aqua", "source"] as const,
-  queryFn: () => getJson<SourceResponse>("/api/source"),
+export const sourceQuery = (agentKey: AgentKey) => ({
+  queryKey: [...buildAgentScope(agentKey), "source"] as const,
+  queryFn: () =>
+    getJson<SourceResponse>(buildAgentPath("/api/source", agentKey)),
   staleTime: 5 * 60_000,
 });
 
 export interface EffectiveConfigResponse {
   config?: Record<string, unknown>;
+  /** The selector that picks what the random sample picks, which a new
+   *  selector starts from. */
+  starter_selector?: string;
+  /** True when the agent serves generated data, as `make demo`'s mock does;
+   *  a deployed agent never says so. */
+  demo?: boolean;
   error?: string;
 }
 
-export const effectiveConfigQuery = () => ({
-  queryKey: ["aqua", "effective-config"] as const,
-  queryFn: () => getJson<EffectiveConfigResponse>("/api/config"),
-  // The values only change on redeploy, and the read goes through the agent.
+export const effectiveConfigQuery = (agentKey: AgentKey) => ({
+  queryKey: [...buildAgentScope(agentKey), "effective-config"] as const,
+  queryFn: () =>
+    getJson<EffectiveConfigResponse>(buildAgentPath("/api/config", agentKey)),
+  // The values only change on a redeploy or an attach, and the read goes
+  // through the agent.
   staleTime: 5 * 60_000,
 });
+
+/** Result of trying one read an investigation makes. */
+export interface AccessCheck {
+  /** `table`, `schema`, `rows`, `payload` or `log_view`. */
+  name: string;
+  /** `passed`, `empty`, `missing`, `mismatch`, `denied`, `error` or
+   *  `skipped`. */
+  status: string;
+  /** What was read: a table, a `gs://` URI or a project. */
+  target: string;
+  detail: string;
+}
+
+/** Command that grants AQuA's service account access for denied reads, as
+ *  printed by `aqua attach`. */
+export interface GrantCommand {
+  resource: string;
+  role: string;
+  member: string;
+  /** Names of the checks this grant covers. */
+  checks: string[];
+  command: string;
+}
+
+/** A setting filled in from the table by the check. */
+export interface FilledSetting {
+  field: string;
+  value: string;
+  /** How the value was determined from the table. */
+  reason: string;
+}
+
+/** An attachment field and its values before and after a save. */
+export interface SettingChange {
+  field: string;
+  before: unknown;
+  after: unknown;
+}
+
+export interface TelemetryCheck {
+  /** Service account that ran the checks. */
+  service_account: string;
+  checks: AccessCheck[];
+  filled: FilledSetting[];
+  /** The fields a save would change. */
+  changes: SettingChange[];
+  grants: GrantCommand[];
+  /** Denied reads that have no grant command. */
+  ungranted: string[];
+  /** Why the table cannot be saved; empty when it can. */
+  refusal: string;
+}
+
+/** BigQuery table to check or save for an agent, in the agent's project. */
+export interface TelemetryTable {
+  agentKey: string;
+  dataset: string;
+  table: string;
+  /** Bucket for message content; empty to keep the stored bucket. */
+  payloadBucket: string;
+}
+
+/** Tries every read an investigation makes on `table` and fills in settings
+ *  from the table. Stores nothing. */
+export function checkTelemetry(table: TelemetryTable): Promise<TelemetryCheck> {
+  return sendJson("POST", "/api/telemetry/check", buildTableFields(table));
+}
+
+/** Saves `table` and the settings `filled` from its check, and returns the
+ *  fields the save changed. */
+export async function saveTelemetry(
+  table: TelemetryTable,
+  filled: FilledSetting[],
+): Promise<{ written: boolean; changes: SettingChange[] }> {
+  const body = await sendJson<{ written?: boolean; changes?: SettingChange[] }>(
+    "PUT",
+    "/api/telemetry",
+    {
+      ...buildTableFields(table),
+      ...Object.fromEntries(filled.map((s) => [s.field, s.value])),
+    },
+  );
+  return { written: Boolean(body.written), changes: body.changes ?? [] };
+}
+
+/** Records `grants` on the agent's attachment so that `detach` revokes
+ *  them. */
+export function recordGrants(
+  agentKey: string,
+  grants: GrantCommand[],
+): Promise<{ recorded: number }> {
+  return sendJson("POST", "/api/telemetry/grants", {
+    agent_key: agentKey,
+    granted: grants.map(({ resource, role, member }) => ({
+      resource,
+      role,
+      member,
+    })),
+  });
+}
+
+export interface SelectorCheck {
+  /** Why the selector cannot be saved; empty when it can. */
+  refusal: string;
+  /** The fields a save would change. */
+  changes: SettingChange[];
+}
+
+/** Asks the agent whether `sql` may be stored as the investigation selector,
+ *  prechecking it in BigQuery. Stores nothing. */
+export function checkSelector(
+  agentKey: string,
+  sql: string,
+): Promise<SelectorCheck> {
+  return sendJson("POST", "/api/selector/check", {
+    agent_key: agentKey,
+    investigation_selector_sql: sql,
+  });
+}
+
+/** Stores `sql` as the investigation selector, or clears it when empty. */
+export async function saveSelector(
+  agentKey: string,
+  sql: string,
+): Promise<{ written: boolean }> {
+  const body = await sendJson<{ written?: boolean }>("PUT", "/api/selector", {
+    agent_key: agentKey,
+    investigation_selector_sql: sql,
+  });
+  return { written: Boolean(body.written) };
+}
+
+function buildTableFields(table: TelemetryTable) {
+  return {
+    agent_key: table.agentKey,
+    telemetry_dataset: table.dataset,
+    telemetry_table: table.table,
+    telemetry_payload_bucket: table.payloadBucket || undefined,
+  };
+}
+
+async function sendJson<T>(
+  method: string,
+  path: string,
+  payload: unknown,
+): Promise<T> {
+  const r = await fetch(path, {
+    method,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const body = (await r.json().catch(() => ({}))) as T & { error?: string };
+  // Throw the route's reason first: "-> 400" alone does not say what is wrong.
+  if (body.error) throw new Error(body.error);
+  if (!r.ok) throw new Error(`${method} ${path} -> ${r.status}`);
+  return body;
+}
 
 export interface MemoryRow {
   id: string;
@@ -648,7 +945,7 @@ export interface MemoriesResponse {
  *
  * All three optional rather than a union, because that is how `genai` models a
  * part; re-encoding it here would be a second schema to hold level with the
- * one the archive stores.
+ * one the trajectory bundle stores.
  */
 export interface ConversationPart {
   text?: string;
@@ -674,24 +971,27 @@ export interface ConversationTurn {
 }
 
 /**
- * One archived conversation, as the payload table holds it.
+ * One trajectory bundle: the manifest and its steps, as the store holds them.
  *
  * `status` is `ingested` / `partial` / `truncated` for a copy that exists and
- * `not_archived` for an id nobody stored. `turn_count` above `turns_returned`
- * means the manifest outlived its turns' partition; both at zero is a
+ * `not_archived` for an id nobody stored. `step_count` above `steps_returned`
+ * means the manifest outlived its steps' partition; both at zero is a
  * conversation that really was empty. Three different answers, and a viewer
  * that draws them alike is lying about two of them.
  */
-export interface CaseConversation {
+export interface TrajectoryBundle {
   trajectory_id: string;
   status: string;
-  turn_count: number;
-  turns_returned: number;
-  turns: ConversationTurn[];
+  step_count: number;
+  steps_returned: number;
+  steps: ConversationTurn[];
   agents?: Record<string, unknown> | null;
   recorded_at?: string | null;
-  /** The sweep's index row, when the case was reached through a run. */
-  trajectory?: { console_url?: string | null; source?: string | null } | null;
+  /** The investigation trajectory, when reached through an investigation. */
+  trajectory?: {
+    console_url?: string | null;
+    ingestion_source?: string | null;
+  } | null;
 }
 
 /** A tool call reconciled with its reply, as the timeline hands it to a view. */
@@ -705,25 +1005,25 @@ export interface ConversationToolCall {
 }
 
 export interface InvestigationEvent {
-  run_id: string;
+  investigation_id: string;
   created_at: string;
   text: string;
   source: string | null;
 }
 
 export interface InvestigationCounters {
-  traces_scanned: number;
-  traces_ingested: number;
-  traces_ingested_partial: number;
-  traces_ingested_failed: number;
-  traces_evaluated: number;
-  traces_eval_passed: number;
-  traces_eval_failed: number;
-  traces_eval_errored: number;
+  trajectories_scanned: number;
+  trajectories_ingested: number;
+  trajectories_ingested_partial: number;
+  trajectories_ingested_failed: number;
+  trajectories_evaluated: number;
+  trajectories_eval_passed: number;
+  trajectories_eval_failed: number;
+  trajectories_eval_errored: number;
   rubrics_generated: number;
   findings_generated: number;
-  rubrics_errored: number;
-  rubrics_unclustered: number;
+  findings_errored: number;
+  findings_unclustered: number;
   clusters_created: number;
   clusters_verified: number;
   clusters_rejected: number;
@@ -762,27 +1062,28 @@ export interface InvestigationSummary {
   [key: string]: unknown;
 }
 
-/** Custom overrides applied to an investigation run. */
+/** Custom overrides applied to an investigation. */
 export interface InvestigationCustomOverrides {
   /** SQL query that selects the conversations to review. */
   selector_sql: string;
   /** Free-text focus guiding the session reviewer. */
-  session_review_focus: string;
+  review_focus: string;
 }
 
-export interface InvestigationRecord {
-  run_id: string;
-  /** The chat that started this run, or null when the scheduler did. */
+export interface Investigation {
+  investigation_id: string;
+  /** The chat that started this investigation, or null when the scheduler
+   *  did. */
   context_id?: string | null;
   status: string;
-  observed_agent_name: string;
+  observed_agent_key: string;
   trigger_type?: string;
   window_start?: string | null;
   window_end?: string | null;
-  /** When a `scheduled` run's delayed trigger is due to start it. */
+  /** When a `scheduled` investigation's delayed trigger is due to start it. */
   due_at?: string | null;
   budget_per_metric?: number;
-  /** Custom run overrides, or null for ambient runs. */
+  /** Custom investigation overrides, or null for ambient investigations. */
   custom_overrides?: InvestigationCustomOverrides | null;
   created_at: string;
   updated_at?: string;
@@ -798,42 +1099,68 @@ export interface InvestigationRecord {
   idempotency_key?: string | null;
 }
 
-export const investigationQuery = (runId: string) => ({
-  queryKey: ["aqua", "investigation", runId] as const,
+export const investigationQuery = (
+  agentKey: AgentKey,
+  investigationId: string,
+) => ({
+  queryKey: [
+    ...buildAgentScope(agentKey),
+    "investigation",
+    investigationId,
+  ] as const,
   queryFn: () =>
-    getJson<{ run: InvestigationRecord }>(
-      `/api/investigations/${encodeURIComponent(runId)}`,
+    getJson<{ investigation: Investigation }>(
+      buildAgentPath(
+        `/api/investigations/${encodeURIComponent(investigationId)}`,
+        agentKey,
+      ),
     ),
   staleTime: 10_000,
 });
 
-export const caseConversationQuery = (runId: string, caseId: string) => ({
-  queryKey: ["aqua", "case-conversation", runId, caseId] as const,
+export const trajectoryBundleQuery = (
+  agentKey: AgentKey,
+  investigationId: string,
+  trajectoryId: string,
+) => ({
+  queryKey: [
+    ...buildAgentScope(agentKey),
+    "trajectory-bundle",
+    investigationId,
+    trajectoryId,
+  ] as const,
   queryFn: () =>
-    getJson<{ case: CaseConversation }>(
-      `/api/investigations/${encodeURIComponent(runId)}/cases/${encodeURIComponent(caseId)}`,
+    getJson<{ trajectory_bundle: TrajectoryBundle }>(
+      buildAgentPath(
+        `/api/investigations/${encodeURIComponent(investigationId)}/trajectories/${encodeURIComponent(trajectoryId)}`,
+        agentKey,
+      ),
     ),
   staleTime: 60_000,
 });
 
-export const goalQuery = () => ({
-  queryKey: ["aqua", "goal"] as const,
-  queryFn: () => getJson<GoalResponse>("/api/goal"),
+export const goalQuery = (agentKey: AgentKey) => ({
+  queryKey: [...buildAgentScope(agentKey), "goal"] as const,
+  queryFn: () => getJson<GoalResponse>(buildAgentPath("/api/goal", agentKey)),
   staleTime: 30_000,
 });
 
 /** Keyed under `goalQuery`'s key, so invalidating the goal after a save
  *  refreshes the versions too. */
-export const goalVersionsQuery = () => ({
-  queryKey: ["aqua", "goal", "versions"] as const,
-  queryFn: () => getJson<GoalVersionsResponse>("/api/goal/versions"),
+export const goalVersionsQuery = (agentKey: AgentKey) => ({
+  queryKey: [...buildAgentScope(agentKey), "goal", "versions"] as const,
+  queryFn: () =>
+    getJson<GoalVersionsResponse>(
+      buildAgentPath("/api/goal/versions", agentKey),
+    ),
   staleTime: 30_000,
 });
 
 export async function saveGoal(
+  agentKey: AgentKey,
   text: string,
 ): Promise<{ goal: string; version?: string }> {
-  const r = await fetch("/api/goal", {
+  const r = await fetch(buildAgentPath("/api/goal", agentKey), {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ goal: text, text }),
@@ -849,27 +1176,35 @@ export async function saveGoal(
   return { goal: body.goal ?? "", version: body.version };
 }
 
-export const memoriesQuery = () => ({
-  queryKey: ["aqua", "memories"] as const,
-  queryFn: () => getJson<MemoriesResponse>("/api/memories"),
+export const memoriesQuery = (agentKey: AgentKey) => ({
+  queryKey: [...buildAgentScope(agentKey), "memories"] as const,
+  queryFn: () =>
+    getJson<MemoriesResponse>(buildAgentPath("/api/memories", agentKey)),
   staleTime: 30_000,
 });
 
-export async function deleteMemory(id: string): Promise<{ deleted: boolean }> {
-  const r = await fetch(`/api/memories/${encodeURIComponent(id)}`, {
-    method: "DELETE",
-  });
+export async function deleteMemory(
+  agentKey: AgentKey,
+  id: string,
+): Promise<{ deleted: boolean }> {
+  const r = await fetch(
+    buildAgentPath(`/api/memories/${encodeURIComponent(id)}`, agentKey),
+    { method: "DELETE" },
+  );
   const body = (await r.json()) as { deleted?: boolean; error?: string };
   if (!r.ok) throw new Error(`delete memory ${id} -> ${r.status}`);
   if (body.error) throw new Error(body.error);
   return { deleted: Boolean(body.deleted) };
 }
 
-export const insightQuery = (insightId: string) => ({
-  queryKey: ["aqua", "insight", insightId] as const,
+export const insightQuery = (agentKey: AgentKey, insightId: string) => ({
+  queryKey: [...buildAgentScope(agentKey), "insight", insightId] as const,
   queryFn: async (): Promise<InsightDetail> => {
     const detail = await getJson<InsightDetail>(
-      `/api/insights/${encodeURIComponent(insightId)}`,
+      buildAgentPath(
+        `/api/insights/${encodeURIComponent(insightId)}`,
+        agentKey,
+      ),
     );
     // The one query that skipped this, which is why the detail pane was the
     // only view that crashed rather than merely rendering blanks.
@@ -897,33 +1232,31 @@ function withDefaults(raw: Partial<InsightView>): InsightView {
 }
 
 /** The same, for an occurrence. `withDefaults` covers the insight only, and
- * these are different fields: the detail pane reads `evidence_case_ids.length`
- * unguarded, so an engine that omits it blanks the pane with a TypeError
- * rather than rendering an empty section. */
+ * these are different fields: the detail pane reads
+ * `evidence_trajectory_ids.length` unguarded, so an engine that omits it blanks
+ * the pane with a TypeError rather than rendering an empty section. */
 function withOccurrenceDefaults(
   raw: Partial<InsightOccurrence>,
 ): InsightOccurrence {
   return {
     diagnosis: "",
     confidence: 0,
-    cases_checked: 0,
-    evidence_case_ids: [],
+    trajectories_checked: 0,
+    evidence_trajectory_ids: [],
     console_urls: {},
-    rubrics: [],
+    examples: [],
     root_causes: [],
     ...raw,
   } as InsightOccurrence;
 }
 
-/** Whether nothing on the page has a root cause recorded.
+/** Whether nothing on the page has a diagnosis or recorded root cause.
  *
- * Named for what it measures rather than for what it used to be blamed on: it
- * was `isEngineSkew`, back when an undiagnosed page meant an engine with no
- * root-cause phase at all. There is one now — `record_root_cause`, which the
- * chat agent calls — so an all-undiagnosed page is the ordinary state of
- * issues nobody has asked about yet, not a capability gap.
+ * `record_root_cause` is called only when a user asks the chat agent to
+ * diagnose an insight, so an all-undiagnosed page is the ordinary state of
+ * insights nobody has asked to diagnose yet.
  *
- * @param insights - Insights from the target run.
+ * @param insights - Insights from the target investigation or page.
  * @returns True if the insights list is non-empty and entirely undiagnosed.
  */
 export function noneDiagnosed(

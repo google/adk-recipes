@@ -18,13 +18,19 @@ from __future__ import annotations
 
 import json
 import logging
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
 from agentplatform._genai.types import EvalCase
+from ambient_quality_agent.tools import genai_json
 from ambient_quality_agent.tools.agent_revision import AgentRevisionCache
 from ambient_quality_agent.tools.ingestion.message_parts import (
     RUNTIME_ERROR_RESPONSES,
+)
+from ambient_quality_agent.tools.insights import findings as findings_module
+from ambient_quality_agent.tools.insights.findings import (
+    extract_trajectory_turns,
 )
 from ambient_quality_agent.tools.review import session_review
 
@@ -151,7 +157,7 @@ def test_two_unrelated_defects_stay_two_findings() -> None:
         "call book_flight",
         "answer in English",
     ]
-    assert {f.session_id for f in findings} == {"session-1"}
+    assert {f.trajectory_id for f in findings} == {"session-1"}
     assert {f.agent_id for f in findings} == {"root_agent"}
 
 
@@ -194,8 +200,8 @@ def test_an_empty_finding_is_dropped() -> None:
 def test_the_cap_truncates_a_runaway_response(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """Verify finding count is capped at MAX_FINDINGS_PER_SESSION with a warning log."""
-    over = session_review.MAX_FINDINGS_PER_SESSION + 3
+    """Verify finding count is capped at MAX_FINDINGS_PER_TRAJECTORY with a warning log."""
+    over = findings_module.MAX_FINDINGS_PER_TRAJECTORY + 3
     response = _findings_response(
         [
             {
@@ -210,7 +216,7 @@ def test_the_cap_truncates_a_runaway_response(
     with caplog.at_level(logging.WARNING):
         findings = _review(_case(_ONE_AGENT), response)
 
-    assert len(findings) == session_review.MAX_FINDINGS_PER_SESSION
+    assert len(findings) == findings_module.MAX_FINDINGS_PER_TRAJECTORY
     assert any("keeping the first" in r.getMessage() for r in caplog.records)
 
 
@@ -235,7 +241,7 @@ def test_each_agent_gets_its_own_block_with_its_own_tools() -> None:
 
     prompt = session_review.build_prompt(
         AgentRevisionCache().build_revisions(case),
-        session_review.extract_session_turns(case),
+        extract_trajectory_turns(case),
     )
 
     desk = prompt.index("agent: travel_desk_agent")
@@ -275,7 +281,7 @@ def test_the_prompt_carries_the_conversation_and_the_task() -> None:
 
     prompt = session_review.build_prompt(
         AgentRevisionCache().build_revisions(case),
-        session_review.extract_session_turns(case),
+        extract_trajectory_turns(case),
     )
 
     assert "book me a flight" in prompt
@@ -284,9 +290,6 @@ def test_the_prompt_carries_the_conversation_and_the_task() -> None:
 
 def test_a_session_without_turns_still_reviews() -> None:
     """Verify cases lacking agent data are handled gracefully without error."""
-    assert (
-        session_review.extract_session_turns(EvalCase(eval_case_id="c")) == []
-    )
     assert _review(EvalCase(eval_case_id="c"), '{"findings": []}') == []
 
 
@@ -297,7 +300,7 @@ def _goal_prompt(goal: str = "") -> str:
     case = _case(_ONE_AGENT)
     return session_review.build_prompt(
         AgentRevisionCache().build_revisions(case),
-        session_review.extract_session_turns(case),
+        extract_trajectory_turns(case),
         goal=goal,
     )
 
@@ -372,13 +375,13 @@ def test_every_review_sends_the_goal() -> None:
 
 
 def test_a_focus_and_a_goal_sit_on_either_side_of_the_rules() -> None:
-    """A custom run's focus narrows what is reported before the rules; the goal
+    """A custom investigation's focus narrows what is reported before the rules; the goal
     comes after them, so neither can loosen what the rules demand."""
     case = _case(_ONE_AGENT)
 
     prompt = session_review.build_prompt(
         AgentRevisionCache().build_revisions(case),
-        session_review.extract_session_turns(case),
+        extract_trajectory_turns(case),
         session_review_focus="refund amounts",
         goal="Refunds first.",
     )
@@ -404,7 +407,7 @@ def _prompt(focus: str = "") -> str:
     case = _case(_ONE_AGENT)
     return session_review.build_prompt(
         AgentRevisionCache().build_revisions(case),
-        session_review.extract_session_turns(case),
+        extract_trajectory_turns(case),
         focus,
     )
 
@@ -417,7 +420,7 @@ def test_no_focus_leaves_the_prompt_byte_for_byte(focus: str) -> None:
     """Verify an empty or whitespace focus produces an unmodified prompt."""
     unfocused = session_review.build_prompt(
         AgentRevisionCache().build_revisions(_case(_ONE_AGENT)),
-        session_review.extract_session_turns(_case(_ONE_AGENT)),
+        extract_trajectory_turns(_case(_ONE_AGENT)),
     )
 
     assert _prompt(focus) == unfocused
@@ -548,7 +551,7 @@ def _build_attachment_prompt(
     case = _case(_ONE_AGENT, parts=[{"text": "book me a flight"}, attachment])
     return session_review.build_prompt(
         AgentRevisionCache().build_revisions(case),
-        session_review.extract_session_turns(case),
+        extract_trajectory_turns(case),
         session_review_focus=focus,
         goal=goal,
     )
@@ -693,7 +696,7 @@ def _build_tools_prompt(
         Formatted review prompt string.
     """
     case = _case({"root_agent": {"instruction": "be helpful", "tools": tools}})
-    turns = session_review.extract_session_turns(case)
+    turns = extract_trajectory_turns(case)
     if events:
         turns[0]["events"].extend(events)
     return session_review.build_prompt(
@@ -711,9 +714,7 @@ def _build_expected_prompt(tools_line: str) -> str:
         Expected review prompt for the single-agent session.
     """
     case = _case({"root_agent": {"instruction": "be helpful"}})
-    turns = json.dumps(
-        session_review.extract_session_turns(case), ensure_ascii=False
-    )
+    turns = json.dumps(extract_trajectory_turns(case), ensure_ascii=False)
     return (
         session_review._REVIEW_INSTRUCTIONS
         + "\n  agent: root_agent\n"
@@ -775,7 +776,7 @@ def test_active_tools_add_no_conditional_text() -> None:
     without_active_tools = _build_tools_prompt(tools, [plain_event])
 
     case = _case({"root_agent": {"instruction": "be helpful"}})
-    turns = session_review.extract_session_turns(case)
+    turns = extract_trajectory_turns(case)
     plain_turns = json.dumps(
         [{**turns[0], "events": [*turns[0]["events"], plain_event]}],
         ensure_ascii=False,
@@ -831,7 +832,7 @@ def test_the_instruction_rule_precedes_the_turns_once() -> None:
 
     prompt = session_review.build_prompt(
         AgentRevisionCache().build_revisions(case),
-        session_review.extract_session_turns(case),
+        extract_trajectory_turns(case),
     )
 
     assert prompt.count("`state_delta.system_instruction`") == 1
@@ -861,3 +862,29 @@ def test_the_rules_name_every_runtime_error_response() -> None:
 
 def test_every_prompt_carries_the_runtime_error_rule() -> None:
     assert _prompt().count(_RUNTIME_ERROR_RULE) == 1
+
+
+def test_a_review_call_gets_the_default_per_attempt_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A review page waits for all its calls, so one call stalled with no
+    timeout hangs the whole investigation."""
+    from .conftest import make_config
+
+    captured: dict[str, Any] = {}
+
+    class _FakeClient:
+        def __init__(self, **kwargs: Any) -> None:
+            captured["http_options"] = kwargs.get("http_options")
+            self.models = SimpleNamespace(
+                generate_content=lambda **kw: SimpleNamespace(text="{}")
+            )
+
+    monkeypatch.setattr("ambient_quality_agent.config.config", make_config())
+    monkeypatch.setattr("google.genai.Client", _FakeClient)
+
+    session_review.call_review_model("prompt")
+
+    http_options = captured["http_options"]
+    assert http_options.timeout == genai_json.CALL_TIMEOUT_MS
+    assert http_options.retry_options.attempts == genai_json.CHUNK_ATTEMPTS

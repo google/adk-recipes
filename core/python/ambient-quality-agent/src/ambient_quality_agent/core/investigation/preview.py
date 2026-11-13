@@ -33,24 +33,25 @@ Wiring::
      │       submit_query(), fetch_page() ──► BigQuery
      │           │ add()
      │           ▼
-     │     _ArchiveCollector ──► build_archive()
+     │     _BundleCollector ──► build_bundle()
      ▼ store_factory()
-    TrajectoryStore.record_payloads() ──► AQuA dataset, or in process
+    TrajectoryStore.record_trajectory_bundles() ──► AQuA dataset, or in process
 
 Runs the multi-turn ingestion pipeline with a limit of five conversations to
-estimate matched conversation counts and archive sample payloads for inspection
-without executing a full investigation sweep.
+estimate matched conversation counts and store sample trajectory bundles for
+inspection without executing a full investigation sweep.
 
 Key design constraints:
 - **Sample vs. Examples**: Ingestion queries order by ``RAND()``, so preview and
-  full runs draw independent random samples. Previewed conversations illustrate
-  matching criteria rather than the exact set evaluated during a full run,
-  unless the total matches fit within `EXAMPLE_COUNT` and the full run budget.
-- **Payloads Only**: Archives raw trajectory payloads without creating
-  `Trajectory` index records, ensuring preview runs do not populate run-level
+  full investigations draw independent random samples. Previewed conversations
+  illustrate matching criteria rather than the exact set evaluated during a full
+  investigation, unless the total matches fit within `EXAMPLE_COUNT` and the
+  full investigation budget.
+- **Bundles Only**: Stores trajectory bundles without creating
+  `InvestigationTrajectory` records, ensuring previews do not populate
   investigation metrics or outcome dashboards.
 - **Locking**: Does not acquire the investigation agent lock, allowing
-  concurrent preview checks without blocking subsequent run execution.
+  concurrent preview checks without blocking subsequent investigation execution.
 """
 
 from __future__ import annotations
@@ -64,6 +65,7 @@ from typing import TYPE_CHECKING, Any
 
 from ambient_quality_agent import providers
 from ambient_quality_agent.core.investigation.job_scheduling import (
+    NO_AGENT_ATTACHED,
     derive_window_and_budget,
     iso_instant_to_utc,
 )
@@ -73,8 +75,8 @@ from ambient_quality_agent.core.state import WorkflowState
 from ambient_quality_agent.tools.evaluation.models import MetricType
 from ambient_quality_agent.tools.ingestion import selector
 from ambient_quality_agent.tools.observed_agent_config import effective_config
+from ambient_quality_agent.tools.trajectories.bundles import build_bundle
 from ambient_quality_agent.tools.trajectories.models import IngestStatus
-from ambient_quality_agent.tools.trajectories.payloads import build_archive
 from ambient_quality_agent.tools.trajectories.reader import (
     build_trace_console_url,
 )
@@ -89,8 +91,8 @@ if TYPE_CHECKING:
     from ambient_quality_agent.config import Config
     from ambient_quality_agent.core.session_state import LaunchContext
     from ambient_quality_agent.tools.ingestion.base import BaseFetcher
-    from ambient_quality_agent.tools.trajectories.payloads import (
-        TrajectoryArchive,
+    from ambient_quality_agent.tools.trajectories.bundles import (
+        TrajectoryBundle,
     )
     from ambient_quality_agent.tools.trajectories.store import TrajectoryStore
 
@@ -100,7 +102,7 @@ SESSION_REVIEW_MODE = "session_review"
 """Analysis mode that supports SQL selectors."""
 
 EXAMPLE_COUNT = 5
-"""Number of sample conversations fetched and archived for preview."""
+"""Number of sample conversations fetched and stored for preview."""
 
 DEADLINE_SECONDS = 180.0
 """Overall wall-clock timeout in seconds for preview execution."""
@@ -116,11 +118,13 @@ background query jobs terminate server-side.
 FIRST_MESSAGE_CHARS = 280
 """Maximum characters retained from the opening user message for preview summaries."""
 
-PREVIEW_RUN_SEGMENT = "preview"
-"""Placeholder run identifier used in `CASE_VIEW_PATH` for preview links."""
+PREVIEW_INVESTIGATION_SEGMENT = "preview"
+"""Placeholder investigation identifier used in `TRAJECTORY_VIEW_PATH` for preview links."""
 
-CASE_VIEW_PATH = "/investigations/{run}/cases/{trajectory_id}"
-"""Dashboard URL template for inspecting an archived conversation."""
+TRAJECTORY_VIEW_PATH = (
+    "/investigations/{investigation_id}/trajectories/{trajectory_id}"
+)
+"""Dashboard URL template for inspecting a trajectory bundle."""
 
 EXAMPLES_NOTE = (
     "These are examples of what the selector matched, not the conversations "
@@ -161,7 +165,7 @@ PREVIEW_SURFACE = "preview"
 """``surface`` of a validation the user asked for and will read."""
 
 START_SURFACE = "start"
-"""``surface`` of the single validation that gates launching a custom run."""
+"""``surface`` of the single validation that gates launching a custom investigation."""
 
 
 @dataclasses.dataclass(frozen=True)
@@ -169,13 +173,13 @@ class PreviewedConversation:
     """Preview summary of a single matching conversation."""
 
     trajectory_id: str
-    """Unique trajectory identifier and archive storage key."""
+    """Unique trajectory identifier and trajectory bundle storage key."""
 
-    case_view_path: str
-    """Dashboard URL path for replaying the archived conversation."""
+    trajectory_view_path: str
+    """Dashboard URL path for replaying the trajectory bundle."""
 
-    turn_count: int
-    """Number of conversation turns in the archived payload."""
+    step_count: int
+    """Number of steps in the trajectory bundle."""
 
     first_user_message: str
     """Opening user message truncated to `FIRST_MESSAGE_CHARS`, or empty if unavailable."""
@@ -191,8 +195,8 @@ class PreviewedConversation:
         """
         payload = {
             "trajectory_id": self.trajectory_id,
-            "case_view_path": self.case_view_path,
-            "turn_count": self.turn_count,
+            "trajectory_view_path": self.trajectory_view_path,
+            "step_count": self.step_count,
             "first_user_message": self.first_user_message,
         }
         if self.trace_url:
@@ -211,7 +215,7 @@ class SelectorPreview:
     """Total number of matching conversations across the window before sampling."""
 
     would_review: int = 0
-    """Estimated number of conversations a full run would review given the evaluation cap."""
+    """Estimated number of conversations a full investigation would review given the evaluation cap."""
 
     examples: tuple[PreviewedConversation, ...] = ()
     """Sample matching conversations (up to `EXAMPLE_COUNT`)."""
@@ -271,7 +275,7 @@ async def preview_selector(
     window_start: str = "",
     window_end: str = "",
 ) -> SelectorPreview:
-    """Validate, sample, archive, and describe matching conversations for a selector.
+    """Validate, sample, store, and describe matching conversations for a selector.
 
     Performs lexical validation and a BigQuery dry run. Validation failures are
     returned as rejection details in `SelectorPreview` rather than raised.
@@ -334,8 +338,8 @@ async def validate_selector(
     """Validate whether a selector is permitted to run without querying conversations.
 
     Executes lexical checks and BigQuery dry-run validation without data
-    sampling or payload archiving. Gates investigation launches to prevent
-    creating run records for invalid selectors.
+    sampling or storing trajectory bundles. Gates investigation launches to prevent
+    creating investigation records for invalid selectors.
 
     Args:
         context: Launch context supplying configuration overrides.
@@ -406,10 +410,12 @@ def _load_selector_config(context: LaunchContext, selector_sql: str) -> Config:
         The effective `Config`.
 
     Raises:
-        ValueError: If the quality analysis mode is not ``session_review`` or
-            the selector SQL is empty.
+        ValueError: If no agent is attached, the quality analysis mode is not
+            ``session_review``, or the selector SQL is empty.
     """
     config = effective_config.load(context.state)
+    if not config.observed_agent_name:
+        raise ValueError(NO_AGENT_ATTACHED)
     if config.quality_analysis_mode != SESSION_REVIEW_MODE:
         raise ValueError(
             f"selectors are offered only in {SESSION_REVIEW_MODE!r} mode; this "
@@ -498,7 +504,7 @@ def _resolve_window(
 def _preview_on_this_thread(
     config: Config, selector_sql: str, start: dt.datetime, end: dt.datetime
 ) -> SelectorPreview:
-    """Execute preview validation, count query, sampling, and archiving synchronously.
+    """Execute preview validation, count query, sampling, and storing synchronously.
 
     Runs blocking BigQuery and GCS operations on a dedicated worker thread to
     avoid blocking the asyncio event loop.
@@ -512,7 +518,9 @@ def _preview_on_this_thread(
     Returns:
         A `SelectorPreview` instance.
     """
-    collector = _ArchiveCollector(agent_name=config.observed_agent_name)
+    # The bundle is AQuA's own row, keyed by the agent's key; the fetcher
+    # filters telemetry by the agent's name.
+    collector = _BundleCollector(observed_agent_key=config.resolve_agent_key())
     fetcher = fetcher_factory(config, selector_sql, recorder=collector)
 
     precheck = fetcher.precheck_selector(
@@ -543,8 +551,8 @@ def _preview_on_this_thread(
 
     sightings = collector.sightings
     if sightings:
-        store_factory(config).record_payloads(
-            [sighting.archive for sighting in sightings]
+        store_factory(config).record_trajectory_bundles(
+            [sighting.bundle for sighting in sightings]
         )
     return SelectorPreview(
         matched=matched,
@@ -562,21 +570,21 @@ def _preview_on_this_thread(
 class _Sighting:
     """Internal container for an ingested conversation and associated metadata."""
 
-    archive: TrajectoryArchive
+    bundle: TrajectoryBundle
     trace_ids: tuple[str, ...]
     case: EvalCase
 
 
-class _ArchiveCollector(NullTrajectoryRecorder):
-    """Recorder implementation collecting payload archives in memory during preview.
+class _BundleCollector(NullTrajectoryRecorder):
+    """Recorder implementation collecting trajectory bundles in memory during preview.
 
     Subclasses `NullTrajectoryRecorder`, the recorder base used during ingestion,
-    and writes no trajectory index rows, so preview operations do not register
-    as sweep runs.
+    and writes no investigation trajectories, so preview operations do not
+    register as investigations.
     """
 
-    def __init__(self, *, agent_name: str) -> None:
-        self._agent_name = agent_name
+    def __init__(self, *, observed_agent_key: str) -> None:
+        self._observed_agent_key = observed_agent_key
         self.sightings: list[_Sighting] = []
 
     def add(
@@ -589,24 +597,25 @@ class _ArchiveCollector(NullTrajectoryRecorder):
         case: EvalCase | None = None,
         agent_revision: str = "",
     ) -> None:
-        """Record an ingested conversation payload in memory.
+        """Record an ingested trajectory bundle in memory.
 
         Args:
             trajectory_id: Unique trajectory identifier.
-            session_id: Session identifier (unused; index rows are not recorded).
+            session_id: Session identifier (unused; investigation trajectories
+                are not recorded).
             trace_ids: Associated Cloud Trace IDs.
             status: Ingestion status of the conversation.
             case: Assembled evaluation case, or None if ingestion failed.
             agent_revision: Observed revision of the target agent.
         """
-        del session_id  # Unused: preview records payloads without index rows.
+        del session_id  # Unused: preview records no investigation trajectories.
         if case is None:
             return
         self.sightings.append(
             _Sighting(
-                archive=build_archive(
+                bundle=build_bundle(
                     case,
-                    agent_name=self._agent_name,
+                    observed_agent_key=self._observed_agent_key,
                     trajectory_id=trajectory_id,
                     created_at=dt.datetime.now(dt.UTC),
                     partial=status is IngestStatus.PARTIAL,
@@ -630,13 +639,14 @@ def _build_previewed_conversation(
     Returns:
         A populated `PreviewedConversation` instance.
     """
-    trajectory_id = sighting.archive.payload.trajectory_id
+    trajectory_id = sighting.bundle.manifest.trajectory_id
     return PreviewedConversation(
         trajectory_id=trajectory_id,
-        case_view_path=CASE_VIEW_PATH.format(
-            run=PREVIEW_RUN_SEGMENT, trajectory_id=trajectory_id
+        trajectory_view_path=TRAJECTORY_VIEW_PATH.format(
+            investigation_id=PREVIEW_INVESTIGATION_SEGMENT,
+            trajectory_id=trajectory_id,
         ),
-        turn_count=sighting.archive.payload.turn_count,
+        step_count=sighting.bundle.manifest.step_count,
         first_user_message=_extract_first_user_message(sighting.case),
         trace_url=build_trace_console_url(project_id, sighting.trace_ids)
         or None,
@@ -688,7 +698,7 @@ def _create_default_fetcher(
     Args:
         config: Agent configuration.
         selector_sql: Raw selector SQL query.
-        recorder: Recorder instance to collect ingested payloads.
+        recorder: Recorder instance to collect ingested trajectory bundles.
 
     Returns:
         A configured BaseFetcher instance.
@@ -708,7 +718,7 @@ fetcher_factory = _create_default_fetcher
 store_factory: Callable[[Config], TrajectoryStore] = (
     providers.build_unbound_provider("preview store_factory")
 )
-"""Trajectory store where a preview archives the conversations it tried.
+"""Trajectory store where a preview stores the trajectory bundles it tried.
 
 A storage provider bound by `backends.configure_providers`. Standalone mode binds
 it to the in-process store; the BigQuery backend binds it to AQuA's dataset.

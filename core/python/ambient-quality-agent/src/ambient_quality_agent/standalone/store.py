@@ -31,10 +31,11 @@ concurrently. Safe concurrent access is achieved through:
 ## Storage Design
 
 Storage structures are optimized for in-memory read performance:
-1. Runs are stored as single mutable records representing latest state.
+1. Investigations are stored as single mutable records representing latest
+   state.
 2. Merged insight evidence is directly reassigned to surviving insights, allowing
    reads to query ownership directly without runtime coalescing.
-3. Conversation archives keep the highest-ranking payload directly upon write.
+3. Trajectory bundles keep the highest-ranking manifest directly upon write.
 """
 
 from __future__ import annotations
@@ -51,15 +52,15 @@ from ambient_quality_agent.tools.insights.models import (
 
 if TYPE_CHECKING:
     from ambient_quality_agent.tools.investigations.models import (
+        Investigation,
         InvestigationEvent,
-        InvestigationRecord,
+    )
+    from ambient_quality_agent.tools.trajectories.bundles import (
+        TrajectoryBundle,
     )
     from ambient_quality_agent.tools.trajectories.models import (
-        Trajectory,
-        TrajectoryPayload,
-    )
-    from ambient_quality_agent.tools.trajectories.payloads import (
-        TrajectoryArchive,
+        InvestigationTrajectory,
+        TrajectoryManifest,
     )
 
 
@@ -70,7 +71,7 @@ class Insights(NamedTuple):
     """
 
     insights: Mapping[str, Insight]
-    occurrences: Sequence[InsightOccurrence]
+    insight_occurrences: Sequence[InsightOccurrence]
     root_causes: Sequence[RootCause]
 
 
@@ -79,54 +80,68 @@ class InMemoryStore:
 
     def __init__(self) -> None:
         self._write = threading.Lock()
-        self._runs: Mapping[str, InvestigationRecord] = {}
-        self._run_events: Mapping[str, tuple[InvestigationEvent, ...]] = {}
+        self._investigations: Mapping[str, Investigation] = {}
+        self._investigation_events: Mapping[
+            str, tuple[InvestigationEvent, ...]
+        ] = {}
         self._insights: Mapping[str, Insight] = {}
-        self._occurrences: tuple[InsightOccurrence, ...] = ()
+        self._insight_occurrences: tuple[InsightOccurrence, ...] = ()
         self._root_causes: tuple[RootCause, ...] = ()
-        self._trajectories: Mapping[tuple[str, str], Trajectory] = {}
-        self._archives: Mapping[str, TrajectoryArchive] = {}
+        self._investigation_trajectories: Mapping[
+            tuple[str, str], InvestigationTrajectory
+        ] = {}
+        self._trajectory_bundles: Mapping[str, TrajectoryBundle] = {}
 
-    # --- Runs --------------------------------------------------------------- #
+    # --- Investigations ----------------------------------------------------- #
 
     @property
-    def runs(self) -> Mapping[str, InvestigationRecord]:
-        """All investigation runs by ID, each holding its latest state."""
-        return self._runs
+    def investigations(self) -> Mapping[str, Investigation]:
+        """All investigations by ID, each holding its latest state."""
+        return self._investigations
 
-    def list_run_events(self, run_id: str) -> tuple[InvestigationEvent, ...]:
-        """Returns all progress events recorded for a run in chronological order.
+    def list_investigation_events(
+        self, investigation_id: str
+    ) -> tuple[InvestigationEvent, ...]:
+        """Returns the progress events of an investigation in chronological order.
 
         Args:
-            run_id: Investigation run identifier.
+            investigation_id: Investigation identifier.
 
         Returns:
-            Tuple of `InvestigationEvent` records emitted for the run.
+            Tuple of `InvestigationEvent` records emitted for the investigation.
         """
-        return self._run_events.get(run_id, ())
+        return self._investigation_events.get(investigation_id, ())
 
-    def save_run(self, record: InvestigationRecord) -> None:
-        """Stores a run record, replacing any existing record with the same ID.
+    def save_investigation(self, record: Investigation) -> None:
+        """Stores an investigation, replacing any existing one with the same ID.
 
         Args:
-            record: Investigation run record to store.
+            record: Investigation to store.
         """
         with self._write:
-            self._runs = {**self._runs, record.run_id: record}
+            self._investigations = {
+                **self._investigations,
+                record.investigation_id: record,
+            }
 
-    def append_run_event(self, run_id: str, event: InvestigationEvent) -> None:
-        """Appends an event to a run's event sequence.
+    def append_investigation_event(
+        self, investigation_id: str, event: InvestigationEvent
+    ) -> None:
+        """Appends an event to an investigation's event sequence.
 
-        Events are kept separate from run records so full-record replacements
+        Events are kept separate from investigations so full-record replacements
         do not overwrite intermediate events emitted by workflow nodes.
 
         Args:
-            run_id: Investigation run identifier.
+            investigation_id: Investigation identifier.
             event: Event record to append.
         """
         with self._write:
-            existing = self._run_events.get(run_id, ())
-            self._run_events = {**self._run_events, run_id: (*existing, event)}
+            existing = self._investigation_events.get(investigation_id, ())
+            self._investigation_events = {
+                **self._investigation_events,
+                investigation_id: (*existing, event),
+            }
 
     # --- Insights ----------------------------------------------------------- #
 
@@ -136,13 +151,13 @@ class InMemoryStore:
         return self._insights
 
     @property
-    def occurrences(self) -> tuple[InsightOccurrence, ...]:
-        """All occurrences in recording order.
+    def insight_occurrences(self) -> tuple[InsightOccurrence, ...]:
+        """All insight occurrences in recording order.
 
         Stored as a flat sequence because occurrences move between insights upon
         merging, and each occurrence references its active insight ID directly.
         """
-        return self._occurrences
+        return self._insight_occurrences
 
     @property
     def root_causes(self) -> tuple[RootCause, ...]:
@@ -174,87 +189,101 @@ class InMemoryStore:
                 updated `Insights` instance. Must not block.
         """
         with self._write:
-            insights, occurrences, root_causes = change(
-                Insights(self._insights, self._occurrences, self._root_causes)
+            insights, insight_occurrences, root_causes = change(
+                Insights(
+                    self._insights,
+                    self._insight_occurrences,
+                    self._root_causes,
+                )
             )
             self._insights = dict(insights)
-            self._occurrences = tuple(occurrences)
+            self._insight_occurrences = tuple(insight_occurrences)
             self._root_causes = tuple(root_causes)
 
-    # --- Trajectories --------------------------------------------------------- #
+    # --- Trajectories ------------------------------------------------------- #
 
     @property
-    def trajectories(self) -> Mapping[tuple[str, str], Trajectory]:
-        """Trajectory index rows keyed by (run_id, trajectory_id).
+    def investigation_trajectories(
+        self,
+    ) -> Mapping[tuple[str, str], InvestigationTrajectory]:
+        """Investigation trajectories keyed by (investigation_id, trajectory_id).
 
         Keyed by pair because trajectory IDs are unique only within an
-        investigation run.
+        investigation.
         """
-        return self._trajectories
+        return self._investigation_trajectories
 
     @property
-    def archives(self) -> Mapping[str, TrajectoryArchive]:
-        """Archived conversations keyed by trajectory ID.
+    def trajectory_bundles(self) -> Mapping[str, TrajectoryBundle]:
+        """Trajectory bundles keyed by trajectory ID.
 
-        Stores a single preferred payload version per trajectory ID across all
-        sweeps.
+        Stores a single preferred copy per trajectory ID across all
+        investigations.
         """
-        return self._archives
+        return self._trajectory_bundles
 
-    def save_trajectories(self, trajectories: Sequence[Trajectory]) -> None:
-        """Stores trajectory index records, replacing existing records with matching keys.
+    def save_investigation_trajectories(
+        self, investigation_trajectories: Sequence[InvestigationTrajectory]
+    ) -> None:
+        """Stores investigation trajectories, replacing any with matching keys.
 
         Args:
-            trajectories: Sequence of trajectory index records to store.
+            investigation_trajectories: Investigation trajectories to store.
         """
-        if not trajectories:
+        if not investigation_trajectories:
             return
         with self._write:
-            self._trajectories = {
-                **self._trajectories,
-                **{(t.run_id, t.trajectory_id): t for t in trajectories},
+            self._investigation_trajectories = {
+                **self._investigation_trajectories,
+                **{
+                    (t.investigation_id, t.trajectory_id): t
+                    for t in investigation_trajectories
+                },
             }
 
-    def delete_run_trajectories(self, run_id: str, agent_name: str) -> None:
-        """Removes trajectory index rows for a specific run and agent.
+    def delete_investigation_trajectories(
+        self, investigation_id: str, observed_agent_key: str
+    ) -> None:
+        """Removes the investigation trajectories of one investigation and agent.
 
-        Preserves conversation archives because they may serve as evidence for
-        other investigation runs.
+        Preserves trajectory bundles because they may serve as evidence for
+        other investigations.
 
         Args:
-            run_id: Investigation run identifier to clean up.
-            agent_name: Name of the observed agent scoping the removal.
+            investigation_id: Investigation identifier to clean up.
+            observed_agent_key: Key of the observed agent scoping the removal.
         """
         with self._write:
-            self._trajectories = {
+            self._investigation_trajectories = {
                 key: trajectory
-                for key, trajectory in self._trajectories.items()
+                for key, trajectory in self._investigation_trajectories.items()
                 if not (
-                    key[0] == run_id and trajectory.agent_name == agent_name
+                    key[0] == investigation_id
+                    and trajectory.observed_agent_key == observed_agent_key
                 )
             }
 
-    def save_archive(
+    def save_trajectory_bundle(
         self,
-        archive: TrajectoryArchive,
+        bundle: TrajectoryBundle,
         *,
-        better: Callable[[TrajectoryPayload, TrajectoryPayload], bool],
+        better: Callable[[TrajectoryManifest, TrajectoryManifest], bool],
     ) -> None:
-        """Saves a conversation archive if preferred over the currently stored version.
+        """Saves a trajectory bundle if preferred over the stored one.
 
-        Evaluates payload preference under the write lock to prevent race conditions
-        between concurrent sweeps.
+        Evaluates manifest preference under the write lock to prevent race
+        conditions between concurrent investigations.
 
         Args:
-            archive: Arriving conversation archive.
-            better: Callable returning True if the arriving payload should replace
-                the currently stored payload.
+            bundle: Arriving trajectory bundle.
+            better: Callable returning True if the arriving manifest should
+                replace the currently stored manifest.
         """
-        key = archive.payload.trajectory_id
+        key = bundle.manifest.trajectory_id
         with self._write:
-            stored = self._archives.get(key)
+            stored = self._trajectory_bundles.get(key)
             if stored is not None and not better(
-                archive.payload, stored.payload
+                bundle.manifest, stored.manifest
             ):
                 return
-            self._archives = {**self._archives, key: archive}
+            self._trajectory_bundles = {**self._trajectory_bundles, key: bundle}

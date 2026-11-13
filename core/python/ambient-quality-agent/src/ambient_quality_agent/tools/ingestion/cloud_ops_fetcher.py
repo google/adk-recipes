@@ -21,14 +21,16 @@ BigQuery).
 The two query shapes mirror the two evaluation scopes in Gemini platform:
 
 * ``MetricType.MULTI_TURN`` — one row per session
-  (``gen_ai.conversation.id``), with every span across the session's
-  traces aggregated and ordered. Each trace becomes a conversation turn.
+  (``gen_ai.conversation.id``), with the spans of the session's traces
+  aggregated and ordered. Each trace becomes a conversation turn.
 * ``MetricType.SINGLE_TURN`` — one row per trace (one turn), with that
   trace's spans aggregated.
 
 Both attach spans to an evaluation case by ``trace_id``. Because execution-level
 spans (such as ``call_llm`` and ``execute_tool``) omit ``gen_ai.conversation.id``,
 session ids are first resolved to trace ids to retain tool execution telemetry.
+Both read a selected session's or trace's spans only within
+`JOIN_BACK_MARGIN_DAYS` of the window (see `build_join_back_window`).
 
 Span payloads are converted to `AgentData` for evaluation.
 """
@@ -38,16 +40,18 @@ from __future__ import annotations
 import datetime as dt
 import json
 import logging
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Mapping
 from typing import Any
 
 from agentplatform._genai.types import EvalCase
 from ambient_quality_agent.tools.evaluation.models import MetricType
 from ambient_quality_agent.tools.ingestion import selector
 from ambient_quality_agent.tools.ingestion.base import (
+    DEFAULT_JOB_TIMEOUT_MS,
     BigQueryJobFetcher,
     CachingGcsReader,
     GcsReader,
+    build_join_back_window,
 )
 from ambient_quality_agent.tools.ingestion.log_fetcher import LogFetcher
 from ambient_quality_agent.tools.ingestion.models import MappedRow
@@ -65,6 +69,7 @@ from ambient_quality_agent.tools.ingestion.trace_converter import (
     TraceAgentDataConverter,
 )
 from ambient_quality_agent.tools.ingestion.trace_models import (
+    LogEntryView,
     Span,
     SpanEvent,
     SpanStatus,
@@ -126,17 +131,32 @@ _LATEST_SPAN_REVISION = (
     "[SAFE_OFFSET(0)]"
 )
 
+_JOIN_BACK_WINDOW = build_join_back_window("s.start_time")
+
+
 # Default target definitions for multi-turn and single-turn queries.
 # The counting and sampling queries share the same targets CTE so both measure
 # the exact same population.
-_MULTI_TURN_TARGETS = f"""
-  SELECT JSON_VALUE(attributes, '$."{ATTR_SESSION_ID}"') AS session_id
+def _build_multi_turn_targets(id_column: str) -> str:
+    """Builds the multi-turn targets subquery projecting the session as `id_column`.
+
+    Args:
+        id_column: Column name the session ID is projected and grouped as.
+
+    Returns:
+        SQL subquery template containing a ``{table_ref}`` placeholder.
+    """
+    return f"""
+  SELECT JSON_VALUE(attributes, '$."{ATTR_SESSION_ID}"') AS {id_column}
   FROM `{{table_ref}}`
   WHERE start_time BETWEEN @window_start AND @window_end
     AND JSON_VALUE(attributes, '$."{ATTR_AGENT_NAME}"') = @agent_name
     AND JSON_VALUE(attributes, '$."{ATTR_SESSION_ID}"') IS NOT NULL
-  GROUP BY session_id
+  GROUP BY {id_column}
 """  # noqa: S608 - trusted identifiers and fixed SQL; values are parameterized
+
+
+_MULTI_TURN_TARGETS = _build_multi_turn_targets("session_id")
 
 _SINGLE_TURN_TARGETS = f"""
   SELECT trace_id
@@ -222,7 +242,9 @@ def _build_multi_turn_sql(targets: str, table_ref: str) -> str:
 
     Maps sampled sessions to trace IDs to aggregate all child spans per trace.
     Random sampling and limit application occur inside the CTE to ensure
-    unbiased sampling when matches exceed the evaluation budget.
+    unbiased sampling when matches exceed the evaluation budget. A row's
+    ``log_windows`` group its traces by the hour they start in, so the logs of
+    a session spread over days are read one active hour at a time.
 
     Args:
         targets: Targets CTE SQL fragment projecting ``session_id``.
@@ -242,33 +264,51 @@ TargetTraces AS (
   FROM `{table_ref}` AS s
   JOIN TargetSessions AS t
     ON JSON_VALUE(s.attributes, '$."{ATTR_SESSION_ID}"') = t.session_id
+  WHERE {_JOIN_BACK_WINDOW}
   GROUP BY trace_id, session_id
+),
+Sessions AS (
+  SELECT
+    session_id,
+    ARRAY_AGG(
+      STRUCT(trace_id, trace_start, trace_end, spans)
+      ORDER BY trace_start ASC
+    ) AS traces,
+    ARRAY_AGG(
+      agent_revision IGNORE NULLS ORDER BY trace_start DESC LIMIT 1
+    )[SAFE_OFFSET(0)] AS agent_revision
+  FROM (
+    SELECT
+      t.session_id AS session_id,
+      s.trace_id AS trace_id,
+      MIN(s.start_time) AS trace_start,
+      MAX(s.end_time) AS trace_end,
+      {_LATEST_SPAN_REVISION} AS agent_revision,
+      ARRAY_AGG({_SPAN_STRUCT} ORDER BY s.start_time ASC) AS spans
+    FROM `{table_ref}` AS s
+    JOIN TargetTraces AS t USING (trace_id)
+    WHERE {_JOIN_BACK_WINDOW}
+    GROUP BY s.trace_id, t.session_id
+  )
+  GROUP BY session_id
 )
 SELECT
-  session_id,
-  ARRAY_AGG(
-    STRUCT(trace_id, spans)
-    ORDER BY trace_start ASC
-  ) AS traces,
-  ARRAY_AGG(
-    agent_revision IGNORE NULLS ORDER BY trace_start DESC LIMIT 1
-  )[SAFE_OFFSET(0)] AS agent_revision
-FROM (
-  SELECT
-    t.session_id AS session_id,
-    s.trace_id AS trace_id,
-    MIN(s.start_time) AS trace_start,
-    {_LATEST_SPAN_REVISION} AS agent_revision,
-    ARRAY_AGG({_SPAN_STRUCT} ORDER BY s.start_time ASC) AS spans
-  FROM `{table_ref}` AS s
-  JOIN TargetTraces AS t USING (trace_id)
-  GROUP BY s.trace_id, t.session_id
-)
-GROUP BY session_id
+  *,
+  ARRAY(
+    SELECT AS STRUCT
+      ARRAY_AGG(trace.trace_id ORDER BY trace.trace_start) AS trace_ids,
+      MIN(trace.trace_start) AS start_time,
+      MAX(trace.trace_end) AS end_time
+    FROM UNNEST(traces) AS trace
+    GROUP BY TIMESTAMP_TRUNC(trace.trace_start, HOUR)
+    ORDER BY start_time
+  ) AS log_windows
+FROM Sessions
 """  # noqa: S608 - may embed agent selector SQL, gated by precheck_selector's table guard and dry-run allowlist
 
 
 # Samples traces directly up to the evaluation budget for single-turn evaluation.
+# A row's one log window is its trace's own time range.
 _SINGLE_TURN_SQL = f"""
 WITH TargetTraces AS (
 {_SINGLE_TURN_TARGETS}
@@ -279,9 +319,15 @@ SELECT
   s.trace_id AS trace_id,
   JSON_VALUE(ANY_VALUE(s.attributes), '$."{ATTR_SESSION_ID}"') AS session_id,
   {_LATEST_SPAN_REVISION} AS agent_revision,
-  ARRAY_AGG({_SPAN_STRUCT} ORDER BY s.start_time ASC) AS spans
+  ARRAY_AGG({_SPAN_STRUCT} ORDER BY s.start_time ASC) AS spans,
+  [STRUCT(
+    [s.trace_id] AS trace_ids,
+    MIN(s.start_time) AS start_time,
+    MAX(s.end_time) AS end_time
+  )] AS log_windows
 FROM `{{table_ref}}` AS s
 JOIN TargetTraces AS t USING (trace_id)
+WHERE {_JOIN_BACK_WINDOW}
 GROUP BY s.trace_id
 """  # noqa: S608 - trusted identifiers and fixed SQL; values are parameterized
 
@@ -296,6 +342,9 @@ class CloudOpsFetcher(BigQueryJobFetcher):
     """
 
     TELEMETRY_SOURCE = selector.CLOUD_OPS_SOURCE
+    SELECTOR_TIME_COLUMN = "start_time"
+    STARTER_SELECTOR = _build_multi_turn_targets(selector.TARGET_COLUMN)
+    SCHEMA_FILE = "all_spans.schema.json"
     FOLLOWS_PAYLOAD_REFS = True
 
     def __init__(
@@ -311,7 +360,7 @@ class CloudOpsFetcher(BigQueryJobFetcher):
         recorder: TrajectoryRecorder | NullTrajectoryRecorder | None = None,
         selector_sql: str = "",
         selector_ai_model: str = "",
-        job_timeout_ms: int | None = None,
+        job_timeout_ms: int = DEFAULT_JOB_TIMEOUT_MS,
     ) -> None:
         """Initialize the fetcher.
 
@@ -445,10 +494,16 @@ class CloudOpsFetcher(BigQueryJobFetcher):
         trajectory_id = str(eval_case_id or "")
         source_trace_ids = tuple(str(trace_id) for trace_id in trace_ids)
 
-        start, end = _compute_span_time_window(traces)
-        log_entries_by_span = self._log_fetcher.fetch_entries_by_span(
-            trace_ids, start=start, end=end
-        )
+        log_entries_by_span: dict[str, list[LogEntryView]] = {}
+        for window in row.get("log_windows") or []:
+            # Each trace is in one window, so no span's entries are replaced.
+            log_entries_by_span.update(
+                self._log_fetcher.fetch_entries_by_span(
+                    window["trace_ids"],
+                    start=window["start_time"],
+                    end=window["end_time"],
+                )
+            )
         report = ConversionReport()
         try:
             agent_data = self._converter.convert(
@@ -486,50 +541,6 @@ class CloudOpsFetcher(BigQueryJobFetcher):
             session_id=session_id,
             trace_ids=source_trace_ids,
         )
-
-
-def _compute_span_time_window(
-    traces: Sequence[Sequence[Span]],
-) -> tuple[dt.datetime | None, dt.datetime | None]:
-    """Return the earliest/latest span ``end_time`` across ``traces``.
-
-    Bounds the Cloud Logging query to the sampled cases' time range.
-    Only ``end_time`` is available on spans, so it stands in for both ends
-    of the window; the fetcher's buffer absorbs start/end skew.
-
-    Args:
-        traces: Sequence of traces containing spans.
-
-    Returns:
-        Tuple of (earliest, latest) datetimes, or (None, None) if no spans
-        contain parseable timestamps.
-    """
-    times = [
-        parsed
-        for trace in traces
-        for span in trace
-        if (parsed := _parse_span_end_time(span.end_time)) is not None
-    ]
-    if not times:
-        return None, None
-    return min(times), max(times)
-
-
-def _parse_span_end_time(end_time: str | None) -> dt.datetime | None:
-    """Parse a span's ISO-8601 ``end_time`` into a UTC datetime.
-
-    Args:
-        end_time: ISO-8601 formatted timestamp string.
-
-    Returns:
-        Parsed datetime object, or None if input is empty or invalid.
-    """
-    if not end_time:
-        return None
-    try:
-        return dt.datetime.fromisoformat(end_time.replace("Z", "+00:00"))
-    except ValueError:
-        return None
 
 
 def _decode_spans(spans: Any) -> list[Span]:

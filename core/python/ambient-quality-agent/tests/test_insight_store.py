@@ -35,11 +35,11 @@ from ambient_quality_agent.tools.insights.bigquery_store import (
 from ambient_quality_agent.tools.insights.clustering import Cluster
 from ambient_quality_agent.tools.insights.findings import Finding
 from ambient_quality_agent.tools.insights.models import (
+    FindingExample,
     Insight,
     InsightOccurrence,
     InsightStatus,
     OccurrenceState,
-    RubricExample,
 )
 
 _PROJECT = "test-project"
@@ -57,7 +57,7 @@ def _store(client: mock.MagicMock) -> BigQueryInsightStore:
         client=client,
         project_id=_PROJECT,
         dataset=_DATASET,
-        agent_name=_AGENT,
+        observed_agent_key=_AGENT,
     )
 
 
@@ -84,13 +84,13 @@ def _sql(call: Any) -> str:
 
 
 def _cluster(label: str) -> Cluster:
-    return Cluster(label=label, finding_ids=[1], item_count=1)
+    return Cluster(label=label, finding_ids=[1], finding_count=1)
 
 
 def _insight(insight_id: str = "ins-1") -> Insight:
     return Insight(
         insight_id=insight_id,
-        agent_name=_AGENT,
+        observed_agent_key=_AGENT,
         label="made no tool call",
         status=InsightStatus.NEW,
         created_at=_NOW,
@@ -103,19 +103,19 @@ def _occurrence(insight_id: str = "ins-1") -> InsightOccurrence:
         occurrence_id="occ-1",
         insight_id=insight_id,
         occurrence_state=OccurrenceState.TRACKED,
-        run_id="run-1",
+        investigation_id="run-1",
         created_at=_NOW,
-        agent_name=_AGENT,
+        observed_agent_key=_AGENT,
         label="made no tool call",
-        item_count=1,
-        rubrics=[
-            RubricExample(
-                rubric=Finding(
+        finding_count=1,
+        examples=[
+            FindingExample(
+                finding=Finding(
                     expected_behavior="call create_ticket",
                     actual_behavior="no tool call was made",
-                    session_id="case-1",
+                    trajectory_id="case-1",
                 ),
-                eval_case_id="case-1",
+                trajectory_id="case-1",
             )
         ],
     )
@@ -150,7 +150,7 @@ def test_cleanup_failed_insights_deletes_occurrences_then_orphans_in_order() -> 
     assert f"DELETE FROM `{_OCCURRENCES_REF}`" in _sql(first)  # noqa: S608 - trusted test constants
     assert f"DELETE FROM `{_INSIGHTS_REF}`" in _sql(second)  # noqa: S608 - trusted test constants
     assert "NOT EXISTS" in _sql(second)
-    assert _params(first) == {"run_id": "run-1", "agent_name": _AGENT}
+    assert _params(first) == {"investigation_id": "run-1", "agent_name": _AGENT}
 
 
 # --- find_existing_insights ---------------------------------------------------
@@ -224,6 +224,67 @@ def test_find_existing_insights_with_an_empty_store_asks_nothing() -> None:
         assert store.find_existing_insights([_cluster("a")]) == {0: None}
 
 
+def _match_equal_labels(
+    candidates, existing, **kwargs
+) -> dict[int, int | None]:
+    """A judge that matches a candidate to the first identical existing label.
+
+    Args:
+        candidates: Candidate issue labels to match.
+        existing: Existing insight labels to compare against.
+        **kwargs: The judge's keyword options, ignored.
+
+    Returns:
+        Mapping of candidate indices to the matching existing index, or None.
+    """
+    return {
+        i: existing.index(label) if label in existing else None
+        for i, label in enumerate(candidates)
+    }
+
+
+def test_find_existing_insights_never_matches_across_agents() -> None:
+    """One wording in two agents is two defects, so a sub-agent's candidate
+    must not land on the root's insight, nor the other way round."""
+    client = mock.MagicMock()
+    client.query.return_value.result.return_value = [
+        {"insight_id": "ins-root", "agent_id": _AGENT, "label": "same"},
+        {"insight_id": "ins-sub", "agent_id": "sub_agent", "label": "same"},
+    ]
+
+    with mock.patch.object(matching, "match_candidates", _match_equal_labels):
+        result = _store(client).find_existing_insights(
+            [
+                Cluster(label="same", agent_id="sub_agent"),
+                Cluster(label="same", agent_id=_AGENT),
+                Cluster(label="same", agent_id="other_agent"),
+            ]
+        )
+
+    assert result == {0: "ins-sub", 1: "ins-root", 2: None}
+    assert "SELECT insight_id, agent_id, label" in _sql(client.query.call_args)
+
+
+def test_an_unattributed_insight_matches_root_candidates_only() -> None:
+    """A NULL `agent_id` stands for the root agent, as does a candidate with an
+    empty one."""
+    client = mock.MagicMock()
+    client.query.return_value.result.return_value = [
+        {"insight_id": "ins-legacy", "agent_id": None, "label": "same"},
+    ]
+
+    with mock.patch.object(matching, "match_candidates", _match_equal_labels):
+        result = _store(client).find_existing_insights(
+            [
+                Cluster(label="same", agent_id=_AGENT),
+                Cluster(label="same"),
+                Cluster(label="same", agent_id="sub_agent"),
+            ]
+        )
+
+    assert result == {0: "ins-legacy", 1: "ins-legacy", 2: None}
+
+
 # --- save_investigation_result ------------------------------------------------
 
 
@@ -249,10 +310,19 @@ def test_save_result_inserts_new_insights_and_occurrences_and_marks_recurring() 
     assert loaded[_INSIGHTS_REF][0]["insight_id"] == "ins-new"
     assert loaded[_INSIGHTS_REF][0]["status"] == "NEW"
 
-    # The rubrics list is serialized into the JSON `rubrics` column.
-    rubrics = json.loads(loaded[_OCCURRENCES_REF][0]["rubrics"])
+    # The examples are serialized into the JSON `rubrics` column under the
+    # keys existing rows hold, and the row under the existing column names.
+    row = loaded[_OCCURRENCES_REF][0]
+    rubrics = json.loads(row["rubrics"])
     assert rubrics[0]["rubric"]["expected_behavior"] == "call create_ticket"
+    assert rubrics[0]["rubric"]["session_id"] == "case-1"
     assert rubrics[0]["eval_case_id"] == "case-1"
+    assert (row["run_id"], row["agent_name"], row["trace_count"]) == (
+        "run-1",
+        _AGENT,
+        0,
+    )
+    assert loaded[_INSIGHTS_REF][0]["agent_name"] == _AGENT
 
     # One statement: an insight is never dated to this sweep without the status
     # that goes with it.
@@ -538,3 +608,18 @@ def test_a_newly_minted_insight_carries_no_operator_judgement() -> None:
     assert row["dismissed_at"] is None
     assert row["merged_into_insight_id"] is None
     assert row["merged_at"] is None
+
+
+def test_a_newly_minted_insight_records_its_agent() -> None:
+    client = mock.MagicMock()
+
+    _store(client).save_investigation_result(
+        new_insights=[_insight().model_copy(update={"agent_id": "sub_agent"})],
+        seen_insight_ids=[],
+        recurring_insight_ids=[],
+        occurrences=[],
+        now=_NOW,
+    )
+
+    (row,) = client.load_table_from_json.call_args.args[0]
+    assert row["agent_id"] == "sub_agent"

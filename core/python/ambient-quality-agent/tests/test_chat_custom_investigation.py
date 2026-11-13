@@ -27,17 +27,22 @@ from typing import Any
 from unittest import mock
 
 import pytest
+from ambient_quality_agent.config import ObservedAgentConfig
 from ambient_quality_agent.core import chat_agent
 from ambient_quality_agent.core.investigation import job_scheduling as schedule
 from ambient_quality_agent.core.investigation import locking, preview
+from ambient_quality_agent.standalone.files import FileObjectStore
 from ambient_quality_agent.tools.ingestion import selector
 from ambient_quality_agent.tools.investigations.models import (
     CUSTOM_TRIGGER_TYPE,
-    RunStatus,
+    InvestigationStatus,
 )
-from ambient_quality_agent.tools.observed_agent_config import effective_config
+from ambient_quality_agent.tools.observed_agent_config import (
+    effective_config,
+    store,
+)
 
-from .conftest import StateContext, get_run, make_config
+from .conftest import StateContext, get_stored_investigation, make_config
 
 _SELECTOR = """
 SELECT session_id AS target_id
@@ -111,6 +116,24 @@ def mock_submit(monkeypatch: pytest.MonkeyPatch) -> mock.MagicMock:
     fake = mock.MagicMock(return_value={"job_name": "op/123"})
     monkeypatch.setattr(schedule, "submit_investigation", fake)
     return fake
+
+
+@pytest.fixture(autouse=True)
+def attached_agent(jobs_store: FileObjectStore) -> None:
+    """Attach the agent a request that selects none investigates.
+
+    Without one there is nothing to investigate, and every investigation is refused
+    before the checks these tests are about.
+    """
+    store.save_agent_record(
+        jobs_store,
+        store.AgentRecord(
+            config=ObservedAgentConfig(
+                observed_agent_name="support", agent_key="support"
+            )
+        ),
+    )
+    effective_config.clear_cache()
 
 
 def _eval_service(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -324,14 +347,12 @@ def test_a_started_run_carries_the_overrides_and_the_custom_trigger(
 
     result = _start(context, session_review_focus="only booking failures")
 
-    record = get_run(context.state, result["run_id"])
-    assert result["status"] == RunStatus.PENDING
+    record = get_stored_investigation(context.state, result["investigation_id"])
+    assert result["status"] == InvestigationStatus.PENDING
     assert record.trigger_type == CUSTOM_TRIGGER_TYPE
     assert record.custom_overrides is not None
     assert record.custom_overrides.selector_sql == _SELECTOR
-    assert (
-        record.custom_overrides.session_review_focus == "only booking failures"
-    )
+    assert record.custom_overrides.review_focus == "only booking failures"
 
 
 def test_a_refused_selector_starts_nothing(
@@ -343,7 +364,7 @@ def test_a_refused_selector_starts_nothing(
     assert (
         result["reason"] == selector.RejectionReason.MISSING_AGENT_FILTER.value
     )
-    assert "run_id" not in result
+    assert "investigation_id" not in result
     mock_submit.assert_not_called()
 
 
@@ -352,15 +373,15 @@ def test_a_held_agent_is_reported_rather_than_its_running_sweep(
     mock_submit: mock.MagicMock,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Verify active runs block custom runs rather than returning unmatched sweep results."""
+    """Verify active runs block custom investigations rather than returning unmatched sweep results."""
     held = mock.MagicMock()
     held.acquire.return_value = "run-already-running"
     monkeypatch.setattr(locking, "lock_factory", lambda _config: held)
 
     result = _start(StateContext())
 
-    assert result["running_run_id"] == "run-already-running"
-    assert "run_id" not in result
+    assert result["running_investigation_id"] == "run-already-running"
+    assert "investigation_id" not in result
     mock_submit.assert_not_called()
 
 
@@ -369,14 +390,14 @@ def test_a_busy_deployment_refuses_rather_than_queueing(
     mock_submit: mock.MagicMock,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(schedule, "MAX_RUNS_IN_FLIGHT", 1)
+    monkeypatch.setattr(schedule, "MAX_INVESTIGATIONS_IN_FLIGHT", 1)
     context = StateContext()
     _start(context)
 
     result = _start(context)
 
-    assert result["runs_in_flight"] == 1
-    assert "run_id" not in result
+    assert result["investigations_in_flight"] == 1
+    assert "investigation_id" not in result
 
 
 def test_a_launch_that_raises_is_reported_not_propagated(
@@ -390,9 +411,9 @@ def test_a_launch_that_raises_is_reported_not_propagated(
 
     result = _start(StateContext())
 
-    # A run recorded and never submitted is a failure, not a started run.
+    # An investigation recorded and never submitted is a failure, not a started run.
     assert "no" in result["error"]
-    assert "run_id" not in result
+    assert "investigation_id" not in result
 
 
 # --- what the logs say -------------------------------------------------------- #

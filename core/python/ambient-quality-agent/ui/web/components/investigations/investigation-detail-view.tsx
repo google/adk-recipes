@@ -18,39 +18,64 @@ import { ArrowLeft } from "lucide-react";
 import { investigationQuery } from "@/lib/aqua-api";
 import { describeFailure } from "@/lib/failure";
 import { FailureNote } from "@/components/ui/failure-note";
-import { fromRunEvents } from "@/lib/trajectory/fromRunEvents";
+import { investigationEventsToTrajectoryDoc } from "@/lib/trajectory/investigationEventsToTrajectoryDoc";
 import { CounterPanel } from "./counter-panel";
 import { CustomMetricsPanel } from "./custom-metrics-panel";
-import { RunEventLedger } from "./run-event-ledger";
+import { InvestigationEventLedger } from "./investigation-event-ledger";
 import { Trajectory } from "@/components/trajectory/trajectory";
 import { ConversationLink } from "@/components/investigations/conversation-link";
-import { InsightsView } from "@/components/insights/insights-view";
+import {
+  InsightsView,
+  type InsightStatusFilter,
+} from "@/components/insights/insights-view";
 import { Funnel } from "@/components/stats/funnel";
 import { HelpPopover } from "@/components/ui/help-popover";
 import {
-  ABSENT,
   agentLabel,
+  extractReviewFocus,
   formatInstant,
   isScheduled,
   noCountsText,
-  runStats,
+  buildInvestigationStats,
   renderScheduledText,
   telemetryWindow,
-} from "@/lib/run-summary";
+} from "@/lib/investigation-summary";
 import { RawJson } from "@/components/ui/raw-json";
+import { TriggerBadge } from "./trigger-badge";
 import { PageHeader } from "@/components/nav/page-header";
 import { mono, textStyle } from "@/lib/typography";
 import { cn, formatSentenceCase } from "@/lib/utils";
+import { useAgentKey } from "@/lib/agent-selection";
 
-export function InvestigationDetailView({ runId }: { runId: string }) {
+/**
+ * One investigation: its summary, the insights it found, and its counters.
+ *
+ * The insights list's status tab and page are the caller's when it passes
+ * their change handlers, as `InsightsView` describes; without them the list
+ * keeps both itself.
+ */
+export function InvestigationDetailView({
+  investigationId,
+  insightStatus,
+  onInsightStatusChange,
+  insightPage,
+  onInsightPageChange,
+}: {
+  investigationId: string;
+  insightStatus?: InsightStatusFilter;
+  onInsightStatusChange?: (status: InsightStatusFilter | undefined) => void;
+  insightPage?: number;
+  onInsightPageChange?: (page: number | undefined) => void;
+}) {
+  const agentKey = useAgentKey();
   const { data, isLoading, isError, error } = useQuery(
-    investigationQuery(runId),
+    investigationQuery(agentKey, investigationId),
   );
 
   if (isLoading) {
     return (
       <div className={textStyle.description}>
-        Loading investigation {runId.slice(0, 8)}…
+        Loading investigation {investigationId.slice(0, 8)}…
       </div>
     );
   }
@@ -61,27 +86,29 @@ export function InvestigationDetailView({ runId }: { runId: string }) {
     );
   }
 
-  if (!data?.run) {
+  if (!data?.investigation) {
     return (
       <div className={textStyle.description}>
-        No record returned for {runId}.
+        No record returned for {investigationId}.
       </div>
     );
   }
 
-  const run = data.run;
-  const passed = run.metrics_passed ?? 0;
-  const failed = run.metrics_failed ?? 0;
-  const errored = run.metrics_errored ?? 0;
+  const investigation = data.investigation;
+  const passed = investigation.metrics_passed ?? 0;
+  const failed = investigation.metrics_failed ?? 0;
+  const errored = investigation.metrics_errored ?? 0;
   const totalScored = passed + failed + errored;
   // A sweep that found nothing to read is reported as a failure by the record
-  // and as an empty result by this page: the run did stop early, but "your
-  // agent has not been used yet" is the finding, not a defect in AQuA.
-  const failure = run.error ? describeFailure(run.error) : null;
-  const stats = runStats(run);
+  // and as an empty result by this page: the investigation did stop early, but
+  // "your agent has not been used yet" is the finding, not a defect in AQuA.
+  const failure = investigation.error
+    ? describeFailure(investigation.error)
+    : null;
+  const stats = buildInvestigationStats(investigation);
   // Evaluate fields individually because either override can be set independently.
-  const selectorSql = run.custom_overrides?.selector_sql?.trim();
-  const reviewFocus = run.custom_overrides?.session_review_focus?.trim();
+  const selectorSql = investigation.custom_overrides?.selector_sql?.trim();
+  const reviewFocus = extractReviewFocus(investigation);
 
   return (
     <div className="flex flex-col gap-6">
@@ -96,28 +123,39 @@ export function InvestigationDetailView({ runId }: { runId: string }) {
       </Link>
 
       <PageHeader
-        data-tour="run-header"
+        data-tour="investigation-header"
         className="gap-2"
         title={
           <>
-            Investigation <span className={mono}>{run.run_id}</span>
+            Investigation{" "}
+            <span className={mono}>{investigation.investigation_id}</span>
           </>
         }
         aside={
-          <span
-            className={cn(
-              textStyle.label,
-              "rounded border px-2 py-0.5",
-              failure?.kind === "error" &&
-                "border-destructive text-destructive bg-destructive/10",
-              (failure?.kind === "no-data" || (!failure && isScheduled(run))) &&
-                "border-border text-muted-foreground",
-              !failure &&
-                !isScheduled(run) &&
-                "border-emerald-500/40 text-emerald-500 bg-emerald-500/10",
-            )}
-          >
-            {formatSentenceCase(run.status || (run.error ? "failed" : "done"))}
+          <span className="flex items-center gap-2">
+            {/* Who asked for this investigation. A manual investigation and a
+                  scheduled one that found the same thing mean different things:
+                  one is somebody looking, the other is the loop turning. */}
+            <TriggerBadge investigation={investigation} className="py-0.5" />
+            <span
+              className={cn(
+                textStyle.label,
+                "rounded border px-2 py-0.5",
+                failure?.kind === "error" &&
+                  "border-destructive text-destructive bg-destructive/10",
+                (failure?.kind === "no-data" ||
+                  (!failure && isScheduled(investigation))) &&
+                  "border-border text-muted-foreground",
+                !failure &&
+                  !isScheduled(investigation) &&
+                  "border-emerald-500/40 text-emerald-500 bg-emerald-500/10",
+              )}
+            >
+              {formatSentenceCase(
+                investigation.status ||
+                  (investigation.error ? "failed" : "done"),
+              )}
+            </span>
           </span>
         }
       >
@@ -126,39 +164,37 @@ export function InvestigationDetailView({ runId }: { runId: string }) {
         >
           <span>
             Observed agent:{" "}
-            <strong className="text-foreground">{agentLabel(run)}</strong>
+            <strong className="text-foreground">
+              {agentLabel(investigation)}
+            </strong>
           </span>
-          {/* Who asked for this sweep. A `manual` run and a `scheduled` one
-                that found the same thing mean different things: one is
-                somebody looking, the other is the loop turning. */}
-          <span>Trigger: {run.trigger_type || ABSENT}</span>
           {/* The period examined, which the elapsed time below says nothing
-                about -- a 40s run can cover a week. */}
-          <span>Telemetry window: {telemetryWindow(run)}</span>
-          {/* A scheduled run has not started: its record was written when
-                the agent redeploy arrived. */}
+                about -- a 40s investigation can cover a week. */}
+          <span>Telemetry window: {telemetryWindow(investigation)}</span>
+          {/* A scheduled investigation has not started: its record was written
+                when the agent redeploy arrived. */}
           <span>
-            {isScheduled(run) ? "Recorded" : "Started"}:{" "}
-            {new Date(run.created_at).toLocaleString()}
+            {isScheduled(investigation) ? "Recorded" : "Started"}:{" "}
+            {new Date(investigation.created_at).toLocaleString()}
           </span>
-          {/* A run an agent redeploy set waits for its trigger, and the
-                window above is unset until it starts. */}
-          {run.due_at && (
-            <span title={renderScheduledText(run) ?? undefined}>
-              Due: {formatInstant(run.due_at)}
+          {/* An investigation an agent redeploy set waits for its trigger, and
+                the window above is unset until it starts. */}
+          {investigation.due_at && (
+            <span title={renderScheduledText(investigation) ?? undefined}>
+              Due: {formatInstant(investigation.due_at)}
             </span>
           )}
-          <span>Finished: {formatInstant(run.finished_at)}</span>
-          {run.elapsed_seconds !== null &&
-            run.elapsed_seconds !== undefined && (
-              <span>Duration: {run.elapsed_seconds.toFixed(1)}s</span>
+          <span>Finished: {formatInstant(investigation.finished_at)}</span>
+          {investigation.elapsed_seconds !== null &&
+            investigation.elapsed_seconds !== undefined && (
+              <span>Duration: {investigation.elapsed_seconds.toFixed(1)}s</span>
             )}
           {/* `0` is the default and means unbounded, so it is shown rather
                 than folded into "not set" -- the two answer the question
-                "why did it stop at N traces?" differently. */}
-          {run.budget_per_metric !== null &&
-            run.budget_per_metric !== undefined && (
-              <span>Budget per metric: {run.budget_per_metric}</span>
+                "why did it stop at N trajectories?" differently. */}
+          {investigation.budget_per_metric !== null &&
+            investigation.budget_per_metric !== undefined && (
+              <span>Budget per metric: {investigation.budget_per_metric}</span>
             )}
           {/* Named for its unit: the pipeline below counts trajectories,
                 and these run several times higher. */}
@@ -189,8 +225,8 @@ export function InvestigationDetailView({ runId }: { runId: string }) {
             </span>
           )}
           <ConversationLink
-            contextId={run.context_id}
-            triggerType={run.trigger_type}
+            contextId={investigation.context_id}
+            triggerType={investigation.trigger_type}
           />
         </div>
 
@@ -231,31 +267,40 @@ export function InvestigationDetailView({ runId }: { runId: string }) {
         >
           <FailureNote
             lead="This investigation stopped early"
-            error={run.error}
+            error={investigation.error}
           />
         </div>
       )}
 
-      {/* This run's funnel, drawn by the component that draws the totals on
-            Home and the investigations page, so the three read alike. */}
+      {/* This investigation's funnel, drawn by the component that draws the
+            totals on Home and the investigations page, so the three read
+            alike. */}
       <section className="flex flex-col gap-2 rounded-lg border bg-card p-4">
         <h2 className={textStyle.sectionTitle}>Pipeline</h2>
         {stats ? (
           <Funnel stats={stats} />
         ) : (
-          <p className={textStyle.meta}>{noCountsText(run)}</p>
+          <p className={textStyle.meta}>{noCountsText(investigation)}</p>
         )}
       </section>
 
-      {/* The insights this run was the sighting for. The insight store is the
-            record of what a sweep found, so it is read directly rather than
-            through a per-run report: one writer, and a finding stays reachable
-            from the run that raised it and from the issue it belongs to. */}
+      {/* The insights this investigation was the sighting for. The insight
+            store is the record of what a sweep found, so it is read directly
+            rather than through a per-investigation report: one writer, and a
+            finding stays reachable from the investigation that raised it and
+            from the issue it belongs to. */}
       <section className="flex flex-col gap-2 rounded-lg border bg-card p-4">
         <h2 className={textStyle.sectionTitle}>
           Insights from this investigation
         </h2>
-        <InsightsView runId={run.run_id} embedded />
+        <InsightsView
+          investigationId={investigation.investigation_id}
+          embedded
+          status={insightStatus}
+          onStatusChange={onInsightStatusChange}
+          page={insightPage}
+          onPageChange={onInsightPageChange}
+        />
       </section>
 
       {/* Summary Counters */}
@@ -264,13 +309,14 @@ export function InvestigationDetailView({ runId }: { runId: string }) {
         <p className={textStyle.description}>
           Stage-by-stage counts across the entire investigation.
         </p>
-        <CounterPanel counters={run.counters} />
+        <CounterPanel counters={investigation.counters} />
       </section>
 
-      {/* Gate on metrics_detail or metrics_by_name so runs with either
-            published detail or outcomes render. */}
-      {(Object.keys(run.summary?.metrics_detail ?? {}).length > 0 ||
-        Object.keys(run.summary?.metrics_by_name ?? {}).length > 0) && (
+      {/* Gate on metrics_detail or metrics_by_name so investigations with
+            either published detail or outcomes render. */}
+      {(Object.keys(investigation.summary?.metrics_detail ?? {}).length > 0 ||
+        Object.keys(investigation.summary?.metrics_by_name ?? {}).length >
+          0) && (
         <section className="flex flex-col gap-2 rounded-lg border bg-card p-4">
           <h2 className={textStyle.sectionTitle}>Custom metrics</h2>
           <p className={textStyle.description}>
@@ -278,21 +324,21 @@ export function InvestigationDetailView({ runId }: { runId: string }) {
             published custom metric.
           </p>
           <CustomMetricsPanel
-            outcomes={run.summary?.metrics_by_name}
-            detail={run.summary?.metrics_detail}
+            outcomes={investigation.summary?.metrics_by_name}
+            detail={investigation.summary?.metrics_detail}
           />
         </section>
       )}
 
-      {/* Run Event Narrative */}
-      {run.events && run.events.length > 0 && (
+      {/* Investigation event narrative */}
+      {investigation.events && investigation.events.length > 0 && (
         <>
           <section className="flex flex-col gap-2 rounded-lg border bg-card p-4">
             <h2 className={textStyle.sectionTitle}>Workflow narrative</h2>
             <p className={textStyle.description}>
               Node events and executed analysis code in chronological order.
             </p>
-            <RunEventLedger events={run.events} />
+            <InvestigationEventLedger events={investigation.events} />
           </section>
 
           <section className="flex flex-col gap-2 rounded-lg border bg-card p-4">
@@ -300,12 +346,14 @@ export function InvestigationDetailView({ runId }: { runId: string }) {
             <p className={textStyle.description}>
               Click any step to inspect tools, arguments, and raw data.
             </p>
-            <Trajectory doc={fromRunEvents(run.events)} />
+            <Trajectory
+              doc={investigationEventsToTrajectoryDoc(investigation.events)}
+            />
           </section>
         </>
       )}
 
-      <RawJson label="Raw investigation" value={run} />
+      <RawJson label="Raw investigation" value={investigation} />
     </div>
   );
 }

@@ -26,3 +26,8 @@ output "ui_service_uri" {
   description = "URL of the Insights UI service. Private: calling it requires auth."
   value       = module.aqa.ui_service_uri
 }
+
+output "engine_resource_name" {
+  description = "Resource name of the AQuA engine. `agents-cli deploy --deploy-aqua` compares it with the engine its own records name, because a replaced engine leaves them stale."
+  value       = module.aqa.engine_resource_name
+}

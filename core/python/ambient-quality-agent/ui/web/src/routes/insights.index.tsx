@@ -18,15 +18,17 @@ import {
   INSIGHT_STATUS_FILTERS,
   InsightsView,
   type InsightStatusFilter,
+  parsePageNumber,
 } from "@/components/insights/insights-view";
 import { PageShell } from "@/components/nav/page-shell";
 import { parseDay } from "@/lib/day-buckets";
 
 export const Route = createFileRoute("/insights/")({
-  // Every layer below this already filtered by run -- `insightsQuery({runId})`,
-  // the `?runId=` param on `ui/app.py`, and an EXISTS over
-  // `insight_occurrences.run_id` in the reader. The route was the only one that
-  // could not say it, so one sweep's findings had no address of their own.
+  // Every layer below this already filtered by investigation --
+  // `insightsQuery({investigationId})`, the `?investigationId=` param on
+  // `ui/app.py`, and an EXISTS over `insight_occurrences.run_id` in the reader.
+  // The route was the only one that could not say it, so one sweep's findings
+  // had no address of their own.
   //
   // The status filter lives here too, so a filtered list can be linked,
   // reloaded, and returned to with Back from a page it led to. A status the
@@ -37,37 +39,57 @@ export const Route = createFileRoute("/insights/")({
   // insights found or resolved that UTC day. Recurring is dropped beside it,
   // because no day is stamped with a recurrence and the chart has no such
   // series.
+  //
+  // `page` is here for the same reasons as the status: Back from an insight
+  // returns to the page it was opened from, and a link can name a page.
   validateSearch: (
     search: Record<string, unknown>,
-  ): { runId?: string; status?: InsightStatusFilter; day?: string } => {
+  ): {
+    investigationId?: string;
+    status?: InsightStatusFilter;
+    day?: string;
+    page?: number;
+  } => {
     const day = parseDay(search.day);
     const status = INSIGHT_STATUS_FILTERS.find((s) => s === search.status);
     return {
-      runId: typeof search.runId === "string" ? search.runId : undefined,
+      investigationId:
+        typeof search.investigationId === "string"
+          ? search.investigationId
+          : undefined,
       status: day && status === "recurring" ? undefined : status,
       day,
+      page: parsePageNumber(search.page),
     };
   },
   component: function Page() {
-    const { runId, status, day } = Route.useSearch();
+    const { investigationId, status, day, page } = Route.useSearch();
     const navigate = Route.useNavigate();
     return (
       <PageShell>
         <InsightsView
-          runId={runId}
+          investigationId={investigationId}
           status={status}
           // Replaced rather than pushed, so Back leaves the page instead of
-          // stepping through every tab that was tried on it.
+          // stepping through every tab and page that was tried on it. A new
+          // filter starts at its first page.
           onStatusChange={(next) =>
             void navigate({
-              search: (prev) => ({ ...prev, status: next }),
+              search: (prev) => ({ ...prev, status: next, page: undefined }),
               replace: true,
             })
           }
           day={day}
           onDayClear={() =>
             void navigate({
-              search: (prev) => ({ ...prev, day: undefined }),
+              search: (prev) => ({ ...prev, day: undefined, page: undefined }),
+              replace: true,
+            })
+          }
+          page={page}
+          onPageChange={(next) =>
+            void navigate({
+              search: (prev) => ({ ...prev, page: next }),
               replace: true,
             })
           }

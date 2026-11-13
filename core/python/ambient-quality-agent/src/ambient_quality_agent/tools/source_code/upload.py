@@ -62,18 +62,18 @@ class UploadError(ValueError):
 
 
 def write_files(
-    *, agent_name: str, revision: str, files: list[Any]
+    *, agent_key: str, revision: str, files: list[Any]
 ) -> dict[str, Any]:
     """Writes one batch of a snapshot's files.
 
     Args:
-        agent_name: Observed agent the snapshot belongs to.
+        agent_key: Key of the observed agent the snapshot belongs to.
         revision: Runtime revision the snapshot is of.
         files: Entries of `{"path": ..., "content": ...}`, where `content` is
             the file gzipped and base64-encoded.
 
     Returns:
-        `{"agent_name", "revision", "written"}`, or `{"error": ...}` when the
+        `{"agent_key", "revision", "written"}`, or `{"error": ...}` when the
         batch is refused or there is no source store.
     """
     if len(files) > snapshot.MAX_BATCH_FILES:
@@ -84,7 +84,7 @@ def write_files(
             )
         }
     try:
-        root = _build_root(agent_name, revision)
+        root = _build_root(agent_key, revision)
         decoded = [_decode_file(entry) for entry in files]
     except UploadError as exc:
         return {"error": str(exc)}
@@ -96,14 +96,14 @@ def write_files(
             snapshot.build_file_object_name(revision, path, root), data
         )
     return {
-        "agent_name": agent_name,
+        "agent_key": agent_key,
         "revision": revision,
         "written": len(decoded),
     }
 
 
 def commit(
-    *, agent_name: str, revision: str, manifest: dict[str, Any]
+    *, agent_key: str, revision: str, manifest: dict[str, Any]
 ) -> dict[str, Any]:
     """Completes a snapshot by writing its manifest, last.
 
@@ -117,7 +117,7 @@ def commit(
     5. Write the manifest.
 
     Args:
-        agent_name: Observed agent the snapshot belongs to.
+        agent_key: Key of the observed agent the snapshot belongs to.
         revision: Runtime revision the snapshot is of.
         manifest: The manifest's fields as the CLI built them: `engine`,
             `agent_directory`, `ignore_patterns`, `files` and `omitted_files`.
@@ -129,7 +129,7 @@ def commit(
         store.
     """
     try:
-        root = _build_root(agent_name, revision)
+        root = _build_root(agent_key, revision)
         parsed = _build_manifest(revision, manifest)
     except UploadError as exc:
         return {"error": str(exc)}
@@ -154,12 +154,12 @@ def commit(
     # them as present.
     name = snapshot.build_manifest_object_name(revision, root)
     store.delete(name)
-    reader.forget_cached_manifest(store.uri(root), revision)
+    reader.forget_cached_snapshot(store.uri(root), revision)
     for stale in sorted(written - listed):
         store.delete(files_prefix + stale)
     store.write_text(name, parsed.model_dump_json(indent=2))
     return {
-        "agent_name": agent_name,
+        "agent_key": agent_key,
         "revision": revision,
         "file_count": len(parsed.files),
         "total_bytes": parsed.total_bytes,
@@ -169,25 +169,25 @@ def commit(
     }
 
 
-def _build_root(agent_name: str, revision: str) -> str:
+def _build_root(agent_key: str, revision: str) -> str:
     """Validates the snapshot's key and returns the agent's prefix.
 
     Args:
-        agent_name: Observed agent the snapshot belongs to.
+        agent_key: Key of the observed agent the snapshot belongs to.
         revision: Runtime revision the snapshot is of.
 
     Returns:
-        The agent's prefix, `<agent_name>/`.
+        The agent's prefix, `<agent_key>/`.
 
     Raises:
         UploadError: If either is not a valid key segment.
     """
     try:
-        snapshot.validate_agent_name(agent_name)
+        snapshot.validate_agent_key(agent_key)
         snapshot.validate_key_segment(revision, "revision")
     except ValueError as exc:
         raise UploadError(str(exc)) from exc
-    return snapshot.build_agent_root(agent_name)
+    return snapshot.build_agent_root(agent_key)
 
 
 def _validate_path(path: Any) -> str:

@@ -35,6 +35,7 @@ import dataclasses
 import json
 from pathlib import Path
 from typing import Any
+from unittest import mock
 
 import pytest
 from ambient_quality_agent import backends
@@ -72,12 +73,15 @@ from .conftest import (
     FakeReviewCall,
     StateContext,
     ToolContext,
-    create_run,
-    get_run,
+    create_investigation,
+    get_stored_investigation,
     make_agent_case,
     make_config,
     make_page,
 )
+
+# A name ADK accepts, which an agent key requires.
+_AGENT = "root_agent"
 
 _WINDOW = {
     "window_start": "2026-01-01T00:00:00+00:00",
@@ -90,6 +94,24 @@ _WINDOW = {
 def clear_ignored_setting_log() -> None:
     """Each test sees the once-per-process warnings as a new process would."""
     config_module._log_ignored_setting.cache_clear()
+
+
+def _attach_agent_file(jobs: Path, **fields: Any) -> None:
+    """Stores the attachment `aqua attach` writes, as a file under `jobs`.
+
+    Args:
+        jobs: The standalone jobs directory.
+        **fields: `ObservedAgentConfig` fields to set.
+    """
+    agent_store.save_agent_record(
+        FileObjectStore(jobs),
+        agent_store.AgentRecord(
+            config=config_module.ObservedAgentConfig(
+                observed_agent_name=_AGENT, agent_key=_AGENT, **fields
+            )
+        ),
+    )
+    effective_config.clear_cache()
 
 
 # --- what the configuration implies ------------------------------------------ #
@@ -115,7 +137,7 @@ def test_standalone_survives_the_dict_round_trip() -> None:
 
 
 def test_a_workflow_state_seeded_from_config_is_still_standalone() -> None:
-    """The sweep reads `standalone` off the run's state to decide whether an
+    """The sweep reads `standalone` off the investigation's state to decide whether an
     empty window fails. `local_run.py` and the preview seed that state through
     `from_config`, so it has to carry the flag the durable seed already does."""
     assert (
@@ -128,7 +150,7 @@ def test_a_workflow_state_seeded_from_config_is_still_standalone() -> None:
 def test_standalone_drops_the_delayed_update_wiring_and_says_so(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """A stray environment variable must not leave a run half-deployed.
+    """A stray environment variable must not leave an investigation half-deployed.
 
     Dropping configuration is fine; dropping it silently is not.
     """
@@ -170,7 +192,7 @@ def test_standalone_drops_aquas_own_buckets_and_says_so(
 def test_an_ignored_setting_is_logged_once(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """A `Config` is rebuilt several times at start-up and once per run. The
+    """A `Config` is rebuilt several times at start-up and once per investigation. The
     correction applies every time; the warning is logged once."""
     with caplog.at_level("WARNING"):
         for _ in range(3):
@@ -196,7 +218,6 @@ def test_a_deployment_is_unaffected() -> None:
 def test_the_switch_reads_its_environment_variable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("AQA_OBSERVED_AGENT_NAME", "root_agent")
     monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "a-project")
     monkeypatch.setenv("AQA_STANDALONE", "1")
 
@@ -227,7 +248,6 @@ def test_standalone_health_does_not_blame_a_scheduler(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Before the first sweep, health tells a standalone user to start one."""
-    monkeypatch.setenv("AQA_OBSERVED_AGENT_NAME", "root_agent")
     monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "a-project")
     monkeypatch.setenv("AQA_STANDALONE", "1")
 
@@ -290,8 +310,8 @@ def _finds_one_defect(holder: dict[str, Any]) -> None:
 def _standalone_config() -> Any:
     """Builds the effective configuration a standalone run executes under.
 
-    Constructed from the environment rather than make_config so the agent name
-    matches between the sweep's run config and dashboard reads.
+    Read through `effective_config` rather than built with make_config, so the
+    agent name matches between the sweep's investigation config and dashboard reads.
 
     Returns:
         Config instance with standalone mode enabled.
@@ -303,17 +323,17 @@ def _standalone_run(state: dict[str, Any]) -> Any:
     """Creates a PENDING standalone run ready for `execute_investigation`.
 
     Args:
-        state: Shared state dictionary for the run.
+        state: Shared state dictionary for the investigation.
 
     Returns:
         Created investigation record.
     """
     cfg = _standalone_config()
-    return create_run(
+    return create_investigation(
         state,
-        runs.InvestigationRecord(
-            status=runs.RunStatus.PENDING,
-            observed_agent_name=cfg.observed_agent_name,
+        runs.Investigation(
+            status=runs.InvestigationStatus.PENDING,
+            observed_agent_key=cfg.observed_agent_name,
             effective_config=dataclasses.asdict(cfg),
             **_WINDOW,
         ),
@@ -321,7 +341,7 @@ def _standalone_run(state: dict[str, Any]) -> Any:
 
 
 def test_a_sweep_runs_and_its_insights_read_back(
-    patched_factories: dict[str, Any], no_bigquery: None
+    patched_factories: dict[str, Any], no_bigquery: None, tmp_path: Path
 ) -> None:
     """A sweep completes with no dataset, and its insight reads back.
 
@@ -335,12 +355,16 @@ def test_a_sweep_runs_and_its_insights_read_back(
     storage providers; `override_providers` overrides those and gives them back after.
     """
     _finds_one_defect(patched_factories)
+    jobs = tmp_path / "job"
+    _attach_agent_file(jobs)
     state: dict[str, Any] = {}
 
-    with backends.override_providers(standalone=True) as store:
+    with backends.override_providers(standalone=True, jobs_dir=jobs) as store:
         record = _standalone_run(state)
         result = asyncio.run(
-            execute.execute_investigation(record.run_id, StateContext(state))
+            execute.execute_investigation(
+                record.investigation_id, StateContext(state)
+            )
         )
 
         assert result["status"] == "done", result.get("error")
@@ -356,44 +380,88 @@ def test_a_sweep_runs_and_its_insights_read_back(
 
 
 def test_a_sweeps_events_reach_the_run_registry(
-    patched_factories: dict[str, Any], no_bigquery: None
+    patched_factories: dict[str, Any], no_bigquery: None, tmp_path: Path
 ) -> None:
-    """The nodes' events and the run record meet in one store.
+    """The nodes' events and the investigation record meet in one store.
 
     They travel through two providers, `core_state.event_writer` and
     `investigation_model.store_factory`. A backend that bound one and not the
-    other would leave the run detail page empty while the sweep reported
+    other would leave the investigation detail page empty while the sweep reported
     success.
     """
+    jobs = tmp_path / "job"
+    _attach_agent_file(jobs)
     state: dict[str, Any] = {}
 
-    with backends.override_providers(standalone=True):
+    with backends.override_providers(standalone=True, jobs_dir=jobs):
         record = _standalone_run(state)
         asyncio.run(
-            execute.execute_investigation(record.run_id, StateContext(state))
+            execute.execute_investigation(
+                record.investigation_id, StateContext(state)
+            )
         )
-        stored = get_run(state, record.run_id)
+        stored = get_stored_investigation(state, record.investigation_id)
 
     assert stored is not None
-    assert stored.status is runs.RunStatus.DONE
+    assert stored.status is runs.InvestigationStatus.DONE
     assert stored.events
 
 
 def test_the_trajectory_halves_meet_over_one_store(
-    patched_factories: dict[str, Any], no_bigquery: None
+    patched_factories: dict[str, Any], no_bigquery: None, tmp_path: Path
 ) -> None:
     """The recorder writes and the reader reads, through two separate providers.
 
     The sweep above does not cover this: `FakeFetcher` serves pages without
-    reporting to a recorder, so a run over it ingests nothing. Driving the two
+    reporting to a recorder, so an investigation over it ingests nothing. Driving the two
     factories directly is the narrower check, and the one that fails if either
     provider is bound to a store of its own.
     """
-    agent = effective_config.load({}).observed_agent_name
+    agent = _AGENT
+    # The reader resolves the agent it reads for from its attachment.
+    jobs = tmp_path / "job"
+    _attach_agent_file(jobs)
     ctx = StateContext(
         {
             "observed_agent_name": agent,
-            "run_id": "run-1",
+            "investigation_id": "run-1",
+            "telemetry_source": "cloud_ops",
+        }
+    )
+
+    with backends.override_providers(standalone=True, jobs_dir=jobs):
+        recorder = _common.trajectory_recorder_factory(ctx)
+        recorder.add(
+            trajectory_id="chat-1",
+            session_id="chat-1",
+            trace_ids=["trace-1"],
+            status=IngestStatus.INGESTED,
+        )
+        recorder.flush()
+
+        found = trajectory_tools.reader_factory(
+            {"observed_agent_name": agent}
+        ).get_investigation_trajectories([("run-1", "chat-1")])
+
+    assert found["run-1", "chat-1"].source_trace_ids == ["trace-1"]
+
+
+def test_rows_are_stored_and_read_under_the_agent_key(
+    patched_factories: dict[str, Any],
+    no_bigquery: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The same agent in another project shares its name, so its rows are
+    found by its key and not by the name."""
+    agent = _AGENT
+    keyed = make_config(
+        observed_agent_name=agent, agent_key=f"acme-staging__{agent}"
+    )
+    ctx = StateContext(
+        {
+            "observed_agent_name": agent,
+            "agent_key": keyed.agent_key,
+            "investigation_id": "run-1",
             "telemetry_source": "cloud_ops",
         }
     )
@@ -408,11 +476,18 @@ def test_the_trajectory_halves_meet_over_one_store(
         )
         recorder.flush()
 
-        found = trajectory_tools.reader_factory(
-            {"observed_agent_name": agent}
-        ).get_trajectories([("run-1", "chat-1")])
+        monkeypatch.setattr(effective_config, "load", lambda state: keyed)
+        by_key = trajectory_tools.reader_factory(
+            {}
+        ).get_investigation_trajectories([("run-1", "chat-1")])
+        unkeyed = dataclasses.replace(keyed, agent_key="")
+        monkeypatch.setattr(effective_config, "load", lambda state: unkeyed)
+        by_name = trajectory_tools.reader_factory(
+            {}
+        ).get_investigation_trajectories([("run-1", "chat-1")])
 
-    assert found["run-1", "chat-1"].source_trace_ids == ["trace-1"]
+    assert ("run-1", "chat-1") in by_key
+    assert by_name == {}
 
 
 # --- the jobs store ----------------------------------------------------------- #
@@ -453,11 +528,10 @@ def test_standalone_binds_the_jobs_store_to_its_directory(
 def test_the_goal_and_the_memories_are_files_in_standalone(
     tmp_path: Path, no_gcs: None
 ) -> None:
-    """The panes are available, and what they save is a file a person can read.
-
-    Before, both read "unavailable" without a jobs bucket.
-    """
+    """The panes are available, and what they save is a file a person can read."""
     jobs = tmp_path / "job"
+    _attach_agent_file(jobs)
+    agent_dir = jobs / "agents" / _AGENT
 
     with backends.override_providers(standalone=True, jobs_dir=jobs):
         saved = asyncio.run(
@@ -465,7 +539,7 @@ def test_the_goal_and_the_memories_are_files_in_standalone(
         )
         goal = asyncio.run(document_tools.get_goal(ToolContext()))
         memories_doc.record_memory(
-            objects.jobs_store_factory(),
+            document_tools.resolve_selected_document_store(ToolContext()),
             "Tickets need a priority.",
             source="chat-1",
         )
@@ -474,8 +548,10 @@ def test_the_goal_and_the_memories_are_files_in_standalone(
 
     assert saved["goal"] == "Refunds first."
     assert goal["available"] is True
-    assert goal["uri"] == str(jobs / "goal.md")
-    assert (jobs / "goal.md").read_text(encoding="utf-8") == "Refunds first."
+    assert goal["uri"] == str(agent_dir / "goal.md")
+    assert (agent_dir / "goal.md").read_text(
+        encoding="utf-8"
+    ) == "Refunds first."
     assert [v["text"] for v in versions["versions"]] == ["Refunds first."]
     assert listed["available"] is True
     assert [x["text"] for x in listed["memories"]] == [
@@ -486,9 +562,12 @@ def test_the_goal_and_the_memories_are_files_in_standalone(
 def test_a_memory_is_a_file_that_outlives_the_standalone_run(
     tmp_path: Path, no_gcs: None
 ) -> None:
-    """What the chat remembers lands in `.aqua/job/memories/`, is read back by
-    `get_memories` in a later run, and the card's delete removes the file."""
+    """What the chat remembers lands in `.aqua/job/agents/<agent>/memories/`,
+    is read back by `get_memories` in a later investigation, and the card's delete removes
+    the file."""
     jobs = tmp_path / "job"
+    _attach_agent_file(jobs)
+    agent_dir = jobs / "agents" / _AGENT
     text = "The agent's system prompt is in app/prompts/system.md."
 
     with backends.override_providers(standalone=True, jobs_dir=jobs):
@@ -500,7 +579,7 @@ def test_a_memory_is_a_file_that_outlives_the_standalone_run(
                 ),
             )
         )
-    path = jobs / "memories" / f"{saved['id']}.json"
+    path = agent_dir / "memories" / f"{saved['id']}.json"
     on_disk = json.loads(path.read_text(encoding="utf-8"))
 
     with backends.override_providers(standalone=True, jobs_dir=jobs):
@@ -519,15 +598,46 @@ def test_a_memory_is_a_file_that_outlives_the_standalone_run(
     assert not path.exists()
 
 
+def test_a_metric_library_published_in_standalone_is_what_a_run_scores_with(
+    tmp_path: Path, no_gcs: None
+) -> None:
+    """`aqua metrics publish` against a standalone run lands in
+    `.aqua/metrics/`, with no bucket, and the next sweep loads it."""
+    import base64
+
+    from ambient_quality_agent.tools.metrics import publishing
+
+    jobs = tmp_path / "job"
+    library = {
+        "eval_config.yaml": b"metrics_to_run: [m]\ncustom_metrics:\n"
+        b"  - name: m\n    custom_function_file: m.py\n",
+        "m.py": b"def evaluate(instance):\n    return 1.0\n",
+    }
+    files = [
+        {"path": path, "content": base64.b64encode(data).decode()}
+        for path, data in library.items()
+    ]
+
+    with backends.override_providers(standalone=True, jobs_dir=jobs):
+        published = publishing.publish(files, agent_key="", dry_run=False)
+        loaded, warning = _common.metric_library_factory(
+            mock.MagicMock(state={})
+        )
+
+    assert published["published"] is True
+    assert (tmp_path / "metrics" / "current" / "metrics" / "m.py").exists()
+    assert set(loaded) == {"m"}
+    assert warning == ""
+
+
 def test_a_standalone_run_reads_the_attached_agents_configuration_from_a_file(
     tmp_path: Path, no_gcs: None
 ) -> None:
     """An `agents/<name>.json` beside the goal configures the agent, as the
     object `attach` writes does in a deployment."""
-    agent = effective_config.load({}).observed_agent_name
     jobs = tmp_path / "job"
     (jobs / "agents").mkdir(parents=True)
-    (jobs / agent_store.build_object_name(agent)).write_text(
+    (jobs / agent_store.build_object_name(_AGENT)).write_text(
         json.dumps(
             {"schema_version": 1, "agent": {"data_lookback_window": 21}}
         ),
@@ -540,11 +650,16 @@ def test_a_standalone_run_reads_the_attached_agents_configuration_from_a_file(
 
 
 def test_aqua_attach_stores_a_file_in_standalone(
-    tmp_path: Path, no_gcs: None
+    tmp_path: Path, no_gcs: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The attach routes write through the same jobs store, so an attach is a
     file, and the next request runs under it."""
-    agent = effective_config.load({}).observed_agent_name
+    agent = _AGENT
+    cfg = make_config(observed_agent_name=agent, standalone=True)
+    monkeypatch.setattr(commands, "env_config", cfg)
+    monkeypatch.setattr(effective_config, "env_config", cfg)
+    # In AQuA's own project and not re-keyed: the bare name.
+    key = agent
     jobs = tmp_path / "job"
 
     with backends.override_providers(standalone=True, jobs_dir=jobs):
@@ -558,6 +673,6 @@ def test_aqua_attach_stores_a_file_in_standalone(
         loaded = effective_config.load({})
 
     assert result["written"] is True, result
-    assert result["object"] == str(jobs / agent_store.build_object_name(agent))
-    assert (jobs / agent_store.build_object_name(agent)).is_file()
+    assert result["object"] == str(jobs / agent_store.build_object_name(key))
+    assert (jobs / agent_store.build_object_name(key)).is_file()
     assert loaded.data_lookback_window == 21

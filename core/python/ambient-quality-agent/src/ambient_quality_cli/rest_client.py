@@ -26,6 +26,7 @@ from collections.abc import Callable, Mapping
 from typing import Any, Protocol
 
 import httpx
+from ambient_quality_shared.usage_headers import build_usage_headers
 
 DEFAULT_TIMEOUT_SECONDS = 60.0
 """How long a request waits for its response; `list-apps` may wait on an engine
@@ -35,16 +36,19 @@ instance starting."""
 class ApiError(Exception):
     """A Google API answered with an error status."""
 
-    def __init__(self, status: int, message: str):
+    def __init__(self, status: int, message: str, reason: str = ""):
         """Initializes the error.
 
         Args:
             status: HTTP status code.
             message: The API's error message, or the response text.
+            reason: The `reason` of the error's `ErrorInfo` detail, such as
+                `SERVICE_DISABLED`; empty when the reply carries none.
         """
         super().__init__(f"HTTP {status}: {message}")
         self.status = status
         self.message = message
+        self.reason = reason
 
 
 class JsonApi(Protocol):
@@ -151,7 +155,10 @@ class RestClient:
             ApiError: On a non-2xx status, a transport failure, or a reply
                 that is not a JSON object.
         """
-        headers = {"Authorization": f"Bearer {self._token_provider()}"}
+        headers = {
+            "Authorization": f"Bearer {self._token_provider()}",
+            **build_usage_headers(),
+        }
         try:
             response = httpx.request(
                 method, url, headers=headers, timeout=self._timeout, **kwargs
@@ -159,7 +166,11 @@ class RestClient:
         except httpx.HTTPError as exc:
             raise ApiError(0, f"{type(exc).__name__}: {exc}") from exc
         if not response.is_success:
-            raise ApiError(response.status_code, _extract_api_message(response))
+            raise ApiError(
+                response.status_code,
+                _extract_api_message(response),
+                _extract_api_reason(response),
+            )
         if not response.content:
             return {}
         try:
@@ -184,3 +195,31 @@ def _extract_api_message(response: httpx.Response) -> str:
         return str(response.json()["error"]["message"])
     except (ValueError, KeyError, TypeError):
         return response.text.strip()[:300]
+
+
+def _extract_api_reason(response: httpx.Response) -> str:
+    """Extracts the machine-readable error reason from a Google API response.
+
+    Error messages vary by API and locale, whereas the `ErrorInfo` reason
+    reliably distinguishes causes such as `SERVICE_DISABLED` from permission
+    errors.
+
+    Args:
+        response: The failed HTTP response.
+
+    Returns:
+        The `reason` from the first `ErrorInfo` entry in `error.details`, or an
+        empty string if none is present.
+    """
+    try:
+        details = response.json()["error"].get("details") or []
+    except (ValueError, KeyError, TypeError, AttributeError):
+        return ""
+    for detail in details if isinstance(details, list) else []:
+        if (
+            isinstance(detail, dict)
+            and str(detail.get("@type", "")).endswith("google.rpc.ErrorInfo")
+            and detail.get("reason")
+        ):
+            return str(detail["reason"])
+    return ""

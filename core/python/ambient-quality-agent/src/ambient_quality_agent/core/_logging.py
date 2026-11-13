@@ -12,20 +12,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Run-scoped logging.
+"""Investigation-scoped logging.
 
-An investigation touches many modules; correlating their logs by run is
-essential. Rather than thread the ``run_id`` through every call, it is stored
-in a `contextvars.ContextVar` for the duration of the run and injected into
+An investigation touches many modules; correlating their logs by investigation
+is essential. Rather than thread the ``investigation_id`` through every call, it is stored
+in a `contextvars.ContextVar` for the duration of the investigation and injected into
 every `logging.LogRecord` by a root-logger filter -- so any module's
 ``logger.info(...)`` automatically carries the id. The filter prepends
-``[run_id=...]`` to the message so it shows regardless of the handler's
+``[investigation_id=...]`` to the message so it shows regardless of the handler's
 formatter.
 
 Usage::
 
-    install_run_id_logging()            # once, at process start
-    with tag_logs_with_run_id(run_id):  # around the whole run
+    install_investigation_id_logging()            # once, at process start
+    with tag_logs_with_investigation_id(investigation_id):  # around the whole investigation
         ...                             # all logs here are tagged
 """
 
@@ -41,16 +41,16 @@ from typing import Any
 
 from ambient_quality_agent.core._memory import render_memory_summary
 
-_run_id: contextvars.ContextVar[str] = contextvars.ContextVar(
-    "aqa_run_id", default=""
+_investigation_id: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "aqa_investigation_id", default=""
 )
 
 
 _installed = False
 
 
-def install_run_id_logging() -> None:
-    """Tags every log record during a run with its run_id and cgroup memory."""
+def install_investigation_id_logging() -> None:
+    """Tags every log record during an investigation with its `investigation_id` and cgroup memory."""
 
     global _installed
     if _installed:
@@ -59,11 +59,9 @@ def install_run_id_logging() -> None:
 
     def build_tagged_record(*args: Any, **kwargs: Any) -> logging.LogRecord:
         record = base_factory(*args, **kwargs)
-        run_id = _run_id.get()
-        if run_id:
-            record.msg = (
-                f"[run_id={run_id} mem={render_memory_summary()}] {record.msg}"
-            )
+        investigation_id = _investigation_id.get()
+        if investigation_id:
+            record.msg = f"[investigation_id={investigation_id} mem={render_memory_summary()}] {record.msg}"
         return record
 
     logging.setLogRecordFactory(build_tagged_record)
@@ -71,20 +69,20 @@ def install_run_id_logging() -> None:
 
 
 @contextmanager
-def tag_logs_with_run_id(run_id: str) -> Iterator[None]:
-    """Tags all logs emitted within the block with ``run_id``.
+def tag_logs_with_investigation_id(investigation_id: str) -> Iterator[None]:
+    """Tags all logs emitted within the block with ``investigation_id``.
 
     Args:
-        run_id: Investigation run identifier to inject into log messages.
+        investigation_id: Investigation identifier to inject into log messages.
 
     Yields:
         None.
     """
-    token = _run_id.set(run_id)
+    token = _investigation_id.set(investigation_id)
     try:
         yield
     finally:
-        _run_id.reset(token)
+        _investigation_id.reset(token)
 
 
 def log_node_run(

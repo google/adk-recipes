@@ -26,6 +26,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+import _acli
 import acli_aqua
 import acli_deploy
 import pytest
@@ -72,7 +73,7 @@ def test_deploy_publishes_through_aquas_cli(deploy: _Recorder) -> None:
 
     assert deploy.publishes() == [
         [
-            *acli_deploy._AQUA_CLI_COMMAND,
+            *_acli.AQUA_CLI_COMMAND,
             "publish-source",
             "--source-root=/proj",
         ]
@@ -80,11 +81,11 @@ def test_deploy_publishes_through_aquas_cli(deploy: _Recorder) -> None:
 
 
 def test_the_cli_runs_with_the_same_imports_as_the_aqua_command() -> None:
-    """`acli_deploy` repeats the manifest's `--with` list; they must agree."""
+    """`_acli` repeats the manifest's `--with` list; they must agree."""
     manifest = (
         Path(__file__).resolve().parents[1] / "agents-cli-extension.yaml"
     ).read_text(encoding="utf-8")
-    command = acli_deploy._AQUA_CLI_COMMAND
+    command = _acli.AQUA_CLI_COMMAND
     withs = [command[i + 1] for i, arg in enumerate(command) if arg == "--with"]
 
     for name in withs:
@@ -221,7 +222,7 @@ def test_an_agent_attached_elsewhere_publishes_on_a_plain_deploy(
 
     assert recorder.publishes() == [
         [
-            *acli_deploy._AQUA_CLI_COMMAND,
+            *_acli.AQUA_CLI_COMMAND,
             "publish-source",
             f"--source-root={tmp_path}",
         ]

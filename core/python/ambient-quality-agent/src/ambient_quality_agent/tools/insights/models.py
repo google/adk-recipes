@@ -12,15 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""The insight-correlation vocabulary: candidates in, durable issues out.
+"""Data models for insight correlation, occurrences, and root-cause diagnoses.
 
-Per-sweep candidates (`RubricExample`, wrapping a `Finding`) are produced fresh
-every run; `Insight` and `InsightOccurrence` are the durable BigQuery records
-they correlate into.
+Each investigation produces sample findings (`FindingExample`, wrapping a
+`Finding`) and correlates them into durable `Insight` and `InsightOccurrence`
+records.
 
-Plain records, no behavior -- matching and persistence are `InsightStore`'s
-job. Pydantic so they cross the durable JSON state boundary as
-``.model_dump()`` dicts.
+These models hold state without persistence logic, which lives in
+`InsightStore` and `InsightReader`. They subclass `BaseModel` to serialize
+cleanly across workflow state and API boundaries.
 """
 
 from __future__ import annotations
@@ -30,269 +30,255 @@ import enum
 import uuid
 
 from ambient_quality_agent.tools.insights.findings import Finding
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, Field
 
 
 class InsightStatus(enum.StrEnum):
-    """Lifecycle of a durable insight. ``StrEnum`` to serialize as the bare
-    string the BigQuery ``status`` column stores."""
+    """Lifecycle states of a durable insight.
+
+    Subclasses ``StrEnum`` to serialize as the plain string stored in the
+    ``status`` column.
+    """
 
     NEW = "NEW"
     RECURRING = "RECURRING"
 
     RESOLVED = "RESOLVED"
-    """Terminal: the match query skips resolved insights, so a later recurrence
-    mints a new one rather than reopening this."""
+    """Terminal state. Matching queries skip resolved insights, so a later
+    recurrence creates a new insight rather than reopening a resolved one."""
 
 
 class OccurrenceState(enum.StrEnum):
-    """Whether an occurrence is a sighting of an insight, and if not, why not.
+    """Whether an occurrence is a sighting of a tracked insight, or why it was withheld.
 
-    ``StrEnum`` to serialize as the bare string the BigQuery
-    ``occurrence_state`` column stores. Distinct from `InsightStatus`, which is
-    the lifecycle of the durable insight rather than anything about one sweep.
+    Subclasses ``StrEnum`` to serialize as the plain string stored in the
+    ``occurrence_state`` column. Unlike `InsightStatus`, which tracks a durable
+    insight's lifecycle across investigations, this describes a single
+    investigation's candidate cluster.
 
-    Three states in one column, because `InsightOccurrence.insight_id` tells
-    only the first of them from the other two, and a reader left to work out
-    which of the others it was had to go inspecting `analyses`.
+    Distinguishes rejected candidates from unjudged ones directly on the row,
+    since both leave `InsightOccurrence.insight_id` as ``None``.
     """
 
     TRACKED = "TRACKED"
-    """A sighting of the insight `InsightOccurrence.insight_id` names."""
+    """Sighting of the insight named by `InsightOccurrence.insight_id`. When
+    the verification pass ran, it did not reject the candidate."""
 
     REJECTED = "REJECTED"
-    """The verification pass judged the candidate no defect, so it named no
-    insight; the verdict that threw it out is the one under `analyses`."""
+    """Judged not to be a defect by the verification pass (`analyses`), so it
+    names no insight."""
 
     UNJUDGED = "UNJUDGED"
-    """The verification pass reached no verdict -- it skipped the candidate or
-    failed on it -- so nothing vouches for the candidate and it named no
-    insight. What the sweep saw is on the row regardless."""
+    """Skipped or failed during the verification pass, so no verdict confirmed
+    it and it names no insight."""
 
 
-class RubricExample(BaseModel):
-    """A `Finding` plus the conversation it was found in.
+class FindingExample(BaseModel):
+    """A sample `Finding` paired with the conversation turns where it occurred.
 
-    The label says what went wrong, the trace shows where; the downstream
-    root-cause harness needs both. Stored verbatim as JSON on the occurrence, so
-    its shape is a wire contract with `reader` and the dashboard.
+    Provides both the failure description and the conversation context for
+    verification, root-cause analysis, and the dashboard. Stored as JSON on
+    `InsightOccurrence.examples` (in the BigQuery ``rubrics`` column).
     """
 
-    rubric: Finding
-    """The finding, kept under the field name ``rubric`` because that is the key
-    the stored payload and the dashboard read."""
+    finding: Finding = Field(
+        validation_alias=AliasChoices("finding", "rubric"),
+        serialization_alias="rubric",
+    )
+    """The finding. Stored in BigQuery under the key ``rubric``."""
 
-    eval_case_id: str = ""
-    """The session the finding was found in (`Finding.session_id`), kept under
-    this name because that is what the stored payload and the dashboard read."""
+    trajectory_id: str = Field(
+        default="",
+        validation_alias=AliasChoices("trajectory_id", "eval_case_id"),
+        serialization_alias="eval_case_id",
+    )
+    """Trajectory where the finding occurred (`Finding.trajectory_id`). Stored
+    in BigQuery under the key ``eval_case_id``."""
 
-    trace: list[dict] = Field(default_factory=list)
-    """Conversation turns as JSON-safe dicts. Empty when the session's trace was
-    unavailable -- degraded evidence, not an error."""
+    turns: list[dict] = Field(
+        default_factory=list,
+        validation_alias=AliasChoices("turns", "trace"),
+        serialization_alias="trace",
+    )
+    """Conversation turns as JSON-serializable dicts. Empty when the
+    trajectory's turns were unavailable. Stored in BigQuery under ``trace``."""
 
     examined: bool = False
-    """True when the verification pass was actually shown this example's trajectory.
-    Says the model read it, not that the example was validated."""
+    """True when the verification pass inspected this example's trajectory."""
 
 
 class Insight(BaseModel):
-    """A durable, deduplicated production issue.
+    """A durable, deduplicated quality issue across investigations.
 
-    Mirrors ``terraform/modules/aqa/schemas/insights.json``, which is the only
-    definition of that table. Change one and change the other.
-
-    ``insight_id`` is minted once and never changes, so occurrences accumulate
-    against it across sweeps.
+    Maps to the BigQuery ``insights`` table, which stores `observed_agent_key`
+    in the ``agent_name`` column (`FIELD_TO_COLUMN`).
     """
 
     insight_id: str
-    agent_name: str
-    """Scope pre-filter for matching: insights are never compared across
-    agents."""
+    observed_agent_key: str
+    """Key of the observed agent (`Config.resolve_agent_key`); insights are
+    never matched or queried across agents."""
+
+    agent_id: str = ""
+    """Root agent or sub-agent the defect is attributed to (`Cluster.agent_id`).
+    Candidate matching compares only insights attributed to the same agent.
+    Empty on unattributed rows, which default to `observed_agent_key`."""
 
     label: str
 
     status: InsightStatus
     created_at: dt.datetime
-    """First sighting."""
+    """Timestamp of the first sighting."""
 
     updated_at: dt.datetime
-    """Most recent sighting; drives auto-resolution."""
+    """Timestamp of the most recent sighting; used as the cutoff for
+    auto-resolution."""
 
     resolved_at: dt.datetime | None = None
-    """When a sweep resolved it; ``None`` while it is still open.
-
-    A ``None`` value indicates the timestamp is unrecorded rather than unresolved;
-    `status` indicates whether it is resolved."""
+    """Timestamp when auto-resolution marked the insight resolved, or ``None``
+    while open."""
 
     dismissed_at: dt.datetime | None = None
-    """When an operator dismissed it; ``None`` means nobody has.
+    """Timestamp when an operator dismissed the insight, or ``None`` if active.
 
-    Its own column rather than a fourth `InsightStatus`: `status` is what the
-    pipeline decided about the defect, dismissal is what a human decided about
-    the row. A dismissed insight stays matched during clustering, so a
-    recurrence lands on it and stays hidden rather than being minted afresh."""
+    Tracked separately from `status` so dismissed insights remain eligible for
+    candidate matching during correlation: a recurrence attaches to the
+    dismissed insight and stays hidden from list views rather than minting a
+    new visible insight."""
 
     merged_into_insight_id: str | None = None
-    """The insight an operator judged this one a duplicate of; ``None`` when it
-    is not a duplicate of anything.
+    """Target insight ID when an operator marked this insight as a duplicate,
+    or ``None`` if canonical.
 
-    Always names a row whose own pointer is ``None``. `InsightStore.merge_insight`
-    moves the source *and everything already pointing at it* in one statement, so
-    a chain flattens as it is written and the depth is never more than one --
-    which is what lets a read resolve ownership with a single ``COALESCE``."""
+    Always references a row whose own `merged_into_insight_id` is ``None``.
+    `InsightStore.merge_insight` flattens transitive merges on write so read
+    queries can resolve ownership with a single ``COALESCE``."""
 
     merged_at: dt.datetime | None = None
-    """When that judgement was made; ``None`` alongside a ``None``
-    `merged_into_insight_id`. Records the current judgement, not its history: a
-    re-pointed row is restamped."""
+    """Timestamp of the most recent merge into `merged_into_insight_id`, or
+    ``None`` if not merged."""
 
 
 VERIFICATION_ANALYSIS_KEY = "verification"
-"""`InsightOccurrence.analyses` key for the cluster-verification result.
+"""Key in `InsightOccurrence.analyses` for the cluster verification result.
 
-A name rather than a literal because it is a wire contract with two readers
-outside this package: whichever step writes the result, and the dashboard,
-which projects the explanation into what it calls a `diagnosis`. `ui/` cannot
-import this module -- the image ships without the agent -- so it hand-copies
-the value, and `tests/test_ui_investigations.py` holds the two level.
+Shared by the verification pass and the dashboard server (`ui/app.py`), which
+projects the verification explanation as `diagnosis`. Because the UI container
+ships without the agent package, `ui/app.py` defines its own copy and
+`tests/test_ui_investigations.py` verifies they match.
 """
 
 
 class ClusterVerification(BaseModel):
-    """A reality check on one candidate cluster: is it a real defect, and whose.
-
-    Named for what it does rather than for the map it lives in, because a later
-    step will report something else entirely. The step's name is the key in
-    `analyses`, so a reader knows which shape to expect."""
+    """Verification verdict for a candidate cluster, stored in `InsightOccurrence.analyses`."""
 
     model: str = ""
-    """The model that produced this result."""
+    """Name of the model that produced the verdict."""
 
     valid: bool = True
-    """Whether the evidence supports the claim and the cluster is one coherent
-    issue. Under `config.is_verification_enforced` False retires the candidate: it
-    mints no insight and matches none."""
+    """Whether the trajectory evidence supports the defect claim as one coherent
+    issue. When `config.is_verification_enforced` is true, a false verdict
+    withholds the candidate from creating or matching an insight."""
 
     explanation: str = ""
-    """Explains what the defect is and why, giving a triager immediate context
-    without reading raw trajectories."""
+    """Symptom summary explaining what went wrong and why."""
 
     refined_label: str = ""
-    """A sharper restatement of the cluster's `label`. Kept here rather than
-    written over `label`, which is what the sweep itself observed."""
+    """Replacement label proposed by the verification model, or empty if the
+    cluster's original `label` was kept."""
 
     created_at: dt.datetime | None = None
-    """When the method ran, so a stale result is recognizable as one."""
+    """Timestamp when the verification completed."""
 
 
 class InsightOccurrence(BaseModel):
-    """What one sweep saw of one candidate issue, and which insight, if any, it names.
+    """One investigation's sighting of a candidate issue cluster.
 
-    Append-only: never updated, so ordered occurrences reconstruct an issue's
-    history without a transition table. Mirrors
-    ``terraform/modules/aqa/schemas/insight_occurrences.json``, which is the
-    only definition of that table. Change one and change the other.
-
-    An analysis method that runs over a candidate cluster appends its result to
-    `analyses` rather than editing the occurrence: what the sweep observed and what
-    a method concluded about it stay separable, and a second method can be added
-    without another column.
+    Append-only: occurrences are never updated in place, so ordering them by
+    `created_at` reconstructs an insight's sighting history. Maps to the
+    BigQuery ``insight_occurrences`` table, which stores `investigation_id` in
+    ``run_id``, `observed_agent_key` in ``agent_name``, `finding_count` in
+    ``item_count``, `trajectory_count` in ``trace_count``, and `examples` in
+    ``rubrics`` (`FIELD_TO_COLUMN`).
     """
 
     occurrence_id: str
 
     insight_id: str | None
-    """The insight this is a sighting of, or ``None`` when it is a sighting of
-    none and `occurrence_state` says why. Such a row records what the sweep saw
-    for audit; it is no sighting of a tracked insight, so the read path leaves
-    it out."""
+    """Insight this occurrence belongs to, or ``None`` when withheld
+    (`occurrence_state` is ``REJECTED`` or ``UNJUDGED``). Unlinked occurrences
+    are retained for audit and excluded from `InsightReader` queries."""
 
     occurrence_state: OccurrenceState
-    """Whether this is a sighting of a tracked insight, and when it is not, what
-    stopped it being one -- what `insight_id` alone cannot say.
+    """Whether this occurrence is tracked under an insight, rejected, or
+    unjudged. Required so callers must explicitly state why `insight_id` is set
+    or ``None``."""
 
-    Undefaulted, so a candidate nothing vouched for cannot be recorded as a
-    sighting by omission, which is what reading the state off a null
-    `insight_id` allowed."""
-
-    run_id: str
-    """Also the cleanup key: a retried sweep deletes its own occurrences by this
-    before rewriting them."""
+    investigation_id: str
+    """Investigation that produced this occurrence; used by retry cleanup to
+    delete prior attempts' occurrences."""
 
     created_at: dt.datetime
-    agent_name: str
-    """Denormalized so occurrences can be queried without a join."""
+    observed_agent_key: str
+    """Key of the observed agent, denormalized to filter occurrences without
+    joining ``insights``."""
 
     agent_revision: str = ""
-    """Deployment revision this sighting is attributed to, so a triager can say
-    which build a defect appeared in. A sighting whose findings span a redeploy
-    records the newest of their revisions. Empty when the telemetry source
-    reports no revision, which denotes its single unnamed revision."""
+    """Deployment revision attributed to this sighting (the latest revision
+    when findings span multiple revisions, or empty when the telemetry source
+    reports no revision)."""
 
     analysis_mode: str = ""
-    """The analysis mode this sweep ran, from ``quality_analysis_mode``.
-
-    A property of the sighting, not of the defect: the workflow routes a run to one
-    producer, so an occurrence has exactly one mode. Denormalized here for the same
-    reason as `agent_name` -- so occurrences can be filtered by it without a join."""
+    """Quality analysis mode that produced this sighting
+    (``quality_analysis_mode``), denormalized for filtering without joining
+    ``investigations``."""
 
     label: str
-    """Short issue description."""
+    """Cluster label produced during clustering."""
 
-    item_count: int = 0
+    finding_count: int = 0
+    """Total findings in the cluster. Stored in BigQuery in ``item_count``."""
 
-    trace_count: int = 0
-    """Distinct conversations this sighting appeared in. Evaluated across all
-    findings in the cluster, independent of the capped `rubrics` sample."""
+    trajectory_count: int = 0
+    """Distinct trajectories covered by all findings in the cluster (not capped
+    to `examples`). Stored in BigQuery in ``trace_count``."""
 
     trajectory_ids: list[str] = Field(default_factory=list)
-    """Which conversations those were, as trajectory ids -- the value
-    ``trajectories.trajectory_id`` holds, so a sighting resolves to the source
-    traces behind it and to a console link.
-
-    Every trajectory the cluster covers, not the capped `rubrics` sample, which
-    is what turns the sighting from an illustration into an index. Kept
-    alongside `trace_count` to ensure integer counts remain reliable even when
-    trajectory lists are empty."""
+    """All distinct trajectory IDs in the cluster, matching
+    `InvestigationTrajectory.trajectory_id` so readers can resolve source traces
+    and full trajectory bundles."""
 
     analyses: dict[str, ClusterVerification] = Field(default_factory=dict)
-    """Analysis step to what that step concluded. Empty when none ran.
+    """Analysis results keyed by step name (e.g. `VERIFICATION_ANALYSIS_KEY`).
+    Empty when no analysis step ran on the cluster."""
 
-    Keyed by step -- verification today, another pass later -- not by
-    `Insight.analysis_mode`, which is a different axis: a sighting belongs to one
-    mode and may carry several steps' conclusions. Keyed rather than flattened so
-    a step can be added without another column, and so "this step did not run" is
-    the absence of a key instead of a field full of empty strings."""
-
-    rubrics: list[RubricExample] = Field(default_factory=list)
-    """Sampled findings with full conversation traces (capped at MAX_EXAMPLES)."""
+    examples: list[FindingExample] = Field(default_factory=list)
+    """Sampled findings with conversation turns, capped at `MAX_EXAMPLES`.
+    Stored in BigQuery in the ``rubrics`` column."""
 
 
 # Subclasses Insight to inherit core fields while adding read-view aggregation metrics.
 class InsightView(Insight):
-    """A Read View of the Insight model."""
+    """Read view of an `Insight` with aggregated occurrence and root-cause stats."""
 
     occurrence_count: int = 0
-    """How many sweeps have seen this issue."""
+    """Total confirmed occurrences attributed to this insight."""
 
-    trace_count: int = 0
-    """Conversations this issue was seen in, summed over its occurrences. A
-    trace one sweep saw and the next saw again counts in both: the number says
-    how often the issue was met, not how many distinct conversations exist."""
+    trajectory_count: int = 0
+    """Sum of `InsightOccurrence.trajectory_count` across the insight's
+    occurrences. A trajectory seen in multiple investigations is counted in
+    each."""
 
-    last_run_id: str | None = None
-    """`run_id` of the most recent occurrence; the harness's entry point into
-    `get_insight` for the freshest evidence."""
+    last_investigation_id: str | None = None
+    """`investigation_id` of the most recent occurrence."""
 
-    last_run_at: dt.datetime | None = None
-    """`created_at` of the most recent occurrence (``None`` when there are none)."""
+    last_investigation_at: dt.datetime | None = None
+    """`created_at` of the most recent occurrence, or ``None`` if it has no
+    occurrences."""
 
     has_root_cause: bool = False
-    """Indicates whether any root-cause record exists for this insight.
-
-    Computed at read time to allow list views to flag diagnosed insights
-    without fetching full root-cause records."""
+    """Whether any `RootCause` record exists for this insight, computed at read
+    time for list views."""
 
 
 class ProposedEdit(BaseModel):
@@ -329,8 +315,7 @@ class ProposedEdit(BaseModel):
 class RootCause(BaseModel):
     """Diagnosis of an insight occurrence with proposed code changes.
 
-    Mirrors the BigQuery table schema in
-    ``terraform/modules/aqa/schemas/insight_root_causes.json``.
+    Mirrors the BigQuery table ``insight_root_causes``.
 
     Agent name and citations are omitted because deployment snapshots span the
     entire agent hierarchy (edits can target sub-agents while occurrences
@@ -363,3 +348,48 @@ def mint_id() -> str:
         A unique UUID4 hex string.
     """
     return uuid.uuid4().hex
+
+
+FIELD_TO_COLUMN = {
+    "investigation_id": "run_id",
+    "observed_agent_key": "agent_name",
+    "trajectory_count": "trace_count",
+    "finding_count": "item_count",
+    "examples": "rubrics",
+}
+"""The fields whose BigQuery column has a different name, mapped to the column.
+
+BigQuery cannot rename a column of a deployed table, so the BigQuery store and
+reader name these columns explicitly, and the schema check reads the tables
+through this map."""
+
+
+def field_to_column(field: str) -> str:
+    """Returns the BigQuery column that holds an insight model field.
+
+    Args:
+        field: Field name of `Insight`, `InsightOccurrence` or `RootCause`.
+
+    Returns:
+        The column name, which is the field name unless `FIELD_TO_COLUMN`
+        maps it.
+    """
+    return FIELD_TO_COLUMN.get(field, field)
+
+
+def list_insight_columns() -> tuple[str, ...]:
+    """Returns column names of the insights table.
+
+    Returns:
+        Tuple of the columns `Insight` is stored in.
+    """
+    return tuple(field_to_column(f) for f in Insight.model_fields)
+
+
+def list_occurrence_columns() -> tuple[str, ...]:
+    """Returns column names of the insight_occurrences table.
+
+    Returns:
+        Tuple of the columns `InsightOccurrence` is stored in.
+    """
+    return tuple(field_to_column(f) for f in InsightOccurrence.model_fields)

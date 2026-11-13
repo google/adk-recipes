@@ -22,7 +22,7 @@ ui/
 
 src/ambient_quality_shared/  the wire client, shared with src/ambient_quality_cli
 ├── agent_client.py          AgentRuntimeClient (deployed) + AdkHttpClient (local)
-└── protocol.py              the command route paths, shared with the agent
+└── protocol.py              the command routes and their request bodies, shared with the agent
 ```
 
 This directory and the shared package are staged into one build context — by
@@ -67,7 +67,7 @@ forward that JSON to the front end.
 | total them, over a period | `POST /investigations/stats` `{window}` | `get_investigation_stats` |
 | per-day figures | `POST /investigations/daily` `{window}` | `get_daily_trends` |
 | start one | `POST /investigations/schedule` | `schedule_investigation` |
-| open one | `POST /investigations/get` `{"run_id"}` | `get_investigation` |
+| open one | `POST /investigations/get` `{"investigation_id"}` | `get_investigation` |
 | list insights | `POST /insights/list` `{filters}` | `list_insights` |
 | open one | `POST /insights/get` `{"insight_id", …}` | `get_insight` |
 | dismiss / merge one | `POST /insights/{dismiss,merge}` | `dismiss_insight` / `merge_insight` |
@@ -88,15 +88,16 @@ and a **Retry** on every list.
 
 | endpoint | returns |
 | --- | --- |
-| `GET /api/config` | `{"config": {...}}` — the effective configuration |
+| `GET /api/config` | `{"config": {...}, "starter_selector"}` — the effective configuration and the SQL a new investigation selector starts from, plus `"demo": true` when the agent serves generated data, as `make demo`'s mock does |
 | `GET /api/health` | `{"verdict", "reason", ...}` — is the ambient loop turning |
-| `GET /api/investigations` | `{"runs": [...]}` for the table — the most recent page |
-| `POST /api/investigations` | `{"run": {...}}` if a run comes back, else `{"ok": true}`, or `{"error": ...}` |
-| `GET /api/investigations/{run_id}` | `{"run": {...}}` for one run, events included |
-| `GET /api/investigations/{run_id}/cases/{case_id}` | `{"case": {...}}` — one conversation |
-| `GET /api/stats` | `{"stats": {...}, "window": {...}}` — runs' counters, summed |
+| `GET /api/agents` | `{"agents": [...], "default_agent_key"}` — the attached agents, for the selector |
+| `GET /api/investigations` | `{"investigations": [...]}` for the table — the most recent page |
+| `POST /api/investigations` | `{"investigation": {...}}` if one comes back, else `{"ok": true}`, or `{"error": ...}` |
+| `GET /api/investigations/{investigation_id}` | `{"investigation": {...}}` for one investigation, events included |
+| `GET /api/investigations/{investigation_id}/trajectories/{trajectory_id}` | `{"trajectory_bundle": {...}}` — one trajectory |
+| `GET /api/stats` | `{"stats": {...}, "window": {...}}` — investigations' counters, summed |
 | `GET /api/daily` | `{"days": [...]}` — per-day figures for the charts |
-| `GET /api/insights` | `{"insights": [...], "total", "next_page_token"}`; optional `status`, `runId`, `hasRootCause`, `pageToken` |
+| `GET /api/insights` | `{"insights": [...], "total", "next_page_token"}`; optional `status`, `investigationId`, `hasRootCause`, `pageToken` |
 | `GET /api/insights/{insight_id}` | `{"insight": {...}, "occurrences": [...], "next_page_token"}`; `includeTraces=1` adds the conversation traces |
 | `POST /api/insights/{insight_id}/dismiss` | `{"dismissed": true}` |
 | `POST /api/insights/{insight_id}/merge` | `{"merged": true}` |
@@ -107,6 +108,13 @@ and a **Retry** on every list.
 `/api/daily`, `/api/investigations` and `/api/insights` to a period; with
 neither, each covers everything it can see. The front end sends `windowStart`
 on the two that aggregate and on neither list — `lib/day-buckets.ts` says why.
+
+`agent_key` selects the agent every route but `/api/agents` answers for; with
+none, the agent answers for its default agent. The front end keeps the
+selected agent in the `agent` search parameter of every page
+(`lib/agent-selection.tsx`), scopes its query keys and its persisted cache by
+it, and names it in the chat's A2A request metadata, where the chat agent's
+`before_agent` binds the conversation to it.
 
 Every route degrades to `{"error": ...}` rather than a raw 5xx, so a failed read
 renders as a named failure instead of an empty page.
@@ -160,7 +168,7 @@ no credentials, no model. This is the loop for front-end work, and the only one
 with enough history to develop a visualization against:
 
 ```bash
-make demo                        # http://localhost:8080; builds the bundle too
+make demo                        # http://localhost:8080/?tour; builds the bundle too
 tools/mock_ui.sh                 # the same thing, with the env knobs to hand
 
 MOCK_FAILURE_RATE=0 tools/mock_ui.sh   # a deployment where nothing fails

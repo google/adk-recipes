@@ -12,27 +12,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""What a reader of insights has to answer, apart from how it keeps them.
+"""Read-only query contract for insights, occurrences, and root causes.
 
-`bigquery_reader.BigQueryInsightReader` is the deployed implementation;
-`standalone.InMemoryInsightReader` is the other. The counterpart to
-`store.InsightStore`: that is the sweep's write path and the two operator
-actions, this is what the dashboard and the chat tools read back. Deliberately
-separate, so a read can never reach the write machinery.
+Implemented by `bigquery_reader.BigQueryInsightReader` for deployments and
+`standalone.InMemoryInsightReader` for standalone mode. Kept separate from
+`store.InsightStore` so read paths cannot invoke write operations.
 
-Two rules run through every operation here and are the whole of what the two
-implementations must agree on.
-
-**Evidence counts for the insight that owns it.** Merging is a claim that two
-insights are one defect, so afterwards the target answers for both: its
-sightings, its conversations, its diagnoses. How a store arrives there is its
-own business -- BigQuery resolves an indirection on every read, an in-memory
-implementation moves them during merge -- but the answers are the same.
-
-**The list hides what an operator hid; a direct read does not.** Dismissed and
-merged insights leave the list unconditionally, because the dashboard's buttons
-only read as working if the row stops coming back. `get_insight` still resolves
-them, because a bookmark should not start 404-ing the moment somebody tidies up.
+Both implementations enforce two invariants:
+1. **Merged evidence rolls up to the target insight.** Occurrences, trajectory
+   counts, and root-cause diagnoses of a merged duplicate are attributed to its
+   target insight, and the duplicate itself reports zero occurrences.
+2. **List queries hide dismissed and merged insights; direct lookups do not.**
+   `list_insights` omits dismissed and merged insights so operator actions take
+   effect immediately in list views, while `get_insight` still resolves them so
+   existing links do not break.
 """
 
 from __future__ import annotations
@@ -52,29 +45,24 @@ if TYPE_CHECKING:
 
 
 class InsightOrder(enum.StrEnum):
-    """How `InsightReader.list_insights` ranks the insights before it pages them.
-
-    Ordering belongs to the read because the caller receives one page. A client
-    that sorts what arrived ranks a window of the list, and the rows that would
-    have led the ranking sit on a page it never asked for.
-    """
+    """Sort order for `InsightReader.list_insights` before pagination."""
 
     RECENT = "recent"
-    """Last seen first, on ``updated_at``."""
+    """Most recently seen first (`updated_at` descending)."""
 
     IMPACT = "impact"
-    """Most conversations affected first: `InsightView.trace_count`, summed over
-    the insight's sightings, which is what the dashboard ranks by."""
+    """Most trajectories affected first (`InsightView.trajectory_count`
+    descending)."""
 
 
 class InsightReader(Protocol):
-    """One agent's insights, as the dashboard and the chat tools read them."""
+    """Read interface for one agent's insights, occurrences, and root causes."""
 
     def list_insights(
         self,
         *,
         statuses: Sequence[InsightStatus] | None = None,
-        run_id: str | None = None,
+        investigation_id: str | None = None,
         limit: int,
         offset: int,
         window_start: str | None = None,
@@ -83,171 +71,137 @@ class InsightReader(Protocol):
         order_by: InsightOrder = InsightOrder.RECENT,
         day: str | None = None,
     ) -> tuple[list[InsightView], int]:
-        """One page of this agent's insights, and how many matched in all.
+        """Lists one page of active insights and the total matching count.
 
-        Dismissed and merged insights are left out whatever the filters say.
+        Excludes dismissed and merged insights. Time window bounds filter on
+        ``updated_at`` (the most recent sighting) so recurring issues remain
+        visible throughout the window. ``investigation_id`` filters by resolved
+        owner insight so occurrences from merged duplicates still surface their
+        target insight.
 
-        The window filters on ``updated_at``, the *last* sighting: "insights in
-        the last week" means the issues live that week, which is what a reader
-        scanning the list is asking. On ``created_at`` it would answer "issues
-        first found that week" and hide a defect that has recurred daily for a
-        month.
-
-        ``run_id`` selects by owner, as the counts do -- a sweep that found a
-        defect under a label an operator has since called a duplicate still
-        found it, and filtering the raw ids would list neither insight.
-
-        ``day`` (``YYYY-MM-DD``, a UTC day) keeps the insights that changed on
-        it: first found that day (``created_at``), or resolved that day
-        (``resolved_at``). Those are the two per-day series the dashboard
-        charts, so a day's list holds the rows behind its column and not every
-        insight merely seen that day. With a day, ``statuses`` name which of the
-        changes count rather than the current status: NEW keeps those found
-        that day even if they have recurred since, RESOLVED keeps those resolved
-        that day, and RECURRING, a change no day is stamped with, keeps nothing.
+        When ``day`` (``YYYY-MM-DD`` in UTC) is set, filters to insights first
+        created (``created_at``) or resolved (``resolved_at``) on that day,
+        with ``statuses`` selecting which transition to include (``NEW`` or
+        ``RESOLVED``).
 
         Args:
             statuses: Optional lifecycle statuses to filter on.
-            run_id: Optional sweep run ID to scope to.
+            investigation_id: Optional investigation ID to scope to.
             limit: Maximum insights to return.
             offset: Number of matching insights to skip.
-            window_start: Optional ISO timestamp lower bound on updated_at.
-            window_end: Optional ISO timestamp upper bound on updated_at.
+            window_start: Optional ISO timestamp lower bound on `updated_at`.
+            window_end: Optional ISO timestamp upper bound on `updated_at`.
             has_root_cause: Optional filter for diagnosed (True) or undiagnosed
                 (False) insights.
-            order_by: Sort order for results before pagination.
-            day: Optional UTC day string (YYYY-MM-DD).
+            order_by: Sort order applied before pagination.
+            day: Optional UTC date string (``YYYY-MM-DD``).
 
         Returns:
-            ``(page, total matching)``. The total is of the whole matching set,
-            not of the page.
+            Tuple of ``(page, total_matching)``.
         """
 
     def count_affected_conversations(
         self,
         *,
         statuses: Sequence[InsightStatus] | None = None,
-        run_id: str | None = None,
+        investigation_id: str | None = None,
         window_start: str | None = None,
         window_end: str | None = None,
         has_root_cause: bool | None = None,
         day: str | None = None,
     ) -> int:
-        """Distinct conversations behind every insight the same filters match.
+        """Counts distinct trajectories across all insights matching the filters.
 
-        Over the whole matching set rather than one page: a header that sums a
-        page states a fraction of the deployment as its total. It shares
-        `list_insights`' filters exactly, so a header and the list beneath it
-        cannot describe different sets.
-
-        *Distinct* is the point. `InsightView.trace_count` counts a conversation
-        again for every sweep that saw it and every insight it matches; this
-        counts it once.
+        Applies the same filters as `list_insights` across the entire matching
+        set (not just one page) and deduplicates trajectory IDs across
+        occurrences and insights.
 
         Args:
             statuses: Optional lifecycle statuses to filter on.
-            run_id: Optional sweep run ID.
-            window_start: Optional ISO timestamp lower bound on updated_at.
-            window_end: Optional ISO timestamp upper bound on updated_at.
+            investigation_id: Optional investigation ID filter.
+            window_start: Optional ISO timestamp lower bound on `updated_at`.
+            window_end: Optional ISO timestamp upper bound on `updated_at`.
             has_root_cause: Optional boolean filter for root-cause presence.
-            day: Optional UTC day string (YYYY-MM-DD).
+            day: Optional UTC date string (``YYYY-MM-DD``).
 
         Returns:
-            Total count of distinct conversations across all matching insights.
+            Count of distinct trajectory IDs across all matching insights.
         """
 
     def get_insight(self, insight_id: str) -> InsightView | None:
-        """One insight with its stats, or ``None`` if there is no such insight.
-
-        The same aggregation `list_insights` does, narrowed to one id, so a
-        detail view leads with the summary the list showed.
-
-        Without the list's hiding filter: a dismissed or merged insight still
-        resolves, because a bookmarked link should not start returning 404 the
-        moment somebody tidies the list. A merged one reads as zero sightings --
-        its evidence counts for the target now.
+        """Loads one insight with aggregated stats by ID, including dismissed or merged insights.
 
         Args:
             insight_id: Unique insight identifier.
 
         Returns:
-            InsightView if found, None otherwise.
+            `InsightView` if found, or None otherwise.
         """
 
     def get_insight_with_occurrences(
         self,
         *,
         insight_id: str,
-        run_id: str | None = None,
+        investigation_id: str | None = None,
         limit: int,
         offset: int,
     ) -> tuple[InsightView, list[InsightOccurrence], int] | None:
-        """One insight and a page of its evidence, or ``None`` if unknown.
+        """Loads one insight and a paginated slice of its occurrences.
 
         Args:
             insight_id: Unique insight identifier.
-            run_id: Optional sweep ID filter for occurrences.
+            investigation_id: Optional investigation ID filter for occurrences.
             limit: Maximum occurrences to return.
             offset: Number of occurrences to skip.
 
         Returns:
-            Tuple of ``(view, occurrences, total occurrences)``, or None if
-            unknown.
+            Tuple of ``(view, occurrences, total_occurrences)``, or None if the
+            insight is not found.
         """
 
     def list_occurrences(
         self,
         *,
         insight_id: str | None = None,
-        run_id: str | None = None,
+        investigation_id: str | None = None,
         occurrence_id: str | None = None,
         limit: int,
         offset: int,
     ) -> tuple[list[InsightOccurrence], int]:
-        """One page of an insight's sightings, newest first.
+        """Lists one page of tracked occurrences ordered newest first.
 
-        ``insight_id`` selects by owner, the same resolution `get_insight`
-        aggregates over, so a detail page shows the evidence its header counts.
-        A merged insight therefore shows none: it has none of its own any more,
-        which is what its zero says.
-
-        An occurrence naming no insight is never returned. Such a row records a
-        candidate the verification pass rejected or never judged -- evidence
-        about the sweep, not a sighting of a tracked issue.
+        Resolves ``insight_id`` by owner so occurrences of merged duplicates are
+        returned under their target insight. Excludes occurrences where
+        ``insight_id`` is ``None`` (rejected or unjudged candidates).
 
         Args:
             insight_id: Insight ID to list occurrences for.
-            run_id: Optional sweep run ID filter.
-            occurrence_id: Optional sighting ID filter.
+            investigation_id: Optional investigation ID filter.
+            occurrence_id: Optional occurrence ID filter.
             limit: Maximum occurrences to return.
             offset: Number of occurrences to skip.
 
         Returns:
-            Tuple of (occurrences_list, total_count).
+            Tuple of ``(occurrences, total_count)``.
 
         Raises:
-            ValueError: if neither ``insight_id`` nor ``occurrence_id`` bounds
-                the read.
+            ValueError: If neither ``insight_id`` nor ``occurrence_id`` is
+                provided.
         """
 
     def list_root_causes(
         self, insight_id: str, *, history: bool = False
     ) -> list[RootCause]:
-        """One insight's diagnoses, newest first.
+        """Lists root-cause diagnoses for an insight, ordered newest first.
 
-        Resolved by owner, like the sightings: a diagnosis of a merged insight
-        is a diagnosis of the target that absorbed it, and a merged insight
-        answers with none of its own. Each record still carries the
-        ``insight_id`` it was written against.
-
-        ``history`` returns every revision rather than only the current one per
-        occurrence.
+        Resolves ownership across merged insights so diagnoses written against a
+        duplicate are returned for the target insight.
 
         Args:
             insight_id: Unique insight identifier.
-            history: If True, returns all revisions rather than only the latest
-                per occurrence.
+            history: If True, returns all revisions; if False, returns only the
+                latest revision per occurrence.
 
         Returns:
-            List of RootCause records ordered newest first.
+            List of `RootCause` records ordered newest first.
         """

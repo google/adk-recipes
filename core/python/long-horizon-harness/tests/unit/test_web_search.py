@@ -33,7 +33,7 @@ These tests therefore pin WIRING, not behavior:
 
 LLM-side behavioral validation (grounded results actually appear, the
 model cites them, the tool fires on factual queries) lives in
-the ``tests/eval/evalsets/`` suite rather than pytest.
+the ``tests/eval/datasets/`` suite rather than pytest.
 """
 
 from __future__ import annotations

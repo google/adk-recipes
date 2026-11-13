@@ -20,12 +20,19 @@
  * past its `staleTime` refetches in the background: the paint is instant, the
  * data still converges. Nothing here is authoritative.
  *
+ * Each agent's reads are keyed under its own `buildAgentScope`, so they are
+ * persisted, and hydrated, apart: a reload never paints one agent's data for
+ * another.
+ *
  * Hand-rolled rather than `@tanstack/query-persist-client-core` because it is
  * one dependency for forty lines, and only the `aqua` keys are wanted.
  */
 import type { QueryClient } from "@tanstack/react-query";
 
-const KEY = "aqua.query-cache.v1";
+const KEY = "aqua.query-cache.v2";
+/** Caches in a layout whose keys name no agent. Dropped, not hydrated: no
+ *  query reads their keys, and their data could be any agent's. */
+const RETIRED_KEYS = ["aqua.query-cache.v1"];
 /** Older than this and the paint would be misleading rather than helpful. */
 const MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const WRITE_DEBOUNCE_MS = 300;
@@ -53,6 +60,7 @@ function shouldPersist(key: readonly unknown[]): boolean {
 export function hydrateQueryCache(client: QueryClient): void {
   const store = storage();
   if (!store) return;
+  for (const retired of RETIRED_KEYS) store.removeItem(retired);
   let entries: PersistedQuery[];
   try {
     entries = JSON.parse(store.getItem(KEY) ?? "[]") as PersistedQuery[];

@@ -18,14 +18,29 @@ and its chat-facing tool surface."""
 from __future__ import annotations
 
 import asyncio
+import json
+from typing import Any
 from unittest import mock
 
 import pytest
 from ambient_quality_agent.core import orchestrator
 from ambient_quality_agent.core.investigation import job_execution
 from ambient_quality_agent.core.investigation import model as runs
+from ambient_quality_agent.standalone.investigations import (
+    InMemoryInvestigationStore,
+)
+from ambient_quality_agent.standalone.store import InMemoryStore
+from ambient_quality_agent.tools.observed_agent_config import (
+    effective_config,
+    store,
+)
 
-from .conftest import CallbackContext, StateContext, create_run, get_run
+from .conftest import (
+    CallbackContext,
+    StateContext,
+    create_investigation,
+    get_stored_investigation,
+)
 
 
 def test_before_agent_routes_keyword_to_work(
@@ -42,9 +57,11 @@ def test_before_agent_routes_keyword_to_work(
 
     # Seed a pending run the keyword message will reference.
     ctx = CallbackContext(f"{orchestrator.RUN_KEYWORD} run42")
-    create_run(
+    create_investigation(
         ctx.state,
-        runs.InvestigationRecord(run_id="run42", status=runs.RunStatus.PENDING),
+        runs.Investigation(
+            investigation_id="run42", status=runs.InvestigationStatus.PENDING
+        ),
     )
 
     out = asyncio.run(orchestrator.before_agent(ctx))
@@ -53,8 +70,64 @@ def test_before_agent_routes_keyword_to_work(
     assert out is not None
     parts = out.parts or []
     assert "run42" in (parts[0].text or "")
-    # The run was driven to done by the work branch.
-    assert get_run(ctx.state, "run42").status == runs.RunStatus.DONE
+    # The investigation was driven to done by the work branch.
+    assert (
+        get_stored_investigation(ctx.state, "run42").status
+        == runs.InvestigationStatus.DONE
+    )
+
+
+def test_the_job_finds_a_run_of_an_agent_other_than_the_default(
+    monkeypatch: pytest.MonkeyPatch, jobs_store: Any
+) -> None:
+    """The job selects no agent, so its store is the default agent's; the investigation
+    is still found by its id, which is unique across agents."""
+    key = "acme-staging__it_support_agent"
+    jobs_store.write_text(
+        store.build_object_name(key),
+        json.dumps(
+            {
+                "schema_version": 1,
+                "agent": {
+                    "observed_agent_name": "it_support_agent",
+                    "observed_project_id": "acme-staging",
+                },
+            }
+        ),
+    )
+    backing = InMemoryStore()
+    monkeypatch.setattr(
+        runs,
+        "store_factory",
+        lambda state: InMemoryInvestigationStore(
+            backing,
+            observed_agent_key=effective_config.load(state).resolve_agent_key(),
+        ),
+    )
+    monkeypatch.setattr(
+        job_execution,
+        "run_investigation_graph",
+        mock.AsyncMock(return_value={"status": "done", "summary": {}}),
+    )
+    investigation_id = runs.Investigation().investigation_id
+    InMemoryInvestigationStore(backing, observed_agent_key=key).append(
+        runs.Investigation(
+            investigation_id=investigation_id,
+            status=runs.InvestigationStatus.PENDING,
+            observed_agent_key=key,
+        )
+    )
+
+    asyncio.run(
+        orchestrator.before_agent(
+            CallbackContext(f"{orchestrator.RUN_KEYWORD} {investigation_id}")
+        )
+    )
+
+    assert (
+        backing.investigations[investigation_id].status
+        == runs.InvestigationStatus.DONE
+    )
 
 
 def test_before_agent_passes_through_normal_message() -> None:

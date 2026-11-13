@@ -39,7 +39,9 @@ which goes along as hints that discovery outranks; see
 :func:`resolve_discovered_options`. `attach` and `publish-source` are also
 given the project as the source to publish; see :func:`add_source_root`. Once
 an `attach` that names `--aqua-resource` succeeds, that engine is recorded for
-the commands after it; see :func:`save_attached_aqua_resource`.
+the commands after it; see :func:`save_attached_aqua_resource`. The CLI itself
+records the attached agent's key in the same file, which selects that agent for
+the commands after it.
 
 The CLI is executed in this process rather than as a subprocess so that its exit
 code -- a contract callers branch on, not just success or failure -- reaches the
@@ -76,14 +78,16 @@ from _acli import (
     resolve_project,
     run,
 )
+from ambient_quality_shared import attached_aqua as attached_aqua_lib
 
 CLI_ENTRYPOINT = Path("src") / "ambient_quality_cli" / "aqua_cli.py"
 
 # Records the AQuA a successful `attach --aqua-resource` reached, so that later
-# commands in the project reach it too. Kept apart from METADATA_FILE, which
-# records the AQuA this project deploys: `infra single-project --destroy` reads
-# that one to tell which attached triggers call the engine it deletes.
-ATTACHED_AQUA_FILE = "attached_aqua.json"
+# commands in the project reach it too, and the agent key the CLI recorded beside
+# it. Kept apart from METADATA_FILE, which records the AQuA this project deploys:
+# `infra single-project --destroy` reads that one to ask the engine it deletes
+# which agents' update triggers to remove.
+ATTACHED_AQUA_FILE = attached_aqua_lib.ATTACHED_AQUA_FILE
 
 # Set by the CLI's own `--aqua-resource` (or `--resource`) / `--url`, which must
 # win over the recorded deployment: they are how a user targets another engine
@@ -123,9 +127,9 @@ _ATTACH_SWITCHES = frozenset(
     {
         "--help",
         "--dry-run",
-        "--apply",
         "--yes",
         "--no-discover",
+        "--rediscover",
         "--default",
         "--no-default",
         "--verification",
@@ -224,7 +228,9 @@ def build_attached_aqua_path() -> Path:
     Returns:
         Path to `.aqua/attached_aqua.json` in the current working directory.
     """
-    return Path.cwd() / STATE_DIR_NAME / ATTACHED_AQUA_FILE
+    return attached_aqua_lib.build_attached_aqua_path(
+        Path.cwd() / STATE_DIR_NAME
+    )
 
 
 def read_attached_aqua_resource() -> str | None:
@@ -233,9 +239,9 @@ def read_attached_aqua_resource() -> str | None:
     Returns:
         The engine resource name, or None if missing or unreadable.
     """
-    resource = load_deployment_metadata(build_attached_aqua_path()).get(
-        "aqua_resource"
-    )
+    resource = attached_aqua_lib.load_attached_aqua(
+        Path.cwd() / STATE_DIR_NAME
+    ).get("aqua_resource")
     return str(resource) if resource else None
 
 
@@ -268,7 +274,8 @@ def save_attached_aqua_resource(resource: str) -> None:
     Steps:
     1. Leave a project that deploys its own AQuA alone, saying so when the
        attach reached a different one.
-    2. Write `.aqua/attached_aqua.json`, and make sure `.aqua/` is ignored.
+    2. Set `aqua_resource` in `.aqua/attached_aqua.json`, keeping the agent
+       key the CLI recorded, and make sure `.aqua/` is ignored.
 
     A failure to write is reported and swallowed: the attach itself succeeded.
 
@@ -292,10 +299,8 @@ def save_attached_aqua_resource(resource: str) -> None:
         return
     path = build_attached_aqua_path()
     try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(
-            json.dumps({"aqua_resource": resource}, indent=2) + "\n",
-            encoding="utf-8",
+        attached_aqua_lib.save_attached_aqua_fields(
+            path.parent, aqua_resource=resource
         )
         project_root = find_project_root()
         if project_root:
@@ -343,7 +348,9 @@ def show_info_cmd(argv: list[str]) -> int:
     """Report deployment metadata and dashboard service details for this project.
 
     Without flags, writes a JSON object to stdout containing deployment keys,
-    `attached_aqua_resource` when the engine comes from `attach`, and `ui`.
+    `attached_aqua_resource` when the engine comes from `attach`,
+    `attached_agent_key` when `attach` recorded an agent key for that engine,
+    and `ui`.
     With a specific flag (`--resource`, `--region`, `--ui-service`,
     `--ui-url`), prints that single value alone.
 
@@ -396,6 +403,11 @@ def show_info_cmd(argv: list[str]) -> int:
     report: dict[str, Any] = dict(record)
     if attached and not record.get("remote_agent_runtime_id"):
         report["attached_aqua_resource"] = attached
+    agent_key = attached_aqua_lib.resolve_recorded_agent_key(
+        Path.cwd() / STATE_DIR_NAME, engine or ""
+    )
+    if agent_key:
+        report["attached_agent_key"] = agent_key
     report["ui"] = {"service_name": ui_service_name, "url": ui_url}
     print(json.dumps(report, indent=2))
     if override:

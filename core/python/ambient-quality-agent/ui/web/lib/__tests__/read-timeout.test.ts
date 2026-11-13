@@ -22,7 +22,11 @@
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { READ_TIMEOUT_MS, ReadTimeoutError, runsQuery } from "../aqua-api";
+import {
+  READ_TIMEOUT_MS,
+  ReadTimeoutError,
+  investigationsQuery,
+} from "../aqua-api";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -44,7 +48,7 @@ describe("the read timeout", () => {
       ),
     );
 
-    const pending = runsQuery().queryFn();
+    const pending = investigationsQuery(undefined).queryFn();
     const assertion = expect(pending).rejects.toBeInstanceOf(ReadTimeoutError);
     await vi.advanceTimersByTimeAsync(READ_TIMEOUT_MS + 1);
     await assertion;
@@ -54,9 +58,10 @@ describe("the read timeout", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(
-        async () => new Response(JSON.stringify({ runs: [] }), { status: 200 }),
+        async () =>
+          new Response(JSON.stringify({ investigations: [] }), { status: 200 }),
       ),
     );
-    await expect(runsQuery().queryFn()).resolves.toEqual([]);
+    await expect(investigationsQuery(undefined).queryFn()).resolves.toEqual([]);
   });
 });

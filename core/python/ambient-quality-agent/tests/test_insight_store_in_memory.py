@@ -79,7 +79,7 @@ def store(backing: InMemoryStore) -> InMemoryInsightStore:
     which labels the judge is *offered*, which is this store's decision.
     """
     return InMemoryInsightStore(
-        backing, agent_name=_AGENT, matcher=_never_matches
+        backing, observed_agent_key=_AGENT, matcher=_never_matches
     )
 
 
@@ -87,7 +87,7 @@ def _insight(
     insight_id: str, label: str = "an issue", **fields: Any
 ) -> Insight:
     defaults: dict[str, Any] = {
-        "agent_name": _AGENT,
+        "observed_agent_key": _AGENT,
         "status": InsightStatus.NEW,
         "created_at": _NOW,
         "updated_at": _NOW,
@@ -99,8 +99,8 @@ def _occurrence(
     occurrence_id: str, insight_id: str, **fields: Any
 ) -> InsightOccurrence:
     defaults: dict[str, Any] = {
-        "agent_name": _AGENT,
-        "run_id": "run-1",
+        "observed_agent_key": _AGENT,
+        "investigation_id": "run-1",
         "occurrence_state": OccurrenceState.TRACKED,
         "label": "an issue",
         "created_at": _NOW,
@@ -136,14 +136,14 @@ def test_a_retry_drops_the_previous_attempts_occurrences(
         backing,
         [_insight("i1")],
         [
-            _occurrence("o1", "i1", run_id="run-1"),
-            _occurrence("o2", "i1", run_id="run-2"),
+            _occurrence("o1", "i1", investigation_id="run-1"),
+            _occurrence("o2", "i1", investigation_id="run-2"),
         ],
     )
 
     store.delete_failed_insights("run-1")
 
-    assert [o.occurrence_id for o in backing.occurrences] == ["o2"]
+    assert [o.occurrence_id for o in backing.insight_occurrences] == ["o2"]
 
 
 def test_an_insight_the_cleanup_orphaned_goes_with_it(
@@ -152,7 +152,11 @@ def test_an_insight_the_cleanup_orphaned_goes_with_it(
     """The orphan check reads the occurrence set as it stands *after* the
     removal. Read before, it would spare an insight held up only by the rows
     that just went."""
-    _seed(backing, [_insight("i1")], [_occurrence("o1", "i1", run_id="run-1")])
+    _seed(
+        backing,
+        [_insight("i1")],
+        [_occurrence("o1", "i1", investigation_id="run-1")],
+    )
 
     store.delete_failed_insights("run-1")
 
@@ -166,8 +170,8 @@ def test_an_insight_another_run_still_holds_up_survives(
         backing,
         [_insight("i1")],
         [
-            _occurrence("o1", "i1", run_id="run-1"),
-            _occurrence("o2", "i1", run_id="run-2"),
+            _occurrence("o1", "i1", investigation_id="run-1"),
+            _occurrence("o2", "i1", investigation_id="run-2"),
         ],
     )
 
@@ -181,14 +185,21 @@ def test_another_agents_records_are_never_touched(
 ) -> None:
     _seed(
         backing,
-        [_insight("theirs", agent_name=_OTHER)],
-        [_occurrence("o1", "theirs", agent_name=_OTHER, run_id="run-1")],
+        [_insight("theirs", observed_agent_key=_OTHER)],
+        [
+            _occurrence(
+                "o1",
+                "theirs",
+                observed_agent_key=_OTHER,
+                investigation_id="run-1",
+            )
+        ],
     )
 
     store.delete_failed_insights("run-1")
 
     assert set(backing.insights) == {"theirs"}
-    assert len(backing.occurrences) == 1
+    assert len(backing.insight_occurrences) == 1
 
 
 # --- which labels the judge is offered -------------------------------------- #
@@ -265,7 +276,9 @@ def test_a_dismissed_insight_is_still_offered(
 def test_another_agents_insight_is_not_offered(
     store: InMemoryInsightStore, backing: InMemoryStore
 ) -> None:
-    _seed(backing, [_insight("theirs", "their issue", agent_name=_OTHER)])
+    _seed(
+        backing, [_insight("theirs", "their issue", observed_agent_key=_OTHER)]
+    )
 
     assert "their issue" not in _offered(store)
 
@@ -307,12 +320,89 @@ def test_a_match_comes_back_as_the_insight_id(
 ) -> None:
     _seed(backing, [_insight("i1", "the known issue")])
     store = InMemoryInsightStore(
-        backing, agent_name=_AGENT, matcher=lambda candidates, existing: {0: 0}
+        backing,
+        observed_agent_key=_AGENT,
+        matcher=lambda candidates, existing: {0: 0},
     )
 
     assert store.find_existing_insights([Cluster(label="a candidate")]) == {
         0: "i1"
     }
+
+
+def _match_equal_labels(
+    candidates: Sequence[str], existing: Sequence[str]
+) -> dict[int, int | None]:
+    """Mock matcher that matches a candidate to the first identical label.
+
+    Args:
+        candidates: Candidate issue labels to match.
+        existing: Existing insight labels to compare against.
+
+    Returns:
+        Mapping of candidate indices to the matching existing index, or None.
+    """
+    return {
+        i: existing.index(label) if label in existing else None
+        for i, label in enumerate(candidates)
+    }
+
+
+def test_a_candidate_never_matches_another_agents_insight(
+    backing: InMemoryStore,
+) -> None:
+    """One wording in two agents is two defects with two fixes."""
+    _seed(
+        backing,
+        [
+            _insight("i-root", "same", agent_id=_AGENT),
+            _insight("i-sub", "same", agent_id="sub_agent"),
+        ],
+    )
+    store = InMemoryInsightStore(
+        backing, observed_agent_key=_AGENT, matcher=_match_equal_labels
+    )
+
+    result = store.find_existing_insights(
+        [
+            Cluster(label="same", agent_id="sub_agent"),
+            Cluster(label="same", agent_id=_AGENT),
+            Cluster(label="same", agent_id="other_agent"),
+        ]
+    )
+
+    assert result == {0: "i-sub", 1: "i-root", 2: None}
+
+
+def test_an_unattributed_insight_matches_root_candidates_only(
+    backing: InMemoryStore,
+) -> None:
+    """An insight with no `agent_id` is the root agent's, as is a candidate
+    with none."""
+    _seed(backing, [_insight("i-legacy", "same")])
+    store = InMemoryInsightStore(
+        backing, observed_agent_key=_AGENT, matcher=_match_equal_labels
+    )
+
+    result = store.find_existing_insights(
+        [
+            Cluster(label="same", agent_id=_AGENT),
+            Cluster(label="same"),
+            Cluster(label="same", agent_id="sub_agent"),
+        ]
+    )
+
+    assert result == {0: "i-legacy", 1: "i-legacy", 2: None}
+
+
+def test_a_minted_insight_keeps_its_agent(
+    store: InMemoryInsightStore, backing: InMemoryStore
+) -> None:
+    store.save_investigation_result(
+        [_insight("i1", agent_id="sub_agent")], [], [], [], _NOW
+    )
+
+    assert backing.insights["i1"].agent_id == "sub_agent"
 
 
 # --- what a sweep records --------------------------------------------------- #
@@ -326,7 +416,7 @@ def test_a_new_insight_and_its_occurrence_are_both_stored(
     )
 
     assert set(backing.insights) == {"fresh"}
-    assert [o.occurrence_id for o in backing.occurrences] == ["o1"]
+    assert [o.occurrence_id for o in backing.insight_occurrences] == ["o1"]
 
 
 def test_a_seen_insight_is_dated_to_this_sweep(
@@ -376,7 +466,7 @@ def test_a_relabelled_insight_takes_the_wording_verification_settled_on(
 def test_a_seen_id_that_belongs_to_another_agent_is_ignored(
     store: InMemoryInsightStore, backing: InMemoryStore
 ) -> None:
-    _seed(backing, [_insight("theirs", agent_name=_OTHER)])
+    _seed(backing, [_insight("theirs", observed_agent_key=_OTHER)])
     later = _NOW + dt.timedelta(days=3)
 
     store.save_investigation_result([], ["theirs"], ["theirs"], [], later)
@@ -484,7 +574,7 @@ def test_dismissing_something_that_does_not_exist_says_so(
 def test_another_agents_insight_cannot_be_dismissed(
     store: InMemoryInsightStore, backing: InMemoryStore
 ) -> None:
-    _seed(backing, [_insight("theirs", agent_name=_OTHER)])
+    _seed(backing, [_insight("theirs", observed_agent_key=_OTHER)])
 
     assert store.dismiss_insight("theirs") is False
     assert backing.insights["theirs"].dismissed_at is None
@@ -508,7 +598,7 @@ def test_a_merge_moves_the_occurrences_onto_the_survivor(
         insight_id="absorbed", target_insight_id="survivor"
     )
 
-    assert {o.insight_id for o in backing.occurrences} == {"survivor"}
+    assert {o.insight_id for o in backing.insight_occurrences} == {"survivor"}
 
 
 def test_a_merge_leaves_a_tombstone_rather_than_a_hole(
@@ -558,7 +648,7 @@ def test_a_chain_flattens_so_the_first_answers_the_last(
 
     assert backing.insights["a"].merged_into_insight_id == "c"
     assert backing.insights["b"].merged_into_insight_id == "c"
-    assert {o.insight_id for o in backing.occurrences} == {"c"}
+    assert {o.insight_id for o in backing.insight_occurrences} == {"c"}
 
 
 @pytest.mark.parametrize(
@@ -599,7 +689,8 @@ def test_another_agents_insight_cannot_be_merged(
     store: InMemoryInsightStore, backing: InMemoryStore
 ) -> None:
     _seed(
-        backing, [_insight("survivor"), _insight("theirs", agent_name=_OTHER)]
+        backing,
+        [_insight("survivor"), _insight("theirs", observed_agent_key=_OTHER)],
     )
 
     assert (
@@ -616,10 +707,13 @@ def test_a_reader_never_sees_a_half_applied_write(
 ) -> None:
     """Insights and occurrences move together. Rebound one at a time, a reader
     could catch an occurrence whose insight does not exist yet."""
-    store = InMemoryInsightStore(backing, agent_name=_AGENT)
+    store = InMemoryInsightStore(backing, observed_agent_key=_AGENT)
     _seed(backing, [_insight("i1")], [_occurrence("o1", "i1")])
 
-    before_insights, before_occurrences = backing.insights, backing.occurrences
+    before_insights, before_occurrences = (
+        backing.insights,
+        backing.insight_occurrences,
+    )
     store.save_investigation_result(
         [_insight("i2")], [], [], [_occurrence("o2", "i2")], _NOW
     )
@@ -630,7 +724,7 @@ def test_a_reader_never_sees_a_half_applied_write(
 
 
 def test_concurrent_writers_lose_nothing(backing: InMemoryStore) -> None:
-    store = InMemoryInsightStore(backing, agent_name=_AGENT)
+    store = InMemoryInsightStore(backing, observed_agent_key=_AGENT)
     start = threading.Barrier(8)
 
     def write(n: int) -> None:
@@ -646,9 +740,9 @@ def test_concurrent_writers_lose_nothing(backing: InMemoryStore) -> None:
         thread.join(timeout=5)
 
     assert len(backing.insights) == 8
-    assert len(backing.occurrences) == 8
+    assert len(backing.insight_occurrences) == 8
 
 
 def test_the_store_starts_empty(backing: InMemoryStore) -> None:
     assert backing.insights == {}
-    assert backing.occurrences == ()
+    assert backing.insight_occurrences == ()

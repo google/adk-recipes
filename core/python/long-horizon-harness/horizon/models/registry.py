@@ -111,7 +111,7 @@ def _build_gemini(model_id: str = "gemini-3.7-flash") -> Gemini:
     )
 
 
-DEFAULT_MODEL_NAME: str = "gemini-3.7-flash"
+DEFAULT_MODEL_NAME: str = "gemini-4-carbon"
 DEFAULT_INPUT_TOKEN_LIMIT: int = 200_000
 
 
@@ -130,6 +130,11 @@ class ModelDescriptor:
 # are conservative published context windows (under-estimating only fires
 # compaction slightly earlier, which is safe).
 _MODELS: dict[str, ModelDescriptor] = {
+    "gemini-4-carbon": ModelDescriptor(
+        build=lambda: _build_gemini("gemini-4-carbon"),
+        input_token_limit=1_000_000,
+        capabilities=GEMINI_CAPABILITIES,
+    ),
     "gemini-3.7-flash": ModelDescriptor(
         build=lambda: _build_gemini("gemini-3.7-flash"),
         input_token_limit=1_000_000,

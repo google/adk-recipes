@@ -21,13 +21,13 @@ import { MergeBar } from "../merge-bar";
 function view(overrides: Partial<InsightView>): InsightView {
   return {
     insight_id: "ins-1",
-    agent_name: "a",
+    observed_agent_key: "a",
     label: "x",
     tool_name: "",
     status: "RECURRING",
     occurrence_count: 0,
-    trace_count: 0,
-    last_run_at: null,
+    trajectory_count: 0,
+    last_investigation_at: null,
     impact: 0,
     diagnosis: "",
     confidence: 0,
@@ -61,6 +61,28 @@ describe("MergeBar", () => {
       screen.getByText(
         /Select two or more cards that represent the same underlying insight/,
       ),
+    ).toBeInTheDocument();
+  });
+
+  it("renders a code span in a survivor's name as code", () => {
+    render(
+      <MergeBar
+        insights={[
+          view({ insight_id: "c", label: "failed to call `create_ticket`" }),
+          B,
+        ]}
+        selected={new Set(["c", "b"])}
+        onCancel={() => {}}
+        onMerge={() => {}}
+        merging={false}
+      />,
+    );
+
+    expect(screen.getByText("create_ticket").tagName).toBe("CODE");
+    expect(
+      screen.getByRole("button", {
+        name: /Keep: failed to call create_ticket/,
+      }),
     ).toBeInTheDocument();
   });
 

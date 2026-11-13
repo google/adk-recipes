@@ -32,13 +32,22 @@ from ambient_quality_agent.tools.agent_revision import (
 from ambient_quality_agent.tools.evaluation.models import MetricType
 from ambient_quality_agent.tools.ingestion.base import (
     AGENT_COUNT_LIMIT,
+    DEFAULT_JOB_TIMEOUT_MS,
+    JOIN_BACK_MARGIN_DAYS,
+    MAX_BYTES_BILLED,
     BaseFetcher,
+    QueryTooLargeError,
 )
 from ambient_quality_agent.tools.ingestion.bigquery_fetcher import (
     BigQueryFetcher,
 )
+from ambient_quality_agent.tools.insights.findings import (
+    extract_trajectory_turns,
+)
 from ambient_quality_agent.tools.review import session_review
+from ambient_quality_agent.tools.telemetry.schema import load_required_schema
 from ambient_quality_agent.tools.trajectories.models import IngestStatus
+from google.api_core import exceptions as api_exceptions
 from google.cloud import bigquery
 
 from .conftest import FakeTrajectoryRecorder
@@ -629,6 +638,60 @@ def test_both_queries_select_every_error_event_type() -> None:
 
 
 @pytest.mark.parametrize(
+    "metric_type", [MetricType.MULTI_TURN, MetricType.SINGLE_TURN]
+)
+def test_ingestion_does_not_read_content_parts(metric_type: MetricType) -> None:
+    """`payload_column_denylist` can omit `content_parts`, and cases use `content` alone."""
+    fetcher = _make_fetcher(mock.MagicMock())
+
+    assert "content_parts" not in fetcher._build_ingestion_sql(metric_type)
+
+
+@pytest.mark.parametrize(
+    "metric_type", [MetricType.MULTI_TURN, MetricType.SINGLE_TURN]
+)
+def test_the_join_back_reads_only_the_window_widened_by_the_margin(
+    metric_type: MetricType,
+) -> None:
+    """An unbounded join back to the table reads its whole history."""
+    fetcher = _make_fetcher(mock.MagicMock())
+    bound = (
+        "WHERE e.timestamp BETWEEN"
+        f" TIMESTAMP_SUB(@window_start, INTERVAL {JOIN_BACK_MARGIN_DAYS} DAY)"
+        f" AND TIMESTAMP_ADD(@window_end, INTERVAL {JOIN_BACK_MARGIN_DAYS} DAY)"
+    )
+
+    sql = " ".join(fetcher._build_ingestion_sql(metric_type).split())
+    join_backs = sql.split(" JOIN Target")[1:]
+
+    assert len(join_backs) == 1
+    assert bound in join_backs[0].split(" GROUP BY ")[0]
+
+
+def test_every_column_the_schema_file_lists_is_read() -> None:
+    """A listed column the queries do not read would refuse tables that
+    ingest fine."""
+    fetcher = _make_fetcher(mock.MagicMock())
+    sql = "\n".join(
+        build(metric_type)
+        for build in (
+            fetcher._build_ingestion_sql,
+            fetcher._build_count_sql,
+            fetcher._build_count_by_agent_sql,
+        )
+        for metric_type in (MetricType.MULTI_TURN, MetricType.SINGLE_TURN)
+    )
+
+    unread = [
+        column.name
+        for column in load_required_schema(BigQueryFetcher.SCHEMA_FILE)
+        if not re.search(rf"\b{column.name}\b", sql)
+    ]
+
+    assert unread == []
+
+
+@pytest.mark.parametrize(
     ("event_type", "name"),
     [
         ("LLM_ERROR", "llm_error"),
@@ -941,6 +1004,61 @@ def test_agent_starting_is_not_a_turn_event() -> None:
     ]
 
 
+@pytest.mark.parametrize(
+    ("response", "text"),
+    [
+        pytest.param(
+            "text: 'Hi, how can I help you?\n'",
+            "Hi, how can I help you?\n",
+            id="one_text_part",
+        ),
+        pytest.param(
+            "text: 'You're welcome! It's 'on' | me.'",
+            "You're welcome! It's 'on' | me.",
+            id="quotes_and_delimiter_inside_the_text",
+        ),
+        pytest.param(
+            "text: 'Your table is booked.' | text: 'Anything else?'",
+            "Your table is booked.\nAnything else?",
+            id="several_text_parts",
+        ),
+        pytest.param(
+            "text: 'Booking it now.' | call: book_table",
+            "text: 'Booking it now.' | call: book_table",
+            id="a_call_part_keeps_the_reply_as_logged",
+        ),
+        pytest.param(
+            "Your table is booked.",
+            "Your table is booked.",
+            id="plain_text",
+        ),
+        pytest.param(
+            "text: 'unterminated",
+            "text: 'unterminated",
+            id="not_the_plugin_format",
+        ),
+    ],
+)
+def test_an_agent_reply_drops_the_plugin_formatting(
+    response: str, text: str
+) -> None:
+    """Otherwise the reviewer judges the wrapper as the agent's own output."""
+    fetcher = _make_fetcher(mock.MagicMock())
+    row = _build_session_row(
+        {
+            "invocation_id": "inv-1",
+            "event_type": "AGENT_RESPONSE",
+            "agent": "root-agent",
+            "content": {"response": response},
+        }
+    )
+
+    case = fetcher._build_case(row, MetricType.MULTI_TURN)
+
+    reply = case.agent_data.turns[0].events[-1]
+    assert reply.content.parts[0].text == text
+
+
 def test_map_multi_turn_with_sub_agents_row() -> None:
     fetcher = _make_fetcher(mock.MagicMock())
 
@@ -1156,7 +1274,7 @@ def test_count_by_agent_counts_the_same_unit_for_every_agent(
 
 def test_count_by_agent_ignores_the_selector() -> None:
     """The question is which names the telemetry records at all; a selector
-    narrows the run, not the table."""
+    narrows the investigation, not the table."""
     client = mock.MagicMock()
     client.query.return_value.result.return_value = []
     fetcher = _make_fetcher(
@@ -1202,7 +1320,7 @@ def test_a_nonzero_count_stays_at_info(
 
 
 def test_count_scanned_accumulates_across_the_two_scopes() -> None:
-    """Both scopes count through one run's counters, so the second adds to the
+    """Both scopes count through one investigation's counters, so the second adds to the
     first rather than replacing it."""
     client = mock.MagicMock()
     client.query.return_value.result.return_value = [{"scanned": 5}]
@@ -1767,6 +1885,85 @@ def test_both_queries_project_the_logged_tools(metric_type: MetricType) -> None:
     )
 
 
+@pytest.mark.parametrize(
+    "metric_type", [MetricType.MULTI_TURN, MetricType.SINGLE_TURN]
+)
+def test_both_queries_name_the_reply_author_on_agent_responses(
+    metric_type: MetricType,
+) -> None:
+    """The plugin writes the Runner's agent to `agent` on AGENT_RESPONSE, so
+    without this every sub-agent reply reads as written by that agent. A reply
+    logged by a final response tool has no `source_event_author` and keeps
+    `agent`, which already names the tool's agent."""
+    client = mock.MagicMock()
+    client.query.return_value.job_id = "job-1"
+    fetcher = _make_fetcher(client)
+
+    fetcher.submit_query("agent-a", metric_type, _START, _END, limit=5)
+
+    sql = " ".join(client.query.call_args.args[0].split())
+    assert (
+        "COALESCE( IF( e.event_type = 'AGENT_RESPONSE', "
+        "JSON_VALUE(e.attributes, '$.source_event_author'), NULL ), "
+        "e.agent ) AS agent," in sql
+    )
+    assert "e.agent, " not in sql
+
+
+def _build_transferred_session_row() -> dict[str, Any]:
+    """Builds a two-turn session where `root` transfers to `worker`.
+
+    Both agents change their instruction and toolset in the second turn, so
+    the reply shows which agent's configuration it was paired with.
+
+    Returns:
+        A multi-turn row dictionary.
+    """
+    return {
+        "session_id": "sess-5",
+        "events": [
+            _build_event("inv-1", "USER_MESSAGE_RECEIVED", agent="root"),
+            _llm_request("inv-1", "root", "Route.", ["transfer_to_agent"]),
+            _llm_request("inv-1", "worker", "Work.", ["find_booking"]),
+            _build_agent_response_event("inv-1", "worker", "Found it."),
+            _build_event("inv-2", "USER_MESSAGE_RECEIVED", agent="root"),
+            _llm_request(
+                "inv-2",
+                "root",
+                "Route carefully.",
+                ["transfer_to_agent", "escalate"],
+            ),
+            _llm_request(
+                "inv-2",
+                "worker",
+                "Work fast.",
+                ["find_booking", "amend_booking"],
+            ),
+            _build_agent_response_event("inv-2", "worker", "Amended."),
+        ],
+    }
+
+
+def test_a_sub_agent_reply_pairs_with_the_sub_agents_configuration() -> None:
+    """A reply credited to the transfer-only root makes the reviewer report
+    that the root answered instead of transferring."""
+    fetcher = _make_fetcher(mock.MagicMock())
+
+    case = fetcher._build_case(
+        _build_transferred_session_row(), MetricType.MULTI_TURN
+    )
+
+    first, second = case.agent_data.turns
+    assert first.events[-1].author == "worker"
+    reply = second.events[-1]
+    assert reply.author == "worker"
+    assert reply.state_delta == _build_instruction_delta("Work fast.")
+    assert _list_tool_names(reply.active_tools) == [
+        "find_booking",
+        "amend_booking",
+    ]
+
+
 def test_a_three_agent_session_with_named_tools_reaches_the_review_prompt() -> (
     None
 ):
@@ -1811,7 +2008,7 @@ def test_a_three_agent_session_with_named_tools_reaches_the_review_prompt() -> (
     case = fetcher._build_case(row, MetricType.MULTI_TURN)
     prompt = session_review.build_prompt(
         AgentRevisionCache().build_revisions(case),
-        session_review.extract_session_turns(case),
+        extract_trajectory_turns(case),
     )
 
     assert "Tools it could call: []" not in prompt
@@ -2082,7 +2279,7 @@ def test_single_turn_case_shows_the_changed_instruction_once() -> None:
 
 def test_two_phase_case_shows_the_changed_instruction_once() -> None:
     """A system instruction can be very large, so it reaches the review prompt
-    once per turn, not once per event (b/570915568)."""
+    once per turn, not once per event."""
     v1 = "Greet the user and collect the request."
     v2 = "Follow the SOP step by step. " * 5000
     events = [
@@ -2120,7 +2317,7 @@ def test_two_phase_case_shows_the_changed_instruction_once() -> None:
     assert carriers == [(1, 1)], "only turn 2's first TOOL_STARTING carries v2"
     prompt = session_review.build_prompt(
         AgentRevisionCache().build_revisions(case),
-        session_review.extract_session_turns(case),
+        extract_trajectory_turns(case),
     )
     assert prompt.count(v2) == 1
 
@@ -2229,7 +2426,7 @@ def test_a_session_less_event_is_not_evaluated_as_a_multi_turn_case(
 
 
 def test_the_rows_a_memory_stop_left_unread_are_reported_to_nobody() -> None:
-    """They were never attempted, so the run did not sample them -- reporting
+    """They were never attempted, so the investigation did not sample them -- reporting
     them would put a trajectory in the store the sweep never looked at, and the
     counter invariants would stop holding."""
     client = mock.MagicMock()
@@ -2414,3 +2611,115 @@ def test_the_single_turn_query_has_no_selector_path() -> None:
     assert fetcher._build_count_sql(
         MetricType.SINGLE_TURN
     ) == default._build_count_sql(MetricType.SINGLE_TURN)
+
+
+# --- query job limits ---------------------------------------------------------- #
+
+
+def _run_job_site(fetcher: BigQueryFetcher, site: str) -> None:
+    """Runs the fetcher method that submits one kind of query job.
+
+    Args:
+        fetcher: Fetcher under test.
+        site: Name of the method to run.
+    """
+    if site == "count_scanned":
+        fetcher.count_scanned("agent-a", MetricType.MULTI_TURN, _START, _END)
+    elif site == "count_by_agent":
+        fetcher.count_by_agent(MetricType.MULTI_TURN, _START, _END)
+    else:
+        fetcher.submit_query(
+            "agent-a", MetricType.MULTI_TURN, _START, _END, limit=5
+        )
+
+
+_JOB_SITES = ["count_scanned", "count_by_agent", "submit_query"]
+
+
+@pytest.mark.parametrize("site", _JOB_SITES)
+def test_every_query_job_is_capped_and_timed_out_by_default(site: str) -> None:
+    """An unbounded job bills AQuA's project for whatever the table holds."""
+    client = mock.MagicMock()
+    client.query.return_value.result.return_value = []
+    fetcher = _make_fetcher(client)
+
+    _run_job_site(fetcher, site)
+
+    job_config = client.query.call_args.kwargs["job_config"]
+    assert job_config.maximum_bytes_billed == MAX_BYTES_BILLED
+    assert int(job_config.job_timeout_ms) == DEFAULT_JOB_TIMEOUT_MS
+
+
+@pytest.mark.parametrize("site", _JOB_SITES)
+def test_a_given_job_timeout_replaces_the_default(site: str) -> None:
+    client = mock.MagicMock()
+    client.query.return_value.result.return_value = []
+    with mock.patch(
+        "ambient_quality_agent.tools.ingestion.base.bigquery.Client",
+        return_value=client,
+    ):
+        fetcher = BigQueryFetcher(
+            project_id=_PROJECT,
+            dataset=_DATASET,
+            table=_TABLE,
+            location=_LOCATION,
+            job_timeout_ms=1234,
+        )
+
+    _run_job_site(fetcher, site)
+
+    job_config = client.query.call_args.kwargs["job_config"]
+    assert int(job_config.job_timeout_ms) == 1234
+    assert job_config.maximum_bytes_billed == MAX_BYTES_BILLED
+
+
+def _build_bytes_billed_error() -> api_exceptions.InternalServerError:
+    """Builds the error BigQuery's client raises when a job hits the cap.
+
+    Returns:
+        A 500 whose first error carries the cap's reason and a server trace.
+    """
+    message = "Query exceeded limit for bytes billed: 1. 3964665856 or higher required."
+    return api_exceptions.InternalServerError(
+        message,
+        errors=[
+            {
+                "reason": "bytesBilledLimitExceeded",
+                "message": message,
+                "debugInfo": "server stack trace",
+            }
+        ],
+    )
+
+
+@pytest.mark.parametrize("site", _JOB_SITES)
+def test_a_job_over_the_cap_raises_query_too_large(site: str) -> None:
+    """BigQuery reports the cap as a 500 with a server trace attached; the
+    operator needs to know the query was too large, and what to narrow."""
+    client = mock.MagicMock()
+    client.query.return_value.result.side_effect = _build_bytes_billed_error()
+    fetcher = _make_fetcher(client)
+
+    with pytest.raises(QueryTooLargeError) as raised:
+        _run_job_site(fetcher, site)
+
+    message = str(raised.value)
+    assert "1 TiB" in message
+    assert "data_lookback_window" in message
+    assert "selector" in message
+    assert "server stack trace" not in message
+
+
+@pytest.mark.parametrize("site", _JOB_SITES)
+def test_any_other_job_error_passes_through_unchanged(site: str) -> None:
+    error = api_exceptions.InternalServerError(
+        "backend error", errors=[{"reason": "backendError"}]
+    )
+    client = mock.MagicMock()
+    client.query.return_value.result.side_effect = error
+    fetcher = _make_fetcher(client)
+
+    with pytest.raises(api_exceptions.InternalServerError) as raised:
+        _run_job_site(fetcher, site)
+
+    assert raised.value is error

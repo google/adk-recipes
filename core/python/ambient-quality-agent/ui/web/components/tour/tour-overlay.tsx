@@ -31,6 +31,8 @@ import {
   useTourStep,
 } from "@/lib/tour-state";
 import { HOME_SIDE_BY_SIDE, tourSteps, type TourStep } from "./tour-steps";
+import type { AgentKey } from "@/lib/aqua-api";
+import { useAgentKey } from "@/lib/agent-selection";
 
 /** How far the spotlight's ring stands off the element it frames, in px. */
 const RING_GAP = 6;
@@ -62,6 +64,17 @@ const FADE_MS = 250;
  *  element never comes, as the evidence does not for an insight that has no
  *  occurrence yet. */
 const GRACE_MS = 900;
+
+/** How a step keeps its element in view while the page settles, in ms. It
+ *  scrolls the element in when it is out of view, but not within WHEEL_QUIET_MS
+ *  of a wheel event: the tail of a trackpad flick that ended as the tour
+ *  opened would stop a smooth scroll partway. It tries again at most every
+ *  RESCROLL_MS, longer than a smooth scroll takes, and stops once the element
+ *  has been in view with the page at rest, after which the reader may scroll
+ *  it away, or after SETTLE_MS, rather than hold the page. */
+const WHEEL_QUIET_MS = 150;
+const RESCROLL_MS = GLIDE_MS + 200;
+const SETTLE_MS = 3000;
 
 /**
  * The guided tour, drawn over the dashboard: a spotlight on the step's element
@@ -107,6 +120,7 @@ function OpenTour({ index }: { index: number }) {
   const step = steps[index];
   const router = useRouter();
   const client = useQueryClient();
+  const agentKey = useAgentKey();
   const titleId = useId();
   const bodyId = useId();
   const primary = useRef<HTMLButtonElement>(null);
@@ -118,6 +132,23 @@ function OpenTour({ index }: { index: number }) {
   const [arrivedAt, setArrivedAt] = useState<number | null>(null);
   const [via, setVia] = useState<Via | null>(null);
   const onPage = arrivedAt === index;
+  // Every step's page, resolved when the tour opens and again when the reader
+  // selects another agent, so the steps it skips and the count it shows agree:
+  // a step whose page is null is skipped and not counted.
+  const [pages, setPages] = useState<(string | null | undefined)[] | null>(
+    null,
+  );
+  useEffect(() => {
+    let current = true;
+    void Promise.all(
+      steps.map((each) => resolvePage(each, client, agentKey)),
+    ).then((resolved) => {
+      if (current) setPages(resolved);
+    });
+    return () => {
+      current = false;
+    };
+  }, [steps, client, agentKey]);
 
   const go = (to: number, from?: Element | null) => {
     pressed.current =
@@ -127,16 +158,16 @@ function OpenTour({ index }: { index: number }) {
     else showTourStep(Math.max(0, to));
   };
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: runs once per step; step and go follow from index, the pathname is read when the step opens, and the router and query client live as long as the app.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: runs once per step once the pages are resolved, and again when they are resolved for another agent; go follows from index, the pathname is read when the step opens, and the router lives as long as the app.
   useEffect(() => {
+    if (pages === null) return;
     let current = true;
     const timers: number[] = [];
     const wait = (ms: number) =>
       new Promise((resolve) => timers.push(window.setTimeout(resolve, ms)));
     const arrive = () => setArrivedAt(index);
     void (async () => {
-      const page = await resolvePage(step, client);
-      if (!current) return;
+      const page = pages[index];
       if (page === null) {
         go(index + direction.current);
         return;
@@ -171,7 +202,7 @@ function OpenTour({ index }: { index: number }) {
       for (const timer of timers) window.clearTimeout(timer);
       setVia(null);
     };
-  }, [index]);
+  }, [index, pages]);
 
   // Escape ends the tour from anywhere, including while the pointer is on
   // its way and the callout is not there to hear it.
@@ -208,6 +239,10 @@ function OpenTour({ index }: { index: number }) {
   const [shownIndex, setShownIndex] = useState(index);
   if (!hidden && shownIndex !== index) setShownIndex(index);
   const shown = steps[shownIndex];
+  const counted = (pages ?? []).filter((page) => page !== null).length;
+  const position = (pages ?? [])
+    .slice(0, shownIndex + 1)
+    .filter((page) => page !== null).length;
   const { hole } = spotlight;
 
   return (
@@ -285,7 +320,7 @@ function OpenTour({ index }: { index: number }) {
           </p>
           <div className="mt-4 flex items-center justify-between gap-3">
             <span className={textStyle.meta}>
-              {shownIndex + 1} of {steps.length}
+              {position} of {counted}
             </span>
             <div className="flex items-center gap-2">
               {shownIndex > 0 && (
@@ -400,10 +435,11 @@ function TourPointer({ via }: { via: Via }) {
 async function resolvePage(
   step: TourStep,
   client: QueryClient,
+  agentKey: AgentKey,
 ): Promise<string | null | undefined> {
   if (typeof step.page !== "function") return step.page;
   try {
-    return await step.page(client);
+    return await step.page(client, agentKey);
   } catch {
     return null;
   }
@@ -411,13 +447,14 @@ async function resolvePage(
 
 /** The link a reader would press to reach `page`: one on screen, looked for
  *  first in the page's content and then anywhere, so a link the page offers
- *  wins over the same one in the sidebar. Null when the open page has no such
- *  link. */
+ *  wins over the same one in the sidebar. A link with a query string matches
+ *  too, as every link carries the selected agent. Null when the open page has
+ *  no such link. */
 function findLinkTo(page: string): HTMLElement | null {
   const scopes = [document.querySelector("main"), document];
   for (const scope of scopes) {
     for (const link of scope?.querySelectorAll<HTMLElement>(
-      `a[href="${page}"]`,
+      `a[href="${page}"], a[href^="${page}?"]`,
     ) ?? []) {
       const rect = link.getBoundingClientRect();
       if (rect.width > 0 && rect.height > 0) return link;
@@ -455,8 +492,9 @@ interface Spotlight {
 /**
  * The spotlight on the element marked `data-tour={locate}`, or on the element
  * itself, or held where it is while `locate` is null. The element is followed
- * every frame as the page scrolls and reflows, and scrolled into view the
- * first time it is found unless it is in view already. The hole glides to it
+ * every frame as the page scrolls and reflows, and scrolled into view once it
+ * is found, until it has been in view with the page at rest (see SETTLE_MS).
+ * The hole glides to it
  * over GLIDE_MS from wherever the last element left it, then keeps to it
  * exactly. While the element is missing the hole holds its place for GRACE_MS,
  * so it can glide on from there once a new page renders the element; after
@@ -479,7 +517,14 @@ function useSpotlight(locate: string | HTMLElement | null): Spotlight {
     if (locate === null) return;
     const glideMs = prefersReducedMotion() ? 0 : GLIDE_MS;
     let frame = 0;
-    let scrolled = false;
+    let foundAt: number | null = null;
+    let settled = false;
+    let scrolledAt = Number.NEGATIVE_INFINITY;
+    let wheelAt = Number.NEGATIVE_INFINITY;
+    const onWheel = () => {
+      wheelAt = performance.now();
+    };
+    window.addEventListener("wheel", onWheel, { capture: true, passive: true });
     let missingSince: number | null = null;
     let box: DOMRect | null = null;
     let hole = drawn.current;
@@ -502,18 +547,22 @@ function useSpotlight(locate: string | HTMLElement | null): Spotlight {
       let goal: DOMRect | null = null;
       if (element && rect && rect.width > 0 && rect.height > 0) {
         missingSince = null;
-        if (!scrolled) {
-          scrolled = true;
-          const inView =
-            rect.top >= 0 &&
-            rect.left >= 0 &&
-            rect.bottom <= window.innerHeight &&
-            rect.right <= window.innerWidth;
-          if (!inView)
+        foundAt ??= now;
+        if (
+          !settled &&
+          now - foundAt < SETTLE_MS &&
+          now - wheelAt > WHEEL_QUIET_MS &&
+          now - scrolledAt > RESCROLL_MS
+        ) {
+          if (isInView(element, rect)) {
+            settled = true;
+          } else {
+            scrolledAt = now;
             element.scrollIntoView({
               block: "center",
               behavior: glideMs ? "smooth" : "auto",
             });
+          }
         }
         box = rect;
         goal = new DOMRect(
@@ -554,7 +603,10 @@ function useSpotlight(locate: string | HTMLElement | null): Spotlight {
       frame = requestAnimationFrame(follow);
     };
     follow();
-    return () => cancelAnimationFrame(frame);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener("wheel", onWheel, { capture: true });
+    };
   }, [locate]);
 
   // What was drawn for an earlier element has not arrived at this one.
@@ -569,6 +621,40 @@ function useSpotlight(locate: string | HTMLElement | null): Spotlight {
  *  where the spotlight's hole closes to. */
 function restingPoint(): DOMRect {
   return placeCallout(null, window.innerWidth, window.innerHeight).anchor;
+}
+
+/**
+ * Whether `rect`, the box of `element`, is in sight: inside the window, and
+ * inside the box of the nearest ancestor that scrolls it, which the tab bar
+ * sits above. An element taller than that box is in sight once it fills it.
+ *
+ * Args:
+ *   element: The element a tour step points at.
+ *   rect: The element's box, as measured on this frame.
+ *
+ * Returns:
+ *   True when the element is in sight; false otherwise, and always when the
+ *   ancestor that scrolls it is outside the window.
+ */
+function isInView(element: Element, rect: DOMRect): boolean {
+  let top = 0;
+  let bottom = window.innerHeight;
+  for (let el = element.parentElement; el; el = el.parentElement) {
+    const { overflowY } = getComputedStyle(el);
+    if (overflowY === "auto" || overflowY === "scroll") {
+      const scroller = el.getBoundingClientRect();
+      top = Math.max(top, scroller.top);
+      bottom = Math.min(bottom, scroller.bottom);
+      break;
+    }
+  }
+  // Nothing in an ancestor outside the window is in sight, though an element
+  // there would pass the check below for one that fills the ancestor's box.
+  if (bottom <= top) return false;
+  const fits = rect.top >= top && rect.bottom <= bottom;
+  const fills =
+    rect.height > bottom - top && rect.top <= top && rect.bottom >= bottom;
+  return (fits || fills) && rect.left >= 0 && rect.right <= window.innerWidth;
 }
 
 function isSameBox(a: DOMRect | null, b: DOMRect | null): boolean {

@@ -140,6 +140,10 @@ class CodeMetric:
     threshold: float = 1.0
     """Score at or above which the metric passes."""
 
+    source_path: str = ""
+    """The library file defining `evaluate`, or `<custom_function:NAME>` for
+    an inline one; what a publish report names the metric's source by."""
+
     def __post_init__(self) -> None:
         # Bound each retry attempt with an independent timeout rather than
         # sharing a single deadline across all attempts.
@@ -180,6 +184,12 @@ class RemoteCodeMetric:
 
     threshold: float = 1.0
     """Passing score threshold."""
+
+    source_path: str = ""
+    """See `CodeMetric.source_path`."""
+
+    model_modules: tuple[str, ...] = ()
+    """Model client modules the source imports, if any."""
 
 
 @dataclasses.dataclass(frozen=True)
@@ -575,7 +585,7 @@ def _compute_dead_judge_reason(metric: LLMMetric) -> str:
     """Computes why the eval service would error this judge on every session.
 
     Each shape was measured to fail every case, leaving the metric without a
-    verdict and failing the run. Refusing it at load names the problem before a
+    verdict and failing the investigation. Refusing it at load names the problem before a
     sweep stalls; agents-cli would fail these entries too, only later.
 
     Args:
@@ -690,6 +700,8 @@ def _load_remote_metric(
         expected=_extract_expected_literal(name, tree),
         source=decoded,
         threshold=_extract_threshold(name, entry),
+        source_path=origin,
+        model_modules=_list_model_modules(source, origin),
     )
 
 
@@ -857,6 +869,7 @@ def _load_metric(
         evaluate=evaluate,
         model_modules=_list_model_modules(source, origin),
         threshold=float(entry.get("threshold", 1.0)),
+        source_path=origin,
     )
 
 
@@ -962,7 +975,7 @@ def _exec_module(name: str, source: bytes, origin: str) -> Any:
     module.__file__ = origin
     sys.modules[module_name] = module
     try:
-        exec(compile(source, origin, "exec"), module.__dict__)  # noqa: S102 - executes trusted metric code from deployment bucket, not request or model input
+        exec(compile(source, origin, "exec"), module.__dict__)  # noqa: S102 - executes operator-published metric code by design, never model input
     except BaseException:
         sys.modules.pop(module_name, None)
         raise

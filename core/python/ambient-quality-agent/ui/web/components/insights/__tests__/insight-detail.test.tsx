@@ -31,10 +31,10 @@ function occurrence(over: Partial<InsightOccurrence>): InsightOccurrence {
     confidence: 0,
     diagnosis: "",
     label: "",
-    item_count: 0,
-    trace_count: 0,
-    cases_checked: 0,
-    evidence_case_ids: [],
+    finding_count: 0,
+    trajectory_count: 0,
+    trajectories_checked: 0,
+    evidence_trajectory_ids: [],
     console_urls: {},
     ...over,
   };
@@ -43,14 +43,14 @@ function occurrence(over: Partial<InsightOccurrence>): InsightOccurrence {
 function insightView(over: Partial<InsightView>): InsightView {
   return {
     insight_id: "ins-123",
-    agent_name: "it_support_agent",
+    observed_agent_key: "it_support_agent",
     label: "the final response carried no text",
     tool_name: "create_ticket",
     status: "RECURRING",
     occurrence_count: 7,
-    trace_count: 134,
+    trajectory_count: 134,
     impact: 400,
-    last_run_at: "2026-08-28T18:35:34Z",
+    last_investigation_at: "2026-08-28T18:35:34Z",
     diagnosis:
       "The create_ticket tool restricts priority to High, Medium, Low.",
     confidence: 1.0,
@@ -59,21 +59,34 @@ function insightView(over: Partial<InsightView>): InsightView {
 }
 
 describe("formatBugReport", () => {
+  it("links the report to the agent the insight belongs to", () => {
+    const report = formatBugReport({
+      insight: insightView({ insight_id: "ins-abc" }),
+      occurrences: [],
+      origin: "http://localhost:8080",
+      agentKey: "acme-prod__support",
+    });
+
+    expect(report).toContain(
+      "**Permalink:** http://localhost:8080/insights/ins-abc?agent=acme-prod__support",
+    );
+  });
+
   it("formats a complete markdown bug report with permalink and evidence", () => {
     const ins = insightView({
       insight_id: "ins-abc",
-      agent_name: "support_agent",
+      observed_agent_key: "support_agent",
       diagnosis: "Priority value must be uppercase.",
       refined_label: "create_ticket rejects a lowercase priority",
       label: "crashed on create_ticket",
       confidence: 1.0,
       impact: 400,
-      trace_count: 134,
+      trajectory_count: 134,
       occurrence_count: 7,
     });
     const occs = [
       occurrence({
-        evidence_case_ids: ["case-01", "case-02"],
+        evidence_trajectory_ids: ["case-01", "case-02"],
       }),
     ];
 
@@ -106,7 +119,7 @@ describe("formatBugReport", () => {
     // diagnosed "legacy" put a false provenance claim in a filed bug.
     const ins = insightView({
       insight_id: "ins-undiagnosed",
-      agent_name: "it_support_agent",
+      observed_agent_key: "it_support_agent",
       diagnosis: "",
       label: "stopped before completing the request",
       confidence: 0,
@@ -163,16 +176,20 @@ describe("Occurrence", () => {
       getParentRoute: () => rootRoute,
       path: "/",
       component: () => (
-        <Occurrence occurrence={occ} runId="run-777" heading={heading} />
+        <Occurrence
+          occurrence={occ}
+          investigationId="inv-777"
+          heading={heading}
+        />
       ),
     });
-    const runRoute = createRoute({
+    const investigationRoute = createRoute({
       getParentRoute: () => rootRoute,
-      path: "/investigations/$runId",
-      component: () => <div>Run</div>,
+      path: "/investigations/$investigationId",
+      component: () => <div>Investigation</div>,
     });
     const router = createRouter({
-      routeTree: rootRoute.addChildren([indexRoute, runRoute]),
+      routeTree: rootRoute.addChildren([indexRoute, investigationRoute]),
       history: createMemoryHistory({ initialEntries: ["/"] }),
     });
     render(<RouterProvider router={router} />);
@@ -183,8 +200,8 @@ describe("Occurrence", () => {
       occurrence_id: "occ-1",
       confidence: 0.9,
       diagnosis: "Tool parameter mismatch.",
-      cases_checked: 5,
-      evidence_case_ids: ["case-0123456789ab", "case-abcdef012345"],
+      trajectories_checked: 5,
+      evidence_trajectory_ids: ["case-0123456789ab", "case-abcdef012345"],
       console_urls: {
         "case-0123456789ab":
           "https://console.cloud.google.com/traces/list?project=p&tid=t1",
@@ -209,7 +226,7 @@ describe("Occurrence", () => {
 
   it("opens the trace in a new tab, since it leaves the dashboard", async () => {
     const occ = occurrence({
-      evidence_case_ids: ["case-0123456789ab"],
+      evidence_trajectory_ids: ["case-0123456789ab"],
       console_urls: {
         "case-0123456789ab": "https://console.cloud.google.com/x",
       },
@@ -228,8 +245,8 @@ describe("Occurrence", () => {
     // Every `big_query` trajectory: the conversation is still replayable, so
     // the chip stays a link -- there is just no raw trace to leave for.
     const occ = occurrence({
-      run_id: "run-7",
-      evidence_case_ids: ["case-0123456789ab"],
+      investigation_id: "inv-7",
+      evidence_trajectory_ids: ["case-0123456789ab"],
     });
 
     renderOccurrence(occ);
@@ -237,18 +254,20 @@ describe("Occurrence", () => {
     const hrefs = (await screen.findAllByRole("link")).map((l) =>
       l.getAttribute("href"),
     );
-    expect(hrefs).toContain("/investigations/run-7/cases/case-0123456789ab");
+    expect(hrefs).toContain(
+      "/investigations/inv-7/trajectories/case-0123456789ab",
+    );
     expect(hrefs.some((h) => h?.includes("console.cloud.google.com"))).toBe(
       false,
     );
   });
 
   it("links a case to its conversation replay", async () => {
-    // The inverse of what this asserted while the endpoint 404'd. Now that
-    // `/api/investigations/{run}/cases/{case}` serves, the chip is the way in.
+    // `/api/investigations/{investigation}/trajectories/{trajectory}` serves the
+    // replay, so the chip is the way in.
     const occ = occurrence({
-      run_id: "run-7",
-      evidence_case_ids: ["case-0123456789ab"],
+      investigation_id: "inv-7",
+      evidence_trajectory_ids: ["case-0123456789ab"],
       console_urls: {
         "case-0123456789ab": "https://console.cloud.google.com/x",
       },
@@ -259,13 +278,35 @@ describe("Occurrence", () => {
     const hrefs = (await screen.findAllByRole("link")).map((l) =>
       l.getAttribute("href"),
     );
-    expect(hrefs).toContain("/investigations/run-7/cases/case-0123456789ab");
+    expect(hrefs).toContain(
+      "/investigations/inv-7/trajectories/case-0123456789ab",
+    );
   });
 
-  it("shows a plain chip when the sighting records no run", async () => {
-    // The replay lives under a run. Without one there is no URL to build, and
-    // an id with nowhere to go is still worth showing.
-    const occ = occurrence({ evidence_case_ids: ["case-0123456789ab"] });
+  it("renders code spans in the findings as code", async () => {
+    const occ = occurrence({
+      examples: [
+        {
+          finding: {
+            expected_behavior: "The agent should have used `list_user_groups`.",
+            actual_behavior:
+              "The agent called a hallucinated tool `find_user_group`.",
+          },
+        },
+      ],
+    });
+
+    renderOccurrence(occ);
+
+    for (const name of ["list_user_groups", "find_user_group"]) {
+      expect((await screen.findByText(name)).tagName).toBe("CODE");
+    }
+  });
+
+  it("shows a plain chip when the sighting records no investigation", async () => {
+    // The replay lives under an investigation. Without one there is no URL to
+    // build, and an id with nowhere to go is still worth showing.
+    const occ = occurrence({ evidence_trajectory_ids: ["case-0123456789ab"] });
 
     renderOccurrence(occ);
 
@@ -275,43 +316,48 @@ describe("Occurrence", () => {
 });
 
 describe("Occurrence -> its investigation", () => {
-  it("links to the run that produced the finding", async () => {
-    const occ = occurrence({ run_id: "run-777", evidence_case_ids: [] });
+  it("links to the investigation that produced the finding", async () => {
+    const occ = occurrence({
+      investigation_id: "inv-777",
+      evidence_trajectory_ids: [],
+    });
 
     const rootRoute = createRootRoute();
     const indexRoute = createRoute({
       getParentRoute: () => rootRoute,
       path: "/",
-      component: () => <Occurrence occurrence={occ} runId="run-777" />,
+      component: () => (
+        <Occurrence occurrence={occ} investigationId="inv-777" />
+      ),
     });
-    const runRoute = createRoute({
+    const investigationRoute = createRoute({
       getParentRoute: () => rootRoute,
-      path: "/investigations/$runId",
-      component: () => <div>Run Page</div>,
+      path: "/investigations/$investigationId",
+      component: () => <div>Investigation page</div>,
     });
     const router = createRouter({
-      routeTree: rootRoute.addChildren([indexRoute, runRoute]),
+      routeTree: rootRoute.addChildren([indexRoute, investigationRoute]),
       history: createMemoryHistory({ initialEntries: ["/"] }),
     });
 
     render(<RouterProvider router={router} />);
 
     const link = await screen.findByRole("link");
-    expect(link).toHaveAttribute("href", "/investigations/run-777");
+    expect(link).toHaveAttribute("href", "/investigations/inv-777");
     // The id has to be visible, not just in the href: an insight seen across
-    // several runs shows one of these rows per run.
-    expect(link).toHaveTextContent("run-777");
+    // several investigations shows one of these rows per investigation.
+    expect(link).toHaveTextContent("inv-777");
   });
 
-  it("shows no investigation link when the occurrence has no run", async () => {
-    const occ = occurrence({ evidence_case_ids: [] });
-    delete (occ as { run_id?: string }).run_id;
+  it("shows no investigation link when the occurrence has no investigation", async () => {
+    const occ = occurrence({ evidence_trajectory_ids: [] });
+    delete (occ as { investigation_id?: string }).investigation_id;
 
     const rootRoute = createRootRoute();
     const indexRoute = createRoute({
       getParentRoute: () => rootRoute,
       path: "/",
-      component: () => <Occurrence occurrence={occ} runId="unused" />,
+      component: () => <Occurrence occurrence={occ} investigationId="unused" />,
     });
     const router = createRouter({
       routeTree: rootRoute.addChildren([indexRoute]),
@@ -326,12 +372,17 @@ describe("Occurrence -> its investigation", () => {
 });
 
 describe("a finding recorded from chat", () => {
-  function renderOcc(occ: ReturnType<typeof occurrence>, runId: string) {
+  function renderOcc(
+    occ: ReturnType<typeof occurrence>,
+    investigationId: string,
+  ) {
     const rootRoute = createRootRoute();
     const indexRoute = createRoute({
       getParentRoute: () => rootRoute,
       path: "/",
-      component: () => <Occurrence occurrence={occ} runId={runId} />,
+      component: () => (
+        <Occurrence occurrence={occ} investigationId={investigationId} />
+      ),
     });
     const chatRoute = createRoute({
       getParentRoute: () => rootRoute,
@@ -341,22 +392,22 @@ describe("a finding recorded from chat", () => {
       }),
       component: () => <div>Chat</div>,
     });
-    const runRoute = createRoute({
+    const investigationRoute = createRoute({
       getParentRoute: () => rootRoute,
-      path: "/investigations/$runId",
-      component: () => <div>Run</div>,
+      path: "/investigations/$investigationId",
+      component: () => <div>Investigation</div>,
     });
-    const caseRoute = createRoute({
+    const trajectoryRoute = createRoute({
       getParentRoute: () => rootRoute,
-      path: "/investigations/$runId/cases/$caseId",
-      component: () => <div>Case</div>,
+      path: "/investigations/$investigationId/trajectories/$trajectoryId",
+      component: () => <div>Trajectory</div>,
     });
     const router = createRouter({
       routeTree: rootRoute.addChildren([
         indexRoute,
         chatRoute,
-        runRoute,
-        caseRoute,
+        investigationRoute,
+        trajectoryRoute,
       ]),
       history: createMemoryHistory({ initialEntries: ["/"] }),
     });
@@ -364,7 +415,10 @@ describe("a finding recorded from chat", () => {
   }
 
   it("links to the conversation, not an investigation that never ran", async () => {
-    const occ = occurrence({ run_id: "chat-ctx-abc", evidence_case_ids: [] });
+    const occ = occurrence({
+      investigation_id: "chat-ctx-abc",
+      evidence_trajectory_ids: [],
+    });
 
     renderOcc(occ, "chat-ctx-abc");
 
@@ -379,8 +433,8 @@ describe("a finding recorded from chat", () => {
     // session, and what the eight backfilled rows carry because their real
     // ids were overwritten. A link here goes to /c?id=unattributed.
     const occ = occurrence({
-      run_id: "chat-unattributed",
-      evidence_case_ids: [],
+      investigation_id: "chat-unattributed",
+      evidence_trajectory_ids: [],
     });
 
     renderOcc(occ, "chat-unattributed");
@@ -391,11 +445,11 @@ describe("a finding recorded from chat", () => {
 
   it("opens a chat finding's evidence in Cloud Trace like any other", async () => {
     // The conversation is the observed agent's whichever sweep found it, and
-    // a trace link needs no run at all -- which is why dropping the
-    // artifact-bearing-run fallback costs this case nothing.
+    // a trace link needs no investigation at all -- which is why dropping the
+    // artifact-bearing-investigation fallback costs this case nothing.
     const occ = occurrence({
-      run_id: "chat-ctx-abc",
-      evidence_case_ids: ["case-0123456789ab"],
+      investigation_id: "chat-ctx-abc",
+      evidence_trajectory_ids: ["case-0123456789ab"],
       console_urls: {
         "case-0123456789ab": "https://console.cloud.google.com/x",
       },
@@ -408,10 +462,10 @@ describe("a finding recorded from chat", () => {
     expect(hrefs).toContain("https://console.cloud.google.com/x");
   });
 
-  it("offers the chat and the replay, but no trace, for a chat-run case", async () => {
+  it("offers the chat and the replay, but no trace, for a case found in chat", async () => {
     const occ = occurrence({
-      run_id: "chat-ctx-abc",
-      evidence_case_ids: ["case-0123456789ab"],
+      investigation_id: "chat-ctx-abc",
+      evidence_trajectory_ids: ["case-0123456789ab"],
     });
 
     renderOcc(occ, "chat-ctx-abc");
@@ -421,7 +475,7 @@ describe("a finding recorded from chat", () => {
       .getAllByRole("link")
       .map((l) => l.getAttribute("href"));
     expect(hrefs).toContain(
-      "/investigations/chat-ctx-abc/cases/case-0123456789ab",
+      "/investigations/chat-ctx-abc/trajectories/case-0123456789ab",
     );
     expect(hrefs.some((h) => h?.includes("console.cloud.google.com"))).toBe(
       false,
@@ -433,10 +487,10 @@ describe("a finding recorded from chat", () => {
     ).toBe(true);
   });
 
-  it("still links a real run to its investigation with canonical Investigation label", async () => {
+  it("still links a sweep investigation to its page with the canonical Investigation label", async () => {
     const occ = occurrence({
-      run_id: "fc27a7a2",
-      evidence_case_ids: ["case-0123456789ab"],
+      investigation_id: "fc27a7a2",
+      evidence_trajectory_ids: ["case-0123456789ab"],
     });
 
     renderOcc(occ, "fc27a7a2");

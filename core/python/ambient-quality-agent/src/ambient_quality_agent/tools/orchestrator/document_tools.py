@@ -15,7 +15,8 @@
 """Provides dashboard route payloads for agent goal and memories documents.
 
 Wraps `tools.documents` to:
-1. Read and write through the jobs store (`objects.store.jobs_store_factory`).
+1. Read and write the documents of the agent the request selects
+   (`agent_scope.resolve_document_store`), resolved with the read itself.
 2. Offload blocking storage I/O from the event loop using `asyncio.to_thread`.
 3. Return structured failure payloads instead of raising unhandled exceptions.
 
@@ -27,21 +28,46 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ambient_quality_agent.core.session_state import LaunchContext
+from ambient_quality_agent.tools.documents import agent_scope
 from ambient_quality_agent.tools.documents import goal as goal_doc
 from ambient_quality_agent.tools.documents import memories as memories_doc
-from ambient_quality_agent.tools.objects import store as objects
+
+if TYPE_CHECKING:
+    from ambient_quality_agent.tools.objects.store import ObjectStore
 
 logger = logging.getLogger(__name__)
+
+
+def resolve_selected_document_store(tool_context: LaunchContext) -> ObjectStore:
+    """Resolves the documents of the agent a request selects, else the default.
+
+    Args:
+        tool_context: Launch context whose state may select the agent.
+
+    Returns:
+        The agent's document store; the instance's documents when no agent is
+        attached.
+
+    Raises:
+        Exception: Whatever reading the attachments raised, so that a caller
+            reports the documents as unavailable rather than showing the
+            instance's.
+    """
+    return agent_scope.resolve_document_store(
+        agent_scope.resolve_selected_agent_key(tool_context.state)
+    )
 
 
 async def get_goal(tool_context: LaunchContext) -> dict[str, Any]:
     """The developer's goal for the observed agent, as written in goal.md, with
     the id of its version (`None` when no goal is written)."""
-    store = objects.jobs_store_factory()
     try:
+        store = await asyncio.to_thread(
+            resolve_selected_document_store, tool_context
+        )
         text = await asyncio.to_thread(goal_doc.read_goal, store)
     except Exception as exc:
         logger.warning("documents: reading the goal failed: %s", exc)
@@ -71,8 +97,10 @@ async def set_goal(tool_context: LaunchContext, *, goal: str) -> dict[str, Any]:
         (`None` when the goal was removed), or an ``error`` message on
         validation or storage failure.
     """
-    store = objects.jobs_store_factory()
     try:
+        store = await asyncio.to_thread(
+            resolve_selected_document_store, tool_context
+        )
         stored = await asyncio.to_thread(goal_doc.save_goal, store, goal)
     except ValueError as exc:
         # Return validation failures (oversized text) directly to caller.
@@ -101,8 +129,10 @@ async def list_goal_versions(tool_context: LaunchContext) -> dict[str, Any]:
         - ``available``: True if retrieval succeeded; False on storage error.
         - ``reason``: Error details if retrieval failed.
     """
-    store = objects.jobs_store_factory()
     try:
+        store = await asyncio.to_thread(
+            resolve_selected_document_store, tool_context
+        )
         versions, active = await asyncio.to_thread(
             lambda: (goal_doc.list_versions(store), goal_doc.read_goal(store))
         )
@@ -143,8 +173,10 @@ async def list_memories(tool_context: LaunchContext) -> dict[str, Any]:
         - ``uri``: Where the memories are kept (when available).
         - ``reason``: Error details if retrieval failed.
     """
-    store = objects.jobs_store_factory()
     try:
+        store = await asyncio.to_thread(
+            resolve_selected_document_store, tool_context
+        )
         found = await asyncio.to_thread(memories_doc.load_memories, store)
     except Exception as exc:
         logger.warning("documents: reading the memories failed: %s", exc)
@@ -184,8 +216,10 @@ async def delete_memory(
     """
     if not memory_id:
         return {"error": "memory_id is required"}
-    store = objects.jobs_store_factory()
     try:
+        store = await asyncio.to_thread(
+            resolve_selected_document_store, tool_context
+        )
         deleted = await asyncio.to_thread(
             memories_doc.delete_memory, store, memory_id
         )

@@ -7,7 +7,7 @@ submitted against itself (`run_query_job` / `:asyncQuery`):
 2. The orchestrator runs the investigation inside a platform-managed
    long-running operation (LRO) lasting up to 7 days, surviving beyond the user
    session.
-3. The agent receives the self-issued `__RUN_INVESTIGATION__ <run_id>` message,
+3. The agent receives the self-issued `__RUN_INVESTIGATION__ <investigation_id>` message,
    executes the investigation graph, and writes results to `app:`-scoped session
    state.
 
@@ -148,10 +148,14 @@ bq mk --table --schema /tmp/turns.json \
 ```
 
 To update tables in an existing deployment when new columns are added (for
-example, `analyses`, `analysis_mode`, `occurrence_state`, and `trajectory_ids`
-on `insight_occurrences`, or `agent_revision` on `trajectory_payloads`):
+example, `agent_id` on `insights`, `analyses`, `analysis_mode`,
+`occurrence_state`, and `trajectory_ids` on `insight_occurrences`, or
+`agent_revision` on `trajectory_payloads`):
 
 ```bash
+jq '.schema' terraform/modules/aqa/schemas/insights.json > /tmp/insights.json
+bq update --schema /tmp/insights.json "$PROJECT:$DATASET.insights"
+
 jq '.schema' terraform/modules/aqa/schemas/insight_occurrences.json > /tmp/occ.json
 bq update --schema /tmp/occ.json "$PROJECT:$DATASET.insight_occurrences"
 
@@ -188,7 +192,7 @@ while `BigQueryInsightStore` manages insights and occurrences.
 **Archiving a conversation is a critical write operation.** While other write
 errors are logged and skipped (costing only a single dashboard entry), losing an
 archived conversation discards the evidence backing an insight. Therefore,
-`BigQueryTrajectoryStore.record_payloads` retries and raises on failure. You
+`BigQueryTrajectoryStore.record_trajectory_bundles` retries and raises on failure. You
 must create both payload tables before deploying an engine that writes to them;
 otherwise, sweeps fail immediately.
 
@@ -253,19 +257,21 @@ cd ~/ambient-quality-agent
 export GOOGLE_CLOUD_PROJECT=your-gcp-project
 export GOOGLE_CLOUD_LOCATION=us-central1
 export AQA_JOBS_GCS_BUCKET="${GOOGLE_CLOUD_PROJECT}-aqua-jobs"
-export AQA_OBSERVED_AGENT_NAME=your_observed_agent
-# Set any additional AQA_*, BIGQUERY_*, *_METRICS, or DATA_* variables needed.
+# Set any additional AQA_* variables needed.
 ```
 
+Once it is deployed, attach the observed agent with `agents-cli aqua attach`,
+which stores its settings where the engine reads them.
+
 To evaluate sessions using deterministic Python checks alongside model
-evaluations, publish a metric library to `AQA_METRICS_GCS_BUCKET` using
-`agents-cli aqua metrics publish`. Published metrics run during session-review
+evaluations, publish a metric library using `agents-cli aqua metrics publish`.
+The CLI sends it to the engine's API, and the engine validates it and writes it
+to `AQA_METRICS_GCS_BUCKET`. Published metrics run during session-review
 sweeps over the specified window; if no metrics are published, the review runs
 using model evaluations alone. Terraform provisions the metrics bucket and
-grants read access to the engine; define authorized publishers in the
-`metrics_writers` variable. Because published metrics execute inside the agent
-process using its credentials, write access to this bucket grants permissions
-equivalent to deploying code. See the [agents-cli evaluation
+grants the engine write access to it. Because published metrics execute inside
+the agent process using its credentials, publishing grants permissions
+equivalent to deploying code to anyone who can call the engine's API. See the [agents-cli evaluation
 guide](https://google.github.io/agents-cli/guide/evaluation/).
 
 **Production deployments use `agents-cli`**, which builds the repository
@@ -324,9 +330,9 @@ gcloud storage ls -r "gs://your-gcp-project-aqua-jobs/aqa-jobs/"
 ```
 
 To verify an investigation interactively in chat:
-1. Request an investigation. The agent returns a `run_id` immediately with a
+1. Request an investigation. The agent returns an `investigation_id` immediately with a
    `pending` status.
-2. Check the status using `status of <run_id>`. The state transitions to
+2. Check the status using `status of <investigation_id>`. The state transitions to
    `running`.
 3. Check status again once the durable LRO completes; the state reports `done`
    along with an investigation summary.

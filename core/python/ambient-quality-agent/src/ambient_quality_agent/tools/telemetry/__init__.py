@@ -31,5 +31,6 @@ Wiring::
 * `describe` -- the `describe_telemetry` chat tool: returns the telemetry
   source, selector table, live columns, and skill reference for selector
   recipes.
-* `schema` -- reads table columns from BigQuery metadata.
+* `schema` -- reads table columns from BigQuery metadata, and checks them
+  against the columns a telemetry source's ingestion requires.
 """

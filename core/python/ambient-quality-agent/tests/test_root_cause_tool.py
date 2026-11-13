@@ -92,20 +92,20 @@ def _occurrence(
         occurrence_id=occurrence_id,
         insight_id=insight_id,
         occurrence_state=OccurrenceState.TRACKED,
-        run_id="run-9",
+        investigation_id="run-9",
         created_at=_NOW,
-        agent_name="agent",
+        observed_agent_key="agent",
         agent_revision=agent_revision,
         label="invented an expense category",
     )
 
 
 @pytest.fixture(autouse=True)
-def _isolated_manifest_cache() -> Iterator[None]:
-    """Clears the manifest cache before and after each test to isolate snapshot state."""
-    reader_module.clear_manifest_cache()
+def _isolated_snapshot_cache() -> Iterator[None]:
+    """Clears the snapshot cache before and after each test to isolate snapshot state."""
+    reader_module.clear_snapshot_cache()
     yield
-    reader_module.clear_manifest_cache()
+    reader_module.clear_snapshot_cache()
 
 
 @pytest.fixture

@@ -14,11 +14,12 @@
 
 """`ObjectStore` over a Cloud Storage bucket, the deployed implementation.
 
-Two buckets AQuA owns are kept this way, and the engine service account can
-read and write both. The jobs bucket's one lifecycle rule is scoped to
+Three buckets AQuA owns are kept this way, and the engine service account can
+read and write all three. The jobs bucket's one lifecycle rule is scoped to
 `aqa-idempotency-keys/`, so nothing kept there through this store expires; the
 UI service account can read it too. The source bucket's objects expire after
-`source_snapshot_retention_days`.
+`source_snapshot_retention_days`. The metrics bucket keeps noncurrent versions
+of the library for 14 days.
 """
 
 from __future__ import annotations
