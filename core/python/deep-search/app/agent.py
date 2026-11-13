@@ -118,12 +118,15 @@ def collect_research_sources_callback(
                         text_segment = (
                             support.segment.text if support.segment else ""
                         )
-                        sources[short_id]["supported_claims"].append(
-                            {
-                                "text_segment": text_segment,
-                                "confidence": confidence,
-                            }
-                        )
+                        claim = {
+                            "text_segment": text_segment,
+                            "confidence": confidence,
+                        }
+                        # The callback re-reads every session event on each
+                        # call, so skip claims an earlier call already added.
+                        claims = sources[short_id]["supported_claims"]
+                        if claim not in claims:
+                            claims.append(claim)
     callback_context.state["url_to_short_id"] = url_to_short_id
     callback_context.state["sources"] = sources
 
