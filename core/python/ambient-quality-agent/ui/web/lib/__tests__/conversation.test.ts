@@ -15,7 +15,7 @@
 import { describe, expect, it } from "vitest";
 import { timelineOf } from "../conversation";
 import type {
-  CaseConversation,
+  TrajectoryBundle,
   ConversationEvent,
   ConversationPart,
   ConversationTurn,
@@ -31,13 +31,13 @@ function event(
   };
 }
 
-function conversation(...turns: ConversationTurn[]): CaseConversation {
+function conversation(...turns: ConversationTurn[]): TrajectoryBundle {
   return {
     trajectory_id: "case-1",
     status: "ingested",
-    turn_count: turns.length,
-    turns_returned: turns.length,
-    turns,
+    step_count: turns.length,
+    steps_returned: turns.length,
+    steps: turns,
   };
 }
 

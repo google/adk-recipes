@@ -63,7 +63,7 @@ Run these commands in your agent's agents-cli project:
 
 ```sh
 agents-cli extension add google/adk-recipes#core/python/ambient-quality-agent \
-  --ref ambient-quality-agent/v0.2.0
+  --ref ambient-quality-agent/v0.3.0
 agents-cli install
 ```
 
@@ -135,11 +135,13 @@ cp .env.example src/ambient_quality_agent/.env   # set GOOGLE_CLOUD_PROJECT
 make standalone
 ```
 
-Then attach your agent to it once, from a second terminal, as "Run AQuA
-standalone" in [docs/index.md](docs/index.md) shows.
+Then attach your agent once from a second terminal, as the
+[agents-cli-aqua skill](skills/agents-cli-aqua/SKILL.md#deploy-aqua-on-its-own-and-attach-the-agent)
+shows, with `AGENT_ADK_BASE_URL=http://localhost:8000 uv run python src/ambient_quality_cli/aqua_cli.py attach`
+in place of `agents-cli aqua attach`.
 
 `make demo` shows the dashboard on a generated month of data, with no Google
-Cloud project needed.
+Cloud project needed, and prints a link that opens the guided tour on it.
 
 ## Usage analytics
 

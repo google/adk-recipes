@@ -12,24 +12,23 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""An investigation run and the progress events it emits, as stored.
+"""Stored investigation snapshots and progress events.
 
-Two records for two tables, because they stand in different relations to a run:
+`Investigation` and `InvestigationEvent` map to separate tables because they
+have different write patterns:
 
-* `InvestigationRecord` is the run. It is stored as whole snapshots -- one row
-  per lifecycle step, each carrying every field as it stood -- so the newest
-  snapshot of a run simply is the run.
-* `InvestigationEvent` is one progress event. A run has many, they only ever
-  accumulate, and the node emitting one holds nothing but the event -- so they
-  are rows in a table of their own rather than a field every later snapshot
-  would have to copy forward.
+* `Investigation` represents an investigation's full state. Each lifecycle
+  transition appends a complete snapshot row, so the row with the latest
+  ``updated_at`` is the current state.
+* `InvestigationEvent` represents a single progress message emitted by a
+  workflow node. Events are stored in a separate table so emitting nodes do not
+  need to read and copy prior events into every investigation snapshot.
 
-Each model's fields *are* its table's columns, one for one:
-``terraform/modules/aqa/schemas/{investigations,investigation_events}.json``
-declare them, `list_snapshot_columns` / `list_event_columns` read them back off the
-models, and `tests/test_investigations_schema.py` holds the two sides level. The
-validators below are everything a BigQuery row needs to become a record; no
-column table restates any of it.
+Model fields map to table columns by name unless mapped in `FIELD_TO_COLUMN`.
+`list_snapshot_columns` and `list_event_columns` derive the column lists for
+the ``investigations`` and ``investigation_events`` tables, and
+`tests/test_investigations_schema.py` verifies that the models match the
+Terraform schemas.
 """
 
 from __future__ import annotations
@@ -41,12 +40,22 @@ import logging
 import uuid
 from typing import Any
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import (
+    AliasChoices,
+    BaseModel,
+    Field,
+    field_validator,
+)
 
 logger = logging.getLogger(__name__)
 
 
 def _format_utc_now_iso() -> str:
+    """Returns the current UTC time as an ISO 8601 string.
+
+    Returns:
+        Current UTC timestamp formatted as an ISO 8601 string.
+    """
     return dt.datetime.now(tz=dt.UTC).isoformat()
 
 
@@ -87,179 +96,246 @@ def _to_json_obj(value: Any) -> Any:
     return value if not isinstance(value, str) else None
 
 
-class RunStatus(enum.StrEnum):
-    """Lifecycle states of an investigation run.
+class InvestigationStatus(enum.StrEnum):
+    """Lifecycle states of an investigation.
 
-    ``StrEnum`` to serialize as the bare string the ``status`` column stores.
+    Subclasses ``StrEnum`` to serialize as the plain string stored in the
+    ``status`` column.
     """
 
     SCHEDULED = "scheduled"
-    """An observed-agent update arrived and a delayed trigger will start the
-    run at ``due_at``. Kept apart from ``PENDING`` because the delay can outlast
-    the pending lease, and nothing is running or queued to run yet."""
+    """Waiting for a delayed trigger at ``due_at`` after an observed-agent
+    update. Kept separate from ``PENDING`` because the trigger delay can exceed
+    the pending lease, and no job is queued or running while waiting."""
     PENDING = "pending"
-    """Durable job submitted; the work runs in a separate LRO invocation."""
+    """Durable job submitted to run in a separate long-running invocation."""
     RUNNING = "running"
     DONE = "done"
     FAILED = "failed"
     SKIPPED = "skipped"
-    """A duplicate trigger: its idempotency marker already existed, so the run
-    exited before the graph (see `job_execution.execute_investigation`). Also a
-    scheduled run whose trigger fired while a sweep was already running."""
+    """Exited before running the workflow because its idempotency marker was
+    already claimed (`job_execution.execute_investigation`), or because its
+    delayed trigger fired while another investigation was already running."""
 
 
 TERMINAL_STATUSES = frozenset(
-    {RunStatus.DONE, RunStatus.FAILED, RunStatus.SKIPPED}
+    {
+        InvestigationStatus.DONE,
+        InvestigationStatus.FAILED,
+        InvestigationStatus.SKIPPED,
+    }
 )
-"""Statuses that end a run; reaching one stamps ``finished_at``."""
+"""Statuses that end an investigation and stamp ``finished_at``."""
 
-IN_FLIGHT_STATUSES = frozenset({RunStatus.PENDING, RunStatus.RUNNING})
-"""Statuses of a run that has been handed work. A ``SCHEDULED`` run is neither
-finished nor in flight: nothing runs for it until its trigger fires."""
+IN_FLIGHT_STATUSES = frozenset(
+    {InvestigationStatus.PENDING, InvestigationStatus.RUNNING}
+)
+"""Statuses of an investigation with active or queued work. Excludes
+``SCHEDULED`` because nothing runs until its delayed trigger fires."""
 
 MANUAL_TRIGGER_TYPE = "manual"
-"""``trigger_type`` of a run a user or the CLI asked for directly."""
+"""``trigger_type`` for an investigation requested by a user or the CLI."""
 
 CUSTOM_TRIGGER_TYPE = "custom"
-"""``trigger_type`` for one-off investigations targeting user-selected conversations."""
+"""``trigger_type`` for a one-off investigation with a custom selector or
+review focus."""
 
 NON_AMBIENT_TRIGGER_TYPES = frozenset(
     {MANUAL_TRIGGER_TYPE, CUSTOM_TRIGGER_TYPE}
 )
-"""Trigger types excluded from ambient scheduling progress tracking.
+"""Trigger types excluded from ambient watermark and health calculations.
 
-Excluded from `InvestigationStore.get_last_finished_window_end` and health checks
-because they are ad-hoc and specify arbitrary time ranges.
+Excluded from `InvestigationStore.get_last_finished_window_end` and health
+checks because manual and custom investigations can target arbitrary time
+windows.
 """
 
 
 class CustomOverrides(BaseModel):
-    """Configuration overrides for custom investigations.
+    """Configuration overrides for a custom investigation.
 
-    Stored as a model on the record so ambient runs leave the database column NULL.
+    Kept in an optional model so ambient investigations leave the
+    ``custom_overrides`` column NULL.
     """
 
     selector_sql: str = ""
-    """SQL query selecting specific conversations, replacing the random sample.
+    """SQL subquery selecting target conversations for review.
 
-    Stored and spliced as written, so whoever supplies it is trusted with the
-    telemetry dataset as directly as someone holding a BigQuery console.
+    Spliced into the ingestion query after lexical and dry-run validation.
     """
 
-    session_review_focus: str = ""
-    """Focus guidance appended to the reviewer prompt to narrow findings."""
+    review_focus: str = Field(
+        default="",
+        validation_alias=AliasChoices("review_focus", "session_review_focus"),
+        serialization_alias="session_review_focus",
+    )
+    """Focus guidance appended to the reviewer prompt. Stored in BigQuery under
+    ``session_review_focus``."""
 
     def is_custom(self) -> bool:
-        """Check whether any custom override is configured.
+        """Checks whether any custom override is set.
 
         Returns:
-            True if selector_sql or session_review_focus is set, False otherwise.
+            True if `selector_sql` or `review_focus` is non-empty.
         """
-        return bool(self.selector_sql or self.session_review_focus)
+        return bool(self.selector_sql or self.review_focus)
 
 
 class InvestigationCounters(BaseModel):
-    """How much a run saw at each stage, from telemetry to insights.
+    """Per-stage counts recorded by an investigation, from ingestion to insights.
 
-    One flat mapping of non-negative integers, accumulated in workflow state as
-    the nodes run (`core.state.add_counts`) and stored as the run's ``counters``
-    JSON column. Flat and integer-only on purpose: `BigQueryInvestigationStore.sum_counters`
-    sums every field of this model across runs in one statement, so a
-    counter added here is aggregated and surfaced without touching that query.
+    Accumulated in workflow state via `core.state.add_counts` and stored in the
+    ``counters`` JSON column. Uses a flat mapping of non-negative integers so
+    `BigQueryInvestigationStore.sum_counters` can sum every field across
+    investigations in one SQL query.
 
-    The unit throughout is the *sampling unit* of the scope being evaluated --
-    a session for ``MULTI_TURN``, a trace/invocation for ``SINGLE_TURN`` -- and
-    both scopes of a run add into the same counters. "Trace" below means that
-    unit.
+    Each trajectory counter counts the evaluation unit of its scope (a session
+    for ``MULTI_TURN``, an invocation trace for ``SINGLE_TURN``), summed across
+    both scopes when both run.
+
+    In BigQuery, the ``trajectories_*`` fields are stored under ``traces_*``
+    keys, and ``findings_errored`` and ``findings_unclustered`` under
+    ``rubrics_errored`` and ``rubrics_unclustered``; `counter_to_key` returns
+    each field's stored key.
     """
 
-    traces_scanned: int = 0
-    """Traces in the run's window, before sampling: what the ingestion query
-    would have matched with no ``LIMIT`` (see `BaseFetcher.count_scanned`). The
-    denominator the other trace counts are read against."""
+    trajectories_scanned: int = Field(
+        default=0,
+        validation_alias=AliasChoices("trajectories_scanned", "traces_scanned"),
+        serialization_alias="traces_scanned",
+    )
+    """Trajectories matching the investigation's window before sampling
+    (`BaseFetcher.count_scanned`). Serves as the denominator for sampling and
+    ingestion rates."""
 
-    traces_ingested: int = 0
-    """Sampled traces turned into a complete evaluation case."""
+    trajectories_ingested: int = Field(
+        default=0,
+        validation_alias=AliasChoices(
+            "trajectories_ingested", "traces_ingested"
+        ),
+        serialization_alias="traces_ingested",
+    )
+    """Sampled trajectories assembled with complete telemetry."""
 
-    traces_ingested_partial: int = 0
-    """Sampled traces turned into a case that lost some telemetry on the way --
-    an unreadable payload offloaded to GCS, or a trace that contributed no
-    conversation turn. Evaluated, but on less than the agent produced."""
+    trajectories_ingested_partial: int = Field(
+        default=0,
+        validation_alias=AliasChoices(
+            "trajectories_ingested_partial", "traces_ingested_partial"
+        ),
+        serialization_alias="traces_ingested_partial",
+    )
+    """Sampled trajectories assembled with missing telemetry, such as an
+    unreadable GCS payload or a trace with no conversation turn."""
 
-    traces_ingested_failed: int = 0
-    """Sampled traces dropped before evaluation: unparseable telemetry, or no
-    conversation content at all."""
+    trajectories_ingested_failed: int = Field(
+        default=0,
+        validation_alias=AliasChoices(
+            "trajectories_ingested_failed", "traces_ingested_failed"
+        ),
+        serialization_alias="traces_ingested_failed",
+    )
+    """Sampled trajectories dropped before evaluation because their telemetry
+    could not be parsed or had no conversation content."""
 
-    traces_evaluated: int = 0
-    """Evaluation cases sent to the eval service."""
+    trajectories_evaluated: int = Field(
+        default=0,
+        validation_alias=AliasChoices(
+            "trajectories_evaluated", "traces_evaluated"
+        ),
+        serialization_alias="traces_evaluated",
+    )
+    """Ingested trajectories submitted for evaluation."""
 
-    traces_eval_passed: int = 0
-    """Evaluated traces where every metric passed."""
+    trajectories_eval_passed: int = Field(
+        default=0,
+        validation_alias=AliasChoices(
+            "trajectories_eval_passed", "traces_eval_passed"
+        ),
+        serialization_alias="traces_eval_passed",
+    )
+    """Evaluated trajectories where every metric passed."""
 
-    traces_eval_failed: int = 0
-    """Evaluated traces where at least one metric failed (and none errored)."""
+    trajectories_eval_failed: int = Field(
+        default=0,
+        validation_alias=AliasChoices(
+            "trajectories_eval_failed", "traces_eval_failed"
+        ),
+        serialization_alias="traces_eval_failed",
+    )
+    """Evaluated trajectories where at least one metric failed and none
+    errored."""
 
-    traces_eval_errored: int = 0
-    """Evaluated traces where at least one metric errored -- an eval API
-    failure, not an agent defect. A trace with neither verdicts nor a score
-    counts in none of the three."""
+    trajectories_eval_errored: int = Field(
+        default=0,
+        validation_alias=AliasChoices(
+            "trajectories_eval_errored", "traces_eval_errored"
+        ),
+        serialization_alias="traces_eval_errored",
+    )
+    """Evaluated trajectories where at least one metric call errored. A
+    trajectory that produced neither verdicts nor a score is not counted in
+    passed, failed, or errored."""
 
     rubrics_generated: int = 0
-    """Rubric verdicts the evaluators produced across every ``(trace, metric)``
-    outcome, passed and failed alike."""
+    """Total rubric verdicts produced across all ``(trajectory, metric)``
+    evaluations, both passed and failed."""
 
     findings_generated: int = 0
-    """Total failed findings submitted to clustering across all producers."""
+    """Findings submitted to clustering across all evaluations."""
 
-    rubrics_errored: int = 0
-    """Failed rubrics that reached no insight because their clustering call
-    raised (`ClusteringInfo.errored_rubrics`). Findings the sweep looked for and
-    lost, as opposed to findings it did not have."""
+    findings_errored: int = Field(
+        default=0,
+        validation_alias=AliasChoices("findings_errored", "rubrics_errored"),
+        serialization_alias="rubrics_errored",
+    )
+    """Findings dropped because their clustering chunk call failed
+    (`ClusteringInfo.errored_findings`)."""
 
-    rubrics_unclustered: int = 0
-    """Failed rubrics the clustering result left out -- the model omitted them,
-    or their cluster was dropped as ungrounded
-    (`ClusteringInfo.unclustered_rubrics`)."""
+    findings_unclustered: int = Field(
+        default=0,
+        validation_alias=AliasChoices(
+            "findings_unclustered", "rubrics_unclustered"
+        ),
+        serialization_alias="rubrics_unclustered",
+    )
+    """Findings omitted by the clustering model or belonging to clusters
+    dropped during validation (`ClusteringInfo.unclustered_findings`)."""
 
     clusters_created: int = 0
-    """Candidate issues the sweep's failed rubrics clustered into; each becomes
-    one insight occurrence. Counted before the verification pass judges them, so
-    the series means the same thing on either side of the deploy that added that
-    pass; the four counters below say what became of them, and stay at zero on a
-    sweep whose mode or flag left the pass off."""
+    """Candidate clusters produced from the investigation's findings before
+    verification; each becomes one `InsightOccurrence`."""
 
     clusters_verified: int = 0
-    """Candidates the verification pass confirmed as real defects."""
+    """Candidate clusters confirmed as defects by the verification pass."""
 
     clusters_rejected: int = 0
-    """Candidates the pass judged no defect at all. Each records its occurrence
-    and verdict for audit. Under `config.is_verification_enforced` it mints no
-    insight either, so it counts in neither `insights_created` nor
-    `insights_recurring`; unenforced it still counts in one of them."""
+    """Candidate clusters judged not to be defects by the verification pass.
+    When `config.is_verification_enforced` is true, rejected candidates do not
+    create or match insights."""
 
     clusters_verify_skipped: int = 0
-    """Candidates the pass never evaluated -- no trace to read, or beyond the
-    calls it spends per sweep. Withheld like a rejection: each records its
-    occurrence for audit and counts in neither `insights_created` nor
-    `insights_recurring`."""
+    """Candidate clusters skipped by verification because they lacked trajectory
+    turns or exceeded `MAX_VERIFIED_CLUSTERS`. Withheld from creating or
+    matching insights."""
 
     clusters_verify_failed: int = 0
-    """Candidates whose verification call failed or answered unreadably.
-    Withheld for the same reason, and counted apart because a rising number
-    here is an outage rather than a quiet sweep."""
+    """Candidate clusters whose verification call failed or returned invalid
+    JSON. Withheld from creating or matching insights and tracked separately to
+    surface model outages."""
 
     insights_created: int = 0
-    """Clusters that matched no existing insight and minted a new one."""
+    """Tracked candidates (not rejected or left unjudged by the verification
+    pass) that did not match an existing insight and created a new one."""
 
     insights_recurring: int = 0
-    """Clusters that matched an insight an earlier sweep recorded and were
-    marked recurring against it. An unjudged candidate that matched is none of
-    them -- its insight is dated to this sweep, but nothing counts as a
-    recurrence of it."""
+    """Tracked candidates (not rejected or left unjudged by the verification
+    pass) that matched an existing insight and marked it recurring. Unjudged
+    candidates that match an insight update its timestamp without counting as
+    recurrences."""
 
 
 def list_counter_names() -> tuple[str, ...]:
-    """Returns counter field names in `InvestigationCounters` order.
+    """Returns counter field names in `InvestigationCounters` definition order.
 
     Returns:
         Tuple of counter field names.
@@ -267,111 +343,152 @@ def list_counter_names() -> tuple[str, ...]:
     return tuple(InvestigationCounters.model_fields)
 
 
-class InvestigationEvent(BaseModel):
-    """One progress event a workflow node emitted, from its own row."""
+def counter_to_key(name: str) -> str:
+    """Returns the JSON key that stores a counter in the ``counters`` column.
 
-    run_id: str = ""
-    """Which run emitted it. Left empty on the copies nested in an
-    `InvestigationRecord`, which are already under their run."""
+    Args:
+        name: Counter field name on `InvestigationCounters`.
+
+    Returns:
+        The field's serialization alias, or `name` if it has no alias.
+    """
+    return InvestigationCounters.model_fields[name].serialization_alias or name
+
+
+STAGE_EVENT_SOURCE = "stage"
+"""`InvestigationEvent.source` of a row that says how far a running
+investigation got: a `StageProgress`, as JSON. Only the newest one matters, so
+readers that list an investigation's events for what it did leave these out."""
+
+
+class StageProgress(BaseModel):
+    """How far a running investigation got, as one stage row records it.
+
+    Each count belongs to the stage that has it and is None for the others: a
+    sweep counts trajectories against a total and the findings it filed,
+    clustering the findings it groups, verification the clusters it checks.
+    """
+
+    stage: str
+    """The stage the investigation is in, such as "Session review"."""
+
+    evaluated: int | None = None
+    """Trajectories the sweep has judged so far."""
+
+    total: int | None = None
+    """Most trajectories the sweep will read."""
+
+    findings: int | None = None
+    """Findings filed so far, or being clustered."""
+
+    clusters: int | None = None
+    """Clusters being verified."""
+
+
+class InvestigationEvent(BaseModel):
+    """One progress event emitted by a workflow node."""
+
+    investigation_id: str = ""
+    """Investigation that emitted the event. Empty when nested inside
+    `Investigation.events`."""
 
     created_at: str = Field(default_factory=_format_utc_now_iso)
-    """When the emitting node wrote it, and the order they are read back in."""
+    """UTC ISO 8601 timestamp when the event was recorded; defines read order."""
 
     text: str = ""
-    """The markdown snippet the node emitted."""
+    """Markdown progress message emitted by the node; for a stage row, a
+    `StageProgress` in JSON."""
 
     source: str | None = None
-    """Workflow node that emitted it, when the caller named one."""
+    """Name of the workflow node that emitted the event, if specified, or
+    `STAGE_EVENT_SOURCE` for a row saying how far a running investigation
+    got."""
 
     _iso = field_validator("created_at", mode="before")(_to_iso)
 
 
-class InvestigationRecord(BaseModel):
-    """One investigation: the columns of its newest snapshot, plus its events.
+class Investigation(BaseModel):
+    """One investigation's latest snapshot and its progress events.
 
-    Fields are split into what the scheduler knows up front (inputs) and what
-    the run produces (outputs). `events` is the one exception to
-    field-per-column: it is read from the events table, and the list view
-    leaves it empty.
+    Fields are grouped into submit-time inputs and execution outputs. `events`
+    is populated from the ``investigation_events`` table on single-investigation
+    reads and left empty in list reads.
     """
 
     # --- Identity -------------------------------------------------------- #
 
-    run_id: str = Field(default_factory=lambda: uuid.uuid4().hex)
-    """A full uuid, unique across agents, so a run is found by its id alone.
-    A run an update trigger schedules gets one derived from the trigger
-    (`handler.compute_scheduled_run_id`) instead."""
+    investigation_id: str = Field(default_factory=lambda: uuid.uuid4().hex)
+    """Unique identifier across all agents. Update-scheduled investigations
+    derive a deterministic ID from the trigger's dedup ID
+    (`handler.compute_scheduled_investigation_id`)."""
 
     created_at: str = Field(default_factory=_format_utc_now_iso)
-    """When the run was scheduled. Every snapshot of it repeats this."""
+    """UTC ISO 8601 timestamp when the investigation was first recorded;
+    preserved across all subsequent snapshots."""
 
     updated_at: str = Field(default_factory=_format_utc_now_iso)
-    """When this snapshot was written -- restamped on every append, so a run's
-    newest snapshot is the one with the highest ``updated_at``."""
+    """UTC ISO 8601 timestamp when this snapshot was written; orders snapshots
+    so the latest one wins."""
 
     # --- Inputs, fixed at submit time -------------------------------------- #
 
-    observed_agent_name: str = ""
-    """The investigated agent's key (`Config.resolve_agent_key`), which its
-    runs are listed and locked by; for an agent in AQuA's own project, its
-    name."""
+    observed_agent_key: str = ""
+    """Key of the observed agent (`Config.resolve_agent_key`), which scopes
+    investigation lists, counter totals, and concurrency locks."""
 
     trigger_type: str = ""
-    """Origin of the run: ``manual`` (direct request), ``custom`` (user-selected
-    conversations), or ambient triggers (``scheduled``, ``task_fire``, ``update``)."""
+    """Trigger source: ``manual``, ``custom``, or an ambient trigger
+    (``scheduled``, ``task_fire``, ``update``)."""
 
     window_start: str | None = None
     window_end: str | None = None
     budget_per_metric: int = 0
-    """Per-metric evaluation budget, derived from the config at submit time."""
+    """Maximum trajectories to sample per metric, derived at submit time."""
 
     metrics: dict[str, list[str]] = Field(default_factory=dict)
-    """Snapshot of the metrics evaluated, keyed by metric type."""
+    """Configured metrics by scope (``multi_turn``, ``single_turn``)."""
 
     dry_run: bool = False
 
     custom_overrides: CustomOverrides | None = None
-    """Custom overrides for this run, or None for ambient runs.
-
-    Stored as None so the underlying database column remains NULL when unset.
-    """
+    """Selector and review-focus overrides for custom investigations, or None
+    for ambient and manual investigations."""
 
     idempotency_key: str | None = None
-    """Dedup key for an ambient trigger; `execute_investigation` claims a GCS
-    marker on it so a redelivered trigger yields one investigation."""
+    """Deduplication key for ambient triggers; `execute_investigation` claims a
+    GCS marker for this key so redelivered triggers do not re-run the workflow."""
 
     effective_config: dict[str, Any] = Field(default_factory=dict)
-    """Config snapshot taken at submit time; the durable LRO invocation reads
-    this to run the graph with the same settings."""
+    """Serialized `Config` snapshot captured at submit time for the durable job."""
 
     due_at: str | None = None
-    """When the delayed trigger of a ``SCHEDULED`` run is due to start it. None
-    for a run that started when it was asked for."""
+    """UTC ISO 8601 timestamp when a ``SCHEDULED`` investigation's delayed
+    trigger is due to fire, or None if started immediately."""
 
     # --- Outputs ----------------------------------------------------------- #
 
-    status: RunStatus = RunStatus.PENDING
+    status: InvestigationStatus = InvestigationStatus.PENDING
     job_name: str | None = None
-    """Resource name of the durable long-running query job (LRO), if any."""
+    """Resource name of the durable Agent Runtime query job, if submitted."""
 
     finished_at: str | None = None
     error: str | None = None
 
     summary: dict[str, Any] | None = None
-    """Terminal summary of the run, without its ``events`` key: those are rows
-    in the events table, and `format_run` puts the two back together."""
+    """Terminal execution summary excluding ``events``, which are stored in the
+    events table and reattached by `format_investigation`."""
 
     counters: InvestigationCounters = Field(
         default_factory=InvestigationCounters
     )
-    """What the run saw at each stage, written once when it reaches a terminal
-    status. Zero throughout for a run that never got that far."""
+    """Stage counters recorded when the investigation finishes; all zeros while
+    in flight or if failed before completion."""
 
     # --- Not a column ------------------------------------------------------- #
 
     events: list[InvestigationEvent] = Field(default_factory=list)
-    """Progress events in emission order, read from the events table. Empty in
-    the list view, which does not fetch them."""
+    """Progress events in emission order from ``investigation_events``; empty in
+    list queries."""
 
     _iso = field_validator(
         "created_at",
@@ -409,7 +526,49 @@ class InvestigationRecord(BaseModel):
 
 
 EVENTS_FIELD = "events"
-"""The one `InvestigationRecord` field the investigations table does not hold."""
+"""The one `Investigation` field the investigations table does not hold."""
+
+
+FIELD_TO_COLUMN = {
+    "investigation_id": "run_id",
+    "observed_agent_key": "observed_agent_name",
+}
+"""The fields whose BigQuery column has a different name, mapped to the column.
+
+BigQuery cannot rename a column of a deployed table, so the BigQuery store
+translates between the field names and the column names of the investigations
+and investigation_events tables."""
+
+
+def field_to_column(field: str) -> str:
+    """Returns the BigQuery column that holds a model field.
+
+    Args:
+        field: Field name of `Investigation` or `InvestigationEvent`.
+
+    Returns:
+        The column name, which is the field name unless `FIELD_TO_COLUMN`
+        maps it.
+    """
+    return FIELD_TO_COLUMN.get(field, field)
+
+
+def list_snapshot_fields() -> tuple[str, ...]:
+    """Returns the `Investigation` fields the investigations table holds.
+
+    Returns:
+        Tuple of field names excluding virtual fields.
+    """
+    return tuple(f for f in Investigation.model_fields if f != EVENTS_FIELD)
+
+
+def list_event_fields() -> tuple[str, ...]:
+    """Returns the `InvestigationEvent` fields.
+
+    Returns:
+        Tuple of field names.
+    """
+    return tuple(InvestigationEvent.model_fields)
 
 
 def list_snapshot_columns() -> tuple[str, ...]:
@@ -418,9 +577,7 @@ def list_snapshot_columns() -> tuple[str, ...]:
     Returns:
         Tuple of column names excluding virtual fields.
     """
-    return tuple(
-        f for f in InvestigationRecord.model_fields if f != EVENTS_FIELD
-    )
+    return tuple(field_to_column(f) for f in list_snapshot_fields())
 
 
 def list_event_columns() -> tuple[str, ...]:
@@ -429,4 +586,4 @@ def list_event_columns() -> tuple[str, ...]:
     Returns:
         Tuple of column names.
     """
-    return tuple(InvestigationEvent.model_fields)
+    return tuple(field_to_column(f) for f in list_event_fields())

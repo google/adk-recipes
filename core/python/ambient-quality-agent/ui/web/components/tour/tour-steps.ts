@@ -16,10 +16,10 @@ import type { QueryClient } from "@tanstack/react-query";
 import {
   type AgentKey,
   insightsQuery,
-  runsQuery,
-  type Run,
+  investigationsQuery,
+  type InvestigationListItem,
 } from "@/lib/aqua-api";
-import { startedAt } from "@/lib/runstate";
+import { startedAt } from "@/lib/investigation-state";
 
 /** One stop of the guided tour: a spotlight on part of a page and what to say
  *  about it. */
@@ -50,20 +50,26 @@ async function topInsightPage(
 
 /** The latest investigation that finished, which has results to show, or the
  *  latest of any when none has. */
-async function latestRunPage(
+async function resolveLatestInvestigationPage(
   client: QueryClient,
   agentKey: AgentKey,
 ): Promise<string | null> {
-  const runs = await client.fetchQuery(runsQuery(agentKey));
-  const finished = runs.filter((run) => run.status === "done");
-  const latest = (finished.length > 0 ? finished : runs).reduce<Run | null>(
-    (newest, run) =>
-      (startedAt(run) ?? -Infinity) > (startedAt(newest) ?? -Infinity)
-        ? run
+  const investigations = await client.fetchQuery(investigationsQuery(agentKey));
+  const finished = investigations.filter(
+    (investigation) => investigation.status === "done",
+  );
+  const latest = (
+    finished.length > 0 ? finished : investigations
+  ).reduce<InvestigationListItem | null>(
+    (newest, investigation) =>
+      (startedAt(investigation) ?? -Infinity) > (startedAt(newest) ?? -Infinity)
+        ? investigation
         : newest,
     null,
   );
-  return latest ? `/investigations/${encodeURIComponent(latest.run_id)}` : null;
+  return latest
+    ? `/investigations/${encodeURIComponent(latest.investigation_id)}`
+    : null;
 }
 
 /** The tour, in order: Home first, then one insight and one investigation in
@@ -106,7 +112,7 @@ export const TOUR_STEPS: readonly TourStep[] = [
       "agent failed. Fix the top one and you fix the most conversations.",
   },
   {
-    target: "recent-runs",
+    target: "recent-investigations",
     page: "/",
     title: "Investigations are automatic",
     body:
@@ -139,8 +145,8 @@ export const TOUR_STEPS: readonly TourStep[] = [
       "coding agent.",
   },
   {
-    target: "run-header",
-    page: latestRunPage,
+    target: "investigation-header",
+    page: resolveLatestInvestigationPage,
     title: "Inside an investigation",
     body:
       "Everything one investigation did, start to finish. If a number looks " +

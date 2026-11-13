@@ -16,8 +16,8 @@ import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Trajectory } from "../trajectory";
-import type { CaseConversation } from "@/lib/aqua-api";
-import { fromConversation } from "@/lib/trajectory/fromConversation";
+import type { TrajectoryBundle } from "@/lib/aqua-api";
+import { conversationToTrajectoryDoc } from "@/lib/trajectory/conversationToTrajectoryDoc";
 import type { TrajectoryDoc } from "@/lib/trajectory/types";
 
 const DOC: TrajectoryDoc = {
@@ -125,12 +125,12 @@ describe("Trajectory", () => {
   });
 
   it("summarizes a markdown assistant reply from a case conversation", () => {
-    const convo: CaseConversation = {
+    const convo: TrajectoryBundle = {
       trajectory_id: "case-1",
       status: "ingested",
-      turn_count: 1,
-      turns_returned: 1,
-      turns: [
+      step_count: 1,
+      steps_returned: 1,
+      steps: [
         {
           turn_index: 0,
           turn_id: "t0",
@@ -151,7 +151,7 @@ describe("Trajectory", () => {
       ],
     };
 
-    render(<Trajectory doc={fromConversation(convo)} />);
+    render(<Trajectory doc={conversationToTrajectoryDoc(convo)} />);
 
     expect(screen.getByTestId("ledger-row")).toHaveTextContent(
       "Ticket filed: priority High",

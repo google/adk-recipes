@@ -1,3 +1,17 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 # Copy this file to terraform.tfvars and fill in your values
 # cp terraform.tfvars.example terraform.tfvars
 
@@ -7,15 +21,7 @@ project_id = "your-gcp-project-id"
 # Optional - defaults shown
 region        = "us-central1"
 service_name  = "genmedia-for-commerce"
-memory        = "32Gi"
-cpu           = "8"
-timeout       = 3600
-concurrency   = 7
-min_instances = 2
-max_instances = 10
 
-# Authentication: "none", "iam", or "iap"
-auth_mode = "iam"
-
-# Optional: Grant access to entire domain
-# iap_access_domain = "example.com"
+# Days before objects in the media bucket are deleted: runs/ (saved inputs
+# and results) and sessions/ (chat history, Studio state and jobs)
+media_retention_days = 30

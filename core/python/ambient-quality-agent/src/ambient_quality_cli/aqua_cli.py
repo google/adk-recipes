@@ -35,9 +35,9 @@ Two ways to use it
       aqua_cli.py list-investigations
       aqua_cli.py investigation-stats
       aqua_cli.py schedule-investigation --wait
-      aqua_cli.py get-investigation <run_id> --wait
-      aqua_cli.py list-insights [--status RECURRING] [--run-id <id>]
-      aqua_cli.py get-insight <insight_id> [--run-id <id>] [--no-traces]
+      aqua_cli.py get-investigation <investigation_id> --wait
+      aqua_cli.py list-insights [--status RECURRING] [--investigation-id <id>]
+      aqua_cli.py get-insight <insight_id> [--investigation-id <id>] [--no-traces]
       aqua_cli.py show-config
       aqua_cli.py list-memories
       aqua_cli.py list-agents
@@ -108,8 +108,8 @@ run`` sends no A2A metadata to select another.
 Exit codes
 ----------
 ``0`` success, ``1`` the call failed -- CLI / transport error, no JSON payload,
-or a tool that reported one (an unknown run id, a denied read), ``2`` the run's
-status is ``failed``, ``3`` ``--wait`` timed out before the run reached a
+or a tool that reported one (an unknown investigation id, a denied read), ``2`` the investigation's
+status is ``failed``, ``3`` ``--wait`` timed out before the investigation reached a
 terminal status. ``2`` and ``3`` are specific to the two investigation
 commands; every subcommand can exit ``0`` or ``1``. ``run`` is the exception:
 once it reaches ``agents-cli``, it exits with ``agents-cli run``'s code.
@@ -132,6 +132,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import textwrap
 import time
 from collections.abc import Callable
 from typing import Any, TypeVar
@@ -214,11 +215,16 @@ EXIT_FAILED = 2  # Indicates investigation status is "failed".
 # Returned when the --wait deadline expires before reaching a terminal status.
 EXIT_TIMEOUT = 3
 
-# Statuses indicating a completed investigation run.
+# Statuses indicating a completed investigation.
 _TERMINAL_STATUSES = frozenset({"done", "failed", "skipped"})
 
-# Complete set of run statuses, used to distinguish run records from statusless error envelopes.
-_RUN_STATUSES = _TERMINAL_STATUSES | {"scheduled", "pending", "running"}
+# Complete set of investigation statuses, distinguishing investigation records
+# from statusless error envelopes.
+_INVESTIGATION_STATUSES = _TERMINAL_STATUSES | {
+    "scheduled",
+    "pending",
+    "running",
+}
 
 
 # --------------------------------------------------------------------------- #
@@ -296,9 +302,9 @@ def _extract_status(payload: Any) -> str | None:
 def _extract_error(payload: Any) -> str | None:
     """Extracts the error message from an error envelope.
 
-    Differentiates API error envelopes from failed run records: run records
-    contain a status field alongside investigation errors, whereas error
-    envelopes lack run status entirely.
+    Differentiates API error envelopes from failed investigation records:
+    investigation records contain a status field alongside investigation
+    errors, whereas error envelopes lack an investigation status entirely.
 
     Args:
         payload: Decoded response payload.
@@ -309,7 +315,7 @@ def _extract_error(payload: Any) -> str | None:
     if not isinstance(payload, dict):
         return None
     error = payload.get("error")
-    if not error or _extract_status(payload) in _RUN_STATUSES:
+    if not error or _extract_status(payload) in _INVESTIGATION_STATUSES:
         return None
     return str(error)
 
@@ -468,11 +474,13 @@ def _emit_result(payload: Any) -> None:
         sys.exit(EXIT_ERROR)
 
 
-def _emit_run_record(payload: Any, *, timed_out: bool = False) -> None:
-    """Prints an investigation run record and exits with a status-mapped code.
+def _emit_investigation_record(
+    payload: Any, *, timed_out: bool = False
+) -> None:
+    """Prints an investigation record and exits with a status-mapped code.
 
     Args:
-        payload: Run record or error payload to display.
+        payload: Investigation record or error payload to display.
         timed_out: Whether a polling deadline expired prior to completion.
     """
     _emit_json(payload)
@@ -491,7 +499,7 @@ def _emit_run_record(payload: Any, *, timed_out: bool = False) -> None:
 # --------------------------------------------------------------------------- #
 async def _poll_until_terminal(
     client: AgentRuntimeClient | AdkHttpClient,
-    run_id: str,
+    investigation_id: str,
     *,
     interval: float,
     timeout: float,
@@ -501,10 +509,10 @@ async def _poll_until_terminal(
 
     Args:
         client: API client for issuing requests.
-        run_id: Unique identifier of the investigation run.
+        investigation_id: Unique identifier of the investigation.
         interval: Delay in seconds between polling attempts.
         timeout: Maximum duration in seconds to wait before giving up.
-        agent_key: The agent the run belongs to; empty for AQuA's default
+        agent_key: The agent the investigation belongs to; empty for AQuA's default
             agent.
 
     Returns:
@@ -514,7 +522,10 @@ async def _poll_until_terminal(
     while True:
         payload = await client.post_command(
             INVESTIGATIONS_GET_ROUTE,
-            _build_agent_args(GetInvestigationArgs(run_id=run_id), agent_key),
+            _build_agent_args(
+                GetInvestigationArgs(investigation_id=investigation_id),
+                agent_key,
+            ),
         )
         # Treat error envelopes as terminal to fail immediately on permanent errors such as invalid IDs.
         if (
@@ -677,10 +688,10 @@ def run_prompt_cmd(
 @_add_target_options
 @_add_agent_option
 def list_investigations_cmd(*, url, resource, agent_key) -> None:
-    """List the 50 most recent runs as JSON (``{"runs": [...]}``), newest last.
+    """List the 50 most recent investigations as JSON (``{"investigations": [...]}``), newest last.
 
     The ``events`` field in each entry is empty; see
-    ``get-investigation --help`` for run record fields.
+    ``get-investigation --help`` for investigation record fields.
     """
     _emit_result(
         _fetch_command_result(
@@ -699,7 +710,7 @@ def list_investigations_cmd(*, url, resource, agent_key) -> None:
 @_add_target_options
 @_add_agent_option
 def get_investigation_stats_cmd(*, url, resource, agent_key) -> None:
-    """Total every run's counters as JSON (``{"stats": {...}}``).
+    """Total every investigation's counters as JSON (``{"stats": {...}}``).
 
     Unlike ``list-investigations``, which returns one capped page, this is
     summed over every investigation the deployment ever recorded.
@@ -718,27 +729,29 @@ def get_investigation_stats_cmd(*, url, resource, agent_key) -> None:
 
 
 @cli.command("get-investigation")
-@click.argument("run_id")
+@click.argument("investigation_id")
 @_add_target_options
 @_add_agent_option
 @_add_wait_options
 def get_investigation_cmd(
-    run_id: str, *, url, resource, agent_key, wait, interval, timeout
+    investigation_id: str, *, url, resource, agent_key, wait, interval, timeout
 ) -> None:
-    """Look up one run by RUN_ID as JSON; with --wait, poll until terminal.
+    """Look up one investigation by INVESTIGATION_ID as JSON; with --wait, poll until terminal.
 
     \b
-    Fields of a run record:
+    Fields of an investigation record:
       status        scheduled (waiting for its delayed trigger), pending,
                     running, done, failed, or skipped (duplicate trigger)
       trigger_type  manual, custom (selected conversations), scheduled, or
                     task_fire (delayed run after an agent update)
-      due_at        when a scheduled run's delayed trigger is due
+      due_at        when a scheduled investigation's delayed trigger is due
       events        progress log; empty in ``list-investigations``
+      progress      while pending or running, the stage it is in and its
+                    counts so far, once it has reported one; else null
 
     \b
-    A run writes no report. To view findings from a finished run, call:
-      list-insights --run-id RUN_ID
+    An investigation writes no report. To view findings from a finished investigation, call:
+      list-insights --investigation-id INVESTIGATION_ID
     """
     agent_key = _resolve_agent_key(agent_key, url=url, resource=resource)
     client = _build_client(url, resource)
@@ -748,7 +761,7 @@ def get_investigation_cmd(
             payload, timed_out = asyncio.run(
                 _poll_until_terminal(
                     client,
-                    run_id,
+                    investigation_id,
                     interval=interval,
                     timeout=timeout,
                     agent_key=agent_key,
@@ -759,14 +772,15 @@ def get_investigation_cmd(
                 client.post_command(
                     INVESTIGATIONS_GET_ROUTE,
                     _build_agent_args(
-                        GetInvestigationArgs(run_id=run_id), agent_key
+                        GetInvestigationArgs(investigation_id=investigation_id),
+                        agent_key,
                     ),
                 )
             )
             timed_out = False
     except Exception as exc:
         raise click.ClickException(f"{type(exc).__name__}: {exc}") from exc
-    _emit_run_record(payload, timed_out=timed_out)
+    _emit_investigation_record(payload, timed_out=timed_out)
 
 
 @cli.command("schedule-investigation")
@@ -776,10 +790,10 @@ def get_investigation_cmd(
 def schedule_investigation_cmd(
     *, url, resource, agent_key, wait, interval, timeout
 ) -> None:
-    """Start a run and print the new run record as JSON.
+    """Start an investigation and print the new investigation record as JSON.
 
-    With --wait, poll the new run_id until it reaches a terminal status. See
-    ``get-investigation --help`` for run record fields.
+    With --wait, poll the new investigation_id until it reaches a terminal status. See
+    ``get-investigation --help`` for investigation record fields.
     """
     agent_key = _resolve_agent_key(agent_key, url=url, resource=resource)
     client = _build_client(url, resource)
@@ -792,12 +806,16 @@ def schedule_investigation_cmd(
             )
         )
         timed_out = False
-        run_id = payload.get("run_id") if isinstance(payload, dict) else None
-        if wait and run_id:
+        investigation_id = (
+            payload.get("investigation_id")
+            if isinstance(payload, dict)
+            else None
+        )
+        if wait and investigation_id:
             payload, timed_out = asyncio.run(
                 _poll_until_terminal(
                     client,
-                    run_id,
+                    investigation_id,
                     interval=interval,
                     timeout=timeout,
                     agent_key=agent_key,
@@ -805,7 +823,7 @@ def schedule_investigation_cmd(
             )
     except Exception as exc:
         raise click.ClickException(f"{type(exc).__name__}: {exc}") from exc
-    _emit_run_record(payload, timed_out=timed_out)
+    _emit_investigation_record(payload, timed_out=timed_out)
 
 
 @cli.command("list-insights")
@@ -814,7 +832,9 @@ def schedule_investigation_cmd(
     default="",
     help="Optional lifecycle filter: NEW, RECURRING, or RESOLVED (default: all).",
 )
-@click.option("--run-id", default="", help="Only issues seen in this sweep.")
+@click.option(
+    "--investigation-id", default="", help="Only issues seen in this sweep."
+)
 # Defaults to None so omitting the flag remains distinct from --root-cause=false
 # in the backend tri-state filter.
 @click.option(
@@ -832,27 +852,35 @@ def schedule_investigation_cmd(
 @_add_target_options
 @_add_agent_option
 def list_insights_cmd(
-    *, status, run_id, root_cause, page_token, url, resource, agent_key
+    *,
+    status,
+    investigation_id,
+    root_cause,
+    page_token,
+    url,
+    resource,
+    agent_key,
 ) -> None:
     """List durable quality insights as JSON (``{"insights": [...], ...}``).
 
     Returns a paginated triage list of deduplicated agent issues, most recently
     seen first (30 per page). Insights an operator dismissed or merged into
     another are omitted. Pass ``next_page_token`` to ``--page-token`` to fetch
-    subsequent pages, and call ``get-insight`` for occurrences and rubric
-    evidence on a specific issue.
+    subsequent pages, and call ``get-insight`` for occurrences and finding
+    examples on a specific issue.
 
     ``total`` counts all matching insights across all pages, while
     ``conversations`` counts distinct conversations across those insights. An
-    entry's ``trace_count`` sums conversations across occurrences, so a
-    conversation observed in two runs counts twice. With ``--run-id``, an
-    entry's summary fields still describe the insight's full history.
+    entry's ``trajectory_count`` sums conversations across occurrences, so a
+    conversation observed in two investigations counts twice. With
+    ``--investigation-id``, an entry's summary fields still describe the
+    insight's full history.
     """
     args = ListInsightsArgs()
     if status:
         args["status"] = status
-    if run_id:
-        args["run_id"] = run_id
+    if investigation_id:
+        args["investigation_id"] = investigation_id
     if root_cause is not None:
         args["has_root_cause"] = root_cause
     if page_token:
@@ -872,7 +900,7 @@ def list_insights_cmd(
 @cli.command("get-insight")
 @click.argument("insight_id")
 @click.option(
-    "--run-id",
+    "--investigation-id",
     default="",
     help="Only this sweep's occurrence (default: full history).",
 )
@@ -895,19 +923,19 @@ def list_insights_cmd(
 def get_insight_cmd(
     insight_id: str,
     *,
-    run_id,
+    investigation_id,
     no_traces,
     page_token,
     url,
     resource,
     agent_key,
 ) -> None:
-    """Get one insight's occurrences and rubric evidence as JSON.
+    """Get one insight's occurrences and finding examples as JSON.
 
-    Returns the full occurrence history (newest first, paginated); ``--run-id``
+    Returns the full occurrence history (newest first, paginated); ``--investigation-id``
     narrows results to a single sweep. Top-level ``root_causes`` contains the
     latest diagnosis for each occurrence across the entire insight, regardless of
-    pagination or ``--run-id``.
+    pagination or ``--investigation-id``.
 
     \b
     Each root-cause edit has:
@@ -922,8 +950,8 @@ def get_insight_cmd(
     snapshot.
     """
     args = GetInsightArgs(insight_id=insight_id)
-    if run_id:
-        args["run_id"] = run_id
+    if investigation_id:
+        args["investigation_id"] = investigation_id
     if no_traces:
         args["include_traces"] = False
     if page_token:
@@ -1553,6 +1581,19 @@ def _add_attach_options(func):
             default=None,
             help="How sessions are scored: session_review or eval_service.",
         ),
+        # A file, because SQL with backticks and @ parameters is error-prone
+        # to quote on a shell line, and would land in the shell history.
+        click.option(
+            "--selector-file",
+            type=click.File("r", encoding="utf-8"),
+            default=None,
+            help=(
+                "File holding the SQL selector that scheduled, "
+                "update-triggered and manual investigations run with, in "
+                "place of a random sample; - reads standard input. An empty "
+                "file clears it."
+            ),
+        ),
         click.option(
             "--multi-turn-metric",
             "multi_turn_metrics",
@@ -1597,13 +1638,19 @@ def _add_attach_options(func):
             "--verification/--no-verification",
             "insights_verification_enabled",
             default=None,
-            help="Check candidate issues against their own traces.",
+            help=(
+                "Check candidate issues against their own traces. Off by "
+                "default; long sessions can exceed the model's context."
+            ),
         ),
         click.option(
             "--enforce-verification/--no-enforce-verification",
             "insights_verification_enforced",
             default=None,
-            help="Withhold a candidate a negative verdict rejected.",
+            help=(
+                "Withhold a candidate a negative verdict rejected. Takes "
+                "effect only with --verification."
+            ),
         ),
         click.option(
             "--revision-delay-seconds",
@@ -1697,6 +1744,9 @@ def _extract_requested_fields(flags: dict[str, Any]) -> dict[str, Any]:
                 # The audit sink's filter is composed from the bare id. Its
                 # project, where the sink goes, is discovered as an id.
                 fields["observed_engine_id"] = engine.engine_id
+        elif flag == "selector_file":
+            if value is not None:
+                fields["investigation_selector_sql"] = value.read()
         elif flag in _LIST_FLAGS:
             # Click gives an empty tuple for a repeatable option nobody passed,
             # and that means the list is unchanged.
@@ -1734,6 +1784,10 @@ def _fetch_agents_result(
     return result
 
 
+_PLAN_VALUE_WIDTH = 50
+"""Most characters the plan shows of a multi-line value, on one line."""
+
+
 def _format_value(value: Any) -> str:
     """Formats a field value for the attach plan.
 
@@ -1749,6 +1803,12 @@ def _format_value(value: Any) -> str:
         return "true" if value else "false"
     if isinstance(value, list):
         return ", ".join(str(v) for v in value) if value else "(none)"
+    if isinstance(value, str) and "\n" in value:
+        # A multi-line value, such as a selector read from a file, keeps the
+        # plan at one line per change; the operator has the full text.
+        return textwrap.shorten(
+            value, width=_PLAN_VALUE_WIDTH, placeholder=" ..."
+        )
     return str(value) if value != "" else '""'
 
 
@@ -2106,7 +2166,7 @@ def _apply_grants(
     yes: bool,
     target: dict[str, Any],
     agent_key: str,
-) -> None:
+) -> str:
     """Runs the grant commands the plan printed, then checks access again.
 
     A check skipped behind a denied read can turn out denied once that read
@@ -2121,11 +2181,12 @@ def _apply_grants(
        each one that ran, even when a later one failed.
     3. Ask the deployment to check again, waiting between tries while a
        denied read still needs a grant that already ran.
-    4. If the check filled in settings from a table the grants made readable,
+    4. On a refused check, show it, revoke this call's grants, and stop.
+    5. If the check filled in settings from a table the grants made readable,
        store them once confirmed, so that any further round grants for them.
-    5. If the check calls for grants none of the rounds made, print them and
+    6. If the check calls for grants none of the rounds made, print them and
        start the next round with them, up to `_MAX_GRANT_ROUNDS`.
-    6. Show the last check's result, the grants still denied, any grant left
+    7. Show the last check's result, the grants still denied, any grant left
        unrun, and the denied reads no command covers.
 
     Args:
@@ -2136,10 +2197,15 @@ def _apply_grants(
         target: Engine target options for the route call.
         agent_key: Key of the attached agent, as the plan resolved it.
 
+    Returns:
+        The reason the attach is refused, once the grants this call made are
+        revoked; an empty string if it is not.
+
     Raises:
         click.ClickException: If a command cannot run or fails.
         click.Abort: If the user declines a later round, or storing.
     """
+    made: list[grant_commands.Grant] = []
     ran: set[tuple[str, str]] = set()
     pending = grants
     plan: dict[str, Any] = {}
@@ -2164,6 +2230,7 @@ def _apply_grants(
                 _record_grants(agent_key, made, target)
             raise click.ClickException(str(exc)) from exc
         _record_grants(agent_key, pending, target)
+        made.extend(pending)
         ran.update(grant.key for grant in pending)
 
         for delay in _RECHECK_DELAYS_SECONDS:
@@ -2187,6 +2254,14 @@ def _apply_grants(
             needed, ungranted = grant_commands.build_grants(access)
             if not any(grant.key in ran for grant in needed):
                 break
+        if refusal := _validate_access(access):
+            for line in _render_access_lines(access):
+                click.echo(line)
+            revocations, _ = grant_commands.build_revocations(
+                [grant.to_record() for grant in made]
+            )
+            _revoke_grants(agent_key, revocations, target)
+            return refusal
         if plan.get("filled"):
             _store_filled(plan, request, yes=yes, target=target)
 
@@ -2239,6 +2314,7 @@ def _apply_grants(
         click.echo(line)
     if new:
         click.echo("Or run attach again to run them.")
+    return ""
 
 
 def _extract_filled(plan: dict[str, Any]) -> dict[str, Any]:
@@ -2291,6 +2367,40 @@ def _store_filled(
         AGENTS_ATTACH_ROUTE, AttachAgentArgs(**request, dry_run=False), **target
     )
     click.echo("Stored them.")
+
+
+def _undo_store(
+    plan: dict[str, Any], request: AttachAgentArgs, target: dict[str, Any]
+) -> str:
+    """Undoes what an attach stored before its grants.
+
+    Args:
+        plan: The plan the attach stored, with `attached` and `changes`.
+        request: The attach request, naming the attachment by `agent_key`.
+        target: Engine target options for the route call.
+
+    Returns:
+        A sentence saying what the agent is left as.
+    """
+    key = request["agent_key"]
+    if not plan.get("attached"):
+        _fetch_agents_result(
+            AGENTS_DETACH_ROUTE, _build_agent_selector(key), **target
+        )
+        _delete_agent_key(key, target)
+        return f"{key} is not attached."
+    if changes := plan.get("changes"):
+        _fetch_agents_result(
+            AGENTS_ATTACH_ROUTE,
+            AttachAgentArgs(
+                agent_name=request.get("agent_name", ""),
+                agent_key=key,
+                fields={c["field"]: c["before"] for c in changes},
+                dry_run=False,
+            ),
+            **target,
+        )
+    return f"{key} keeps the settings it had."
 
 
 def _build_agent_selector(agent_key: str) -> AgentSelector:
@@ -2850,7 +2960,9 @@ def attach_agent_cmd(
     read it is denied, the plan prints the command that grants it; those
     commands run with your credentials, and the reads are tried again. A read
     that was skipped behind a denied one and turns out denied gets its grant
-    printed and run in the same attach.
+    printed and run in the same attach. If the reads after the grants refuse
+    the attach, it revokes the grants it made and removes a first attach or
+    restores the changed settings.
 
     The plan also prints the gcloud commands that create or update the agent's
     update trigger: an audit log sink on the observed engine's updates, and its
@@ -3032,7 +3144,14 @@ def attach_agent_cmd(
     request["agent_key"] = key
     _save_agent_key(key, target)
     if grants:
-        _apply_grants(grants, request, yes=yes, target=target, agent_key=key)
+        if refusal := _apply_grants(
+            grants, request, yes=yes, target=target, agent_key=key
+        ):
+            undone = _undo_store(plan, request, target)
+            raise click.ClickException(
+                f"{refusal}\nThe grants this attach made are revoked, and "
+                f"{undone}"
+            )
     elif not access:
         click.echo(
             "\nThis deployment checked no reads, so there is nothing to grant."

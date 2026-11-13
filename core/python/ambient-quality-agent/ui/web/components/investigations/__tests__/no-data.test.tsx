@@ -17,7 +17,7 @@
 /**
  * A deployment that has exported no telemetry is empty, not broken.
  *
- * b/563290003: the first thing a new customer saw was a column of `⚠ error`
+ * The first thing a new customer saw was a column of `⚠ error`
  * and a red box holding a BigQuery 400, on a project whose only fault was not
  * having served any traffic yet. These pin the two readings apart on both
  * investigation surfaces -- a genuine fault stays red, because the point is to
@@ -37,7 +37,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { InvestigationDetailView } from "../investigation-detail-view";
 import { InvestigationsView } from "../investigations-view";
 
-/** The failure b/563290003 was filed on: BigQuery infers the sink's `labels`
+/** The failure a new deployment hits: BigQuery infers the sink's `labels`
  *  STRUCT from the rows it holds, so a column no exported trace has carried
  *  does not exist and the sweep's query is a 400. */
 const NO_TELEMETRY =
@@ -45,9 +45,9 @@ const NO_TELEMETRY =
   "gen_ai_conversation_id STRING, gen_ai_agent_name STRING> at [28:24]; " +
   "reason: invalidQuery";
 
-const RUN = {
-  run_id: "b9e3d6d711",
-  observed_agent_name: "it_support_agent",
+const INVESTIGATION = {
+  investigation_id: "b9e3d6d711",
+  observed_agent_key: "it_support_agent",
   created_at: "2026-09-18T14:29:30Z",
   finished_at: "2026-09-18T14:30:43Z",
   status: "failed",
@@ -63,7 +63,7 @@ function serveList(error: string) {
     "fetch",
     vi.fn(async (url: string) => {
       const body = url.includes("/api/investigations")
-        ? { runs: [{ ...RUN, error }] }
+        ? { investigations: [{ ...INVESTIGATION, error }] }
         : url.includes("/api/stats")
           ? { stats: {} }
           : { days: [] };
@@ -79,14 +79,21 @@ function serveDetail(error: string) {
     vi.fn(async (url: string) =>
       url.includes("/api/insights")
         ? Response.json({ insights: [], total: 0 })
-        : Response.json({ run: { ...RUN, error, summary: {}, events: [] } }),
+        : Response.json({
+            investigation: { ...INVESTIGATION, error, summary: {}, events: [] },
+          }),
     ),
   );
-  renderRoute(<InvestigationDetailView runId={RUN.run_id} />, "/");
+  renderRoute(
+    <InvestigationDetailView
+      investigationId={INVESTIGATION.investigation_id}
+    />,
+    "/",
+  );
 }
 
-/** What the one row says under Pass rate, where a run with no count to show
- *  names its state. */
+/** What the one row says under Pass rate, where an investigation with no count
+ *  to show names its state. */
 async function stateCell(): Promise<HTMLElement> {
   const link = await screen.findByRole("link", { name: "b9e3d6d7" });
   const table = link.closest("table")!;
@@ -96,10 +103,10 @@ async function stateCell(): Promise<HTMLElement> {
   return within(link.closest("tr")!).getAllByRole("cell")[index];
 }
 
-/** Both views link to `/investigations/$runId`, so the route has to exist. */
+/** Both views link to `/investigations/$investigationId`, so the route has to exist. */
 function renderRoute(element: React.ReactElement, at: string) {
   const root = createRootRoute();
-  const children = [at, "/investigations/$runId"]
+  const children = [at, "/investigations/$investigationId"]
     .filter((path, i, all) => all.indexOf(path) === i)
     .map((path) =>
       createRoute({
@@ -126,7 +133,7 @@ function renderRoute(element: React.ReactElement, at: string) {
 describe("a sweep that found no telemetry", () => {
   afterEach(() => vi.unstubAllGlobals());
 
-  it("is flagged as no data on the runs table, not as a failure", async () => {
+  it("is flagged as no data on the investigations table, not as a failure", async () => {
     serveList(NO_TELEMETRY);
 
     const status = await stateCell();

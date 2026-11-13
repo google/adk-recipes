@@ -927,7 +927,13 @@ def _deploy_calls(recorder: Recorder) -> list[list[str]]:
 
 def test_deploy_runs_the_builtin_then_aqua(wrappers):
     acli_deploy.main(["--project", "p2", "--deploy-aqua"])
-    assert wrappers.calls[0]["argv"][1:] == ["deploy", "--project", "p2"]
+    assert wrappers.calls[0]["argv"][1:] == [
+        "deploy",
+        "--project",
+        "p2",
+        "--update-env-vars",
+        "OTEL_TRACES_SAMPLER=always_on",
+    ]
     assert wrappers.argv_containing("--update-only") == [
         "/bin/agents-cli",
         "deploy",
@@ -948,7 +954,7 @@ def test_deploy_asks_for_content_capture_on_aqua_only(wrappers):
     # Ensures content capture variables are injected only into AQuA's deployment,
     # not the observed agent.
     acli_deploy.main(["--project", "p2", "--deploy-aqua"])
-    assert "--update-env-vars" not in wrappers.calls[0]["argv"]
+    assert "OTEL_INSTRUMENTATION" not in " ".join(wrappers.calls[0]["argv"])
 
 
 def test_an_operator_supplied_env_var_beats_aquas_default(wrappers):
@@ -985,6 +991,36 @@ def test_merging_env_vars_always_keeps_the_capture_defaults(argv):
     )
 
 
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["--env-vars", "FOO=bar"],
+        ["--update-env-vars=FOO=bar"],
+        ["--update-env-vars", "A=1", "--env-vars", "FOO=bar"],
+    ],
+)
+def test_deploy_puts_the_operators_env_vars_after_the_sampler(wrappers, argv):
+    acli_deploy.main(argv)
+    assert wrappers.calls[0]["argv"][1:] == [
+        "deploy",
+        "--update-env-vars",
+        "OTEL_TRACES_SAMPLER=always_on,FOO=bar",
+    ]
+
+
+def test_a_sampler_in_the_projects_dotenv_beats_aquas(wrappers, tmp_path):
+    (tmp_path / ".env").write_text(
+        "export OTEL_TRACES_SAMPLER=x\n", encoding="utf-8"
+    )
+    acli_deploy.main([])
+    assert wrappers.calls[0]["argv"][1:] == ["deploy"]
+
+
+def test_a_read_only_deploy_gets_no_sampler(wrappers):
+    acli_deploy.main(["--dry-run"])
+    assert wrappers.calls[0]["argv"][1:] == ["deploy", "--dry-run"]
+
+
 def _env_pairs(value: str) -> dict[str, str]:
     """Parses comma-separated `KEY=VALUE` pairs into a dictionary.
 
@@ -1012,7 +1048,11 @@ def test_deploy_honours_region_and_no_wait_from_argv(wrappers):
 
 def test_deploy_leaves_aqua_out_without_its_flag(wrappers, capsys):
     acli_deploy.main([])
-    assert wrappers.calls[0]["argv"][1:] == ["deploy"]
+    assert wrappers.calls[0]["argv"][1:] == [
+        "deploy",
+        "--update-env-vars",
+        "OTEL_TRACES_SAMPLER=always_on",
+    ]
     assert len(_deploy_calls(wrappers)) == 1
     assert "--deploy-aqua" in capsys.readouterr().err
 
@@ -1450,7 +1490,7 @@ def test_deploy_fails_when_cloud_run_cannot_be_asked(wrappers, monkeypatch):
 def test_deploy_skips_the_dashboard_on_request(wrappers):
     acli_deploy.main(["--deploy-aqua", "--skip-aqua-ui"])
     assert len(_deploy_calls(wrappers)) == 2
-    assert wrappers.calls[0]["argv"][1:] == ["deploy"], (
+    assert "--skip-aqua-ui" not in wrappers.calls[0]["argv"], (
         "the built-in rejects the flag"
     )
 

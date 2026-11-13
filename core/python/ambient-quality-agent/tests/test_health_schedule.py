@@ -51,7 +51,9 @@ def env(monkeypatch: pytest.MonkeyPatch) -> Config:
     monkeypatch.setattr(config_module, "load", lambda: cfg)
     effective_config.clear_cache()
     monkeypatch.setattr(
-        model, "list_investigations", AsyncMock(return_value={"runs": []})
+        model,
+        "list_investigations",
+        AsyncMock(return_value={"investigations": []}),
     )
     monkeypatch.setattr(
         insight_tools, "list_insights", AsyncMock(return_value={"insights": []})

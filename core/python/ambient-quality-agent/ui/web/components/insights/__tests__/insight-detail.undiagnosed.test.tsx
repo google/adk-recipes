@@ -19,8 +19,8 @@
  * and `occurrence()`, which fill the finding fields in. A sweep sends those
  * keys absent -- nothing has diagnosed the issue yet -- and absent, not zero,
  * is what the pane blanked on: `insightQuery` was the one query that skipped
- * `withDefaults`, so `evidence_case_ids.length` ran against `undefined` and
- * the whole view went to the error boundary.
+ * `withDefaults`, so `evidence_trajectory_ids.length` ran against `undefined`
+ * and the whole view went to the error boundary.
  *
  * So this renders the real component over a raw payload rather than a fixture.
  * A defaulter that stops covering a field fails here, where a fixture-based
@@ -39,30 +39,31 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { InsightDetailView } from "../insight-detail";
 
 /** What `/api/insights/{id}` returns from our engine: no diagnosis, no
- * confidence, no source refs, no cases_checked. `evidence_case_ids` is there
- * because `ui/app.py` projects it from the `trajectory_ids` #189 writes. */
+ * confidence, no source refs, no trajectories_checked.
+ * `evidence_trajectory_ids` is there because `ui/app.py` projects it from the
+ * `trajectory_ids` #189 writes. */
 const OUR_PAYLOAD = {
   insight: {
     insight_id: "ins-1",
-    agent_name: "travel_desk_agent",
+    observed_agent_key: "travel_desk_agent",
     label: "calls file_expense with a category outside the accepted set",
     status: "RECURRING",
     occurrence_count: 110,
-    trace_count: 592,
-    last_run_id: "run-9",
-    last_run_at: "2026-09-10T06:00:00Z",
+    trajectory_count: 592,
+    last_investigation_id: "inv-9",
+    last_investigation_at: "2026-09-10T06:00:00Z",
   },
   occurrences: [
     {
       occurrence_id: "o-1",
-      run_id: "run-9",
+      investigation_id: "inv-9",
       created_at: "2026-09-10T06:00:00Z",
       label: "calls file_expense with a category outside the accepted set",
-      item_count: 6,
-      trace_count: 6,
+      finding_count: 6,
+      trajectory_count: 6,
       trajectory_ids: ["case-91f92b", "case-41cf06"],
-      evidence_case_ids: ["case-91f92b", "case-41cf06"],
-      rubrics: [],
+      evidence_trajectory_ids: ["case-91f92b", "case-41cf06"],
+      examples: [],
     },
   ],
 };
@@ -73,7 +74,7 @@ function renderDetail(payload: unknown) {
     vi.fn(async () => new Response(JSON.stringify(payload), { status: 200 })),
   );
   const root = createRootRoute();
-  const paths = ["/", "/c", "/insights", "/investigations/$runId"];
+  const paths = ["/", "/c", "/insights", "/investigations/$investigationId"];
   const [index, ...rest] = paths.map((path) =>
     createRoute({
       getParentRoute: () => root,
@@ -83,13 +84,13 @@ function renderDetail(payload: unknown) {
         : {}),
     }),
   );
-  const caseRoute = createRoute({
+  const trajectoryRoute = createRoute({
     getParentRoute: () => root,
-    path: "/investigations/$runId/cases/$caseId",
-    component: () => <div>Case</div>,
+    path: "/investigations/$investigationId/trajectories/$trajectoryId",
+    component: () => <div>Trajectory</div>,
   });
   const router = createRouter({
-    routeTree: root.addChildren([index, ...rest, caseRoute]),
+    routeTree: root.addChildren([index, ...rest, trajectoryRoute]),
     history: createMemoryHistory({ initialEntries: ["/"] }),
   });
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -114,19 +115,15 @@ describe("the detail pane on an engine with no dig phase", () => {
       ),
     ).toBeInTheDocument();
     expect(await screen.findByText("Latest occurrence")).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Summary" })).toHaveTextContent(
+      /No root cause recorded yet/,
+    );
   });
 
   it("says the finding is undiagnosed rather than showing a false 0%", async () => {
     renderDetail(OUR_PAYLOAD);
     // Twice: once in the header, once on the sighting.
     expect(await screen.findAllByText("Undiagnosed")).toHaveLength(2);
-  });
-
-  it("says the sighting has no recorded cause", async () => {
-    renderDetail(OUR_PAYLOAD);
-    expect(
-      await screen.findByText(/This occurrence has no recorded root cause/),
-    ).toBeInTheDocument();
   });
 
   it("shows no confidence, because nothing measures one", async () => {
@@ -137,9 +134,10 @@ describe("the detail pane on an engine with no dig phase", () => {
   });
 
   it("counts the traces once, not twice", async () => {
-    // `cases_checked` is populated from `trace_count`, so the fork's separate
-    // "N independently checked" chip would print the same number again beside
-    // "N trace(s)" -- and claim a second check we never ran.
+    // `trajectories_checked` is populated from `trajectory_count`, so the
+    // fork's separate "N independently checked" chip would print the same
+    // number again beside "N trace(s)" -- and claim a second check we never
+    // ran.
     renderDetail(OUR_PAYLOAD);
     expect(await screen.findByText("6 trajectories")).toBeInTheDocument();
     expect(screen.queryByText(/independently checked/)).toBeNull();

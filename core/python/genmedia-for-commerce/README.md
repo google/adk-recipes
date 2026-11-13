@@ -1,204 +1,111 @@
-# GenMedia for Commerce Agent Quickstart
+# GenMedia for Commerce
 
-The **GenMedia for Commerce Agent** is a production-ready solution for generating high-quality retail media, including Virtual Try-On (VTO) videos and 360° product spins (Reference-to-Video / R2V). It is built using the Agent Development Kit (ADK) and demonstrates how to orchestrate complex media generation workflows with Gemini and Veo.
+<a href="https://youtu.be/_r29H4ci1So"><img src="assets/readme/video.jpg" alt="Watch the GenMedia for Commerce video on YouTube" width="480"></a>
 
-<img src="https://raw.githubusercontent.com/lspataroG/genmedia_for_commerce_assets/main/short_demo.gif" width="80%" alt="Demo">
+## What you get
 
+- **Photo Try-On:** a person, or a preset model, wearing one product or an outfit of up to 20, with close-up details, brand styling rules and a back view.
+- **Video Try-On:** the same inputs as short fashion videos with planned camera moves.
+- **360° Spin:** a looping turntable animation of any product from a few photos.
+- **Quality checks:** a judge model compares each result with the product photos and scores it. Off by default in the Studio: turn on "Check images" or "Check videos" in Run options.
+- **The Studio agent:** an [ADK](https://google.github.io/adk-docs/) agent that sets up the Studio from a conversation and asks "Shall I generate?" before it generates.
+- **Gemini Enterprise:** the Studio as an interactive panel next to the chat (an MCP App).
+- **A sample catalogue:** 788 fashion products, 8 preset models and 5 multi-view products, so you can try it without your own photos.
 
-<table>
-  <thead>
-    <tr>
-      <th colspan="2">Key Features</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td>👗</td>
-      <td><strong>Virtual Try-On (VTO):</strong> Generates natural catwalk-style animation videos of models wearing specific clothes using Veo 3.1 R2V mode.</td>
-    </tr>
-    <tr>
-      <td>🔄</td>
-      <td><strong>360° Product Spinning:</strong> Generates smooth spinning videos of shoes and other products from a few static images.</td>
-    </tr>
-    <tr>
-      <td>🛡️</td>
-      <td><strong>Automated Validation:</strong> Includes rotation consistency checks and glitch detection to ensure high-quality outputs.</td>
-    </tr>
-    <tr>
-      <td>🚀</td>
-      <td><strong>Production-Ready:</strong> Modular backend, multi-stage Docker build, and deployment support for Cloud Run and Agent Runtime.</td>
-    </tr>
-  </tbody>
-</table>
+[AGENTS.md](./AGENTS.md) explains how each part works.
 
-## 🚀 Getting Started
+## Prerequisites
 
-### Prerequisites
-- **Python 3.11+**
-- **Node.js 20+**
-- **uv** (for dependency management)
-- **Terraform** (for infrastructure setup)
-- **Google Cloud SDK (gcloud)**
+- Python 3.11 to 3.13, Node.js 20 or newer, [uv](https://github.com/astral-sh/uv) and the Google Cloud CLI (`gcloud`).
+- A Google Cloud project with billing enabled.
 
-### Step 1: Get the Code
+## Setup
 
-**Option A: Clone directly from adk-recipes**
 ```bash
 git clone https://github.com/google/adk-recipes.git
 cd adk-recipes/core/python/genmedia-for-commerce
-```
-
-**Option B: Create project from template**
-
-This uses the [Google Agents CLI](https://github.com/google/agents-cli) to create a new directory (`genmedia4commerce`) with all the necessary code.
-
-**Install the CLI** (one-time):
-
-```bash
-uvx google-agents-cli setup
-```
-
-**Create the project from this recipe**:
-
-```bash
-agents-cli create genmedia4commerce -a https://github.com/google/adk-recipes/tree/main/core/python/genmedia-for-commerce
-```
-
-You'll be prompted to select a deployment option — choose **None**, as deployment is already handled in the code repo.
-
-### Step 2: Configure Environment
-Copy the example config and fill in your project-specific values:
-```bash
-cp config.env.example config.env
-```
-Then edit `config.env` and set at least:
-```env
-PROJECT_ID=your-gcp-project-id
-IMAGE_NAME=gcr.io/your-gcp-project-id/genmedia-for-commerce
-```
-
-### Step 3: Install Dependencies
-```bash
 make install
-```
-This installs Python dependencies via `uv` and frontend packages.
 
-### Step 4: Authenticate with Google Cloud
-```bash
 gcloud auth login
 gcloud auth application-default login
-gcloud config set project your-gcp-project-id
-```
+gcloud config set project <your-project-id>
 
-### Step 5: Infrastructure Setup
-Enable necessary APIs and create initial resources via Terraform:
-```bash
 make setup-infra
 ```
 
----
+`make setup-infra` creates `config.env` (every setting, see [Configuration](#configuration)) and, with Terraform, the APIs, the media bucket and the service accounts. It can run again safely; run it again after upgrading.
 
-## 💻 Running Locally
+## Run locally
 
-To start the backend and frontend development servers:
 ```bash
 make dev
 ```
-*(Note: Refer to specific Makefiles in `src/backend` and `src/frontend` if running parts separately.)*
 
----
+Open <http://localhost:3000>. Try: "Use Emma as the model and find me a black leather jacket", answer "yes" when the agent asks "Shall I generate?", then "Now make a video of it". Local runs still use your project's models and media bucket.
 
-## ☁️ Cloud Deployment Options
+## Deploy and Gemini Enterprise
 
-After completing the initial setup, you have two deployment options:
+```bash
+make deploy
+make register-gemini-enterprise
+```
 
-### Option A: Deploy Agent to Agent Runtime + Gemini Enterprise
-This deployment focuses solely on the agent logic and tools, making it accessible via Gemini Enterprise.
+- `make deploy` puts the app on Cloud Run (private: IAM only) and opens it at <http://localhost:8080> through a local proxy. Later, `make web` opens it again, and `make share USERS="user:alice@example.com"` lets teammates do the same.
+- `make register-gemini-enterprise` creates a "GenMedia Studio" app in Gemini Enterprise. Enter answers yes to its questions (allow custom MCP connectors, start the 30-day free trial); one step is in the console: click **Reload custom actions** on the page it links, then press Enter. Use a project dedicated to this app.
 
-1. **Deploy Agent**:
-   ```bash
-   make deploy-agent-engine
-   ```
-2. **Register with Gemini Enterprise**:
-   ```bash
-   make register-gemini-enterprise
-   ```
-   Follow the interactive prompts to confirm the Agent Runtime ID and link it to your instance.
+Then open the app and ask "Open the GenMedia Studio". Upload images with the panel's Upload button: files attached in the chat do not reach the Studio.
 
-### Option B: Deploy Full Application (Cloud Run with MCP & Frontend)
-This deploys the entire application stack, including the React frontend, FastAPI backend, and MCP server.
+## Cloud Shell: one command
 
-1. **Build and Deploy**:
-   ```bash
-   make deploy-cloudrun
-   ```
-   This command builds the frontend, packages the application into a Docker container, pushes it to Artifact Registry, and deploys it to Cloud Run.
+In [Cloud Shell](https://shell.cloud.google.com), with your project selected (`gcloud config set project <your-project-id>`):
 
-## Agent Details
+```bash
+d=genmedia4commerce-$RANDOM && uvx google-agents-cli@1.12.0 scaffold create $d -ag -y -p -d cloud_run \
+  --agent-guidance-filename AGENTS.md -a https://github.com/google/adk-recipes/tree/main/core/python/genmedia-for-commerce \
+  && cd $d && make install setup-infra deploy register-gemini-enterprise
+```
 
-| Attribute | Description |
-| :--- | :--- |
-| **Interaction Type** | Workflow / API |
-| **Complexity** | Advanced |
-| **Agent Type** | Orchestrator |
-| **Components** | Veo 3.1, Gemini 3.8 Flash / 3.5 Flash-Lite / 3.1 Pro, Nano Banana 2.1, Image Processing, Validation Loops |
-| **Vertical** | Retail / Commerce |
+It runs all of the above. Open the web app with **Web Preview > Preview on port 8080**.
 
-### 1. Clothes Video VTO Pipeline
-This pipeline generates a catwalk animation of a model wearing specific clothes.
-- **Input**: A full-body image of a model wearing the clothes.
-- **Process**:
-  1. **Framing**: Splits the image into three framings: lower body, upper body, and face.
-  2. **Canvas Creation**: Fits each framing onto a 16:9 canvas.
-  3. **Veo Generation**: Calls Veo 3.1 R2V in parallel with the reference images and a detailed animation prompt.
-- **Output**: A set of generated videos showing the model walking forward.
+## Configuration
 
-### 2. Shoe Spinning (R2V) Pipeline
-This pipeline generates a 360° spinning video of a shoe from a few static images.
-- **Input**: Multiple images of a shoe from different angles.
-- **Process**:
-  1. **Classification**: Identifies the viewing angle of each image (front, back, left, right, etc.).
-  2. **Selection**: Picks the best images covering the necessary angles.
-  3. **Stacking**: Combines images into up to 3 reference images (as limited by the Veo API).
-  4. **Generation**: Generates an 8-second video using Veo 3.1.
-  5. **Validation**: Checks for correct rotation direction and detects visual glitches. If validation fails, it retries generation up to a configured limit.
-- **Output**: A smooth, continuous spinning video of the product.
+`config.env` holds the deploy settings and `.env.example` lists every variable with its default. The most useful:
 
-### 3. Image VTO Pipeline (Static)
-This pipeline generates static images of a model wearing specific clothes or glasses.
-- **Input**:
-  - Person image (Full body for clothes, front face for glasses).
-  - Product images (Garments or glasses).
-- **Process**:
-  1. **Routing**: Routes to clothes or glasses pipeline based on input flags.
-  2. **Generation**: Generates multiple variations using Gemini.
-  3. **Evaluation**: Ranks variations and selects the best result.
-- **Output**: Static images with the best score based on automated evaluation.
+| Variable | What it does |
+|---|---|
+| `PROJECT_ID`, `DEFAULT_REGION` | The project, and the region of Cloud Run and regional services |
+| `GENMEDIA_*_MODEL` | The model of each task (text, judge, agent, image, video, embeddings) |
+| `GENMEDIA_STYLE_GUIDELINES`, `GENMEDIA_SCENARIO` | Brand styling rules and the default scene of try-on images |
+| `GENMEDIA_NUM_VARIATIONS` | Results per request (1 to 5, default 3) |
+| `GENMEDIA_LOOK_CONFLICT` | When the look photo shows another item in an uploaded product's place (other shoes, another skirt): `upload` (default) keeps the uploaded product, `look` the look's |
+| `GENMEDIA_CATALOG_PATH` | Your own catalogue, with the columns of `assets/catalog/products.parquet` |
+| `MEDIA_BUCKET` | The media bucket (default `<PROJECT_ID>-gfc-media`) |
+| `USE_IAP` | Browser sign-in with Identity-Aware Proxy |
 
-### 4. Catalog Search
-This capability allows searching the product catalog using natural language queries.
-- **Input**:
-  - Search query (e.g., "red casual dress").
-  - Optional audience filter (e.g., "women", "men").
-- **Process**:
-  1. **Vector Search**: Uses vector similarity search to find matching products.
-  2. **Filtering**: Applies audience filters if provided.
-- **Output**: A list of matched products with descriptions and image.
+## APIs
 
+One service serves the web app, the REST API (`/api/tryon`, `/api/video-tryon`, `/api/spin`, streamed as Server-Sent Events; reference at `/docs`), the ADK API (`/run`, `/run_sse`, app `genmedia4commerce`) and the MCP App (`/mcp`).
 
-## 🛠️ Technologies Used
+```bash
+curl -N http://localhost:8000/api/tryon -F product_images=@jacket.jpg -F person_image=@person.jpg
+```
 
-### Backend
-- **FastAPI**: For high-performance API endpoints.
-- **Google GenAI SDK**: For interacting with Gemini and Veo models.
-- **uv**: For fast Python package management.
-- **OpenCV & Pillow**: For image and video processing.
+## Security and data
 
-### Frontend
-- **React** (with Vite): For building the user interface.
+- **One team per deployment:** anyone who can invoke the service can open any studio whose id they know.
+- **One place for data:** everything is in the media bucket and deleted 30 days after its last change; preview links are signed URLs valid for 60 minutes.
+- **Cache:** what was worked out from product photos only (never the person photo) is kept under `product_cache/` and `spin_cache/` so the next run starts sooner; `GENMEDIA_USE_CACHE=false` turns it off.
 
----
+## Develop
+
+```bash
+make test        # hermetic tests: no network, no credentials
+make lint        # codespell and ruff
+make typecheck   # mypy
+```
+
+[AGENTS.md](./AGENTS.md) is the guide to the code and its rules.
+
 ## Disclaimer
-This agent recipe is provided for illustrative purposes only. It serves as a basic example of an agent and a foundational starting point for individuals or teams to develop their own agents.
 
-Users are solely responsible for any further development, testing, security hardening, and deployment of agents based on this recipe. We recommend thorough review, testing, and the implementation of appropriate safeguards before using any derived agent in a live or critical system.
+This recipe is provided for illustrative purposes only. It is a starting point for building your own agents, not a finished product. You are responsible for any further development, testing, security hardening and deployment of agents based on it. Review and test thoroughly, and add appropriate safeguards, before using any derived agent in a live or critical system.

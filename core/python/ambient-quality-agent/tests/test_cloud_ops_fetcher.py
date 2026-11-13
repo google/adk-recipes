@@ -27,7 +27,10 @@ from unittest import mock
 
 import pytest
 from ambient_quality_agent.tools.evaluation.models import MetricType
-from ambient_quality_agent.tools.ingestion.base import BaseFetcher
+from ambient_quality_agent.tools.ingestion.base import (
+    JOIN_BACK_MARGIN_DAYS,
+    BaseFetcher,
+)
 from ambient_quality_agent.tools.ingestion.cloud_ops_fetcher import (
     CloudOpsFetcher,
     _decode_spans,
@@ -1318,6 +1321,29 @@ def test_multi_turn_query_attaches_spans_by_trace_id() -> None:
 
 
 @pytest.mark.parametrize(
+    ("metric_type", "reads"),
+    [(MetricType.MULTI_TURN, 2), (MetricType.SINGLE_TURN, 1)],
+)
+def test_every_join_back_reads_only_the_window_widened_by_the_margin(
+    metric_type: MetricType, reads: int
+) -> None:
+    """An unbounded join back to the table reads its whole history."""
+    fetcher = _make_fetcher(mock.MagicMock())
+    bound = (
+        "WHERE s.start_time BETWEEN"
+        f" TIMESTAMP_SUB(@window_start, INTERVAL {JOIN_BACK_MARGIN_DAYS} DAY)"
+        f" AND TIMESTAMP_ADD(@window_end, INTERVAL {JOIN_BACK_MARGIN_DAYS} DAY)"
+    )
+
+    sql = _sql_words(fetcher._build_ingestion_sql(metric_type))
+    join_backs = sql.split(" JOIN Target")[1:]
+
+    assert len(join_backs) == reads
+    for join_back in join_backs:
+        assert bound in join_back.split(" GROUP BY ")[0]
+
+
+@pytest.mark.parametrize(
     "metric_type", [MetricType.MULTI_TURN, MetricType.SINGLE_TURN]
 )
 def test_query_prunes_the_inline_conversation_from_spans_without_a_session(
@@ -1491,7 +1517,7 @@ def test_a_single_turn_trajectory_reports_the_session_it_belongs_to() -> None:
 
 
 def test_a_row_with_no_conversation_content_is_still_reported() -> None:
-    """The most valuable link on the page: a sampled trajectory the run could
+    """The most valuable link on the page: a sampled trajectory the investigation could
     not use is the one case where "what does this look like?" has no other
     answer."""
     recorder = FakeTrajectoryRecorder()

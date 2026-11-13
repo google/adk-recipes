@@ -1,0 +1,123 @@
+# System 1 (ADK Voice Agent orchestrator) and System 1 -> System 2 (coding harness on the user's computer) handoff evaluation config.
+# Graded natively by `uv run agents-cli eval run --mode adk_live --config tests/eval/eval_config_system1.yaml`:
+#   - LLM judges for conversation quality and per-case `rubrics` (embedded as `reference`
+#     on each eval case in tests/eval/datasets/*.json);
+#   - Trace-native deterministic guards in tests/eval/voice/voice_checks.py:
+#     `spoken_compliance`, `handoff_alignment`, the combined `voice_checks` entrypoint, and
+#     `delivery` (kickoff, spoken answer, and per-turn speech, from a case's `delivery`);
+#   - `voice_delivery`: one judge for how every conversation sounds (brevity, mirroring,
+#     preliminary reads, screen vs. voice).
+metrics_to_run:
+  - multi_turn_task_success
+  - multi_turn_trajectory_quality
+  - rubrics
+  - voice_delivery
+  - spoken_compliance
+  - handoff_alignment
+  - voice_checks
+  - delivery
+  - tool_trajectory
+  - contract_invariants
+
+custom_metrics:
+  # Plain, compressed speech (no leaked thread IDs, raw file paths, markdown, URLs, diffs, or stack traces).
+  - name: spoken_compliance
+    custom_function: |
+      import sys; sys.path.insert(0, "tests/eval/voice")
+      from voice_checks import spoken_compliance as evaluate
+
+  # How it sounds around a thread: kickoff length and mirroring, the spoken answer, and
+  # what each turn says (findings, items named aloud), from the case's `delivery`.
+  - name: delivery
+    custom_function: |
+      import sys; sys.path.insert(0, "tests/eval/voice")
+      from voice_checks import delivery as evaluate
+
+  # System 1 transactional tools and System 1 -> System 2 handoff contract verified from instance["agent_data"].
+  - name: handoff_alignment
+    custom_function: |
+      import sys; sys.path.insert(0, "tests/eval/voice")
+      from voice_checks import handoff_alignment as evaluate
+
+  # Combined trace-native check running both spoken_compliance and handoff_alignment.
+  - name: voice_checks
+    custom_function: |
+      import sys; sys.path.insert(0, "tests/eval/voice")
+      from voice_checks import voice_checks as evaluate
+
+  # Granular tool trajectory check (required/forbidden tools, order, arguments).
+  - name: tool_trajectory
+    custom_function: |
+      import sys; sys.path.insert(0, "tests/eval/voice")
+      from voice_checks import tool_trajectory as evaluate
+
+  # Granular contract invariants check (consent turns for approve/publish, unasked plan_first, thread IDs, no polling).
+  - name: contract_invariants
+    custom_function: |
+      import sys; sys.path.insert(0, "tests/eval/voice")
+      from voice_checks import contract_invariants as evaluate
+
+  # Optional thread store snapshot check when THREAD_DB_URL is set (falls back to handoff_alignment).
+  - name: thread_outcome
+    custom_function: |
+      import sys; sys.path.insert(0, "tests/eval/voice")
+      from voice_checks import thread_outcome as evaluate
+
+  # Optional harness prompt check (falls back to start_thread/message_thread args in trace).
+  - name: harness_context
+    custom_function: |
+      import sys; sys.path.insert(0, "tests/eval/voice")
+      from voice_checks import harness_context as evaluate
+
+  # Each case's own criteria (embedded in the dataset's `reference`), judged against the conversation.
+  - name: rubrics
+    judge_model_sampling_count: 1
+    judge_model_generation_config:
+      temperature: 0
+    prompt_template: |
+      You grade one conversation between a user and ADK Voice Agent, a voice assistant that runs
+      background coding and research threads. ADK Voice Agent speaks its replies aloud; its tool calls
+      and their results are part of the conversation so you can see what it did.
+
+      Conversation:
+      {agent_data}
+
+      Criteria for this conversation:
+      {reference}
+
+      Judge each criterion strictly on the conversation: it passes only if the conversation
+      clearly satisfies it. Paraphrase is fine; exact words don't matter.
+      Return a single-line valid JSON object with double-quoted keys "score" and "explanation":
+      {"score": <number from 0.0 to 1.0>, "explanation": "<PASS or FAIL per criterion with a short reason on a single line, using single quotes for any inner quotes>"}
+
+  # How the conversation sounds, judged the same way for every case: brevity, mirroring,
+  # preliminary reads, and what goes to the screen instead of the voice.
+  - name: voice_delivery
+    judge_model_sampling_count: 1
+    judge_model_generation_config:
+      temperature: 0
+    prompt_template: |
+      You grade how ADK Voice Agent sounds in one conversation. It is a voice assistant: every
+      word it says is spoken aloud, while a screen next to it shows cards with full plans,
+      lists, and results. Slow work runs as background threads; their updates and results come
+      back as tool results. Its tool calls and their results are shown so you can see what it
+      knew when it spoke.
+
+      Conversation:
+      {agent_data}
+
+      Judge only these four criteria, and each one only if the conversation gives it a chance
+      to apply:
+      1. Brevity: while it starts work it says a floor-holder of a few words, not a speech;
+         answers are one or two short sentences; no filler, no repeating itself.
+      2. Mirroring: when it kicks off a request with several constraints, it says back one or
+         two of the key ones in its kickoff, not the whole request.
+      3. Preliminary reads: asked about work that is still running, it shares a concrete
+         finding so far and says what is still being checked; it never presents an early
+         read as final and never stalls with a bare "still working on it" when findings exist.
+      4. Screen vs. voice: it names the top one or two items of a result and points to the
+         screen for the rest; it never reads a list, a plan step by step, file paths, IDs, or
+         code aloud.
+      The score is the fraction of applicable criteria that pass (1.0 if none apply).
+      Return a single-line valid JSON object with double-quoted keys "score" and "explanation":
+      {"score": <number from 0.0 to 1.0>, "explanation": "<PASS, FAIL, or N/A per criterion with a short reason on a single line, using single quotes for any inner quotes>"}

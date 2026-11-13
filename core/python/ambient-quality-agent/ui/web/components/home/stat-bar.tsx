@@ -118,7 +118,7 @@ export function StatBar() {
     value: data.verdict,
     tone: "text-muted-foreground",
   };
-  const run = data.last_run;
+  const investigation = data.last_investigation;
   const healthy = data.verdict === "watching";
 
   return (
@@ -140,11 +140,14 @@ export function StatBar() {
       <Cell
         label="Pass rate"
         value={
-          run?.pass_rate != null ? `${Math.round(run.pass_rate * 100)}%` : "--"
+          investigation?.pass_rate != null
+            ? `${Math.round(investigation.pass_rate * 100)}%`
+            : "--"
         }
         note={
-          run?.sessions_passed != null && run.sessions != null
-            ? `${run.sessions_passed} of ${run.sessions} ${run.sessions === 1 ? "trajectory" : "trajectories"}`
+          investigation?.trajectories_passed != null &&
+          investigation.trajectories != null
+            ? `${investigation.trajectories_passed} of ${investigation.trajectories} ${investigation.trajectories === 1 ? "trajectory" : "trajectories"}`
             : "No trajectories evaluated"
         }
       />
@@ -158,16 +161,23 @@ export function StatBar() {
       />
       <Cell
         label="Last investigation"
-        value={run ? formatSentenceCase(ago(run.finished_at)) : "Never"}
+        value={
+          investigation
+            ? formatSentenceCase(ago(investigation.finished_at))
+            : "Never"
+        }
         note={
-          run
+          investigation
             ? formatSentenceCase(
-                `${run.trigger_type} investigation ${run.run_id}`,
+                `${investigation.trigger_type} investigation ${investigation.investigation_id}`,
               )
             : "No investigation has run"
         }
-        {...(run
-          ? { to: "/investigations/$runId", params: { runId: run.run_id } }
+        {...(investigation
+          ? {
+              to: "/investigations/$investigationId",
+              params: { investigationId: investigation.investigation_id },
+            }
           : {})}
       />
     </section>

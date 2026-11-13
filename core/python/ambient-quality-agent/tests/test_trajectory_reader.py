@@ -54,7 +54,7 @@ def _reader(client: mock.MagicMock) -> BigQueryTrajectoryReader:
         client=client,
         project_id=_PROJECT,
         dataset=_DATASET,
-        agent_name=_AGENT,
+        observed_agent_key=_AGENT,
     )
 
 
@@ -181,7 +181,7 @@ def test_daily_outcomes_without_a_window_has_no_date_filter() -> None:
 
 
 def test_the_outcome_join_deduplicates_and_scopes_to_the_agent() -> None:
-    """One trajectory can sit behind several occurrences of one run -- several
+    """One trajectory can sit behind several occurrences of one investigation -- several
     defects found in the same conversation -- and each would otherwise count
     once per defect."""
     client = _query_returning([])
@@ -228,10 +228,12 @@ def test_an_unusable_trajectory_outranks_the_insight_join() -> None:
 # --- the drill-down -----------------------------------------------------------
 
 
-def test_list_trajectories_counts_then_pages() -> None:
+def test_list_investigation_trajectories_counts_then_pages() -> None:
     client = _query_returning([{"total": 42}], [_trajectory_row()])
 
-    rows, total = _reader(client).list_trajectories(limit=30, offset=30)
+    rows, total = _reader(client).list_investigation_trajectories(
+        limit=30, offset=30
+    )
 
     assert total == 42
     assert len(rows) == 1
@@ -246,7 +248,9 @@ def test_list_trajectories_counts_then_pages() -> None:
 def test_a_row_carries_the_ids_a_dot_is_drawn_from() -> None:
     client = _query_returning([{"total": 1}], [_trajectory_row()])
 
-    rows, _ = _reader(client).list_trajectories(limit=30, offset=0)
+    rows, _ = _reader(client).list_investigation_trajectories(
+        limit=30, offset=0
+    )
 
     assert rows[0].trajectory_id == "case-1"
     assert rows[0].source_trace_ids == ["trace-1", "trace-2"]
@@ -254,12 +258,14 @@ def test_a_row_carries_the_ids_a_dot_is_drawn_from() -> None:
     assert rows[0].outcome is TrajectoryProcessingState.IN_AN_INSIGHT
 
 
-def test_list_trajectories_filters_by_outcome_with_the_same_case() -> None:
+def test_list_investigation_trajectories_filters_by_outcome_with_the_same_case() -> (
+    None
+):
     """Clicking one segment of one column has to return exactly what that
     segment counted, so the filter repeats the `CASE` rather than restating it."""
     client = _query_returning([{"total": 0}], [])
 
-    _reader(client).list_trajectories(
+    _reader(client).list_investigation_trajectories(
         outcome=TrajectoryProcessingState.NOT_INGESTED, limit=30, offset=0
     )
 
@@ -268,14 +274,16 @@ def test_list_trajectories_filters_by_outcome_with_the_same_case() -> None:
     assert _params(call)["outcome"] == "not_ingested"
 
 
-def test_list_trajectories_filters_by_run() -> None:
+def test_list_investigation_trajectories_filters_by_run() -> None:
     client = _query_returning([{"total": 0}], [])
 
-    _reader(client).list_trajectories(run_id="run-7", limit=30, offset=0)
+    _reader(client).list_investigation_trajectories(
+        investigation_id="run-7", limit=30, offset=0
+    )
 
     call = client.query.call_args_list[0]
-    assert "t.run_id = @run_id" in _sql(call)
-    assert _params(call)["run_id"] == "run-7"
+    assert "t.run_id = @investigation_id" in _sql(call)
+    assert _params(call)["investigation_id"] == "run-7"
 
 
 def test_the_page_names_its_columns() -> None:
@@ -283,7 +291,7 @@ def test_the_page_names_its_columns() -> None:
     until the mapping raised on a deployed dataset."""
     client = _query_returning([{"total": 0}], [])
 
-    _reader(client).list_trajectories(limit=30, offset=0)
+    _reader(client).list_investigation_trajectories(limit=30, offset=0)
 
     assert "SELECT *" not in _sql(client.query.call_args_list[1])
 
@@ -301,16 +309,16 @@ def test_trajectories_for_keys_the_rows_by_run_and_trajectory() -> None:
         ]
     )
 
-    found = _reader(client).get_trajectories(
+    found = _reader(client).get_investigation_trajectories(
         [("run-1", "case-1"), ("run-2", "case-2")]
     )
 
     assert sorted(found) == [("run-1", "case-1"), ("run-2", "case-2")]
     assert found["run-1", "case-1"].source_trace_ids == ["trace-1", "trace-2"]
     call = client.query.call_args_list[0]
-    assert "t.run_id IN UNNEST(@run_ids)" in _sql(call)
+    assert "t.run_id IN UNNEST(@investigation_ids)" in _sql(call)
     assert "t.trajectory_id IN UNNEST(@trajectory_ids)" in _sql(call)
-    assert _params(call)["run_ids"] == ["run-1", "run-2"]
+    assert _params(call)["investigation_ids"] == ["run-1", "run-2"]
     assert _params(call)["trajectory_ids"] == ["case-1", "case-2"]
 
 
@@ -318,7 +326,7 @@ def test_trajectories_for_resolves_a_whole_page_in_one_query() -> None:
     """One query for the page, not one per occurrence."""
     client = _query_returning([_trajectory_row()])
 
-    _reader(client).get_trajectories(
+    _reader(client).get_investigation_trajectories(
         [("run-1", "case-1"), ("run-2", "case-2"), ("run-3", "case-3")]
     )
 
@@ -336,7 +344,7 @@ def test_trajectories_for_drops_the_pairs_it_did_not_ask_for() -> None:
         ]
     )
 
-    found = _reader(client).get_trajectories(
+    found = _reader(client).get_investigation_trajectories(
         [("run-1", "case-1"), ("run-2", "case-2")]
     )
 
@@ -348,7 +356,7 @@ def test_trajectories_for_asks_nothing_when_given_nothing() -> None:
     empty array is a billed round trip that cannot match."""
     client = _query_returning([])
 
-    assert _reader(client).get_trajectories([]) == {}
+    assert _reader(client).get_investigation_trajectories([]) == {}
     client.query.assert_not_called()
 
 
@@ -357,7 +365,7 @@ def test_a_pair_with_no_row_is_absent_rather_than_a_placeholder() -> None:
     that was ingested without trace ids."""
     client = _query_returning([_trajectory_row()])
 
-    found = _reader(client).get_trajectories(
+    found = _reader(client).get_investigation_trajectories(
         [("run-1", "case-1"), ("run-1", "case-gone")]
     )
 
@@ -397,6 +405,8 @@ def test_there_is_no_link_without_something_to_link_to(
 def test_the_link_is_derived_and_never_stored() -> None:
     """Stored ids, derived URLs -- the `_build_gcs_console_url` precedent -- so the
     link format can change without rewriting rows."""
-    from ambient_quality_agent.tools.trajectories.models import Trajectory
+    from ambient_quality_agent.tools.trajectories.models import (
+        InvestigationTrajectory,
+    )
 
-    assert "console_url" not in Trajectory.model_fields
+    assert "console_url" not in InvestigationTrajectory.model_fields

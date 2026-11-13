@@ -104,6 +104,7 @@ def test_a_denied_payload_grants_its_bucket() -> None:
             "gs://proj-agent-logs",
             f"--member=serviceAccount:{_SA}",
             "--role=roles/storage.objectViewer",
+            "--format=none",
         )
     ]
 
@@ -132,6 +133,7 @@ def test_a_denied_log_view_grants_the_view_accessor_role() -> None:
             f"--member=serviceAccount:{_SA}",
             "--role=roles/logging.viewAccessor",
             "--condition=None",
+            "--format=none",
         )
     ]
 
@@ -285,6 +287,7 @@ def test_each_recorded_grant_is_revoked_by_its_inverse() -> None:
             "gs://proj-agent-logs",
             f"--member=serviceAccount:{_SA}",
             "--role=roles/storage.objectViewer",
+            "--format=none",
         ),
         (
             "gcloud",
@@ -294,6 +297,7 @@ def test_each_recorded_grant_is_revoked_by_its_inverse() -> None:
             f"--member=serviceAccount:{_SA}",
             "--role=roles/logging.viewAccessor",
             "--condition=None",
+            "--format=none",
         ),
     ]
     assert [r.to_record() for r in revocations] == [

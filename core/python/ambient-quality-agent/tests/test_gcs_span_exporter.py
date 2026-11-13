@@ -316,8 +316,8 @@ def test_a_span_that_raises_while_serializing_does_not_cost_the_batch() -> None:
 
 
 def test_flush_and_shutdown_survive_a_provider_that_cannot_do_either() -> None:
-    # A flush at the end of a run is a courtesy to the dump, never a reason for
-    # the run to fail, so a provider without these methods is not an error.
+    # A flush at the end of an investigation is a courtesy to the dump, never a reason for
+    # the investigation to fail, so a provider without these methods is not an error.
     telemetry_setup.flush_spans()
     telemetry_setup.shutdown_spans()
 
