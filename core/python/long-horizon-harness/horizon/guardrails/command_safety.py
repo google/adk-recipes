@@ -27,7 +27,11 @@ import os.path
 import re
 import shlex
 
-from horizon.guardrails.command_classify import split_segments, strip_wrapper
+from horizon.guardrails.command_classify import (
+    split_segments,
+    strip_comments,
+    strip_wrapper,
+)
 
 _CONTROL_OPS = frozenset({"|", "||", "&&", ";", "&"})
 _PIPE_OPS = frozenset({"|", "||"})
@@ -206,8 +210,17 @@ def _git_verdict(argv: list[str]) -> tuple[str, str] | None:
 def lex(command: str) -> list[str] | None:
     """shlex tokens (quote- and operator-aware); None on a parse error."""
     try:
+        # shlex drops everything after a `#`, even one in the middle of a word,
+        # and reads a newline as plain whitespace. A POSIX shell starts a
+        # comment only at the start of a word and runs each line as its own
+        # command, so `true x#;rm -rf ~` and a two-line command both run more
+        # than shlex shows. Remove real comments first, turn each newline into
+        # a `;`, and keep any remaining `#` as an ordinary character, so the
+        # classifier sees every command the shell will run.
+        command = strip_comments(command, newline=" ; ")
         lx = shlex.shlex(command, posix=True, punctuation_chars=True)
         lx.whitespace_split = True
+        lx.commenters = ""
         return list(lx)
     except ValueError:
         return None
