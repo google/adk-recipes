@@ -35,11 +35,11 @@ from ambient_quality_agent.tools.insights.bigquery_store import (
 from ambient_quality_agent.tools.insights.clustering import Cluster
 from ambient_quality_agent.tools.insights.findings import Finding
 from ambient_quality_agent.tools.insights.models import (
+    FindingExample,
     Insight,
     InsightOccurrence,
     InsightStatus,
     OccurrenceState,
-    RubricExample,
 )
 
 _PROJECT = "test-project"
@@ -57,7 +57,7 @@ def _store(client: mock.MagicMock) -> BigQueryInsightStore:
         client=client,
         project_id=_PROJECT,
         dataset=_DATASET,
-        agent_name=_AGENT,
+        observed_agent_key=_AGENT,
     )
 
 
@@ -84,13 +84,13 @@ def _sql(call: Any) -> str:
 
 
 def _cluster(label: str) -> Cluster:
-    return Cluster(label=label, finding_ids=[1], item_count=1)
+    return Cluster(label=label, finding_ids=[1], finding_count=1)
 
 
 def _insight(insight_id: str = "ins-1") -> Insight:
     return Insight(
         insight_id=insight_id,
-        agent_name=_AGENT,
+        observed_agent_key=_AGENT,
         label="made no tool call",
         status=InsightStatus.NEW,
         created_at=_NOW,
@@ -103,19 +103,19 @@ def _occurrence(insight_id: str = "ins-1") -> InsightOccurrence:
         occurrence_id="occ-1",
         insight_id=insight_id,
         occurrence_state=OccurrenceState.TRACKED,
-        run_id="run-1",
+        investigation_id="run-1",
         created_at=_NOW,
-        agent_name=_AGENT,
+        observed_agent_key=_AGENT,
         label="made no tool call",
-        item_count=1,
-        rubrics=[
-            RubricExample(
-                rubric=Finding(
+        finding_count=1,
+        examples=[
+            FindingExample(
+                finding=Finding(
                     expected_behavior="call create_ticket",
                     actual_behavior="no tool call was made",
-                    session_id="case-1",
+                    trajectory_id="case-1",
                 ),
-                eval_case_id="case-1",
+                trajectory_id="case-1",
             )
         ],
     )
@@ -150,7 +150,7 @@ def test_cleanup_failed_insights_deletes_occurrences_then_orphans_in_order() -> 
     assert f"DELETE FROM `{_OCCURRENCES_REF}`" in _sql(first)  # noqa: S608 - trusted test constants
     assert f"DELETE FROM `{_INSIGHTS_REF}`" in _sql(second)  # noqa: S608 - trusted test constants
     assert "NOT EXISTS" in _sql(second)
-    assert _params(first) == {"run_id": "run-1", "agent_name": _AGENT}
+    assert _params(first) == {"investigation_id": "run-1", "agent_name": _AGENT}
 
 
 # --- find_existing_insights ---------------------------------------------------
@@ -310,10 +310,19 @@ def test_save_result_inserts_new_insights_and_occurrences_and_marks_recurring() 
     assert loaded[_INSIGHTS_REF][0]["insight_id"] == "ins-new"
     assert loaded[_INSIGHTS_REF][0]["status"] == "NEW"
 
-    # The rubrics list is serialized into the JSON `rubrics` column.
-    rubrics = json.loads(loaded[_OCCURRENCES_REF][0]["rubrics"])
+    # The examples are serialized into the JSON `rubrics` column under the
+    # keys existing rows hold, and the row under the existing column names.
+    row = loaded[_OCCURRENCES_REF][0]
+    rubrics = json.loads(row["rubrics"])
     assert rubrics[0]["rubric"]["expected_behavior"] == "call create_ticket"
+    assert rubrics[0]["rubric"]["session_id"] == "case-1"
     assert rubrics[0]["eval_case_id"] == "case-1"
+    assert (row["run_id"], row["agent_name"], row["trace_count"]) == (
+        "run-1",
+        _AGENT,
+        0,
+    )
+    assert loaded[_INSIGHTS_REF][0]["agent_name"] == _AGENT
 
     # One statement: an insight is never dated to this sweep without the status
     # that goes with it.

@@ -214,7 +214,11 @@ def analyze_outfit(
             parts,
             system=_PLAN_SYSTEM,
             schema=_PLAN_SCHEMA,
-            params=TextParams(model=get_models().judge, thinking="MEDIUM"),
+            params=TextParams(
+                model=get_models().judge,
+                thinking="MEDIUM",
+                media_resolution=gen.MEDIUM_RES,
+            ),
         )
     except GenerationError as exc:
         logger.warning(f"analyze_outfit failed: {exc}")

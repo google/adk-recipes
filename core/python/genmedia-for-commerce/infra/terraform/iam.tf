@@ -66,7 +66,7 @@ resource "google_project_iam_member" "cloudrun" {
 
 # Everything the app stores is in the media bucket (runs/ and sessions/).
 resource "google_storage_bucket_iam_member" "cloudrun_media" {
-  bucket = google_storage_bucket.media.name
+  bucket = google_storage_bucket.gfc_media.name
   role   = "roles/storage.objectAdmin"
   member = local.cloudrun_sa
 }
@@ -156,6 +156,6 @@ resource "google_project_iam_member" "aiplatform_media" {
   condition {
     title       = "media-bucket-only"
     description = "Read the media bucket only"
-    expression  = "resource.name == \"projects/_/buckets/${google_storage_bucket.media.name}\" || resource.name.startsWith(\"projects/_/buckets/${google_storage_bucket.media.name}/\")"
+    expression  = "resource.name == \"projects/_/buckets/${google_storage_bucket.gfc_media.name}\" || resource.name.startsWith(\"projects/_/buckets/${google_storage_bucket.gfc_media.name}/\")"
   }
 }

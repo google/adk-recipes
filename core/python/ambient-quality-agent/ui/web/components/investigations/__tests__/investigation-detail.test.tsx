@@ -23,13 +23,13 @@ import {
   RouterProvider,
 } from "@tanstack/react-router";
 import { InvestigationDetailView } from "../investigation-detail-view";
-import type { InvestigationRecord } from "@/lib/aqua-api";
+import type { Investigation } from "@/lib/aqua-api";
 import { counters } from "@/lib/__fixtures__/counters";
 
-const RECORD: InvestigationRecord = {
-  run_id: "run-12345678",
+const RECORD: Investigation = {
+  investigation_id: "inv-12345678",
   status: "done",
-  observed_agent_name: "it_support_agent",
+  observed_agent_key: "it_support_agent",
   trigger_type: "manual",
   created_at: "2026-08-28T18:35:34Z",
   elapsed_seconds: 42.5,
@@ -37,11 +37,11 @@ const RECORD: InvestigationRecord = {
   metrics_failed: 2,
   metrics_errored: 0,
   counters: counters({
-    traces_scanned: 50,
-    traces_ingested: 50,
-    traces_evaluated: 50,
-    traces_eval_passed: 40,
-    traces_eval_failed: 10,
+    trajectories_scanned: 50,
+    trajectories_ingested: 50,
+    trajectories_evaluated: 50,
+    trajectories_eval_passed: 40,
+    trajectories_eval_failed: 10,
     rubrics_generated: 70,
     clusters_created: 2,
     insights_created: 1,
@@ -50,7 +50,7 @@ const RECORD: InvestigationRecord = {
   summary: {},
   events: [
     {
-      run_id: "run-12345678",
+      investigation_id: "inv-12345678",
       created_at: "2026-08-28T18:35:35Z",
       source: "triage",
       text: "**Triage:** Found 2 clusters.",
@@ -58,7 +58,7 @@ const RECORD: InvestigationRecord = {
   ],
 };
 
-function renderDetail(record: InvestigationRecord | null, error?: string) {
+function renderDetail(record: Investigation | null, error?: string) {
   vi.stubGlobal(
     "fetch",
     vi.fn().mockImplementation((url: string) => {
@@ -75,7 +75,9 @@ function renderDetail(record: InvestigationRecord | null, error?: string) {
         );
       }
       return Promise.resolve(
-        new Response(JSON.stringify({ run: record }), { status: 200 }),
+        new Response(JSON.stringify({ investigation: record }), {
+          status: 200,
+        }),
       );
     }),
   );
@@ -88,7 +90,7 @@ function renderDetail(record: InvestigationRecord | null, error?: string) {
   const indexRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: "/",
-    component: () => <InvestigationDetailView runId="run-12345678" />,
+    component: () => <InvestigationDetailView investigationId="inv-12345678" />,
   });
   const history = createMemoryHistory({ initialEntries: ["/"] });
   const router = createRouter({
@@ -117,7 +119,7 @@ describe("InvestigationDetailView", () => {
     expect(
       await screen.findByRole("heading", {
         level: 1,
-        name: "Investigation run-12345678",
+        name: "Investigation inv-12345678",
       }),
     ).toBeInTheDocument();
     expect(screen.getByText(/Observed agent:/)).toBeInTheDocument();
@@ -164,12 +166,12 @@ describe("InvestigationDetailView", () => {
     );
   });
 
-  it("shows the overrides a custom run was given, as text", async () => {
+  it("shows the overrides a custom investigation was given, as text", async () => {
     renderDetail({
       ...RECORD,
       custom_overrides: {
         selector_sql: SELECTOR_SQL,
-        session_review_focus: "Refund flows only",
+        review_focus: "Refund flows only",
       },
     });
 
@@ -185,7 +187,7 @@ describe("InvestigationDetailView", () => {
       ...RECORD,
       custom_overrides: {
         selector_sql: SELECTOR_SQL,
-        session_review_focus: "",
+        review_focus: "",
       },
     });
 
@@ -193,7 +195,7 @@ describe("InvestigationDetailView", () => {
     expect(screen.queryByText(/Review focus:/)).not.toBeInTheDocument();
   });
 
-  it("draws the investigation's own funnel, with a note written for one run", async () => {
+  it("draws the investigation's own funnel, with a note written for one investigation", async () => {
     renderDetail(RECORD);
 
     expect(
@@ -238,13 +240,13 @@ describe("InvestigationDetailView", () => {
     ).toBeInTheDocument();
   });
 
-  it("shows nothing about overrides for an ambient run", async () => {
+  it("shows nothing about overrides for an ambient investigation", async () => {
     renderDetail(RECORD);
 
     expect(
       await screen.findByRole("heading", {
         level: 1,
-        name: "Investigation run-12345678",
+        name: "Investigation inv-12345678",
       }),
     ).toBeInTheDocument();
     expect(screen.queryByText("Selector SQL")).not.toBeInTheDocument();
@@ -257,7 +259,7 @@ describe("InvestigationDetailView trigger badge", () => {
     vi.restoreAllMocks();
   });
 
-  it("badges a run a user started, keeping the raw trigger in the tooltip", async () => {
+  it("badges an investigation a user started, keeping the raw trigger in the tooltip", async () => {
     renderDetail({ ...RECORD, trigger_type: "custom" });
 
     const badge = await screen.findByText("Custom");

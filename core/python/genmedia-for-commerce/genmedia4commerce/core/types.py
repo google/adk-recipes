@@ -20,6 +20,8 @@ from typing import Any, Literal
 __all__ = [
     "FRAMING_BY_CATEGORY",
     "GARMENTS",
+    "SINGLE_SLOT",
+    "AnimatedImage",
     "Category",
     "Classification",
     "Framing",
@@ -33,6 +35,7 @@ __all__ = [
     "Verdict",
     "View",
     "quality_score",
+    "unchecked",
 ]
 
 
@@ -50,6 +53,20 @@ class StoredVideo(bytes):
         video = super().__new__(cls, data)
         video.interaction_id, video.extends = interaction_id, extends
         return video
+
+
+class AnimatedImage(bytes):
+    """An animated image (a spin's WebP) with ``video``, the video model's
+    MP4 it was made from, unchanged: ``core.runs`` saves it next to the
+    image (output mode gcs).
+    """
+
+    video: bytes
+
+    def __new__(cls, data: bytes, video: bytes):
+        image = super().__new__(cls, data)
+        image.video = video
+        return image
 
 
 @dataclass
@@ -70,6 +87,12 @@ class Verdict:
 def quality_score(publish: bool, imperfections: int) -> float:
     """Return the 0-100 score of a verdict (``Verdict.details["score"]``)."""
     return float(max(0, 100 - 15 * imperfections - 30 * (not publish)))
+
+
+def unchecked() -> Verdict:
+    """The verdict of a result made with its model checks off: it passes,
+    with no imperfection and no score (``details["checked"]`` False)."""
+    return Verdict(True, description="Not checked", details={"checked": False})
 
 
 Framing = Literal[
@@ -109,6 +132,17 @@ Landmark = Literal[
 # Worn on the body: re-graded to the wearer's size, and a single one is
 # framed by where it starts and ends (``Product.span``).
 GARMENTS: tuple[Category, ...] = ("top", "bottom", "dress", "full_body_outer")
+# Worn one at a time: a look item of one of these fills the place of an
+# uploaded product of its category (``hero.conflicts``); any other item
+# only the one the classifier names (``PhotoItem.instead_of``).
+SINGLE_SLOT: tuple[Category, ...] = (
+    "bottom",
+    "dress",
+    "footwear",
+    "headwear",
+    "eyewear",
+    "bag",
+)
 
 FRAMING_BY_CATEGORY: dict[Category, Framing] = {
     "top": "upper_body",
@@ -191,6 +225,9 @@ class PhotoItem:
     # its own ("g7"), the same in every photo that shows it.
     product: str
     covered: bool = False  # another garment hides most of it
+    # An item of no uploaded product: the uploaded product of the same kind,
+    # in the same layer, that it would replace (``classify``); else None.
+    instead_of: str | None = None
 
 
 @dataclass
@@ -220,9 +257,14 @@ class Classification:
     look_photo: int | None = None
     # Every photo classified, in upload order (the reference model last).
     photos: list[Photo] = field(default_factory=list)
+    # Each look item in an uploaded product's place (``hero.conflicts``):
+    # {"kept": "upload" or "look", "upload": its id, "upload_name",
+    # "look_name"}; the product set aside is not in ``products``.
+    look_conflicts: list[dict[str, str]] = field(default_factory=list)
 
     def to_dict(self) -> dict:
-        """Return a JSON-friendly summary without image bytes."""
+        """Return a JSON-friendly summary without image bytes (a
+        product's span, the look conflicts, only when there are any)."""
         return {
             "mode": self.mode,
             "framing": self.framing,
@@ -232,7 +274,13 @@ class Classification:
                     "category": p.category,
                     "description": p.description,
                     "refs": [{"view": r.view, "rank": r.rank} for r in p.refs],
+                    **({"span": list(p.span)} if p.span else {}),
                 }
                 for p in self.products
             ],
+            **(
+                {"look_conflicts": self.look_conflicts}
+                if self.look_conflicts
+                else {}
+            ),
         }

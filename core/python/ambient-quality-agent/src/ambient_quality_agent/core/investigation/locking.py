@@ -12,25 +12,25 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Whether a second sweep may start for an observed agent.
+"""Whether a second investigation may start for an observed agent.
 
-A sweep is sequential and writes the insight store as it goes, so two of them
-running concurrently for one agent interleave their writes.
+An investigation is sequential and writes the insight store as it goes, so two
+of them running concurrently for one agent interleave their writes.
 
 `InvestigationLock` guards execution: a launch attempts to claim the agent,
-either receiving approval or identifying the run already holding it. A refused
-launch returns the active run rather than starting a second sweep, so the interface
-returns the holder's run ID instead of a boolean.
+either receiving approval or identifying the investigation already holding it.
+A refused launch returns the active investigation rather than starting a second
+one, so the interface returns the holder's investigation ID.
 
 Lock scope depends on execution mode:
 - `InProcessInvestigationLock`: holder table protected by `threading.Lock` for
-  sweeps running inside this process (`sync_investigation` mode).
+  investigations running inside this process (`sync_investigation` mode).
 - `UnguardedInvestigationLock`: permits every claim for durable execution paths
-  where sweeps execute in independent Agent Runtime runs.
+  where investigations execute in independent Agent Runtime invocations.
 
-Deployed durable launches run independently and rely on counting in-flight runs
-in the investigations store (`job_scheduling.MAX_RUNS_IN_FLIGHT`) to bound
-concurrent executions.
+Deployed durable launches run independently and rely on counting in-flight
+investigations in the investigations store
+(`job_scheduling.MAX_INVESTIGATIONS_IN_FLIGHT`) to bound concurrent executions.
 """
 
 from __future__ import annotations
@@ -43,25 +43,26 @@ from ambient_quality_agent.config import Config
 
 
 class InvestigationLock(Protocol):
-    """A claim on the right to sweep one observed agent."""
+    """A claim on the right to investigate one observed agent."""
 
-    def acquire(self, agent_key: str, run_id: str) -> str | None:
-        """Claim the right to sweep `agent_key` as `run_id`.
+    def acquire(self, agent_key: str, investigation_id: str) -> str | None:
+        """Claims the right to investigate `agent_key` as `investigation_id`.
 
         Args:
             agent_key: Key of the observed agent.
-            run_id: Unique identifier of the requesting run.
+            investigation_id: Unique identifier of the requesting investigation.
 
         Returns:
-            `None` when the claim is granted, or the ID of the run already holding it.
+            `None` when the claim is granted, or the ID of the investigation
+            already holding it.
         """
 
-    def release(self, agent_key: str, run_id: str) -> None:
-        """Release the claim granted by `acquire`.
+    def release(self, agent_key: str, investigation_id: str) -> None:
+        """Releases the claim granted by `acquire`.
 
         Args:
             agent_key: Key of the observed agent.
-            run_id: Unique identifier of the holding run.
+            investigation_id: Unique identifier of the holding investigation.
         """
 
 
@@ -74,10 +75,10 @@ class UnguardedInvestigationLock:
     wanted nor a subset of it.
     """
 
-    def acquire(self, agent_key: str, run_id: str) -> str | None:
+    def acquire(self, agent_key: str, investigation_id: str) -> str | None:
         return None
 
-    def release(self, agent_key: str, run_id: str) -> None:
+    def release(self, agent_key: str, investigation_id: str) -> None:
         return None
 
 
@@ -85,7 +86,7 @@ class InProcessInvestigationLock:
     """One sweep per observed agent, among the sweeps this process runs.
 
     The `threading.Lock` guards the holder table and nothing else: a claim is
-    refused rather than waited for, so a caller answers with the run already
+    refused rather than waited for, so a caller answers with the investigation already
     going instead of queueing a second one behind it. Claims are keyed by agent
     because two agents share no insight store.
     """
@@ -94,17 +95,17 @@ class InProcessInvestigationLock:
         self._guard = threading.Lock()
         self._holders: dict[str, str] = {}
 
-    def acquire(self, agent_key: str, run_id: str) -> str | None:
+    def acquire(self, agent_key: str, investigation_id: str) -> str | None:
         with self._guard:
             holder = self._holders.get(agent_key)
             if holder is not None:
                 return holder
-            self._holders[agent_key] = run_id
+            self._holders[agent_key] = investigation_id
             return None
 
-    def release(self, agent_key: str, run_id: str) -> None:
+    def release(self, agent_key: str, investigation_id: str) -> None:
         with self._guard:
-            if self._holders.get(agent_key) == run_id:
+            if self._holders.get(agent_key) == investigation_id:
                 del self._holders[agent_key]
 
 

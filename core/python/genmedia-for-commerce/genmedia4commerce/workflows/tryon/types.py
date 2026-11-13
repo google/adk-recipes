@@ -20,6 +20,7 @@ from typing import Literal
 from genmedia4commerce.core.gen import ImageParams
 from genmedia4commerce.core.retry import Deadline
 from genmedia4commerce.core.runner import RunPolicy
+from genmedia4commerce.core.settings import LookConflict
 from genmedia4commerce.core.types import (
     Category,
     Classification,
@@ -61,9 +62,13 @@ class TryOnRequest:
     complete_look: bool = True
     # Shoes added from the reference model are upscaled to 2K first.
     upscale_crops: bool = False
+    # A look item in an uploaded product's place: "upload" keeps the upload,
+    # "look" the look item (``hero``); None -> settings.look_conflict.
+    look_conflict: LookConflict | None = None
     style_guidelines: str | None = None  # None -> settings.style_guidelines
     scenario: str | None = None  # None -> settings.scenario
     generate_back: bool = True
+    check_images: bool = True  # False: every image passes, unjudged
     policy: RunPolicy | None = None  # None -> RunPolicy.from_settings()
     image: ImageParams | None = None  # None -> ImageParams()
 
@@ -92,6 +97,7 @@ class TryOnContext:
     params: ImageParams
     chosen: list[tuple[Product, ProductRef]] = field(default_factory=list)
     plan: CompositionPlan | None = None
+    check_images: bool = True  # see TryOnRequest
 
 
 @dataclass

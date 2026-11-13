@@ -1,25 +1,23 @@
-/**
- * Copyright 2026 Google LLC
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     https://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2026 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
 // The settings of each page (studio/patches.py SETTING_KEYS): shown at once, saved as actions
 // (text after a pause in typing).
 import { ChevronIcon, SparkleIcon, VideoIcon } from "../../components/icons";
 import { Select, Switch, TextField } from "../../components/RunControls";
 import { CardHeader } from "./ItemSlot";
-import { RUN_OPTIONS, variationsOf } from "./model";
+import { CHECKS, RUN_OPTIONS, variationsOf } from "./model";
 import type { Studio } from "./useStudio";
 
 const TYPING_MS = 1500;
@@ -184,6 +182,16 @@ export function RunOptionsPanel({ studio }: Props) {
             {variations.hint}
           </p>
         )}
+        {CHECKS[cap].map(({ key, label, hint }) => (
+          <div key={key} className="col-span-2">
+            <Switch
+              label={label}
+              checked={studio.view.settings.tryon[key] === true}
+              onChange={(on) => studio.setSetting("tryon", key, on)}
+              hint={hint}
+            />
+          </div>
+        ))}
       </div>
     </details>
   );

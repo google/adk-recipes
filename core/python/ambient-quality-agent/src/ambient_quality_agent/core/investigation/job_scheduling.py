@@ -25,10 +25,10 @@ Wiring::
                                                   ├──► derive_window_and_budget()
                                                   ├──► locking.InvestigationLock
                                                   │      acquire(), release()
-                                                  ├──► model.create_run(),
-                                                  │      get_run(), update_run(),
-                                                  │      fail_stale_pending_runs(),
-                                                  │      fail_overdue_scheduled_runs()
+                                                  ├──► model.create_investigation(),
+                                                  │      get_stored_investigation(), update_investigation(),
+                                                  │      fail_stale_pending_investigations(),
+                                                  │      fail_overdue_scheduled_investigations()
                                                   ▼
                                               _dispatch()
                              sync_investigation   │   durable
@@ -41,15 +41,15 @@ Wiring::
 
 Orchestrates investigation launch:
 1. `_launch_investigation` resolves configuration, derives an evaluation window
-   and budget anchored to submit time, and records a `PENDING` run -- under the
-   run ID of the `SCHEDULED` record an observed-agent update left, when the
-   ambient handler names one; `_dispatch` then takes one of the two branches
-   below.
+   and budget anchored to submit time, and records a `PENDING` investigation --
+   under the investigation ID of the `SCHEDULED` record an observed-agent update
+   left, when the ambient handler names one; `_dispatch` then takes one of the
+   two branches below.
 2. Durable execution (`submit_investigation`): submits a durable self-query LRO
    job that runs asynchronously in `job_execution`.
 3. Synchronous execution (`sync_investigation`): runs `job_execution` on a worker
    thread, waits for completion, and holds an exclusive lock on the agent for
-   the sweep's duration (see `locking`).
+   the investigation's duration (see `locking`).
 """
 
 from __future__ import annotations
@@ -65,8 +65,8 @@ from ambient_quality_agent import config as config_module
 from ambient_quality_agent.config import Config
 from ambient_quality_agent.core.investigation import locking, model
 from ambient_quality_agent.core.investigation.model import (
-    InvestigationRecord,
-    RunStatus,
+    Investigation,
+    InvestigationStatus,
 )
 from ambient_quality_agent.core.protocol import RUN_KEYWORD
 from ambient_quality_agent.core.session_state import (
@@ -101,22 +101,22 @@ DRY_RUN_WITH_OVERRIDES = (
 Shared between submit-time scheduling and execution-time validation.
 """
 
-MAX_RUNS_IN_FLIGHT = 3
-"""Maximum active runs allowed per agent before scheduling new custom runs is throttled.
+MAX_INVESTIGATIONS_IN_FLIGHT = 3
+"""Maximum active investigations allowed per agent before scheduling new custom investigations is throttled.
 
 Acts as a best-effort throttle against queue buildup rather than a strict
-concurrency guarantee. Because active run counts are checked without distributed
-locks prior to inserting records, concurrent scheduling requests may briefly
-exceed this threshold.
+concurrency guarantee. Because active investigation counts are checked without
+distributed locks prior to inserting records, concurrent scheduling requests may
+briefly exceed this threshold.
 """
 
-SCHEDULED_RUN_GRACE_MINUTES = 60
-"""Minutes past its due time a `SCHEDULED` run may wait for its delayed trigger.
+SCHEDULED_INVESTIGATION_GRACE_MINUTES = 60
+"""Minutes past its due time a `SCHEDULED` investigation may wait for its delayed trigger.
 
 Cloud Tasks dispatches a task at its schedule time; only a dispatch that keeps
 failing is retried later than this. Past it, the next submission treats the
-trigger as lost (its task deleted or never dispatched) and fails the run, so the
-record does not wait forever. A trigger that still fires after that starts a run
+trigger as lost (its task deleted or never dispatched) and fails the investigation, so the
+record does not wait forever. A trigger that still fires after that starts an investigation
 under an ID of its own.
 """
 
@@ -178,7 +178,7 @@ def derive_window_and_budget(
     """Calculate the telemetry evaluation window and per-metric budget.
 
     Derives the fixed evaluation window and budget prior to execution:
-    1. If `since` is provided, starts from the end of the previous run; otherwise
+    1. If `since` is provided, starts from the end of the previous investigation; otherwise
        defaults to `data_lookback_window` days prior to now.
     2. Bounds `window_start` to at most `data_lookback_window` days in the past.
     3. Calculates per-metric budget: in `session_review` mode, allocates the full
@@ -186,7 +186,8 @@ def derive_window_and_budget(
 
     Args:
         config: Agent configuration.
-        since: Optional ISO-8601 timestamp of previous successful run's window end.
+        since: Optional ISO-8601 timestamp of the previous completed
+            investigation's `window_end`.
 
     Returns:
         Tuple of (window_start_iso, window_end_iso, budget_per_metric).
@@ -236,11 +237,18 @@ def _compute_eval_service_budget(config: Config, cap: int) -> int:
 async def schedule_investigation(
     tool_context: LaunchContext, dry_run: bool = False
 ) -> dict[str, Any]:
-    """Schedules an investigation and returns immediately (or waits for it if sync_investigation is enabled).
+    """Schedules an investigation and returns immediately (or waits if `sync_investigation` is enabled).
 
-    Delegates to `_launch_investigation` with no ambient parameters, so an ad-hoc
-    run keeps the day-based lookback window and carries no idempotency key --
-    identical to the behavior before the ambient seam existed.
+    Delegates to `_launch_investigation` with no ambient parameters, so a manual
+    investigation uses the day-based lookback window and carries no idempotency
+    key.
+
+    Args:
+        tool_context: Launch context containing workflow state and session info.
+        dry_run: Whether to run a minimal test probe.
+
+    Returns:
+        Formatted investigation dictionary, or an error payload if refused.
     """
     return await _launch_investigation(tool_context, dry_run=dry_run)
 
@@ -256,44 +264,44 @@ async def _launch_investigation(
     window_start: str | None = None,
     window_end: str | None = None,
     custom_overrides: CustomOverrides | None = None,
-    scheduled_run_id: str | None = None,
+    scheduled_investigation_id: str | None = None,
 ) -> dict[str, Any]:
-    """Schedule one investigation; the seam shared by the tools and the handler.
+    """Schedules one investigation; shared by the tools and the ambient handler.
 
-    Records a `pending` run, then either runs the investigation on a worker
-    thread and waits for it (if `config.sync_investigation` is enabled) or
-    submits a durable long-running query job against this engine. Returns the
-    formatted run.
+    Records a `pending` investigation, then either runs the investigation on a
+    worker thread and waits for it (if `config.sync_investigation` is enabled)
+    or submits a durable long-running query job against this engine. Returns the
+    formatted investigation.
 
     Called by the `schedule_investigation` tool, by the ambient handler, and by
     `chat_agent.start_custom_investigation`. The handler passes `ambient`, which
-    starts the window at the last finished run and, when no `idempotency_key` is
+    starts the window at the last finished investigation and, when no `idempotency_key` is
     given, derives a dedup key from the clock, and its own `trigger_type`. The
     tool passes neither, so it keeps the day-based window and no dedup.
 
     `anchor` is the instant the trigger was meant to fire, and replaces the
     clock in that key, so every attempt at one fire derives the same key.
 
-    `scheduled_run_id` names the `SCHEDULED` record an observed-agent update
-    left for this trigger. While that record is still scheduled, the run is
-    recorded under its ID, so one redeploy reads as one run from arrival to
-    result. Once it has moved on -- a redelivered trigger after the run began --
-    the run gets an ID of its own, as any other duplicate does.
+    `scheduled_investigation_id` names the `SCHEDULED` record an observed-agent update
+    left for this trigger. While that record is still scheduled, the investigation is
+    recorded under its ID, so one redeploy reads as one investigation from arrival to
+    result. Once it has moved on -- a redelivered trigger after the investigation began --
+    the investigation gets an ID of its own, as any other duplicate does.
 
     Args:
         context: Launch context containing workflow state and session info.
-        idempotency_key: Dedup key stored on the run, or derived from clock for ambient runs.
-        ambient: Whether this is a scheduled ambient run that tracks previous window end.
+        idempotency_key: Dedup key stored on the investigation, or derived from clock for ambient investigations.
+        ambient: Whether this is a scheduled ambient investigation that tracks previous window end.
         dry_run: Whether to run a minimal test probe. Incompatible with custom overrides.
-        trigger_type: Identifier for what triggered the run (e.g. manual, custom, scheduled).
+        trigger_type: Identifier for what triggered the investigation (e.g. manual, custom, scheduled).
         anchor: Target trigger execution timestamp used for dedup key calculation.
         window_start: Explicit start timestamp (ISO-8601 with offset). Must be paired with window_end.
         window_end: Explicit end timestamp (ISO-8601 with offset). Must be paired with window_start.
         custom_overrides: Optional query selector SQL and reviewer focus overrides.
-        scheduled_run_id: ID of the `SCHEDULED` record this trigger advances.
+        scheduled_investigation_id: ID of the `SCHEDULED` record this trigger advances.
 
     Returns:
-        Formatted investigation run dictionary, or an error payload if the run is
+        Formatted investigation dictionary, or an error payload if the investigation is
         refused, including when the deployment has no agent to investigate.
 
     Raises:
@@ -303,34 +311,35 @@ async def _launch_investigation(
     config = effective_config.load(state)
     if not config.observed_agent_name:
         return {"error": NO_AGENT_ATTACHED}
-    # Runs, their dedup key and the lock are AQuA's own, so they are keyed by
-    # the agent's key; the telemetry filter stays `observed_agent_name`.
+    # Investigations, their dedup key, and the lock are AQuA's own, so they are
+    # keyed by the agent's key; the telemetry filter uses `observed_agent_name`.
     agent_key = config.resolve_agent_key()
     is_custom = custom_overrides is not None and custom_overrides.is_custom()
     if is_custom and dry_run:
         raise ValueError(DRY_RUN_WITH_OVERRIDES)
     explicit_window = _parse_explicit_window(window_start, window_end)
     if is_custom and trigger_type == MANUAL_TRIGGER_TYPE:
-        # Custom runs are marked with CUSTOM_TRIGGER_TYPE to exclude them from
+        # Custom investigations are marked with CUSTOM_TRIGGER_TYPE to exclude them from
         # ambient watermarks and completion email notifications.
         trigger_type = CUSTOM_TRIGGER_TYPE
     scheduled = (
-        await _get_scheduled_run(state, scheduled_run_id)
-        if scheduled_run_id
+        await _get_scheduled_investigation(state, scheduled_investigation_id)
+        if scheduled_investigation_id
         else None
     )
     try:
-        await model.fail_stale_pending_runs(
-            state, lease_minutes=config.pending_run_lease_minutes
+        await model.fail_stale_pending_investigations(
+            state, lease_minutes=config.pending_investigation_lease_minutes
         )
     except Exception:
-        # Housekeeping errors on prior pending runs should not abort the current run.
+        # Housekeeping errors on prior pending investigations should not abort
+        # the current investigation.
         logger.exception("could not fail the stale pending runs")
     try:
-        await model.fail_overdue_scheduled_runs(
+        await model.fail_overdue_scheduled_investigations(
             state,
-            grace_minutes=SCHEDULED_RUN_GRACE_MINUTES,
-            keep=scheduled_run_id,
+            grace_minutes=SCHEDULED_INVESTIGATION_GRACE_MINUTES,
+            keep=scheduled_investigation_id,
         )
     except Exception:
         logger.exception("could not fail the overdue scheduled runs")
@@ -342,11 +351,12 @@ async def _launch_investigation(
     derived_start, derived_end, budget = derive_window_and_budget(
         config, since=since
     )
-    # Explicit window bounds override derived ranges while preserving per-run budgets.
+    # Explicit window bounds override derived ranges while preserving
+    # per-investigation budgets.
     window_start, window_end = explicit_window or (derived_start, derived_end)
 
     # Scheduled triggers generate a dedup key based on anchor or current time bucket.
-    # Keying on time buckets avoids deadlocks if previous runs failed.
+    # Keying on time buckets avoids deadlocks if previous investigations failed.
     if idempotency_key is None and ambient:
         bucket = (
             int((anchor or _read_utc_clock()).timestamp())
@@ -355,9 +365,9 @@ async def _launch_investigation(
         idempotency_key = f"{agent_key}:{bucket}"
 
     # Instantiate record before persistence so concurrency checks can inspect its parameters.
-    record = InvestigationRecord(
-        status=RunStatus.PENDING,
-        observed_agent_name=agent_key,
+    record = Investigation(
+        status=InvestigationStatus.PENDING,
+        observed_agent_key=agent_key,
         trigger_type=trigger_type,
         metrics={
             "multi_turn": list(config.multi_turn_metrics),
@@ -373,16 +383,20 @@ async def _launch_investigation(
     )
     if scheduled is not None:
         record = record.model_copy(
-            update={"run_id": scheduled.run_id, "due_at": scheduled.due_at}
+            update={
+                "investigation_id": scheduled.investigation_id,
+                "due_at": scheduled.due_at,
+            }
         )
 
     if is_custom and not config.sync_investigation:
-        # Check active run limits in store because durable jobs run in separate processes.
+        # Check active investigation limits in the store because durable jobs
+        # run in separate processes.
         if refusal := await _refuse_if_too_busy(state, agent_key):
             return refusal
 
     lock = locking.lock_factory(config)
-    if holder := lock.acquire(agent_key, record.run_id):
+    if holder := lock.acquire(agent_key, record.investigation_id):
         logger.info(
             "A sweep of %r is already running as %s; %s.",
             agent_key,
@@ -398,48 +412,54 @@ async def _launch_investigation(
                     f"a sweep of {agent_key!r} is already "
                     f"running as {holder}; your investigation was not started"
                 ),
-                "running_run_id": holder,
+                "running_investigation_id": holder,
             }
         if scheduled is not None:
             # Left scheduled, the record would wait for a trigger that has
             # already come and gone.
-            await model.update_run(
+            await model.update_investigation(
                 state,
-                scheduled.run_id,
-                status=RunStatus.SKIPPED,
+                scheduled.investigation_id,
+                status=InvestigationStatus.SKIPPED,
                 error=f"a sweep was already running as {holder}; skipped",
             )
-        return await _get_running_run_view(state, agent_key, holder)
+        return await _get_running_investigation_view(state, agent_key, holder)
 
-    updated: InvestigationRecord | None = None
+    updated: Investigation | None = None
     try:
-        await model.create_run(state, record)
+        await model.create_investigation(state, record)
         changes = await _dispatch(record, context, config)
-        updated = await model.get_run(state, record.run_id)
+        updated = await model.get_stored_investigation(
+            state, record.investigation_id
+        )
         if changes:
-            updated = await model.update_run(state, record.run_id, **changes)
+            updated = await model.update_investigation(
+                state, record.investigation_id, **changes
+            )
     finally:
         # Release the lock only after terminal state write completes.
-        lock.release(agent_key, record.run_id)
-    return model.format_run(updated or record)
+        lock.release(agent_key, record.investigation_id)
+    return model.format_investigation(updated or record)
 
 
-async def _get_scheduled_run(
-    state: ADKStateLike, run_id: str
-) -> InvestigationRecord | None:
-    """Return the run named `run_id` if it is still waiting for its trigger.
+async def _get_scheduled_investigation(
+    state: ADKStateLike, investigation_id: str
+) -> Investigation | None:
+    """Return the investigation named `investigation_id` if it is still waiting for its trigger.
 
     Args:
         state: State dictionary to access the investigation store.
-        run_id: ID of the scheduled record an observed-agent update left.
+        investigation_id: ID of the scheduled record an observed-agent update left.
 
     Returns:
         The `SCHEDULED` record, or None if it is absent or has moved on.
     """
     record = await asyncio.to_thread(
-        lambda: model.store_factory(state).get(run_id, include_events=False)
+        lambda: model.store_factory(state).get(
+            investigation_id, include_events=False
+        )
     )
-    if record is None or record.status != RunStatus.SCHEDULED:
+    if record is None or record.status != InvestigationStatus.SCHEDULED:
         return None
     return record
 
@@ -482,7 +502,7 @@ def _parse_explicit_window(
 async def _refuse_if_too_busy(
     state: ADKStateLike, agent_key: str
 ) -> dict[str, Any] | None:
-    """Check if active runs exceed MAX_RUNS_IN_FLIGHT and return refusal response if so.
+    """Checks if active investigations exceed `MAX_INVESTIGATIONS_IN_FLIGHT` and returns a refusal response if so.
 
     Fails open if querying in-flight count fails so database transient errors do not block execution.
 
@@ -500,30 +520,30 @@ async def _refuse_if_too_busy(
     except Exception:
         logger.exception("could not count the runs in flight for %r", agent_key)
         return None
-    if in_flight < MAX_RUNS_IN_FLIGHT:
+    if in_flight < MAX_INVESTIGATIONS_IN_FLIGHT:
         return None
     return {
         "error": (
             f"{in_flight} investigation(s) of {agent_key!r} are already in "
-            f"flight, at or above the {MAX_RUNS_IN_FLIGHT} this deployment "
+            f"flight, at or above the {MAX_INVESTIGATIONS_IN_FLIGHT} this deployment "
             "aims to keep; your investigation was not started. Wait for one to "
             "finish."
         ),
-        "runs_in_flight": in_flight,
+        "investigations_in_flight": in_flight,
     }
 
 
 async def _dispatch(
-    record: InvestigationRecord, context: LaunchContext, config: Config
+    record: Investigation, context: LaunchContext, config: Config
 ) -> dict[str, Any]:
-    """Dispatch the run's workload and return state modifications.
+    """Dispatch the investigation's workload and return state modifications.
 
     Routes execution based on configuration:
     1. Synchronous sweep: runs inline on a worker thread until completion.
     2. Durable sweep: submits a long-running platform query job and returns its job name.
 
     Args:
-        record: Stored investigation run record.
+        record: Stored investigation record.
         context: Launch context containing state and session info.
         config: Effective agent configuration.
 
@@ -532,27 +552,30 @@ async def _dispatch(
     """
     try:
         if config.sync_investigation:
-            await _run_sweep_on_a_thread(record.run_id, context)
+            await _run_sweep_on_a_thread(record.investigation_id, context)
             return {}
-        result = submit_investigation(record.run_id, context)
+        result = submit_investigation(record.investigation_id, context)
         return {"job_name": result.get("job_name")}
     except Exception as exc:
         logger.exception(
-            "Failed to run/submit investigation run_id=%s", record.run_id
+            "Failed to run/submit investigation investigation_id=%s",
+            record.investigation_id,
         )
         changes = {
-            "status": RunStatus.FAILED,
+            "status": InvestigationStatus.FAILED,
             "error": f"failed: {type(exc).__name__}: {exc}",
         }
         # Asynchronous submission failures are logged here; synchronous failures log within execution.
         if not config.sync_investigation:
             from ambient_quality_agent.core.investigation import job_execution
 
-            job_execution._log_run_finished(record, changes)
+            job_execution._log_investigation_finished(record, changes)
         return changes
 
 
-async def _run_sweep_on_a_thread(run_id: str, context: LaunchContext) -> None:
+async def _run_sweep_on_a_thread(
+    investigation_id: str, context: LaunchContext
+) -> None:
     """Execute investigation workflow to completion on a dedicated worker thread.
 
     Workflow nodes run blocking functions that would otherwise block the asyncio
@@ -560,60 +583,68 @@ async def _run_sweep_on_a_thread(run_id: str, context: LaunchContext) -> None:
     execution while awaiting completion.
 
     Args:
-        run_id: Identifier of the investigation run.
+        investigation_id: Identifier of the investigation.
         context: Launch context containing workflow state.
     """
-    logger.info("Running investigation %s on a thread of its own...", run_id)
+    logger.info(
+        "Running investigation %s on a thread of its own...", investigation_id
+    )
     await asyncio.to_thread(
-        _execute_on_this_thread, run_id, DetachedContext.from_context(context)
+        _execute_on_this_thread,
+        investigation_id,
+        DetachedContext.from_context(context),
     )
 
 
-def _execute_on_this_thread(run_id: str, context: LaunchContext) -> None:
+def _execute_on_this_thread(
+    investigation_id: str, context: LaunchContext
+) -> None:
     """Run `execute_investigation` synchronously in an isolated thread event loop.
 
     Args:
-        run_id: Identifier of the investigation run.
+        investigation_id: Identifier of the investigation.
         context: Launch context containing workflow state.
     """
     from ambient_quality_agent.core.investigation import job_execution
 
-    asyncio.run(job_execution.execute_investigation(run_id, context))
+    asyncio.run(job_execution.execute_investigation(investigation_id, context))
 
 
-async def _get_running_run_view(
-    state: ADKStateLike, agent_key: str, run_id: str
+async def _get_running_investigation_view(
+    state: ADKStateLike, agent_key: str, investigation_id: str
 ) -> dict[str, Any]:
-    """Retrieve formatted status for an active run when a new launch is refused.
+    """Retrieves formatted status for an active investigation when a new launch is refused.
 
     Args:
         state: State dictionary to access the investigation store.
         agent_key: Key of the observed agent.
-        run_id: Identifier of the currently executing run.
+        investigation_id: Identifier of the currently executing investigation.
 
     Returns:
-        Formatted dictionary representing the active run.
+        Formatted dictionary representing the active investigation.
     """
-    record = await model.get_run(state, run_id)
+    record = await model.get_stored_investigation(state, investigation_id)
     if record is None:
         # Active holder may be claimed before initial record write completes; construct placeholder view.
-        record = InvestigationRecord(
-            run_id=run_id,
-            status=RunStatus.RUNNING,
-            observed_agent_name=agent_key,
+        record = Investigation(
+            investigation_id=investigation_id,
+            status=InvestigationStatus.RUNNING,
+            observed_agent_key=agent_key,
         )
-    return model.format_run(record)
+    return model.format_investigation(record)
 
 
-def submit_investigation(run_id: str, context: LaunchContext) -> dict[str, Any]:
+def submit_investigation(
+    investigation_id: str, context: LaunchContext
+) -> dict[str, Any]:
     """Submit durable self-query LRO job and return its platform job name.
 
     Submits a platform-managed query job (`run_query_job`) against this same
-    Agent Runtime agent containing `__RUN_INVESTIGATION__ <run_id>`. The platform
+    Agent Runtime agent containing `__RUN_INVESTIGATION__ <investigation_id>`. The platform
     job executes independently of the active user session.
 
     Args:
-        run_id: Unique identifier of the investigation run.
+        investigation_id: Unique identifier of the investigation.
         context: Launch context providing active session details.
 
     Returns:
@@ -621,7 +652,7 @@ def submit_investigation(run_id: str, context: LaunchContext) -> dict[str, Any]:
     """
     cfg = config_module.load()
     session = context.session
-    job_input: dict[str, Any] = {"message": f"{RUN_KEYWORD} {run_id}"}
+    job_input: dict[str, Any] = {"message": f"{RUN_KEYWORD} {investigation_id}"}
     if session is None:
         engine_id = cfg.aqa_engine_id
         job_input["user_id"] = _AMBIENT_USER_ID
@@ -641,7 +672,7 @@ def submit_investigation(run_id: str, context: LaunchContext) -> dict[str, Any]:
     }
     if cfg.jobs_gcs_bucket:
         job_config["output_gcs_uri"] = (
-            f"gs://{cfg.jobs_gcs_bucket}/aqa-jobs/{run_id}.json"
+            f"gs://{cfg.jobs_gcs_bucket}/aqa-jobs/{investigation_id}.json"
         )
 
     client = clients.create_agentplatform_client(
@@ -653,7 +684,9 @@ def submit_investigation(run_id: str, context: LaunchContext) -> dict[str, Any]:
     )
     job_name = getattr(result, "job_name", None)
     logger.info(
-        "Submitted durable investigation run_id=%s job=%s", run_id, job_name
+        "Submitted durable investigation investigation_id=%s job=%s",
+        investigation_id,
+        job_name,
     )
     return {"job_name": job_name}
 

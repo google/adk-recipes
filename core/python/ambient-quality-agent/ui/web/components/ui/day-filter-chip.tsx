@@ -20,8 +20,8 @@ import { X } from "lucide-react";
  * One target rather than a label with a small ×, and drawn as a rounded,
  * outlined chip so it cannot be read as another of the tabs beside it. The day
  * is UTC because the per-day charts bucket by UTC day, while the rows below it
- * print their times in the reader's zone; saying so is what stops a run at
- * 23:00 local from looking misfiled.
+ * print their times in the reader's zone; saying so is what stops an
+ * investigation at 23:00 local from looking misfiled.
  *
  * The accessible name starts with the visible text, so a voice-control user
  * can say what they see (WCAG 2.5.3), and then says what pressing it does.

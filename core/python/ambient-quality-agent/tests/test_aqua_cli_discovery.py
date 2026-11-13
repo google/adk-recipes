@@ -1577,7 +1577,7 @@ _SINK_HINTS = json.dumps(
 def test_an_attached_agent_keeps_its_stored_values_over_discovered_ones(
     monkeypatch, api, seed
 ):
-    """One flag changes one setting, as `attach --help` says (b/571028963)."""
+    """One flag changes one setting, as `attach --help` says."""
     deployment = _StoredDeployment(_STORED_CLOUD_OPS)
     monkeypatch.setattr(aqua_cli, "_fetch_command_result", deployment)
 

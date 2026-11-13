@@ -169,6 +169,24 @@ def test_a_close_framing_is_described_by_what_fills_the_frame(framing, fills):
     assert "within this framing" in out[2]
 
 
+def test_a_garment_span_frames_the_video_instead_of_full_body():
+    r = refs(back=None, closeups=())
+    r.span = ("shoulders", "mid-thigh")  # a mini dress: head to knees
+    fills = "the person from the top of the head to the knees fills the frame"
+    out = lines(Plan([Shot("pose", 4.0), Shot("tilt", 4.0, "head", "legs")]), r)
+    assert out[0].endswith(f"close framing of <IMAGE_0>: {fills}.")
+    assert out[1].startswith(
+        f"[00:00.000] Close framing exactly as in <IMAGE_0>: {fills};"
+    )
+    assert "within this framing" in out[2]
+    assert "shoes" not in "\n".join(out)
+    r.span = ("shoulders", "ankles")  # a gown: to the ground
+    pose = lines(Plan([Shot("pose", 8.0)]), r)[1]
+    assert pose.startswith(
+        "[00:00.000] From the top of the head to the ground, shoes included: "
+    )
+
+
 def test_full_body_has_no_framing_sentence():
     r = refs(back=None, face=None, closeups=())
     out = lines(Plan([Shot("pose", 8.0)]), r)

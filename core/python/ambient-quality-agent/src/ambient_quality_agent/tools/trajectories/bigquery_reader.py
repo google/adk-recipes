@@ -15,17 +15,16 @@
 """The deployed `TrajectoryReader`: BigQuery, agent-scoped.
 
 **"Clustered" is a join, never a stored flag.** Two of the four reads
-(`count_daily_outcomes`, `list_trajectories`) derive the outcome by left-joining
-the insight occurrences on
-``(run_id, trajectory_id)``, so both tables stay append-only and nothing has to
-be updated after correlation runs.
+(`count_daily_outcomes`, `list_investigation_trajectories`) derive the outcome
+by left-joining the insight occurrences on ``(run_id, trajectory_id)``, so both
+tables stay append-only and nothing has to be updated after correlation runs.
 
-**A stored conversation is reconciled on the way out, not on the way in.**
-`BigQueryTrajectoryStore.record_payloads` appends, because BigQuery has no cheap
-``UPDATE``, so one conversation can have several copies; `PAYLOAD_PREFERENCE` is
-where one of them is chosen. That constant is the contract's rule rather than
+**A stored trajectory is reconciled on the way out, not on the way in.**
+`BigQueryTrajectoryStore.record_trajectory_bundles` appends, because BigQuery
+has no cheap ``UPDATE``, so one trajectory can have several copies;
+`PAYLOAD_PREFERENCE` is where one of them is chosen. That constant is the contract's rule rather than
 this implementation's: `standalone.InMemoryTrajectoryStore` applies it when it
-writes and keeps one copy, and the two answer `get_archives` alike.
+writes and keeps one copy, and the two answer `get_trajectory_bundles` alike.
 """
 
 from __future__ import annotations
@@ -33,26 +32,26 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from ambient_quality_agent.core.labels import build_request_labels
+from ambient_quality_agent.tools.trajectories.bundles import TrajectoryBundle
 from ambient_quality_agent.tools.trajectories.models import (
     DailyOutcome,
     IngestStatus,
-    PayloadStatus,
-    Trajectory,
-    TrajectoryPayload,
-    TrajectoryPayloadTurn,
+    InvestigationTrajectory,
+    InvestigationTrajectoryView,
+    TrajectoryManifest,
     TrajectoryProcessingState,
-    TrajectoryView,
+    TrajectoryStatus,
+    TrajectoryStep,
 )
-from ambient_quality_agent.tools.trajectories.payloads import TrajectoryArchive
 from google.cloud import bigquery
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-_TRAJECTORIES_TABLE = "trajectories"
+_INVESTIGATION_TRAJECTORIES_TABLE = "trajectories"
 _OCCURRENCES_TABLE = "insight_occurrences"
-_PAYLOADS_TABLE = "trajectory_payloads"
-_TURNS_TABLE = "trajectory_payload_turns"
+_MANIFESTS_TABLE = "trajectory_payloads"
+_STEPS_TABLE = "trajectory_payload_turns"
 
 _OUTCOME_SQL = f"""CASE
     WHEN t.ingest_status = '{IngestStatus.NOT_INGESTED}'
@@ -71,12 +70,12 @@ reached an analysis, so it cannot be in an insight, and reporting it as
 
 
 PAYLOAD_PREFERENCE = "(status = 'ingested') DESC, created_at ASC"
-"""How a reader picks between the stored copies of one conversation.
+"""How a reader picks between the stored copies of one trajectory.
 
-`BigQueryTrajectoryStore.record_payloads` appends and compares nothing, so
-``(agent_name, trajectory_id)`` can hold more than one copy, distinguished by
-``created_at`` -- which a manifest shares with its own turns, so choosing a copy
-also chooses which turns belong to it.
+`BigQueryTrajectoryStore.record_trajectory_bundles` appends and compares
+nothing, so ``(agent_name, trajectory_id)`` can hold more than one copy,
+distinguished by ``created_at`` -- which a manifest shares with its own steps,
+so choosing a copy also chooses which steps belong to it.
 
 As the ``ORDER BY`` of a ``QUALIFY ROW_NUMBER() OVER (...) = 1`` it says
 **prefer a whole copy, then the earliest**:
@@ -89,9 +88,9 @@ As the ``ORDER BY`` of a ``QUALIFY ROW_NUMBER() OVER (...) = 1`` it says
   downgrade more often than it repaired;
 * two of a kind -> the earlier, the one nearest the conversation.
 
-`store.compute_payload_rank` is the same rule in Python, for the implementation that
-applies it when it writes. Two spellings because SQL cannot call the function
-and Python cannot be an ``ORDER BY`` -- but one rule, for the reason
+`store.compute_manifest_rank` is the same rule in Python, for the
+implementation that applies it when it writes. Two spellings because SQL cannot
+call the function and Python cannot be an ``ORDER BY`` -- but one rule, for the reason
 `_OUTCOME_SQL` is written once: a second rule, picking differently, would
 disagree with this one about what a conversation was, and neither would be wrong
 on its own terms.
@@ -107,7 +106,7 @@ class BigQueryTrajectoryReader:
         client: bigquery.Client,
         project_id: str,
         dataset: str,
-        agent_name: str,
+        observed_agent_key: str,
     ) -> None:
         """Bind the reader to one agent's dataset.
 
@@ -117,32 +116,30 @@ class BigQueryTrajectoryReader:
             dataset: BigQuery dataset holding the trajectories table; the same
                 one the insight tables live in, which is what lets the outcome
                 be a join rather than a second round trip.
-            agent_name: The observed agent this reader is scoped to; every
+            observed_agent_key: The observed agent this reader is scoped to; every
                 statement filters on it.
         """
         self._client = client
         self._project_id = project_id
         self._dataset = dataset
-        self._agent_name = agent_name
+        self._observed_agent_key = observed_agent_key
 
     def count_daily_outcomes(
         self, *, window_start: str | None = None, window_end: str | None = None
     ) -> list[DailyOutcome]:
-        """Per-day counts of what became of the trajectories a sweep sampled.
+        """Counts sampled trajectories per UTC day and processing outcome.
 
-        The chart behind §1's first question: how much of the window was
-        actually looked at, and how much of it turned into a defect. Grouped in
-        UTC, on `Trajectory.created_at`, which is the table's partition column
-        -- so a windowed read prunes partitions instead of scanning the history.
+        Groups by the UTC date of `InvestigationTrajectory.created_at` (the
+        table's partition column) so windowed queries prune partitions. Days
+        with no sampled trajectories are omitted.
 
         Args:
-            window_start: ISO instant; keep only trajectories recorded at or
-                after it. ``None`` for no lower bound.
-            window_end: ISO instant; the matching upper bound.
+            window_start: Optional ISO timestamp lower bound on `created_at`.
+            window_end: Optional ISO timestamp upper bound on `created_at`.
 
-        Returns one entry per ``(day, outcome)`` that has any trajectory at all,
-        oldest day first. A day with no trajectories is absent rather than
-        being three zeroes -- the caller draws the buckets it wants.
+        Returns:
+            List of `DailyOutcome` records ordered chronologically by day and
+            outcome.
         """
         where, params = self._build_filters(
             window_start=window_start, window_end=window_end
@@ -152,7 +149,7 @@ SELECT
   DATE(t.created_at) AS day,
   {_OUTCOME_SQL} AS outcome,
   COUNT(*) AS trajectories
-FROM {self._build_trajectories_join()}
+FROM {self._build_investigation_trajectories_join()}
 WHERE {where}
 GROUP BY day, outcome
 ORDER BY day, outcome
@@ -166,20 +163,20 @@ ORDER BY day, outcome
             for row in self._run(sql, params)
         ]
 
-    def list_trajectories(
+    def list_investigation_trajectories(
         self,
         *,
-        run_id: str | None = None,
+        investigation_id: str | None = None,
         outcome: TrajectoryProcessingState | None = None,
         window_start: str | None = None,
         window_end: str | None = None,
         limit: int,
         offset: int,
-    ) -> tuple[list[TrajectoryView], int]:
+    ) -> tuple[list[InvestigationTrajectoryView], int]:
         """Queries sampled trajectories with pagination and derived outcomes.
 
         Args:
-            run_id: Optional investigation run ID filter.
+            investigation_id: Optional investigation ID filter.
             outcome: Optional derived outcome state filter.
             window_start: Optional ISO timestamp lower bound on creation time.
             window_end: Optional ISO timestamp upper bound on creation time.
@@ -187,17 +184,19 @@ ORDER BY day, outcome
             offset: Number of matching records to skip.
 
         Returns:
-            Tuple of (list of TrajectoryView records, total matching count).
+            Tuple of (list of InvestigationTrajectoryView records, total
+            matching count).
         """
         where, params = self._build_filters(
-            run_id=run_id,
+            investigation_id=investigation_id,
             outcome=outcome,
             window_start=window_start,
             window_end=window_end,
         )
+        join = self._build_investigation_trajectories_join()
         count_rows = list(
             self._run(
-                f"SELECT COUNT(*) AS total FROM {self._build_trajectories_join()} "  # noqa: S608 - trusted identifiers and fixed SQL; values are parameterized
+                f"SELECT COUNT(*) AS total FROM {join} "  # noqa: S608 - trusted identifiers and fixed SQL; values are parameterized
                 f"WHERE {where}",
                 params,
             )
@@ -213,23 +212,23 @@ SELECT
   t.run_id, t.agent_name, t.trajectory_id, t.created_at, t.source,
   t.source_session_id, t.source_trace_ids, t.ingest_status,
   {_OUTCOME_SQL} AS outcome
-FROM {self._build_trajectories_join()}
+FROM {self._build_investigation_trajectories_join()}
 WHERE {where}
 ORDER BY t.created_at DESC, t.trajectory_id
 LIMIT @limit OFFSET @offset
 """  # noqa: S608 - trusted identifiers and fixed SQL; values are parameterized
         return [_row_to_view(row) for row in self._run(sql, page_params)], total
 
-    def get_trajectories(
+    def get_investigation_trajectories(
         self, keys: Sequence[tuple[str, str]]
-    ) -> dict[tuple[str, str], Trajectory]:
-        """Queries stored trajectory records for (run_id, trajectory_id) pairs.
+    ) -> dict[tuple[str, str], InvestigationTrajectory]:
+        """Queries stored trajectory records for (investigation_id, trajectory_id) pairs.
 
         Args:
-            keys: Sequence of (run_id, trajectory_id) tuples to query.
+            keys: Sequence of (investigation_id, trajectory_id) tuples to query.
 
         Returns:
-            Mapping of (run_id, trajectory_id) pairs to Trajectory records.
+            Mapping of (investigation_id, trajectory_id) pairs to InvestigationTrajectory records.
         """
         if not keys:
             return {}
@@ -237,17 +236,19 @@ LIMIT @limit OFFSET @offset
         sql = f"""
 SELECT t.run_id, t.agent_name, t.trajectory_id, t.created_at, t.source,
        t.source_session_id, t.source_trace_ids, t.ingest_status
-FROM `{self._build_table_ref(_TRAJECTORIES_TABLE)}` AS t
+FROM `{self._build_table_ref(_INVESTIGATION_TRAJECTORIES_TABLE)}` AS t
 WHERE t.agent_name = @agent_name
-  AND t.run_id IN UNNEST(@run_ids)
+  AND t.run_id IN UNNEST(@investigation_ids)
   AND t.trajectory_id IN UNNEST(@trajectory_ids)
 """  # noqa: S608 - trusted identifiers and fixed SQL; values are parameterized
         params = [
             bigquery.ScalarQueryParameter(
-                "agent_name", "STRING", self._agent_name
+                "agent_name", "STRING", self._observed_agent_key
             ),
             bigquery.ArrayQueryParameter(
-                "run_ids", "STRING", sorted({run_id for run_id, _ in wanted})
+                "investigation_ids",
+                "STRING",
+                sorted({investigation_id for investigation_id, _ in wanted}),
             ),
             bigquery.ArrayQueryParameter(
                 "trajectory_ids",
@@ -255,24 +256,24 @@ WHERE t.agent_name = @agent_name
                 sorted({trajectory_id for _, trajectory_id in wanted}),
             ),
         ]
-        found: dict[tuple[str, str], Trajectory] = {}
+        found: dict[tuple[str, str], InvestigationTrajectory] = {}
         for row in self._run(sql, params):
-            record = _row_to_trajectory(row)
-            key = (record.run_id, record.trajectory_id)
+            record = _row_to_investigation_trajectory(row)
+            key = (record.investigation_id, record.trajectory_id)
             if key in wanted:
                 found[key] = record
         return found
 
-    def get_archives(
+    def get_trajectory_bundles(
         self, trajectory_ids: Sequence[str]
-    ) -> dict[str, TrajectoryArchive]:
-        """Queries archived conversation manifests and turns by trajectory ID.
+    ) -> dict[str, TrajectoryBundle]:
+        """Queries the trajectory bundles of trajectory IDs.
 
         Args:
             trajectory_ids: Sequence of trajectory IDs to query.
 
         Returns:
-            Mapping of trajectory ID to reassembled TrajectoryArchive instances.
+            Mapping of trajectory ID to reassembled TrajectoryBundle instances.
         """
         if not trajectory_ids:
             return {}
@@ -280,7 +281,7 @@ WHERE t.agent_name = @agent_name
 WITH chosen AS (
   SELECT agent_name, trajectory_id, created_at, status, turn_count, agents,
          agent_revision
-  FROM `{self._build_table_ref(_PAYLOADS_TABLE)}`
+  FROM `{self._build_table_ref(_MANIFESTS_TABLE)}`
   WHERE agent_name = @agent_name
     AND trajectory_id IN UNNEST(@trajectory_ids)
   QUALIFY ROW_NUMBER() OVER (
@@ -290,7 +291,7 @@ WITH chosen AS (
 ),
 picked_turns AS (
   SELECT agent_name, trajectory_id, created_at, turn_index, turn
-  FROM `{self._build_table_ref(_TURNS_TABLE)}`
+  FROM `{self._build_table_ref(_STEPS_TABLE)}`
   WHERE agent_name = @agent_name
     AND trajectory_id IN UNNEST(@trajectory_ids)
   QUALIFY ROW_NUMBER() OVER (
@@ -307,37 +308,37 @@ ORDER BY c.trajectory_id, t.turn_index
 """  # noqa: S608 - trusted identifiers and fixed SQL; values are parameterized
         params = [
             bigquery.ScalarQueryParameter(
-                "agent_name", "STRING", self._agent_name
+                "agent_name", "STRING", self._observed_agent_key
             ),
             bigquery.ArrayQueryParameter(
                 "trajectory_ids", "STRING", sorted(set(trajectory_ids))
             ),
         ]
-        manifests: dict[str, TrajectoryPayload] = {}
-        turns: dict[str, list[TrajectoryPayloadTurn]] = {}
+        manifests: dict[str, TrajectoryManifest] = {}
+        steps: dict[str, list[TrajectoryStep]] = {}
         for row in self._run(sql, params):
             trajectory_id = row["trajectory_id"]
             if trajectory_id not in manifests:
-                manifests[trajectory_id] = _row_to_payload(row)
-                turns[trajectory_id] = []
-            # A LEFT JOIN, so a manifest whose turns are gone still arrives --
-            # with one row whose turn columns are null.
+                manifests[trajectory_id] = _row_to_manifest(row)
+                steps[trajectory_id] = []
+            # A LEFT JOIN, so a manifest whose steps are gone still arrives --
+            # with one row whose step columns are null.
             if row["turn_index"] is not None:
-                turns[trajectory_id].append(_row_to_turn(row))
+                steps[trajectory_id].append(_row_to_step(row))
         return {
-            trajectory_id: TrajectoryArchive(
-                payload=payload, turns=tuple(turns[trajectory_id])
+            trajectory_id: TrajectoryBundle(
+                manifest=manifest, steps=tuple(steps[trajectory_id])
             )
-            for trajectory_id, payload in manifests.items()
+            for trajectory_id, manifest in manifests.items()
         }
 
-    def _build_trajectories_join(self) -> str:
+    def _build_investigation_trajectories_join(self) -> str:
         """Constructs SQL FROM clause joining trajectories with insight occurrences.
 
         Returns:
             SQL join fragment string.
         """
-        return f"""`{self._build_table_ref(_TRAJECTORIES_TABLE)}` AS t
+        return f"""`{self._build_table_ref(_INVESTIGATION_TRAJECTORIES_TABLE)}` AS t
 LEFT JOIN (
   SELECT DISTINCT run_id, trajectory_id
   FROM `{self._build_table_ref(_OCCURRENCES_TABLE)}`, UNNEST(trajectory_ids) AS trajectory_id
@@ -347,7 +348,7 @@ LEFT JOIN (
     def _build_filters(
         self,
         *,
-        run_id: str | None = None,
+        investigation_id: str | None = None,
         outcome: TrajectoryProcessingState | None = None,
         window_start: str | None = None,
         window_end: str | None = None,
@@ -355,7 +356,7 @@ LEFT JOIN (
         """Constructs WHERE clause SQL conditions and query parameters.
 
         Args:
-            run_id: Optional run ID filter.
+            investigation_id: Optional investigation ID filter.
             outcome: Optional outcome filter.
             window_start: Optional lower bound timestamp.
             window_end: Optional upper bound timestamp.
@@ -366,13 +367,15 @@ LEFT JOIN (
         clauses = ["t.agent_name = @agent_name"]
         params: list[Any] = [
             bigquery.ScalarQueryParameter(
-                "agent_name", "STRING", self._agent_name
+                "agent_name", "STRING", self._observed_agent_key
             )
         ]
-        if run_id:
-            clauses.append("t.run_id = @run_id")
+        if investigation_id:
+            clauses.append("t.run_id = @investigation_id")
             params.append(
-                bigquery.ScalarQueryParameter("run_id", "STRING", run_id)
+                bigquery.ScalarQueryParameter(
+                    "investigation_id", "STRING", investigation_id
+                )
             )
         if outcome:
             clauses.append(f"{_OUTCOME_SQL} = @outcome")
@@ -424,21 +427,21 @@ LEFT JOIN (
         return self._client.query(sql, job_config=job_config).result()
 
 
-def _row_to_trajectory(row: Any) -> Trajectory:
-    """Converts a BigQuery row into a Trajectory model.
+def _row_to_investigation_trajectory(row: Any) -> InvestigationTrajectory:
+    """Converts a BigQuery row into an InvestigationTrajectory model.
 
     Args:
         row: Row mapping from BigQuery.
 
     Returns:
-        Validated Trajectory instance.
+        Validated InvestigationTrajectory instance.
     """
-    return Trajectory(
-        run_id=row["run_id"],
-        agent_name=row["agent_name"],
+    return InvestigationTrajectory(
+        investigation_id=row["run_id"],
+        observed_agent_key=row["agent_name"],
         trajectory_id=row["trajectory_id"],
         created_at=row["created_at"],
-        source=row["source"],
+        ingestion_source=row["source"],
         source_session_id=row["source_session_id"],
         # BigQuery returns a REPEATED column as an empty array, never null; the
         # guard is for a row a caller built by hand.
@@ -447,55 +450,55 @@ def _row_to_trajectory(row: Any) -> Trajectory:
     )
 
 
-def _row_to_view(row: Any) -> TrajectoryView:
-    """Converts a joined BigQuery row into a TrajectoryView model.
+def _row_to_view(row: Any) -> InvestigationTrajectoryView:
+    """Converts a joined BigQuery row into an InvestigationTrajectoryView model.
 
     Args:
         row: Joined BigQuery row containing trajectory and outcome columns.
 
     Returns:
-        TrajectoryView instance.
+        InvestigationTrajectoryView instance.
     """
-    return TrajectoryView(
-        **_row_to_trajectory(row).model_dump(),
+    return InvestigationTrajectoryView(
+        **_row_to_investigation_trajectory(row).model_dump(),
         outcome=TrajectoryProcessingState(row["outcome"]),
     )
 
 
-def _row_to_payload(row: Any) -> TrajectoryPayload:
-    """Converts BigQuery manifest columns into a TrajectoryPayload model.
+def _row_to_manifest(row: Any) -> TrajectoryManifest:
+    """Converts BigQuery manifest columns into a TrajectoryManifest model.
 
     Args:
-        row: Row mapping containing payload columns.
+        row: Row mapping containing manifest columns.
 
     Returns:
-        TrajectoryPayload instance.
+        TrajectoryManifest instance.
     """
-    return TrajectoryPayload(
-        agent_name=row["agent_name"],
+    return TrajectoryManifest(
+        observed_agent_key=row["agent_name"],
         trajectory_id=row["trajectory_id"],
         created_at=row["created_at"],
-        status=PayloadStatus(row["status"]),
-        turn_count=row["turn_count"],
+        status=TrajectoryStatus(row["status"]),
+        step_count=row["turn_count"],
         agents=row["agents"],
         # Absent on an unversioned source that reports no named revision.
         agent_revision=row.get("agent_revision"),
     )
 
 
-def _row_to_turn(row: Any) -> TrajectoryPayloadTurn:
-    """Converts BigQuery turn columns into a TrajectoryPayloadTurn model.
+def _row_to_step(row: Any) -> TrajectoryStep:
+    """Converts BigQuery step columns into a TrajectoryStep model.
 
     Args:
-        row: Row mapping containing turn columns.
+        row: Row mapping containing step columns.
 
     Returns:
-        TrajectoryPayloadTurn instance.
+        TrajectoryStep instance.
     """
-    return TrajectoryPayloadTurn(
-        agent_name=row["agent_name"],
+    return TrajectoryStep(
+        observed_agent_key=row["agent_name"],
         trajectory_id=row["trajectory_id"],
-        turn_index=row["turn_index"],
+        step_index=row["turn_index"],
         created_at=row["created_at"],
-        turn=row["turn"],
+        step=row["turn"],
     )

@@ -53,18 +53,18 @@ certainly differ. Say that when you show them.
 
 ### Render every example as a link -- no exceptions
 
-An example carries `trajectory_id`, `case_view_path`, `turn_count`,
+An example carries `trajectory_id`, `trajectory_view_path`, `step_count`,
 `first_user_message`, and, when a trace id was recorded for it, `trace_url`.
 Emit one bullet per example, in exactly this shape:
 
 ```markdown
-- [<trajectory_id>](<case_view_path>) -- <turn_count> turns -- "<first_user_message>" -- [Cloud Trace](<trace_url>)
+- [<trajectory_id>](<trajectory_view_path>) -- <step_count> turns -- "<first_user_message>" -- [Cloud Trace](<trace_url>)
 ```
 
-`case_view_path` is a root-relative path such as
-`/investigations/preview/cases/aqa-...`. Wrapped in a markdown link it renders
+`trajectory_view_path` is a root-relative path such as
+`/investigations/preview/trajectories/aqa-...`. Wrapped in a markdown link it renders
 as a working anchor in the dashboard; printed as bare text it is dead. Every
-example gets its `case_view_path` link, every time.
+example gets its `trajectory_view_path` link, every time.
 
 Append the `[Cloud Trace](<trace_url>)` segment only when the example actually
 carries `trace_url`. When it does not, drop that part of the bullet rather than
@@ -235,10 +235,10 @@ point out that any resurfaced insight dates from the window, not from today.
 ## Replaying a past run
 
 A custom run stores exactly what it was given. `get_investigation` returns
-`custom_overrides` with the `selector_sql` and `session_review_focus` it ran
-with, and `list_investigations` shows which runs were custom. Read the overrides
-off the earlier run, change the one thing the user wants changed, preview, and
-start a new run. Runs are never edited in place.
+`custom_overrides` with the `selector_sql` and `review_focus` it ran with, and
+`list_investigations` shows which runs were custom. Read the overrides off the
+earlier run, change the one thing the user wants changed, preview, and start a
+new run, passing `review_focus` back as `session_review_focus`. Runs are never edited in place.
 
 A stored selector is validated again like a new one. One written against a
 different table than the selector table is refused; rewrite it against the

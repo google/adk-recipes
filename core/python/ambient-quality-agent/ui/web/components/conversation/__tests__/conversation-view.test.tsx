@@ -14,15 +14,15 @@
 
 import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
-import type { CaseConversation } from "@/lib/aqua-api";
+import type { TrajectoryBundle } from "@/lib/aqua-api";
 import { ConversationView } from "../conversation-view";
 
-const CONVERSATION: CaseConversation = {
+const CONVERSATION: TrajectoryBundle = {
   trajectory_id: "case-01",
   status: "ingested",
-  turn_count: 2,
-  turns_returned: 2,
-  turns: [
+  step_count: 2,
+  steps_returned: 2,
+  steps: [
     {
       turn_index: 0,
       turn_id: "t0",
@@ -89,9 +89,9 @@ describe("ConversationView", () => {
         conversation={{
           trajectory_id: "case-02",
           status: "ingested",
-          turn_count: 0,
-          turns_returned: 0,
-          turns: [],
+          step_count: 0,
+          steps_returned: 0,
+          steps: [],
         }}
       />,
     );

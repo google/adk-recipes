@@ -42,6 +42,7 @@ from genmedia4commerce.studio import agent, jobs, picks, quota, sessions
 from genmedia4commerce.studio import history as sh
 from genmedia4commerce.studio import media as sm
 from genmedia4commerce.studio import state as ss
+from genmedia4commerce.studio.direct_upload import upload_saved, upload_url
 from genmedia4commerce.studio.events import narrate
 
 __all__ = [
@@ -55,11 +56,15 @@ __all__ = [
     "previews",
     "state",
     "upload",
+    "upload_saved",
+    "upload_url",
 ]
 
 logger = logging.getLogger(__name__)
 
 _CATALOG_RESULTS = 8
+# The longest a turn waits for the notes of the user's last actions (seconds)
+NOTES_WAIT_S = 5.0
 _SESSIONS = sessions.StudioSessionService()
 
 
@@ -83,6 +88,8 @@ async def agent_turn(message: str, studio_id: str = "") -> dict[str, Any]:
     """Run the Studio agent on one user message (a new studio when
     ``studio_id`` is ""): ``{studio_id, reply, patches, issued_at}``, plus
     the saved ``state`` and ``updated_at`` when the turn saved it."""
+    # The notes of the user's last actions first (written after answering).
+    await asyncio.to_thread(sh.flush, NOTES_WAIT_S)
     sid, done = await agent.run_agent_turn(message, studio_id)
     payload = {
         "studio_id": sid,

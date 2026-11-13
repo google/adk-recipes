@@ -36,10 +36,10 @@ describe("layoutFunnel", () => {
   it("draws every stage against the widest one, not against itself", () => {
     const { stages, scale } = layoutFunnel(
       stats({
-        traces_scanned: 1000,
-        traces_ingested: 100,
-        traces_eval_passed: 80,
-        traces_eval_failed: 20,
+        trajectories_scanned: 1000,
+        trajectories_ingested: 100,
+        trajectories_eval_passed: 80,
+        trajectories_eval_failed: 20,
         insights_created: 3,
       }),
     );
@@ -53,7 +53,7 @@ describe("layoutFunnel", () => {
     // 1 of 100000 is 0.001%, which rounds to an invisible bar -- and an
     // invisible bar reads as "this stage did not run".
     const { stages } = layoutFunnel(
-      stats({ traces_scanned: 100_000, insights_created: 1 }),
+      stats({ trajectories_scanned: 100_000, insights_created: 1 }),
     );
     expect(stages[3].width).toBe("0.4%");
   });
@@ -92,7 +92,10 @@ describe("layoutFunnel", () => {
   it("defines each stage without listing the segments its legend shows", () => {
     for (const stage of STAGES) {
       for (const seg of stage.segments) {
-        if (stage.id === "ingested" && seg.key === "traces_ingested_failed")
+        if (
+          stage.id === "ingested" &&
+          seg.key === "trajectories_ingested_failed"
+        )
           continue;
         if (seg.label === stage.label.toLowerCase()) continue;
         expect(STAGE_HELP[stage.id]).not.toMatch(
@@ -125,18 +128,18 @@ describe("layoutFunnel", () => {
   });
 
   it("keeps a stage that measured nothing full-width and empty", () => {
-    const { stages } = layoutFunnel(stats({ traces_scanned: 10 }));
+    const { stages } = layoutFunnel(stats({ trajectories_scanned: 10 }));
     expect(stages[1].total).toBe(0);
     expect(stages[1].width).toBe("100%");
     expect(stages[1].segments).toEqual([]);
   });
 
-  it("drops zero segments so a clean run is not a row of noughts", () => {
+  it("drops zero segments so a clean investigation is not a row of noughts", () => {
     const { stages } = layoutFunnel(
       stats({
-        traces_ingested: 50,
-        traces_ingested_partial: 0,
-        traces_ingested_failed: 2,
+        trajectories_ingested: 50,
+        trajectories_ingested_partial: 0,
+        trajectories_ingested_failed: 2,
       }),
     );
     expect(stages[1].segments.map((s) => s.label)).toEqual([
@@ -149,23 +152,23 @@ describe("layoutFunnel", () => {
     ]);
   });
 
-  it("totals the Evaluated stage from its outcomes, not from traces_evaluated", () => {
-    // `traces_evaluated` counts cases sent to the eval service; a case with
+  it("totals the Evaluated stage from its outcomes, not from trajectories_evaluated", () => {
+    // `trajectories_evaluated` counts cases sent to the eval service; a case with
     // neither verdicts nor a score lands in none of the three outcomes, so
     // splitting the sent count by them would leave an unexplained gap.
     const { stages } = layoutFunnel(
       stats({
-        traces_evaluated: 100,
-        traces_eval_passed: 60,
-        traces_eval_failed: 30,
-        traces_eval_errored: 5,
+        trajectories_evaluated: 100,
+        trajectories_eval_passed: 60,
+        trajectories_eval_failed: 30,
+        trajectories_eval_errored: 5,
       }),
     );
     expect(stages[2].total).toBe(95);
   });
 
   it("survives an engine that omits a counter entirely", () => {
-    const { stages } = layoutFunnel({ traces_scanned: 10 } as Stats);
+    const { stages } = layoutFunnel({ trajectories_scanned: 10 } as Stats);
     expect(stages.every((s) => Number.isFinite(s.total))).toBe(true);
     expect(stages.every((s) => !s.width.includes("NaN"))).toBe(true);
   });
@@ -187,13 +190,13 @@ describe("barExtent", () => {
 
 describe("ribbons", () => {
   const full = stats({
-    traces_scanned: 1000,
-    traces_ingested: 80,
-    traces_ingested_partial: 10,
-    traces_ingested_failed: 10,
-    traces_eval_passed: 60,
-    traces_eval_failed: 30,
-    traces_eval_errored: 5,
+    trajectories_scanned: 1000,
+    trajectories_ingested: 80,
+    trajectories_ingested_partial: 10,
+    trajectories_ingested_failed: 10,
+    trajectories_eval_passed: 60,
+    trajectories_eval_failed: 30,
+    trajectories_eval_errored: 5,
     insights_created: 4,
     insights_recurring: 1,
   });
@@ -226,7 +229,10 @@ describe("ribbons", () => {
   });
 
   it("draws nothing when a stage is empty", () => {
-    const half = stats({ traces_scanned: 100, traces_ingested: 10 });
+    const half = stats({
+      trajectories_scanned: 100,
+      trajectories_ingested: 10,
+    });
     const { stages, scale } = layoutFunnel(half);
     expect(ribbons(half, stages, scale, BOUNDS).map((r) => r.key)).toEqual([
       "0-1",

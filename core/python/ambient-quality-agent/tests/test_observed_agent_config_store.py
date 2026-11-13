@@ -520,3 +520,19 @@ def test_an_unreadable_grant_is_dropped_and_named(
     assert record.applied.grants == (_GRANT,)
     assert "nonsense" in caplog.text
     assert "gs://b" in caplog.text
+
+
+def test_the_stored_selector_is_kept_beside_the_runtime_fields() -> None:
+    """Investigations read it from the effective configuration, so it is a runtime field
+    rather than an attachment-only one."""
+    client = FakeGcsClient()
+    sql = "SELECT target_id FROM t WHERE @window_start @window_end @agent_name"
+    record = store.AgentRecord(config=_config(investigation_selector_sql=sql))
+
+    store.save_agent_record(_over(client), record)
+    read_back = store.get_agent_record(_over(client), KEY)
+
+    assert read_back is not None
+    assert read_back.config.investigation_selector_sql == sql
+    payload = store.agent_record_to_json(record)
+    assert payload["agent"]["investigation_selector_sql"] == sql

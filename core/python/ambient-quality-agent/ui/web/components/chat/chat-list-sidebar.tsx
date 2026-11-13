@@ -34,7 +34,7 @@ import {
   type HorizonSessionSummary,
 } from "@/lib/horizon-sessions";
 import { TopIssuesRail } from "@/components/insights/top-issues-rail";
-import { RecentRunsRail } from "@/components/investigations/recent-runs-rail";
+import { RecentInvestigationsRail } from "@/components/investigations/recent-investigations-rail";
 import { textStyle } from "@/lib/typography";
 import { forgetLastChat } from "@/lib/last-chat";
 import { useAgentKey, useAgentSelection } from "@/lib/agent-selection";
@@ -272,7 +272,7 @@ function ChatListSidebarInner({
         </SidebarSection>
 
         <TopIssuesRail />
-        <RecentRunsRail />
+        <RecentInvestigationsRail />
       </div>
 
       <div className="shrink-0 border-t px-2 py-1.5">

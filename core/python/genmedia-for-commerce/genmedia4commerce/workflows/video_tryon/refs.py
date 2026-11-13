@@ -51,7 +51,7 @@ import logging
 from collections.abc import Sequence
 
 from genmedia4commerce.core import media
-from genmedia4commerce.core.types import Category, Framing, Product
+from genmedia4commerce.core.types import Category, Framing, Landmark, Product
 from genmedia4commerce.workflows import details
 from genmedia4commerce.workflows.video_tryon.types import (
     Closeup,
@@ -158,12 +158,17 @@ def product_photo(req: VideoTryOnRequest, k: int) -> bytes:
 
 
 def build_references(
-    req: VideoTryOnRequest, *, face: bytes | None, framing: Framing | None
+    req: VideoTryOnRequest,
+    *,
+    face: bytes | None,
+    framing: Framing | None,
+    span: tuple[Landmark, Landmark] | None = None,
 ) -> ReferenceSet:
     """Return the ordered references for one run.
 
     ``req.tryon_image`` is the main reference; ``face`` its face crop (None
-    when it has no face); ``framing`` its framing (None: full body). At most
+    when it has no face); ``framing`` its framing (None: full body) and
+    ``span`` its single garment's span (``ReferenceSet.span``). At most
     ``MAX_REFERENCES`` images: the last product photos are dropped first.
     Only the accessories and shoes have a photo (see the module doc).
     """
@@ -184,7 +189,9 @@ def build_references(
         for j, k in enumerate(sent[:room])
     ]
     images += [product_photo(req, k) for k in sent[:room]]
-    return ReferenceSet(images, framing or "full_body", back, face_i, closeups)
+    return ReferenceSet(
+        images, framing or "full_body", back, face_i, closeups, span
+    )
 
 
 def product_photos(req: VideoTryOnRequest) -> list[bytes]:

@@ -169,18 +169,20 @@ try {
   let flip = null;
   for (let height = 700; height <= 1600 && !flip; height += 50) {
     await openAllSections(height);
-    const withRuns = await issuesList();
-    if (!withRuns.overflow) continue;
+    const withInvestigations = await issuesList();
+    if (!withInvestigations.overflow) continue;
     await page.getByRole("button", { name: /^Recent investigations/ }).click();
     await page.waitForTimeout(400);
-    const withoutRuns = await issuesList();
-    if (!withoutRuns.overflow) flip = { height, withRuns, withoutRuns };
+    const withoutInvestigations = await issuesList();
+    if (!withoutInvestigations.overflow)
+      flip = { height, withInvestigations, withoutInvestigations };
   }
   check(
     "9 a list that stops overflowing keeps its row width",
-    flip !== null && flip.withRuns.width === flip.withoutRuns.width,
+    flip !== null &&
+      flip.withInvestigations.width === flip.withoutInvestigations.width,
     flip
-      ? `at ${flip.height}px: width ${flip.withRuns.width} -> ${flip.withoutRuns.width}`
+      ? `at ${flip.height}px: width ${flip.withInvestigations.width} -> ${flip.withoutInvestigations.width}`
       : "no window height made the list stop overflowing",
   );
 } finally {

@@ -25,23 +25,23 @@ from ambient_quality_agent.core import _logging
 def test_run_id_scope_tags_logs(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
-    _logging.install_run_id_logging()
+    _logging.install_investigation_id_logging()
     # Memory rides on the tag; stub it so the assertion is deterministic.
     monkeypatch.setattr(
         _logging, "render_memory_summary", lambda: "cgroup 100 MB"
     )
     logger = logging.getLogger("test.aqa.logging")
     with caplog.at_level(logging.INFO):
-        with _logging.tag_logs_with_run_id("abc123"):
+        with _logging.tag_logs_with_investigation_id("abc123"):
             logger.info("hello")
     assert any(
-        r.getMessage() == "[run_id=abc123 mem=cgroup 100 MB] hello"
+        r.getMessage() == "[investigation_id=abc123 mem=cgroup 100 MB] hello"
         for r in caplog.records
     )
 
 
 def test_no_tag_outside_scope(caplog: pytest.LogCaptureFixture) -> None:
-    _logging.install_run_id_logging()
+    _logging.install_investigation_id_logging()
     logger = logging.getLogger("test.aqa.logging.none")
     with caplog.at_level(logging.INFO):
         logger.info("plain")
@@ -49,9 +49,9 @@ def test_no_tag_outside_scope(caplog: pytest.LogCaptureFixture) -> None:
 
 
 def test_install_is_idempotent() -> None:
-    _logging.install_run_id_logging()
+    _logging.install_investigation_id_logging()
     factory_after_first = logging.getLogRecordFactory()
-    _logging.install_run_id_logging()
+    _logging.install_investigation_id_logging()
     # A second install must not re-wrap the factory (would double-tag).
     assert logging.getLogRecordFactory() is factory_after_first
 
@@ -59,16 +59,16 @@ def test_install_is_idempotent() -> None:
 def test_run_id_scope_resets_after_block(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    _logging.install_run_id_logging()
+    _logging.install_investigation_id_logging()
     logger = logging.getLogger("test.aqa.logging.reset")
     with caplog.at_level(logging.INFO):
-        with _logging.tag_logs_with_run_id("r1"):
+        with _logging.tag_logs_with_investigation_id("r1"):
             logger.info("inside")
         logger.info("outside")
     inside = next(r for r in caplog.records if "inside" in r.getMessage())
     outside = next(r for r in caplog.records if "outside" in r.getMessage())
-    assert inside.getMessage().startswith("[run_id=r1 mem=")
-    assert not outside.getMessage().startswith("[run_id=")
+    assert inside.getMessage().startswith("[investigation_id=r1 mem=")
+    assert not outside.getMessage().startswith("[investigation_id=")
 
 
 def test_logged_node_logs_start_and_done(

@@ -20,11 +20,11 @@ import {
   type AgentKey,
   insightsQuery,
   isDiagnosed,
-  runsQuery,
+  investigationsQuery,
   type InsightView,
 } from "@/lib/aqua-api";
 import { stripMarkdownForSummary } from "@/lib/aqa-markdown";
-import { evaluatedTraces } from "@/lib/funnel";
+import { countEvaluatedTrajectories } from "@/lib/funnel";
 import { cn } from "@/lib/utils";
 import { InlineMarkdown } from "@/components/ui/inline-markdown";
 import { SidebarSection } from "@/components/chat/sidebar-section";
@@ -85,10 +85,10 @@ function TopIssuesList() {
   // the error line is only for a list that never loaded.
   const { data, isError, refetch } = useQuery(topIssuesQuery(agentKey));
   const top = data?.insights ?? [];
-  // Only an empty page needs the runs, to tell "nothing failing" from "nothing
-  // analysed yet"; the Recent investigations section shares the query.
-  const runs = useQuery({
-    ...runsQuery(agentKey),
+  // Only an empty page needs the investigations, to tell "nothing failing" from
+  // "nothing analysed yet"; the Recent investigations section shares the query.
+  const investigations = useQuery({
+    ...investigationsQuery(agentKey),
     enabled: data !== undefined && top.length === 0,
   });
   const scrollRef = useRailScroll<HTMLUListElement>("issues");
@@ -101,8 +101,9 @@ function TopIssuesList() {
     );
   }
   if (top.length === 0) {
-    const evaluated = runs.data?.some(
-      (run) => evaluatedTraces(run.counters ?? {}) > 0,
+    const evaluated = investigations.data?.some(
+      (investigation) =>
+        countEvaluatedTrajectories(investigation.counters ?? {}) > 0,
     );
     return (
       <SidebarNote>
@@ -161,8 +162,8 @@ function IssueRow({ insight }: { insight: InsightView }) {
               nothing measures one. A bare 0% would read as "certainly nothing"
               rather than "not investigated yet". */}
           <span>
-            {formatCount(insight.trace_count)}{" "}
-            {insight.trace_count === 1 ? "trajectory" : "trajectories"}
+            {formatCount(insight.trajectory_count)}{" "}
+            {insight.trajectory_count === 1 ? "trajectory" : "trajectories"}
             {!isDiagnosed(insight) && " · undiagnosed"}
           </span>
         </span>

@@ -102,6 +102,26 @@ def test_a_record_reads_back_as_the_videos_products():
     assert source.closeups == [[DETAIL], []]
 
 
+@pytest.mark.parametrize(
+    "kept, read",
+    [
+        (None, None),  # an older record, or no garment
+        (("shoulders", "mid-thigh"), ("shoulders", "mid-thigh")),
+        (("shoulders", "elbows"), None),  # not a landmark
+    ],
+)
+def test_a_garments_span_reads_back(kept, read):
+    c = _classification()
+    c.products[0].span = kept
+    chosen = outfit.choose_garment_images(c)
+    classified = record.payload(c, chosen, [FRONT, BACK], CROPS)
+    assert classified["products"][0].get("span") == (kept and list(kept))
+    event = record.record(classified, chosen, [FRONT, BACK], CROPS, None)
+    manifest = json.loads(json.dumps(event.payload))
+    products = record.read(manifest, event.files).classification.products
+    assert [p.span for p in products] == [read, None]
+
+
 def test_a_try_on_without_the_close_up_search_records_none():
     manifest, files, _ = _kept(closeups=None)
     assert record.read(manifest, files).closeups is None

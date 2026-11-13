@@ -25,7 +25,7 @@ check (``product_check``) use the same words.
 import logging
 from collections.abc import Sequence
 
-from genmedia4commerce.core import gen
+from genmedia4commerce.core import degraded, gen
 from genmedia4commerce.core.errors import InputError
 from genmedia4commerce.core.models import get_models
 from genmedia4commerce.workflows.spin.types import (
@@ -133,12 +133,16 @@ def _rank(value: object) -> int:
 
 
 def _views(entries: object, n: int) -> list[dict]:
-    """One ``{index, view, rank, presentation}`` per image; missing/invalid -> defaults."""
+    """One ``{index, view, rank, presentation}`` per image; missing or
+    invalid -> defaults (a skipped image is a fallback:
+    ``degraded.report``)."""
     by_index: dict[int, dict] = {}
     for entry in entries if isinstance(entries, list) else []:
         index = entry.get("index") if isinstance(entry, dict) else None
         if isinstance(index, int) and 0 <= index < n and index not in by_index:
             by_index[index] = entry
+    if len(by_index) < n:
+        degraded.report("classifier skipped a photo")
     views = []
     for i in range(n):
         entry = by_index.get(i, {})

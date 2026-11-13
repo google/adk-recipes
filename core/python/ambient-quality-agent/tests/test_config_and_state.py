@@ -43,6 +43,9 @@ _AQA_ENV_VARS = (
     "AQA_BASE_LOCATION",
     "AQA_INSIGHTS_MODEL",
     "AQA_INSIGHTS_LOCATION",
+    "AQA_REVIEW_MODEL",
+    "AQA_REVIEW_LOCATION",
+    "AQA_REVIEW_PRUNE_WATERMARK_TOKENS",
     "GOOGLE_CLOUD_AGENT_ENGINE_ID",
     "AQA_JOBS_GCS_BUCKET",
     "AQA_SOURCE_GCS_BUCKET",
@@ -177,6 +180,21 @@ def test_insights_model_location_from_env(
     )
 
 
+def test_review_model_defaults_to_argon_global(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _set_required(monkeypatch)
+
+    cfg = config_module.load()
+
+    assert cfg.review_model == config_module.Model(
+        model="gemini-4-argon", location="global"
+    )
+    assert cfg.insights_model == config_module.Model(
+        model="gemini-3.1-pro-preview", location="global"
+    )
+
+
 @pytest.mark.parametrize(
     ("field", "env_prefix", "default_model"),
     [
@@ -185,6 +203,11 @@ def test_insights_model_location_from_env(
             "insights_model",
             "AQA_INSIGHTS",
             config_module.DEFAULT_INSIGHTS_MODEL,
+        ),
+        (
+            "review_model",
+            "AQA_REVIEW",
+            config_module.DEFAULT_REVIEW_MODEL,
         ),
     ],
 )
@@ -208,6 +231,7 @@ def test_model_group_independent_from_env(
     defaults = {
         "base_model": "gemini-3.8-flash",
         "insights_model": config_module.DEFAULT_INSIGHTS_MODEL,
+        "review_model": config_module.DEFAULT_REVIEW_MODEL,
     }
     for other, other_default in defaults.items():
         if other != field:
@@ -224,6 +248,7 @@ def test_model_dict_roundtrip_coercion() -> None:
         project_id="p",
         location="us-central1",
         base_model=config_module.Model(model="m", location="l"),
+        review_model=config_module.Model(model="r", location="rl"),
         jobs_gcs_bucket="jobs-bucket",
         source_gcs_bucket="source-bucket",
     )
@@ -231,6 +256,15 @@ def test_model_dict_roundtrip_coercion() -> None:
 
     assert isinstance(rebuilt.base_model, config_module.Model)
     assert rebuilt.base_model == cfg.base_model
+    model_fields = [
+        f.name
+        for f in dataclasses.fields(config_module.Config)
+        if isinstance(getattr(cfg, f.name), config_module.Model)
+    ]
+    assert "review_model" in model_fields
+    for name in model_fields:
+        assert isinstance(getattr(rebuilt, name), config_module.Model), name
+        assert getattr(rebuilt, name) == getattr(cfg, name)
     assert rebuilt.jobs_gcs_bucket == "jobs-bucket"
     assert rebuilt.source_gcs_bucket == "source-bucket"
 
@@ -272,6 +306,33 @@ def test_invalid_int_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("AQA_PENDING_RUN_LEASE_MINUTES", "not-a-number")
 
     with pytest.raises(RuntimeError, match="AQA_PENDING_RUN_LEASE_MINUTES"):
+        config_module.load()
+
+
+def test_the_review_prune_watermark_defaults_and_reads_the_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The watermark defaults to 400,000 tokens and the env var overrides it."""
+    _set_required(monkeypatch)
+
+    assert config_module.load().review_prune_watermark_tokens == 400_000
+
+    monkeypatch.setenv("AQA_REVIEW_PRUNE_WATERMARK_TOKENS", "250000")
+    assert config_module.load().review_prune_watermark_tokens == 250_000
+
+
+@pytest.mark.parametrize(
+    ("raw", "error"),
+    [("lots", RuntimeError), ("0", ValueError), ("-5", ValueError)],
+)
+def test_an_invalid_review_prune_watermark_raises(
+    monkeypatch: pytest.MonkeyPatch, raw: str, error: type[Exception]
+) -> None:
+    """A watermark that is not a positive integer names the env var."""
+    _set_required(monkeypatch)
+    monkeypatch.setenv("AQA_REVIEW_PRUNE_WATERMARK_TOKENS", raw)
+
+    with pytest.raises(error, match="AQA_REVIEW_PRUNE_WATERMARK_TOKENS"):
         config_module.load()
 
 
@@ -378,28 +439,17 @@ def test_numeric_minimum_clamped_to_one() -> None:
 
 
 @pytest.mark.parametrize(
-    ("mode", "setting", "expected"),
-    [
-        ("eval_service", None, True),
-        ("session_review", None, True),
-        ("eval_service", False, False),
-        ("session_review", False, False),
-        ("session_review", True, True),
-    ],
+    ("setting", "expected"),
+    [(None, False), (False, False), (True, True)],
 )
-def test_verification_is_on_under_every_mode_and_yields_to_the_setting(
-    mode: str,
+def test_verification_is_off_unless_explicitly_enabled(
     setting: bool | None,
     expected: bool,
 ) -> None:
-    """The pass writes the description and the label a reader acts on, so a
-    sweep without it produces insights nobody can triage. It is on under every
-    mode. An explicit value still wins, the false one included -- that is what
-    "unset" must not collapse into, and it is the switch an attachment needs to
-    take the pass out while something else is investigated."""
-    cfg = make_config(
-        quality_analysis_mode=mode, insights_verification_enabled=setting
-    )
+    """The pass puts each cluster's example trajectories into one prompt
+    without shortening recorded turns, so a long session can push it past the
+    model's context. It is off when unset; only an explicit true turns it on."""
+    cfg = make_config(insights_verification_enabled=setting)
 
     assert (
         config_module.is_verification_enabled(cfg.insights_verification_enabled)
@@ -437,9 +487,9 @@ def test_the_verification_setting_survives_a_config_roundtrip(
     setting: bool | None,
 ) -> None:
     """`effective_config.load` and the durable-run boundary both rebuild a
-    `Config` from its own `asdict`. An unset flag has to come back unset, or the
-    mode it defers to could no longer change it; an explicit one has to come
-    back as itself, or an override would not survive being carried."""
+    `Config` from its own `asdict`. An unset flag must remain unset so the
+    default applies, and an explicit setting must remain unchanged so overrides
+    survive serialization."""
     cfg = config_module.Config(
         observed_agent_name="a",
         project_id="p",
@@ -703,7 +753,7 @@ def test_rows_are_keyed_by_the_agent_key_when_there_is_one() -> None:
 
 
 def test_rows_fall_back_to_the_agent_name_without_a_key() -> None:
-    """A run snapshot taken without a key."""
+    """An investigation snapshot taken without a key."""
     cfg = make_config(observed_agent_name="bot")
 
     assert cfg.resolve_agent_key() == "bot"

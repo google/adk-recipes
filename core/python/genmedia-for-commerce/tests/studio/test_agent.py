@@ -41,6 +41,7 @@ from pydantic import Field
 
 from genmedia4commerce import tools
 from genmedia4commerce.core.errors import InputError, StorageError
+from genmedia4commerce.core.models import get_models
 from genmedia4commerce.core.settings import get_settings
 from genmedia4commerce.studio import agent as sa
 from genmedia4commerce.studio import agent_tools as at
@@ -283,6 +284,27 @@ async def test_a_failing_or_unknown_tool_still_gets_a_response(
         if "function_response" in p
     ]
     assert names == ["find_product", "no_such_tool"]
+
+
+@pytest.mark.asyncio
+async def test_the_reply_after_tool_results_goes_to_the_lite_model(
+    model, storage, monkeypatch
+):
+    """The first call chooses the tools (the agent's model); the call after
+    their results words the reply (the lite model)."""
+
+    async def search(**_kwargs):
+        return {"items": []}
+
+    monkeypatch.setattr(tools, "catalog_search", search)
+    model.script = [
+        call("find_product", query="red linen dress"),
+        text("No match: try another colour?"),
+    ]
+    await headless_turn(text("find a red linen dress", "user"), "web5")
+    first, after_tools = model.requests
+    assert first.model == model.model
+    assert after_tools.model == get_models().text_lite
 
 
 # ---- generate and check_generation ----------------------------------------
