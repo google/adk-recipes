@@ -974,3 +974,99 @@ def test_strip_comments_can_turn_newlines_into_separators():
     assert strip_comments("a # c\nb", newline=" ; ") == "a  ; b"
     # A newline inside quotes is part of the string and is kept.
     assert strip_comments("echo 'a\nb'", newline=" ; ") == "echo 'a\nb'"
+
+
+# The same deny tier command wrapped in shell syntax that still runs it.
+_COMPOUND_FORMS = [
+    "(rm -rf ~)",
+    "{ rm -rf ~; }",
+    "! rm -rf ~",
+    "if true; then rm -rf ~; fi",
+    "for i in 1; do rm -rf ~; done",
+    "while true; do rm -rf ~; break; done",
+    "case x in x) rm -rf ~;; esac",
+    "f() { rm -rf ~; }; f",
+    "true && (rm -rf ~)",
+    "true &&(rm -rf ~)",
+    "eval 'rm -rf ~'",
+    "sh -c 'rm -rf ~'; true",
+    "time rm -rf ~",
+    "exec rm -rf ~",
+    "echo $(rm -rf ~)",
+    'echo "$(rm -rf ~)"',
+    "echo `rm -rf ~`",
+    "cat <(rm -rf ~)",
+    "somewrapper rm -rf ~",
+]
+
+
+@pytest.mark.parametrize("command", _COMPOUND_FORMS)
+async def test_compound_syntax_does_not_hide_rm_rf_root(
+    policies_env: Path, command: str
+):
+    from horizon.guardrails.command_safety import classify
+    from horizon.guardrails.permission_guard import _shell_decision
+    from horizon.guardrails.permission_rules import PermissionRule
+    from horizon.guardrails.policies import policies_guard
+
+    assert classify(command) == (
+        "deny",
+        "recursive force-delete of a system/home root",
+    )
+    result = await policies_guard(
+        tool=SimpleNamespace(name="bash"),
+        args={"command": command},
+        tool_context=SimpleNamespace(),
+    )
+    assert isinstance(result, dict)
+    assert "error" in result
+    grant = PermissionRule(
+        tool_names=("bash",),
+        command_prefixes=(),
+        command_regex=None,
+        args_pattern=None,
+        decision="allow",
+        deny_message=None,
+        subagent=None,
+        source="grant",
+    )
+    assert _shell_decision([grant], "bash", command, None)[0] == "deny"
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "if [ -d build ]; then rm -rf build; fi",
+        "for f in a b; do echo $f; done",
+        "(cd src && ls)",
+        "time make test",
+        "! grep -q TODO README.md",
+        'echo "rm -rf /"',
+        "git commit -m 'time to fix (again)'",
+        "echo $(date)",
+        "ls > out.txt 2>&1",
+    ],
+)
+def test_compound_syntax_leaves_ordinary_commands_alone(command: str):
+    from horizon.guardrails.command_safety import classify
+
+    assert classify(command) is None
+
+
+def test_find_exec_rm_keeps_its_ask_verdict():
+    # `find -exec` was "ask" before this change. The rm after -exec has no
+    # dangerous target, so the position scan must not raise it to "deny".
+    from horizon.guardrails.command_safety import classify
+
+    verdict = classify("find . -name '*.pyc' -exec rm -rf {} +")
+    assert verdict is not None
+    assert verdict[0] == "ask"
+
+
+def test_command_name_from_a_variable_asks():
+    from horizon.guardrails.command_safety import classify
+
+    assert classify("X=rm; $X -rf ~") == (
+        "ask",
+        "command name comes from a variable",
+    )
