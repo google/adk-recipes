@@ -28,8 +28,10 @@ from __AGENT_PACKAGE__.app_utils.a2a import attach_a2a_routes
 from __AGENT_PACKAGE__.app_utils.reasoning_engine_adapter import (
     attach_reasoning_engine_routes,
 )
+from __AGENT_PACKAGE__.app_utils.telemetry import register_adk_telemetry
 
 load_dotenv()
+register_adk_telemetry()
 
 # Cloud telemetry needs Application Default Credentials. Resolve them here
 # rather than letting get_fast_api_app raise DefaultCredentialsError at

@@ -528,6 +528,7 @@ def test_apply_writes_every_required_file(recipe: Path, monkeypatch):
         "app/app_utils/a2a.py",
         "app/app_utils/services.py",
         "app/app_utils/reasoning_engine_adapter.py",
+        "app/app_utils/telemetry.py",
     ]:
         assert (recipe / rel).is_file(), rel
     # Placeholders must be fully substituted.
@@ -3114,3 +3115,89 @@ def test_a_real_dependency_conflict_is_still_a_verdict():
         ),
     )
     assert md.failure_is_environmental(proc) is False
+
+
+# ---------------------------------------------------------------------------
+# Fail-open runtime usage attribution (app_utils/telemetry.py)
+# ---------------------------------------------------------------------------
+
+
+def _load_telemetry_template():
+    import importlib.util
+
+    tpl = (
+        Path(__file__).resolve().parent.parent
+        / "resources"
+        / "templates"
+        / "app_utils"
+        / "telemetry.py"
+    )
+    spec = importlib.util.spec_from_file_location("_tpl_telemetry", tpl)
+    assert spec and spec.loader
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_generated_telemetry_does_not_trip_legacy_gate(
+    recipe: Path, monkeypatch
+):
+    """Our own telemetry.py template defines register_adk_telemetry and must
+    stay CLEAN on a re-run rather than triggering the ASP legacy gate."""
+    monkeypatch.setattr(md, "load_policy", lambda _root: _policy())
+    monkeypatch.setattr(md, "find_repo_root", lambda _p: recipe)
+    md.run(
+        recipe_dir=recipe,
+        apply=True,
+        overwrite=False,
+        data_dirs=[],
+        region="us-east1",
+    )
+    assert (recipe / "app" / "app_utils" / "telemetry.py").is_file()
+    second = md.run(
+        recipe_dir=recipe,
+        apply=False,
+        overwrite=False,
+        data_dirs=[],
+        region="us-east1",
+    )
+    legacy = next(c for c in second.checks if c.id == "legacy-app-utils")
+    assert legacy.status == md.CLEAN
+
+
+def test_telemetry_headers_emit_single_segment_gccl_token(monkeypatch):
+    tel = _load_telemetry_template()
+    tel.RECIPE_NAME = "demo-recipe"
+    for var in (
+        "INTEGRATION_TEST",
+        "PYTEST_CURRENT_TEST",
+        "CI",
+        "USAGE_ANALYTICS_ENABLED",
+        "GOOGLE_CLOUD_AGENT_ENGINE_ID",
+        "K_SERVICE",
+        "KUBERNETES_SERVICE_HOST",
+    ):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("K_SERVICE", "demo-service")
+    monkeypatch.setenv("AGENT_VERSION", "20261114-abc123def456")
+    monkeypatch.setenv("ADK_DEPLOY_CHANNEL", "prebuilt")
+
+    headers = tel.build_tracking_headers()
+    assert "user-agent" in headers
+    assert "x-goog-api-client" in headers
+    token = headers["x-goog-api-client"].split()[-1]
+    assert token == "gccl/20261114-abc123def45-demo-recipe-cloud_run-prebuilt"
+    assert "/" not in token[len("gccl/") :]
+
+
+def test_telemetry_disabled_in_ci_and_tests_and_opt_out(monkeypatch):
+    tel = _load_telemetry_template()
+    for var in ("INTEGRATION_TEST", "PYTEST_CURRENT_TEST", "CI"):
+        monkeypatch.delenv(var, raising=False)
+
+    monkeypatch.setenv("INTEGRATION_TEST", "1")
+    assert tel.build_tracking_headers() == {}
+    monkeypatch.delenv("INTEGRATION_TEST")
+
+    monkeypatch.setenv("USAGE_ANALYTICS_ENABLED", "false")
+    assert tel.build_tracking_headers() == {}
