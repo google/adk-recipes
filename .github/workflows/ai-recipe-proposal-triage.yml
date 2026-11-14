@@ -1,0 +1,106 @@
+name: '📋 AI Recipe Proposal Triage'
+
+# Automatically evaluates newly opened recipe proposals filed using the
+# propose-a-new-recipe.md template format by running the triage rubric
+# from .agents/skills/triage-recipe-proposal/SKILL.md via _ai-recipe-proposal-triage-core.yml.
+
+on:
+  issues:
+    types:
+      - 'opened'
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: 'issue number to triage'
+        required: true
+        type: 'number'
+
+concurrency:
+  group: '${{ github.workflow }}-${{ github.event.issue.number || github.event.inputs.issue_number || github.run_id }}'
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: 'bash'
+
+permissions: {}
+
+jobs:
+  resolve:
+    timeout-minutes: 5
+    runs-on: 'ubuntu-latest'
+    permissions:
+      issues: 'read'
+    outputs:
+      is_proposal: '${{ steps.check_proposal.outputs.is_proposal }}'
+      issue_number: '${{ steps.check_proposal.outputs.issue_number }}'
+      issue_title: '${{ steps.check_proposal.outputs.issue_title }}'
+      issue_body: '${{ steps.check_proposal.outputs.issue_body }}'
+      issue_author: '${{ steps.check_proposal.outputs.issue_author }}'
+    steps:
+      - uses: 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1' # ratchet:actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - uses: 'astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7' # ratchet:astral-sh/setup-uv@v10.2.0
+        with:
+          python-version: '3.11'
+
+      - name: 'Verify issue matches propose-a-new-recipe template format'
+        id: 'check_proposal'
+        env:
+          GH_TOKEN: '${{ secrets.GITHUB_TOKEN }}'
+          GH_REPO: '${{ github.repository }}'
+          ISSUE_NUMBER: '${{ github.event.issue.number || github.event.inputs.issue_number }}'
+        run: |-
+          set -euo pipefail
+
+          if [[ -z "${ISSUE_NUMBER}" ]]; then
+            echo "::error::No issue number resolved from event or dispatch."
+            exit 1
+          fi
+
+          MAX_BODY_CHARS=4000
+          ISSUE_DATA="$(gh issue view "${ISSUE_NUMBER}" --json number,title,body,author)"
+          TITLE="$(echo "${ISSUE_DATA}" | jq -r '.title // ""')"
+          BODY="$(echo "${ISSUE_DATA}" | jq -r --argjson max "${MAX_BODY_CHARS}" '(.body // "")[0:$max]')"
+          AUTHOR="$(echo "${ISSUE_DATA}" | jq -r '.author.login // ""')"
+
+          IS_PROPOSAL="$(uv run --no-project python3 .github/scripts/check_recipe_proposal.py \
+            --title "${TITLE}" \
+            --body "${BODY}" \
+            --template-only | jq -r '.is_proposal')"
+
+          echo "is_proposal=${IS_PROPOSAL}" >> "${GITHUB_OUTPUT}"
+          echo "issue_number=${ISSUE_NUMBER}" >> "${GITHUB_OUTPUT}"
+          echo "issue_author=${AUTHOR}" >> "${GITHUB_OUTPUT}"
+
+          DELIM="EOF_$(uuidgen)"
+          { echo "issue_title<<${DELIM}"; echo "${TITLE}"; echo "${DELIM}"; } >> "${GITHUB_OUTPUT}"
+          { echo "issue_body<<${DELIM}"; echo "${BODY}"; echo "${DELIM}"; } >> "${GITHUB_OUTPUT}"
+
+          if [[ "${IS_PROPOSAL}" != "true" ]]; then
+            echo "Issue #${ISSUE_NUMBER} is not a recipe proposal from the propose-a-new-recipe template — skipping automated triage."
+            exit 0
+          fi
+
+          echo "Issue #${ISSUE_NUMBER} matches propose-a-new-recipe template — proceeding to automated triage."
+
+  triage:
+    needs: 'resolve'
+    if: |-
+      ${{ needs.resolve.outputs.is_proposal == 'true' }}
+    permissions:
+      contents: 'read'
+      id-token: 'write'
+      issues: 'write'
+    uses: './.github/workflows/_ai-recipe-proposal-triage-core.yml' # zizmor: ignore[self-repository]
+    with:
+      issue_number: '${{ needs.resolve.outputs.issue_number }}'
+      issue_title: '${{ needs.resolve.outputs.issue_title }}'
+      issue_body: '${{ needs.resolve.outputs.issue_body }}'
+      issue_author: '${{ needs.resolve.outputs.issue_author }}'
+      app_id: '${{ vars.APP_ID }}'
+    secrets:
+      APP_PRIVATE_KEY: '${{ secrets.APP_PRIVATE_KEY }}'
