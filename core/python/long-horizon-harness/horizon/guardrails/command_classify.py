@@ -64,10 +64,14 @@ def strip_comments(command: str, *, newline: str = "\n") -> str:
     out: list[str] = []
     in_single = in_double = False
     word_start = True  # the next character would begin a new word
+    # One entry per open parenthesis: True when it opened `$(`.
+    open_parens: list[bool] = []
+    prev_dollar = False
     i, n = 0, len(command)
     while i < n:
         ch = command[i]
         nxt = command[i + 1 : i + 2]
+        was_dollar, prev_dollar = prev_dollar, False
         if in_single:
             out.append(ch)
             in_single = ch != "'"
@@ -96,7 +100,9 @@ def strip_comments(command: str, *, newline: str = "\n") -> str:
             word_start = False
             i += 1
         elif ch == "#" and word_start:
-            while i < n and command[i] != "\n":
+            # A comment inside a backquoted command ends at the closing
+            # backquote, so stop there and keep what follows.
+            while i < n and command[i] not in "\n`":
                 i += 1
         elif ch == "\n":
             out.append(newline)
@@ -104,7 +110,20 @@ def strip_comments(command: str, *, newline: str = "\n") -> str:
             i += 1
         else:
             out.append(ch)
-            word_start = ch in _WORD_BREAKS
+            if ch == "(":
+                open_parens.append(was_dollar)
+                word_start = True
+            elif ch == ")":
+                # A `)` that closes `$(...)` can sit in the middle of a word,
+                # where a `#` that follows is plain text: `echo $(true)#$(cmd)`
+                # runs cmd. After a subshell `)` a `#` starts a comment.
+                closes_substitution = (
+                    open_parens.pop() if open_parens else False
+                )
+                word_start = not closes_substitution
+            else:
+                word_start = ch in _WORD_BREAKS
+            prev_dollar = ch == "$"
             i += 1
     return "".join(out)
 

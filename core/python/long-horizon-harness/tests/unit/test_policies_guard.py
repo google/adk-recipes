@@ -1070,3 +1070,115 @@ def test_command_name_from_a_variable_asks():
         "ask",
         "command name comes from a variable",
     )
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "echo '$(rm -rf ~)'",
+        "git commit -m 'fix $(rm -rf ~) handling'",
+        "printf '%s\\n' 'usage: $(rm -rf ~) is never run here'",
+    ],
+)
+def test_single_quoted_substitution_text_is_not_a_command(command: str):
+    # Inside single quotes the shell prints `$(...)` as text.
+    from horizon.guardrails.command_safety import classify
+
+    assert classify(command) is None
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        # Double quotes keep the substitution live, and a single quote inside
+        # them is plain text.
+        "echo \"it's $(rm -rf ~) '\"",
+        "echo \"it's `rm -rf ~` '\"",
+        "eval \"echo '$(rm -rf ~)'\"",
+        # eval and sh -c parse their argument a second time.
+        "eval '$(rm -rf ~)'",
+        "bash -c '$(rm -rf ~)'",
+        # A quote closed before the substitution does not cover it.
+        "echo 'a'$(rm -rf ~)",
+        # Syntax that changes what a single quote means stays conservative.
+        "cat <<EOF\n'$(rm -rf ~)'\nEOF",
+        "$'a\\'b\\'c' $(rm -rf ~) \\'",
+        "echo '`' $(rm -rf ~) '`'",
+        # An apostrophe in a comment does not open a quote.
+        "true # it's\necho $(rm -rf ~) 'x'",
+    ],
+)
+async def test_quote_handling_does_not_hide_a_live_substitution(
+    policies_env: Path, command: str
+):
+    from horizon.guardrails.command_safety import classify
+    from horizon.guardrails.policies import policies_guard
+
+    assert classify(command) == (
+        "deny",
+        "recursive force-delete of a system/home root",
+    )
+    result = await policies_guard(
+        tool=SimpleNamespace(name="bash"),
+        args={"command": command},
+        tool_context=SimpleNamespace(),
+    )
+    assert isinstance(result, dict)
+    assert "error" in result
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        # `$'...'` and `$"..."` name the same program as the plain word.
+        "$'rm' -rf ~",
+        "$''rm -rf ~",
+        '$"rm" -rf ~',
+        "eval $'rm -rf ~'",
+        # A `#` inside a word or inside double quotes is not a comment.
+        'echo "#$(rm -rf ~)"',
+        "echo $(true)#$(rm -rf ~)",
+        "echo \\#`rm -rf ~`",
+        # A comment inside a backquoted command ends at the backquote.
+        "` #`rm -rf ~``",
+        # A later line with a quoting error does not hide an earlier line.
+        "true\n(rm -rf ~)\n'",
+        # After a subshell `)` a `#` starts a comment, so an apostrophe in
+        # that comment does not make the line unreadable.
+        "(rm -rf ~)# it's gone",
+    ],
+)
+def test_shell_spelling_does_not_hide_rm_rf_root(command: str):
+    from horizon.guardrails.command_safety import classify
+
+    assert classify(command) == (
+        "deny",
+        "recursive force-delete of a system/home root",
+    )
+
+
+def test_command_name_with_undecoded_escapes_asks():
+    from horizon.guardrails.command_safety import classify
+
+    assert classify("$'\\x72m' -rf ~") == (
+        "ask",
+        "command name uses escapes that are not decoded",
+    )
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "printf $'a\\n'",
+        "IFS=$'\\n' read -r x",
+        "echo $'it\\'s fine'",
+        "ls # list $(files)",
+        "(cd src && make) # don't fail",
+    ],
+)
+def test_dollar_quotes_and_comments_leave_ordinary_commands_alone(
+    command: str,
+):
+    from horizon.guardrails.command_safety import classify
+
+    assert classify(command) is None
