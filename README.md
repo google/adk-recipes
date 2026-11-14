@@ -2,6 +2,7 @@
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
+[ English | [简体中文](README.zh.md) ]
 
 Welcome. This is a public collection of ADK recipes — small,
 runnable agents that show how to solve real problems with the
