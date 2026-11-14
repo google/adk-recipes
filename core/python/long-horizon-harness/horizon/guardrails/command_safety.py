@@ -27,10 +27,53 @@ import os.path
 import re
 import shlex
 
-from horizon.guardrails.command_classify import split_segments, strip_wrapper
+from horizon.guardrails.command_classify import (
+    split_segments,
+    strip_comments,
+    strip_wrapper,
+)
 
 _CONTROL_OPS = frozenset({"|", "||", "&&", ";", "&"})
 _PIPE_OPS = frozenset({"|", "||"})
+# Reserved words and grouping tokens after which the shell starts a new simple
+# command: `( cmd )`, `{ cmd; }`, `! cmd`, `if c; then cmd; fi`, loops, `time cmd`.
+# Each one starts a new segment, so the command inside is classified like any
+# other. A quoted word that equals one of these also splits, which can only
+# make the classifier stricter.
+_STRUCTURE_WORDS = frozenset(
+    {
+        "{",
+        "}",
+        "!",
+        "if",
+        "then",
+        "elif",
+        "else",
+        "fi",
+        "do",
+        "done",
+        "while",
+        "until",
+        "time",
+        "coproc",
+    }
+)
+_OPERATOR_CHARS = frozenset("();|&")
+_REDIRECT_CHARS = frozenset("<>")
+_SHELLS = frozenset({"bash", "sh", "zsh", "dash", "ksh"})
+# A command word that is only a variable expansion, such as `$X` or `${X}`.
+_EXPANSION_ONLY = re.compile(r"^\$(\{[^}]*\}|[A-Za-z_][A-Za-z0-9_]*)$")
+# Deepest nesting of `eval`, `sh -c` and command substitution that is unwrapped.
+_MAX_DEPTH = 8
+# Placeholder for a `$` the shell reads as plain text. A control character,
+# so it cannot collide with shell syntax.
+_MASK_DOLLAR = "\x01"
+_MASKS = {"$": _MASK_DOLLAR}
+# Marks a word written as `$'...'` with backslash escapes, which this
+# classifier does not decode. See `_plain_dollar_quotes`.
+_ESCAPED_MARK = "\x02"
+# Syntax that changes what a single quote means. See `_mask_literals`.
+_MASK_UNSAFE = ('"', "`", "<<", "$'")
 # Transparent launchers that run the rest of the line as a command — unwrap them
 # so the classifier inspects the real binary, not the wrapper. Unlike sudo/doas
 # these grant no privilege, so they do NOT set `escalated`.
@@ -44,6 +87,8 @@ _LAUNCHERS = frozenset(
         "ionice",
         "xargs",
         "timeout",
+        "exec",
+        "builtin",
     }
 )
 # A `-c` shell flag, possibly clustered with other short flags (`-lc`, `-ic`).
@@ -51,6 +96,7 @@ _SHELL_C_FLAG = re.compile(r"^-[a-z]*c[a-z]*$")
 # Per-launcher flags that consume the NEXT token as a separate-arg value, so the
 # value isn't mistaken for the wrapped command (`timeout -s KILL 5 rm -rf /`).
 _LAUNCHER_VALUE_FLAGS = {
+    "exec": {"-a"},
     "timeout": {"-s", "--signal", "-k", "--kill-after"},
     "nice": {"-n", "--adjustment"},
     "ionice": {"-c", "-n", "-p", "-P", "-u", "--class", "--classdata", "--pid"},
@@ -203,14 +249,158 @@ def _git_verdict(argv: list[str]) -> tuple[str, str] | None:
     return None
 
 
+def _mask_literals(command: str) -> str:
+    """Mark each `$` that the shell reads as plain text.
+
+    Inside single quotes, or after a backslash, a `$` does not start a command
+    substitution: `echo '$(date)'` prints the text. shlex removes the quotes,
+    so the tokens alone cannot tell that case from a live `"$(date)"`. Each
+    literal `$` is swapped for a placeholder before lexing, and `_unmask` puts
+    it back for every check except the search for nested commands.
+
+    This only runs when a simple left to right scan reads single quotes the
+    same way the shell does. Double quotes, backquotes, `$'...'` strings and
+    here-documents each change what a single quote means, and a wrong guess
+    here would hide a live substitution. A command that contains any of them
+    is left unmasked and stays on the conservative path.
+    """
+    if any(s in command for s in _MASK_UNSAFE):
+        return command
+    out: list[str] = []
+    quoted = False
+    i, n = 0, len(command)
+    while i < n:
+        c = command[i]
+        if quoted:
+            if c == "'":
+                quoted = False
+            out.append(_MASKS.get(c, c))
+            i += 1
+            continue
+        if c == "\\" and i + 1 < n:
+            nxt = command[i + 1]
+            out.append(c)
+            out.append(_MASKS.get(nxt, nxt))
+            i += 2
+            continue
+        if c == "'":
+            quoted = True
+        out.append(c)
+        i += 1
+    return "".join(out)
+
+
+def _plain_dollar_quotes(command: str, mark: bool) -> str:
+    """Rewrite `$'...'` and `$"..."` as ordinary quoted strings.
+
+    The shell reads `$'rm' -rf ~` as `rm -rf ~`, while shlex keeps the `$` and
+    returns `$rm`. Dropping the `$` lets the classifier see the same word the
+    shell runs. Inside `$'...'` a `\\'` is an escaped quote, so it is written
+    out in the form a plain single-quoted string needs.
+
+    Backslash escapes such as `\\x72` are not decoded. With `mark` set, a
+    string that contains one gets `_ESCAPED_MARK` as its first character, so
+    the caller can refuse to guess when that word is the command name.
+    """
+    out: list[str] = []
+    in_single = in_double = False
+    i, n = 0, len(command)
+    while i < n:
+        ch = command[i]
+        nxt = command[i + 1 : i + 2]
+        if in_single:
+            out.append(ch)
+            in_single = ch != "'"
+            i += 1
+        elif in_double:
+            if ch == "\\" and nxt:
+                out.append(ch + nxt)
+                i += 2
+            else:
+                out.append(ch)
+                in_double = ch != '"'
+                i += 1
+        elif ch == "\\" and nxt:
+            out.append(ch + nxt)
+            i += 2
+        elif ch == "$" and nxt == '"':
+            i += 1  # drop the `$`; the string is read as plain double quotes
+        elif ch == "$" and nxt == "'":
+            body: list[str] = []
+            escaped = False
+            i += 2
+            while i < n and command[i] != "'":
+                if command[i] == "\\" and i + 1 < n:
+                    escaped = True
+                    if command[i + 1] == "'":
+                        body.append("'\\''")
+                    else:
+                        body.append(command[i : i + 2])
+                    i += 2
+                else:
+                    body.append(command[i])
+                    i += 1
+            closed = i < n
+            i += 1
+            out.append("'")
+            if mark and escaped:
+                out.append(_ESCAPED_MARK)
+            out.extend(body)
+            if closed:
+                out.append("'")
+        else:
+            in_single, in_double = ch == "'", ch == '"'
+            out.append(ch)
+            i += 1
+    return "".join(out)
+
+
+def _unmask(text: str) -> str:
+    return text.replace(_MASK_DOLLAR, "$")
+
+
 def lex(command: str) -> list[str] | None:
     """shlex tokens (quote- and operator-aware); None on a parse error."""
+    return _lex(command)
+
+
+def _lex(command: str, mask: bool = False) -> list[str] | None:
     try:
+        # shlex drops everything after a `#`, even one in the middle of a word,
+        # and reads a newline as plain whitespace. A POSIX shell starts a
+        # comment only at the start of a word and runs each line as its own
+        # command, so `true x#;rm -rf ~` and a two-line command both run more
+        # than shlex shows. Remove real comments first, turn each newline into
+        # a `;`, and keep any remaining `#` as an ordinary character, so the
+        # classifier sees every command the shell will run.
+        command = strip_comments(command, newline=" ; ")
+        command = _plain_dollar_quotes(command, mark=mask)
+        if mask:
+            # After comment removal, so an apostrophe inside a comment cannot
+            # be read as an opening quote.
+            command = _mask_literals(command)
         lx = shlex.shlex(command, posix=True, punctuation_chars=True)
         lx.whitespace_split = True
+        lx.commenters = ""
         return list(lx)
     except ValueError:
         return None
+
+
+def _is_boundary(tok: str) -> bool:
+    """True if a new simple command starts after this token."""
+    if tok in _CONTROL_OPS or tok in _STRUCTURE_WORDS:
+        return True
+    # shlex returns a run of punctuation as one token: `&&(`, `);`, `<(`, `;;`.
+    # Any run that holds an operator or a parenthesis is a boundary. A plain
+    # redirect (`>`, `>>`, `2>&1` arrives as `>&`) is not, so its target stays
+    # in the same argv.
+    chars = set(tok)
+    if not tok or not chars <= (_OPERATOR_CHARS | _REDIRECT_CHARS):
+        return False
+    if chars & {"(", ")"}:
+        return True
+    return not chars & _REDIRECT_CHARS
 
 
 def _split_tokens(tokens: list[str]) -> list[tuple[list[str], bool]]:
@@ -220,11 +410,11 @@ def _split_tokens(tokens: list[str]) -> list[tuple[list[str], bool]]:
     cur: list[str] = []
     cur_is_pipe_target = False
     for tok in tokens:
-        if tok in _CONTROL_OPS:
+        if _is_boundary(tok):
             if cur:
                 out.append((cur, cur_is_pipe_target))
                 cur = []
-            cur_is_pipe_target = tok in _PIPE_OPS
+            cur_is_pipe_target = tok in _PIPE_OPS or tok.endswith("|")
             continue
         cur.append(tok)
     if cur:
@@ -232,17 +422,32 @@ def _split_tokens(tokens: list[str]) -> list[tuple[list[str], bool]]:
     return out
 
 
-def _segments_with_pipe(command: str) -> list[tuple[list[str], bool]]:
+def _segments_with_pipe(
+    command: str, mask: bool = False
+) -> list[tuple[list[str], bool]]:
     inner = strip_wrapper(command)
-    toks = lex(inner)
+    toks = _lex(inner, mask)
     if toks is None:
         # Conservative fallback: regex split, shlex each piece, drop unparseable.
         segs: list[tuple[list[str], bool]] = []
         for seg in split_segments(inner) or [inner]:
+            # Use the operator-aware lexer first, so a group or a control
+            # structure in a piece that does parse is still split.
+            piece = _lex(seg, mask)
+            if piece is not None:
+                segs.extend(_split_tokens(piece))
+                continue
             try:
                 segs.append((shlex.split(seg), False))
             except ValueError:
-                continue
+                # Quoting that cannot be parsed. Keep the words anyway: a
+                # command the classifier cannot read must not pass unseen.
+                # Quotes and grouping characters become spaces, so every word
+                # is visible to the position scan for the deny tier.
+                words = seg
+                for ch in "'\"()`;|&{}":
+                    words = words.replace(ch, " ")
+                segs.append((words.split(), False))
         return segs
     # `bash -c <inner>` / `bash -lc <inner>` reaching here (strip_wrapper only
     # matches the bare `-c` form) -> recurse on the inner command string.
@@ -252,7 +457,9 @@ def _segments_with_pipe(command: str) -> list[tuple[list[str], bool]]:
             None,
         )
         if ci is not None and ci + 1 < len(toks):
-            return _segments_with_pipe(toks[ci + 1])
+            # The inner shell parses this text again, so quoting from the
+            # outer command no longer applies to it.
+            return _segments_with_pipe(_unmask(toks[ci + 1]), mask)
     return _split_tokens(toks)
 
 
@@ -352,15 +559,103 @@ def _rm_verdict(argv: list[str]) -> tuple[str, str] | None:
     return None
 
 
+def _nested_commands(
+    argv: list[str], eff: list[str], live: list[str]
+) -> list[str]:
+    """Command text the shell will run from inside this segment.
+
+    `live` is argv with each literal `$` still masked, so
+    only a substitution the shell would really perform is followed. `eval`
+    and `sh -c` use the unmasked words, because the text they receive is
+    parsed a second time.
+    """
+    nested: list[str] = []
+    binary = os.path.basename(eff[0]) if eff else ""
+    if binary == "eval" and len(eff) > 1:
+        nested.append(" ".join(eff[1:]))
+    if binary in _SHELLS:
+        ci = next(
+            (j for j, t in enumerate(eff) if _SHELL_C_FLAG.match(t)), None
+        )
+        if ci is not None and ci + 1 < len(eff):
+            nested.append(eff[ci + 1])
+    for tok in live:
+        # Command substitution that survived inside one word, for example in
+        # double quotes: "$(cmd)". Classify what is inside it.
+        if "$(" in tok:
+            nested.append(
+                _drop_quotes(tok.replace("$(", " ; ").replace(")", " ; "))
+            )
+    # A backquoted command can span several words: echo `cmd arg`. Read the
+    # whole segment with each backquote as a command boundary.
+    if any("`" in tok for tok in live):
+        nested.append(_drop_quotes(" ".join(live).replace("`", " ; ")))
+    return nested
+
+
+def _drop_quotes(text: str) -> str:
+    """Replace quote, backslash and `#` characters with spaces in text cut out of a word.
+
+    The word came from inside double quotes, where these characters are plain
+    text: `echo "it's $(cmd) '"` and `echo "#$(cmd)"` still run cmd. Read as a
+    command of its own, the quotes would pair up and the `#` would start a
+    comment, and either would hide the command.
+    """
+    for ch in "'\"\\#":
+        text = text.replace(ch, " ")
+    return text
+
+
+def _stronger(
+    a: tuple[str, str] | None, b: tuple[str, str] | None
+) -> tuple[str, str] | None:
+    if a is not None and a[0] == "deny":
+        return a
+    if b is not None and b[0] == "deny":
+        return b
+    return a or b
+
+
 def _segment_verdict(
-    argv: list[str], is_pipe_target: bool
+    argv: list[str], is_pipe_target: bool, depth: int = 0
 ) -> tuple[str, str] | None:
     if not argv:
         return None
+    # A command name written with undecoded `$'...'` escapes could be any
+    # program, so it is never better than "ask".
+    marked_eff, _ = _effective(argv)
+    name_is_escaped = bool(marked_eff) and _ESCAPED_MARK in marked_eff[0]
+    live = [tok.replace(_ESCAPED_MARK, "") for tok in argv]
+    argv = [_unmask(tok) for tok in live]
     eff, escalated = _effective(argv)
+    nested_verdict: tuple[str, str] | None = None
+    for text in _nested_commands(argv, eff, live):
+        if depth >= _MAX_DEPTH:
+            return ("ask", "command is nested too deeply to classify")
+        nested_verdict = _stronger(nested_verdict, _classify(text, depth + 1))
+    if nested_verdict is not None and nested_verdict[0] == "deny":
+        return nested_verdict
+    # The deny tier is checked at every position, not only for the first word,
+    # so a wrapper this classifier does not know cannot hide it.
+    for i in range(1, len(argv)):
+        if os.path.basename(argv[i]) == "rm":
+            v = _rm_verdict(argv[i:])
+            if v is not None and v[0] == "deny":
+                return v
+    own = _own_verdict(eff, escalated, is_pipe_target)
+    if own is None and name_is_escaped:
+        own = ("ask", "command name uses escapes that are not decoded")
+    return _stronger(own, nested_verdict)
+
+
+def _own_verdict(
+    eff: list[str], escalated: bool, is_pipe_target: bool
+) -> tuple[str, str] | None:
     if not eff:
         return None
     binary = os.path.basename(eff[0])
+    if _EXPANSION_ONLY.match(eff[0]):
+        return ("ask", "command name comes from a variable")
     if is_pipe_target and binary in _PIPE_INTERPRETERS:
         return ("ask", "piping into an interpreter")
     if binary == "rm":
@@ -405,14 +700,22 @@ def _segment_verdict(
 
 def classify(command: str) -> tuple[str, str] | None:
     """Strongest verdict across segments. Unparseable command -> conservative ask."""
-    if lex(strip_wrapper(command)) is None and not segments(command):
+    return _classify(command, 0)
+
+
+def _classify(command: str, depth: int) -> tuple[str, str] | None:
+    unparseable = lex(strip_wrapper(command)) is None
+    if unparseable and not segments(command):
         return ("ask", "command could not be parsed")
-    segs = _segments_with_pipe(command)
+    segs = _segments_with_pipe(command, mask=True)
     if not segs:
         return ("ask", "command could not be parsed")
-    verdict: tuple[str, str] | None = None
+    # A command that only partly parses is never better than "ask".
+    verdict: tuple[str, str] | None = (
+        ("ask", "command could not be parsed") if unparseable else None
+    )
     for argv, is_pipe_target in segs:
-        v = _segment_verdict(argv, is_pipe_target=is_pipe_target)
+        v = _segment_verdict(argv, is_pipe_target=is_pipe_target, depth=depth)
         if v is None:
             continue
         if v[0] == "deny":
