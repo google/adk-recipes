@@ -658,6 +658,7 @@ deployability:
     - "<pkg>/app_utils/a2a.py"
     - "<pkg>/app_utils/services.py"
     - "<pkg>/app_utils/reasoning_engine_adapter.py"
+    - "<pkg>/app_utils/telemetry.py"
 
   # Write `agents-cli-manifest.yaml`. Kept out of required_files above because
   # it is metadata rather than a serving file, but emitted because it is

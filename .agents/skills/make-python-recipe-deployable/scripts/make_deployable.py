@@ -827,6 +827,24 @@ def check_already_deployable(
     )
 
 
+def _is_legacy_app_utils_file(path: Path) -> bool:
+    """Return True if `path` is a legacy ASP-era app_utils file.
+
+    Our own `telemetry.py` template defines `register_adk_telemetry` and must
+    not trip the legacy gate on a subsequent run; an ASP-era `telemetry.py`
+    (or any hand-written file without `register_adk_telemetry`) still does.
+    """
+    if not path.is_file():
+        return False
+    if path.name == "telemetry.py":
+        try:
+            if "def register_adk_telemetry" in path.read_text(encoding="utf-8"):
+                return False
+        except OSError:
+            pass
+    return True
+
+
 def check_legacy_app_utils(package_dir: Path, legacy_files: list[str]) -> Check:
     """Stop if the recipe carries the old ASP-era app_utils generation."""
     app_utils = package_dir / "app_utils"
@@ -836,7 +854,9 @@ def check_legacy_app_utils(package_dir: Path, legacy_files: list[str]) -> Check:
             status=CLEAN,
             message="No existing app_utils/ — nothing to collide with.",
         )
-    present = sorted(f for f in legacy_files if (app_utils / f).is_file())
+    present = sorted(
+        f for f in legacy_files if _is_legacy_app_utils_file(app_utils / f)
+    )
     if not present:
         return Check(
             id="legacy-app-utils",
