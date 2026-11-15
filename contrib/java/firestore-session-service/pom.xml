@@ -40,6 +40,8 @@
         <httpclient5.version>5.6.3</httpclient5.version>
         <httpcore5.version>5.4.3</httpcore5.version>
         <tomcat.version>11.0.25</tomcat.version>
+        <opentelemetry.version>1.67.0</opentelemetry.version>
+        <json.version>20260719</json.version>
     </properties>
 
     <!--
@@ -85,13 +87,19 @@
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
-            <!-- OpenTelemetry BOM -->
+            <!-- OpenTelemetry BOM (CVE-2026-118259) -->
             <dependency>
                 <groupId>io.opentelemetry</groupId>
                 <artifactId>opentelemetry-bom</artifactId>
-                <version>1.66.0</version>
+                <version>${opentelemetry.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
+            </dependency>
+            <!-- org.json (CVE-2026-59171) -->
+            <dependency>
+                <groupId>org.json</groupId>
+                <artifactId>json</artifactId>
+                <version>${json.version}</version>
             </dependency>
             <!-- Spring Boot BOM: manages Spring Framework, Tomcat, Apache HTTP, log4j -->
             <dependency>
