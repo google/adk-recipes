@@ -896,15 +896,11 @@ async def test_wrapped_catastrophic_blocks_both_chains(cmd, ask_is_deny):
     assert res is not None, cmd
 
 
-def test_shell_decision_denies_a_floor_segment_even_with_an_allow_grant():
-    # The permission layer re-splits the raw command. A segment that
-    # command_safety classifies as "deny" is refused here as well, so the floor
-    # does not depend on policies_guard having seen that segment. A grant that
-    # allows the tool does not lift it.
-    from horizon.guardrails.permission_guard import _shell_decision
+def _allow_bash_grant():
+    """A grant that allows the bash tool with no command restriction."""
     from horizon.guardrails.permission_rules import PermissionRule
 
-    grant = PermissionRule(
+    return PermissionRule(
         tool_names=("bash",),
         command_prefixes=(),
         command_regex=None,
@@ -914,6 +910,16 @@ def test_shell_decision_denies_a_floor_segment_even_with_an_allow_grant():
         subagent=None,
         source="grant",
     )
+
+
+def test_shell_decision_denies_a_floor_segment_even_with_an_allow_grant():
+    # The permission layer re-splits the raw command. A segment that
+    # command_safety classifies as "deny" is refused here as well, so the floor
+    # does not depend on policies_guard having seen that segment. A grant that
+    # allows the tool does not lift it.
+    from horizon.guardrails.permission_guard import _shell_decision
+
+    grant = _allow_bash_grant()
     hidden = [
         "true x#;rm -rf ~",
         "true\nrm -rf ~",
@@ -1006,7 +1012,6 @@ async def test_compound_syntax_does_not_hide_rm_rf_root(
 ):
     from horizon.guardrails.command_safety import classify
     from horizon.guardrails.permission_guard import _shell_decision
-    from horizon.guardrails.permission_rules import PermissionRule
     from horizon.guardrails.policies import policies_guard
 
     assert classify(command) == (
@@ -1020,16 +1025,7 @@ async def test_compound_syntax_does_not_hide_rm_rf_root(
     )
     assert isinstance(result, dict)
     assert "error" in result
-    grant = PermissionRule(
-        tool_names=("bash",),
-        command_prefixes=(),
-        command_regex=None,
-        args_pattern=None,
-        decision="allow",
-        deny_message=None,
-        subagent=None,
-        source="grant",
-    )
+    grant = _allow_bash_grant()
     assert _shell_decision([grant], "bash", command, None)[0] == "deny"
 
 

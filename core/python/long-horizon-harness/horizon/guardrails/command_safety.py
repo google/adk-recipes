@@ -327,11 +327,11 @@ def _plain_dollar_quotes(command: str, mark: bool) -> str:
             i += 1  # drop the `$`; the string is read as plain double quotes
         elif ch == "$" and nxt == "'":
             body: list[str] = []
-            escaped = False
+            has_backslash_escape = False
             i += 2
             while i < n and command[i] != "'":
                 if command[i] == "\\" and i + 1 < n:
-                    escaped = True
+                    has_backslash_escape = True
                     if command[i + 1] == "'":
                         body.append("'\\''")
                     else:
@@ -343,7 +343,7 @@ def _plain_dollar_quotes(command: str, mark: bool) -> str:
             closed = i < n
             i += 1
             out.append("'")
-            if mark and escaped:
+            if mark and has_backslash_escape:
                 out.append(_ESCAPED_MARK)
             out.extend(body)
             if closed:
@@ -559,9 +559,7 @@ def _rm_verdict(argv: list[str]) -> tuple[str, str] | None:
     return None
 
 
-def _nested_commands(
-    argv: list[str], eff: list[str], live: list[str]
-) -> list[str]:
+def _nested_commands(eff: list[str], live: list[str]) -> list[str]:
     """Command text the shell will run from inside this segment.
 
     `live` is argv with each literal `$` still masked, so
@@ -584,16 +582,18 @@ def _nested_commands(
         # double quotes: "$(cmd)". Classify what is inside it.
         if "$(" in tok:
             nested.append(
-                _drop_quotes(tok.replace("$(", " ; ").replace(")", " ; "))
+                _blank_quoting_chars(
+                    tok.replace("$(", " ; ").replace(")", " ; ")
+                )
             )
     # A backquoted command can span several words: echo `cmd arg`. Read the
     # whole segment with each backquote as a command boundary.
     if any("`" in tok for tok in live):
-        nested.append(_drop_quotes(" ".join(live).replace("`", " ; ")))
+        nested.append(_blank_quoting_chars(" ".join(live).replace("`", " ; ")))
     return nested
 
 
-def _drop_quotes(text: str) -> str:
+def _blank_quoting_chars(text: str) -> str:
     """Replace quote, backslash and `#` characters with spaces in text cut out of a word.
 
     The word came from inside double quotes, where these characters are plain
@@ -629,7 +629,7 @@ def _segment_verdict(
     argv = [_unmask(tok) for tok in live]
     eff, escalated = _effective(argv)
     nested_verdict: tuple[str, str] | None = None
-    for text in _nested_commands(argv, eff, live):
+    for text in _nested_commands(eff, live):
         if depth >= _MAX_DEPTH:
             return ("ask", "command is nested too deeply to classify")
         nested_verdict = _stronger(nested_verdict, _classify(text, depth + 1))
