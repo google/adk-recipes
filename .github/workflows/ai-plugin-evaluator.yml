@@ -9,12 +9,18 @@ name: '🔍 AI Plugin Evaluator'
 #
 # Posts findings as inline review comments on pull requests touching plugins/**.
 
+# Why `pull_request_target` is safe here: this file only delegates to
+# `_ai-pr-review-core.yml`, which checks out the BASE branch only, runs `agy`
+# with an empty tool allowlist (`"allow": []`), and isolates write permissions
+# in a separate job with no checkout and no cloud credentials.
 'on': # zizmor: ignore[dangerous-triggers]
   pull_request_target:
     types:
       - 'opened'
       - 'reopened'
       - 'synchronize'
+    paths:
+      - 'plugins/**'
   issue_comment:
     types:
       - 'created'

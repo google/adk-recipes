@@ -59,6 +59,13 @@ if str(TOOLS_DIR) not in sys.path:
 from ci_message import Diagnostic, Doc, guard, report  # noqa: E402
 from validate_manifest import repo_relative  # noqa: E402
 
+_FRONTMATTER_RE = re.compile(
+    r"^---[ \t]*\r?\n(.*?\r?\n)?---[ \t]*(?:\r?\n|$)", re.DOTALL
+)
+_PLUGIN_NAME_RE = re.compile(
+    r"^(?!.*(?:--|\.\.))[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$"
+)
+
 
 def _parse_yaml_frontmatter(content: str) -> tuple[dict | None, str | None]:
     """Extract and parse YAML front-matter from a markdown string."""
@@ -67,10 +74,10 @@ def _parse_yaml_frontmatter(content: str) -> tuple[dict | None, str | None]:
             None,
             "File does not start with '---' YAML front-matter delimiter.",
         )
-    parts = content.split("---", 2)
-    if len(parts) < 3:
+    match = _FRONTMATTER_RE.match(content)
+    if not match:
         return None, "YAML front-matter is not closed with a matching '---'."
-    fm_text = parts[1]
+    fm_text = match.group(1) or ""
     try:
         data = yaml.safe_load(fm_text)
     except yaml.YAMLError as exc:
@@ -118,18 +125,20 @@ def validate_skill(
                 )
             )
         elif fm:
-            if not fm.get("name"):
+            name_val = fm.get("name")
+            if not isinstance(name_val, str) or not name_val.strip():
                 diagnostics.append(
                     Diagnostic(
                         check="skill-frontmatter",
                         what=f"'{rel_skill}/SKILL.md' front-matter is missing required 'name' field.",
                         why="The skill front-matter must specify 'name'.",
-                        how=f"Set 'name: {skill_name}' in {rel_skill}/SKILL.md front-matter.",
+                        how=f"Set 'name: {vertical}-{skill_name}' in {rel_skill}/SKILL.md front-matter.",
                         doc=Doc.REQUIRED_FILES,
                         file=f"{rel_skill}/SKILL.md",
                     )
                 )
-            if not fm.get("description"):
+            desc_val = fm.get("description")
+            if not isinstance(desc_val, str) or not desc_val.strip():
                 diagnostics.append(
                     Diagnostic(
                         check="skill-frontmatter",
@@ -175,22 +184,34 @@ def validate_skill(
             else:
                 threshold = eval_data.get("threshold")
                 if threshold is not None:
-                    # Parse threshold float or percent string
                     num_threshold: float | None = None
-                    if isinstance(threshold, (int, float)):
+                    if isinstance(threshold, (int, float)) and not isinstance(
+                        threshold, bool
+                    ):
                         num_threshold = float(threshold)
-                    elif isinstance(threshold, str) and threshold.endswith("%"):
+                    elif isinstance(threshold, str):
+                        raw_t = threshold.strip()
                         try:
-                            num_threshold = float(threshold[:-1]) / 100.0
+                            if raw_t.endswith("%"):
+                                num_threshold = float(raw_t[:-1]) / 100.0
+                            else:
+                                num_threshold = float(raw_t)
                         except ValueError:
-                            pass
-                    if num_threshold is not None and num_threshold < 0.80:
+                            num_threshold = None
+                    if (
+                        num_threshold is None
+                        or num_threshold < 0.80
+                        or num_threshold > 1.0
+                    ):
                         diagnostics.append(
                             Diagnostic(
                                 check="eval-threshold",
-                                what=f"'{repo_relative(eval_yaml, repo_root)}' declares a pass threshold of {threshold} (< 80%).",
-                                why="Plugin evaluation rubrics require a pass threshold of at least 80% (>= 0.80).",
-                                how="Raise the evaluation threshold to at least 0.80 (80%) in EVAL.yaml.",
+                                what=(
+                                    f"'{repo_relative(eval_yaml, repo_root)}' declares an invalid pass threshold "
+                                    f"of {threshold} (must be between 0.80 and 1.0, i.e. >= 80%)."
+                                ),
+                                why="Plugin evaluation rubrics require a valid pass threshold of at least 80% (>= 0.80).",
+                                how="Set the evaluation threshold between 0.80 and 1.0 (or '80%'..'100%') in EVAL.yaml.",
                                 doc=Doc.REQUIRED_FILES,
                                 file=repo_relative(eval_yaml, repo_root),
                             )
@@ -446,7 +467,9 @@ def validate_plugin(
         )
     else:
         try:
-            data = json.loads(plugin_json.read_text(encoding="utf-8"))
+            data = json.loads(
+                plugin_json.read_text(encoding="utf-8", errors="replace")
+            )
             if not isinstance(data, dict):
                 diagnostics.append(
                     Diagnostic(
@@ -471,30 +494,67 @@ def validate_plugin(
                                 file=f"{rel_plugin}/plugin.json",
                             )
                         )
-                ownership = data.get("ownership")
-                if isinstance(ownership, dict):
-                    if not ownership.get("team"):
+                plugin_name = data.get("name")
+                if "name" in data and (
+                    not isinstance(plugin_name, str)
+                    or not _PLUGIN_NAME_RE.match(plugin_name)
+                ):
+                    diagnostics.append(
+                        Diagnostic(
+                            check="plugin-schema",
+                            what=f"'{rel_plugin}/plugin.json' has invalid 'name' value '{plugin_name}'.",
+                            why="Plugin 'name' must be a valid lowercase slug matching Agent Plugins v1.0.0.",
+                            how=f"Set 'name' to '{vertical}' in {rel_plugin}/plugin.json.",
+                            doc=Doc.MANIFEST,
+                            file=f"{rel_plugin}/plugin.json",
+                        )
+                    )
+                if "ownership" in data:
+                    ownership = data.get("ownership")
+                    if not isinstance(ownership, dict):
                         diagnostics.append(
                             Diagnostic(
                                 check="plugin-ownership",
-                                what=f"'{rel_plugin}/plugin.json' ownership is missing 'team'.",
-                                why="Plugin ownership requires a team identifier.",
-                                how="Set 'ownership.team' in plugin.json.",
+                                what=f"'{rel_plugin}/plugin.json' field 'ownership' must be a JSON object.",
+                                why="Plugin ownership requires 'team' and 'poc' string fields.",
+                                how='Set \'ownership\' to {"team": "...", "poc": "..."} in plugin.json.',
                                 doc=Doc.OWNERSHIP_PLACEHOLDER,
                                 file=f"{rel_plugin}/plugin.json",
                             )
                         )
-                    if not ownership.get("poc"):
-                        diagnostics.append(
-                            Diagnostic(
-                                check="plugin-ownership",
-                                what=f"'{rel_plugin}/plugin.json' ownership is missing 'poc'.",
-                                why="Plugin ownership requires a POC identifier.",
-                                how="Set 'ownership.poc' in plugin.json.",
-                                doc=Doc.OWNERSHIP_PLACEHOLDER,
-                                file=f"{rel_plugin}/plugin.json",
+                    else:
+                        team = ownership.get("team")
+                        if (
+                            not isinstance(team, str)
+                            or not team.strip()
+                            or "todo" in team.lower()
+                        ):
+                            diagnostics.append(
+                                Diagnostic(
+                                    check="plugin-ownership",
+                                    what=f"'{rel_plugin}/plugin.json' ownership is missing 'team'.",
+                                    why="Plugin ownership requires a non-placeholder team identifier.",
+                                    how="Set 'ownership.team' in plugin.json.",
+                                    doc=Doc.OWNERSHIP_PLACEHOLDER,
+                                    file=f"{rel_plugin}/plugin.json",
+                                )
                             )
-                        )
+                        poc = ownership.get("poc")
+                        if (
+                            not isinstance(poc, str)
+                            or not poc.strip()
+                            or "todo" in poc.lower()
+                        ):
+                            diagnostics.append(
+                                Diagnostic(
+                                    check="plugin-ownership",
+                                    what=f"'{rel_plugin}/plugin.json' ownership is missing 'poc'.",
+                                    why="Plugin ownership requires a non-placeholder POC identifier.",
+                                    how="Set 'ownership.poc' in plugin.json.",
+                                    doc=Doc.OWNERSHIP_PLACEHOLDER,
+                                    file=f"{rel_plugin}/plugin.json",
+                                )
+                            )
         except json.JSONDecodeError as exc:
             diagnostics.append(
                 Diagnostic(
@@ -507,11 +567,24 @@ def validate_plugin(
                 )
             )
 
-    # 2. mcp.json (optional, but if present must be valid JSON)
+    # 2. mcp.json (optional, but if present must be a valid JSON object)
     mcp_json = plugin_dir / "mcp.json"
     if mcp_json.is_file():
         try:
-            json.loads(mcp_json.read_text(encoding="utf-8"))
+            mcp_data = json.loads(
+                mcp_json.read_text(encoding="utf-8", errors="replace")
+            )
+            if not isinstance(mcp_data, dict):
+                diagnostics.append(
+                    Diagnostic(
+                        check="mcp-json-parse",
+                        what=f"Optional config '{rel_plugin}/mcp.json' is invalid JSON: expected a JSON object.",
+                        why="If mcp.json is present, it must be a JSON object.",
+                        how='Format mcp.json as a JSON object (e.g. {"mcpServers": {}}).',
+                        doc=Doc.REQUIRED_FILES,
+                        file=f"{rel_plugin}/mcp.json",
+                    )
+                )
         except json.JSONDecodeError as exc:
             diagnostics.append(
                 Diagnostic(
@@ -569,10 +642,16 @@ def collect_plugins(
     """Find all plugin directories to validate."""
     plugins_root = repo_root / "plugins"
 
-    if scope_path and scope_path != plugins_root and scope_path.is_dir():
-        if scope_path.parent.name == "skills":
-            return [scope_path.parent.parent]
-        return [scope_path]
+    if scope_path and scope_path != plugins_root:
+        if scope_path.is_file():
+            scope_path = scope_path.parent
+        if scope_path.is_dir():
+            if scope_path.name == "skills":
+                return [scope_path.parent]
+            if scope_path.parent.name == "skills":
+                return [scope_path.parent.parent]
+            return [scope_path]
+        return []
 
     if not plugins_root.is_dir():
         return []
@@ -605,6 +684,22 @@ def main() -> int:
         if not scope_path.exists():
             # Might be relative to repo root
             scope_path = (REPO_ROOT / scope_str).resolve()
+        if not scope_path.exists():
+            return report(
+                [
+                    Diagnostic(
+                        check="invalid-scope",
+                        what=f"Target scope '{scope_str}' does not exist.",
+                        why="Validation requires an existing plugin directory or 'plugins'.",
+                        how="Pass 'plugins' or an existing plugins/<vertical> directory.",
+                        doc=Doc.REQUIRED_FILES,
+                        file=scope_str,
+                    )
+                ],
+                header="Plugins with scaffolding or anatomy problems",
+                passed_message="",
+                next_step="See docs/recipe-handbook/plugins.md for layout and specification details.",
+            )
 
     plugin_dirs = collect_plugins(scope_path, REPO_ROOT)
     if not plugin_dirs:

@@ -422,7 +422,12 @@ def test_no_job_asks_for_more_than_every_caller_grants():
                     (f"{path.name}:{job_name}", _effective(doc, job))
                 )
 
-    for callee_name in (PR_REVIEW.name, ISSUE_TRIAGE.name, ISSUE_RESPONSE.name):
+    for callee_name in (
+        PR_REVIEW.name,
+        ISSUE_TRIAGE.name,
+        ISSUE_RESPONSE.name,
+        PROPOSAL_TRIAGE.name,
+    ):
         assert callers.get(callee_name), f"no caller found for {callee_name}"
         callee = _load(WORKFLOWS / callee_name)
 
@@ -454,6 +459,7 @@ def test_no_job_asks_for_more_than_every_caller_grants():
         (PR_REVIEW, "review"),
         (ISSUE_RESPONSE, "respond"),
         (ISSUE_TRIAGE, "triage"),
+        (PROPOSAL_TRIAGE, "triage"),
     ],
     ids=lambda item: getattr(item, "name", str(item)),
 )
@@ -487,6 +493,7 @@ def test_the_response_is_scanned_against_real_credential_material(path, job):
         (PR_REVIEW, "review"),
         (ISSUE_RESPONSE, "respond"),
         (ISSUE_TRIAGE, "triage"),
+        (PROPOSAL_TRIAGE, "triage"),
     ],
     ids=lambda item: getattr(item, "name", str(item)),
 )

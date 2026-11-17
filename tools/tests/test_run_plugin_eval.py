@@ -142,3 +142,35 @@ cases:
     # 1 prompt failure + 1 rubric pass = 50% pass rate, which is below 80%
     assert res["status"] == "FAIL"
     assert res["pass_rate"] == 0.50
+
+
+def test_case_without_rubrics_or_assertions_is_penalized(tmp_path: Path):
+    eval_file = tmp_path / "EVAL.yaml"
+    eval_file.write_text(
+        """
+threshold: 0.80
+cases:
+  - id: empty_criteria
+    prompt: "Valid prompt with no rubrics or assertions"
+"""
+    )
+    res = rpe.run_eval_for_file(eval_file)
+    assert res["status"] == "FAIL"
+    assert res["pass_rate"] == 0.50
+
+
+def test_unknown_assertion_type_does_not_pass(tmp_path: Path):
+    eval_file = tmp_path / "EVAL.yaml"
+    eval_file.write_text(
+        """
+threshold: 0.80
+cases:
+  - id: unknown_assertion
+    prompt: "Valid prompt"
+    assertions:
+      - type: totally_unknown_custom_assertion
+      - type: another_unknown_assertion
+"""
+    )
+    res = rpe.run_eval_for_file(eval_file)
+    assert res["status"] == "FAIL"

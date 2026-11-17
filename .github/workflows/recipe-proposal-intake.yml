@@ -3,9 +3,9 @@ name: '📥 Recipe Proposal Intake'
 # Assigns `recipe_proposals.assignees` to a new recipe proposal and applies
 # `recipe_proposals.label`, both from .github/policy.yml.
 #
-# After routing to the repository owners, hands the proposal to
-# `_ai-recipe-proposal-triage-core.yml` for an automated first-pass triage
-# evaluation based on `.agents/skills/triage-recipe-proposal/SKILL.md`.
+# When triggered by a maintainer via `@gemini-cli /triage-proposal` or
+# `workflow_dispatch`, hands the proposal to `_ai-recipe-proposal-triage-core.yml`
+# for a first-pass triage evaluation.
 
 on:
   issues:
@@ -23,7 +23,8 @@ on:
         type: 'number'
 
 concurrency:
-  group: '${{ github.workflow }}-${{ github.event.issue.number || github.event.inputs.issue_number || github.run_id }}'
+  group: >-
+    ${{ github.workflow }}-${{ github.event.issue.number || github.event.inputs.issue_number || github.run_id }}-${{ (github.event_name == 'issue_comment' && !(!github.event.issue.pull_request && contains(github.event.comment.body, '@gemini-cli /triage-proposal') && contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association))) && github.run_id || '' }}
   cancel-in-progress: true
 
 defaults:
@@ -40,11 +41,7 @@ jobs:
       (
         github.event_name == 'issue_comment' &&
         !github.event.issue.pull_request &&
-        (
-          contains(github.event.comment.body, '@gemini-cli /triage') ||
-          contains(github.event.comment.body, '@gemini-cli /triage-proposal') ||
-          contains(github.event.comment.body, '@gemini-cli /respond')
-        ) &&
+        contains(github.event.comment.body, '@gemini-cli /triage-proposal') &&
         contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association)
       )
     timeout-minutes: 5
@@ -93,10 +90,8 @@ jobs:
           if [[ "${TITLE^^}" == *'[RECIPE PROPOSAL]'* ]]; then
             IS_PROPOSAL="true"
           else
-            IS_PROPOSAL="$(uv run --no-project python3 .github/scripts/check_recipe_proposal.py \
-              --title "${TITLE}" \
-              --body "${BODY}" \
-              --labels "${LABELS}" | jq -r '.is_proposal')"
+            IS_PROPOSAL="$(printf '%s' "${ISSUE_DATA}" | uv run --no-project python3 .github/scripts/check_recipe_proposal.py \
+              --stdin | jq -r '.is_proposal')"
           fi
 
           echo "is_proposal=${IS_PROPOSAL}" >> "${GITHUB_OUTPUT}"
@@ -104,8 +99,8 @@ jobs:
           echo "issue_author=${AUTHOR}" >> "${GITHUB_OUTPUT}"
 
           DELIM="EOF_$(uuidgen)"
-          { echo "issue_title<<${DELIM}"; echo "${TITLE}"; echo "${DELIM}"; } >> "${GITHUB_OUTPUT}"
-          { echo "issue_body<<${DELIM}"; echo "${BODY}"; echo "${DELIM}"; } >> "${GITHUB_OUTPUT}"
+          printf 'issue_title<<%s\n%s\n%s\n' "${DELIM}" "${TITLE}" "${DELIM}" >> "${GITHUB_OUTPUT}"
+          printf 'issue_body<<%s\n%s\n%s\n' "${DELIM}" "${BODY}" "${DELIM}" >> "${GITHUB_OUTPUT}"
 
           if [[ "${IS_PROPOSAL}" != "true" ]]; then
             echo "#${ISSUE_NUMBER} is not a recipe proposal — skipping routing."
@@ -114,7 +109,7 @@ jobs:
 
       - name: 'Assign the reviewers and label the issue'
         if: |-
-          ${{ steps.check_proposal.outputs.is_proposal == 'true' }}
+          ${{ steps.check_proposal.outputs.is_proposal == 'true' && github.event_name != 'issue_comment' }}
         env:
           GH_TOKEN: '${{ secrets.GITHUB_TOKEN }}'
           GH_REPO: '${{ github.repository }}'

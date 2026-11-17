@@ -26,6 +26,7 @@ import json
 import re
 import sys
 from pathlib import Path
+from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools"))
 from ci_message import (
@@ -52,15 +53,32 @@ TITLE_PROPOSAL_PATTERNS = [
     re.compile(r"\[recipe\s+proposal\]", re.IGNORECASE),
     re.compile(r"\bpropos(e|ing|al)\b.*\brecipe\b", re.IGNORECASE),
     re.compile(r"\brecipe\b.*\bpropos(e|ing|al)\b", re.IGNORECASE),
-    re.compile(r"\b(add|create|new)\b.*\brecipe\b", re.IGNORECASE),
-    re.compile(r"\b(add|create|new)\b.*\bplugin\b", re.IGNORECASE),
+    re.compile(
+        r"\b(add|create|propose|submit)\s+(?:a\s+)?(?:new\s+)?(?:[\w-]+\s+){0,2}(?:recipe|plugin)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(r"\bnew\s+(?:[\w-]+\s+){0,2}(?:recipe|plugin)\b", re.IGNORECASE),
     re.compile(
         r"\b(recipe|plugin)\b.*\bfor\s+(core|contrib|plugins)\b", re.IGNORECASE
     ),
     re.compile(
-        r"\b(add|new|propose)\b.*\b(core|contrib|plugins)/", re.IGNORECASE
+        r"\b(add|new|propose)\s+(?:a\s+)?(?:recipe|plugin)\s+(?:in|to|under)\s+(core|contrib|plugins)/",
+        re.IGNORECASE,
     ),
 ]
+
+TITLE_NEGATIVE_PATTERNS = re.compile(
+    r"\b(bug|error|fail(?:ed|s|ing|ure)?|cannot|can't|unable\s+to|broken|crash(?:es|ed)?|missing\s+\.env)\b",
+    re.IGNORECASE,
+)
+
+NEGATIVE_LABELS = {
+    "bug",
+    "type: bug",
+    "question",
+    "type: question",
+    "documentation",
+}
 
 BODY_PROPOSAL_PATTERNS = [
     re.compile(
@@ -104,8 +122,18 @@ def is_recipe_proposal(
     if PROPOSAL_MARKER in upper_title:
         return True, "title_marker"
 
-    # Template body signals
+    # Explicit negative check for bug reports / questions before heuristics
+    for prefix in BUG_OR_QUESTION_PREFIXES:
+        if upper_title.startswith(prefix):
+            return False, f"negative_prefix:{prefix}"
+
+    if any(lbl in NEGATIVE_LABELS for lbl in clean_labels):
+        return False, "negative_label"
+
+    # Template body signals (ignore generic 'Scope Notice' unless paired)
     for signal in TEMPLATE_SIGNALS:
+        if signal == "Scope Notice":
+            continue
         if signal.lower() in clean_body.lower():
             return True, f"template_signal:{signal[:20]}"
 
@@ -113,10 +141,8 @@ def is_recipe_proposal(
     if "contribute" in clean_labels:
         return True, "label_contribute"
 
-    # Explicit negative check for bug reports / questions
-    for prefix in BUG_OR_QUESTION_PREFIXES:
-        if upper_title.startswith(prefix):
-            return False, f"negative_prefix:{prefix}"
+    if TITLE_NEGATIVE_PATTERNS.search(clean_title):
+        return False, "negative_title_keyword"
 
     # Title pattern checks
     for pat in TITLE_PROPOSAL_PATTERNS:
@@ -137,9 +163,8 @@ def is_template_proposal(
 ) -> tuple[bool, str]:
     """Check if an issue was filed specifically using propose-a-new-recipe.md format.
 
-    Requires the [RECIPE PROPOSAL] title marker (case-insensitive) along with
-    template structure signals from propose-a-new-recipe.md, or a high concentration
-    of template questions if the title was modified.
+    Requires the [RECIPE PROPOSAL] title marker (case-insensitive) or a high
+    concentration of template questions if the title was modified.
     """
     clean_title = (title or "").strip()
     upper_title = clean_title.upper()
@@ -160,8 +185,9 @@ def is_template_proposal(
     ):
         matched_signals.append("What language is your recipe is implemented in")
 
-    # If title has [RECIPE PROPOSAL] and at least one template question/section is present:
-    if has_marker and len(matched_signals) >= 1:
+    # If title has [RECIPE PROPOSAL] and either has template signals or an empty body
+    # (so Gate A can triage empty [RECIPE PROPOSAL] submissions):
+    if has_marker and (len(matched_signals) >= 1 or not clean_body):
         return (
             True,
             f"template_format:marker_and_{len(matched_signals)}_signals",
@@ -174,6 +200,31 @@ def is_template_proposal(
     return False, "not_template_format"
 
 
+def _parse_labels(raw_labels: str | list[Any]) -> list[str]:
+    """Parse labels from a list, JSON list string, or comma-separated string."""
+    if isinstance(raw_labels, list):
+        return [
+            str(x.get("name") if isinstance(x, dict) else x)
+            for x in raw_labels
+            if x
+        ]
+    stripped = (raw_labels or "").strip()
+    if not stripped:
+        return []
+    if stripped.startswith("["):
+        try:
+            parsed = json.loads(stripped)
+            if isinstance(parsed, list):
+                return [
+                    str(x.get("name") if isinstance(x, dict) else x)
+                    for x in parsed
+                    if x
+                ]
+        except json.JSONDecodeError:
+            pass
+    return [x.strip() for x in stripped.split(",") if x.strip()]
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--title", default="", help="Issue title")
@@ -182,6 +233,11 @@ def main() -> int:
         "--labels",
         default="",
         help="Comma-separated labels or JSON list of labels",
+    )
+    parser.add_argument(
+        "--stdin",
+        action="store_true",
+        help="Read issue JSON ({title, body, labels}) from stdin",
     )
     parser.add_argument(
         "--github-output",
@@ -195,23 +251,24 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    labels: list[str] = []
-    if args.labels:
-        stripped = args.labels.strip()
-        if stripped.startswith("["):
-            try:
-                parsed = json.loads(stripped)
-                if isinstance(parsed, list):
-                    labels = [str(x) for x in parsed]
-            except json.JSONDecodeError:
-                pass
-        if not labels:
-            labels = [x.strip() for x in stripped.split(",") if x.strip()]
+    title = args.title
+    body = args.body
+    labels = _parse_labels(args.labels)
+
+    if args.stdin:
+        raw_stdin = sys.stdin.read().strip()
+        if raw_stdin:
+            data = json.loads(raw_stdin)
+            if isinstance(data, dict):
+                title = str(data.get("title") or "")
+                body = str(data.get("body") or "")
+                if "labels" in data:
+                    labels = _parse_labels(data["labels"])
 
     if args.template_only:
-        is_prop, reason = is_template_proposal(args.title, args.body)
+        is_prop, reason = is_template_proposal(title, body)
     else:
-        is_prop, reason = is_recipe_proposal(args.title, args.body, labels)
+        is_prop, reason = is_recipe_proposal(title, body, labels)
 
     if args.github_output:
         out_path = Path(args.github_output)

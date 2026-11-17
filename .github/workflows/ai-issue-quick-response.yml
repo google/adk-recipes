@@ -19,7 +19,8 @@ on:
         type: 'number'
 
 concurrency:
-  group: '${{ github.workflow }}-${{ github.event.issue.number || github.event.inputs.issue_number || github.run_id }}'
+  group: >-
+    ${{ github.workflow }}-${{ github.event.issue.number || github.event.inputs.issue_number || github.run_id }}-${{ (github.event_name == 'issue_comment' && !(!github.event.issue.pull_request && contains(github.event.comment.body, '@gemini-cli /respond') && contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association))) && github.run_id || '' }}
   cancel-in-progress: true
 
 defaults:
@@ -94,8 +95,8 @@ jobs:
           echo "allow_comment=${ALLOW_COMMENT}" >> "${GITHUB_OUTPUT}"
 
           DELIM="EOF_$(uuidgen)"
-          { echo "issue_title<<${DELIM}"; echo "${TITLE}"; echo "${DELIM}"; } >> "${GITHUB_OUTPUT}"
-          { echo "issue_body<<${DELIM}"; echo "${BODY}"; echo "${DELIM}"; } >> "${GITHUB_OUTPUT}"
+          printf 'issue_title<<%s\n%s\n%s\n' "${DELIM}" "${TITLE}" "${DELIM}" >> "${GITHUB_OUTPUT}"
+          printf 'issue_body<<%s\n%s\n%s\n' "${DELIM}" "${BODY}" "${DELIM}" >> "${GITHUB_OUTPUT}"
 
           echo "Resolved issue #${NUMBER}: ${TITLE}"
 
@@ -127,7 +128,7 @@ jobs:
       - 'resolve'
       - 'respond'
     if: |-
-      ${{ always() && contains(needs.*.result, 'failure') && needs.resolve.outputs.allow_comment == 'true' }}
+      ${{ always() && contains(needs.*.result, 'failure') && github.event_name != 'issues' }}
     timeout-minutes: 5
     runs-on: 'ubuntu-latest'
     permissions:

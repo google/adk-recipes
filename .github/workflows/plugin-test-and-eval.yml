@@ -11,7 +11,9 @@ name: 'Plugin Tests & Evaluation'
       - 'plugins/**'
       - '.github/workflows/plugin-test-and-eval.yml'
       - 'tools/run_plugin_eval.py'
+      - 'tools/ci_message.py'
       - 'pyproject.toml'
+      - 'uv.lock'
   push:
     branches:
       - 'main'
@@ -19,11 +21,17 @@ name: 'Plugin Tests & Evaluation'
       - 'plugins/**'
       - '.github/workflows/plugin-test-and-eval.yml'
       - 'tools/run_plugin_eval.py'
+      - 'tools/ci_message.py'
       - 'pyproject.toml'
+      - 'uv.lock'
   workflow_dispatch:
 
 permissions:
   contents: 'read'
+
+concurrency:
+  group: '${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}'
+  cancel-in-progress: true
 
 jobs:
   test-and-eval-plugins:
@@ -39,33 +47,57 @@ jobs:
           persist-credentials: false
 
       - name: 'Install uv'
-        uses: 'astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7' # ratchet:astral-sh/setup-uv@v10.2.0
+        uses: 'astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e' # ratchet:astral-sh/setup-uv@v10.3.2
         with:
           python-version: '3.11'
           enable-cache: false
 
       - name: 'Install repo dependencies'
-        run: 'uv sync'
+        run: 'uv sync --locked'
 
       - name: 'Run Skill Unit & Runnability Tests'
         run: |
           set -euo pipefail
-          echo "Finding plugin skill directories with tests..."
+          echo "Finding plugin skill directories..."
           FAILED=0
-          while IFS= read -r test_file; do
-            skill_dir="$(dirname "$(dirname "${test_file}")")"
+          FOUND=0
+          while IFS= read -r pyproject_file; do
+            [ -z "${pyproject_file}" ] && continue
+            skill_dir="$(dirname "${pyproject_file}")"
+            FOUND=$((FOUND + 1))
             echo "------------------------------------------------------------"
             echo "Running pytest in: ${skill_dir}"
             echo "------------------------------------------------------------"
+            if [ ! -f "${skill_dir}/tests/test_runnability.py" ]; then
+              echo "::error file=${skill_dir}::Missing required ${skill_dir}/tests/test_runnability.py"
+              FAILED=1
+              continue
+            fi
+            # `set +e` is required around the subshell: placing `(...)` on the
+            # left-hand side of `|| FAILED=1` disables `errexit` inside the
+            # entire subshell in Bash, which would let a failed `cd` or
+            # `uv sync` continue into `pytest`.
+            set +e
             (
+              set -euo pipefail
               cd "${skill_dir}"
               if [ ! -f .env ] && [ -f .env.example ]; then
                 cp .env.example .env
               fi
-              uv sync --dev
-              uv run pytest --ignore=tests/integration --ignore-glob="**/test_integration.py"
-            ) || FAILED=1
-          done < <(find plugins -mindepth 4 -maxdepth 5 -type f -name "test_*.py" | sort -u)
+              uv sync --locked --dev
+              uv run --frozen pytest --ignore=tests/integration --ignore-glob="**/test_integration.py"
+            )
+            rc=$?
+            set -e
+            if [ "${rc}" -ne 0 ]; then
+              FAILED=1
+            fi
+          done < <(find plugins -mindepth 4 -maxdepth 4 -path "plugins/*/skills/*/pyproject.toml" -type f | sort -u)
+
+          if [ "${FOUND}" -eq 0 ]; then
+            echo "::error::No plugin skill pyproject.toml files found under plugins/*/skills/*."
+            exit 1
+          fi
 
           if [ "${FAILED}" -ne 0 ]; then
             echo "❌ One or more plugin skill tests failed."

@@ -35,7 +35,9 @@ def test_workflow_yaml_syntax():
         content = yaml.safe_load(wf.read_text(encoding="utf-8"))
         assert isinstance(content, dict), f"{wf} must be a valid YAML mapping."
         assert "name" in content, f"{wf} missing 'name'."
-        assert "on" in content or True in content, f"{wf} missing 'on' triggers."
+        assert "on" in content or True in content, (
+            f"{wf} missing 'on' triggers."
+        )
         assert "jobs" in content, f"{wf} missing 'jobs'."
 
 
@@ -46,7 +48,9 @@ def test_ai_plugin_evaluator_interface():
 
     trigger_job = data["jobs"].get("trigger")
     assert trigger_job is not None, "ai-plugin-evaluator missing trigger job"
-    assert trigger_job.get("uses") == "./.github/workflows/_ai-pr-review-core.yml"
+    assert (
+        trigger_job.get("uses") == "./.github/workflows/_ai-pr-review-core.yml"
+    )
 
     with_inputs = trigger_job.get("with", {})
     assert with_inputs.get("review_label") == "Plugin Evaluator"
@@ -137,7 +141,9 @@ def test_plugin_skills_test_structure():
         REPO_ROOT / "plugins/retail/skills/virtual-tryon",
     ]
     for skill_dir in skills:
-        assert (skill_dir / "tests").is_dir(), f"{skill_dir} missing tests directory"
+        assert (skill_dir / "tests").is_dir(), (
+            f"{skill_dir} missing tests directory"
+        )
         test_files = list((skill_dir / "tests").glob("test_*.py"))
         assert len(test_files) > 0, f"{skill_dir} has no test_*.py files"
         assert (skill_dir / "tests/test_runnability.py").is_file(), (

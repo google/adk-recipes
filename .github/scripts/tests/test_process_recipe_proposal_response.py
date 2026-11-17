@@ -117,3 +117,29 @@ def test_cli_execution_decline(tmp_path: Path):
     assert "decision=DECLINE" in gh_text
     assert "gate=C" in gh_text
     assert "close_issue=true" in gh_text
+
+
+def test_extract_json_handles_preamble_braces():
+    raw = (
+        "Checking directory {contrib/python} first...\n"
+        '{"decision": "ACCEPT", "gate": null, "close_issue": false, "response": "Approved!"}'
+    )
+    data = extract_json(raw)
+    assert data["decision"] == "ACCEPT"
+
+
+def test_accept_never_closes_issue_and_sanitizes_mentions():
+    d = {
+        "decision": "ACCEPT",
+        "gate": "Gate C",
+        "close_issue": True,
+        "response": "Approved! cc @happyhuman @kgu-here and @random-spam-target",
+    }
+    decision, gate, body, close_issue = process_proposal_response(
+        d, issue_author="proposer-user"
+    )
+    assert decision == "ACCEPT"
+    assert gate == "C"
+    assert close_issue is False
+    assert "@happyhuman" in body
+    assert "`@random-spam-target`" in body

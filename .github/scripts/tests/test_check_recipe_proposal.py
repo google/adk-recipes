@@ -181,3 +181,29 @@ def test_cli_execution_template_only(tmp_path: Path):
     assert res.returncode == 0
     assert '"is_proposal": false' in res.stdout
     assert "is_proposal=false" in out_file.read_text(encoding="utf-8")
+
+
+def test_cli_stdin_handles_hyphen_prefixed_body(tmp_path: Path):
+    """Issues starting with `---` (YAML frontmatter / HR) must not crash argparse."""
+    script = Path(__file__).resolve().parents[1] / "check_recipe_proposal.py"
+    stdin_payload = '{"title": "[RECIPE PROPOSAL] Agent", "body": "---\\nfrontmatter\\n---", "labels": []}'
+    res = subprocess.run(
+        [sys.executable, str(script), "--stdin"],
+        input=stdin_payload,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert res.returncode == 0, res.stderr
+    assert '"is_proposal": true' in res.stdout
+
+
+def test_bug_titles_mentioning_create_and_recipe_are_not_proposals():
+    non_proposals = [
+        "Cannot create session in rag-agent-search recipe",
+        "Error when creating agent in financial-advisor recipe",
+        "Bug in contrib/python/llm-auditor recipe",
+    ]
+    for title in non_proposals:
+        is_prop, reason = is_recipe_proposal(title)
+        assert is_prop is False, f"Expected False for {title!r}, got {reason}"

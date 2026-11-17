@@ -34,18 +34,25 @@ from typing import Any
 
 import yaml
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+TOOLS_DIR = Path(__file__).resolve().parent
+REPO_ROOT = TOOLS_DIR.parent
+if str(TOOLS_DIR) not in sys.path:
+    sys.path.insert(0, str(TOOLS_DIR))
+
+from ci_message import guard  # noqa: E402
 
 
 def find_eval_files(scope: Path | None = None) -> list[Path]:
     """Find all EVAL.yaml / eval.yaml files under plugins/."""
-    base = scope if scope and scope.exists() else (REPO_ROOT / "plugins")
+    if scope is not None and not scope.exists():
+        return []
+    base = scope if scope is not None else (REPO_ROOT / "plugins")
     if base.is_file() and base.name.lower() in ("eval.yaml", "eval.yml"):
         return [base]
 
     eval_files: list[Path] = []
     for p in sorted(base.rglob("*")):
-        if p.is_file() and p.name in ("EVAL.yaml", "eval.yaml"):
+        if p.is_file() and p.name.lower() in ("eval.yaml", "eval.yml"):
             # Exclude cache or venv dirs
             if not any(
                 part in {".venv", "node_modules", ".git"} for part in p.parts
@@ -105,6 +112,7 @@ def evaluate_assertions(
         "regex_match",
         "json_valid",
         "status_code",
+        "graceful_no_results",
     }
 
     for assertion in assertions:
@@ -115,18 +123,39 @@ def evaluate_assertions(
             continue
 
         a_type = assertion.get("type")
-        if not a_type:
+        if not a_type or not isinstance(a_type, str):
             issues.append("Assertion missing 'type' key")
             continue
 
         if a_type in recognized_types:
             passed += 1
         else:
-            # Custom or experimental assertion type
+            # Unrecognized assertion type is flagged and not counted as passed
             issues.append(f"Custom/unverified assertion type: '{a_type}'")
-            passed += 1
 
     return passed, len(assertions), issues
+
+
+def _parse_threshold(raw: Any) -> float | None:
+    """Parse an EVAL.yaml threshold value into a float in (0.0, 1.0]."""
+    if raw is None:
+        return 0.80
+    if isinstance(raw, bool):
+        return None
+    if isinstance(raw, (int, float)):
+        val = float(raw)
+        return val if 0.0 < val <= 1.0 else None
+    if isinstance(raw, str):
+        s = raw.strip()
+        try:
+            if s.endswith("%"):
+                val = float(s[:-1]) / 100.0
+            else:
+                val = float(s)
+            return val if 0.0 < val <= 1.0 else None
+        except ValueError:
+            return None
+    return None
 
 
 def run_eval_for_file(eval_path: Path) -> dict[str, Any]:
@@ -137,7 +166,9 @@ def run_eval_for_file(eval_path: Path) -> dict[str, Any]:
         else eval_path
     )
     try:
-        content = yaml.safe_load(eval_path.read_text(encoding="utf-8"))
+        content = yaml.safe_load(
+            eval_path.read_text(encoding="utf-8", errors="replace")
+        )
     except yaml.YAMLError as exc:
         return {
             "path": rel_path,
@@ -163,23 +194,43 @@ def run_eval_for_file(eval_path: Path) -> dict[str, Any]:
             "pass_rate": 0.0,
         }
 
-    declared_threshold = content.get("threshold", 0.80)
-    if isinstance(declared_threshold, str) and declared_threshold.endswith("%"):
-        try:
-            declared_threshold = float(declared_threshold[:-1]) / 100.0
-        except ValueError:
-            declared_threshold = 0.80
-    declared_threshold = float(declared_threshold)
+    parsed_threshold = _parse_threshold(
+        content["threshold"] if "threshold" in content else 0.80
+    )
+    if parsed_threshold is None:
+        return {
+            "path": rel_path,
+            "status": "ERROR",
+            "error": f"Invalid threshold '{content.get('threshold')}' in EVAL.yaml (must be between 0.0 and 1.0 or a percentage string).",
+            "pass_rate": 0.0,
+        }
+    declared_threshold = max(0.80, parsed_threshold)
 
     total_checks = 0
     passed_checks = 0
     case_summaries = []
 
-    for case in cases:
-        case_id = case.get("id", "unnamed_case")
-        prompt = case.get("prompt", "")
-        rubrics = case.get("rubric") or []
-        assertions = case.get("assertions") or []
+    for idx, case in enumerate(cases):
+        if not isinstance(case, dict):
+            total_checks += 1
+            case_summaries.append(
+                {
+                    "id": f"case_{idx}",
+                    "checks": 1,
+                    "passed": 0,
+                    "rate": 0.0,
+                    "issues": [
+                        f"Case #{idx} must be a mapping, got {type(case).__name__}."
+                    ],
+                }
+            )
+            continue
+
+        case_id = str(case.get("id") or f"unnamed_case_{idx}")
+        raw_prompt = case.get("prompt", "")
+        prompt = raw_prompt if isinstance(raw_prompt, str) else ""
+        raw_rubrics = case.get("rubric")
+        raw_assertions = case.get("assertions")
 
         case_passed = 0
         case_total = 0
@@ -193,19 +244,43 @@ def run_eval_for_file(eval_path: Path) -> dict[str, Any]:
             case_passed += 1
             case_total += 1
 
+        has_criteria = False
+
         # Check rubrics
-        if rubrics:
-            r_pass, r_tot, r_issues = evaluate_rubric_rules(rubrics)
-            case_passed += r_pass
-            case_total += r_tot
-            issues.extend(r_issues)
+        if raw_rubrics is not None:
+            if not isinstance(raw_rubrics, list):
+                issues.append(
+                    f"Case '{case_id}' rubric must be a list, got {type(raw_rubrics).__name__}."
+                )
+                case_total += 1
+                has_criteria = True
+            elif raw_rubrics:
+                has_criteria = True
+                r_pass, r_tot, r_issues = evaluate_rubric_rules(raw_rubrics)
+                case_passed += r_pass
+                case_total += r_tot
+                issues.extend(r_issues)
 
         # Check assertions
-        if assertions:
-            a_pass, a_tot, a_issues = evaluate_assertions(assertions)
-            case_passed += a_pass
-            case_total += a_tot
-            issues.extend(a_issues)
+        if raw_assertions is not None:
+            if not isinstance(raw_assertions, list):
+                issues.append(
+                    f"Case '{case_id}' assertions must be a list, got {type(raw_assertions).__name__}."
+                )
+                case_total += 1
+                has_criteria = True
+            elif raw_assertions:
+                has_criteria = True
+                a_pass, a_tot, a_issues = evaluate_assertions(raw_assertions)
+                case_passed += a_pass
+                case_total += a_tot
+                issues.extend(a_issues)
+
+        if not has_criteria:
+            issues.append(
+                f"Case '{case_id}' defines neither rubric items nor assertions."
+            )
+            case_total += 1
 
         total_checks += case_total
         passed_checks += case_passed
@@ -224,7 +299,7 @@ def run_eval_for_file(eval_path: Path) -> dict[str, Any]:
     overall_pass_rate = (
         (passed_checks / total_checks) if total_checks > 0 else 0.0
     )
-    passed = overall_pass_rate >= max(0.80, declared_threshold)
+    passed = overall_pass_rate >= declared_threshold
 
     return {
         "path": rel_path,
@@ -255,11 +330,14 @@ def main() -> int:
         scope_path = Path(args.scope).resolve()
         if not scope_path.exists():
             scope_path = (REPO_ROOT / args.scope).resolve()
+        if not scope_path.exists():
+            print(f"❌ Target scope '{args.scope}' does not exist.")
+            return 1
 
     eval_files = find_eval_files(scope_path)
     if not eval_files:
-        print("[INFO] No EVAL.yaml files found in scope.")
-        return 0
+        print(f"❌ No EVAL.yaml files found in scope '{args.scope}'.")
+        return 1
 
     print("=" * 80)
     print(f"  RUNNING PLUGIN EVALUATION SUITES ({len(eval_files)} found)")
@@ -311,4 +389,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(guard("run_plugin_eval.py", main))

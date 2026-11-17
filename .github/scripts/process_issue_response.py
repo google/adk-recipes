@@ -549,6 +549,8 @@ def main() -> int:
     )
     if response_body.strip():
         print(f"Generated response comment ({len(response_body)} chars).")
+    elif not allow_comment and option != Option.ACKNOWLEDGE_AND_ASSIGN:
+        print("No response comment generated (suppressed by --no-comment).")
     else:
         print("No response comment generated (Option 4 silent assignment).")
     if assignee:

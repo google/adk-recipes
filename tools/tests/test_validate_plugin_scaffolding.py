@@ -98,7 +98,9 @@ def test_real_plugins_pass():
     all_diags = []
     for p in real_plugins:
         all_diags.extend(vps.validate_plugin(p, vps.REPO_ROOT))
-    assert not all_diags, f"Real plugins in repo had errors: {[d.what for d in all_diags]}"
+    assert not all_diags, (
+        f"Real plugins in repo had errors: {[d.what for d in all_diags]}"
+    )
 
 
 # ==============================================================================
@@ -117,7 +119,9 @@ def test_malformed_plugin_json_fails(tmp_path: Path):
     plugin_dir = _create_minimal_valid_plugin(tmp_path)
     (plugin_dir / "plugin.json").write_text("{bad json")
     diags = vps.validate_plugin(plugin_dir, tmp_path)
-    assert any("Failed to parse" in d.what and "plugin.json" in d.what for d in diags)
+    assert any(
+        "Failed to parse" in d.what and "plugin.json" in d.what for d in diags
+    )
 
 
 def test_missing_schema_or_ownership_fails(tmp_path: Path):
@@ -156,7 +160,9 @@ def test_missing_skills_directory_fails(tmp_path: Path):
     (plugin_dir / "skills").rmdir()
 
     diags = vps.validate_plugin(plugin_dir, tmp_path)
-    assert any("Required directory 'skills/' is missing" in d.what for d in diags)
+    assert any(
+        "Required directory 'skills/' is missing" in d.what for d in diags
+    )
 
 
 def test_empty_skills_directory_fails(tmp_path: Path):
@@ -188,7 +194,9 @@ def test_missing_skill_md_fails(tmp_path: Path):
 
 def test_skill_md_missing_frontmatter_fails(tmp_path: Path):
     plugin_dir = _create_minimal_valid_plugin(tmp_path)
-    (plugin_dir / "skills" / "product-search" / "SKILL.md").write_text("# No frontmatter\n")
+    (plugin_dir / "skills" / "product-search" / "SKILL.md").write_text(
+        "# No frontmatter\n"
+    )
     diags = vps.validate_plugin(plugin_dir, tmp_path)
     assert any("invalid front-matter" in d.what for d in diags)
 
@@ -239,9 +247,13 @@ def test_missing_pyproject_toml_fails(tmp_path: Path):
 
 
 def test_invalid_project_name_fails(tmp_path: Path):
-    plugin_dir = _create_minimal_valid_plugin(tmp_path, "retail", "product-search")
+    plugin_dir = _create_minimal_valid_plugin(
+        tmp_path, "retail", "product-search"
+    )
     skill_dir = plugin_dir / "skills" / "product-search"
-    (skill_dir / "pyproject.toml").write_text('[project]\nname = "wrong-name"\n')
+    (skill_dir / "pyproject.toml").write_text(
+        '[project]\nname = "wrong-name"\n'
+    )
     diags = vps.validate_plugin(plugin_dir, tmp_path)
     assert any("retail-product-search" in d.what for d in diags)
 
@@ -275,7 +287,9 @@ def test_missing_scripts_directory_fails(tmp_path: Path):
     (skill_dir / "scripts" / "cleanup.py").unlink()
     (skill_dir / "scripts").rmdir()
     diags = vps.validate_plugin(plugin_dir, tmp_path)
-    assert any("Required directory 'scripts/' is missing" in d.what for d in diags)
+    assert any(
+        "Required directory 'scripts/' is missing" in d.what for d in diags
+    )
 
 
 def test_missing_setup_script_fails(tmp_path: Path):
@@ -299,7 +313,9 @@ def test_missing_references_directory_fails(tmp_path: Path):
     skill_dir = plugin_dir / "skills" / "product-search"
     (skill_dir / "references").rmdir()
     diags = vps.validate_plugin(plugin_dir, tmp_path)
-    assert any("Required directory 'references/' is missing" in d.what for d in diags)
+    assert any(
+        "Required directory 'references/' is missing" in d.what for d in diags
+    )
 
 
 def test_missing_assets_directory_fails(tmp_path: Path):
@@ -307,4 +323,23 @@ def test_missing_assets_directory_fails(tmp_path: Path):
     skill_dir = plugin_dir / "skills" / "product-search"
     (skill_dir / "assets").rmdir()
     diags = vps.validate_plugin(plugin_dir, tmp_path)
-    assert any("Required directory 'assets/' is missing" in d.what for d in diags)
+    assert any(
+        "Required directory 'assets/' is missing" in d.what for d in diags
+    )
+
+
+def test_null_ownership_in_plugin_json_fails(tmp_path: Path):
+    plugin_dir = _create_minimal_valid_plugin(tmp_path)
+    (plugin_dir / "plugin.json").write_text(
+        '{"$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json", "name": "retail", "ownership": null}\n'
+    )
+    diags = vps.validate_plugin(plugin_dir, tmp_path)
+    assert any("ownership" in d.what for d in diags)
+
+
+def test_boolean_or_out_of_range_eval_threshold_fails(tmp_path: Path):
+    plugin_dir = _create_minimal_valid_plugin(tmp_path)
+    skill_dir = plugin_dir / "skills" / "product-search"
+    (skill_dir / "EVAL.yaml").write_text("threshold: true\ncases: []\n")
+    diags = vps.validate_plugin(plugin_dir, tmp_path)
+    assert any("threshold" in d.what for d in diags)

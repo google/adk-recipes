@@ -201,9 +201,9 @@ jobs:
             - Do not leave generic acknowledgements or sycophantic greetings; no public comment is posted for Option 4.
             - Always set `close_issue: false`.
 
-            ## Routing Rules for Ticket Assignment (Option 4)
+            ## Routing Rules for Ticket Assignment
 
-            When Option 4 is chosen, identify the primary affected path or component and assign the ticket according to these ownership paths (if multiple paths are touched, default to the most specific matching path or assign based on the primary file type):
+            Always identify the primary affected path or component in `"path"` across Options 1–4 whenever the issue relates to a specific directory or recipe. When Option 4 is chosen (or when comments are suppressed during initial routing), assign the ticket according to these ownership paths (if multiple paths are touched, default to the most specific matching path or assign based on the primary file type):
 
             Catch-all (docs, root configs, or anything not matched below):
             Assign to: tommywagz
@@ -277,7 +277,7 @@ jobs:
 
             {
               "option": 3,
-              "path": null,
+              "path": "contrib/python/my-recipe",
               "assignee": null,
               "close_issue": true,
               "response": "Since this is a new community recipe, it should live under `contrib/<language>/<recipe-name>` (e.g. `contrib/python/my-recipe`). The `core/` directory is reserved for core-maintained reference recipes.\n\nIf you're using an AI assistant like CloudCode, you can run `prepare the python recipe contrib/python/my-recipe` to automatically generate the manifest, align dependencies, format code, and add tests. For manual setup and validation steps, check out the [Recipe Checklist](https://github.com/google/adk-recipes/blob/main/docs/recipe-checklist.md) and [Skills Catalog](https://github.com/google/adk-recipes/blob/main/docs/recipe-handbook/skills-catalog.md) for available helper skills."
@@ -285,7 +285,7 @@ jobs:
 
             Fields:
             - "option": integer 1, 2, 3, or 4
-            - "path": string, the affected repository path or recipe directory (e.g. "core/python/foo", "contrib/go/bar", "docs", or null)
+            - "path": string, the affected repository path or recipe directory across all Options 1-4 (e.g. "core/python/foo", "contrib/go/bar", ".github/workflows", "docs", or null if general)
             - "assignee": string, the GitHub username for Option 4 without the '@' prefix (e.g. "eliasecchig", "ToniCorinne", "tommywagz"), or null for Options 1-3
             - "close_issue": boolean (true or false). Set to true if the response completely answers the question and resolves the issue; false otherwise (always false for Options 1 and 4).
             - "response": string, the markdown response to post on the issue (leave empty or null for Option 4).
