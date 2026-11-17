@@ -34,11 +34,13 @@ locals {
   # The declaration carries the default so the module, the `bq` guide and the
   # schema test all read one number; the variable is the per-deployment
   # override. Both tables expire together -- a manifest whose turns have gone
-  # is a conversation nobody can read.
-  trajectory_payload_expiration_ms = 24 * 60 * 60 * 1000 * coalesce(
+  # is a conversation nobody can read. The trajectory files these conversations
+  # link to expire with them (see the jobs bucket in storage.tf).
+  trajectory_payload_retention_days = coalesce(
     var.trajectory_payload_retention_days,
     local.trajectory_payloads_table.partitioning.expiration_days,
   )
+  trajectory_payload_expiration_ms = 24 * 60 * 60 * 1000 * local.trajectory_payload_retention_days
 }
 
 resource "google_bigquery_table" "trajectory_payloads" {

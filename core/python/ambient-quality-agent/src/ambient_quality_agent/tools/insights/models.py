@@ -76,9 +76,9 @@ class OccurrenceState(enum.StrEnum):
 class FindingExample(BaseModel):
     """A sample `Finding` paired with the conversation turns where it occurred.
 
-    Provides both the failure description and the conversation context for
-    verification, root-cause analysis, and the dashboard. Stored as JSON on
-    `InsightOccurrence.examples` (in the BigQuery ``rubrics`` column).
+    Gives verification both the failure description and the conversation.
+    Stored as JSON on `InsightOccurrence.examples` (in the BigQuery ``rubrics``
+    column), without the turns.
     """
 
     finding: Finding = Field(
@@ -101,7 +101,10 @@ class FindingExample(BaseModel):
         serialization_alias="trace",
     )
     """Conversation turns as JSON-serializable dicts. Empty when the
-    trajectory's turns were unavailable. Stored in BigQuery under ``trace``."""
+    trajectory's turns were unavailable, and on every example insight
+    correlation stores, since the trajectory archive holds the conversation
+    under `trajectory_id` for its retention period. A stored row that carries
+    turns holds them in BigQuery under ``trace``."""
 
     examined: bool = False
     """True when the verification pass inspected this example's trajectory."""
@@ -253,8 +256,8 @@ class InsightOccurrence(BaseModel):
     Empty when no analysis step ran on the cluster."""
 
     examples: list[FindingExample] = Field(default_factory=list)
-    """Sampled findings with conversation turns, capped at `MAX_EXAMPLES`.
-    Stored in BigQuery in the ``rubrics`` column."""
+    """Sampled findings, capped at `MAX_EXAMPLES`. Stored in BigQuery in the
+    ``rubrics`` column."""
 
 
 # Subclasses Insight to inherit core fields while adding read-view aggregation metrics.
@@ -279,6 +282,10 @@ class InsightView(Insight):
     has_root_cause: bool = False
     """Whether any `RootCause` record exists for this insight, computed at read
     time for list views."""
+
+    root_cause_context_ids: list[str] = Field(default_factory=list)
+    """Distinct non-empty A2A `context_id` values across `RootCause` records for
+    this insight."""
 
 
 class ProposedEdit(BaseModel):
@@ -331,6 +338,10 @@ class RootCause(BaseModel):
 
     agent_revision: str
     """Agent snapshot revision used to resolve edit line ranges."""
+
+    context_id: str = ""
+    """A2A conversation context ID where this diagnosis was recorded, or empty
+    when recorded outside a chat session."""
 
     summary: str
     """Concise summary of the root cause mechanism."""
@@ -393,3 +404,12 @@ def list_occurrence_columns() -> tuple[str, ...]:
         Tuple of the columns `InsightOccurrence` is stored in.
     """
     return tuple(field_to_column(f) for f in InsightOccurrence.model_fields)
+
+
+def list_root_cause_columns() -> tuple[str, ...]:
+    """Returns column names of the insight_root_causes table.
+
+    Returns:
+        Tuple of the columns `RootCause` is stored in.
+    """
+    return tuple(field_to_column(f) for f in RootCause.model_fields)

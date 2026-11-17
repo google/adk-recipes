@@ -1,0 +1,25 @@
+[project]
+name = "ambient-quality-ui"
+version = "0.0.0"
+description = "FastAPI backend for the Ambient Quality Agent dashboard."
+requires-python = ">=3.11,<3.14"
+dependencies = [
+    "fastapi>=0.162.0,<1",
+    # The Agent Runtime backend uses google-auth (ADC bearer token) with its
+    # requests transport to refresh credentials, plus httpx for engine calls
+    # and A2A proxying.
+    "google-auth>=2.62.0,<3",
+    # `task_reader` lists and reads chat transcripts in the jobs bucket.
+    "google-cloud-storage>=3.17.1,<4",
+    "httpx>=0.28.1,<1",
+    "requests>=2.34.2,<3",
+    "starlette>=1.10.0,<2",
+    "uvicorn[standard]>=0.54.0,<1",
+]
+
+[tool.uv]
+exclude-newer = "7 days"
+
+[[tool.uv.index]]
+url = "https://pypi.org/simple"
+default = true

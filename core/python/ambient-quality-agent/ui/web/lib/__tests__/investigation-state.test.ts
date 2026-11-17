@@ -103,6 +103,25 @@ describe("when we stop believing a record", () => {
     expect(isInFlight(old, NOW)).toBe(false);
   });
 
+  test("a stage row is a sign of life, so a long investigation still writing them blocks", () => {
+    // Started two hours ago, and its sweep wrote how far it got a minute ago:
+    // a long investigation, not an abandoned one.
+    const long = {
+      ...buildInvestigation("running", 120),
+      progress: { updated_at: new Date(NOW - 60000).toISOString() },
+    };
+    expect(isInFlight(long, NOW)).toBe(true);
+    expect(isStalled(long, NOW)).toBe(false);
+
+    // Silent for longer than the window, it is written off like any other.
+    const silent = {
+      ...long,
+      progress: { updated_at: new Date(NOW - 31 * 60000).toISOString() },
+    };
+    expect(isInFlight(silent, NOW)).toBe(false);
+    expect(isStalled(silent, NOW)).toBe(true);
+  });
+
   test("a clock behind the server does not expire a fresh investigation", () => {
     // The record's timestamps are the server's UTC; a client clock a few
     // minutes behind makes a just-created investigation look like it starts in
@@ -198,6 +217,15 @@ describe("what it says", () => {
       "3d",
     );
     expect(inFlightAge({ status: "running" }, NOW)).toBe("");
+  });
+
+  test("the age counts from the last time the investigation said how far it got", () => {
+    // "No update for 45m", not for the six hours since it started.
+    const stuck = {
+      ...buildInvestigation("running", 6 * 60),
+      progress: { updated_at: new Date(NOW - 45 * 60000).toISOString() },
+    };
+    expect(inFlightAge(stuck, NOW)).toBe("45m");
   });
 
   test("the label names how many are running", () => {

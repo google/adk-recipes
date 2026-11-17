@@ -1747,3 +1747,167 @@ def test_occurrence_records_the_newest_revision_it_was_seen_on(
 
     _, _, occurrences = fake_store.saved[0]
     assert [o.agent_revision for o in occurrences] == ["10"]
+
+
+# --- example turns ------------------------------------------------------------
+
+
+def _run_sweep_on_every_example_path(
+    fake_call: FakeInsightModelCall,
+    fake_merge: FakeInsightModelCall,
+    monkeypatch: pytest.MonkeyPatch,
+) -> FakeInsightStore:
+    """Runs a sweep whose candidates take every path that hands examples to the store.
+
+    Two candidates fold into one by merge and mint a new insight; one matches
+    a stored insight; one is rejected; one is left unjudged by a failed call.
+
+    Args:
+        fake_call: The clustering fake.
+        fake_merge: The merge fake.
+        monkeypatch: Pytest monkeypatch fixture.
+
+    Returns:
+        The store the sweep wrote to.
+    """
+    fake_call.response = json.dumps(
+        {
+            "clusters": [
+                {"label": "made no tool call", "finding_ids": ["0"]},
+                {"label": "did not call a tool", "finding_ids": ["1"]},
+                {"label": "invented a ticket id", "finding_ids": ["2"]},
+                {
+                    "label": "answered in the wrong language",
+                    "finding_ids": ["3"],
+                },
+                {"label": "forgot to greet", "finding_ids": ["4"]},
+            ]
+        }
+    )
+    fake_merge.response = json.dumps({"groups": [{"ids": [0, 1]}]})
+
+    def verify(prompt: str) -> str:
+        if "answered in the wrong language" in prompt:
+            return _verdict(valid=False, description="")
+        if "forgot to greet" in prompt:
+            raise RuntimeError("quota exceeded")
+        return _verdict()
+
+    monkeypatch.setattr(
+        _common, "verification_call_factory", lambda ctx: verify
+    )
+    # After the merge the candidates are [merged, invented, wrong language,
+    # greet]; the rejected one is never matched, so position 1 is "invented".
+    store = FakeInsightStore(matches={1: "ins-existing"})
+    monkeypatch.setattr(_common, "insight_store_factory", lambda ctx: store)
+    state = _state(
+        finding_sets=[
+            _finding_set(f"r-{i}", case_id=f"case-{i}") for i in range(5)
+        ]
+    )
+
+    insight_correlation_node._func(_ctx(state))
+
+    new_insights, matched_ids, occurrences = store.saved[0]
+    # Every path is taken, so an assertion over the examples covers them all.
+    assert [i.label for i in new_insights] == ["made no tool call"]
+    assert matched_ids == ["ins-existing"]
+    assert [(o.label, o.occurrence_state) for o in occurrences] == [
+        ("made no tool call", OccurrenceState.TRACKED),
+        ("invented a ticket id", OccurrenceState.TRACKED),
+        ("answered in the wrong language", OccurrenceState.REJECTED),
+        ("forgot to greet", OccurrenceState.UNJUDGED),
+    ]
+    return store
+
+
+def test_examples_are_stored_without_turns(
+    fake_call: FakeInsightModelCall,
+    fake_merge: FakeInsightModelCall,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The store gets no conversation turns on any path, and keeps the
+    finding, the trajectory it came from, and what the models wrote about it.
+
+    The conversation stays readable by trajectory id from the trajectory
+    archive, which expires it; a copy on the occurrence would not. Verification
+    still reads the turns: they are dropped only once nothing but the store
+    would see them.
+    """
+    store = _run_sweep_on_every_example_path(fake_call, fake_merge, monkeypatch)
+
+    new_insights, _matched, occurrences = store.saved[0]
+    stored = [e for o in occurrences for e in o.examples]
+    matched = [e for c in store.candidates for e in c.examples]
+    assert len(stored) == 4 and len(matched) == 3
+    assert [e.turns for e in stored + matched] == [[]] * 7
+    # The merge keeps the surviving candidate's examples, not the folded one's.
+    assert [e.trajectory_id for e in stored] == [
+        "case-0",
+        "case-2",
+        "case-3",
+        "case-4",
+    ]
+    assert all(
+        e.finding.actual_behavior and e.finding.trajectory_id == e.trajectory_id
+        for e in stored
+    )
+    # The pass read the conversation and its verdict is kept.
+    assert [e.examined for e in occurrences[0].examples] == [True]
+    assert occurrences[0].analyses["verification"].explanation == "described"
+    assert new_insights[0].label == "made no tool call"
+
+
+# --- live progress ------------------------------------------------------------
+
+
+def test_each_stage_is_reported_as_it_starts(
+    fake_call: FakeInsightModelCall,
+    fake_store: FakeInsightStore,
+    investigation_store: Any,
+) -> None:
+    """Clustering and verification each take model calls, so a running
+    investigation names the one it is in."""
+    state = _one_cluster_state(fake_call)
+
+    insight_correlation_node._func(_ctx(state))
+
+    assert [
+        json.loads(r["text"])
+        for r in investigation_store.event_rows
+        if r["source"] == "stage"
+    ] == [
+        {"stage": "Clustering", "findings": 1},
+        {"stage": "Verification", "clusters": 1},
+    ]
+
+
+@pytest.mark.parametrize(
+    ("verification_enabled", "response"),
+    [
+        (False, None),
+        (True, {"clusters": []}),
+    ],
+    ids=["pass-off", "nothing-clustered"],
+)
+def test_no_verification_stage_is_reported_when_nothing_is_verified(
+    fake_call: FakeInsightModelCall,
+    fake_store: FakeInsightStore,
+    investigation_store: Any,
+    verification_enabled: bool,
+    response: dict[str, Any] | None,
+) -> None:
+    """The live view does not name a step that does not run: verification
+    switched off, or nothing clustered to verify."""
+    state = _one_cluster_state(fake_call)
+    state["insights_verification_enabled"] = verification_enabled
+    if response is not None:
+        fake_call.response = json.dumps(response)
+
+    insight_correlation_node._func(_ctx(state))
+
+    assert [
+        json.loads(r["text"])
+        for r in investigation_store.event_rows
+        if r["source"] == "stage"
+    ] == [{"stage": "Clustering", "findings": 1}]

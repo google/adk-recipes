@@ -23,7 +23,8 @@ embedded in the initial message.
 settings rebound at runtime take effect:
 1. Resolves the system instruction from `SYSTEM_INSTRUCTION_OVERRIDE` if set, or
    `BASE_SYSTEM_INSTRUCTION` (inserting `ARGON_*` rules when `ARGON_RULES` is
-   True, or when `ARGON_RULES` is None and the review model is not Claude).
+   True, or when `ARGON_RULES` is None and the review model is an argon model,
+   and describing the tools of `REVIEW_TOOLSET`).
 2. Appends conditional rules for unrecorded schemas, attachments, and review
    focus.
 3. Renders the developer goal and the elided session into the initial message.
@@ -44,6 +45,7 @@ import dataclasses
 import json
 from typing import TYPE_CHECKING, Any
 
+from ambient_quality_agent.tools.review.agentic_reviewer import toolsets
 from ambient_quality_agent.tools.review.agentic_reviewer.elided_trajectory import (
     render_elided_trajectory,
 )
@@ -60,9 +62,23 @@ if TYPE_CHECKING:
 
 ARGON_RULES: bool | None = None
 """Whether `resolve_system_instruction` inserts the `ARGON_*` rules tuned for
-gemini-4-argon into `BASE_SYSTEM_INSTRUCTION`. When None, enables the rules for
-Gemini models and leaves `BASE_SYSTEM_INSTRUCTION` unchanged for Claude models,
-matching the prompt each model family was validated with."""
+gemini-4-argon into `BASE_SYSTEM_INSTRUCTION`. When None, enables the rules
+only for a review model whose name contains `ARGON_MODEL_MARKER`, because
+other models, such as gemini-4-carbon and Claude, judge more precisely
+without them. True or False forces the rules on or off for any model."""
+
+ARGON_MODEL_MARKER = "argon"
+"""Substring of the review model name that selects the `ARGON_*` rules when
+`ARGON_RULES` is None."""
+
+REVIEW_TOOLSET: str = toolsets.GREP_READ
+"""Name of the toolset, from `toolsets.TOOLSETS`, that the reviewer reads the
+session with: ``grep_read`` (the default; the `grep` and `read` tools) or ``jq``
+(the `query_trajectory` tool). A ``grep_read`` prompt differs from a ``jq``
+prompt in the tools paragraph of the system instruction
+(`GREP_READ_TOOLS_PARAGRAPH` in place of `JQ_TOOLS_PARAGRAPH`), in the
+instruction outline (`read` line numbers) and in the string stubs of the first
+message (line counts)."""
 
 SYSTEM_INSTRUCTION_OVERRIDE: str | None = None
 """Full system instruction that, when set, replaces the composed base
@@ -75,6 +91,15 @@ texts -- and to search the session. You can call several tools in one step;
 they run in parallel.
 """
 """System-instruction paragraph describing the `query_trajectory` jq tool."""
+
+GREP_READ_TOOLS_PARAGRAPH = """\
+Your tools, grep and read, work on the full session document. Use read to
+read every elided value you need -- instruction sections, tool results, long
+texts -- and grep to search the session. You can call several tools in one
+step; they run in parallel.
+"""
+"""System-instruction paragraph that replaces `JQ_TOOLS_PARAGRAPH` for the
+``grep_read`` toolset."""
 
 BASE_SYSTEM_INSTRUCTION = (
     """\
@@ -336,32 +361,36 @@ class ReviewPrompt:
     """Initial user message containing the optional developer goal and the
     elided session."""
 
+    toolset: str
+    """Name of the toolset the prompt was built for, from
+    `toolsets.TOOLSETS`."""
+
 
 def resolve_system_instruction() -> str:
     """Resolve the base system instruction before the session suffixes.
 
     Returns:
         `SYSTEM_INSTRUCTION_OVERRIDE` when set; otherwise
-        `BASE_SYSTEM_INSTRUCTION`, with `ARGON_*` rules inserted when
-        `ARGON_RULES` is True, or when `ARGON_RULES` is None and
-        `config.review_model` is not a Claude model.
+        `BASE_SYSTEM_INSTRUCTION`, with `JQ_TOOLS_PARAGRAPH` replaced by
+        `GREP_READ_TOOLS_PARAGRAPH` when `REVIEW_TOOLSET` is ``grep_read``,
+        and with `ARGON_*` rules inserted when `ARGON_RULES` is True, or when
+        `ARGON_RULES` is None and the name of `config.review_model` contains
+        `ARGON_MODEL_MARKER`.
     """
     from ambient_quality_agent.config import config
-    from ambient_quality_agent.tools.review.agentic_reviewer import agent
 
     if SYSTEM_INSTRUCTION_OVERRIDE is not None:
         return SYSTEM_INSTRUCTION_OVERRIDE
+    base = BASE_SYSTEM_INSTRUCTION
+    if REVIEW_TOOLSET == toolsets.GREP_READ:
+        base = base.replace(JQ_TOOLS_PARAGRAPH, GREP_READ_TOOLS_PARAGRAPH, 1)
     argon_rules = ARGON_RULES
     if argon_rules is None:
-        argon_rules = not config.review_model.model.startswith(
-            agent.CLAUDE_MODEL_PREFIX
-        )
+        argon_rules = ARGON_MODEL_MARKER in config.review_model.model
     if not argon_rules:
-        return BASE_SYSTEM_INSTRUCTION
+        return base
     return (
-        BASE_SYSTEM_INSTRUCTION.replace(
-            _REPORT_ANCHOR, ARGON_JUDGING_RULES + _REPORT_ANCHOR, 1
-        )
+        base.replace(_REPORT_ANCHOR, ARGON_JUDGING_RULES + _REPORT_ANCHOR, 1)
         .replace(_BASE_REPLY_FORMAT, ARGON_REPLY_FORMAT, 1)
         .replace(
             _CHECKLIST_ANCHOR, ARGON_DISMISSED_FIELDS + _CHECKLIST_ANCHOR, 1
@@ -410,9 +439,22 @@ def build_review_prompt(
             section.
 
     Returns:
-        Deterministic `ReviewPrompt` for the given inputs.
+        Deterministic `ReviewPrompt` for the given inputs and
+        `REVIEW_TOOLSET`.
+
+    Raises:
+        ValueError: If `REVIEW_TOOLSET` is not in `toolsets.TOOLSETS`.
     """
-    trajectory_json = build_trajectory_json(eval_case, revisions)
+    toolset = REVIEW_TOOLSET
+    if toolset not in toolsets.TOOLSETS:
+        raise ValueError(
+            f"unknown review toolset {toolset!r}; expected one of "
+            f"{', '.join(toolsets.TOOLSETS)}"
+        )
+    is_grep_read = toolset == toolsets.GREP_READ
+    trajectory_json = build_trajectory_json(
+        eval_case, revisions, outline_line_numbers=is_grep_read
+    )
 
     instruction = resolve_system_instruction()
     # Without recorded parameter schemas, argument names cannot be verified
@@ -437,6 +479,9 @@ def build_review_prompt(
         system_instruction=instruction,
         initial_message=render_goal_section(goal)
         + "## Session\n"
-        + render_elided_trajectory(trajectory_json)
+        + render_elided_trajectory(
+            trajectory_json, count_string_lines=is_grep_read
+        )
         + "\n",
+        toolset=toolset,
     )

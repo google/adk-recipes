@@ -20,11 +20,22 @@ import type {
   ConversationToolCall,
 } from "./aqua-api";
 
+/** A file attached to a message in a stored conversation. */
+export interface ConversationFile {
+  mimeType: string | null;
+  /** `gs://` URI of a stored file, local path in standalone mode, or the
+   * original URI from telemetry. */
+  uri: string | null;
+}
+
 export interface TextItem {
   kind: "text";
   turnIndex: number;
   author: string | null;
+  /** Empty when the message contains only files. */
   text: string;
+  /** Attached files, rendered after `text` regardless of part order. */
+  files?: ConversationFile[];
 }
 
 export interface ToolGroupItem {
@@ -33,12 +44,11 @@ export interface ToolGroupItem {
   calls: ConversationToolCall[];
 }
 
-/** A turn that happened but produced no text and no tool call. This is the
- * shape of `empty_final_response`, one of AQuA's two built-in metrics: a tool
- * call earlier in the trajectory raised, and the turn that should have answered
- * the user has nothing in it. Told apart from a function-call event's empty
- * text (genuine noise) by the one thing that distinguishes them: that event's
- * turn also has a tool call recorded against it; this one does not. */
+/** A turn that produced no text, file, or tool call. This represents
+ * `empty_final_response` (one of AQuA's built-in metrics), where an earlier
+ * tool call failed and the final turn returned nothing. Distinguished from a
+ * function-call event with empty text because that turn also records a tool
+ * call. */
 export interface EmptyResponseItem {
   kind: "emptyResponse";
   turnIndex: number;
@@ -81,7 +91,10 @@ function reportsError(response: unknown): boolean {
  *
  * Because a single ADK turn includes both the user's prompt and the agent's
  * reply under the same `turn_index` with different `author`s, consecutive text
- * parts merge into one bubble only while `author` remains the same.
+ * and file parts merge into one bubble only while `author` remains the same.
+ *
+ * @param convo - Stored trajectory bundle to convert.
+ * @returns Timeline items in chronological order.
  */
 export function timelineOf(convo: TrajectoryBundle): TimelineItem[] {
   const items: TimelineItem[] = [];
@@ -101,6 +114,28 @@ export function timelineOf(convo: TrajectoryBundle): TimelineItem[] {
       if (pending.length === 0) return;
       items.push({ kind: "toolGroup", turnIndex, calls: pending });
       pending = [];
+    };
+
+    /**
+     * Flushes pending tool calls and returns the current turn's last bubble if
+     * it belongs to `author`, or appends a new empty bubble.
+     *
+     * @param author - Author of the text or file part.
+     * @returns Target bubble for the part.
+     */
+    const resolveBubble = (author: string | null): TextItem => {
+      flush();
+      const last = items.at(-1);
+      if (
+        last?.kind === "text" &&
+        last.turnIndex === turnIndex &&
+        last.author === author
+      ) {
+        return last;
+      }
+      const bubble: TextItem = { kind: "text", turnIndex, author, text: "" };
+      items.push(bubble);
+      return bubble;
     };
 
     for (const event of turn.events ?? []) {
@@ -142,18 +177,21 @@ export function timelineOf(convo: TrajectoryBundle): TimelineItem[] {
           }
           continue;
         }
+        if (part.file_data) {
+          const bubble = resolveBubble(author);
+          bubble.files ??= [];
+          bubble.files.push({
+            mimeType: part.file_data.mime_type ?? null,
+            uri: part.file_data.file_uri ?? null,
+          });
+          continue;
+        }
         if (part.text) {
-          flush();
-          const last = items.at(-1);
-          if (
-            last?.kind === "text" &&
-            last.turnIndex === turnIndex &&
-            last.author === author
-          ) {
-            last.text += `\n${part.text}`;
-          } else {
-            items.push({ kind: "text", turnIndex, author, text: part.text });
-          }
+          const bubble = resolveBubble(author);
+          // Avoid a leading newline when `bubble` was just created or opened by a file.
+          bubble.text = bubble.text
+            ? `${bubble.text}\n${part.text}`
+            : part.text;
         } else if (part.text === "" && author !== "user") {
           emptyAuthor = author;
         }
@@ -161,8 +199,7 @@ export function timelineOf(convo: TrajectoryBundle): TimelineItem[] {
     }
     flush();
 
-    // Nothing at all came of this turn: no text, no tool call. That is the
-    // signal, not silence -- see `EmptyResponseItem`.
+    // Emit an empty-response item when the turn produced no text, file, or tool call.
     if (items.length === before && emptyAuthor !== undefined) {
       items.push({ kind: "emptyResponse", turnIndex, author: emptyAuthor });
     }

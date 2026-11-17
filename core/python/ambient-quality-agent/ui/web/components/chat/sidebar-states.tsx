@@ -20,6 +20,7 @@
 import type { ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 import { ArrowRight } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { link, textStyle } from "@/lib/typography";
 import { cn } from "@/lib/utils";
 
@@ -104,28 +105,41 @@ export function SidebarError({ onRetry }: { onRetry: () => void }) {
   );
 }
 
-/** The header's "All" link to the full page a list samples. */
+/**
+ * The header's "All" link to the full page a list samples. Styled as the same
+ * outline button as Home's section links, at `h-6` to fit the 36px header. The
+ * focus ring is inset with zero offset because an open section clips overflow.
+ *
+ * Args:
+ *   to: Destination list route.
+ *   label: Accessible name, such as "All insights".
+ *
+ * Returns:
+ *   An outline button rendered as a router link.
+ */
 export function SidebarAllLink({
   to,
   label,
 }: {
   to: "/insights" | "/investigations";
-  /** The accessible name: "All insights". */
   label: string;
 }) {
   return (
-    <Link
-      to={to}
-      aria-label={label}
-      title={label}
-      activeOptions={{ exact: true }}
-      className={cn(
-        textStyle.meta,
-        "inline-flex h-6 items-center gap-0.5 rounded-md px-1.5 transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-      )}
+    <Button
+      asChild
+      variant="outline"
+      size="sm"
+      className="h-6 gap-1 px-2 focus-visible:ring-inset focus-visible:ring-offset-0 [&_svg]:size-3"
     >
-      All
-      <ArrowRight className="h-3 w-3" />
-    </Link>
+      <Link
+        to={to}
+        aria-label={label}
+        title={label}
+        activeOptions={{ exact: true }}
+      >
+        All
+        <ArrowRight aria-hidden="true" />
+      </Link>
+    </Button>
   );
 }

@@ -433,9 +433,14 @@ async def _launch_investigation(
             state, record.investigation_id
         )
         if changes:
-            updated = await model.update_investigation(
-                state, record.investigation_id, **changes
-            )
+            try:
+                updated = await model.update_investigation(
+                    state, record.investigation_id, **changes
+                )
+            except model.InvestigationCancelledError:
+                # Cancelled while it was being dispatched: the cancel stands,
+                # and a durable job stops at its own first write.
+                pass
     finally:
         # Release the lock only after terminal state write completes.
         lock.release(agent_key, record.investigation_id)

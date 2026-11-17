@@ -25,9 +25,17 @@
 # ASGI app we ship rather than at the agent module directly. See:
 # https://docs.cloud.google.com/gemini-enterprise-agent-platform/scale/runtime/runtime-contract
 
-FROM python:3.13-slim
+FROM python:3.13.17-slim@sha256:d98cc29d3266e535dd9da1099688d9cb3ca4753813571e071763d17725460962
 
-RUN pip install --no-cache-dir uv==0.8.13
+RUN printf '%s\n' \
+      'uv==0.13.6 \' \
+      '    --hash=sha256:22759b8895e1103578de6fb4cd27e94b4399d021023378d29f01333717751fba \' \
+      '    --hash=sha256:7ec5486476d67a4214c460b5492393ee2300d84e1de17b293100a019b413568b \' \
+      '    --hash=sha256:2e9a99100abe4f99605366974c4f9fe27f236615e05de8e78c0f357e38f09f97 \' \
+      '    --hash=sha256:d762215478854f6cf20c3faed8f1eb30c8101d568e7bc32a3abafc063929d5c5' \
+      > /tmp/uv-requirements.txt \
+ && pip install --no-cache-dir --require-hashes -r /tmp/uv-requirements.txt \
+ && rm /tmp/uv-requirements.txt
 
 # Serve as an unprivileged user instead of UID 0.
 #
@@ -53,7 +61,7 @@ USER 1001:1001
 WORKDIR /code
 
 # COPY writes as UID 0 regardless of USER, so ownership has to be spelled out.
-COPY --chown=agent:agent ./pyproject.toml ./README.md ./uv.lock* ./
+COPY --chown=agent:agent ./pyproject.toml ./README.md ./uv.lock ./
 
 # Named explicitly rather than copying all of src/, which also holds the
 # standalone chat UI -- that has its own deployment and no place in this image.
@@ -66,7 +74,7 @@ COPY --chown=agent:agent ./src/ambient_quality_shared ./src/ambient_quality_shar
 # wheel described by [tool.hatch.build.targets.wheel], which is unnecessary
 # here. --no-dev leaves pytest and cloudpickle out: they are reachable only
 # through the dev group, and nothing under src/ imports them.
-RUN uv sync --frozen --no-install-project --no-dev
+RUN uv sync --locked --no-install-project --no-dev
 
 # `ambient_quality_agent.…` absolute imports (~130 of them) resolve against the
 # package's *parent*, so src/ is what goes on the path, not the package.
@@ -74,7 +82,7 @@ ENV PYTHONPATH=/code/src
 
 # Keep the `uv run` in CMD from re-resolving or mutating the venv that was
 # already built above. Set after that sync so they cannot influence it.
-ENV UV_FROZEN=1 \
+ENV UV_LOCKED=1 \
     UV_NO_SYNC=1
 
 # Enables GenAI message content capture on exported spans for container

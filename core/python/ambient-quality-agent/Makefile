@@ -1,9 +1,9 @@
 .PHONY: install lint lint-check test demo standalone build clean tf-fmt tf-check format-ui format-ui-check lint-ui
 
 install:
-	uv sync --dev --extra lint --frozen
+	uv sync --dev --extra lint --locked
 
-TY_PATHS := ./src ./ui ./tests ./extension ./tools/test_*.py
+TY_PATHS := ./src ./ui ./tests ./extension ./tools/test_*.py ./tools/ci
 
 # The Python files published to adk-recipes, whose CI type-checks them with
 # mypy. `uvx` runs mypy outside the project environment, as that CI does, so
@@ -15,20 +15,20 @@ MYPY := uvx mypy --ignore-missing-imports --follow-imports=silent \
 	--disable-error-code=annotation-unchecked
 
 lint:
-	uv sync --dev --extra lint
-	uv run python tools/ci/check_conventions.py --fix
-	uv run ruff check . --fix
-	uv run ruff format .
-	uv run ty check $(TY_PATHS)
+	uv sync --dev --extra lint --locked
+	uv run --locked python tools/ci/check_conventions.py --fix
+	uv run --locked ruff check . --fix
+	uv run --locked ruff format .
+	uv run --locked ty check $(TY_PATHS)
 	@echo "$(MYPY) <$(words $(MYPY_PATHS)) exported files>"
 	@$(MYPY) $(MYPY_PATHS)
 
 lint-check:
 	uv sync --dev --extra lint --locked
-	uv run python tools/ci/check_conventions.py
-	uv run ruff check .
-	uv run ruff format . --check
-	uv run ty check $(TY_PATHS)
+	uv run --locked python tools/ci/check_conventions.py
+	uv run --locked ruff check .
+	uv run --locked ruff format . --check
+	uv run --locked ty check $(TY_PATHS)
 	@echo "$(MYPY) <$(words $(MYPY_PATHS)) exported files>"
 	@$(MYPY) $(MYPY_PATHS)
 
@@ -45,7 +45,7 @@ lint-ui:
 
 # Discovers tests using `testpaths` configured in pyproject.toml.
 test:
-	uv run pytest
+	uv run --locked pytest
 
 # The whole dashboard against a generated month of data: no GCP project, no
 # deployment, no model. See tools/mock_ui.sh for the scenario knobs, including
@@ -65,11 +65,12 @@ demo: ui/web/node_modules
 # shell variables and `src/ambient_quality_agent/.env` (see standalone in `.env.example`).
 # Validates configuration first to fail immediately before npm build steps.
 standalone:
-	@AQA_STANDALONE=1 uv run python tools/check_config.py
+	@AQA_STANDALONE=1 uv run --locked python tools/check_config.py
+	@if [ -f tools_internal/security/check_security.py ]; then python3 tools_internal/security/check_security.py --respect-skip-env; fi
 	@$(MAKE) --no-print-directory ui/web/node_modules
 	@echo "Building the dashboard; a minute or so on a cold cache."
 	npm --prefix ui/web run build
-	AQA_STANDALONE=1 tools/local_ui.sh
+	AQA_STANDALONE=1 AQA_SECURITY_CHECKED=1 tools/local_ui.sh
 
 # `npm ci` deletes node_modules and reinstalls it, which is ~30s, so make it
 # conditional on the lockfile having actually moved. The touch is what makes

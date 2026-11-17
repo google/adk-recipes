@@ -45,6 +45,9 @@ attached agents.
 
 **Anything in flight counts as active.** A pending or running investigation
 suppresses `overdue` regardless of when the previous one finished.
+
+**Cancelled investigations do not count.** A user stopped them, so they are
+neither a success nor a failure of the loop, and every verdict ignores them.
 """
 
 from __future__ import annotations
@@ -215,7 +218,10 @@ def _list_finished_investigations(
     """Filters and orders investigations that reached a terminal state.
 
     Orders investigations by parsed timestamps to ensure consistent sorting
-    across timezone representations.
+    across timezone representations. Cancelled investigations are left out: a
+    user stopped them, so they say nothing about whether the loop succeeds,
+    and counting one would reset the overdue clock although nothing was
+    evaluated.
 
     Args:
         investigations: List of investigation dictionaries.
@@ -224,7 +230,11 @@ def _list_finished_investigations(
         Terminal investigation dictionaries sorted oldest first by completion
         time.
     """
-    stamped = [(_parse_finished_at(r), r) for r in investigations]
+    stamped = [
+        (_parse_finished_at(r), r)
+        for r in investigations
+        if str(r.get("status") or "") != InvestigationStatus.CANCELLED
+    ]
     dated = [(when, r) for when, r in stamped if when is not None]
     return [r for _, r in sorted(dated, key=lambda pair: pair[0])]
 

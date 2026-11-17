@@ -348,21 +348,17 @@ async def get_insight(
             returns the full occurrence history, newest first (paginated). The
             most recent investigation is already known from `list_insights`'
             ``last_investigation_id``, so there is no separate "latest" mode.
-        include_traces: include each finding example's conversation turns
-            (default True) -- the large payloads a coding harness uses for
-            root-cause analysis; set False to scan labels/reasoning cheaply
-            without them.
+        include_traces: keep the conversation turns a stored finding example
+            carries (default True); False empties them. Insight correlation
+            stores examples without turns, so only rows stored with them
+            return any; read a conversation by the example's
+            ``trajectory_id`` (``get_full_trajectories``, or the trajectory
+            bundle route). Also the default for ``include_trajectories``.
         include_trajectories: resolve each occurrence's trajectories to the
-            traces they were built from and a console link into each. Defaults
-            to following ``include_traces``, which is what a harness wants --
-            the conversations and their provenance together, or neither.
-
-            Separable because the two are different costs. A finding example's
-            turns are a heavy payload already on the row and merely withheld;
-            this is one extra query returning a handful of ids. A reader that
-            wants a link to the conversation but not the conversation itself has
-            to be able to ask for exactly that, and the dashboard is that
-            reader.
+            traces they were built from and a console link into each, at the
+            cost of one extra query. Defaults to following ``include_traces``,
+            so ``include_traces=False`` alone gives the cheap scan of
+            labels and reasoning; the dashboard asks for the links alone.
         include_edits: include each proposed edit's ``before``/``after`` code
             (default True). False retains edit metadata without source bodies to
             reduce token consumption.
@@ -589,7 +585,8 @@ def _format_occurrence(
 
     Args:
         occurrence: InsightOccurrence model instance.
-        include_traces: Whether to retain finding examples' conversation turns.
+        include_traces: Whether to retain the conversation turns stored
+            finding examples carry.
         trajectories: Mapping of (investigation_id, trajectory_id) to resolved trajectories.
         project_id: GCP project ID used to build console URLs.
         root_causes: Root-cause records for the parent insight; attached when

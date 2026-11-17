@@ -12,8 +12,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""The reviewer's tools, which read the trajectory JSON of one review.
+"""Reviewer tools that read the trajectory JSON of one review.
 
-Every tool returns ``{"output": text}`` on success or ``{"error": text}`` on a
-recoverable error, so callers tell output from an error by the key.
+`jq.JqQueryTool` runs a jq expression over the trajectory JSON in a child
+process. `grep_read.GrepTool` searches values under a path with a regular
+expression, and `grep_read.ReadTool` returns the lines of a value. Both
+address values by a path of keys, indexes and ``[*]`` steps in jq syntax (such
+as ``.agents[0].instruction``) or by an event ID (such as ``t0.e8``), and both
+run in-process. `toolsets` in the parent package selects the tools for each
+review.
+
+Every tool returns ``{"error": text}`` on a recoverable error, so callers
+distinguish output from an error by the key. On success, the `grep_read` tools
+return ``{"result": text}`` (which ADK passes to Claude as raw text), and the
+jq tool returns ``{"output": text}``.
 """

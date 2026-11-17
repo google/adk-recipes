@@ -47,6 +47,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from ambient_quality_agent import config as config_module
+from ambient_quality_agent.core.investigation import (
+    model as investigation_model,
+)
 from ambient_quality_agent.standalone.files import (
     JOBS_DIR,
     METRICS_DIR_NAME,
@@ -127,9 +130,14 @@ def build_bindings(
             store, observed_agent_key=resolve_agent_key(state)
         ),
         # Appends workflow progress events to the investigation store.
-        "event_writer": lambda state, text, source: InMemoryInvestigationStore(
-            store
-        ).append_event(state["investigation_id"], text, source=source),
+        "event_writer": lambda state, text, source: (
+            investigation_model.append_investigation_event(
+                InMemoryInvestigationStore(store),
+                state["investigation_id"],
+                text,
+                source=source,
+            )
+        ),
         # Writes sweep insights to memory while preserving model-based matching.
         "insight_writer": lambda ctx: InMemoryInsightStore(
             store,
@@ -189,7 +197,7 @@ def _build_matcher(ctx: Any) -> matching.Matcher:
     def match_candidates(
         candidates: Sequence[str], existing: Sequence[str]
     ) -> dict[int, int | None]:
-        return matching.match_candidates(
+        return matching.match_all_candidates(
             candidates, existing, model_call=model_call
         )
 

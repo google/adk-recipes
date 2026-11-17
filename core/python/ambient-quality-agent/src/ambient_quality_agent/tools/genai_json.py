@@ -14,8 +14,9 @@
 
 """Gemini structured JSON generation client with automatic retries.
 
-Provides a unified Gemini platform client configuration for clustering, merging, and
-review producers with standard retry policies and telemetry labels.
+Provides a unified Gemini platform client configuration for the clustering,
+merging, matching, and verification calls, with standard retry policies and
+telemetry labels. The session reviewer shares its retry status codes.
 """
 
 from __future__ import annotations
@@ -36,10 +37,9 @@ CALL_TIMEOUT_MS = 15 * 60 * 1000
 
 The SDK sets no default timeout, so a stalled connection would block the
 calling node indefinitely. On the synchronous httpx transport of
-`call_gemini`, the SDK retries a timed-out attempt within `CHUNK_ATTEMPTS`. On
-the aiohttp transport that Gemini session reviews use, the SDK does not retry a
-timeout and the review fails; `agentic_reviewer.agent.REVIEW_DEADLINE_SECONDS`
-bounds a whole review. Two full 5,553-case runs completed with this value."""
+`call_gemini`, the SDK retries a timed-out attempt within `CHUNK_ATTEMPTS`.
+The session reviewer sets its own timeout,
+`agentic_reviewer.agent.MODEL_CALL_TIMEOUT_SECONDS`."""
 
 LONG_CALL_TIMEOUT_MS = 45 * 60 * 1000
 """HTTP timeout per attempt, in milliseconds, for calls with a large output.

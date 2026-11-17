@@ -374,6 +374,26 @@ def attach_observed_agent(project_root: Path, argv: list[str]) -> bool:
     return True
 
 
+def verify_security_before_deploy(root: Path) -> None:
+    """Run lockfile and vulnerability checks on AQuA's sources before deploying.
+
+    Args:
+        root: Extension root holding AQuA's sources.
+
+    Raises:
+        SystemExit: If `tools_internal/security/check_security.py` exits non-zero.
+    """
+    script = root / "tools_internal" / "security" / "check_security.py"
+    if not script.is_file():
+        return
+    echo(
+        "\n🔒 Verifying locked dependencies and OSV.dev advisories before deployment"
+    )
+    result = run([sys.executable, str(script), "--respect-skip-env"], cwd=root)
+    if result.returncode != 0:
+        raise SystemExit(result.returncode)
+
+
 def main(argv: list[str]) -> int:
     argv, deploy_aqua = take_aqua_flag(argv, DEPLOY_AQUA)
     argv, skip_aqua_ui = take_flag(argv, "--skip-aqua-ui")
@@ -441,6 +461,7 @@ def main(argv: list[str]) -> int:
 
     echo(f"\n🔬 Deploying AQuA from {root} as '{service_name}'")
     if not read_only:
+        verify_security_before_deploy(root)
         remove_stale_metadata_files(
             root, Path(info["project_root"]) / STATE_DIR_NAME
         )

@@ -224,6 +224,24 @@ describe("TabBar", () => {
     expect(button.hasAttribute("data-rail-toggle")).toBe(true);
   });
 
+  it("names that control for the sidebar in a read-only viewer, whose rail lists no chats", async () => {
+    const meta = document.createElement("meta");
+    meta.name = "aqua-viewer";
+    meta.content = "1";
+    document.head.prepend(meta);
+    try {
+      renderBar(stubApi({ verdict: "watching" }, [buildInvestigation()]));
+      act(() => publishRailState({ collapsed: true, toggle: () => {} }));
+
+      expect(
+        await screen.findByRole("button", { name: "Show sidebar" }),
+      ).toHaveAttribute("data-rail-toggle");
+      expect(screen.queryByRole("button", { name: /show chats/i })).toBeNull();
+    } finally {
+      meta.remove();
+    }
+  });
+
   it("hides that control while the rail is open", async () => {
     renderBar(stubApi({ verdict: "watching" }, [buildInvestigation()]));
     act(() => publishRailState({ collapsed: false, toggle: () => {} }));

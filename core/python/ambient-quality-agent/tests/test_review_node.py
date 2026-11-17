@@ -245,6 +245,22 @@ def test_the_node_pool_runs_real_reviews_on_one_shared_client() -> None:
     assert len(models.requests) == 5
 
 
+def test_malformed_finding_entries_record_errored_not_passed() -> None:
+    malformed = _respond(
+        types.Part(text='{"findings": [{"defect": "wrong field name"}]}')
+    )
+    client = FakeClient([malformed, malformed])
+
+    evaluation, state = _review_with(
+        functools.partial(agentic_reviewer.extract_findings, client=client),
+        [_build_case("s1", "Refund order 1.")],
+    )
+    evaluation.finish(state)
+
+    assert evaluation.outcomes == {"s1": "errored"}
+    assert state["finding_sets"][0]["findings"] == []
+
+
 def test_each_review_sees_the_callers_context_variables() -> None:
     seen: list[str] = []
 

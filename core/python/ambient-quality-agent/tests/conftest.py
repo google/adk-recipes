@@ -50,6 +50,9 @@ from agentplatform._genai.types.evals import (
 from ambient_quality_agent.config import Config
 from ambient_quality_agent.standalone.files import FileObjectStore
 from ambient_quality_agent.tools.ingestion.models import IngestionCounts, Page
+from ambient_quality_agent.tools.ingestion.trajectory_files import (
+    TrajectoryFileStore,
+)
 from ambient_quality_agent.tools.insights.findings import Finding
 from ambient_quality_agent.tools.insights.models import ProposedEdit, RootCause
 from ambient_quality_agent.tools.investigations.bigquery_store import (
@@ -315,7 +318,8 @@ class FakeInsightStore:
     `matches` seeds `find_existing_insights` (a ``{candidate index: insight id}``
     map, absent keys meaning no match) and `candidate_labels` records which
     clusters were put to it, which is how a test tells a cluster withheld from
-    matching from one that matched nothing. `calls` records method names in
+    matching from one that matched nothing; `candidates` keeps those clusters
+    whole. `calls` records method names in
     order so a test can assert `delete_failed_insights` ran first. The `save_*`,
     `touch_*` and `resolve_*` arguments are captured verbatim for assertions.
     """
@@ -325,6 +329,7 @@ class FakeInsightStore:
         self.calls: list[str] = []
         self.cleanup_run_ids: list[str] = []
         self.candidate_labels: list[str] = []
+        self.candidates: list[Any] = []
         self.saved: list[tuple[list[Any], list[str], list[Any]]] = []
         self.seen: list[str] = []
         self.relabelled: dict[str, str] = {}
@@ -336,6 +341,7 @@ class FakeInsightStore:
 
     def find_existing_insights(self, candidates: Any) -> dict[int, str | None]:
         self.calls.append("find")
+        self.candidates = list(candidates)
         self.candidate_labels = [c.label for c in candidates]
         return {
             i: self.matches[i]
@@ -407,6 +413,38 @@ class FakeTrajectoryRecorder:
 
     def delete_investigation_trajectories(self) -> None:
         self.cleanup_calls += 1
+
+
+class _FailingObjectStore(FileObjectStore):
+    """A file store whose every bytes write raises."""
+
+    def write_bytes(
+        self, name: str, data: bytes, *, overwrite: bool = True
+    ) -> bool:
+        raise OSError("write refused")
+
+
+def build_trajectory_file_store(
+    tmp_path: pathlib.Path, *, fail_writes: bool = False
+) -> tuple[TrajectoryFileStore, FileObjectStore]:
+    """Builds a `TrajectoryFileStore` over a file store, dated 2026-11-10.
+
+    Args:
+        tmp_path: Directory for the objects.
+        fail_writes: Whether every write raises.
+
+    Returns:
+        The trajectory file store under agent key ``agent-key``, and the object
+        store it writes to.
+    """
+    root = tmp_path / "trajectory-files"
+    objects = (
+        _FailingObjectStore(root) if fail_writes else FileObjectStore(root)
+    )
+    store = TrajectoryFileStore(
+        objects, "agent-key", today=lambda: dt.date(2026, 11, 10)
+    )
+    return store, objects
 
 
 # --------------------------------------------------------------------------- #
@@ -519,7 +557,14 @@ class FakeInvestigationStore(BigQueryInvestigationStore):
         self.rows: list[dict[str, Any]] = []
         self.event_rows: list[dict[str, Any]] = []
 
-    def _insert_rows(self, table: str, rows: list[dict[str, Any]]) -> None:
+    def _insert_rows(
+        self,
+        table: str,
+        rows: list[dict[str, Any]],
+        *,
+        timeout: float | None = None,
+    ) -> None:
+        del timeout  # An in-memory write never waits.
         target = self.rows if table == INVESTIGATIONS_TABLE else self.event_rows
         target.extend(rows)
 
@@ -858,8 +903,10 @@ def investigation_store() -> Iterator[FakeInvestigationStore]:
     original_store_factory = run_model.store_factory
     original_event_writer = state_module.event_writer
     run_model.store_factory = lambda state: store
-    state_module.event_writer = lambda state, text, source: store.append_event(
-        state["investigation_id"], text, source=source
+    state_module.event_writer = lambda state, text, source: (
+        run_model.append_investigation_event(
+            store, state["investigation_id"], text, source=source
+        )
     )
     try:
         yield store
@@ -1212,6 +1259,49 @@ def make_config(**overrides: Any) -> Config:
     }
     fields.update(overrides)
     return Config(**fields)
+
+
+TRAJECTORY_FILE_URI = (
+    "gs://jobs/aqa-trajectory-files/agent-key/2026-11-10/" + "a" * 64
+)
+"""A link in the form `TrajectoryFileStore` writes."""
+
+
+def build_trajectory_file_case(*messages: tuple[str, str | None]) -> EvalCase:
+    """Builds a fetcher-shaped case from (author, text) pairs in one turn.
+
+    Args:
+        *messages: Each event's author (``user`` or ``agent``) and text. A text
+            of None is a user message that holds only an image stored as a
+            trajectory file (`TRAJECTORY_FILE_URI`).
+
+    Returns:
+        The case.
+    """
+    events = []
+    for author, text in messages:
+        part = (
+            gt.Part(text=text)
+            if text is not None
+            else gt.Part(
+                file_data=gt.FileData(
+                    file_uri=TRAJECTORY_FILE_URI, mime_type="image/png"
+                )
+            )
+        )
+        role = "user" if author == "user" else "model"
+        events.append(
+            AgentEvent(
+                author=author, content=gt.Content(role=role, parts=[part])
+            )
+        )
+    return EvalCase(
+        eval_case_id="s1",
+        agent_data=AgentData(
+            agents={},
+            turns=[ConversationTurn(turn_index=0, turn_id="t0", events=events)],
+        ),
+    )
 
 
 def make_agent_case(

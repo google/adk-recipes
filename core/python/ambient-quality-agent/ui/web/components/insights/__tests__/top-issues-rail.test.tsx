@@ -169,6 +169,28 @@ describe("TopIssuesRail", () => {
     );
   });
 
+  it("styles the All link as the outline button Home's section links use", async () => {
+    renderRail({ insights: [insight({})], total: 42 });
+
+    const all = await screen.findByRole("link", { name: "All insights" });
+    // The open section clips overflow, so the focus ring sits inside the border
+    // with zero offset; twMerge drops Button's outer ring offset and 16px SVG size.
+    expect(all).toHaveClass(
+      "border",
+      "border-input",
+      "bg-background",
+      "h-6",
+      "[&_svg]:size-3",
+      "focus-visible:ring-inset",
+      "focus-visible:ring-offset-0",
+    );
+    expect(all).not.toHaveClass(
+      "h-8",
+      "focus-visible:ring-offset-2",
+      "[&_svg]:size-4",
+    );
+  });
+
   it("shows traces first, then whether the issue is diagnosed", async () => {
     renderRail({
       insights: [

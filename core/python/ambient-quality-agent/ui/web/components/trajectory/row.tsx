@@ -21,10 +21,14 @@ function summaryOf(record: TrajectoryRecord): string {
   if (record.kind === "tool") {
     return record.toolName ? `${record.toolName}(...)` : "tool call";
   }
-  return (
-    stripMarkdownForSummary(record.text) ||
-    (record.isError ? record.errorMessage || "Error" : "")
-  );
+  const text = stripMarkdownForSummary(record.text);
+  if (text) return text;
+  // Fall back to file MIME types so file-only messages do not render a blank row.
+  if (record.files?.length) {
+    const types = record.files.map((file) => file.mimeType || "File");
+    return `${types.length === 1 ? "File" : "Files"}: ${types.join(", ")}`;
+  }
+  return record.isError ? record.errorMessage || "Error" : "";
 }
 
 const KIND_COLORS: Record<string, string> = {
