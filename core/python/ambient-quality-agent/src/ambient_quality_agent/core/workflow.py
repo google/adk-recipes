@@ -16,7 +16,7 @@
 
 Wiring::
 
-    run_investigation_graph(), harness.run_async(), local_run.main()
+    run_investigation_graph(), offline.run_investigation_async(), local_run.main()
         │ Runner.run_async()
         ▼
     investigation_workflow (Workflow, state: WorkflowState)

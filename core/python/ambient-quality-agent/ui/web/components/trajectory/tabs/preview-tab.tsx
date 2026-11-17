@@ -14,17 +14,22 @@
 
 import type { TrajectoryRecord } from "@/lib/trajectory/types";
 import { Markdown } from "@/components/chat/markdown";
+import { FileChips } from "@/components/conversation/file-chips";
 import { textStyle } from "@/lib/typography";
 import { cn } from "@/lib/utils";
 
 export function PreviewTab({ record }: { record: TrajectoryRecord }) {
-  if (!record.text) {
+  const files = record.files?.length ? record.files : null;
+  if (!record.text && !files) {
     return <div className={cn(textStyle.meta, "p-3")}>No text content.</div>;
   }
 
   return (
-    <div className={cn(textStyle.body, "p-3 overflow-x-auto")}>
-      <Markdown text={record.text} />
+    <div
+      className={cn(textStyle.body, "flex flex-col gap-2 p-3 overflow-x-auto")}
+    >
+      {record.text && <Markdown text={record.text} />}
+      {files && <FileChips files={files} />}
     </div>
   );
 }

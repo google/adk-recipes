@@ -20,16 +20,15 @@ import {
   ChevronRight,
   ExternalLink,
   FileIcon,
-  FileText,
-  Image as ImageIcon,
   Loader2,
-  Music,
   Pencil,
   RotateCcw,
   Scissors,
+  Stethoscope,
   Wrench,
   X,
 } from "lucide-react";
+import { resolveFileIcon } from "@/lib/file-icon";
 import { mono, link, textStyle } from "@/lib/typography";
 import { cn } from "@/lib/utils";
 
@@ -41,17 +40,6 @@ import { CopyButton } from "./copy-button";
 import { Markdown } from "./markdown";
 import { useViewerOptional } from "./artifact-viewer/viewer-context";
 import { isSelectionPayload, type SelectionPayload } from "./workspace-href";
-import {
-  PatchView,
-  ReadFileView,
-  TerminalView,
-  TOOL_ICONS,
-  WriteFileView,
-  patchPreview,
-  readFilePreview,
-  terminalPreview,
-  writeFilePreview,
-} from "./tool-views";
 import {
   RECORD_ROOT_CAUSE_TOOL,
   RootCauseToolResult,
@@ -588,13 +576,6 @@ function FilePart({
 
 // Files never render inline — every attachment is a chip that opens in the
 // right-panel artifact viewer (view-only; the chat stays a conversation).
-function attachmentIcon(mime: string) {
-  if (mime.startsWith("image/")) return ImageIcon;
-  if (mime.startsWith("audio/")) return Music;
-  if (mime === "application/pdf" || mime.startsWith("text/")) return FileText;
-  return FileIcon;
-}
-
 function AttachmentChip({
   name,
   mime,
@@ -606,7 +587,7 @@ function AttachmentChip({
   hasContent: boolean;
   onOpen?: () => void;
 }) {
-  const Icon = attachmentIcon(mime);
+  const Icon = resolveFileIcon(mime);
   if (!onOpen) {
     return (
       <div
@@ -1220,8 +1201,9 @@ function ToolRow({
   result: unknown;
   hasResult: boolean;
 }) {
+  const isRootCause = name === RECORD_ROOT_CAUSE_TOOL;
   // Expand root-cause recordings by default so the diagnosis is immediately visible.
-  const [open, setOpen] = useState(name === RECORD_ROOT_CAUSE_TOOL);
+  const [open, setOpen] = useState(isRootCause);
   const isLoadSkill = name === "load_skill";
   // The tool's real arg is skill_name, not name (final-review Fix 9) — see
   // horizon/tools/skill_toolset.py's declared schema.
@@ -1229,11 +1211,12 @@ function ToolRow({
     isLoadSkill && typeof args?.skill_name === "string"
       ? args.skill_name
       : null;
-  const richPreview = pickRichPreview(name, args);
   const preview = isLoadSkill
     ? (skillName ?? "skill")
-    : (richPreview ?? formatArgsPreview(args));
-  const Icon = isLoadSkill ? BookOpen : (TOOL_ICONS[name] ?? Wrench);
+    : isRootCause
+      ? rootCausePreview(args)
+      : formatArgsPreview(args);
+  const Icon = isLoadSkill ? BookOpen : isRootCause ? Stethoscope : Wrench;
 
   return (
     <div className="flex w-full max-w-full flex-col gap-1">
@@ -1275,26 +1258,6 @@ function ToolRow({
   );
 }
 
-function pickRichPreview(
-  name: string,
-  args: Record<string, unknown> | null,
-): string | null {
-  switch (name) {
-    case "edit":
-      return patchPreview(args);
-    case "write":
-      return writeFilePreview(args);
-    case "read":
-      return readFilePreview(args);
-    case "bash":
-      return terminalPreview(args);
-    case RECORD_ROOT_CAUSE_TOOL:
-      return rootCausePreview(args);
-    default:
-      return null;
-  }
-}
-
 function RichToolBody({
   name,
   args,
@@ -1306,16 +1269,6 @@ function RichToolBody({
   result: unknown;
   hasResult: boolean;
 }) {
-  if (name === "edit") return <PatchView args={args} result={result} />;
-  if (name === "write") {
-    return <WriteFileView args={args} result={result} />;
-  }
-  if (name === "read") {
-    return <ReadFileView args={args} result={result} hasResult={hasResult} />;
-  }
-  if (name === "bash") {
-    return <TerminalView args={args} result={result} hasResult={hasResult} />;
-  }
   if (name === RECORD_ROOT_CAUSE_TOOL) {
     return <RootCauseToolResult result={result} hasResult={hasResult} />;
   }

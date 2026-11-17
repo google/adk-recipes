@@ -17,6 +17,7 @@
 import { Link } from "@tanstack/react-router";
 import { MessagesSquare } from "lucide-react";
 import { link, textStyle } from "@/lib/typography";
+import { isViewerMode } from "@/lib/viewer-mode";
 import { cn } from "@/lib/utils";
 
 /** `trigger_type` of an investigation a person or the CLI asked for. Mirrors
@@ -42,6 +43,8 @@ export function ConversationLink({
   triggerType?: string | null;
 }) {
   if (contextId) {
+    // A read-only viewer serves no chat to open.
+    if (isViewerMode()) return null;
     return (
       <Link
         to="/c"
@@ -69,7 +72,9 @@ export function ConversationLink({
   }
 
   // Asked for by a person but nothing recorded where from, or a record too old
-  // to say which. That one really is a gap, so it still reads as one.
+  // to say which. That one really is a gap, so it still reads as one, except
+  // in a read-only viewer, which serves no chat to miss.
+  if (isViewerMode()) return null;
   return (
     <span
       className="text-muted-foreground"

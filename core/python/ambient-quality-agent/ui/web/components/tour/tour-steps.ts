@@ -20,6 +20,7 @@ import {
   type InvestigationListItem,
 } from "@/lib/aqua-api";
 import { startedAt } from "@/lib/investigation-state";
+import { isViewerMode } from "@/lib/viewer-mode";
 
 /** One stop of the guided tour: a spotlight on part of a page and what to say
  *  about it. */
@@ -165,12 +166,20 @@ export const TOUR_STEPS: readonly TourStep[] = [
  *  Narrower, Home stacks them with the insights on top. */
 export const HOME_SIDE_BY_SIDE = "(min-width: 1024px)";
 
+/** The steps about chat and triage, whose controls a read-only viewer does
+ *  not draw. */
+const WRITE_STEPS = new Set(["ask", "insights-triage", "insight-actions"]);
+
 /** The tour in the order a reader meets its steps: TOUR_STEPS when Home is
  *  side by side, and with the insights ahead of Pipeline when it is stacked, so
- *  the spotlight never climbs back up the page. */
+ *  the spotlight never climbs back up the page. A read-only viewer skips
+ *  WRITE_STEPS. */
 export function tourSteps(sideBySide: boolean): readonly TourStep[] {
-  if (sideBySide) return TOUR_STEPS;
-  const steps = [...TOUR_STEPS];
+  const shown = isViewerMode()
+    ? TOUR_STEPS.filter((step) => !WRITE_STEPS.has(step.target))
+    : TOUR_STEPS;
+  if (sideBySide) return shown;
+  const steps = [...shown];
   const pipeline = steps.findIndex((step) => step.target === "pipeline");
   const insights = steps.findIndex((step) => step.target === "insights-strip");
   [steps[pipeline], steps[insights]] = [steps[insights], steps[pipeline]];

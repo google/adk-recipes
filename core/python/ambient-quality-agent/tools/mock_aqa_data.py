@@ -983,6 +983,7 @@ def build_dataset(scenario: Scenario, config: Config) -> dict[str, Any]:
         auto_resolve_days=config.insights_auto_resolve_days,
         cadence_seconds=cadence,
         diagnosed={r.insight_id for r in root_causes},
+        root_causes=root_causes,
     )
 
     return {
@@ -1586,6 +1587,7 @@ def _build_insight_views(
     auto_resolve_days: int,
     cadence_seconds: int,
     diagnosed: set[str] | None = None,
+    root_causes: list[RootCause] | None = None,
 ) -> list[InsightView]:
     """Assembles read-view `InsightView` objects from insights and occurrences.
 
@@ -1602,6 +1604,7 @@ def _build_insight_views(
         auto_resolve_days: Stale duration threshold before auto-resolving an insight.
         cadence_seconds: Investigation cadence in seconds.
         diagnosed: Set of insight IDs that have recorded root causes.
+        root_causes: Optional generated `RootCause` records for rolling up `context_id`s.
 
     Returns:
         List of `InsightView` records sorted by `updated_at` descending.
@@ -1612,6 +1615,17 @@ def _build_insight_views(
             occurrence.investigation_id,
             occurrence.created_at,
         )
+    context_ids_by_insight: dict[str, list[str]] = {}
+    for record in sorted(
+        root_causes or [],
+        key=lambda r: (-r.created_at.timestamp(), r.root_cause_id),
+    ):
+        cid = record.context_id.strip()
+        if not cid:
+            continue
+        bucket = context_ids_by_insight.setdefault(record.insight_id, [])
+        if cid not in bucket:
+            bucket.append(cid)
 
     views = []
     for key, insight in insights.items():
@@ -1642,6 +1656,9 @@ def _build_insight_views(
                 last_investigation_id=investigation_id,
                 last_investigation_at=run_at,
                 has_root_cause=insight.insight_id in (diagnosed or frozenset()),
+                root_cause_context_ids=context_ids_by_insight.get(
+                    insight.insight_id, []
+                ),
             )
         )
     # Newest sighting first, the order a triage list is read in.

@@ -383,13 +383,18 @@ class InMemoryInsightReader:
         newest = max(
             owned, key=lambda o: (o.created_at, o.occurrence_id), default=None
         )
+        history = self.list_root_causes(insight.insight_id, history=True)
+        context_ids = list(
+            dict.fromkeys(r.context_id for r in history if r.context_id)
+        )
         return InsightView(
             **insight.model_dump(),
             occurrence_count=len(owned),
             trajectory_count=sum(o.trajectory_count for o in owned),
             last_investigation_id=newest.investigation_id if newest else None,
             last_investigation_at=newest.created_at if newest else None,
-            has_root_cause=bool(self.list_root_causes(insight.insight_id)),
+            has_root_cause=bool(history),
+            root_cause_context_ids=context_ids,
         )
 
 

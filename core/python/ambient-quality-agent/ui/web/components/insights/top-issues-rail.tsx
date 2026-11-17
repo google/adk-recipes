@@ -16,19 +16,9 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { Stethoscope, TriangleAlert } from "lucide-react";
-import {
-  type AgentKey,
-  insightsQuery,
-  isDiagnosed,
-  investigationsQuery,
-  type InsightView,
-} from "@/lib/aqua-api";
-import { stripMarkdownForSummary } from "@/lib/aqa-markdown";
-import { countEvaluatedTrajectories } from "@/lib/funnel";
-import { cn } from "@/lib/utils";
-import { InlineMarkdown } from "@/components/ui/inline-markdown";
 import { SidebarSection } from "@/components/chat/sidebar-section";
 import {
+  formatCount,
   SIDEBAR_META_CLASS,
   SIDEBAR_ROW_ACTIVE_CLASS,
   SIDEBAR_ROW_CLASS,
@@ -36,14 +26,24 @@ import {
   SidebarError,
   SidebarNote,
   SidebarSkeleton,
-  formatCount,
 } from "@/components/chat/sidebar-states";
 import {
   RAIL_SCROLL_CLASS,
   useRailScroll,
 } from "@/components/chat/use-rail-scroll";
-import { DiagnoseInChatButton } from "./diagnose-in-chat-button";
+import { InlineMarkdown } from "@/components/ui/inline-markdown";
 import { useAgentKey } from "@/lib/agent-selection";
+import { stripMarkdownForSummary } from "@/lib/aqa-markdown";
+import {
+  type AgentKey,
+  type InsightView,
+  insightsQuery,
+  investigationsQuery,
+  isDiagnosed,
+} from "@/lib/aqua-api";
+import { countEvaluatedTrajectories } from "@/lib/funnel";
+import { cn } from "@/lib/utils";
+import { DiagnoseInChatButton } from "./diagnose-in-chat-button";
 
 /** How many issues the rail shows. */
 const RAIL_SIZE = 10;
@@ -173,6 +173,8 @@ function IssueRow({ insight }: { insight: InsightView }) {
         insightId={insight.insight_id}
         label={insight.label}
         ariaLabel={`Diagnose insight in chat: ${plainTitle}`}
+        hasRootCause={Boolean(insight.has_root_cause)}
+        rootCauseContextIds={insight.root_cause_context_ids}
         iconOnly
         className={cn(
           "absolute bottom-1 right-1 h-6 w-6 p-0 [&_svg]:size-3.5",

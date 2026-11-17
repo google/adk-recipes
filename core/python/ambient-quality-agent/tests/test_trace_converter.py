@@ -35,6 +35,14 @@ from ambient_quality_agent.tools.ingestion.trace_models import (
     SpanEvent,
     SpanStatus,
 )
+from google.genai.types import (
+    Blob,
+    Content,
+    FunctionResponse,
+    FunctionResponseBlob,
+    FunctionResponsePart,
+    Part,
+)
 
 
 def _span(raw: dict[str, Any]) -> Span:
@@ -1865,18 +1873,35 @@ _PNG_BYTES = b"\x89PNG\r\n\x1a\n" + bytes(range(40))
 _PNG_B64 = base64.b64encode(_PNG_BYTES).decode()
 
 
-def _build_placeholder(data: bytes, mime_type: str = "image/png") -> str:
-    """Builds the attachment placeholder the converter emits for inline bytes.
+def _build_inline_description(
+    data: bytes, mime_type: str = "image/png"
+) -> tuple[str, str, bytes]:
+    """Builds the `(kind, mime_type, data)` tuple representing an inline-data part.
 
     Args:
         data: The attachment bytes.
         mime_type: The attachment MIME type.
 
     Returns:
-        The expected placeholder text.
+        Tuple matching `_describe_part` output for an ``inline_data`` part.
     """
-    digest = hashlib.sha256(data).hexdigest()[:8]
-    return f"<attachment: {mime_type}, {len(data)} bytes, sha256:{digest}>"
+    return ("inline_data", mime_type, data)
+
+
+def _describe_part(part: Part) -> str | tuple[str, str, bytes] | None:
+    """Returns a part's inline-data tuple (see `_build_inline_description`) or text.
+
+    Args:
+        part: A converted part.
+
+    Returns:
+        The inline-data tuple if `part` carries inline bytes, otherwise `part.text`.
+    """
+    if part.inline_data is not None and part.inline_data.data is not None:
+        return _build_inline_description(
+            part.inline_data.data, part.inline_data.mime_type or ""
+        )
+    return part.text
 
 
 def _build_otel_llm_span(
@@ -2118,10 +2143,13 @@ def test_convert_keeps_distinct_same_size_images_and_dedupes_replays() -> None:
     agent_data = converter.convert([turn1, turn2])
 
     texts = [
-        [event.content.parts[0].text for event in turn.events]
+        [_describe_part(event.content.parts[0]) for event in turn.events]
         for turn in agent_data.turns
     ]
-    assert texts == [[_build_placeholder(first)], [_build_placeholder(second)]]
+    assert texts == [
+        [_build_inline_description(first)],
+        [_build_inline_description(second)],
+    ]
 
 
 def test_parse_tools_list_maps_built_in_tools_in_every_shape_alike() -> None:
@@ -2416,6 +2444,172 @@ def test_convert_merges_a_message_recorded_with_and_without_its_image(
     ]
 
 
+@pytest.mark.parametrize("otel_first", [False, True])
+def test_convert_merges_a_message_recorded_with_and_without_its_decodable_image(
+    otel_first: bool,
+) -> None:
+    """The copy that holds the bytes wins, whichever span comes first."""
+    converter = TraceAgentDataConverter()
+    image = b"\x01" * 32
+
+    agent_data = converter.convert(
+        [
+            _build_image_message_spans(
+                base64.b64encode(image).decode(), otel_first=otel_first
+            )
+        ]
+    )
+
+    assert _list_turn_texts(agent_data) == [
+        [[_build_inline_description(image), "What is this?"]]
+    ]
+
+
+def _build_tool_result_part(data: bytes) -> Part:
+    """Builds a function response part that carries one file's bytes.
+
+    Args:
+        data: The file's bytes.
+
+    Returns:
+        The part.
+    """
+    return Part(
+        function_response=FunctionResponse(
+            name="render_chart",
+            response={"status": "ok"},
+            parts=[
+                FunctionResponsePart(
+                    inline_data=FunctionResponseBlob(
+                        data=data, mime_type="image/png"
+                    )
+                )
+            ],
+        )
+    )
+
+
+def test_content_keys_name_the_bytes_by_digest_not_by_value() -> None:
+    image = bytes(range(256)) * 64
+    chart = bytes(reversed(range(256))) * 64
+    content = Content(
+        role="user",
+        parts=[
+            Part(inline_data=Blob(data=image, mime_type="image/png")),
+            Part(text="What is this?"),
+            _build_tool_result_part(chart),
+        ],
+    )
+
+    key, attachment_keys = trace_converter._build_content_keys(content)
+
+    assert attachment_keys is not None
+    encoded = [
+        encode(data).decode()
+        for data in (image, chart)
+        for encode in (base64.b64encode, base64.urlsafe_b64encode)
+    ]
+    for each_key in (key, attachment_keys.normalized, attachment_keys.stripped):
+        assert each_key is not None
+        assert not any(value[:64] in each_key for value in encoded)
+        assert len(each_key) < 1000
+        assert hashlib.sha256(chart).hexdigest() in each_key
+    assert hashlib.sha256(image).hexdigest() in key
+    assert attachment_keys.stripped is not None
+    assert "What is this?" in attachment_keys.stripped
+    nested = content.parts[2].function_response.parts[0].inline_data
+    assert nested.data == chart, "the content keeps its bytes"
+
+
+def test_content_keys_tell_nested_files_apart_by_their_bytes() -> None:
+    def build(data: bytes) -> str:
+        content = Content(role="user", parts=[_build_tool_result_part(data)])
+        key, attachment_keys = trace_converter._build_content_keys(content)
+        assert attachment_keys is None
+        return key
+
+    assert build(b"\x01" * 32) == build(b"\x01" * 32)
+    assert build(b"\x01" * 32) != build(b"\x02" * 32)
+
+
+@pytest.mark.parametrize(
+    ("second", "conflicts"),
+    [
+        pytest.param((b"\x01" * 32, "image/png"), False, id="same-file"),
+        pytest.param((b"\x01" * 32, "image/jpeg"), True, id="other-mime-type"),
+        pytest.param((b"\x02" * 32, "image/png"), True, id="other-bytes"),
+    ],
+)
+def test_a_file_is_its_mime_type_and_its_bytes_when_copies_are_compared(
+    second: tuple[bytes, str], conflicts: bool
+) -> None:
+    def build(data: bytes, mime_type: str) -> Content:
+        return Content(
+            role="model",
+            parts=[Part(inline_data=Blob(data=data, mime_type=mime_type))],
+        )
+
+    assert (
+        trace_converter._has_conflicting_bytes(
+            build(b"\x01" * 32, "image/png"), build(*second)
+        )
+        is conflicts
+    )
+
+
+def test_convert_keeps_one_file_under_two_mime_types_in_one_position_apart() -> (
+    None
+):
+    """A file is its MIME type and its bytes, so the same bytes under another
+    type are another file."""
+    converter = TraceAgentDataConverter()
+    image = b"\x01" * 32
+    spans = _build_two_image_reply_spans(
+        [
+            {
+                "type": "blob",
+                "data": base64.b64encode(image).decode(),
+                "mime_type": "image/jpeg",
+            },
+            _build_sentinel_blob_part("image/png"),
+        ],
+        [image, image],
+    )
+
+    agent_data = converter.convert([spans])
+
+    assert _list_turn_texts(agent_data) == [
+        [
+            [
+                _build_inline_description(image),
+                _build_inline_description(image),
+            ],
+            [
+                _build_inline_description(image, "image/jpeg"),
+                "<attachment: image/png, size unknown>",
+            ],
+        ]
+    ]
+
+
+def test_content_keys_tell_two_files_of_one_type_and_size_apart() -> None:
+    def build(data: bytes) -> Content:
+        return Content(
+            role="user",
+            parts=[Part(inline_data=Blob(data=data, mime_type="image/png"))],
+        )
+
+    first_key, first_merge = trace_converter._build_content_keys(
+        build(b"\x01" * 32)
+    )
+    second_key, second_merge = trace_converter._build_content_keys(
+        build(b"\x02" * 32)
+    )
+
+    assert first_key != second_key
+    assert first_merge == second_merge
+
+
 def test_convert_keeps_the_same_question_about_a_new_decodable_image_in_a_later_turn() -> (
     None
 ):
@@ -2432,11 +2626,15 @@ def test_convert_keeps_the_same_question_about_a_new_decodable_image_in_a_later_
     agent_data = converter.convert([turn1, turn2])
 
     assert [
-        [part.text for event in turn.events for part in event.content.parts]
+        [
+            _describe_part(part)
+            for event in turn.events
+            for part in event.content.parts
+        ]
         for turn in agent_data.turns
     ] == [
-        [_build_placeholder(first), "What is this?"],
-        [_build_placeholder(second), "What is this?"],
+        [_build_inline_description(first), "What is this?"],
+        [_build_inline_description(second), "What is this?"],
     ]
 
 
@@ -2548,17 +2746,20 @@ def _build_model_reply_spans(
     return [otel, legacy] if output_first else [legacy, otel]
 
 
-def _list_turn_texts(agent_data: Any) -> list[list[list[str | None]]]:
-    """Lists each event's part texts, turn by turn.
+def _list_turn_texts(agent_data: Any) -> list[list[list[Any]]]:
+    """Lists each event's parts as `_describe_part` describes them, turn by turn.
 
     Args:
         agent_data: Converted agent data.
 
     Returns:
-        Part texts per event per turn.
+        Part descriptions per event per turn.
     """
     return [
-        [[part.text for part in event.content.parts] for event in turn.events]
+        [
+            [_describe_part(part) for part in event.content.parts]
+            for event in turn.events
+        ]
         for turn in agent_data.turns
     ]
 
@@ -2580,7 +2781,9 @@ def test_convert_merges_an_image_only_reply_recorded_by_both_sources(
     events = agent_data.turns[0].events
     assert len(events) == 1
     assert events[0].author == "car_service_agent"
-    assert _list_turn_texts(agent_data) == [[[_build_placeholder(_PNG_BYTES)]]]
+    assert _list_turn_texts(agent_data) == [
+        [[_build_inline_description(_PNG_BYTES)]]
+    ]
 
 
 @pytest.mark.parametrize("output_first", [False, True])
@@ -2600,7 +2803,7 @@ def test_convert_merges_a_text_and_image_reply_recorded_by_both_sources(
     agent_data = converter.convert([spans])
 
     assert _list_turn_texts(agent_data) == [
-        [["Here it is.", _build_placeholder(_PNG_BYTES)]]
+        [["Here it is.", _build_inline_description(_PNG_BYTES)]]
     ]
 
 
@@ -2615,7 +2818,7 @@ def test_convert_merges_a_text_and_image_reply_recorded_by_both_sources(
         pytest.param(
             (b"\x01" * 32, "image/png"),
             (b"\x02" * 32, "image/png"),
-            id="different-digest",
+            id="different-bytes",
         ),
     ],
 )
@@ -2633,8 +2836,8 @@ def test_convert_keeps_two_different_image_only_replies_in_one_turn_apart(
 
     assert _list_turn_texts(agent_data) == [
         [
-            [_build_placeholder(*first)],
-            [_build_placeholder(*second)],
+            [_build_inline_description(*first)],
+            [_build_inline_description(*second)],
         ]
     ]
 
@@ -2691,7 +2894,10 @@ def test_convert_skips_a_text_and_image_reply_replayed_in_a_later_turn() -> (
     agent_data = converter.convert([turn1, turn2])
 
     assert _list_turn_texts(agent_data) == [
-        [["Draw a cat."], ["Here it is.", _build_placeholder(_PNG_BYTES)]],
+        [
+            ["Draw a cat."],
+            ["Here it is.", _build_inline_description(_PNG_BYTES)],
+        ],
         [["Now a dog."], ["Done."]],
     ]
 
@@ -2700,7 +2906,7 @@ def test_convert_keeps_text_and_image_replies_of_different_types_apart() -> (
     None
 ):
     converter = TraceAgentDataConverter()
-    # gen_ai capture alone: no digest tells the two images apart.
+    # gen_ai capture alone: no bytes tell the two images apart.
     spans = [
         _agent_span("a1", "root", "car_service_agent"),
         _build_generate_content_span(
@@ -2770,11 +2976,11 @@ def test_convert_keeps_a_reply_with_an_extra_image_apart() -> None:
 
     assert _list_turn_texts(agent_data) == [
         [
-            ["Here.", _build_placeholder(first)],
+            ["Here.", _build_inline_description(first)],
             [
                 "Here.",
-                _build_placeholder(first),
-                _build_placeholder(second),
+                _build_inline_description(first),
+                _build_inline_description(second),
             ],
         ]
     ]
@@ -2805,7 +3011,7 @@ def test_convert_does_not_merge_messages_from_different_agents() -> None:
     events = agent_data.turns[0].events
     assert [event.author for event in events] == ["planner", "illustrator"]
     assert _list_turn_texts(agent_data) == [
-        [["Done."], ["Done.", _build_placeholder(_PNG_BYTES)]]
+        [["Done."], ["Done.", _build_inline_description(_PNG_BYTES)]]
     ]
 
 
@@ -2840,7 +3046,7 @@ def _build_two_image_reply_spans(
     ]
 
 
-def test_convert_merges_copies_whose_digests_agree_in_place() -> None:
+def test_convert_merges_copies_whose_bytes_agree_in_place() -> None:
     converter = TraceAgentDataConverter()
     first = b"\x01" * 32
     second = b"\x02" * 32
@@ -2859,11 +3065,11 @@ def test_convert_merges_copies_whose_digests_agree_in_place() -> None:
     agent_data = converter.convert([spans])
 
     assert _list_turn_texts(agent_data) == [
-        [[_build_placeholder(first), _build_placeholder(second)]]
+        [[_build_inline_description(first), _build_inline_description(second)]]
     ]
 
 
-def test_convert_keeps_copies_whose_digests_differ_in_place_apart() -> None:
+def test_convert_keeps_copies_whose_bytes_differ_in_place_apart() -> None:
     converter = TraceAgentDataConverter()
     first = b"\x01" * 32
     second = b"\x02" * 32
@@ -2883,9 +3089,12 @@ def test_convert_keeps_copies_whose_digests_differ_in_place_apart() -> None:
 
     assert _list_turn_texts(agent_data) == [
         [
-            [_build_placeholder(second), _build_placeholder(first)],
             [
-                _build_placeholder(first),
+                _build_inline_description(second),
+                _build_inline_description(first),
+            ],
+            [
+                _build_inline_description(first),
                 "<attachment: image/png, size unknown>",
             ],
         ]

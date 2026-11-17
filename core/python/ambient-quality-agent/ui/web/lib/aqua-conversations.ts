@@ -58,6 +58,9 @@ export interface StoredConversation {
    *  conversation whose sends named no agent, which the agent answers for its
    *  default agent. */
   agentKey?: string;
+  /** The insight this conversation was started to diagnose, when initiated from
+   *  an insight action. */
+  insightId?: string;
 }
 
 // Falls back to memory when there is no Storage: happy-dom does not provide
@@ -102,17 +105,19 @@ export function listConversations(): StoredConversation[] {
   }
 }
 
-/** Record a conversation, keeping the first message as its title and the
- *  first agent it was sent for as its agent. */
+/** Record a conversation, keeping the first message as its title, the first
+ *  agent it was sent for as its agent, and any associated insight ID. */
 export function rememberConversation(
   id: string,
   firstMessage?: string,
   agentKey?: string,
+  insightId?: string,
 ): void {
   const s = storage();
   const now = Date.now();
   const existing = listConversations();
   const previous = existing.find((c) => c.id === id);
+  const resolvedInsightId = previous?.insightId ?? insightId?.trim();
   const next: StoredConversation = {
     id,
     title:
@@ -122,6 +127,7 @@ export function rememberConversation(
     lastUpdated: now,
     taskIds: previous?.taskIds,
     agentKey: previous?.agentKey ?? agentKey,
+    ...(resolvedInsightId ? { insightId: resolvedInsightId } : {}),
   };
   const rest = existing.filter((c) => c.id !== id);
   s.setItem(KEY, JSON.stringify([next, ...rest].slice(0, LIMIT)));

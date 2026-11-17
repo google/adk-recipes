@@ -13,12 +13,15 @@
 // limitations under the License.
 
 import { Link, useNavigate, useRouter } from "@tanstack/react-router";
+import { type RefObject, useLayoutEffect, useRef, useState } from "react";
 import type { InvestigationListItem } from "@/lib/aqua-api";
 import { describeFailure, isNoData } from "@/lib/failure";
 import { count, STAGES, type StageId } from "@/lib/funnel";
 import {
   ABSENT,
   agentLabel,
+  describeProgress,
+  extractCurrentProgress,
   extractReviewFocus,
   formatInstant,
   isAmbient,
@@ -33,11 +36,13 @@ import {
 import {
   inFlightAge,
   isStalled,
+  listInFlightInvestigations,
   newestFirst,
   startedAt,
 } from "@/lib/investigation-state";
 import { link, mono, textStyle } from "@/lib/typography";
 import { cn, formatSentenceCase } from "@/lib/utils";
+import { ProgressBar } from "./investigation-progress";
 import { TriggerBadge } from "./trigger-badge";
 
 /** Padding for every cell, header included, so the columns line up. */
@@ -95,6 +100,11 @@ const COUNT_COLUMNS = [
  * the traffic bar are measured against other sweeps, never against a manual or
  * custom investigation that chose its own window or conversations.
  *
+ * An investigation still going has no outcome to tabulate, so it is drawn
+ * apart, in a row of its own above the table, with how far it got; the table
+ * holds the rest, stalled ones included, and is left out when nothing has
+ * settled.
+ *
  * Home's recent investigations and the investigations page both draw their
  * investigations with this, so the two read alike.
  */
@@ -112,8 +122,10 @@ export function InvestigationsTable({
 }) {
   const navigate = useNavigate();
   const router = useRouter();
+  const live = listInFlightInvestigations(investigations);
+  const settled = investigations.filter((i) => !live.includes(i));
   const showAgent = new Set(investigations.map(agentLabel)).size > 1;
-  const usualWindow = mostCommon(investigations.map(windowNote));
+  const usualWindow = mostCommon(settled.map(windowNote));
   const busiest = Math.max(
     0,
     ...history
@@ -123,160 +135,413 @@ export function InvestigationsTable({
       ),
   );
   const previousRates = previousPassRates(history);
+  const liveRef = useRef<HTMLDivElement>(null);
+  const tableRef = useRef<HTMLDivElement>(null);
+  const { leadWidth, startedMinWidth } = useStageColumnUnderWindowBar(
+    liveRef,
+    tableRef,
+    live.length > 0 && settled.length > 0,
+  );
   return (
-    // A phone still scrolls it sideways: scroll-x-edges shades the side that
-    // has more, so the columns past the edge are not a secret.
-    <div className="scroll-x-edges overflow-x-auto rounded-lg border">
-      <table className={cn(textStyle.body, "w-full text-left")}>
-        <thead className={textStyle.label}>
-          <tr className="border-b">
-            <th className={cn(CELL, "font-medium")}>Started</th>
-            {showAgent && <th className={cn(CELL, "font-medium")}>Agent</th>}
-            {/* Left out below a full page, where the other figures need
-                  the room more. */}
-            <th
-              className={cn(
-                CELL,
-                "hidden text-right font-medium lg:table-cell",
-              )}
-            >
-              Trajectories
-            </th>
-            {/* The widest once there is room for the bar, long enough to
-                  compare by eye. */}
-            <th className={cn(CELL, "text-right font-medium xl:w-1/4")}>
-              Pass rate
-            </th>
-            <th className={cn(CELL, "text-right font-medium")}>Change</th>
-            {COUNT_COLUMNS.map((col) => (
-              <th key={col.key} className={cn(CELL, "text-right font-medium")}>
-                <span className="inline-flex items-center gap-1.5">
-                  <span
-                    aria-hidden="true"
-                    className={cn("h-2 w-2 rounded-full", col.tone)}
-                  />
-                  {formatSentenceCase(col.label)}
-                </span>
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody className="divide-y">
-          {investigations.map((investigation) => {
-            const note = windowNote(investigation);
-            const bounds = telemetryWindow(investigation);
-            const focus = extractReviewFocus(investigation);
-            const href = router.buildLocation({
-              to: "/investigations/$investigationId",
-              params: { investigationId: investigation.investigation_id },
-            }).href;
-            return (
-              <tr
-                key={investigation.investigation_id}
-                // The investigation id is the row's link, for the keyboard and
-                // a screen reader. A click elsewhere on the row goes to the
-                // same page, unless it ends a text selection; with a
-                // modifier, or the middle button, it opens a new tab, as
-                // a click on a link would, and the middle press does not
-                // start the browser's autoscroll first.
-                onClick={(e) => {
-                  if (
-                    (e.target as Element).closest("a") ||
-                    window.getSelection()?.toString()
-                  ) {
-                    return;
+    <div className="flex flex-col gap-2">
+      {live.length > 0 && (
+        // One grid for every running investigation, its rows taking their
+        // columns from it, so stages, bars and counts line up row to row.
+        <div
+          ref={liveRef}
+          className="scroll-x-edges grid grid-cols-[auto_auto_minmax(6rem,1fr)_auto] divide-y overflow-x-auto rounded-lg border"
+          style={
+            leadWidth === undefined
+              ? undefined
+              : {
+                  gridTemplateColumns: `${leadWidth}px auto minmax(6rem, 1fr) auto`,
+                }
+          }
+        >
+          {live.map((investigation) => (
+            <InFlightRow
+              key={investigation.investigation_id}
+              investigation={investigation}
+              showAgent={showAgent}
+            />
+          ))}
+        </div>
+      )}
+      {settled.length > 0 && (
+        // A phone still scrolls it sideways: scroll-x-edges shades the side that
+        // has more, so the columns past the edge are not a secret.
+        <div
+          ref={tableRef}
+          className="scroll-x-edges overflow-x-auto rounded-lg border"
+        >
+          <table className={cn(textStyle.body, "w-full text-left")}>
+            <thead className={textStyle.label}>
+              <tr className="border-b">
+                <th
+                  className={cn(CELL, "font-medium")}
+                  style={
+                    startedMinWidth === undefined
+                      ? undefined
+                      : { minWidth: startedMinWidth }
                   }
-                  if (e.metaKey || e.ctrlKey || e.shiftKey) {
-                    window.open(href, "_blank", "noopener");
-                    return;
-                  }
-                  void navigate({
-                    to: "/investigations/$investigationId",
-                    params: { investigationId: investigation.investigation_id },
-                  });
-                }}
-                onMouseDown={(e) => {
-                  if (e.button === 1 && !(e.target as Element).closest("a")) {
-                    e.preventDefault();
-                  }
-                }}
-                onAuxClick={(e) => {
-                  if (e.button === 1 && !(e.target as Element).closest("a")) {
-                    window.open(href, "_blank", "noopener");
-                  }
-                }}
-                className="cursor-pointer hover:bg-muted/30 focus-within:bg-muted/30"
-              >
-                {/* No cell is kept to one line: in a narrow panel a row
-                    wraps rather than pushing a column out of sight. */}
-                <td className={CELL}>
-                  <span className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-                    <span
-                      className="whitespace-nowrap"
-                      title={bounds === ABSENT ? undefined : `Window ${bounds}`}
-                    >
-                      {startedLabel(investigation)}
-                    </span>
-                    <Link
-                      to="/investigations/$investigationId"
-                      params={{
-                        investigationId: investigation.investigation_id,
-                      }}
-                      className={cn(textStyle.meta, mono, link.standalone)}
-                    >
-                      {investigation.investigation_id.slice(0, 8)}
-                    </Link>
-                    {!isAmbient(investigation) && (
-                      <TriggerBadge investigation={investigation} />
-                    )}
-                    {note !== usualWindow && note !== ABSENT && (
-                      <span
-                        className={cn(
-                          textStyle.meta,
-                          "whitespace-nowrap rounded border px-1.5",
-                        )}
-                      >
-                        {note}
-                      </span>
-                    )}
-                  </span>
-                  {focus && (
-                    <span
-                      className={cn(textStyle.meta, "mt-0.5 line-clamp-1")}
-                      title={focus}
-                    >
-                      {focus}
-                    </span>
-                  )}
-                </td>
+                >
+                  Started
+                </th>
                 {showAgent && (
-                  <td className={cn(CELL, textStyle.meta)}>
-                    {agentLabel(investigation)}
-                  </td>
+                  <th className={cn(CELL, "font-medium")}>Agent</th>
                 )}
-                <td className={cn(CELL, "hidden text-right lg:table-cell")}>
-                  <TrajectoriesScanned
-                    investigation={investigation}
-                    busiest={busiest}
-                  />
-                </td>
-                <td className={cn(CELL, "text-right")}>
-                  <InvestigationPassRate investigation={investigation} />
-                </td>
-                <td className={cn(CELL, "text-right")}>
-                  <InvestigationChange
-                    rate={passRate(investigation)}
-                    previous={previousRates.get(investigation.investigation_id)}
-                  />
-                </td>
-                <InvestigationCountCells investigation={investigation} />
+                {/* Left out below a full page, where the other figures need
+                  the room more. */}
+                <th
+                  className={cn(
+                    CELL,
+                    "hidden text-right font-medium lg:table-cell",
+                  )}
+                >
+                  Trajectories
+                </th>
+                {/* The widest once there is room for the bar, long enough to
+                  compare by eye. */}
+                <th className={cn(CELL, "text-right font-medium xl:w-1/4")}>
+                  Pass rate
+                </th>
+                <th className={cn(CELL, "text-right font-medium")}>Change</th>
+                {COUNT_COLUMNS.map((col) => (
+                  <th
+                    key={col.key}
+                    className={cn(CELL, "text-right font-medium")}
+                  >
+                    <span className="inline-flex items-center gap-1.5">
+                      <span
+                        aria-hidden="true"
+                        className={cn("h-2 w-2 rounded-full", col.tone)}
+                      />
+                      {formatSentenceCase(col.label)}
+                    </span>
+                  </th>
+                ))}
               </tr>
-            );
-          })}
-        </tbody>
-      </table>
+            </thead>
+            <tbody className="divide-y">
+              {settled.map((investigation) => {
+                const note = windowNote(investigation);
+                const bounds = telemetryWindow(investigation);
+                const focus = extractReviewFocus(investigation);
+                const href = router.buildLocation({
+                  to: "/investigations/$investigationId",
+                  params: { investigationId: investigation.investigation_id },
+                }).href;
+                return (
+                  <tr
+                    key={investigation.investigation_id}
+                    // The investigation id is the row's link, for the keyboard and
+                    // a screen reader. A click elsewhere on the row goes to the
+                    // same page, unless it ends a text selection; with a
+                    // modifier, or the middle button, it opens a new tab, as
+                    // a click on a link would, and the middle press does not
+                    // start the browser's autoscroll first.
+                    onClick={(e) => {
+                      if (
+                        (e.target as Element).closest("a") ||
+                        window.getSelection()?.toString()
+                      ) {
+                        return;
+                      }
+                      if (e.metaKey || e.ctrlKey || e.shiftKey) {
+                        window.open(href, "_blank", "noopener");
+                        return;
+                      }
+                      void navigate({
+                        to: "/investigations/$investigationId",
+                        params: {
+                          investigationId: investigation.investigation_id,
+                        },
+                      });
+                    }}
+                    onMouseDown={(e) => {
+                      if (
+                        e.button === 1 &&
+                        !(e.target as Element).closest("a")
+                      ) {
+                        e.preventDefault();
+                      }
+                    }}
+                    onAuxClick={(e) => {
+                      if (
+                        e.button === 1 &&
+                        !(e.target as Element).closest("a")
+                      ) {
+                        window.open(href, "_blank", "noopener");
+                      }
+                    }}
+                    className="cursor-pointer hover:bg-muted/30 focus-within:bg-muted/30"
+                  >
+                    {/* No cell is kept to one line: in a narrow panel a row
+                    wraps rather than pushing a column out of sight. */}
+                    <td className={CELL}>
+                      <span className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                        <span
+                          className="whitespace-nowrap"
+                          title={
+                            bounds === ABSENT ? undefined : `Window ${bounds}`
+                          }
+                        >
+                          {startedLabel(investigation)}
+                        </span>
+                        <Link
+                          to="/investigations/$investigationId"
+                          params={{
+                            investigationId: investigation.investigation_id,
+                          }}
+                          className={cn(textStyle.meta, mono, link.standalone)}
+                        >
+                          {investigation.investigation_id.slice(0, 8)}
+                        </Link>
+                        {!isAmbient(investigation) && (
+                          <TriggerBadge investigation={investigation} />
+                        )}
+                        {note !== usualWindow && note !== ABSENT && (
+                          <span
+                            className={cn(
+                              textStyle.meta,
+                              "whitespace-nowrap rounded border px-1.5",
+                            )}
+                          >
+                            {note}
+                          </span>
+                        )}
+                      </span>
+                      {focus && (
+                        <span
+                          className={cn(textStyle.meta, "mt-0.5 line-clamp-1")}
+                          title={focus}
+                        >
+                          {focus}
+                        </span>
+                      )}
+                    </td>
+                    {showAgent && (
+                      <td className={cn(CELL, textStyle.meta)}>
+                        {agentLabel(investigation)}
+                      </td>
+                    )}
+                    <td className={cn(CELL, "hidden text-right lg:table-cell")}>
+                      <TrajectoriesScanned
+                        investigation={investigation}
+                        busiest={busiest}
+                      />
+                    </td>
+                    <td className={cn(CELL, "text-right")}>
+                      <InvestigationPassRate investigation={investigation} />
+                    </td>
+                    <td className={cn(CELL, "text-right")}>
+                      <InvestigationChange
+                        rate={passRate(investigation)}
+                        previous={previousRates.get(
+                          investigation.investigation_id,
+                        )}
+                      />
+                    </td>
+                    <InvestigationCountCells investigation={investigation} />
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
+}
+
+/** An investigation still going, as a row of the block above the table. It
+ *  opens with what the table's Started cell holds (when it started, its id,
+ *  its trigger badge), then a dot and the stage it is in, its bar, and its
+ *  counts so far in words: "Session review ▕███░░░░░▏ 45 of 205
+ *  trajectories, 12 findings". Before its first report the stage reads
+ *  "Running" or "Pending". The dot pulses while it runs, the row fades in as
+ *  the investigation starts, and the whole row opens the investigation. The
+ *  bar is hidden from assistive technology, which reads the state and the
+ *  counts in words instead. The progress comes with the list, so the row
+ *  moves whenever the list is re-read. */
+function InFlightRow({
+  investigation,
+  showAgent,
+}: {
+  investigation: InvestigationListItem;
+  showAgent: boolean;
+}) {
+  const progress = extractCurrentProgress(investigation);
+  const state = formatInvestigationStateWord(investigation) ?? "";
+  return (
+    <Link
+      to="/investigations/$investigationId"
+      params={{ investigationId: investigation.investigation_id }}
+      className="col-span-full grid grid-cols-subgrid items-center gap-x-4 px-4 py-2 hover:bg-muted/30 focus-visible:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring motion-safe:animate-fade-in-up"
+    >
+      <span
+        data-live-lead
+        className="flex items-baseline gap-2 justify-self-start whitespace-nowrap"
+      >
+        <span>{startedLabel(investigation)}</span>
+        <span className={cn(textStyle.meta, mono)}>
+          {investigation.investigation_id.slice(0, 8)}
+        </span>
+        {!isAmbient(investigation) && (
+          <TriggerBadge investigation={investigation} />
+        )}
+        {showAgent && (
+          <span className={textStyle.meta}>{agentLabel(investigation)}</span>
+        )}
+      </span>
+      <span
+        className={cn(
+          textStyle.meta,
+          "inline-flex items-center gap-2 whitespace-nowrap text-foreground",
+        )}
+      >
+        <span
+          aria-hidden="true"
+          data-live-dot
+          className={cn(
+            "h-1.5 w-1.5 shrink-0 rounded-full",
+            state === "running"
+              ? "bg-muted-foreground motion-safe:animate-pulse"
+              : "bg-muted-foreground/50",
+          )}
+        />
+        {progress ? (
+          <>
+            <span className="sr-only">{formatSentenceCase(state)}: </span>
+            {progress.stage}
+          </>
+        ) : (
+          formatSentenceCase(state)
+        )}
+      </span>
+      <span aria-hidden="true" className="flex">
+        {progress && (
+          <ProgressBar progress={progress} className="h-1.5 w-full" />
+        )}
+      </span>
+      <span className={cn(textStyle.meta, "whitespace-nowrap text-right")}>
+        {progress ? describeProgress(progress) : "No progress reported yet"}
+      </span>
+    </Link>
+  );
+}
+
+interface StageColumnLayout {
+  leadWidth?: number;
+  startedMinWidth?: number;
+}
+
+/** Widths that put the running rows' stage dots straight above the table's
+ *  trajectories bars. The two blocks are laid out apart, and the table sizes
+ *  its own columns, so this measures where the first shown bar starts and
+ *  makes the running rows' first column end there. When that column needs
+ *  more room than the table leaves before the bar, the table's Started column
+ *  is widened until it does, and let go once it is wider than it needs; the
+ *  observer re-measures after each change, so the two settle together.
+ *  Positions are taken within each block, scrolled sideways or not. Without a
+ *  shown bar (below a wide page, where it is hidden, or with no settled rows)
+ *  both keep their own layout. `present` says whether both blocks are on the
+ *  page, so the observer is attached when they are. */
+function useStageColumnUnderWindowBar(
+  liveRef: RefObject<HTMLDivElement | null>,
+  tableRef: RefObject<HTMLDivElement | null>,
+  present: boolean,
+): StageColumnLayout {
+  const [layout, setLayout] = useState<StageColumnLayout>({});
+  const measure = useRef(() => {});
+  measure.current = () => {
+    const live = liveRef.current;
+    const table = tableRef.current;
+    const bar = Array.from(
+      table?.querySelectorAll<HTMLElement>("[data-window-bar]") ?? [],
+    ).find((element) => element.offsetWidth > 0);
+    const leads = Array.from(
+      live?.querySelectorAll<HTMLElement>("[data-live-lead]") ?? [],
+    );
+    const started = table?.querySelector("th");
+    const dot = live?.querySelector<HTMLElement>("[data-live-dot]");
+    const stage = dot?.parentElement;
+    // The rows borrow the block's columns with their own padding and gap,
+    // which offset the content from the column lines, so rather than add
+    // those up this moves the first column by however far the dot is from
+    // the bar now. The browser reports the columns it resolved.
+    const current = live
+      ? Number.parseFloat(getComputedStyle(live).gridTemplateColumns)
+      : Number.NaN;
+    if (
+      !live ||
+      !table ||
+      !bar ||
+      !started ||
+      !dot ||
+      !stage ||
+      leads.length === 0 ||
+      !Number.isFinite(current)
+    ) {
+      setLayout((prev) =>
+        prev.leadWidth === undefined && prev.startedMinWidth === undefined
+          ? prev
+          : {},
+      );
+      return;
+    }
+    const within = (block: HTMLElement, edge: number) =>
+      edge - block.getBoundingClientRect().left + block.scrollLeft;
+    const left = (element: Element, block: HTMLElement) =>
+      within(block, element.getBoundingClientRect().left);
+    const gap =
+      Number.parseFloat(
+        getComputedStyle(stage.parentElement ?? stage).columnGap,
+      ) || 0;
+    // From the content, not the cell: the cell is already held to the width
+    // set last time, and its content may spill past it.
+    const contentRight = Math.max(
+      ...leads.map((lead) => {
+        const last = lead.lastElementChild ?? lead;
+        return within(live, last.getBoundingClientRect().right);
+      }),
+    );
+    const target = current + left(bar, table) - left(dot, live);
+    const least = current + contentRight + gap - left(stage, live);
+    const short = least - target;
+    setLayout((prev) => {
+      let startedMinWidth = prev.startedMinWidth;
+      if (short > 0.5) {
+        startedMinWidth = started.getBoundingClientRect().width + short;
+      } else if (short < -0.5) {
+        // Wider than the running rows need: let the table size the column
+        // again, and widen it afresh if that leaves too little.
+        startedMinWidth = undefined;
+      }
+      const leadWidth = Math.max(target, least);
+      const same =
+        prev.startedMinWidth === startedMinWidth &&
+        prev.leadWidth !== undefined &&
+        Math.abs(prev.leadWidth - leadWidth) < 0.5;
+      return same ? prev : { leadWidth, startedMinWidth };
+    });
+  };
+  // Every render, since a poll can change a row's lead or the bar's place.
+  useLayoutEffect(() => measure.current());
+  useLayoutEffect(() => {
+    const live = liveRef.current;
+    const table = tableRef.current;
+    if (!present || !live || !table || typeof ResizeObserver === "undefined") {
+      return;
+    }
+    const observer = new ResizeObserver(() => measure.current());
+    observer.observe(live);
+    observer.observe(table);
+    const started = table.querySelector("th");
+    if (started) observer.observe(started);
+    return () => observer.disconnect();
+  }, [present, liveRef, tableRef]);
+  return layout;
 }
 
 /** The value most of `values` share, or undefined when no two share one. A
@@ -327,7 +592,8 @@ export function resolveInvestigationOutcomeTone(
   investigation: InvestigationListItem,
 ): string {
   const status = (investigation.status || "").toLowerCase();
-  if (status === "skipped") return "text-muted-foreground";
+  if (status === "skipped" || status === "cancelled")
+    return "text-muted-foreground";
   if (investigation.error) {
     return isNoData(investigation.error) ? "text-muted-foreground" : RED;
   }
@@ -503,7 +769,11 @@ function TrajectoriesScanned({
   }
   return (
     <span className="flex items-center justify-end gap-2">
-      <span aria-hidden="true" className="hidden h-1.5 w-16 shrink-0 xl:block">
+      <span
+        aria-hidden="true"
+        data-window-bar
+        className="hidden h-1.5 w-16 shrink-0 xl:block"
+      >
         {isAmbient(investigation) && busiest > 0 && (
           <span
             className={cn("block h-full rounded-full", WINDOW_SEGMENT.tone)}

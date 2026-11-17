@@ -496,6 +496,8 @@ def test_the_real_factory_builds_a_capped_fetcher_that_reports_to_the_preview() 
     assert fetcher._selector_sql == _SELECTOR
     assert fetcher._job_timeout_ms == preview.JOB_TIMEOUT_MS
     assert client.called
+    # A preview must not copy the files of sessions nobody investigates.
+    assert fetcher._trajectory_file_store is None
 
 
 def test_a_sweep_fetcher_gets_the_default_job_timeout() -> None:
@@ -517,6 +519,82 @@ def test_a_sweep_fetcher_gets_the_default_job_timeout() -> None:
 
     assert isinstance(fetcher, BigQueryJobFetcher)
     assert fetcher._job_timeout_ms == DEFAULT_JOB_TIMEOUT_MS
+
+
+def _build_sweep_state(**config_fields: Any) -> dict[str, Any]:
+    """Builds the flat state a sweep runs on, from a test `Config`.
+
+    Args:
+        **config_fields: `Config` fields to set.
+
+    Returns:
+        `dataclasses.asdict` of the config.
+    """
+    fields: dict[str, Any] = {
+        "observed_agent_name": _AGENT,
+        "project_id": _PROJECT,
+        "telemetry_dataset": "agent_analytics",
+    }
+    fields.update(config_fields)
+    return dataclasses.asdict(make_config(**fields))
+
+
+@pytest.mark.parametrize("source", ["big_query", "cloud_ops", "cloud_logging"])
+def test_a_sweep_fetcher_stores_trajectory_files_under_the_agent_key(
+    source: str, jobs_store: Any
+) -> None:
+    state = _build_sweep_state(
+        agent_key="acme-prod__support", telemetry_ingestion_source=source
+    )
+
+    with (
+        mock.patch(
+            "ambient_quality_agent.tools.ingestion.base.bigquery.Client"
+        ),
+        mock.patch("ambient_quality_agent.core.nodes._common.clients"),
+        mock.patch(
+            "ambient_quality_agent.tools.ingestion.cloud_ops_fetcher.LogFetcher"
+        ),
+    ):
+        fetcher = _common.build_fetcher(
+            StateContext(state), recorder=NullTrajectoryRecorder()
+        )
+
+    trajectory_files = fetcher._trajectory_file_store
+    assert trajectory_files is not None
+    assert trajectory_files._store is jobs_store
+    assert trajectory_files._agent_key == "acme-prod__support"
+
+
+@pytest.mark.parametrize(
+    ("config_fields", "store_trajectory_files"),
+    [
+        pytest.param({}, False, id="caller-opts-out"),
+        pytest.param(
+            {"store_trajectory_files": False}, True, id="deployment-switch-off"
+        ),
+        pytest.param(
+            {"observed_agent_name": "", "agent_key": ""},
+            True,
+            id="no-agent-key",
+        ),
+    ],
+)
+def test_a_fetcher_gets_no_trajectory_file_store_when_it_must_not_copy_files(
+    config_fields: dict[str, Any], store_trajectory_files: bool
+) -> None:
+    state = _build_sweep_state(**config_fields)
+
+    with mock.patch(
+        "ambient_quality_agent.tools.ingestion.base.bigquery.Client"
+    ):
+        fetcher = _common.build_fetcher(
+            StateContext(state),
+            recorder=NullTrajectoryRecorder(),
+            store_trajectory_files=store_trajectory_files,
+        )
+
+    assert fetcher._trajectory_file_store is None
 
 
 # --- the three refusals ----------------------------------------------------- #

@@ -302,6 +302,27 @@ Being read-only, a dump does not require the write access the engine holds over
 investigation state.
 
 Bucket-level IAM takes no object prefix, so these principals read the whole jobs
-bucket — investigation task state, the chat transcripts under `tasks/` and the
-chat names under `chat-titles/` included, not only `aqa-telemetry/`. Name them
-with that in mind.
+bucket — investigation task state, the chat transcripts under `tasks/`, the
+chat names under `chat-titles/` and the trajectory files under
+`aqa-trajectory-files/` included, not only `aqa-telemetry/`. Name them with that
+in mind.
+
+## Trajectory files
+
+Ingestion copies each file a sampled conversation carries (an image, a PDF,
+audio) into the jobs bucket, under
+`aqa-trajectory-files/<agent key>/<UTC ingestion date>/<sha256>`, and the
+archived conversation links to it. These are files that end users sent to the
+observed agent, so they can hold personal data. A file larger than 20 MiB is
+not copied; the conversation then describes it by type, size and digest if it
+is a top-level file, and keeps it inline if it is in a tool result.
+
+A lifecycle rule on the `aqa-trajectory-files/` prefix deletes them one day
+after `trajectory_payload_retention_days` (30 days by default), so a file
+expires with the conversation that links to it and never before it. The extra
+day covers a file written just before UTC midnight whose conversation lands in
+the next day's partition.
+
+Set `AQA_STORE_TRAJECTORY_FILES=false` on the engine to stop the copy. Then a
+top-level file becomes a text placeholder, and a file in a tool result stays
+inline in the stored conversation.

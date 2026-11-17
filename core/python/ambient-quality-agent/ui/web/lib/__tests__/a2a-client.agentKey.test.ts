@@ -111,4 +111,23 @@ describe("the agent a conversation is about", () => {
     expect(readSentParams(0).message.metadata).toBeUndefined();
     expect(readSentParams(1).metadata).toEqual({ agent_key: "support" });
   });
+
+  it("includes insight_id alongside agent_key when diagnosing an insight", async () => {
+    const c = await createLhaClient({
+      contextId: "ctx",
+      resolveAgentKey: () => "support",
+      resolveInsightId: () => "ins-42",
+    });
+
+    await drain(c.sendStream("Diagnose insight ins-42"));
+
+    expect(readSentParams().metadata).toEqual({
+      agent_key: "support",
+      insight_id: "ins-42",
+    });
+    expect(readSentParams().message.metadata).toEqual({
+      agent_key: "support",
+      insight_id: "ins-42",
+    });
+  });
 });

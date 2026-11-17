@@ -30,6 +30,9 @@ export interface InvestigationLike {
   created_at?: string | null;
   /** Fallback timestamp when `created_at` is absent on the record. */
   window_end?: string | null;
+  /** How far the investigation got, whose `updated_at` is its last sign of
+   *  life. */
+  progress?: { updated_at: string } | null;
 }
 
 /** The two statuses an investigation passes through before it settles.
@@ -40,12 +43,15 @@ export interface InvestigationLike {
  *  runs for it until its trigger fires. */
 export const IN_FLIGHT_STATUSES = ["pending", "running"];
 
-/** How long an investigation may claim to be in flight before we stop believing
- *  it. A job that dies without writing its record leaves a `pending` row behind
- *  forever, and a button derived from that row would never come back -- not
- *  even across a reload, because the state is the server's. Half an hour is far
- *  longer than a sweep takes and short enough that a wedged record is not a
- *  lasting lockout. */
+/** How long an investigation may claim to be in flight without a sign of life
+ *  before we stop believing it. A job that dies without writing its record
+ *  leaves a `pending` row behind forever, and a button derived from that row
+ *  would never come back -- not even across a reload, because the state is the
+ *  server's. A running investigation writes how far it got as each stage
+ *  starts, and again every few minutes while one runs
+ *  (`PROGRESS_INTERVAL_SECONDS` in core/nodes/_stage.py), so a long one keeps
+ *  showing it is alive and a dead one falls silent. Half an hour without a word is a long silence,
+ *  and short enough that a wedged record is not a lasting lockout. */
 export const STALE_AFTER_MS = 30 * 60 * 1000;
 
 /** How often the list is re-read while something is in flight. Also the
@@ -65,6 +71,18 @@ export function startedAt(
   return Number.isFinite(t) ? t : null;
 }
 
+/** When an investigation last showed it was working: the last time it said how
+ *  far it got, or its start when it has said nothing yet. Null when the record
+ *  carries neither. */
+function resolveLastActiveAt(
+  investigation: InvestigationLike | null | undefined,
+): number | null {
+  const started = startedAt(investigation);
+  const staged = Date.parse(investigation?.progress?.updated_at || "");
+  if (!Number.isFinite(staged)) return started;
+  return started === null ? staged : Math.max(started, staged);
+}
+
 function isUnsettled(
   investigation: InvestigationLike | null | undefined,
 ): boolean {
@@ -73,20 +91,21 @@ function isUnsettled(
   );
 }
 
-/** An investigation we are still waiting on: unsettled status, and not so old
- *  that the record has to be assumed abandoned. An investigation with no usable
- *  timestamp counts as in flight -- it cannot be shown to be stale, and
- *  treating "unknown" as expired would re-enable the button in exactly the case
- *  where a second sweep is most likely to duplicate the first. */
+/** An investigation we are still waiting on: unsettled status, and heard from
+ *  recently enough that the record need not be assumed abandoned. An
+ *  investigation with no usable timestamp counts as in flight -- it cannot be
+ *  shown to be stale, and treating "unknown" as expired would re-enable the
+ *  button in exactly the case where a second sweep is most likely to duplicate
+ *  the first. */
 export function isInFlight(
   investigation: InvestigationLike | null | undefined,
   now: number,
   staleAfterMs: number = STALE_AFTER_MS,
 ): boolean {
   if (!isUnsettled(investigation)) return false;
-  const started = startedAt(investigation);
-  if (started === null) return true;
-  return !(now - started > staleAfterMs);
+  const active = resolveLastActiveAt(investigation);
+  if (active === null) return true;
+  return !(now - active > staleAfterMs);
 }
 
 export function listInFlightInvestigations<T extends InvestigationLike>(
@@ -122,17 +141,17 @@ export function listStalledInvestigations<T extends InvestigationLike>(
   );
 }
 
-/** How long an investigation has been claiming to be in flight, coarsely --
- *  "45m", "6h", "2d". Coarse on purpose: the figure is context for "this is not
- *  moving", and a live-looking "6h 04m" beside an investigation nothing is
- *  watching would be a fiction. */
+/** How long an investigation claiming to be in flight has gone without a sign
+ *  of life, coarsely -- "45m", "6h", "2d". Coarse on purpose: the figure is
+ *  context for "this is not moving", and a live-looking "6h 04m" beside an
+ *  investigation nothing is watching would be a fiction. */
 export function inFlightAge(
   investigation: InvestigationLike | null | undefined,
   now: number = Date.now(),
 ): string {
-  const started = startedAt(investigation);
-  if (started === null) return "";
-  const minutes = Math.floor((now - started) / 60000);
+  const active = resolveLastActiveAt(investigation);
+  if (active === null) return "";
+  const minutes = Math.floor((now - active) / 60000);
   if (minutes < 1) return "under a minute";
   if (minutes < 60) return `${minutes}m`;
   const hours = Math.floor(minutes / 60);

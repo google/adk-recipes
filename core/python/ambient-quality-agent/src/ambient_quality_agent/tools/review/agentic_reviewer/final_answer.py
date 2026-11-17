@@ -70,7 +70,7 @@ def parse_final_text(
 
     Returns:
         The findings, capped at `findings.MAX_FINDINGS_PER_TRAJECTORY`, and the
-        parse path; None if the text holds no findings JSON.
+        parse path; None if the text holds no usable findings JSON.
     """
     extracted = extract_raw_findings(text)
     if extracted is None:
@@ -103,12 +103,16 @@ def extract_raw_findings(text: str) -> tuple[list[Any], str] | None:
     handle replies wrapped in prose or markdown code fences:
 
     1. `FINAL_PARSE_STRICT`: the entire text (or a single outer code fence) is
-       a JSON object with a ``findings`` list.
+       a JSON object with a usable ``findings`` list.
     2. `FINAL_PARSE_FENCED`: the last fenced block containing such an object.
     3. `FINAL_PARSE_ARRAY`: the entire text (or its last fenced block) is a
-       JSON array, treated as the findings list.
+       usable findings JSON array.
     4. `FINAL_PARSE_EMBEDDED`: the last balanced ``{...}`` substring that
        decodes to such an object.
+
+    A findings list is usable when it is empty or contains at least one entry
+    with ``expected_behavior`` or ``actual_behavior`` text; a non-empty list
+    whose entries are all malformed does not match.
 
     Args:
         text: Final reply text.
@@ -129,7 +133,7 @@ def extract_raw_findings(text: str) -> tuple[list[Any], str] | None:
             return value["findings"], FINAL_PARSE_FENCED
     for candidate in [body, *blocks[-1:]]:
         value = _parse_json_value(candidate)
-        if isinstance(value, list):
+        if _is_findings_list(value):
             return value, FINAL_PARSE_ARRAY
     decoder = json.JSONDecoder()
     starts = [index for index, char in enumerate(text) if char == "{"]
@@ -230,13 +234,50 @@ def _parse_json_value(text: str) -> Any:
         return _NOT_JSON
 
 
-def _is_findings_object(value: Any) -> bool:
-    """Check whether `value` is a dict containing a ``findings`` list.
+def _has_finding_text(raw: Any) -> bool:
+    """Check whether `raw` is a finding dictionary with behavior text.
+
+    Args:
+        raw: Candidate element of a findings list.
+
+    Returns:
+        True if `raw` is a dict with a non-blank ``expected_behavior`` or
+        ``actual_behavior`` value.
+    """
+    if not isinstance(raw, dict):
+        return False
+    expected = str(raw.get("expected_behavior") or "").strip()
+    actual = str(raw.get("actual_behavior") or "").strip()
+    return bool(expected or actual)
+
+
+def _is_findings_list(value: Any) -> bool:
+    """Check whether `value` is an empty list or holds at least one valid finding.
+
+    A non-empty list with no valid finding -- such as strings, numbers, or
+    objects using the wrong field names -- is a malformed answer rather than a
+    clean session.
 
     Args:
         value: Decoded JSON value.
 
     Returns:
-        True if `value` is a dict whose ``findings`` entry is a list.
+        True if `value` is an empty list, or a list containing at least one
+        element accepted by `_has_finding_text`.
     """
-    return isinstance(value, dict) and isinstance(value.get("findings"), list)
+    return isinstance(value, list) and (
+        not value or any(_has_finding_text(item) for item in value)
+    )
+
+
+def _is_findings_object(value: Any) -> bool:
+    """Check whether `value` is a dict containing a usable ``findings`` list.
+
+    Args:
+        value: Decoded JSON value.
+
+    Returns:
+        True if `value` is a dict whose ``findings`` entry passes
+        `_is_findings_list`.
+    """
+    return isinstance(value, dict) and _is_findings_list(value.get("findings"))

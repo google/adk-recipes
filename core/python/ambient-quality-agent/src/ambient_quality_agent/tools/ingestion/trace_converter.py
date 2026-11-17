@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import dataclasses
 import datetime as dt
+import hashlib
 import json
 import logging
 from collections.abc import Callable, Mapping, Sequence
@@ -33,18 +34,22 @@ from ambient_quality_agent.tools.ingestion.instruction_changes import (
     TurnInstructionTracker,
 )
 from ambient_quality_agent.tools.ingestion.message_parts import (
+    DEFAULT_MIME_TYPE,
     build_attachment_placeholder,
     extract_field,
-    parse_inline_data_placeholder,
     parse_part,
+    parse_unknown_size_placeholder,
 )
 from ambient_quality_agent.tools.ingestion.trace_models import (
     LogEntryView,
     Span,
 )
 from google.genai.types import (
+    Blob,
     Content,
     FunctionDeclaration,
+    FunctionResponseBlob,
+    FunctionResponsePart,
     Part,
     Tool,
 )
@@ -361,7 +366,7 @@ class TraceAgentDataConverter:
             spans: Ordered spans for this trace.
             logs: Correlated log entries indexed by span ID.
             acc: Accumulated session state across turns.
-            seen: Set of serialized Content JSON keys seen so far for deduplication.
+            seen: Content keys seen so far in the session, for deduplication.
 
         Returns:
             Constructed conversation turn with parsed events.
@@ -531,7 +536,7 @@ class TraceAgentDataConverter:
             acc: Accumulated session state.
             dynamic: Dynamic configuration holder for this span.
             events: Target list to append parsed events to.
-            seen: Set of serialized Content JSON keys seen so far.
+            seen: Content keys seen so far in the session.
             merge_index: The current turn's events by merge key (see
                 `_add_contents`).
             event_time: Timestamp to associate with parsed events.
@@ -583,7 +588,7 @@ class TraceAgentDataConverter:
             agent: Owning agent ID.
             attrs: Raw span attributes mapping.
             events: Target list to append parsed events to.
-            seen: Set of serialized Content JSON keys seen so far.
+            seen: Content keys seen so far in the session.
             merge_index: The current turn's events by merge key (see
                 `_add_contents`).
             event_time: Timestamp to associate with parsed events.
@@ -873,28 +878,35 @@ def _add_contents(
     ``llm_response`` on the ``call_llm`` span, and the gen_ai messages on its
     child ``generate_content`` span. The copies differ in their attachments,
     which `message_parts` turns from ``blob`` and inline-data parts into
-    placeholders:
+    native ``inline_data`` parts when the bytes decode, and into ``size
+    unknown`` placeholders when they do not:
 
-    1. A request appears without its inline data in ``llm_request`` and with a
-       placeholder in ``gen_ai.input.messages``.
+    1. A request appears without its inline data in ``llm_request`` and with
+       it, as either form, in ``gen_ai.input.messages``.
     2. A response appears with decodable inline data in ``llm_response``, which
-       becomes a digest placeholder, and with ADK's ``"<not serializable>"``
-       sentinel in ``gen_ai.output.messages``, which becomes a ``size
-       unknown`` placeholder.
+       becomes a native ``inline_data`` part, and with ADK's ``"<not
+       serializable>"`` sentinel in ``gen_ai.output.messages``, which becomes
+       a ``size unknown`` placeholder.
 
-    Within a turn, a message carrying placeholders therefore merges into an
+    Within a turn, a message carrying attachments therefore merges into an
     earlier event from the same author that holds another copy of it (see
     `_get_mergeable_event`). The more detailed copy (see
-    `_compute_attachment_detail`) is kept in the earlier event's place.
+    `_compute_attachment_detail`) is kept in the earlier event's place, so the
+    event keeps the bytes when any copy had them.
+
+    Every key names a file's bytes, top-level or in ``function_response.parts``,
+    by their SHA-256 digest and never by the bytes themselves, so a key stays
+    small however large the file is.
 
     Args:
         agent: Owning agent ID.
         messages: Sequence of message mappings.
         events: Target list to append new AgentEvents to. Holds only the
             current turn's events.
-        seen: Serialized Content JSON keys seen so far in the session. A
-            message carrying placeholders also adds its key without them, so a
-            later history replay of it without its inline data is skipped.
+        seen: Content keys seen so far in the session (see
+            `_build_content_keys`). A message carrying attachments also adds
+            its key without them, so a later history replay of it without its
+            inline data is skipped.
         merge_index: The current turn's events by merge key, updated in place.
             Share one across every call for a turn.
         tool_call_ids: Mapping of tool call IDs to tool names.
@@ -906,12 +918,11 @@ def _add_contents(
         content = _parse_content(message, tool_call_ids)
         if content is None:
             continue
-        key = content.model_dump_json(exclude_none=True)
+        key, attachment_keys = _build_content_keys(content)
         if key in seen:
             continue
         seen.add(key)
         author = agent if content.role == "model" else "user"
-        attachment_keys = _build_attachment_merge_keys(content)
         if attachment_keys is None:
             merge_keys = [key]
         else:
@@ -939,52 +950,150 @@ class _AttachmentMergeKeys(NamedTuple):
     """Keys under which two copies of a message with attachments match."""
 
     normalized: str
-    """The content with each inline-data placeholder reduced to its MIME type,
-    in place."""
+    """The content with each attachment reduced to its MIME type, in place."""
 
     stripped: str | None
-    """The content without its inline-data placeholders, or None if nothing
-    else remains."""
+    """The content without its attachments, or None if nothing else
+    remains."""
 
 
-def _build_attachment_merge_keys(
+def _build_content_keys(
     content: Content,
-) -> _AttachmentMergeKeys | None:
-    """Build the keys that match copies of a message differing in attachments.
+) -> tuple[str, _AttachmentMergeKeys | None]:
+    """Build the dedup key of a message and, if it has attachments, its merge keys.
+
+    An attachment is a native ``inline_data`` part with bytes or a ``size
+    unknown`` placeholder. Every key replaces ``inline_data`` bytes (both
+    top-level and inside ``function_response.parts``) with their MIME type and
+    SHA-256 digest, distinguishing files without embedding raw bytes in the
+    key. Each file's bytes are hashed once.
 
     Args:
         content: Parsed message content.
 
     Returns:
-        The message's merge keys, or None if it has no inline-data
-        placeholder.
+        A tuple of `(dedup_key, merge_keys)`, where `merge_keys` is None if the
+        message has no top-level attachments.
     """
     parts = content.parts or []
+    keyed: list[Part] = []
     normalized: list[Part] = []
     stripped: list[Part] = []
     for part in parts:
-        placeholder = parse_inline_data_placeholder(part)
-        if placeholder is None:
-            normalized.append(part)
-            stripped.append(part)
+        mime_type = _extract_attachment_mime_type(part)
+        if mime_type is None:
+            key_part = _build_nested_digest_key_part(part)
+            keyed.append(key_part)
+            normalized.append(key_part)
+            stripped.append(key_part)
+            continue
+        normalized.append(build_attachment_placeholder(mime_type))
+        if _has_inline_bytes(part):
+            keyed.append(_build_digest_key_part(part, mime_type))
         else:
-            normalized.append(
-                build_attachment_placeholder(placeholder.mime_type)
-            )
+            keyed.append(part)
+    key = _build_content_key(content, keyed)
     if len(stripped) == len(parts):
-        return None
-    return _AttachmentMergeKeys(
+        return key, None
+    return key, _AttachmentMergeKeys(
         normalized=_build_content_key(content, normalized),
         stripped=_build_content_key(content, stripped) if stripped else None,
     )
 
 
+def _build_digest_key_part(part: Part, mime_type: str) -> Part:
+    """Build the stand-in of an ``inline_data`` part inside a content key.
+
+    Args:
+        part: A part whose ``inline_data`` holds bytes.
+        mime_type: The part's MIME type.
+
+    Returns:
+        An ``inline_data`` part without bytes, whose display name records
+        the SHA-256 digest of the original bytes.
+    """
+    data = part.inline_data.data if part.inline_data else None
+    digest = hashlib.sha256(data or b"").hexdigest()
+    return Part(
+        inline_data=Blob(mime_type=mime_type, display_name=f"sha256:{digest}")
+    )
+
+
+def _build_nested_digest_key_part(part: Part) -> Part:
+    """Replace inline file bytes inside a function response with SHA-256 digests.
+
+    Args:
+        part: Parsed part (not mutated).
+
+    Returns:
+        A copy of `part` where each ``function_response.parts`` entry holding
+        bytes has its bytes replaced by a ``display_name`` with the SHA-256
+        digest, or `part` unchanged if no nested entry holds bytes.
+    """
+    response = part.function_response
+    if response is None or not any(
+        nested.inline_data is not None and nested.inline_data.data is not None
+        for nested in response.parts or []
+    ):
+        return part
+    nested_parts = []
+    for nested in response.parts or []:
+        inline = nested.inline_data
+        if inline is None or inline.data is None:
+            nested_parts.append(nested)
+            continue
+        digest = hashlib.sha256(inline.data).hexdigest()
+        nested_parts.append(
+            FunctionResponsePart(
+                inline_data=FunctionResponseBlob(
+                    mime_type=inline.mime_type, display_name=f"sha256:{digest}"
+                )
+            )
+        )
+    return part.model_copy(
+        update={
+            "function_response": response.model_copy(
+                update={"parts": nested_parts}
+            )
+        }
+    )
+
+
+def _has_inline_bytes(part: Part) -> bool:
+    """Whether a part is a native ``inline_data`` part that holds bytes.
+
+    Args:
+        part: Parsed part.
+
+    Returns:
+        True if the part's ``inline_data`` carries data.
+    """
+    return part.inline_data is not None and part.inline_data.data is not None
+
+
+def _extract_attachment_mime_type(part: Part) -> str | None:
+    """Extract the MIME type of a part that stands for an inline attachment.
+
+    Args:
+        part: Parsed part.
+
+    Returns:
+        The MIME type of a native ``inline_data`` part that holds bytes or of
+        a ``size unknown`` placeholder; None for any other part.
+    """
+    if _has_inline_bytes(part):
+        inline = part.inline_data
+        return (inline.mime_type if inline else None) or DEFAULT_MIME_TYPE
+    return parse_unknown_size_placeholder(part)
+
+
 def _build_content_key(content: Content, parts: list[Part]) -> str:
-    """Build the dedup key of ``content`` with its parts replaced.
+    """Build the key of ``content`` with its parts replaced.
 
     Args:
         content: Parsed message content.
-        parts: The parts to serialize in place of the content's own.
+        parts: The parts to serialize in place of the content's own. None
+            holds file bytes, at the top level or in a function response.
 
     Returns:
         The serialized content, in the form `_add_contents` uses as a key.
@@ -1005,20 +1114,20 @@ def _get_mergeable_event(
     Args:
         merge_index: The current turn's events by merge key.
         attachment_keys: The merge keys of ``content``.
-        content: Parsed message content carrying inline-data placeholders.
+        content: Parsed message content carrying attachments.
         author: The author an event for ``content`` would have.
 
     Returns:
-        The event from ``author`` found under the normalized key whose digests
+        The event from ``author`` found under the normalized key whose bytes
         do not conflict with those of ``content``; else the event from
-        ``author`` found under the stripped key if it holds no inline-data
-        placeholder, as only the ``llm_request`` copy lacks them; else None.
+        ``author`` found under the stripped key if it holds no attachment, as
+        only the ``llm_request`` copy lacks them; else None.
     """
     event = merge_index.get(attachment_keys.normalized)
     if (
         event is not None
         and event.author == author
-        and not _has_conflicting_digests(event.content, content)
+        and not _has_conflicting_bytes(event.content, content)
     ):
         return event
     if attachment_keys.stripped is None:
@@ -1033,28 +1142,38 @@ def _get_mergeable_event(
     return None
 
 
-def _has_conflicting_digests(first: Content | None, second: Content) -> bool:
+def _has_conflicting_bytes(first: Content | None, second: Content) -> bool:
     """Whether two contents carry different decoded attachments.
 
-    A ``size unknown`` placeholder can stand for any bytes, so only digest
-    placeholders in the same position are compared.
+    Because a ``size unknown`` placeholder can stand for any bytes, only
+    positions holding ``inline_data`` bytes in both contents are compared. Two
+    attachments conflict if their MIME types or raw bytes differ.
 
     Args:
-        first: An earlier event's content.
-        second: A new message's content with the same normalized key.
+        first: Earlier event content.
+        second: Candidate content with the same normalized key.
 
     Returns:
-        True if any position holds a digest placeholder in both contents, with
-        different text.
+        True if any position holds inline bytes in both contents with different
+        MIME types or bytes.
     """
     first_parts = (first.parts or []) if first is not None else []
     for first_part, second_part in zip(
         first_parts, second.parts or [], strict=False
     ):
-        if first_part.text != second_part.text and all(
-            (placeholder := parse_inline_data_placeholder(part)) is not None
-            and placeholder.has_digest
-            for part in (first_part, second_part)
+        first_inline = first_part.inline_data
+        second_inline = second_part.inline_data
+        if (
+            first_inline is None
+            or second_inline is None
+            or first_inline.data is None
+            or second_inline.data is None
+        ):
+            continue
+        if (
+            _extract_attachment_mime_type(first_part)
+            != _extract_attachment_mime_type(second_part)
+            or first_inline.data != second_inline.data
         ):
             return True
     return False
@@ -1067,16 +1186,18 @@ def _compute_attachment_detail(content: Content | None) -> int:
         content: Parsed message content.
 
     Returns:
-        The sum over its inline-data placeholders of 2 for one naming a digest
-        and 1 for one of unknown size; 0 when it has none.
+        The sum over its attachments of 2 for a native ``inline_data`` part
+        that holds bytes and 1 for a ``size unknown`` placeholder; 0 when it
+        has none.
     """
     if content is None:
         return 0
     detail = 0
     for part in content.parts or []:
-        placeholder = parse_inline_data_placeholder(part)
-        if placeholder is not None:
-            detail += 2 if placeholder.has_digest else 1
+        if _has_inline_bytes(part):
+            detail += 2
+        elif parse_unknown_size_placeholder(part) is not None:
+            detail += 1
     return detail
 
 
@@ -1450,8 +1571,8 @@ def _apply_dynamic_configs(
     """Apply a span's instruction and changed tools to the events it produced.
 
     `instruction_tracker` places a changed instruction in
-    ``state_delta[SYSTEM_INSTRUCTION_KEY]`` once per turn to keep review prompts
-    small. Changed tools become every event's ``active_tools``.
+    ``state_delta[SYSTEM_INSTRUCTION_KEY]`` once per turn to keep the reviewed
+    trajectory small. Changed tools become every event's ``active_tools``.
 
     A span that produced no events logs a warning only for changed tools. ADK
     records each LLM call on a ``call_llm`` span and again on a child

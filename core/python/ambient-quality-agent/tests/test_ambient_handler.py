@@ -907,6 +907,31 @@ def test_a_task_fire_is_for_the_agent_of_its_scheduled_record(
     assert _STAGING in note
 
 
+def test_a_task_fire_whose_investigation_was_cancelled_starts_nothing(
+    monkeypatch: pytest.MonkeyPatch, mock_schedule: mock.AsyncMock
+) -> None:
+    """The delayed task still fires after a user cancels the investigation it
+    was for; starting a fresh one under a new id would undo the cancel."""
+    _use_agents(monkeypatch, {_PROD: None})
+    investigation_id = handler.compute_scheduled_investigation_id("op-1")
+    asyncio.run(
+        model.create_investigation(
+            {},
+            Investigation(
+                investigation_id=investigation_id,
+                status=InvestigationStatus.CANCELLED,
+                observed_agent_key=_PROD,
+                trigger_type="task_fire",
+            ),
+        )
+    )
+
+    note = _dispatch_task_fire("op-1")
+
+    mock_schedule.assert_not_called()
+    assert "was cancelled" in note and investigation_id in note
+
+
 def test_a_task_fire_without_its_record_is_for_the_engines_agent(
     monkeypatch: pytest.MonkeyPatch, mock_schedule: mock.AsyncMock
 ) -> None:

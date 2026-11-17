@@ -63,7 +63,7 @@ Run these commands in your agent's agents-cli project:
 
 ```sh
 agents-cli extension add google/adk-recipes#core/python/ambient-quality-agent \
-  --ref ambient-quality-agent/v0.3.0
+  --ref ambient-quality-agent/v0.4.0
 agents-cli install
 ```
 

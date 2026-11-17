@@ -52,7 +52,7 @@ describe("RootCauseRecord", () => {
     expect(screen.getByText("app/agent.py:42-44")).toBeInTheDocument();
     expect(screen.getByText("Make the step mandatory.")).toBeInTheDocument();
 
-    const lines = Array.from(container.querySelectorAll("pre > div")).map(
+    const lines = Array.from(container.querySelectorAll("pre > div > div")).map(
       (d) => d.textContent ?? "",
     );
     expect(lines).toContain("-old line");

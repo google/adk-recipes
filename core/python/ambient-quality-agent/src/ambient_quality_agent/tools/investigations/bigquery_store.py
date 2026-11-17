@@ -70,6 +70,13 @@ logger = logging.getLogger(__name__)
 INVESTIGATIONS_TABLE = "investigations"
 EVENTS_TABLE = "investigation_events"
 
+EVENT_WRITE_TIMEOUT_SECONDS = 60
+"""Longest an event write waits for its load job. Nodes write events while
+they work, a stage row under `StageReporter`'s lock, so a stalled job must
+cost that one row rather than hold the node; the `TimeoutError` it raises is
+logged by the writer. Snapshots wait as long as their job takes: they are the
+investigation's record."""
+
 _SCHEMA_CHECK_TIMEOUT_SECONDS = 10
 """Cap on the boot-time schema read: a wedged metadata call must not hold up
 the first request over a check that only logs."""
@@ -234,7 +241,11 @@ class BigQueryInvestigationStore:
         event = InvestigationEvent(
             investigation_id=investigation_id, text=text, source=source or None
         )
-        self._insert_rows(EVENTS_TABLE, [_record_to_row(event)])
+        self._insert_rows(
+            EVENTS_TABLE,
+            [_record_to_row(event)],
+            timeout=EVENT_WRITE_TIMEOUT_SECONDS,
+        )
 
     # --- Reads --------------------------------------------------------------#
 
@@ -692,12 +703,24 @@ ORDER BY day
         job_config = bigquery.QueryJobConfig(query_parameters=params)
         return list(self._client.query(sql, job_config=job_config).result())
 
-    def _insert_rows(self, table: str, rows: list[dict[str, Any]]) -> None:
+    def _insert_rows(
+        self,
+        table: str,
+        rows: list[dict[str, Any]],
+        *,
+        timeout: float | None = None,
+    ) -> None:
         """Loads row dictionaries into a table via a WRITE_APPEND load job.
 
         Args:
             table: Target table name.
             rows: Row dictionaries to append.
+            timeout: Most seconds to wait for the job; None waits for as long
+                as it takes.
+
+        Raises:
+            concurrent.futures.TimeoutError: If the job did not finish within
+                `timeout`. It may still finish later.
         """
         self._client.load_table_from_json(
             rows,
@@ -707,7 +730,7 @@ ORDER BY day
                 create_disposition=bigquery.CreateDisposition.CREATE_NEVER,
                 autodetect=False,
             ),
-        ).result()
+        ).result(timeout=timeout)
 
 
 def _build_select_list(fields: Sequence[str]) -> str:

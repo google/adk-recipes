@@ -16,3 +16,4 @@ opentelemetry-sdk>=1.42.1
 pydantic==2.14.1
 python-dotenv>=1.2.0
 pyyaml>=6.0.3
+regex>=2024.11.6

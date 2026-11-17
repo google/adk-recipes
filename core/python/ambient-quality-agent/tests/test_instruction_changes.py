@@ -26,7 +26,8 @@ CHANGED = "You are a helpful agent. Today is Monday."
 
 
 def test_instruction_equal_to_baseline_is_not_shown():
-    """The agent block already shows the baseline, so events do not repeat it."""
+    """The reviewer already sees the baseline as the agent's instruction, so
+    events do not repeat it."""
     tracker = TurnInstructionTracker({"root": BASE})
 
     assert tracker.build_state_delta("root", "root", BASE) is None

@@ -26,6 +26,9 @@ from ambient_quality_agent.tools.evaluation.models import (
     SINGLE_TURN_METRICS,
     MetricType,
 )
+from ambient_quality_agent.tools.ingestion.trajectory_files import (
+    build_case_without_trajectory_files,
+)
 
 if TYPE_CHECKING:
     from agentplatform._genai.types import EvaluationDataset
@@ -95,7 +98,11 @@ class AgentPlatformEvalService:
         """Runs a synchronous evaluation over ``dataset``.
 
         Returns an empty result when ``metrics`` is empty to avoid unnecessary
-        remote evaluation calls.
+        remote evaluation calls. Sends a copy of ``dataset`` with
+        trajectory-file links replaced by placeholder text (see
+        `trajectory_files.build_case_without_trajectory_files`), preserving case
+        order without mutating ``dataset``. A dataset without ``eval_cases`` is
+        sent unchanged.
 
         Args:
             dataset: The eval cases to score.
@@ -108,8 +115,25 @@ class AgentPlatformEvalService:
             logger.info("No metrics to evaluate; skipping evaluation.")
             return EvaluationResult()
 
+        # The judge model receives every `file_data` link, and any unreachable
+        # link or unsupported MIME type fails all metrics for that case.
+        # Case order is preserved because results map back by position.
+        # Datasets backed by a DataFrame, GCS, or BigQuery source have no
+        # `eval_cases` to rewrite.
+        request = (
+            dataset.model_copy(
+                update={
+                    "eval_cases": [
+                        build_case_without_trajectory_files(case)
+                        for case in dataset.eval_cases
+                    ]
+                }
+            )
+            if dataset.eval_cases is not None
+            else dataset
+        )
         return self._client.evals.evaluate(
-            dataset=dataset,
+            dataset=request,
             metrics=[self._resolve_judge_model(m) for m in metrics],
         )
 

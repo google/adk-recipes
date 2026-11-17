@@ -220,6 +220,7 @@ async def record_root_cause(
         insight_id=insight_id,
         occurrence_id=occurrence_id,
         agent_revision=revision,
+        context_id=_extract_context_id(tool_context),
         summary=summary,
         edits=anchored,
         created_at=dt.datetime.now(dt.UTC),
@@ -238,6 +239,23 @@ async def record_root_cause(
         edits_recorded=len(record.edits),
         warnings=warnings,
     ).model_dump(mode="json")
+
+
+def _extract_context_id(tool_context: LaunchContext) -> str:
+    """Extracts the A2A conversation context ID from the active session.
+
+    ADK's A2A request converter creates the session with `id` equal to the A2A
+    `context_id`. Calls arriving outside a chat session carry `session=None`.
+
+    Args:
+        tool_context: ADK launch context for the tool invocation.
+
+    Returns:
+        Trimmed session context ID, or an empty string when unavailable.
+    """
+    session = getattr(tool_context, "session", None)
+    session_id = getattr(session, "id", None) if session is not None else None
+    return session_id.strip() if isinstance(session_id, str) else ""
 
 
 def _compute_revision_warnings(

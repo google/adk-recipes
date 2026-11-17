@@ -38,7 +38,12 @@ from ambient_quality_agent.tools.metrics import runner
 from ambient_quality_agent.tools.metrics.library import CodeMetric
 from google.genai import types as gt
 
-from .conftest import make_code_metric, make_page
+from .conftest import (
+    TRAJECTORY_FILE_URI,
+    build_trajectory_file_case,
+    make_code_metric,
+    make_page,
+)
 
 EXPECTED = "The agent answers."
 
@@ -99,6 +104,39 @@ def _score(
 
 
 # --- build_instance -------------------------------------------------------
+
+
+def test_an_image_only_prompt_stored_as_a_trajectory_file_is_the_prompt() -> (
+    None
+):
+    """Metrics get placeholder text for a stored file, so a user message that
+    holds only one is still a message."""
+    case = build_trajectory_file_case(("user", None), ("agent", "A cat."))
+
+    instance = runner.build_instance(case)
+
+    assert instance["prompt"]["parts"][0]["text"] == "<attachment: image/png>"
+    assert instance["response"]["parts"][0]["text"] == "A cat."
+    user_part = instance["agent_data"]["turns"][0]["events"][0]["content"]
+    assert user_part["parts"] == [{"text": "<attachment: image/png>"}]
+    assert case.agent_data is not None
+    first = case.agent_data.turns[0].events[0].content.parts[0]
+    assert first.file_data.file_uri == TRAJECTORY_FILE_URI, (
+        "the page's case keeps its link"
+    )
+
+
+def test_an_unanswered_image_only_message_is_judged_as_silence() -> None:
+    """The last user message holds only a stored file; without a placeholder
+    it would vanish and the earlier exchange would be scored."""
+    case = build_trajectory_file_case(
+        ("user", "Hi"), ("agent", "Hello!"), ("user", None)
+    )
+
+    instance = runner.build_instance(case)
+
+    assert "prompt" not in instance
+    assert instance["response"] == {}
 
 
 def test_the_response_is_derived_from_the_conversation() -> None:

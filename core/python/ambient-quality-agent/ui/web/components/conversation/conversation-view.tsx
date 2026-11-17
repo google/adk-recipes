@@ -15,6 +15,7 @@
 import type { TrajectoryBundle, ConversationToolCall } from "@/lib/aqua-api";
 import { timelineOf } from "@/lib/conversation";
 import { Markdown } from "@/components/chat/markdown";
+import { FileChips } from "@/components/conversation/file-chips";
 import { mono, textStyle } from "@/lib/typography";
 import { cn } from "@/lib/utils";
 
@@ -125,7 +126,8 @@ export function ConversationView({
               <header className={cn(textStyle.label, mono)}>
                 {item.author ?? "unknown"}
               </header>
-              <Markdown text={item.text} />
+              {item.text && <Markdown text={item.text} />}
+              {item.files && <FileChips files={item.files} />}
             </article>
           );
         }

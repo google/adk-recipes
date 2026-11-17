@@ -17,7 +17,7 @@
 Exposes in-memory insight storage to the correlation node and operator actions
 through the same interface as `BigQueryInsightStore`.
 
-The candidate matcher defaults to `matching.match_candidates` and is injectable
+The candidate matcher defaults to `matching.match_all_candidates` and is injectable
 to allow offline evaluation with deterministic judges. This class controls which
 labels are offered for matching and their presentation order.
 
@@ -69,11 +69,11 @@ class InMemoryInsightStore:
             store: The in-memory backing store for insights and occurrences.
             observed_agent_key: Key of the observed agent to isolate storage queries.
             matcher: Matcher callable to detect duplicate issues. Defaults to
-                `matching.match_candidates`.
+                `matching.match_all_candidates`.
         """
         self._store = store
         self._observed_agent_key = observed_agent_key
-        self._matcher = matcher or matching.match_candidates
+        self._matcher = matcher or matching.match_all_candidates
 
     # --- The sweep's write path ---------------------------------------------- #
 

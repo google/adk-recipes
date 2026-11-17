@@ -19,21 +19,25 @@ Wiring::
     ui/web bundle (browser)
       │
       ├─ /, any other path ──► serve_dashboard_shell(), serve_spa() ──► static_v2 files
+      │                          _serve_shell()
       │
       ├─ /api/* ──► _get_backend_client() ──► AgentRuntimeClient | AdkHttpClient
-      │               build_client_from_env()             │ post_command()
-      │                                                   ▼
+      │               _create_default_backend_client()    │ post_command()
+      │               build_client_from_env()             ▼
       │                                     fast_api_app: core.command_routes
       │
       ├─ /a2a, agent card ──► proxy_a2a_request() ──► fast_api_app: chat A2A route
       │     _resolve_a2a_upstream() ──► resolve_a2a_base_url()
       │     get_adc_token(), _forward(), _stream_a2a()
       │
-      ├─ /lha/contexts ──► task_reader ──► GCS
+      ├─ /lha/contexts ──► task_reader ──► GCS, or _proxy_local_contexts() ──► fast_api_app
       │     list_contexts(), list_context_tasks(), delete_context(),
       │     save_context_title()
       │
       └─ other /lha/*, /feedback ──► _build_lha_unavailable_response()
+
+    host process ──► build_read_only_dashboard_app(backend) ──► app
+                       GET/HEAD only, no chat                   _get_backend_client() ──► backend
 
 This is the *leanest* option: it reuses the exact web stack `adk web` already
 ships (FastAPI + Starlette + uvicorn) and the shared, SDK-agnostic client -- so
@@ -84,10 +88,14 @@ answers for its default agent.
 ``/`` serves the dashboard: ``/assets/*`` and any other file in the bundle are
 served beside it, every unclaimed path falls through to the shell so the
 client-side router can match it, and ``/v2/*`` permanently redirects to ``/*``.
+
+A host process that shows finished investigations read-only serves
+``build_read_only_dashboard_app(backend)``; its docstring is the contract.
 """
 
 from __future__ import annotations
 
+import contextvars
 import functools
 import json
 import logging
@@ -121,6 +129,7 @@ from ambient_quality_shared.protocol import (
     INSIGHTS_GET_ROUTE,
     INSIGHTS_LIST_ROUTE,
     INSIGHTS_MERGE_ROUTE,
+    INVESTIGATIONS_CANCEL_ROUTE,
     INVESTIGATIONS_DAILY_ROUTE,
     INVESTIGATIONS_GET_ROUTE,
     INVESTIGATIONS_LIST_ROUTE,
@@ -132,6 +141,7 @@ from ambient_quality_shared.protocol import (
     TRAJECTORY_BUNDLE_ROUTE,
     AgentKeyArgs,
     AttachAgentArgs,
+    CancelInvestigationArgs,
     DeleteMemoryArgs,
     DismissInsightArgs,
     GetInsightArgs,
@@ -148,12 +158,16 @@ from ambient_quality_shared.usage_headers import build_usage_headers
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import (
     FileResponse,
+    HTMLResponse,
     JSONResponse,
     PlainTextResponse,
     RedirectResponse,
     StreamingResponse,
 )
 from fastapi.staticfiles import StaticFiles
+from starlette.datastructures import MutableHeaders
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
+from starlette.websockets import WebSocketClose
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -184,18 +198,39 @@ if not BUNDLE_AVAILABLE:
 app = FastAPI(title="AQA FastAPI dashboard")
 
 
+# Set only while `build_read_only_dashboard_app`'s app handles a request, so
+# a viewer and the regular `app` can share a process without sharing a
+# backend.
+_viewer_backend: contextvars.ContextVar[Any] = contextvars.ContextVar(
+    "aqua_viewer_backend", default=None
+)
+
+
 # --------------------------------------------------------------------------- #
 # The target comes from the environment, which is fixed for the process, so
 # one client serves every request.
 # --------------------------------------------------------------------------- #
 @functools.cache
-def _get_backend_client() -> AgentRuntimeClient | AdkHttpClient:
+def _create_default_backend_client() -> AgentRuntimeClient | AdkHttpClient:
     """Returns the backend client for a deployed engine or a local agent server.
 
     Returns:
         Cached backend client instance (`AgentRuntimeClient` or `AdkHttpClient`).
     """
     return build_client_from_env()
+
+
+def _get_backend_client() -> Any:
+    """Returns the backend the current request reads from.
+
+    Returns:
+        The host's backend inside a viewer (`build_read_only_dashboard_app`),
+        otherwise the environment's (`_create_default_backend_client`).
+    """
+    backend = _viewer_backend.get()
+    if backend is None:
+        return _create_default_backend_client()
+    return backend
 
 
 def _extract_window_args(request: Request) -> WindowArgs:
@@ -302,12 +337,44 @@ async def serve_dashboard_shell() -> Response:
     while keeping API routes accessible.
 
     Returns:
-        FileResponse serving the static index page, or PlainTextResponse on 503.
+        The shell (`_serve_shell`), or PlainTextResponse on 503.
     """
     if BUNDLE_AVAILABLE:
-        return FileResponse(V2_INDEX)
+        return _serve_shell()
     return PlainTextResponse(
         _NO_BUNDLE.format(dir=STATIC_V2_DIR), status_code=503
+    )
+
+
+VIEWER_META_TAG = '<meta name="aqua-viewer" content="1">'
+"""Marks a shell served by a viewer (`build_read_only_dashboard_app`)."""
+
+# Comments are matched too, and skipped, as one can hold a `<head` before the
+# real one; an unclosed comment runs to the end, as it does for a browser.
+_HEAD_OPEN_OR_COMMENT = re.compile(
+    r"<!--.*?(?:-->|\Z)|(<head\b[^>]*>)", re.IGNORECASE | re.DOTALL
+)
+
+
+def _serve_shell() -> Response:
+    """Serves the bundle's index.html, marked as a viewer's inside one.
+
+    Returns:
+        The shell as built, or inside a viewer the shell with
+        `VIEWER_META_TAG` opening its head, or a 500 when it has no head.
+    """
+    if _viewer_backend.get() is None:
+        return FileResponse(V2_INDEX)
+    with open(V2_INDEX, encoding="utf-8") as index:
+        html = index.read()
+    for match in _HEAD_OPEN_OR_COMMENT.finditer(html):
+        if match.group(1):
+            end = match.end()
+            return HTMLResponse(html[:end] + VIEWER_META_TAG + html[end:])
+    # Unmarked, the shell would offer chat and writes the viewer refuses.
+    return PlainTextResponse(
+        "The dashboard's index.html has no <head> to mark read-only.",
+        status_code=500,
     )
 
 
@@ -1186,6 +1253,43 @@ async def get_investigation_record(
     return {"investigation": result}
 
 
+@app.post("/api/investigations/{investigation_id}/cancel")
+async def cancel_investigation(investigation_id: str, request: Request) -> Any:
+    """Cancels a scheduled, pending or running investigation.
+
+    Args:
+        investigation_id: Identifier of the investigation to cancel.
+        request: Incoming HTTP request, with the selected agent in its query.
+
+    Returns:
+        The cancelled investigation as `{"investigation": ...}`, or an error
+        with a 502 status when the agent is unreachable and 409 when it
+        refuses (an unknown investigation, or one that has already finished).
+    """
+    try:
+        result = await _get_backend_client().post_command(
+            INVESTIGATIONS_CANCEL_ROUTE,
+            _add_selected_agent(
+                CancelInvestigationArgs(investigation_id=investigation_id),
+                request,
+            ),
+        )
+    except Exception as exc:
+        return JSONResponse({"error": _format_error(exc)}, status_code=502)
+    if not result:
+        return JSONResponse(
+            {
+                "error": (
+                    f"No record returned for investigation {investigation_id!r}."
+                )
+            },
+            status_code=502,
+        )
+    if result.get("error") and not result.get("investigation_id"):
+        return JSONResponse({"error": result["error"]}, status_code=409)
+    return {"investigation": result}
+
+
 @app.get("/api/daily")
 async def get_daily_trends(request: Request) -> dict:
     """Retrieves daily aggregated metric trends for trend charts.
@@ -1380,13 +1484,48 @@ def _format_insight_for_v2(
     refined_label = insight.get("refined_label") or ""
     if not refined_label and occurrences:
         refined_label = str(occurrences[0].get("refined_label") or "")
+    context_ids = _extract_root_cause_context_ids(
+        insight, occurrences, root_causes
+    )
     return {
         **insight,
         "impact": insight.get("impact", insight.get("trajectory_count", 0)),
         "diagnosis": diagnosis,
         "has_root_cause": diagnosed,
+        "root_cause_context_ids": context_ids,
         "refined_label": refined_label,
     }
+
+
+def _extract_root_cause_context_ids(
+    insight: dict,
+    occurrences: list[dict] | None,
+    root_causes: list[dict] | None,
+) -> list[str]:
+    """Collects distinct non-empty chat context IDs across root-cause sources.
+
+    Args:
+        insight: Raw insight dictionary (may carry `root_cause_context_ids`).
+        occurrences: Optional occurrence dicts with nested `root_causes`.
+        root_causes: Optional top-level root-cause dicts.
+
+    Returns:
+        Deduplicated list of non-empty `context_id` strings.
+    """
+    candidates: list[str] = []
+    for cid in insight.get("root_cause_context_ids") or []:
+        if isinstance(cid, str) and cid.strip():
+            candidates.append(cid.strip())
+    for record in root_causes or []:
+        cid = record.get("context_id") if isinstance(record, dict) else None
+        if isinstance(cid, str) and cid.strip():
+            candidates.append(cid.strip())
+    for occurrence in occurrences or []:
+        for record in occurrence.get("root_causes") or []:
+            cid = record.get("context_id") if isinstance(record, dict) else None
+            if isinstance(cid, str) and cid.strip():
+                candidates.append(cid.strip())
+    return list(dict.fromkeys(candidates))
 
 
 def _format_occurrence_for_v2(occurrence: dict) -> dict:
@@ -1445,8 +1584,8 @@ def _extract_console_urls(occurrence: dict) -> dict[str, str]:
 async def get_insight_detail(insight_id: str, request: Request) -> dict:
     """Retrieves detailed insight information including occurrences and root causes.
 
-    Heavy conversation trace payloads are omitted by default unless requested
-    via `includeTraces=1`.
+    Conversation turns stored on finding examples are omitted unless requested
+    via `includeTraces=1`; insight correlation stores examples without them.
 
     Args:
         insight_id: Unique insight identifier.
@@ -1465,8 +1604,7 @@ async def get_insight_detail(insight_id: str, request: Request) -> dict:
         include_traces=params.get("includeTraces") in ("1", "true"),
         # The links, without the conversations they link to. The panel shows
         # each failing rubric's expected/actual behavior and offers a way out
-        # to the trace; the rubric's own conversation copy is the heavy payload
-        # a harness wants, and stays behind `includeTraces`.
+        # to the trace.
         include_trajectories=True,
     )
     _add_selected_agent(args, request)
@@ -1603,7 +1741,9 @@ def _resolve_a2a_upstream() -> tuple[str, bool]:
     Raises:
         RuntimeError: If no supported backend client is configured.
     """
-    return resolve_a2a_base_url(_get_backend_client())
+    # The environment's client, as a viewer's backend has no A2A route and a
+    # viewer refuses chat before it reaches here.
+    return resolve_a2a_base_url(_create_default_backend_client())
 
 
 async def _forward(
@@ -2245,15 +2385,81 @@ def _read_jobs_bucket() -> str:
     return os.getenv("AQA_JOBS_GCS_BUCKET", "")
 
 
+def _resolve_local_adk_base_url() -> str:
+    """Resolves the local ADK/mock base URL when running without an engine or bucket.
+
+    Returns:
+        Normalized ``AGENT_ADK_BASE_URL`` when ``AQA_BACKEND=adk`` or no engine
+        is configured, otherwise ``""``.
+    """
+    base = os.getenv("AGENT_ADK_BASE_URL", "").strip().rstrip("/")
+    if not base:
+        return ""
+    backend = os.getenv("AQA_BACKEND", "").strip().lower()
+    if backend == "adk":
+        return base
+    if (
+        os.getenv("AGENT_ENGINE_RESOURCE_ID", "").strip()
+        or os.getenv("AGENT_ENGINE_URL", "").strip()
+    ):
+        return ""
+    return base
+
+
+async def _proxy_local_contexts(
+    method: str,
+    subpath: str = "",
+    *,
+    payload: dict[str, Any] | None = None,
+    fallback_body: dict[str, Any] | None = None,
+) -> Any:
+    """Proxies a `/lha/contexts` operation to the local ADK or mock server.
+
+    Args:
+        method: HTTP method (`GET`, `PUT`, or `DELETE`).
+        subpath: Subpath under `/lha/contexts` (e.g. ``/{id}/tasks``).
+        payload: Optional JSON body dictionary.
+        fallback_body: Additional fields merged into 502 error payloads.
+
+    Returns:
+        Upstream Response, or an HTTP 501/502 JSONResponse.
+    """
+    base = _resolve_local_adk_base_url()
+    if not base:
+        return _build_lha_unavailable_response("contexts")
+    url = f"{base}/lha/contexts{subpath}"
+    content = json.dumps(payload).encode() if payload is not None else None
+    try:
+        upstream = await _forward(
+            method,
+            url,
+            headers={"content-type": "application/json"},
+            content=content,
+        )
+    except Exception as exc:
+        body: dict[str, Any] = {
+            **(fallback_body or {}),
+            "error": f"{type(exc).__name__}: {exc}",
+        }
+        return JSONResponse(body, status_code=502)
+    return Response(
+        content=upstream.content,
+        status_code=upstream.status_code,
+        media_type=upstream.headers.get("content-type", "application/json"),
+    )
+
+
 async def _list_contexts() -> Any:
-    """Lists conversations stored in Cloud Storage, ordered newest first.
+    """Lists conversations stored in Cloud Storage or the local backend.
 
     Returns:
         Dictionary mapping "contexts" to conversation summaries, or error response.
     """
     bucket = _read_jobs_bucket()
     if not bucket:
-        return _build_lha_unavailable_response("contexts")
+        return await _proxy_local_contexts(
+            "GET", fallback_body={"contexts": []}
+        )
     try:
         contexts = await task_reader.list_contexts(bucket)
     except Exception as exc:
@@ -2282,7 +2488,11 @@ async def list_lha_context_tasks(context_id: str) -> Any:
     """
     bucket = _read_jobs_bucket()
     if not bucket:
-        return _build_lha_unavailable_response("contexts")
+        return await _proxy_local_contexts(
+            "GET",
+            f"/{context_id}/tasks",
+            fallback_body={"tasks": []},
+        )
     try:
         tasks = await task_reader.list_context_tasks(bucket, context_id)
     except Exception as exc:
@@ -2309,7 +2519,7 @@ async def delete_lha_context(context_id: str) -> Any:
     """
     bucket = _read_jobs_bucket()
     if not bucket:
-        return _build_lha_unavailable_response("contexts")
+        return await _proxy_local_contexts("DELETE", f"/{context_id}")
     try:
         deleted = await task_reader.delete_context(bucket, context_id)
     except Exception as exc:
@@ -2362,7 +2572,8 @@ async def save_lha_context_title(context_id: str, request: Request) -> Any:
         JSONResponse on failure.
     """
     bucket = _read_jobs_bucket()
-    if not bucket:
+    local_base = "" if bucket else _resolve_local_adk_base_url()
+    if not bucket and not local_base:
         return _build_lha_unavailable_response("contexts")
     try:
         body = await request.json()
@@ -2372,6 +2583,10 @@ async def save_lha_context_title(context_id: str, request: Request) -> Any:
         title = _extract_context_title(body)
     except ValueError as exc:
         return JSONResponse({"error": str(exc)}, status_code=400)
+    if not bucket:
+        return await _proxy_local_contexts(
+            "PUT", f"/{context_id}/title", payload={"title": title}
+        )
     try:
         await task_reader.save_context_title(bucket, context_id, title)
     except Exception as exc:
@@ -2468,7 +2683,7 @@ if BUNDLE_AVAILABLE:
         )
 
     @app.get("/{spa_path:path}")
-    async def serve_spa(spa_path: str) -> FileResponse:
+    async def serve_spa(spa_path: str) -> Response:
         """Serves static assets or falls back to the SPA HTML shell.
 
         Routes belonging to the API or unsupported integrations return 404 or 501
@@ -2478,7 +2693,7 @@ if BUNDLE_AVAILABLE:
             spa_path: Requested path within the single-page application.
 
         Returns:
-            FileResponse serving the static file or index.html.
+            FileResponse serving the static file, or the shell (`_serve_shell`).
 
         Raises:
             HTTPException: 404 for missing API routes; 501 for unimplemented endpoints.
@@ -2499,9 +2714,109 @@ if BUNDLE_AVAILABLE:
             spa_path
             and os.path.commonpath([candidate, STATIC_V2_DIR]) == STATIC_V2_DIR
             and os.path.isfile(candidate)
+            and candidate != os.path.normpath(V2_INDEX)
         ):
             return FileResponse(candidate)
-        return FileResponse(V2_INDEX)
+        return _serve_shell()
+
+
+# Chat and feedback, which a viewer refuses even on GET: their routes act
+# through the environment's engine or bucket, never the host's backend.
+_VIEWER_REFUSED_PREFIXES = frozenset({"a2a", ".well-known", "lha", "feedback"})
+
+
+def build_read_only_dashboard_app(backend: Any) -> ASGIApp:
+    """Returns the dashboard served read-only over a backend a host provides.
+
+    For a host showing finished investigations, such as an evaluation over
+    sensitive data, a demo or a shared snapshot. Every `/api/*` route reads
+    from `backend` while the returned app handles the request; `app` itself
+    keeps reading from the environment's backend, so both can be served from
+    one process. The returned app, at the root or mounted under a prefix,
+    answers:
+
+    1. 405, with `Allow: GET, HEAD`, to any method but GET and HEAD, and
+       closes every websocket with 1008;
+    2. 501 to the chat and feedback paths (`/a2a`, `/.well-known`, `/lha`,
+       `/feedback`), on which the front end stops retrying;
+    3. anything else as `app` answers GET, without the body for HEAD. The
+       shell carries `VIEWER_META_TAG` at the top of its head, which marks it
+       so a front end with viewer mode keeps its storage in memory and hides
+       chat and write controls; a shell with no head to mark is refused with
+       500.
+
+    Every response carries `Cache-Control: no-store`.
+
+    Args:
+        backend: What the `/api/*` routes run command routes on: any object
+            with an async `post_command(path, payload)` that returns the
+            route's decoded JSON answer, as the agent clients have. The viewer
+            only sends it the commands behind GET routes, but does not filter
+            them further; a backend that holds data it must not show refuses
+            those commands itself.
+
+    Returns:
+        An ASGI app, for example for `uvicorn.run`.
+
+    Raises:
+        TypeError: If `backend` is None, which would leave `app` reading from
+            the environment's backend.
+    """
+    if backend is None:
+        raise TypeError(
+            "build_read_only_dashboard_app needs a backend to read from."
+        )
+
+    async def serve_viewer(scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] == "lifespan":
+            await app(scope, receive, send)
+            return
+        if scope["type"] != "http":
+            await WebSocketClose(code=1008)(scope, receive, send)
+            return
+        head_only = scope["method"] == "HEAD"
+
+        async def send_no_store(message: Message) -> None:
+            if message["type"] == "http.response.start":
+                MutableHeaders(scope=message)["cache-control"] = "no-store"
+            elif head_only and message["type"] == "http.response.body":
+                message = {**message, "body": b""}
+            await send(message)
+
+        # Under a mount, `path` still carries the mount's prefix.
+        path = scope["path"]
+        root_path = scope.get("root_path", "")
+        if root_path and path.startswith(root_path):
+            path = path[len(root_path) :]
+        segment = path.lstrip("/").split("/", 1)[0]
+        if scope["method"] not in ("GET", "HEAD"):
+            refusal: Response | None = JSONResponse(
+                {"error": "This dashboard is read-only."},
+                status_code=405,
+                headers={"allow": "GET, HEAD"},
+            )
+        elif segment in _VIEWER_REFUSED_PREFIXES:
+            refusal = JSONResponse(
+                {
+                    "error": f"/{segment} is not available in a read-only dashboard."
+                },
+                status_code=501,
+            )
+        else:
+            refusal = None
+        if refusal is not None:
+            await refusal(scope, receive, send_no_store)
+            return
+        # `app` routes GET only; a HEAD is served as one, and its body dropped.
+        if head_only:
+            scope = {**scope, "method": "GET"}
+        token = _viewer_backend.set(backend)
+        try:
+            await app(scope, receive, send_no_store)
+        finally:
+            _viewer_backend.reset(token)
+
+    return serve_viewer
 
 
 def main() -> None:

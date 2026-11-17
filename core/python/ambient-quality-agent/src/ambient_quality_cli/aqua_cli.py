@@ -36,8 +36,10 @@ Two ways to use it
       aqua_cli.py investigation-stats
       aqua_cli.py schedule-investigation --wait
       aqua_cli.py get-investigation <investigation_id> --wait
+      aqua_cli.py cancel-investigation <investigation_id> [--yes]
       aqua_cli.py list-insights [--status RECURRING] [--investigation-id <id>]
       aqua_cli.py get-insight <insight_id> [--investigation-id <id>] [--no-traces]
+      aqua_cli.py get-trajectory <trajectory_id> [--investigation-id <id>]
       aqua_cli.py show-config
       aqua_cli.py list-memories
       aqua_cli.py list-agents
@@ -179,6 +181,7 @@ from ambient_quality_shared.protocol import (
     CONFIG_ROUTE,
     INSIGHTS_GET_ROUTE,
     INSIGHTS_LIST_ROUTE,
+    INVESTIGATIONS_CANCEL_ROUTE,
     INVESTIGATIONS_GET_ROUTE,
     INVESTIGATIONS_LIST_ROUTE,
     INVESTIGATIONS_SCHEDULE_ROUTE,
@@ -190,13 +193,16 @@ from ambient_quality_shared.protocol import (
     SOURCE_COMMIT_ROUTE,
     SOURCE_ROUTE,
     SOURCE_UPLOAD_ROUTE,
+    TRAJECTORY_BUNDLE_ROUTE,
     AgentKeyArgs,
     AgentSelector,
     AttachAgentArgs,
+    CancelInvestigationArgs,
     DestroyMetricsArgs,
     GetInsightArgs,
     GetInvestigationArgs,
     GetSourceSnapshotArgs,
+    GetTrajectoryBundleArgs,
     ListInsightsArgs,
     PublishMetricsArgs,
     RecordAppliedArgs,
@@ -214,9 +220,10 @@ EXIT_ERROR = 1  # Matches click.ClickException exit code.
 EXIT_FAILED = 2  # Indicates investigation status is "failed".
 # Returned when the --wait deadline expires before reaching a terminal status.
 EXIT_TIMEOUT = 3
+EXIT_CANCELLED = 4  # Indicates investigation status is "cancelled".
 
 # Statuses indicating a completed investigation.
-_TERMINAL_STATUSES = frozenset({"done", "failed", "skipped"})
+_TERMINAL_STATUSES = frozenset({"done", "failed", "skipped", "cancelled"})
 
 # Complete set of investigation statuses, distinguishing investigation records
 # from statusless error envelopes.
@@ -492,6 +499,8 @@ def _emit_investigation_record(
         sys.exit(EXIT_TIMEOUT)
     if status == "failed":
         sys.exit(EXIT_FAILED)
+    if status == "cancelled":
+        sys.exit(EXIT_CANCELLED)
 
 
 # --------------------------------------------------------------------------- #
@@ -741,7 +750,8 @@ def get_investigation_cmd(
     \b
     Fields of an investigation record:
       status        scheduled (waiting for its delayed trigger), pending,
-                    running, done, failed, or skipped (duplicate trigger)
+                    running, done, failed, skipped (duplicate trigger), or
+                    cancelled (stopped by a user)
       trigger_type  manual, custom (selected conversations), scheduled, or
                     task_fire (delayed run after an agent update)
       due_at        when a scheduled investigation's delayed trigger is due
@@ -824,6 +834,52 @@ def schedule_investigation_cmd(
     except Exception as exc:
         raise click.ClickException(f"{type(exc).__name__}: {exc}") from exc
     _emit_investigation_record(payload, timed_out=timed_out)
+
+
+def _is_stdin_interactive() -> bool:
+    """Whether stdin is a terminal a confirmation prompt can be answered on.
+
+    Returns:
+        True if stdin is a TTY.
+    """
+    return sys.stdin.isatty()
+
+
+@cli.command("cancel-investigation")
+@click.argument("investigation_id")
+@click.option("--yes", is_flag=True, help="Do not ask before cancelling.")
+@_add_target_options
+@_add_agent_option
+def cancel_investigation_cmd(
+    investigation_id: str, yes: bool, *, url, resource, agent_key
+) -> None:
+    """Stop a scheduled, pending or running investigation; print it as JSON.
+
+    A running investigation stops at its next write: what it already stored
+    stays, and it creates no insights. Asks before cancelling unless --yes is
+    given; without a terminal to ask on, --yes is required. Exits 4 once the
+    investigation is cancelled.
+    """
+    if not yes:
+        if not _is_stdin_interactive():
+            raise click.ClickException(
+                "Refusing to cancel without confirmation: pass --yes."
+            )
+        # On stderr, so stdout carries only the JSON result.
+        click.confirm(
+            f"Cancel investigation {investigation_id}?", abort=True, err=True
+        )
+    _emit_investigation_record(
+        _fetch_command_result(
+            url=url,
+            resource=resource,
+            path=INVESTIGATIONS_CANCEL_ROUTE,
+            payload=_build_agent_args(
+                CancelInvestigationArgs(investigation_id=investigation_id),
+                _resolve_agent_key(agent_key, url=url, resource=resource),
+            ),
+        )
+    )
 
 
 @cli.command("list-insights")
@@ -909,8 +965,8 @@ def list_insights_cmd(
     is_flag=True,
     default=False,
     help=(
-        "Omit rubric conversation traces and occurrence trajectories "
-        "(Cloud Trace links) to reduce payload size."
+        "Omit occurrence trajectories (Cloud Trace links) to reduce payload "
+        "size. Read a conversation with get-trajectory."
     ),
 )
 @click.option(
@@ -961,6 +1017,40 @@ def get_insight_cmd(
             url=url,
             resource=resource,
             path=INSIGHTS_GET_ROUTE,
+            payload=_build_agent_args(
+                args, _resolve_agent_key(agent_key, url=url, resource=resource)
+            ),
+        )
+    )
+
+
+@cli.command("get-trajectory")
+@click.argument("trajectory_id")
+@click.option(
+    "--investigation-id",
+    default="",
+    help="Investigation whose trace links and ingestion status to attach.",
+)
+@_add_target_options
+@_add_agent_option
+def get_trajectory_cmd(
+    trajectory_id: str, *, investigation_id, url, resource, agent_key
+) -> None:
+    """Get one stored conversation as JSON (``{"trajectory_bundle": {...}}``).
+
+    Takes the ``trajectory_id`` a finding example carries, or one of an
+    occurrence's ``trajectory_ids``. The archive expires conversations after
+    its retention period: ``steps_returned`` below ``step_count`` means steps
+    have expired, and ``status`` is ``not_archived`` when none was stored.
+    """
+    args = GetTrajectoryBundleArgs(trajectory_id=trajectory_id)
+    if investigation_id:
+        args["investigation_id"] = investigation_id
+    _emit_result(
+        _fetch_command_result(
+            url=url,
+            resource=resource,
+            path=TRAJECTORY_BUNDLE_ROUTE,
             payload=_build_agent_args(
                 args, _resolve_agent_key(agent_key, url=url, resource=resource)
             ),
