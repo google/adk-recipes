@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Deciding which existing insight, if any, a candidate cluster restates.
+"""Deciding which existing insight, if any, each candidate cluster restates.
 
 The same-issue judge, and the only place the question is worded.
 
@@ -20,25 +20,35 @@ Called by `InsightStore.find_existing_insights` on the sweep's write path,
 through `match_candidates_by_scope`, so a candidate is only ever compared with
 insights of the agent it is attributed to.
 
-## One choice among many, not many yes/no questions
+## Every candidate against every label, one call per window
 
-What one candidate costs:
+What a sweep costs, per attributed agent (`match_all_candidates`):
 
 1. Take the open labels, most recently updated first.
-2. Split them into batches of `MATCH_BATCH`.
-3. Send one call per batch: the candidate, the numbered labels, and "which of
-   these, if any?".
-4. Stop at the first batch that names one. Answer `None` if none does.
+2. Split them into windows of `MATCH_WINDOW`.
+3. Send one call per window: every candidate of the sweep, the numbered labels,
+   and "for each candidate, which of these, if any?".
+4. A candidate keeps the first window's answer that names a label; later
+   windows are asked only about the candidates still unmatched.
 
-Cost per candidate:
+Cost per agent: ``ceil(|store| / MATCH_WINDOW)`` calls, however many
+candidates the sweep produced.
 
-- one call at best,
-- `|store| / MATCH_BATCH` calls at worst,
-- the answer is the best match among the newest labels holding one.
+## Why not one call per candidate against a small batch
+
+`choose_match` asks about one candidate at a time, against `MATCH_BATCH` labels
+per call, and stops at the first batch that names one. On a two-sweep test of
+5,000 conversations (the same findings correlated twice, so every
+second-sweep cluster has a correct insight from the first) it attached 69% of
+the second sweep's clusters to an insight holding none of their findings, and
+made 968 calls. It accepts a near neighbor -- another tool's failure of the
+same shape -- because it must answer before it has seen the rest of the store.
+`match_all_candidates` cut that to 28% in 3 calls: the right label and its
+near neighbors are on the page together.
 
 ## Why not one yes/no question per pair
 
-The obvious alternative. It is measurably worse.
+Measurably worse still.
 
 A per-pair error rate compounds across the store. A candidate that matches
 nothing gets one chance to be wrongly accepted per label it is compared against.
@@ -65,10 +75,19 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 MATCH_BATCH = 20
-"""Existing labels offered in one call.
+"""Existing labels offered in one `choose_match` call.
 
 Bounds the prompt. Costs no short-circuit: a candidate matching something in the
 newest batch never sees the rest of the store."""
+
+MATCH_WINDOW = 4_000
+"""Existing labels offered in one `match_all_candidates` call, beside every
+candidate.
+
+Sized like `clustering.CHUNK_SIZE`: the model answers one integer per
+candidate, so the output stays small however many labels it reads, and 4,000
+short labels are well inside the context. A store of 12,000 open insights
+costs 3 calls per agent, not 3 per candidate."""
 
 MATCH_CONCURRENCY = 8
 """Candidates judged at once.
@@ -105,6 +124,25 @@ NO_MATCH = -1
 
 An out-of-band integer, not a null. A nullable response-schema field is one more
 thing for a small model to get wrong, and the range check rejects it anyway."""
+
+
+_PROMPT_ALL = """\
+Each candidate below describes a failure found in this sweep of an AI agent.
+Each numbered description is an issue already tracked for the same agent. For
+every candidate, decide which tracked issue, if any, describes the same
+underlying defect: the same change to the agent's instruction, a tool, or a
+guardrail would prevent both. Different tools, arguments or rules are
+different defects, even when the wording is close.
+
+Answer with one entry per candidate, in order: the candidate's id and the
+number of the matching tracked issue, or -1 when none describes it.
+
+Candidates:
+{candidates}
+
+Tracked issues:
+{existing}
+"""
 
 
 class MatchUnavailable(RuntimeError):
@@ -150,6 +188,155 @@ def build_prompt(candidate: str, options: Sequence[str]) -> str:
         + numbered
         + _PROMPT_TASK
     )
+
+
+def build_all_match_response_schema() -> Any:
+    """Constrain the all-candidates judge to ``{"matches": [{"id", "match"}]}``.
+
+    Returns:
+        Schema object: one integer match per candidate id.
+    """
+    from google.genai import types
+
+    return types.Schema(
+        type=types.Type.OBJECT,
+        properties={
+            "matches": types.Schema(
+                type=types.Type.ARRAY,
+                items=types.Schema(
+                    type=types.Type.OBJECT,
+                    properties={
+                        "id": types.Schema(type=types.Type.INTEGER),
+                        "match": types.Schema(type=types.Type.INTEGER),
+                    },
+                    required=["id", "match"],
+                ),
+            )
+        },
+        required=["matches"],
+    )
+
+
+def build_all_prompt(candidates: Sequence[str], existing: Sequence[str]) -> str:
+    """Render every candidate against one window of existing labels.
+
+    Args:
+        candidates: Candidate labels; their index is the id the model answers
+            with.
+        existing: One window of existing labels, numbered from 0.
+
+    Returns:
+        The prompt text.
+    """
+    return _PROMPT_ALL.format(
+        candidates="\n".join(
+            f"c{i}: {label}" for i, label in enumerate(candidates)
+        ),
+        existing="\n".join(f"{i}. {label}" for i, label in enumerate(existing)),
+    )
+
+
+def call_all_match_model(prompt: str) -> str:
+    """Ask `Config.insights_match_model` the all-candidates question.
+
+    Args:
+        prompt: Formatted prompt from `build_all_prompt`.
+
+    Returns:
+        Raw JSON response string from the model.
+    """
+    from ambient_quality_agent.config import Model, config
+    from ambient_quality_agent.tools import genai_json
+
+    return (
+        genai_json.call_gemini(
+            prompt,
+            build_all_match_response_schema(),
+            model=Model(model=config.insights_match_model),
+        ).text
+        or ""
+    )
+
+
+def match_all_candidates(
+    candidates: Sequence[str],
+    existing: Sequence[str],
+    *,
+    model_call: Callable[[str], str] | None = None,
+    window: int = MATCH_WINDOW,
+) -> dict[int, int | None]:
+    """Judge every candidate against ``existing`` in one call per window.
+
+    Steps:
+
+    1. Split ``existing`` into windows of ``window``, newest first.
+    2. Ask the judge, once per window, which label each candidate restates.
+    3. A candidate keeps the first window's answer that names a label; the
+       later windows are asked only about the candidates still unmatched.
+
+    Failure policy: a window whose call fails is skipped, and its labels go
+    unconsidered. If no window answered at all, the error is raised, since
+    "all new" against a populated store would duplicate the whole of it.
+
+    Args:
+        candidates: Candidate labels, keyed by position in the result.
+        existing: Open insight labels, most recently updated first.
+        model_call: Prompt-to-text callable; `call_all_match_model` when
+            omitted.
+        window: Labels offered per call.
+
+    Returns:
+        ``{candidate index: index into existing, or None}``.
+
+    Raises:
+        MatchUnavailable: If no window's call answered.
+    """
+    hits: dict[int, int | None] = dict.fromkeys(range(len(candidates)))
+    if not candidates or not existing:
+        return hits
+    call = model_call or call_all_match_model
+    pending = list(range(len(candidates)))
+    failures: list[Exception] = []
+    answered = False
+    for start in range(0, len(existing), window):
+        if not pending:
+            break
+        labels = existing[start : start + window]
+        prompt = build_all_prompt([candidates[i] for i in pending], labels)
+        try:
+            decoded = json.loads(call(prompt) or "")
+        except Exception as exc:
+            logger.warning("insights: match call failed for a window: %s", exc)
+            failures.append(exc)
+            continue
+        answered = True
+        rows = decoded.get("matches") if isinstance(decoded, dict) else None
+        matched: list[int] = []
+        for row in rows or []:
+            if not isinstance(row, dict):
+                continue
+            local, hit = row.get("id"), row.get("match")
+            # `bool` is an `int`: a `false` would otherwise pass as index 0.
+            if type(local) is not int or not 0 <= local < len(pending):
+                continue
+            if type(hit) is int and 0 <= hit < len(labels):
+                hits[pending[local]] = start + hit
+                matched.append(pending[local])
+            elif type(hit) is int and hit != NO_MATCH:
+                logger.warning(
+                    "insights: match response chose %d, out of range.", hit
+                )
+        pending = [i for i in pending if i not in matched]
+    if failures and not answered:
+        raise MatchUnavailable(
+            "no judge call answered for the sweep's candidates"
+        ) from failures[0]
+    if failures:
+        logger.warning(
+            "insights: %d window(s) of existing labels went unjudged.",
+            len(failures),
+        )
+    return hits
 
 
 def call_match_model(prompt: str) -> str:

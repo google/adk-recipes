@@ -124,6 +124,13 @@ class VertexEvaluation:
         }
 
 
+_STAGE_NAMES = {
+    MetricType.MULTI_TURN: "Multi-turn evaluation",
+    MetricType.SINGLE_TURN: "Single-turn evaluation",
+}
+"""What each scope's sweep is called in the investigation's progress rows."""
+
+
 def _build_eval_node(metric_type: MetricType):
     """Build the ``eval_<scope>`` workflow node bound to ``metric_type``.
 
@@ -167,6 +174,7 @@ def _build_eval_node(metric_type: MetricType):
             node_name=node_name,
             budget=budget,
             metric_type=metric_type,
+            progress=_sweep.SweepProgress(state, _STAGE_NAMES[metric_type]),
         )
         return WorkflowState.record_progress_event(
             state, lines[0] + "\n", node_name

@@ -16,8 +16,9 @@
 
 /**
  * These tests pin the lifecycle states apart in the investigations table: an
- * investigation that has not finished with a count to show displays its state
- * where the count would be, under Pass rate.
+ * investigation still going displays its state in a row of its own above the
+ * table; one that has settled with no count to show displays it where the
+ * count would be, under Pass rate.
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
@@ -27,7 +28,7 @@ import {
   createRouter,
   createMemoryHistory,
 } from "@tanstack/react-router";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { InvestigationsView } from "../investigations-view";
@@ -97,17 +98,25 @@ async function statusCell(): Promise<string> {
   return link.closest("tr")!.querySelectorAll("td")[index].textContent!.trim();
 }
 
+/** What the row drawn above the table, for an investigation still going,
+ *  names as its state while it has reported no progress. */
+async function liveState(): Promise<string> {
+  const row = await screen.findByRole("link", { name: /abcdef12/ });
+  expect(row.closest("table"), "drawn inside the table").toBeNull();
+  return within(row).getByText(/^(Running|Pending)$/).textContent!;
+}
+
 describe("the state an investigation's row names", () => {
   afterEach(() => vi.unstubAllGlobals());
 
   it("says a sweep is still running rather than calling it done", async () => {
     serve([buildInvestigation({ status: "running", finished_at: null })]);
-    expect(await statusCell()).toBe("Running");
+    expect(await liveState()).toBe("Running");
   });
 
   it("says a sweep is pending rather than calling it done", async () => {
     serve([buildInvestigation({ status: "pending", finished_at: null })]);
-    expect(await statusCell()).toBe("Pending");
+    expect(await liveState()).toBe("Pending");
   });
 
   it("gives a finished sweep's outcome rather than a state", async () => {
@@ -125,7 +134,7 @@ describe("the state an investigation's row names", () => {
     // `format_investigation` lifts it from the stored summary, so it can be present on
     // an old record. It is not the investigation's lifecycle state.
     serve([buildInvestigation({ status: "running", rca_status: "executed" })]);
-    expect(await statusCell()).toBe("Running");
+    expect(await liveState()).toBe("Running");
   });
 
   it("calls a record with no status but an error failed", async () => {

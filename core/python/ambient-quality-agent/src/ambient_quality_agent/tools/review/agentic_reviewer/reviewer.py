@@ -15,7 +15,7 @@
 """Reviews a single session using an ADK agent loop.
 
 `review_session`:
-1. Builds the review prompt and the `query_trajectory` jq tool.
+1. Builds the review prompt and the tools of `prompts.REVIEW_TOOLSET`.
 2. Runs the agent until its first reply without a function call.
 3. Re-asks once if that reply contains no findings JSON.
 4. Parses and validates the findings.
@@ -36,8 +36,8 @@ from ambient_quality_agent.tools.review.agentic_reviewer import (
     agent,
     final_answer,
     prompts,
+    toolsets,
 )
-from ambient_quality_agent.tools.review.agentic_reviewer.tools import jq
 from google.adk.agents.context_cache_config import ContextCacheConfig
 from google.adk.agents.run_config import RunConfig
 from google.adk.apps import App
@@ -228,17 +228,18 @@ def review_session(
             session_review_focus=session_review_focus,
             goal=goal,
         )
-        # Each review needs its own tool, which holds its jq page origins.
-        query_tool = jq.JqQueryTool(prompt.trajectory_json)
+        review_tools = toolsets.build_review_tools(
+            prompt.toolset, prompt.trajectory_json
+        )
         controller = agent.ReviewLoopController(
             prompt.system_instruction,
-            [query_tool.name],
+            [tool.name for tool in review_tools],
             prune_watermark_tokens=config.review_prune_watermark_tokens,
         )
         reviewer_agent = agent.build_reviewer_agent(
             model=config.review_model.model,
             client=client,
-            tools=[query_tool],
+            tools=review_tools,
             controller=controller,
         )
         outcome = asyncio.run(

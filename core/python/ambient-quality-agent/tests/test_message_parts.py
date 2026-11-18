@@ -30,7 +30,7 @@ _PNG_B64 = base64.b64encode(_PNG_BYTES).decode()
 
 
 def _build_placeholder(data: bytes, mime_type: str = "image/png") -> str:
-    """Builds the attachment placeholder `parse_part` emits for inline bytes.
+    """Builds the digest placeholder for inline bytes AQuA does not keep.
 
     Args:
         data: The attachment bytes.
@@ -114,7 +114,7 @@ def test_parse_part_describes_a_uri_part_without_a_uri() -> None:
 
 
 @pytest.mark.parametrize(
-    ("part", "expected"),
+    ("part", "expected_data", "expected_mime_type"),
     [
         pytest.param(
             {
@@ -122,7 +122,8 @@ def test_parse_part_describes_a_uri_part_without_a_uri() -> None:
                 "uri": f"data:image/png;base64,{_PNG_B64}",
                 "mime_type": "image/jpeg",
             },
-            _build_placeholder(_PNG_BYTES),
+            _PNG_BYTES,
+            "image/png",
             id="base64-header-mime-wins",
         ),
         pytest.param(
@@ -131,8 +132,15 @@ def test_parse_part_describes_a_uri_part_without_a_uri() -> None:
                 "uri": "data:,Hello%2C%20World",
                 "mime_type": "text/plain",
             },
-            _build_placeholder(b"Hello, World", "text/plain"),
+            b"Hello, World",
+            "text/plain",
             id="percent-encoded-part-mime",
+        ),
+        pytest.param(
+            {"type": "uri", "uri": "data:,abc"},
+            b"abc",
+            "application/octet-stream",
+            id="no-mime-type",
         ),
         pytest.param(
             {
@@ -141,19 +149,33 @@ def test_parse_part_describes_a_uri_part_without_a_uri() -> None:
                     "mime_type": "image/png",
                 }
             },
-            _build_placeholder(_PNG_BYTES),
+            _PNG_BYTES,
+            "image/png",
             id="native-file-data",
+        ),
+        pytest.param(
+            {
+                "fileData": {
+                    "fileUri": f"data:image/png;base64,{_PNG_B64}",
+                    "mimeType": "image/png",
+                }
+            },
+            _PNG_BYTES,
+            "image/png",
+            id="camel-case-file-data",
         ),
     ],
 )
-def test_parse_part_replaces_data_uris_with_a_placeholder(
-    part: dict[str, Any], expected: str
+def test_parse_part_decodes_data_uris_into_inline_data(
+    part: dict[str, Any], expected_data: bytes, expected_mime_type: str
 ) -> None:
     parsed = _parse(part)
 
-    assert parsed.text == expected
+    assert parsed.inline_data is not None
+    assert parsed.inline_data.data == expected_data
+    assert parsed.inline_data.mime_type == expected_mime_type
     assert parsed.file_data is None
-    assert _PNG_B64 not in parsed.model_dump_json()
+    assert parsed.text is None
 
 
 @pytest.mark.parametrize(
@@ -192,16 +214,40 @@ def test_parse_part_replaces_data_uris_with_a_placeholder(
         ),
     ],
 )
-def test_parse_part_replaces_inline_bytes_with_a_placeholder(
+def test_parse_part_keeps_decodable_inline_bytes_as_native_inline_data(
     part: dict[str, Any],
 ) -> None:
     parsed = _parse(part)
 
-    assert parsed.text == _build_placeholder(_PNG_BYTES)
-    assert parsed.inline_data is None
-    dumped = parsed.model_dump_json()
-    assert _PNG_B64 not in dumped
-    assert _PNG_B64.rstrip("=")[:16] not in dumped
+    assert parsed.inline_data is not None
+    assert parsed.inline_data.data == _PNG_BYTES
+    assert parsed.inline_data.mime_type == "image/png"
+    assert parsed.text is None
+
+
+def test_parse_part_gives_inline_bytes_without_a_mime_type_the_default() -> (
+    None
+):
+    parsed = _parse({"type": "blob", "data": _PNG_B64})
+
+    assert parsed.inline_data is not None
+    assert parsed.inline_data.data == _PNG_BYTES
+    assert parsed.inline_data.mime_type == "application/octet-stream"
+
+
+def test_build_digest_placeholder_text_names_type_size_and_digest() -> None:
+    expected = _build_placeholder(_PNG_BYTES)
+
+    assert (
+        message_parts.build_digest_placeholder_text("image/png", _PNG_BYTES)
+        == expected
+    )
+    assert (
+        message_parts.build_digest_placeholder_text(
+            "image/png", _PNG_BYTES, hashlib.sha256(_PNG_BYTES).hexdigest()
+        )
+        == expected
+    )
 
 
 @pytest.mark.parametrize(
@@ -634,15 +680,11 @@ def test_is_attachment_placeholder_rejects_other_text(text: str) -> None:
     ("text", "expected"),
     [
         pytest.param(
-            _build_placeholder(_PNG_BYTES),
-            message_parts.InlineDataPlaceholder("image/png", has_digest=True),
-            id="digest",
-        ),
-        pytest.param(
             "<attachment: image/jpeg, size unknown>",
-            message_parts.InlineDataPlaceholder("image/jpeg", has_digest=False),
+            "image/jpeg",
             id="size-unknown",
         ),
+        pytest.param(_build_placeholder(_PNG_BYTES), None, id="digest"),
         pytest.param("<attachment: application/pdf>", None, id="bare"),
         pytest.param(
             "<attachment: application/pdf, file_id=files/abc123>",
@@ -651,11 +693,12 @@ def test_is_attachment_placeholder_rejects_other_text(text: str) -> None:
         ),
     ],
 )
-def test_parse_inline_data_placeholder_reads_only_inline_data_placeholders(
-    text: str, expected: message_parts.InlineDataPlaceholder | None
+def test_parse_unknown_size_placeholder_reads_only_unknown_size_placeholders(
+    text: str, expected: str | None
 ) -> None:
     assert (
-        message_parts.parse_inline_data_placeholder(Part(text=text)) == expected
+        message_parts.parse_unknown_size_placeholder(Part(text=text))
+        == expected
     )
 
 

@@ -88,6 +88,16 @@ describe("what the list says", () => {
     mount([buildInvestigation("done", 30)]);
     await waitFor(() => expect(button()).toBeEnabled());
     expect(button()).toHaveTextContent("Run investigation");
+    expect(button()).toHaveClass(
+      "h-8",
+      "rounded-md",
+      "text-xs",
+      "border-primary/25",
+      "bg-primary/5",
+      "text-primary",
+    );
+    expect(button()).not.toHaveClass("min-w-[148px]");
+    expect(button().parentElement).toHaveClass("min-w-0", "flex-wrap", "gap-2");
   });
 
   it("is disabled while a sweep is in flight, and names how many", async () => {
@@ -97,16 +107,40 @@ describe("what the list says", () => {
     expect(screen.getByText("Checking every 30s")).toBeInTheDocument();
   });
 
-  it("stays available for a sweep nobody is waiting on, and says why", async () => {
+  it("stays available for a sweep nobody is waiting on, and explains why on hover", async () => {
     // A wedged `running` row would otherwise disable the only control that
-    // starts a sweep, permanently and across reloads.
+    // starts a sweep, permanently and across reloads. The reason lives on the
+    // button's tooltip rather than inline so it does not split the toolbar
+    // above a table row that already marks the sweep stalled.
     mount([buildInvestigation("running", 90)]);
-    // `findBy`, not `getBy`: an enabled button is also the pre-load state, so
-    // waiting on that alone would assert before the list has arrived.
-    expect(
-      await screen.findByText(/Last investigation stuck for 1h/),
-    ).toBeInTheDocument();
+    await waitFor(() =>
+      expect(button()).toHaveAttribute(
+        "title",
+        expect.stringMatching(
+          /^Last investigation stuck for 1h — nothing has updated it in 1h/,
+        ),
+      ),
+    );
     expect(button()).toBeEnabled();
+    expect(screen.queryByText(/Last investigation stuck/)).toBeNull();
+  });
+
+  it("stays disabled for a long sweep that is still saying how far it got", async () => {
+    // Two hours in, past the stale window, but its sweep wrote a stage row a
+    // minute ago: a second sweep now would duplicate it and bill for it.
+    mount([
+      {
+        ...buildInvestigation("running", 120),
+        progress: {
+          stage: "Session review",
+          evaluated: 45,
+          total: 205,
+          updated_at: new Date(NOW - 60_000).toISOString(),
+        },
+      },
+    ]);
+    await waitFor(() => expect(button()).toBeDisabled());
+    expect(button()).toHaveTextContent("Running…");
   });
 
   it("counts a sweep this tab did not start", async () => {

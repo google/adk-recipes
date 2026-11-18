@@ -33,7 +33,7 @@ from ambient_quality_shared import protocol
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from .conftest import create_investigation
+from .conftest import create_investigation, get_stored_investigation
 
 
 @pytest.fixture
@@ -104,6 +104,35 @@ def test_get_investigation_without_a_run_id_is_rejected(
     client: TestClient,
 ) -> None:
     response = client.post("/investigations/get", json={})
+
+    assert response.status_code == 400
+    assert "investigation_id" in response.json()["detail"]
+
+
+def test_cancel_investigation_cancels_the_named_one(client: TestClient) -> None:
+    create_investigation(
+        {},
+        runs.Investigation(
+            investigation_id="r1", status=runs.InvestigationStatus.PENDING
+        ),
+    )
+
+    response = client.post(
+        "/investigations/cancel", json={"investigation_id": "r1"}
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == runs.InvestigationStatus.CANCELLED
+    assert (
+        get_stored_investigation({}, "r1").status
+        == runs.InvestigationStatus.CANCELLED
+    )
+
+
+def test_cancel_investigation_without_an_id_is_rejected(
+    client: TestClient,
+) -> None:
+    response = client.post("/investigations/cancel", json={})
 
     assert response.status_code == 400
     assert "investigation_id" in response.json()["detail"]

@@ -166,3 +166,35 @@ describe("the detail pane on an engine with no dig phase", () => {
     expect(screen.queryByText("Trajectories")).toBeNull();
   });
 });
+
+describe("the empty root cause", () => {
+  const FIRST_SENTENCE =
+    "No root cause recorded yet: what's wrong above is what the judge model saw, not why it happened.";
+
+  afterEach(() => {
+    document.querySelector('meta[name="aqua-viewer"]')?.remove();
+  });
+
+  it("points to Chat, which finds the cause", async () => {
+    renderDetail(OUR_PAYLOAD);
+
+    expect(
+      await screen.findByRole("region", { name: "Summary" }),
+    ).toHaveTextContent(
+      `${FIRST_SENTENCE} Click Chat to find the cause and propose a fix.`,
+    );
+  });
+
+  it("points to no Chat in viewer mode, which hides it", async () => {
+    const meta = document.createElement("meta");
+    meta.name = "aqua-viewer";
+    meta.content = "1";
+    document.head.prepend(meta);
+
+    renderDetail(OUR_PAYLOAD);
+
+    const summary = await screen.findByRole("region", { name: "Summary" });
+    expect(summary).toHaveTextContent(FIRST_SENTENCE);
+    expect(summary).not.toHaveTextContent(/Chat/);
+  });
+});

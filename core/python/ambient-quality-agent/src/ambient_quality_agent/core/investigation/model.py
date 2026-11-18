@@ -16,14 +16,23 @@
 
 The investigation table shared by scheduling and execution:
 1. `create_investigation` creates a new investigation record with the initial configuration.
-2. `update_investigation` in execution records the updated state of the investigation.
+2. `update_investigation` in execution records the updated state of the investigation,
+   and `append_investigation_event` the events the graph emits.
 
-Every function here is async: synchronous BigQuery calls are offloaded to
-threads with `asyncio.to_thread` to avoid blocking the ADK event loop.
+A cancel is a status (`cancel_investigation`), and these two enforce it: each
+reads the stored record first and raises `InvestigationCancelledError` for an
+investigation a user has cancelled, so a running investigation stops at its
+next write, whether it runs as a durable job or a sync-mode thread.
+
+Every function here is async, except `append_investigation_event`, which the
+graph's nodes call from their own thread: synchronous BigQuery calls are
+offloaded to threads with `asyncio.to_thread` to avoid blocking the ADK event
+loop.
 
 This module also hosts the read tools (`list_investigations` /
-`get_investigation`) that surface the registry to the agent, and `format_investigation`,
-the presentation view both return.
+`get_investigation`) that surface the registry to the agent, `format_investigation`,
+the presentation view both return, and `cancel_investigation`, which the
+dashboard and the CLI call through the `investigations/cancel` route.
 
 Concurrency: an investigation is written as a full object; last writer wins.
 """
@@ -44,6 +53,7 @@ from ambient_quality_agent.tools.investigations.models import (
     STAGE_EVENT_SOURCE,
     TERMINAL_STATUSES,
     Investigation,
+    InvestigationCancelledError,
     InvestigationCounters,
     InvestigationEvent,
     InvestigationStatus,
@@ -61,8 +71,11 @@ logger = logging.getLogger(__name__)
 __all__ = [
     "ADKStateLike",
     "Investigation",
+    "InvestigationCancelledError",
     "InvestigationEvent",
     "InvestigationStatus",
+    "append_investigation_event",
+    "cancel_investigation",
     "create_investigation",
     "fail_overdue_scheduled_investigations",
     "fail_stale_pending_investigations",
@@ -75,6 +88,10 @@ __all__ = [
     "store_factory",
     "update_investigation",
 ]
+
+CANCELLED_EVENT_TEXT = "**Cancelled:** _A user cancelled this investigation._\n"
+"""Event recorded on a cancelled investigation, so its event ledger says why it
+ended."""
 
 _GCS_CONSOLE_BASE = "https://console.cloud.google.com/storage/browser/_details"
 """Base URL for the Cloud console object-details page (see `_build_gcs_console_url`)."""
@@ -254,7 +271,8 @@ async def update_investigation(
 
     Reads the investigation first; updating a non-existent investigation is a
     no-op returning None. When status changes to a terminal state, sets
-    `finished_at` automatically unless explicitly provided.
+    `finished_at` automatically unless explicitly provided. A cancelled
+    investigation takes no further update.
 
     Args:
         state: State dictionary to access the investigation store.
@@ -265,6 +283,7 @@ async def update_investigation(
         Updated `Investigation`, or None if `investigation_id` was not found.
 
     Raises:
+        InvestigationCancelledError: If a user has cancelled the investigation.
         ValueError: If a change key does not match a known snapshot field.
         pydantic.ValidationError: If an update value fails schema validation.
     """
@@ -290,6 +309,9 @@ def _apply_and_append(
 
     Returns:
         Updated `Investigation`, or None if the investigation was not found.
+
+    Raises:
+        InvestigationCancelledError: If a user has cancelled the investigation.
     """
     store = store_factory(state)
     # Events are not fetched: they are rows of their own and are never rewritten
@@ -297,6 +319,7 @@ def _apply_and_append(
     record = store.get(investigation_id, include_events=False)
     if record is None:
         return None
+    _raise_if_cancelled(record)
     if (
         changes.get("status") in TERMINAL_STATUSES
         and "finished_at" not in changes
@@ -310,6 +333,54 @@ def _apply_and_append(
     updated = Investigation.model_validate({**record.model_dump(), **changes})
     store.append(updated)
     return updated
+
+
+def append_investigation_event(
+    store: InvestigationStore,
+    investigation_id: str,
+    text: str,
+    *,
+    source: str = "",
+) -> None:
+    """Records an event a running investigation emits.
+
+    The graph's event writes go through here, so that, like
+    `update_investigation`, each one first checks whether a user has cancelled
+    the investigation. Its stage rows are among them: a sweep writes one after
+    every page (`_sweep.SweepProgress`), which is how it stops within a page of
+    a cancel, in a durable job and a sync-mode thread alike.
+
+    Args:
+        store: Investigation store holding the investigation.
+        investigation_id: Unique identifier of the investigation.
+        text: The event's text.
+        source: Emitting node name, or the stage source.
+
+    Raises:
+        InvestigationCancelledError: If a user has cancelled the investigation.
+    """
+    record = store.get(investigation_id, include_events=False)
+    if record is not None:
+        _raise_if_cancelled(record)
+    store.append_event(investigation_id, text, source=source)
+
+
+def _raise_if_cancelled(record: Investigation) -> None:
+    """Refuses a write for an investigation a user has cancelled.
+
+    The one place the cancel is enforced: `cancel_investigation` only records
+    the status, and every later write the investigation makes stops here.
+
+    Args:
+        record: The investigation's stored record, read just before the write.
+
+    Raises:
+        InvestigationCancelledError: If the investigation is cancelled.
+    """
+    if record.status == InvestigationStatus.CANCELLED:
+        raise InvestigationCancelledError(
+            f"investigation {record.investigation_id} was cancelled"
+        )
 
 
 def format_investigation(
@@ -630,3 +701,62 @@ async def get_investigation(
             "error": f"No investigation found with id {investigation_id!r}."
         }
     return format_investigation(record)
+
+
+async def cancel_investigation(
+    investigation_id: str, tool_context: LaunchContext
+) -> dict[str, Any]:
+    """Cancels a scheduled, pending or running investigation.
+
+    1. Refuse an investigation that is unknown or has already finished.
+    2. Record `CANCELLED`, and an event saying a user cancelled it. The
+       investigation stops itself at its next write (`_raise_if_cancelled`).
+
+    Args:
+        investigation_id: Unique identifier of the investigation to cancel.
+        tool_context: Launch context providing access to execution state.
+
+    Returns:
+        The formatted cancelled investigation, or an ``{"error": ...}``
+        dictionary if it cannot be cancelled.
+    """
+    state = tool_context.state
+    try:
+        record = await get_stored_investigation(state, investigation_id)
+    except Exception as exc:
+        return {
+            "error": f"failed to get investigation {investigation_id!r}: {exc}"
+        }
+    if record is None:
+        return {
+            "error": f"No investigation found with id {investigation_id!r}."
+        }
+    if record.status in TERMINAL_STATUSES:
+        return {
+            "error": (
+                f"investigation {investigation_id!r} has already finished as "
+                f"{record.status}; there is nothing to cancel"
+            )
+        }
+
+    updated = await update_investigation(
+        state, investigation_id, status=InvestigationStatus.CANCELLED
+    )
+    try:
+        # Straight to the store: `append_investigation_event`, the
+        # investigation's own event path, refuses writes for a cancelled
+        # investigation, which this one now is.
+        await asyncio.to_thread(
+            lambda: store_factory(state).append_event(
+                investigation_id, CANCELLED_EVENT_TEXT, source="cancel"
+            )
+        )
+    except Exception:
+        logger.exception(
+            "could not record the cancel event of investigation %s",
+            investigation_id,
+        )
+    logger.info(
+        "Cancelled investigation %s (was %s).", investigation_id, record.status
+    )
+    return format_investigation(updated or record)

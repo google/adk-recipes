@@ -39,7 +39,7 @@ from ambient_quality_agent.tools.telemetry.schema import load_required_schema
 from ambient_quality_agent.tools.trajectories.models import IngestStatus
 from google.cloud import bigquery
 
-from .conftest import FakeTrajectoryRecorder
+from .conftest import FakeTrajectoryRecorder, build_trajectory_file_store
 
 _PROJECT = "test-project"
 _DATASET = "trace_spans_linked"
@@ -125,6 +125,7 @@ def _make_fetcher(
     log_fetcher: Any | None = None,
     recorder: Any | None = None,
     selector_sql: str = "",
+    trajectory_file_store: Any | None = None,
 ) -> CloudOpsFetcher:
     # The fetcher builds its own LogFetcher; patch the class so it uses the
     # fake instead of hitting Cloud Logging.
@@ -145,6 +146,7 @@ def _make_fetcher(
             table=_TABLE,
             location=_LOCATION,
             recorder=recorder,
+            trajectory_file_store=trajectory_file_store,
             selector_sql=selector_sql,
         )
 
@@ -1808,3 +1810,121 @@ def test_every_column_the_schema_file_lists_is_read() -> None:
     ]
 
     assert unread == []
+
+
+# --- trajectory files ---------------------------------------------------------
+
+
+_IMAGE = b"\x89PNG" + bytes(28)
+
+
+def _build_image_turn_spans() -> list[dict[str, Any]]:
+    """Builds one turn whose user message carries an inline image.
+
+    Returns:
+        The agent span and one ``call_llm`` span.
+    """
+    return [
+        _span_struct(
+            "agent-1",
+            "root",
+            "invoke_agent",
+            {"gen_ai.agent.name": "car_service_agent"},
+        ),
+        _span_struct(
+            "llm-1",
+            "agent-1",
+            "call_llm",
+            {
+                "gcp.vertex.agent.llm_request": json.dumps(
+                    {
+                        "contents": [
+                            {
+                                "role": "user",
+                                "parts": [
+                                    {
+                                        "inline_data": {
+                                            "data": base64.b64encode(
+                                                _IMAGE
+                                            ).decode(),
+                                            "mime_type": "image/png",
+                                        }
+                                    }
+                                ],
+                            }
+                        ]
+                    }
+                ),
+            },
+        ),
+    ]
+
+
+def _list_image_parts(case: Any) -> list[Any]:
+    return [
+        part
+        for turn in case.agent_data.turns
+        for event in turn.events
+        for part in event.content.parts
+    ]
+
+
+def test_map_page_links_trajectory_files_in_the_recorded_and_returned_case(
+    tmp_path: Any,
+) -> None:
+    recorder = FakeTrajectoryRecorder()
+    store, objects = build_trajectory_file_store(tmp_path)
+    fetcher = _make_fetcher(
+        mock.MagicMock(), recorder=recorder, trajectory_file_store=store
+    )
+
+    cases, _ = fetcher._map_page(
+        [{"trace_id": "t1", "spans": _build_image_turn_spans()}],
+        MetricType.SINGLE_TURN,
+    )
+    fetcher._recorder.flush()
+
+    name = f"aqa-trajectory-files/agent-key/2026-11-10/{hashlib.sha256(_IMAGE).hexdigest()}"
+    for case in (cases[0], recorder.records[0].case):
+        [part] = _list_image_parts(case)
+        assert part.inline_data is None
+        assert part.file_data.file_uri == objects.uri(name)
+    assert objects.read_bytes(name) == _IMAGE
+    assert recorder.records[0].ingest_status is IngestStatus.INGESTED
+
+
+def test_map_page_counts_a_failed_trajectory_file_write_as_partial(
+    tmp_path: Any,
+) -> None:
+    recorder = FakeTrajectoryRecorder()
+    store, _ = build_trajectory_file_store(tmp_path, fail_writes=True)
+    fetcher = _make_fetcher(
+        mock.MagicMock(), recorder=recorder, trajectory_file_store=store
+    )
+
+    cases, _ = fetcher._map_page(
+        [{"trace_id": "t1", "spans": _build_image_turn_spans()}],
+        MetricType.SINGLE_TURN,
+    )
+    fetcher._recorder.flush()
+
+    [part] = _list_image_parts(cases[0])
+    assert part.text.startswith("<attachment: image/png, 32 bytes, sha256:")
+    assert fetcher.counts.partial == 1
+    assert fetcher.counts.ingested == 0
+    assert recorder.records[0].ingest_status is IngestStatus.PARTIAL
+
+
+def test_map_page_without_a_trajectory_file_store_writes_placeholders() -> None:
+    fetcher = _make_fetcher(mock.MagicMock())
+
+    cases, _ = fetcher._map_page(
+        [{"trace_id": "t1", "spans": _build_image_turn_spans()}],
+        MetricType.SINGLE_TURN,
+    )
+
+    [part] = _list_image_parts(cases[0])
+    digest = hashlib.sha256(_IMAGE).hexdigest()[:8]
+    assert part.text == f"<attachment: image/png, 32 bytes, sha256:{digest}>"
+    assert part.inline_data is None
+    assert fetcher.counts.ingested == 1

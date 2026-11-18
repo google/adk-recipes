@@ -95,6 +95,10 @@ class GetInvestigationArgs(AgentKeyArgs):
     investigation_id: str
 
 
+class CancelInvestigationArgs(AgentKeyArgs):
+    investigation_id: str
+
+
 class SetGoalArgs(AgentKeyArgs):
     goal: str
 
@@ -226,6 +230,9 @@ INVESTIGATIONS_GET_ROUTE = Route("investigations/get", GetInvestigationArgs)
 INVESTIGATIONS_STATS_ROUTE = Route("investigations/stats", WindowArgs)
 INVESTIGATIONS_DAILY_ROUTE = Route("investigations/daily", WindowArgs)
 INVESTIGATIONS_SCHEDULE_ROUTE = Route("investigations/schedule", AgentKeyArgs)
+INVESTIGATIONS_CANCEL_ROUTE = Route(
+    "investigations/cancel", CancelInvestigationArgs
+)
 INSIGHTS_LIST_ROUTE = Route("insights/list", ListInsightsArgs)
 INSIGHTS_GET_ROUTE = Route("insights/get", GetInsightArgs)
 INSIGHTS_DISMISS_ROUTE = Route("insights/dismiss", DismissInsightArgs)

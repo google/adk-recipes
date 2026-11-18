@@ -158,4 +158,61 @@ describe("Trajectory", () => {
     );
     expect(screen.getByTestId("ledger-row")).not.toHaveTextContent("```");
   });
+
+  it("summarizes a file-only message by type and shows its chips in Preview", async () => {
+    const doc: TrajectoryDoc = {
+      timingRecorded: false,
+      records: [
+        {
+          id: "r-file",
+          index: 0,
+          kind: "user",
+          turn: 0,
+          agent: "user",
+          text: "",
+          files: [
+            { mimeType: "image/png", uri: "gs://jobs/a" },
+            { mimeType: null, uri: "gs://jobs/b" },
+          ],
+          raw: {},
+        },
+      ],
+    };
+
+    render(<Trajectory doc={doc} />);
+
+    const row = screen.getByText("Files: image/png, File");
+    await userEvent.click(row);
+
+    expect(screen.getByRole("tab", { name: "Preview" })).toBeInTheDocument();
+    expect(screen.getByText("image/png")).toBeInTheDocument();
+    expect(screen.getByText("File")).toBeInTheDocument();
+    expect(screen.queryByText("No text content.")).toBeNull();
+  });
+
+  it("labels a single file in the ledger row with the singular", () => {
+    render(
+      <Trajectory
+        doc={{
+          timingRecorded: false,
+          records: [
+            {
+              id: "r-file",
+              index: 0,
+              kind: "user",
+              turn: 0,
+              agent: "user",
+              text: "",
+              files: [{ mimeType: "application/pdf", uri: "gs://jobs/a" }],
+              raw: {},
+            },
+          ],
+        }}
+      />,
+    );
+
+    expect(screen.getByTestId("ledger-row")).toHaveTextContent(
+      "File: application/pdf",
+    );
+  });
 });

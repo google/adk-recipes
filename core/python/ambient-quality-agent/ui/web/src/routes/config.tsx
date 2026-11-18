@@ -12,11 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 import { ConfigView } from "@/components/config/config-view";
 import { PageShell } from "@/components/nav/page-shell";
+import { isViewerMode } from "@/lib/viewer-mode";
 
 export const Route = createFileRoute("/config")({
+  // A read-only viewer changes no configuration.
+  beforeLoad: () => {
+    if (isViewerMode()) throw redirect({ to: "/" });
+  },
   component: function ConfigRoute() {
     return (
       <PageShell>

@@ -30,6 +30,7 @@ import {
 } from "@/components/ui/sheet";
 import { publishRailState, retractRailState } from "@/lib/rail-state";
 import { useMediaQuery } from "@/lib/use-media-query";
+import { isViewerMode } from "@/lib/viewer-mode";
 
 type SidebarProps = React.ComponentProps<typeof ChatListSidebar>;
 
@@ -128,7 +129,9 @@ export function SidebarRail({
       if (collapsed) focusShowChats();
       else
         content
-          .querySelector<HTMLElement>('button[aria-label="Hide chats"]')
+          .querySelector<HTMLElement>(
+            'button[aria-label="Hide chats"], button[aria-label="Hide sidebar"]',
+          )
           ?.focus();
     });
     return () => cancelAnimationFrame(frame);
@@ -193,7 +196,7 @@ export function SidebarRail({
               }}
             >
               <SheetHeader className="sr-only">
-                <SheetTitle>Chats</SheetTitle>
+                <SheetTitle>{isViewerMode() ? "Sidebar" : "Chats"}</SheetTitle>
               </SheetHeader>
               <ChatListSidebar
                 {...sidebar}

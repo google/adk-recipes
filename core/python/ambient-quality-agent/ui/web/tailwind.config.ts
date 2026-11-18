@@ -114,12 +114,26 @@ const config: Config = {
           from: { width: "0%" },
           to: { width: "100%" },
         },
+        // A highlight crossing a running investigation's progress bar, so the
+        // bar reads as work under way between the reads that move it.
+        "progress-sheen": {
+          from: { transform: "translateX(-100%)" },
+          to: { transform: "translateX(100%)" },
+        },
+        // A segment a quarter of the track wide, crossing all of it: the bar
+        // of a stage with no total to measure against.
+        "progress-travel": {
+          from: { transform: "translateX(-100%)" },
+          to: { transform: "translateX(400%)" },
+        },
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
         "accordion-up": "accordion-up 0.2s ease-out",
         shimmer: "shimmer 2.4s linear infinite",
         "fade-in-up": "fade-in-up 0.18s ease-out",
+        "progress-sheen": "progress-sheen 2s ease-in-out infinite",
+        "progress-travel": "progress-travel 1.6s ease-in-out infinite",
       },
       // Markdown, mapped onto the type scale. Every place that renders
       // markdown as prose goes through components/chat/markdown.tsx; a line of

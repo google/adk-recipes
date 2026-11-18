@@ -12,15 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { ArrowLeft } from "lucide-react";
-import { investigationQuery } from "@/lib/aqua-api";
+import { useEffect, useRef } from "react";
+import { investigationQuery, investigationsQuery } from "@/lib/aqua-api";
 import { describeFailure } from "@/lib/failure";
 import { FailureNote } from "@/components/ui/failure-note";
 import { investigationEventsToTrajectoryDoc } from "@/lib/trajectory/investigationEventsToTrajectoryDoc";
 import { CounterPanel } from "./counter-panel";
 import { CustomMetricsPanel } from "./custom-metrics-panel";
+import { InvestigationProgressPanel } from "./investigation-progress";
 import { InvestigationEventLedger } from "./investigation-event-ledger";
 import { Trajectory } from "@/components/trajectory/trajectory";
 import { ConversationLink } from "@/components/investigations/conversation-link";
@@ -32,16 +34,21 @@ import { Funnel } from "@/components/stats/funnel";
 import { HelpPopover } from "@/components/ui/help-popover";
 import {
   agentLabel,
+  extractCurrentProgress,
   extractReviewFocus,
   formatInstant,
+  isCancellable,
+  isCancelled,
   isScheduled,
   noCountsText,
   buildInvestigationStats,
   renderScheduledText,
   telemetryWindow,
 } from "@/lib/investigation-summary";
+import { isInFlight, POLL_INTERVAL_MS } from "@/lib/investigation-state";
 import { RawJson } from "@/components/ui/raw-json";
 import { TriggerBadge } from "./trigger-badge";
+import { CancelInvestigationButton } from "./cancel-investigation-button";
 import { PageHeader } from "@/components/nav/page-header";
 import { mono, textStyle } from "@/lib/typography";
 import { cn, formatSentenceCase } from "@/lib/utils";
@@ -68,9 +75,39 @@ export function InvestigationDetailView({
   onInsightPageChange?: (page: number | undefined) => void;
 }) {
   const agentKey = useAgentKey();
-  const { data, isLoading, isError, error } = useQuery(
-    investigationQuery(agentKey, investigationId),
-  );
+  const { data, isLoading, isError, error } = useQuery({
+    ...investigationQuery(agentKey, investigationId),
+    // Re-read while the investigation is going, so its stage and counts so far
+    // move.
+    refetchInterval: (query) =>
+      isInFlight(query.state.data?.investigation, Date.now())
+        ? POLL_INTERVAL_MS
+        : false,
+  });
+  // The rail beside this page reads the list, which only Run investigation
+  // polls, and this page has no such button: when this read sees the stage
+  // move or the investigation settle, the list is re-read too, so the rail
+  // does not keep an older stage, or "Running" after the page says done.
+  const queryClient = useQueryClient();
+  const seen = useRef<{ id: string; moment: string } | undefined>(undefined);
+  const record = data?.investigation;
+  const moment = record
+    ? `${record.status}|${record.progress?.updated_at ?? ""}`
+    : undefined;
+  useEffect(() => {
+    if (moment === undefined) return;
+    // Opening another investigation is a first read again, not a change.
+    if (
+      seen.current?.id === investigationId &&
+      seen.current.moment !== moment
+    ) {
+      void queryClient.invalidateQueries({
+        queryKey: investigationsQuery(agentKey).queryKey,
+        exact: true,
+      });
+    }
+    seen.current = { id: investigationId, moment };
+  }, [investigationId, moment, agentKey, queryClient]);
 
   if (isLoading) {
     return (
@@ -106,6 +143,7 @@ export function InvestigationDetailView({
     ? describeFailure(investigation.error)
     : null;
   const stats = buildInvestigationStats(investigation);
+  const progress = extractCurrentProgress(investigation);
   // Evaluate fields individually because either override can be set independently.
   const selectorSql = investigation.custom_overrides?.selector_sql?.trim();
   const reviewFocus = extractReviewFocus(investigation);
@@ -133,6 +171,11 @@ export function InvestigationDetailView({
         }
         aside={
           <span className="flex items-center gap-2">
+            {isCancellable(investigation) && (
+              <CancelInvestigationButton
+                investigationId={investigation.investigation_id}
+              />
+            )}
             {/* Who asked for this investigation. A manual investigation and a
                   scheduled one that found the same thing mean different things:
                   one is somebody looking, the other is the loop turning. */}
@@ -144,10 +187,13 @@ export function InvestigationDetailView({
                 failure?.kind === "error" &&
                   "border-destructive text-destructive bg-destructive/10",
                 (failure?.kind === "no-data" ||
-                  (!failure && isScheduled(investigation))) &&
+                  (!failure &&
+                    (isScheduled(investigation) ||
+                      isCancelled(investigation)))) &&
                   "border-border text-muted-foreground",
                 !failure &&
                   !isScheduled(investigation) &&
+                  !isCancelled(investigation) &&
                   "border-emerald-500/40 text-emerald-500 bg-emerald-500/10",
               )}
             >
@@ -279,6 +325,8 @@ export function InvestigationDetailView({
         <h2 className={textStyle.sectionTitle}>Pipeline</h2>
         {stats ? (
           <Funnel stats={stats} />
+        ) : progress ? (
+          <InvestigationProgressPanel progress={progress} />
         ) : (
           <p className={textStyle.meta}>{noCountsText(investigation)}</p>
         )}

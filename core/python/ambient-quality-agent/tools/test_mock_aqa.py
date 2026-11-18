@@ -1955,6 +1955,34 @@ def test_the_health_vocabulary_is_the_agents(dataset) -> None:
     }
 
 
+def test_the_cancel_vocabulary_is_the_agents() -> None:
+    from ambient_quality_agent.core.investigation import model
+    from ambient_quality_agent.tools.investigations import models
+
+    assert mock_server.TERMINAL_STATUSES == {
+        s.value for s in models.TERMINAL_STATUSES
+    }
+    assert mock_server.CANCELLED_EVENT_TEXT == model.CANCELLED_EVENT_TEXT
+
+
+def test_a_cancelled_investigation_stays_cancelled(dataset) -> None:
+    data = mock_server.Dataset(copy.deepcopy(dataset), settle_seconds=1)
+    investigation_id = mock_server._schedule_investigation(data)[
+        "investigation_id"
+    ]
+
+    cancelled = mock_server._cancel_investigation(data, investigation_id)
+    data.settle_due(dt.datetime.now(dt.UTC) + dt.timedelta(seconds=60))
+
+    assert cancelled["status"] == "cancelled"
+    stored = data.get_stored_investigation(investigation_id)
+    assert stored["status"] == "cancelled"
+    assert stored["events"][-1]["source"] == "cancel"
+    refused = mock_server._cancel_investigation(data, investigation_id)
+    assert "already finished" in refused["error"]
+    assert "status" not in refused
+
+
 def test_health_answers_in_the_shape_the_badge_reads(dataset) -> None:
     """Crude verdict, exact envelope: the badge reads these keys whichever
     server answered, so a missing one is a broken card, not a wrong color."""
@@ -2176,7 +2204,11 @@ def test_the_knob_changes_the_root_causes_and_nothing_else() -> None:
     assert plain["runs"] == diagnosed["runs"]
     assert plain["occurrences"] == diagnosed["occurrences"]
     without = lambda d: [  # noqa: E731
-        {k: v for k, v in i.items() if k != "has_root_cause"}
+        {
+            k: v
+            for k, v in i.items()
+            if k not in {"has_root_cause", "root_cause_context_ids"}
+        }
         for i in d["insights"]
     ]
     assert without(plain) == without(diagnosed)
@@ -2423,6 +2455,41 @@ def test_a_tool_call_sits_between_the_text_around_it() -> None:
     assert kinds.index("function_response") < len(kinds) - 1
 
 
+def test_some_conversations_attach_a_receipt_as_ingestion_stores_it() -> None:
+    """Verifies that mock conversations include receipt attachments with valid
+    SDK schemas and `TrajectoryFileStore` URIs so the dashboard file-chip path
+    is exercised."""
+    from agentplatform._genai.types.evals import ConversationTurn
+    from ambient_quality_agent.tools.ingestion.trajectory_files import (
+        TRAJECTORY_FILES_PREFIX,
+    )
+
+    assert mock_server.TRAJECTORY_FILES_PREFIX == TRAJECTORY_FILES_PREFIX
+    uri = re.compile(
+        rf"gs://{re.escape(mock_server.MOCK_JOBS_BUCKET)}/"
+        rf"{re.escape(TRAJECTORY_FILES_PREFIX)}travel_desk_agent/"
+        r"\d{4}-\d{2}-\d{2}/[0-9a-f]{64}"
+    )
+    receipts = []
+    for n in range(60):
+        for turn in mock_server._build_conversation(f"case-{n:06x}", _ANCHOR)[
+            "steps"
+        ]:
+            for event in turn["events"]:
+                files = [
+                    p for p in event["content"]["parts"] if "file_data" in p
+                ]
+                if files:
+                    ConversationTurn.model_validate(turn)
+                    assert event["author"] == "user"
+                    receipts.extend(files)
+
+    assert receipts
+    for part in receipts:
+        assert uri.fullmatch(part["file_data"]["file_uri"])
+        assert part["file_data"]["mime_type"] == "image/jpeg"
+
+
 def test_both_degradations_are_reachable() -> None:
     """A conversation nobody archived and one whose turns expired, neither of
     which a healthy fixture would otherwise show."""
@@ -2620,6 +2687,36 @@ def test_merging_moves_the_duplicates_diagnosis_with_its_sightings(
     assert emptied["insight"]["has_root_cause"] is False
 
 
+def test_merging_moves_root_cause_context_ids_with_diagnoses(
+    judged_diagnosed,
+) -> None:
+    """Verifies `root_cause_context_ids` rolls up onto the merge target."""
+    served = mock_server._list_insights(judged_diagnosed, {})["insights"]
+    duplicate = next(i["insight_id"] for i in served if i["has_root_cause"])
+    target = next(i["insight_id"] for i in served if not i["has_root_cause"])
+    for record in judged_diagnosed.root_causes:
+        if record["insight_id"] == duplicate:
+            record["context_id"] = "ctx-dup"
+
+    assert mock_server._get_insight(
+        judged_diagnosed, {"insight_id": duplicate}
+    )["insight"]["root_cause_context_ids"] == ["ctx-dup"]
+
+    mock_server._merge_insight(
+        judged_diagnosed, {"insight_id": duplicate, "target_insight_id": target}
+    )
+
+    assert mock_server._get_insight(judged_diagnosed, {"insight_id": target})[
+        "insight"
+    ]["root_cause_context_ids"] == ["ctx-dup"]
+    assert (
+        mock_server._get_insight(judged_diagnosed, {"insight_id": duplicate})[
+            "insight"
+        ]["root_cause_context_ids"]
+        == []
+    )
+
+
 def test_the_diagnosed_filter_follows_the_merge_too(judged_diagnosed) -> None:
     """The filter and the badge are one claim; a row the list draws as diagnosed
     has to survive "diagnosed only"."""
@@ -2706,3 +2803,39 @@ def test_a_merged_insight_still_shows_under_the_run_that_found_it(
     }
     assert duplicate not in in_run
     assert target in in_run
+
+
+def test_mock_rca_turn_records_root_cause_with_context_id() -> None:
+    """Sending an insight-associated turn in mock chat records a root cause linked to that context."""
+    scenario = mock_data.Scenario(
+        days=7, runs_per_day=2, seed=5, anchor=_ANCHOR, root_cause_rate=0.0
+    )
+    dataset = mock_server.Dataset(
+        mock_data.build_dataset(scenario, mock_data.load_mock_config()),
+        settle_seconds=0,
+    )
+    app = mock_server.build_app(dataset, app_name=_CHAT_APP, latency_ms=0)
+    insight = dataset.insights[0]
+    insight_id = insight["insight_id"]
+    label = insight["label"]
+
+    results = _turn(
+        app,
+        {
+            "messageId": "m-live-rca",
+            "contextId": "ctx-live-rca",
+            "role": "ROLE_USER",
+            "parts": [
+                {
+                    "text": f'Diagnose insight {insight_id} ("{label}") — what is the root cause?'
+                }
+            ],
+            "metadata": {"insight_id": insight_id},
+        },
+    )
+
+    assert insight_id in _streamed_text(results)
+    detail = mock_server._get_insight(dataset, {"insight_id": insight_id})
+    assert detail["insight"]["has_root_cause"] is True
+    assert detail["insight"]["root_cause_context_ids"] == ["ctx-live-rca"]
+    assert detail["root_causes"][0]["context_id"] == "ctx-live-rca"

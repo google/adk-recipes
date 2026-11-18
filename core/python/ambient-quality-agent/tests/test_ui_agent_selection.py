@@ -96,6 +96,7 @@ _ROUTES: list[tuple[str, str, str, dict[str, Any]]] = [
     ("GET", "/api/stats", "investigations/stats", {}),
     ("GET", "/api/daily", "investigations/daily", {}),
     ("GET", "/api/investigations/r1", "investigations/get", {}),
+    ("POST", "/api/investigations/r1/cancel", "investigations/cancel", {}),
     (
         "GET",
         "/api/investigations/n1/trajectories/t1",

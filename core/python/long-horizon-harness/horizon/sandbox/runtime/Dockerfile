@@ -11,10 +11,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 RUN pip install --no-cache-dir \
-        fastapi==0.115.0 \
-        pydantic==2.9.2 \
-        "uvicorn[standard]==0.30.6" \
-        uv==0.11.21
+        "fastapi>=0.136.1,<1" \
+        "pydantic>=2.12.5,<3" \
+        "uvicorn[standard]>=0.47.0" \
+        "uv>=0.11.21"
 
 WORKDIR /opt/runtime
 COPY protocol.py server.py entrypoint.sh /opt/runtime/

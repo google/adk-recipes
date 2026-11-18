@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { useCallback, useEffect, useRef, useState } from "react";
 import {
   keepPreviousData,
   useMutation,
@@ -21,32 +20,34 @@ import {
 } from "@tanstack/react-query";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 import { AlertCircle, Merge, Stethoscope, Trash2 } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { PageHeader } from "@/components/nav/page-header";
+import { Button } from "@/components/ui/button";
+import { DayFilterChip } from "@/components/ui/day-filter-chip";
+import { FailureNote } from "@/components/ui/failure-note";
+import { FilterTabs } from "@/components/ui/filter-tabs";
+import { InlineMarkdown } from "@/components/ui/inline-markdown";
+import { LoadingPane } from "@/components/ui/loading";
+import { PageRefreshButton } from "@/components/ui/refresh-button";
+import { useAgentKey } from "@/lib/agent-selection";
+import { stripMarkdownForSummary } from "@/lib/aqa-markdown";
 import {
   buildAgentScope,
   dismissInsight,
   INSIGHTS_PAGE_SIZE,
+  type InsightView,
   insightQuery,
   insightsQuery,
   isDiagnosed,
-  noneDiagnosed,
   mergeInsights,
-  type InsightView,
+  noneDiagnosed,
 } from "@/lib/aqua-api";
-import { stripMarkdownForSummary } from "@/lib/aqa-markdown";
-import { MergeBar } from "./merge-bar";
-import { DiagnoseInChatButton } from "./diagnose-in-chat-button";
-import { SubAgentItem } from "./sub-agent-item";
-import { Button } from "@/components/ui/button";
-import { FailureNote } from "@/components/ui/failure-note";
-import { InlineMarkdown } from "@/components/ui/inline-markdown";
-import { PageRefreshButton } from "@/components/ui/refresh-button";
-import { DayFilterChip } from "@/components/ui/day-filter-chip";
-import { FilterTabs } from "@/components/ui/filter-tabs";
-import { cn, formatSentenceCase } from "@/lib/utils";
 import { link, mono, textStyle } from "@/lib/typography";
-import { PageHeader } from "@/components/nav/page-header";
-import { LoadingPane } from "@/components/ui/loading";
-import { useAgentKey } from "@/lib/agent-selection";
+import { cn, formatSentenceCase } from "@/lib/utils";
+import { isViewerMode } from "@/lib/viewer-mode";
+import { DiagnoseInChatButton } from "./diagnose-in-chat-button";
+import { MergeBar } from "./merge-bar";
+import { SubAgentItem } from "./sub-agent-item";
 
 /** The statuses the list can be narrowed to, spelled as the URL spells them.
  *  No status is the whole list. */
@@ -283,6 +284,8 @@ export function InsightsView({
   }
 
   const diagnosed = insights.filter(isDiagnosed).length;
+  // A read-only viewer merges, dismisses and chats about nothing.
+  const viewer = isViewerMode();
 
   // An embedded list with nothing in it is a line of text inside someone
   // else's page. Not once it has been paged, though: then the empty page needs
@@ -340,7 +343,7 @@ export function InsightsView({
 
       {!embedded && (
         <div className="flex items-center gap-2">
-          {!picking ? (
+          {!picking && !viewer ? (
             <Button
               size="sm"
               variant="outline"
@@ -402,10 +405,12 @@ export function InsightsView({
             Nothing here has a root cause recorded yet. Root-cause analysis runs
             when you ask AQuA to diagnose an insight, so until then these are
             what the judge model saw rather than why it happened.
-            <span className="mt-2 block">
-              Click <strong>Chat</strong> on an undiagnosed insight to run your
-              first root-cause analysis.
-            </span>
+            {!viewer && (
+              <span className="mt-2 block">
+                Click <strong>Chat</strong> on an undiagnosed insight to run
+                your first root-cause analysis.
+              </span>
+            )}
           </p>
         )}
 
@@ -440,7 +445,9 @@ export function InsightsView({
                 picking={picking}
                 selected={selected.has(insight.insight_id)}
                 onToggleSelect={() => toggleSelect(insight.insight_id)}
-                onDismiss={() => dismiss.mutate(insight.insight_id)}
+                onDismiss={
+                  viewer ? undefined : () => dismiss.mutate(insight.insight_id)
+                }
                 dismissing={
                   dismiss.isPending && dismiss.variables === insight.insight_id
                 }
@@ -559,6 +566,8 @@ export function IssueCard({
                 insightId={insight.insight_id}
                 label={insight.label}
                 ariaLabel={`Diagnose insight in chat: ${plainHeadline}`}
+                hasRootCause={Boolean(insight.has_root_cause)}
+                rootCauseContextIds={insight.root_cause_context_ids}
                 className="h-6 px-1.5 text-muted-foreground hover:text-foreground"
               />
             )}

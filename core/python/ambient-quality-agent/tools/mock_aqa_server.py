@@ -101,6 +101,7 @@ from ambient_quality_shared.protocol import (
     INSIGHTS_GET_ROUTE,
     INSIGHTS_LIST_ROUTE,
     INSIGHTS_MERGE_ROUTE,
+    INVESTIGATIONS_CANCEL_ROUTE,
     INVESTIGATIONS_DAILY_ROUTE,
     INVESTIGATIONS_GET_ROUTE,
     INVESTIGATIONS_LIST_ROUTE,
@@ -161,6 +162,9 @@ config page linking at a path nothing is stored under."""
 AGENTS_PREFIX = "agents/"
 """Mirrors `observed_agent_config.store.AGENTS_PREFIX`."""
 
+TRAJECTORY_FILES_PREFIX = "aqa-trajectory-files/"
+"""Mirrors `ingestion.trajectory_files.TRAJECTORY_FILES_PREFIX`."""
+
 DEFAULT_INVESTIGATION_SCHEDULE = "0 12 * * *"
 """Mirrors `observed_agent_config.store.DEFAULT_INVESTIGATION_SCHEDULE`."""
 
@@ -185,6 +189,13 @@ IN_FLIGHT = frozenset({"pending", "running"})
 """Investigation states this server counts as a sweep in progress. Hand-copied
 from `InvestigationStatus`, as `INSIGHT_STATUSES` is, and pinned by the same
 tests."""
+
+TERMINAL_STATUSES = frozenset({"done", "failed", "skipped", "cancelled"})
+"""Run states that end a run, so a cancel refuses them. Hand-copied from
+`TERMINAL_STATUSES` and pinned by the same tests."""
+
+CANCELLED_EVENT_TEXT = "**Cancelled:** _A user cancelled this investigation._\n"
+"""Hand-copy of `investigation.model.CANCELLED_EVENT_TEXT`."""
 
 WATCHING = "watching"
 OVERDUE = "overdue"
@@ -424,6 +435,15 @@ class Dataset:
         )
         self._settling[str(investigation_id)] = (due, finished)
 
+    def cancel_settling(self, investigation_id: str) -> None:
+        """Drops an investigation's queued completion, so a cancelled one stays
+        cancelled.
+
+        Args:
+            investigation_id: Identifier of the cancelled investigation.
+        """
+        self._settling.pop(str(investigation_id), None)
+
     def settle_due(self, now: dt.datetime | None = None) -> int:
         """Transitions due pending investigations to completed status.
 
@@ -560,6 +580,36 @@ class Dataset:
             newest.append(record)
         return newest
 
+    def list_root_cause_context_ids(self, insight_id: str) -> list[str]:
+        """Return distinct non-empty chat context IDs across matching root causes.
+
+        Resolves ownership through `resolve_owner_id` so deduplicated insights
+        contribute their root-cause chat links to the surviving target.
+
+        Args:
+            insight_id: The ID of the insight.
+
+        Returns:
+            Distinct non-empty `context_id` strings ordered newest first.
+        """
+        matching = [
+            r
+            for r in self.root_causes
+            if self.resolve_owner_id(str(r.get("insight_id") or ""))
+            == insight_id
+        ]
+        ordered = sorted(
+            matching, key=lambda r: str(r.get("root_cause_id") or "")
+        )
+        ordered.sort(key=lambda r: str(r.get("created_at") or ""), reverse=True)
+        return list(
+            dict.fromkeys(
+                str(r.get("context_id") or "").strip()
+                for r in ordered
+                if str(r.get("context_id") or "").strip()
+            )
+        )
+
     def compute_case_index(self, case_id: str) -> int:
         """Finds a trajectory's index within its sighting's trajectory list.
 
@@ -635,6 +685,53 @@ def _get_investigation(data: Dataset, investigation_id: str) -> dict[str, Any]:
         return {
             "error": f"No investigation found with id {investigation_id!r}."
         }
+    return run
+
+
+def _cancel_investigation(
+    data: Dataset, investigation_id: str
+) -> dict[str, Any]:
+    """Cancels an investigation that has not finished, as the agent's route does.
+
+    Args:
+        data: Active mock dataset.
+        investigation_id: Identifier of the investigation to cancel.
+
+    Returns:
+        The cancelled investigation, or an error dictionary if it is unknown or
+        finished.
+    """
+    if not investigation_id:
+        return {"error": "investigation_id is required"}
+    run = data.get_stored_investigation(investigation_id)
+    if run is None:
+        return {
+            "error": f"No investigation found with id {investigation_id!r}."
+        }
+    status = str(run.get("status") or "").lower()
+    if status in TERMINAL_STATUSES:
+        return {
+            "error": (
+                f"investigation {investigation_id!r} has already finished as "
+                f"{status}; there is nothing to cancel"
+            )
+        }
+    data.cancel_settling(investigation_id)
+    now = dt.datetime.now(tz=dt.UTC).isoformat()
+    run.update(
+        status="cancelled",
+        finished_at=now,
+        updated_at=now,
+        events=[
+            *(run.get("events") or []),
+            {
+                "investigation_id": "",
+                "created_at": now,
+                "text": CANCELLED_EVENT_TEXT,
+                "source": "cancel",
+            },
+        ],
+    )
     return run
 
 
@@ -1157,7 +1254,12 @@ def _get_ambient_health(data: Dataset) -> dict[str, Any]:
         Dictionary matching the health check response schema.
     """
     data.settle_due()
-    finished = [r for r in data.runs if r.get("finished_at")]
+    # Cancelled runs say nothing about the loop, as in `investigations.health`.
+    finished = [
+        r
+        for r in data.runs
+        if r.get("finished_at") and r.get("status") != "cancelled"
+    ]
     in_flight = [r for r in data.runs if _is_running(r)]
     last_run = max(
         finished, key=lambda r: str(r.get("finished_at")), default=None
@@ -1450,6 +1552,7 @@ def _build_insight_view(
         "last_investigation_id": newest.get("investigation_id"),
         "last_investigation_at": newest.get("created_at"),
         "has_root_cause": bool(data.list_root_causes(insight_id)),
+        "root_cause_context_ids": data.list_root_cause_context_ids(insight_id),
     }
 
 
@@ -1582,13 +1685,14 @@ def _format_occurrence(
 ) -> dict[str, Any]:
     """Formats an occurrence dictionary for API responses.
 
-    Strips finding examples' conversation turns when `include_traces` is False,
-    resolves investigation trajectories, and attaches sighting-specific
-    root-cause records.
+    Strips the conversation turns stored finding examples carry when
+    `include_traces` is False, resolves investigation trajectories, and
+    attaches sighting-specific root-cause records.
 
     Args:
         occurrence: Raw occurrence record.
-        include_traces: Whether to include finding examples' conversation turns.
+        include_traces: Whether to keep the conversation turns stored finding
+            examples carry.
         include_trajectories: Whether to resolve investigation trajectories.
         root_causes: Root-cause records to filter and attach.
         include_edits: Whether to keep code diffs in attached records.
@@ -1717,7 +1821,12 @@ def _build_conversation(case_id: str, anchor: dt.datetime) -> dict[str, Any]:
             "recorded_at": None,
         }
 
-    turns = _build_conversation_turns(rng, started)
+    # Key on `ordinal` rather than `rng` so the remaining random draws for the
+    # conversation stay unchanged whether or not it includes a receipt.
+    receipt = (
+        _build_receipt_part(case_id, started) if ordinal % 3 == 1 else None
+    )
+    turns = _build_conversation_turns(rng, started, receipt=receipt)
     expired = ordinal % 11 == 0
     return {
         "trajectory_id": case_id,
@@ -1739,14 +1848,44 @@ def _build_conversation(case_id: str, anchor: dt.datetime) -> dict[str, Any]:
     }
 
 
+def _build_receipt_part(case_id: str, started: dt.datetime) -> dict[str, Any]:
+    """Builds the `file_data` part for an attached receipt image.
+
+    Uses the URI format produced by ingestion so the dashboard renders the
+    same output as a live deployment.
+
+    Args:
+        case_id: Conversation identifier, hashed into the object name.
+        started: Conversation start timestamp, used for the object date path.
+
+    Returns:
+        A genai part dictionary with `file_data`.
+    """
+    digest = hashlib.sha256(f"receipt:{case_id}".encode()).hexdigest()
+    return {
+        "file_data": {
+            "file_uri": (
+                f"gs://{MOCK_JOBS_BUCKET}/{TRAJECTORY_FILES_PREFIX}"
+                f"travel_desk_agent/{started.date().isoformat()}/{digest}"
+            ),
+            "mime_type": "image/jpeg",
+        }
+    }
+
+
 def _build_conversation_turns(
-    rng: random.Random, started: dt.datetime
+    rng: random.Random,
+    started: dt.datetime,
+    *,
+    receipt: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Generates dialogue turns simulating user interactions and tool execution.
 
     Args:
         rng: Seeded random number generator.
         started: Conversation start timestamp.
+        receipt: A `file_data` part the user attaches to the expense request,
+            or None for a request without one.
 
     Returns:
         List of turn dictionaries.
@@ -1755,12 +1894,12 @@ def _build_conversation_turns(
     failed = rng.random() < 0.25
     clock = started
 
-    def build_event(author: str, part: dict[str, Any]) -> dict[str, Any]:
+    def build_event(author: str, *parts: dict[str, Any]) -> dict[str, Any]:
         """Creates a single dialogue event, advancing the simulated clock.
 
         Args:
             author: Event author ("user" or agent name).
-            part: Content part dictionary (text, function_call, etc.).
+            *parts: Content part dictionaries (text, function_call, etc.).
 
         Returns:
             Formatted event dictionary.
@@ -1771,7 +1910,7 @@ def _build_conversation_turns(
             "author": author,
             "content": {
                 "role": "user" if author == "user" else "model",
-                "parts": [part],
+                "parts": list(parts),
             },
             "event_time": clock.isoformat(),
         }
@@ -1781,6 +1920,14 @@ def _build_conversation_turns(
         {"error": "PERMISSION_DENIED: the policy table is not readable"}
         if failed
         else {"result": "EUR 62/day for EMEA, effective 2026-07-01"}
+    )
+    # Put the receipt in the request event because `build_event` advances
+    # `clock` with `rng`, and an extra event would shift all subsequent draws.
+    request_text = "And can you file yesterday's flight?"
+    expense_request = (
+        [{"text": f"{request_text} Here is the receipt."}, receipt]
+        if receipt
+        else [{"text": request_text}]
     )
     turns: list[dict[str, Any]] = [
         {
@@ -1831,9 +1978,7 @@ def _build_conversation_turns(
             "turn_index": 1,
             "turn_id": f"t-{rng.randrange(16**6):06x}",
             "events": [
-                build_event(
-                    "user", {"text": "And can you file yesterday's flight?"}
-                ),
+                build_event("user", *expense_request),
                 # An agent turn with no text and no tool call is the
                 # `empty_final_response` signal, which the timeline draws as its
                 # own item rather than as silence.
@@ -2019,6 +2164,42 @@ CHUNK_WORDS = 5
 typing indicator and the mid-turn cancel are never exercised."""
 
 
+def _render_root_cause_reply(
+    insight_id: str, label: str, record: dict[str, Any]
+) -> str:
+    """Renders markdown prose for a mock RCA turn from a root-cause record.
+
+    Args:
+        insight_id: Diagnosed insight identifier.
+        label: Insight triage label.
+        record: Root-cause dictionary containing summary and optional edits.
+
+    Returns:
+        Markdown reply summarizing the root cause and proposed edits.
+    """
+    summary = str(record.get("summary") or "").strip()
+    lines = [
+        f"Recorded root cause for `{insight_id}` (**{label}**):",
+        "",
+        summary,
+    ]
+    edits = record.get("edits")
+    if isinstance(edits, list) and edits:
+        first = edits[0] if isinstance(edits[0], dict) else {}
+        path = str(first.get("path") or "app/agent.py")
+        start_line = first.get("start_line") or 1
+        end_line = first.get("end_line") or start_line
+        rationale = str(first.get("rationale") or "").strip()
+        lines.extend(
+            [
+                "",
+                f"Proposed edit in `{path}` (lines {start_line}-{end_line})"
+                + (f": {rationale}" if rationale else "."),
+            ]
+        )
+    return "\n".join(lines)
+
+
 def _extract_a2a_parts(message: dict[str, Any]) -> list[dict[str, Any]]:
     parts = message.get("parts")
     return (
@@ -2129,6 +2310,13 @@ class Chat:
         """
         context_id = str(message.get("contextId") or uuid.uuid4().hex[:16])
         answered = _extract_confirmation_answer(message)
+        metadata = message.get("metadata")
+        raw_insight_id = (
+            metadata.get("insight_id") if isinstance(metadata, dict) else None
+        )
+        insight_id = (
+            raw_insight_id.strip() if isinstance(raw_insight_id, str) else ""
+        )
         # Every message opens a task of its own, the answer to a confirmation
         # included: `sendConfirmation` sends `taskId: ""`, so it is not asking
         # to continue the task that asked. Continuing it anyway makes the
@@ -2142,7 +2330,10 @@ class Chat:
         task_id = task["id"]
 
         prose, confirmation = self._resolve_answer(
-            _extract_a2a_text(message), answered, context_id=context_id
+            _extract_a2a_text(message),
+            answered,
+            context_id=context_id,
+            insight_id=insight_id,
         )
         frames: list[dict[str, Any]] = [
             {"task": {k: task[k] for k in ("id", "contextId", "status")}},
@@ -2209,6 +2400,7 @@ class Chat:
         answered: dict[str, Any] | None,
         *,
         context_id: str = "",
+        insight_id: str = "",
     ) -> tuple[str, dict[str, Any] | None]:
         """Resolves canned prose and optional confirmation requests for a message.
 
@@ -2216,7 +2408,8 @@ class Chat:
             text: Normalized user message text.
             answered: Optional confirmation answer payload.
             context_id: The chat the message belongs to, which records any
-                memory it asks for.
+                memory or root cause it produces.
+            insight_id: Insight identifier carried on message metadata, if any.
 
         Returns:
             Tuple of `(response_prose, optional_confirmation_dict)`.
@@ -2242,11 +2435,75 @@ class Chat:
                 "so it needs your say-so first.",
                 self._build_confirmation_request(),
             )
+        if insight_id and not any(
+            r.get("context_id") == context_id
+            and r.get("insight_id") == insight_id
+            for r in self.data.root_causes
+        ):
+            return (
+                self._record_mock_root_cause(insight_id, context_id=context_id),
+                None,
+            )
         if "insight" in asked or "issue" in asked or "problem" in asked:
             return self._render_top_insights(), None
         if "run" in asked or "investigation" in asked or "sweep" in asked:
             return self._render_newest_run(), None
         return self._render_orientation(), None
+
+    def _record_mock_root_cause(
+        self, insight_id: str, *, context_id: str
+    ) -> str:
+        """Records a synthetic root-cause diagnosis on `insight_id` for an RCA turn.
+
+        Args:
+            insight_id: Target insight identifier from the RCA prompt.
+            context_id: Conversation context identifier recording the diagnosis.
+
+        Returns:
+            Markdown prose summarizing the recorded diagnosis.
+        """
+        insight = self.data.get_insight(insight_id)
+        if insight is None:
+            return self._render_top_insights()
+        label = str(insight.get("label") or insight_id)
+        occurrences = self.data.list_occurrences(insight_id)
+        newest = occurrences[0] if occurrences else {}
+        occurrence_id = str(newest.get("occurrence_id") or "")
+        record: dict[str, Any] = {
+            "root_cause_id": uuid.uuid4().hex,
+            "insight_id": insight_id,
+            "occurrence_id": occurrence_id,
+            "agent_revision": str(newest.get("agent_revision") or ""),
+            "context_id": context_id,
+            "summary": (
+                f"The agent {label} because the instruction covering that step "
+                "is stated as a preference rather than a constraint, so the "
+                "model treats it as optional."
+            ),
+            "edits": [
+                {
+                    "path": "app/agent.py",
+                    "start_line": 42,
+                    "end_line": 44,
+                    "before": (
+                        "    instruction=(\n"
+                        '        "Help the user with their request."\n'
+                        "    ),\n"
+                    ),
+                    "after": (
+                        "    instruction=(\n"
+                        '        "Help the user with their request. "\n'
+                        f'        "You must not {label}."\n'
+                        "    ),\n"
+                    ),
+                    "rationale": "States the missing step as a constraint.",
+                }
+            ],
+            "created_at": _format_utc_now_iso(),
+        }
+        self.data.root_causes.append(record)
+        insight["has_root_cause"] = True
+        return _render_root_cause_reply(insight_id, label, record)
 
     def _remember(self, text: str, source: str) -> str:
         """Stores a memory, as the agent's `remember` does.
@@ -2557,6 +2814,13 @@ def build_app(data: Dataset, *, app_name: str, latency_ms: int) -> FastAPI:
     @app.post(f"/{INVESTIGATIONS_SCHEDULE_ROUTE}")
     async def schedule_investigation() -> dict[str, Any]:
         return _schedule_investigation(data)
+
+    @app.post(f"/{INVESTIGATIONS_CANCEL_ROUTE}")
+    async def cancel_investigation(request: Request) -> dict[str, Any]:
+        args = await _read_route_args(request)
+        return _cancel_investigation(
+            data, str(args.get("investigation_id", ""))
+        )
 
     @app.post(f"/{INVESTIGATIONS_GET_ROUTE}")
     async def get_investigation(request: Request) -> dict[str, Any]:

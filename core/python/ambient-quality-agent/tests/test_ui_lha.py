@@ -550,6 +550,52 @@ def test_contexts_report_the_agent_the_first_user_message_names(
     assert contexts[0]["agent_key"] == "acme-prod__support"
 
 
+def test_contexts_report_the_insight_id_from_metadata_or_rca_prompt(
+    objects: dict[str, Any],
+) -> None:
+    """Explicit `metadata.insight_id` wins; historical RCA prompts parse by prefix."""
+    _write_with_message(
+        objects,
+        "t-meta",
+        "ctx-meta",
+        "2026-09-01T10:00:00Z",
+        [
+            {
+                **_build_user_message("follow-up"),
+                "metadata": {"insight_id": "ins-explicit"},
+            }
+        ],
+    )
+    _write_with_message(
+        objects,
+        "t-prompt",
+        "ctx-prompt",
+        "2026-09-02T10:00:00Z",
+        [
+            _build_user_message(
+                'Diagnose insight ins-legacy ("crashed with priority") — '
+                "what is the root cause, and how would you fix it?"
+            )
+        ],
+    )
+    _write_with_message(
+        objects,
+        "t-plain",
+        "ctx-plain",
+        "2026-09-03T10:00:00Z",
+        [_build_user_message("what failed yesterday?")],
+    )
+
+    contexts = asyncio.run(_get("/lha/contexts")).json()["contexts"]
+    by_id = {c["context_id"]: c["insight_id"] for c in contexts}
+
+    assert by_id == {
+        "ctx-meta": "ins-explicit",
+        "ctx-prompt": "ins-legacy",
+        "ctx-plain": None,
+    }
+
+
 def test_a_conversation_whose_messages_name_no_agent_has_no_agent_key(
     objects: dict[str, Any],
 ) -> None:
@@ -823,7 +869,9 @@ def test_the_reader_parses_what_the_agents_writer_produces(
     question = task.history.add()
     question.role = a2a_pb2.Role.Value("ROLE_USER")
     question.parts.add().text = "why did create_ticket fail?"
-    question.metadata.update({"agent_key": "acme-prod__support"})
+    question.metadata.update(
+        {"agent_key": "acme-prod__support", "insight_id": "ins-42"}
+    )
     answer = task.history.add()
     answer.role = a2a_pb2.Role.Value("ROLE_AGENT")
     answer.parts.add().text = "It timed out."
@@ -844,6 +892,7 @@ def test_the_reader_parses_what_the_agents_writer_produces(
             "title": None,
             "first_message": "why did create_ticket fail?",
             "agent_key": "acme-prod__support",
+            "insight_id": "ins-42",
         }
     ]
 
@@ -891,3 +940,83 @@ def test_the_storage_client_is_the_librarys_with_the_switch_off(
         client._connection.user_agent
         == storage.Client(project="test-project")._connection.user_agent
     )
+
+
+def test_local_task_store_serves_contexts_when_ui_proxies_without_bucket(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When `AQA_JOBS_GCS_BUCKET` is unset and `AGENT_ADK_BASE_URL` is configured,
+    `/lha/contexts*` proxies to `LocalTaskStore` on the local backend."""
+    from a2a.types import a2a_pb2
+    from ambient_quality_agent import fast_api_app
+    from ambient_quality_agent.app_utils.task_store import LocalTaskStore
+
+    store = LocalTaskStore()
+    task = a2a_pb2.Task()
+    task.id = "t-local"
+    task.context_id = "ctx-local"
+    task.status.state = a2a_pb2.TaskState.Value("TASK_STATE_COMPLETED")
+    task.status.timestamp.FromJsonString("2026-10-01T10:00:00Z")
+    msg = task.history.add()
+    msg.role = a2a_pb2.Role.Value("ROLE_USER")
+    msg.parts.add().text = 'Diagnose insight ins-local ("crashed")'
+    msg.metadata.update({"agent_key": "local_agent"})
+    asyncio.run(store.save(task, None))
+
+    with pytest.raises(ValueError, match="context_id must not be empty"):
+        store.save_context_title("   ", "Blank context")
+
+    monkeypatch.setattr(fast_api_app, "_local_task_store", store)
+    monkeypatch.setenv("AQA_JOBS_GCS_BUCKET", "")
+    monkeypatch.setenv("AQA_BACKEND", "adk")
+    monkeypatch.setenv("AGENT_ADK_BASE_URL", "http://local-agent")
+
+    async def fake_forward(
+        method: str,
+        url: str,
+        *,
+        headers: dict[str, str],
+        content: bytes | None,
+    ) -> httpx.Response:
+        assert url.startswith("http://local-agent")
+        subpath = url.removeprefix("http://local-agent")
+        transport = httpx.ASGITransport(app=fast_api_app.app)
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://local-agent"
+        ) as client:
+            return await client.request(
+                method, subpath, headers=headers, content=content
+            )
+
+    monkeypatch.setattr(ui_app, "_forward", fake_forward)
+
+    listed = asyncio.run(_get("/lha/contexts"))
+    assert listed.status_code == 200
+    assert listed.json()["contexts"] == [
+        {
+            "context_id": "ctx-local",
+            "task_ids": ["t-local"],
+            "updated_at": "2026-10-01T10:00:00Z",
+            "title": None,
+            "first_message": 'Diagnose insight ins-local ("crashed")',
+            "agent_key": "local_agent",
+        }
+    ]
+
+    tasks = asyncio.run(_get("/lha/contexts/ctx-local/tasks"))
+    assert tasks.status_code == 200
+    assert tasks.json()["tasks"][0]["id"] == "t-local"
+
+    renamed = asyncio.run(
+        _put("/lha/contexts/ctx-local/title", json={"title": "Local RCA"})
+    )
+    assert renamed.status_code == 200
+    assert (
+        asyncio.run(_get("/lha/contexts")).json()["contexts"][0]["title"]
+        == "Local RCA"
+    )
+
+    erased = asyncio.run(_delete("/lha/contexts/ctx-local"))
+    assert erased.status_code == 200
+    assert erased.json() == {"deleted": 1}
+    assert asyncio.run(_get("/lha/contexts")).json()["contexts"] == []

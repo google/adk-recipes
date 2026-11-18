@@ -288,6 +288,57 @@ def test_get_insight_sends_insight_id_and_flags(monkeypatch, runner):
     ]
 
 
+def test_get_trajectory_sends_trajectory_id_and_investigation(
+    monkeypatch, runner
+):
+    result = {
+        "trajectory_bundle": {
+            "trajectory_id": "case-1",
+            "status": "archived",
+            "steps": [],
+        }
+    }
+    client = _FakeCommandClient(lambda path, payload, n: result)
+    _patch_client(monkeypatch, client)
+
+    res = runner.invoke(
+        aqua_cli.cli,
+        [
+            "get-trajectory",
+            "case-1",
+            "--investigation-id",
+            "run-9",
+            "--resource",
+            "r",
+        ],
+    )
+
+    assert res.exit_code == 0
+    assert json.loads(res.stdout) == result
+    assert client.calls == [
+        (
+            "trajectories/bundle",
+            {"trajectory_id": "case-1", "investigation_id": "run-9"},
+        )
+    ]
+
+
+def test_get_trajectory_exits_1_on_an_error_envelope(monkeypatch, runner):
+    result = {"error": "failed to read the conversation: denied"}
+    client = _FakeCommandClient(lambda path, payload, n: result)
+    _patch_client(monkeypatch, client)
+
+    res = runner.invoke(
+        aqua_cli.cli, ["get-trajectory", "case-1", "--resource", "r"]
+    )
+
+    assert res.exit_code == aqua_cli.EXIT_ERROR
+    assert json.loads(res.stdout) == result
+    assert client.calls == [
+        ("trajectories/bundle", {"trajectory_id": "case-1"})
+    ]
+
+
 # --------------------------------------------------------------------------- #
 # Exit-code contract                                                           #
 # --------------------------------------------------------------------------- #
@@ -306,6 +357,96 @@ def test_failed_run_exits_2(monkeypatch, runner):
 
     assert res.exit_code == aqua_cli.EXIT_FAILED
     assert json.loads(res.stdout)["status"] == "failed"
+
+
+def test_cancelled_investigation_exits_4(monkeypatch, runner):
+    record = {"investigation_id": "x", "status": "cancelled", "error": None}
+    client = _FakeCommandClient(lambda path, payload, n: record)
+    _patch_client(monkeypatch, client)
+
+    res = runner.invoke(
+        aqua_cli.cli, ["get-investigation", "x", "--resource", "r"]
+    )
+
+    assert res.exit_code == aqua_cli.EXIT_CANCELLED
+
+
+def test_cancel_with_yes_cancels_without_asking(monkeypatch, runner):
+    record = {"investigation_id": "x", "status": "cancelled", "error": None}
+    client = _FakeCommandClient(lambda path, payload, n: record)
+    _patch_client(monkeypatch, client)
+
+    res = runner.invoke(
+        aqua_cli.cli,
+        ["cancel-investigation", "x", "--yes", "--resource", "r"],
+    )
+
+    assert res.exit_code == aqua_cli.EXIT_CANCELLED
+    assert json.loads(res.stdout) == record  # stdout is pure JSON
+    assert client.calls == [
+        ("investigations/cancel", {"investigation_id": "x"})
+    ]
+
+
+def test_cancel_asks_first_on_a_terminal(monkeypatch, runner):
+    record = {"investigation_id": "x", "status": "cancelled", "error": None}
+    client = _FakeCommandClient(lambda path, payload, n: record)
+    _patch_client(monkeypatch, client)
+    monkeypatch.setattr(aqua_cli, "_is_stdin_interactive", lambda: True)
+
+    res = runner.invoke(
+        aqua_cli.cli,
+        ["cancel-investigation", "x", "--resource", "r"],
+        input="y\n",
+    )
+
+    assert res.exit_code == aqua_cli.EXIT_CANCELLED
+    assert "Cancel investigation x?" in res.stderr
+    assert json.loads(res.stdout) == record
+
+
+def test_cancel_declined_sends_nothing(monkeypatch, runner):
+    client = _FakeCommandClient(lambda path, payload, n: {})
+    _patch_client(monkeypatch, client)
+    monkeypatch.setattr(aqua_cli, "_is_stdin_interactive", lambda: True)
+
+    res = runner.invoke(
+        aqua_cli.cli,
+        ["cancel-investigation", "x", "--resource", "r"],
+        input="n\n",
+    )
+
+    assert res.exit_code == 1
+    assert client.calls == []
+
+
+def test_cancel_without_a_terminal_needs_yes(monkeypatch, runner):
+    client = _FakeCommandClient(lambda path, payload, n: {})
+    _patch_client(monkeypatch, client)
+    monkeypatch.setattr(aqua_cli, "_is_stdin_interactive", lambda: False)
+
+    res = runner.invoke(
+        aqua_cli.cli, ["cancel-investigation", "x", "--resource", "r"]
+    )
+
+    assert res.exit_code == aqua_cli.EXIT_ERROR
+    assert "--yes" in res.stderr
+    assert client.calls == []
+
+
+def test_cancel_refused_for_a_finished_investigation_exits_1(
+    monkeypatch, runner
+):
+    refusal = {"error": "investigation 'x' has already finished as done"}
+    client = _FakeCommandClient(lambda path, payload, n: refusal)
+    _patch_client(monkeypatch, client)
+
+    res = runner.invoke(
+        aqua_cli.cli,
+        ["cancel-investigation", "x", "--yes", "--resource", "r"],
+    )
+
+    assert res.exit_code == aqua_cli.EXIT_ERROR
 
 
 def test_missing_payload_exits_1(monkeypatch, runner):

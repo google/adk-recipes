@@ -224,6 +224,89 @@ describe("RecentInvestigationsRail", () => {
     },
   );
 
+  it("draws how far a running investigation got, with its stage on hover", async () => {
+    const now = new Date().toISOString();
+    renderRail(
+      ok([
+        {
+          ...INVESTIGATIONS[0],
+          created_at: now,
+          status: "running",
+          counters: {},
+          progress: {
+            stage: "Session review",
+            evaluated: 45,
+            total: 205,
+            findings: 12,
+            updated_at: now,
+          },
+        },
+      ]),
+    );
+
+    // "Running", not a fraction, in the slot a pass rate takes.
+    expect(
+      await screen.findByTitle(
+        "Session review: 45 of 205 trajectories, 12 findings",
+      ),
+    ).toHaveTextContent(/^Running/);
+    expect(
+      screen.getByRole("progressbar", { hidden: true, name: "Session review" }),
+    ).toHaveAttribute("aria-valuenow", "45");
+    // The bar is hidden from a screen reader, which reads the stage and
+    // counts in words as part of the row's link instead.
+    expect(
+      screen.getByRole("link", {
+        name: /Running ?, Session review: 45 of 205 trajectories, 12 findings$/,
+      }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("progressbar")).toBeNull();
+  });
+
+  it("says a running investigation with nothing to measure against is running, with its stage on hover", async () => {
+    const now = new Date().toISOString();
+    renderRail(
+      ok([
+        {
+          ...INVESTIGATIONS[0],
+          created_at: now,
+          status: "running",
+          counters: {},
+          progress: { stage: "Clustering", findings: 12, updated_at: now },
+        },
+      ]),
+    );
+
+    expect(
+      await screen.findByTitle("Clustering: 12 findings"),
+    ).toHaveTextContent(/^Running/);
+    expect(
+      screen.getByRole("progressbar", { hidden: true, name: "Clustering" }),
+    ).not.toHaveAttribute("aria-valuenow");
+  });
+
+  it("names only the stage on hover for a stage that has no counts yet", async () => {
+    const now = new Date().toISOString();
+    renderRail(
+      ok([
+        {
+          ...INVESTIGATIONS[0],
+          created_at: now,
+          status: "running",
+          counters: {},
+          progress: { stage: "Verification", updated_at: now },
+        },
+      ]),
+    );
+
+    expect(await screen.findByTitle("Verification")).toHaveTextContent(
+      /^Running/,
+    );
+    expect(
+      screen.getByRole("link", { name: /Running ?, Verification$/ }),
+    ).toBeInTheDocument();
+  });
+
   it("badges an investigation that evaluated nothing as no data, with the full phrase on hover", async () => {
     renderRail(
       ok([

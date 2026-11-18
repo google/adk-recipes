@@ -41,11 +41,11 @@ _ENGINE_API = f"https://us-east1-aiplatform.googleapis.com/reasoningEngines/v1/{
 
 @pytest.fixture(autouse=True)
 def _fresh_backend_choice() -> Any:
-    """`app._get_backend_client` is cached for the process, which is right in production
+    """`app._create_default_backend_client` is cached for the process, which is right in production
     and wrong here: each test picks its own backend through the environment."""
-    ui_app._get_backend_client.cache_clear()
+    ui_app._create_default_backend_client.cache_clear()
     yield
-    ui_app._get_backend_client.cache_clear()
+    ui_app._create_default_backend_client.cache_clear()
 
 
 class _FakeUpstreamResponse:
