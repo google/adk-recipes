@@ -59,12 +59,13 @@ def test_process_proposal_decline():
         "decision": "DECLINE",
         "gate": "A",
         "close_issue": True,
-        "response": "Closing as not actionable: template empty.",
+        "response": "First-pass triage: template fields incomplete.",
     }
     decision, gate, _response_body, close_issue = process_proposal_response(d)
     assert decision == "DECLINE"
     assert gate == "A"
-    assert close_issue is True
+    # Proposal triage never auto-closes; final close is left to maintainers.
+    assert close_issue is False
 
 
 def test_process_proposal_invalid_decision():
@@ -112,17 +113,17 @@ def test_cli_execution_decline(tmp_path: Path):
     res = subprocess.run(cmd, capture_output=True, text=True, check=False)
     assert res.returncode == 0, res.stderr
     assert "Declining this one" in comment_out.read_text(encoding="utf-8")
-    assert close_out.read_text(encoding="utf-8").strip() == "true"
+    assert close_out.read_text(encoding="utf-8").strip() == "false"
     gh_text = github_out.read_text(encoding="utf-8")
     assert "decision=DECLINE" in gh_text
     assert "gate=C" in gh_text
-    assert "close_issue=true" in gh_text
+    assert "close_issue=false" in gh_text
 
 
 def test_extract_json_handles_preamble_braces():
     raw = (
         "Checking directory {contrib/python} first...\n"
-        '{"decision": "ACCEPT", "gate": null, "close_issue": false, "response": "Approved!"}'
+        '{"decision": "ACCEPT", "gate": null, "close_issue": false, "response": "Looks like a fit."}'
     )
     data = extract_json(raw)
     assert data["decision"] == "ACCEPT"
@@ -133,7 +134,7 @@ def test_accept_never_closes_issue_and_sanitizes_mentions():
         "decision": "ACCEPT",
         "gate": "Gate C",
         "close_issue": True,
-        "response": "Approved! cc @happyhuman @kgu-here and @random-spam-target",
+        "response": "First-pass feedback: cc @pierpaolo28 @kgu-here @rohityan and @random-spam-target",
     }
     decision, gate, body, close_issue = process_proposal_response(
         d, issue_author="proposer-user"
@@ -141,5 +142,7 @@ def test_accept_never_closes_issue_and_sanitizes_mentions():
     assert decision == "ACCEPT"
     assert gate == "C"
     assert close_issue is False
-    assert "@happyhuman" in body
+    assert "@pierpaolo28" in body
+    assert "@kgu-here" in body
+    assert "@rohityan" in body
     assert "`@random-spam-target`" in body

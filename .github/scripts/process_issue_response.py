@@ -9,7 +9,7 @@ selected, determines whether to close the issue when a complete solution is
 provided, and prepares the response comment.
 
 Routing rules for Option 4:
-  Catch-all (docs, root configs, unmatched): @tommywagz
+  Catch-all (docs, root configs, unmatched): @tommywagz, @rohityan
   /.github/**          -> @happyhuman
   /core/python/**      -> @eliasecchig
   /core/go/**          -> @ToniCorinne
@@ -89,13 +89,14 @@ ROUTING_RULES: list[tuple[str, str]] = [
     ("plugins", "tommywagz"),
 ]
 
-DEFAULT_ASSIGNEE = "tommywagz"
+DEFAULT_ASSIGNEE = "tommywagz,rohityan"
 
 # Known developer usernames (without @ prefix)
 VALID_ASSIGNEES = {
     "eliasecchig",
     "ToniCorinne",
     "tommywagz",
+    "rohityan",
     "happyhuman",
     "maxgasztych",
     "lspataroG",

@@ -16,8 +16,9 @@
 
 Used by .github/workflows/_ai-recipe-proposal-triage-core.yml. Parses the JSON
 output from Antigravity CLI (agy), validates the proposal decision
-(ACCEPT, DECLINE, DEFER, REDIRECT, PARTIAL_ACCEPT), determines whether to close
-the issue, and prepares the response comment.
+(ACCEPT, DECLINE, DEFER, REDIRECT, PARTIAL_ACCEPT), and prepares the neutral
+first-pass feedback comment. It never closes the issue: final approval and
+closing are left to the maintainers (@pierpaolo28 and @kgu-here).
 """
 
 from __future__ import annotations
@@ -60,9 +61,9 @@ VALID_GATES = {
 ALLOWED_MENTIONS = {
     "pierpaolo28",
     "kgu-here",
-    "happyhuman",
     "eliasecchig",
     "tommywagz",
+    "rohityan",
     "tonicorinne",
 }
 
@@ -194,15 +195,9 @@ def process_proposal_response(
         raise ValueError("Decision contains an empty response comment.")
     response_body = _sanitize_mentions(response_body, issue_author=issue_author)
 
-    # Determine close_issue: ACCEPT, PARTIAL_ACCEPT, and DEFER must never close the issue.
-    if raw_decision in {"ACCEPT", "PARTIAL_ACCEPT", "DEFER"}:
-        close_issue = False
-    else:
-        raw_close = decision_dict.get("close_issue")
-        if isinstance(raw_close, bool):
-            close_issue = raw_close
-        else:
-            close_issue = raw_decision in {"DECLINE", "REDIRECT"}
+    # Proposal triage posts first-pass feedback only; final approval and issue
+    # closing are always left to maintainers (@pierpaolo28 and @kgu-here).
+    close_issue = False
 
     return raw_decision, gate, response_body, close_issue
 

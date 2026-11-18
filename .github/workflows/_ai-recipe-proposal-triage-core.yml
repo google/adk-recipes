@@ -1,14 +1,15 @@
 name: 'AI Recipe Proposal Triage — Core (reusable)'
 
-# Reusable core invoked via `workflow_call` by `recipe-proposal-intake.yml`.
-# Evaluates newly opened or reopened recipe proposals against the decision rubric
-# defined in `.agents/skills/triage-recipe-proposal/SKILL.md` (Gates A-G and Accept vs Defer),
-# drafts a maintainer first-pass response in Pier's voice, posts the comment,
-# and closes the issue if declining.
+# Reusable core invoked via `workflow_call` by `recipe-proposal-intake.yml`
+# and `ai-recipe-proposal-triage.yml`. Evaluates newly opened or reopened
+# recipe proposals against the triage rubric (Gates A-G) and posts neutral
+# automated first-pass feedback. Final approval and issue closing are always
+# left to the maintainers (@pierpaolo28 and @kgu-here).
 #
 # DESIGN: the model returns a structured JSON decision. Tool permissions
 # for agy are empty. Downstream processing via `process_recipe_proposal_response.py`
-# validates the decision, formats the comment, and determines whether to close the issue.
+# validates the decision and formats the first-pass feedback comment without
+# auto-closing the issue.
 
 on:
   workflow_call:
@@ -34,7 +35,7 @@ on:
         description: 'agy model id'
         required: false
         type: 'string'
-        default: 'gemini-3.7-flash'
+        default: 'gemini-3.8-flash'
       effort:
         description: 'Reasoning effort (low|medium|high)'
         required: false
@@ -153,8 +154,9 @@ jobs:
           PROMPT: |-
             ## Role & Goal
 
-            You are an automated assistant helping Pier (@pierpaolo28) give a first-pass triage review to recipe proposals submitted to google/adk-recipes.
-            You must run the historical accept/decline rubric and draft a concise maintainer reply in Pier's voice.
+            You are an automated first-pass triage assistant for google/adk-recipes.
+            Evaluate the recipe proposal against the rubric below and draft concise, neutral first-pass triage feedback.
+            Do NOT speak in first person as a human maintainer, do NOT say the proposal is approved or tell the contributor to start a PR, and do NOT close the issue — final approval and closing are always handled by @pierpaolo28 and @kgu-here.
             Do not call any tools.
 
             ## Repository Context
@@ -170,72 +172,71 @@ jobs:
 
             ## Decision Rubric — Walk the gates in order (hard gates first)
 
-            The first gate that triggers determines the outcome:
+            The first gate that triggers determines the first-pass assessment. Always set `close_issue: false` — never claim the issue is being closed automatically:
 
             ### Gate A — Template completeness
-            Reject-as-not-actionable if the body is empty, is only boilerplate, or leaves the five required template questions unanswered ((1) intent, (2) language, (3) deployable Y/N, (4) GCP services / 3rd-party APIs, (5) owner; note that question (6) extras is optional).
-            - Decision: DECLINE, Gate: "A", close_issue: true
+            Flag as incomplete if the body is empty, is only boilerplate, or leaves the five required template questions unanswered ((1) intent, (2) language, (3) deployable Y/N, (4) GCP services / 3rd-party APIs, (5) owner; note that question (6) extras is optional).
+            - Decision: DECLINE, Gate: "A", close_issue: false
             - Comment:
-              "Thanks for opening this. Required template questions are unanswered, so we don't have enough to triage.\n\nClosing as not actionable. If this was submitted by mistake, please open a new issue with the template filled in (purpose, language, deployability plan, dependencies, maintainer)."
+              "**Automated first-pass triage:** Required template questions appear unanswered, so there isn't enough detail yet to review this proposal. Please update the issue with the template fields (purpose, language, deployability plan, dependencies, maintainer).\n\nLeaving this open for @pierpaolo28 and @kgu-here to review or close."
 
             ### Gate B — Wrong root (core/ scope creep)
-            If the proposal is requesting to add a recipe to `core/` rather than `contrib/`, redirect — `core/` follows a separate internal process and the template explicitly says "contrib/ recipes only".
-            - Decision: REDIRECT, Gate: "B", close_issue: true
+            If the proposal is requesting to add a recipe to `core/` rather than `contrib/`, flag it as out of scope for this template — `core/` follows a separate internal process and the template explicitly says "contrib/ recipes only".
+            - Decision: REDIRECT, Gate: "B", close_issue: false
             - Comment:
-              "Thanks for proposing this. The `[RECIPE PROPOSAL]` template is for `contrib/` recipes; `core/` recipes are curated by the agents-cli team through a separate internal process.\n\nClosing here — if you'd like this considered for `core/`, reach out through the agents-cli channel directly, or re-scope the proposal as a `contrib/` submission."
+              "**Automated first-pass triage:** The `[RECIPE PROPOSAL]` template is for `contrib/` recipes; `core/` recipes are curated by the agents-cli team through a separate internal process. Consider re-scoping this proposal as a `contrib/` submission or reaching out through the agents-cli channel directly.\n\nLeaving final review and closing to @pierpaolo28 and @kgu-here."
 
             ### Gate C — Deployability
-            Decline if the proposal says explicitly that the initial scope will not include a Dockerfile or will not be deployable. The Recipe Checklist §1 requires every `contrib/` recipe to have a root Dockerfile and `deployable: true` in `manifest.yaml`.
-            (Note: if the proposer says "I will add the Dockerfile after approval" — that is fine, not a decline).
-            - Decision: DECLINE, Gate: "C", close_issue: true
+            Flag if the proposal says explicitly that the initial scope will not include a Dockerfile or will not be deployable. The Recipe Checklist §1 requires every `contrib/` recipe to have a root Dockerfile and `deployable: true` in `manifest.yaml`.
+            (Note: if the proposer says "I will add the Dockerfile after approval" — that is fine, not a flag).
+            - Decision: DECLINE, Gate: "C", close_issue: false
             - Comment:
-              "Thanks for the detailed proposal. Declining this one: the Recipe Checklist §1 requires every `contrib/` recipe to be deployable (root `Dockerfile` and `deployable: true` in `manifest.yaml`), and the proposal says the initial scope would not include a Dockerfile.\n\nHappy to revisit once a deployable path is in scope.\n\nClosing as not planned."
+              "**Automated first-pass triage:** The Recipe Checklist §1 requires every `contrib/` recipe to be deployable (root `Dockerfile` and `deployable: true` in `manifest.yaml`), and this proposal indicates the initial scope would not include a Dockerfile.\n\nLeaving final review and closing to @pierpaolo28 and @kgu-here."
 
             ### Gate D — Scope fit (GCP enterprise agent)
-            Decline if the recipe's primary subject sits outside Google Cloud enterprise agent patterns (BigQuery / Vertex AI / Cloud Run / Memory Bank / Agent Engine / ADK-native patterns, plus retail in `plugins/`). Non-GCP infra (crypto, L2 blockchains, other clouds) does not fit.
-            - Decision: DECLINE, Gate: "D", close_issue: true
-            - Cite scope fit and close as not planned.
+            Flag if the recipe's primary subject sits outside Google Cloud enterprise agent patterns (BigQuery / Vertex AI / Cloud Run / Memory Bank / Agent Engine / ADK-native patterns, plus retail in `plugins/`). Non-GCP infra (crypto, L2 blockchains, other clouds) does not fit.
+            - Decision: DECLINE, Gate: "D", close_issue: false
+            - Cite scope fit and leave final review and closing to @pierpaolo28 and @kgu-here.
 
             ### Gate E — Vendor-dependency as primary pattern
-            Decline if the recipe's core teaching value depends on a single external SaaS/gateway owned by the proposer.
-            - Decision: DECLINE, Gate: "E", close_issue: true
-            - Cite vendor dependency and close as not planned.
+            Flag if the recipe's core teaching value depends on a single external SaaS/gateway owned by the proposer.
+            - Decision: DECLINE, Gate: "E", close_issue: false
+            - Cite vendor dependency and leave final review and closing to @pierpaolo28 and @kgu-here.
 
             ### Gate F — Scope overlap
-            Decline if an existing recipe (see list above) or an already-accepted proposal covers the same pattern.
-            - Decision: DECLINE, Gate: "F", close_issue: true
-            - Note the overlapping recipe and suggest contributing there instead.
+            Flag if an existing recipe (see list above) or an already-accepted proposal covers the same pattern.
+            - Decision: DECLINE, Gate: "F", close_issue: false
+            - Note the overlapping recipe, suggest contributing there instead, and leave final review and closing to @pierpaolo28 and @kgu-here.
 
             ### Gate G — Differentiation / coverage-gap
-            Decline if the pattern is already well-covered by existing GCP docs or ADK samples without a differentiated angle.
-            - Decision: DECLINE, Gate: "G", close_issue: true
-            - Cite lack of differentiation and close as not planned.
+            Flag if the pattern is already well-covered by existing GCP docs or ADK samples without a differentiated angle.
+            - Decision: DECLINE, Gate: "G", close_issue: false
+            - Cite lack of differentiation and leave final review and closing to @pierpaolo28 and @kgu-here.
 
-            ### Accept vs. Defer to Katherine (@kgu-here)
-            If none of Gates A-G fires:
+            ### First-Pass Fit Assessment (if none of Gates A-G fires)
             1. Clear customer value (vertical / finance / retail / support / customer-facing agent with obvious scenario):
                - Decision: ACCEPT, Gate: null, close_issue: false
                - Comment:
-                 "Thanks for the proposal — this fills a real gap in <coverage area> and the <GCP service / ADK pattern> framing is a good fit for `contrib/`. Approved from my side.\n\nWe can work together on meeting the onboarding standards. Feel free to start the PR and have the first review with @happyhuman. Please leave a link to the PR here as a reference."
-                 (Add a brief "cc @kgu-here for Agent Garden coordination" if relevant to enterprise catalog).
+                 "**Automated first-pass triage:** This proposal appears to pass initial scope and deployability checks for `contrib/` — it addresses a gap in <coverage area> using <GCP service / ADK pattern>.\n\nFlagging @pierpaolo28 and @kgu-here for final approval and next steps before starting a PR."
             2. Technically clean but customer value unclear (infra / plumbing / safety / developer-tool patterns with no obvious customer surface):
                - Decision: DEFER, Gate: null, close_issue: false
                - Comment:
-                 "Thanks for the proposal — this is well-scoped.\n\nBefore accepting, I want to defer this to @kgu-here. The pattern is technically clean, but if there isn't a clear customer-facing / Agent Garden angle for it, we don't think it earns its place in `contrib/` on infra merit alone.\n\n@kgu-here — could you weigh in on whether <one-sentence description of the recipe> is something you'd want to surface in Agent Garden? If yes, I'll approve and route the PR; if the use case doesn't resonate, I'll close."
+                 "**Automated first-pass triage:** This proposal looks technically well-scoped, though the customer-facing / Agent Garden angle is less clear.\n\nFlagging @pierpaolo28 and @kgu-here to weigh in on whether <one-sentence description of the recipe> fits the `contrib/` catalog."
             3. Close-but-not-quite (soft-gate adjustment):
                - Decision: PARTIAL_ACCEPT, Gate: null, close_issue: false
-               - Ask for re-scoping while keeping the issue open.
+               - Suggest specific re-scoping adjustments and leave final review to @pierpaolo28 and @kgu-here.
 
             ## Voice & Style Guidelines
-            - Speak directly as Pier (@pierpaolo28).
-            - Replies are short (2-5 sentences), cordial, cite the specific rule/precedent, and never pad with apologies, fluff, or boilerplate.
+            - Always write as an automated first-pass triage assistant, never in first person as a human maintainer.
+            - Never state that a proposal is approved, never instruct the contributor to start a PR, and never claim the issue is being closed.
+            - Keep replies short (2-5 sentences), cordial, and specific about which rubric criteria passed or need attention.
 
             ## Output Format
             Respond ONLY with a single JSON object. No preambles, no Markdown fences around the response if possible, just the JSON object:
             {
               "decision": "ACCEPT" | "DECLINE" | "DEFER" | "REDIRECT" | "PARTIAL_ACCEPT",
               "gate": "A" | "B" | "C" | "D" | "E" | "F" | "G" | null,
-              "close_issue": true | false,
+              "close_issue": false,
               "response": "<the markdown reply comment>"
             }
 
@@ -355,7 +356,7 @@ jobs:
           permission-contents: 'read'
           permission-issues: 'write'
 
-      - name: 'Post comment and optionally close issue'
+      - name: 'Post first-pass triage comment'
         id: 'apply'
         env:
           GH_TOKEN: '${{ steps.generate_token.outputs.token || secrets.GITHUB_TOKEN }}'
@@ -364,15 +365,9 @@ jobs:
         run: |-
           set -euo pipefail
 
+          # Never auto-close proposal issues; final approval and closing are
+          # handled by @pierpaolo28 and @kgu-here.
           if [[ -s comment.md ]]; then
             echo "Posting first-pass triage comment to #${ISSUE_NUMBER}..."
             gh issue comment "${ISSUE_NUMBER}" --body-file comment.md
-          fi
-
-          if [[ -s close.txt ]]; then
-            SHOULD_CLOSE="$(cat close.txt | tr -d '[:space:]')"
-            if [[ "${SHOULD_CLOSE}" == "true" ]]; then
-              echo "Closing #${ISSUE_NUMBER} as not planned..."
-              gh issue close "${ISSUE_NUMBER}" --reason "not planned"
-            fi
           fi

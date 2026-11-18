@@ -97,12 +97,12 @@ def test_normalize_path():
         ("/plugins/finance/analyst", "tommywagz"),
         ("plugins/customer-service", "tommywagz"),
         # Catch-all
-        ("docs/recipe-handbook/README.md", "tommywagz"),
-        ("pyproject.toml", "tommywagz"),
+        ("docs/recipe-handbook/README.md", "tommywagz,rohityan"),
+        ("pyproject.toml", "tommywagz,rohityan"),
         # Repository governance
         (".github/workflows/ci.yml", "happyhuman"),
-        ("", "tommywagz"),
-        (None, "tommywagz"),
+        ("", "tommywagz,rohityan"),
+        (None, "tommywagz,rohityan"),
     ],
 )
 def test_resolve_assignee_from_path(path, expected_assignee):
@@ -125,10 +125,11 @@ def parse_codeowners_routing(
             continue
         parts = line.split()
         if len(parts) >= 2:
-            pattern, assignee = parts[0], parts[1].lstrip("@")
+            pattern = parts[0]
             if pattern == "*":
-                default = assignee
+                default = ",".join(p.lstrip("@") for p in parts[1:])
             else:
+                assignee = parts[1].lstrip("@")
                 prefix = pattern.strip("/").rstrip("/*").rstrip("*")
                 while prefix.endswith("/"):
                     prefix = prefix[:-1]
@@ -145,7 +146,11 @@ def parse_workflow_prompt_routing(
     for raw_line in content.splitlines():
         line = raw_line.strip()
         if "Assign to:" in line:
-            default = line.split("Assign to:", 1)[1].strip().lstrip("@")
+            default = ",".join(
+                p.strip().lstrip("@")
+                for p in line.split("Assign to:", 1)[1].split(",")
+                if p.strip()
+            )
         elif line.startswith("- /") and "->" in line:
             left, right = line.split("->", 1)
             pattern = left.lstrip("- ").strip()
@@ -503,7 +508,7 @@ def test_process_response_option_4_fallback():
     }
     opt, _resp, assignee, close_issue = process_response(d4_unknown)
     assert opt == Option.ACKNOWLEDGE_AND_ASSIGN
-    assert assignee == "tommywagz"
+    assert assignee == "tommywagz,rohityan"
     assert close_issue is False
 
 
