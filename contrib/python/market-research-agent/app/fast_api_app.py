@@ -18,7 +18,6 @@ from collections.abc import AsyncIterator
 
 import google.auth
 from a2a.server.tasks import InMemoryTaskStore
-from dotenv import load_dotenv
 from fastapi import FastAPI
 from google.adk.cli.fast_api import get_fast_api_app
 from google.adk.runners import Runner
@@ -28,8 +27,6 @@ from app.app_utils.a2a import attach_a2a_routes
 from app.app_utils.reasoning_engine_adapter import (
     attach_reasoning_engine_routes,
 )
-
-load_dotenv()
 
 # Cloud telemetry needs Application Default Credentials. Resolve them here
 # rather than letting get_fast_api_app raise DefaultCredentialsError at
@@ -41,9 +38,7 @@ except Exception:
     project_id = None
 
 allow_origins = (
-    os.getenv("ALLOW_ORIGINS", "").split(",")
-    if os.getenv("ALLOW_ORIGINS")
-    else None
+    origins.split(",") if (origins := os.getenv("ALLOW_ORIGINS")) else None
 )
 
 AGENT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

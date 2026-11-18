@@ -25,11 +25,38 @@ from app.sub_agents.competitor.agent import competitor_agent
 from app.sub_agents.gap.agent import gap_agent
 from app.sub_agents.location.agent import location_agent
 from app.sub_agents.traffic.agent import traffic_agent
-from app.tools.places import geocode_address, nearby_search
+from app.tools.places import geocode_address, nearby_search, place_details
 
 _TEST_LAT = 51.523
 _TEST_LNG = -0.073
 _PRICE_LEVEL_MODERATE = 2
+
+
+@pytest.fixture
+def mock_httpx():
+    """Patch ``httpx.AsyncClient`` and return a function that sets the reply.
+
+    Call it with the JSON payload the API should return; it returns the mock
+    client so tests can inspect the request. The class mock is exposed as
+    ``respond.client_cls`` for assertions on constructor arguments.
+    """
+    with patch("httpx.AsyncClient") as mock_client_cls:
+        mock_client = AsyncMock()
+        mock_client_cls.return_value.__aenter__.return_value = mock_client
+
+        def respond(payload):
+            # The response object itself is synchronous (httpx.Response.json()
+            # and .raise_for_status() are not coroutines) — only the client's
+            # get()/post() calls are async, so mock the response with
+            # MagicMock rather than AsyncMock.
+            response = MagicMock()
+            response.json.return_value = payload
+            mock_client.get.return_value = response
+            mock_client.post.return_value = response
+            return mock_client
+
+        respond.client_cls = mock_client_cls
+        yield respond
 
 
 def _tool_names(tools):
@@ -92,96 +119,105 @@ class TestPlacesTools:
     """Tests for the Google Places API tool functions."""
 
     @pytest.mark.asyncio
-    async def test_geocode_address_returns_json(self):
-        mock_response = {
-            "status": "OK",
-            "results": [
-                {
-                    "geometry": {
-                        "location": {"lat": _TEST_LAT, "lng": _TEST_LNG}
-                    },
-                    "formatted_address": "15 Shoreditch High St, London",
-                }
-            ],
-        }
-        with patch("httpx.AsyncClient") as mock_client_cls:
-            mock_client = AsyncMock()
-            mock_client_cls.return_value.__aenter__.return_value = mock_client
-            # The response object itself is synchronous (httpx.Response.json()
-            # and .raise_for_status() are not coroutines) — only the client's
-            # get()/post() calls are async, so mock the response with
-            # MagicMock rather than AsyncMock.
-            mock_response_obj = MagicMock()
-            mock_response_obj.json.return_value = mock_response
-            mock_client.get.return_value = mock_response_obj
+    async def test_geocode_address_returns_json(self, mock_httpx):
+        mock_httpx(
+            {
+                "status": "OK",
+                "results": [
+                    {
+                        "geometry": {
+                            "location": {"lat": _TEST_LAT, "lng": _TEST_LNG}
+                        },
+                        "formatted_address": "15 Shoreditch High St, London",
+                    }
+                ],
+            }
+        )
 
-            result = await geocode_address("15 Shoreditch High St, London")
-            data = json.loads(result)
+        result = await geocode_address("15 Shoreditch High St, London")
+        data = json.loads(result)
 
-            assert data["lat"] == _TEST_LAT
-            assert data["lng"] == _TEST_LNG
-            assert "formatted_address" in data
+        assert data["lat"] == _TEST_LAT
+        assert data["lng"] == _TEST_LNG
+        assert "formatted_address" in data
 
     @pytest.mark.asyncio
-    async def test_geocode_address_handles_failure(self):
-        mock_response = {"status": "ZERO_RESULTS", "results": []}
-        with patch("httpx.AsyncClient") as mock_client_cls:
-            mock_client = AsyncMock()
-            mock_client_cls.return_value.__aenter__.return_value = mock_client
-            mock_response_obj = MagicMock()
-            mock_response_obj.json.return_value = mock_response
-            mock_client.get.return_value = mock_response_obj
+    async def test_geocode_address_handles_failure(self, mock_httpx):
+        mock_httpx({"status": "ZERO_RESULTS", "results": []})
 
-            result = await geocode_address("nonexistent place xyz")
-            data = json.loads(result)
+        result = await geocode_address("nonexistent place xyz")
+        data = json.loads(result)
 
-            assert "error" in data
+        assert "error" in data
 
     @pytest.mark.asyncio
-    async def test_nearby_search_returns_json_list(self):
-        mock_response = {
-            "places": [
-                {
-                    "name": "places/abc123",
-                    "id": "abc123",
-                    "displayName": {"text": "Test Cafe"},
-                    "formattedAddress": "1 Test St",
-                    "rating": 4.2,
-                    "userRatingCount": 150,
-                    "priceLevel": "PRICE_LEVEL_MODERATE",
-                    "location": {"latitude": _TEST_LAT, "longitude": _TEST_LNG},
-                    "types": ["cafe"],
-                }
-            ]
-        }
-        with patch("httpx.AsyncClient") as mock_client_cls:
-            mock_client = AsyncMock()
-            mock_client_cls.return_value.__aenter__.return_value = mock_client
-            mock_response_obj = MagicMock()
-            mock_response_obj.json.return_value = mock_response
-            mock_client.post.return_value = mock_response_obj
+    async def test_nearby_search_returns_json_list(self, mock_httpx):
+        mock_httpx(
+            {
+                "places": [
+                    {
+                        "name": "places/abc123",
+                        "id": "abc123",
+                        "displayName": {"text": "Test Cafe"},
+                        "formattedAddress": "1 Test St",
+                        "rating": 4.2,
+                        "userRatingCount": 150,
+                        "priceLevel": "PRICE_LEVEL_MODERATE",
+                        "location": {
+                            "latitude": _TEST_LAT,
+                            "longitude": _TEST_LNG,
+                        },
+                        "types": ["cafe"],
+                    }
+                ]
+            }
+        )
 
-            result = await nearby_search(_TEST_LAT, _TEST_LNG, "cafe")
-            places = json.loads(result)
+        result = await nearby_search(_TEST_LAT, _TEST_LNG, "cafe")
+        places = json.loads(result)
 
-            assert isinstance(places, list)
-            assert len(places) == 1
-            assert places[0]["name"] == "Test Cafe"
-            assert places[0]["price_level"] == _PRICE_LEVEL_MODERATE
+        assert isinstance(places, list)
+        assert len(places) == 1
+        assert places[0]["name"] == "Test Cafe"
+        assert places[0]["price_level"] == _PRICE_LEVEL_MODERATE
 
     @pytest.mark.asyncio
-    async def test_nearby_search_normalizes_business_type(self):
+    async def test_nearby_search_normalizes_business_type(self, mock_httpx):
         """business_type with spaces should be converted to underscores."""
-        mock_response = {"places": []}
-        with patch("httpx.AsyncClient") as mock_client_cls:
-            mock_client = AsyncMock()
-            mock_client_cls.return_value.__aenter__.return_value = mock_client
-            mock_response_obj = MagicMock()
-            mock_response_obj.json.return_value = mock_response
-            mock_client.post.return_value = mock_response_obj
+        mock_client = mock_httpx({"places": []})
 
-            await nearby_search(_TEST_LAT, _TEST_LNG, "coffee shop")
+        await nearby_search(_TEST_LAT, _TEST_LNG, "coffee shop")
 
-            call_kwargs = mock_client.post.call_args
-            body = call_kwargs[1]["json"]
-            assert body["includedTypes"] == ["coffee_shop"]
+        body = mock_client.post.call_args.kwargs["json"]
+        assert body["includedTypes"] == ["coffee_shop"]
+
+    @pytest.mark.asyncio
+    async def test_http_client_has_timeout(self, mock_httpx):
+        mock_httpx({"places": []})
+
+        await nearby_search(_TEST_LAT, _TEST_LNG, "cafe")
+
+        assert mock_httpx.client_cls.call_args.kwargs["timeout"] is not None
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("place_id", ["places/ChIJabc-123_x", "ChIJabc"])
+    async def test_place_details_accepts_valid_ids(self, mock_httpx, place_id):
+        mock_client = mock_httpx({"name": "places/ChIJabc"})
+
+        await place_details(place_id)
+
+        url = mock_client.get.call_args.args[0]
+        assert url.endswith("/places/" + place_id.removeprefix("places/"))
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "place_id",
+        ["../../v2/secret", "places/abc?key=x", "abc#frag", "places/a/b", ""],
+    )
+    async def test_place_details_rejects_unsafe_ids(self, mock_httpx, place_id):
+        mock_client = mock_httpx({})
+
+        result = json.loads(await place_details(place_id))
+
+        assert "error" in result
+        mock_client.get.assert_not_called()

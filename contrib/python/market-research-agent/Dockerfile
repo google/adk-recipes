@@ -16,16 +16,25 @@ FROM python:3.11-slim
 
 RUN pip install --no-cache-dir uv==0.8.13
 
+# Run as an unprivileged user rather than root.
+RUN useradd --create-home --uid 1000 appuser
+
 WORKDIR /code
+RUN chown appuser:appuser /code
 
-COPY ./pyproject.toml ./README.md ./uv.lock* ./
+COPY --chown=appuser:appuser ./pyproject.toml ./README.md ./uv.lock* ./
 
-COPY ./app ./app
+COPY --chown=appuser:appuser ./app ./app
+
+USER appuser
 
 RUN uv sync --frozen
 
 ARG AGENT_VERSION=0.0.0
 ENV AGENT_VERSION=${AGENT_VERSION}
+# Base URL advertised in the A2A agent card; override with the public
+# service URL when deploying.
+ENV APP_URL=http://0.0.0.0:8080
 
 EXPOSE 8080
 

@@ -16,11 +16,29 @@
 
 import json
 import os
+import re
 
 import httpx
 
 _PLACES_BASE_URL = "https://places.googleapis.com/v1"
 _GEOCODING_URL = "https://maps.googleapis.com/maps/api/geocode/json"
+
+# Without a timeout a stalled Google endpoint would hang the agent's tool call
+# indefinitely; httpx's own default is only 5s, too short for Places search.
+_HTTP_TIMEOUT = httpx.Timeout(15.0)
+
+# Field mask shared by Nearby Search and Text Search, which return the same
+# place shape.
+_SEARCH_FIELD_MASK = (
+    "places.name,places.id,places.displayName,"
+    "places.formattedAddress,places.rating,"
+    "places.userRatingCount,places.priceLevel,"
+    "places.location,places.types"
+)
+
+# Place IDs are URL-safe base64-style tokens. Anything else (slashes, "..",
+# "?", "#") could traverse the API path or inject query parameters.
+_PLACE_ID_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 
 _PRICE_LEVEL_MAP = {
     "PRICE_LEVEL_FREE": 0,
@@ -32,7 +50,7 @@ _PRICE_LEVEL_MAP = {
 
 
 def _api_key() -> str:
-    key = os.environ.get("GOOGLE_PLACES_API_KEY", "")
+    key = os.environ.get("GOOGLE_PLACES_API_KEY")
     if not key:
         raise RuntimeError(
             "GOOGLE_PLACES_API_KEY environment variable is not set."
@@ -76,7 +94,7 @@ async def geocode_address(address: str) -> str:
     Returns:
         JSON string with lat, lng, and formatted_address fields.
     """
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as client:
         resp = await client.get(
             _GEOCODING_URL,
             params={"address": address, "key": _api_key()},
@@ -131,7 +149,7 @@ async def nearby_search(
     business_type = business_type.lower().replace(" ", "_").replace("-", "_")
 
     try:
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as client:
             resp = await client.post(
                 f"{_PLACES_BASE_URL}/places:searchNearby",
                 json={
@@ -146,12 +164,7 @@ async def nearby_search(
                 },
                 headers={
                     "X-Goog-Api-Key": _api_key(),
-                    "X-Goog-FieldMask": (
-                        "places.name,places.id,places.displayName,"
-                        "places.formattedAddress,places.rating,"
-                        "places.userRatingCount,places.priceLevel,"
-                        "places.location,places.types"
-                    ),
+                    "X-Goog-FieldMask": _SEARCH_FIELD_MASK,
                 },
             )
             resp.raise_for_status()
@@ -190,12 +203,13 @@ async def place_details(place_id: str) -> str:
         "types",
         "location",
     ]
-    # place_id is the full resource name "places/ChIJ..." — use it directly
-    # as the URL path after the base (e.g. .../v1/places/ChIJ...)
-    resource = (
-        place_id if place_id.startswith("places/") else f"places/{place_id}"
-    )
-    async with httpx.AsyncClient() as client:
+    # place_id is usually the full resource name "places/ChIJ..."; accept a
+    # bare ID too. Validate the ID before it becomes a URL path segment.
+    bare_id = place_id.removeprefix("places/")
+    if not _PLACE_ID_RE.fullmatch(bare_id):
+        return json.dumps({"error": f"Invalid place_id: {place_id!r}"})
+    resource = f"places/{bare_id}"
+    async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as client:
         resp = await client.get(
             f"{_PLACES_BASE_URL}/{resource}",
             headers={
@@ -226,7 +240,7 @@ async def text_search(
     Returns:
         JSON string containing a list of matching places.
     """
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as client:
         resp = await client.post(
             f"{_PLACES_BASE_URL}/places:searchText",
             json={
@@ -241,12 +255,7 @@ async def text_search(
             },
             headers={
                 "X-Goog-Api-Key": _api_key(),
-                "X-Goog-FieldMask": (
-                    "places.name,places.id,places.displayName,"
-                    "places.formattedAddress,places.rating,"
-                    "places.userRatingCount,places.priceLevel,"
-                    "places.types,places.location"
-                ),
+                "X-Goog-FieldMask": _SEARCH_FIELD_MASK,
             },
         )
         resp.raise_for_status()

@@ -123,6 +123,19 @@ def _default_capabilities() -> AgentCapabilities:
     )
 
 
+def _required_env(name: str) -> str:
+    """Returns an env var declared in .env.example, failing loudly if unset.
+
+    Defaults live in .env.example (local runs) and the Dockerfile (container),
+    not in code, so a missing value is a configuration error.
+    """
+    if value := os.getenv(name):
+        return value
+    raise RuntimeError(
+        f"{name} environment variable is not set. Copy .env.example to .env."
+    )
+
+
 async def attach_a2a_routes(
     app: FastAPI,
     *,
@@ -143,10 +156,8 @@ async def attach_a2a_routes(
     ``APP_URL``). Call once per app — typically in a FastAPI ``lifespan``, since
     the card is built asynchronously; repeated calls register duplicate routes.
     """
-    resolved_app_url = app_url or os.getenv("APP_URL", "http://0.0.0.0:8000")
-    resolved_agent_version = agent_version or os.getenv(
-        "AGENT_VERSION", "0.1.0"
-    )
+    resolved_app_url = app_url or _required_env("APP_URL")
+    resolved_agent_version = agent_version or _required_env("AGENT_VERSION")
     resolved_capabilities = capabilities or _default_capabilities()
 
     agent_card = await AgentCardBuilder(

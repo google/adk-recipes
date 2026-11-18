@@ -17,13 +17,13 @@
 ``MODEL_NAME``. pytest loads this conftest before it collects sibling test
 modules, so seeding the environment here happens before any ``import app``.
 
-The values mirror ``.env.example``. ``setdefault`` keeps a developer's real
-``.env`` settings; nothing in the unit suite reaches the network.
+The values come from ``.env.example``, so defaults live in one place.
+Variables already set in the shell are kept; nothing in the unit suite
+reaches the network.
 """
 
-import os
+from pathlib import Path
 
-os.environ.setdefault("MODEL_NAME", "gemini-3.5-flash")
-os.environ.setdefault("GOOGLE_GENAI_USE_VERTEXAI", "false")
-os.environ.setdefault("GOOGLE_API_KEY", "test-key-never-used")
-os.environ.setdefault("GOOGLE_PLACES_API_KEY", "test-key-never-used")
+from dotenv import load_dotenv
+
+load_dotenv(Path(__file__).resolve().parents[1] / ".env.example")
