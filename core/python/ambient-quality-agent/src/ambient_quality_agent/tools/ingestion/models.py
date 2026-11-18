@@ -78,6 +78,17 @@ class IngestionCounts:
     failed: int = 0
     """Rows dropped before evaluation."""
 
+    sampled: int = 0
+    """Rows the ingestion query returned: the ``LIMIT``-bounded sample, read
+    from the destination table's row count. Zero when BigQuery did not report
+    one."""
+
+    unread: int = 0
+    """Sampled rows a memory stop left unmapped. They land in none of
+    `ingested`, `partial` or `failed`, so without this count a stopped sweep
+    is indistinguishable from a smaller sample. A lower bound when `sampled`
+    is unknown: only the rest of the stopped page is counted then."""
+
 
 @dataclasses.dataclass(frozen=True)
 class Page:

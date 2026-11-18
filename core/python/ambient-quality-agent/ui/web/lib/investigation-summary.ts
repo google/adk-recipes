@@ -370,6 +370,7 @@ export function extractReviewFocus(investigation: {
 
 const FAILURE_COUNTER_KEYS: readonly (keyof InvestigationCounters)[] = [
   "trajectories_ingested_failed",
+  "trajectories_unread",
   "trajectories_eval_failed",
   "trajectories_eval_errored",
   "findings_errored",
