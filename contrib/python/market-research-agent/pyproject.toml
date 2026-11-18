@@ -1,0 +1,57 @@
+[project]
+name = "market-research-agent"
+version = "0.1.0"
+description = "A multi-agent system that performs comprehensive market research for any location and business type using Google Places API."
+license = {text = "Apache License 2.0"}
+readme = "README.md"
+requires-python = ">=3.11"
+
+dependencies = [
+    "google-adk[gcp,otel-gcp]>=2.6.0,<3.0.0",
+    "google-cloud-aiplatform[adk,agent-engines]>=1.156.0,<2.0.0",
+    "google-genai>=1.9.0",
+    "httpx>=0.27.0",
+    "pydantic>=2.7.0",
+    "python-dotenv>=1.0.1",
+    "a2a-sdk[http-server]>=1.0,<2",
+    "aiohttp>=3.13.4",
+    "gcsfs>=2024.11.0",
+    "opentelemetry-resourcedetector-gcp<=1.12.0a0",
+]
+
+[dependency-groups]
+dev = [
+    "google-adk[eval]>=2.6.0",
+    "pytest>=8.3.5",
+    "pytest-asyncio>=0.26.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv]
+# Lifts upstream caps that hold known CVEs in the lock:
+# `google-cloud-aiplatform[evaluation]` caps litellm below 1.86
+# (GHSA-3cv6-jpf6-8222, GHSA-7hp6-4w63-5g45 are fixed in 1.100.4), and
+# google-adk caps opentelemetry-api at <=1.44 (GHSA-xcq7-p3pf-p88h,
+# GHSA-mf5v-w3w3-f6cg are fixed in 1.45.2). The OTel SDK, proto and OTLP
+# exporter packages move with the API because they import its internals and
+# fail at startup on a mismatched version. Only uv applies overrides, so the
+# Dockerfile's `uv sync` gets them. Remove each entry once its upstream cap
+# admits the fix.
+override-dependencies = [
+    "litellm>=1.100.4,<2",
+    "opentelemetry-api>=1.45.2,<1.46",
+    "opentelemetry-sdk>=1.45.2,<1.46",
+    "opentelemetry-proto>=1.45.2,<1.46",
+    "opentelemetry-exporter-otlp-proto-common>=1.45.2,<1.46",
+    "opentelemetry-exporter-otlp-proto-http>=1.45.2,<1.46",
+]
+
+[[tool.uv.index]]
+url = "https://pypi.org/simple/"
+default = true
