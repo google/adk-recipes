@@ -15,11 +15,16 @@
 
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
 from pathlib import Path
 
-from check_recipe_proposal import is_recipe_proposal, is_template_proposal
+from check_recipe_proposal import (
+    check_gate_a,
+    is_recipe_proposal,
+    is_template_proposal,
+)
 
 
 def test_standard_title_marker():
@@ -154,13 +159,182 @@ def test_is_template_proposal_rejects_freeform_proposal():
     assert reason == "not_template_format"
 
 
-def test_is_template_proposal_rejects_marker_without_template():
-    # Title has marker, but body has no template questions
+def test_is_template_proposal_routes_marker_without_template_for_gate_a():
+    # Title has [RECIPE PROPOSAL], but body has no template questions:
+    # it must still route into proposal triage so Gate A can alert the author.
     title = "[RECIPE PROPOSAL] Quick idea"
     body = "Just opening this to ask if anyone has done this before."
     is_prop, reason = is_template_proposal(title, body=body)
-    assert is_prop is False
-    assert reason == "not_template_format"
+    assert is_prop is True
+    assert "marker_and_0_signals" in reason
+
+    gate_a = check_gate_a(title, body=body)
+    assert gate_a["passed"] is False
+    assert gate_a["has_marker"] is True
+    assert len(gate_a["missing_sections"]) == 5
+    assert "Automated first-pass triage (Gate A" in gate_a["comment"]
+    assert (
+        "Leaving this issue open for @pierpaolo28 and @kgu-here"
+        in gate_a["comment"]
+    )
+
+
+def test_gate_a_passes_full_template_multiline_and_inline():
+    body = (
+        "### ⚠️ Scope Notice\n"
+        "For `contrib/` recipes only. `core/` recipes follow a different process.\n\n"
+        "1- What is the intent/purpose of your new recipe? In what way will it help the ADK community?\n"
+        "Demonstrates a retail inventory forecasting agent on BigQuery and Vertex AI.\n\n"
+        "2- What language is your recipe implemented in (e.g. Python, Go, etc)? Python\n\n"
+        "3- Will this be a deployable recipe with a root Dockerfile (e.g. targeting Cloud Run or Vertex AI Agent Engine)? "
+        "Note: every `contrib/` recipe requires a root `Dockerfile` and `deployable: true` in `manifest.yaml`.\n"
+        "Yes, includes a root Dockerfile targeting Cloud Run.\n\n"
+        "4- What GCP services or third-party APIs (Salesforce, Jira, etc.) are required?\n"
+        "Vertex AI, BigQuery, Cloud Run.\n\n"
+        "5- Who (individual/team) will own and maintain this?\n"
+        "@example-owner\n\n"
+        "6- Please include any additional information you'd like to share.\n"
+    )
+    gate_a = check_gate_a(
+        "[RECIPE PROPOSAL] Retail Forecasting Agent", body=body
+    )
+    assert gate_a["passed"] is True
+    assert gate_a["has_marker"] is True
+    assert gate_a["missing_sections"] == []
+    assert gate_a["unanswered_sections"] == []
+    assert gate_a["comment"] == ""
+
+
+def test_gate_a_fails_empty_body():
+    gate_a = check_gate_a("[RECIPE PROPOSAL] Empty proposal", body="   ")
+    assert gate_a["passed"] is False
+    assert gate_a["has_marker"] is True
+    assert len(gate_a["missing_sections"]) == 5
+    assert "empty body" in gate_a["comment"]
+    assert "propose-a-new-recipe.md" in gate_a["comment"]
+
+
+def test_gate_a_fails_unmodified_boilerplate_template():
+    template_path = (
+        Path(__file__).resolve().parents[3]
+        / ".github"
+        / "ISSUE_TEMPLATE"
+        / "propose-a-new-recipe.md"
+    )
+    _, _, template_body = template_path.read_text(encoding="utf-8").split(
+        "---", 2
+    )
+    gate_a = check_gate_a("[RECIPE PROPOSAL] Unfilled", body=template_body)
+    assert gate_a["passed"] is False
+    assert gate_a["missing_sections"] == []
+    assert len(gate_a["unanswered_sections"]) == 5
+    assert "Unanswered template questions" in gate_a["comment"]
+
+
+def test_gate_a_handles_legacy_q2_typo_and_partial_missing():
+    body = (
+        "1- What is the intent/purpose of your new recipe?\n"
+        "Cloud Run + Vertex AI agent.\n\n"
+        "2- What language is your recipe is implemented in (e.g. Python, Go, etc)?\n"
+        "Python\n\n"
+        "3- Will this be a deployable recipe?\n"
+        "Yes.\n\n"
+        "4- What GCP services or third-party APIs are required?\n\n"
+    )
+    gate_a = check_gate_a("[RECIPE PROPOSAL] Partial", body=body)
+    assert gate_a["passed"] is False
+    assert gate_a["missing_sections"] == ["5. Owner / maintainer"]
+    assert gate_a["unanswered_sections"] == [
+        "4. Required GCP services or third-party APIs"
+    ]
+    assert "Missing template questions" in gate_a["comment"]
+    assert "Unanswered template questions" in gate_a["comment"]
+
+
+def test_cli_check_gate_a_failure_writes_comment_and_outputs(tmp_path: Path):
+    out_file = tmp_path / "github_output.txt"
+    comment_file = tmp_path / "comment.md"
+    script = Path(__file__).resolve().parents[1] / "check_recipe_proposal.py"
+
+    payload = json.dumps(
+        {
+            "title": "[RECIPE PROPOSAL] Missing template fields",
+            "body": "Just a quick one-liner without the template.",
+        }
+    )
+    res = subprocess.run(
+        [
+            sys.executable,
+            str(script),
+            "--stdin",
+            "--check-gate-a",
+            "--comment-out",
+            str(comment_file),
+            "--github-output",
+            str(out_file),
+        ],
+        input=payload,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert res.returncode == 0, res.stderr
+    parsed = json.loads(res.stdout)
+    assert parsed["passed"] is False
+    assert comment_file.is_file()
+    assert "Automated first-pass triage (Gate A" in comment_file.read_text(
+        encoding="utf-8"
+    )
+    gh_out = out_file.read_text(encoding="utf-8")
+    assert "gate_a_passed=false" in gh_out
+    assert "decision=DECLINE" in gh_out
+    assert "gate=A" in gh_out
+    assert "close_issue=false" in gh_out
+
+
+def test_cli_check_gate_a_pass_skips_comment(tmp_path: Path):
+    out_file = tmp_path / "github_output.txt"
+    comment_file = tmp_path / "comment.md"
+    script = Path(__file__).resolve().parents[1] / "check_recipe_proposal.py"
+
+    body = (
+        "1- What is the intent/purpose of your new recipe?\n"
+        "Enterprise support agent.\n"
+        "2- What language is your recipe implemented in (e.g. Python, Go, etc)?\n"
+        "Python\n"
+        "3- Will this be a deployable recipe?\n"
+        "Yes, with root Dockerfile.\n"
+        "4- What GCP services or third-party APIs are required?\n"
+        "Vertex AI, Cloud Run\n"
+        "5- Who (individual/team) will own and maintain this?\n"
+        "Team A\n"
+    )
+    payload = json.dumps(
+        {"title": "[RECIPE PROPOSAL] Support Agent", "body": body}
+    )
+    res = subprocess.run(
+        [
+            sys.executable,
+            str(script),
+            "--stdin",
+            "--check-gate-a",
+            "--comment-out",
+            str(comment_file),
+            "--github-output",
+            str(out_file),
+        ],
+        input=payload,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert res.returncode == 0, res.stderr
+    parsed = json.loads(res.stdout)
+    assert parsed["passed"] is True
+    assert not comment_file.exists()
+    gh_out = out_file.read_text(encoding="utf-8")
+    assert "gate_a_passed=true" in gh_out
+    assert "decision=" not in gh_out
 
 
 def test_cli_execution_template_only(tmp_path: Path):

@@ -159,6 +159,7 @@ jobs:
       contents: 'read'
       id-token: 'write'
       issues: 'write'
+      pull-requests: 'read'
     uses: './.github/workflows/_ai-recipe-proposal-triage-core.yml' # zizmor: ignore[self-repository]
     with:
       issue_number: '${{ needs.route.outputs.issue_number }}'
