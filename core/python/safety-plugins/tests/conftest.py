@@ -17,12 +17,10 @@
 This conftest deliberately does two things at module top so tests are
 self-contained and never depend on a ``.env`` file existing in CI:
 
-1. Populate the env vars that ``safety_plugins`` reads at import time
-   (``MODEL_NAME_GENERATED_1`` / ``MODEL_NAME_GENERATED_2`` for the agents
-   and judge, plus ``GOOGLE_CLOUD_PROJECT`` so ADK's Vertex path can
-   initialise without ADC). ``load_dotenv()`` in the package's
-   ``__init__.py`` runs with ``override=False`` (its default), so these
-   ``setdefault`` values win when no real ``.env`` is present.
+1. Disable ``load_dotenv()`` with ``PYTHON_DOTENV_DISABLED``, then read only
+   the non-secret model/backend settings from ``.env.example`` using
+   ``dotenv_values()``. Set a synthetic project for the tests. A developer's
+   local ``.env`` is never loaded, whether or not it exists.
 2. Register an autouse fixture that patches ``Gemini.generate_content_async``
    with a canned response, so ``test_agents.py::test_happy_path`` — which
    otherwise makes a **live Gemini call** — completes without touching
@@ -35,22 +33,30 @@ self-contained and never depend on a ``.env`` file existing in CI:
 # ``from safety_plugins.agent import root_agent`` triggers
 # ``safety_plugins/__init__.py`` (which calls ``load_dotenv()``).
 import os
-
-os.environ.setdefault("GOOGLE_CLOUD_PROJECT", "test-project")
-os.environ.setdefault("GOOGLE_CLOUD_LOCATION", "global")
-os.environ.setdefault("GOOGLE_GENAI_USE_VERTEXAI", "true")
-os.environ.setdefault("MODEL_NAME_GENERATED_1", "gemini-3.5-flash")
-os.environ.setdefault("MODEL_NAME_GENERATED_2", "gemini-3.5-flash")
-
-# --- LLM mock (imports are safe now that env is set) -----------------------
 from collections.abc import AsyncGenerator
+from pathlib import Path
 
 import pytest
+from dotenv import dotenv_values
 from google.adk.models.base_llm import BaseLlm
 from google.adk.models.google_llm import Gemini
 from google.adk.models.llm_request import LlmRequest
 from google.adk.models.llm_response import LlmResponse
 from google.genai import types
+
+os.environ["PYTHON_DOTENV_DISABLED"] = "1"
+os.environ["GOOGLE_CLOUD_PROJECT"] = "test-project"
+_example = dotenv_values(Path(__file__).resolve().parents[1] / ".env.example")
+for _key in (
+    "GOOGLE_CLOUD_LOCATION",
+    "GOOGLE_GENAI_USE_VERTEXAI",
+    "MODEL_NAME_GENERATED_1",
+    "MODEL_NAME_GENERATED_2",
+):
+    _value = _example[_key]
+    if _value is None:
+        raise ValueError(f"Set {_key} in .env.example")
+    os.environ[_key] = _value
 
 
 async def _fake_generate_content_async(
