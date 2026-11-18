@@ -11,6 +11,8 @@ This recipe is an Agent Development Kit (ADK) multi-agent workflow that helps e-
 
 ## Architecture
 
+![Brand Search Optimization Architecture](brand_search_optimization.webp)
+
 The workflow coordinates specialized agents:
 
 1. `keyword_finding_agent`: queries BigQuery product catalog data and ranks high-intent search keywords.

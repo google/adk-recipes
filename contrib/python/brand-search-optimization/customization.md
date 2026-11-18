@@ -2,7 +2,7 @@
 
 ## Instructions for Adding Permissions to the BigQuery Table
 
-This document provides instructions on how to grant users permissions to access the BigQuery table created and populated by the `brand_search_optimization/bq_populate_data.py` script. You can use the Google Cloud Console, the `bq` command-line tool, or the BigQuery API to manage these permissions.
+This document provides instructions on how to grant users permissions to access the BigQuery table created and populated by the `deployment/bq_populate_data.py` script. You can use the Google Cloud Console, the `bq` command-line tool, or the BigQuery API to manage these permissions.
 
 ### 1. Using the Google Cloud Console:
 
@@ -25,16 +25,16 @@ This document provides instructions on how to grant users permissions to access 
 2.  Open your terminal or command prompt.
 3.  Use the `bq add-iam-policy` command with the appropriate role and member.
 
-    For example, to grant the role of BigQuery Data Viewer to the user `user@example.com` on your table (assuming your project ID is `your-project-id`, your dataset ID is `your_dataset_id`, and your table ID is `products`):
+    For example, to grant the role of BigQuery Data Viewer to the user `user@example.com` on your table (assuming your project ID is `your-project-id`, your dataset ID is `products_data_agent`, and your table ID is `shoe_items`):
 
     ```bash
-    bq add-iam-policy --member=user:user@example.com --role=roles/bigquery.dataViewer your-project-id:your_dataset_id.products
+    bq add-iam-policy --member=user:user@example.com --role=roles/bigquery.dataViewer your-project-id:products_data_agent.shoe_items
     ```
 
     Replace:
     * `your-project-id` with your actual Google Cloud Project ID.
-    * `your_dataset_id` with the name of your BigQuery Dataset.
-    * `products` with the name of your BigQuery Table (if you changed the default).
+    * `products_data_agent` with the name of your BigQuery Dataset (if you changed the default).
+    * `shoe_items` with the name of your BigQuery Table (if you changed the default).
 
     You can find a list of available roles in the BigQuery documentation.
 
@@ -47,8 +47,8 @@ from google.cloud import bigquery
 
 # Replace with your actual details
 PROJECT_ID = "your-project-id"
-DATASET_ID = "your_dataset_id"
-TABLE_ID = "products"
+DATASET_ID = "products_data_agent"
+TABLE_ID = "shoe_items"
 USER_EMAIL = "user@example.com"
 ROLE = "roles/bigquery.dataViewer"
 
