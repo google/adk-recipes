@@ -30,6 +30,11 @@ on:
         type: string
         required: false
         default: "1-Asr-QrGUaBheoTkUASroNI9UA1rCgMV6jyxWGpLa7Q"
+      sheet_gid:
+        description: "Optional worksheet GID (e.g. 567149855) to target for the live snapshot"
+        type: string
+        required: false
+        default: "567149855"
       lookback_days:
         description: "Days of Artifact Registry pull logs to aggregate"
         type: string
@@ -77,14 +82,13 @@ jobs:
           workload_identity_provider: ${{ env.WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ env.SERVICE_ACCOUNT }}
           token_format: access_token
-          access_token_scopes: >-
-            https://www.googleapis.com/auth/cloud-platform,
-            https://www.googleapis.com/auth/spreadsheets
+          access_token_scopes: https://www.googleapis.com/auth/cloud-platform.read-only,https://www.googleapis.com/auth/spreadsheets
 
       - name: Collect telemetry and sync to Google Sheet
         env:
           GCP_ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
           SPREADSHEET_ID: ${{ inputs.spreadsheet_id || '1-Asr-QrGUaBheoTkUASroNI9UA1rCgMV6jyxWGpLa7Q' }}
+          SHEET_GID: ${{ inputs.sheet_gid || '567149855' }}
           LOOKBACK_DAYS: ${{ inputs.lookback_days || '30' }}
           DRY_RUN: ${{ inputs.dry_run }}
           PROJECT_ID: ${{ env.GCP_PROJECT_ID }}
@@ -92,6 +96,7 @@ jobs:
           set -euo pipefail
           args=(
             --spreadsheet-id "${SPREADSHEET_ID}"
+            --sheet-gid "${SHEET_GID}"
             --project-id "${PROJECT_ID}"
             --lookback-days "${LOOKBACK_DAYS}"
             --out-json "${RUNNER_TEMP}/recipe-telemetry.json"
@@ -101,9 +106,17 @@ jobs:
             args+=(--dry-run)
           fi
           python3 .github/scripts/sync_recipe_telemetry_sheet.py "${args[@]}"
-          cat "${RUNNER_TEMP}/recipe-telemetry.md" >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Publish telemetry summary
+        if: always()
+        run: |
+          set -euo pipefail
+          if [ -s "${RUNNER_TEMP}/recipe-telemetry.md" ]; then
+            cat "${RUNNER_TEMP}/recipe-telemetry.md" >> "${GITHUB_STEP_SUMMARY}"
+          fi
 
       - name: Upload telemetry snapshot artifact
+        if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # ratchet:actions/upload-artifact@v7.0.2
         with:
           name: recipe-telemetry-snapshot

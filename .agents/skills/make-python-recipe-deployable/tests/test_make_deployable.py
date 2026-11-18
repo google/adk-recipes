@@ -3186,8 +3186,35 @@ def test_telemetry_headers_emit_single_segment_gccl_token(monkeypatch):
     assert "user-agent" in headers
     assert "x-goog-api-client" in headers
     token = headers["x-goog-api-client"].split()[-1]
-    assert token == "gccl/20261114-abc123def45-demo-recipe-cloud_run-prebuilt"
+    assert token == "gccl/20261114-abc123def456-demo-recipe-cloud_run-prebuilt"
     assert "/" not in token[len("gccl/") :]
+
+
+def test_register_adk_telemetry_hooks_gemini_merge_tracking_headers(
+    monkeypatch,
+):
+    tel = _load_telemetry_template()
+    tel.RECIPE_NAME = "demo-recipe"
+    for var in (
+        "INTEGRATION_TEST",
+        "PYTEST_CURRENT_TEST",
+        "CI",
+        "USAGE_ANALYTICS_ENABLED",
+    ):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("K_SERVICE", "demo-service")
+    monkeypatch.setenv("AGENT_VERSION", "20261114-abc123def456")
+    monkeypatch.setenv("ADK_DEPLOY_CHANNEL", "prebuilt")
+
+    tel.register_adk_telemetry()
+
+    from google.adk.utils import _google_client_headers as gch
+
+    merged = gch.merge_tracking_headers({})
+    assert (
+        "gccl/20261114-abc123def456-demo-recipe-cloud_run-prebuilt"
+        in merged.get("x-goog-api-client", "")
+    )
 
 
 def test_telemetry_disabled_in_ci_and_tests_and_opt_out(monkeypatch):

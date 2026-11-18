@@ -24,59 +24,65 @@ Guaranteed never to raise or interfere with client execution.
 
 from __future__ import annotations
 
-import functools
 import os
 import re
 import sys
+import threading
 
 RECIPE_NAME = "__PROJECT_NAME__"
 _SAFE_TOKEN_RE = re.compile(r"[^a-zA-Z0-9._-]+")
+_PLACEHOLDER_RE = re.compile(r"^<.*>$")
+_LOCK = threading.Lock()
 
 
 def _clean(value: str) -> str:
     return _SAFE_TOKEN_RE.sub("-", value.strip()).strip("-") or "unknown"
 
 
+def _env(name: str, default: str = "") -> str:
+    """Read an env var, ignoring `<TODO...>` placeholder strings."""
+    val = os.environ.get(name, "").strip()
+    if not val or _PLACEHOLDER_RE.match(val):
+        return default
+    return val
+
+
 def is_telemetry_enabled() -> bool:
     """Return False when opted out or running inside automated tests/CI."""
-    if os.environ.get("USAGE_ANALYTICS_ENABLED", "true").lower() in (
+    if _env("USAGE_ANALYTICS_ENABLED", "true").lower() in (
         "0",
         "false",
         "no",
         "off",
     ):
         return False
-    if (
-        os.environ.get("INTEGRATION_TEST")
-        or os.environ.get("PYTEST_CURRENT_TEST")
-        or os.environ.get("CI")
-    ):
+    if _env("INTEGRATION_TEST") or _env("PYTEST_CURRENT_TEST") or _env("CI"):
         return False
     return True
 
 
 def detect_surface() -> str:
     """Detect the runtime hosting surface from standard platform env vars."""
-    if os.environ.get("GOOGLE_CLOUD_AGENT_ENGINE_ID"):
+    if _env("GOOGLE_CLOUD_AGENT_ENGINE_ID"):
         return "agent_runtime"
-    if os.environ.get("K_SERVICE"):
+    if _env("K_SERVICE"):
         return "cloud_run"
-    if os.environ.get("KUBERNETES_SERVICE_HOST"):
+    if _env("KUBERNETES_SERVICE_HOST"):
         return "gke"
     return "local"
 
 
 def detect_channel() -> str:
     """Return 'prebuilt' for Artifact Registry images, 'source' otherwise."""
-    return _clean(os.environ.get("ADK_DEPLOY_CHANNEL", "source"))
+    return _clean(_env("ADK_DEPLOY_CHANNEL", "source"))
 
 
 def resolve_version() -> str:
-    """Return the recipe version or commit SHA from AGENT_VERSION."""
-    raw = os.environ.get("AGENT_VERSION", "").strip()
+    """Return the recipe version or commit SHA from AGENT_VERSION / COMMIT_SHA."""
+    raw = _env("AGENT_VERSION") or _env("COMMIT_SHA")
     if not raw or raw == "0.0.0":
         return "0.1.0"
-    return _clean(raw[:20])
+    return _clean(raw[:32])
 
 
 def build_tracking_headers() -> dict[str, str]:
@@ -85,10 +91,11 @@ def build_tracking_headers() -> dict[str, str]:
         if not is_telemetry_enabled():
             return {}
         version = resolve_version()
+        recipe = _clean(RECIPE_NAME)
         surface = detect_surface()
         channel = detect_channel()
         # 2026-10-30 parsing rule: gccl/ token must be a single segment with no '/'.
-        label = f"{version}-{RECIPE_NAME}-{surface}-{channel}"
+        label = f"{version}-{recipe}-{surface}-{channel}"
         agent = f"{label}/{label}"
         python_ver = ".".join(str(n) for n in sys.version_info[:3])
         return {
@@ -101,32 +108,88 @@ def build_tracking_headers() -> dict[str, str]:
         return {}
 
 
-@functools.lru_cache(maxsize=1)
-def register_adk_telemetry() -> None:
-    """Fail-open hook: wrap ADK's Gemini._tracking_headers once per process."""
+def _merge_into_headers(base: dict[str, str] | None) -> dict[str, str]:
+    """Merge ``build_tracking_headers()`` into ``base`` without duplicating tokens."""
+    out = dict(base or {})
     try:
-        from google.adk.models.google_llm import Gemini
-
-        orig_fn = getattr(Gemini, "_tracking_headers", None)
-        if orig_fn is None or getattr(orig_fn, "_adk_recipe_wrapped", False):
-            return
-
-        def _wrapped_tracking_headers(self) -> dict[str, str]:
-            base = dict(orig_fn(self) or {})
-            try:
-                extra = build_tracking_headers()
-                for key, val in extra.items():
-                    existing = base.get(key, "").split()
-                    for tok in val.split():
-                        if tok not in existing:
-                            existing.append(tok)
-                    if existing:
-                        base[key] = " ".join(existing)
-            except Exception:
-                return base
-            return base
-
-        _wrapped_tracking_headers._adk_recipe_wrapped = True  # type: ignore[attr-defined]
-        Gemini._tracking_headers = _wrapped_tracking_headers  # type: ignore[method-assign]
+        extra = build_tracking_headers()
+        if not extra:
+            return out
+        key_lookup = {k.lower(): k for k in out}
+        for key, val in extra.items():
+            actual_key = key_lookup.get(key.lower(), key)
+            existing = out.get(actual_key, "").split()
+            for tok in val.split():
+                if tok not in existing:
+                    existing.append(tok)
+            if existing:
+                out[actual_key] = " ".join(existing)
     except Exception:
-        return
+        return out
+    return out
+
+
+def register_adk_telemetry() -> None:
+    """Fail-open hook: wrap ADK tracking header builders once per process."""
+    with _LOCK:
+        try:
+            from google.adk.utils import _google_client_headers as gch
+
+            orig_get = getattr(gch, "get_tracking_headers", None)
+            if orig_get is not None and not getattr(
+                orig_get, "_adk_recipe_wrapped", False
+            ):
+
+                def _wrapped_get_tracking_headers(
+                    *args: object, **kwargs: object
+                ) -> dict[str, str]:
+                    return _merge_into_headers(orig_get(*args, **kwargs))
+
+                _wrapped_get_tracking_headers._adk_recipe_wrapped = True  # type: ignore[attr-defined]
+                gch.get_tracking_headers = _wrapped_get_tracking_headers
+        except Exception:  # noqa: S110
+            pass
+
+        try:
+            from google.adk.models import google_llm
+            from google.adk.models.google_llm import Gemini
+
+            if hasattr(google_llm, "get_tracking_headers"):
+                from google.adk.utils import _google_client_headers as gch
+
+                google_llm.get_tracking_headers = gch.get_tracking_headers
+
+            orig_fn = getattr(Gemini, "_tracking_headers", None)
+            if orig_fn is not None and not getattr(
+                orig_fn, "_adk_recipe_wrapped", False
+            ):
+
+                def _wrapped_tracking_headers(
+                    self: object, *args: object, **kwargs: object
+                ) -> dict[str, str]:
+                    return _merge_into_headers(orig_fn(self, *args, **kwargs))
+
+                _wrapped_tracking_headers._adk_recipe_wrapped = True  # type: ignore[attr-defined]
+                Gemini._tracking_headers = _wrapped_tracking_headers  # type: ignore[method-assign]
+
+            orig_merge = getattr(Gemini, "_merge_tracking_headers", None)
+            if orig_merge is not None and not getattr(
+                orig_merge, "_adk_recipe_wrapped", False
+            ):
+
+                def _wrapped_merge_tracking_headers(
+                    self: object,
+                    headers: dict[str, str] | None = None,
+                    *args: object,
+                    **kwargs: object,
+                ) -> dict[str, str]:
+                    return _merge_into_headers(
+                        orig_merge(self, headers, *args, **kwargs)
+                    )
+
+                _wrapped_merge_tracking_headers._adk_recipe_wrapped = True  # type: ignore[attr-defined]
+                Gemini._merge_tracking_headers = (  # type: ignore[method-assign]
+                    _wrapped_merge_tracking_headers
+                )
+        except Exception:
+            return
