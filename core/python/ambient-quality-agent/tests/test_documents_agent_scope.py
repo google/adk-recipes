@@ -92,6 +92,30 @@ def test_the_default_agent_reads_the_instances_goal_until_it_saves_its_own(
     ]
 
 
+def test_a_scoped_bytes_write_without_overwrite_creates_only_once(
+    jobs_store: Any,
+) -> None:
+    agent = AgentDocumentStore(jobs_store, _PROD)
+
+    assert agent.write_bytes("files/a", b"first", overwrite=False) is True
+    assert agent.write_bytes("files/a", b"second", overwrite=False) is False
+
+    assert agent.read_bytes("files/a") == b"first"
+    assert jobs_store.read_bytes(f"agents/{_PROD}/files/a") == b"first"
+
+
+def test_a_scoped_bytes_write_without_overwrite_respects_the_inherited_object(
+    jobs_store: Any,
+) -> None:
+    jobs_store.write_bytes("files/a", b"instance")
+    agent = AgentDocumentStore(jobs_store, "support", inherit=True)
+
+    assert agent.write_bytes("files/a", b"agent", overwrite=False) is False
+    assert agent.read_bytes("files/a") == b"instance"
+    assert agent.write_bytes("files/a", b"agent") is True
+    assert agent.read_bytes("files/a") == b"agent"
+
+
 def test_removing_the_default_agents_goal_does_not_bring_back_the_instances(
     jobs_store: Any,
 ) -> None:

@@ -23,12 +23,15 @@ counted once -- are properties of the sweep and not of any producer.
 from __future__ import annotations
 
 import datetime as dt
+import json
 import logging
+import threading
+import time
 from typing import Any
 from unittest import mock
 
 import pytest
-from ambient_quality_agent.core.nodes import _common, _sweep
+from ambient_quality_agent.core.nodes import _common, _stage, _sweep
 from ambient_quality_agent.tools.evaluation.results import (
     ERRORED,
     FAILED,
@@ -38,7 +41,12 @@ from ambient_quality_agent.tools.ingestion import selector
 from ambient_quality_agent.tools.ingestion.base import AGENT_COUNT_LIMIT
 from ambient_quality_agent.tools.ingestion.models import IngestionCounts, Page
 
-from .conftest import make_agent_case, make_page
+from .conftest import (
+    FakeReviewCall,
+    ScriptedReviewer,
+    make_agent_case,
+    make_page,
+)
 
 
 class _Fetcher:
@@ -764,3 +772,239 @@ def test_a_sweep_sampling_at_random_pays_for_no_dry_run(
     _sweep.run_sweep(ctx, [_Recorder("one")], node_name="sweep", budget=100)
 
     assert fetcher.prechecks == 0
+
+
+# --- live progress -------------------------------------------------------- #
+
+
+class _Finder(_Recorder):
+    """A `_Recorder` that files one finding per page it is given."""
+
+    def evaluate(self, state: Any, page: Page) -> None:
+        super().evaluate(state, page)
+        self.findings_count += 1
+
+
+def _stages(store: Any) -> list[dict[str, Any]]:
+    """The stage rows the sweep wrote, each read back from its JSON."""
+    return [
+        json.loads(r["text"])
+        for r in store.event_rows
+        if r["source"] == "stage"
+    ]
+
+
+def _review(evaluated: int, findings: int) -> dict[str, Any]:
+    """A session review's stage row, out of the seven the fake window holds."""
+    return {
+        "stage": "Session review",
+        "evaluated": evaluated,
+        "total": 7,
+        "findings": findings,
+    }
+
+
+def test_the_sweep_reports_how_far_it_got_after_every_page(
+    ctx: Any, monkeypatch: pytest.MonkeyPatch, investigation_store: Any
+) -> None:
+    """A long sweep writes its progress as it goes, so a running
+    investigation can say how far it got before any counter is written."""
+    _wire(monkeypatch, _pages(2, 1), scanned=7)
+    ctx.state["investigation_id"] = "investigation-1"
+
+    _sweep.run_sweep(
+        ctx,
+        [_Finder("one")],
+        node_name="review",
+        budget=100,
+        progress=_sweep.SweepProgress(ctx.state, "Session review"),
+    )
+
+    assert [r["source"] for r in investigation_store.event_rows] == [
+        "stage"
+    ] * 3
+    assert _stages(investigation_store) == [
+        _review(0, 0),
+        _review(2, 1),
+        _review(3, 2),
+    ]
+    # Progress rows are for the live view only: the run's summary, which the
+    # chat reads back, keeps to what the nodes reported.
+    assert "progress_log" not in ctx.state
+
+
+@pytest.mark.parametrize(
+    ("scanned", "count_raises", "total"),
+    [(500, False, 100), (7, True, 100)],
+    ids=["capped-by-budget", "count-unknown"],
+)
+def test_the_progress_total_is_what_the_sweep_can_read(
+    ctx: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    investigation_store: Any,
+    scanned: int,
+    count_raises: bool,
+    total: int,
+) -> None:
+    _wire(monkeypatch, _pages(1), scanned=scanned, count_raises=count_raises)
+    ctx.state["investigation_id"] = "investigation-1"
+
+    _sweep.run_sweep(ctx, [_Recorder("one")], node_name="sweep", budget=100)
+
+    assert _stages(investigation_store)[0] == {
+        "stage": "sweep",
+        "evaluated": 0,
+        "total": total,
+        "findings": 0,
+    }
+
+
+class _Clock:
+    """A `monotonic` the test moves by hand."""
+
+    def __init__(self) -> None:
+        self.now = 0.0
+
+    def __call__(self) -> float:
+        return self.now
+
+
+def test_a_page_reports_as_it_is_judged_at_most_once_an_interval(
+    ctx: Any, monkeypatch: pytest.MonkeyPatch, investigation_store: Any
+) -> None:
+    """A window usually arrives as one page, so its counts move only if the
+    evaluation judging it reports as it goes. Each row is a BigQuery load job,
+    so those reports are written at most once an interval."""
+    clock = _Clock()
+    monkeypatch.setattr(_stage.time, "monotonic", clock)
+    _wire(monkeypatch, _pages(3), scanned=7)
+    ctx.state["investigation_id"] = "investigation-1"
+    progress = _sweep.SweepProgress(ctx.state, "Session review")
+
+    class _Judge(_Recorder):
+        def evaluate(self, state: Any, page: Page) -> None:
+            super().evaluate(state, page)
+            progress.advance(1, 0)  # Too soon after the first row.
+            clock.now += _stage.PROGRESS_INTERVAL_SECONDS
+            progress.advance(2, 1)
+            progress.advance(3, 1)  # Too soon after the one before.
+            self.findings_count = 1
+
+    _sweep.run_sweep(
+        ctx,
+        [_Judge("review")],
+        node_name="review",
+        budget=100,
+        progress=progress,
+    )
+
+    assert _stages(investigation_store) == [
+        _review(0, 0),
+        _review(2, 1),
+        _review(3, 1),
+    ]
+
+
+def test_a_report_from_a_later_page_counts_the_pages_before_it(
+    ctx: Any, monkeypatch: pytest.MonkeyPatch, investigation_store: Any
+) -> None:
+    clock = _Clock()
+    monkeypatch.setattr(_stage.time, "monotonic", clock)
+    _wire(monkeypatch, _pages(2, 1), scanned=7)
+    ctx.state["investigation_id"] = "investigation-1"
+    progress = _sweep.SweepProgress(ctx.state, "Session review")
+
+    class _Judge(_Recorder):
+        def evaluate(self, state: Any, page: Page) -> None:
+            super().evaluate(state, page)
+            clock.now += _stage.PROGRESS_INTERVAL_SECONDS
+            progress.advance(1, 1)
+            self.findings_count += 1
+
+    _sweep.run_sweep(
+        ctx,
+        [_Judge("review")],
+        node_name="review",
+        budget=100,
+        progress=progress,
+    )
+
+    # The second page's own report already said 3 of 7 with 2 findings, so
+    # the page's end writes nothing new.
+    assert _stages(investigation_store) == [
+        _review(0, 0),
+        _review(1, 1),
+        _review(2, 1),
+        _review(3, 2),
+    ]
+
+
+def test_a_page_judged_in_one_call_keeps_its_row_alive(
+    ctx: Any, monkeypatch: pytest.MonkeyPatch, investigation_store: Any
+) -> None:
+    """The eval service judges a page in one call that reports nothing, so
+    while it runs the sweep's newest row is written again each interval: the
+    dashboard must not call a working investigation stalled."""
+    clock = _Clock()
+    monkeypatch.setattr(_stage.time, "monotonic", clock)
+    monkeypatch.setattr(_stage, "_KEEP_ALIVE_CHECK_SECONDS", 0.01)
+    _wire(monkeypatch, _pages(3), scanned=7)
+    ctx.state["investigation_id"] = "investigation-1"
+
+    class _OneCall(_Recorder):
+        def evaluate(self, state: Any, page: Page) -> None:
+            super().evaluate(state, page)
+            clock.now += _stage.PROGRESS_INTERVAL_SECONDS
+            deadline = time.perf_counter() + 5
+            while len(investigation_store.event_rows) < 2:
+                assert time.perf_counter() < deadline, "no row was kept alive"
+                time.sleep(0.01)
+
+    _sweep.run_sweep(
+        ctx,
+        [_OneCall("eval")],
+        node_name="eval",
+        budget=100,
+        progress=_sweep.SweepProgress(ctx.state, "Session review"),
+    )
+
+    assert _stages(investigation_store) == [
+        _review(0, 0),
+        _review(0, 0),
+        _review(3, 0),
+    ]
+
+
+def test_session_review_reports_after_each_session_it_reviews() -> None:
+    """The review is the long part of an investigation and takes a page's
+    sessions eight at a time, so it says how far it got after each one."""
+    from ambient_quality_agent.core.nodes import review
+    from ambient_quality_agent.tools.documents.goal import InvestigationGoal
+
+    reports: list[tuple[int, int]] = []
+    threads: set[int] = set()
+
+    def on_reviewed(judged: int, findings: int) -> None:
+        reports.append((judged, findings))
+        threads.add(threading.get_ident())
+
+    evaluation = review.ReviewEvaluation(
+        ScriptedReviewer(
+            FakeReviewCall(
+                '{"findings": [{"expected_behavior": "call book_flight", '
+                '"actual_behavior": "made no tool call"}]}'
+            )
+        ),
+        InvestigationGoal(),
+        on_reviewed=on_reviewed,
+    )
+
+    evaluation.evaluate(
+        {}, make_page([make_agent_case(f"s{n}") for n in range(3)])
+    )
+
+    assert reports == [(1, 1), (2, 2), (3, 3)]
+    # The reviews run on a pool, but the reports come back on the node's own
+    # thread, so `SweepProgress` needs no lock of its own for its counts.
+    assert threads == {threading.get_ident()}
+    assert evaluation.findings_count == 3

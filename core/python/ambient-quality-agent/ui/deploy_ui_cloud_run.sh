@@ -82,6 +82,10 @@ if [[ ! -d "$SHARED_SRC" ]]; then
   echo "ERROR: shared client not found at $SHARED_SRC" >&2; exit 1
 fi
 
+if [[ -f "$REPO_ROOT/tools_internal/security/check_security.py" ]]; then
+  ( cd "$REPO_ROOT" && python3 tools_internal/security/check_security.py --respect-skip-env ) || exit 1
+fi
+
 echo "Project:        $PROJECT"
 echo "Region:         $REGION"
 echo "Service:        $SERVICE"

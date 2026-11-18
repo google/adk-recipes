@@ -48,6 +48,9 @@ from ambient_quality_agent.tools.ingestion.cloud_logging_fetcher import (
 from ambient_quality_agent.tools.ingestion.cloud_ops_fetcher import (
     CloudOpsFetcher,
 )
+from ambient_quality_agent.tools.ingestion.trajectory_files import (
+    TrajectoryFileStore,
+)
 from ambient_quality_agent.tools.insights import (
     clustering,
     matching,
@@ -103,6 +106,24 @@ def _build_memory_guard(ctx: LaunchContext) -> Callable[[], bool]:
     return MemoryGuard(baseline_mb=baseline_mb).should_stop
 
 
+def _create_default_trajectory_file_store(
+    ctx: LaunchContext,
+) -> TrajectoryFileStore | None:
+    """Build the trajectory file store for ingested conversations.
+
+    Args:
+        ctx: Launch context containing workflow state.
+
+    Returns:
+        A `TrajectoryFileStore` over the jobs store scoped to the observed
+        agent, or None if the state names no agent.
+    """
+    agent_key = config_module.extract_agent_key(ctx.state)
+    if not agent_key:
+        return None
+    return TrajectoryFileStore(objects.jobs_store_factory(), agent_key)
+
+
 def _create_default_fetcher(ctx: Context) -> BaseFetcher:
     """Build the default telemetry fetcher for an investigation.
 
@@ -120,6 +141,7 @@ def build_fetcher(
     *,
     recorder: TrajectoryRecorder | NullTrajectoryRecorder | None = None,
     job_timeout_ms: int = DEFAULT_JOB_TIMEOUT_MS,
+    store_trajectory_files: bool = True,
 ) -> BaseFetcher:
     """Build the telemetry fetcher configured in `telemetry_ingestion_source`.
 
@@ -132,6 +154,10 @@ def build_fetcher(
             omitted, instantiates a default recorder from context.
         job_timeout_ms: Server-side execution timeout in milliseconds for
             BigQuery query jobs.
+        store_trajectory_files: Whether to store conversation files in the jobs
+            store. Applies only when `state["store_trajectory_files"]` is also
+            True. When either is False, top-level files become text
+            placeholders, and files in tool results remain inline.
 
     Returns:
         The configured BaseFetcher instance.
@@ -164,6 +190,11 @@ def build_fetcher(
     reporting_to = (
         trajectory_recorder_factory(ctx) if recorder is None else recorder
     )
+    trajectory_file_store = (
+        _create_default_trajectory_file_store(ctx)
+        if store_trajectory_files and state.get("store_trajectory_files", True)
+        else None
+    )
     if source == "big_query":
         return BigQueryFetcher(
             project_id=state["project_id"],
@@ -173,6 +204,7 @@ def build_fetcher(
             observed_project_id=observed_project_id,
             memory_guard=_build_memory_guard(ctx),
             recorder=reporting_to,
+            trajectory_file_store=trajectory_file_store,
             selector_sql=selector_sql,
             selector_ai_model=selector_ai_model,
             job_timeout_ms=job_timeout_ms,
@@ -187,6 +219,7 @@ def build_fetcher(
             gcs_reader=_build_gcs_reader(),
             memory_guard=_build_memory_guard(ctx),
             recorder=reporting_to,
+            trajectory_file_store=trajectory_file_store,
             selector_sql=selector_sql,
             selector_ai_model=selector_ai_model,
             job_timeout_ms=job_timeout_ms,
@@ -200,6 +233,7 @@ def build_fetcher(
         gcs_reader=_build_gcs_reader(),
         memory_guard=_build_memory_guard(ctx),
         recorder=reporting_to,
+        trajectory_file_store=trajectory_file_store,
         selector_sql=selector_sql,
         selector_ai_model=selector_ai_model,
         job_timeout_ms=job_timeout_ms,
@@ -306,7 +340,7 @@ def _create_default_match_call(ctx: Context) -> Callable[[str], str]:
     Returns:
         Callable taking prompt string and returning raw model response JSON string.
     """
-    return matching.call_match_model
+    return matching.call_all_match_model
 
 
 def _create_default_verification_call(ctx: Context) -> Callable[[str], str]:

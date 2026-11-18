@@ -323,12 +323,13 @@ To switch modes, change `TF_VAR_ui_iap_enabled` and run
    ```
 
 4. **Read the evidence.** Start with `--no-traces` for the insight (or each
-   insight in the group), and fetch the traces, which are the large payload,
-   once you need the conversation turns.
+   insight in the group), and read a conversation with `get-trajectory` once
+   you need its turns.
 
    ```bash
    agents-cli aqua get-insight <insight_id> --no-traces
    agents-cli aqua get-insight <insight_id>
+   agents-cli aqua get-trajectory <trajectory_id>
    ```
 
    Occurrences are listed newest first. In `occurrences[0]`, read
@@ -336,9 +337,12 @@ To switch modes, change `TF_VAR_ui_iap_enabled` and run
    only when the verification pass ran, which is off by default), each
    `examples[].finding.expected_behavior` against `actual_behavior`,
    `examples[].finding.agent_id` (the root or sub-agent at fault),
-   `examples[].turns` (the conversation), and `agent_revision` (the deployment
-   it ran on). `investigation_trajectories[].console_url` links each conversation to Cloud
-   Trace; only the full call fills it.
+   `examples[].trajectory_id` (the conversation to pass to `get-trajectory`),
+   and `agent_revision` (the deployment it ran on).
+   `investigation_trajectories[].console_url` links each conversation to Cloud
+   Trace; only the full call fills it. `get-trajectory` returns the turns in
+   `trajectory_bundle.steps`. AQuA keeps conversations for a retention period,
+   so `steps_returned` below `step_count` means turns have expired.
 
 5. **Find the root cause.** If `root_causes` holds a diagnosis, start from its
    `summary` and `edits`. Otherwise, pick one of two ways:
@@ -388,7 +392,8 @@ To switch modes, change `TF_VAR_ui_iap_enabled` and run
    lookback window (7 days by default), so it can add an occurrence from
    conversations that predate the fix. Check whether the new occurrence's
    conversations started after the redeploy: look at the event times in
-   `examples[].turns`, or at `trajectory_ids` already listed in earlier
+   `get-trajectory`'s `trajectory_bundle.steps[].events[]` for each of its
+   `trajectory_ids`, or at `trajectory_ids` already listed in earlier
    occurrences. Don't rely on the occurrence's `agent_revision`, which can name
    the new revision even when some conversations ran on the old one. Pre-fix
    conversations stop recurring once they age out of the lookback window, and
@@ -422,6 +427,7 @@ conversations that …"`. Approve its preview with
 |---|---|
 | Run an investigation now | `agents-cli aqua schedule-investigation --wait` |
 | Inspect runs | `list-investigations`, `get-investigation <investigation_id>`, `investigation-stats` |
+| Stop a run | `agents-cli aqua cancel-investigation <investigation_id> --yes` once the user confirms. A running investigation stops at its next write and creates no insights |
 | Read what the developer asked AQuA to remember | `agents-cli aqua list-memories`, newest first, with a `note` to read them as reference data. `agents-cli aqua run "Remember that …"` saves one when the developer asks |
 | Redeploy only the agent | `agents-cli deploy`, which still publishes the source snapshot AQuA diagnoses from. Add `--deploy-aqua` to redeploy AQuA and its dashboard too |
 | Score sessions with deterministic Python metrics | `agents-cli aqua metrics publish tests/eval --dry-run`, then again without `--dry-run`. Published code runs inside AQuA with its credentials, and a metric that calls a model costs one call per session per investigation |
@@ -438,7 +444,7 @@ conversations that …"`. Approve its preview with
 - **Branch on the exit code.** `0` means success and `1` means the call failed,
   with `{"error": "..."}` on stdout. `2` means a usage error or, from
   `get-investigation` and `schedule-investigation`, a failed run. `3` means
-  `--wait` timed out. `list-investigations` and `investigation-stats` print an
+  `--wait` timed out. `4` means the investigation was cancelled. `list-investigations` and `investigation-stats` print an
   empty result beside a failed read's `error`, so check the exit code before
   you trust an empty result. `run` prints no JSON (see Talk to AQuA).
 - **An empty result is not a clean bill of health.** A finished run with no

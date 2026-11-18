@@ -816,6 +816,39 @@ def test_the_diagnosed_badge_follows_the_merge(
     assert view is not None and view.has_root_cause
 
 
+def test_root_cause_context_ids_deduplicate_and_follow_merges(
+    reader: InMemoryInsightReader,
+    writer: InMemoryInsightStore,
+    backing: InMemoryStore,
+) -> None:
+    _seed(
+        backing,
+        [_insight("survivor"), _insight("absorbed")],
+        [],
+        [
+            _root_cause("rc1", "absorbed", context_id="ctx-1"),
+            _root_cause(
+                "rc2",
+                "survivor",
+                context_id="ctx-2",
+                created_at=_NOW + dt.timedelta(minutes=5),
+            ),
+            _root_cause(
+                "rc3",
+                "survivor",
+                context_id="ctx-1",
+                created_at=_NOW + dt.timedelta(minutes=10),
+            ),
+        ],
+    )
+    writer.merge_insight(insight_id="absorbed", target_insight_id="survivor")
+
+    view = reader.get_insight("survivor")
+
+    assert view is not None
+    assert view.root_cause_context_ids == ["ctx-1", "ctx-2"]
+
+
 def test_the_insights_agent_reads_back(
     reader: InMemoryInsightReader, writer: InMemoryInsightStore
 ) -> None:

@@ -909,8 +909,8 @@ def test_run_terraform_says_which_tool_is_missing(tmp_path, monkeypatch):
 def _deploy_calls(recorder: Recorder) -> list[list[str]]:
     """Filter recorded commands to deploy operations.
 
-    Excludes source snapshot publishing so assertions can verify deployment
-    invocations directly.
+    Excludes source snapshot publishing and pre-deploy security checks so
+    assertions can verify deployment invocations directly.
 
     Args:
         recorder: Test recorder capturing `_acli.run` invocations.
@@ -922,6 +922,7 @@ def _deploy_calls(recorder: Recorder) -> list[list[str]]:
         call["argv"]
         for call in recorder.calls
         if "publish-source" not in call["argv"]
+        and not any(arg.endswith("check_security.py") for arg in call["argv"])
     ]
 
 
@@ -1545,6 +1546,8 @@ def test_staging_gathers_both_trees(tmp_path):
     assert context == tmp_path / _acli.UI_BUILD_DIR_NAME
     assert (context / "agents-cli-manifest.yaml").is_file()
     assert (context / "Dockerfile").is_file()
+    assert (context / "pyproject.toml").is_file()
+    assert (context / "uv.lock").is_file()
     assert (context / "app.py").is_file()
     assert (context / "ambient_quality_shared" / "agent_client.py").is_file()
 
@@ -1818,6 +1821,29 @@ def test_deploy_in_its_own_checkout_reports_on_aqua_itself(own_checkout, flag):
     (reported,) = own_checkout.calls
     assert reported["argv"][-1] == flag
     assert "sherlock-v2-aqua" in reported["argv"]
+
+
+def test_deploy_runs_security_check_when_present_and_aborts_on_failure(
+    own_checkout, tmp_path, monkeypatch
+):
+    script = tmp_path / "tools_internal" / "security" / "check_security.py"
+    script.parent.mkdir(parents=True)
+    script.write_text("", encoding="utf-8")
+
+    assert acli_deploy.main(["--project", "p2", *OBSERVED]) == 0
+    assert str(script) in own_checkout.calls[0]["argv"]
+    assert "--respect-skip-env" in own_checkout.calls[0]["argv"]
+
+    own_checkout.calls.clear()
+    assert acli_deploy.main(["--dry-run", *OBSERVED]) == 0
+    assert all(str(script) not in c["argv"] for c in own_checkout.calls)
+
+    failing = Recorder({str(script): (1, "")})
+    monkeypatch.setattr(_acli, "run", failing)
+    monkeypatch.setattr(acli_deploy, "run", failing)
+    with pytest.raises(SystemExit) as exc:
+        acli_deploy.main(["--project", "p2", *OBSERVED])
+    assert exc.value.code == 1
 
 
 # --- keeping `.aqua/` out of git and out of the agent's upload ---------------

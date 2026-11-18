@@ -51,6 +51,19 @@ gcloud storage buckets create "gs://${BUCKET}" \
 # `buckets create` does not take --labels, so apply it in an update call.
 gcloud storage buckets update "gs://${BUCKET}" --update-labels=component=aqa
 
+# Delete copied conversation files (aqa-trajectory-files/) one day after the
+# archived conversations that link to them expire (30 days by default; see
+# `trajectory_payload_retention_days` below).
+# `--lifecycle-file` replaces the bucket's entire lifecycle configuration; on
+# a bucket with existing rules, add this rule to the existing file.
+cat > /tmp/aqa-jobs-lifecycle.json <<'JSON'
+{"rule": [
+  {"action": {"type": "Delete"}, "condition": {"age": 31, "matchesPrefix": ["aqa-trajectory-files/"]}}
+]}
+JSON
+gcloud storage buckets update "gs://${BUCKET}" \
+  --lifecycle-file=/tmp/aqa-jobs-lifecycle.json
+
 # Grant the service agent read/write permissions for job input and output.
 gcloud storage buckets add-iam-policy-binding "gs://${BUCKET}" \
   --member="serviceAccount:${SA}" --role="roles/storage.objectAdmin"
@@ -180,7 +193,10 @@ does not allow adding partitions to existing tables:
 
 To change the retention window on an existing deployment, run `bq update
 --time_partitioning_expiration <seconds>`. Any partitions older than the updated
-threshold are deleted during the next expiration pass.
+threshold are deleted during the next expiration pass. Set the `age` of the
+jobs bucket's `aqa-trajectory-files/` lifecycle rule (see step 1) to the new
+window in days plus one, so the files these conversations link to expire with
+them.
 
 `BigQueryInsightStore`, `BigQueryInvestigationStore`, and
 `BigQueryTrajectoryStore` initialize with `CREATE_NEVER`. Missing tables cause

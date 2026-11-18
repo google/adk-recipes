@@ -14,7 +14,7 @@
 
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import {
   createMemoryHistory,
   createRootRoute,
@@ -25,6 +25,7 @@ import {
 import { InvestigationDetailView } from "../investigation-detail-view";
 import type { Investigation } from "@/lib/aqua-api";
 import { counters } from "@/lib/__fixtures__/counters";
+import { POLL_INTERVAL_MS } from "@/lib/investigation-state";
 
 const RECORD: Investigation = {
   investigation_id: "inv-12345678",
@@ -58,7 +59,10 @@ const RECORD: Investigation = {
   ],
 };
 
-function renderDetail(record: Investigation | null, error?: string) {
+function renderDetail(
+  record: Investigation | null | (() => Investigation | null),
+  error?: string,
+) {
   vi.stubGlobal(
     "fetch",
     vi.fn().mockImplementation((url: string) => {
@@ -74,8 +78,9 @@ function renderDetail(record: Investigation | null, error?: string) {
           new Response(JSON.stringify({ error }), { status: 500 }),
         );
       }
+      const investigation = typeof record === "function" ? record() : record;
       return Promise.resolve(
-        new Response(JSON.stringify({ investigation: record }), {
+        new Response(JSON.stringify({ investigation }), {
           status: 200,
         }),
       );
@@ -98,11 +103,14 @@ function renderDetail(record: Investigation | null, error?: string) {
     history,
   });
 
-  return render(
-    <QueryClientProvider client={queryClient}>
-      <RouterProvider router={router} />
-    </QueryClientProvider>,
-  );
+  return {
+    ...render(
+      <QueryClientProvider client={queryClient}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>,
+    ),
+    queryClient,
+  };
 }
 
 const SELECTOR_SQL =
@@ -226,6 +234,88 @@ describe("InvestigationDetailView", () => {
       ),
     ).toBeInTheDocument();
     expect(screen.queryByRole("img", { name: /^Evaluated:/ })).toBeNull();
+  });
+
+  it("says what a running investigation is doing where its funnel will be, and re-reads it", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const now = new Date().toISOString();
+      renderDetail({
+        ...RECORD,
+        status: "running",
+        created_at: now,
+        counters: counters(),
+        progress: {
+          stage: "Session review",
+          evaluated: 45,
+          total: 205,
+          findings: 12,
+          updated_at: now,
+        },
+      });
+
+      expect(
+        await screen.findByRole("progressbar", { name: "Session review" }),
+      ).toHaveAttribute("aria-valuenow", "45");
+      expect(
+        screen.getByText("45 of 205 trajectories, 12 findings"),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByText(
+          "The full counts are recorded when the investigation finishes.",
+        ),
+      ).toBeInTheDocument();
+      const reads = () =>
+        vi
+          .mocked(fetch)
+          .mock.calls.filter(([url]) =>
+            String(url).includes("/api/investigations/"),
+          ).length;
+      expect(reads()).toBe(1);
+      await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS);
+      await waitFor(() => expect(reads()).toBe(2));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("stops re-reading once the investigation settles, and has the list re-read for the rail", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const now = new Date().toISOString();
+      const running: Investigation = {
+        ...RECORD,
+        status: "running",
+        created_at: now,
+        counters: counters(),
+        progress: { stage: "Clustering", findings: 3, updated_at: now },
+      };
+      let reads = 0;
+      const { queryClient } = renderDetail(() => {
+        reads += 1;
+        return reads === 1 ? running : { ...running, status: "done" };
+      });
+      const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+
+      await screen.findByRole("progressbar", { name: "Clustering" });
+      // The first read is what the rail already shows: nothing to catch up.
+      expect(invalidate).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS);
+      await waitFor(() => expect(reads).toBe(2));
+      await waitFor(() => expect(invalidate).toHaveBeenCalledTimes(1));
+      // The rail's list, not a day's: its key ends at "investigations".
+      const [{ queryKey, exact }] = invalidate.mock.calls[0] as [
+        { queryKey: readonly unknown[]; exact: boolean },
+      ];
+      expect(queryKey.at(-1)).toBe("investigations");
+      expect(exact).toBe(true);
+
+      await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS * 3);
+      expect(reads).toBe(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("names the header's figures as metric outcomes, apart from the funnel's trajectories", async () => {

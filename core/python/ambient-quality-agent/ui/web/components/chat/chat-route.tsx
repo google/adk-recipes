@@ -22,8 +22,14 @@ import { ChatShell } from "./chat-shell";
 // remount, so the in-flight stream and pending bubble survive. (A pathname
 // change `/`→`/c` WOULD remount under TanStack Router and abort the stream.)
 export function ChatRoute() {
-  const search = useSearch({ strict: false }) as { id?: string; q?: string };
+  const search = useSearch({ strict: false }) as {
+    id?: string;
+    q?: string;
+    insightId?: string;
+  };
   const id = typeof search.id === "string" ? search.id : undefined;
   const q = typeof search.q === "string" ? search.q : undefined;
-  return <ChatShell contextId={id} initialMessage={q} />;
+  const insightId =
+    typeof search.insightId === "string" ? search.insightId : undefined;
+  return <ChatShell contextId={id} initialMessage={q} insightId={insightId} />;
 }

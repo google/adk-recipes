@@ -54,6 +54,7 @@ from ambient_quality_shared.protocol import (
     INSIGHTS_MERGE_ROUTE,
     INVESTIGATION_TRAJECTORIES_LIST_ROUTE,
     INVESTIGATION_TRAJECTORIES_OUTCOMES_ROUTE,
+    INVESTIGATIONS_CANCEL_ROUTE,
     INVESTIGATIONS_DAILY_ROUTE,
     INVESTIGATIONS_GET_ROUTE,
     INVESTIGATIONS_LIST_ROUTE,
@@ -121,6 +122,15 @@ async def schedule_investigation(request: Request) -> dict[str, Any]:
     args = await _read_json_body(request)
     return await job_scheduling.schedule_investigation(
         await _build_route_context(args)
+    )
+
+
+@router.post(f"/{INVESTIGATIONS_CANCEL_ROUTE}")
+async def cancel_investigation(request: Request) -> dict[str, Any]:
+    args = await _read_json_body(request)
+    investigation_id = _extract_required_field(args, "investigation_id")
+    return await model.cancel_investigation(
+        investigation_id, await _build_route_context(args)
     )
 
 

@@ -125,6 +125,11 @@ variable "trajectory_payload_retention_days" {
     the `trajectories` index beside them carries no content and is kept
     indefinitely, which is why it takes no setting.
 
+    Files linked from those conversations (images, PDFs, audio) under
+    `aqa-trajectory-files/` in the jobs bucket are deleted by a lifecycle rule
+    one day after this period, so a file never expires before the
+    conversation that links to it.
+
     Long enough that an insight still has its evidence, short enough that the
     copy is not a second permanent archive of the observed agent's traffic.
     Raising it applies to partitions that have not expired yet; lowering it

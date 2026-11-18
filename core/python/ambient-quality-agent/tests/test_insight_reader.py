@@ -1176,3 +1176,64 @@ def test_the_run_filter_resolves_ownership_too() -> None:
         "WHERE COALESCE(m.merged_into_insight_id, o.insight_id) = i.insight_id"
         in count_sql
     )
+
+
+def test_root_cause_context_ids_read_back_on_views_and_records() -> None:
+    """Verifies `context_id` and `root_cause_context_ids` map onto reader models."""
+    client = _query_returning(
+        [{"total": 1}],
+        [
+            _summary_row(
+                has_root_cause=True,
+                root_cause_context_ids=["ctx-2", "ctx-1"],
+            )
+        ],
+        [_root_cause_row(context_id="ctx-2"), _root_cause_row(context_id=None)],
+    )
+    reader = _reader(client)
+
+    summaries, _ = reader.list_insights(limit=30, offset=0)
+    records = reader.list_root_causes("ins-1")
+
+    assert summaries[0].root_cause_context_ids == ["ctx-2", "ctx-1"]
+    assert [r.context_id for r in records] == ["ctx-2", ""]
+
+
+def test_an_unmigrated_root_causes_table_without_context_id_still_reads() -> (
+    None
+):
+    """Verifies `BigQueryInsightReader` falls back when `insight_root_causes` lacks `context_id`."""
+    from types import SimpleNamespace
+
+    client = _query_returning(
+        [{"total": 1}],
+        [_summary_row(has_root_cause=True)],
+        [_root_cause_row()],
+    )
+    client.get_table.return_value = SimpleNamespace(
+        schema=[
+            SimpleNamespace(name=col)
+            for col in (
+                "root_cause_id",
+                "insight_id",
+                "occurrence_id",
+                "agent_revision",
+                "summary",
+                "edits",
+                "created_at",
+            )
+        ]
+    )
+    reader = _reader(client)
+
+    summaries, _ = reader.list_insights(limit=30, offset=0)
+    records = reader.list_root_causes("ins-1")
+
+    page_sql = _sql(client.query.call_args_list[1])
+    rc_sql = _sql(client.query.call_args_list[2])
+    assert "CAST([] AS ARRAY<STRING>) AS root_cause_context_ids" in page_sql
+    assert "rc.context_id" not in page_sql
+    assert "CAST(NULL AS STRING) AS context_id" in rc_sql
+    assert "rc.context_id" not in rc_sql
+    assert summaries[0].root_cause_context_ids == []
+    assert records[0].context_id == ""

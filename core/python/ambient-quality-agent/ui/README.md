@@ -16,7 +16,8 @@ creating one of its own.
 ui/
 ├── agents-cli-manifest.yaml   deployment_target: cloud_run, language: python
 ├── Dockerfile
-├── requirements.txt
+├── pyproject.toml
+├── uv.lock
 ├── .dockerignore
 ├── .gcloudignore              the build context, which is this directory
 ├── deploy_ui_cloud_run.sh     the deploy without agents-cli; not in the image

@@ -104,6 +104,8 @@ export interface RootCause {
   occurrence_id: string;
   /** Snapshot revision used to resolve edit line ranges. */
   agent_revision: string;
+  /** Conversation context ID where this diagnosis was recorded, when known. */
+  context_id?: string;
   summary: string;
   edits: ProposedEdit[];
   created_at: string;
@@ -143,6 +145,8 @@ export interface InsightView {
   confidence: number;
   /** Whether a root cause has been recorded for this insight. */
   has_root_cause?: boolean;
+  /** Distinct chat context IDs where root causes were recorded for this insight. */
+  root_cause_context_ids?: string[];
 }
 
 /** Evaluates whether an insight is diagnosed via an autorater diagnosis or a
@@ -260,7 +264,7 @@ export interface InvestigationListItem {
   created_at: string;
   finished_at: string | null;
   /** Lifecycle state: scheduled / pending / running / done / failed /
-   *  skipped. What `lib/investigation-state` reads to decide whether a sweep is
+   *  skipped / cancelled. What `lib/investigation-state` reads to decide whether a sweep is
    *  still in flight, and the only field that says an investigation has not
    *  finished. */
   status: string;
@@ -286,7 +290,33 @@ export interface InvestigationListItem {
    *  an investigation that has produced none yet. `format_investigation` emits
    *  it on list rows as well as on the detail record. */
   counters?: InvestigationCounters;
+  /** For an investigation still pending or running, how far it got, once its
+   *  pipeline has said; null otherwise, and absent from a backend older than
+   *  the field. Its `updated_at` is the investigation's last sign of life,
+   *  which `lib/investigation-state` reads to tell a long investigation from
+   *  a stalled one. */
+  progress?: InvestigationProgress | null;
   error: string | null;
+}
+
+/** How far a running investigation got, from the newest stage row its
+ *  pipeline wrote (`StageProgress` in tools/investigations/models.py). Each
+ *  count belongs to the stage that has it: a sweep counts trajectories against
+ *  a total and the findings it filed, clustering the findings it groups,
+ *  verification the clusters it checks. */
+export interface InvestigationProgress {
+  /** The stage the investigation is in, such as "Session review". */
+  stage: string;
+  /** Trajectories the sweep has judged so far. */
+  evaluated?: number;
+  /** Most trajectories the sweep will read. */
+  total?: number;
+  /** Findings filed so far, or being clustered. */
+  findings?: number;
+  /** Clusters being verified. */
+  clusters?: number;
+  /** When the stage row was written. */
+  updated_at: string;
 }
 
 /** Ask for a sweep now.
@@ -313,6 +343,34 @@ export async function startInvestigation(
     throw new HttpError(`start investigation -> ${r.status}`, r.status);
   }
   return body;
+}
+
+/** Stop a scheduled, pending or running investigation.
+ *
+ * Throws with the agent's own reason when it refuses (an unknown
+ * investigation, or one that has already finished), so the confirmation
+ * dialog can say why.
+ */
+export async function cancelInvestigation(
+  agentKey: AgentKey,
+  investigationId: string,
+): Promise<Investigation> {
+  const r = await fetch(
+    buildAgentPath(
+      `/api/investigations/${encodeURIComponent(investigationId)}/cancel`,
+      agentKey,
+    ),
+    { method: "POST" },
+  );
+  const body = (await r.json().catch(() => ({}))) as {
+    investigation?: Investigation;
+    error?: string;
+  };
+  if (body.error) throw new Error(body.error);
+  if (!r.ok || !body.investigation) {
+    throw new HttpError(`cancel ${investigationId} -> ${r.status}`, r.status);
+  }
+  return body.investigation;
 }
 
 export interface InsightOccurrence {
@@ -941,11 +999,11 @@ export interface MemoriesResponse {
 }
 
 /**
- * One part of an event: text, a tool call, or a tool's reply.
+ * One part of an event: text, a tool call, a tool's reply, or an attached file.
  *
- * All three optional rather than a union, because that is how `genai` models a
- * part; re-encoding it here would be a second schema to hold level with the
- * one the trajectory bundle stores.
+ * Fields are optional rather than a union to match the `genai` part schema
+ * stored in the trajectory bundle. `file_uri` is a `gs://` URI for a stored
+ * file, a local path in standalone mode, or the original URI from telemetry.
  */
 export interface ConversationPart {
   text?: string;
@@ -954,6 +1012,10 @@ export interface ConversationPart {
     id?: string | null;
     name?: string | null;
     response?: unknown;
+  };
+  file_data?: {
+    file_uri?: string | null;
+    mime_type?: string | null;
   };
 }
 
@@ -1098,6 +1160,8 @@ export interface Investigation {
   metrics_errored?: number | null;
   counters?: InvestigationCounters;
   events?: InvestigationEvent[];
+  /** As on `InvestigationListItem`. */
+  progress?: InvestigationProgress | null;
   summary?: InvestigationSummary | null;
   error?: string | null;
   idempotency_key?: string | null;

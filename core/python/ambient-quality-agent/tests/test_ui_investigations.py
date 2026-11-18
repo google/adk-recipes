@@ -110,6 +110,25 @@ class FakeClient:
             return run or {
                 "error": f"No investigation found with id {investigation_id!r}."
             }
+        if path == "investigations/cancel":
+            investigation_id = (payload or {}).get("investigation_id")
+            run = next(
+                (
+                    r
+                    for r in self.runs
+                    if r.get("investigation_id") == investigation_id
+                ),
+                None,
+            )
+            if run is None:
+                return {
+                    "error": f"No investigation found with id {investigation_id!r}."
+                }
+            if run.get("status") in ("done", "failed", "skipped", "cancelled"):
+                return {
+                    "error": f"investigation {investigation_id!r} has already finished"
+                }
+            return {**run, "status": "cancelled"}
         if path == "insights/list":
             return self.insights if self.insights is not None else {}
         if path == "insights/get":
@@ -355,6 +374,40 @@ def test_start_investigation_error_wins_over_run_id(monkeypatch) -> None:
     body = r.json()
     assert "quota exceeded" in body["error"]
     assert "run" not in body
+
+
+# --------------------------------------------------------------------------- #
+# POST /api/investigations/{investigation_id}/cancel                           #
+# --------------------------------------------------------------------------- #
+
+
+def test_cancel_investigation_returns_the_cancelled_one(monkeypatch) -> None:
+    fake = FakeClient(runs=_RUNS)
+    _inject(monkeypatch, fake)
+    r = _post("/api/investigations/bbb22222/cancel")
+    assert r.status_code == 200
+    assert r.json()["investigation"]["status"] == "cancelled"
+    assert fake.args_for("investigations/cancel") == {
+        "investigation_id": "bbb22222"
+    }
+
+
+def test_cancel_investigation_refused_is_a_conflict(monkeypatch) -> None:
+    # A finished investigation is refused with the agent's own reason, which
+    # the confirmation dialog shows.
+    _inject(monkeypatch, FakeClient(runs=_RUNS))
+    r = _post("/api/investigations/aaa11111/cancel")
+    assert r.status_code == 409
+    assert "already finished" in r.json()["error"]
+
+
+def test_cancel_investigation_unreachable_agent_is_a_bad_gateway(
+    monkeypatch,
+) -> None:
+    _inject(monkeypatch, BoomClient())
+    r = _post("/api/investigations/bbb22222/cancel")
+    assert r.status_code == 502
+    assert "backend exploded" in r.json()["error"]
 
 
 # --------------------------------------------------------------------------- #

@@ -253,13 +253,6 @@ describe("HomeView", () => {
     });
     expect(investigations).toHaveLength(2);
     const insights = screen.getByRole("link", { name: "View insights" });
-    for (const link of [...investigations, insights]) {
-      expect(link).toHaveClass(
-        "text-primary",
-        "focus-visible:ring-2",
-        "focus-visible:ring-inset",
-      );
-    }
     expect(investigations.map((a) => a.getAttribute("href"))).toEqual([
       "/investigations",
       "/investigations",
@@ -267,7 +260,7 @@ describe("HomeView", () => {
     expect(insights).toHaveAttribute("href", "/insights");
   });
 
-  it("focuses every header link the same way", async () => {
+  it("styles every section header link as an outline button with an inset focus ring", async () => {
     renderHome(
       answers({
         insights: [],
@@ -278,14 +271,41 @@ describe("HomeView", () => {
       }),
     );
 
-    // The sections clip overflow, so an outline drawn outside a link is cut off.
-    const viewAll = await screen.findAllByRole("link", { name: "View all" });
-    expect(viewAll).toHaveLength(2);
-    for (const link of viewAll) {
+    const viewAll = [
+      await screen.findByRole("link", { name: "View all insights" }),
+      screen.getByRole("link", { name: "View all investigations" }),
+    ];
+    const investigations = screen.getAllByRole("link", {
+      name: "View investigations",
+    });
+    const insights = screen.getByRole("link", { name: "View insights" });
+    for (const link of viewAll) expect(link).toHaveTextContent("View all");
+
+    // Every section clips overflow, so the focus ring sits inside the border
+    // with zero offset; twMerge drops Button's outer ring offset and 16px SVG size.
+    for (const link of [...viewAll, ...investigations, insights]) {
       expect(link).toHaveClass(
+        "border",
+        "border-input",
+        "bg-background",
+        "h-8",
+        "shrink-0",
+        "gap-1.5",
+        "[&_svg]:size-3.5",
         "focus-visible:ring-2",
         "focus-visible:ring-inset",
+        "focus-visible:ring-offset-0",
       );
+      expect(link).not.toHaveClass(
+        "focus-visible:ring-offset-2",
+        "[&_svg]:size-4",
+      );
+    }
+
+    // Action groups wrap inside narrow sections without refusing to shrink.
+    for (const link of viewAll) {
+      expect(link.parentElement).toHaveClass("min-w-0", "flex-wrap", "gap-2");
+      expect(link.parentElement).not.toHaveClass("shrink-0");
     }
   });
 

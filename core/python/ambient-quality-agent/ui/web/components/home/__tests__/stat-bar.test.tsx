@@ -145,6 +145,25 @@ describe("StatBar", () => {
     expect(panel.className).toMatch(/amber/);
   });
 
+  it("marks nothing in a read-only viewer, which shows no live status", async () => {
+    const meta = document.createElement("meta");
+    meta.name = "aqua-viewer";
+    meta.content = "1";
+    document.head.prepend(meta);
+    try {
+      renderPanel({ ...healthy, verdict: "overdue" });
+
+      const panel = await screen.findByRole("region", {
+        name: /ambient health/i,
+      });
+      expect(panel.className).not.toMatch(/amber/);
+      expect(screen.queryByText("Overdue")).toBeNull();
+      expect(screen.getByText("Open insights")).toBeInTheDocument();
+    } finally {
+      meta.remove();
+    }
+  });
+
   it("leaves a healthy panel unmarked", async () => {
     renderPanel(healthy);
 

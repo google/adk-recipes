@@ -24,6 +24,7 @@ import {
   investigationsQuery,
   statsQuery,
 } from "@/lib/aqua-api";
+import { Button } from "@/components/ui/button";
 import { FailureNote } from "@/components/ui/failure-note";
 import { FilterTabs } from "@/components/ui/filter-tabs";
 import { PageRefreshButton } from "@/components/ui/refresh-button";
@@ -46,9 +47,10 @@ import { buildTrend, resolvedNote } from "@/lib/insight-trend";
 import { newestFirst } from "@/lib/investigation-state";
 import { cn, formatSentenceCase } from "@/lib/utils";
 import { PageHeader } from "@/components/nav/page-header";
-import { link, textStyle } from "@/lib/typography";
+import { textStyle } from "@/lib/typography";
 import { StatBar } from "./stat-bar";
 import { useAgentKey } from "@/lib/agent-selection";
+import { isViewerMode } from "@/lib/viewer-mode";
 
 /** How many investigations the Recent investigations list shows, of the
  *  capped page `investigationsQuery` returns. Few, so Home stays short; "View
@@ -154,29 +156,43 @@ function Section({
   );
 }
 
-/** A section's way to the page that lists what it shows. The ring is inset
- *  because the section clips overflow, which would cut an outline off. */
+/**
+ * A section's way to the page that lists what it shows. The focus ring is inset
+ * with zero offset because the section clips overflow, which would cut off an
+ * outer ring.
+ *
+ * Args:
+ *   to: Destination list route.
+ *   search: Optional filter query for the destination list.
+ *   ariaLabel: Accessible name when the visible label needs the noun it opens,
+ *     so two "View all" links stay distinguishable to screen readers.
+ *   children: Visible link label.
+ *
+ * Returns:
+ *   An outline button rendered as a router link.
+ */
 function SectionLink({
   to,
   search,
+  ariaLabel,
   children,
 }: {
   to: ListPage;
   search?: { status?: "recurring"; trigger?: Exclude<TriggerFilter, "all"> };
+  ariaLabel?: string;
   children: React.ReactNode;
 }) {
   return (
-    <Link
-      to={to}
-      search={search}
-      className={cn(
-        textStyle.body,
-        link.standalone,
-        "flex shrink-0 items-center gap-1.5 text-primary focus-visible:ring-inset",
-      )}
+    <Button
+      asChild
+      variant="outline"
+      size="sm"
+      className="shrink-0 gap-1.5 focus-visible:ring-inset focus-visible:ring-offset-0 [&_svg]:size-3.5"
     >
-      {children} <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
-    </Link>
+      <Link to={to} search={search} aria-label={ariaLabel}>
+        {children} <ArrowRight aria-hidden="true" />
+      </Link>
+    </Button>
   );
 }
 
@@ -361,7 +377,8 @@ export function HomeView() {
       <div data-tour="health">
         <StatBar />
       </div>
-      <AskBar />
+      {/* A read-only viewer serves no chat to hand the question to. */}
+      {!isViewerMode() && <AskBar />}
 
       {/* Two columns only from lg: at md each would be about 270px, and the
           charts' fourteen day links would be under the 24px WCAG 2.5.8 asks
@@ -411,7 +428,7 @@ export function HomeView() {
           tour="insights-strip"
           className="order-first lg:order-none"
           action={
-            <div className="ml-auto flex shrink-0 items-center gap-2">
+            <div className="ml-auto flex min-w-0 flex-wrap items-center gap-2">
               <FilterTabs
                 label="Which insights"
                 options={STRIP_VIEW_NAMES}
@@ -421,6 +438,7 @@ export function HomeView() {
               />
               <SectionLink
                 to="/insights"
+                ariaLabel="View all insights"
                 search={
                   stripView === "recurring"
                     ? { status: "recurring" }
@@ -534,7 +552,7 @@ export function HomeView() {
         }
         tour="recent-investigations"
         action={
-          <div className="flex shrink-0 flex-wrap items-center gap-4">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
             <FilterTabs
               label="Started by"
               options={TRIGGER_FILTER_NAMES}
@@ -546,6 +564,7 @@ export function HomeView() {
             {/* Opens the investigations page on the same tab. */}
             <SectionLink
               to="/investigations"
+              ariaLabel="View all investigations"
               search={
                 investigationTrigger === "all"
                   ? undefined

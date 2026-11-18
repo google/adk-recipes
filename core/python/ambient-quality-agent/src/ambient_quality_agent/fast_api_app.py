@@ -28,8 +28,10 @@ Wiring::
         │      ├ runner: Runner ◄── services.get_session_service(),
         │      │                    services.get_artifact_service()
         │      └ task store: _build_task_store() ──► GcsTaskStore ──► GCS
-        │                                            or an in-memory task store
+        │                                            or LocalTaskStore
         └──► telemetry.setup.shutdown_spans() on exit
+
+    /lha/contexts* ──► LocalTaskStore (when running without a jobs bucket)
 
     global tracer provider ──► telemetry.setup.attach_gcs_exporter()
 
@@ -63,12 +65,15 @@ import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from a2a.server.tasks import InMemoryTaskStore, TaskStore
+from a2a.server.tasks import TaskStore
 from ambient_quality_agent import backends
 from ambient_quality_agent import config as config_module
 from ambient_quality_agent.app_utils import services
 from ambient_quality_agent.app_utils.a2a import attach_a2a_routes
-from ambient_quality_agent.app_utils.task_store import GcsTaskStore
+from ambient_quality_agent.app_utils.task_store import (
+    GcsTaskStore,
+    LocalTaskStore,
+)
 from ambient_quality_agent.core import chat_agent
 from ambient_quality_agent.core.ambient.routes import router as ambient_router
 from ambient_quality_agent.core.command_routes import router as commands_router
@@ -77,7 +82,8 @@ from ambient_quality_agent.startup_checks import (
     check_investigations_schema,
 )
 from ambient_quality_agent.telemetry import setup as telemetry_setup
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from google.adk.apps import App
 from google.adk.cli.fast_api import get_fast_api_app
 from google.adk.runners import Runner
@@ -121,6 +127,10 @@ def _use_lf_sse_frames() -> None:
 _use_lf_sse_frames()
 
 
+_local_task_store: LocalTaskStore | None = None
+_CONTEXT_TITLE_MAX_LENGTH = 200
+
+
 def _build_task_store() -> TaskStore:
     """Builds a task store for conversation persistence.
 
@@ -128,14 +138,17 @@ def _build_task_store() -> TaskStore:
     in-memory task store.
 
     Returns:
-        TaskStore instance (GcsTaskStore or InMemoryTaskStore).
+        TaskStore instance (GcsTaskStore or LocalTaskStore).
     """
+    global _local_task_store
     bucket = config_module.load().jobs_gcs_bucket
     if not bucket:
         _package_logger.warning(
             "No AQA_JOBS_GCS_BUCKET; chat transcripts last only for this process."
         )
-        return InMemoryTaskStore()
+        _local_task_store = LocalTaskStore()
+        return _local_task_store
+    _local_task_store = None
     return GcsTaskStore(bucket)
 
 
@@ -211,6 +224,111 @@ app.description = "Ambient Quality Agent (AQA) orchestrator"
 
 app.include_router(ambient_router)
 app.include_router(commands_router)
+
+
+def _build_local_contexts_unavailable_response() -> JSONResponse:
+    """Builds a 501 response when in-memory context listing is inactive.
+
+    Returns:
+        HTTP 501 JSONResponse indicating contexts are served from GCS.
+    """
+    return JSONResponse(
+        {
+            "error": "not available in AQuA",
+            "area": "contexts",
+            "detail": "Contexts are stored in Cloud Storage.",
+        },
+        status_code=501,
+    )
+
+
+@app.get("/lha/contexts")
+@app.get("/lha/contexts/")
+async def list_local_contexts() -> JSONResponse:
+    """Lists in-memory conversation contexts when running without a jobs bucket.
+
+    Returns:
+        JSONResponse with ``contexts`` or HTTP 501 when GCS backs storage.
+    """
+    if _local_task_store is None:
+        return _build_local_contexts_unavailable_response()
+    return JSONResponse({"contexts": list(_local_task_store.list_contexts())})
+
+
+@app.get("/lha/contexts/{context_id}/tasks")
+async def list_local_context_tasks(context_id: str) -> JSONResponse:
+    """Lists in-memory tasks for one conversation context.
+
+    Args:
+        context_id: Conversation context identifier.
+
+    Returns:
+        JSONResponse with ``tasks`` or HTTP 501 when GCS backs storage.
+    """
+    if _local_task_store is None:
+        return _build_local_contexts_unavailable_response()
+    return JSONResponse(
+        {"tasks": list(_local_task_store.list_context_tasks(context_id))}
+    )
+
+
+@app.delete("/lha/contexts/{context_id}")
+async def delete_local_context(context_id: str) -> JSONResponse:
+    """Deletes an in-memory conversation context and its saved title.
+
+    Args:
+        context_id: Conversation context identifier.
+
+    Returns:
+        JSONResponse with ``deleted`` count or HTTP 501 when GCS backs storage.
+    """
+    if _local_task_store is None:
+        return _build_local_contexts_unavailable_response()
+    return JSONResponse(
+        {"deleted": _local_task_store.delete_context(context_id)}
+    )
+
+
+@app.put("/lha/contexts/{context_id}/title")
+async def save_local_context_title(
+    context_id: str, request: Request
+) -> JSONResponse:
+    """Saves a user-chosen title for an in-memory conversation context.
+
+    Args:
+        context_id: Conversation context identifier.
+        request: Incoming HTTP request carrying ``{"title": ...}``.
+
+    Returns:
+        JSONResponse with ``title`` or HTTP 400/501 on invalid input or GCS mode.
+    """
+    if _local_task_store is None:
+        return _build_local_contexts_unavailable_response()
+    try:
+        body = await request.json()
+    except ValueError:
+        return JSONResponse({"error": "Expected a JSON body."}, status_code=400)
+    title = body.get("title") if isinstance(body, dict) else None
+    if not isinstance(title, str) or not title.strip():
+        return JSONResponse(
+            {"error": "Expected a non-empty string `title`."}, status_code=400
+        )
+    cleaned = title.strip()
+    if len(cleaned) > _CONTEXT_TITLE_MAX_LENGTH:
+        return JSONResponse(
+            {
+                "error": (
+                    f"`title` is longer than {_CONTEXT_TITLE_MAX_LENGTH} "
+                    "characters."
+                )
+            },
+            status_code=400,
+        )
+    try:
+        _local_task_store.save_context_title(context_id, cleaned)
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+    return JSONResponse({"title": cleaned})
 
 
 if __name__ == "__main__":

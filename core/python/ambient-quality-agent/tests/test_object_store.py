@@ -130,6 +130,18 @@ def test_bytes_round_trip_unchanged(store: ObjectStore) -> None:
     assert store.read_bytes("agent/1/files/absent.png") is None
 
 
+def test_a_bytes_write_without_overwrite_leaves_an_existing_object(
+    store: ObjectStore,
+) -> None:
+    """How a trajectory file is stored once under the digest of its content."""
+    assert store.write_bytes("files/a", b"\x00first", overwrite=False) is True
+    assert store.write_bytes("files/a", b"\x00second", overwrite=False) is False
+
+    assert store.read_bytes("files/a") == b"\x00first"
+    assert store.write_bytes("files/a", b"\x00third") is True
+    assert store.read_bytes("files/a") == b"\x00third"
+
+
 def test_list_prefixes_returns_one_level_below_the_prefix(
     store: ObjectStore,
 ) -> None:
@@ -195,6 +207,16 @@ def test_gcs_objects_carry_a_content_type_from_their_name() -> None:
         (BUCKET, "agents/a.json"): "application/json",
         (BUCKET, "goal.md"): "text/markdown",
     }
+
+
+def test_a_gcs_bytes_write_without_overwrite_asks_gcs_to_create_only() -> None:
+    client = FakeGcsClient()
+    store = GcsObjectStore(BUCKET, client_factory=lambda: client)
+
+    store.write_bytes("files/a", b"x", overwrite=False)
+    store.write_bytes("files/b", b"y")
+
+    assert [upload[2] for upload in client.uploads] == [0, None]
 
 
 def test_a_gcs_uri_names_the_bucket() -> None:

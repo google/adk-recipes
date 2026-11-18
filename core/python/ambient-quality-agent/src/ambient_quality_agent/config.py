@@ -113,15 +113,18 @@ DEFAULT_BASE_MODEL = "gemini-3.8-flash"
 DEFAULT_INSIGHTS_MODEL = "gemini-3.1-pro-preview"
 """Default model for clustering findings."""
 
-DEFAULT_INSIGHTS_MATCH_MODEL = "gemini-3.5-flash-lite"
-"""Default model for the same-issue judge in insight matching."""
+DEFAULT_INSIGHTS_MATCH_MODEL = "gemini-4-argon"
+"""Default model for the same-issue judge in insight matching. One call reads
+every candidate beside up to `matching.MATCH_WINDOW` existing labels, which
+needs a model that keeps thousands of options apart."""
 
 DEFAULT_VERIFICATION_MODEL = "gemini-3.7-flash"
 """Default model for the cluster verification pass. Held apart from
-`DEFAULT_INSIGHTS_MODEL`, whose four other callers are tuned against it."""
+`DEFAULT_INSIGHTS_MODEL`, which clustering and candidate merging are tuned
+against."""
 
-DEFAULT_REVIEW_MODEL = "gemini-4-argon"
-"""Default model for the session reviewer, validated with its LOW thinking
+DEFAULT_REVIEW_MODEL = "gemini-4-hydrogen"
+"""Default model for the session reviewer, validated with its HIGH thinking
 level. Separate from `DEFAULT_INSIGHTS_MODEL` so each role can change
 independently."""
 
@@ -374,6 +377,14 @@ class Config:
     """Service-account email whose OAuth token the delayed Cloud Task presents
     when it POSTs to the engine's trigger route. Set via
     `AQA_AMBIENT_CALLER_SA`."""
+
+    store_trajectory_files: bool = True
+    """Whether ingestion copies files from sampled conversations (images, PDFs,
+    audio) into the jobs bucket and links them from the stored conversation.
+    Because end users sent these files to the observed agent, they can hold
+    personal data. When False, top-level files become text placeholders, and
+    files in tool results remain inline. Set via `AQA_STORE_TRAJECTORY_FILES`
+    (see `_parse_bool`)."""
 
     ambient_topic: str = ""
     """Pub/Sub topic (`projects/{p}/topics/{t}`) an attached agent's update
@@ -902,6 +913,40 @@ def _parse_int(env_var: str, default: int) -> int:
         ) from exc
 
 
+_TRUE_VALUES = frozenset({"true", "1", "yes", "on"})
+_FALSE_VALUES = frozenset({"false", "0", "no", "off"})
+
+
+def _parse_bool(env_var: str, default: bool) -> bool:
+    """Parses a boolean environment variable.
+
+    Case and surrounding whitespace are ignored.
+
+    Args:
+        env_var: Environment variable name.
+        default: Fallback value when unset or blank.
+
+    Returns:
+        True for ``true``, ``1``, ``yes`` or ``on``; False for ``false``,
+        ``0``, ``no`` or ``off``; `default` when unset or blank.
+
+    Raises:
+        RuntimeError: If the value is none of those.
+    """
+    raw = os.environ.get(env_var)
+    if raw is None or not raw.strip():
+        return default
+    value = raw.strip().lower()
+    if value in _TRUE_VALUES:
+        return True
+    if value in _FALSE_VALUES:
+        return False
+    raise RuntimeError(
+        f"{env_var} must be one of true, 1, yes, on, false, 0, no or off, "
+        f"got {raw!r}."
+    )
+
+
 def _resolve_bigquery_location(env_var: str) -> str:
     """Resolves a BigQuery location for ingestion jobs.
 
@@ -1026,6 +1071,7 @@ def load() -> Config:
         delay_task_queue=os.environ.get("AQA_DELAY_TASK_QUEUE", ""),
         ambient_caller_sa=os.environ.get("AQA_AMBIENT_CALLER_SA", ""),
         ambient_topic=os.environ.get("AQA_AMBIENT_TOPIC", ""),
+        store_trajectory_files=_parse_bool("AQA_STORE_TRAJECTORY_FILES", True),
     )
 
 

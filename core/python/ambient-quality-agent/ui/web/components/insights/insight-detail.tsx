@@ -1,4 +1,5 @@
 "use client";
+
 // Copyright 2026 Google LLC
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -13,7 +14,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 import {
@@ -24,6 +24,7 @@ import {
   MessageSquare,
   Search,
 } from "lucide-react";
+import { useState } from "react";
 
 /** Findings recorded straight from a conversation carry `chat-<contextId>`
  *  rather than an investigation id; they have no investigation page and no
@@ -37,29 +38,31 @@ const chatContextId = (investigationId: string): string | null => {
   const id = investigationId.slice(CHAT_INVESTIGATION_PREFIX.length);
   return id && id !== UNATTRIBUTED ? id : null;
 };
-import {
-  insightQuery,
-  isDiagnosed,
-  isOccurrenceDiagnosed,
-  type InsightOccurrence,
-  type InsightView,
-  type RootCause,
-} from "@/lib/aqua-api";
-import { stripMarkdownForSummary } from "@/lib/aqa-markdown";
-import { resolveSubAgent } from "@/lib/insight-agent";
-import { Button } from "@/components/ui/button";
-import { InlineMarkdown } from "@/components/ui/inline-markdown";
-import { DiagnoseInChatButton } from "./diagnose-in-chat-button";
-import { SubAgentItem } from "./sub-agent-item";
-import { RootCauseRecord, newestRootCause } from "./root-cause-record";
-import { cn, formatSentenceCase } from "@/lib/utils";
-import { focusRing, link, mono, textStyle } from "@/lib/typography";
 import { PageHeader } from "@/components/nav/page-header";
+import { Button } from "@/components/ui/button";
 import { FailureNote } from "@/components/ui/failure-note";
+import { InlineMarkdown } from "@/components/ui/inline-markdown";
 import { LoadingPane } from "@/components/ui/loading";
 import { RawJson } from "@/components/ui/raw-json";
 import { RememberedDetails } from "@/components/ui/remembered-details";
-import { useAgentKey, buildAgentHref } from "@/lib/agent-selection";
+import { buildAgentHref, useAgentKey } from "@/lib/agent-selection";
+import { stripMarkdownForSummary } from "@/lib/aqa-markdown";
+import {
+  type InsightOccurrence,
+  type InsightView,
+  insightQuery,
+  isDiagnosed,
+  isOccurrenceDiagnosed,
+  type RootCause,
+} from "@/lib/aqua-api";
+import { resolveSubAgent } from "@/lib/insight-agent";
+import { useIsChatContextLive } from "@/lib/insight-chats";
+import { focusRing, link, mono, textStyle } from "@/lib/typography";
+import { cn, formatSentenceCase } from "@/lib/utils";
+import { isViewerMode } from "@/lib/viewer-mode";
+import { DiagnoseInChatButton } from "./diagnose-in-chat-button";
+import { newestRootCause, RootCauseRecord } from "./root-cause-record";
+import { SubAgentItem } from "./sub-agent-item";
 
 /** One sampled finding: the two behaviours, kept apart. */
 export interface ExampleFinding {
@@ -219,6 +222,7 @@ export function InsightDetailView({ insightId }: { insightId: string }) {
     insightQuery(agentKey, insightId),
   );
   const [copied, setCopied] = useState(false);
+  const viewer = isViewerMode();
 
   if (isLoading) return <LoadingPane label="Loading insight…" />;
   if (isError)
@@ -238,6 +242,20 @@ export function InsightDetailView({ insightId }: { insightId: string }) {
       ? data.root_causes
       : occurrences.flatMap((o) => o.root_causes ?? []);
   const currentRecord = newestRootCause(records);
+  const rootCauseTimestamps = new Map<string, number>();
+  for (const r of records) {
+    const cid = r.context_id?.trim();
+    if (!cid) continue;
+    const stamp = Date.parse(r.created_at) || 0;
+    const prev = rootCauseTimestamps.get(cid) ?? 0;
+    if (stamp > prev) rootCauseTimestamps.set(cid, stamp);
+  }
+  const rootCauseContextIds = [
+    ...new Set([
+      ...(insight.root_cause_context_ids ?? []),
+      ...rootCauseTimestamps.keys(),
+    ]),
+  ];
   // `occurrence_count` is every sighting on record; `occurrences` is the capped
   // page. A `next_page_token` is the engine saying it held back more.
   const recorded = Math.max(insight.occurrence_count || 0, occurrences.length);
@@ -275,27 +293,35 @@ export function InsightDetailView({ insightId }: { insightId: string }) {
             insightId={insight.insight_id}
             label={insight.label}
             ariaLabel={`Diagnose insight in chat: ${stripMarkdownForSummary(insight.refined_label || insight.label)}`}
+            hasRootCause={Boolean(currentRecord || insight.has_root_cause)}
+            rootCauseContextIds={rootCauseContextIds}
+            rootCauseTimestamps={rootCauseTimestamps}
             variant="default"
             className="h-7 gap-1.5 font-normal [&_svg]:size-3.5"
           />
 
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={handleCopyReport}
-            className="h-7 gap-1.5 font-normal"
-            title="Copy formatted markdown report to clipboard"
-          >
-            {copied ? (
-              <>
-                <Check className="h-3.5 w-3.5 text-emerald-500" /> Copied!
-              </>
-            ) : (
-              <>
-                <Copy className="h-3.5 w-3.5" /> Copy as bug report
-              </>
-            )}
-          </Button>
+          {/* Not in a read-only viewer: one click would put model-written
+              text on the OS clipboard, which clipboard sync and managers can
+              carry off the machine. */}
+          {!viewer && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={handleCopyReport}
+              className="h-7 gap-1.5 font-normal"
+              title="Copy formatted markdown report to clipboard"
+            >
+              {copied ? (
+                <>
+                  <Check className="h-3.5 w-3.5 text-emerald-500" /> Copied!
+                </>
+              ) : (
+                <>
+                  <Copy className="h-3.5 w-3.5" /> Copy as bug report
+                </>
+              )}
+            </Button>
+          )}
         </div>
       </div>
 
@@ -354,10 +380,15 @@ export function InsightDetailView({ insightId }: { insightId: string }) {
           className="flex flex-col gap-2 rounded-lg border p-3"
         >
           <h2 className={textStyle.label}>Proposed code changes</h2>
-          <div className={cn(textStyle.meta, "flex flex-wrap gap-3")}>
+          <div
+            className={cn(textStyle.meta, "flex flex-wrap items-center gap-3")}
+          >
             <span>{new Date(currentRecord.created_at).toLocaleString()}</span>
             {currentRecord.agent_revision && (
               <span className={mono}>{currentRecord.agent_revision}</span>
+            )}
+            {!viewer && currentRecord.context_id && (
+              <RootCauseChatLink contextId={currentRecord.context_id} />
             )}
           </div>
           <RootCauseRecord
@@ -418,6 +449,24 @@ export function InsightDetailView({ insightId }: { insightId: string }) {
   );
 }
 
+function RootCauseChatLink({ contextId }: { contextId: string }) {
+  const live = useIsChatContextLive(contextId);
+  if (!live) return null;
+  return (
+    <Link
+      to="/c"
+      search={{ id: contextId }}
+      className={cn(
+        link.standalone,
+        "inline-flex items-center gap-1 text-primary",
+      )}
+    >
+      <MessageSquare className="h-3 w-3" />
+      Open the chat
+    </Link>
+  );
+}
+
 /** A `<summary>` that looks clickable and shows the app's focus ring. */
 const disclosure = cn("cursor-pointer hover:text-foreground", focusRing);
 
@@ -442,6 +491,7 @@ function InsightSummary({
   const [example, ...rest] = findings;
   const edits = record?.edits ?? [];
   const rationales = edits.flatMap((edit) => edit.rationale || []);
+  const viewer = isViewerMode();
   return (
     <section
       aria-labelledby="insight-summary-heading"
@@ -460,7 +510,9 @@ function InsightSummary({
         text={record?.summary ?? ""}
         empty={
           !record
-            ? "No root cause recorded yet: what's wrong above is what the judge model saw, not why it happened. Click Chat to find the cause and propose a fix."
+            ? "No root cause recorded yet: what's wrong above is what the judge model saw, not why it happened." +
+              // A read-only viewer hides Chat.
+              (viewer ? "" : " Click Chat to find the cause and propose a fix.")
             : edits.length > 0
               ? "Recorded without a summary. The proposed code changes are below."
               : "Recorded without a summary or code changes."
@@ -549,6 +601,7 @@ export function Occurrence({
   /** Leave out the findings, for the sighting the summary already shows. */
   hideFindings?: boolean;
 }) {
+  const viewer = isViewerMode();
   return (
     <section className="flex flex-col gap-2 rounded-lg border p-3">
       {heading && <h2 className={textStyle.label}>{heading}</h2>}
@@ -566,7 +619,7 @@ export function Occurrence({
             investigation that never existed. */}
         {occurrence.investigation_id &&
           isChatInvestigation(occurrence.investigation_id) &&
-          (chatContextId(occurrence.investigation_id) ? (
+          (chatContextId(occurrence.investigation_id) && !viewer ? (
             <Link
               to="/c"
               search={{
@@ -581,11 +634,16 @@ export function Occurrence({
               Open the chat
             </Link>
           ) : (
-            // No link: the conversation this came from is not known, and a
-            // link to nothing reads exactly like a link to something.
+            // No link: the conversation this came from is not known, or a
+            // read-only viewer serves no chat, and a link to nothing reads
+            // exactly like a link to something.
             <span
               className="inline-flex items-center gap-1 text-muted-foreground"
-              title="Recorded from a chat that was not identified."
+              title={
+                viewer
+                  ? "Chats are not available in this view."
+                  : "Recorded from a chat that was not identified."
+              }
             >
               <MessageSquare className="h-3 w-3" />
               Recorded in chat
