@@ -1,0 +1,68 @@
+{
+  "eval_cases": [
+    {
+      "eval_case_id": "train-1",
+      "prompt": {
+        "role": "user",
+        "parts": [{"text": "I want to cancel my subscription. My account is ACC-999."}]
+      },
+      "expected_response": "Offer retention discount."
+    },
+    {
+      "eval_case_id": "train-2",
+      "prompt": {
+        "role": "user",
+        "parts": [{"text": "Please cancel my account immediately. It is ACC-123."}]
+      },
+      "expected_response": "Cancel immediately without offering discount."
+    },
+    {
+      "eval_case_id": "train-3",
+      "prompt": {
+        "role": "user",
+        "parts": [{"text": "I need a refund for last month."}]
+      },
+      "expected_response": "Escalate to human."
+    },
+    {
+      "eval_case_id": "train-4",
+      "prompt": {
+        "role": "user",
+        "parts": [{"text": "How do I update my billing information?"}]
+      },
+      "expected_response": "Provide general help."
+    },
+    {
+      "eval_case_id": "train-5",
+      "prompt": {
+        "role": "user",
+        "parts": [{"text": "Cancel my subscription, account ACC-456."}]
+      },
+      "expected_response": "Offer retention discount."
+    },
+    {
+      "eval_case_id": "train-6",
+      "prompt": {
+        "role": "user",
+        "parts": [{"text": "I want to cancel my subscription. My account is ACC-456. I already declined the FREE_MONTH offer, so just cancel it."}]
+      },
+      "expected_response": "Cancel and state effective date."
+    },
+    {
+      "eval_case_id": "train-7",
+      "prompt": {
+        "role": "user",
+        "parts": [{"text": "Cancel my account and give me a refund."}]
+      },
+      "expected_response": "Escalate to human."
+    },
+    {
+      "eval_case_id": "train-8",
+      "prompt": {
+        "role": "user",
+        "parts": [{"text": "Please cancel ACC-123 and let me know the effective date."}]
+      },
+      "expected_response": "Cancel without discount and state effective date."
+    }
+  ]
+}

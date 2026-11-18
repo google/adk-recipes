@@ -1,0 +1,36 @@
+{
+  "eval_cases": [
+    {
+      "eval_case_id": "heldout-1",
+      "prompt": {
+        "role": "user",
+        "parts": [{"text": "End my subscription for account ACC-123 now."}]
+      },
+      "expected_response": "Cancel immediately without offering discount."
+    },
+    {
+      "eval_case_id": "heldout-2",
+      "prompt": {
+        "role": "user",
+        "parts": [{"text": "I am not happy and want my money back."}]
+      },
+      "expected_response": "Escalate to human."
+    },
+    {
+      "eval_case_id": "heldout-3",
+      "prompt": {
+        "role": "user",
+        "parts": [{"text": "Cancel my service, account ACC-777."}]
+      },
+      "expected_response": "Offer retention discount."
+    },
+    {
+      "eval_case_id": "heldout-4",
+      "prompt": {
+        "role": "user",
+        "parts": [{"text": "I asked to cancel ACC-888. No discount, just cancel it."}]
+      },
+      "expected_response": "Offer retention discount first unless they already rejected it."
+    }
+  ]
+}
