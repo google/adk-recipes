@@ -219,6 +219,7 @@ import shutil
 import subprocess
 import sys
 import time
+import tomllib
 import urllib.error
 import urllib.request
 from dataclasses import asdict, dataclass, field
@@ -226,7 +227,6 @@ from pathlib import Path
 from typing import Any
 
 import tomlkit
-import tomllib
 from packaging.requirements import InvalidRequirement, Requirement
 from packaging.version import InvalidVersion, Version
 from ruamel.yaml import YAML
@@ -830,15 +830,19 @@ def check_already_deployable(
 def _is_legacy_app_utils_file(path: Path) -> bool:
     """Return True if `path` is a legacy ASP-era app_utils file.
 
-    Our own `telemetry.py` template defines `register_adk_telemetry` and must
-    not trip the legacy gate on a subsequent run; an ASP-era `telemetry.py`
-    (or any hand-written file without `register_adk_telemetry`) still does.
+    Our own `telemetry.py` template defines `register_adk_telemetry` (without
+    ASP's `setup_telemetry`) and must not trip the legacy gate on a subsequent
+    run; an ASP-era `telemetry.py` still does.
     """
     if not path.is_file():
         return False
     if path.name == "telemetry.py":
         try:
-            if "def register_adk_telemetry" in path.read_text(encoding="utf-8"):
+            text = path.read_text(encoding="utf-8", errors="replace")
+            if (
+                "def register_adk_telemetry" in text
+                and "def setup_telemetry" not in text
+            ):
                 return False
         except OSError:
             pass
@@ -1875,8 +1879,8 @@ def _docker(
     CompletedProcess shape so every caller has one thing to inspect.
     """
     try:
-        return subprocess.run(
-            ["docker", *args],
+        return subprocess.run(  # noqa: S603
+            ["docker", *args],  # noqa: S607
             capture_output=True,
             text=True,
             timeout=timeout,
@@ -1971,7 +1975,7 @@ def lockfile_is_current(
         return False, "No uv.lock in the recipe."
     try:
         proc = subprocess.run(
-            ["uv", "lock", "--check"],
+            ["uv", "lock", "--check"],  # noqa: S607
             cwd=recipe_dir,
             capture_output=True,
             text=True,
@@ -2072,7 +2076,10 @@ def parse_env_example(path: Path) -> dict[str, str]:
         key = key.strip()
         if not key.isidentifier():
             continue
-        env[key] = value.split(" #")[0].strip().strip("'\"")
+        val = value.split(" #")[0].strip().strip("'\"")
+        if val.startswith("<") and val.endswith(">"):
+            continue
+        env[key] = val
     return env
 
 
@@ -2083,7 +2090,7 @@ def _probe(url: str, timeout: int = 10) -> tuple[int, str]:
     script's documented `uv run --with ...` invocation.
     """
     try:
-        with urllib.request.urlopen(url, timeout=timeout) as resp:
+        with urllib.request.urlopen(url, timeout=timeout) as resp:  # noqa: S310
             return resp.status, resp.read(2048).decode("utf-8", "replace")
     except urllib.error.HTTPError as e:
         return e.code, e.reason or ""

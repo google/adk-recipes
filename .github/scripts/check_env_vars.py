@@ -111,6 +111,20 @@ _ALLOWLIST: frozenset[str] = frozenset(
         # ADK runnability-test sentinel — set by the test harness, not the
         # developer, so it should not appear in .env.example.
         "INTEGRATION_TEST",
+        "PYTEST_CURRENT_TEST",
+        # Container / platform runtime sentinels injected by Cloud Run, GKE,
+        # Agent Engine, or Docker build-args rather than user .env files.
+        "K_SERVICE",
+        "K_REVISION",
+        "K_CONFIGURATION",
+        "KUBERNETES_SERVICE_HOST",
+        "KUBERNETES_SERVICE_PORT",
+        "GOOGLE_CLOUD_AGENT_ENGINE_ID",
+        "GOOGLE_CLOUD_AGENT_ENGINE_LOCATION",
+        "ADK_DEPLOY_CHANNEL",
+        "AGENT_VERSION",
+        "COMMIT_SHA",
+        "USAGE_ANALYTICS_ENABLED",
     }
 )
 

@@ -25,15 +25,15 @@ Instead, live usage segmentation works through two zero-interference channels:
   1. Runtime `x-goog-api-client` / `user-agent` attribution (`gccl/` token
      carrying `<version>-<recipe>-<surface>-<channel>`) on standard Vertex AI
      and Google Cloud API calls.
-  2. Artifact Registry image pull audit logs (`Docker-GetManifest`) in
-     `adk-samples-repo-gcp-support`, segmented by recipe image, tag (`:latest`
-     vs. pinned build tag), and caller surface (Agent Engine service agent,
-     Cloud Run serverless robot, or external pull).
+  2. Artifact Registry image pull audit logs (`Docker-GetManifest` / `GetTag`)
+     in `adk-samples-repo-gcp-support`, segmented by recipe image, tag (`:latest`
+     vs. pinned build tag / digest), and caller surface (Agent Engine service
+     agent, Cloud Run serverless robot, or external pull).
 
 This script aggregates both the repository's per-recipe telemetry posture and
 the segmented Artifact Registry / Cloud Logging usage metrics, writes a
-Markdown summary for `$GITHUB_STEP_SUMMARY`, and syncs the table to a dedicated
-worksheet tab on the target Google Sheet.
+Markdown summary for `$GITHUB_STEP_SUMMARY`, and syncs the table to the target
+Google Sheet.
 """
 
 from __future__ import annotations
@@ -44,6 +44,7 @@ import json
 import os
 import re
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -55,6 +56,7 @@ from recipe_images_matrix import REGISTRY
 from recipe_manifests import REPO_ROOT, SCAN_ROOTS, SKIP_DIRS
 
 DEFAULT_SPREADSHEET_ID = "1-Asr-QrGUaBheoTkUASroNI9UA1rCgMV6jyxWGpLa7Q"
+DEFAULT_SHEET_GID = "567149855"
 DEFAULT_SNAPSHOT_TAB = "Recipe Telemetry"
 DEFAULT_HISTORY_TAB = "Telemetry Log"
 DEFAULT_GCP_PROJECT = "adk-samples-repo-gcp-support"
@@ -63,12 +65,21 @@ DEFAULT_SERVICE_ACCOUNT = (
 )
 
 _TELEMETRY_MARKERS = re.compile(
-    r"register_adk_telemetry|build_tracking_headers|tracking_headers|"
-    r"build_usage_headers|gccl/"
+    r"\b(?:register_adk_telemetry|build_tracking_headers|build_usage_headers)\b|"
+    r"def\s+tracking_headers\b|gccl/"
 )
 _MANIFEST_FIELD_RE = re.compile(
-    r"^\s*([a-zA-Z0-9_]+)\s*:\s*([^\n#]*)", re.MULTILINE
+    r"^([a-zA-Z0-9_]+)[ \t]*:[ \t]*([^\r\n#]*)", re.MULTILINE
 )
+_DATED_BUILD_TAG_RE = re.compile(r"^\d{8}-[0-9a-f]+$", re.IGNORECASE)
+_PRUNE_DIRS = SKIP_DIRS | {
+    "venv",
+    "tests",
+    "test",
+    ".pytest_cache",
+    ".ruff_cache",
+}
+_SOURCE_EXTS = {".py", ".go", ".java", ".kt", ".ts"}
 
 
 @dataclass
@@ -102,9 +113,9 @@ class RecipeTelemetryRow:
             self.category,
             self.name,
             self.language,
-            "true" if self.deployable else "false",
-            "true" if self.has_dockerfile else "false",
-            "true" if self.has_gccl_telemetry else "false",
+            self.deployable,
+            self.has_dockerfile,
+            self.has_gccl_telemetry,
             self.gccl_token_pattern,
             self.published_tags_count,
             self.latest_build_tag,
@@ -143,7 +154,7 @@ def _parse_manifest_simple(manifest_path: Path) -> dict[str, str]:
     """Parse top-level scalar fields from manifest.yaml without PyYAML."""
     out: dict[str, str] = {}
     try:
-        text = manifest_path.read_text(encoding="utf-8")
+        text = manifest_path.read_text(encoding="utf-8", errors="replace")
     except OSError:
         return out
     for match in _MANIFEST_FIELD_RE.finditer(text):
@@ -155,17 +166,20 @@ def _parse_manifest_simple(manifest_path: Path) -> dict[str, str]:
 
 
 def _recipe_has_gccl_telemetry(recipe_dir: Path) -> bool:
-    """Return True if any source file in `recipe_dir` wires `gccl/` telemetry."""
-    for path in recipe_dir.rglob("*.py"):
-        if any(part in SKIP_DIRS for part in path.parts):
-            continue
-        try:
-            if _TELEMETRY_MARKERS.search(
-                path.read_text(encoding="utf-8", errors="ignore")
-            ):
-                return True
-        except OSError:
-            continue
+    """Return True if any non-test source file in `recipe_dir` wires `gccl/` telemetry."""
+    for dirpath, dirnames, filenames in os.walk(recipe_dir):
+        dirnames[:] = [d for d in dirnames if d not in _PRUNE_DIRS]
+        for fname in filenames:
+            path = Path(dirpath) / fname
+            if path.suffix not in _SOURCE_EXTS:
+                continue
+            try:
+                if _TELEMETRY_MARKERS.search(
+                    path.read_text(encoding="utf-8", errors="ignore")
+                ):
+                    return True
+            except OSError:
+                continue
     return False
 
 
@@ -181,10 +195,12 @@ def discover_recipes(repo_root: Path) -> list[dict[str, Any]]:
             rel = recipe_dir.relative_to(repo_root)
             if any(part in SKIP_DIRS for part in rel.parts):
                 continue
+            meta = _parse_manifest_simple(manifest)
+            if meta.get("status", "active").lower() == "inactive":
+                continue
             parts = rel.parts
             category = parts[1] if len(parts) >= 3 else parts[0]
             name = parts[-1]
-            meta = _parse_manifest_simple(manifest)
             language = meta.get("language", category)
             deployable = meta.get("deployable", "").lower() == "true"
             has_dockerfile = (recipe_dir / "Dockerfile").is_file()
@@ -211,7 +227,7 @@ def _http_json(
     payload: dict[str, Any] | None = None,
     timeout: int = 30,
 ) -> tuple[int, dict[str, Any]]:
-    """Execute an HTTP JSON request using stdlib urllib."""
+    """Execute an HTTP JSON request using stdlib urllib with 429/5xx backoff."""
     headers = {"Accept": "application/json"}
     if token:
         headers["Authorization"] = f"Bearer {token}"
@@ -219,37 +235,101 @@ def _http_json(
     if payload is not None:
         headers["Content-Type"] = "application/json"
         data = json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(url, data=data, headers=headers, method=method)
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            raw = resp.read().decode("utf-8", errors="replace")
-            return resp.status, (json.loads(raw) if raw.strip() else {})
-    except urllib.error.HTTPError as exc:
-        raw = exc.read().decode("utf-8", errors="replace")
+
+    for attempt in range(4):
+        req = urllib.request.Request(
+            url, data=data, headers=headers, method=method
+        )
         try:
-            body = json.loads(raw) if raw.strip() else {"error": raw}
-        except json.JSONDecodeError:
-            body = {"error": raw[:500]}
-        return exc.code, body
-    except Exception as exc:
-        return 0, {"error": str(exc)}
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                raw = resp.read().decode("utf-8", errors="replace")
+                return resp.status, (json.loads(raw) if raw.strip() else {})
+        except urllib.error.HTTPError as exc:
+            raw = exc.read().decode("utf-8", errors="replace")
+            if exc.code in (429, 500, 502, 503, 504) and attempt < 3:
+                time.sleep(2**attempt)
+                continue
+            try:
+                body = json.loads(raw) if raw.strip() else {"error": raw}
+            except json.JSONDecodeError:
+                body = {"error": raw[:500]}
+            return exc.code, body
+        except Exception as exc:
+            if attempt < 3:
+                time.sleep(2**attempt)
+                continue
+            return 0, {"error": str(exc)}
+    return 0, {"error": "retries exhausted"}
+
+
+def _registry_coords() -> tuple[str, str, str]:
+    """Parse (location, project_id, repo_name) from REGISTRY."""
+    host, _, repo_path = REGISTRY.partition("/")
+    location = host.removesuffix("-docker.pkg.dev")
+    project_id, _, repo_name = repo_path.partition("/")
+    return location, project_id, repo_name
 
 
 def fetch_registry_tags(
     category: str, name: str, token: str | None
 ) -> tuple[int, str]:
-    """Query Artifact Registry Docker v2 API for a recipe's published tags."""
-    host, _, repo_path = REGISTRY.partition("/")
-    url = f"https://{host}/v2/{repo_path}/{category}/{name}/tags/list"
-    status, body = _http_json("GET", url, token)
-    if status != 200:
+    """Query Artifact Registry REST API v1 for a recipe's published tags."""
+    location, project_id, repo_name = _registry_coords()
+    pkg = urllib.parse.quote(f"{category}/{name}", safe="")
+    base_url = (
+        f"https://artifactregistry.googleapis.com/v1/projects/{project_id}"
+        f"/locations/{location}/repositories/{repo_name}/packages/{pkg}/tags"
+    )
+    tags: list[str] = []
+    page_token = ""
+    for _ in range(10):
+        url = f"{base_url}?pageSize=100"
+        if page_token:
+            url += f"&pageToken={urllib.parse.quote(page_token, safe='')}"
+        status, body = _http_json("GET", url, token)
+        if status != 200:
+            if not tags:
+                return 0, ""
+            break
+        for item in body.get("tags") or []:
+            tag_res = (
+                str(item.get("name") or "")
+                if isinstance(item, dict)
+                else str(item)
+            )
+            leaf = tag_res.rsplit("/tags/", 1)[-1].strip()
+            if leaf:
+                tags.append(leaf)
+        page_token = str(body.get("nextPageToken") or "")
+        if not page_token:
+            break
+
+    if not tags:
         return 0, ""
-    tags = [str(t) for t in (body.get("tags") or []) if t]
-    dated = sorted(t for t in tags if t != "latest")
+    dated = sorted(t for t in tags if _DATED_BUILD_TAG_RE.match(t))
+    other = sorted(
+        t for t in tags if t != "latest" and not _DATED_BUILD_TAG_RE.match(t)
+    )
     latest_build = (
-        dated[-1] if dated else ("latest" if "latest" in tags else "")
+        dated[-1]
+        if dated
+        else (other[-1] if other else ("latest" if "latest" in tags else ""))
     )
     return len(tags), latest_build
+
+
+_PULL_RESOURCE_PATTERNS = (
+    # GetTag / GetVersion: .../repositories/adk-recipes-registry/packages/python%2Fdeep-search/tags/20261114-...
+    re.compile(
+        r"adk-recipes-registry/packages/([a-z0-9_-]+(?:/|%2F)[a-z0-9_-]+)/(?:tags|versions)/([^\s/\"']+)",
+        re.IGNORECASE,
+    ),
+    # Docker-GetManifest: .../repositories/adk-recipes-registry/dockerImages/python%2Fdeep-search:tag or @sha256:...
+    re.compile(
+        r"adk-recipes-registry/(?:dockerImages/|manifests/)?([a-z0-9_-]+(?:/|%2F)[a-z0-9_-]+)(?:[:@]([^\s/\"']+))?",
+        re.IGNORECASE,
+    ),
+)
 
 
 def classify_pull_entry(entry: dict[str, Any]) -> tuple[str, str, str] | None:
@@ -257,30 +337,42 @@ def classify_pull_entry(entry: dict[str, Any]) -> tuple[str, str, str] | None:
 
     Returns:
         `(category/name, "latest" | "pinned", "agent_engine" | "cloud_run" | "external")`
-        or None if the log entry does not name a recipe image.
+        or None if the log entry does not name a recipe image or is a CI self-pull.
     """
     proto = entry.get("protoPayload") or {}
-    resource_name = str(proto.get("resourceName") or "")
-    # Resource names look like:
-    # projects/.../repositories/adk-recipes-registry/dockerImages/python%2Fdeep-search@sha256:...
-    # or carry the path in request/metadata.
-    match = re.search(
-        r"adk-recipes-registry/(?:dockerImages/|manifests/)?([a-z0-9_-]+(?:/|%2F)[a-z0-9_-]+)(?:[:@]([^\s/\"']+))?",
-        resource_name,
-        re.IGNORECASE,
-    )
-    if not match:
-        return None
-    image_key = urllib.parse.unquote(match.group(1)).lower()
-    ref = (match.group(2) or "latest").lower()
-    tag_bucket = (
-        "latest" if ref == "latest" or ref.startswith("sha256:") else "pinned"
-    )
-
     auth = proto.get("authenticationInfo") or {}
     principal = str(auth.get("principalEmail") or "").lower()
     req_meta = proto.get("requestMetadata") or {}
     ua = str(req_meta.get("callerSuppliedUserAgent") or "").lower()
+
+    # Ignore CI self-pulls (e.g. Trivy vulnerability scans in recipe-images.yml)
+    if principal == DEFAULT_SERVICE_ACCOUNT.lower() or "trivy" in ua:
+        return None
+
+    candidates = [
+        str(proto.get("resourceName") or ""),
+        json.dumps(proto.get("request") or {}),
+        json.dumps(proto.get("metadata") or {}),
+    ]
+    image_key = ""
+    ref = "latest"
+    for text in candidates:
+        for pat in _PULL_RESOURCE_PATTERNS:
+            match = pat.search(text)
+            if match:
+                raw_key = urllib.parse.unquote(match.group(1)).lower()
+                if raw_key.startswith("packages/"):
+                    continue
+                image_key = raw_key
+                ref = (match.group(2) or "latest").lower()
+                break
+        if image_key:
+            break
+
+    if not image_key:
+        return None
+
+    tag_bucket = "latest" if ref == "latest" else "pinned"
 
     if "gcp-sa-aiplatform" in principal or "reasoning-engine" in ua:
         caller_bucket = "agent_engine"
@@ -302,6 +394,7 @@ def fetch_pull_counts(
         dt.datetime.now(dt.UTC) - dt.timedelta(days=lookback_days)
     ).strftime("%Y-%m-%dT%H:%M:%SZ")
     log_filter = (
+        f'logName="projects/{project_id}/logs/cloudaudit.googleapis.com%2Fdata_access" AND '
         'protoPayload.serviceName="artifactregistry.googleapis.com" AND '
         '(protoPayload.methodName="Docker-GetManifest" OR '
         'protoPayload.methodName="google.devtools.artifactregistry.v1.ArtifactRegistry.GetTag") AND '
@@ -309,10 +402,11 @@ def fetch_pull_counts(
     )
     counts: dict[str, dict[str, int]] = {}
     page_token: str | None = None
-    for _ in range(10):  # cap pagination at 10 pages (10,000 entries)
+    for _ in range(10):  # cap pagination at 10 pages (10,000 newest entries)
         payload: dict[str, Any] = {
             "resourceNames": [f"projects/{project_id}"],
             "filter": log_filter,
+            "orderBy": "timestamp desc",
             "pageSize": 1000,
         }
         if page_token:
@@ -325,8 +419,8 @@ def fetch_pull_counts(
         )
         if status != 200:
             print(
-                f"::warning::Cloud Logging query returned HTTP {status}; "
-                "proceeding with 0 pull counts. Ensure logging.googleapis.com "
+                f"warning: Cloud Logging query returned HTTP {status}; "
+                "proceeding with collected pull counts. Ensure logging.googleapis.com "
                 "is enabled and wif-service-account has roles/logging.viewer.",
                 file=sys.stderr,
             )
@@ -406,6 +500,12 @@ def collect_telemetry_rows(
     return rows
 
 
+def _a1_tab(tab_title: str) -> str:
+    """Format a worksheet title for A1 notation, escaping single quotes."""
+    escaped = tab_title.replace("'", "''")
+    return f"'{escaped}'"
+
+
 def sync_to_google_sheet(
     spreadsheet_id: str,
     rows: list[RecipeTelemetryRow],
@@ -413,16 +513,17 @@ def sync_to_google_sheet(
     *,
     snapshot_tab: str = DEFAULT_SNAPSHOT_TAB,
     history_tab: str = DEFAULT_HISTORY_TAB,
+    sheet_gid: str = "",
 ) -> bool:
     """Create missing tabs and sync the snapshot + history rows to Google Sheets."""
     meta_url = (
         f"https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}"
-        "?fields=sheets.properties.title"
+        "?fields=sheets.properties(sheetId,title)"
     )
     status, meta = _http_json("GET", meta_url, token)
     if status != 200:
         print(
-            f"::warning::Could not access Google Sheet {spreadsheet_id} "
+            f"warning: Could not access Google Sheet {spreadsheet_id} "
             f"(HTTP {status}). Share the spreadsheet with "
             f"{DEFAULT_SERVICE_ACCOUNT} as Editor and ensure "
             "sheets.googleapis.com is enabled.",
@@ -430,11 +531,29 @@ def sync_to_google_sheet(
         )
         return False
 
+    sheets_list = meta.get("sheets") or []
     existing_tabs = {
-        s.get("properties", {}).get("title") for s in (meta.get("sheets") or [])
+        s.get("properties", {}).get("title")
+        for s in sheets_list
+        if s.get("properties", {}).get("title")
     }
+
+    # If a target GID (e.g. 567149855) is provided and exists in the workbook,
+    # resolve its current title dynamically.
+    resolved_snapshot_tab = snapshot_tab
+    if sheet_gid and sheet_gid.strip().isdigit():
+        wanted_gid = int(sheet_gid.strip())
+        for s in sheets_list:
+            props = s.get("properties") or {}
+            if (
+                props.get("sheetId") is not None
+                and int(props["sheetId"]) == wanted_gid
+            ):
+                resolved_snapshot_tab = str(props["title"])
+                break
+
     requests: list[dict[str, Any]] = []
-    for tab in (snapshot_tab, history_tab):
+    for tab in (resolved_snapshot_tab, history_tab):
         if tab not in existing_tabs:
             requests.append({"addSheet": {"properties": {"title": tab}}})
 
@@ -448,51 +567,63 @@ def sync_to_google_sheet(
         )
         if b_status != 200:
             print(
-                f"::warning::Failed to create worksheet tab(s) (HTTP {b_status}): "
+                f"warning: Failed to create worksheet tab(s) (HTTP {b_status}): "
                 f"{b_body}",
                 file=sys.stderr,
             )
             return False
 
     values = [SHEET_HEADERS] + [r.to_sheet_row() for r in rows]
+    snap_a1 = _a1_tab(resolved_snapshot_tab)
 
-    # 1. Clear and write the live snapshot tab
-    snap_range = urllib.parse.quote(f"'{snapshot_tab}'!A1")
-    clear_range = urllib.parse.quote(f"'{snapshot_tab}'!A:Z")
+    # 1. Write the live snapshot tab FIRST, then clear only trailing rows in A:R
+    # so a transient failure never leaves the sheet blank and columns S:Z stay intact.
+    snap_range = urllib.parse.quote(f"{snap_a1}!A1", safe="")
+    u_status, u_body = _http_json(
+        "PUT",
+        f"https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}/values/{snap_range}?valueInputOption=RAW",
+        token,
+        {"values": values},
+    )
+    if u_status != 200:
+        print(
+            f"warning: Failed to update '{resolved_snapshot_tab}' tab (HTTP {u_status}): "
+            f"{u_body}",
+            file=sys.stderr,
+        )
+        return False
+
+    clear_start_row = len(values) + 1
+    clear_range = urllib.parse.quote(f"{snap_a1}!A{clear_start_row}:R", safe="")
     _http_json(
         "POST",
         f"https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}/values/{clear_range}:clear",
         token,
         {},
     )
-    u_status, u_body = _http_json(
-        "PUT",
-        f"https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}/values/{snap_range}?valueInputOption=USER_ENTERED",
-        token,
-        {"values": values},
-    )
-    if u_status != 200:
-        print(
-            f"::warning::Failed to update '{snapshot_tab}' tab (HTTP {u_status}): "
-            f"{u_body}",
-            file=sys.stderr,
-        )
-        return False
 
     # 2. Append to the history tab (write headers first if newly created)
-    hist_range = urllib.parse.quote(f"'{history_tab}'!A1")
+    hist_a1 = _a1_tab(history_tab)
+    hist_range = urllib.parse.quote(f"{hist_a1}!A1", safe="")
     hist_rows = (
         values
         if history_tab not in existing_tabs
         else [r.to_sheet_row() for r in rows]
     )
     if hist_rows:
-        _http_json(
+        a_status, a_body = _http_json(
             "POST",
-            f"https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}/values/{hist_range}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS",
+            f"https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}/values/{hist_range}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS",
             token,
             {"values": hist_rows},
         )
+        if a_status != 200:
+            print(
+                f"warning: Failed to append to '{history_tab}' tab (HTTP {a_status}): "
+                f"{a_body}",
+                file=sys.stderr,
+            )
+            return False
 
     return True
 
@@ -503,6 +634,7 @@ def render_markdown_summary(
     lookback_days: int,
     sheet_synced: bool,
     spreadsheet_id: str,
+    dry_run: bool = False,
 ) -> str:
     """Render a concise GitHub Step Summary markdown report."""
     n_total = len(rows)
@@ -511,6 +643,13 @@ def render_markdown_summary(
     n_gccl = sum(1 for r in rows if r.has_gccl_telemetry)
     total_pulls = sum(r.pulls_window_total for r in rows)
 
+    if sheet_synced:
+        sync_status = "Synced"
+    elif dry_run:
+        sync_status = "Skipped (dry run)"
+    else:
+        sync_status = "Skipped / pending Sheet Editor grant"
+
     lines = [
         "## 📊 Recipe Deployment & Usage Telemetry",
         "",
@@ -518,10 +657,7 @@ def render_markdown_summary(
         f"- **Containerized (`Dockerfile`):** {n_docker} ({n_deployable} marked `deployable: true`)",
         f"- **Instrumented with `gccl/` runtime header:** {n_gccl}",
         f"- **Artifact Registry pulls (last {lookback_days}d):** {total_pulls}",
-        f"- **Google Sheet sync (`{spreadsheet_id}`):** "
-        + (
-            "Synced" if sheet_synced else "Skipped / pending Sheet Editor grant"
-        ),
+        f"- **Google Sheet sync (`{spreadsheet_id}`):** {sync_status}",
         "",
         "| Recipe | Lang | Deployable | Dockerfile | `gccl/` Header | Latest Tag | Pulls (Total / AE / CR / Ext) |",
         "|---|---|---|---|---|---|---|",
@@ -547,6 +683,11 @@ def main() -> int:
         "--spreadsheet-id",
         default=DEFAULT_SPREADSHEET_ID,
         help="Target Google Sheet ID.",
+    )
+    parser.add_argument(
+        "--sheet-gid",
+        default=DEFAULT_SHEET_GID,
+        help="Optional worksheet GID for the snapshot tab (e.g. 567149855).",
     )
     parser.add_argument(
         "--snapshot-tab",
@@ -589,6 +730,10 @@ def main() -> int:
     )
     args = parser.parse_args()
 
+    if args.lookback_days < 1:
+        print("error: --lookback-days must be >= 1", file=sys.stderr)
+        return 2
+
     token = args.access_token.strip() or None
     rows = collect_telemetry_rows(
         REPO_ROOT,
@@ -605,6 +750,7 @@ def main() -> int:
             token,
             snapshot_tab=args.snapshot_tab,
             history_tab=args.history_tab,
+            sheet_gid=args.sheet_gid,
         )
 
     md = render_markdown_summary(
@@ -612,6 +758,7 @@ def main() -> int:
         lookback_days=args.lookback_days,
         sheet_synced=sheet_synced,
         spreadsheet_id=args.spreadsheet_id,
+        dry_run=args.dry_run,
     )
 
     if args.out_json:

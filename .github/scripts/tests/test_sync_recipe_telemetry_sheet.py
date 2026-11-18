@@ -88,6 +88,40 @@ def test_classify_pull_entry_segments_external_pull():
     }
     assert sync.classify_pull_entry(entry) == (
         "python/rag-agent-search",
+        "pinned",
+        "external",
+    )
+
+
+def test_classify_pull_entry_ignores_ci_trivy_and_handles_get_tag():
+    ci_entry = {
+        "protoPayload": {
+            "resourceName": (
+                "projects/adk-samples-repo-gcp-support/locations/us-west1/"
+                "repositories/adk-recipes-registry/dockerImages/"
+                "python/rag-agent-search:20261114-abc123def456"
+            ),
+            "authenticationInfo": {
+                "principalEmail": sync.DEFAULT_SERVICE_ACCOUNT
+            },
+            "requestMetadata": {"callerSuppliedUserAgent": "trivy/0.36.0"},
+        }
+    }
+    assert sync.classify_pull_entry(ci_entry) is None
+
+    get_tag_entry = {
+        "protoPayload": {
+            "resourceName": (
+                "projects/adk-samples-repo-gcp-support/locations/us-west1/"
+                "repositories/adk-recipes-registry/packages/"
+                "python%2Fdeep-search/tags/latest"
+            ),
+            "authenticationInfo": {"principalEmail": ""},
+            "requestMetadata": {"callerSuppliedUserAgent": "docker/27.0.3"},
+        }
+    }
+    assert sync.classify_pull_entry(get_tag_entry) == (
+        "python/deep-search",
         "latest",
         "external",
     )
@@ -171,8 +205,10 @@ def test_sync_to_google_sheet_creates_tabs_and_writes_rows(
         timeout: int = 30,
     ) -> tuple[int, dict[str, Any]]:
         calls.append((method, url, payload))
-        if method == "GET" and "fields=sheets.properties.title" in url:
-            return 200, {"sheets": [{"properties": {"title": "Sheet1"}}]}
+        if method == "GET" and "fields=sheets.properties" in url:
+            return 200, {
+                "sheets": [{"properties": {"sheetId": 0, "title": "Sheet1"}}]
+            }
         return 200, {}
 
     monkeypatch.setattr(sync, "_http_json", fake_http_json)
@@ -210,10 +246,10 @@ def test_sync_to_google_sheet_creates_tabs_and_writes_rows(
     assert methods_and_urls[1][0] == "POST"
     assert ":batchUpdate" in methods_and_urls[1][1]
     assert len(calls[1][2]["requests"]) == 2
-    # 3. POST :clear on snapshot tab
-    assert ":clear" in methods_and_urls[2][1]
-    # 4. PUT values on snapshot tab
-    assert methods_and_urls[3][0] == "PUT"
+    # 3. PUT values on snapshot tab first (before clearing trailing rows)
+    assert methods_and_urls[2][0] == "PUT"
+    # 4. POST :clear on trailing rows of snapshot tab
+    assert ":clear" in methods_and_urls[3][1]
     # 5. POST :append on history tab
     assert ":append" in methods_and_urls[4][1]
 
