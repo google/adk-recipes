@@ -14,7 +14,7 @@
 
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import {
   createMemoryHistory,
   createRootRoute,
@@ -23,13 +23,14 @@ import {
   RouterProvider,
 } from "@tanstack/react-router";
 import { InvestigationDetailView } from "../investigation-detail-view";
-import type { InvestigationRecord } from "@/lib/aqua-api";
+import type { Investigation } from "@/lib/aqua-api";
 import { counters } from "@/lib/__fixtures__/counters";
+import { POLL_INTERVAL_MS } from "@/lib/investigation-state";
 
-const RECORD: InvestigationRecord = {
-  run_id: "run-12345678",
+const RECORD: Investigation = {
+  investigation_id: "inv-12345678",
   status: "done",
-  observed_agent_name: "it_support_agent",
+  observed_agent_key: "it_support_agent",
   trigger_type: "manual",
   created_at: "2026-08-28T18:35:34Z",
   elapsed_seconds: 42.5,
@@ -37,11 +38,11 @@ const RECORD: InvestigationRecord = {
   metrics_failed: 2,
   metrics_errored: 0,
   counters: counters({
-    traces_scanned: 50,
-    traces_ingested: 50,
-    traces_evaluated: 50,
-    traces_eval_passed: 40,
-    traces_eval_failed: 10,
+    trajectories_scanned: 50,
+    trajectories_ingested: 50,
+    trajectories_evaluated: 50,
+    trajectories_eval_passed: 40,
+    trajectories_eval_failed: 10,
     rubrics_generated: 70,
     clusters_created: 2,
     insights_created: 1,
@@ -50,7 +51,7 @@ const RECORD: InvestigationRecord = {
   summary: {},
   events: [
     {
-      run_id: "run-12345678",
+      investigation_id: "inv-12345678",
       created_at: "2026-08-28T18:35:35Z",
       source: "triage",
       text: "**Triage:** Found 2 clusters.",
@@ -58,7 +59,10 @@ const RECORD: InvestigationRecord = {
   ],
 };
 
-function renderDetail(record: InvestigationRecord | null, error?: string) {
+function renderDetail(
+  record: Investigation | null | (() => Investigation | null),
+  error?: string,
+) {
   vi.stubGlobal(
     "fetch",
     vi.fn().mockImplementation((url: string) => {
@@ -74,8 +78,11 @@ function renderDetail(record: InvestigationRecord | null, error?: string) {
           new Response(JSON.stringify({ error }), { status: 500 }),
         );
       }
+      const investigation = typeof record === "function" ? record() : record;
       return Promise.resolve(
-        new Response(JSON.stringify({ run: record }), { status: 200 }),
+        new Response(JSON.stringify({ investigation }), {
+          status: 200,
+        }),
       );
     }),
   );
@@ -88,7 +95,7 @@ function renderDetail(record: InvestigationRecord | null, error?: string) {
   const indexRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: "/",
-    component: () => <InvestigationDetailView runId="run-12345678" />,
+    component: () => <InvestigationDetailView investigationId="inv-12345678" />,
   });
   const history = createMemoryHistory({ initialEntries: ["/"] });
   const router = createRouter({
@@ -96,11 +103,14 @@ function renderDetail(record: InvestigationRecord | null, error?: string) {
     history,
   });
 
-  return render(
-    <QueryClientProvider client={queryClient}>
-      <RouterProvider router={router} />
-    </QueryClientProvider>,
-  );
+  return {
+    ...render(
+      <QueryClientProvider client={queryClient}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>,
+    ),
+    queryClient,
+  };
 }
 
 const SELECTOR_SQL =
@@ -117,7 +127,7 @@ describe("InvestigationDetailView", () => {
     expect(
       await screen.findByRole("heading", {
         level: 1,
-        name: "Investigation run-12345678",
+        name: "Investigation inv-12345678",
       }),
     ).toBeInTheDocument();
     expect(screen.getByText(/Observed agent:/)).toBeInTheDocument();
@@ -164,12 +174,12 @@ describe("InvestigationDetailView", () => {
     );
   });
 
-  it("shows the overrides a custom run was given, as text", async () => {
+  it("shows the overrides a custom investigation was given, as text", async () => {
     renderDetail({
       ...RECORD,
       custom_overrides: {
         selector_sql: SELECTOR_SQL,
-        session_review_focus: "Refund flows only",
+        review_focus: "Refund flows only",
       },
     });
 
@@ -185,7 +195,7 @@ describe("InvestigationDetailView", () => {
       ...RECORD,
       custom_overrides: {
         selector_sql: SELECTOR_SQL,
-        session_review_focus: "",
+        review_focus: "",
       },
     });
 
@@ -193,7 +203,7 @@ describe("InvestigationDetailView", () => {
     expect(screen.queryByText(/Review focus:/)).not.toBeInTheDocument();
   });
 
-  it("draws the investigation's own funnel, with a note written for one run", async () => {
+  it("draws the investigation's own funnel, with a note written for one investigation", async () => {
     renderDetail(RECORD);
 
     expect(
@@ -226,6 +236,88 @@ describe("InvestigationDetailView", () => {
     expect(screen.queryByRole("img", { name: /^Evaluated:/ })).toBeNull();
   });
 
+  it("says what a running investigation is doing where its funnel will be, and re-reads it", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const now = new Date().toISOString();
+      renderDetail({
+        ...RECORD,
+        status: "running",
+        created_at: now,
+        counters: counters(),
+        progress: {
+          stage: "Session review",
+          evaluated: 45,
+          total: 205,
+          findings: 12,
+          updated_at: now,
+        },
+      });
+
+      expect(
+        await screen.findByRole("progressbar", { name: "Session review" }),
+      ).toHaveAttribute("aria-valuenow", "45");
+      expect(
+        screen.getByText("45 of 205 trajectories, 12 findings"),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByText(
+          "The full counts are recorded when the investigation finishes.",
+        ),
+      ).toBeInTheDocument();
+      const reads = () =>
+        vi
+          .mocked(fetch)
+          .mock.calls.filter(([url]) =>
+            String(url).includes("/api/investigations/"),
+          ).length;
+      expect(reads()).toBe(1);
+      await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS);
+      await waitFor(() => expect(reads()).toBe(2));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("stops re-reading once the investigation settles, and has the list re-read for the rail", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const now = new Date().toISOString();
+      const running: Investigation = {
+        ...RECORD,
+        status: "running",
+        created_at: now,
+        counters: counters(),
+        progress: { stage: "Clustering", findings: 3, updated_at: now },
+      };
+      let reads = 0;
+      const { queryClient } = renderDetail(() => {
+        reads += 1;
+        return reads === 1 ? running : { ...running, status: "done" };
+      });
+      const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+
+      await screen.findByRole("progressbar", { name: "Clustering" });
+      // The first read is what the rail already shows: nothing to catch up.
+      expect(invalidate).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS);
+      await waitFor(() => expect(reads).toBe(2));
+      await waitFor(() => expect(invalidate).toHaveBeenCalledTimes(1));
+      // The rail's list, not a day's: its key ends at "investigations".
+      const [{ queryKey, exact }] = invalidate.mock.calls[0] as [
+        { queryKey: readonly unknown[]; exact: boolean },
+      ];
+      expect(queryKey.at(-1)).toBe("investigations");
+      expect(exact).toBe(true);
+
+      await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS * 3);
+      expect(reads).toBe(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("names the header's figures as metric outcomes, apart from the funnel's trajectories", async () => {
     // 10 passed in the header and 40 in the funnel: one counts (trajectory,
     // metric) pairs, the other trajectories, and the page has to say which.
@@ -238,13 +330,13 @@ describe("InvestigationDetailView", () => {
     ).toBeInTheDocument();
   });
 
-  it("shows nothing about overrides for an ambient run", async () => {
+  it("shows nothing about overrides for an ambient investigation", async () => {
     renderDetail(RECORD);
 
     expect(
       await screen.findByRole("heading", {
         level: 1,
-        name: "Investigation run-12345678",
+        name: "Investigation inv-12345678",
       }),
     ).toBeInTheDocument();
     expect(screen.queryByText("Selector SQL")).not.toBeInTheDocument();
@@ -257,7 +349,7 @@ describe("InvestigationDetailView trigger badge", () => {
     vi.restoreAllMocks();
   });
 
-  it("badges a run a user started, keeping the raw trigger in the tooltip", async () => {
+  it("badges an investigation a user started, keeping the raw trigger in the tooltip", async () => {
     renderDetail({ ...RECORD, trigger_type: "custom" });
 
     const badge = await screen.findByText("Custom");

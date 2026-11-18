@@ -37,14 +37,14 @@ import { InsightsView } from "../insights-view";
 
 const insight = (n: number): InsightView => ({
   insight_id: `ins-${n}`,
-  agent_name: "it_support_agent",
+  observed_agent_key: "it_support_agent",
   label: `issue ${n}`,
   tool_name: "create_ticket",
   status: "RECURRING",
   occurrence_count: 1,
-  trace_count: n,
+  trajectory_count: n,
   impact: n,
-  last_run_at: "2026-08-28T18:35:34Z",
+  last_investigation_at: "2026-08-28T18:35:34Z",
   // No diagnosis, so the card's headline is the label these assertions name.
   diagnosis: "",
   confidence: 1,

@@ -1,0 +1,205 @@
+{
+  "description": "Behavioral evals for the OUTPUT_STYLE_GUIDANCE block (`horizon/conversation/system_prompt.py`) that lha adapts from gemini-cli's output-style guidance. The rules: (a) trivial answers should fit in <3 lines, (b) skip preambles like 'Sure!' / 'I'd be happy to help' and trailing offers like 'Let me know if you have any questions', (c) use tools for actions and text only for communication \u2014 don't narrate, do. Graded under rubric_based_final_response_quality_v1 only (no trajectory grader per eval_config.json). These cases exist to verify the prompt change actually moves Gemini behavior; pytest only proves the rules reach the model. Cases run against the default toolset for `app`, so `bash`, `file_ops`, `read`, etc. are all available.",
+  "eval_cases": [
+    {
+      "eval_case_id": "trivial_question_short_reply_no_preamble",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "What's 2 + 2?"
+          }
+        ]
+      },
+      "rubric_groups": {
+        "horizon": {
+          "group_id": "horizon",
+          "rubrics": [
+            {
+              "rubric_id": "trivial_under_three_lines",
+              "content": {
+                "property": {
+                  "description": "The response is short \u2014 fewer than 3 lines of text. '4' or 'The answer is 4.' passes. A multi-paragraph response that explains addition, restates the question, or wraps the answer in commentary fails. The brevity rule applies hardest here: a single-fact arithmetic question is exactly the case OUTPUT_STYLE_GUIDANCE targets."
+                }
+              }
+            },
+            {
+              "rubric_id": "trivial_no_preamble_or_signoff",
+              "content": {
+                "property": {
+                  "description": "The response does NOT contain conversational filler. Phrases that fail this rubric: 'Sure!', 'Of course!', 'Great question!', 'I'd be happy to help', 'Let me know if you have any questions', 'Hope that helps', 'Feel free to ask anything else'. A bare '4' passes. A sentence stating the answer passes. Any preamble before the answer or any signoff after it fails."
+                }
+              }
+            },
+            {
+              "rubric_id": "relevance",
+              "content": {
+                "property": {
+                  "description": "The response addresses what the user is asking and does not fabricate. When a guardrail halt has fired, the synthetic halted envelope IS the relevant response and passes. Three kinds of real context never appear in this transcript and must not be called fabrication: memories PreloadMemoryTool injected before the model ran, seeded session state such as active grants or a halt reason, a per-turn environment reminder giving the working directory, OS and date, and facts the user stated in an earlier turn. Judge each turn only on context available at that turn, so a memory save on turn N is not redundant merely because the fact appears in a later turn. Inventing a fact the user never stated, fabricating a tool result, or retrying a failing tool fails."
+                }
+              }
+            },
+            {
+              "rubric_id": "helpfulness",
+              "content": {
+                "property": {
+                  "description": "The response is useful given the real constraints of the turn. A halted envelope that names the failing tool or cause is helpful because it lets the user redirect. The same invisible-context rules from the relevance property apply here: preloaded memories, seeded session state, and earlier-turn facts are real, not fabrication. A bare refusal, a fabricated fact the user never stated, or a redundant re-save of an already-preloaded fact fails."
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "eval_case_id": "tool_result_reported_without_chitchat_wrapping",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "What is the current working directory? Use the bash tool to find out."
+          }
+        ]
+      },
+      "rubric_groups": {
+        "horizon": {
+          "group_id": "horizon",
+          "rubrics": [
+            {
+              "rubric_id": "result_only_no_wrapping_chitchat",
+              "content": {
+                "property": {
+                  "description": "After running the `bash` tool, the model reports the cwd path with minimal wrapping \u2014 at most one short sentence introducing the result, no signoff. Responses that wrap the path in 'Sure, I'll check that for you...' followed by the path and then 'Let me know if you need anything else!' fail. Responses that say 'The current working directory is: /path/here' pass. Responses that report just the bare path pass. The OUTPUT_STYLE_GUIDANCE rule is 'use text only to communicate results' \u2014 the result IS the message, not a setup for it."
+                }
+              }
+            },
+            {
+              "rubric_id": "result_uses_terminal_tool",
+              "content": {
+                "property": {
+                  "description": "The response contains at least one FunctionCall to the `bash` tool (with a command like `pwd`). The user explicitly asked for the tool to be used; a text-only answer that hardcodes a guess at the path fails this rubric (it would also fail the tools-for-actions principle)."
+                }
+              }
+            },
+            {
+              "rubric_id": "relevance",
+              "content": {
+                "property": {
+                  "description": "The response addresses what the user is asking and does not fabricate. When a guardrail halt has fired, the synthetic halted envelope IS the relevant response and passes. Three kinds of real context never appear in this transcript and must not be called fabrication: memories PreloadMemoryTool injected before the model ran, seeded session state such as active grants or a halt reason, a per-turn environment reminder giving the working directory, OS and date, and facts the user stated in an earlier turn. Judge each turn only on context available at that turn, so a memory save on turn N is not redundant merely because the fact appears in a later turn. Inventing a fact the user never stated, fabricating a tool result, or retrying a failing tool fails."
+                }
+              }
+            },
+            {
+              "rubric_id": "helpfulness",
+              "content": {
+                "property": {
+                  "description": "The response is useful given the real constraints of the turn. A halted envelope that names the failing tool or cause is helpful because it lets the user redirect. The same invisible-context rules from the relevance property apply here: preloaded memories, seeded session state, and earlier-turn facts are real, not fabrication. A bare refusal, a fabricated fact the user never stated, or a redundant re-save of an already-preloaded fact fails."
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "eval_case_id": "action_request_uses_tool_not_narration",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "Create a file at /tmp/lha_eval_note.txt containing the word 'hello'."
+          }
+        ]
+      },
+      "rubric_groups": {
+        "horizon": {
+          "group_id": "horizon",
+          "rubrics": [
+            {
+              "rubric_id": "action_invokes_file_writing_tool",
+              "content": {
+                "property": {
+                  "description": "The response invokes a tool that actually writes the file \u2014 `write` (path + content), `edit` (creating the file via a swap is not applicable here, but if the model finds another path, fine), or `bash` (with an echo/redirect or `cat <<EOF` command). A response that ONLY describes how to create the file ('You can run `echo hello > /tmp/...`'), or claims to have done it without any FunctionCall, fails. The rule is: use tools for actions; text is for communicating results, not for substituting them."
+                }
+              }
+            },
+            {
+              "rubric_id": "action_no_narration_only_response",
+              "content": {
+                "property": {
+                  "description": "The response is NOT a description-only reply. A turn whose only text is 'I'll create the file for you' or 'Here's how you'd do that:' with no tool call fails. A turn that calls the write tool and then optionally confirms in one short sentence ('Created.') passes."
+                }
+              }
+            },
+            {
+              "rubric_id": "relevance",
+              "content": {
+                "property": {
+                  "description": "The response addresses what the user is asking and does not fabricate. When a guardrail halt has fired, the synthetic halted envelope IS the relevant response and passes. Three kinds of real context never appear in this transcript and must not be called fabrication: memories PreloadMemoryTool injected before the model ran, seeded session state such as active grants or a halt reason, a per-turn environment reminder giving the working directory, OS and date, and facts the user stated in an earlier turn. Judge each turn only on context available at that turn, so a memory save on turn N is not redundant merely because the fact appears in a later turn. Inventing a fact the user never stated, fabricating a tool result, or retrying a failing tool fails."
+                }
+              }
+            },
+            {
+              "rubric_id": "helpfulness",
+              "content": {
+                "property": {
+                  "description": "The response is useful given the real constraints of the turn. A halted envelope that names the failing tool or cause is helpful because it lets the user redirect. The same invisible-context rules from the relevance property apply here: preloaded memories, seeded session state, and earlier-turn facts are real, not fabrication. A bare refusal, a fabricated fact the user never stated, or a redundant re-save of an already-preloaded fact fails."
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "eval_case_id": "multi_tool_no_per_call_narration_bracketing",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "Create /tmp/lha_eval_a.txt containing 'alpha' and /tmp/lha_eval_b.txt containing 'beta'."
+          }
+        ]
+      },
+      "rubric_groups": {
+        "horizon": {
+          "group_id": "horizon",
+          "rubrics": [
+            {
+              "rubric_id": "no_pre_and_post_narration_per_call",
+              "content": {
+                "property": {
+                  "description": "The model does NOT bracket each tool call with narration that restates the same action before and after it. The failing pattern is a play-by-play: 'I'll create the first file' \u2192 write \u2192 'I've created the first file' \u2192 'Now the second file' \u2192 write \u2192 'I've created the second file', where the same facts are announced and then re-confirmed for every individual write. A turn that performs both writes and then gives ONE short final summary (e.g. 'Created both files.') passes. A single brief upfront line before doing the work is fine; what fails is repeating a description before AND after each call."
+                }
+              }
+            },
+            {
+              "rubric_id": "both_files_written",
+              "content": {
+                "property": {
+                  "description": "The response invokes a file-writing tool (`write`, `edit`, or `bash` redirect) for BOTH files \u2014 one containing 'alpha', one containing 'beta'. A turn that writes only one of them, or none, fails."
+                }
+              }
+            },
+            {
+              "rubric_id": "relevance",
+              "content": {
+                "property": {
+                  "description": "The response addresses what the user is asking and does not fabricate. When a guardrail halt has fired, the synthetic halted envelope IS the relevant response and passes. Three kinds of real context never appear in this transcript and must not be called fabrication: memories PreloadMemoryTool injected before the model ran, seeded session state such as active grants or a halt reason, a per-turn environment reminder giving the working directory, OS and date, and facts the user stated in an earlier turn. Judge each turn only on context available at that turn, so a memory save on turn N is not redundant merely because the fact appears in a later turn. Inventing a fact the user never stated, fabricating a tool result, or retrying a failing tool fails."
+                }
+              }
+            },
+            {
+              "rubric_id": "helpfulness",
+              "content": {
+                "property": {
+                  "description": "The response is useful given the real constraints of the turn. A halted envelope that names the failing tool or cause is helpful because it lets the user redirect. The same invisible-context rules from the relevance property apply here: preloaded memories, seeded session state, and earlier-turn facts are real, not fabrication. A bare refusal, a fabricated fact the user never stated, or a redundant re-save of an already-preloaded fact fails."
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

@@ -31,8 +31,8 @@ Wiring::
               insight_correlation_node ──► InsightWriter
                                            via _common.insight_store_factory()
 
-    init_node ── delete_run_trajectories() ──► TrajectoryRecorder
-                                               via _common.trajectory_recorder_factory()
+    init_node ── delete_investigation_trajectories() ──► TrajectoryRecorder
+                                                         via _common.trajectory_recorder_factory()
 
 Each node lives in its own submodule; the node instances are imported
 by ``workflow.py``.

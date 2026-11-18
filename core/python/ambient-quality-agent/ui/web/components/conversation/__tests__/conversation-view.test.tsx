@@ -14,15 +14,15 @@
 
 import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
-import type { CaseConversation } from "@/lib/aqua-api";
+import type { TrajectoryBundle } from "@/lib/aqua-api";
 import { ConversationView } from "../conversation-view";
 
-const CONVERSATION: CaseConversation = {
+const CONVERSATION: TrajectoryBundle = {
   trajectory_id: "case-01",
   status: "ingested",
-  turn_count: 2,
-  turns_returned: 2,
-  turns: [
+  step_count: 2,
+  steps_returned: 2,
+  steps: [
     {
       turn_index: 0,
       turn_id: "t0",
@@ -83,15 +83,93 @@ describe("ConversationView", () => {
     expect(screen.getByText("(no response)")).toBeInTheDocument();
   });
 
+  it("renders a chip for a message that is only a file", () => {
+    render(
+      <ConversationView
+        conversation={{
+          trajectory_id: "case-03",
+          status: "ingested",
+          step_count: 1,
+          steps_returned: 1,
+          steps: [
+            {
+              turn_index: 0,
+              events: [
+                {
+                  author: "user",
+                  content: {
+                    role: "user",
+                    parts: [
+                      {
+                        file_data: {
+                          file_uri: "gs://jobs/receipt",
+                          mime_type: "image/jpeg",
+                        },
+                      },
+                    ],
+                  },
+                },
+              ],
+            },
+          ],
+        }}
+      />,
+    );
+
+    const chip = screen.getByText("image/jpeg");
+    expect(chip).toBeInTheDocument();
+    expect(chip.closest("li")).toHaveAttribute("title", "gs://jobs/receipt");
+  });
+
+  it("renders a bubble's text and its chip together", () => {
+    render(
+      <ConversationView
+        conversation={{
+          trajectory_id: "case-04",
+          status: "ingested",
+          step_count: 1,
+          steps_returned: 1,
+          steps: [
+            {
+              turn_index: 0,
+              events: [
+                {
+                  author: "user",
+                  content: {
+                    role: "user",
+                    parts: [
+                      { text: "Here is the receipt." },
+                      {
+                        file_data: {
+                          file_uri: "gs://jobs/receipt",
+                          mime_type: "image/jpeg",
+                        },
+                      },
+                    ],
+                  },
+                },
+              ],
+            },
+          ],
+        }}
+      />,
+    );
+
+    const bubble = screen.getByText("Here is the receipt.").closest("article");
+    const chips = screen.getByRole("list", { name: "Attached files" });
+    expect(bubble).toContainElement(chips);
+    expect(chips).toHaveTextContent("image/jpeg");
+  });
+
   it("shows an empty state when there are no turns or tool calls", () => {
     render(
       <ConversationView
         conversation={{
           trajectory_id: "case-02",
           status: "ingested",
-          turn_count: 0,
-          turns_returned: 0,
-          turns: [],
+          step_count: 0,
+          steps_returned: 0,
+          steps: [],
         }}
       />,
     );

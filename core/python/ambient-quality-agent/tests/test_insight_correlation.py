@@ -199,7 +199,7 @@ def _state(**overrides: Any) -> dict[str, Any]:
     """
     state: dict[str, Any] = {
         "observed_agent_name": "root_agent",
-        "run_id": "run-1",
+        "investigation_id": "run-1",
         "insights_auto_resolve_days": 14,
         "insights_verification_enabled": True,
         "insights_verification_enforced": True,
@@ -275,12 +275,12 @@ def test_unmatched_candidate_mints_one_new_insight(
     new_insights, matched_ids, occurrences = fake_store.saved[0]
     assert [i.status for i in new_insights] == [InsightStatus.NEW]
     assert new_insights[0].label == "made no tool call"
-    assert new_insights[0].agent_name == "root_agent"
+    assert new_insights[0].observed_agent_key == "root_agent"
     assert matched_ids == []
     assert len(occurrences) == 1
     assert occurrences[0].insight_id == new_insights[0].insight_id
-    assert occurrences[0].run_id == "run-1"
-    assert occurrences[0].item_count == 2
+    assert occurrences[0].investigation_id == "run-1"
+    assert occurrences[0].finding_count == 2
     # No revision reached the findings, so the sighting is the single unnamed one.
     assert occurrences[0].agent_revision == ""
     # The node leaves nothing behind in state; the store owns persistence.
@@ -308,8 +308,8 @@ def test_insights_are_written_under_the_agent_key(
     insight_correlation_node._func(_ctx(state))
 
     new_insights, _, occurrences = fake_store.saved[0]
-    assert new_insights[0].agent_name == "acme-staging__root_agent"
-    assert occurrences[0].agent_name == "acme-staging__root_agent"
+    assert new_insights[0].observed_agent_key == "acme-staging__root_agent"
+    assert occurrences[0].observed_agent_key == "acme-staging__root_agent"
 
 
 def test_matched_candidate_appends_occurrence_not_insight(
@@ -368,8 +368,8 @@ def test_counts_the_clusters_and_the_insights_they_became(
         "clusters_verify_failed": 0,
         "insights_created": 1,
         "insights_recurring": 1,
-        "rubrics_errored": 0,
-        "rubrics_unclustered": 0,
+        "findings_errored": 0,
+        "findings_unclustered": 0,
     }
 
 
@@ -380,7 +380,7 @@ def test_counts_the_rubrics_that_reached_no_insight(
 
     The node's summary line says a sweep came out short, but only while someone
     is reading that run's events; a shrunken sweep is exactly the thing worth
-    seeing across runs, so the same numbers go into the run's counters and the
+    seeing across runs, so the same numbers go into the investigation's counters and the
     deployment's totals.
     """
     # Two rubrics fail and the model clusters one, leaving the other out.
@@ -393,8 +393,8 @@ def test_counts_the_rubrics_that_reached_no_insight(
 
     insight_correlation_node._func(_ctx(state))
 
-    assert state["counters"]["rubrics_unclustered"] == 1
-    assert state["counters"]["rubrics_errored"] == 0
+    assert state["counters"]["findings_unclustered"] == 1
+    assert state["counters"]["findings_errored"] == 0
 
 
 def test_an_occurrence_counts_the_traces_behind_its_cluster(
@@ -419,8 +419,8 @@ def test_an_occurrence_counts_the_traces_behind_its_cluster(
     event = insight_correlation_node._func(_ctx(state))
 
     _new_insights, _matched, occurrences = fake_store.saved[0]
-    assert occurrences[0].item_count == 3
-    assert occurrences[0].trace_count == 2
+    assert occurrences[0].finding_count == 3
+    assert occurrences[0].trajectory_count == 2
     assert event.content is not None
     assert "3 rubric(s) across 2 trace(s)" in event.content.parts[0].text
 
@@ -448,14 +448,14 @@ def test_an_occurrence_names_the_trajectories_behind_its_cluster(
 
     _new_insights, _matched, occurrences = fake_store.saved[0]
     assert occurrences[0].trajectory_ids == ["case-1", "case-2"]
-    assert occurrences[0].trace_count == len(occurrences[0].trajectory_ids)
+    assert occurrences[0].trajectory_count == len(occurrences[0].trajectory_ids)
 
 
 def test_event_names_the_source_cases_of_each_candidate(
     fake_call: FakeInsightModelCall, fake_store: FakeInsightStore
 ) -> None:
     """The event carries the eval cases behind a cluster, so a finding is
-    traceable back to the conversations that produced it -- in the run, not logs."""
+    traceable back to the conversations that produced it -- in the investigation, not logs."""
     fake_call.response = json.dumps(
         {"clusters": [{"label": "made no tool call", "finding_ids": ["0"]}]}
     )
@@ -483,7 +483,7 @@ def test_summary_reports_rubrics_the_clustering_left_out(
 
     assert event.content is not None
     text = event.content.parts[0].text
-    assert "skipped rubric(s):** 0 errored, 1 unclustered (of 2 total)" in text
+    assert "skipped finding(s):** 0 errored, 1 unclustered (of 2 total)" in text
 
 
 # --- verification -------------------------------------------------------------
@@ -1136,7 +1136,7 @@ def test_only_the_examples_the_pass_read_are_marked_examined(
     insight_correlation_node._func(_ctx(state))
 
     _new, _matched, occurrences = fake_store.saved[0]
-    examined = {e.eval_case_id for e in occurrences[0].rubrics if e.examined}
+    examined = {e.trajectory_id for e in occurrences[0].examples if e.examined}
     # Three traces per prompt, taken in eval-case order; case-4 never reached it.
     assert examined == {"case-1", "case-2", "case-3"}
 
@@ -1158,7 +1158,7 @@ def test_the_verdict_reads_back_through_the_reader(
         client=writer,
         project_id="test-project",
         dataset="aqua_insights",
-        agent_name="root_agent",
+        observed_agent_key="root_agent",
     ).save_investigation_result([], [], [], occurrences, _NOW)
     (row,) = writer.load_table_from_json.call_args.args[0]
 
@@ -1171,7 +1171,7 @@ def test_the_verdict_reads_back_through_the_reader(
         client=reads,
         project_id="test-project",
         dataset="aqua_insights",
-        agent_name="root_agent",
+        observed_agent_key="root_agent",
     ).list_occurrences(
         insight_id=str(occurrences[0].insight_id), limit=1, offset=0
     )
@@ -1179,7 +1179,7 @@ def test_the_verdict_reads_back_through_the_reader(
     verdict = stored[0].analyses["verification"]
     assert verdict.valid is True
     assert verdict.explanation == "described"
-    assert [e.examined for e in stored[0].rubrics] == [True]
+    assert [e.examined for e in stored[0].examples] == [True]
 
 
 def test_every_occurrence_says_why_it_names_the_insight_it_names(
@@ -1229,7 +1229,7 @@ def test_every_occurrence_says_why_it_names_the_insight_it_names(
         client=writer,
         project_id="test-project",
         dataset="aqua_insights",
-        agent_name="root_agent",
+        observed_agent_key="root_agent",
     ).save_investigation_result([], [], [], occurrences, _NOW)
     rows = writer.load_table_from_json.call_args.args[0]
 
@@ -1242,7 +1242,7 @@ def test_every_occurrence_says_why_it_names_the_insight_it_names(
         client=reads,
         project_id="test-project",
         dataset="aqua_insights",
-        agent_name="root_agent",
+        observed_agent_key="root_agent",
     ).list_occurrences(insight_id="ins-1", limit=3, offset=0)
 
     assert [row["occurrence_state"] for row in rows] == [
@@ -1262,8 +1262,10 @@ def test_every_occurrence_says_why_it_names_the_insight_it_names(
 # --- what switches the pass on ------------------------------------------------
 
 
-@pytest.mark.parametrize(("setting", "runs"), [(None, True), (False, False)])
-def test_the_mode_the_run_carries_decides_the_pass(
+@pytest.mark.parametrize(
+    ("setting", "runs"), [(None, False), (True, True), (False, False)]
+)
+def test_the_flag_the_run_carries_decides_the_pass(
     monkeypatch: pytest.MonkeyPatch,
     fake_call: FakeInsightModelCall,
     fake_store: FakeInsightStore,
@@ -1271,31 +1273,19 @@ def test_the_mode_the_run_carries_decides_the_pass(
     setting: bool | None,
     runs: bool,
 ) -> None:
-    """The mode a sweep runs under is the one its own state carries, not the
-    one the environment holds by the time it executes.
-
-    A run snapshots its config when it is scheduled, so an attach or a redeploy
-    in between leaves the two disagreeing. Left unset, the flag has to follow
-    the mode the sweep actually runs -- and an explicitly disabled pass has to
-    stay off across the same disagreement.
-    """
+    """The pass follows the flag the sweep's own state carries, not the one
+    the environment holds by the time it executes, which an attach or a
+    redeploy can change after the investigation was scheduled."""
     monkeypatch.setattr(
         effective_config,
         "env_config",
         dataclasses.replace(
             effective_config.env_config,
-            quality_analysis_mode="session_review",
-            insights_verification_enabled=setting,
+            insights_verification_enabled=not runs,
         ),
     )
-    snapshot = dataclasses.replace(
-        effective_config.load({}), quality_analysis_mode="eval_service"
-    )
-    # Seeded as the durable run seeds it (`job_execution` spreads the whole
-    # `asdict(config)`): flag and mode reach the node side by side, unresolved.
     state = _one_cluster_state(fake_call) | {
-        "insights_verification_enabled": snapshot.insights_verification_enabled,
-        "quality_analysis_mode": snapshot.quality_analysis_mode,
+        "insights_verification_enabled": setting,
     }
 
     insight_correlation_node._func(_ctx(state))
@@ -1586,7 +1576,7 @@ def test_hallucinated_cluster_is_rejected(
     assert "0 candidate issue(s): 0 new, 0 recurring" in text
     assert "made no tool call" not in text
     # The dropped cluster's rubric is surfaced as a clustering skip, not lost.
-    assert "skipped rubric(s):** 0 errored, 1 unclustered (of 1 total)" in text
+    assert "skipped finding(s):** 0 errored, 1 unclustered (of 1 total)" in text
 
 
 # --- fail loud ----------------------------------------------------------------
@@ -1595,7 +1585,7 @@ def test_hallucinated_cluster_is_rejected(
 def test_a_custom_run_resolves_nothing(
     fake_call: FakeInsightModelCall, fake_store: FakeInsightStore
 ) -> None:
-    """Verify custom runs correlate findings but skip resolving stale insights."""
+    """Verify custom investigations correlate findings but skip resolving stale insights."""
     state = _one_cluster_state(fake_call)
     state["trigger_type"] = CUSTOM_TRIGGER_TYPE
 
@@ -1611,7 +1601,7 @@ def test_a_custom_run_resolves_nothing(
 def test_a_custom_run_with_nothing_to_correlate_resolves_nothing(
     fake_call: FakeInsightModelCall, fake_store: FakeInsightStore
 ) -> None:
-    """Verify custom runs skip auto-resolution even when no defect findings are present."""
+    """Verify custom investigations skip auto-resolution even when no defect findings are present."""
     state = _state(trigger_type=CUSTOM_TRIGGER_TYPE)
 
     insight_correlation_node._func(_ctx(state))
@@ -1632,7 +1622,7 @@ def test_an_ambient_run_still_resolves_stale_insights(
     fake_store: FakeInsightStore,
     state_overrides: dict[str, Any],
 ) -> None:
-    """Verify ambient and scheduled runs execute stale insight auto-resolution."""
+    """Verify ambient and scheduled investigations execute stale insight auto-resolution."""
     state = _one_cluster_state(fake_call)
     state.update(state_overrides)
 
@@ -1645,7 +1635,7 @@ def test_an_ambient_run_still_resolves_stale_insights(
 def test_a_zero_window_ambient_run_leaves_the_switch_to_the_store(
     fake_call: FakeInsightModelCall, fake_store: FakeInsightStore
 ) -> None:
-    """Verify ambient runs forward a zero-day window to the store to handle resolution disabling."""
+    """Verify ambient investigations forward a zero-day window to the store to handle resolution disabling."""
     state = _one_cluster_state(fake_call)
     state["insights_auto_resolve_days"] = 0
 
@@ -1685,7 +1675,7 @@ def test_each_agents_defect_mints_an_insight_attributed_to_that_agent(
         ("made no tool call", "root_agent"),
         ("made no tool call", "sub_agent"),
     ]
-    assert all(i.agent_name == "root_agent" for i in new_insights)
+    assert all(i.observed_agent_key == "root_agent" for i in new_insights)
     assert len(occurrences) == 2
     # The summary names a sub-agent and leaves the observed agent implicit.
     assert event.content is not None
@@ -1720,7 +1710,7 @@ def test_clustering_failure_fails_the_sweep(
 def test_state_carries_the_counts_the_alert_selects_on(
     fake_call: FakeInsightModelCall, fake_store: FakeInsightStore
 ) -> None:
-    """The key names are the contract with the run summary and the filter.
+    """The key names are the contract with the investigation summary and the filter.
 
     Spelled wrong at either end, the alert reads a missing field, the
     comparison is false, and every finding goes unreported with nothing
@@ -1757,3 +1747,167 @@ def test_occurrence_records_the_newest_revision_it_was_seen_on(
 
     _, _, occurrences = fake_store.saved[0]
     assert [o.agent_revision for o in occurrences] == ["10"]
+
+
+# --- example turns ------------------------------------------------------------
+
+
+def _run_sweep_on_every_example_path(
+    fake_call: FakeInsightModelCall,
+    fake_merge: FakeInsightModelCall,
+    monkeypatch: pytest.MonkeyPatch,
+) -> FakeInsightStore:
+    """Runs a sweep whose candidates take every path that hands examples to the store.
+
+    Two candidates fold into one by merge and mint a new insight; one matches
+    a stored insight; one is rejected; one is left unjudged by a failed call.
+
+    Args:
+        fake_call: The clustering fake.
+        fake_merge: The merge fake.
+        monkeypatch: Pytest monkeypatch fixture.
+
+    Returns:
+        The store the sweep wrote to.
+    """
+    fake_call.response = json.dumps(
+        {
+            "clusters": [
+                {"label": "made no tool call", "finding_ids": ["0"]},
+                {"label": "did not call a tool", "finding_ids": ["1"]},
+                {"label": "invented a ticket id", "finding_ids": ["2"]},
+                {
+                    "label": "answered in the wrong language",
+                    "finding_ids": ["3"],
+                },
+                {"label": "forgot to greet", "finding_ids": ["4"]},
+            ]
+        }
+    )
+    fake_merge.response = json.dumps({"groups": [{"ids": [0, 1]}]})
+
+    def verify(prompt: str) -> str:
+        if "answered in the wrong language" in prompt:
+            return _verdict(valid=False, description="")
+        if "forgot to greet" in prompt:
+            raise RuntimeError("quota exceeded")
+        return _verdict()
+
+    monkeypatch.setattr(
+        _common, "verification_call_factory", lambda ctx: verify
+    )
+    # After the merge the candidates are [merged, invented, wrong language,
+    # greet]; the rejected one is never matched, so position 1 is "invented".
+    store = FakeInsightStore(matches={1: "ins-existing"})
+    monkeypatch.setattr(_common, "insight_store_factory", lambda ctx: store)
+    state = _state(
+        finding_sets=[
+            _finding_set(f"r-{i}", case_id=f"case-{i}") for i in range(5)
+        ]
+    )
+
+    insight_correlation_node._func(_ctx(state))
+
+    new_insights, matched_ids, occurrences = store.saved[0]
+    # Every path is taken, so an assertion over the examples covers them all.
+    assert [i.label for i in new_insights] == ["made no tool call"]
+    assert matched_ids == ["ins-existing"]
+    assert [(o.label, o.occurrence_state) for o in occurrences] == [
+        ("made no tool call", OccurrenceState.TRACKED),
+        ("invented a ticket id", OccurrenceState.TRACKED),
+        ("answered in the wrong language", OccurrenceState.REJECTED),
+        ("forgot to greet", OccurrenceState.UNJUDGED),
+    ]
+    return store
+
+
+def test_examples_are_stored_without_turns(
+    fake_call: FakeInsightModelCall,
+    fake_merge: FakeInsightModelCall,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The store gets no conversation turns on any path, and keeps the
+    finding, the trajectory it came from, and what the models wrote about it.
+
+    The conversation stays readable by trajectory id from the trajectory
+    archive, which expires it; a copy on the occurrence would not. Verification
+    still reads the turns: they are dropped only once nothing but the store
+    would see them.
+    """
+    store = _run_sweep_on_every_example_path(fake_call, fake_merge, monkeypatch)
+
+    new_insights, _matched, occurrences = store.saved[0]
+    stored = [e for o in occurrences for e in o.examples]
+    matched = [e for c in store.candidates for e in c.examples]
+    assert len(stored) == 4 and len(matched) == 3
+    assert [e.turns for e in stored + matched] == [[]] * 7
+    # The merge keeps the surviving candidate's examples, not the folded one's.
+    assert [e.trajectory_id for e in stored] == [
+        "case-0",
+        "case-2",
+        "case-3",
+        "case-4",
+    ]
+    assert all(
+        e.finding.actual_behavior and e.finding.trajectory_id == e.trajectory_id
+        for e in stored
+    )
+    # The pass read the conversation and its verdict is kept.
+    assert [e.examined for e in occurrences[0].examples] == [True]
+    assert occurrences[0].analyses["verification"].explanation == "described"
+    assert new_insights[0].label == "made no tool call"
+
+
+# --- live progress ------------------------------------------------------------
+
+
+def test_each_stage_is_reported_as_it_starts(
+    fake_call: FakeInsightModelCall,
+    fake_store: FakeInsightStore,
+    investigation_store: Any,
+) -> None:
+    """Clustering and verification each take model calls, so a running
+    investigation names the one it is in."""
+    state = _one_cluster_state(fake_call)
+
+    insight_correlation_node._func(_ctx(state))
+
+    assert [
+        json.loads(r["text"])
+        for r in investigation_store.event_rows
+        if r["source"] == "stage"
+    ] == [
+        {"stage": "Clustering", "findings": 1},
+        {"stage": "Verification", "clusters": 1},
+    ]
+
+
+@pytest.mark.parametrize(
+    ("verification_enabled", "response"),
+    [
+        (False, None),
+        (True, {"clusters": []}),
+    ],
+    ids=["pass-off", "nothing-clustered"],
+)
+def test_no_verification_stage_is_reported_when_nothing_is_verified(
+    fake_call: FakeInsightModelCall,
+    fake_store: FakeInsightStore,
+    investigation_store: Any,
+    verification_enabled: bool,
+    response: dict[str, Any] | None,
+) -> None:
+    """The live view does not name a step that does not run: verification
+    switched off, or nothing clustered to verify."""
+    state = _one_cluster_state(fake_call)
+    state["insights_verification_enabled"] = verification_enabled
+    if response is not None:
+        fake_call.response = json.dumps(response)
+
+    insight_correlation_node._func(_ctx(state))
+
+    assert [
+        json.loads(r["text"])
+        for r in investigation_store.event_rows
+        if r["source"] == "stage"
+    ] == [{"stage": "Clustering", "findings": 1}]

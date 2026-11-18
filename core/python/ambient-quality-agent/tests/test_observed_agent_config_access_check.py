@@ -29,6 +29,10 @@ from unittest import mock
 import pytest
 from ambient_quality_agent.config import ObservedAgentConfig
 from ambient_quality_agent.tools.evaluation.models import MetricType
+from ambient_quality_agent.tools.ingestion.base import (
+    DEFAULT_JOB_TIMEOUT_MS,
+    QueryTooLargeError,
+)
 from ambient_quality_agent.tools.ingestion.bigquery_fetcher import (
     BigQueryFetcher,
 )
@@ -640,6 +644,27 @@ def test_any_other_failure_is_an_error() -> None:
     assert table["detail"] == "RuntimeError: connection reset"
 
 
+def test_a_count_over_the_bytes_billed_cap_is_an_error_that_says_so() -> None:
+    error = QueryTooLargeError()
+
+    result = _check(fetcher=_FakeFetcher(sessions=error))
+
+    rows = _extract_check(result, "rows")
+    assert rows["status"] == "error"
+    assert rows["detail"] == f"QueryTooLargeError: {error}"
+
+
+def test_the_default_fetcher_times_its_jobs_out() -> None:
+    with mock.patch(
+        "ambient_quality_agent.tools.ingestion.base.bigquery.Client"
+    ):
+        fetcher = access_check._create_default_fetcher(
+            _build_agent(telemetry_ingestion_source="big_query"), PROJECT
+        )
+
+    assert fetcher._job_timeout_ms == DEFAULT_JOB_TIMEOUT_MS
+
+
 def test_a_fetcher_that_cannot_be_built_is_an_error_not_a_crash() -> None:
     """Building the fetcher builds its clients, which fails without credentials;
     the plan reports that rather than the dry run failing outright."""
@@ -988,3 +1013,94 @@ def test_the_payload_check_reads_through_the_shared_factory(
 
     assert access_check._create_default_storage_client(PROJECT) is client
     assert calls == [PROJECT]
+
+
+# --- the stored selector's precheck ------------------------------------------ #
+
+
+class _FakeSelectorFetcher:
+    """Records the precheck it is asked for and answers with a verdict."""
+
+    def __init__(self, result: Any) -> None:
+        self._result = result
+        self.prechecked: list[tuple[Any, ...]] = []
+
+    def precheck_selector(self, *args: Any) -> Any:
+        self.prechecked.append(args)
+        return self._result
+
+
+def test_the_selector_is_prechecked_over_the_lookback_window() -> None:
+    """Bound the way an investigation of the attachment binds it."""
+    verdict = object()
+    fetcher = _FakeSelectorFetcher(verdict)
+    built: list[tuple[ObservedAgentConfig, str]] = []
+
+    def build(agent: ObservedAgentConfig, project_id: str) -> Any:
+        built.append((agent, project_id))
+        return fetcher
+
+    agent = _build_agent(data_lookback_window=3)
+    result = access_check.precheck_selector(
+        agent, project_id=PROJECT, fetcher_factory=build, now=NOW
+    )
+
+    assert result is verdict
+    assert built == [(agent, PROJECT)]
+    assert fetcher.prechecked == [(AGENT, NOW - dt.timedelta(days=3), NOW)]
+
+
+@pytest.mark.parametrize("source", ["big_query", "cloud_ops", "cloud_logging"])
+def test_the_default_precheck_fetcher_carries_the_selector_and_model(
+    monkeypatch: pytest.MonkeyPatch, source: str
+) -> None:
+    monkeypatch.setattr(
+        "ambient_quality_agent.tools.ingestion.base.bigquery.Client",
+        mock.MagicMock(),
+    )
+    monkeypatch.setattr(access_check.storage, "Client", mock.MagicMock())
+    monkeypatch.setattr(
+        "ambient_quality_agent.tools.ingestion.cloud_ops_fetcher.LogFetcher",
+        mock.MagicMock(),
+    )
+    seen: list[Any] = []
+
+    def precheck(self: Any, *args: Any) -> str:
+        seen.append(self)
+        return "verdict"
+
+    monkeypatch.setattr(
+        access_check.BigQueryJobFetcher, "precheck_selector", precheck
+    )
+    sql = "SELECT target_id FROM t WHERE @window_start @window_end @agent_name"
+
+    result = access_check.precheck_selector(
+        _build_agent(
+            telemetry_ingestion_source=source, investigation_selector_sql=sql
+        ),
+        project_id=PROJECT,
+        ai_model="gemini-x",
+        now=NOW,
+    )
+
+    assert result == "verdict"
+    [fetcher] = seen
+    assert fetcher.has_selector
+    assert fetcher._selector_sql == sql
+    assert fetcher._selector_ai_model == "gemini-x"
+
+
+def test_the_access_check_fetcher_carries_no_selector() -> None:
+    """Its row count runs the query, which no precheck has proved safe."""
+    with mock.patch(
+        "ambient_quality_agent.tools.ingestion.base.bigquery.Client"
+    ):
+        fetcher = access_check._create_default_fetcher(
+            _build_agent(
+                telemetry_ingestion_source="big_query",
+                investigation_selector_sql="SELECT 1",
+            ),
+            PROJECT,
+        )
+
+    assert not fetcher.has_selector

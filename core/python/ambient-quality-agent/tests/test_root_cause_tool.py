@@ -92,9 +92,9 @@ def _occurrence(
         occurrence_id=occurrence_id,
         insight_id=insight_id,
         occurrence_state=OccurrenceState.TRACKED,
-        run_id="run-9",
+        investigation_id="run-9",
         created_at=_NOW,
-        agent_name="agent",
+        observed_agent_key="agent",
         agent_revision=agent_revision,
         label="invented an expense category",
     )
@@ -439,6 +439,42 @@ def test_a_diagnosis_with_no_code_fix_is_recorded(
     assert result["recorded"] is True
     assert result["edits_recorded"] == 0
     assert root_cause_store.saved[0].edits == []
+
+
+def test_a_chat_session_records_its_context_id(
+    root_cause_store: InMemoryRootCauseStore,
+) -> None:
+    """Verifies that `record_root_cause` persists the active ADK session ID as `context_id`."""
+    from types import SimpleNamespace
+
+    ctx: Any = SimpleNamespace(
+        state={}, session=SimpleNamespace(id="  ctx-42  ")
+    )
+    result = asyncio.run(
+        root_cause_tools.record_root_cause(
+            ctx,
+            insight_id="ins-1",
+            occurrence_id="occ-1",
+            revision=REVISION,
+            summary="The tool takes a free-form category.",
+            edits=[],
+        )
+    )
+
+    assert result["recorded"] is True
+    assert root_cause_store.saved[0].context_id == "ctx-42"
+    assert result["record"]["context_id"] == "ctx-42"
+
+
+def test_a_call_outside_a_chat_session_records_an_empty_context_id(
+    root_cause_store: InMemoryRootCauseStore,
+) -> None:
+    """Verifies that calls with `session=None` leave `context_id` empty."""
+    result = record(edits=[])
+
+    assert result["recorded"] is True
+    assert root_cause_store.saved[0].context_id == ""
+    assert result["record"]["context_id"] == ""
 
 
 # --------------------------------------------------------------------------- #

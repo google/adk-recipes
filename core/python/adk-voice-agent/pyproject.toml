@@ -1,0 +1,94 @@
+[project]
+name = "adk-voice-agent"
+version = "0.1.0"
+description = "ADK Voice Agent — a Gemini Live voice agent that runs background coding agents on a personal cloud computer per user"
+readme = "README.md"
+license = "Apache-2.0"
+authors = [{ name = "Google LLC" }]
+requires-python = ">=3.11,<3.14"
+dependencies = [
+    "google-adk[gcp]>=2.13.0,<2.14.0",
+    "fastapi>=0.115.8,<1.0.0",
+    "uvicorn~=0.34.0",
+    # Agent Engine Memory Bank (`agentplatform.Client(...).memory_banks`, app/memory/).
+    "google-cloud-agentplatform>=2.2,<3.0.0",
+    "httpx>=0.28.1,<1.0.0",
+    "python-dotenv>=1.0.0,<2.0.0",
+    "pyyaml>=6.0,<7.0",
+    # Thread store: SQLAlchemy async over SQLite locally, Postgres (Cloud SQL) when deployed.
+    "sqlalchemy>=2,<3",
+    "greenlet>=3.0.0",
+    "aiosqlite>=0.20.0,<1.0.0",
+    "asyncpg>=0.30.0,<1.0.0",
+    # Per-user connected-app tokens when deployed (app/auth/credential_store.py).
+    "google-cloud-secret-manager>=2.20.0,<3.0.0",
+]
+
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2,<10.0.0",
+    "pytest-asyncio>=1.0.0,<2.0.0",
+    # `uv run agents-cli ...` (eval, deploy) works straight after `uv sync`.
+    "google-agents-cli>=1.11.0",
+]
+
+[project.optional-dependencies]
+eval = [
+    "google-adk[eval]>=2.13.0,<2.14.0",
+    "google-cloud-aiplatform[evaluation]>=2.2,<3.0.0"
+]
+lint = [
+    "ruff==0.16.8",
+    "ty>=0.0.1a0,<0.1",
+    "codespell>=2.2.0,<3.0.0",
+]
+
+# Public PyPI as the default index, so `uv sync` works without a corporate mirror.
+[[tool.uv.index]]
+url = "https://pypi.org/simple"
+default = true
+
+[tool.ty]
+# ty is Astral's Rust-based type checker (same team as ruff/uv)
+# See: https://docs.astral.sh/ty/
+
+[tool.ty.environment]
+python-version = "3.11"
+
+[tool.ty.src]
+exclude = [".venv/**"]
+
+[tool.ty.rules]
+# Ignore common issues with third-party libraries and dynamic code patterns
+unresolved-import = "ignore"
+unresolved-attribute = "ignore"
+invalid-argument-type = "ignore"
+invalid-assignment = "ignore"
+invalid-return-type = "ignore"
+possibly-missing-attribute = "ignore"
+not-subscriptable = "ignore"
+deprecated = "ignore"
+
+[tool.codespell]
+ignore-words-list = "rouge,checkin,mappin"
+skip = "uv.lock,.venv,./workspaces,./artifacts,./web/node_modules,./web/dist,**/package-lock.json,**/*.tsbuildinfo"
+
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+
+[tool.pytest.ini_options]
+pythonpath = "."
+asyncio_default_fixture_loop_scope = "function"
+asyncio_default_test_loop_scope = "function"
+# Live tests call real Gemini Live and need GCP credentials: `uv run pytest -m live tests/live`.
+markers = ["live: calls real Google Cloud APIs (deselected by default)"]
+addopts = "-m 'not live'"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app", "workspace_mcp"]
+
+

@@ -12,9 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Memory guard for long, memory-capped investigation runs.
+"""Memory guard for long, memory-capped investigations.
 
-Investigations run inside a memory-capped Cloud Run job; a run that
+Investigations run inside a memory-capped Cloud Run job; an investigation that
 accumulates too much (many evaluated cases, large resolved content) can be
 OOM-killed with no Python traceback. `MemoryGuard` watches the container's
 cgroup-charged memory and signals when to stop accumulating, before the
@@ -97,7 +97,7 @@ class MemoryGuard:
     """Signals when to stop accumulating to avoid an OOM-kill.
 
     ``baseline_mb`` is the memory at the investigation's start. It is passed
-    in (captured once before the run) so the multi-turn and single-turn
+    in (captured once before the investigation) so the multi-turn and single-turn
     scopes -- which use separate guards -- measure growth from the same
     start. The memory grown since the baseline is the data collected; a
     later node copies it in full, so the guard reserves room for a second

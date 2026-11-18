@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Which agent's goal and memories a request or a run reads and writes.
+"""Which agent's goal and memories a request or an investigation reads and writes.
 
 Each attached agent keeps its documents under ``agents/<agent key>/`` in the
 jobs store, beside its attachment object ``agents/<agent key>.json``.
@@ -29,7 +29,7 @@ and the instance's documents follow it. The code-metric library belongs to the
 default agent the same way, but is read whole, never merged file by file with
 the agent's own (`metrics.publishing`).
 
-A request or a run that resolves no agent, because none is attached, reads and
+A request or an investigation that resolves no agent, because none is attached, reads and
 writes the instance's documents. One whose default agent cannot be resolved,
 because the attachments cannot be read, fails rather than falling back to the
 instance's documents, where its writes would land unseen.
@@ -248,14 +248,31 @@ class AgentDocumentStore:
             return self._store.read_bytes(name)
         return data
 
-    def write_bytes(self, name: str, data: bytes) -> None:
+    def write_bytes(
+        self, name: str, data: bytes, *, overwrite: bool = True
+    ) -> bool:
         """Writes an object's raw content under the agent's prefix.
 
         Args:
             name: Object name relative to the agent's prefix.
             data: Content to write.
+            overwrite: When False, writes only if no object with that name
+                exists under the agent's prefix or in the inherited instance
+                documents.
+
+        Returns:
+            True if the object was written, False if `overwrite` was False and
+            the object already existed.
         """
-        self._store.write_bytes(self._prefix + name, data)
+        if (
+            not overwrite
+            and self._should_read_instance(name)
+            and self._store.read_bytes(name) is not None
+        ):
+            return False
+        return self._store.write_bytes(
+            self._prefix + name, data, overwrite=overwrite
+        )
 
     def delete(self, name: str) -> bool:
         """Deletes an object, and the instance's copy the agent reads.

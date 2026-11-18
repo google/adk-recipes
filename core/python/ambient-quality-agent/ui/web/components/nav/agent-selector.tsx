@@ -28,10 +28,10 @@ import { cn } from "@/lib/utils";
 
 /** Where switching agents lands, for each part of the dashboard.
  *
- * A list stays on its list, without its filters: a run or a day filter names
- * the previous agent's runs. A detail page goes to the list it came from,
- * since the insight or run it shows belongs to the previous agent, and the
- * chat starts a new conversation.
+ * A list stays on its list, without its filters: an investigation or a day
+ * filter names the previous agent's investigations. A detail page goes to the
+ * list it came from, since the insight or investigation it shows belongs to the
+ * previous agent, and the chat starts a new conversation.
  *
  * @param pathname - The page open when the agent is switched.
  * @returns The path to open for the next agent.

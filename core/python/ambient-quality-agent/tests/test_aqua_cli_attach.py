@@ -390,6 +390,94 @@ def test_without_a_name_the_cli_leaves_the_name_to_the_deployment(
     assert fake.calls[0][1]["agent_name"] == ""
 
 
+_SELECTOR = (
+    "SELECT DISTINCT session_id AS target_id\n"
+    "FROM agent_analytics.agent_events\n"
+    "WHERE timestamp BETWEEN @window_start AND @window_end\n"
+    "  AND agent = @agent_name\n"
+    "  AND error_message IS NOT NULL\n"
+)
+"""A multi-line selector, as a file holds it."""
+
+
+def test_a_selector_file_is_sent_as_the_stored_selector(
+    runner, monkeypatch, tmp_path
+) -> None:
+    """The file is sent verbatim; the deployment checks the selector."""
+    fake = _install_deployment(monkeypatch)
+    selector_file = tmp_path / "selector.sql"
+    selector_file.write_text(_SELECTOR)
+
+    _invoke(
+        runner,
+        "attach",
+        "watched_agent",
+        "--selector-file",
+        str(selector_file),
+        "--dry-run",
+    )
+
+    assert fake.calls[0][1]["fields"] == {
+        "investigation_selector_sql": _SELECTOR
+    }
+
+
+def test_a_selector_file_of_dash_reads_standard_input(
+    runner, monkeypatch
+) -> None:
+    fake = _install_deployment(monkeypatch)
+
+    _invoke(
+        runner,
+        "attach",
+        "watched_agent",
+        "--selector-file",
+        "-",
+        "--dry-run",
+        stdin=_SELECTOR,
+    )
+
+    assert fake.calls[0][1]["fields"] == {
+        "investigation_selector_sql": _SELECTOR
+    }
+
+
+def test_an_empty_selector_file_clears_the_stored_selector(
+    runner, monkeypatch
+) -> None:
+    fake = _install_deployment(monkeypatch)
+
+    _invoke(
+        runner,
+        "attach",
+        "watched_agent",
+        "--selector-file",
+        "/dev/null",
+        "--dry-run",
+    )
+
+    assert fake.calls[0][1]["fields"] == {"investigation_selector_sql": ""}
+
+
+def test_a_selector_file_is_read_as_utf8() -> None:
+    """The locale's encoding is not UTF-8 everywhere, such as on Windows."""
+    (option,) = [
+        p for p in aqua_cli.attach_agent_cmd.params if p.name == "selector_file"
+    ]
+
+    assert option.type.encoding == "utf-8"
+
+
+def test_without_a_selector_file_the_stored_selector_is_kept(
+    runner, monkeypatch
+) -> None:
+    fake = _install_deployment(monkeypatch)
+
+    _invoke(runner, "attach", "watched_agent", "--dry-run")
+
+    assert "investigation_selector_sql" not in fake.calls[0][1]["fields"]
+
+
 def test_attach_plans_before_it_writes(runner, monkeypatch) -> None:
     fake = _install_deployment(monkeypatch, plan=_A_CHANGE)
 
@@ -468,6 +556,33 @@ def test_a_first_attach_with_no_change_is_stored_without_asking(
     assert result.exit_code == 0, result.output
     assert "(not attached yet -- starting from the defaults)" in result.output
     assert len(fake.list_writes()) == 1
+
+
+def test_a_multi_line_selector_takes_one_shortened_plan_line(
+    runner, monkeypatch
+) -> None:
+    """The operator wrote the file; the plan only needs to tell it apart."""
+    _install_deployment(
+        monkeypatch,
+        plan={
+            "changes": [
+                {
+                    "field": "investigation_selector_sql",
+                    "before": "",
+                    "after": _SELECTOR,
+                }
+            ]
+        },
+    )
+
+    result = _invoke(runner, "attach", "--dry-run")
+
+    assert result.exit_code == 0, result.output
+    assert (
+        '  investigation_selector_sql: "" -> SELECT DISTINCT session_id AS '
+        "target_id FROM ...\n"
+    ) in result.output
+    assert "@window_start" not in result.output
 
 
 def test_a_value_the_deployment_adjusted_is_pointed_out(
@@ -2243,6 +2358,121 @@ def test_declining_the_grants_stores_nothing(runner, monkeypatch) -> None:
     assert "Run 1 grant command(s) with your credentials?" in result.output
     assert grant_runner.ran == []
     assert fake.list_writes() == []
+
+
+_MISMATCH_AFTER_GRANT = {"access": _build_mismatch()["access"]}
+_MISSING_AFTER_GRANT = _build_access(
+    ("table", "missing", _TABLE), ("rows", "skipped", _TABLE)
+)
+_READ_FAILED_AFTER_GRANT = _build_access(
+    ("table", "passed", _TABLE), ("rows", "error", _TABLE)
+)
+
+
+@pytest.mark.parametrize(
+    ("access_after", "refusal"),
+    [
+        (_MISMATCH_AFTER_GRANT, _REFUSED_FORMAT),
+        (_MISSING_AFTER_GRANT, f"Not attaching: {_TABLE} does not exist"),
+        (_READ_FAILED_AFTER_GRANT, f"Not attaching: reading {_TABLE} failed"),
+    ],
+)
+def test_a_table_refused_once_granted_undoes_a_first_attach(
+    runner, monkeypatch, sinks, access_after, refusal
+) -> None:
+    sinks.drop()
+    fake = _install_deployment(
+        monkeypatch, plan={**_A_CHANGE, "attached": False, **_DENIED_TABLE}
+    )
+    grant_runner = _install_grant_runner(
+        monkeypatch, fake, access_after=access_after
+    )
+
+    result = _invoke(runner, "attach", "--yes")
+
+    assert result.exit_code == 1
+    assert refusal in result.output
+    assert f"{_KEY} is not attached" in result.output
+    assert [shlex.join(argv) for argv in grant_runner.ran] == [
+        _GRANT_LINE,
+        _REVOKE_LINE,
+    ]
+    assert _list_applied_calls(fake) == [
+        {"agent_key": _KEY, "agent_name": _KEY, "granted": [_DATASET_RECORD]},
+        {"agent_key": _KEY, "agent_name": _KEY, "revoked": [_DATASET_RECORD]},
+    ]
+    assert len(fake.list_writes()) == 1
+    assert fake.calls[-1] == (
+        "agents/detach",
+        {"agent_key": _KEY, "agent_name": _KEY},
+    )
+    assert sinks.ran == []
+
+
+def test_a_table_refused_once_granted_keeps_the_previous_settings(
+    runner, monkeypatch, sinks
+) -> None:
+    sinks.drop()
+    fake = _install_deployment(
+        monkeypatch,
+        plan={
+            "changes": [
+                {
+                    "field": "telemetry_table",
+                    "before": "t",
+                    "after": "not_telemetry",
+                }
+            ],
+            **_DENIED_TABLE,
+        },
+    )
+    grant_runner = _install_grant_runner(
+        monkeypatch, fake, access_after=_MISMATCH_AFTER_GRANT
+    )
+
+    result = _invoke(
+        runner, "attach", "--telemetry-table", "not_telemetry", "--yes"
+    )
+
+    assert result.exit_code == 1
+    assert _REFUSED_FORMAT in result.output
+    assert f"{_KEY} keeps the settings it had" in result.output
+    assert [shlex.join(argv) for argv in grant_runner.ran] == [
+        _GRANT_LINE,
+        _REVOKE_LINE,
+    ]
+    change, restore = fake.list_writes()
+    assert change["fields"] == {"telemetry_table": "not_telemetry"}
+    assert restore["agent_key"] == _KEY
+    assert restore["fields"] == {"telemetry_table": "t"}
+    assert "agents/detach" not in [path for path, _ in fake.calls]
+    assert sinks.ran == []
+
+
+def test_a_table_that_passes_once_granted_stays_attached(
+    runner, monkeypatch, sinks
+) -> None:
+    sinks.drop()
+    fake = _install_deployment(
+        monkeypatch, plan={**_A_CHANGE, "attached": False, **_DENIED_TABLE}
+    )
+    grant_runner = _install_grant_runner(
+        monkeypatch,
+        fake,
+        access_after=_build_access(
+            ("table", "passed", _TABLE),
+            ("schema", "passed", _TABLE),
+            ("rows", "passed", _TABLE),
+        ),
+    )
+
+    result = _invoke(runner, "attach", "--yes")
+
+    assert result.exit_code == 0, result.output
+    assert "Not attaching" not in result.output
+    assert [shlex.join(argv) for argv in grant_runner.ran] == [_GRANT_LINE]
+    assert "agents/detach" not in [path for path, _ in fake.calls]
+    assert sinks.list_verbs()[0] == "sinks create"
 
 
 def _install_recorded_grants(

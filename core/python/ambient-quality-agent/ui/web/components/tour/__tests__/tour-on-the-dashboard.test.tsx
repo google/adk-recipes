@@ -35,37 +35,37 @@ import { TOUR_STEPS } from "../tour-steps";
 
 const INSIGHT = {
   insight_id: "ins-1",
-  agent_name: "travel_agent",
+  observed_agent_key: "travel_agent",
   label: "books the flight for the wrong date",
   tool_name: "book_flight",
   status: "RECURRING",
   occurrence_count: 3,
-  trace_count: 40,
+  trajectory_count: 40,
   impact: 120,
-  last_run_at: "2026-09-29T08:00:00Z",
-  last_run_id: "run-1",
+  last_investigation_at: "2026-09-29T08:00:00Z",
+  last_investigation_id: "inv-1",
   diagnosis: "",
   confidence: 0,
 };
 
 const OCCURRENCE = {
   occurrence_id: "occ-1",
-  run_id: "run-1",
+  investigation_id: "inv-1",
   created_at: "2026-09-29T08:00:00Z",
   confidence: 0,
   diagnosis: "",
   label: INSIGHT.label,
   item_count: 3,
-  trace_count: 3,
-  cases_checked: 3,
-  evidence_case_ids: ["case-1"],
+  trajectory_count: 3,
+  trajectories_checked: 3,
+  evidence_trajectory_ids: ["case-1"],
   console_urls: {},
 };
 
-const RUN = {
-  run_id: "run-1",
+const INVESTIGATION = {
+  investigation_id: "inv-1",
   status: "done",
-  observed_agent_name: "travel_agent",
+  observed_agent_key: "travel_agent",
   trigger_type: "scheduled",
   created_at: "2026-09-29T08:00:00Z",
   elapsed_seconds: 60,
@@ -73,9 +73,9 @@ const RUN = {
   metrics_failed: 2,
   metrics_errored: 0,
   counters: counters({
-    traces_scanned: 10,
-    traces_ingested: 10,
-    traces_evaluated: 10,
+    trajectories_scanned: 10,
+    trajectories_ingested: 10,
+    trajectories_evaluated: 10,
   }),
   summary: {},
   events: [],
@@ -93,9 +93,9 @@ function cannedApi(input: RequestInfo | URL): Promise<Response> {
         : path.startsWith("/api/insights/")
           ? { insight: INSIGHT, occurrences: [OCCURRENCE] }
           : path === "/api/investigations"
-            ? { runs: [RUN] }
+            ? { investigations: [INVESTIGATION] }
             : path.startsWith("/api/investigations/")
-              ? { run: RUN }
+              ? { investigation: INVESTIGATION }
               : path === "/api/stats"
                 ? { stats: {} }
                 : path === "/api/daily"

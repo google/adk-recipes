@@ -24,9 +24,8 @@ Requirements for valid selectors:
 * Must not contain a `@limit` parameter, allowing `BigQueryJobFetcher.count_scanned`
   to execute the targets subquery without limit constraints.
 * Must read the source's selector table (`build_selector_table_ref`) by name and name no
-  other table of its footprint (`find_table_violation`).
-* Must resolve, in its dry run, to exactly that table's footprint
-  (`resolve_selector_footprint`).
+  other table or view of that table's footprint (`find_table_violation`).
+* Must resolve, in its dry run, to exactly that footprint.
 
 Security model:
 The referenced-table allowlist is the primary security boundary. Because the
@@ -37,49 +36,53 @@ Each telemetry source has exactly one selector table, fixed by deployment
 configuration and source rather than chosen by the agent: the telemetry table
 for `big_query` and `cloud_ops`, and the agents-cli `CLOUD_LOGGING_SELECTOR_VIEW`
 for `cloud_logging`, which exposes conversation content inline for `AI.IF`.
-A dry run reports a logical view such as `CLOUD_LOGGING_SELECTOR_VIEW` by its
-base tables in `referenced_tables`, never the view itself, so the precheck
-compares against the selector table's footprint (`resolve_selector_footprint`): the
-tables a legitimate selector resolves to. Linked-dataset views such as the
-`cloud_ops` `_AllSpans` are reported as themselves, so their footprint is the
-view alone.
+A dry run reports a logical view by name among its logical views, apart from
+the tables, and reports the view's base tables only when it can show them:
+`CLOUD_LOGGING_SELECTOR_VIEW` comes with the sink table and the BigLake table
+it joins, while a linked-dataset view such as the `cloud_ops` `_AllSpans`, or
+a view in another project, comes with none. The selector table's footprint is
+therefore whatever a dry run of the selector table itself resolves: its
+tables, its logical views and its routines, with project IDs as BigQuery
+reports them. A user may attach their own view as the telemetry table, and its
+base tables, in any dataset, join the footprint the same way.
 
 Two checks enforce the rule, each covering what the other cannot see:
 * The lexical table guard (`find_table_violation`) requires the selector to
-  name the selector table and no other footprint table, as dataset-qualified
+  name the selector table and no other footprint entry, as dataset-qualified
   references. It is the only check that tells a selector over a logical view
-  from one joining the view's base tables directly, since both resolve to the
-  same footprint. It inspects text, so it enforces the one-table rule rather
-  than bounding data access.
-* The dry runs enforce the data boundary: the referenced tables must equal the
-  footprint in the canonical project, whatever the selector text says.
+  from one that also joins the view's base tables directly, bypassing whatever
+  the view filters, since both resolve to the same footprint. It inspects
+  text, so it enforces the one-table rule rather than bounding data access.
+* The dry runs enforce the data boundary: the referenced tables and views must
+  equal the footprint, whatever the selector text says, and the selector may
+  call no routine outside the footprint, because what any other user-defined
+  or remote function reads or sends cannot be compared with the footprint.
 
-`BigQueryJobFetcher.precheck_selector` anchors the canonical project on the
-wrapped ingestion query's dry run. The outer query's `FROM` always reads the
-telemetry table, so exactly one referenced table must match the configured
-telemetry dataset and table; its project is canonical. Configuration may hold
-the project number (Agent Runtime injects `GOOGLE_CLOUD_PROJECT` as the number),
-whereas dry runs report the project ID. Zero matches, or more than one (a
-same-named table in another project), is a rejection.
-
-Validation executes two dry runs, and each must reference exactly the footprint
-tables in the canonical project:
-1. Wrapped ingestion query: Verifies that executing the full query touches
-   nothing beyond the footprint.
-2. Standalone selector query (`build_standalone_selector`): Verifies that the selector itself
-   resolves to the whole footprint. This rejects selectors that read no tables (such
-   as static ID lists), that read only part of a view's footprint, and that
-   reference unauthorized tables in columns the outer query would otherwise
-   prune. Metadata queries (such as `INFORMATION_SCHEMA`) and foreign-project
-   tables appear in `referenced_tables` and fail the comparison.
-
-Lexical checks run beforehand, without issuing BigQuery RPCs:
-`find_lexical_violation` catches unsupported statements, escape sequences in
-quoted identifiers, and enforces parameter bindings (`@window_start`,
-`@window_end`, `@agent_name`), then `find_table_violation` applies the table
-guard. Both inspect the SQL with string literals and comments masked but quoted
-identifiers visible (`_mask_literals_and_comments`), so a table or function name cannot hide in
-text the scanner mistakes for a literal.
+`BigQueryJobFetcher.precheck_selector` runs the checks in this order:
+1. Lexical checks, without issuing BigQuery RPCs: `find_lexical_violation`
+   catches unsupported statements, escape sequences in quoted identifiers, and
+   enforces parameter bindings (`@window_start`, `@window_end`, `@agent_name`),
+   then `find_table_violation` requires the selector to name the selector
+   table. Both inspect the SQL with string literals and comments masked but
+   quoted identifiers visible (`_mask_literals_and_comments`), so a table or
+   function name cannot hide in text the scanner mistakes for a literal.
+2. Footprint dry run: dry-runs a read of the selector table over the window,
+   whose referenced tables, views and routines form the footprint. Filtering
+   on the window keeps a table with a required partition filter readable.
+   Access denied here means AQuA cannot read the selector table
+   (`SELECTOR_TABLE_UNREADABLE`); access denied in a later dry run means the
+   selector reads a table beyond it (`UNAUTHORIZED_TABLE`).
+3. `find_table_violation` again, refusing every footprint entry other than
+   the selector table itself.
+4. Wrapped ingestion query dry run: verifies that executing the full query
+   resolves to exactly the footprint and calls no other routine.
+5. Standalone selector query dry run (`build_standalone_selector`): verifies
+   the same for the selector itself. This rejects selectors that read no
+   tables (such as static ID lists), that read only part of a view's
+   footprint, and that reference unauthorized tables in columns the outer
+   query would otherwise prune. Metadata queries (such as
+   `INFORMATION_SCHEMA`) and foreign-project tables and views appear in the
+   dry run and fail the comparison.
 
 To prevent data exfiltration via error messages, query rejections return only a
 structured reason code and the failing SQL line rather than raw BigQuery error text.
@@ -125,14 +128,8 @@ CLOUD_LOGGING_SELECTOR_VIEW = "completions_view"
 """Selector table for the `cloud_logging` source.
 
 agents-cli `telemetry.tf` creates this view in the telemetry dataset. It joins
-the Cloud Logging sink table with the `CLOUD_LOGGING_VIEW_BASE_TABLE` BigLake
-table so conversation content is available inline to `AI.IF`.
-"""
-
-CLOUD_LOGGING_VIEW_BASE_TABLE = "completions"
-"""BigLake table joined by `CLOUD_LOGGING_SELECTOR_VIEW`.
-
-agents-cli `telemetry.tf` creates it in the telemetry dataset.
+the Cloud Logging sink table with a BigLake table of message content so
+conversation content is available inline to `AI.IF`.
 """
 
 
@@ -166,27 +163,6 @@ def build_selector_table_ref(
         Fully-qualified ``project.dataset.table`` reference.
     """
     return f"{project_id}.{dataset}.{resolve_selector_table_id(source, telemetry_table)}"
-
-
-def resolve_selector_footprint(
-    source: str, telemetry_table: str
-) -> frozenset[str]:
-    """Returns the table names a valid selector dry run resolves to.
-
-    A dry run reports a view's base tables rather than the view, so the
-    `cloud_logging` footprint is the sink table plus the BigLake table that
-    `CLOUD_LOGGING_SELECTOR_VIEW` joins.
-
-    Args:
-        source: Telemetry source key (`big_query`, `cloud_ops` or `cloud_logging`).
-        telemetry_table: Configured telemetry table.
-
-    Returns:
-        Table names within the telemetry dataset.
-    """
-    if source == CLOUD_LOGGING_SOURCE:
-        return frozenset({telemetry_table, CLOUD_LOGGING_VIEW_BASE_TABLE})
-    return frozenset({telemetry_table})
 
 
 _FORBIDDEN_KEYWORDS = (
@@ -312,9 +288,17 @@ class RejectionReason(enum.StrEnum):
     """BigQuery dry run rejected the query due to syntax errors or invalid projection."""
 
     UNAUTHORIZED_TABLE = "unauthorized_table"
-    """Selector does not name the selector table, names another footprint table,
+    """Selector does not name the selector table, names another footprint entry,
     or spells an identifier with escape sequences, or a dry run resolves tables
-    other than the selector table's footprint."""
+    or views other than the selector table's footprint, or is denied access
+    after the footprint dry run succeeded."""
+
+    SELECTOR_TABLE_UNREADABLE = "selector_table_unreadable"
+    """AQuA's service account cannot read the selector table."""
+
+    UNAUTHORIZED_ROUTINE = "unauthorized_routine"
+    """A dry run resolves a routine, such as a user-defined or remote function,
+    that is not in the selector table's footprint."""
 
 
 @dataclasses.dataclass(frozen=True)
@@ -349,7 +333,8 @@ class PrecheckResult:
     """Rejection details if validation failed, or None if valid."""
 
     referenced_tables: tuple[str, ...] = ()
-    """Sorted tuple of fully-qualified table names resolved by the dry run."""
+    """Sorted, fully-qualified names of the tables and logical views the dry
+    run resolved."""
 
     estimated_bytes: int = 0
     """Estimated bytes scanned, reported by BigQuery dry run."""
@@ -485,13 +470,14 @@ def find_table_violation(
     *,
     dataset: str,
     selector_table_id: str,
-    other_table_ids: frozenset[str],
+    other_tables: frozenset[tuple[str, str]],
 ) -> Rejection | None:
-    """Checks that a selector names its selector table and no other footprint table.
+    """Checks that a selector names its selector table and no other footprint entry.
 
-    A dry run reports a logical view's base tables rather than the view, so it
-    cannot tell a selector over `CLOUD_LOGGING_SELECTOR_VIEW` from one joining
-    the view's base tables directly. Only the selector text distinguishes them.
+    A dry run reports a view together with its base tables, so it cannot tell
+    a selector over a view such as `CLOUD_LOGGING_SELECTOR_VIEW` from one that
+    also joins the view's base tables directly. Only the selector text
+    distinguishes them.
 
     Dry runs set no default dataset, so a table reference always carries its
     dataset; only ``dataset.table`` references count, which keeps a column
@@ -504,21 +490,24 @@ def find_table_violation(
         selector_sql: Unwrapped agent-authored selector SQL.
         dataset: Telemetry dataset, used to name the selector table.
         selector_table_id: Table ID of the one table the selector may read.
-        other_table_ids: Other table IDs in the selector table's footprint, such
-            as a view's base tables, which the selector must not name.
+        other_tables: ``(dataset, table)`` pairs of the other tables and views
+            in the selector table's footprint, such as a view's base tables,
+            which the selector must not name. Each is matched within its own
+            dataset, which may differ from `dataset`; empty checks only that
+            the selector names the selector table.
 
     Returns:
         An `UNAUTHORIZED_TABLE` rejection, or None if the selector names the
-        selector table and none of `other_table_ids`.
+        selector table and none of `other_tables`.
     """
     # Quoting may split a path at any dot (`p`.`d`.`t`, `p.d`.t), so the
     # backticks are dropped to compare every spelling as one dotted path.
     body = _mask_literals_and_comments(selector_sql).replace("`", "")
     allowed = f"{dataset}.{selector_table_id}"
     named_others = sorted(
-        f"{dataset}.{table}"
-        for table in other_table_ids
-        if _has_table_reference(body, dataset, table)
+        f"{other_dataset}.{table}"
+        for other_dataset, table in other_tables
+        if _has_table_reference(body, other_dataset, table)
     )
     names_selector_table = _has_table_reference(
         body, dataset, selector_table_id

@@ -29,7 +29,8 @@ export const Route = createFileRoute("/investigations/")({
   //
   // `trigger` is the trigger filter, kept the same way, with All as no param.
   //
-  // `day` narrows the list to the runs one column of the per-day chart counts.
+  // `day` narrows the list to the investigations one column of the per-day
+  // chart counts.
   validateSearch: (
     search: Record<string, unknown>,
   ): {

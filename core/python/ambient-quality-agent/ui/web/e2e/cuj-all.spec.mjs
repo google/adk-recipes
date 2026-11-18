@@ -90,12 +90,12 @@ async function run() {
       (await topIssuesRail.count()) > 0,
     );
 
-    const recentRunsRail = page.locator(
+    const recentInvestigationsRail = page.locator(
       'button:has-text("Recent investigations"), span:has-text("Recent investigations")',
     );
     assertStep(
       "Sidebar displays Recent investigations rail",
-      (await recentRunsRail.count()) > 0,
+      (await recentInvestigationsRail.count()) > 0,
     );
 
     // Inspect Chats in ChatListSidebar on /
@@ -196,12 +196,12 @@ async function run() {
         /\d+.*evaluated/i.test(invText) ||
         /\d+/.test(invText),
     );
-    const runLinks = page.locator('a[href*="/investigations/"]');
-    const runLinkCount = await runLinks.count();
+    const investigationLinks = page.locator('a[href*="/investigations/"]');
+    const investigationLinkCount = await investigationLinks.count();
     assertStep(
-      "Investigation runs listed in table",
-      runLinkCount > 0,
-      `${runLinkCount} runs`,
+      "Investigations listed in table",
+      investigationLinkCount > 0,
+      `${investigationLinkCount} investigations`,
     );
 
     // --- CUJ 4: Configuration (Goal & Memory) ---

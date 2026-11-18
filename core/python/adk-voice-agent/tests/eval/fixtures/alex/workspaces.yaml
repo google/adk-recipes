@@ -1,0 +1,7 @@
+# Alex's repositories (VOICE_AGENT_WORKSPACES_LOCAL_YAML during System 2 runs). The checkout
+# is already in the snapshot; the URL is the bare remote the snapshot puts in the home.
+repositories:
+  - name: payments-api
+    git_url: /home/agent/.remotes/payments-api.git
+    branch: main
+    description: Lumen Pay's payments service (fees and refunds)

@@ -1,0 +1,97 @@
+/* Settings: account, coding agent, connected apps, voice and time, memory */
+.sheet-body.connections-body {
+  gap: 20px;
+}
+
+/* One page of Settings (the list, a picker, or an app); drills in like the thread page. */
+.cfg-view {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.cfg-view[data-direction="push"] {
+  animation: flPush var(--dur-med) var(--ease-out) both;
+}
+
+.cfg-view[data-direction="pop"] {
+  animation: flPop var(--dur-med) var(--ease-out) both;
+}
+
+@keyframes flPush {
+  from {
+    opacity: 0;
+    transform: translateX(18px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes flPop {
+  from {
+    opacity: 0;
+    transform: translateX(-18px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.sheet-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sheet-section-head {
+  display: flex;
+  /* Centered, so an aside button (the drawer's Clear) sits level with the label. */
+  align-items: center;
+  justify-content: space-between;
+  min-height: 28px;
+}
+
+/* Section titles in the app.s voice: sentence weight, not shouty caps. */
+.section-label {
+  font-size: var(--fs-meta);
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.icon-muted {
+  color: var(--icon-muted);
+}
+
+.connections-note {
+  font-size: var(--fs-meta);
+  color: var(--text-muted);
+}
+
+/* ---- Settings pages ---------------------------------------------------- */
+
+.cfg-detail-title {
+  font-size: var(--fs-title);
+  font-weight: 600;
+  letter-spacing: -0.014em;
+}
+
+/* One app's page: who it's connected as, then its actions in one row. */
+.app-page {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.app-page-note {
+  font-size: var(--fs-meta);
+  color: var(--text-secondary);
+}
+
+.app-page-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}

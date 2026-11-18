@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+import type { ConversationFile } from "../conversation";
+
 /**
  * One step in a trajectory: a turn in the observed agent's conversation, or a
  * step the dig phase took while investigating it. Modelled on agents-cli's
@@ -46,6 +48,8 @@ export interface TrajectoryRecord {
   result?: unknown;
   isError?: boolean;
   errorMessage?: string;
+  /** Files attached to a user or agent message in the stored conversation. */
+  files?: ConversationFile[];
   raw: unknown;
 }
 

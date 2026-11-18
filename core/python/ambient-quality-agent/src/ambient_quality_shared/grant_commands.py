@@ -65,6 +65,9 @@ _DATASET_ROLE = "roles/bigquery.dataViewer"
 _BUCKET_ROLE = "roles/storage.objectViewer"
 _LOG_VIEW_ROLE = "roles/logging.viewAccessor"
 
+_QUIET = "--format=none"
+"""Otherwise gcloud prints the resource's whole updated policy."""
+
 # The values substituted into a command. A target the engine reports outside
 # these shapes, matched in full, gets no command, so nothing unexpected reaches
 # the printed line or the SQL statement. A project is an id, which may carry a
@@ -233,6 +236,7 @@ def _build_grant(check: Mapping[str, Any], account: str) -> Grant | None:
                 bucket,
                 f"--member={member}",
                 f"--role={_BUCKET_ROLE}",
+                _QUIET,
             ),
         )
     if name == "log_view":
@@ -256,6 +260,7 @@ def _build_grant(check: Mapping[str, Any], account: str) -> Grant | None:
                 # Without it, gcloud asks which condition to bind under when
                 # the project's policy already has conditional bindings.
                 "--condition=None",
+                _QUIET,
             ),
         )
     return None
@@ -353,6 +358,7 @@ def _build_revocation(record: Mapping[str, Any]) -> Revocation | None:
                 resource,
                 f"--member={member}",
                 f"--role={role}",
+                _QUIET,
             ),
         )
     if role == _LOG_VIEW_ROLE:
@@ -374,6 +380,7 @@ def _build_revocation(record: Mapping[str, Any]) -> Revocation | None:
                 f"--role={role}",
                 # The grant bound it with no condition.
                 "--condition=None",
+                _QUIET,
             ),
         )
     return None

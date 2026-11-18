@@ -12,100 +12,100 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""What a store of trajectories has to answer, apart from how it keeps them.
+"""Storage contract for writing investigation trajectories and trajectory bundles.
 
-`bigquery_store.BigQueryTrajectoryStore` is the deployed implementation;
-`standalone.InMemoryTrajectoryStore` is the other. This is the write path
-ingestion takes, through `TrajectoryRecorder`; `reader.TrajectoryReader` is the
-read path the dashboard and the chat tools take, and the two are separate
-classes for the reason the insight pair is -- so nothing serving a dashboard can
-delete a run's rows.
+Implemented by `bigquery_store.BigQueryTrajectoryStore` for deployments and
+`standalone.InMemoryTrajectoryStore` for standalone mode. Kept separate from
+`reader.TrajectoryReader` so read-only callers cannot delete or write rows.
 
-Two grains, and the whole contract turns on keeping them apart.
+Two distinct grains are stored:
+1. **Investigation trajectories** are keyed by ``(investigation_id, trajectory_id)``.
+   `delete_investigation_trajectories` removes a prior attempt's rows when an
+   investigation retries.
+2. **Trajectory bundles** are keyed by ``(observed_agent_key, trajectory_id)``
+   and shared across investigations. Retry cleanup never deletes trajectory
+   bundles because other investigations' insights may reference them.
 
-**An index row belongs to a sweep.** It is keyed ``(run_id, trajectory_id)``,
-and `delete_run_trajectories` is what keeps that key true when the durable job is retried
-from the start.
-
-**A conversation belongs to nobody's run.** It is keyed
-``(agent_name, trajectory_id)``, stored once however many sweeps sampled it, and
-`delete_run_trajectories` must never touch one: deleting a copy this run wrote would destroy
-evidence a different run's insight points at.
-
-Where the implementations part is what `record_payloads` does with a
-conversation that is already stored, and they part only in how the rows are
-kept. BigQuery appends a second copy and chooses between them on every read,
-because there is no cheap ``UPDATE`` there; an implementation that can change a
-record applies the same preference at write time and keeps one (D19). Both
-answer `TrajectoryReader.get_archives` with the same copy.
+When a trajectory is stored more than once, `compute_manifest_rank` defines
+which copy wins (preferring `TrajectoryStatus.INGESTED`, then earliest
+`created_at`). BigQuery appends every copy and applies this rank on read;
+`InMemoryTrajectoryStore` applies it on write.
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Protocol
 
-from ambient_quality_agent.tools.trajectories.models import PayloadStatus
+from ambient_quality_agent.tools.trajectories.models import TrajectoryStatus
 
 if TYPE_CHECKING:
     import datetime as dt
     from collections.abc import Sequence
 
+    from ambient_quality_agent.tools.trajectories.bundles import (
+        TrajectoryBundle,
+    )
     from ambient_quality_agent.tools.trajectories.models import (
-        Trajectory,
-        TrajectoryPayload,
-    )
-    from ambient_quality_agent.tools.trajectories.payloads import (
-        TrajectoryArchive,
+        InvestigationTrajectory,
+        TrajectoryManifest,
     )
 
 
-def compute_payload_rank(
-    payload: TrajectoryPayload,
+def compute_manifest_rank(
+    manifest: TrajectoryManifest,
 ) -> tuple[bool, dt.datetime]:
-    """Computes a sort rank for choosing between stored copies of a conversation.
+    """Computes a sort rank for choosing between stored copies of a trajectory.
 
     Prefers fully ingested copies over partial or truncated ones, breaking ties by
     earliest creation timestamp.
 
     Args:
-        payload: Trajectory payload to rank.
+        manifest: Trajectory manifest to rank.
 
     Returns:
         A tuple of (is_incomplete, created_at) suitable for min() comparison.
     """
-    return (payload.status is not PayloadStatus.INGESTED, payload.created_at)
+    return (
+        manifest.status is not TrajectoryStatus.INGESTED,
+        manifest.created_at,
+    )
 
 
 class TrajectoryStore(Protocol):
-    """One agent's sampled trajectories, and the conversations behind them."""
+    """One agent's investigation trajectories, and the trajectory bundles
+    behind them."""
 
-    def delete_run_trajectories(self, run_id: str) -> None:
-        """Deletes index rows from a prior attempt of a run.
+    def delete_investigation_trajectories(self, investigation_id: str) -> None:
+        """Deletes investigation trajectories from a prior attempt.
 
-        Removes rows from the trajectories index table to ensure uniqueness across
-        retried runs. Never deletes payloads, as archived conversations may be shared
-        across sweeps.
-
-        Args:
-            run_id: Investigation run identifier to clean up.
-        """
-
-    def record(self, trajectories: Sequence[Trajectory]) -> None:
-        """Appends a batch of trajectory index rows.
+        Keeps ``(investigation_id, trajectory_id)`` unique across retried investigations.
+        Never deletes trajectory bundles, as they may be shared across
+        investigations.
 
         Args:
-            trajectories: Sequence of trajectory index records to store.
+            investigation_id: Investigation identifier to clean up.
         """
 
-    def record_payloads(self, archives: Sequence[TrajectoryArchive]) -> None:
-        """Stores conversation payloads and turns.
+    def record_investigation_trajectories(
+        self, investigation_trajectories: Sequence[InvestigationTrajectory]
+    ) -> None:
+        """Appends a batch of investigation trajectories.
 
-        When a conversation is stored more than once, the copy that
-        `compute_payload_rank` prefers (intact copies, then earliest creation
+        Args:
+            investigation_trajectories: Investigation trajectories to store.
+        """
+
+    def record_trajectory_bundles(
+        self, bundles: Sequence[TrajectoryBundle]
+    ) -> None:
+        """Stores trajectory bundles: each manifest and its steps.
+
+        When a trajectory is stored more than once, the copy that
+        `compute_manifest_rank` prefers (intact copies, then earliest creation
         time) is the one kept at write time or chosen at read time.
 
         Args:
-            archives: Sequence of trajectory archives containing manifests and turns.
+            bundles: Trajectory bundles to store.
 
         Raises:
             Exception: If storage fails, after any retries the store makes.

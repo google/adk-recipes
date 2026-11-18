@@ -28,35 +28,35 @@ import { InsightsView } from "../insights-view";
 
 const INSIGHT_HIGH: InsightView = {
   insight_id: "ins-high",
-  agent_name: "it_support_agent",
+  observed_agent_key: "it_support_agent",
   label: "crashed with priority",
   tool_name: "create_ticket",
   status: "RECURRING",
   occurrence_count: 7,
-  trace_count: 134,
+  trajectory_count: 134,
   impact: 400,
-  last_run_at: "2026-08-28T18:35:34Z",
+  last_investigation_at: "2026-08-28T18:35:34Z",
   diagnosis: "Priority value must be High, Medium, Low.",
   confidence: 1.0,
 };
 
 const INSIGHT_LOW: InsightView = {
   insight_id: "ins-low",
-  agent_name: "it_support_agent",
+  observed_agent_key: "it_support_agent",
   label: "failed to call create_ticket",
   tool_name: "create_ticket",
   status: "NEW",
   occurrence_count: 1,
-  trace_count: 3,
+  trajectory_count: 3,
   impact: 10,
-  last_run_at: "2026-08-28T18:35:34Z",
+  last_investigation_at: "2026-08-28T18:35:34Z",
   diagnosis: "",
   confidence: 0,
 };
 
 function renderPage(
   fetchImpl: typeof fetch,
-  props: { runId?: string; embedded?: boolean } = {},
+  props: { investigationId?: string; embedded?: boolean } = {},
 ) {
   vi.stubGlobal("fetch", fetchImpl);
   const queryClient = new QueryClient({
@@ -93,7 +93,7 @@ describe("InsightsView", () => {
   });
 
   it("states the verdict and the server's conversation reach in the header", async () => {
-    // 137 is what summing this page's `trace_count` gives, and it is wrong
+    // 137 is what summing this page's `trajectory_count` gives, and it is wrong
     // three ways over. The header renders what the server aggregated instead.
     renderPage((() =>
       Promise.resolve(
@@ -359,7 +359,10 @@ describe("InsightsView", () => {
   });
 
   /** Renders the list with whatever props, against an empty result. */
-  function renderEmpty(props: { runId?: string; embedded?: boolean }) {
+  function renderEmpty(props: {
+    investigationId?: string;
+    embedded?: boolean;
+  }) {
     vi.stubGlobal("fetch", (() =>
       Promise.resolve(
         new Response(
@@ -393,10 +396,10 @@ describe("InsightsView", () => {
   }
 
   it("brings no chrome of its own when embedded in another page", async () => {
-    renderEmpty({ runId: "run-12345678", embedded: true });
+    renderEmpty({ investigationId: "inv-12345678", embedded: true });
 
     expect(
-      await screen.findByText("Investigation run-1234 produced no insights."),
+      await screen.findByText("Investigation inv-1234 produced no insights."),
     ).toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: /Merge duplicates/ }),
@@ -405,9 +408,9 @@ describe("InsightsView", () => {
     expect(screen.queryByRole("button", { name: /Refresh/ })).toBeNull();
   });
 
-  it("keeps its tabs when a status matches nothing in an embedded run", async () => {
-    // The run found insights, just none resolved: the tabs must survive the
-    // empty answer, or "All" is unreachable without a reload.
+  it("keeps its tabs when a status matches nothing in an embedded investigation", async () => {
+    // The investigation found insights, just none resolved: the tabs must
+    // survive the empty answer, or "All" is unreachable without a reload.
     renderPage(
       ((input: RequestInfo | URL) => {
         const status = new URL(String(input), "http://x").searchParams.get(
@@ -424,7 +427,7 @@ describe("InsightsView", () => {
           ),
         );
       }) as typeof fetch,
-      { runId: "run-12345678", embedded: true },
+      { investigationId: "inv-12345678", embedded: true },
     );
     const user = userEvent.setup();
 
@@ -432,7 +435,7 @@ describe("InsightsView", () => {
 
     expect(
       await screen.findByText(
-        "None of investigation run-1234's insights are resolved.",
+        "None of investigation inv-1234's insights are resolved.",
       ),
     ).toBeInTheDocument();
     expect(screen.queryByText(/produced no insights/)).toBeNull();
@@ -441,14 +444,14 @@ describe("InsightsView", () => {
     expect(await screen.findByText(INSIGHT_HIGH.diagnosis)).toBeInTheDocument();
   });
 
-  /** `runId` and `embedded` were one prop, so a filtered list could not keep
+  /** `investigationId` and `embedded` were one prop, so a filtered list could not keep
    *  its own page. This is the case that separating them buys. */
-  it("keeps its own chrome when filtered by run but not embedded", async () => {
-    renderEmpty({ runId: "run-12345678" });
+  it("keeps its own chrome when filtered by investigation but not embedded", async () => {
+    renderEmpty({ investigationId: "inv-12345678" });
 
     // The reason for the filter still reaches the reader...
     expect(
-      await screen.findByText("Investigation run-1234 produced no insights."),
+      await screen.findByText("Investigation inv-1234 produced no insights."),
     ).toBeInTheDocument();
     // ...and the page is still a page.
     expect(screen.getByRole("button", { name: "All" })).toBeInTheDocument();
@@ -460,7 +463,7 @@ describe("InsightsView", () => {
   it("says a filtered page is filtered, and offers the way out", async () => {
     // Six findings on a page that looks exactly like the unfiltered one reads
     // as "this agent has six".
-    renderEmpty({ runId: "run-12345678" });
+    renderEmpty({ investigationId: "inv-12345678" });
 
     expect(
       await screen.findByText(/Showing only what investigation/),

@@ -46,7 +46,7 @@ def store(backing: InMemoryStore) -> InMemoryRootCauseStore:
 
 @pytest.fixture
 def reader(backing: InMemoryStore) -> InMemoryInsightReader:
-    return InMemoryInsightReader(backing, agent_name=_AGENT)
+    return InMemoryInsightReader(backing, observed_agent_key=_AGENT)
 
 
 def _root_cause(

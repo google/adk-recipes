@@ -37,7 +37,7 @@ Install directly into your AI coding assistant (Claude Code, Antigravity,
 Codex, ...) via `npx skills add`:
 
 ```bash
-npx skills add google/adk-recipes --skill retail-virtual-tryon
+npx skills add google/adk-recipes/plugins/retail --skill retail-virtual-tryon
 ```
 
 ### Option 3: Developer Install

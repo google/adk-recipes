@@ -1,0 +1,75 @@
+#cloud-config
+# Boot config for a user's computer (Container-Optimized OS), rendered by computer.tf.
+# COS resets /etc on every boot, so cloud-init rewrites these units each time.
+#
+# computer-home.service: format the user's disk on first use, grow it, mount it.
+# computer.service: the computer image, with the disk as /home/agent and the
+#   per-instance `computer-env` metadata (set by the app at insert time) as its env.
+
+write_files:
+  - path: /var/lib/computer/prepare-home.sh
+    permissions: "0644"
+    owner: root
+    content: |
+      set -eu
+      dev=/dev/disk/by-id/google-${disk_device_name}
+      for _ in $(seq 1 60); do [ -e "$dev" ] && break; sleep 1; done
+      [ -e "$dev" ] || { echo "no disk at $dev" >&2; exit 1; }
+      blkid "$dev" >/dev/null || mkfs.ext4 -m 0 -E lazy_itable_init=0,lazy_journal_init=0,discard "$dev"
+      mkdir -p ${home_mount}
+      mountpoint -q ${home_mount} || mount -o discard,defaults "$dev" ${home_mount}
+      resize2fs "$dev" || true
+
+  - path: /var/lib/computer/fetch-env.sh
+    permissions: "0644"
+    owner: root
+    content: |
+      set -eu
+      umask 077
+      curl -sf -H 'Metadata-Flavor: Google' \
+        'http://metadata.google.internal/computeMetadata/v1/instance/attributes/computer-env' \
+        > /var/lib/computer/env.new || : > /var/lib/computer/env.new
+      echo >> /var/lib/computer/env.new
+      mv /var/lib/computer/env.new /var/lib/computer/env
+
+  - path: /etc/systemd/system/computer-home.service
+    permissions: "0644"
+    owner: root
+    content: |
+      [Unit]
+      Description=Mount the user's home disk
+      Wants=network-online.target
+      After=network-online.target
+
+      [Service]
+      Type=oneshot
+      RemainAfterExit=yes
+      ExecStart=/bin/bash /var/lib/computer/prepare-home.sh
+
+  - path: /etc/systemd/system/computer.service
+    permissions: "0644"
+    owner: root
+    content: |
+      [Unit]
+      Description=The user's computer (${image})
+      Requires=computer-home.service docker.service
+      After=computer-home.service docker.service
+
+      [Service]
+      # docker-credential-gcr writes its config under $HOME; /root is read-only on COS.
+      Environment=HOME=/home/cloudservice
+      ExecStartPre=/bin/bash /var/lib/computer/fetch-env.sh
+      ExecStartPre=/usr/bin/docker-credential-gcr configure-docker --registries=${registry}
+      ExecStartPre=-/usr/bin/docker rm -f computer
+      ExecStart=/usr/bin/docker run --rm --name computer --env-file /var/lib/computer/env -p 8080:8080 -v ${home_mount}:/home/agent ${image}
+      ExecStop=/usr/bin/docker stop -t 30 computer
+      Restart=always
+      RestartSec=5
+
+      [Install]
+      WantedBy=multi-user.target
+
+runcmd:
+  - mkdir -p /home/cloudservice
+  - systemctl daemon-reload
+  - systemctl start computer.service

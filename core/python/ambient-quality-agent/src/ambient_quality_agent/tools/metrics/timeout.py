@@ -16,7 +16,7 @@
 
 A metric is operator-written Python. One with an accidental `while True`, or a
 call to something that never answers, would otherwise hang the sweep: the node
-waits forever, the run never finishes, and because the window only advances on a
+waits forever, the investigation never finishes, and because the window only advances on a
 completed run, every later sweep waits behind it too.
 
 This bounds the wait, not the metric. Python cannot interrupt a thread that is

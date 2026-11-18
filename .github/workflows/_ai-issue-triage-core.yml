@@ -99,7 +99,7 @@ jobs:
         id: 'generate_token'
         if: |-
           ${{ inputs.app_id != '' }}
-        uses: 'actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1' # ratchet:actions/create-github-app-token@v2
+        uses: 'actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510' # ratchet:actions/create-github-app-token@v2
         # Scoped explicitly: an app token otherwise carries every permission
         # the installation was granted (zizmor `github-app`). Triage only
         # ever reads labels and edits issue labels.

@@ -1,4 +1,4 @@
-# Copyright 2025 Google LLC
+# Copyright 2026 Google LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,7 +13,14 @@
 # limitations under the License.
 
 terraform {
-  required_version = ">= 1.0.0"
+  required_version = ">= 1.7.0"
+
+  # The state is in the bucket <project>-genmedia-tfstate, which
+  # infra/setup_infra.sh creates and passes to terraform init
+  # (-backend-config=bucket=...), so a run from a new folder finds it.
+  backend "gcs" {
+    prefix = "genmedia-for-commerce"
+  }
 
   required_providers {
     google = {
@@ -23,6 +30,10 @@ terraform {
     google-beta = {
       source  = "hashicorp/google-beta"
       version = ">= 5.0.0"
+    }
+    time = {
+      source  = "hashicorp/time"
+      version = ">= 0.9.0"
     }
   }
 }
@@ -35,6 +46,17 @@ provider "google" {
 provider "google-beta" {
   project = var.project_id
   region  = var.region
+}
+
+# The Cloud Run service is created and sized by `make deploy`
+# (gcloud run deploy --source), not Terraform. Drop it from existing state
+# without destroying the running service.
+removed {
+  from = google_cloud_run_v2_service.main
+
+  lifecycle {
+    destroy = false
+  }
 }
 
 # Enable required APIs
@@ -50,6 +72,10 @@ resource "google_project_service" "apis" {
     "storage.googleapis.com",
     "vision.googleapis.com",
     "iam.googleapis.com",
+    # V4 signed URLs for the Studio previews (IAM signBlob)
+    "iamcredentials.googleapis.com",
+    # Gemini Enterprise (make register-gemini-enterprise)
+    "discoveryengine.googleapis.com",
     "telemetry.googleapis.com",
   ])
 

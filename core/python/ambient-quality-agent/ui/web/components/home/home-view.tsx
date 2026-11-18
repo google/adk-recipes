@@ -21,15 +21,16 @@ import {
   effectiveConfigQuery,
   type InsightOrder,
   insightsQuery,
-  runsQuery,
+  investigationsQuery,
   statsQuery,
 } from "@/lib/aqua-api";
+import { Button } from "@/components/ui/button";
 import { FailureNote } from "@/components/ui/failure-note";
 import { FilterTabs } from "@/components/ui/filter-tabs";
 import { PageRefreshButton } from "@/components/ui/refresh-button";
 import { HelpPopover } from "@/components/ui/help-popover";
 import { InlineMarkdown } from "@/components/ui/inline-markdown";
-import { RunsTable } from "@/components/investigations/runs-table";
+import { InvestigationsTable } from "@/components/investigations/investigations-table";
 import {
   matchesTrigger,
   TRIGGER_FILTER_NAMES,
@@ -39,21 +40,22 @@ import {
 import { RunInvestigationButton } from "@/components/run-investigation-button";
 import { Funnel } from "@/components/stats/funnel";
 import { InsightTrend } from "@/components/stats/insight-trend";
-import { TracesPerDay } from "@/components/stats/traces-per-day";
+import { TrajectoriesPerDay } from "@/components/stats/trajectories-per-day";
 import { DASHBOARD_DAYS, HORIZON_LABEL } from "@/lib/day-buckets";
 import type { ListPage } from "@/lib/funnel";
 import { buildTrend, resolvedNote } from "@/lib/insight-trend";
-import { newestFirst } from "@/lib/runstate";
+import { newestFirst } from "@/lib/investigation-state";
 import { cn, formatSentenceCase } from "@/lib/utils";
 import { PageHeader } from "@/components/nav/page-header";
-import { link, textStyle } from "@/lib/typography";
+import { textStyle } from "@/lib/typography";
 import { StatBar } from "./stat-bar";
 import { useAgentKey } from "@/lib/agent-selection";
+import { isViewerMode } from "@/lib/viewer-mode";
 
 /** How many investigations the Recent investigations list shows, of the
- *  capped page `runsQuery` returns. Few, so Home stays short; "View all"
- *  opens the rest. */
-const RECENT_RUNS = 5;
+ *  capped page `investigationsQuery` returns. Few, so Home stays short; "View
+ *  all" opens the rest. */
+const RECENT_INVESTIGATIONS = 5;
 
 /** How many issues the homepage strip shows. */
 const TOP_ISSUES = 5;
@@ -154,29 +156,43 @@ function Section({
   );
 }
 
-/** A section's way to the page that lists what it shows. The ring is inset
- *  because the section clips overflow, which would cut an outline off. */
+/**
+ * A section's way to the page that lists what it shows. The focus ring is inset
+ * with zero offset because the section clips overflow, which would cut off an
+ * outer ring.
+ *
+ * Args:
+ *   to: Destination list route.
+ *   search: Optional filter query for the destination list.
+ *   ariaLabel: Accessible name when the visible label needs the noun it opens,
+ *     so two "View all" links stay distinguishable to screen readers.
+ *   children: Visible link label.
+ *
+ * Returns:
+ *   An outline button rendered as a router link.
+ */
 function SectionLink({
   to,
   search,
+  ariaLabel,
   children,
 }: {
   to: ListPage;
   search?: { status?: "recurring"; trigger?: Exclude<TriggerFilter, "all"> };
+  ariaLabel?: string;
   children: React.ReactNode;
 }) {
   return (
-    <Link
-      to={to}
-      search={search}
-      className={cn(
-        textStyle.body,
-        link.standalone,
-        "flex shrink-0 items-center gap-1.5 text-primary focus-visible:ring-inset",
-      )}
+    <Button
+      asChild
+      variant="outline"
+      size="sm"
+      className="shrink-0 gap-1.5 focus-visible:ring-inset focus-visible:ring-offset-0 [&_svg]:size-3.5"
     >
-      {children} <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
-    </Link>
+      <Link to={to} search={search} aria-label={ariaLabel}>
+        {children} <ArrowRight aria-hidden="true" />
+      </Link>
+    </Button>
   );
 }
 
@@ -313,8 +329,9 @@ export function HomeView() {
   const insights = useQuery(
     insightsQuery(agentKey, { ...view.query, pageSize: TOP_ISSUES }),
   );
-  const runs = useQuery(runsQuery(agentKey));
-  const [runTrigger, setRunTrigger] = useState<TriggerFilter>("all");
+  const investigations = useQuery(investigationsQuery(agentKey));
+  const [investigationTrigger, setInvestigationTrigger] =
+    useState<TriggerFilter>("all");
   const daily = useQuery(dailyQuery(agentKey));
   // Resolved issues are fetched on their own rather than filtered out of the
   // list above: that list is impact-ordered and five rows long, so the resolved
@@ -327,14 +344,17 @@ export function HomeView() {
   const config = useQuery(effectiveConfigQuery(agentKey));
 
   const s = stats.data;
-  const evaluated = s?.traces_evaluated ?? 0;
+  const evaluated = s?.trajectories_evaluated ?? 0;
   const top = insights.data?.insights ?? [];
-  // The API returns runs oldest-first; a "recent" list reads the other way.
-  // Filtered before the cut, so "User-initiated" shows the five newest runs a
-  // user started rather than whichever of the five newest runs they started.
-  const recentRuns = newestFirst(runs.data ?? [])
-    .filter((run) => matchesTrigger(run, runTrigger))
-    .slice(0, RECENT_RUNS);
+  // The API returns investigations oldest-first; a "recent" list reads the
+  // other way. Filtered before the cut, so "User-initiated" shows the five
+  // newest investigations a user started rather than whichever of the five
+  // newest investigations they started.
+  const recentInvestigations = newestFirst(investigations.data ?? [])
+    .filter((investigation) =>
+      matchesTrigger(investigation, investigationTrigger),
+    )
+    .slice(0, RECENT_INVESTIGATIONS);
 
   const autoResolveDays = autoResolveWindow(config.data?.config);
   const resolved = resolvedInsights.data?.insights ?? [];
@@ -357,7 +377,8 @@ export function HomeView() {
       <div data-tour="health">
         <StatBar />
       </div>
-      <AskBar />
+      {/* A read-only viewer serves no chat to hand the question to. */}
+      {!isViewerMode() && <AskBar />}
 
       {/* Two columns only from lg: at md each would be about 270px, and the
           charts' fourteen day links would be under the 24px WCAG 2.5.8 asks
@@ -407,7 +428,7 @@ export function HomeView() {
           tour="insights-strip"
           className="order-first lg:order-none"
           action={
-            <div className="ml-auto flex shrink-0 items-center gap-2">
+            <div className="ml-auto flex min-w-0 flex-wrap items-center gap-2">
               <FilterTabs
                 label="Which insights"
                 options={STRIP_VIEW_NAMES}
@@ -417,6 +438,7 @@ export function HomeView() {
               />
               <SectionLink
                 to="/insights"
+                ariaLabel="View all insights"
                 search={
                   stripView === "recurring"
                     ? { status: "recurring" }
@@ -451,8 +473,10 @@ export function HomeView() {
                         <InlineMarkdown text={i.label} />
                       </p>
                       <span className={cn(textStyle.meta, "shrink-0")}>
-                        {i.trace_count}{" "}
-                        {i.trace_count === 1 ? "trajectory" : "trajectories"}
+                        {i.trajectory_count}{" "}
+                        {i.trajectory_count === 1
+                          ? "trajectory"
+                          : "trajectories"}
                       </span>
                     </div>
                     {i.diagnosis && (
@@ -484,7 +508,7 @@ export function HomeView() {
             isEmpty={(daily.data ?? []).length === 0}
             empty="No investigations have run."
           >
-            <TracesPerDay
+            <TrajectoriesPerDay
               days={daily.data ?? []}
               span={DASHBOARD_DAYS}
               height="h-20"
@@ -522,24 +546,29 @@ export function HomeView() {
       <Section
         title="Recent investigations"
         subtitle={
-          recentRuns.length > 0 ? `${recentRuns.length} most recent` : "\u00a0"
+          recentInvestigations.length > 0
+            ? `${recentInvestigations.length} most recent`
+            : "\u00a0"
         }
-        tour="recent-runs"
+        tour="recent-investigations"
         action={
-          <div className="flex shrink-0 flex-wrap items-center gap-4">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
             <FilterTabs
               label="Started by"
               options={TRIGGER_FILTER_NAMES}
-              value={runTrigger}
-              onSelect={setRunTrigger}
+              value={investigationTrigger}
+              onSelect={setInvestigationTrigger}
               labelOf={(name) => TRIGGER_FILTERS[name].label}
             />
             <RunInvestigationButton />
             {/* Opens the investigations page on the same tab. */}
             <SectionLink
               to="/investigations"
+              ariaLabel="View all investigations"
               search={
-                runTrigger === "all" ? undefined : { trigger: runTrigger }
+                investigationTrigger === "all"
+                  ? undefined
+                  : { trigger: investigationTrigger }
               }
             >
               View all
@@ -548,17 +577,20 @@ export function HomeView() {
         }
       >
         <Pane
-          query={runs}
+          query={investigations}
           what="the recent investigations"
-          isEmpty={(runs.data?.length ?? 0) === 0}
+          isEmpty={(investigations.data?.length ?? 0) === 0}
           empty="No investigations have run."
         >
-          {recentRuns.length > 0 ? (
-            <RunsTable runs={recentRuns} history={runs.data} />
+          {recentInvestigations.length > 0 ? (
+            <InvestigationsTable
+              investigations={recentInvestigations}
+              history={investigations.data}
+            />
           ) : (
             <Empty>
-              No {TRIGGER_FILTERS[runTrigger].noun}investigations among the most
-              recent.
+              No {TRIGGER_FILTERS[investigationTrigger].noun}investigations
+              among the most recent.
             </Empty>
           )}
         </Pane>

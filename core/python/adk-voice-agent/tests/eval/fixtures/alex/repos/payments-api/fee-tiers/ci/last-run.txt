@@ -1,0 +1,15 @@
+CI run #1187 for lumenpay/payments-api on main (merge of #412 "Add volume fee tiers")
+$ python3 -m unittest discover -s tests -t .
+......F..
+======================================================================
+FAIL: test_fee_rounds_half_up (tests.test_fees.ProcessingFeeTest.test_fee_rounds_half_up)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/workspace/payments-api/tests/test_fees.py", line 13, in test_fee_rounds_half_up
+    self.assertEqual(processing_fee_cents(1500), 74)
+AssertionError: 73 != 74
+
+----------------------------------------------------------------------
+Ran 9 tests in 0.002s
+
+FAILED (failures=1)

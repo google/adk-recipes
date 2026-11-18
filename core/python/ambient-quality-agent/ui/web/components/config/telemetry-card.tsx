@@ -33,7 +33,7 @@ import {
   type TelemetryCheck,
   type TelemetryTable,
 } from "@/lib/aqua-api";
-import { configLabel } from "@/lib/config-fields";
+import { configLabel, readString } from "@/lib/config-fields";
 import { mono, textStyle } from "@/lib/typography";
 import { cn } from "@/lib/utils";
 import { CopyButton } from "@/components/chat/copy-button";
@@ -327,7 +327,8 @@ export function TelemetryCard() {
         </div>
         <p className={textStyle.meta}>
           AQuA reads <span className={mono}>{agentName}</span>&apos;s
-          conversations from this BigQuery table.
+          conversations from this BigQuery table. An investigation selector can
+          pick which of them investigations review.
         </p>
       </div>
 
@@ -831,12 +832,6 @@ function ReadRow({
       </div>
     </li>
   );
-}
-
-/** Returns `config[field]` if it is a string, or `""` otherwise. */
-function readString(config: Record<string, unknown>, field: string): string {
-  const value = config[field];
-  return typeof value === "string" ? value : "";
 }
 
 /** Returns a copy of `config` with its fields updated from `changes`. */

@@ -34,20 +34,10 @@
 /**
  * How far back the dashboard looks, in days.
  *
- * There is no period control, and this is the whole of what one would have
- * been. v1 offered 7 and 30 and had to, because its charts drew whatever the
- * response held and the select was the only statement of how much time was on
- * screen; v2's charts span a fixed number of days on their own, so a control
- * would be a second way to set an axis that already has one.
- *
- * Fourteen because that is `insights_auto_resolve_days`' default: an issue
- * unseen for that long is retired, so a fortnight is the span over which
- * everything still considered live was seen. The two are not wired together —
- * an operator lengthening the resolve window should not silently rescale every
- * chart — but the number was chosen from it.
- *
- * Making this a variable is the whole of the deferred period control: it is
- * read by both charts and by the two scoped queries, so one module changes.
+ * Matches `insights_auto_resolve_days`' default (14 days): an insight unseen
+ * for that long is auto-resolved, so a 14-day span covers the period over which
+ * open insights were last seen. Read by the per-day charts and the scoped
+ * queries (`statsQuery`, `dailyQuery`).
  */
 export const DASHBOARD_DAYS = 14;
 
@@ -112,8 +102,8 @@ export function parseDay(value: unknown): string | undefined {
  * The `windowStart`/`windowEnd` pair covering one UTC day, both inclusive.
  *
  * The end is the day's last microsecond, BigQuery's resolution, rather than the
- * next midnight: the server's bound is inclusive, and a run whose window
- * closed on the stroke of midnight is the next day's column.
+ * next midnight: the server's bound is inclusive, and an investigation whose
+ * window closed on the stroke of midnight is the next day's column.
  */
 export function dayWindow(day: string): {
   windowStart: string;

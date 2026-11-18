@@ -15,7 +15,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertCircle, Trash2 } from "lucide-react";
 import { deleteMemory, memoriesQuery, type MemoryRow } from "@/lib/aqua-api";
-import { formatInstant } from "@/lib/run-summary";
+import { formatInstant } from "@/lib/investigation-summary";
 import { Button } from "@/components/ui/button";
 import { FailureNote } from "@/components/ui/failure-note";
 import { GcsLink } from "@/components/ui/gcs-link";

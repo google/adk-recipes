@@ -15,7 +15,7 @@
 """`TrajectoryRecorder`: the seam ingestion writes trajectories through.
 
 Two things are worth holding here. The recorder binds what a fetcher cannot
-know -- which run, which agent, which telemetry source -- so a row comes out
+know -- which investigation, which agent, which telemetry source -- so a row comes out
 complete without any ids being carried back out of ingestion. And the rows a
 run writes are a **per-trajectory expansion of its ingestion counters**, which
 is asserted end to end in `test_trajectory_ingestion.py`; this file covers the
@@ -33,8 +33,8 @@ from agentplatform._genai.types import EvalCase
 from agentplatform._genai.types.evals import AgentData, ConversationTurn
 from ambient_quality_agent.tools.trajectories.models import (
     IngestStatus,
-    PayloadStatus,
-    Trajectory,
+    InvestigationTrajectory,
+    TrajectoryStatus,
 )
 from ambient_quality_agent.tools.trajectories.recorder import (
     NullTrajectoryRecorder,
@@ -47,7 +47,10 @@ _AGENT = "root_agent"
 
 def _recorder(store: Any) -> TrajectoryRecorder:
     return TrajectoryRecorder(
-        store=store, run_id=_RUN_ID, agent_name=_AGENT, source="cloud_ops"
+        store=store,
+        investigation_id=_RUN_ID,
+        observed_agent_key=_AGENT,
+        source="cloud_ops",
     )
 
 
@@ -75,7 +78,7 @@ def _add(recorder: TrajectoryRecorder, **overrides: Any) -> None:
 
 
 def test_the_recorder_supplies_what_a_fetcher_cannot_know() -> None:
-    """The run, the agent, the telemetry source and the time. Binding them here
+    """The investigation, the agent, the telemetry source and the time. Binding them here
     is what lets ingestion report ids and nothing else."""
     store = mock.MagicMock()
     recorder = _recorder(store)
@@ -85,10 +88,14 @@ def test_the_recorder_supplies_what_a_fetcher_cannot_know() -> None:
     )
     recorder.flush()
 
-    (rows,), _ = store.record.call_args
+    (rows,), _ = store.record_investigation_trajectories.call_args
     row = rows[0]
-    assert isinstance(row, Trajectory)
-    assert (row.run_id, row.agent_name, row.source) == (
+    assert isinstance(row, InvestigationTrajectory)
+    assert (
+        row.investigation_id,
+        row.observed_agent_key,
+        row.ingestion_source,
+    ) == (
         _RUN_ID,
         _AGENT,
         "cloud_ops",
@@ -111,7 +118,12 @@ def test_the_status_is_stored_as_ingestion_classified_it(
     _add(recorder, status=status)
     recorder.flush()
 
-    assert store.record.call_args.args[0][0].ingest_status is status
+    assert (
+        store.record_investigation_trajectories.call_args.args[0][
+            0
+        ].ingest_status
+        is status
+    )
 
 
 def test_a_page_is_written_once_rather_than_a_row_at_a_time() -> None:
@@ -122,12 +134,15 @@ def test_a_page_is_written_once_rather_than_a_row_at_a_time() -> None:
 
     _add(recorder, trajectory_id="a")
     _add(recorder, trajectory_id="b")
-    assert store.record.call_count == 0
+    assert store.record_investigation_trajectories.call_count == 0
 
     recorder.flush()
 
-    assert store.record.call_count == 1
-    assert [r.trajectory_id for r in store.record.call_args.args[0]] == [
+    assert store.record_investigation_trajectories.call_count == 1
+    assert [
+        r.trajectory_id
+        for r in store.record_investigation_trajectories.call_args.args[0]
+    ] == [
         "a",
         "b",
     ]
@@ -139,7 +154,7 @@ def test_a_flush_with_nothing_pending_writes_nothing() -> None:
 
     _recorder(store).flush()
 
-    store.record.assert_not_called()
+    store.record_investigation_trajectories.assert_not_called()
 
 
 def test_a_page_is_not_written_twice() -> None:
@@ -151,14 +166,16 @@ def test_a_page_is_not_written_twice() -> None:
     recorder.flush()
     recorder.flush()
 
-    assert store.record.call_count == 1
+    assert store.record_investigation_trajectories.call_count == 1
 
 
 def test_a_write_failure_is_logged_and_the_sweep_goes_on() -> None:
-    """Reporting: the run counters remain the authoritative totals, and the
+    """Reporting: the investigation counters remain the authoritative totals, and the
     ingestion has already been paid for."""
     store = mock.MagicMock()
-    store.record.side_effect = RuntimeError("load job failed")
+    store.record_investigation_trajectories.side_effect = RuntimeError(
+        "load job failed"
+    )
     recorder = _recorder(store)
 
     _add(recorder)
@@ -167,9 +184,12 @@ def test_a_write_failure_is_logged_and_the_sweep_goes_on() -> None:
 
 def test_a_failed_page_is_not_carried_into_the_next_one() -> None:
     """Otherwise one unlucky page would keep re-failing every later write, and
-    a single outage would cost the whole run's rows."""
+    a single outage would cost the whole investigation's rows."""
     store = mock.MagicMock()
-    store.record.side_effect = [RuntimeError("boom"), None]
+    store.record_investigation_trajectories.side_effect = [
+        RuntimeError("boom"),
+        None,
+    ]
     recorder = _recorder(store)
 
     _add(recorder, trajectory_id="lost")
@@ -177,17 +197,20 @@ def test_a_failed_page_is_not_carried_into_the_next_one() -> None:
     _add(recorder, trajectory_id="kept")
     recorder.flush()
 
-    assert [r.trajectory_id for r in store.record.call_args.args[0]] == ["kept"]
+    assert [
+        r.trajectory_id
+        for r in store.record_investigation_trajectories.call_args.args[0]
+    ] == ["kept"]
 
 
 def test_cleanup_deletes_by_the_run_it_was_bound_to() -> None:
-    """The recorder knows the run, so the caller does not have to repeat it --
+    """The recorder knows the investigation, so the caller does not have to repeat it --
     and cannot pass a different one by mistake."""
     store = mock.MagicMock()
 
-    _recorder(store).delete_run_trajectories()
+    _recorder(store).delete_investigation_trajectories()
 
-    store.delete_run_trajectories.assert_called_once_with(_RUN_ID)
+    store.delete_investigation_trajectories.assert_called_once_with(_RUN_ID)
 
 
 def test_the_conversation_is_archived_beside_the_row_that_names_it() -> None:
@@ -199,10 +222,10 @@ def test_the_conversation_is_archived_beside_the_row_that_names_it() -> None:
     _add(recorder, trajectory_id="a", case=_case(turns=3))
     recorder.flush()
 
-    (archives,), _ = store.record_payloads.call_args
-    assert len(archives) == 1
-    assert archives[0].payload.trajectory_id == "a"
-    assert archives[0].payload.turn_count == 3
+    (bundles,), _ = store.record_trajectory_bundles.call_args
+    assert len(bundles) == 1
+    assert bundles[0].manifest.trajectory_id == "a"
+    assert bundles[0].manifest.step_count == 3
 
 
 def test_the_archive_carries_the_key_the_index_row_carries() -> None:
@@ -216,14 +239,19 @@ def test_the_archive_carries_the_key_the_index_row_carries() -> None:
     _add(recorder, trajectory_id="from-the-mapper", case=_case())
     recorder.flush()
 
-    assert store.record.call_args.args[0][0].trajectory_id == "from-the-mapper"
-    archive = store.record_payloads.call_args.args[0][0]
-    assert archive.payload.trajectory_id == "from-the-mapper"
-    assert archive.payload.agent_name == _AGENT
+    assert (
+        store.record_investigation_trajectories.call_args.args[0][
+            0
+        ].trajectory_id
+        == "from-the-mapper"
+    )
+    bundle = store.record_trajectory_bundles.call_args.args[0][0]
+    assert bundle.manifest.trajectory_id == "from-the-mapper"
+    assert bundle.manifest.observed_agent_key == _AGENT
 
 
 def test_a_row_ingestion_gave_up_on_is_named_and_not_archived() -> None:
-    """There is nothing to archive. The row still says the run sampled it,
+    """There is nothing to store. The row still says the investigation sampled it,
     which is what explains a sample smaller than the budget, and the read path
     already copes with a conversation that has no payload."""
     store = mock.MagicMock()
@@ -232,8 +260,8 @@ def test_a_row_ingestion_gave_up_on_is_named_and_not_archived() -> None:
     _add(recorder, status=IngestStatus.NOT_INGESTED, case=None)
     recorder.flush()
 
-    assert store.record.call_count == 1
-    store.record_payloads.assert_not_called()
+    assert store.record_investigation_trajectories.call_count == 1
+    store.record_trajectory_bundles.assert_not_called()
 
 
 def test_ingestions_verdict_reaches_the_stored_copy() -> None:
@@ -245,8 +273,8 @@ def test_ingestions_verdict_reaches_the_stored_copy() -> None:
     _add(recorder, status=IngestStatus.PARTIAL, case=_case())
     recorder.flush()
 
-    archive = store.record_payloads.call_args.args[0][0]
-    assert archive.payload.status is PayloadStatus.PARTIAL
+    bundle = store.record_trajectory_bundles.call_args.args[0][0]
+    assert bundle.manifest.status is TrajectoryStatus.PARTIAL
 
 
 def test_a_row_and_its_copy_are_stamped_at_the_same_instant() -> None:
@@ -258,10 +286,10 @@ def test_a_row_and_its_copy_are_stamped_at_the_same_instant() -> None:
     _add(recorder, case=_case())
     recorder.flush()
 
-    row = store.record.call_args.args[0][0]
-    archive = store.record_payloads.call_args.args[0][0]
-    assert row.created_at == archive.payload.created_at
-    assert all(turn.created_at == row.created_at for turn in archive.turns)
+    row = store.record_investigation_trajectories.call_args.args[0][0]
+    bundle = store.record_trajectory_bundles.call_args.args[0][0]
+    assert row.created_at == bundle.manifest.created_at
+    assert all(turn.created_at == row.created_at for turn in bundle.steps)
 
 
 def test_the_index_is_written_before_the_conversations() -> None:
@@ -270,8 +298,10 @@ def test_the_index_is_written_before_the_conversations() -> None:
     index row would be a copy nothing points at."""
     calls: list[str] = []
     store = mock.MagicMock()
-    store.record.side_effect = lambda _rows: calls.append("index")
-    store.record_payloads.side_effect = lambda _archives: calls.append(
+    store.record_investigation_trajectories.side_effect = lambda _rows: (
+        calls.append("index")
+    )
+    store.record_trajectory_bundles.side_effect = lambda _bundles: calls.append(
         "payload"
     )
     recorder = _recorder(store)
@@ -286,7 +316,7 @@ def test_a_payload_that_will_not_store_fails_the_sweep() -> None:
     """Losing an index row costs a dot on a chart, while losing a payload
     loses the evidence an insight points at."""
     store = mock.MagicMock()
-    store.record_payloads.side_effect = RuntimeError("archive failed")
+    store.record_trajectory_bundles.side_effect = RuntimeError("archive failed")
     recorder = _recorder(store)
 
     _add(recorder, case=_case())
@@ -300,20 +330,22 @@ def test_a_lost_index_row_does_not_stop_the_conversation_being_archived() -> (
     """The index write stays best-effort, and the payload is the valuable
     half -- so one must not take the other down with it."""
     store = mock.MagicMock()
-    store.record.side_effect = RuntimeError("load job failed")
+    store.record_investigation_trajectories.side_effect = RuntimeError(
+        "load job failed"
+    )
     recorder = _recorder(store)
 
     _add(recorder, case=_case())
     recorder.flush()
 
-    store.record_payloads.assert_called_once()
+    store.record_trajectory_bundles.assert_called_once()
 
 
 def test_a_failed_page_of_conversations_is_not_carried_into_the_next() -> None:
     """The sweep is failing anyway, but a retried page must not write the
     previous one's conversations a second time."""
     store = mock.MagicMock()
-    store.record_payloads.side_effect = [RuntimeError("boom"), None]
+    store.record_trajectory_bundles.side_effect = [RuntimeError("boom"), None]
     recorder = _recorder(store)
 
     _add(recorder, trajectory_id="lost", case=_case())
@@ -322,8 +354,8 @@ def test_a_failed_page_of_conversations_is_not_carried_into_the_next() -> None:
     _add(recorder, trajectory_id="kept", case=_case())
     recorder.flush()
 
-    archives = store.record_payloads.call_args.args[0]
-    assert [a.payload.trajectory_id for a in archives] == ["kept"]
+    bundles = store.record_trajectory_bundles.call_args.args[0]
+    assert [a.manifest.trajectory_id for a in bundles] == ["kept"]
 
 
 def test_a_page_reaches_the_store_as_two_writes_and_not_two_stores() -> None:
@@ -336,8 +368,8 @@ def test_a_page_reaches_the_store_as_two_writes_and_not_two_stores() -> None:
     _add(recorder, case=_case())
     recorder.flush()
 
-    assert store.record.call_count == 1
-    assert store.record_payloads.call_count == 1
+    assert store.record_investigation_trajectories.call_count == 1
+    assert store.record_trajectory_bundles.call_count == 1
 
 
 def test_the_null_recorder_accepts_everything_and_records_nothing() -> None:

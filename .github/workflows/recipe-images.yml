@@ -112,7 +112,7 @@ jobs:
           fetch-depth: 0
 
       - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # ratchet:actions/setup-python@v7.0.0
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # ratchet:actions/setup-python@v7.1.0
         with:
           python-version: "3.12"
 
@@ -178,7 +178,7 @@ jobs:
           token_format: access_token
 
       - name: Log in to Artifact Registry
-        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # ratchet:docker/login-action@v4.6.0
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # ratchet:docker/login-action@v4.7.0
         with:
           registry: ${{ env.REGISTRY_HOST }}
           username: oauth2accesstoken

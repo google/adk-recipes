@@ -16,6 +16,7 @@ import { useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { prefetchAgentCard } from "./a2a-client";
 import { useAgentKey } from "./agent-selection";
+import { isViewerMode } from "./viewer-mode";
 import {
   dailyQuery,
   effectiveConfigQuery,
@@ -23,7 +24,7 @@ import {
   INSIGHTS_PAGE_SIZE,
   insightsQuery,
   memoriesQuery,
-  runsQuery,
+  investigationsQuery,
   statsQuery,
 } from "./aqua-api";
 
@@ -44,7 +45,8 @@ export function usePrefetchAqua(): void {
   const agentKey = useAgentKey();
 
   useEffect(() => {
-    prefetchAgentCard();
+    // A read-only viewer serves no chat.
+    if (!isViewerMode()) prefetchAgentCard();
   }, []);
 
   useEffect(() => {
@@ -58,7 +60,9 @@ export function usePrefetchAqua(): void {
     );
     void queryClient.prefetchQuery(statsQuery(agentKey));
     void queryClient.prefetchQuery(dailyQuery(agentKey));
-    void queryClient.prefetchQuery(runsQuery(agentKey));
+    void queryClient.prefetchQuery(investigationsQuery(agentKey));
+    // A read-only viewer has no config page.
+    if (isViewerMode()) return;
     // The config page's three reads. They are the slowest in the app (each is
     // a GCS or agent round trip) and the page is small, so warming them here
     // is the difference between it opening instantly and taking seconds.

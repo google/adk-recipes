@@ -15,10 +15,22 @@
 
 import { useMemo, useSyncExternalStore } from "react";
 
-import { queryOptions, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  buildLhaContextsQuery,
+  fetchContexts,
+  isAuthoritativeContextList,
+  type StoredContext,
+} from "./lha-contexts";
+export {
+  buildLhaContextsQuery,
+  isAuthoritativeContextList,
+  type StoredContext,
+};
 import { qk } from "./query-keys";
 import { queryClient } from "./query-client";
 import { readErrorDetail } from "./read-error-detail";
+import { isViewerMode } from "./viewer-mode";
 import {
   buildConversationTitle,
   conversationsSnapshot,
@@ -118,42 +130,6 @@ function revalidateSessionLists(): Promise<unknown> {
 const NO_SESSIONS: HorizonSessionSummary[] = [];
 const serverSessions = () => NO_SESSIONS;
 
-/** One conversation the engine kept, as `/lha/contexts` reports it. */
-export type StoredContext = {
-  context_id: string;
-  task_ids: string[];
-  updated_at: string;
-  /** The name saved on rename, or null when the chat was never renamed. */
-  title?: string | null;
-  /** The text of the chat's first user message, or null when it has none. */
-  first_message?: string | null;
-  /** The agent the chat is about, or null when its messages name none. */
-  agent_key?: string | null;
-};
-
-async function fetchContexts(): Promise<StoredContext[]> {
-  const r = await fetch("/lha/contexts", { cache: "no-store" });
-  // 501 means this deployment has no jobs bucket. That is not an empty list,
-  // but for the sidebar it degrades to the same thing: show what the browser
-  // knows. Throwing would blank a list the local store can still fill.
-  if (r.status === 501) return [];
-  if (!r.ok) throw new Error(`lha-contexts ${r.status}`);
-  return ((await r.json()).contexts ?? []) as StoredContext[];
-}
-
-/**
- * The conversations the engine keeps, as `/lha/contexts` lists them. The
- * sidebar lists them and useLhaTasks replays their tasks, so both read the
- * list through this one definition of its key and query function.
- */
-export function buildLhaContextsQuery() {
-  return queryOptions({
-    queryKey: ["lha", "contexts"],
-    queryFn: fetchContexts,
-    staleTime: 10_000,
-  });
-}
-
 /**
  * The user's chat list, read from the browser store and `/lha/contexts`.
  *
@@ -188,6 +164,8 @@ export function useLhaSessions(query = ""): {
   const server = useQuery({
     ...buildLhaContextsQuery(),
     refetchOnWindowFocus: true,
+    // A read-only viewer serves no conversations.
+    enabled: !isViewerMode(),
   });
   const { shownKey, defaultKey } = useAgentSelection();
 

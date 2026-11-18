@@ -39,7 +39,7 @@ Install directly into your AI coding assistant (Claude Code, Antigravity,
 Codex, ...) via `npx skills add`:
 
 ```bash
-npx skills add google/adk-recipes --skill retail-product-search
+npx skills add google/adk-recipes/plugins/retail --skill retail-product-search
 ```
 
 ### Option 3: Developer Install

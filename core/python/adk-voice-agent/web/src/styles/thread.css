@@ -1,0 +1,747 @@
+.fl-live {
+  display: grid;
+  min-width: 0;
+}
+
+.fl-live-in,
+.fl-live-out {
+  grid-area: 1 / 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fl-live-in {
+  animation: flLiveIn var(--dur-med) var(--ease-out) both;
+}
+
+.fl-live-out {
+  pointer-events: none;
+  animation: flLiveOut var(--dur-fast) ease both;
+}
+
+@keyframes flLiveIn {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes flLiveOut {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+}
+
+.fl-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-start;
+  padding: 4px 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: var(--fs-meta);
+  font-weight: 500;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: color var(--dur-fast) ease;
+}
+
+.fl-back:hover {
+  color: var(--text-primary);
+}
+
+.md {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: var(--fs-body);
+  line-height: 1.55;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
+.md p {
+  margin: 0;
+}
+
+.md h1,
+.md h2,
+.md h3 {
+  margin: 4px 0 0;
+  font-size: var(--fs-body);
+  font-weight: 650;
+  line-height: 1.35;
+  color: var(--text-primary);
+}
+
+.md ul,
+.md ol {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.md code {
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: var(--well);
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  color: var(--text-primary);
+}
+
+.md pre {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-inner);
+  background: var(--well);
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  line-height: 1.5;
+}
+
+.md pre code {
+  padding: 0;
+  background: none;
+  font-size: inherit;
+}
+
+.md a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.md-table {
+  overflow-x: auto;
+  border-radius: var(--radius-inner);
+  background: var(--surface-inset);
+}
+
+/* Wide tables scroll sideways instead of breaking words mid-way. */
+.md-table table {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-meta);
+}
+
+.md-table th,
+.md-table td {
+  min-width: 8ch;
+  max-width: 32ch;
+  padding: 6px 10px;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--line);
+  overflow-wrap: break-word;
+  word-break: normal;
+}
+
+.md-table code {
+  white-space: nowrap;
+}
+
+.md-table th {
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.thread-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  font-size: var(--fs-micro);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.thread-meta-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-pill);
+  background: var(--text-muted);
+}
+
+.thread-meta[data-tone="attention"] {
+  color: var(--status-attention);
+}
+
+.thread-meta[data-tone="attention"] .thread-meta-dot {
+  background: var(--status-attention);
+}
+
+.thread-meta[data-tone="running"] .thread-meta-dot {
+  background: var(--status-running);
+}
+
+.thread-meta[data-tone="success"] .thread-meta-dot {
+  background: var(--status-success);
+}
+
+.thread-meta[data-tone="danger"] .thread-meta-dot {
+  background: var(--status-danger);
+}
+
+.thread-reply-summary {
+  margin: 0;
+  font-size: var(--fs-body);
+  line-height: 1.5;
+  color: var(--text-primary);
+}
+
+.thread-reply-summary[data-compact] {
+  font-size: var(--fs-meta);
+  line-height: 1.45;
+  color: var(--text-secondary);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.home-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.home-group-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 4px;
+}
+
+.home-group-label {
+  font-size: var(--fs-micro);
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+/* The project and title rows are 44 px touch targets pulled in with negative margins so the text keeps the gap. */
+.thread-home-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+}
+
+.thread-home-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.thread-home-head .thread-meta {
+  margin-left: auto;
+}
+
+.thread-project-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  min-height: 44px;
+  margin-block: -12px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: var(--fs-meta);
+  font-weight: 600;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.thread-project-chip span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.thread-project-chip:hover {
+  color: var(--text-primary);
+}
+
+.thread-home-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  min-height: 44px;
+  margin-block: -10px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.thread-home-title {
+  font-size: var(--fs-body);
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.thread-home-chevron {
+  flex-shrink: 0;
+  color: var(--text-faint);
+  transition:
+    transform var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) ease;
+}
+
+.thread-home-main:hover .thread-home-chevron {
+  color: var(--text-secondary);
+  transform: translateX(2px);
+}
+
+/* ---- Project feed: threads as a channel --------------------------------- */
+
+.project-feed {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  width: 100%;
+  min-height: 100%;
+}
+
+.feed-item + .feed-item {
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.feed-thread-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  align-self: flex-start;
+  max-width: 100%;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  background: var(--surface-inset);
+  font: inherit;
+  font-size: var(--fs-micro);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background var(--dur-fast) ease;
+}
+
+.feed-thread-chip:hover,
+.feed-thread-chip:focus-visible {
+  background: var(--surface-raised);
+}
+
+.feed-thread-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+/* ---- Multi-turn Thread Chat --------------------------------------------- */
+
+.thread-chat {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 14px;
+  width: 100%;
+  min-height: 100%;
+}
+
+.chat-turns {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 4px 0 8px;
+}
+
+.chat-turn {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  animation: fadeIn var(--dur-med) ease;
+}
+
+.chat-user-row {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.chat-user-bubble {
+  max-width: 85%;
+  padding: 10px 14px;
+  border-radius: 18px 18px 4px 18px;
+  background: var(--surface-raised);
+  color: var(--text-primary);
+  font-size: var(--fs-body);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.chat-agent-row {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  column-gap: 10px;
+  align-items: start;
+}
+
+.chat-agent-mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin-top: 2px;
+}
+
+.chat-agent-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.chat-turn-answer {
+  padding: 12px 14px;
+  border-radius: var(--radius-card);
+  background: var(--surface-card);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--white) 5%, transparent);
+}
+
+.chat-turn-summary {
+  margin: 0;
+  font-size: var(--fs-body);
+  line-height: 1.5;
+  color: var(--text-primary);
+}
+
+/* A long answer is clamped with a fade until "Show full answer". */
+.turn-report {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.turn-report:not([data-open]) .turn-report-body {
+  max-height: 18rem;
+  overflow: hidden;
+}
+
+.turn-report[data-clamped] .turn-report-body {
+  mask-image: linear-gradient(to bottom, var(--black) 70%, transparent);
+  -webkit-mask-image: linear-gradient(to bottom, var(--black) 70%, transparent);
+}
+
+.turn-report-toggle {
+  align-self: flex-start;
+}
+
+.chat-turn-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: var(--radius-inner);
+  background: color-mix(in srgb, var(--status-danger) 12%, transparent);
+  color: var(--text-error);
+  font-size: var(--fs-meta);
+  line-height: 1.45;
+}
+
+.chat-turn-error svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.chat-turn-muted {
+  font-size: var(--fs-meta);
+  color: var(--text-muted);
+}
+
+/* ---- Collapsible "Worked X · N steps" ----------------------------------- */
+
+.turn-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.turn-steps-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-start;
+  padding: 4px 10px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: var(--surface-inset);
+  font: inherit;
+  font-size: var(--fs-micro);
+  font-weight: 500;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition:
+    background var(--dur-fast) ease,
+    color var(--dur-fast) ease;
+}
+
+.turn-steps-pill:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.turn-steps-pill svg {
+  color: var(--text-muted);
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+
+.turn-steps[data-open] .turn-steps-pill svg {
+  transform: rotate(180deg);
+}
+
+.turn-steps-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: var(--radius-inner);
+  background: var(--surface-inset);
+}
+
+.turn-timeline {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.turn-timeline-row {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr) auto;
+  column-gap: 8px;
+  align-items: baseline;
+  font-size: var(--fs-meta);
+  color: var(--text-secondary);
+}
+
+.turn-timeline-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: var(--radius-pill);
+  background: var(--text-faint);
+  align-self: center;
+}
+
+.turn-timeline-msg {
+  overflow-wrap: anywhere;
+}
+
+.turn-timeline-time {
+  font-size: var(--fs-micro);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- Output chips ------------------------------------------------------- */
+
+.turn-outputs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.turn-chip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  min-height: 32px;
+  padding: 5px 12px;
+  border: 0;
+  font-family: inherit;
+  cursor: pointer;
+  border-radius: var(--radius-pill);
+  background: var(--surface-inset);
+  color: var(--text-primary);
+  font-size: var(--fs-micro);
+  font-weight: 500;
+  text-decoration: none;
+  transition: background var(--dur-fast) ease;
+}
+
+/* A 44 px touch target around a 32 px chip. */
+.turn-chip::after {
+  content: "";
+  position: absolute;
+  inset: -6px 0;
+}
+
+.turn-chip:hover {
+  background: var(--surface-hover);
+}
+
+.turn-chip-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---- Thread bottom stack: the reply while it runs or waits -------------- */
+
+.thread-bottom-stack {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 6px;
+}
+
+.thread-approval-box {
+  display: flex;
+  flex-direction: column;
+  padding: 14px 16px;
+  gap: 10px;
+  border-radius: var(--radius-card);
+  background: var(--surface-card);
+  box-shadow: inset 0 0 0 1px
+    color-mix(in srgb, var(--status-attention) 35%, transparent);
+}
+
+/* Lifted off the turns it floats over at the bottom of a thread. */
+.thread-bottom-stack .thread-approval-box {
+  box-shadow:
+    0 18px 36px color-mix(in srgb, var(--black) 45%, transparent),
+    inset 0 0 0 1px color-mix(in srgb, var(--status-attention) 35%, transparent);
+}
+
+.thread-approval-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.thread-approval-title {
+  font-size: var(--fs-body);
+  font-weight: 650;
+  color: var(--text-primary);
+}
+
+.thread-approval-risk {
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--status-attention) 16%, transparent);
+  color: var(--status-attention);
+  font-size: var(--fs-micro);
+  font-weight: 600;
+  text-transform: capitalize;
+}
+
+.thread-approval-detail {
+  font-size: var(--fs-meta);
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
+.thread-command-well {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: var(--radius-small);
+  background: var(--well);
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  color: var(--text-primary);
+  overflow-x: auto;
+}
+
+.thread-command-prompt {
+  color: var(--text-muted);
+  user-select: none;
+}
+
+.thread-request-toggle {
+  align-self: flex-start;
+}
+
+.thread-arguments-well {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.thread-approval-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.thread-running-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: var(--radius-inner);
+  background: var(--surface-card);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  font-size: var(--fs-meta);
+  color: var(--text-secondary);
+}
+
+.thread-running-dot {
+  flex-shrink: 0;
+  width: 7px;
+  height: 7px;
+  border-radius: var(--radius-pill);
+  background: var(--status-running);
+}
+
+.thread-running-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.thread-running-elapsed {
+  flex-shrink: 0;
+  font-size: var(--fs-micro);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}

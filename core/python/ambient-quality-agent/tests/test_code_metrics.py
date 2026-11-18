@@ -140,7 +140,7 @@ def test_scores_a_page_and_records_findings(ctx: Any, wire: Any) -> None:
 
     assert len(ctx.state["finding_sets"]) == 1
     assert ctx.state["counters"]["findings_generated"] == 2
-    assert ctx.state["counters"]["traces_eval_failed"] == 2
+    assert ctx.state["counters"]["trajectories_eval_failed"] == 2
     assert ctx.state["multi_turn_pages_evaluated"] == 1
 
 
@@ -160,7 +160,7 @@ def test_no_sessions_skips_but_still_records_what_it_scanned(
     event = _run(ctx)
 
     assert "Skipped" in event.output
-    assert ctx.state["counters"]["traces_scanned"] == 7
+    assert ctx.state["counters"]["trajectories_scanned"] == 7
 
 
 def test_the_ingestion_counters_reach_the_run(ctx: Any, wire: Any) -> None:
@@ -169,10 +169,10 @@ def test_the_ingestion_counters_reach_the_run(ctx: Any, wire: Any) -> None:
     _run(ctx)
 
     counters = ctx.state["counters"]
-    assert counters["traces_scanned"] == 7
-    assert counters["traces_ingested"] == 5
-    assert counters["traces_ingested_partial"] == 1
-    assert counters["traces_ingested_failed"] == 1
+    assert counters["trajectories_scanned"] == 7
+    assert counters["trajectories_ingested"] == 5
+    assert counters["trajectories_ingested_partial"] == 1
+    assert counters["trajectories_ingested_failed"] == 1
 
 
 def test_it_asks_for_sessions_not_single_turns(ctx: Any, wire: Any) -> None:
@@ -275,8 +275,8 @@ def test_one_broken_metric_among_several_does_not_fail_the_run(
     assert "2 finding(s)" in event.output
     # The cases ARE errored -- alerting reads that counter, and a metric that
     # never works must not pass for a clean sweep...
-    assert ctx.state["counters"]["traces_eval_errored"] == 2
-    # ...and the run must say which half of the library never ran.
+    assert ctx.state["counters"]["trajectories_eval_errored"] == 2
+    # ...and the investigation must say which half of the library never ran.
     assert "never returned a verdict" in event.output
     assert "`bad`" in event.output
 

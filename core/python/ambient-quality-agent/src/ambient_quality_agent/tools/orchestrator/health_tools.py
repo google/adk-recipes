@@ -14,7 +14,7 @@
 
 """Ambient health status formatting for dashboard display.
 
-Aggregates recent run records and insight summaries via existing readers
+Aggregates recent investigation records and insight summaries via existing readers
 and evaluates them against health rules without introducing additional storage
 or custom queries.
 """
@@ -48,11 +48,14 @@ async def get_ambient_health(tool_context: LaunchContext) -> dict[str, Any]:
         tool_context: Runtime launch context containing session state and credentials.
 
     Returns:
-        Dictionary containing health status fields (verdict, reason, run details),
-        or an error dictionary if deployment state cannot be read.
+        Dictionary containing health status fields (verdict, reason,
+        last_investigation details), or an error dictionary if deployment state
+        cannot be read.
     """
     try:
-        runs = (await model.list_investigations(tool_context)).get("runs") or []
+        investigations = (await model.list_investigations(tool_context)).get(
+            "investigations"
+        ) or []
         insights = (await insight_tools.list_insights(tool_context)).get(
             "insights"
         ) or []
@@ -67,7 +70,7 @@ async def get_ambient_health(tool_context: LaunchContext) -> dict[str, Any]:
         else await asyncio.to_thread(_resolve_schedule, tool_context.state)
     )
     return health.assess(
-        runs, insights, schedule=cron, standalone=standalone
+        investigations, insights, schedule=cron, standalone=standalone
     ).to_payload()
 
 

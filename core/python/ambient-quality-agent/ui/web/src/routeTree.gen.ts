@@ -31,8 +31,8 @@ import { Route as IndexRouteImport } from "./routes/index";
 import { Route as InvestigationsIndexRouteImport } from "./routes/investigations.index";
 import { Route as InsightsIndexRouteImport } from "./routes/insights.index";
 import { Route as InsightsInsightIdRouteImport } from "./routes/insights.$insightId";
-import { Route as InvestigationsRunIdIndexRouteImport } from "./routes/investigations.$runId.index";
-import { Route as InvestigationsRunIdCasesCaseIdRouteImport } from "./routes/investigations.$runId.cases.$caseId";
+import { Route as InvestigationsInvestigationIdIndexRouteImport } from "./routes/investigations.$investigationId.index";
+import { Route as InvestigationsInvestigationIdTrajectoriesTrajectoryIdRouteImport } from "./routes/investigations.$investigationId.trajectories.$trajectoryId";
 
 const ConfigRoute = ConfigRouteImport.update({
   id: "/config",
@@ -64,16 +64,16 @@ const InsightsInsightIdRoute = InsightsInsightIdRouteImport.update({
   path: "/insights/$insightId",
   getParentRoute: () => rootRouteImport,
 } as any);
-const InvestigationsRunIdIndexRoute =
-  InvestigationsRunIdIndexRouteImport.update({
-    id: "/investigations/$runId/",
-    path: "/investigations/$runId/",
+const InvestigationsInvestigationIdIndexRoute =
+  InvestigationsInvestigationIdIndexRouteImport.update({
+    id: "/investigations/$investigationId/",
+    path: "/investigations/$investigationId/",
     getParentRoute: () => rootRouteImport,
   } as any);
-const InvestigationsRunIdCasesCaseIdRoute =
-  InvestigationsRunIdCasesCaseIdRouteImport.update({
-    id: "/investigations/$runId/cases/$caseId",
-    path: "/investigations/$runId/cases/$caseId",
+const InvestigationsInvestigationIdTrajectoriesTrajectoryIdRoute =
+  InvestigationsInvestigationIdTrajectoriesTrajectoryIdRouteImport.update({
+    id: "/investigations/$investigationId/trajectories/$trajectoryId",
+    path: "/investigations/$investigationId/trajectories/$trajectoryId",
     getParentRoute: () => rootRouteImport,
   } as any);
 
@@ -84,8 +84,8 @@ export interface FileRoutesByFullPath {
   "/insights/$insightId": typeof InsightsInsightIdRoute;
   "/insights/": typeof InsightsIndexRoute;
   "/investigations/": typeof InvestigationsIndexRoute;
-  "/investigations/$runId/": typeof InvestigationsRunIdIndexRoute;
-  "/investigations/$runId/cases/$caseId": typeof InvestigationsRunIdCasesCaseIdRoute;
+  "/investigations/$investigationId/": typeof InvestigationsInvestigationIdIndexRoute;
+  "/investigations/$investigationId/trajectories/$trajectoryId": typeof InvestigationsInvestigationIdTrajectoriesTrajectoryIdRoute;
 }
 export interface FileRoutesByTo {
   "/": typeof IndexRoute;
@@ -94,8 +94,8 @@ export interface FileRoutesByTo {
   "/insights/$insightId": typeof InsightsInsightIdRoute;
   "/insights": typeof InsightsIndexRoute;
   "/investigations": typeof InvestigationsIndexRoute;
-  "/investigations/$runId": typeof InvestigationsRunIdIndexRoute;
-  "/investigations/$runId/cases/$caseId": typeof InvestigationsRunIdCasesCaseIdRoute;
+  "/investigations/$investigationId": typeof InvestigationsInvestigationIdIndexRoute;
+  "/investigations/$investigationId/trajectories/$trajectoryId": typeof InvestigationsInvestigationIdTrajectoriesTrajectoryIdRoute;
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport;
@@ -105,8 +105,8 @@ export interface FileRoutesById {
   "/insights/$insightId": typeof InsightsInsightIdRoute;
   "/insights/": typeof InsightsIndexRoute;
   "/investigations/": typeof InvestigationsIndexRoute;
-  "/investigations/$runId/": typeof InvestigationsRunIdIndexRoute;
-  "/investigations/$runId/cases/$caseId": typeof InvestigationsRunIdCasesCaseIdRoute;
+  "/investigations/$investigationId/": typeof InvestigationsInvestigationIdIndexRoute;
+  "/investigations/$investigationId/trajectories/$trajectoryId": typeof InvestigationsInvestigationIdTrajectoriesTrajectoryIdRoute;
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath;
@@ -117,8 +117,8 @@ export interface FileRouteTypes {
     | "/insights/$insightId"
     | "/insights/"
     | "/investigations/"
-    | "/investigations/$runId/"
-    | "/investigations/$runId/cases/$caseId";
+    | "/investigations/$investigationId/"
+    | "/investigations/$investigationId/trajectories/$trajectoryId";
   fileRoutesByTo: FileRoutesByTo;
   to:
     | "/"
@@ -127,8 +127,8 @@ export interface FileRouteTypes {
     | "/insights/$insightId"
     | "/insights"
     | "/investigations"
-    | "/investigations/$runId"
-    | "/investigations/$runId/cases/$caseId";
+    | "/investigations/$investigationId"
+    | "/investigations/$investigationId/trajectories/$trajectoryId";
   id:
     | "__root__"
     | "/"
@@ -137,8 +137,8 @@ export interface FileRouteTypes {
     | "/insights/$insightId"
     | "/insights/"
     | "/investigations/"
-    | "/investigations/$runId/"
-    | "/investigations/$runId/cases/$caseId";
+    | "/investigations/$investigationId/"
+    | "/investigations/$investigationId/trajectories/$trajectoryId";
   fileRoutesById: FileRoutesById;
 }
 export interface RootRouteChildren {
@@ -148,8 +148,8 @@ export interface RootRouteChildren {
   InsightsInsightIdRoute: typeof InsightsInsightIdRoute;
   InsightsIndexRoute: typeof InsightsIndexRoute;
   InvestigationsIndexRoute: typeof InvestigationsIndexRoute;
-  InvestigationsRunIdIndexRoute: typeof InvestigationsRunIdIndexRoute;
-  InvestigationsRunIdCasesCaseIdRoute: typeof InvestigationsRunIdCasesCaseIdRoute;
+  InvestigationsInvestigationIdIndexRoute: typeof InvestigationsInvestigationIdIndexRoute;
+  InvestigationsInvestigationIdTrajectoriesTrajectoryIdRoute: typeof InvestigationsInvestigationIdTrajectoriesTrajectoryIdRoute;
 }
 
 declare module "@tanstack/react-router" {
@@ -196,18 +196,18 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof InsightsInsightIdRouteImport;
       parentRoute: typeof rootRouteImport;
     };
-    "/investigations/$runId/": {
-      id: "/investigations/$runId/";
-      path: "/investigations/$runId";
-      fullPath: "/investigations/$runId/";
-      preLoaderRoute: typeof InvestigationsRunIdIndexRouteImport;
+    "/investigations/$investigationId/": {
+      id: "/investigations/$investigationId/";
+      path: "/investigations/$investigationId";
+      fullPath: "/investigations/$investigationId/";
+      preLoaderRoute: typeof InvestigationsInvestigationIdIndexRouteImport;
       parentRoute: typeof rootRouteImport;
     };
-    "/investigations/$runId/cases/$caseId": {
-      id: "/investigations/$runId/cases/$caseId";
-      path: "/investigations/$runId/cases/$caseId";
-      fullPath: "/investigations/$runId/cases/$caseId";
-      preLoaderRoute: typeof InvestigationsRunIdCasesCaseIdRouteImport;
+    "/investigations/$investigationId/trajectories/$trajectoryId": {
+      id: "/investigations/$investigationId/trajectories/$trajectoryId";
+      path: "/investigations/$investigationId/trajectories/$trajectoryId";
+      fullPath: "/investigations/$investigationId/trajectories/$trajectoryId";
+      preLoaderRoute: typeof InvestigationsInvestigationIdTrajectoriesTrajectoryIdRouteImport;
       parentRoute: typeof rootRouteImport;
     };
   }
@@ -220,8 +220,10 @@ const rootRouteChildren: RootRouteChildren = {
   InsightsInsightIdRoute: InsightsInsightIdRoute,
   InsightsIndexRoute: InsightsIndexRoute,
   InvestigationsIndexRoute: InvestigationsIndexRoute,
-  InvestigationsRunIdIndexRoute: InvestigationsRunIdIndexRoute,
-  InvestigationsRunIdCasesCaseIdRoute: InvestigationsRunIdCasesCaseIdRoute,
+  InvestigationsInvestigationIdIndexRoute:
+    InvestigationsInvestigationIdIndexRoute,
+  InvestigationsInvestigationIdTrajectoriesTrajectoryIdRoute:
+    InvestigationsInvestigationIdTrajectoriesTrajectoryIdRoute,
 };
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

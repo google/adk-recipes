@@ -43,12 +43,18 @@ with the reason, rather than left out.
 
 `read_table_settings` reads, from the same metadata, the location and source
 the table decides, which a dry run of `aqua attach` fills in before checking.
+
+`precheck_selector` runs the attachment's stored selector through the precheck
+each sweep runs it through, on the same fetcher with the selector set. The
+reads above use a fetcher without it: their row count would run the selector
+before anything had prechecked it.
 """
 
 from __future__ import annotations
 
 import dataclasses
 import datetime as dt
+import functools
 import logging
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any
@@ -59,6 +65,7 @@ import google.auth.transport.requests
 from ambient_quality_agent import clients
 from ambient_quality_agent.config import ObservedAgentConfig
 from ambient_quality_agent.tools.evaluation.models import MetricType
+from ambient_quality_agent.tools.ingestion import selector
 from ambient_quality_agent.tools.ingestion.base import (
     AGENT_COUNT_LIMIT,
     BigQueryJobFetcher,
@@ -238,6 +245,46 @@ def check_access(
         "service_account": resolve_service_account(),
         "checks": [dataclasses.asdict(check) for check in checks],
     }
+
+
+def precheck_selector(
+    agent: ObservedAgentConfig,
+    *,
+    project_id: str,
+    ai_model: str = "",
+    fetcher_factory: FetcherFactory | None = None,
+    now: dt.datetime | None = None,
+) -> selector.PrecheckResult:
+    """Prechecks the stored selector of `agent` the way each sweep does.
+
+    Lexical checks, then BigQuery dry runs, through the fetcher
+    `check_access` reads with but with the selector set, over the lookback
+    window.
+
+    Args:
+        agent: How the agent would be observed, with a non-empty
+            `investigation_selector_sql`.
+        project_id: AQuA's project, which runs the dry runs.
+        ai_model: Model the selector's `AI.IF` calls name, as an
+            investigation substitutes it.
+        fetcher_factory: Builds the telemetry fetcher, with the selector set,
+            from `agent` and `project_id`.
+        now: End of the lookback window; the current time when None.
+
+    Returns:
+        The precheck's verdict, whose `rejection` is None when the selector
+        may run.
+    """
+    end = now or dt.datetime.now(dt.UTC)
+    start = end - dt.timedelta(days=agent.data_lookback_window)
+    build = fetcher_factory or functools.partial(
+        _create_default_fetcher,
+        selector_sql=agent.investigation_selector_sql,
+        selector_ai_model=ai_model,
+    )
+    return build(agent, project_id).precheck_selector(
+        agent.observed_agent_name, start, end
+    )
 
 
 def read_table_settings(
@@ -745,17 +792,26 @@ def resolve_service_account() -> str:
 
 
 def _create_default_fetcher(
-    agent: ObservedAgentConfig, project_id: str
+    agent: ObservedAgentConfig,
+    project_id: str,
+    *,
+    selector_sql: str = "",
+    selector_ai_model: str = "",
 ) -> BigQueryJobFetcher:
     """Builds the fetcher an investigation of `agent` would use.
 
     Args:
         agent: How the agent would be observed.
         project_id: AQuA's project, which runs the query jobs.
+        selector_sql: Selector to set, for `precheck_selector`; empty for the
+            reads of `check_access`, whose row count would otherwise run a
+            selector nothing has prechecked.
+        selector_ai_model: Model substituted into the selector's `AI.IF`
+            calls.
 
     Returns:
-        The fetcher for the agent's telemetry source, with no selector and no
-        trajectory recorder: the check samples nothing.
+        The fetcher for the agent's telemetry source, with no trajectory
+        recorder: the check samples nothing.
     """
     dataset, table = agent.telemetry_dataset, agent.telemetry_table
     location = agent.telemetry_location
@@ -768,6 +824,8 @@ def _create_default_fetcher(
             table=table,
             location=location,
             observed_project_id=owner,
+            selector_sql=selector_sql,
+            selector_ai_model=selector_ai_model,
         )
     reader = GcsClientReader(_create_default_storage_client(project_id))
     if source == "cloud_ops":
@@ -778,6 +836,8 @@ def _create_default_fetcher(
             location=location,
             observed_project_id=owner,
             gcs_reader=reader,
+            selector_sql=selector_sql,
+            selector_ai_model=selector_ai_model,
         )
     return CloudLoggingFetcher(
         project_id=project_id,
@@ -786,6 +846,8 @@ def _create_default_fetcher(
         location=location,
         observed_project_id=owner,
         gcs_reader=reader,
+        selector_sql=selector_sql,
+        selector_ai_model=selector_ai_model,
     )
 
 

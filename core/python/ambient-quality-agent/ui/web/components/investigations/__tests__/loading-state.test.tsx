@@ -32,7 +32,8 @@ describe("InvestigationsView while loading", () => {
       </QueryClientProvider>,
     );
     // Name each section: asserting on any role="status" passed even with the
-    // funnel and per-day spinners removed, because the runs table has one.
+    // funnel and per-day spinners removed, because the investigations table has
+    // one.
     expect(await screen.findByText("Loading totals…")).toBeInTheDocument();
     expect(
       await screen.findByText("Loading daily counts…"),

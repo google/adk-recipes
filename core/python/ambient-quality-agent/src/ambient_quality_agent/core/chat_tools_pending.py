@@ -154,7 +154,7 @@ def failure_trend(days: int = 7) -> dict[str, Any]:
     )
 
 
-# TODO(b/557208991): theirs takes `**kwargs: Any` and ignores it. Declared with
+# TODO: theirs takes `**kwargs: Any` and ignores it. Declared with
 # no parameters here because ADK builds the tool schema from the signature and a
 # var-keyword parameter has no schema; restore the real signature with the tool.
 def deployment_health() -> dict[str, Any]:

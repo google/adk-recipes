@@ -66,7 +66,10 @@ export const CONFIG_GROUPS: ReadonlyArray<
       "insights_auto_resolve_days",
     ],
   ],
-  ["Models", ["base_model", "insights_model", "insights_match_model"]],
+  [
+    "Models",
+    ["base_model", "insights_model", "review_model", "insights_match_model"],
+  ],
 ];
 
 /** Keys whose raw name reads badly or ambiguously. Everything else falls back
@@ -169,4 +172,13 @@ export function configValue(value: unknown): ConfigValue {
     return { kind: "text", text: JSON.stringify(value) };
   }
   return { kind: "text", text: String(value) };
+}
+
+/** Returns `config[field]` if it is a string, or `""` otherwise. */
+export function readString(
+  config: Record<string, unknown>,
+  field: string,
+): string {
+  const value = config[field];
+  return typeof value === "string" ? value : "";
 }

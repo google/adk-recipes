@@ -20,40 +20,48 @@
  */
 import { describe, expect, it } from "vitest";
 import { withStatsDefaults } from "../aqua-api";
-import { evaluatedTraces, layoutFunnel } from "../funnel";
+import { countEvaluatedTrajectories, layoutFunnel } from "../funnel";
 
-describe("evaluatedTraces", () => {
+describe("countEvaluatedTrajectories", () => {
   it("is the funnel's Evaluated bar, for the same figures", () => {
     const figures = {
-      traces_evaluated: 500,
-      traces_eval_passed: 300,
-      traces_eval_failed: 120,
-      traces_eval_errored: 30,
+      trajectories_evaluated: 500,
+      trajectories_eval_passed: 300,
+      trajectories_eval_failed: 120,
+      trajectories_eval_errored: 30,
     };
 
     const { stages } = layoutFunnel(withStatsDefaults(figures));
     const evaluatedBar = stages.find((s) => s.id === "evaluated")!;
 
-    expect(evaluatedTraces(figures)).toBe(evaluatedBar.total);
-    expect(evaluatedTraces(figures)).toBe(450);
+    expect(countEvaluatedTrajectories(figures)).toBe(evaluatedBar.total);
+    expect(countEvaluatedTrajectories(figures)).toBe(450);
   });
 
-  it("is not traces_evaluated, which counts what was sent to the service", () => {
+  it("is not trajectories_evaluated, which counts what was sent to the service", () => {
     // A case with neither verdicts nor a score reaches none of the three, so
     // the sent count runs ahead of the outcomes.
     expect(
-      evaluatedTraces({ traces_eval_passed: 10, traces_eval_failed: 1 }),
+      countEvaluatedTrajectories({
+        trajectories_eval_passed: 10,
+        trajectories_eval_failed: 1,
+      }),
     ).toBe(11);
   });
 
   it("reads an absent counter as zero rather than NaN", () => {
-    expect(evaluatedTraces({})).toBe(0);
-    expect(evaluatedTraces({ traces_eval_passed: undefined })).toBe(0);
+    expect(countEvaluatedTrajectories({})).toBe(0);
+    expect(
+      countEvaluatedTrajectories({ trajectories_eval_passed: undefined }),
+    ).toBe(0);
   });
 
   it("ignores a negative counter rather than subtracting it", () => {
     expect(
-      evaluatedTraces({ traces_eval_passed: 5, traces_eval_failed: -3 }),
+      countEvaluatedTrajectories({
+        trajectories_eval_passed: 5,
+        trajectories_eval_failed: -3,
+      }),
     ).toBe(5);
   });
 });

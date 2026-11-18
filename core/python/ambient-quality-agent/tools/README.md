@@ -3,8 +3,8 @@
 Two ways to run the real investigation graph on your workstation:
 
 1. `make standalone` runs AQuA and the dashboard against your deployed agent's
-   telemetry, with storage in the agent process. See "Run AQuA standalone" in
-   `docs/index.md`.
+   telemetry, with storage in the agent process. See "Run locally" in the
+   top-level `README.md`.
 2. `uv run python tools/local_run.py` runs one investigation and prints its
    workflow events, with no dashboard. It writes to AQuA's BigQuery dataset
    unless `AQA_STANDALONE=1` is set, in which case storage is in memory.
@@ -44,7 +44,7 @@ chat's A2A client run for real, so nothing in the UI is mock-aware.
 Fidelity, where it matters:
 
 - every record is built as the agent's own model and serialized by the agent's
-  own presenter (`format_run`, `InsightView`, `InsightOccurrence`), so the
+  own presenter (`format_investigation`, `InsightView`, `InsightOccurrence`), so the
   payloads are not copies of the real shapes — they are the real shapes, and a
   model change breaks the generator rather than yielding a fixture that lies;
 - the counters hold the funnel relations the nodes produce (sampled = ingested +
@@ -95,8 +95,8 @@ and the server warns when it is handed a stale file.
 `tools/local_run.py --dump-dir scratch/<label>` runs the investigation graph and
 writes `finding_sets.json` (one set per fetched page, before merging),
 `findings.json` (the merged findings, in the order clustering indexes them), and
-every session-review prompt and response under `reviews/`. Diffing two labels is
-how a telemetry-source or prompt change gets compared.
+every session-review prompt and its findings under `reviews/`. Diffing two
+labels is how a telemetry-source or prompt change gets compared.
 
 ## Load-testing clustering and correlation
 

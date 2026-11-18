@@ -25,7 +25,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { withStatsDefaults } from "@/lib/aqua-api";
-import { STAGE_HELP, STAGE_HELP_ONE_RUN, STAGES } from "@/lib/funnel";
+import { STAGE_HELP, STAGE_HELP_ONE_INVESTIGATION, STAGES } from "@/lib/funnel";
 import { Funnel } from "../funnel";
 
 describe("Funnel", () => {
@@ -33,13 +33,13 @@ describe("Funnel", () => {
     render(
       <Funnel
         stats={withStatsDefaults({
-          traces_scanned: 1200,
-          traces_ingested: 90,
-          traces_ingested_partial: 6,
-          traces_ingested_failed: 4,
-          traces_eval_passed: 70,
-          traces_eval_failed: 25,
-          traces_eval_errored: 1,
+          trajectories_scanned: 1200,
+          trajectories_ingested: 90,
+          trajectories_ingested_partial: 6,
+          trajectories_ingested_failed: 4,
+          trajectories_eval_passed: 70,
+          trajectories_eval_failed: 25,
+          trajectories_eval_errored: 1,
           insights_created: 3,
           insights_recurring: 2,
         })}
@@ -69,7 +69,7 @@ describe("Funnel", () => {
   });
 
   it("says the funnel changes unit at the last step", () => {
-    render(<Funnel stats={withStatsDefaults({ traces_scanned: 10 })} />);
+    render(<Funnel stats={withStatsDefaults({ trajectories_scanned: 10 })} />);
     expect(
       screen.getByText(/The first three count trajectories/),
     ).toBeInTheDocument();
@@ -90,7 +90,7 @@ describe("Funnel", () => {
   // an insight that several investigations record as new or recurring is
   // counted once by each.
   it("says the insights stage counts each investigation's new and recurring insights", () => {
-    render(<Funnel stats={withStatsDefaults({ traces_scanned: 10 })} />);
+    render(<Funnel stats={withStatsDefaults({ trajectories_scanned: 10 })} />);
     const note = screen.getByText(/The first three count trajectories/);
     expect(note).toHaveTextContent(
       /each investigation's new and recurring insights/,
@@ -100,7 +100,7 @@ describe("Funnel", () => {
     expect(note).not.toHaveTextContent(/the distinct quality insights/);
   });
 
-  it("renders a deployment with no runs as four empty stages, not as blanks", () => {
+  it("renders a deployment with no investigations as four empty stages, not as blanks", () => {
     render(<Funnel stats={withStatsDefaults({})} />);
     expect(screen.getAllByRole("img")).toHaveLength(4);
     expect(
@@ -149,7 +149,7 @@ describe("Funnel", () => {
     );
     expect(
       await screen.findByRole("dialog", { hidden: true }),
-    ).toHaveTextContent(STAGE_HELP_ONE_RUN.window!);
+    ).toHaveTextContent(STAGE_HELP_ONE_INVESTIGATION.window!);
   });
 
   it("words totals over several investigations as a sum", async () => {
@@ -238,13 +238,13 @@ describe("Funnel", () => {
 });
 
 const FULL = withStatsDefaults({
-  traces_scanned: 1200,
-  traces_ingested: 90,
-  traces_ingested_partial: 6,
-  traces_ingested_failed: 4,
-  traces_eval_passed: 70,
-  traces_eval_failed: 25,
-  traces_eval_errored: 1,
+  trajectories_scanned: 1200,
+  trajectories_ingested: 90,
+  trajectories_ingested_partial: 6,
+  trajectories_ingested_failed: 4,
+  trajectories_eval_passed: 70,
+  trajectories_eval_failed: 25,
+  trajectories_eval_errored: 1,
   insights_created: 3,
   insights_recurring: 2,
 });

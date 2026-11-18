@@ -24,8 +24,8 @@ not something anything downstream can enforce.
 
 * `save_artifact` writes artifacts to the conversation context to prevent raw
   HTML or binary data from polluting transcripts.
-* `start_investigation` schedules an auditable background run.
-* `start_custom_investigation` schedules the same run over the conversations an
+* `start_investigation` schedules an auditable background investigation.
+* `start_custom_investigation` schedules the same investigation over the conversations an
   agent-authored SQL selector picks.
 * `record_root_cause` appends RCA diagnoses to AQuA's dataset without modifying
   the observed agent's repository.
@@ -35,8 +35,8 @@ not something anything downstream can enforce.
 
 `tests/test_chat_agent.py` pins the whole list, so adding another writer is a
 decision someone has to make on purpose. `preview_custom_investigation` is not
-among them because it records no run, though it does archive the conversation
-payloads it sampled so the dashboard can show them.
+among them because it records no investigation, though it does store the
+trajectory bundles it sampled so the dashboard can show them.
 
 Source-browsing tools are read-only and inspect published snapshots.
 
@@ -159,8 +159,8 @@ async def start_investigation(tool_context: ToolContext) -> dict[str, Any]:
     """Schedule an unattended background investigation job on the server.
 
     Call this when the user asks to run an investigation, start a sweep, or
-    check what is currently failing. It returns as soon as the run is queued;
-    the run itself is watched in the investigations list, not here.
+    check what is currently failing. It returns as soon as the investigation is queued;
+    the investigation itself is watched in the investigations list, not here.
     """
     from ambient_quality_agent.core.investigation.job_scheduling import (
         schedule_investigation,
@@ -171,14 +171,14 @@ async def start_investigation(tool_context: ToolContext) -> dict[str, Any]:
     except Exception as exc:
         return {"error": f"Failed to start the investigation: {exc}"}
     if result and result.get("error"):
-        # An id can come back alongside an error when the run was recorded but
-        # the job never submitted. That is a failure, not a started run.
+        # An id can come back alongside an error when the investigation was recorded but
+        # the job never submitted. That is a failure, not a started investigation.
         return {"error": result["error"]}
-    run_id = (result or {}).get("run_id")
-    if not run_id:
+    investigation_id = (result or {}).get("investigation_id")
+    if not investigation_id:
         return {"error": "The investigation did not report a run id."}
     return {
-        "run_id": run_id,
+        "investigation_id": investigation_id,
         "status": (result or {}).get("status", "pending"),
         "message": (
             "Investigation started. It runs in the background; watch it in the "
@@ -293,11 +293,11 @@ async def preview_custom_investigation(
     """Show what a SQL selector would pick out before any investigation runs it.
 
     Validates the selector, counts the conversations it matches in the window,
-    and returns a handful of them as examples. Nothing is reviewed and no run is
+    and returns a handful of them as examples. Nothing is reviewed and no investigation is
     recorded, so preview freely and show the user the examples before calling
     `start_custom_investigation` with the same arguments.
 
-    Present every example as a markdown link to its `case_view_path`, always --
+    Present every example as a markdown link to its `trajectory_view_path`, always --
     the count alone does not show whether the selector picked the right
     conversations, and a bare path is not clickable. Add a second link to
     `trace_url` whenever the example carries one; `big_query` examples carry no
@@ -460,7 +460,7 @@ async def start_custom_investigation(
     The ordinary sweep, narrowed: instead of sampling the window at random it
     reviews what `selector_sql` matched. Call it once the user has seen a
     `preview_custom_investigation` of the same selector and window and agreed to
-    run it. It returns as soon as the run is queued; watch the run itself in the
+    run it. It returns as soon as the investigation is queued; watch the investigation itself in the
     investigations list, or read it back with `get_investigation`.
 
     Write the selector as a single `SELECT` projecting exactly one column named
@@ -468,7 +468,7 @@ async def start_custom_investigation(
     `@window_start`, `@window_end` and `@agent_name`, all three of which are
     bound for you; `@limit` is reserved and a selector naming it is refused.
 
-    The selector is validated once here. A rejection ends the call -- no run is
+    The selector is validated once here. A rejection ends the call -- no investigation is
     recorded -- so take the SQL back to `preview_custom_investigation` to fix it.
 
     Args:
@@ -521,24 +521,24 @@ async def start_custom_investigation(
             window_end=window_end or None,
             custom_overrides=CustomOverrides(
                 selector_sql=selector_sql,
-                session_review_focus=session_review_focus,
+                review_focus=session_review_focus,
             ),
         )
     except Exception as exc:
         return {"error": f"Failed to start the custom investigation: {exc}"}
     if result and result.get("error"):
-        # A refusal names the run holding the agent or the number in flight;
+        # A refusal names the investigation holding the agent or the number in flight;
         # both are carried through so the answer is not just "it did not start".
         refused = {"error": result["error"]}
-        for field in ("running_run_id", "runs_in_flight"):
+        for field in ("running_investigation_id", "investigations_in_flight"):
             if field in result:
                 refused[field] = result[field]
         return refused
-    run_id = (result or {}).get("run_id")
-    if not run_id:
+    investigation_id = (result or {}).get("investigation_id")
+    if not investigation_id:
         return {"error": "The custom investigation did not report a run id."}
     return {
-        "run_id": run_id,
+        "investigation_id": investigation_id,
         "status": (result or {}).get("status", "pending"),
         "message": (
             "Custom investigation started. It runs in the background; watch it "
@@ -601,7 +601,7 @@ CHAT_TOOLS: list[ToolUnion] = [
 ]
 
 
-# TODO(b/557208991): restore the paragraph quoted below. It is theirs, and it is
+# TODO: restore the paragraph quoted below. It is theirs, and it is
 # held back only because it instructs the model about two fields AQuA does not
 # record: neither `diagnosis` nor `confidence` exists on an occurrence today --
 # not on the model, not in `insight_tools.py` -- so the guidance has nothing to
@@ -680,7 +680,7 @@ _INSTRUCTION = (
     "columns, and points to the skill reference holding the recipes. Write a "
     "SQL selector for the slice and call preview_custom_investigation. Show "
     "the user what it matched: the count, "
-    "and every returned example as a markdown link to its `case_view_path`, "
+    "and every returned example as a markdown link to its `trajectory_view_path`, "
     "plus a link to its `trace_url` when the example carries one. Always link "
     "them -- a bare path renders as dead text, and opening a conversation is "
     "how the user checks the selector before approving. Only once they agree "

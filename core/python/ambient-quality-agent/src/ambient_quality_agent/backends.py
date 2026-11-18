@@ -24,9 +24,9 @@ Wiring::
     build_deployed_bindings()                 standalone.bindings
       build_bigquery_bindings()                 create_store() ──► InMemoryStore
         BigQueryInvestigationStore,             build_bindings()
-        BigQueryInsightStore, RootCauseStore,     InMemory* adapters,
-        TrajectoryRecorder,                       FileObjectStore(.aqua/job/),
-                                                  FileObjectStore(.aqua/source/),
+        BigQueryInsightStore,                     InMemory* adapters,
+        BigQueryRootCauseStore,                   FileObjectStore(.aqua/job/),
+        TrajectoryRecorder,                       FileObjectStore(.aqua/source/),
                                                   FileObjectStore(.aqua/metrics/)
         BigQueryTrajectoryStore,
         BigQueryInsightReader,
@@ -46,6 +46,15 @@ Wiring::
     investigation.preview.store_factory, objects.store.jobs_store_factory,
     objects.store.source_store_factory, objects.store.metrics_store_factory
 
+    offline.run_investigation_async(), tests
+        │ override_bindings()
+        ▼
+    any PROVIDERS target, including the pipeline providers no backend binds:
+    _common.fetcher_factory, _common.goal_loader,
+    _common.session_reviewer_factory, _common.model_call_factory,
+    _common.merge_call_factory, _common.verification_call_factory,
+    _common.match_call_factory
+
 This is the composition root. Each store is reached through a provider: a
 module attribute holding its factory, which callers look up when they need one
 (a service locator). `configure_providers()` binds every provider at start-up,
@@ -62,7 +71,10 @@ Two backends bind the same providers:
   so a standalone run keeps nothing in a Cloud project.
 
 `configure_providers()` reads `Config.standalone` and binds one set. Every entry
-point calls it, and nothing else needs to. This is the only module that imports
+point calls it, and nothing else needs to. Telemetry, the goal and the model
+calls are providers too (`PIPELINE_PROVIDERS`), but no backend binds them, as
+both backends reach them the same way; `override_bindings()` rebinds them for
+an offline run. This is the only module that imports
 both backends; the modules that own a provider declare it and nothing more.
 
 ## An unbound provider raises
@@ -72,7 +84,7 @@ An entry point that binds nothing therefore fails at its first write, naming
 the provider.
 
 The alternative is worse. A provider that defaulted to BigQuery would work in a
-deployment and be wrong in a standalone run, with nothing to say so: the run
+deployment and be wrong in a standalone run, with nothing to say so: the investigation
 reports success and the rows go to a real project's tables.
 
 ## `configure_providers()` is called, not imported
@@ -92,6 +104,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import threading
 from typing import TYPE_CHECKING, Any, NamedTuple
 
 from ambient_quality_agent import clients
@@ -110,10 +123,12 @@ from ambient_quality_agent.tools import gcs
 from ambient_quality_agent.tools.insights.bigquery_reader import (
     BigQueryInsightReader,
 )
+from ambient_quality_agent.tools.insights.bigquery_root_cause_store import (
+    BigQueryRootCauseStore,
+)
 from ambient_quality_agent.tools.insights.bigquery_store import (
     BigQueryInsightStore,
 )
-from ambient_quality_agent.tools.insights.root_cause_store import RootCauseStore
 from ambient_quality_agent.tools.investigations.bigquery_store import (
     BigQueryInvestigationStore,
 )
@@ -134,7 +149,7 @@ from ambient_quality_agent.tools.trajectories.recorder import TrajectoryRecorder
 from google.cloud import bigquery
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator
+    from collections.abc import Callable, Iterator, Mapping
     from pathlib import Path
 
     from ambient_quality_agent.standalone.store import InMemoryStore
@@ -148,6 +163,16 @@ class ProviderTarget(NamedTuple):
     module: Any
     attribute: str
 
+
+_PIPELINE_TARGETS: dict[str, ProviderTarget] = {
+    "telemetry_fetcher": ProviderTarget(_common, "fetcher_factory"),
+    "goal_loader": ProviderTarget(_common, "goal_loader"),
+    "session_reviewer": ProviderTarget(_common, "session_reviewer_factory"),
+    "cluster_call": ProviderTarget(_common, "model_call_factory"),
+    "merge_call": ProviderTarget(_common, "merge_call_factory"),
+    "verification_call": ProviderTarget(_common, "verification_call_factory"),
+    "match_call": ProviderTarget(_common, "match_call_factory"),
+}
 
 PROVIDERS: dict[str, ProviderTarget] = {
     "investigation_store": ProviderTarget(investigation_model, "store_factory"),
@@ -166,12 +191,25 @@ PROVIDERS: dict[str, ProviderTarget] = {
     "jobs_store": ProviderTarget(objects_store, "jobs_store_factory"),
     "source_store": ProviderTarget(objects_store, "source_store_factory"),
     "metrics_store": ProviderTarget(objects_store, "metrics_store_factory"),
+    **_PIPELINE_TARGETS,
 }
-"""Every storage provider, keyed by what it stores rather than by where it lives.
+"""Every provider, keyed by what it provides rather than by where it lives.
 
 One list, so the two backends cannot cover different sets. Each returns a
-mapping over these keys, and `bind_providers` refuses one that does not.
+mapping over these keys less `PIPELINE_PROVIDERS`, and `bind_providers`
+refuses one that does not.
 """
+
+PIPELINE_PROVIDERS = frozenset(_PIPELINE_TARGETS)
+"""The providers no backend binds: telemetry, the goal and the model calls.
+
+A deployment and a standalone run reach these the same way, so each keeps the
+production default it is declared with. `override_bindings` rebinds them, for
+`offline.run_investigation` and for tests.
+"""
+
+_BINDINGS_HELD = threading.Lock()
+"""Held while an `override_bindings` block is open, in any thread."""
 
 
 def _create_bigquery_client(cfg: Any) -> bigquery.Client:
@@ -204,7 +242,7 @@ def build_bigquery_bindings() -> dict[str, Callable[..., Any]]:
             ),
             project_id=state["project_id"],
             dataset=state.get("aqa_dataset", "aqua_insights"),
-            agent_name=config_module.extract_agent_key(state),
+            observed_agent_key=config_module.extract_agent_key(state),
             match_call=_common.match_call_factory(ctx),
         )
 
@@ -218,16 +256,16 @@ def build_bigquery_bindings() -> dict[str, Callable[..., Any]]:
                 ),
                 project_id=state["project_id"],
                 dataset=state.get("aqa_dataset", "aqua_insights"),
-                agent_name=config_module.extract_agent_key(state),
+                observed_agent_key=config_module.extract_agent_key(state),
             ),
-            run_id=state.get("run_id", ""),
-            agent_name=config_module.extract_agent_key(state),
+            investigation_id=state.get("investigation_id", ""),
+            observed_agent_key=config_module.extract_agent_key(state),
             source=state.get("telemetry_ingestion_source", ""),
         )
 
-    def build_root_cause_writer(state: Any) -> RootCauseStore:
+    def build_root_cause_writer(state: Any) -> BigQueryRootCauseStore:
         cfg = effective_config.load(state)
-        return RootCauseStore(
+        return BigQueryRootCauseStore(
             client=_create_bigquery_client(cfg),
             project_id=cfg.project_id,
             dataset=cfg.aqa_dataset,
@@ -239,7 +277,7 @@ def build_bigquery_bindings() -> dict[str, Callable[..., Any]]:
             client=_create_bigquery_client(cfg),
             project_id=cfg.project_id,
             dataset=cfg.aqa_dataset,
-            agent_name=cfg.resolve_agent_key(),
+            observed_agent_key=cfg.resolve_agent_key(),
         )
 
     def build_insight_store(state: Any) -> BigQueryInsightStore:
@@ -249,7 +287,7 @@ def build_bigquery_bindings() -> dict[str, Callable[..., Any]]:
             client=_create_bigquery_client(cfg),
             project_id=cfg.project_id,
             dataset=cfg.aqa_dataset,
-            agent_name=cfg.resolve_agent_key(),
+            observed_agent_key=cfg.resolve_agent_key(),
         )
 
     def build_trajectory_reader(state: Any) -> BigQueryTrajectoryReader:
@@ -258,7 +296,7 @@ def build_bigquery_bindings() -> dict[str, Callable[..., Any]]:
             client=_create_bigquery_client(cfg),
             project_id=cfg.project_id,
             dataset=cfg.aqa_dataset,
-            agent_name=cfg.resolve_agent_key(),
+            observed_agent_key=cfg.resolve_agent_key(),
         )
 
     return {
@@ -268,8 +306,11 @@ def build_bigquery_bindings() -> dict[str, Callable[..., Any]]:
         # The nodes run on a flat snapshot of the config rather than the
         # session, so this one cannot go through `effective_config`.
         "event_writer": lambda state, text, source: (
-            BigQueryInvestigationStore.from_workflow_state(state).append_event(
-                state["run_id"], text, source=source
+            investigation_model.append_investigation_event(
+                BigQueryInvestigationStore.from_workflow_state(state),
+                state["investigation_id"],
+                text,
+                source=source,
             )
         ),
         "insight_writer": build_insight_writer,
@@ -278,12 +319,12 @@ def build_bigquery_bindings() -> dict[str, Callable[..., Any]]:
         "insight_reader": build_insight_reader,
         "insight_store": build_insight_store,
         "trajectory_reader": build_trajectory_reader,
-        # A custom-investigation preview archives the conversations it tried.
+        # A custom-investigation preview stores the trajectory bundles it tried.
         "preview_trajectory_store": lambda config: BigQueryTrajectoryStore(
             client=_create_bigquery_client(config),
             project_id=config.project_id,
             dataset=config.aqa_dataset,
-            agent_name=config.resolve_agent_key(),
+            observed_agent_key=config.resolve_agent_key(),
         ),
     }
 
@@ -331,41 +372,51 @@ def build_deployed_bindings() -> dict[str, Callable[..., Any]]:
 
 
 def bind_providers(bindings: dict[str, Callable[..., Any]]) -> dict[str, Any]:
-    """Binds every provider and returns what each held previously.
+    """Binds a backend's providers and returns what each held previously.
 
-    A mapping that does not match `PROVIDERS` exactly is refused, in either
-    direction:
+    A mapping that does not match `PROVIDERS` less `PIPELINE_PROVIDERS` exactly
+    is refused, in either direction:
     - A missing key would leave that provider unbound, raising errors downstream.
     - An unknown key indicates an incomplete rename that would bind nothing.
+    - A pipeline key would replace a test's fake fetcher or model call on every
+      backend switch.
 
     Args:
         bindings: Mapping of provider names to factory callables.
 
     Returns:
-        Mapping of provider names to their previous target attributes.
+        Mapping of each provider name in `bindings` to what it held before.
 
     Raises:
-        ValueError: If `bindings` does not match `PROVIDERS` exactly.
+        ValueError: If `bindings` misses a backend provider, or names a
+            pipeline provider or an unknown one.
     """
-    missing = set(PROVIDERS) - set(bindings)
-    extra = set(bindings) - set(PROVIDERS)
+    backend_providers = set(PROVIDERS) - PIPELINE_PROVIDERS
+    missing = backend_providers - set(bindings)
+    extra = set(bindings) - backend_providers
     if missing or extra:
         raise ValueError(
             f"backend does not match the provider list; missing={sorted(missing)}, "
-            f"unknown={sorted(extra)}"
+            f"unknown or pipeline={sorted(extra)}"
         )
+    return _swap_providers(bindings)
+
+
+def _swap_providers(
+    bindings: Mapping[str, Callable[..., Any]],
+) -> dict[str, Any]:
     previous = {
-        name: getattr(target.module, target.attribute)
-        for name, target in PROVIDERS.items()
+        name: getattr(PROVIDERS[name].module, PROVIDERS[name].attribute)
+        for name in bindings
     }
-    for name, target in PROVIDERS.items():
-        setattr(target.module, target.attribute, bindings[name])
+    for name, binding in bindings.items():
+        setattr(PROVIDERS[name].module, PROVIDERS[name].attribute, binding)
     return previous
 
 
-def _restore_providers(previous: dict[str, Any]) -> None:
-    for name, target in PROVIDERS.items():
-        setattr(target.module, target.attribute, previous[name])
+def _restore_providers(previous: Mapping[str, Any]) -> None:
+    for name, binding in previous.items():
+        setattr(PROVIDERS[name].module, PROVIDERS[name].attribute, binding)
 
 
 def configure_providers(
@@ -432,3 +483,46 @@ def override_providers(
         yield store
     finally:
         _restore_providers(previous)
+
+
+@contextlib.contextmanager
+def override_bindings(
+    bindings: Mapping[str, Callable[..., Any]],
+) -> Iterator[None]:
+    """Binds the named providers within a context block, leaving the rest alone.
+
+    Each provider gets back what it held on entry when the block exits, also
+    when it exits with an exception. Providers are module attributes, so the
+    bindings hold for the whole process, every thread and task included, and
+    only one block may be open at a time: a second one, nested or concurrent,
+    is refused rather than given back out of order.
+
+    Args:
+        bindings: Mapping of provider names in `PROVIDERS` to factory
+            callables; any subset, pipeline providers included.
+
+    Yields:
+        None while the bindings are in place.
+
+    Raises:
+        ValueError: If `bindings` names a provider `PROVIDERS` does not;
+            nothing is bound then.
+        RuntimeError: If another `override_bindings` block is open; nothing
+            is bound then.
+    """
+    unknown = set(bindings) - set(PROVIDERS)
+    if unknown:
+        raise ValueError(f"unknown provider(s): {sorted(unknown)}")
+    if not _BINDINGS_HELD.acquire(blocking=False):
+        raise RuntimeError(
+            "override_bindings is already open in this process; providers are "
+            "process-wide, so blocks may not nest or overlap"
+        )
+    try:
+        previous = _swap_providers(bindings)
+        try:
+            yield
+        finally:
+            _restore_providers(previous)
+    finally:
+        _BINDINGS_HELD.release()

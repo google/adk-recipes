@@ -14,10 +14,12 @@
 
 """Deployment script for Brand Search Optimization agent."""
 
+import os
+
 import vertexai
 from absl import app, flags
 from vertexai import agent_engines
-from vertexai.preview.reasoning_engines import AdkApp
+from vertexai.agent_engines.templates.adk import AdkApp
 
 from app.agent import root_agent
 from app.shared_libraries import constants
@@ -43,8 +45,8 @@ def create(env_vars: dict) -> None:
     remote_agent = agent_engines.create(
         adk_app,
         requirements=[
-            "google-adk>=2.6.0,<3.0.0",
-            "google-cloud-aiplatform[agent_engines]>=1.93.0",
+            "google-adk>=2.13.0,<3.0.0",
+            "google-cloud-aiplatform[agent_engines]>=1.156.0,<3.0.0",
             "pydantic>=2.10.0",
             "requests",
             "python-dotenv",
@@ -68,7 +70,13 @@ def delete(resource_id: str) -> None:
 
 def main(argv: list[str]) -> None:
     project_id = FLAGS.project_id if FLAGS.project_id else constants.PROJECT
-    location = FLAGS.location if FLAGS.location else constants.LOCATION
+    # Reasoning Engine requires a regional location (e.g., us-central1) and
+    # rejects 'global' as lightweight-only.
+    location = (
+        FLAGS.location
+        or os.getenv("GOOGLE_CLOUD_AGENT_ENGINE_LOCATION")
+        or "us-central1"
+    )
     bucket = FLAGS.bucket if FLAGS.bucket else constants.STAGING_BUCKET
     env_vars = {}
 
@@ -89,6 +97,12 @@ def main(argv: list[str]) -> None:
     env_vars["DISABLE_WEB_DRIVER"] = (
         "1" if constants.DISABLE_WEB_DRIVER else "0"
     )
+    if constants.MODEL:
+        env_vars["MODEL"] = constants.MODEL
+    # Forward model endpoint location (e.g. 'global' for Gemini 3.5 models)
+    # to the remote Reasoning Engine instance.
+    if constants.LOCATION:
+        env_vars["GOOGLE_CLOUD_LOCATION"] = constants.LOCATION
 
     vertexai.init(
         project=project_id,

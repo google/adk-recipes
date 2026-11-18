@@ -19,21 +19,25 @@ Wiring::
     ui/web bundle (browser)
       │
       ├─ /, any other path ──► serve_dashboard_shell(), serve_spa() ──► static_v2 files
+      │                          _serve_shell()
       │
       ├─ /api/* ──► _get_backend_client() ──► AgentRuntimeClient | AdkHttpClient
-      │               build_client_from_env()             │ post_command()
-      │                                                   ▼
+      │               _create_default_backend_client()    │ post_command()
+      │               build_client_from_env()             ▼
       │                                     fast_api_app: core.command_routes
       │
       ├─ /a2a, agent card ──► proxy_a2a_request() ──► fast_api_app: chat A2A route
       │     _resolve_a2a_upstream() ──► resolve_a2a_base_url()
       │     get_adc_token(), _forward(), _stream_a2a()
       │
-      ├─ /lha/contexts ──► task_reader ──► GCS
+      ├─ /lha/contexts ──► task_reader ──► GCS, or _proxy_local_contexts() ──► fast_api_app
       │     list_contexts(), list_context_tasks(), delete_context(),
       │     save_context_title()
       │
       └─ other /lha/*, /feedback ──► _build_lha_unavailable_response()
+
+    host process ──► build_read_only_dashboard_app(backend) ──► app
+                       GET/HEAD only, no chat                   _get_backend_client() ──► backend
 
 This is the *leanest* option: it reuses the exact web stack `adk web` already
 ships (FastAPI + Starlette + uvicorn) and the shared, SDK-agnostic client -- so
@@ -51,11 +55,11 @@ rather than a chat turn, so the UI never depends on the LLM to route a click.
 Endpoints
 ---------
 GET  /                          -> the dashboard shell (static_v2/index.html)
-GET  /api/config                -> {config: {...}} -- the effective configuration
-GET  /api/investigations        -> {runs: [...]} for the investigations table
-POST /api/investigations        -> start a run -> {run: {...}} | {ok: true} | {error}
-GET  /api/stats                 -> {stats: {...}} totals across every run
-GET  /api/investigations/{id}   -> {run: {...}} for one run
+GET  /api/config                -> {config: {...}, starter_selector} -- the effective configuration
+GET  /api/investigations        -> {investigations: [...]} for the investigations table
+POST /api/investigations        -> start one -> {investigation: {...}} | {ok: true} | {error}
+GET  /api/stats                 -> {stats: {...}} totals across every investigation
+GET  /api/investigations/{id}   -> {investigation: {...}} for one investigation
 GET  /api/daily                 -> {days: [...]} per-day figures for the charts
 GET  /api/insights              -> {insights: [...], total, next_page_token}
 GET  /api/insights/{id}         -> {insight: {...}, occurrences: [...], next_page_token}
@@ -68,26 +72,35 @@ PUT  /api/schedule              -> the agent's reply -- change an attached agent
 POST /api/telemetry/check       -> {checks, filled, grants, refusal, ...} -- check a table
 PUT  /api/telemetry             -> the agent's reply -- change an attached agent's table
 POST /api/telemetry/grants      -> {recorded} -- record grants on an attachment
+POST /api/selector/check        -> {refusal, changes} -- check an investigation selector
+PUT  /api/selector              -> the agent's reply -- store or clear the selector
 GET  /api/source                -> {available, reason} -- can findings cite code
-GET  /api/investigations/{id}/cases/{case} -> {case: {...}} -- one conversation
+GET  /api/investigations/{id}/trajectories/{trajectory}
+                                -> {trajectory_bundle: {...}} -- one trajectory
 GET  /healthz                   -> liveness probe
 
 Every ``/api/*`` route but ``/api/agents`` reads the agent the dashboard has
 selected from an ``?agent_key=`` query parameter and passes it on in its
-command body (``PUT /api/schedule`` and the ``/api/telemetry`` routes take it
-in the request body). Without one, the agent answers for its default agent.
+command body (``PUT /api/schedule`` and the ``/api/telemetry`` and
+``/api/selector`` routes take it in the request body). Without one, the agent
+answers for its default agent.
 
 ``/`` serves the dashboard: ``/assets/*`` and any other file in the bundle are
 served beside it, every unclaimed path falls through to the shell so the
 client-side router can match it, and ``/v2/*`` permanently redirects to ``/*``.
+
+A host process that shows finished investigations read-only serves
+``build_read_only_dashboard_app(backend)``; its docstring is the contract.
 """
 
 from __future__ import annotations
 
+import contextvars
 import functools
 import json
 import logging
 import os
+import re
 from collections.abc import AsyncIterator
 from typing import Any, TypeVar
 
@@ -116,6 +129,7 @@ from ambient_quality_shared.protocol import (
     INSIGHTS_GET_ROUTE,
     INSIGHTS_LIST_ROUTE,
     INSIGHTS_MERGE_ROUTE,
+    INVESTIGATIONS_CANCEL_ROUTE,
     INVESTIGATIONS_DAILY_ROUTE,
     INVESTIGATIONS_GET_ROUTE,
     INVESTIGATIONS_LIST_ROUTE,
@@ -124,15 +138,16 @@ from ambient_quality_shared.protocol import (
     MEMORIES_DELETE_ROUTE,
     MEMORIES_LIST_ROUTE,
     SOURCE_ROUTE,
-    TRAJECTORIES_CASE_ROUTE,
+    TRAJECTORY_BUNDLE_ROUTE,
     AgentKeyArgs,
     AttachAgentArgs,
+    CancelInvestigationArgs,
     DeleteMemoryArgs,
     DismissInsightArgs,
-    GetCaseConversationArgs,
     GetInsightArgs,
     GetInvestigationArgs,
     GetSourceSnapshotArgs,
+    GetTrajectoryBundleArgs,
     ListInsightsArgs,
     MergeInsightArgs,
     RecordAppliedArgs,
@@ -143,12 +158,16 @@ from ambient_quality_shared.usage_headers import build_usage_headers
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import (
     FileResponse,
+    HTMLResponse,
     JSONResponse,
     PlainTextResponse,
     RedirectResponse,
     StreamingResponse,
 )
 from fastapi.staticfiles import StaticFiles
+from starlette.datastructures import MutableHeaders
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
+from starlette.websockets import WebSocketClose
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -179,18 +198,39 @@ if not BUNDLE_AVAILABLE:
 app = FastAPI(title="AQA FastAPI dashboard")
 
 
+# Set only while `build_read_only_dashboard_app`'s app handles a request, so
+# a viewer and the regular `app` can share a process without sharing a
+# backend.
+_viewer_backend: contextvars.ContextVar[Any] = contextvars.ContextVar(
+    "aqua_viewer_backend", default=None
+)
+
+
 # --------------------------------------------------------------------------- #
 # The target comes from the environment, which is fixed for the process, so
 # one client serves every request.
 # --------------------------------------------------------------------------- #
 @functools.cache
-def _get_backend_client() -> AgentRuntimeClient | AdkHttpClient:
+def _create_default_backend_client() -> AgentRuntimeClient | AdkHttpClient:
     """Returns the backend client for a deployed engine or a local agent server.
 
     Returns:
         Cached backend client instance (`AgentRuntimeClient` or `AdkHttpClient`).
     """
     return build_client_from_env()
+
+
+def _get_backend_client() -> Any:
+    """Returns the backend the current request reads from.
+
+    Returns:
+        The host's backend inside a viewer (`build_read_only_dashboard_app`),
+        otherwise the environment's (`_create_default_backend_client`).
+    """
+    backend = _viewer_backend.get()
+    if backend is None:
+        return _create_default_backend_client()
+    return backend
 
 
 def _extract_window_args(request: Request) -> WindowArgs:
@@ -297,12 +337,44 @@ async def serve_dashboard_shell() -> Response:
     while keeping API routes accessible.
 
     Returns:
-        FileResponse serving the static index page, or PlainTextResponse on 503.
+        The shell (`_serve_shell`), or PlainTextResponse on 503.
     """
     if BUNDLE_AVAILABLE:
-        return FileResponse(V2_INDEX)
+        return _serve_shell()
     return PlainTextResponse(
         _NO_BUNDLE.format(dir=STATIC_V2_DIR), status_code=503
+    )
+
+
+VIEWER_META_TAG = '<meta name="aqua-viewer" content="1">'
+"""Marks a shell served by a viewer (`build_read_only_dashboard_app`)."""
+
+# Comments are matched too, and skipped, as one can hold a `<head` before the
+# real one; an unclosed comment runs to the end, as it does for a browser.
+_HEAD_OPEN_OR_COMMENT = re.compile(
+    r"<!--.*?(?:-->|\Z)|(<head\b[^>]*>)", re.IGNORECASE | re.DOTALL
+)
+
+
+def _serve_shell() -> Response:
+    """Serves the bundle's index.html, marked as a viewer's inside one.
+
+    Returns:
+        The shell as built, or inside a viewer the shell with
+        `VIEWER_META_TAG` opening its head, or a 500 when it has no head.
+    """
+    if _viewer_backend.get() is None:
+        return FileResponse(V2_INDEX)
+    with open(V2_INDEX, encoding="utf-8") as index:
+        html = index.read()
+    for match in _HEAD_OPEN_OR_COMMENT.finditer(html):
+        if match.group(1):
+            end = match.end()
+            return HTMLResponse(html[:end] + VIEWER_META_TAG + html[end:])
+    # Unmarked, the shell would offer chat and writes the viewer refuses.
+    return PlainTextResponse(
+        "The dashboard's index.html has no <head> to mark read-only.",
+        status_code=500,
     )
 
 
@@ -312,7 +384,7 @@ async def serve_dashboard_shell() -> Response:
 # Routes catch failures into an ``{"error": ...}`` body (``/api/source`` into
 # ``{available, reason}``), which mutation routes pair with a 400/404/502 status,
 # so the UI degrades gracefully instead of surfacing a raw 5xx. Route ordering is irrelevant: FastAPI path
-# params don't span ``/``, so ``/{run_id}`` and its siblings never collide.
+# params don't span ``/``, so ``/{investigation_id}`` and its siblings never collide.
 # --------------------------------------------------------------------------- #
 
 _NOT_DEPLOYED = (
@@ -396,7 +468,11 @@ async def get_effective_config(request: Request) -> dict:
         request: Incoming HTTP request.
 
     Returns:
-        Dictionary containing the configuration object or an error message.
+        Dictionary containing the configuration object or an error message;
+        `starter_selector`, the SQL the selector editor starts from, when the
+        agent sends one; and `demo: true` when the agent serves generated
+        data, as the mock `make demo` runs does; a deployed agent never says
+        so.
     """
     try:
         result = await _get_backend_client().post_command(
@@ -407,7 +483,13 @@ async def get_effective_config(request: Request) -> dict:
     config = (result or {}).get("config")
     if not isinstance(config, dict):
         return {"error": "The agent returned no configuration."}
-    return {"config": config}
+    answer: dict[str, Any] = {"config": config}
+    starter = result.get("starter_selector")
+    if isinstance(starter, str):
+        answer["starter_selector"] = starter
+    if result.get("demo") is True:
+        answer["demo"] = True
+    return answer
 
 
 @app.get("/api/health")
@@ -502,8 +584,9 @@ _TELEMETRY_FIELDS = (
 """The attachment fields the telemetry card changes: the fields a user enters,
 plus the location and source filled in from the table.
 
-The dashboard changes only these and the schedule fields. Every other field is
-left to `aqua attach`, which discovers and checks them before storing them."""
+The dashboard changes only these, the schedule fields and the investigation
+selector. Every other field is left to `aqua attach`, which discovers and checks
+them before storing them."""
 
 _BINDING_FIELDS = frozenset({"resource", "role", "member"})
 """The keys of a grant recorded on an attachment."""
@@ -519,7 +602,7 @@ async def get_schedule(request: Request) -> dict:
 
     Returns:
         Dictionary with `available`, and the agent's key, name, cron, whether
-        its scheduled runs are on and when its attachment was last saved; or
+        its scheduled investigations are on and when its attachment was last saved; or
         `available: false` with the reason; or an error message when the agent
         cannot be reached.
     """
@@ -739,6 +822,137 @@ async def record_telemetry_grants(request: Request) -> Any:
     return {"recorded": len(granted)}
 
 
+_SELECTOR_FIELD = "investigation_selector_sql"
+
+_SELECTOR_REFUSAL_RE = re.compile(
+    rf"{_SELECTOR_FIELD} is refused \([a-z_]+\): (?P<explanation>.+)", re.DOTALL
+)
+"""Matches the refusal `commands._render_selector_refusal` renders."""
+
+_SELECTOR_MODE_REFUSAL = f"{_SELECTOR_FIELD} needs quality_analysis_mode"
+"""Starts the refusal `commands._validate_selector_mode` renders."""
+
+
+@app.post("/api/selector/check")
+async def check_selector(request: Request) -> Any:
+    """Checks whether an attached agent may store an investigation selector.
+
+    Asks the agent for an `aqua attach` dry run with the access check, which
+    also prechecks the selector in BigQuery. Nothing is stored.
+
+    Args:
+        request: Incoming HTTP request with a JSON body holding `agent_key`
+            and `investigation_selector_sql`.
+
+    Returns:
+        Why the selector cannot be saved (`refusal`, empty when it can) and
+        the changes a save would make; a 400 with the reason when the body or
+        the agent refuses the request for another reason; or a 502 when the
+        agent cannot be reached or sends nothing back.
+    """
+    body = await _read_selector_change(request)
+    if isinstance(body, JSONResponse):
+        return body
+    return await _check_selector(body["agent_key"], body[_SELECTOR_FIELD])
+
+
+@app.put("/api/selector")
+async def save_selector(request: Request) -> Any:
+    """Stores an investigation selector on an attached agent.
+
+    Checks a selector first, as `POST /api/selector/check` does, so that a
+    stale page or another client cannot store one every investigation refuses.
+
+    Args:
+        request: Incoming HTTP request with a JSON body holding `agent_key`
+            and `investigation_selector_sql`, empty to clear the selector.
+
+    Returns:
+        The changes, whether they were stored, and when; a 400 with the reason
+        when the body, the check or the agent refuses; or a 502 when the agent
+        cannot be reached or sends nothing back.
+    """
+    body = await _read_selector_change(request)
+    if isinstance(body, JSONResponse):
+        return body
+    agent_key, sql = body["agent_key"], body[_SELECTOR_FIELD]
+    if sql:
+        checked = await _check_selector(agent_key, sql)
+        if isinstance(checked, JSONResponse):
+            return checked
+        if checked["refusal"]:
+            return JSONResponse({"error": checked["refusal"]}, status_code=400)
+    return await _store_fields(agent_key, {_SELECTOR_FIELD: sql})
+
+
+async def _check_selector(
+    agent_key: str, sql: str
+) -> dict[str, Any] | JSONResponse:
+    """Asks the agent whether it may store a selector, without storing it.
+
+    Args:
+        agent_key: The attachment to check against.
+        sql: The selector to check.
+
+    Returns:
+        `{refusal, changes}`, with the refusal's explanation alone for a
+        refused selector and empty when it may be stored; a 400 with the
+        agent's message when it fails for another reason; or a 502 when the
+        agent cannot be reached or sends nothing back.
+    """
+    try:
+        plan = await _get_backend_client().post_command(
+            AGENTS_ATTACH_ROUTE,
+            AttachAgentArgs(
+                agent_key=agent_key,
+                fields={_SELECTOR_FIELD: sql},
+                dry_run=True,
+                check_access=True,
+            ),
+        )
+    except Exception as exc:
+        return JSONResponse({"error": _format_error(exc)}, status_code=502)
+    if not plan:
+        return JSONResponse(
+            {"error": "The agent returned no plan."}, status_code=502
+        )
+    if error := plan.get("error"):
+        # The card's heading already says the selector is refused.
+        if refused := _SELECTOR_REFUSAL_RE.search(error):
+            return {"refusal": refused["explanation"], "changes": []}
+        if _SELECTOR_MODE_REFUSAL in error:
+            return {"refusal": error, "changes": []}
+        return JSONResponse({"error": error}, status_code=400)
+    # The agent prechecks the selector only on a table it can read.
+    checks = (plan.get("access") or {}).get("checks") or []
+    return {
+        "refusal": _find_refusal(checks),
+        "changes": plan.get("changes") or [],
+    }
+
+
+async def _read_selector_change(
+    request: Request,
+) -> dict[str, Any] | JSONResponse:
+    """Reads the JSON body of a selector change.
+
+    Args:
+        request: Incoming HTTP request whose body names the agent in
+            `agent_key` and holds `investigation_selector_sql`.
+
+    Returns:
+        The body, or a 400 response saying what it lacks.
+    """
+    body = await _read_change(request)
+    if not isinstance(body, JSONResponse) and not isinstance(
+        body.get(_SELECTOR_FIELD), str
+    ):
+        return JSONResponse(
+            {"error": f"{_SELECTOR_FIELD} is required."}, status_code=400
+        )
+    return body
+
+
 async def _read_change(request: Request) -> dict[str, Any] | JSONResponse:
     """Reads the JSON body of a change to an attached agent.
 
@@ -891,34 +1105,39 @@ def _build_source_args(request: Request) -> GetSourceSnapshotArgs:
     return args
 
 
-@app.get("/api/investigations/{run_id}/cases/{case_id}")
-async def get_case_conversation(
-    run_id: str, case_id: str, request: Request
+@app.get("/api/investigations/{investigation_id}/trajectories/{trajectory_id}")
+async def get_trajectory_bundle(
+    investigation_id: str, trajectory_id: str, request: Request
 ) -> dict:
-    """Retrieves a full conversation trace for a specific evaluation case.
+    """Retrieves the trajectory bundle of one trajectory an investigation sampled.
 
-    Fetches the observed agent's user session rather than investigation run steps.
+    Fetches the observed agent's conversation rather than investigation steps.
 
     Args:
-        run_id: Investigation run identifier.
-        case_id: Evaluated conversation trajectory identifier.
+        investigation_id: Investigation identifier.
+        trajectory_id: Trajectory identifier.
         request: Incoming HTTP request.
 
     Returns:
-        Dictionary containing the case conversation or an error message.
+        Dictionary containing the trajectory bundle or an error message.
     """
     try:
         result = await _get_backend_client().post_command(
-            TRAJECTORIES_CASE_ROUTE,
+            TRAJECTORY_BUNDLE_ROUTE,
             _add_selected_agent(
-                GetCaseConversationArgs(trajectory_id=case_id, run_id=run_id),
+                GetTrajectoryBundleArgs(
+                    trajectory_id=trajectory_id,
+                    investigation_id=investigation_id,
+                ),
                 request,
             ),
         )
     except Exception as exc:
         return {"error": _format_error(exc)}
     if not result:
-        return {"error": f"No conversation returned for case {case_id!r}."}
+        return {
+            "error": f"No trajectory bundle returned for {trajectory_id!r}."
+        }
     if result.get("error"):
         return {"error": result["error"]}
     return result
@@ -926,16 +1145,16 @@ async def get_case_conversation(
 
 @app.get("/api/investigations")
 async def list_investigations(request: Request) -> dict:
-    """Lists investigation runs matching the optional time window.
+    """Lists investigations matching the optional time window.
 
     Forwards backend errors so storage read failures are not rendered as
-    empty run history.
+    empty investigation history.
 
     Args:
         request: Incoming HTTP request containing optional time window parameters.
 
     Returns:
-        Dictionary containing investigation runs and optional error message.
+        Dictionary containing investigations and optional error message.
     """
     try:
         result = await _get_backend_client().post_command(
@@ -943,26 +1162,26 @@ async def list_investigations(request: Request) -> dict:
             _add_selected_agent(_extract_window_args(request), request) or None,
         )
     except Exception as exc:
-        return {"runs": [], "error": _format_error(exc)}
+        return {"investigations": [], "error": _format_error(exc)}
     result = result or {}
-    runs = result.get("runs") or []
+    investigations = result.get("investigations") or []
     if result.get("error"):
-        return {"runs": runs, "error": result["error"]}
-    return {"runs": runs}
+        return {"investigations": investigations, "error": result["error"]}
+    return {"investigations": investigations}
 
 
 @app.post("/api/investigations")
 async def start_investigation(request: Request) -> dict:
-    """Starts an investigation run.
+    """Starts an investigation.
 
-    Schedules the execution job and returns the new run record or confirmation.
-    Prioritizes error reporting over run IDs if job submission fails.
+    Schedules the execution job and returns the new investigation record or confirmation.
+    Prioritizes error reporting over investigation IDs if job submission fails.
 
     Args:
         request: Incoming HTTP request.
 
     Returns:
-        Dictionary containing the scheduled run details, success confirmation, or error.
+        Dictionary containing the scheduled investigation details, success confirmation, or error.
     """
     try:
         result = await _get_backend_client().post_command(
@@ -973,14 +1192,14 @@ async def start_investigation(request: Request) -> dict:
         return {"error": _format_error(exc)}
     if result and result.get("error"):
         return {"error": result["error"]}
-    if result and result.get("run_id"):
-        return {"run": result}
+    if result and result.get("investigation_id"):
+        return {"investigation": result}
     return {"ok": True}
 
 
 @app.get("/api/stats")
 async def get_investigation_stats(request: Request) -> dict:
-    """Aggregates counter totals across investigation runs in the time window.
+    """Aggregates counter totals across investigations in the time window.
 
     Args:
         request: Incoming HTTP request with optional window boundaries.
@@ -1003,29 +1222,72 @@ async def get_investigation_stats(request: Request) -> dict:
     return {"stats": stats, "window": window}
 
 
-@app.get("/api/investigations/{run_id}")
-async def get_investigation_record(run_id: str, request: Request) -> dict:
-    """Retrieves an investigation run record with full event history.
+@app.get("/api/investigations/{investigation_id}")
+async def get_investigation_record(
+    investigation_id: str, request: Request
+) -> dict:
+    """Retrieves an investigation record with full event history.
 
     Args:
-        run_id: Identifier of the investigation run.
+        investigation_id: Identifier of the investigation.
         request: Incoming HTTP request.
 
     Returns:
-        Dictionary containing the investigation run record or error message.
+        Dictionary containing the investigation record or error message.
     """
     try:
         result = await _get_backend_client().post_command(
             INVESTIGATIONS_GET_ROUTE,
-            _add_selected_agent(GetInvestigationArgs(run_id=run_id), request),
+            _add_selected_agent(
+                GetInvestigationArgs(investigation_id=investigation_id), request
+            ),
         )
     except Exception as exc:
         return {"error": _format_error(exc)}
     if not result:
-        return {"error": f"No record returned for run {run_id!r}."}
-    if result.get("error") and not result.get("run_id"):
+        return {
+            "error": f"No record returned for investigation {investigation_id!r}."
+        }
+    if result.get("error") and not result.get("investigation_id"):
         return {"error": result["error"]}
-    return {"run": result}
+    return {"investigation": result}
+
+
+@app.post("/api/investigations/{investigation_id}/cancel")
+async def cancel_investigation(investigation_id: str, request: Request) -> Any:
+    """Cancels a scheduled, pending or running investigation.
+
+    Args:
+        investigation_id: Identifier of the investigation to cancel.
+        request: Incoming HTTP request, with the selected agent in its query.
+
+    Returns:
+        The cancelled investigation as `{"investigation": ...}`, or an error
+        with a 502 status when the agent is unreachable and 409 when it
+        refuses (an unknown investigation, or one that has already finished).
+    """
+    try:
+        result = await _get_backend_client().post_command(
+            INVESTIGATIONS_CANCEL_ROUTE,
+            _add_selected_agent(
+                CancelInvestigationArgs(investigation_id=investigation_id),
+                request,
+            ),
+        )
+    except Exception as exc:
+        return JSONResponse({"error": _format_error(exc)}, status_code=502)
+    if not result:
+        return JSONResponse(
+            {
+                "error": (
+                    f"No record returned for investigation {investigation_id!r}."
+                )
+            },
+            status_code=502,
+        )
+    if result.get("error") and not result.get("investigation_id"):
+        return JSONResponse({"error": result["error"]}, status_code=409)
+    return {"investigation": result}
 
 
 @app.get("/api/daily")
@@ -1061,7 +1323,7 @@ async def list_insights(request: Request) -> dict:
 
     Args:
         request: Incoming HTTP request with optional query filters (status,
-            runId, hasRootCause, pageToken, page, orderBy, pageSize, day,
+            investigationId, hasRootCause, pageToken, page, orderBy, pageSize, day,
             window).
 
     Returns:
@@ -1074,8 +1336,8 @@ async def list_insights(request: Request) -> dict:
     )
     if status := params.get("status"):
         args["status"] = status
-    if run_id := params.get("runId"):
-        args["run_id"] = run_id
+    if investigation_id := params.get("investigationId"):
+        args["investigation_id"] = investigation_id
     if has_root_cause := _encode_tri_state(params.get("hasRootCause")):
         args["has_root_cause"] = has_root_cause
     if page_token := params.get("pageToken"):
@@ -1222,20 +1484,55 @@ def _format_insight_for_v2(
     refined_label = insight.get("refined_label") or ""
     if not refined_label and occurrences:
         refined_label = str(occurrences[0].get("refined_label") or "")
+    context_ids = _extract_root_cause_context_ids(
+        insight, occurrences, root_causes
+    )
     return {
         **insight,
-        "impact": insight.get("impact", insight.get("trace_count", 0)),
+        "impact": insight.get("impact", insight.get("trajectory_count", 0)),
         "diagnosis": diagnosis,
         "has_root_cause": diagnosed,
+        "root_cause_context_ids": context_ids,
         "refined_label": refined_label,
     }
+
+
+def _extract_root_cause_context_ids(
+    insight: dict,
+    occurrences: list[dict] | None,
+    root_causes: list[dict] | None,
+) -> list[str]:
+    """Collects distinct non-empty chat context IDs across root-cause sources.
+
+    Args:
+        insight: Raw insight dictionary (may carry `root_cause_context_ids`).
+        occurrences: Optional occurrence dicts with nested `root_causes`.
+        root_causes: Optional top-level root-cause dicts.
+
+    Returns:
+        Deduplicated list of non-empty `context_id` strings.
+    """
+    candidates: list[str] = []
+    for cid in insight.get("root_cause_context_ids") or []:
+        if isinstance(cid, str) and cid.strip():
+            candidates.append(cid.strip())
+    for record in root_causes or []:
+        cid = record.get("context_id") if isinstance(record, dict) else None
+        if isinstance(cid, str) and cid.strip():
+            candidates.append(cid.strip())
+    for occurrence in occurrences or []:
+        for record in occurrence.get("root_causes") or []:
+            cid = record.get("context_id") if isinstance(record, dict) else None
+            if isinstance(cid, str) and cid.strip():
+                candidates.append(cid.strip())
+    return list(dict.fromkeys(candidates))
 
 
 def _format_occurrence_for_v2(occurrence: dict) -> dict:
     """Formats a sighting occurrence for the dashboard interface.
 
-    1. Projects `trajectory_ids` to `evidence_case_ids`.
-    2. Maps `trace_count` to `cases_checked`.
+    1. Projects `trajectory_ids` to `evidence_trajectory_ids`.
+    2. Maps `trajectory_count` to `trajectories_checked`.
     3. Populates Cloud Trace console links keyed by trajectory ID.
     4. Extracts `diagnosis` and `refined_label` from verification analyses without
        conflating autorater evaluations with human or agent diagnoses.
@@ -1247,8 +1544,12 @@ def _format_occurrence_for_v2(occurrence: dict) -> dict:
         Formatted occurrence dictionary for dashboard display.
     """
     view = dict(occurrence)
-    view.setdefault("evidence_case_ids", occurrence.get("trajectory_ids") or [])
-    view.setdefault("cases_checked", int(occurrence.get("trace_count") or 0))
+    view.setdefault(
+        "evidence_trajectory_ids", occurrence.get("trajectory_ids") or []
+    )
+    view.setdefault(
+        "trajectories_checked", int(occurrence.get("trajectory_count") or 0)
+    )
     view.setdefault("console_urls", _extract_console_urls(occurrence))
     view["root_causes"] = occurrence.get("root_causes") or []
     if not view.get("diagnosis"):
@@ -1264,7 +1565,7 @@ def _extract_console_urls(occurrence: dict) -> dict[str, str]:
     """Maps conversation trajectory IDs to their Cloud Trace console URLs.
 
     Returns a dictionary keyed by trajectory ID so caller-defined iteration order
-    in `evidence_case_ids` is preserved.
+    in `evidence_trajectory_ids` is preserved.
 
     Args:
         occurrence: Sighting occurrence record containing trajectory metadata.
@@ -1274,7 +1575,7 @@ def _extract_console_urls(occurrence: dict) -> dict[str, str]:
     """
     return {
         trajectory["trajectory_id"]: trajectory["console_url"]
-        for trajectory in occurrence.get("trajectories") or []
+        for trajectory in occurrence.get("investigation_trajectories") or []
         if trajectory.get("trajectory_id") and trajectory.get("console_url")
     }
 
@@ -1283,13 +1584,13 @@ def _extract_console_urls(occurrence: dict) -> dict[str, str]:
 async def get_insight_detail(insight_id: str, request: Request) -> dict:
     """Retrieves detailed insight information including occurrences and root causes.
 
-    Heavy conversation trace payloads are omitted by default unless requested
-    via `includeTraces=1`.
+    Conversation turns stored on finding examples are omitted unless requested
+    via `includeTraces=1`; insight correlation stores examples without them.
 
     Args:
         insight_id: Unique insight identifier.
         request: Incoming HTTP request containing optional query parameters
-            (`runId`, `pageToken`, `includeTraces`).
+            (`investigationId`, `pageToken`, `includeTraces`).
 
     Returns:
         Dictionary containing the formatted insight, occurrences, root causes,
@@ -1298,13 +1599,12 @@ async def get_insight_detail(insight_id: str, request: Request) -> dict:
     params = request.query_params
     args = GetInsightArgs(
         insight_id=insight_id,
-        run_id=params.get("runId") or "",
+        investigation_id=params.get("investigationId") or "",
         page_token=params.get("pageToken") or "",
         include_traces=params.get("includeTraces") in ("1", "true"),
         # The links, without the conversations they link to. The panel shows
         # each failing rubric's expected/actual behavior and offers a way out
-        # to the trace; the rubric's own conversation copy is the heavy payload
-        # a harness wants, and stays behind `includeTraces`.
+        # to the trace.
         include_trajectories=True,
     )
     _add_selected_agent(args, request)
@@ -1441,7 +1741,9 @@ def _resolve_a2a_upstream() -> tuple[str, bool]:
     Raises:
         RuntimeError: If no supported backend client is configured.
     """
-    return resolve_a2a_base_url(_get_backend_client())
+    # The environment's client, as a viewer's backend has no A2A route and a
+    # viewer refuses chat before it reaches here.
+    return resolve_a2a_base_url(_create_default_backend_client())
 
 
 async def _forward(
@@ -2083,15 +2385,81 @@ def _read_jobs_bucket() -> str:
     return os.getenv("AQA_JOBS_GCS_BUCKET", "")
 
 
+def _resolve_local_adk_base_url() -> str:
+    """Resolves the local ADK/mock base URL when running without an engine or bucket.
+
+    Returns:
+        Normalized ``AGENT_ADK_BASE_URL`` when ``AQA_BACKEND=adk`` or no engine
+        is configured, otherwise ``""``.
+    """
+    base = os.getenv("AGENT_ADK_BASE_URL", "").strip().rstrip("/")
+    if not base:
+        return ""
+    backend = os.getenv("AQA_BACKEND", "").strip().lower()
+    if backend == "adk":
+        return base
+    if (
+        os.getenv("AGENT_ENGINE_RESOURCE_ID", "").strip()
+        or os.getenv("AGENT_ENGINE_URL", "").strip()
+    ):
+        return ""
+    return base
+
+
+async def _proxy_local_contexts(
+    method: str,
+    subpath: str = "",
+    *,
+    payload: dict[str, Any] | None = None,
+    fallback_body: dict[str, Any] | None = None,
+) -> Any:
+    """Proxies a `/lha/contexts` operation to the local ADK or mock server.
+
+    Args:
+        method: HTTP method (`GET`, `PUT`, or `DELETE`).
+        subpath: Subpath under `/lha/contexts` (e.g. ``/{id}/tasks``).
+        payload: Optional JSON body dictionary.
+        fallback_body: Additional fields merged into 502 error payloads.
+
+    Returns:
+        Upstream Response, or an HTTP 501/502 JSONResponse.
+    """
+    base = _resolve_local_adk_base_url()
+    if not base:
+        return _build_lha_unavailable_response("contexts")
+    url = f"{base}/lha/contexts{subpath}"
+    content = json.dumps(payload).encode() if payload is not None else None
+    try:
+        upstream = await _forward(
+            method,
+            url,
+            headers={"content-type": "application/json"},
+            content=content,
+        )
+    except Exception as exc:
+        body: dict[str, Any] = {
+            **(fallback_body or {}),
+            "error": f"{type(exc).__name__}: {exc}",
+        }
+        return JSONResponse(body, status_code=502)
+    return Response(
+        content=upstream.content,
+        status_code=upstream.status_code,
+        media_type=upstream.headers.get("content-type", "application/json"),
+    )
+
+
 async def _list_contexts() -> Any:
-    """Lists conversations stored in Cloud Storage, ordered newest first.
+    """Lists conversations stored in Cloud Storage or the local backend.
 
     Returns:
         Dictionary mapping "contexts" to conversation summaries, or error response.
     """
     bucket = _read_jobs_bucket()
     if not bucket:
-        return _build_lha_unavailable_response("contexts")
+        return await _proxy_local_contexts(
+            "GET", fallback_body={"contexts": []}
+        )
     try:
         contexts = await task_reader.list_contexts(bucket)
     except Exception as exc:
@@ -2120,7 +2488,11 @@ async def list_lha_context_tasks(context_id: str) -> Any:
     """
     bucket = _read_jobs_bucket()
     if not bucket:
-        return _build_lha_unavailable_response("contexts")
+        return await _proxy_local_contexts(
+            "GET",
+            f"/{context_id}/tasks",
+            fallback_body={"tasks": []},
+        )
     try:
         tasks = await task_reader.list_context_tasks(bucket, context_id)
     except Exception as exc:
@@ -2147,7 +2519,7 @@ async def delete_lha_context(context_id: str) -> Any:
     """
     bucket = _read_jobs_bucket()
     if not bucket:
-        return _build_lha_unavailable_response("contexts")
+        return await _proxy_local_contexts("DELETE", f"/{context_id}")
     try:
         deleted = await task_reader.delete_context(bucket, context_id)
     except Exception as exc:
@@ -2200,7 +2572,8 @@ async def save_lha_context_title(context_id: str, request: Request) -> Any:
         JSONResponse on failure.
     """
     bucket = _read_jobs_bucket()
-    if not bucket:
+    local_base = "" if bucket else _resolve_local_adk_base_url()
+    if not bucket and not local_base:
         return _build_lha_unavailable_response("contexts")
     try:
         body = await request.json()
@@ -2210,6 +2583,10 @@ async def save_lha_context_title(context_id: str, request: Request) -> Any:
         title = _extract_context_title(body)
     except ValueError as exc:
         return JSONResponse({"error": str(exc)}, status_code=400)
+    if not bucket:
+        return await _proxy_local_contexts(
+            "PUT", f"/{context_id}/title", payload={"title": title}
+        )
     try:
         await task_reader.save_context_title(bucket, context_id, title)
     except Exception as exc:
@@ -2306,7 +2683,7 @@ if BUNDLE_AVAILABLE:
         )
 
     @app.get("/{spa_path:path}")
-    async def serve_spa(spa_path: str) -> FileResponse:
+    async def serve_spa(spa_path: str) -> Response:
         """Serves static assets or falls back to the SPA HTML shell.
 
         Routes belonging to the API or unsupported integrations return 404 or 501
@@ -2316,7 +2693,7 @@ if BUNDLE_AVAILABLE:
             spa_path: Requested path within the single-page application.
 
         Returns:
-            FileResponse serving the static file or index.html.
+            FileResponse serving the static file, or the shell (`_serve_shell`).
 
         Raises:
             HTTPException: 404 for missing API routes; 501 for unimplemented endpoints.
@@ -2337,9 +2714,109 @@ if BUNDLE_AVAILABLE:
             spa_path
             and os.path.commonpath([candidate, STATIC_V2_DIR]) == STATIC_V2_DIR
             and os.path.isfile(candidate)
+            and candidate != os.path.normpath(V2_INDEX)
         ):
             return FileResponse(candidate)
-        return FileResponse(V2_INDEX)
+        return _serve_shell()
+
+
+# Chat and feedback, which a viewer refuses even on GET: their routes act
+# through the environment's engine or bucket, never the host's backend.
+_VIEWER_REFUSED_PREFIXES = frozenset({"a2a", ".well-known", "lha", "feedback"})
+
+
+def build_read_only_dashboard_app(backend: Any) -> ASGIApp:
+    """Returns the dashboard served read-only over a backend a host provides.
+
+    For a host showing finished investigations, such as an evaluation over
+    sensitive data, a demo or a shared snapshot. Every `/api/*` route reads
+    from `backend` while the returned app handles the request; `app` itself
+    keeps reading from the environment's backend, so both can be served from
+    one process. The returned app, at the root or mounted under a prefix,
+    answers:
+
+    1. 405, with `Allow: GET, HEAD`, to any method but GET and HEAD, and
+       closes every websocket with 1008;
+    2. 501 to the chat and feedback paths (`/a2a`, `/.well-known`, `/lha`,
+       `/feedback`), on which the front end stops retrying;
+    3. anything else as `app` answers GET, without the body for HEAD. The
+       shell carries `VIEWER_META_TAG` at the top of its head, which marks it
+       so a front end with viewer mode keeps its storage in memory and hides
+       chat and write controls; a shell with no head to mark is refused with
+       500.
+
+    Every response carries `Cache-Control: no-store`.
+
+    Args:
+        backend: What the `/api/*` routes run command routes on: any object
+            with an async `post_command(path, payload)` that returns the
+            route's decoded JSON answer, as the agent clients have. The viewer
+            only sends it the commands behind GET routes, but does not filter
+            them further; a backend that holds data it must not show refuses
+            those commands itself.
+
+    Returns:
+        An ASGI app, for example for `uvicorn.run`.
+
+    Raises:
+        TypeError: If `backend` is None, which would leave `app` reading from
+            the environment's backend.
+    """
+    if backend is None:
+        raise TypeError(
+            "build_read_only_dashboard_app needs a backend to read from."
+        )
+
+    async def serve_viewer(scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] == "lifespan":
+            await app(scope, receive, send)
+            return
+        if scope["type"] != "http":
+            await WebSocketClose(code=1008)(scope, receive, send)
+            return
+        head_only = scope["method"] == "HEAD"
+
+        async def send_no_store(message: Message) -> None:
+            if message["type"] == "http.response.start":
+                MutableHeaders(scope=message)["cache-control"] = "no-store"
+            elif head_only and message["type"] == "http.response.body":
+                message = {**message, "body": b""}
+            await send(message)
+
+        # Under a mount, `path` still carries the mount's prefix.
+        path = scope["path"]
+        root_path = scope.get("root_path", "")
+        if root_path and path.startswith(root_path):
+            path = path[len(root_path) :]
+        segment = path.lstrip("/").split("/", 1)[0]
+        if scope["method"] not in ("GET", "HEAD"):
+            refusal: Response | None = JSONResponse(
+                {"error": "This dashboard is read-only."},
+                status_code=405,
+                headers={"allow": "GET, HEAD"},
+            )
+        elif segment in _VIEWER_REFUSED_PREFIXES:
+            refusal = JSONResponse(
+                {
+                    "error": f"/{segment} is not available in a read-only dashboard."
+                },
+                status_code=501,
+            )
+        else:
+            refusal = None
+        if refusal is not None:
+            await refusal(scope, receive, send_no_store)
+            return
+        # `app` routes GET only; a HEAD is served as one, and its body dropped.
+        if head_only:
+            scope = {**scope, "method": "GET"}
+        token = _viewer_backend.set(backend)
+        try:
+            await app(scope, receive, send_no_store)
+        finally:
+            _viewer_backend.reset(token)
+
+    return serve_viewer
 
 
 def main() -> None:

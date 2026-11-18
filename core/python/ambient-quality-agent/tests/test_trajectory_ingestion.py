@@ -14,15 +14,15 @@
 
 """The trajectory rows a sweep leaves behind, against the counters it reports.
 
-The store is a **per-trajectory expansion of the run's ingestion counters**,
-and that is what this file asserts: the rows a run wrote, tallied by
-`ingest_status`, have to equal the counters the same run reported. A divergence
+The store is a **per-trajectory expansion of the investigation's ingestion counters**,
+and that is what this file asserts: the rows an investigation wrote, tallied by
+`ingest_status`, have to equal the counters the same investigation reported. A divergence
 is a lost write, not a disagreement about what happened, which is what lets the
 dashboard say so rather than quietly under-report.
 
 Driven through a real fetcher against a fake recorder, because the write is
 ingestion's side effect -- there is no node in the path to drive. Both
-producers are exercised: a run uses one or the other, `session_review`
+producers are exercised: an investigation uses one or the other, `session_review`
 is the default, and neither should lose rows.
 """
 
@@ -61,7 +61,7 @@ def _state(**overrides: Any) -> dict[str, Any]:
             quality_analysis_mode="eval_service",
             telemetry_ingestion_source="cloud_ops",
             budget_per_metric=10,
-            run_id=_RUN_ID,
+            investigation_id=_RUN_ID,
             window_start=dt.datetime(2026, 1, 1, tzinfo=dt.UTC),
             window_end=dt.datetime(2026, 1, 8, tzinfo=dt.UTC),
             multi_turn_metrics=["task_success"],
@@ -200,8 +200,8 @@ def test_the_fetcher_factory_binds_the_run_to_the_recorder() -> None:
         )
 
     assert isinstance(recorder, TrajectoryRecorder)
-    assert recorder._run_id == _RUN_ID
-    assert recorder._agent_name == _AGENT
+    assert recorder._investigation_id == _RUN_ID
+    assert recorder._observed_agent_key == _AGENT
     assert recorder._source == "cloud_ops"
 
 
@@ -219,7 +219,7 @@ def test_one_store_covers_the_index_and_the_conversations() -> None:
         )
 
     assert isinstance(recorder._store, BigQueryTrajectoryStore)
-    assert recorder._store._agent_name == _AGENT
+    assert recorder._store._observed_agent_key == _AGENT
 
 
 def test_a_fetcher_built_without_a_recorder_still_works() -> None:
@@ -237,7 +237,7 @@ def test_a_fetcher_built_without_a_recorder_still_works() -> None:
     assert len(cases) == 1
 
 
-# --- the conversation reaches the archive, through the same seam --------------
+# --- the conversation reaches the bundle, through the same seam --------------
 
 
 @pytest.fixture
@@ -245,7 +245,10 @@ def archived_ingestion() -> Any:
     """Map a page of real rows through a real recorder onto a mock store."""
     store = mock.MagicMock()
     recorder = TrajectoryRecorder(
-        store=store, run_id=_RUN_ID, agent_name=_AGENT, source="big_query"
+        store=store,
+        investigation_id=_RUN_ID,
+        observed_agent_key=_AGENT,
+        source="big_query",
     )
     with mock.patch(
         "ambient_quality_agent.tools.ingestion.base.bigquery.Client",
@@ -270,7 +273,7 @@ def test_a_page_of_conversations_is_archived_in_one_write(
 ) -> None:
     """The page is the unit ingestion produces, and the load quota is per table
     per day -- a write per conversation would spend it on a single sweep."""
-    assert archived_ingestion.record_payloads.call_count == 1
+    assert archived_ingestion.record_trajectory_bundles.call_count == 1
 
 
 def test_a_conversation_is_archived_under_the_name_the_index_gives_it(
@@ -285,9 +288,13 @@ def test_a_conversation_is_archived_under_the_name_the_index_gives_it(
     `test_trajectory_recorder.py` covers.
     """
     store = archived_ingestion
-    indexed = {row.trajectory_id for row in store.record.call_args.args[0]}
+    indexed = {
+        row.trajectory_id
+        for row in store.record_investigation_trajectories.call_args.args[0]
+    }
     archived = {
-        a.payload.trajectory_id for a in store.record_payloads.call_args.args[0]
+        a.manifest.trajectory_id
+        for a in store.record_trajectory_bundles.call_args.args[0]
     }
 
     assert indexed == archived == {"a", "b"}
@@ -298,14 +305,14 @@ def test_an_archived_conversation_keeps_its_turns(
 ) -> None:
     """End to end from a real fetcher: the turns the mapper assembled are the
     turns the store is handed, numbered in order."""
-    archives = {
-        a.payload.trajectory_id: a
-        for a in archived_ingestion.record_payloads.call_args.args[0]
+    bundles = {
+        a.manifest.trajectory_id: a
+        for a in archived_ingestion.record_trajectory_bundles.call_args.args[0]
     }
 
-    assert archives["a"].payload.turn_count == 1
-    assert archives["b"].payload.turn_count == 2
-    assert [turn.turn_index for turn in archives["b"].turns] == [0, 1]
+    assert bundles["a"].manifest.step_count == 1
+    assert bundles["b"].manifest.step_count == 2
+    assert [turn.step_index for turn in bundles["b"].steps] == [0, 1]
 
 
 # --- retry safety -------------------------------------------------------------
@@ -314,7 +321,7 @@ def test_an_archived_conversation_keeps_its_turns(
 def test_init_erases_the_rows_of_an_earlier_attempt(
     patched_factories: dict[str, Any],
 ) -> None:
-    """Both producers build their own recorder and a run may build several, so
+    """Both producers build their own recorder and an investigation may build several, so
     the cleanup cannot live with the write; `init` runs first and once."""
     nodes.init_node._func(_ctx(_state()))
 
@@ -327,7 +334,9 @@ def test_init_survives_a_store_it_cannot_reach(
     """A doubled bar on a chart is a better outcome than a sweep that produces
     no quality analysis at all."""
     recorder = mock.MagicMock()
-    recorder.delete_run_trajectories.side_effect = RuntimeError("no such table")
+    recorder.delete_investigation_trajectories.side_effect = RuntimeError(
+        "no such table"
+    )
     patched_factories["trajectory_recorder"] = recorder
 
     assert nodes.init_node._func(_ctx(_state())).content is not None

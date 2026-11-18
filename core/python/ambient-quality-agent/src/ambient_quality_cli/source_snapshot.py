@@ -276,7 +276,7 @@ def list_revisions(
             return revisions
 
 
-# TODO(b/560444388): Replace with agents-cli public packaging API once available.
+# TODO: Replace with agents-cli public packaging API once available.
 # `_read_ignore_lines` and `_list_packaged_paths` mirror private helpers in
 # `google.agents.cli.deploy.agent_runtime` to match the exact file set packaged
 # by `agents-cli deploy` using a `.gcloudignore`-aware walk.

@@ -36,21 +36,24 @@ import pytest
 from ambient_quality_agent.tools.insights.bigquery_reader import (
     BigQueryInsightReader,
 )
+from ambient_quality_agent.tools.insights.bigquery_root_cause_store import (
+    BigQueryRootCauseStore,
+)
 from ambient_quality_agent.tools.insights.bigquery_store import (
     BigQueryInsightStore,
 )
 from ambient_quality_agent.tools.insights.clustering import Cluster
 from ambient_quality_agent.tools.insights.findings import Finding
 from ambient_quality_agent.tools.insights.models import (
+    FindingExample,
     Insight,
     InsightOccurrence,
     InsightStatus,
     OccurrenceState,
     ProposedEdit,
     RootCause,
-    RubricExample,
+    field_to_column,
 )
-from ambient_quality_agent.tools.insights.root_cause_store import RootCauseStore
 from google.cloud import bigquery
 from pydantic import BaseModel
 
@@ -141,7 +144,7 @@ def _written_rows() -> dict[str, tuple[dict[str, Any], bigquery.LoadJobConfig]]:
         Mapping of short table name to `(row_dict, job_config)` tuple.
     """
     client = mock.MagicMock()
-    RootCauseStore(
+    BigQueryRootCauseStore(
         client=client,
         project_id="test-project",
         dataset="aqua_insights",
@@ -169,12 +172,12 @@ def _written_rows() -> dict[str, tuple[dict[str, Any], bigquery.LoadJobConfig]]:
         client=client,
         project_id="test-project",
         dataset="aqua_insights",
-        agent_name="root_agent",
+        observed_agent_key="root_agent",
     ).save_investigation_result(
         new_insights=[
             Insight(
                 insight_id="ins-1",
-                agent_name="root_agent",
+                observed_agent_key="root_agent",
                 label="made no tool call",
                 status=InsightStatus.NEW,
                 created_at=_NOW,
@@ -188,21 +191,21 @@ def _written_rows() -> dict[str, tuple[dict[str, Any], bigquery.LoadJobConfig]]:
                 occurrence_id="occ-1",
                 insight_id="ins-1",
                 occurrence_state=OccurrenceState.TRACKED,
-                run_id="run-1",
+                investigation_id="run-1",
                 created_at=_NOW,
-                agent_name="root_agent",
+                observed_agent_key="root_agent",
                 label="made no tool call",
-                item_count=1,
-                trace_count=2,
+                finding_count=1,
+                trajectory_count=2,
                 # More ids than sampled rubrics, as a real cluster has: the
                 # examples are capped, the trajectory ids are not.
                 trajectory_ids=["case-1", "case-2"],
-                rubrics=[
-                    RubricExample(
-                        rubric=Finding(
+                examples=[
+                    FindingExample(
+                        finding=Finding(
                             expected_behavior="call create_ticket",
                             actual_behavior="no tool call was made",
-                            session_id="case-1",
+                            trajectory_id="case-1",
                         )
                     )
                 ],
@@ -237,18 +240,18 @@ def _executed_statements() -> list[tuple[str, str]]:
         client=reader_client,
         project_id="test-project",
         dataset="aqua_insights",
-        agent_name="root_agent",
+        observed_agent_key="root_agent",
     )
     reader.list_insights(
         statuses=[InsightStatus.NEW],
-        run_id="run-1",
+        investigation_id="run-1",
         limit=10,
         offset=0,
         has_root_cause=True,
     )
     reader.get_insight("ins-1")
     reader.list_occurrences(
-        insight_id="ins-1", run_id="run-1", limit=10, offset=0
+        insight_id="ins-1", investigation_id="run-1", limit=10, offset=0
     )
     reader.list_root_causes("ins-1")
     reader.list_root_causes("ins-1", history=True)
@@ -258,7 +261,7 @@ def _executed_statements() -> list[tuple[str, str]]:
         client=store_client,
         project_id="test-project",
         dataset="aqua_insights",
-        agent_name="root_agent",
+        observed_agent_key="root_agent",
     )
     store.delete_failed_insights("run-1")
     store.find_existing_insights([Cluster(label="made no tool call")])
@@ -394,7 +397,7 @@ def test_a_rejected_candidate_is_written_naming_no_insight() -> None:
         client=client,
         project_id="test-project",
         dataset="aqua_insights",
-        agent_name="root_agent",
+        observed_agent_key="root_agent",
     ).save_investigation_result(
         new_insights=[],
         seen_insight_ids=[],
@@ -404,9 +407,9 @@ def test_a_rejected_candidate_is_written_naming_no_insight() -> None:
                 occurrence_id="occ-1",
                 insight_id=None,
                 occurrence_state=OccurrenceState.REJECTED,
-                run_id="run-1",
+                investigation_id="run-1",
                 created_at=_NOW,
-                agent_name="root_agent",
+                observed_agent_key="root_agent",
                 label="made no tool call",
             )
         ],
@@ -450,7 +453,7 @@ def test_the_model_and_the_schema_hold_the_same_columns(
     and left out of that dict is written nowhere and read as null. Neither side
     is the source of truth for the other, and only this holds them level."""
     declared = set(_terraform_columns(table_id))
-    fields = set(model.model_fields)
+    fields = {field_to_column(f) for f in model.model_fields}
 
     assert fields == declared, (
         f"{model.__name__} and {table_id} disagree: "

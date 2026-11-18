@@ -16,7 +16,7 @@ import { describe, expect, it } from "vitest";
 import { HttpError, ReadTimeoutError } from "../aqua-api";
 import { describeFailure, isNoData } from "../failure";
 
-/** The message b/563290003 was filed on, verbatim apart from the truncated
+/** The real failure message, verbatim apart from the truncated
  *  STRUCT — a deployment whose export table has never carried the column the
  *  sweep's query names. */
 const MISSING_COLUMN =
@@ -118,8 +118,9 @@ describe("describeFailure", () => {
     }
   });
 
-  it("classifies a plain string, which is how a run's error arrives", () => {
-    // `Run.error` is a JSON string off the wire, not an `Error`.
+  it("classifies a plain string, which is how an investigation's error arrives", () => {
+    // `InvestigationListItem.error` is a JSON string off the wire, not an
+    // `Error`.
     expect(isNoData(MISSING_COLUMN)).toBe(true);
     expect(isNoData("the model refused")).toBe(false);
     expect(isNoData(null)).toBe(false);

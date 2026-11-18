@@ -30,9 +30,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { InvestigationsView } from "../investigations-view";
 
-const RUN = {
-  run_id: "abcdef1234",
-  observed_agent_name: "travel_desk_agent",
+const INVESTIGATION = {
+  investigation_id: "abcdef1234",
+  observed_agent_key: "travel_desk_agent",
   created_at: "2026-09-14T06:00:00Z",
   finished_at: "2026-09-14T06:05:00Z",
   status: "done",
@@ -45,7 +45,10 @@ const RUN = {
 };
 
 /** Serves each route, or fails the ones named in `broken` with a 500. */
-function mount(broken: string[] = [], runs: unknown[] = [RUN]) {
+function mount(
+  broken: string[] = [],
+  investigations: unknown[] = [INVESTIGATION],
+) {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url: string) => {
@@ -57,20 +60,23 @@ function mount(broken: string[] = [], runs: unknown[] = [RUN]) {
       }
       const body =
         path === "/api/investigations"
-          ? { runs }
+          ? { investigations: investigations }
           : path === "/api/stats"
-            ? { stats: { investigations: 1, traces_scanned: 10 } }
+            ? { stats: { investigations: 1, trajectories_scanned: 10 } }
             : { days: [] };
       return new Response(JSON.stringify(body), { status: 200 });
     }),
   );
   const root = createRootRoute();
-  const children = ["/investigations", "/investigations/$runId"].map((path) =>
-    createRoute({
-      getParentRoute: () => root,
-      path,
-      ...(path === "/investigations" ? { component: InvestigationsView } : {}),
-    }),
+  const children = ["/investigations", "/investigations/$investigationId"].map(
+    (path) =>
+      createRoute({
+        getParentRoute: () => root,
+        path,
+        ...(path === "/investigations"
+          ? { component: InvestigationsView }
+          : {}),
+      }),
   );
   const router = createRouter({
     routeTree: root.addChildren(children),
@@ -106,7 +112,7 @@ describe("InvestigationsView when a read fails", () => {
     expect(screen.queryByText(/Couldn't load/)).toBeNull();
   });
 
-  it("keeps the runs table when only the totals fail", async () => {
+  it("keeps the investigations table when only the totals fail", async () => {
     mount(["/api/stats"]);
 
     expect(

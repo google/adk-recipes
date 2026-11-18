@@ -21,13 +21,13 @@ import { MergeBar } from "../merge-bar";
 function view(overrides: Partial<InsightView>): InsightView {
   return {
     insight_id: "ins-1",
-    agent_name: "a",
+    observed_agent_key: "a",
     label: "x",
     tool_name: "",
     status: "RECURRING",
     occurrence_count: 0,
-    trace_count: 0,
-    last_run_at: null,
+    trajectory_count: 0,
+    last_investigation_at: null,
     impact: 0,
     diagnosis: "",
     confidence: 0,

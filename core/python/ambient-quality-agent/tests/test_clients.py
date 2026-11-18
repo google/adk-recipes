@@ -129,12 +129,18 @@ def test_logging_client_keeps_the_library_tokens(
     assert DEFAULT_CLIENT_INFO.user_agent is None
 
 
-def test_adk_model_calls_send_the_token_once(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """ADK sets per-request headers through `_merge_tracking_headers`, and
-    they replace the client's, so the token must survive that merge. Checked
-    on the wire, which also catches ADK renaming either private hook."""
+def _send_model_request(
+    monkeypatch: pytest.MonkeyPatch, config: types.GenerateContentConfig
+) -> Any:
+    """Sends one `LocatedGemini` call and captures it on the wire.
+
+    Args:
+        monkeypatch: Fixture that patches credentials and the HTTP transport.
+        config: Request config to send with the call.
+
+    Returns:
+        The single `httpx.Request` the call sent.
+    """
     import asyncio
 
     import httpx
@@ -170,7 +176,7 @@ def test_adk_model_calls_send_the_token_once(
     request = LlmRequest(
         model="gemini-3.5-flash",
         contents=[types.Content(role="user", parts=[types.Part(text="hi")])],
-        config=types.GenerateContentConfig(),
+        config=config,
     )
 
     async def _call() -> None:
@@ -178,19 +184,53 @@ def test_adk_model_calls_send_the_token_once(
             pass
 
     asyncio.run(_call())
-
     assert len(sent) == 1
+    return sent[0]
+
+
+def test_adk_model_calls_send_the_token_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ADK merges its tracking tokens into per-request headers, which override
+    client headers, so AQuA's token must survive that merge. Checking on the
+    wire fails if ADK renames `_tracking_headers` or `_preprocess_request`, or
+    merges its headers before `_preprocess_request` runs."""
+    sent = _send_model_request(monkeypatch, types.GenerateContentConfig())
+
     for name in ("user-agent", "x-goog-api-client"):
-        tokens = sent[0].headers[name].split(" ")
-        assert tokens.count(_TOKEN) == 1, sent[0].headers[name]
+        tokens = sent.headers[name].split(" ")
+        assert tokens.count(_TOKEN) == 1, sent.headers[name]
         assert any(token.startswith("google-adk/") for token in tokens)
+
+
+def test_adk_model_calls_keep_caller_http_options(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = types.GenerateContentConfig(
+        http_options=types.HttpOptions(
+            api_version="v1",
+            headers={"user-agent": "custom/1", "x-extra": "v"},
+        )
+    )
+
+    sent = _send_model_request(monkeypatch, config)
+
+    user_agent = sent.headers["user-agent"].split(" ")
+    assert user_agent.count(_TOKEN) == 1, sent.headers["user-agent"]
+    assert "custom/1" in user_agent
+    assert sent.headers["x-goog-api-client"].split(" ").count(_TOKEN) == 1
+    assert sent.headers["x-extra"] == "v"
+    assert sent.url.path.startswith("/v1/"), sent.url
 
 
 def test_the_switch_off_leaves_every_client_as_the_library_builds_it(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    import asyncio
+
     from ambient_quality_agent.core.models import LocatedGemini
     from google.adk.models import Gemini
+    from google.adk.models.llm_request import LlmRequest
     from google.cloud import bigquery, storage, tasks_v2
     from google.cloud.logging_v2.services import logging_service_v2
 
@@ -228,7 +268,20 @@ def test_the_switch_off_leaves_every_client_as_the_library_builds_it(
     model = LocatedGemini(model="gemini-3.5-flash", location="us-central1")
     adk = Gemini(model="gemini-3.5-flash")
     assert model._tracking_headers() == adk._tracking_headers()
-    assert model._merge_tracking_headers({}) == adk._merge_tracking_headers({})
+    request = LlmRequest(
+        model="gemini-3.5-flash", config=types.GenerateContentConfig()
+    )
+    asyncio.run(model._preprocess_request(request))
+    assert request.config.http_options is None
+    caller_headers = {"user-agent": "custom/1", "x-extra": "v"}
+    request = LlmRequest(
+        model="gemini-3.5-flash",
+        config=types.GenerateContentConfig(
+            http_options=types.HttpOptions(headers=dict(caller_headers))
+        ),
+    )
+    asyncio.run(model._preprocess_request(request))
+    assert request.config.http_options.headers == caller_headers
 
 
 # --- guard: no client is constructed outside a factory ------------------------ #

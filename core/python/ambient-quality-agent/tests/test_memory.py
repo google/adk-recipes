@@ -72,7 +72,7 @@ def test_memory_guard_stops_when_projected_peak_exceeds_limit(
 def test_injected_baseline_is_shared_across_instances(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Both scopes' guards, seeded with the run baseline, agree on growth.
+    """Both scopes' guards, seeded with the investigation baseline, agree on growth.
 
     The single-turn scope builds a distinct guard at already-elevated memory;
     with the injected run baseline it must NOT re-baseline there, so both

@@ -27,9 +27,13 @@ that deploy directly to **Vertex AI Agent Engine**, **Gemini Enterprise**,
 Install any skill directly from GitHub via `npx skills add`:
 
 ```bash
-npx skills add google/adk-recipes --skill retail-product-search
-npx skills add google/adk-recipes --skill retail-virtual-tryon
+npx skills add google/adk-recipes/plugins/retail --skill retail-product-search
+npx skills add google/adk-recipes/plugins/retail --skill retail-virtual-tryon
 ```
+
+Include the plugin path (`google/adk-recipes/plugins/<vertical>`). Without it,
+`npx skills` stops at the repository's own tooling skills in `.agents/skills/`
+and never reaches `plugins/`.
 
 Or from a local clone of a plugin directory:
 

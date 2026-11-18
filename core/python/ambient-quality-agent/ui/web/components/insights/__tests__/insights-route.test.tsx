@@ -44,14 +44,14 @@ vi.mock("@/components/nav/page-shell", () => ({
 
 const insight = (n: number): InsightView => ({
   insight_id: `ins-${n}`,
-  agent_name: "it_support_agent",
+  observed_agent_key: "it_support_agent",
   label: `insight ${n}`,
   tool_name: "create_ticket",
   status: "RECURRING",
   occurrence_count: 1,
-  trace_count: n,
+  trajectory_count: n,
   impact: n,
-  last_run_at: "2026-08-28T18:35:34Z",
+  last_investigation_at: "2026-08-28T18:35:34Z",
   diagnosis: "",
   confidence: 1,
 });
@@ -143,7 +143,7 @@ describe("the /insights status param", () => {
 
   it("reads a missing status as all of them", () => {
     expect(validate({})).toEqual({
-      runId: undefined,
+      investigationId: undefined,
       status: undefined,
       day: undefined,
     });
@@ -160,7 +160,7 @@ describe("the /insights day param", () => {
 
   it("drops recurring on a day, which no day is stamped with", () => {
     expect(validate({ day: "2026-09-20", status: "recurring" })).toEqual({
-      runId: undefined,
+      investigationId: undefined,
       status: undefined,
       day: "2026-09-20",
     });
@@ -216,19 +216,19 @@ describe("the /insights page", () => {
 
   it("keeps the other params when a tab changes the status", async () => {
     const urls = stubFetch();
-    const router = mountPage("/insights?runId=run-7");
+    const router = mountPage("/insights?investigationId=inv-7");
     await screen.findByText("insight 1");
 
     await userEvent.click(tab("New"));
 
     await waitFor(() =>
       expect(router.state.location.search).toEqual({
-        runId: "run-7",
+        investigationId: "inv-7",
         status: "new",
       }),
     );
     const last = listReads(urls).at(-1) ?? "";
-    expect(last).toContain("runId=run-7");
+    expect(last).toContain("investigationId=inv-7");
     expect(last).toContain("status=NEW");
   });
 
@@ -530,14 +530,14 @@ describe("the insights list embedded in another page", () => {
   it("filters in place and leaves that page's URL alone", async () => {
     const urls = stubFetch();
     const root = createRootRoute();
-    const runDetail = createRoute({
+    const investigationDetail = createRoute({
       getParentRoute: () => root,
-      path: "/investigations/$runId",
-      component: () => <InsightsView runId="run-1" embedded />,
+      path: "/investigations/$investigationId",
+      component: () => <InsightsView investigationId="inv-1" embedded />,
     });
     const router = mount(
-      root.addChildren([runDetail]),
-      "/investigations/run-1",
+      root.addChildren([investigationDetail]),
+      "/investigations/inv-1",
     );
     await screen.findByText("insight 1");
 
@@ -549,6 +549,6 @@ describe("the insights list embedded in another page", () => {
       ),
     );
     expect(tab("Recurring")).toHaveAttribute("aria-pressed", "true");
-    expect(router.state.location.href).toBe("/investigations/run-1");
+    expect(router.state.location.href).toBe("/investigations/inv-1");
   });
 });

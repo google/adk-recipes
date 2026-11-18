@@ -1,0 +1,39 @@
+# Docker build context: only what the Dockerfile copies (pyproject.toml, uv.lock,
+# README.md, app/, workspace_mcp/, config/, .mcp.json, web/ sources). Everything else stays out.
+.git
+.env*
+!.env.example
+**/.venv
+**/node_modules
+**/__pycache__
+**/.pytest_cache
+**/.ruff_cache
+**/.mypy_cache
+**/.ty
+.google-agents-cli
+.vscode
+.idea
+*.db
+*.sqlite
+*.pem
+*-key.json
+credentials*.json
+
+# Rebuilt inside the image by the Node stage.
+web/dist
+web/*.tsbuildinfo
+web/test-results
+web/playwright-report
+
+# Runtime state, thread clones, and eval output.
+workspaces/
+.threads/
+artifacts/
+
+# Not part of the runtime image.
+tests/
+docs/
+scripts/
+sandbox/
+terraform/
+**/.terraform

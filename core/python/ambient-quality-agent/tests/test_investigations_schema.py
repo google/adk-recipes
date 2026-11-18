@@ -15,7 +15,7 @@
 """Holds `terraform/modules/aqa/schemas` as the only investigations schema.
 
 The same guard `test_insights_schema` puts on the insight tables, for the two
-the run registry uses. A record's fields are its table's columns one for one, so
+the investigation registry uses. A record's fields are its table's columns one for one, so
 these tests are mostly one assertion made three ways: the model agrees with the
 declaration, the rows the writer builds fit it, and the statements select
 nothing it does not declare. Drift that gets past them only surfaces as a failed
@@ -39,9 +39,10 @@ from ambient_quality_agent.tools.investigations.bigquery_store import (
 from ambient_quality_agent.tools.investigations.models import (
     EVENTS_FIELD,
     CustomOverrides,
+    Investigation,
     InvestigationEvent,
-    InvestigationRecord,
-    RunStatus,
+    InvestigationStatus,
+    field_to_column,
     list_event_columns,
     list_snapshot_columns,
 )
@@ -86,17 +87,17 @@ def _columns(table_id: str) -> dict[str, tuple[str, str]]:
     }
 
 
-def _full_record() -> InvestigationRecord:
-    """Constructs an InvestigationRecord with all fields populated.
+def _full_record() -> Investigation:
+    """Constructs an Investigation with all fields populated.
 
     Returns:
-        InvestigationRecord instance with non-null values across all columns.
+        Investigation instance with non-null values across all columns.
     """
-    return InvestigationRecord(
-        run_id="r1",
+    return Investigation(
+        investigation_id="r1",
         created_at="2026-06-01T00:00:00+00:00",
         updated_at="2026-06-01T00:30:00+00:00",
-        observed_agent_name="watched",
+        observed_agent_key="watched",
         trigger_type="scheduled",
         window_start="2026-06-01T00:00:00+00:00",
         window_end="2026-06-01T01:00:00+00:00",
@@ -104,12 +105,12 @@ def _full_record() -> InvestigationRecord:
         metrics={"multi_turn": ["task_success"]},
         dry_run=True,
         custom_overrides=CustomOverrides(
-            selector_sql="SELECT session_id FROM t", session_review_focus="tone"
+            selector_sql="SELECT session_id FROM t", review_focus="tone"
         ),
         idempotency_key="k-1",
         effective_config={"data_lookback_window": 7},
         due_at="2026-06-01T00:15:00+00:00",
-        status=RunStatus.DONE,
+        status=InvestigationStatus.DONE,
         job_name="jobs/1",
         finished_at="2026-06-01T01:00:00+00:00",
         error="boom",
@@ -141,7 +142,7 @@ def _job_configs() -> list[bigquery.LoadJobConfig]:
     store = BigQueryInvestigationStore(
         client=client, project_id="p", dataset="d"
     )
-    store.append(InvestigationRecord(run_id="r1"))
+    store.append(Investigation(investigation_id="r1"))
     store.append_event("r1", "x")
     return [
         call.kwargs["job_config"]
@@ -165,7 +166,7 @@ def _selected_columns() -> dict[str, set[str]]:
     client.query.return_value.result.side_effect = [
         [
             {
-                "run_id": "r1",
+                "investigation_id": "r1",
                 "created_at": dt.datetime(2026, 6, 1, tzinfo=dt.UTC),
             }
         ],
@@ -202,7 +203,7 @@ def _selected_columns() -> dict[str, set[str]]:
 @pytest.mark.parametrize(
     ("table_id", "model"),
     [
-        (INVESTIGATIONS_TABLE, InvestigationRecord),
+        (INVESTIGATIONS_TABLE, Investigation),
         (EVENTS_TABLE, InvestigationEvent),
     ],
 )
@@ -213,7 +214,7 @@ def test_the_model_and_the_schema_hold_the_same_columns(
     field with no column behind it is dropped on write and read back as its
     default forever, silently."""
     declared = set(_columns(table_id))
-    fields = set(model.model_fields) - {EVENTS_FIELD}
+    fields = {field_to_column(f) for f in model.model_fields} - {EVENTS_FIELD}
 
     assert fields == declared, (
         f"{model.__name__} and {table_id} disagree: "
@@ -274,7 +275,7 @@ def test_the_writer_cannot_create_or_widen_a_table() -> None:
         )
         assert job_config.autodetect is False
         # Both tables are append-only histories: a truncating load would drop
-        # every run but the one being written.
+        # every investigation but the one being written.
         assert (
             job_config.write_disposition
             == bigquery.WriteDisposition.WRITE_APPEND
@@ -316,8 +317,11 @@ def test_a_timestamp_column_round_trips_through_the_record() -> None:
     store = BigQueryInvestigationStore(
         client=client, project_id="p", dataset="d"
     )
-    read_back = InvestigationRecord.model_validate(
-        {"run_id": "r1", "created_at": dt.datetime(2026, 6, 1, tzinfo=dt.UTC)}
+    read_back = Investigation.model_validate(
+        {
+            "investigation_id": "r1",
+            "created_at": dt.datetime(2026, 6, 1, tzinfo=dt.UTC),
+        }
     )
     store.append(read_back)
 
@@ -330,8 +334,8 @@ def test_a_json_column_round_trips_through_the_record() -> None:
     store = BigQueryInvestigationStore(
         client=client, project_id="p", dataset="d"
     )
-    read_back = InvestigationRecord.model_validate(
-        {"run_id": "r1", "summary": '{"metrics_passed": 3}'}
+    read_back = Investigation.model_validate(
+        {"investigation_id": "r1", "summary": '{"metrics_passed": 3}'}
     )
     store.append(read_back)
 
@@ -348,21 +352,30 @@ def _loaded(client: mock.MagicMock) -> list[dict[str, Any]]:
 
 
 def test_the_overrides_round_trip_as_one_json_column() -> None:
-    """Verify custom overrides serialize to JSON and deserialize back to CustomOverrides."""
+    """Verify custom overrides serialize to JSON and deserialize back to CustomOverrides.
+
+    `review_focus` is stored under its column key `session_review_focus`, so
+    rows written before the field had its name read back unchanged.
+    """
     client = mock.MagicMock()
     store = BigQueryInvestigationStore(
         client=client, project_id="p", dataset="d"
     )
     overrides = CustomOverrides(
-        selector_sql="SELECT session_id FROM t", session_review_focus="refunds"
+        selector_sql="SELECT session_id FROM t", review_focus="refunds"
     )
 
-    store.append(InvestigationRecord(run_id="r1", custom_overrides=overrides))
+    store.append(
+        Investigation(investigation_id="r1", custom_overrides=overrides)
+    )
 
     (row,) = _loaded(client)
-    assert json.loads(row["custom_overrides"]) == overrides.model_dump()
-    read_back = InvestigationRecord.model_validate(
-        {"run_id": "r1", "custom_overrides": row["custom_overrides"]}
+    assert json.loads(row["custom_overrides"]) == {
+        "selector_sql": "SELECT session_id FROM t",
+        "session_review_focus": "refunds",
+    }
+    read_back = Investigation.model_validate(
+        {"investigation_id": "r1", "custom_overrides": row["custom_overrides"]}
     )
     assert read_back.custom_overrides == overrides
 
@@ -374,11 +387,13 @@ def test_an_ambient_sweep_writes_no_overrides_column() -> None:
         client=client, project_id="p", dataset="d"
     )
 
-    store.append(InvestigationRecord(run_id="r1"))
+    store.append(Investigation(investigation_id="r1"))
 
     (row,) = _loaded(client)
     assert "custom_overrides" not in row
     assert (
-        InvestigationRecord.model_validate({"run_id": "r1"}).custom_overrides
+        Investigation.model_validate(
+            {"investigation_id": "r1"}
+        ).custom_overrides
         is None
     )

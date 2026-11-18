@@ -1,0 +1,33 @@
+# Overlaid with <state_dir>/policy.yaml (lists there extend these).
+# Antigravity supports command-prefix rules only and skips globs starting with `*`,
+# so only Claude Code enforces the default `deny` globs below.
+permissions:
+  deny:
+    # Block the GCE metadata server so shell commands cannot read computer credentials.
+    - "*metadata.google.internal*"
+    - "*169.254.169.254*"
+
+# Gateway calls (`<server>.<tool glob>`) that pause for user approval. In-place edits
+# to Docs and Sheets and new Drive files/drafts run ungated by design.
+mcp_gates:
+  ask:
+    - "gmail.send*"
+    - "google_calendar.create*"
+    - "github.merge*"
+    - "github.create_pull_request*"
+    - "github.update_pull_request*"
+    - "github.pull_request_review*"
+    - "github.submit_pending_pull_request_review*"
+    - "github.push_files*"
+    - "github.create_or_update_file*"
+    - "github.create_branch*"
+    - "github.add_issue_comment*"
+    - "github.add_comment_to_pending_review*"
+    - "github.create_issue*"
+    - "github.update_issue*"
+    - "github.create_repository*"
+    - "github.fork_repository*"
+    - "github.delete*"
+
+run_budget:
+  stall_timeout_min: 5

@@ -7,7 +7,7 @@ submitted against itself (`run_query_job` / `:asyncQuery`):
 2. The orchestrator runs the investigation inside a platform-managed
    long-running operation (LRO) lasting up to 7 days, surviving beyond the user
    session.
-3. The agent receives the self-issued `__RUN_INVESTIGATION__ <run_id>` message,
+3. The agent receives the self-issued `__RUN_INVESTIGATION__ <investigation_id>` message,
    executes the investigation graph, and writes results to `app:`-scoped session
    state.
 
@@ -50,6 +50,19 @@ gcloud storage buckets create "gs://${BUCKET}" \
 # Label the bucket for Cloud Billing cost attribution (see "Cost attribution" below).
 # `buckets create` does not take --labels, so apply it in an update call.
 gcloud storage buckets update "gs://${BUCKET}" --update-labels=component=aqa
+
+# Delete copied conversation files (aqa-trajectory-files/) one day after the
+# archived conversations that link to them expire (30 days by default; see
+# `trajectory_payload_retention_days` below).
+# `--lifecycle-file` replaces the bucket's entire lifecycle configuration; on
+# a bucket with existing rules, add this rule to the existing file.
+cat > /tmp/aqa-jobs-lifecycle.json <<'JSON'
+{"rule": [
+  {"action": {"type": "Delete"}, "condition": {"age": 31, "matchesPrefix": ["aqa-trajectory-files/"]}}
+]}
+JSON
+gcloud storage buckets update "gs://${BUCKET}" \
+  --lifecycle-file=/tmp/aqa-jobs-lifecycle.json
 
 # Grant the service agent read/write permissions for job input and output.
 gcloud storage buckets add-iam-policy-binding "gs://${BUCKET}" \
@@ -180,7 +193,10 @@ does not allow adding partitions to existing tables:
 
 To change the retention window on an existing deployment, run `bq update
 --time_partitioning_expiration <seconds>`. Any partitions older than the updated
-threshold are deleted during the next expiration pass.
+threshold are deleted during the next expiration pass. Set the `age` of the
+jobs bucket's `aqa-trajectory-files/` lifecycle rule (see step 1) to the new
+window in days plus one, so the files these conversations link to expire with
+them.
 
 `BigQueryInsightStore`, `BigQueryInvestigationStore`, and
 `BigQueryTrajectoryStore` initialize with `CREATE_NEVER`. Missing tables cause
@@ -192,7 +208,7 @@ while `BigQueryInsightStore` manages insights and occurrences.
 **Archiving a conversation is a critical write operation.** While other write
 errors are logged and skipped (costing only a single dashboard entry), losing an
 archived conversation discards the evidence backing an insight. Therefore,
-`BigQueryTrajectoryStore.record_payloads` retries and raises on failure. You
+`BigQueryTrajectoryStore.record_trajectory_bundles` retries and raises on failure. You
 must create both payload tables before deploying an engine that writes to them;
 otherwise, sweeps fail immediately.
 
@@ -330,9 +346,9 @@ gcloud storage ls -r "gs://your-gcp-project-aqua-jobs/aqa-jobs/"
 ```
 
 To verify an investigation interactively in chat:
-1. Request an investigation. The agent returns a `run_id` immediately with a
+1. Request an investigation. The agent returns an `investigation_id` immediately with a
    `pending` status.
-2. Check the status using `status of <run_id>`. The state transitions to
+2. Check the status using `status of <investigation_id>`. The state transitions to
    `running`.
 3. Check status again once the durable LRO completes; the state reports `done`
    along with an investigation summary.

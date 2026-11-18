@@ -44,7 +44,8 @@ export type TextRole = keyof typeof textStyle;
 /** Machine text inside another role: changes the family only. */
 export const mono = "font-mono";
 
-const focusRing =
+/** Keyboard focus outline for anything clickable that is not a button. */
+export const focusRing =
   "rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
 export const link = {

@@ -12,9 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import type { CaseConversation, ConversationToolCall } from "@/lib/aqua-api";
+import type { TrajectoryBundle, ConversationToolCall } from "@/lib/aqua-api";
 import { timelineOf } from "@/lib/conversation";
 import { Markdown } from "@/components/chat/markdown";
+import { FileChips } from "@/components/conversation/file-chips";
 import { mono, textStyle } from "@/lib/typography";
 import { cn } from "@/lib/utils";
 
@@ -93,7 +94,7 @@ function ToolGroup({ calls }: { calls: ConversationToolCall[] }) {
 export function ConversationView({
   conversation,
 }: {
-  conversation: CaseConversation;
+  conversation: TrajectoryBundle;
 }) {
   const items = timelineOf(conversation);
 
@@ -125,7 +126,8 @@ export function ConversationView({
               <header className={cn(textStyle.label, mono)}>
                 {item.author ?? "unknown"}
               </header>
-              <Markdown text={item.text} />
+              {item.text && <Markdown text={item.text} />}
+              {item.files && <FileChips files={item.files} />}
             </article>
           );
         }

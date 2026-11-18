@@ -92,7 +92,11 @@ class WindowArgs(AgentKeyArgs, total=False):
 
 
 class GetInvestigationArgs(AgentKeyArgs):
-    run_id: str
+    investigation_id: str
+
+
+class CancelInvestigationArgs(AgentKeyArgs):
+    investigation_id: str
 
 
 class SetGoalArgs(AgentKeyArgs):
@@ -105,7 +109,7 @@ class DeleteMemoryArgs(AgentKeyArgs):
 
 class ListInsightsArgs(WindowArgs, total=False):
     status: str
-    run_id: str
+    investigation_id: str
     # "true", "false", or "" for both.
     has_root_cause: str
     page_token: str
@@ -118,7 +122,7 @@ class ListInsightsArgs(WindowArgs, total=False):
 
 class GetInsightArgs(AgentKeyArgs):
     insight_id: str
-    run_id: NotRequired[str]
+    investigation_id: NotRequired[str]
     include_traces: NotRequired[bool]
     include_trajectories: NotRequired[bool]
     include_edits: NotRequired[bool]
@@ -134,15 +138,15 @@ class MergeInsightArgs(AgentKeyArgs):
     target_insight_id: str
 
 
-class ListTrajectoriesArgs(WindowArgs, total=False):
-    run_id: str
+class ListInvestigationTrajectoriesArgs(WindowArgs, total=False):
+    investigation_id: str
     outcome: str
     page_token: str
 
 
-class GetCaseConversationArgs(AgentKeyArgs):
+class GetTrajectoryBundleArgs(AgentKeyArgs):
     trajectory_id: str
-    run_id: NotRequired[str]
+    investigation_id: NotRequired[str]
 
 
 class AgentSelector(TypedDict, total=False):
@@ -226,13 +230,20 @@ INVESTIGATIONS_GET_ROUTE = Route("investigations/get", GetInvestigationArgs)
 INVESTIGATIONS_STATS_ROUTE = Route("investigations/stats", WindowArgs)
 INVESTIGATIONS_DAILY_ROUTE = Route("investigations/daily", WindowArgs)
 INVESTIGATIONS_SCHEDULE_ROUTE = Route("investigations/schedule", AgentKeyArgs)
+INVESTIGATIONS_CANCEL_ROUTE = Route(
+    "investigations/cancel", CancelInvestigationArgs
+)
 INSIGHTS_LIST_ROUTE = Route("insights/list", ListInsightsArgs)
 INSIGHTS_GET_ROUTE = Route("insights/get", GetInsightArgs)
 INSIGHTS_DISMISS_ROUTE = Route("insights/dismiss", DismissInsightArgs)
 INSIGHTS_MERGE_ROUTE = Route("insights/merge", MergeInsightArgs)
-TRAJECTORIES_OUTCOMES_ROUTE = Route("trajectories/outcomes", WindowArgs)
-TRAJECTORIES_LIST_ROUTE = Route("trajectories/list", ListTrajectoriesArgs)
-TRAJECTORIES_CASE_ROUTE = Route("trajectories/case", GetCaseConversationArgs)
+INVESTIGATION_TRAJECTORIES_OUTCOMES_ROUTE = Route(
+    "investigation_trajectories/outcomes", WindowArgs
+)
+INVESTIGATION_TRAJECTORIES_LIST_ROUTE = Route(
+    "investigation_trajectories/list", ListInvestigationTrajectoriesArgs
+)
+TRAJECTORY_BUNDLE_ROUTE = Route("trajectories/bundle", GetTrajectoryBundleArgs)
 GOAL_GET_ROUTE = Route("documents/goal/get", AgentKeyArgs)
 GOAL_SET_ROUTE = Route("documents/goal/set", SetGoalArgs)
 GOAL_VERSIONS_ROUTE = Route("documents/goal/versions", AgentKeyArgs)

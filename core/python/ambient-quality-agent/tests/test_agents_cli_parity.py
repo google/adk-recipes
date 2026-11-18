@@ -230,7 +230,7 @@ def test_parameterizing_a_builtin_is_declined_not_refused(
 ) -> None:
     """Declined, not refused -- and the difference is the operator's experience.
 
-    A refused metric is a config error named in the run summary. One declined
+    A refused metric is a config error named in the investigation summary. One declined
     here is simply not this loader's to run, and reaching the summary as a
     failure would tell the operator to fix a config that is already correct.
     """

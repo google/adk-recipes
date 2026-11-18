@@ -1,0 +1,69 @@
+# Connected apps (`app/auth/providers.py`). An app is offered when `client_id_env`
+# and `client_secret_env` are set in the environment. `mcp_servers` maps each
+# `.mcp.json` server to the OAuth scopes its tools require.
+
+apps:
+  google_workspace:
+    display_name: "Google"
+    icon: "google"
+    access_token_env: "GOOGLE_WORKSPACE_ACCESS_TOKEN"
+    client_id_env: "GOOGLE_OAUTH_CLIENT_ID"
+    client_secret_env: "GOOGLE_OAUTH_CLIENT_SECRET"
+    refresh_token_env: "GOOGLE_WORKSPACE_REFRESH_TOKEN"
+    # "oauth" for grants issued by this client; gcloud-reused tokens are not revoked on disconnect.
+    token_source_env: "GOOGLE_WORKSPACE_TOKEN_SOURCE"
+    granted_scopes_env: "GOOGLE_WORKSPACE_GRANTED_SCOPES"
+    account_label_env: "GOOGLE_WORKSPACE_ACCOUNT"
+    authorize_url: "https://accounts.google.com/o/oauth2/v2/auth"
+    token_url: "https://oauth2.googleapis.com/token"
+    revoke_url: "https://oauth2.googleapis.com/revoke"
+    pkce: true
+    # `include_granted_scopes` + `prompt: consent` merges newly requested scopes into one grant.
+    authorize_params: {response_type: "code", access_type: "offline", prompt: "consent", include_granted_scopes: "true"}
+    scopes:
+      - "https://www.googleapis.com/auth/userinfo.email"
+    services: ["Calendar", "Gmail", "Drive", "Docs", "Sheets", "Slides"]
+    mcp_servers:
+      google_calendar:
+        - "https://www.googleapis.com/auth/calendar.events"
+        - "https://www.googleapis.com/auth/calendar.readonly"
+      gmail:
+        - "https://www.googleapis.com/auth/gmail.modify"
+      google_drive:
+        - "https://www.googleapis.com/auth/drive.readonly"
+        - "https://www.googleapis.com/auth/drive.file"
+      google_docs:
+        - "https://www.googleapis.com/auth/documents"
+      google_sheets:
+        - "https://www.googleapis.com/auth/spreadsheets"
+      google_slides:
+        - "https://www.googleapis.com/auth/presentations"
+    # APIs enabled by Terraform (REST + hosted `*mcp` endpoints).
+    apis:
+      - "calendar-json.googleapis.com"
+      - "gmail.googleapis.com"
+      - "drive.googleapis.com"
+      - "docs.googleapis.com"
+      - "sheets.googleapis.com"
+      - "slides.googleapis.com"
+      - "calendarmcp.googleapis.com"
+      - "gmailmcp.googleapis.com"
+      - "drivemcp.googleapis.com"
+      - "docsmcp.googleapis.com"
+      - "sheetsmcp.googleapis.com"
+      - "slidesmcp.googleapis.com"
+
+  github:
+    display_name: "GitHub"
+    icon: "github"
+    # Connecting installs the GitHub App (`app/auth/github/provider.py`); permissions come from the App, not OAuth scopes.
+    access_token_env: "GITHUB_ACCESS_TOKEN"
+    client_id_env: "GITHUB_CLIENT_ID"
+    client_secret_env: "GITHUB_CLIENT_SECRET"
+    refresh_token_env: "GITHUB_REFRESH_TOKEN"
+    account_label_env: "GITHUB_ACCOUNT"
+    authorize_url: "https://github.com/login/oauth/authorize"
+    token_url: "https://github.com/login/oauth/access_token"
+    services: []
+    mcp_servers:
+      github: []

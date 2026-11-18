@@ -24,7 +24,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   dailyQuery,
   insightsQuery,
-  runsQuery,
+  investigationsQuery,
   statsQuery,
 } from "@/lib/aqua-api";
 
@@ -38,7 +38,12 @@ beforeEach(() => {
   fetchMock = vi.fn(
     async () =>
       new Response(
-        JSON.stringify({ stats: {}, days: [], runs: [], insights: [] }),
+        JSON.stringify({
+          stats: {},
+          days: [],
+          investigations: [],
+          insights: [],
+        }),
         {
           status: 200,
         },
@@ -94,7 +99,7 @@ describe("the reads left unscoped", () => {
   it("asks for the most recent sweeps, not the last fortnight of them", async () => {
     // The server already caps this list; a window could only make it shorter,
     // and a log is read for depth.
-    await runsQuery(undefined).queryFn();
+    await investigationsQuery(undefined).queryFn();
     expect(requestedUrl()).toBe("/api/investigations");
   });
 

@@ -26,21 +26,25 @@ import {
 } from "@tanstack/react-router";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { InsightView } from "@/lib/aqua-api";
+import {
+  rememberConversation,
+  resetConversationsForTest,
+} from "@/lib/aqua-conversations";
 import { insightRcaPrompt } from "../insight-rca-prompt";
 import { TopIssuesRail } from "../top-issues-rail";
 
 const INSIGHT: InsightView = {
   insight_id: "9f2c4b7e1a8d4c3fae5b60d7c1290f34",
-  agent_name: "it_support_agent",
+  observed_agent_key: "it_support_agent",
   label: "crashed with priority",
   tool_name: "create_ticket",
   status: "RECURRING",
   occurrence_count: 7,
-  trace_count: 134,
+  trajectory_count: 134,
   impact: 400,
-  last_run_at: "2026-08-28T18:35:34Z",
+  last_investigation_at: "2026-08-28T18:35:34Z",
   diagnosis: "Priority value must be High, Medium, Low.",
   confidence: 1.0,
 };
@@ -96,7 +100,12 @@ function renderRail() {
 const chatButton = () =>
   screen.findByRole("button", { name: /Diagnose insight in chat/ });
 
+beforeEach(() => {
+  resetConversationsForTest();
+});
+
 afterEach(() => {
+  resetConversationsForTest();
   vi.unstubAllGlobals();
 });
 
@@ -128,5 +137,21 @@ describe("the rail's Chat action", () => {
     await userEvent.keyboard("{Enter}");
 
     await waitFor(() => expect(href()).toContain("/c?"));
+  });
+
+  it("opens the existing-chats menu on the icon-only rail button", async () => {
+    rememberConversation(
+      "ctx-rail",
+      "Rail RCA thread",
+      undefined,
+      INSIGHT.insight_id,
+    );
+    const href = renderRail();
+
+    await userEvent.click(await chatButton());
+    await userEvent.click(await screen.findByText("Rail RCA thread"));
+
+    await waitFor(() => expect(href()).toBe("/c?id=ctx-rail"));
+    expect(screen.queryByText("Detail")).not.toBeInTheDocument();
   });
 });

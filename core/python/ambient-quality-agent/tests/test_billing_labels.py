@@ -138,7 +138,7 @@ def test_insight_store_jobs_carry_the_label() -> None:
         client=client,
         project_id="test-project",
         dataset="aqua_insights",
-        agent_name="root_agent",
+        observed_agent_key="root_agent",
     )
 
     store.resolve_stale_insights(dt.datetime(2026, 6, 1, tzinfo=dt.UTC), 14)

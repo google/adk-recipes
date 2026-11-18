@@ -16,7 +16,8 @@ ui/
 ├── web/                    the front end: React + Vite + Tailwind + shadcn
 ├── agents-cli-manifest.yaml
 ├── Dockerfile              a Node stage builds web/ into static_v2/
-├── requirements.txt
+├── pyproject.toml
+├── uv.lock
 ├── README.md               what this directory is, as an agents-cli project
 └── DASHBOARD.md            this file
 
@@ -54,6 +55,12 @@ there is, so declared any earlier it would shadow `/api/*`. `_OURS_404` and
 to debug — a data request answered with a page of HTML, which `fetch` reads as
 success and which then fails somewhere unrelated.
 
+## Serving read-only
+
+A host process that shows finished investigations serves
+`build_read_only_dashboard_app(backend)`; its docstring in `app.py` is the
+contract.
+
 ## How a click reaches the agent
 
 Each action POSTs one of the agent's **command routes** over the shared client's
@@ -67,7 +74,7 @@ forward that JSON to the front end.
 | total them, over a period | `POST /investigations/stats` `{window}` | `get_investigation_stats` |
 | per-day figures | `POST /investigations/daily` `{window}` | `get_daily_trends` |
 | start one | `POST /investigations/schedule` | `schedule_investigation` |
-| open one | `POST /investigations/get` `{"run_id"}` | `get_investigation` |
+| open one | `POST /investigations/get` `{"investigation_id"}` | `get_investigation` |
 | list insights | `POST /insights/list` `{filters}` | `list_insights` |
 | open one | `POST /insights/get` `{"insight_id", …}` | `get_insight` |
 | dismiss / merge one | `POST /insights/{dismiss,merge}` | `dismiss_insight` / `merge_insight` |
@@ -88,17 +95,18 @@ and a **Retry** on every list.
 
 | endpoint | returns |
 | --- | --- |
-| `GET /api/config` | `{"config": {...}}` — the effective configuration |
+| `GET /api/config` | `{"config": {...}, "starter_selector"}` — the effective configuration and the SQL a new investigation selector starts from, plus `"demo": true` when the agent serves generated data, as `make demo`'s mock does |
 | `GET /api/health` | `{"verdict", "reason", ...}` — is the ambient loop turning |
 | `GET /api/agents` | `{"agents": [...], "default_agent_key"}` — the attached agents, for the selector |
-| `GET /api/investigations` | `{"runs": [...]}` for the table — the most recent page |
-| `POST /api/investigations` | `{"run": {...}}` if a run comes back, else `{"ok": true}`, or `{"error": ...}` |
-| `GET /api/investigations/{run_id}` | `{"run": {...}}` for one run, events included |
-| `GET /api/investigations/{run_id}/cases/{case_id}` | `{"case": {...}}` — one conversation |
-| `GET /api/stats` | `{"stats": {...}, "window": {...}}` — runs' counters, summed |
+| `GET /api/investigations` | `{"investigations": [...]}` for the table — the most recent page |
+| `POST /api/investigations` | `{"investigation": {...}}` if one comes back, else `{"ok": true}`, or `{"error": ...}` |
+| `GET /api/investigations/{investigation_id}` | `{"investigation": {...}}` for one investigation, events included |
+| `POST /api/investigations/{investigation_id}/cancel` | `{"investigation": {...}}` with status `cancelled`, or `{"error": ...}` (409 if refused, 502 if the agent is unreachable) |
+| `GET /api/investigations/{investigation_id}/trajectories/{trajectory_id}` | `{"trajectory_bundle": {...}}` — one trajectory |
+| `GET /api/stats` | `{"stats": {...}, "window": {...}}` — investigations' counters, summed |
 | `GET /api/daily` | `{"days": [...]}` — per-day figures for the charts |
-| `GET /api/insights` | `{"insights": [...], "total", "next_page_token"}`; optional `status`, `runId`, `hasRootCause`, `pageToken` |
-| `GET /api/insights/{insight_id}` | `{"insight": {...}, "occurrences": [...], "next_page_token"}`; `includeTraces=1` adds the conversation traces |
+| `GET /api/insights` | `{"insights": [...], "total", "next_page_token"}`; optional `status`, `investigationId`, `hasRootCause`, `pageToken` |
+| `GET /api/insights/{insight_id}` | `{"insight": {...}, "occurrences": [...], "next_page_token"}`; `includeTraces=1` keeps the conversation turns a stored example carries |
 | `POST /api/insights/{insight_id}/dismiss` | `{"dismissed": true}` |
 | `POST /api/insights/{insight_id}/merge` | `{"merged": true}` |
 | `GET /api/source` | `{"available", "reason", ...}` — can findings cite code |
@@ -168,7 +176,7 @@ no credentials, no model. This is the loop for front-end work, and the only one
 with enough history to develop a visualization against:
 
 ```bash
-make demo                        # http://localhost:8080; builds the bundle too
+make demo                        # http://localhost:8080/?tour; builds the bundle too
 tools/mock_ui.sh                 # the same thing, with the env knobs to hand
 
 MOCK_FAILURE_RATE=0 tools/mock_ui.sh   # a deployment where nothing fails
@@ -200,3 +208,16 @@ PYTHONPATH=../src GOOGLE_API_USE_CLIENT_CERTIFICATE=false \
 To use the AQA agent **as a tool** inside coding harnesses (Anthropic **Claude
 Code**, Google **Antigravity**), drive the same command routes from the command
 line with `src/ambient_quality_cli/aqua_cli.py`.
+
+## Viewer mode
+
+A shell whose `<head>` holds `<meta name="aqua-viewer" content="1">` is
+read-only: the front end hides chat, configuration and every control that
+writes, and the shell's first inline script keeps `localStorage` and
+`sessionStorage` in memory and hides IndexedDB and the Cache API. A host that
+sends a Content-Security-Policy must allow that inline script, for example by
+its hash. The script reaches only the page's own storage; the browser still
+keeps the history entries' URLs, which name insights, investigations and
+trajectories, and their `history.state`, and a service worker already
+registered on the origin still sees every request. For sensitive data, use a
+fresh browser profile or an incognito window, on a port no other app has used.

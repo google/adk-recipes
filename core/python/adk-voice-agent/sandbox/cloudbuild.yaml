@@ -1,0 +1,41 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Builds the computer image for linux/amd64 (GCE computers) and linux/arm64 (the docker
+# provider on Apple Silicon) as one multi-arch tag, so `docker pull` gets the native
+# image everywhere instead of an amd64 one under emulation.
+#
+#   gcloud builds submit sandbox --config=sandbox/cloudbuild.yaml \
+#     --substitutions=_IMAGE=<region>-docker.pkg.dev/<project>/<repo>/computer:<tag>
+#
+# The arm64 half is built under QEMU, so it takes longer than the amd64 half. Locally,
+# `docker build sandbox` builds for the machine's own platform; nothing else is needed.
+steps:
+  - id: multiarch
+    name: gcr.io/cloud-builders/docker
+    entrypoint: bash
+    args:
+      - -euo
+      - pipefail
+      - -c
+      - |
+        docker run --privileged --rm tonistiigi/binfmt --install arm64
+        docker buildx create --name multiarch --driver docker-container --use
+        docker buildx build --platform linux/amd64,linux/arm64 --tag "${_IMAGE}" --push .
+substitutions:
+  _IMAGE: ""
+options:
+  machineType: E2_HIGHCPU_8
+  dynamicSubstitutions: true
+timeout: 3600s

@@ -49,13 +49,23 @@ from ambient_quality_agent.tools.trajectories.bigquery_store import (
 )
 from ambient_quality_agent.tools.trajectories.models import (
     IngestStatus,
-    Trajectory,
+    InvestigationTrajectory,
     TrajectoryProcessingState,
 )
 from google.cloud import bigquery
 from pydantic import BaseModel, ValidationError
 
 _REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
+
+_FIELD_TO_COLUMN = {
+    "investigation_id": "run_id",
+    "observed_agent_key": "agent_name",
+    "ingestion_source": "source",
+}
+"""Model fields whose BigQuery column in trajectories has a different name.
+
+BigQuery cannot rename a deployed column, so the store writes and the reader
+reads these under the column name."""
 SCHEMA_DIR = _REPO_ROOT / "terraform" / "modules" / "aqa" / "schemas"
 TRAJECTORIES_TF = (
     _REPO_ROOT / "terraform" / "modules" / "aqa" / "trajectories.tf"
@@ -73,8 +83,8 @@ _NOW = dt.datetime(2026, 6, 1, tzinfo=dt.UTC)
 
 # Only the required columns, so what the model does with the unset rest shows.
 _MINIMAL: dict[str, Any] = {
-    "run_id": "run-1",
-    "agent_name": "root_agent",
+    "investigation_id": "run-1",
+    "observed_agent_key": "root_agent",
     "trajectory_id": "case-1",
     "created_at": _NOW,
     "ingest_status": IngestStatus.INGESTED,
@@ -128,7 +138,7 @@ def _store(client: Any) -> BigQueryTrajectoryStore:
         client=client,
         project_id="test-project",
         dataset="aqua_insights",
-        agent_name="root_agent",
+        observed_agent_key="root_agent",
     )
 
 
@@ -141,14 +151,14 @@ def _written_row() -> tuple[dict[str, Any], bigquery.LoadJobConfig]:
         Tuple of (loaded row dictionary, BigQuery LoadJobConfig).
     """
     client = mock.MagicMock()
-    _store(client).record(
+    _store(client).record_investigation_trajectories(
         [
-            Trajectory(
-                run_id="run-1",
-                agent_name="root_agent",
+            InvestigationTrajectory(
+                investigation_id="run-1",
+                observed_agent_key="root_agent",
                 trajectory_id="case-1",
                 created_at=_NOW,
-                source="cloud_ops",
+                ingestion_source="cloud_ops",
                 source_session_id="session-1",
                 source_trace_ids=["trace-1", "trace-2"],
                 ingest_status=IngestStatus.PARTIAL,
@@ -166,7 +176,7 @@ def _executed_statements() -> list[str]:
         List of SQL query strings.
     """
     client = mock.MagicMock()
-    _store(client).delete_run_trajectories("run-1")
+    _store(client).delete_investigation_trajectories("run-1")
     return [call.args[0] for call in client.query.call_args_list]
 
 
@@ -181,20 +191,20 @@ def _read_statements() -> list[str]:
         client=client,
         project_id="test-project",
         dataset="aqua_insights",
-        agent_name="root_agent",
+        observed_agent_key="root_agent",
     )
     reader.count_daily_outcomes(
         window_start="2026-05-25T00:00:00Z", window_end="2026-06-01T00:00:00Z"
     )
-    reader.list_trajectories(
-        run_id="run-1",
+    reader.list_investigation_trajectories(
+        investigation_id="run-1",
         outcome=TrajectoryProcessingState.NOT_INGESTED,
         window_start="2026-05-25T00:00:00Z",
         window_end="2026-06-01T00:00:00Z",
         limit=30,
         offset=0,
     )
-    reader.get_trajectories([("run-1", "case-1")])
+    reader.get_investigation_trajectories([("run-1", "case-1")])
     return [call.args[0] for call in client.query.call_args_list]
 
 
@@ -236,10 +246,12 @@ def test_the_model_and_the_schema_hold_the_same_columns() -> None:
     """The writer names its columns one at a time, so a field added to the model
     and left out of that dict is written nowhere and read as null."""
     declared = set(_terraform_columns())
-    fields = set(Trajectory.model_fields)
+    fields = {
+        _FIELD_TO_COLUMN.get(f, f) for f in InvestigationTrajectory.model_fields
+    }
 
     assert fields == declared, (
-        f"Trajectory and trajectories disagree: "
+        f"InvestigationTrajectory and trajectories disagree: "
         f"model only {sorted(fields - declared)}, "
         f"table only {sorted(declared - fields)}"
     )
@@ -278,7 +290,7 @@ def test_an_empty_batch_writes_nothing() -> None:
     """A page that mapped nothing still reaches the writer, and a load job over
     no rows is a billed round trip for no effect."""
     client = mock.MagicMock()
-    _store(client).record([])
+    _store(client).record_investigation_trajectories([])
     client.load_table_from_json.assert_not_called()
 
 
@@ -417,13 +429,13 @@ def test_the_table_records_ingestion_and_not_analysis(forbidden: str) -> None:
     would come to mean "whichever analysis wrote last"; a per-trajectory result,
     if one is ever kept, belongs in its own table keyed back to this one."""
     assert forbidden not in _terraform_columns()
-    assert forbidden not in Trajectory.model_fields
+    assert forbidden not in InvestigationTrajectory.model_fields
 
 
 def test_a_trajectory_is_keyed_by_the_conversation_and_the_run_alone() -> None:
     """No evaluation scope in the key. The two scopes name their unit
     differently -- a session id for a reviewed conversation, an invocation or
-    trace id for a scored turn -- so one run cannot mint the same
+    trace id for a scored turn -- so one investigation cannot mint the same
     `trajectory_id` twice and a scope column would only restate that."""
     declared = _terraform_columns()
 
@@ -433,10 +445,10 @@ def test_a_trajectory_is_keyed_by_the_conversation_and_the_run_alone() -> None:
 
 
 def test_the_model_serializes_to_the_values_the_columns_hold() -> None:
-    """`Trajectory` crosses the same boundaries the insight models do, so its
-    JSON form has to be the stored one: the status as its bare string, and an
-    unset array as an empty one rather than as null."""
-    record = Trajectory(**_MINIMAL)
+    """`InvestigationTrajectory` crosses the same boundaries the insight models
+    do, so its JSON form has to be the stored one: the status as its bare
+    string, and an unset array as an empty one rather than as null."""
+    record = InvestigationTrajectory(**_MINIMAL)
     assert isinstance(record, BaseModel)
     dumped = record.model_dump(mode="json")
     assert dumped["source_trace_ids"] == []
@@ -448,10 +460,10 @@ def test_what_ingestion_made_of_a_trajectory_is_never_unstated() -> None:
     cannot be recorded as one that arrived fine -- which is what a nullable
     bool in this position allowed."""
     assert _terraform_columns()["ingest_status"] == ("STRING", "REQUIRED")
-    assert Trajectory.model_fields["ingest_status"].is_required()
+    assert InvestigationTrajectory.model_fields["ingest_status"].is_required()
 
     with pytest.raises(ValidationError):
-        Trajectory(
+        InvestigationTrajectory(
             **{k: v for k, v in _MINIMAL.items() if k != "ingest_status"}
         )
 
@@ -462,6 +474,6 @@ def test_every_ingestion_outcome_the_mapper_can_reach_has_a_value(
 ) -> None:
     """`_map_page` puts every attempted row in one of three buckets -- ingested,
     partial, failed -- and each has to be storable as itself."""
-    record = Trajectory(**{**_MINIMAL, "ingest_status": status})
+    record = InvestigationTrajectory(**{**_MINIMAL, "ingest_status": status})
 
     assert record.model_dump(mode="json")["ingest_status"] == status.value

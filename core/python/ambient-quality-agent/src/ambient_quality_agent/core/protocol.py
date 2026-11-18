@@ -21,10 +21,10 @@ callback matches this prefix and runs the investigation without the model.
 
 from __future__ import annotations
 
-# Marks a self-issued investigation-run query: ``<RUN_KEYWORD> <run_id>``.
+# Marks a self-issued investigation-run query: ``<RUN_KEYWORD> <investigation_id>``.
 # `core.investigation.job_scheduling` submits a durable long-running job
 # carrying this message against this same Agent Runtime agent (the "agent queries
 # itself" pattern); `before_agent` recognizes it and runs the investigation
 # graph via `core.investigation.job_execution`. It is the contract between the
-# two halves of a run.
+# two halves of an investigation.
 RUN_KEYWORD = "__RUN_INVESTIGATION__"

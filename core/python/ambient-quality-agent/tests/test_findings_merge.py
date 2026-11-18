@@ -28,7 +28,7 @@ def _finding(text: str, session_id: str = "") -> Finding:
     return Finding(
         expected_behavior=f"should {text}",
         actual_behavior=f"did not {text}",
-        session_id=session_id,
+        trajectory_id=session_id,
     )
 
 
@@ -48,14 +48,16 @@ def test_findings_keep_the_order_they_were_merged_in() -> None:
 
 def test_the_first_set_holding_a_session_supplies_its_turns() -> None:
     """Verify that duplicate sessions retain the first encountered turn history."""
-    first = FindingSet(sessions={"s-1": [{"turn": 1}], "s-2": [{"turn": 2}]})
+    first = FindingSet(
+        turns_by_trajectory={"s-1": [{"turn": 1}], "s-2": [{"turn": 2}]}
+    )
     second = FindingSet(
-        sessions={"s-1": [{"turn": "other"}], "s-3": [{"turn": 3}]}
+        turns_by_trajectory={"s-1": [{"turn": "other"}], "s-3": [{"turn": 3}]}
     )
 
     merged = merge_finding_sets([first, second])
 
-    assert merged.sessions == {
+    assert merged.turns_by_trajectory == {
         "s-1": [{"turn": 1}],
         "s-2": [{"turn": 2}],
         "s-3": [{"turn": 3}],
@@ -124,7 +126,7 @@ def test_sets_that_travelled_through_state_merge_as_dicts() -> None:
     """Verify support for serialized dictionary inputs from workflow state."""
     dumped = FindingSet(
         findings=[_finding("a", session_id="s-1")],
-        sessions={"s-1": [{"turn": 1}]},
+        turns_by_trajectory={"s-1": [{"turn": 1}]},
         agent_revisions={
             "s-1": [AgentRevision(agent_id="root", instruction="be helpful")]
         },
@@ -132,8 +134,8 @@ def test_sets_that_travelled_through_state_merge_as_dicts() -> None:
 
     merged = merge_finding_sets([dumped, dumped])
 
-    assert [f.session_id for f in merged.findings] == ["s-1", "s-1"]
-    assert merged.sessions == {"s-1": [{"turn": 1}]}
+    assert [f.trajectory_id for f in merged.findings] == ["s-1", "s-1"]
+    assert merged.turns_by_trajectory == {"s-1": [{"turn": 1}]}
     assert [r.instruction for r in merged.agent_revisions["s-1"]] == [
         "be helpful"
     ]

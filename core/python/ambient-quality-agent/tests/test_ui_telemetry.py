@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Hermetic tests for the dashboard's telemetry endpoints, `/api/telemetry`.
+"""Hermetic tests for the dashboard's telemetry and selector endpoints.
 
 Drives the FastAPI app in-process with a stub client whose `post_command()`
 answers with what the `agents/attach` and `agents/applied` routes return.
@@ -462,3 +462,280 @@ def test_recording_passes_the_agents_refusal_on(inject) -> None:
 
     assert response.status_code == 400
     assert response.json() == {"error": "A grant to anybody but this engine"}
+
+
+# --------------------------------------------------------------------------- #
+# POST /api/selector/check and PUT /api/selector                               #
+# --------------------------------------------------------------------------- #
+
+_SQL = (
+    "SELECT DISTINCT session_id AS target_id FROM analytics.agent_events "
+    "WHERE timestamp BETWEEN @window_start AND @window_end "
+    "AND agent = @agent_name"
+)
+_SELECTOR = {"agent_key": _KEY, "investigation_selector_sql": _SQL}
+_SELECTOR_CHANGE = {
+    "field": "investigation_selector_sql",
+    "before": "",
+    "after": _SQL,
+}
+
+
+def test_selector_check_asks_for_the_plan_with_the_precheck(inject) -> None:
+    client = inject(
+        FakeClient(attach={**_PASSING, "changes": [_SELECTOR_CHANGE]})
+    )
+
+    response = _send("POST", "/api/selector/check", _SELECTOR)
+
+    assert response.status_code == 200
+    assert client.calls == [
+        (
+            "agents/attach",
+            {
+                "agent_key": _KEY,
+                "fields": {"investigation_selector_sql": _SQL},
+                "dry_run": True,
+                "check_access": True,
+            },
+        )
+    ]
+    assert response.json() == {"refusal": "", "changes": [_SELECTOR_CHANGE]}
+
+
+def test_a_refused_selector_comes_back_with_the_explanation_alone(
+    inject,
+) -> None:
+    """The card says the selector is refused; the CLI's prefix repeats it."""
+    explanation = (
+        "A selector must read the selector table analytics.agent_events by "
+        "name and name no other table."
+    )
+    inject(
+        FakeClient(
+            attach={
+                "error": f"Refusing to attach {_KEY}: investigation_selector_sql "
+                f"is refused (unauthorized_table): {explanation}"
+            }
+        )
+    )
+
+    response = _send("POST", "/api/selector/check", _SELECTOR)
+
+    assert response.status_code == 200
+    assert response.json() == {"refusal": explanation, "changes": []}
+
+
+def test_another_refusal_comes_back_as_the_agent_wrote_it(inject) -> None:
+    reason = (
+        f"Refusing to attach {_KEY}: investigation_selector_sql needs "
+        "quality_analysis_mode 'session_review'."
+    )
+    inject(FakeClient(attach={"error": reason}))
+
+    body = _send("POST", "/api/selector/check", _SELECTOR).json()
+
+    assert body == {"refusal": reason, "changes": []}
+
+
+def test_a_selector_on_a_table_that_cannot_be_read_is_refused(inject) -> None:
+    """The engine skips the precheck when the access check refuses the table."""
+    inject(FakeClient(attach=_build_plan(("table", "missing"))))
+
+    body = _send("POST", "/api/selector/check", _SELECTOR).json()
+
+    assert body["refusal"] == f"{_TABLE} does not exist."
+
+
+@pytest.mark.parametrize("path", ["/api/selector/check", "/api/selector"])
+@pytest.mark.parametrize(
+    "body",
+    [
+        {**_SELECTOR, "agent_key": ""},
+        {"agent_key": _KEY},
+        {**_SELECTOR, "investigation_selector_sql": None},
+        ["not", "an", "object"],
+    ],
+)
+def test_selector_routes_refuse_a_body_without_the_agent_and_the_selector(
+    inject, path: str, body: Any
+) -> None:
+    client = inject(FakeClient(attach={"written": True}))
+
+    response = _send("POST" if path.endswith("check") else "PUT", path, body)
+
+    assert response.status_code == 400
+    assert response.json()["error"]
+    assert client.calls == []
+
+
+@pytest.mark.parametrize(
+    ("method", "path"),
+    [("POST", "/api/selector/check"), ("PUT", "/api/selector")],
+)
+def test_selector_routes_report_an_unreachable_agent(
+    inject, method: str, path: str
+) -> None:
+    inject(BoomClient())
+
+    response = _send(method, path, _SELECTOR)
+
+    assert response.status_code == 502
+    assert "backend exploded" in response.json()["error"]
+
+
+class CheckThenStoreClient(FakeClient):
+    """Stub answering an attach dry run with `plan` and a store with `stored`."""
+
+    def __init__(self, plan: dict[str, Any], stored: dict[str, Any]) -> None:
+        super().__init__()
+        self.plan = plan
+        self.stored = stored
+
+    async def post_command(
+        self, path: str, payload: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        self.calls.append((path, payload))
+        return self.plan if (payload or {}).get("dry_run") else self.stored
+
+
+_STORED = {
+    "written": True,
+    "changes": [_SELECTOR_CHANGE],
+    "updated_at": "2026-11-02T09:00:00+00:00",
+}
+
+
+def test_selector_save_checks_the_selector_then_stores_only_it(inject) -> None:
+    """A save re-checks the selector, so a stale tab cannot store one the
+    precheck refuses."""
+    client = inject(
+        CheckThenStoreClient(
+            plan={**_PASSING, "changes": [_SELECTOR_CHANGE]}, stored=_STORED
+        )
+    )
+
+    response = _send(
+        "PUT", "/api/selector", {**_SELECTOR, "telemetry_table": "other"}
+    )
+
+    assert response.status_code == 200
+    fields = {"investigation_selector_sql": _SQL}
+    assert client.calls == [
+        (
+            "agents/attach",
+            {
+                "agent_key": _KEY,
+                "fields": fields,
+                "dry_run": True,
+                "check_access": True,
+            },
+        ),
+        (
+            "agents/attach",
+            {"agent_key": _KEY, "fields": fields, "dry_run": False},
+        ),
+    ]
+    assert response.json() == _STORED
+
+
+@pytest.mark.parametrize(
+    ("plan", "error"),
+    [
+        (
+            {
+                "error": f"Refusing to attach {_KEY}: investigation_selector_sql "
+                "is refused (invalid_sql): Unrecognized name: target_id."
+            },
+            "Unrecognized name: target_id.",
+        ),
+        (_build_plan(("table", "missing")), f"{_TABLE} does not exist."),
+    ],
+)
+def test_selector_save_stores_nothing_the_check_refuses(
+    inject, plan: dict[str, Any], error: str
+) -> None:
+    client = inject(CheckThenStoreClient(plan=plan, stored=_STORED))
+
+    response = _send("PUT", "/api/selector", _SELECTOR)
+
+    assert response.status_code == 400
+    assert response.json() == {"error": error}
+    assert [p["dry_run"] for _, p in client.calls if p] == [True]
+
+
+def test_an_empty_selector_clears_the_stored_one(inject) -> None:
+    client = inject(FakeClient(attach={"written": True}))
+
+    _send(
+        "PUT", "/api/selector", {**_SELECTOR, "investigation_selector_sql": ""}
+    )
+
+    [(_, payload)] = client.calls
+    assert payload is not None
+    assert payload["fields"] == {"investigation_selector_sql": ""}
+
+
+def test_selector_save_passes_the_agents_refusal_on(inject) -> None:
+    reason = "investigation_selector_sql needs quality_analysis_mode"
+    inject(FakeClient(attach={"error": reason}))
+
+    response = _send("PUT", "/api/selector", _SELECTOR)
+
+    assert response.status_code == 400
+    assert response.json() == {"error": reason}
+
+
+def test_a_multi_line_explanation_comes_back_whole(inject) -> None:
+    explanation = "The selector failed the dry run:\nUnrecognized name: x."
+    inject(
+        FakeClient(
+            attach={
+                "error": f"Refusing to attach {_KEY}: investigation_selector_sql "
+                f"is refused (invalid_sql): {explanation}"
+            }
+        )
+    )
+
+    body = _send("POST", "/api/selector/check", _SELECTOR).json()
+
+    assert body["refusal"] == explanation
+
+
+def test_a_lexical_refusal_comes_back_as_the_explanation(inject) -> None:
+    """The engine's lexical check refuses without the attach prefix."""
+    explanation = (
+        "The selector must be a single SELECT expression; remove the ';'."
+    )
+    inject(
+        FakeClient(
+            attach={
+                "error": "investigation_selector_sql is refused "
+                f"(statement_separator): {explanation}"
+            }
+        )
+    )
+
+    body = _send("POST", "/api/selector/check", _SELECTOR).json()
+
+    assert body == {"refusal": explanation, "changes": []}
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        "No agent is attached as 'x'.",
+        f"Could not read the stored attachment for {_KEY}: timed out",
+        f"Could not check investigation_selector_sql for {_KEY}: 500 backend",
+    ],
+)
+def test_selector_check_passes_other_agent_errors_on(
+    inject, error: str
+) -> None:
+    """Only a refusal of the selector is a verdict; a failure is an error."""
+    inject(FakeClient(attach={"error": error}))
+
+    response = _send("POST", "/api/selector/check", _SELECTOR)
+
+    assert response.status_code == 400
+    assert response.json() == {"error": error}

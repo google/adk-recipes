@@ -23,8 +23,8 @@ AQuA's own settings come from the environment at import time (see
 required ones before importing the agent. The observed agent comes from its
 attachment, as in a deployment: the default attached agent, or the one
 `--agent-key` names. In a standalone run (`AQA_STANDALONE=1`) attachments are
-files under `.aqua/job/`, written by `agents-cli aqua attach` against the
-local server (see "Run AQuA standalone" in docs/index.md):
+files under `.aqua/job/`, written by the `attach` command against the local
+server (see "Run locally" in README.md):
 
     AQA_STANDALONE=1 GOOGLE_CLOUD_PROJECT=my-project \
         uv run python tools/local_run.py --agent-key my_agent
@@ -123,7 +123,7 @@ def _parse_args() -> argparse.Namespace:
         help=(
             "Write the run's intermediates here: each producer's finding set"
             " verbatim, the merged findings derived from them, plus every"
-            " session-review prompt and response under reviews/."
+            " session-review prompt and its findings under reviews/."
             " Diffing two runs' dumps is how a telemetry-source or prompt"
             " change gets compared."
         ),
@@ -132,46 +132,67 @@ def _parse_args() -> argparse.Namespace:
 
 
 def _tee_reviewer_prompts(directory: pathlib.Path) -> Callable[[], int]:
-    """Record all session-review prompts and model responses under ``directory``.
+    """Record every session-review prompt and its findings under ``directory``.
 
-    Intercepts the ``reviewer_factory`` seam, so what lands on disk is the exact
-    string handed to the model. Prompts are written before the call, so a review
-    that raises still leaves its prompt behind.
+    Wraps the ``session_reviewer_factory`` seam. For each review:
+    1. Builds the review prompt and writes it, so a review that raises still
+       leaves its prompt behind.
+    2. Runs the wrapped reviewer and writes the findings it returns.
 
     Args:
-        directory: Destination folder for recorded prompts and responses.
+        directory: Destination folder for recorded prompts and findings.
 
     Returns:
         Callable reporting total number of reviews captured.
     """
     from ambient_quality_agent.core.nodes import _common
+    from ambient_quality_agent.tools.review import agentic_reviewer
 
     directory.mkdir(parents=True, exist_ok=True)
-    original = _common.reviewer_factory
+    original = _common.session_reviewer_factory
     # `review` reviews sessions concurrently, so the index needs a lock.
     lock = threading.Lock()
     captured = 0
 
     def create_recording_reviewer(ctx):
-        call = original(ctx)
+        reviewer = original(ctx)
 
-        def review(prompt: str) -> str:
+        def review(eval_case, revisions, *, session_review_focus, goal):
             nonlocal captured
             with lock:
                 index = captured
                 captured += 1
+            prompt = agentic_reviewer.build_review_prompt(
+                eval_case,
+                revisions,
+                session_review_focus=session_review_focus,
+                goal=goal,
+            )
             (directory / f"prompt_{index:03d}.txt").write_text(
-                prompt, encoding="utf-8"
+                prompt.system_instruction
+                + "\n\n===== initial user message =====\n\n"
+                + prompt.initial_message,
+                encoding="utf-8",
             )
-            response = call(prompt)
-            (directory / f"response_{index:03d}.json").write_text(
-                response, encoding="utf-8"
+            findings = reviewer(
+                eval_case,
+                revisions,
+                session_review_focus=session_review_focus,
+                goal=goal,
             )
-            return response
+            (directory / f"findings_{index:03d}.json").write_text(
+                json.dumps(
+                    [finding.model_dump(mode="json") for finding in findings],
+                    indent=2,
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            return findings
 
         return review
 
-    _common.reviewer_factory = create_recording_reviewer
+    _common.session_reviewer_factory = create_recording_reviewer
     return lambda: captured
 
 
@@ -251,7 +272,8 @@ async def main() -> None:
     )
 
     # Patch the reviewer seam before the graph runs; the node resolves
-    # `reviewer_factory` per call, so this reaches every review.
+    # `session_reviewer_factory` each time it runs, so this reaches every
+    # review.
     reviews_captured = (
         _tee_reviewer_prompts(pathlib.Path(args.dump_dir) / "reviews")
         if args.dump_dir
@@ -277,15 +299,17 @@ async def main() -> None:
         config
     )
     initial_state = WorkflowState.from_config(config)
-    # Local runs have no orchestrator `InvestigationRecord`, so mint a fresh run id
+    # Local runs have no orchestrator `Investigation`, so mint a fresh run id
     # (matching the record's scheme) for run-scoped state.
-    run_id = uuid.uuid4().hex[:8]
+    investigation_id = uuid.uuid4().hex[:8]
     seed_state = {
         **initial_state.model_dump(),
-        "run_id": run_id,
+        "investigation_id": investigation_id,
         "window_start": window_start,
         "window_end": window_end,
         "budget_per_metric": budget_per_metric,
+        # A local run brings no selector of its own, like a manual one.
+        "selector_sql": config.investigation_selector_sql,
     }
 
     print(f"Creating session '{_SESSION_ID}'...")
@@ -297,7 +321,7 @@ async def main() -> None:
     )
 
     print("Running workflow...")
-    print(f"  run_id              = {run_id}")
+    print(f"  investigation_id    = {investigation_id}")
     print(f"  observed_agent_name = {initial_state.observed_agent_name}")
     print(f"  project_id          = {initial_state.project_id}")
     print(f"  location            = {initial_state.location}")
@@ -342,7 +366,7 @@ async def main() -> None:
         )
 
     # The workflow events (progress/diagnostic snippets emitted by the nodes)
-    # carry the run's findings -- in particular the insight_correlation node's
+    # carry the investigation's findings -- in particular the insight_correlation node's
     # per-sweep summary of failed rubrics grouped into new/recurring insights.
     # The insights themselves are persisted durably to the insight store.
     events = state.get("progress_log") or []

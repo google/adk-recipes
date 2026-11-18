@@ -16,7 +16,9 @@
 
 from __future__ import annotations
 
+import base64
 import datetime as dt
+import hashlib
 import json
 import re
 from typing import Any
@@ -25,7 +27,13 @@ from unittest import mock
 import pytest
 from agentplatform._genai.types import EvalCase
 from ambient_quality_agent.tools.evaluation.models import MetricType
-from ambient_quality_agent.tools.ingestion.base import BaseFetcher
+from ambient_quality_agent.tools.ingestion.base import (
+    DEFAULT_JOB_TIMEOUT_MS,
+    JOIN_BACK_MARGIN_DAYS,
+    MAX_BYTES_BILLED,
+    BaseFetcher,
+    QueryTooLargeError,
+)
 from ambient_quality_agent.tools.ingestion.cloud_logging_fetcher import (
     _INLINE_LABEL_TO_ATTR,
     _LABEL_AGENT_NAME,
@@ -37,9 +45,10 @@ from ambient_quality_agent.tools.ingestion.cloud_logging_fetcher import (
 )
 from ambient_quality_agent.tools.telemetry.schema import load_required_schema
 from ambient_quality_agent.tools.trajectories.models import IngestStatus
+from google.api_core import exceptions as api_exceptions
 from google.cloud import bigquery
 
-from .conftest import FakeTrajectoryRecorder
+from .conftest import FakeTrajectoryRecorder, build_trajectory_file_store
 
 _PROJECT = "test-project"
 _DATASET = "agent_telemetry"
@@ -218,6 +227,7 @@ def _make_fetcher(
     recorder: Any | None = None,
     selector_sql: str = "",
     labels: tuple[str, ...] | None = _ALL_LABELS,
+    trajectory_file_store: Any | None = None,
 ) -> CloudLoggingFetcher:
     # None preserves the caller's pre-configured table mock on the client.
     if labels is not None:
@@ -235,6 +245,7 @@ def _make_fetcher(
             table=_TABLE,
             location=_LOCATION,
             recorder=recorder,
+            trajectory_file_store=trajectory_file_store,
             selector_sql=selector_sql,
         )
     # Swap the GCS-backed converter for one using the in-memory reader.
@@ -877,7 +888,7 @@ def test_a_single_turn_page_reports_the_session_the_turn_belongs_to() -> None:
 
 
 def test_a_dropped_row_is_reported_beside_the_mapped_ones() -> None:
-    """The page yields one case and two trajectories: the run sampled both, and
+    """The page yields one case and two trajectories: the investigation sampled both, and
     only the account that includes the second explains the size of the sample.
     """
     client = mock.MagicMock()
@@ -1044,6 +1055,27 @@ def test_the_single_turn_query_has_no_selector_path() -> None:
     assert fetcher._build_count_sql(
         MetricType.SINGLE_TURN
     ) == default._build_count_sql(MetricType.SINGLE_TURN)
+
+
+@pytest.mark.parametrize(
+    "metric_type", [MetricType.MULTI_TURN, MetricType.SINGLE_TURN]
+)
+def test_the_join_back_reads_only_the_window_widened_by_the_margin(
+    metric_type: MetricType,
+) -> None:
+    """An unbounded join back to the table reads its whole history."""
+    fetcher = _make_fetcher(mock.MagicMock())
+    bound = (
+        "WHERE s.timestamp BETWEEN"
+        f" TIMESTAMP_SUB(@window_start, INTERVAL {JOIN_BACK_MARGIN_DAYS} DAY)"
+        f" AND TIMESTAMP_ADD(@window_end, INTERVAL {JOIN_BACK_MARGIN_DAYS} DAY)"
+    )
+
+    sql = _sql_words(fetcher._build_ingestion_sql(metric_type))
+    join_backs = sql.split(" JOIN Target")[1:]
+
+    assert len(join_backs) == 1
+    assert bound in join_backs[0].split(" GROUP BY ")[0]
 
 
 # --- Tests for missing table labels -------------------------------------------
@@ -1315,6 +1347,32 @@ def test_get_payload_ref_reads_only_the_ref_columns_the_table_has() -> None:
     sql = client.query.call_args.args[0]
     assert "labels.gen_ai_output_messages_ref" in sql
     assert "gen_ai_input_messages_ref" not in sql
+
+
+def test_get_payload_ref_is_capped_and_timed_out_by_default() -> None:
+    client = mock.MagicMock()
+    client.query.return_value.result.return_value = []
+    fetcher = _make_fetcher(client)
+
+    fetcher.get_payload_ref("agent-a", _START, _END)
+
+    job_config = client.query.call_args.kwargs["job_config"]
+    assert job_config.maximum_bytes_billed == MAX_BYTES_BILLED
+    assert int(job_config.job_timeout_ms) == DEFAULT_JOB_TIMEOUT_MS
+
+
+def test_get_payload_ref_over_the_cap_raises_query_too_large() -> None:
+    client = mock.MagicMock()
+    client.query.return_value.result.side_effect = (
+        api_exceptions.InternalServerError(
+            "Query exceeded limit for bytes billed: 1.",
+            errors=[{"reason": "bytesBilledLimitExceeded"}],
+        )
+    )
+    fetcher = _make_fetcher(client)
+
+    with pytest.raises(QueryTooLargeError):
+        fetcher.get_payload_ref("agent-a", _START, _END)
 
 
 def test_get_payload_ref_without_ref_columns_runs_no_query() -> None:
@@ -1632,3 +1690,106 @@ def test_every_column_the_schema_file_lists_is_read() -> None:
     ]
 
     assert unread == []
+
+
+# --- trajectory files ---------------------------------------------------------
+
+
+_IMAGE = b"\x89PNG" + bytes(28)
+
+
+def _configure_image_page(client: mock.MagicMock) -> None:
+    """Pages one single-turn row whose user message carries an inline image.
+
+    Args:
+        client: The BigQuery client mock.
+    """
+    messages = [
+        {
+            "role": "user",
+            "parts": [
+                {
+                    "type": "blob",
+                    "content": base64.b64encode(_IMAGE).decode(),
+                    "mime_type": "image/png",
+                }
+            ],
+        }
+    ]
+    _configure_paging(
+        client,
+        page_rows=[
+            {
+                "trace_id": "trace-9",
+                "inference_rows": [
+                    _log_row(
+                        input_ref=None,
+                        output_ref=None,
+                        input_messages=json.dumps(messages),
+                    )
+                ],
+            }
+        ],
+        next_page_token=None,
+    )
+
+
+def _extract_first_part(case: Any) -> Any:
+    return case.agent_data.turns[0].events[0].content.parts[0]
+
+
+def test_fetch_page_links_trajectory_files_in_the_recorded_and_returned_case(
+    tmp_path: Any,
+) -> None:
+    client = mock.MagicMock()
+    _configure_image_page(client)
+    recorder = FakeTrajectoryRecorder()
+    store, objects = build_trajectory_file_store(tmp_path)
+
+    page = _make_fetcher(
+        client, recorder=recorder, trajectory_file_store=store
+    ).fetch_page("job-1", MetricType.SINGLE_TURN)
+
+    name = (
+        "aqa-trajectory-files/agent-key/2026-11-10/"
+        + hashlib.sha256(_IMAGE).hexdigest()
+    )
+    for case in (page.dataset.eval_cases[0], recorder.records[0].case):
+        part = _extract_first_part(case)
+        assert part.inline_data is None
+        assert part.file_data.file_uri == objects.uri(name)
+    assert objects.read_bytes(name) == _IMAGE
+    assert recorder.records[0].ingest_status is IngestStatus.INGESTED
+
+
+def test_fetch_page_counts_a_failed_trajectory_file_write_as_partial(
+    tmp_path: Any,
+) -> None:
+    client = mock.MagicMock()
+    _configure_image_page(client)
+    recorder = FakeTrajectoryRecorder()
+    store, _ = build_trajectory_file_store(tmp_path, fail_writes=True)
+    fetcher = _make_fetcher(
+        client, recorder=recorder, trajectory_file_store=store
+    )
+
+    page = fetcher.fetch_page("job-1", MetricType.SINGLE_TURN)
+
+    part = _extract_first_part(page.dataset.eval_cases[0])
+    assert part.text.startswith("<attachment: image/png, 32 bytes, sha256:")
+    assert fetcher.counts.partial == 1
+    assert recorder.records[0].ingest_status is IngestStatus.PARTIAL
+
+
+def test_fetch_page_without_a_trajectory_file_store_writes_placeholders() -> (
+    None
+):
+    client = mock.MagicMock()
+    _configure_image_page(client)
+
+    page = _make_fetcher(client).fetch_page("job-1", MetricType.SINGLE_TURN)
+
+    part = _extract_first_part(page.dataset.eval_cases[0])
+    digest = hashlib.sha256(_IMAGE).hexdigest()[:8]
+    assert part.text == f"<attachment: image/png, 32 bytes, sha256:{digest}>"
+    assert part.inline_data is None

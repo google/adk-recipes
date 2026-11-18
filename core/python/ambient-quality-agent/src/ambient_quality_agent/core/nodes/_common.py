@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import functools
 import logging
 from collections.abc import Callable
 
@@ -33,6 +34,7 @@ from ambient_quality_agent.tools.evaluation.agent_platform_eval import (
 from ambient_quality_agent.tools.evaluation.models import MetricType
 from ambient_quality_agent.tools.ingestion import selector
 from ambient_quality_agent.tools.ingestion.base import (
+    DEFAULT_JOB_TIMEOUT_MS,
     BaseFetcher,
     CachingGcsReader,
     GcsClientReader,
@@ -46,17 +48,21 @@ from ambient_quality_agent.tools.ingestion.cloud_logging_fetcher import (
 from ambient_quality_agent.tools.ingestion.cloud_ops_fetcher import (
     CloudOpsFetcher,
 )
+from ambient_quality_agent.tools.ingestion.trajectory_files import (
+    TrajectoryFileStore,
+)
 from ambient_quality_agent.tools.insights import (
     clustering,
     matching,
     merge,
     verification,
 )
+from ambient_quality_agent.tools.insights.findings import Finding
 from ambient_quality_agent.tools.insights.store import InsightWriter
 from ambient_quality_agent.tools.metrics import publishing
 from ambient_quality_agent.tools.metrics.library import MetricLibrary
 from ambient_quality_agent.tools.objects import store as objects
-from ambient_quality_agent.tools.review import session_review
+from ambient_quality_agent.tools.review import agentic_reviewer
 from ambient_quality_agent.tools.trajectories.recorder import (
     NullTrajectoryRecorder,
     TrajectoryRecorder,
@@ -64,6 +70,14 @@ from ambient_quality_agent.tools.trajectories.recorder import (
 from google.adk.agents.context import Context
 
 logger = logging.getLogger(__name__)
+
+SessionReviewFn = Callable[..., list[Finding]]
+"""Reviews one session and returns its findings.
+
+Called as ``(eval_case, revisions, *, session_review_focus, goal)``, where
+``revisions`` are the agent definitions active during the session, an empty
+``session_review_focus`` reviews for all defects, and an empty ``goal``
+reviews without the developer's goal."""
 
 
 def _build_gcs_reader() -> CachingGcsReader:
@@ -78,7 +92,7 @@ def _build_gcs_reader() -> CachingGcsReader:
 def _build_memory_guard(ctx: LaunchContext) -> Callable[[], bool]:
     """Build the memory guard for this scope's fetcher.
 
-    Seeded with the run's start-of-investigation memory baseline (`state`
+    Seeded with the investigation's start-of-investigation memory baseline (`state`
     key ``memory_baseline_mb``) so multi-turn and single-turn scopes measure
     growth from the same baseline.
 
@@ -92,8 +106,26 @@ def _build_memory_guard(ctx: LaunchContext) -> Callable[[], bool]:
     return MemoryGuard(baseline_mb=baseline_mb).should_stop
 
 
+def _create_default_trajectory_file_store(
+    ctx: LaunchContext,
+) -> TrajectoryFileStore | None:
+    """Build the trajectory file store for ingested conversations.
+
+    Args:
+        ctx: Launch context containing workflow state.
+
+    Returns:
+        A `TrajectoryFileStore` over the jobs store scoped to the observed
+        agent, or None if the state names no agent.
+    """
+    agent_key = config_module.extract_agent_key(ctx.state)
+    if not agent_key:
+        return None
+    return TrajectoryFileStore(objects.jobs_store_factory(), agent_key)
+
+
 def _create_default_fetcher(ctx: Context) -> BaseFetcher:
-    """Build the default telemetry fetcher for a sweep run.
+    """Build the default telemetry fetcher for an investigation.
 
     Args:
         ctx: Workflow context supplying configuration state.
@@ -108,7 +140,8 @@ def build_fetcher(
     ctx: LaunchContext,
     *,
     recorder: TrajectoryRecorder | NullTrajectoryRecorder | None = None,
-    job_timeout_ms: int | None = None,
+    job_timeout_ms: int = DEFAULT_JOB_TIMEOUT_MS,
+    store_trajectory_files: bool = True,
 ) -> BaseFetcher:
     """Build the telemetry fetcher configured in `telemetry_ingestion_source`.
 
@@ -121,6 +154,10 @@ def build_fetcher(
             omitted, instantiates a default recorder from context.
         job_timeout_ms: Server-side execution timeout in milliseconds for
             BigQuery query jobs.
+        store_trajectory_files: Whether to store conversation files in the jobs
+            store. Applies only when `state["store_trajectory_files"]` is also
+            True. When either is False, top-level files become text
+            placeholders, and files in tool results remain inline.
 
     Returns:
         The configured BaseFetcher instance.
@@ -153,6 +190,11 @@ def build_fetcher(
     reporting_to = (
         trajectory_recorder_factory(ctx) if recorder is None else recorder
     )
+    trajectory_file_store = (
+        _create_default_trajectory_file_store(ctx)
+        if store_trajectory_files and state.get("store_trajectory_files", True)
+        else None
+    )
     if source == "big_query":
         return BigQueryFetcher(
             project_id=state["project_id"],
@@ -162,6 +204,7 @@ def build_fetcher(
             observed_project_id=observed_project_id,
             memory_guard=_build_memory_guard(ctx),
             recorder=reporting_to,
+            trajectory_file_store=trajectory_file_store,
             selector_sql=selector_sql,
             selector_ai_model=selector_ai_model,
             job_timeout_ms=job_timeout_ms,
@@ -176,6 +219,7 @@ def build_fetcher(
             gcs_reader=_build_gcs_reader(),
             memory_guard=_build_memory_guard(ctx),
             recorder=reporting_to,
+            trajectory_file_store=trajectory_file_store,
             selector_sql=selector_sql,
             selector_ai_model=selector_ai_model,
             job_timeout_ms=job_timeout_ms,
@@ -189,6 +233,7 @@ def build_fetcher(
         gcs_reader=_build_gcs_reader(),
         memory_guard=_build_memory_guard(ctx),
         recorder=reporting_to,
+        trajectory_file_store=trajectory_file_store,
         selector_sql=selector_sql,
         selector_ai_model=selector_ai_model,
         job_timeout_ms=job_timeout_ms,
@@ -211,23 +256,29 @@ def _create_default_evaluator(ctx: Context) -> AgentPlatformEvalService:
     )
 
 
-def _create_default_reviewer(ctx: Context) -> Callable[[str], str]:
-    """Provide the default session-review LLM callable (`prompt -> raw JSON`).
+def _create_default_session_reviewer(ctx: Context) -> SessionReviewFn:
+    """Build the session reviewer the review node runs for every session.
 
-    Serves as the review producer counterpart to `evaluator_factory`, enabling
-    test fakes to intercept model invocations during graph execution.
+    Serves as the review producer counterpart to `evaluator_factory`, so test
+    fakes can replace the reviewer during graph execution.
 
     Args:
         ctx: Workflow context.
 
     Returns:
-        Callable taking prompt string and returning raw model response JSON string.
+        `agentic_reviewer.extract_findings` bound to one Gemini client, which
+        the node's concurrent session reviews share. Each review runs its own
+        event loop, and genai's aiohttp transport opens one session per loop.
+        Claude review models ignore the client.
     """
-    return session_review.call_review_model
+    return functools.partial(
+        agentic_reviewer.extract_findings,
+        client=agentic_reviewer.create_client(),
+    )
 
 
 def _load_default_goal(ctx: Context) -> goal_doc.InvestigationGoal:
-    """Loads the developer's goal for the run's agent from the jobs store.
+    """Loads the developer's goal for the investigation's agent from the jobs store.
 
     Args:
         ctx: Workflow context.
@@ -289,7 +340,7 @@ def _create_default_match_call(ctx: Context) -> Callable[[str], str]:
     Returns:
         Callable taking prompt string and returning raw model response JSON string.
     """
-    return matching.call_match_model
+    return matching.call_all_match_model
 
 
 def _create_default_verification_call(ctx: Context) -> Callable[[str], str]:
@@ -308,7 +359,7 @@ def _create_default_verification_call(ctx: Context) -> Callable[[str], str]:
 
 
 def add_ingestion_counts(state: ADKStateLike, fetcher: BaseFetcher) -> None:
-    """Add fetcher ingestion tallies into workflow run counters.
+    """Adds fetcher ingestion tallies into workflow investigation counters.
 
     Args:
         state: Workflow state dictionary.
@@ -317,10 +368,10 @@ def add_ingestion_counts(state: ADKStateLike, fetcher: BaseFetcher) -> None:
     counts = fetcher.counts
     add_counts(
         state,
-        traces_scanned=counts.scanned,
-        traces_ingested=counts.ingested,
-        traces_ingested_partial=counts.partial,
-        traces_ingested_failed=counts.failed,
+        trajectories_scanned=counts.scanned,
+        trajectories_ingested=counts.ingested,
+        trajectories_ingested_partial=counts.partial,
+        trajectories_ingested_failed=counts.failed,
     )
 
 
@@ -333,15 +384,16 @@ def refuse_unvalidated_selector(
     end: dt.datetime,
     limit: int,
 ) -> None:
-    """Validate selector SQL before query execution.
+    """Validates selector SQL before query execution.
 
-    Durable runs reconstruct state from database records across execution
-    boundaries without prior validation proofs. Performing a dry run ensures
-    agent-authored SQL cannot execute unauthorized queries under the engine
-    service account's credentials. Runs without a custom selector skip this check.
+    Durable investigations reconstruct state from database records across
+    execution boundaries without prior validation proofs. Performing a dry run
+    ensures agent-authored SQL cannot execute unauthorized queries under the
+    engine service account's credentials. Investigations without a selector skip
+    this check.
 
     Args:
-        fetcher: Telemetry fetcher configured for the current sweep.
+        fetcher: Telemetry fetcher configured for the current investigation.
         node_name: Workflow node name for error reporting.
         agent_name: Watched agent name bound as `@agent_name`.
         start: Window start timestamp bound as `@window_start`.
@@ -436,8 +488,8 @@ fetcher_factory: Callable[[Context], BaseFetcher] = _create_default_fetcher
 evaluator_factory: Callable[[Context], AgentPlatformEvalService] = (
     _create_default_evaluator
 )
-reviewer_factory: Callable[[Context], Callable[[str], str]] = (
-    _create_default_reviewer
+session_reviewer_factory: Callable[[Context], SessionReviewFn] = (
+    _create_default_session_reviewer
 )
 goal_loader: Callable[[Context], goal_doc.InvestigationGoal] = (
     _load_default_goal
@@ -463,14 +515,14 @@ trajectory_recorder_factory: Callable[[LaunchContext], TrajectoryRecorder] = (
 
 
 def _create_default_metric_library(ctx: Context) -> tuple[MetricLibrary, str]:
-    """Load the run's agent's metric library, returning `(library, warning)`.
+    """Load the investigation's agent's metric library, returning `(library, warning)`.
 
     Read errors return a markdown warning instead of raising. Because the
     window only advances on completion, raising would wedge future sweeps on
     user upload errors.
 
     Args:
-        ctx: Workflow context, whose state names the run's agent.
+        ctx: Workflow context, whose state names the investigation's agent.
 
     Returns:
         Tuple of (loaded `MetricLibrary`, markdown warning string if errors occurred).

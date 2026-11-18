@@ -12,37 +12,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""What a reader of trajectories has to answer, apart from how they are kept.
+"""Read-only query contract for investigation trajectories and trajectory bundles.
 
-`bigquery_reader.BigQueryTrajectoryReader` is the deployed implementation;
-`standalone.InMemoryTrajectoryReader` is the other. The counterpart to
-`store.TrajectoryStore`: that is ingestion's write path, this is what the
-dashboard and the chat tools read back, and they are separate classes so a read
-can never reach the write machinery.
+Implemented by `bigquery_reader.BigQueryTrajectoryReader` for deployments and
+`standalone.InMemoryTrajectoryReader` for standalone mode. Kept separate from
+`store.TrajectoryStore` so read paths cannot invoke write operations.
 
-Four reads:
-
-* `count_daily_outcomes` -- the per-day chart, one count per (day, outcome).
-* `list_trajectories` -- the dots behind a bar, one row per trajectory.
-* `get_trajectories` -- the rows behind an insight's occurrence, and with them
-  the source trace ids of every conversation it was found in.
-* `get_archives` -- the archived conversations themselves, reassembled.
-
-Two rules run through them, and they are what the implementations must agree on.
-
-**An outcome is derived, never stored.** A trajectory is ``not_ingested`` when
-ingestion made nothing of it, ``in_an_insight`` when an insight occurrence of
-the *same run* names it, and ``no_insight`` otherwise. The order matters:
-something no analysis could see must not be filed under "evaluated and clean".
-An occurrence naming no insight is a candidate verification rejected or never
-judged, and does not count as evidence. Deriving it is what keeps the
-trajectories append-only -- a cleaned-up run cannot leave a stale flag behind.
-
-**One conversation, one answer.** A conversation can have been sampled by many
-sweeps and, on an append-only store, stored more than once;
-`bigquery_reader.PAYLOAD_PREFERENCE` says which copy is the one. Whether an
-implementation applies that when it writes or when it reads, `get_archives`
-returns the same copy.
+Both implementations enforce two rules:
+1. **Processing outcomes are derived at read time.** A trajectory is
+   ``not_ingested`` when `ingest_status` is ``NOT_INGESTED``, ``in_an_insight``
+   when a tracked `InsightOccurrence` from the same investigation references it,
+   and ``no_insight`` otherwise.
+2. **Duplicate trajectory bundles resolve to a single preferred copy.** When a
+   trajectory has been stored multiple times, the copy preferred by
+   `store.compute_manifest_rank` (`bigquery_reader.PAYLOAD_PREFERENCE`) is
+   returned.
 """
 
 from __future__ import annotations
@@ -52,14 +36,14 @@ from typing import TYPE_CHECKING, Protocol
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
+    from ambient_quality_agent.tools.trajectories.bundles import (
+        TrajectoryBundle,
+    )
     from ambient_quality_agent.tools.trajectories.models import (
         DailyOutcome,
-        Trajectory,
+        InvestigationTrajectory,
+        InvestigationTrajectoryView,
         TrajectoryProcessingState,
-        TrajectoryView,
-    )
-    from ambient_quality_agent.tools.trajectories.payloads import (
-        TrajectoryArchive,
     )
 
 _TRACE_CONSOLE_BASE = "https://console.cloud.google.com/traces/list"
@@ -85,7 +69,8 @@ def build_trace_console_url(project_id: str, trace_ids: Sequence[str]) -> str:
 
 
 class TrajectoryReader(Protocol):
-    """One agent's sampled trajectories, as the dashboard reads them back."""
+    """One agent's investigation trajectories and trajectory bundles, as the
+    dashboard reads them back."""
 
     def count_daily_outcomes(
         self, *, window_start: str | None = None, window_end: str | None = None
@@ -100,20 +85,20 @@ class TrajectoryReader(Protocol):
             List of DailyOutcome records ordered chronologically.
         """
 
-    def list_trajectories(
+    def list_investigation_trajectories(
         self,
         *,
-        run_id: str | None = None,
+        investigation_id: str | None = None,
         outcome: TrajectoryProcessingState | None = None,
         window_start: str | None = None,
         window_end: str | None = None,
         limit: int,
         offset: int,
-    ) -> tuple[list[TrajectoryView], int]:
-        """Lists trajectories matching filters with pagination and total count.
+    ) -> tuple[list[InvestigationTrajectoryView], int]:
+        """Lists investigation trajectories matching filters, with a total count.
 
         Args:
-            run_id: Optional investigation run ID filter.
+            investigation_id: Optional investigation ID filter.
             outcome: Optional derived processing outcome filter.
             window_start: Optional ISO timestamp lower bound on creation time.
             window_end: Optional ISO timestamp upper bound on creation time.
@@ -121,29 +106,30 @@ class TrajectoryReader(Protocol):
             offset: Number of records to skip.
 
         Returns:
-            Tuple of (list of TrajectoryView records, total match count).
+            Tuple of (list of InvestigationTrajectoryView records, total match
+            count).
         """
 
-    def get_trajectories(
+    def get_investigation_trajectories(
         self, keys: Sequence[tuple[str, str]]
-    ) -> dict[tuple[str, str], Trajectory]:
-        """Fetches stored trajectory records for (run_id, trajectory_id) pairs.
+    ) -> dict[tuple[str, str], InvestigationTrajectory]:
+        """Fetches investigation trajectories for (investigation_id, trajectory_id) pairs.
 
         Args:
-            keys: Sequence of (run_id, trajectory_id) tuples.
+            keys: Sequence of (investigation_id, trajectory_id) tuples.
 
         Returns:
-            Mapping of (run_id, trajectory_id) to Trajectory records.
+            Mapping of (investigation_id, trajectory_id) to InvestigationTrajectory records.
         """
 
-    def get_archives(
+    def get_trajectory_bundles(
         self, trajectory_ids: Sequence[str]
-    ) -> dict[str, TrajectoryArchive]:
-        """Fetches archived conversation manifests and turns for trajectory IDs.
+    ) -> dict[str, TrajectoryBundle]:
+        """Fetches the trajectory bundles of trajectory IDs.
 
         Args:
             trajectory_ids: Sequence of trajectory IDs to query.
 
         Returns:
-            Mapping of trajectory ID to TrajectoryArchive objects.
+            Mapping of trajectory ID to TrajectoryBundle objects.
         """

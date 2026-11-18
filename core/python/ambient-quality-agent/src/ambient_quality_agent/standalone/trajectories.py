@@ -18,12 +18,12 @@ Combines write and read implementations:
 - `InMemoryTrajectoryStore`: Implements `TrajectoryStore` for ingestion.
 - `InMemoryTrajectoryReader`: Implements `TrajectoryReader` for dashboard and chat queries.
 
-## Payload Reconciliation and Storage
+## Manifest Reconciliation and Storage
 
-Conversation archives reconcile payload versions during write operations:
-1. Incoming conversation archives are compared against existing stored copies
-   using `compute_payload_rank`, storing only the higher-ranking payload.
-2. Manifests and turns are stored together within unified `TrajectoryArchive`
+Trajectory bundles reconcile manifest versions during write operations:
+1. Incoming trajectory bundles are compared against existing stored copies
+   using `compute_manifest_rank`, storing only the higher-ranking manifest.
+2. Manifests and steps are stored together within unified `TrajectoryBundle`
    objects, preventing partial or mismatched state.
 
 ## Dynamic Outcome Computation
@@ -32,7 +32,7 @@ Trajectory outcomes (`TrajectoryProcessingState`) are derived dynamically on rea
 rather than stored at ingestion time. Because outcome classification depends on
 insight occurrences produced during correlation (after ingestion completes),
 deriving outcomes dynamically ensures state consistency without mutating prior
-ingestion rows.
+investigation trajectories.
 """
 
 from __future__ import annotations
@@ -45,71 +45,83 @@ from typing import TYPE_CHECKING
 from ambient_quality_agent.tools.trajectories.models import (
     DailyOutcome,
     IngestStatus,
+    InvestigationTrajectoryView,
     TrajectoryProcessingState,
-    TrajectoryView,
 )
-from ambient_quality_agent.tools.trajectories.store import compute_payload_rank
+from ambient_quality_agent.tools.trajectories.store import compute_manifest_rank
 
 if TYPE_CHECKING:
     from collections.abc import Container, Sequence
 
     from ambient_quality_agent.standalone.store import InMemoryStore
-    from ambient_quality_agent.tools.trajectories.models import (
-        Trajectory,
-        TrajectoryPayload,
+    from ambient_quality_agent.tools.trajectories.bundles import (
+        TrajectoryBundle,
     )
-    from ambient_quality_agent.tools.trajectories.payloads import (
-        TrajectoryArchive,
+    from ambient_quality_agent.tools.trajectories.models import (
+        InvestigationTrajectory,
+        TrajectoryManifest,
     )
 
 logger = logging.getLogger(__name__)
 
 
 class InMemoryTrajectoryStore:
-    """One agent's sampled trajectories, over the in-process `InMemoryStore`."""
+    """One agent's investigation trajectories and trajectory bundles, over the
+    in-process `InMemoryStore`."""
 
-    def __init__(self, store: InMemoryStore, *, agent_name: str) -> None:
+    def __init__(
+        self, store: InMemoryStore, *, observed_agent_key: str
+    ) -> None:
         """Initializes the trajectory store scoped to an observed agent.
 
         Args:
             store: Backing in-memory store.
-            agent_name: Key of the observed agent scoping cleanups and storage.
+            observed_agent_key: Key of the observed agent scoping cleanups and storage.
         """
         self._store = store
-        self._agent_name = agent_name
+        self._observed_agent_key = observed_agent_key
 
-    def delete_run_trajectories(self, run_id: str) -> None:
-        """Deletes trajectory index rows for a run attempt to prepare for retries.
-
-        Args:
-            run_id: Investigation run identifier to clean up.
-        """
-        self._store.delete_run_trajectories(run_id, self._agent_name)
-
-    def record(self, trajectories: Sequence[Trajectory]) -> None:
-        """Stores a batch of trajectory index records.
+    def delete_investigation_trajectories(self, investigation_id: str) -> None:
+        """Deletes the investigation trajectories one investigation wrote.
 
         Args:
-            trajectories: Sequence of trajectory records to store.
+            investigation_id: Investigation identifier to clean up.
         """
-        self._store.save_trajectories(trajectories)
+        self._store.delete_investigation_trajectories(
+            investigation_id, self._observed_agent_key
+        )
 
-    def record_payloads(self, archives: Sequence[TrajectoryArchive]) -> None:
-        """Stores conversation payloads, retaining the higher-ranking copy of duplicates.
+    def record_investigation_trajectories(
+        self, investigation_trajectories: Sequence[InvestigationTrajectory]
+    ) -> None:
+        """Stores a batch of investigation trajectories.
 
         Args:
-            archives: Sequence of conversation archives to persist.
+            investigation_trajectories: Investigation trajectories to store.
         """
-        for archive in archives:
-            self._store.save_archive(archive, better=_is_better)
+        self._store.save_investigation_trajectories(investigation_trajectories)
+
+    def record_trajectory_bundles(
+        self, bundles: Sequence[TrajectoryBundle]
+    ) -> None:
+        """Stores trajectory bundles, keeping the higher-ranking copy of duplicates.
+
+        Args:
+            bundles: Trajectory bundles to persist.
+        """
+        for bundle in bundles:
+            self._store.save_trajectory_bundle(bundle, better=_is_better)
 
 
 class InMemoryTrajectoryReader:
-    """One agent's sampled trajectories, read out of the `InMemoryStore`."""
+    """One agent's investigation trajectories and trajectory bundles, read out
+    of the `InMemoryStore`."""
 
-    def __init__(self, store: InMemoryStore, *, agent_name: str) -> None:
+    def __init__(
+        self, store: InMemoryStore, *, observed_agent_key: str
+    ) -> None:
         self._store = store
-        self._agent_name = agent_name
+        self._observed_agent_key = observed_agent_key
 
     def count_daily_outcomes(
         self, *, window_start: str | None = None, window_end: str | None = None
@@ -128,7 +140,7 @@ class InMemoryTrajectoryReader:
             tuple[dt.date, TrajectoryProcessingState]
         ] = collections.Counter()
         evidence = self._compute_evidence_keys()
-        for trajectory in self._list_matching_trajectories(
+        for trajectory in self._list_matching_investigation_trajectories(
             window_start=window_start, window_end=window_end
         ):
             day = trajectory.created_at.astimezone(dt.UTC).date()
@@ -139,20 +151,20 @@ class InMemoryTrajectoryReader:
             for (day, outcome), total in sorted(counts.items())
         ]
 
-    def list_trajectories(
+    def list_investigation_trajectories(
         self,
         *,
-        run_id: str | None = None,
+        investigation_id: str | None = None,
         outcome: TrajectoryProcessingState | None = None,
         window_start: str | None = None,
         window_end: str | None = None,
         limit: int,
         offset: int,
-    ) -> tuple[list[TrajectoryView], int]:
+    ) -> tuple[list[InvestigationTrajectoryView], int]:
         """Returns a paginated list of trajectories and total match count.
 
         Args:
-            run_id: Optional investigation run ID filter.
+            investigation_id: Optional investigation ID filter.
             outcome: Optional trajectory processing state filter.
             window_start: Optional ISO timestamp lower bound for creation time.
             window_end: Optional ISO timestamp upper bound for creation time.
@@ -164,86 +176,94 @@ class InMemoryTrajectoryReader:
         """
         evidence = self._compute_evidence_keys()
         views = []
-        for trajectory in self._list_matching_trajectories(
-            run_id=run_id, window_start=window_start, window_end=window_end
+        for trajectory in self._list_matching_investigation_trajectories(
+            investigation_id=investigation_id,
+            window_start=window_start,
+            window_end=window_end,
         ):
             # Uses the same outcome derivation as count_daily_outcomes to ensure consistent drill-down views.
             derived = _compute_outcome(trajectory, evidence)
             if outcome is not None and derived != outcome:
                 continue
             views.append(
-                TrajectoryView(**trajectory.model_dump(), outcome=derived)
+                InvestigationTrajectoryView(
+                    **trajectory.model_dump(), outcome=derived
+                )
             )
         views.sort(key=lambda v: (-v.created_at.timestamp(), v.trajectory_id))
         return views[offset : offset + limit], len(views)
 
-    def get_trajectories(
+    def get_investigation_trajectories(
         self, keys: Sequence[tuple[str, str]]
-    ) -> dict[tuple[str, str], Trajectory]:
-        """Retrieves stored trajectory rows by (run_id, trajectory_id) pairs.
+    ) -> dict[tuple[str, str], InvestigationTrajectory]:
+        """Retrieves stored trajectory rows by (investigation_id, trajectory_id) pairs.
 
         Args:
-            keys: Sequence of (run_id, trajectory_id) tuples to fetch.
+            keys: Sequence of (investigation_id, trajectory_id) tuples to fetch.
 
         Returns:
-            Dictionary mapping found keys to their `Trajectory` records.
+            Dictionary mapping found keys to their `InvestigationTrajectory` records.
         """
         found = {}
         for key in set(keys):
-            trajectory = self._store.trajectories.get(key)
+            trajectory = self._store.investigation_trajectories.get(key)
             if (
                 trajectory is not None
-                and trajectory.agent_name == self._agent_name
+                and trajectory.observed_agent_key == self._observed_agent_key
             ):
                 found[key] = trajectory
         return found
 
-    def get_archives(
+    def get_trajectory_bundles(
         self, trajectory_ids: Sequence[str]
-    ) -> dict[str, TrajectoryArchive]:
-        """Retrieves archived conversations by trajectory ID.
+    ) -> dict[str, TrajectoryBundle]:
+        """Retrieves trajectory bundles by trajectory ID.
 
         Args:
             trajectory_ids: Sequence of trajectory IDs to fetch.
 
         Returns:
-            Dictionary mapping trajectory IDs to their `TrajectoryArchive` records.
+            Dictionary mapping trajectory IDs to their `TrajectoryBundle` records.
         """
-        archives = self._store.archives
+        stored = self._store.trajectory_bundles
         found = {}
         for trajectory_id in set(trajectory_ids):
-            archive = archives.get(trajectory_id)
+            bundle = stored.get(trajectory_id)
             if (
-                archive is not None
-                and archive.payload.agent_name == self._agent_name
+                bundle is not None
+                and bundle.manifest.observed_agent_key
+                == self._observed_agent_key
             ):
-                found[trajectory_id] = archive
+                found[trajectory_id] = bundle
         return found
 
-    def _list_matching_trajectories(
+    def _list_matching_investigation_trajectories(
         self,
         *,
-        run_id: str | None = None,
+        investigation_id: str | None = None,
         window_start: str | None = None,
         window_end: str | None = None,
-    ) -> list[Trajectory]:
+    ) -> list[InvestigationTrajectory]:
         """Lists trajectory records for this agent within the given window.
 
         Args:
-            run_id: Optional investigation run ID filter.
+            investigation_id: Optional investigation ID filter.
             window_start: Optional ISO timestamp lower bound.
             window_end: Optional ISO timestamp upper bound.
 
         Returns:
-            Unordered list of matching `Trajectory` objects.
+            Unordered list of matching `InvestigationTrajectory` objects.
         """
         start = _parse_instant(window_start)
         end = _parse_instant(window_end)
         kept = []
-        for trajectory in self._store.trajectories.values():
-            if trajectory.agent_name != self._agent_name:
+        for trajectory in self._store.investigation_trajectories.values():
+            if trajectory.observed_agent_key != self._observed_agent_key:
                 continue
-            if run_id is not None and trajectory.run_id != run_id:
+            if (
+                investigation_id is not None
+                and trajectory.investigation_id != investigation_id
+            ):
                 continue
             if start is not None and trajectory.created_at < start:
                 continue
@@ -253,62 +273,67 @@ class InMemoryTrajectoryReader:
         return kept
 
     def _compute_evidence_keys(self) -> set[tuple[str, str]]:
-        """Collects (run_id, trajectory_id) pairs referenced by confirmed insights.
+        """Collects (investigation_id, trajectory_id) pairs referenced by confirmed insights.
 
         Occurrences without an insight ID represent unconfirmed or rejected
         candidates and are excluded so unverified samples are not counted as insight evidence.
 
         Returns:
-            Set of (run_id, trajectory_id) tuples tied to confirmed insights.
+            Set of (investigation_id, trajectory_id) tuples tied to confirmed insights.
         """
         return {
-            (occurrence.run_id, trajectory_id)
-            for occurrence in self._store.occurrences
-            if occurrence.agent_name == self._agent_name
+            (occurrence.investigation_id, trajectory_id)
+            for occurrence in self._store.insight_occurrences
+            if occurrence.observed_agent_key == self._observed_agent_key
             and occurrence.insight_id is not None
             for trajectory_id in occurrence.trajectory_ids
         }
 
 
 def _compute_outcome(
-    trajectory: Trajectory, evidence: Container[tuple[str, str]]
+    trajectory: InvestigationTrajectory, evidence: Container[tuple[str, str]]
 ) -> TrajectoryProcessingState:
-    """Derives the processing outcome for a trajectory.
+    """Derives the processing outcome for an investigation trajectory.
 
     Evaluates state in the following order:
-    1. Returns NOT_INGESTED if ingestion failed, preventing unanalyzed traces
-       from appearing as evaluated.
-    2. Returns IN_AN_INSIGHT if the trajectory is referenced by confirmed insight evidence.
-    3. Returns NO_INSIGHT if ingestion succeeded without linking to an insight.
+    1. Returns `NOT_INGESTED` if ingestion failed, preventing unanalyzed
+       trajectories from appearing as evaluated.
+    2. Returns `IN_AN_INSIGHT` if the trajectory is referenced by a confirmed
+       insight occurrence.
+    3. Returns `NO_INSIGHT` if ingestion succeeded without linking to an
+       insight.
 
     Args:
-        trajectory: The trajectory record to evaluate.
-        evidence: Container of (run_id, trajectory_id) tuples present in confirmed insights.
+        trajectory: The investigation trajectory record to evaluate.
+        evidence: Container of ``(investigation_id, trajectory_id)`` tuples
+            present in confirmed insights.
 
     Returns:
         The derived `TrajectoryProcessingState`.
     """
     if trajectory.ingest_status is IngestStatus.NOT_INGESTED:
         return TrajectoryProcessingState.NOT_INGESTED
-    if (trajectory.run_id, trajectory.trajectory_id) in evidence:
+    if (trajectory.investigation_id, trajectory.trajectory_id) in evidence:
         return TrajectoryProcessingState.IN_AN_INSIGHT
     return TrajectoryProcessingState.NO_INSIGHT
 
 
-def _is_better(arriving: TrajectoryPayload, stored: TrajectoryPayload) -> bool:
-    """Determines whether an arriving conversation payload should replace a stored copy.
+def _is_better(
+    arriving: TrajectoryManifest, stored: TrajectoryManifest
+) -> bool:
+    """Determines whether an arriving manifest should replace a stored copy.
 
-    Compares ranks using `compute_payload_rank` where lower rank indicates higher
+    Compares ranks using `compute_manifest_rank` where lower rank indicates higher
     preference. Equal ranks return False to avoid redundant writes.
 
     Args:
-        arriving: Incoming trajectory payload.
-        stored: Currently stored trajectory payload.
+        arriving: Incoming trajectory manifest.
+        stored: Currently stored trajectory manifest.
 
     Returns:
-        True if the arriving payload has a strictly lower rank, False otherwise.
+        True if the arriving manifest has a strictly lower rank, False otherwise.
     """
-    return compute_payload_rank(arriving) < compute_payload_rank(stored)
+    return compute_manifest_rank(arriving) < compute_manifest_rank(stored)
 
 
 def _parse_instant(stamp: str | None) -> dt.datetime | None:

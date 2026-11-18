@@ -1,0 +1,32 @@
+{
+  "mcpServers": {
+    "google_calendar": {
+      "command": "python",
+      "args": ["-m", "workspace_mcp.google_calendar"]
+    },
+    "gmail": {
+      "command": "python",
+      "args": ["-m", "workspace_mcp.gmail"]
+    },
+    "google_drive": {
+      "command": "python",
+      "args": ["-m", "workspace_mcp.drive"]
+    },
+    "google_docs": {
+      "command": "python",
+      "args": ["-m", "workspace_mcp.docs"]
+    },
+    "google_sheets": {
+      "command": "python",
+      "args": ["-m", "workspace_mcp.sheets"]
+    },
+    "google_slides": {
+      "command": "python",
+      "args": ["-m", "workspace_mcp.slides"]
+    },
+    "github": {
+      "type": "http",
+      "url": "https://api.githubcopilot.com/mcp/"
+    }
+  }
+}

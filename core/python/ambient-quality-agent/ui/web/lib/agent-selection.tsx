@@ -15,9 +15,9 @@
 /** Which of AQuA's attached agents the dashboard shows.
  *
  * The selection is the `agent` search parameter, which the root route keeps
- * on every navigation, so a deep link to an insight or a run opens it for the
- * agent it belongs to. Without the parameter the dashboard shows the agent
- * AQuA answers a request that names none: its default agent.
+ * on every navigation, so a deep link to an insight or an investigation opens
+ * it for the agent it belongs to. Without the parameter the dashboard shows the
+ * agent AQuA answers a request that names none: its default agent.
  *
  * Read through a context rather than from the router in each component, so
  * that a component rendered outside the router, as most unit tests render

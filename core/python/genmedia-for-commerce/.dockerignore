@@ -1,0 +1,53 @@
+# The same files as .gcloudignore (and the .gitignore it includes), so a
+# local `docker build .` sends the same context as `gcloud run deploy`.
+# Docker matches a pattern without "**/" at the context root only.
+
+.git/
+.gitignore
+**/.DS_Store
+**/Thumbs.db
+**/*.log
+
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+**/*.pyd
+
+**/.ruff_cache/
+**/.pytest_cache/
+.coverage
+
+# ADK runtime session/artifact storage — created on first agent import
+**/.adk/
+
+**/.venv/
+**/venv/
+
+**/node_modules/
+**/dist/
+**/build/
+
+# Assets stay local, except the product catalogue the image copies in
+/assets/*
+!/assets/catalog/
+
+# Secrets and local config (deployments pass env vars)
+**/*.env
+!config.env.example
+
+# Generated at runtime
+**/interpolation_*.mp4
+**/r2v_*.mp4
+
+# Local debug dumps and eval clips
+**/debug*/
+**/video_examples/
+**/*.zip
+
+# Internal only (see .gitignore)
+/compliance.md
+/PUBLISHING.md
+/.secrets.baseline
+/repo_metadata.yaml
+/.github/
+/push_to_customer.sh

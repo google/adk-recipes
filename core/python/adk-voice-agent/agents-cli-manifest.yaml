@@ -1,0 +1,14 @@
+name: adk-voice-agent
+agent_directory: app
+region: us-central1
+base_template: adk
+acli_version: 1.11.0
+language: python
+create_params:
+  deployment_target: cloud_run
+  is_a2a: false
+  session_type: in_memory
+  cicd_runner: skip
+  agent_gateway: false
+  agent_guidance_filename: AGENTS.md
+  root_agent_name: voice_agent

@@ -15,7 +15,7 @@ import { buildAgentScope } from "../aqua-api";
 import { hydrateQueryCache, persistQueryCache } from "../query-persist";
 
 const KEY = "aqua.query-cache.v2";
-const RUNS = [...buildAgentScope(undefined), "runs"];
+const INVESTIGATIONS = [...buildAgentScope(undefined), "investigations"];
 
 // happy-dom provides no Storage, so the persister's real code path needs one.
 function fakeStorage(): Storage {
@@ -55,7 +55,7 @@ describe("persistQueryCache", () => {
   it("writes aqua reads and skips everything else", async () => {
     const qc = client();
     const stop = persistQueryCache(qc);
-    qc.setQueryData(RUNS, [{ run_id: "r1" }]);
+    qc.setQueryData(INVESTIGATIONS, [{ investigation_id: "r1" }]);
     qc.setQueryData(["lha", "contexts", "c", "tasks"], [{ id: "t" }]);
     await flush();
     stop();
@@ -87,28 +87,30 @@ describe("hydrateQueryCache", () => {
       KEY,
       JSON.stringify([
         {
-          key: RUNS,
-          data: [{ run_id: "r1" }],
+          key: INVESTIGATIONS,
+          data: [{ investigation_id: "r1" }],
           updatedAt: Date.now(),
         },
       ]),
     );
     const qc = client();
     hydrateQueryCache(qc);
-    expect(qc.getQueryData(RUNS)).toEqual([{ run_id: "r1" }]);
+    expect(qc.getQueryData(INVESTIGATIONS)).toEqual([
+      { investigation_id: "r1" },
+    ]);
   });
 
   it("keeps the original timestamp so stale data still refetches", () => {
     const old = Date.now() - 60_000;
     store.setItem(
       KEY,
-      JSON.stringify([{ key: RUNS, data: [], updatedAt: old }]),
+      JSON.stringify([{ key: INVESTIGATIONS, data: [], updatedAt: old }]),
     );
     const qc = client();
     hydrateQueryCache(qc);
     // Restoring with "now" would make a day-old cache look fresh and suppress
     // the background refetch, which is how a dashboard starts lying.
-    expect(qc.getQueryState(RUNS)?.dataUpdatedAt).toBe(old);
+    expect(qc.getQueryState(INVESTIGATIONS)?.dataUpdatedAt).toBe(old);
   });
 
   it("drops entries older than a day", () => {
@@ -116,45 +118,52 @@ describe("hydrateQueryCache", () => {
       KEY,
       JSON.stringify([
         {
-          key: RUNS,
-          data: [{ run_id: "ancient" }],
+          key: INVESTIGATIONS,
+          data: [{ investigation_id: "ancient" }],
           updatedAt: Date.now() - 48 * 60 * 60 * 1000,
         },
       ]),
     );
     const qc = client();
     hydrateQueryCache(qc);
-    expect(qc.getQueryData(RUNS)).toBeUndefined();
+    expect(qc.getQueryData(INVESTIGATIONS)).toBeUndefined();
   });
 
   it("restores each agent's reads under its own key", () => {
-    const prod = [...buildAgentScope("acme-prod__support"), "runs"];
-    const staging = [...buildAgentScope("acme-staging__support"), "runs"];
+    const prod = [...buildAgentScope("acme-prod__support"), "investigations"];
+    const staging = [
+      ...buildAgentScope("acme-staging__support"),
+      "investigations",
+    ];
     store.setItem(
       KEY,
       JSON.stringify([
-        { key: prod, data: [{ run_id: "p" }], updatedAt: Date.now() },
-        { key: staging, data: [{ run_id: "s" }], updatedAt: Date.now() },
+        { key: prod, data: [{ investigation_id: "p" }], updatedAt: Date.now() },
+        {
+          key: staging,
+          data: [{ investigation_id: "s" }],
+          updatedAt: Date.now(),
+        },
       ]),
     );
     const qc = client();
     hydrateQueryCache(qc);
-    expect(qc.getQueryData(prod)).toEqual([{ run_id: "p" }]);
-    expect(qc.getQueryData(staging)).toEqual([{ run_id: "s" }]);
-    expect(qc.getQueryData(RUNS)).toBeUndefined();
+    expect(qc.getQueryData(prod)).toEqual([{ investigation_id: "p" }]);
+    expect(qc.getQueryData(staging)).toEqual([{ investigation_id: "s" }]);
+    expect(qc.getQueryData(INVESTIGATIONS)).toBeUndefined();
   });
 
   it("drops a cache whose keys name no agent", () => {
     store.setItem(
       "aqua.query-cache.v1",
       JSON.stringify([
-        { key: ["aqua", "runs"], data: [], updatedAt: Date.now() },
+        { key: ["aqua", "investigations"], data: [], updatedAt: Date.now() },
       ]),
     );
     const qc = client();
     hydrateQueryCache(qc);
     expect(store.getItem("aqua.query-cache.v1")).toBeNull();
-    expect(qc.getQueryData(["aqua", "runs"])).toBeUndefined();
+    expect(qc.getQueryData(["aqua", "investigations"])).toBeUndefined();
   });
 
   it("survives a corrupt payload instead of blocking boot", () => {

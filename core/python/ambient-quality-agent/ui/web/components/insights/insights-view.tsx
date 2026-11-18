@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { useCallback, useEffect, useRef, useState } from "react";
 import {
   keepPreviousData,
   useMutation,
@@ -21,32 +20,34 @@ import {
 } from "@tanstack/react-query";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 import { AlertCircle, Merge, Stethoscope, Trash2 } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { PageHeader } from "@/components/nav/page-header";
+import { Button } from "@/components/ui/button";
+import { DayFilterChip } from "@/components/ui/day-filter-chip";
+import { FailureNote } from "@/components/ui/failure-note";
+import { FilterTabs } from "@/components/ui/filter-tabs";
+import { InlineMarkdown } from "@/components/ui/inline-markdown";
+import { LoadingPane } from "@/components/ui/loading";
+import { PageRefreshButton } from "@/components/ui/refresh-button";
+import { useAgentKey } from "@/lib/agent-selection";
+import { stripMarkdownForSummary } from "@/lib/aqa-markdown";
 import {
   buildAgentScope,
   dismissInsight,
   INSIGHTS_PAGE_SIZE,
+  type InsightView,
   insightQuery,
   insightsQuery,
   isDiagnosed,
-  noneDiagnosed,
   mergeInsights,
-  type InsightView,
+  noneDiagnosed,
 } from "@/lib/aqua-api";
-import { stripMarkdownForSummary } from "@/lib/aqa-markdown";
-import { MergeBar } from "./merge-bar";
-import { DiagnoseInChatButton } from "./diagnose-in-chat-button";
-import { SubAgentItem } from "./sub-agent-item";
-import { Button } from "@/components/ui/button";
-import { FailureNote } from "@/components/ui/failure-note";
-import { InlineMarkdown } from "@/components/ui/inline-markdown";
-import { PageRefreshButton } from "@/components/ui/refresh-button";
-import { DayFilterChip } from "@/components/ui/day-filter-chip";
-import { FilterTabs } from "@/components/ui/filter-tabs";
-import { cn, formatSentenceCase } from "@/lib/utils";
 import { link, mono, textStyle } from "@/lib/typography";
-import { PageHeader } from "@/components/nav/page-header";
-import { LoadingPane } from "@/components/ui/loading";
-import { useAgentKey } from "@/lib/agent-selection";
+import { cn, formatSentenceCase } from "@/lib/utils";
+import { isViewerMode } from "@/lib/viewer-mode";
+import { DiagnoseInChatButton } from "./diagnose-in-chat-button";
+import { MergeBar } from "./merge-bar";
+import { SubAgentItem } from "./sub-agent-item";
 
 /** The statuses the list can be narrowed to, spelled as the URL spells them.
  *  No status is the whole list. */
@@ -74,14 +75,10 @@ export function parsePageNumber(value: unknown): number | undefined {
 /**
  * The insights list.
  *
- * `runId` and `embedded` are two questions, and were one prop until they were
- * separated here: `runId` narrows the read to one sweep's findings, `embedded`
- * says this list is inside another page and should bring no chrome of its own
- * — no heading, no scroll container, no page padding, no list-wide actions.
- *
- * They correlated perfectly while the run detail was the only embedder, which
- * is what hid the overload. They come apart the moment the standalone page
- * wants `?runId=`: that is a filtered list that still owns its page.
+ * `investigationId` and `embedded` are independent props: `investigationId`
+ * narrows the read to one investigation's findings, while `embedded` renders
+ * the list inside another page without standalone page chrome (no heading,
+ * scroll container, page padding, or list-wide actions).
  *
  * The status filter is the caller's when it passes `onStatusChange`: `status`
  * is then the only record of it, and a tab click asks the caller to change it.
@@ -96,7 +93,7 @@ export function parsePageNumber(value: unknown): number | undefined {
  * day rather than the page they arrived on.
  */
 export function InsightsView({
-  runId,
+  investigationId,
   embedded = false,
   status,
   onStatusChange,
@@ -105,7 +102,7 @@ export function InsightsView({
   page: pageParam,
   onPageChange,
 }: {
-  runId?: string;
+  investigationId?: string;
   embedded?: boolean;
   status?: InsightStatusFilter;
   onStatusChange?: (status: InsightStatusFilter | undefined) => void;
@@ -131,13 +128,17 @@ export function InsightsView({
   // rather than in an effect, because an effect lets one render commit with
   // the new filter and the old page, and that read is fetched only to be
   // discarded.
-  const [pagedList, setPagedList] = useState({ runId, statusFilter, day });
+  const [pagedList, setPagedList] = useState({
+    investigationId,
+    statusFilter,
+    day,
+  });
   if (
-    runId !== pagedList.runId ||
+    investigationId !== pagedList.investigationId ||
     statusFilter !== pagedList.statusFilter ||
     day !== pagedList.day
   ) {
-    setPagedList({ runId, statusFilter, day });
+    setPagedList({ investigationId, statusFilter, day });
     setLocalPage(1);
   }
   const tabsRef = useRef<HTMLDivElement>(null);
@@ -151,7 +152,7 @@ export function InsightsView({
   const listHref = useLocation({ select: (location) => location.href });
 
   const queryArgs = {
-    runId,
+    investigationId,
     status: statusFilter?.toUpperCase(),
     pageSize: INSIGHTS_PAGE_SIZE,
     orderBy: "impact" as const,
@@ -268,8 +269,8 @@ export function InsightsView({
   }
   if (isError) {
     // Embedded, this sits under a page that has already explained the state --
-    // the run detail's own read fails for the same reason -- and inside a card
-    // that `Centered` would try to fill.
+    // the investigation detail's own read fails for the same reason -- and
+    // inside a card that `Centered` would try to fill.
     const note = (
       <FailureNote
         lead="Couldn't load insights"
@@ -283,6 +284,8 @@ export function InsightsView({
   }
 
   const diagnosed = insights.filter(isDiagnosed).length;
+  // A read-only viewer merges, dismisses and chats about nothing.
+  const viewer = isViewerMode();
 
   // An embedded list with nothing in it is a line of text inside someone
   // else's page. Not once it has been paged, though: then the empty page needs
@@ -291,7 +294,7 @@ export function InsightsView({
   if (embedded && insights.length === 0 && page === 1 && !statusFilter) {
     return (
       <p className={cn(textStyle.meta, "py-2")}>
-        {emptyText(runId, day, statusFilter)}
+        {emptyText(investigationId, day, statusFilter)}
       </p>
     );
   }
@@ -340,7 +343,7 @@ export function InsightsView({
 
       {!embedded && (
         <div className="flex items-center gap-2">
-          {!picking ? (
+          {!picking && !viewer ? (
             <Button
               size="sm"
               variant="outline"
@@ -374,14 +377,15 @@ export function InsightsView({
           <PageHeader
             data-tour="insights-triage"
             className="gap-2"
-            title={insights[0]?.agent_name || "Insights"}
+            title={insights[0]?.observed_agent_key || "Insights"}
             description={counts}
             aside={<PageRefreshButton />}
           >
-            {runId && (
+            {investigationId && (
               <p className={textStyle.meta}>
                 Showing only what investigation{" "}
-                <span className={mono}>{runId.slice(0, 8)}</span> found.{" "}
+                <span className={mono}>{investigationId.slice(0, 8)}</span>{" "}
+                found.{" "}
                 <Link to="/insights" search={{}} className={link.inline}>
                   Show all insights
                 </Link>
@@ -401,10 +405,12 @@ export function InsightsView({
             Nothing here has a root cause recorded yet. Root-cause analysis runs
             when you ask AQuA to diagnose an insight, so until then these are
             what the judge model saw rather than why it happened.
-            <span className="mt-2 block">
-              Click <strong>Chat</strong> on an undiagnosed insight to run your
-              first root-cause analysis.
-            </span>
+            {!viewer && (
+              <span className="mt-2 block">
+                Click <strong>Chat</strong> on an undiagnosed insight to run
+                your first root-cause analysis.
+              </span>
+            )}
           </p>
         )}
 
@@ -427,7 +433,7 @@ export function InsightsView({
 
         {insights.length === 0 ? (
           <p className={cn(textStyle.description, "py-6")}>
-            {emptyText(runId, day, statusFilter)}
+            {emptyText(investigationId, day, statusFilter)}
           </p>
         ) : (
           <div className="flex flex-col gap-2.5">
@@ -439,7 +445,9 @@ export function InsightsView({
                 picking={picking}
                 selected={selected.has(insight.insight_id)}
                 onToggleSelect={() => toggleSelect(insight.insight_id)}
-                onDismiss={() => dismiss.mutate(insight.insight_id)}
+                onDismiss={
+                  viewer ? undefined : () => dismiss.mutate(insight.insight_id)
+                }
                 dismissing={
                   dismiss.isPending && dismiss.variables === insight.insight_id
                 }
@@ -558,6 +566,8 @@ export function IssueCard({
                 insightId={insight.insight_id}
                 label={insight.label}
                 ariaLabel={`Diagnose insight in chat: ${plainHeadline}`}
+                hasRootCause={Boolean(insight.has_root_cause)}
+                rootCauseContextIds={insight.root_cause_context_ids}
                 className="h-6 px-1.5 text-muted-foreground hover:text-foreground"
               />
             )}
@@ -595,8 +605,8 @@ export function IssueCard({
             {insight.occurrence_count === 1 ? "occurrence" : "occurrences"}
           </span>
           <span>
-            {insight.trace_count}{" "}
-            {insight.trace_count === 1 ? "trajectory" : "trajectories"}
+            {insight.trajectory_count}{" "}
+            {insight.trajectory_count === 1 ? "trajectory" : "trajectories"}
           </span>
           <SubAgentItem insight={insight} />
           <span className="ml-auto">{insight.impact} impact</span>
@@ -644,18 +654,18 @@ export function IssueCard({
 }
 
 /** Why the list is empty, which depends on what was asked for rather than on
- *  where the list is drawn — so the run detail and a `?runId=` page give the
- *  same answer. */
+ *  where the list is drawn — so the investigation detail and a
+ *  `?investigationId=` page give the same answer. */
 function emptyText(
-  runId?: string,
+  investigationId?: string,
   day?: string,
   status?: InsightStatusFilter,
 ): string {
-  if (runId) {
-    const run = runId.slice(0, 8);
+  if (investigationId) {
+    const shortId = investigationId.slice(0, 8);
     return status
-      ? `None of investigation ${run}'s insights are ${status}.`
-      : `Investigation ${run} produced no insights.`;
+      ? `None of investigation ${shortId}'s insights are ${status}.`
+      : `Investigation ${shortId} produced no insights.`;
   }
   if (day) return `No insights were ${dayChange(status)} ${day} (UTC).`;
   return "No insights found for this filter.";

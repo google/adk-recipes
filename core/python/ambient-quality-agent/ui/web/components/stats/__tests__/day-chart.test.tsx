@@ -18,7 +18,7 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { InsightTrend } from "../insight-trend";
-import { TracesPerDay } from "../traces-per-day";
+import { TrajectoriesPerDay } from "../trajectories-per-day";
 import type { Day } from "@/lib/aqua-api";
 import type { TrendDay } from "@/lib/insight-trend";
 
@@ -27,10 +27,10 @@ const NOW = new Date("2026-09-16T12:00:00Z");
 const measured: Day = {
   day: "2026-09-16",
   investigations: 1,
-  traces_evaluated: 0,
-  traces_eval_passed: 0,
-  traces_eval_failed: 0,
-  traces_eval_errored: 0,
+  trajectories_evaluated: 0,
+  trajectories_eval_passed: 0,
+  trajectories_eval_failed: 0,
+  trajectories_eval_errored: 0,
 } as Day;
 
 const trendDay: TrendDay = {
@@ -61,7 +61,7 @@ function anatomy(): string[] {
 describe("the per-day charts", () => {
   it("draw a measured zero day the same way", () => {
     const { unmount } = render(
-      <TracesPerDay days={[measured]} span={1} now={NOW} height="h-20" />,
+      <TrajectoriesPerDay days={[measured]} span={1} now={NOW} height="h-20" />,
     );
     const activity = anatomy();
     unmount();

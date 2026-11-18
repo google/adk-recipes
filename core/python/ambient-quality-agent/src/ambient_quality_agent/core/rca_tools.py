@@ -14,7 +14,7 @@
 
 """Provides full conversation history for root-cause analysis of insights.
 
-Joins insight trajectory IDs with archived conversation payloads to deliver
+Joins insight trajectory IDs with their trajectory bundles to deliver
 complete, turn-by-turn conversation logs. Distinguishes unarchived, expired,
 and lossy (partial/truncated) conversations, and supports paginated responses.
 """
@@ -39,7 +39,7 @@ from ambient_quality_agent.tools.orchestrator.paging import (
     decode_page_token,
     encode_page_token,
 )
-from ambient_quality_agent.tools.trajectories import payloads
+from ambient_quality_agent.tools.trajectories import bundles
 from google.api_core import exceptions as api_exceptions
 from google.auth import exceptions as auth_exceptions
 
@@ -47,8 +47,8 @@ if TYPE_CHECKING:
     from collections.abc import Iterable, Sequence
 
     from ambient_quality_agent.tools.insights.models import InsightOccurrence
-    from ambient_quality_agent.tools.trajectories.payloads import (
-        TrajectoryArchive,
+    from ambient_quality_agent.tools.trajectories.bundles import (
+        TrajectoryBundle,
     )
 
 logger = logging.getLogger(__name__)
@@ -82,7 +82,7 @@ async def get_full_trajectories(
     """Retrieves full conversations behind an insight or a specific sighting.
 
     Use during root-cause analysis to inspect complete conversation trajectories
-    rather than capped rubric samples from ``get_insight``. Call ``get_insight``
+    rather than capped finding examples from ``get_insight``. Call ``get_insight``
     first to obtain an ``insight_id`` and sighting ``occurrence_id`` values.
 
     Scope follows ``occurrence_id``: provide one to read that single sighting,
@@ -100,14 +100,14 @@ async def get_full_trajectories(
         A dictionary containing:
         * ``trajectories``: List of trajectory objects, each containing:
           - ``trajectory_id``: Unique conversation identifier.
-          - ``status``: Archive status (``ingested``, ``partial``,
+          - ``status``: Storage status (``ingested``, ``partial``,
             ``truncated``, or ``not_archived``).
-          - ``turns``: Ordered list of turn event objects.
-          - ``turn_count``: Total number of recorded turns.
-          - ``turns_returned``: Number of returned turns (fewer than
-            ``turn_count`` indicates expired turns).
-          - ``agents``: Agent configuration captured at archive time.
-          - ``recorded_at``: ISO timestamp of archiving, or None if unarchived.
+          - ``steps``: Ordered list of turn event objects, one per step.
+          - ``step_count``: Total number of recorded steps.
+          - ``steps_returned``: Number of returned steps (fewer than
+            ``step_count`` indicates expired steps).
+          - ``agents``: Agent configuration captured when the bundle was stored.
+          - ``recorded_at``: ISO timestamp the bundle was stored, or None if none is.
           - ``occurrence_id`` and ``agent_revision``: Present only under
             ``insight`` scope to identify the sighting and build for this
             specific conversation. Pass this revision when inspecting source.
@@ -200,10 +200,10 @@ async def get_full_trajectories(
     if not page_ids:
         return page([])
     try:
-        archives = await asyncio.to_thread(
-            lambda: trajectory_tools.reader_factory(state).get_archives(
-                page_ids
-            )
+        found = await asyncio.to_thread(
+            lambda: trajectory_tools.reader_factory(
+                state
+            ).get_trajectory_bundles(page_ids)
         )
     except (
         api_exceptions.GoogleAPIError,
@@ -222,7 +222,7 @@ async def get_full_trajectories(
     entries = _trim_to_byte_budget(
         _format_trajectory_entry(
             trajectory_id,
-            archives.get(trajectory_id),
+            found.get(trajectory_id),
             source=sources.get(trajectory_id) if sources else None,
         )
         for trajectory_id in page_ids
@@ -240,7 +240,7 @@ class _OccurrenceCounts(NamedTuple):
     total: int | None
 
 
-class _TrajectorySource(NamedTuple):
+class _TrajectoryOccurrence(NamedTuple):
     """Sighting ID and deployment revision associated with a conversation."""
 
     occurrence_id: str
@@ -303,7 +303,7 @@ def _list_occurrences_in_scope(
 
 def _build_trajectory_sources(
     occurrences: Sequence[InsightOccurrence],
-) -> dict[str, _TrajectorySource]:
+) -> dict[str, _TrajectoryOccurrence]:
     """Maps each trajectory ID to its most recent sighting and deployment revision.
 
     Matches the deduplication order in ``_extract_conversation_ids`` by attributing recurring
@@ -313,11 +313,11 @@ def _build_trajectory_sources(
         occurrences: Insight occurrences ordered newest first.
 
     Returns:
-        Dictionary mapping trajectory IDs to their ``_TrajectorySource``.
+        Dictionary mapping trajectory IDs to their ``_TrajectoryOccurrence``.
     """
-    sources: dict[str, _TrajectorySource] = {}
+    sources: dict[str, _TrajectoryOccurrence] = {}
     for occurrence in occurrences:
-        source = _TrajectorySource(
+        source = _TrajectoryOccurrence(
             occurrence.occurrence_id, occurrence.agent_revision
         )
         for trajectory_id in occurrence.trajectory_ids:
@@ -349,31 +349,32 @@ def _extract_conversation_ids(
 
 def _format_trajectory_entry(
     trajectory_id: str,
-    archive: TrajectoryArchive | None,
+    bundle: TrajectoryBundle | None,
     *,
-    source: _TrajectorySource | None,
+    source: _TrajectoryOccurrence | None,
 ) -> dict[str, Any]:
-    """Formats a TrajectoryArchive into a structured dictionary.
+    """Formats a TrajectoryBundle into a structured dictionary.
 
-    The body is `payloads.format_archive`, which the dashboard's case route returns
+    The body is `bundles.format_bundle`, which the dashboard's trajectory route returns
     too, so the agent and the dashboard cannot come to describe the same
     conversation differently. What is added here is the sighting it came from,
     which only a question about an insight has to hand.
 
     Args:
         trajectory_id: Unique trajectory identifier.
-        archive: Archive payload containing manifest and turns, or None if unarchived.
+        bundle: Trajectory bundle with its manifest and steps, or None if none
+            is stored.
         source: Sighting and revision for this conversation, or None if handled
             at the response level.
 
     Returns:
-        Dictionary representing the trajectory and its archive status.
+        Dictionary representing the trajectory and its storage status.
     """
-    entry = payloads.format_archive(trajectory_id, archive)
+    entry = bundles.format_bundle(trajectory_id, bundle)
     if source is None:
         return entry
-    # Ahead of the archive fields, as it was when this dict was built by hand:
-    # attribution answers "whose evidence is this" and reads first.
+    # Attribution goes ahead of the bundle fields because it answers "whose
+    # evidence is this" and reads first.
     return {
         "trajectory_id": entry["trajectory_id"],
         "occurrence_id": source.occurrence_id,

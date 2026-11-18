@@ -126,7 +126,7 @@ Every future agent session reads this before touching code. After **non-trivial 
 ## Development Rules
 
 1. **Test-first.** Tests/evalsets before production code. No code without a failing test pointing at it.
-2. **Never assert on LLM output content in pytest.** Behavior validation → `tests/eval/evalsets/*.json`. Pytest is for code correctness (types, contracts, persistence, tool I/O).
+2. **Never assert on LLM output content in pytest.** Behavior validation → `tests/eval/datasets/*.json` (or `tests/eval/evalsets/*.json` for the three replay suites). Pytest is for code correctness (types, contracts, persistence, tool I/O).
 3. **Use ADK primitives** (Runner, Session service, Memory Bank). Custom code earns its keep only in the **six interfaces**: environment interface, tool guardrails (exfil/policy/permission), per-user secrets, sub-agent delegation + HITL resurfacing, self-improvement loop on Memory Bank, 3-tier system prompt. Everything else is either an ADK/Vertex **knob** you only configure (compaction via `EventsCompactionConfig`, resumability, prefix cache) or an **application** composed from those interfaces (routines, scheduler). See [`docs/architecture.md`](docs/architecture.md#where-custom-code-earns-its-keep).
 4. **Memory model.** ADK Memory Bank is the only cross-session store — no custom SQLite. `InMemoryMemoryService` in tests, `VertexAiMemoryBankService` in deploy. The per-user profile is a **native Structured Profile** (schema in `horizon/infrastructure/memory_config.py`, applied by `scripts/provision_agent_engine.py`): dream-review writes it via `memories.generate`, the live agent reads it via `memories.retrieve_profiles` (`horizon/memory/user_profile.py`) — not verbatim markers (Memory Bank extracts/consolidates). The same `memories.generate` call consolidates the user's **general** memories (dedupe + contradiction reconciliation; on by default, gated by `LHA_MEMORY_CONSOLIDATION`; dream pass surfaces `created`/`updated`/`deleted` counts).
 5. **Respect the scope table.** Out-of-scope: alternate gateways (Telegram/Discord/Slack/WhatsApp/Signal), sandbox backends other than the managed Sandboxes backend + local fallback, browser/computer-use/image-gen/video-gen/TTS/voice tools, MCP server, TUI, ACP.
@@ -163,7 +163,8 @@ lha/
     ├── unit/                     # Deterministic pytest
     ├── integration/              # InMemorySessionService + InMemoryMemoryService end-to-end
     ├── smoke/                    # Gated by RUN_SMOKE=1 (RUN_SMOKE_LLM=1 for LLM-hitting)
-    └── eval/evalsets/            # ADK evalsets — LLM-behavior validation
+    ├── eval/datasets/            # Agent Platform datasets — `agents-cli eval`
+    └── eval/evalsets/            # ADK evalsets — `adk eval`, replay suites only
 ```
 
 **Agent / serving split (dependency points one way).** `agent.py` is the agent — owns construction (`_build_app_object`: tools, ordered callback chains, plugins, `App(...)`, module state) and the `app`/`root_agent` singletons, built eagerly at import. `fast_api_app.py` serves it: `build_runner()` resolves session/memory/artifact services + the sandbox from the environment and returns an ADK `Runner` (embed without FastAPI — CLI/batch); `_build_app()` builds the FastAPI surface (A2A + all `/lha/*` + `/scheduler/*` routers, mounted unconditionally) exposed as the lazy `horizon.fast_api_app:app` via module `__getattr__`. `import horizon` stays offline because the package `__init__` only exposes `__version__` (doesn't import `agent`); reading `horizon.agent` / `horizon.fast_api_app.app` triggers the eager `app = _build_app_object()`. **No factory/DI layer** — configure by environment (`LHA_ROOT_MODEL`, `LHA_ENVIRONMENT_BACKEND`, service URIs), install a custom `Environment` via `set_environment_provider` (`environment_context.py`), mount your own routes via `app.include_router(...)`, and adapt anything deeper by editing `agent.py`. `agent.py` sets `GOOGLE_CLOUD_LOCATION`/`GOOGLE_GENAI_USE_VERTEXAI` via import-time `setdefault` (an already-exported value wins) and probes ADC for the project only when `GOOGLE_CLOUD_PROJECT` is unset. Per-layer model: `docs/security-model.md`. Reader-facing guides: `docs/quickstart.md`, `docs/extending.md`, `docs/configuration.md`.
@@ -239,18 +240,23 @@ RUN_SMOKE=1 RUN_SMOKE_LLM=1 uv run pytest tests/smoke   # adds LLM-hitting smoke
 # from a directory argument — name the file explicitly.
 RUN_SANDBOX_PROBE=1 uv run pytest tests/integration/probes/probe_cuj1_ephemeral.py
 RUN_CUJ_PROBE=1 uv run pytest tests/integration/cuj_probes/probe_cuj13_scheduler_auth.py
-uv sync --extra eval                                    # one-time: installs google-adk[eval]
+agents-cli eval run --dataset tests/eval/datasets/<name>-dataset.json \
+  --config tests/eval/eval_config.yaml                  # LLM behavior, 69 cases
+uv run python scripts/eval_gate.py                      # applies the 0.8 threshold
+uv sync --extra eval                                    # one-time, for the 2 suites below
 uv run adk eval tests/eval/horizon_eval \
   tests/eval/evalsets/<name>.evalset.json \
-  --config_file_path tests/eval/eval_config.json        # ADK evals (LLM behavior)
+  --config_file_path tests/eval/eval_config.json        # memory_recall, daily_news_bot_journey
 agents-cli lint --fix                                   # ruff + ty + codespell
 ```
 
-Autouse fixtures (`tests/conftest.py`): `_hermetic_environment` (strips host env), `_scoped_environment` (per-test `LocalEnvironment` in the ContextVar), `runner_factory` (Runners with `InMemorySessionService`/`InMemoryMemoryService`). Evalsets in `tests/eval/evalsets/*.json` are ADK-format and are the source of truth; grader is `rubric_based_final_response_quality_v1` only (no trajectory grader). `tests/eval/horizon_eval/` is a two-line shim because `adk eval` resolves `<pkg>.agent.root_agent` and `horizon/__init__.py` deliberately does not import `agent`.
+Autouse fixtures (`tests/conftest.py`): `_hermetic_environment` (strips host env), `_scoped_environment` (per-test `LocalEnvironment` in the ContextVar), `runner_factory` (Runners with `InMemorySessionService`/`InMemoryMemoryService`).
 
-**Do not use `agents-cli eval run` here.** Its inference step rejects any agent event without `content` (`_parse_sse_event`), and horizon emits two actions-only events per turn from its callback chain (`on_session_start`, then the after-agent chain), so every case fails with `Malformed agent event: missing content`. That is a CLI-side limitation, not a horizon bug.
+**Two eval runners, split by whether anything before the graded turn had to *run*.** 69 cases live in `tests/eval/datasets/*-dataset.json` (Agent Platform format) and run through `agents-cli eval`; each carries its own rubrics in `rubric_groups.horizon`, which `tests/eval/eval_config.yaml` selects via `rubric_group_key`. Grading reports scores, so `scripts/eval_gate.py` applies the 0.8 pass threshold. Earlier turns ride along as seeded context rather than being replayed, which suits a case whose earlier turn *is* context — `compression_quality`'s first turn is a pasted compaction banner, so it migrated. Nine cases stay on `adk eval` (with `tests/eval/eval_config.json` and the `tests/eval/horizon_eval/` shim, needed because `adk eval` resolves `<pkg>.agent.root_agent` and `horizon/__init__.py` deliberately does not import `agent`): `memory_recall` (8), where recall is only meaningful across a session boundary and an eval case is one session, and `daily_news_bot_journey` (1), whose first turn creates a routine row the second edits.
 
-Unit tests do **not** need GCP — only `adk eval`, `agents-cli run`/`playground`, and `make dev` hit Vertex.
+Seven dataset cases pre-set `session.state` through a leading `state_delta` event, which needs a current `agents-cli`; on an older one the state is not applied.
+
+Unit tests do **not** need GCP — only the two eval runners, `agents-cli run`/`playground`, and `make dev` hit Vertex.
 
 ## Dev Loop
 

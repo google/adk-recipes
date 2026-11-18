@@ -30,8 +30,8 @@ the agent's, duplicated here. `tests/test_ui_lha.py` pins them by having the
 agent's own writer produce the bytes this parses, so the two cannot drift
 silently.
 
-Five fields are read from each task: its id, its conversation, when it last
-changed, and the text and the agent key of its first user message (the
+Six fields are read from each task: its id, its conversation, when it last
+changed, and the text, agent key, and insight id of its first user message (the
 ``role``, ``parts`` and ``metadata`` of each ``history`` entry). The transcript itself is passed through untouched.
 
 Saved chat names belong to the UI service and are never read by the agent.
@@ -45,6 +45,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 from collections.abc import Iterable, Iterator
 from typing import Any
 
@@ -56,6 +57,8 @@ TITLES_PREFIX = "chat-titles/"
 # Bounds the `/lha/contexts` payload. The dashboard truncates the first message
 # to a shorter title, so this limit is never visible in the UI.
 FIRST_MESSAGE_MAX_LENGTH = 200
+
+_RCA_PROMPT_PREFIX = re.compile(r'^Diagnose insight (\S+) \("')
 
 logger = logging.getLogger(__name__)
 
@@ -81,7 +84,7 @@ def _list_stored_tasks(bucket: str) -> Iterator[tuple[Any, dict[str, Any]]]:
     """Yields parsed task objects paired with their GCS blobs.
 
     Applies `TASKS_PREFIX` to restrict operations to task transcripts, preventing
-    access to investigation run state or `aqa-telemetry/` in the same bucket.
+    access to investigation state or `aqa-telemetry/` in the same bucket.
     Downloads each blob individually; this O(N) scan matches the current deployment
     scale with 90-day prefix lifecycle expiration.
 
@@ -198,6 +201,48 @@ def _extract_agent_key(task: dict[str, Any]) -> str | None:
     return None
 
 
+def _extract_insight_id(task: dict[str, Any]) -> str | None:
+    """Extracts the insight ID a task's user messages associate with the chat.
+
+    Args:
+        task: Deserialized task dictionary.
+
+    Returns:
+        The `insight_id` of the first user message that carries one, or None.
+    """
+    history = task.get("history")
+    if not isinstance(history, list):
+        return None
+    for message in history:
+        if not isinstance(message, dict) or message.get("role") != "ROLE_USER":
+            continue
+        metadata = message.get("metadata")
+        if not isinstance(metadata, dict):
+            continue
+        insight_id = metadata.get("insight_id")
+        if isinstance(insight_id, str) and insight_id.strip():
+            return insight_id.strip()
+    return None
+
+
+def _parse_insight_id_from_prompt(text: str | None) -> str | None:
+    """Parses the insight ID from an opening RCA diagnosis prompt.
+
+    Matches conversations started from an insight card when message metadata is
+    absent.
+
+    Args:
+        text: First user message text, or None.
+
+    Returns:
+        Extracted insight ID, or None if the text is not an RCA prompt.
+    """
+    if not text:
+        return None
+    match = _RCA_PROMPT_PREFIX.match(text.strip())
+    return match.group(1) if match else None
+
+
 def _build_title_blob_name(context_id: str) -> str:
     """Builds the object name that holds a conversation's saved name.
 
@@ -264,9 +309,10 @@ async def list_contexts(bucket: str) -> list[dict[str, Any]]:
     Returns:
         Conversation summary dictionaries sorted by updated_at descending.
         Each carries ``title``, the saved name or None,
-        ``first_message``, the first user text in replay order or None, and
+        ``first_message``, the first user text in replay order or None,
         ``agent_key``, the agent the conversation is about or None when its
-        messages name none.
+        messages name none, and ``insight_id``, the insight the conversation
+        was started to diagnose or None.
     """
     tasks = await asyncio.to_thread(_load_all, bucket)
     grouped: dict[str, dict[str, Any]] = {}
@@ -281,6 +327,7 @@ async def list_contexts(bucket: str) -> list[dict[str, Any]]:
                 "title": None,
                 "first_message": None,
                 "agent_key": None,
+                "insight_id": None,
             },
         )
         if task_id := task.get("id"):
@@ -291,6 +338,13 @@ async def list_contexts(bucket: str) -> list[dict[str, Any]]:
             entry["first_message"] = _extract_first_message(task)
         if entry["agent_key"] is None:
             entry["agent_key"] = _extract_agent_key(task)
+        if entry["insight_id"] is None:
+            entry["insight_id"] = _extract_insight_id(task)
+    for entry in grouped.values():
+        if entry["insight_id"] is None:
+            entry["insight_id"] = _parse_insight_id_from_prompt(
+                entry["first_message"]
+            )
     titles = await asyncio.to_thread(_get_context_titles, bucket, grouped)
     for context_id, title in titles.items():
         grouped[context_id]["title"] = title

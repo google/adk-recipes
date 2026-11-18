@@ -16,10 +16,11 @@ import type { QueryClient } from "@tanstack/react-query";
 import {
   type AgentKey,
   insightsQuery,
-  runsQuery,
-  type Run,
+  investigationsQuery,
+  type InvestigationListItem,
 } from "@/lib/aqua-api";
-import { startedAt } from "@/lib/runstate";
+import { startedAt } from "@/lib/investigation-state";
+import { isViewerMode } from "@/lib/viewer-mode";
 
 /** One stop of the guided tour: a spotlight on part of a page and what to say
  *  about it. */
@@ -50,20 +51,26 @@ async function topInsightPage(
 
 /** The latest investigation that finished, which has results to show, or the
  *  latest of any when none has. */
-async function latestRunPage(
+async function resolveLatestInvestigationPage(
   client: QueryClient,
   agentKey: AgentKey,
 ): Promise<string | null> {
-  const runs = await client.fetchQuery(runsQuery(agentKey));
-  const finished = runs.filter((run) => run.status === "done");
-  const latest = (finished.length > 0 ? finished : runs).reduce<Run | null>(
-    (newest, run) =>
-      (startedAt(run) ?? -Infinity) > (startedAt(newest) ?? -Infinity)
-        ? run
+  const investigations = await client.fetchQuery(investigationsQuery(agentKey));
+  const finished = investigations.filter(
+    (investigation) => investigation.status === "done",
+  );
+  const latest = (
+    finished.length > 0 ? finished : investigations
+  ).reduce<InvestigationListItem | null>(
+    (newest, investigation) =>
+      (startedAt(investigation) ?? -Infinity) > (startedAt(newest) ?? -Infinity)
+        ? investigation
         : newest,
     null,
   );
-  return latest ? `/investigations/${encodeURIComponent(latest.run_id)}` : null;
+  return latest
+    ? `/investigations/${encodeURIComponent(latest.investigation_id)}`
+    : null;
 }
 
 /** The tour, in order: Home first, then one insight and one investigation in
@@ -106,7 +113,7 @@ export const TOUR_STEPS: readonly TourStep[] = [
       "agent failed. Fix the top one and you fix the most conversations.",
   },
   {
-    target: "recent-runs",
+    target: "recent-investigations",
     page: "/",
     title: "Investigations are automatic",
     body:
@@ -139,8 +146,8 @@ export const TOUR_STEPS: readonly TourStep[] = [
       "coding agent.",
   },
   {
-    target: "run-header",
-    page: latestRunPage,
+    target: "investigation-header",
+    page: resolveLatestInvestigationPage,
     title: "Inside an investigation",
     body:
       "Everything one investigation did, start to finish. If a number looks " +
@@ -159,12 +166,20 @@ export const TOUR_STEPS: readonly TourStep[] = [
  *  Narrower, Home stacks them with the insights on top. */
 export const HOME_SIDE_BY_SIDE = "(min-width: 1024px)";
 
+/** The steps about chat and triage, whose controls a read-only viewer does
+ *  not draw. */
+const WRITE_STEPS = new Set(["ask", "insights-triage", "insight-actions"]);
+
 /** The tour in the order a reader meets its steps: TOUR_STEPS when Home is
  *  side by side, and with the insights ahead of Pipeline when it is stacked, so
- *  the spotlight never climbs back up the page. */
+ *  the spotlight never climbs back up the page. A read-only viewer skips
+ *  WRITE_STEPS. */
 export function tourSteps(sideBySide: boolean): readonly TourStep[] {
-  if (sideBySide) return TOUR_STEPS;
-  const steps = [...TOUR_STEPS];
+  const shown = isViewerMode()
+    ? TOUR_STEPS.filter((step) => !WRITE_STEPS.has(step.target))
+    : TOUR_STEPS;
+  if (sideBySide) return shown;
+  const steps = [...shown];
   const pipeline = steps.findIndex((step) => step.target === "pipeline");
   const insights = steps.findIndex((step) => step.target === "insights-strip");
   [steps[pipeline], steps[insights]] = [steps[insights], steps[pipeline]];

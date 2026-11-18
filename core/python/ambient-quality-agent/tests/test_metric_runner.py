@@ -38,7 +38,12 @@ from ambient_quality_agent.tools.metrics import runner
 from ambient_quality_agent.tools.metrics.library import CodeMetric
 from google.genai import types as gt
 
-from .conftest import make_code_metric, make_page
+from .conftest import (
+    TRAJECTORY_FILE_URI,
+    build_trajectory_file_case,
+    make_code_metric,
+    make_page,
+)
 
 EXPECTED = "The agent answers."
 
@@ -99,6 +104,39 @@ def _score(
 
 
 # --- build_instance -------------------------------------------------------
+
+
+def test_an_image_only_prompt_stored_as_a_trajectory_file_is_the_prompt() -> (
+    None
+):
+    """Metrics get placeholder text for a stored file, so a user message that
+    holds only one is still a message."""
+    case = build_trajectory_file_case(("user", None), ("agent", "A cat."))
+
+    instance = runner.build_instance(case)
+
+    assert instance["prompt"]["parts"][0]["text"] == "<attachment: image/png>"
+    assert instance["response"]["parts"][0]["text"] == "A cat."
+    user_part = instance["agent_data"]["turns"][0]["events"][0]["content"]
+    assert user_part["parts"] == [{"text": "<attachment: image/png>"}]
+    assert case.agent_data is not None
+    first = case.agent_data.turns[0].events[0].content.parts[0]
+    assert first.file_data.file_uri == TRAJECTORY_FILE_URI, (
+        "the page's case keeps its link"
+    )
+
+
+def test_an_unanswered_image_only_message_is_judged_as_silence() -> None:
+    """The last user message holds only a stored file; without a placeholder
+    it would vanish and the earlier exchange would be scored."""
+    case = build_trajectory_file_case(
+        ("user", "Hi"), ("agent", "Hello!"), ("user", None)
+    )
+
+    instance = runner.build_instance(case)
+
+    assert "prompt" not in instance
+    assert instance["response"] == {}
 
 
 def test_the_response_is_derived_from_the_conversation() -> None:
@@ -435,7 +473,7 @@ def test_a_failing_outcome_becomes_a_finding() -> None:
     finding = finding_set.findings[0]
     assert finding.expected_behavior == EXPECTED
     assert finding.actual_behavior == "create_ticket raised."
-    assert finding.session_id == "s1"
+    assert finding.trajectory_id == "s1"
     assert (tally.failed, tally.findings) == (1, 1)
 
 
@@ -500,7 +538,7 @@ def test_a_broken_metric_errors_the_case_but_keeps_the_others_findings() -> (
     None
 ):
     """Bucketing the case and keeping its findings are independent. The bucket
-    is errored, as `InvestigationCounters.traces_eval_errored` defines it and
+    is errored, as `InvestigationCounters.trajectories_eval_errored` defines it and
     as alerting reads it; the working metric's finding still reaches
     clustering."""
     library = {
@@ -646,8 +684,8 @@ def test_a_failing_session_keeps_its_trace_as_evidence() -> None:
         _page([_case()]), {"m": _metric({"score": 0.0, "explanation": "nope"})}
     )
 
-    assert list(finding_set.sessions) == ["s1"]
-    assert finding_set.sessions["s1"], (
+    assert list(finding_set.turns_by_trajectory) == ["s1"]
+    assert finding_set.turns_by_trajectory["s1"], (
         "the turns should be serialized, not empty"
     )
 
@@ -655,7 +693,7 @@ def test_a_failing_session_keeps_its_trace_as_evidence() -> None:
 def test_a_passing_session_keeps_no_trace() -> None:
     finding_set, _ = _score(_page([_case()]), {"m": _metric({"score": 1.0})})
 
-    assert finding_set.sessions == {}
+    assert finding_set.turns_by_trajectory == {}
 
 
 def test_one_session_failing_twice_is_stored_once() -> None:
@@ -667,7 +705,7 @@ def test_one_session_failing_twice_is_stored_once() -> None:
     finding_set, _ = _score(_page([_case()]), library)
 
     assert len(finding_set.findings) == 2
-    assert list(finding_set.sessions) == ["s1"]
+    assert list(finding_set.turns_by_trajectory) == ["s1"]
 
 
 def test_the_tally_accumulates_across_pages() -> None:

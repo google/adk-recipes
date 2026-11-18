@@ -25,7 +25,7 @@ means a read can never reach the write machinery. The two share the same two
 tables but nothing else.
 
 The reader also reads `ROOT_CAUSES_TABLE`, which the sweep never writes: a
-diagnosis is recorded by a chat turn through `RootCauseStore`, and surfaces here
+diagnosis is recorded by a chat turn through `BigQueryRootCauseStore`, and surfaces here
 as a per-insight marker and as the records themselves.
 """
 
@@ -36,20 +36,21 @@ import json
 import logging
 from typing import TYPE_CHECKING, Any
 
+from ambient_quality_agent.tools.insights.bigquery_root_cause_store import (
+    ROOT_CAUSES_TABLE,
+)
 from ambient_quality_agent.tools.insights.models import (
     ClusterVerification,
+    FindingExample,
     InsightOccurrence,
     InsightStatus,
     InsightView,
     OccurrenceState,
     ProposedEdit,
     RootCause,
-    RubricExample,
+    list_root_cause_columns,
 )
 from ambient_quality_agent.tools.insights.reader import InsightOrder
-from ambient_quality_agent.tools.insights.root_cause_store import (
-    ROOT_CAUSES_TABLE,
-)
 from google.api_core.exceptions import NotFound
 from google.cloud import bigquery
 from pydantic import ValidationError
@@ -99,7 +100,7 @@ keep one arrangement across pages and no insight is skipped or repeated."""
 class BigQueryInsightReader:
     """Reads one agent's insights and occurrences from BigQuery.
 
-    The list view aggregates occurrence stats but omits the heavy `rubrics`
+    The list view aggregates occurrence stats but omits the heavy `examples`
     payload; the detail view carries it. Every query is scoped to
     ``agent_name`` -- insights are never read across agents.
     """
@@ -110,7 +111,7 @@ class BigQueryInsightReader:
         client: bigquery.Client,
         project_id: str,
         dataset: str,
-        agent_name: str,
+        observed_agent_key: str,
     ) -> None:
         """Bind the reader to one agent's dataset.
 
@@ -118,14 +119,15 @@ class BigQueryInsightReader:
             client: Shared BigQuery client (its location fixes the job region).
             project_id: GCP project owning the dataset, for table references.
             dataset: BigQuery dataset holding the two insight tables.
-            agent_name: The observed agent this reader is scoped to; every query
+            observed_agent_key: The observed agent this reader is scoped to; every query
                 filters on it.
         """
         self._client = client
         self._project_id = project_id
         self._dataset = dataset
-        self._agent_name = agent_name
+        self._observed_agent_key = observed_agent_key
         self._root_causes_present: bool | None = None
+        self._root_cause_columns: frozenset[str] | None = None
 
     def _build_table_ref(self, table: str) -> str:
         """Fully-qualified ``project.dataset.table`` reference.
@@ -151,6 +153,30 @@ class BigQueryInsightReader:
         job_config = bigquery.QueryJobConfig(query_parameters=params)
         return self._client.query(sql, job_config=job_config).result()
 
+    def _probe_root_causes_table(self) -> None:
+        """Reads `ROOT_CAUSES_TABLE` metadata once and caches presence and columns."""
+        if self._root_causes_present is not None:
+            return
+        try:
+            table = self._client.get_table(
+                self._build_table_ref(ROOT_CAUSES_TABLE)
+            )
+            self._root_causes_present = True
+            schema = getattr(table, "schema", None) or ()
+            names = frozenset(
+                field.name
+                for field in schema
+                if isinstance(getattr(field, "name", None), str)
+            )
+            # Mock clients in offline tests expose an empty schema; default to
+            # the declared columns while real tables report their live schema.
+            self._root_cause_columns = (
+                names if names else frozenset(list_root_cause_columns())
+            )
+        except NotFound:
+            self._root_causes_present = False
+            self._root_cause_columns = frozenset()
+
     def _has_root_causes_table(self) -> bool:
         """Checks if `ROOT_CAUSES_TABLE` exists, caching the result.
 
@@ -160,13 +186,24 @@ class BigQueryInsightReader:
         Returns:
             True if `ROOT_CAUSES_TABLE` exists, False otherwise.
         """
-        if self._root_causes_present is None:
-            try:
-                self._client.get_table(self._build_table_ref(ROOT_CAUSES_TABLE))
-                self._root_causes_present = True
-            except NotFound:
-                self._root_causes_present = False
-        return self._root_causes_present
+        self._probe_root_causes_table()
+        return bool(self._root_causes_present)
+
+    def _has_root_cause_column(self, column: str) -> bool:
+        """Checks if `ROOT_CAUSES_TABLE` exists and declares `column`.
+
+        Args:
+            column: BigQuery column name on `ROOT_CAUSES_TABLE`.
+
+        Returns:
+            True if `ROOT_CAUSES_TABLE` exists and includes `column`.
+        """
+        self._probe_root_causes_table()
+        return bool(
+            self._root_causes_present
+            and self._root_cause_columns is not None
+            and column in self._root_cause_columns
+        )
 
     def _build_root_cause_marker(self) -> str:
         """Builds a SELECT expression yielding ``has_root_cause`` for each insight.
@@ -192,6 +229,25 @@ class BigQueryInsightReader:
             f"`{self._build_table_ref(ROOT_CAUSES_TABLE)}` rc "
             f"{self._build_root_cause_owner_join()} "
             f"WHERE {_ROOT_CAUSE_OWNER_ID} = i.insight_id) AS has_root_cause"
+        )
+
+    def _build_root_cause_context_ids(self) -> str:
+        """Builds a SELECT expression yielding ``root_cause_context_ids`` per insight.
+
+        Degrades to an empty string array when `ROOT_CAUSES_TABLE` or its
+        ``context_id`` column is absent.
+
+        Returns:
+            SQL expression evaluating to an ``ARRAY<STRING>`` column.
+        """
+        if not self._has_root_cause_column("context_id"):
+            return "CAST([] AS ARRAY<STRING>) AS root_cause_context_ids"
+        return (
+            "(SELECT ARRAY_AGG(DISTINCT rc.context_id IGNORE NULLS) FROM "  # noqa: S608 - trusted identifiers and fixed SQL; values are parameterized
+            f"`{self._build_table_ref(ROOT_CAUSES_TABLE)}` rc "
+            f"{self._build_root_cause_owner_join()} "
+            f"WHERE {_ROOT_CAUSE_OWNER_ID} = i.insight_id "
+            "AND rc.context_id != '') AS root_cause_context_ids"
         )
 
     def _build_root_cause_owner_join(self) -> str:
@@ -246,7 +302,7 @@ WITH owned AS (
         self,
         *,
         statuses: Sequence[InsightStatus] | None = None,
-        run_id: str | None = None,
+        investigation_id: str | None = None,
         limit: int,
         offset: int,
         window_start: str | None = None,
@@ -259,7 +315,7 @@ WITH owned AS (
 
         Args:
             statuses: Optional lifecycle statuses to include (defaults to all).
-            run_id: Optional sweep ID filter.
+            investigation_id: Optional sweep ID filter.
             limit: Maximum number of insights to return.
             offset: Number of insights to skip.
             window_start: Optional ISO timestamp lower bound on ``updated_at``.
@@ -284,7 +340,12 @@ WITH owned AS (
                 "cannot be filtered on whether they have a root cause"
             )
         where, params = self._build_insight_filters(
-            statuses, run_id, window_start, window_end, has_root_cause, day=day
+            statuses,
+            investigation_id,
+            window_start,
+            window_end,
+            has_root_cause,
+            day=day,
         )
         count_rows = list(
             self._run(
@@ -300,7 +361,7 @@ WITH owned AS (
             bigquery.ScalarQueryParameter("offset", "INT64", offset),
         ]
         # ARRAY_AGG(... LIMIT 1)[SAFE_OFFSET(0)] pulls the most recent
-        # occurrence's run_id inside the GROUP BY; IGNORE NULLS copes with the
+        # occurrence's investigation_id inside the GROUP BY; IGNORE NULLS copes with the
         # LEFT JOIN's unmatched (occurrence-less) insights.
         sql = f"""{self._build_owned_occurrences_cte()}
 SELECT
@@ -308,11 +369,12 @@ SELECT
   i.updated_at, i.resolved_at, i.dismissed_at, i.merged_into_insight_id,
   i.merged_at,
   COUNT(owned.occurrence_id) AS occurrence_count,
-  SUM(owned.trace_count) AS trace_count,
-  MAX(owned.created_at) AS last_run_at,
+  SUM(owned.trace_count) AS trajectory_count,
+  MAX(owned.created_at) AS last_investigation_at,
   ARRAY_AGG(owned.run_id IGNORE NULLS ORDER BY owned.created_at DESC LIMIT 1)[
-    SAFE_OFFSET(0)] AS last_run_id,
-  {self._build_root_cause_marker()}
+    SAFE_OFFSET(0)] AS last_investigation_id,
+  {self._build_root_cause_marker()},
+  {self._build_root_cause_context_ids()}
 FROM `{self._build_table_ref(_INSIGHTS_TABLE)}` i
 LEFT JOIN owned
   ON owned.owner_id = i.insight_id AND owned.agent_name = i.agent_name
@@ -330,7 +392,7 @@ LIMIT @limit OFFSET @offset
         self,
         *,
         statuses: Sequence[InsightStatus] | None = None,
-        run_id: str | None = None,
+        investigation_id: str | None = None,
         window_start: str | None = None,
         window_end: str | None = None,
         has_root_cause: bool | None = None,
@@ -343,14 +405,14 @@ LIMIT @limit OFFSET @offset
         deployment as its total. `InvestigationStore.sum_counters` is the
         equivalent on the investigations side.
 
-        Distinct matters because `trace_count` counts a conversation again for
+        Distinct matters because `trajectory_count` counts a conversation again for
         every sweep that saw it and every insight it matches. The join is INNER,
         unlike the list's, so an insight no sweep has seen brings no NULL array
         to unnest.
 
         Args:
             statuses: Optional lifecycle statuses to filter on.
-            run_id: Optional sweep ID filter.
+            investigation_id: Optional sweep ID filter.
             window_start: Optional ISO timestamp lower bound on ``updated_at``.
             window_end: Optional ISO timestamp upper bound on ``updated_at``.
             has_root_cause: Optional filter for diagnosed (True) or undiagnosed
@@ -370,7 +432,12 @@ LIMIT @limit OFFSET @offset
                 "cannot be filtered on whether they have a root cause"
             )
         where, params = self._build_insight_filters(
-            statuses, run_id, window_start, window_end, has_root_cause, day=day
+            statuses,
+            investigation_id,
+            window_start,
+            window_end,
+            has_root_cause,
+            day=day,
         )
         sql = f"""{self._build_owned_occurrences_cte()}
 SELECT COUNT(DISTINCT trajectory_id) AS conversations
@@ -403,7 +470,7 @@ WHERE {where}
         """
         params = [
             bigquery.ScalarQueryParameter(
-                "agent_name", "STRING", self._agent_name
+                "agent_name", "STRING", self._observed_agent_key
             ),
             bigquery.ScalarQueryParameter("insight_id", "STRING", insight_id),
         ]
@@ -413,11 +480,12 @@ SELECT
   i.updated_at, i.resolved_at, i.dismissed_at, i.merged_into_insight_id,
   i.merged_at,
   COUNT(owned.occurrence_id) AS occurrence_count,
-  SUM(owned.trace_count) AS trace_count,
-  MAX(owned.created_at) AS last_run_at,
+  SUM(owned.trace_count) AS trajectory_count,
+  MAX(owned.created_at) AS last_investigation_at,
   ARRAY_AGG(owned.run_id IGNORE NULLS ORDER BY owned.created_at DESC LIMIT 1)[
-    SAFE_OFFSET(0)] AS last_run_id,
-  {self._build_root_cause_marker()}
+    SAFE_OFFSET(0)] AS last_investigation_id,
+  {self._build_root_cause_marker()},
+  {self._build_root_cause_context_ids()}
 FROM `{self._build_table_ref(_INSIGHTS_TABLE)}` i
 LEFT JOIN owned
   ON owned.owner_id = i.insight_id AND owned.agent_name = i.agent_name
@@ -433,7 +501,7 @@ GROUP BY i.insight_id, i.agent_name, i.agent_id, i.label, i.status,
         self,
         *,
         insight_id: str,
-        run_id: str | None = None,
+        investigation_id: str | None = None,
         limit: int,
         offset: int,
     ) -> tuple[InsightView, list[InsightOccurrence], int] | None:
@@ -442,12 +510,12 @@ GROUP BY i.insight_id, i.agent_name, i.agent_id, i.label, i.status,
         The detail read the harness consumes: the insight summary together with
         its occurrences (latest first). Returns
         ``(view, occurrences, total)``, or ``None`` when ``insight_id`` is
-        unknown. ``run_id`` narrows the occurrences to a single sweep; otherwise
+        unknown. ``investigation_id`` narrows the occurrences to a single sweep; otherwise
         they paginate by ``limit``/``offset``.
 
         Args:
             insight_id: Unique insight identifier.
-            run_id: Optional sweep ID filter for occurrences.
+            investigation_id: Optional sweep ID filter for occurrences.
             limit: Maximum occurrences to return.
             offset: Number of occurrences to skip.
 
@@ -458,7 +526,10 @@ GROUP BY i.insight_id, i.agent_name, i.agent_id, i.label, i.status,
         if view is None:
             return None
         occurrences, total = self.list_occurrences(
-            insight_id=insight_id, run_id=run_id, limit=limit, offset=offset
+            insight_id=insight_id,
+            investigation_id=investigation_id,
+            limit=limit,
+            offset=offset,
         )
         return view, occurrences, total
 
@@ -466,12 +537,12 @@ GROUP BY i.insight_id, i.agent_name, i.agent_id, i.label, i.status,
         self,
         *,
         insight_id: str | None = None,
-        run_id: str | None = None,
+        investigation_id: str | None = None,
         occurrence_id: str | None = None,
         limit: int,
         offset: int,
     ) -> tuple[list[InsightOccurrence], int]:
-        """Pages an insight's occurrences newest first, including rubric payloads.
+        """Pages an insight's occurrences newest first, with finding examples.
 
         Ordered by ``created_at`` descending (most recent sweep first).
 
@@ -486,7 +557,7 @@ GROUP BY i.insight_id, i.agent_name, i.agent_id, i.label, i.status,
         Args:
             insight_id: Insight identifier to list occurrences for. Optional when
                 globally unique ``occurrence_id`` is provided.
-            run_id: Optional sweep ID filter.
+            investigation_id: Optional sweep ID filter.
             occurrence_id: Optional sighting ID filter.
             limit: Maximum occurrences to return.
             offset: Number of occurrences to skip.
@@ -511,7 +582,7 @@ GROUP BY i.insight_id, i.agent_name, i.agent_id, i.label, i.status,
         clauses = ["o.agent_name = @agent_name", "o.insight_id IS NOT NULL"]
         params = [
             bigquery.ScalarQueryParameter(
-                "agent_name", "STRING", self._agent_name
+                "agent_name", "STRING", self._observed_agent_key
             ),
         ]
         if insight_id:
@@ -521,10 +592,12 @@ GROUP BY i.insight_id, i.agent_name, i.agent_id, i.label, i.status,
                     "insight_id", "STRING", insight_id
                 )
             )
-        if run_id:
-            clauses.append("o.run_id = @run_id")
+        if investigation_id:
+            clauses.append("o.run_id = @investigation_id")
             params.append(
-                bigquery.ScalarQueryParameter("run_id", "STRING", run_id)
+                bigquery.ScalarQueryParameter(
+                    "investigation_id", "STRING", investigation_id
+                )
             )
         if occurrence_id:
             clauses.append("o.occurrence_id = @occurrence_id")
@@ -593,9 +666,14 @@ LIMIT @limit OFFSET @offset
                 "ORDER BY rc.created_at DESC, rc.root_cause_id) = 1\n"
             )
         )
+        context_column = (
+            "rc.context_id"
+            if self._has_root_cause_column("context_id")
+            else "CAST(NULL AS STRING) AS context_id"
+        )
         sql = f"""
 SELECT rc.root_cause_id, rc.insight_id, rc.occurrence_id, rc.agent_revision,
-       rc.summary, rc.edits, rc.created_at
+       {context_column}, rc.summary, rc.edits, rc.created_at
 FROM `{self._build_table_ref(ROOT_CAUSES_TABLE)}` rc
 {self._build_root_cause_owner_join()}
 WHERE {_ROOT_CAUSE_OWNER_ID} = @insight_id
@@ -606,7 +684,7 @@ WHERE {_ROOT_CAUSE_OWNER_ID} = @insight_id
     def _build_insight_filters(
         self,
         statuses: Sequence[InsightStatus] | None,
-        run_id: str | None,
+        investigation_id: str | None,
         window_start: str | None = None,
         window_end: str | None = None,
         has_root_cause: bool | None = None,
@@ -633,7 +711,7 @@ WHERE {_ROOT_CAUSE_OWNER_ID} = @insight_id
 
         Args:
             statuses: Optional lifecycle statuses to filter on.
-            run_id: Optional sweep ID filter.
+            investigation_id: Optional sweep ID filter.
             window_start: Optional ISO timestamp lower bound on ``updated_at``.
             window_end: Optional ISO timestamp upper bound on ``updated_at``.
             has_root_cause: Optional filter for root-cause presence.
@@ -649,7 +727,7 @@ WHERE {_ROOT_CAUSE_OWNER_ID} = @insight_id
         ]
         params: list[Any] = [
             bigquery.ScalarQueryParameter(
-                "agent_name", "STRING", self._agent_name
+                "agent_name", "STRING", self._observed_agent_key
             )
         ]
         if day:
@@ -668,7 +746,7 @@ WHERE {_ROOT_CAUSE_OWNER_ID} = @insight_id
                     "statuses", "STRING", [s.value for s in statuses]
                 )
             )
-        if run_id:
+        if investigation_id:
             # By owner, like the counts are: a sweep that found a defect under a
             # label an operator has since called a duplicate still found it, and
             # this view would otherwise list neither of the two insights.
@@ -677,10 +755,12 @@ WHERE {_ROOT_CAUSE_OWNER_ID} = @insight_id
                 f"`{self._build_table_ref(_OCCURRENCES_TABLE)}` o "
                 f"{self._build_owner_join()} "
                 f"WHERE {_OWNER_ID} = i.insight_id "
-                "AND o.agent_name = @agent_name AND o.run_id = @run_id)"
+                "AND o.agent_name = @agent_name AND o.run_id = @investigation_id)"
             )
             params.append(
-                bigquery.ScalarQueryParameter("run_id", "STRING", run_id)
+                bigquery.ScalarQueryParameter(
+                    "investigation_id", "STRING", investigation_id
+                )
             )
         if has_root_cause is not None:
             # No agent predicate: `insight_id` is a uuid4 hex, globally unique,
@@ -712,7 +792,7 @@ WHERE {_ROOT_CAUSE_OWNER_ID} = @insight_id
 _CHANGE_ON_DAY: dict[InsightStatus, str] = {
     # Not quite the Home chart's day: the chart counts a new insight on its
     # creating investigation's window_end day, while this uses the insight's
-    # created_at wall clock. A run that correlates after midnight UTC, a retry
+    # created_at wall clock. An investigation that correlates after midnight UTC, a retry
     # or a backfill can file it one day later here than in the chart; aligning
     # the two is a separate change.
     InsightStatus.NEW: "DATE(i.created_at) = @day",
@@ -752,7 +832,7 @@ def _row_to_view(row: Any) -> InsightView:
     """
     return InsightView(
         insight_id=row["insight_id"],
-        agent_name=row["agent_name"],
+        observed_agent_key=row["agent_name"],
         # Unattributed rows store NULL in BigQuery; normalize to "" for the model.
         agent_id=row.get("agent_id") or "",
         label=row["label"],
@@ -764,10 +844,11 @@ def _row_to_view(row: Any) -> InsightView:
         merged_into_insight_id=row["merged_into_insight_id"],
         merged_at=row["merged_at"],
         occurrence_count=int(row["occurrence_count"] or 0),
-        trace_count=int(row["trace_count"] or 0),
-        last_run_id=row["last_run_id"],
-        last_run_at=row["last_run_at"],
+        trajectory_count=int(row["trajectory_count"] or 0),
+        last_investigation_id=row["last_investigation_id"],
+        last_investigation_at=row["last_investigation_at"],
         has_root_cause=bool(row["has_root_cause"]),
+        root_cause_context_ids=list(row.get("root_cause_context_ids") or []),
     )
 
 
@@ -787,6 +868,7 @@ def _row_to_root_cause(row: Any) -> RootCause:
         # The column is nullable while the model field is not: a null and an
         # empty string both mean the single unnamed revision.
         agent_revision=row["agent_revision"] or "",
+        context_id=row.get("context_id") or "",
         summary=row["summary"],
         edits=_parse_edits(row["edits"]),
         created_at=row["created_at"],
@@ -824,13 +906,13 @@ def _parse_edits(raw: Any) -> list[ProposedEdit]:
 
 
 def _row_to_occurrence(row: Any) -> InsightOccurrence:
-    """Map an occurrences row (with its JSON `rubrics`) to an `InsightOccurrence`.
+    """Maps a BigQuery row to an `InsightOccurrence`.
 
     Args:
         row: Row mapping returned by BigQuery.
 
     Returns:
-        Constructed InsightOccurrence instance.
+        Constructed `InsightOccurrence` instance.
     """
     return InsightOccurrence(
         occurrence_id=row["occurrence_id"],
@@ -840,26 +922,26 @@ def _row_to_occurrence(row: Any) -> InsightOccurrence:
         occurrence_state=OccurrenceState(
             row.get("occurrence_state") or OccurrenceState.TRACKED
         ),
-        run_id=row["run_id"],
+        investigation_id=row["run_id"],
         created_at=row["created_at"],
-        agent_name=row["agent_name"],
+        observed_agent_key=row["agent_name"],
         # A NULL column and an empty string both mean the single unnamed
         # revision, which the model represents as the empty string.
         agent_revision=row["agent_revision"] or "",
         analysis_mode=row.get("analysis_mode") or "",
         label=row["label"],
-        item_count=int(row["item_count"] or 0),
-        trace_count=int(row["trace_count"] or 0),
+        finding_count=int(row["item_count"] or 0),
+        trajectory_count=int(row["trace_count"] or 0),
         # Missing trajectory IDs default to an empty list, representing no
-        # named sessions.
+        # named trajectories.
         trajectory_ids=list(row["trajectory_ids"] or []),
         analyses=_parse_analyses(row.get("analyses")),
-        rubrics=_parse_rubrics(row["rubrics"]),
+        examples=_parse_rubrics(row["rubrics"]),
     )
 
 
 def _parse_analyses(raw: Any) -> dict[str, ClusterVerification]:
-    """Rebuild the `analyses` map from its stored JSON column.
+    """Rebuilds the `analyses` map from its stored JSON column.
 
     Defensive in the same way as `_parse_rubrics`: the value reads back as a
     string or an already-parsed object depending on client version, and one
@@ -870,7 +952,7 @@ def _parse_analyses(raw: Any) -> dict[str, ClusterVerification]:
         raw: Raw JSON string or parsed object from BigQuery.
 
     Returns:
-        Mapping of analysis step name to ClusterVerification objects.
+        Mapping of analysis step name to `ClusterVerification` objects.
     """
     if not raw:
         return {}
@@ -890,20 +972,19 @@ def _parse_analyses(raw: Any) -> dict[str, ClusterVerification]:
     return results
 
 
-def _parse_rubrics(raw: Any) -> list[RubricExample]:
-    """Rebuild the `RubricExample` list from a stored `rubrics` JSON column.
+def _parse_rubrics(raw: Any) -> list[FindingExample]:
+    """Rebuilds the `FindingExample` list from the stored ``rubrics`` JSON column.
 
     The value was written with ``json.dumps`` into a JSON column; depending on
     the BigQuery client version it reads back either as a raw string or as an
     already-parsed object, so handle both. A single malformed entry is skipped
-    with a warning rather than failing the whole read -- degraded evidence, not
-    an error (mirrors the clustering path's defensive posture).
+    with a warning rather than failing the whole read.
 
     Args:
         raw: Raw JSON string or parsed object from BigQuery.
 
     Returns:
-        List of parsed RubricExample objects.
+        List of parsed `FindingExample` objects.
     """
     if not raw:
         return []
@@ -912,10 +993,10 @@ def _parse_rubrics(raw: Any) -> list[RubricExample]:
     except (TypeError, ValueError) as exc:
         logger.warning("insights: unparseable stored rubrics payload: %s", exc)
         return []
-    examples: list[RubricExample] = []
+    examples: list[FindingExample] = []
     for item in data or []:
         try:
-            examples.append(RubricExample.model_validate(item))
+            examples.append(FindingExample.model_validate(item))
         except Exception as exc:
             logger.warning(
                 "insights: skipping a malformed stored rubric example: %s", exc

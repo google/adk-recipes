@@ -15,7 +15,7 @@
 """Tests for `metrics.publishing`: what `aqua metrics` does behind the routes.
 
 The library is validated by the loader that runs it, so what a publish refuses
-is what a run would fail on. The store is the autouse `metrics_store`
+is what an investigation would fail on. The store is the autouse `metrics_store`
 directory, so the object names asserted here are the ones a bucket gets.
 """
 
@@ -170,7 +170,7 @@ def test_a_local_metric_with_a_mapping_and_a_nan_threshold_is_published() -> (
     None
 ):
     """The loader applies the remote checks on the remote path only, and a
-    publish refuses no more than a run would fail on."""
+    publish refuses no more than an investigation would fail on."""
     metrics = _list_report_metrics(
         {
             "eval_config.yaml": b"metrics_to_run: [local_one]\ncustom_metrics:\n"

@@ -249,6 +249,7 @@ _LEGACY_SCAN_GLOBS = (
     "horizon/**/*.py",
     "horizon/builtin_skills/**/*.md",
     "tests/eval/evalsets/*.json",
+    "tests/eval/datasets/*.json",
     "web/**/*.ts",
     "web/**/*.tsx",
     "docs/**/*.md",
@@ -293,17 +294,18 @@ _LEGACY_TOKEN_EXCEPTIONS: dict[str, frozenset[str]] = {
     "docs/architecture.md": frozenset({"add_memory", "session_search"}),
     "docs/memory.md": frozenset({"add_memory"}),
     "docs/permission-model.md": frozenset({"session_search"}),
-    "tests/eval/evalsets/dynamic_delegate_routing.evalset.json": frozenset(
+    "tests/eval/evalsets/memory_recall.evalset.json": frozenset({"add_memory"}),
+    # Same labels, carried over when these suites moved to agents-cli datasets.
+    "tests/eval/datasets/dynamic_delegate_routing-dataset.json": frozenset(
         {"read_file"}
     ),
-    "tests/eval/evalsets/memory_recall.evalset.json": frozenset({"add_memory"}),
-    "tests/eval/evalsets/skill_curation.evalset.json": frozenset(
+    "tests/eval/datasets/skill_curation-dataset.json": frozenset(
         {"add_memory"}
     ),
-    "tests/eval/evalsets/tool_selection_core.evalset.json": frozenset(
+    "tests/eval/datasets/tool_selection_core-dataset.json": frozenset(
         {"read_file", "add_memory"}
     ),
-    "tests/eval/evalsets/workspace_window.evalset.json": frozenset(
+    "tests/eval/datasets/workspace_window-dataset.json": frozenset(
         {"set_workspace_window"}
     ),
     # (d) unrenamed module filename; (g) historically-accurate deletion prose.
@@ -371,6 +373,7 @@ async def test_no_legacy_tool_calls_survive_after_the_rename():
         "horizon/**/*.py",
         "horizon/builtin_skills/**/*.md",
         "tests/eval/evalsets/*.json",
+        "tests/eval/datasets/*.json",
     ):
         for path in repo_root.glob(glob):
             if not path.is_file() or "node_modules" in path.parts:

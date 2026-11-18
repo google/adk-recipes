@@ -12,31 +12,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""The deployed `TrajectoryStore`: BigQuery, agent-scoped.
+"""BigQuery implementation of `TrajectoryStore`, scoped to one observed agent.
 
-Three tables, one store, as `BigQueryInsightStore` covers `insights` with its
-occurrences and `BigQueryInvestigationStore` covers `investigations` with its
-events:
-the index of what was sampled (`trajectories`) and the archived conversation
-behind it (`trajectory_payloads` with its turns).
+Writes across three tables in `Config.aqa_dataset`:
+* ``trajectories`` (`_INVESTIGATION_TRAJECTORIES_TABLE`) for
+  `InvestigationTrajectory` rows, keyed by ``(investigation_id, trajectory_id)``.
+  Retry cleanup (`delete_investigation_trajectories`) deletes a prior attempt's
+  rows for the investigation.
+* ``trajectory_payloads`` (`MANIFESTS_TABLE`) and ``trajectory_payload_turns``
+  (`STEPS_TABLE`) for `TrajectoryBundle` manifests and steps, keyed by
+  ``(observed_agent_key, trajectory_id)`` across investigations.
 
-**Every write is a plain append**, and the difference between the two is what
-becomes of an older row. An index row belongs to the run that wrote it, so a
-retry of that run erases the previous attempt's. A payload belongs to the
-conversation, and a sweep that samples one a second time simply stores a second
-copy: nothing is read back, compared or replaced at write time, so no write can
-destroy a conversation somebody else stored.
-
-Which copy to believe is `bigquery_reader.PAYLOAD_PREFERENCE`, decided where the
-payload is read. Keeping it there is the `_build_gcs_console_url` precedent
-(`core/investigation/model.py`) applied to a rule instead of a URL: the stored
-rows carry the facts, the reader derives the answer, and the answer can change
-without rewriting anything.
-
-Appending and choosing later is BigQuery's answer, not the contract's.
-`standalone.InMemoryTrajectoryStore` can change a record, so it applies the same
-preference at write time and keeps one copy (D19). Both hand back the copy the
-rule names.
+When a trajectory is sampled by multiple investigations, each appends its own
+bundle copy; `bigquery_reader.PAYLOAD_PREFERENCE` selects the preferred copy at
+read time. `standalone.InMemoryTrajectoryStore` applies the same rule at write
+time (`store.compute_manifest_rank`).
 """
 
 from __future__ import annotations
@@ -51,27 +41,27 @@ from google.cloud import bigquery
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from ambient_quality_agent.tools.trajectories.models import (
-        Trajectory,
-        TrajectoryPayload,
-        TrajectoryPayloadTurn,
+    from ambient_quality_agent.tools.trajectories.bundles import (
+        TrajectoryBundle,
     )
-    from ambient_quality_agent.tools.trajectories.payloads import (
-        TrajectoryArchive,
+    from ambient_quality_agent.tools.trajectories.models import (
+        InvestigationTrajectory,
+        TrajectoryManifest,
+        TrajectoryStep,
     )
 
 logger = logging.getLogger(__name__)
 
-_TRAJECTORIES_TABLE = "trajectories"
-PAYLOADS_TABLE = "trajectory_payloads"
-TURNS_TABLE = "trajectory_payload_turns"
+_INVESTIGATION_TRAJECTORIES_TABLE = "trajectories"
+MANIFESTS_TABLE = "trajectory_payloads"
+STEPS_TABLE = "trajectory_payload_turns"
 
 _WRITE_ATTEMPTS = 3
-"""Times a payload load is tried before the sweep is failed.
+"""Times a trajectory bundle load is tried before the sweep is failed.
 
-An index row is best-effort, because losing one costs a dot on a chart. Losing
-a payload costs the evidence an insight points at, so this one retries and then
-raises. Safe to retry because a load job commits every row or none: a load that
+An investigation trajectory is best-effort, because losing one costs a dot on a
+chart. Losing a trajectory bundle costs the evidence an insight points at, so
+this one retries and then raises. Safe to retry because a load job commits every row or none: a load that
 failed wrote nothing to duplicate.
 """
 
@@ -79,14 +69,14 @@ _RETRY_BACKOFF_SECONDS = 2.0
 
 
 class BigQueryTrajectoryStore:
-    """Writes one agent's sampled trajectories, and the conversations behind
-    them, to BigQuery.
+    """Writes one agent's investigation trajectories, and the trajectory
+    bundles behind them, to BigQuery.
 
-    **`delete_run_trajectories` covers the index and must never touch the payloads.** An
-    index row belongs to the run that wrote it, so a retry erases the previous
-    attempt's; a payload is referenced by every sweep that sampled the
-    conversation, and deleting one run's would destroy a copy still in use --
-    including one this run did not write. Nothing needs cleaning up there: an
+    **`delete_investigation_trajectories` must never touch the trajectory
+    bundles.** An investigation trajectory belongs to the investigation that wrote it, so
+    a retry erases the previous attempt's; a bundle is referenced by every
+    sweep that sampled the trajectory, and deleting one investigation's would destroy a
+    copy still in use -- including one this investigation did not write. Nothing needs cleaning up there: an
     attempt that failed leaves rows a reader never reaches, and they expire
     with their partition.
     """
@@ -97,7 +87,7 @@ class BigQueryTrajectoryStore:
         client: bigquery.Client,
         project_id: str,
         dataset: str,
-        agent_name: str,
+        observed_agent_key: str,
     ) -> None:
         """Bind the store to one agent's dataset.
 
@@ -108,86 +98,89 @@ class BigQueryTrajectoryStore:
             project_id: GCP project owning the dataset, for table references.
             dataset: BigQuery dataset holding the trajectory tables; the
                 same one the insight tables live in.
-            agent_name: The observed agent this store is scoped to; every
+            observed_agent_key: The observed agent this store is scoped to; every
                 statement filters on it.
         """
         self._client = client
         self._project_id = project_id
         self._dataset = dataset
-        self._agent_name = agent_name
+        self._observed_agent_key = observed_agent_key
 
     def _build_table_ref(self, table: str) -> str:
         """Fully-qualified ``project.dataset.table`` reference."""
         return f"{self._project_id}.{self._dataset}.{table}"
 
-    def delete_run_trajectories(self, run_id: str) -> None:
-        """Erases index rows for an investigation run to prepare for a clean retry.
+    def delete_investigation_trajectories(self, investigation_id: str) -> None:
+        """Erases the investigation trajectories one investigation wrote.
 
-        Deletes rows from the trajectories index table. Never touches payloads,
-        which are shared across runs and referenced by existing insights.
+        Never touches trajectory bundles, which are shared across
+        investigations and referenced by existing insights.
 
         Args:
-            run_id: Investigation run identifier to clean up.
+            investigation_id: Investigation identifier to clean up.
         """
         self._run(
-            f"DELETE FROM `{self._build_table_ref(_TRAJECTORIES_TABLE)}` "  # noqa: S608 - trusted identifiers and fixed SQL; values are parameterized
-            "WHERE run_id = @run_id AND agent_name = @agent_name",
+            f"DELETE FROM `{self._build_table_ref(_INVESTIGATION_TRAJECTORIES_TABLE)}` "  # noqa: S608 - trusted identifiers and fixed SQL; values are parameterized
+            "WHERE run_id = @investigation_id AND agent_name = @agent_name",
             [
-                bigquery.ScalarQueryParameter("run_id", "STRING", run_id),
                 bigquery.ScalarQueryParameter(
-                    "agent_name", "STRING", self._agent_name
+                    "investigation_id", "STRING", investigation_id
+                ),
+                bigquery.ScalarQueryParameter(
+                    "agent_name", "STRING", self._observed_agent_key
                 ),
             ],
         )
 
-    def record(self, trajectories: Sequence[Trajectory]) -> None:
-        """Appends a batch of trajectory index rows to BigQuery.
+    def record_investigation_trajectories(
+        self, investigation_trajectories: Sequence[InvestigationTrajectory]
+    ) -> None:
+        """Appends a batch of investigation trajectories to BigQuery.
 
         Args:
-            trajectories: Sequence of Trajectory models to write.
+            investigation_trajectories: Investigation trajectories to write.
         """
-        if not trajectories:
+        if not investigation_trajectories:
             return
         rows = [
             {
-                "run_id": t.run_id,
-                "agent_name": t.agent_name,
+                "run_id": t.investigation_id,
+                "agent_name": t.observed_agent_key,
                 "trajectory_id": t.trajectory_id,
                 "created_at": t.created_at.isoformat(),
-                "source": t.source,
+                "source": t.ingestion_source,
                 "source_session_id": t.source_session_id,
                 "source_trace_ids": list(t.source_trace_ids),
                 "ingest_status": t.ingest_status.value,
             }
-            for t in trajectories
+            for t in investigation_trajectories
         ]
-        self._insert_rows(_TRAJECTORIES_TABLE, rows)
+        self._insert_rows(_INVESTIGATION_TRAJECTORIES_TABLE, rows)
 
-    def record_payloads(self, archives: Sequence[TrajectoryArchive]) -> None:
-        """Appends conversation manifests and turns using load jobs.
+    def record_trajectory_bundles(
+        self, bundles: Sequence[TrajectoryBundle]
+    ) -> None:
+        """Appends trajectory manifests and steps using load jobs.
 
-        Writes turns before manifests so partially written batches leave turns
-        unreferenced rather than manifests missing turns. Retries transient errors.
+        Writes steps before manifests so partially written batches leave steps
+        unreferenced rather than manifests missing steps. Retries transient
+        errors.
 
         Args:
-            archives: Sequence of TrajectoryArchive objects to persist.
+            bundles: Trajectory bundles to persist.
 
         Raises:
             Exception: If load jobs fail after all retry attempts.
         """
-        if not archives:
+        if not bundles:
             return
         self._insert_rows_with_retry(
-            TURNS_TABLE,
-            [
-                _turn_to_row(turn)
-                for archive in archives
-                for turn in archive.turns
-            ],
+            STEPS_TABLE,
+            [_step_to_row(step) for bundle in bundles for step in bundle.steps],
         )
         self._insert_rows_with_retry(
-            PAYLOADS_TABLE,
-            [_payload_to_row(archive.payload) for archive in archives],
+            MANIFESTS_TABLE,
+            [_manifest_to_row(bundle.manifest) for bundle in bundles],
         )
 
     def _insert_rows_with_retry(
@@ -258,39 +251,39 @@ class BigQueryTrajectoryStore:
         del errors  # result() raises on failure; nothing to inspect on success.
 
 
-def _payload_to_row(payload: TrajectoryPayload) -> dict[str, Any]:
-    """Converts a TrajectoryPayload model into a BigQuery row dictionary.
+def _manifest_to_row(manifest: TrajectoryManifest) -> dict[str, Any]:
+    """Converts a TrajectoryManifest model into a BigQuery row dictionary.
 
     Args:
-        payload: Manifest model to convert.
+        manifest: Manifest model to convert.
 
     Returns:
         Row dictionary formatted for BigQuery JSON loading.
     """
     return {
-        "agent_name": payload.agent_name,
-        "trajectory_id": payload.trajectory_id,
-        "created_at": payload.created_at.isoformat(),
-        "status": payload.status.value,
-        "turn_count": payload.turn_count,
-        "agents": payload.agents,
-        "agent_revision": payload.agent_revision,
+        "agent_name": manifest.observed_agent_key,
+        "trajectory_id": manifest.trajectory_id,
+        "created_at": manifest.created_at.isoformat(),
+        "status": manifest.status.value,
+        "turn_count": manifest.step_count,
+        "agents": manifest.agents,
+        "agent_revision": manifest.agent_revision,
     }
 
 
-def _turn_to_row(turn: TrajectoryPayloadTurn) -> dict[str, Any]:
-    """Converts a TrajectoryPayloadTurn model into a BigQuery row dictionary.
+def _step_to_row(step: TrajectoryStep) -> dict[str, Any]:
+    """Converts a TrajectoryStep model into a BigQuery row dictionary.
 
     Args:
-        turn: Turn model to convert.
+        step: Step model to convert.
 
     Returns:
         Row dictionary formatted for BigQuery JSON loading.
     """
     return {
-        "agent_name": turn.agent_name,
-        "trajectory_id": turn.trajectory_id,
-        "turn_index": turn.turn_index,
-        "created_at": turn.created_at.isoformat(),
-        "turn": turn.turn,
+        "agent_name": step.observed_agent_key,
+        "trajectory_id": step.trajectory_id,
+        "turn_index": step.step_index,
+        "created_at": step.created_at.isoformat(),
+        "turn": step.step,
     }

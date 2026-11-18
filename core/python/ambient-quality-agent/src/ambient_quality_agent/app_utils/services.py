@@ -72,7 +72,7 @@ def _resolve_session_service_uri() -> str | None:
     """Where sessions live; ``None`` falls back to ADK's in-memory service.
 
     Investigations are submitted from a user's turn but run in a *separate*
-    durable job invocation. The run itself is in BigQuery, so its progress
+    durable job invocation. The investigation itself is in BigQuery, so its progress
     survives either way, but the config overrides the job reads (and the chat
     history) live in the session. On Agent Runtime that has to be the managed
     service (`agentengine://`), or the job resolves a different session from the

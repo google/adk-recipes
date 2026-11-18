@@ -36,7 +36,7 @@ logger = logging.getLogger(__package__)
 
 
 async def check_investigations_schema() -> None:
-    """Name any run-record column AQA writes that the live table lacks.
+    """Name any investigation-record column AQA writes that the live table lacks.
 
     Never blocks startup; an unreachable table logs at info, not error.
     """
@@ -118,5 +118,5 @@ def _build_insight_store(cfg: Config) -> BigQueryInsightStore:
         ),
         project_id=cfg.project_id,
         dataset=cfg.aqa_dataset,
-        agent_name=cfg.resolve_agent_key(),
+        observed_agent_key=cfg.resolve_agent_key(),
     )

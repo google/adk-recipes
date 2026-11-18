@@ -1,0 +1,32 @@
+{
+  "mcpServers": {
+    "google_calendar": {
+      "type": "http",
+      "url": "https://calendarmcp.googleapis.com/mcp/v1"
+    },
+    "gmail": {
+      "type": "http",
+      "url": "https://gmailmcp.googleapis.com/mcp/v1"
+    },
+    "google_drive": {
+      "type": "http",
+      "url": "https://drivemcp.googleapis.com/mcp/v1"
+    },
+    "google_docs": {
+      "type": "http",
+      "url": "https://docsmcp.googleapis.com/mcp/v1"
+    },
+    "google_sheets": {
+      "type": "http",
+      "url": "https://sheetsmcp.googleapis.com/mcp/v1"
+    },
+    "google_slides": {
+      "type": "http",
+      "url": "https://slidesmcp.googleapis.com/mcp/v1"
+    },
+    "github": {
+      "type": "http",
+      "url": "https://api.githubcopilot.com/mcp/"
+    }
+  }
+}

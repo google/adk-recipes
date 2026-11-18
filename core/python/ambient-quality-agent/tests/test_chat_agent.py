@@ -224,7 +224,7 @@ def test_the_prompt_asks_for_preview_examples_as_links() -> None:
     """
     instruction = " ".join(chat_agent._INSTRUCTION.split())
 
-    assert "markdown link to its `case_view_path`" in instruction
+    assert "markdown link to its `trajectory_view_path`" in instruction
     assert "`trace_url` when the example carries one" in instruction
 
 
@@ -237,7 +237,7 @@ def test_the_preview_tool_docstring_names_both_link_fields() -> None:
         (chat_agent.preview_custom_investigation.__doc__ or "").split()
     )
 
-    assert "markdown link to its `case_view_path`" in docstring
+    assert "markdown link to its `trajectory_view_path`" in docstring
     assert "`trace_url`" in docstring
     assert "`big_query` examples carry no `trace_url`" in docstring
 
@@ -360,7 +360,7 @@ def test_these_are_the_only_implemented_writers() -> None:
     memory state; set_goal writes only after the user approves, and remember
     only when the user asks. `preview_custom_investigation` is
     classified as read-only because it archives conversation previews without
-    recording an investigation run.
+    recording an investigation.
     """
     writers = {
         "start_investigation",
@@ -474,27 +474,27 @@ def test_a_scheduled_run_reports_its_id(
 
     async def _scheduled(_ctx: Any) -> dict[str, Any]:
         await asyncio.sleep(0)  # a real scheduler yields to the loop
-        return {"run_id": "run-7", "status": "pending"}
+        return {"investigation_id": "run-7", "status": "pending"}
 
     monkeypatch.setattr(job_scheduling, "schedule_investigation", _scheduled)
 
     result = asyncio.run(chat_agent.start_investigation(None))  # type: ignore[arg-type]
 
-    assert result["run_id"] == "run-7"
+    assert result["investigation_id"] == "run-7"
     assert result["status"] == "pending"
 
 
 def test_an_id_alongside_an_error_is_still_a_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The run can be recorded and the job still never submitted. Reporting
-    that as started would leave the user watching for a run that is not
+    """The investigation can be recorded and the job still never submitted. Reporting
+    that as started would leave the user watching for an investigation that is not
     coming."""
     from ambient_quality_agent.core.investigation import job_scheduling
 
     async def _half_failed(_ctx: Any) -> dict[str, Any]:
         await asyncio.sleep(0)  # a real scheduler yields to the loop
-        return {"run_id": "run-8", "error": "queue rejected the task"}
+        return {"investigation_id": "run-8", "error": "queue rejected the task"}
 
     monkeypatch.setattr(job_scheduling, "schedule_investigation", _half_failed)
 

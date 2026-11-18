@@ -12,22 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""What a store of insights has to answer, apart from how it keeps them.
+"""Storage contracts for writing and curating insights and occurrences.
 
-`bigquery_store.BigQueryInsightStore` is the deployed implementation;
-`standalone.InMemoryInsightStore` is the other. This is the write path a sweep
-takes plus the two actions an operator can take; `reader.InsightReader` is the
-read path the dashboard and the chat tools take, and the two are deliberately
-separate classes so a read can never reach the write machinery.
+Implemented by `bigquery_store.BigQueryInsightStore` for deployments and
+`standalone.InMemoryInsightStore` for standalone mode. Kept separate from
+`reader.InsightReader` so read-only callers cannot invoke write operations.
 
-Six operations, and one of them -- `merge_insight` -- is the only place in AQuA
-where the two implementations are meant to end up holding *different data* for
-the same history. BigQuery leaves the absorbed insight's occurrences where they
-are and points the insight at its survivor, because re-pointing many rows is
-expensive there; the read folds the pointer away. In-memory implementations
-can move occurrences directly during the merge; both approaches yield identical
-read results. Both must answer every read the same way afterwards, and neither
-may leave an occurrence reachable from two insights.
+On `merge_insight`, BigQuery records a `merged_into_insight_id` pointer and
+resolves ownership at read time, whereas `InMemoryInsightStore` reassigns
+occurrences and root causes directly on write. Both produce identical results
+through `InsightReader`.
 """
 
 from __future__ import annotations
@@ -46,27 +40,23 @@ if TYPE_CHECKING:
 
 
 class InsightWriter(Protocol):
-    """What a sweep needs: the four calls `insight_correlation` makes.
+    """Write interface used by `insight_correlation` during an investigation.
 
-    Narrower than `InsightStore` because the graph never curates, and the
-    narrowing is load bearing rather than tidiness. `insight_store_factory` is
-    typed to this, so a stand-in installed there -- the harness's capturing
-    store, a test double -- answers four calls and no more. Typed to the whole
-    store, such a stand-in would have to inherit one to stay assignable, and
-    would carry an implementation of the other two that it never meant to have
-    and that nothing would exercise.
+    Kept narrower than `InsightStore` so workflow test doubles and
+    `quality.store.JsonInsightStore` only need to implement the four correlation
+    operations without operator curation methods.
     """
 
-    def delete_failed_insights(self, run_id: str) -> None:
-        """Erase a previous attempt of ``run_id`` so a retry starts clean.
+    def delete_failed_insights(self, investigation_id: str) -> None:
+        """Erase a previous attempt of ``investigation_id`` so a retry starts clean.
 
-        Drops this agent's occurrences for the run, then the insights that
+        Drops this agent's occurrences for the investigation, then the insights that
         deletion left with no occurrence at all. Order matters: the orphan check
         reads the occurrence set as it stands *after* the first step, or it
         would spare an insight held up only by the rows being removed.
 
         Args:
-            run_id: Identifier of the run being cleared.
+            investigation_id: Identifier of the investigation being cleared.
         """
 
     def find_existing_insights(
@@ -137,7 +127,7 @@ class InsightWriter(Protocol):
             new_insights: Newly minted insights to insert.
             seen_insight_ids: Insight IDs matched by current candidates.
             recurring_insight_ids: Subset of seen insights confirmed by verdict.
-            occurrences: Occurrences to persist for this run.
+            occurrences: Occurrences to persist for this investigation.
             now: Sighting timestamp.
             relabelled: Optional mapping of insight IDs to replacement labels.
         """

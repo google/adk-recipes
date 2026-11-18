@@ -15,7 +15,7 @@
 """The configuration a request runs under.
 
 `load` resolves runtime configuration for all read points:
-durable run snapshots, ambient trigger revision delay checks, and the
+durable investigation snapshots, ambient trigger revision delay checks, and the
 sessionless `/config` route read by UI and CLI.
 
 The configuration combines AQuA's own settings, from the environment, with the
@@ -37,7 +37,8 @@ the agent `resolve_engine_agent_key` finds by the engine's id.
 
 Configuration has exactly one writer, `agents-cli aqua attach`, which sends its
 changes to the command routes backed by `commands`. Nothing in a conversation
-changes it, so run configuration is independent of the scheduling session.
+changes it, so investigation configuration is independent of the scheduling
+session.
 """
 
 from __future__ import annotations
@@ -59,14 +60,14 @@ logger = logging.getLogger(__name__)
 CACHE_TTL_SECONDS = 30.0
 """Duration in seconds to reuse cached agent configuration reads.
 
-Runs snapshot configuration upon reading, making staleness negligible. The cache
-primarily serves the `/config` route, which receives frequent dashboard requests
-relative to agent re-attachment frequency.
+Investigations snapshot configuration upon reading, making staleness negligible.
+The cache primarily serves the `/config` route, which receives frequent
+dashboard requests relative to agent re-attachment frequency.
 """
 
 AGENT_KEY_STATE = "aqa_agent_key"
 """The state key a request selects its agent by. Prefixed, unlike the flat
-configuration a run's workflow state holds, whose `agent_key` it must not
+configuration an investigation's workflow state holds, whose `agent_key` it must not
 shadow."""
 
 _cache: dict[str, tuple[float, store.AgentRecord | None]] = {}

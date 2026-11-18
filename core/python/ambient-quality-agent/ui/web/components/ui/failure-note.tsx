@@ -18,7 +18,7 @@ import { cn } from "@/lib/utils";
 import { describeFailure } from "@/lib/failure";
 
 /**
- * A failed read or a failed run, told in the reader's terms.
+ * A failed read or a failed investigation, told in the reader's terms.
  *
  * One component for all three tones, because they differ only in what they
  * mean: an empty deployment is muted prose about what has not happened yet, an

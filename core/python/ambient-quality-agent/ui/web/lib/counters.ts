@@ -22,44 +22,44 @@ export interface CounterField {
 
 export const COUNTER_FIELDS: readonly CounterField[] = [
   {
-    key: "traces_scanned",
+    key: "trajectories_scanned",
     label: "Trajectories scanned",
     help: "Everything in the window before sampling -- the denominator for the rest.",
   },
   {
-    key: "traces_ingested",
+    key: "trajectories_ingested",
     label: "Trajectories ingested",
     help: "Sampled trajectories that were completely ingested for evaluation.",
   },
   {
-    key: "traces_ingested_partial",
+    key: "trajectories_ingested_partial",
     label: "Partially ingested",
     help: "Evaluated, but lost some telemetry on the way in.",
   },
   {
-    key: "traces_ingested_failed",
+    key: "trajectories_ingested_failed",
     label: "Ingestion failed",
     help: "Ingestion failed before evaluation: unparseable, or no trajectory content at all.",
   },
   {
-    key: "traces_evaluated",
+    key: "trajectories_evaluated",
     // Not "evaluated": the funnel's Evaluated total is the trajectories that
     // came back with an outcome, which can be fewer.
     label: "Sent to the eval service",
     help: "Trajectories actually sent to the eval service.",
   },
   {
-    key: "traces_eval_passed",
+    key: "trajectories_eval_passed",
     label: "Passed",
     help: "Every metric on the trajectory passed.",
   },
   {
-    key: "traces_eval_failed",
+    key: "trajectories_eval_failed",
     label: "Failed",
     help: "At least one metric on the trajectory failed.",
   },
   {
-    key: "traces_eval_errored",
+    key: "trajectories_eval_errored",
     label: "Eval service error",
     help: "The eval service crashed or timed out on this trajectory, so it returned no verdict. An AQuA failure, not an agent defect.",
   },
@@ -74,12 +74,12 @@ export const COUNTER_FIELDS: readonly CounterField[] = [
     help: "Failed findings submitted to clustering, across every producer.",
   },
   {
-    key: "rubrics_errored",
+    key: "findings_errored",
     label: "Rubrics errored",
     help: "Failed rubrics whose clustering call raised, so they reached no insight -- findings the investigation looked for and lost.",
   },
   {
-    key: "rubrics_unclustered",
+    key: "findings_unclustered",
     label: "Rubrics unclustered",
     help: "Failed rubrics the clustering result left out: omitted by the model, or in a cluster dropped as ungrounded.",
   },

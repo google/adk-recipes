@@ -23,7 +23,9 @@ Wiring::
         │ submit_query(), then fetch_page() until Page.is_exhausted
         ▼
     Page ── evaluate() ──► every Evaluation (Protocol) in the list
-        │
+        │ SweepProgress ──► _stage.StageReporter
+        │   once before the first page, after each page, while an
+        │   evaluation reports from inside one, and kept alive between
         ▼
     _common.add_ingestion_counts()
         │
@@ -58,7 +60,7 @@ import logging
 from collections import Counter
 from typing import TYPE_CHECKING, Protocol
 
-from ambient_quality_agent.core.nodes import _common
+from ambient_quality_agent.core.nodes import _common, _stage
 from ambient_quality_agent.core.state import add_counts
 from ambient_quality_agent.tools.evaluation.models import MetricType
 from ambient_quality_agent.tools.evaluation.results import (
@@ -68,8 +70,10 @@ from ambient_quality_agent.tools.evaluation.results import (
     PASSED,
 )
 from ambient_quality_agent.tools.ingestion.base import AGENT_COUNT_LIMIT
+from ambient_quality_agent.tools.investigations.models import StageProgress
 
 if TYPE_CHECKING:
+    import contextlib
     from collections.abc import Iterable, Mapping
 
     from ambient_quality_agent.core.state import ADKStateLike
@@ -83,7 +87,7 @@ class EmptyWindowError(RuntimeError):
     """A standalone sweep found no traces at all for the observed agent.
 
     Deployed, an empty window is a warning: AQuA cannot know the agent's traffic
-    pattern, and an idle hour must not fail a scheduled run. A standalone run is
+    pattern, and an idle hour must not fail a scheduled investigation. A standalone run is
     started by hand to see what AQuA finds, so a window with nothing in it is
     almost always a setting to fix, and failing names the setting.
     """
@@ -123,10 +127,87 @@ class Evaluation(Protocol):
         """Judge one page and record what it found."""
 
     def render_summary(self) -> str:
-        """One markdown line for the run's progress event."""
+        """One markdown line for the investigation's progress event."""
 
     def finish(self, state: ADKStateLike) -> None:
         """Finalize evaluation state and raise if it failed outright."""
+
+
+class SweepProgress:
+    """How far a sweep got, written as the investigation's stage rows.
+
+    `run_sweep` writes one before the first page and one after every page, and
+    keeps the newest alive while a page is evaluated. A window usually arrives
+    as a single page, so those alone would jump from none to all: an evaluation
+    that judges a page one trajectory at a time reports through `advance` as it
+    goes, and those reports are written at most once every
+    `_stage.PROGRESS_INTERVAL_SECONDS`.
+    """
+
+    def __init__(self, state: ADKStateLike, stage: str) -> None:
+        """Binds the rows to an investigation and names the stage they report.
+
+        Args:
+            state: Workflow state carrying the ``investigation_id`` to write
+                under.
+            stage: Name of the sweep in its rows, such as "Session review".
+        """
+        self._reporter = _stage.StageReporter(state)
+        self._stage = stage
+        self._total = 0
+        self._done = 0
+        self._findings = 0
+
+    def start(self, total: int) -> None:
+        """Writes the first row: nothing judged yet, out of `total`.
+
+        Args:
+            total: Trajectories the sweep expects to judge.
+        """
+        self._total = total
+        self._reporter.write(self._build_progress(0, 0))
+
+    def advance(self, judged: int, findings: int) -> None:
+        """Reports how far the page being evaluated got, if a row is due.
+
+        Args:
+            judged: Trajectories of this page judged so far.
+            findings: Findings filed on this page so far.
+        """
+        self._reporter.write_if_due(
+            self._build_progress(self._done + judged, self._findings + findings)
+        )
+
+    def finish_page(self, trajectories: int, findings: int) -> None:
+        """Writes the row for a page every evaluation has finished.
+
+        Args:
+            trajectories: Trajectories judged so far, this page included.
+            findings: Findings filed so far, this page included.
+        """
+        self._done, self._findings = trajectories, findings
+        progress = self._build_progress(trajectories, findings)
+        # The row from inside the page may say the same; liveness is
+        # `keep_alive`'s job, so an unchanged count costs no load job.
+        if progress != self._reporter.latest:
+            self._reporter.write(progress)
+
+    def keep_alive(self) -> contextlib.AbstractContextManager[None]:
+        """Re-writes the newest report while a page is evaluated; see
+        `_stage.StageReporter.keep_alive`.
+
+        Returns:
+            A context manager that keeps the row alive while its block runs.
+        """
+        return self._reporter.keep_alive()
+
+    def _build_progress(self, done: int, findings: int) -> StageProgress:
+        return StageProgress(
+            stage=self._stage,
+            evaluated=done,
+            total=self._total,
+            findings=findings,
+        )
 
 
 def run_sweep(
@@ -136,6 +217,7 @@ def run_sweep(
     node_name: str,
     budget: int,
     metric_type: MetricType = MetricType.MULTI_TURN,
+    progress: SweepProgress | None = None,
 ) -> list[str]:
     """Page the telemetry window once and pass each page to every active evaluation.
 
@@ -145,12 +227,14 @@ def run_sweep(
         node_name: Node name for logging and error reporting.
         budget: Maximum number of sessions or traces to ingest.
         metric_type: Ingestion scope (multi-turn sessions or single-turn traces).
+        progress: Where the sweep reports how far it got; when omitted, one
+            that names the stage after `node_name`.
 
     Returns:
         Summary lines from each evaluation for progress reporting.
 
     Raises:
-        selector.SelectorRefused: If the run carries an invalid or unauthorized
+        selector.SelectorRefused: If the investigation carries an invalid or unauthorized
             SQL selector before any query executes.
         EmptyWindowError: If a standalone run's window holds no traces for the
             observed agent, and no selector narrowed it.
@@ -186,6 +270,12 @@ def run_sweep(
         limit=budget,
     )
 
+    if progress is None:
+        progress = SweepProgress(state, node_name)
+    # The window can hold fewer than the budget; when it could not be
+    # counted, the budget is the most the sweep reads.
+    progress.start(budget if scanned is None else min(budget, scanned))
+
     pages = 0
     trajectories = 0
     truncated = False
@@ -196,8 +286,14 @@ def run_sweep(
         if page.dataset.eval_cases:
             pages += 1
             trajectories += len(page.dataset.eval_cases)
-            for evaluation in evaluations:
-                evaluation.evaluate(state, page)
+            # The eval service judges a page in one call, and a custom metric
+            # may run long after the review: neither reports as it goes.
+            with progress.keep_alive():
+                for evaluation in evaluations:
+                    evaluation.evaluate(state, page)
+            progress.finish_page(
+                trajectories, sum(e.findings_count for e in evaluations)
+            )
         truncated = truncated or page.memory_truncated
         if page.is_exhausted:
             break
@@ -247,10 +343,10 @@ def run_sweep(
     )
     add_counts(
         state,
-        traces_evaluated=trajectories,
-        traces_eval_passed=outcomes[PASSED],
-        traces_eval_failed=outcomes[FAILED],
-        traces_eval_errored=outcomes[ERRORED],
+        trajectories_evaluated=trajectories,
+        trajectories_eval_passed=outcomes[PASSED],
+        trajectories_eval_failed=outcomes[FAILED],
+        trajectories_eval_errored=outcomes[ERRORED],
         findings_generated=sum(e.findings_count for e in evaluations),
         rubrics_generated=sum(e.rubrics_count for e in evaluations),
     )
@@ -285,8 +381,8 @@ def render_nothing_evaluated_line(
     """Generate the summary explanation when a sweep evaluates zero cases.
 
     Handles three distinct cases:
-    - Target selector matched zero sessions: notifies that the custom criteria
-      found no matching conversations in the window.
+    - Target selector matched zero sessions: notifies that the selector's
+      criteria found no matching conversations in the window.
     - Window contained zero traces: indicates an idle agent or an agent
       attached under a name its telemetry does not record.
     - Otherwise: traces existed but none were ingested, or the trace count is
@@ -329,7 +425,7 @@ def render_empty_window_error(
 ) -> str:
     """Explain a standalone sweep's empty window, naming what to change.
 
-    Plain text rather than markdown, because it becomes the run's error.
+    Plain text rather than markdown, because it becomes the investigation's error.
 
     Args:
         state: Execution state dictionary.
@@ -406,7 +502,7 @@ def collapse_outcomes(outcomes: Iterable[Mapping[str, str]]) -> dict[str, int]:
     would report six verdicts over three trajectories the moment a second
     analyzer joined the sweep.
 
-    The unit is one trajectory, which is what `traces_evaluated` counts: a whole
+    The unit is one trajectory, which is what `trajectories_evaluated` counts: a whole
     session under ``MULTI_TURN`` and a single turn under ``SINGLE_TURN``.
     """
     worst: dict[str, str] = {}

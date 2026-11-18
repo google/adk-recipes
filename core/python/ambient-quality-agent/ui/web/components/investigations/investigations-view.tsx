@@ -22,27 +22,27 @@ import { DayFilterChip } from "@/components/ui/day-filter-chip";
 import { FilterTabs } from "@/components/ui/filter-tabs";
 import { RunInvestigationButton } from "@/components/run-investigation-button";
 import { Funnel } from "@/components/stats/funnel";
-import { TracesPerDay } from "@/components/stats/traces-per-day";
+import { TrajectoriesPerDay } from "@/components/stats/trajectories-per-day";
 import { PageHeader } from "@/components/nav/page-header";
-import { RunsTable } from "./runs-table";
+import { InvestigationsTable } from "./investigations-table";
 import { HORIZON_LABEL } from "@/lib/day-buckets";
-import { hasFailures, isAmbient } from "@/lib/run-summary";
-import { newestFirst } from "@/lib/runstate";
+import { hasFailures, isAmbient } from "@/lib/investigation-summary";
+import { newestFirst } from "@/lib/investigation-state";
 import { isNoData } from "@/lib/failure";
 import { textStyle } from "@/lib/typography";
 import { cn } from "@/lib/utils";
 import {
   dailyQuery,
-  RUNS_LIST_LIMIT,
-  runsQuery,
+  INVESTIGATIONS_LIST_LIMIT,
+  investigationsQuery,
   statsQuery,
   type Day,
-  type Run,
+  type InvestigationListItem,
 } from "@/lib/aqua-api";
 import { useAgentKey } from "@/lib/agent-selection";
 
-/** Which runs the list shows by who started them: all of them, the ones a
- *  user asked for (custom or manual), or the scheduled sweeps. */
+/** Which investigations the list shows by who started them: all of them, the
+ *  ones a user asked for (custom or manual), or the scheduled sweeps. */
 export type TriggerFilter = "all" | "user" | "scheduled";
 
 export const TRIGGER_FILTERS: Record<
@@ -57,30 +57,35 @@ export const TRIGGER_FILTER_NAMES = Object.keys(
   TRIGGER_FILTERS,
 ) as TriggerFilter[];
 
-/** Whether `run` belongs in the list under `filter`.
+/** Whether `investigation` belongs in the list under `filter`.
  *
  * Args:
- *   run: The run to test.
+ *   investigation: The investigation to test.
  *   filter: The trigger filter the list is under.
  *
  * Returns:
- *   True for every run under `all`; otherwise true when the run's trigger is
- *   of the kind the filter names.
+ *   True for every investigation under `all`; otherwise true when the
+ *   investigation's trigger is of the kind the filter names.
  */
-export function matchesTrigger(run: Run, filter: TriggerFilter): boolean {
+export function matchesTrigger(
+  investigation: InvestigationListItem,
+  filter: TriggerFilter,
+): boolean {
   if (filter === "all") return true;
-  return isAmbient(run) === (filter === "scheduled");
+  return isAmbient(investigation) === (filter === "scheduled");
 }
 
 /**
- * The investigations page: totals, the per-day chart and the newest runs.
+ * The investigations page: totals, the per-day chart and the newest
+ * investigations.
  *
  * "Only with failures" and the trigger filter are the caller's when it passes
  * `onFailuresOnlyChange` and `onTriggerChange`, and the page's own otherwise,
  * as `InsightsView` does with its status.
  *
- * `day` swaps the newest runs for the runs one column of the per-day chart
- * counts, and `onDayClear` is how the chip naming it takes it off.
+ * `day` swaps the newest investigations for the investigations one column of
+ * the per-day chart counts, and `onDayClear` is how the chip naming it takes it
+ * off.
  */
 export function InvestigationsView({
   failuresOnly,
@@ -100,11 +105,11 @@ export function InvestigationsView({
   const agentKey = useAgentKey();
   const stats = useQuery(statsQuery(agentKey));
   const daily = useQuery(dailyQuery(agentKey));
-  const runs = useQuery(runsQuery(agentKey, day));
+  const investigations = useQuery(investigationsQuery(agentKey, day));
   // What the rows are compared with, unfiltered: a day's first sweep was
-  // preceded by one the day leaves out. Without a day this is `runs` itself,
-  // one query under one key.
-  const allRuns = useQuery(runsQuery(agentKey));
+  // preceded by one the day leaves out. Without a day this is `investigations`
+  // itself, one query under one key.
+  const allInvestigations = useQuery(investigationsQuery(agentKey));
 
   // All of these describe the same sweeps, over different spans, so refreshing
   // one and not the others would leave the page describing two moments as
@@ -112,14 +117,14 @@ export function InvestigationsView({
   const refresh = useCallback(() => {
     void stats.refetch();
     void daily.refetch();
-    void runs.refetch();
-    if (day) void allRuns.refetch();
-  }, [stats, daily, runs, allRuns, day]);
+    void investigations.refetch();
+    if (day) void allInvestigations.refetch();
+  }, [stats, daily, investigations, allInvestigations, day]);
   const refreshing =
     stats.isFetching ||
     daily.isFetching ||
-    runs.isFetching ||
-    allRuns.isFetching;
+    investigations.isFetching ||
+    allInvestigations.isFetching;
 
   return (
     <div className="flex flex-col gap-8">
@@ -169,19 +174,23 @@ export function InvestigationsView({
       ) : (
         daily.data && daily.data.length > 0 && <PerDay days={daily.data} />
       )}
-      <RunsSection
-        runs={newestFirst(runs.data ?? [])}
-        // The day's runs as well: an old day can fall outside the newest page.
+      <InvestigationsSection
+        investigations={newestFirst(investigations.data ?? [])}
+        // The day's investigations as well: an old day can fall outside the
+        // newest page.
         history={[
           ...new Map(
-            [...(allRuns.data ?? []), ...(runs.data ?? [])].map((run) => [
-              run.run_id,
-              run,
+            [
+              ...(allInvestigations.data ?? []),
+              ...(investigations.data ?? []),
+            ].map((investigation) => [
+              investigation.investigation_id,
+              investigation,
             ]),
           ).values(),
         ]}
-        loading={runs.isLoading}
-        error={runs.isError ? runs.error : null}
+        loading={investigations.isLoading}
+        error={investigations.isError ? investigations.error : null}
         onRefresh={refresh}
         refreshing={refreshing}
         failuresOnly={failuresOnly}
@@ -205,7 +214,7 @@ function PerDay({ days }: { days: Day[] }) {
   return (
     <section className="flex flex-col gap-3">
       <h2 className={textStyle.sectionTitle}>Evaluated trajectories per day</h2>
-      <TracesPerDay days={days} />
+      <TrajectoriesPerDay days={days} />
       <p className={textStyle.meta}>
         Each column is that day&apos;s evaluated trajectories, split by outcome;
         the figure above it is the failures. Days are UTC.
@@ -214,8 +223,8 @@ function PerDay({ days }: { days: Day[] }) {
   );
 }
 
-function RunsSection({
-  runs,
+function InvestigationsSection({
+  investigations,
   history,
   loading,
   error,
@@ -229,9 +238,10 @@ function RunsSection({
   dayTotal,
   onDayClear,
 }: {
-  runs: Run[];
-  /** Every run the rows can be compared with, whatever the filters hide. */
-  history: Run[];
+  investigations: InvestigationListItem[];
+  /** Every investigation the rows can be compared with, whatever the
+   *  filters hide. */
+  history: InvestigationListItem[];
   loading: boolean;
   error: unknown;
   onRefresh: () => void;
@@ -241,7 +251,8 @@ function RunsSection({
   trigger?: TriggerFilter;
   onTriggerChange?: (trigger: TriggerFilter) => void;
   day?: string;
-  /** How many runs the per-day chart counts on `day`, when it has said. */
+  /** How many investigations the per-day chart counts on `day`, when it
+   *  has said. */
   dayTotal?: number;
   onDayClear?: () => void;
 }) {
@@ -257,7 +268,9 @@ function RunsSection({
   const [localTrigger, setLocalTrigger] = useState<TriggerFilter>("all");
   const trigger = onTriggerChange ? (ownedTrigger ?? "all") : localTrigger;
   const setTrigger = onTriggerChange ?? setLocalTrigger;
-  const byTrigger = runs.filter((run) => matchesTrigger(run, trigger));
+  const byTrigger = investigations.filter((investigation) =>
+    matchesTrigger(investigation, trigger),
+  );
   const visible = failuresOnly ? byTrigger.filter(hasFailures) : byTrigger;
   const noun = TRIGGER_FILTERS[trigger].noun;
   const checkboxRef = useRef<HTMLInputElement>(null);
@@ -322,16 +335,16 @@ function RunsSection({
         !loading &&
         !error &&
         (dayTotal !== undefined
-          ? runs.length < dayTotal && (
+          ? investigations.length < dayTotal && (
               <p className={textStyle.meta}>
-                Showing the newest {runs.length} of {dayTotal} investigations on{" "}
-                {day} (UTC).
+                Showing the newest {investigations.length} of {dayTotal}{" "}
+                investigations on {day} (UTC).
               </p>
             )
-          : runs.length >= RUNS_LIST_LIMIT && (
+          : investigations.length >= INVESTIGATIONS_LIST_LIMIT && (
               <p className={textStyle.meta}>
-                Showing the newest {runs.length} investigations on {day} (UTC);
-                the day may hold more.
+                Showing the newest {investigations.length} investigations on{" "}
+                {day} (UTC); the day may hold more.
               </p>
             ))}
       {error ? (
@@ -343,7 +356,7 @@ function RunsSection({
         />
       ) : loading ? (
         <Loading label="Loading investigations…" />
-      ) : runs.length === 0 ? (
+      ) : investigations.length === 0 ? (
         <p className={textStyle.description}>
           {day
             ? `No investigations on ${day} (UTC).`
@@ -367,7 +380,7 @@ function RunsSection({
           idle investigations.
         </p>
       ) : (
-        <RunsTable runs={visible} history={history} />
+        <InvestigationsTable investigations={visible} history={history} />
       )}
     </section>
   );

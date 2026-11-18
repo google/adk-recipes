@@ -44,7 +44,12 @@ from ambient_quality_agent.tools.metrics.library import (
 )
 from google.genai import types as gt
 
-from .conftest import make_agent_case, make_page
+from .conftest import (
+    TRAJECTORY_FILE_URI,
+    build_trajectory_file_case,
+    make_agent_case,
+    make_page,
+)
 
 _SOURCE = "EXPECTED = 'The agent answers.'\n\ndef evaluate(instance):\n    return 1.0\n"
 
@@ -279,7 +284,7 @@ def test_a_remote_metric_that_will_not_parse_is_a_named_failure() -> None:
 def test_a_remote_metric_naming_no_function_is_named_not_dropped() -> None:
     """`execution: remote` with nothing to run is the shape a typo lands in.
 
-    Skipped quietly it never reached the run summary, so the operator saw a
+    Skipped quietly it never reached the investigation summary, so the operator saw a
     sweep that scored nothing and said nothing about why.
     """
     library = load_library(_config({"name": "nothing", "execution": "remote"}))
@@ -505,7 +510,7 @@ def test_a_failing_score_becomes_a_finding_with_the_services_explanation() -> (
     assert [f.expected_behavior for f in finding_set.findings] == [
         "The agent answers."
     ]
-    assert [f.session_id for f in finding_set.findings] == ["s1"]
+    assert [f.trajectory_id for f in finding_set.findings] == ["s1"]
     assert (tally.cases, tally.failed, tally.passed) == (1, 1, 0)
 
 
@@ -674,7 +679,7 @@ def test_a_failing_case_carries_its_turns_and_revision() -> None:
     )
 
     assert [f.agent_revision for f in finding_set.findings] == ["rev-7"]
-    assert list(finding_set.sessions) == ["s1"]
+    assert list(finding_set.turns_by_trajectory) == ["s1"]
 
 
 def test_every_case_of_the_page_is_counted_once() -> None:
@@ -697,7 +702,7 @@ def test_every_case_of_the_page_is_counted_once() -> None:
     # The unanswered case is errored, not passed: the service said nothing
     # about it, which is not the same as the agent behaving.
     assert tally.outcomes == {"s1": "failed", "s2": "errored"}
-    assert [f.session_id for f in finding_set.findings] == ["s1"]
+    assert [f.trajectory_id for f in finding_set.findings] == ["s1"]
 
 
 def test_a_service_that_answers_about_nothing_does_not_report_a_clean_sweep() -> (
@@ -834,6 +839,40 @@ def test_the_service_receives_the_prompt_the_local_runner_derives() -> None:
     )
     assert sent.prompt.parts[0].text == "Rome?"
     assert runner.build_instance(case)["prompt"]["parts"][0]["text"] == "Rome?"
+
+
+def test_the_service_receives_an_image_only_prompt_as_placeholder_text() -> (
+    None
+):
+    """Metrics get placeholder text for a stored file, so a user message that
+    holds only one is still a message, as in `runner.build_instance`."""
+    case = build_trajectory_file_case(("user", None), ("agent", "A cat."))
+    page = make_page([case])
+
+    sent = remote.build_request_dataset(page.dataset).eval_cases[0]
+
+    assert sent.prompt is not None
+    assert sent.prompt.parts[0].text == "<attachment: image/png>"
+    assert sent.responses[0].response.parts[0].text == "A cat."
+    first = sent.agent_data.turns[0].events[0].content.parts[0]
+    assert first.text == "<attachment: image/png>"
+    kept = page.dataset.eval_cases[0].agent_data.turns[0].events[0]
+    assert kept.content.parts[0].file_data.file_uri == TRAJECTORY_FILE_URI, (
+        "the page's case keeps its link"
+    )
+
+
+def test_the_service_judges_an_unanswered_image_only_message_as_silence() -> (
+    None
+):
+    case = build_trajectory_file_case(
+        ("user", "Hi"), ("agent", "Hello!"), ("user", None)
+    )
+
+    sent = remote.build_request_dataset(make_page([case]).dataset).eval_cases[0]
+
+    assert sent.prompt is None
+    assert sent.responses[0].response.parts[0].text == ""
 
 
 def test_a_case_that_already_carries_a_response_still_gets_its_prompt() -> None:
@@ -979,7 +1018,7 @@ def test_a_service_outage_is_recorded_rather_than_raised_mid_sweep() -> None:
     """Uncaught, a 503 leaves `run_sweep` from inside the page loop, before the
     peers have finished their pages or any counter has been written.
 
-    Caught, the sweep completes and `finish` decides the run. This does not make
+    Caught, the sweep completes and `finish` decides the investigation. This does not make
     the evaluation non-fatal: `finish` still raises when nothing scored.
     """
     evaluation = RemoteCodeMetricEvaluation(_DeadEvaluator(), [_metric()])
@@ -998,7 +1037,7 @@ def test_an_evaluator_that_cannot_be_built_is_recorded_not_raised() -> None:
     """Building the SDK client resolves credentials and can raise.
 
     Done in the node, it escaped before any evaluation ran. Deferred, the page
-    is recorded errored and `finish` decides the run.
+    is recorded errored and `finish` decides the investigation.
     """
 
     def factory() -> Any:

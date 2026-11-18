@@ -63,10 +63,10 @@ try {
   );
 
   // Absence must not render as a number.
-  if (api.last_run?.pass_rate == null) {
+  if (api.last_investigation?.pass_rate == null) {
     check("4 no pass rate is invented", !/% passed/.test(text));
   } else {
-    const pct = Math.round(api.last_run.pass_rate * 100);
+    const pct = Math.round(api.last_investigation.pass_rate * 100);
     check(
       "4 the pass rate matches the API",
       text.includes(`${pct}%`),

@@ -93,7 +93,7 @@ def test_an_unreadable_library_degrades_instead_of_raising(
 
     assert library == {}
     assert "Could not read the metric library" in caplog.text
-    # ...and it must reach the run record, or a degraded sweep is
+    # ...and it must reach the investigation record, or a degraded sweep is
     # indistinguishable from a healthy one that found nothing.
     assert "could not be read" in warning
 
@@ -128,7 +128,7 @@ def test_the_bucket_is_not_part_of_an_agents_configuration() -> None:
 
 def test_a_metric_that_did_not_load_is_named_in_the_warning() -> None:
     """The metrics that did load go on scoring every session, so without this
-    the run reads as a clean sweep of the whole library rather than of what
+    the investigation reads as a clean sweep of the whole library rather than of what
     survived."""
     from ambient_quality_agent.tools.metrics.library import MetricLibrary
 

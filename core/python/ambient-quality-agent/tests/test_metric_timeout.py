@@ -25,7 +25,7 @@ from ambient_quality_agent.tools.metrics.timeout import wrap_with_timeout
 
 
 def test_a_metric_that_never_returns_is_abandoned() -> None:
-    """Without this the node waits forever, the run never finishes, and the
+    """Without this the node waits forever, the investigation never finishes, and the
     window never advances -- so every later sweep waits behind it too."""
     release = threading.Event()
 

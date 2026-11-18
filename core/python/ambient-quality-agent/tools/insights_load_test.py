@@ -969,7 +969,7 @@ def run_clustering(
     attempt.settle_status()
     validated = clustering.validate_clusters(parsed, len(findings))
     enriched = clustering.attach_examples(
-        validated, findings, finding_set.sessions
+        validated, findings, finding_set.turns_by_trajectory
     )
     attempt.clusters_before_merge = len(enriched)
     merge_call = (
@@ -1533,9 +1533,9 @@ def run_correlation(
         client=client,
         project_id=config.project_id,
         dataset=config.aqa_dataset,
-        agent_name=agent_name,
+        observed_agent_key=agent_name,
     )
-    run_id = f"loadtest-{uuid.uuid4().hex[:8]}"
+    investigation_id = f"loadtest-{uuid.uuid4().hex[:8]}"
     now = dt.datetime.now(dt.UTC)
     # Staggered by a second per insight, oldest first, so "the newest insight
     # for this defect" is a fact rather than a coin toss. Production ties them
@@ -1544,7 +1544,7 @@ def run_correlation(
     insights = [
         Insight(
             insight_id=mint_id(),
-            agent_name=agent_name,
+            observed_agent_key=agent_name,
             label=entry.cluster.label,
             status=InsightStatus.NEW,
             created_at=now,
@@ -1557,14 +1557,14 @@ def run_correlation(
             occurrence_id=mint_id(),
             insight_id=insight.insight_id,
             occurrence_state=OccurrenceState.TRACKED,
-            run_id=run_id,
+            investigation_id=investigation_id,
             created_at=now,
-            agent_name=agent_name,
+            observed_agent_key=agent_name,
             label=entry.cluster.label,
-            item_count=entry.cluster.item_count,
+            finding_count=entry.cluster.finding_count,
             # The evidence `attach_examples` produced, traces and all, so the
             # load job writes the payload a real occurrence carries.
-            rubrics=entry.cluster.examples,
+            examples=entry.cluster.examples,
         )
         for entry, insight in zip(seeded, insights, strict=True)
     ]
@@ -1624,9 +1624,9 @@ def run_correlation(
         result.error = f"{type(exc).__name__}: {exc}"
     finally:
         if not keep:
-            # Deletes this run's occurrences and then the insights left without
-            # any -- which is all of them, since the run minted them itself.
-            store.delete_failed_insights(run_id)
+            # Deletes this investigation's occurrences and then the insights left without
+            # any -- which is all of them, since the investigation minted them itself.
+            store.delete_failed_insights(investigation_id)
     return result
 
 

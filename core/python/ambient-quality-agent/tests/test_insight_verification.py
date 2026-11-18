@@ -34,7 +34,7 @@ from ambient_quality_agent.tools.agent_revision import (
 )
 from ambient_quality_agent.tools.insights.clustering import Cluster
 from ambient_quality_agent.tools.insights.findings import Finding
-from ambient_quality_agent.tools.insights.models import RubricExample
+from ambient_quality_agent.tools.insights.models import FindingExample
 from ambient_quality_agent.tools.insights.verification import (
     _VERIFY_INSTRUCTIONS,
     MAX_EVIDENCE_CHARS,
@@ -51,15 +51,15 @@ from ambient_quality_agent.tools.insights.verification import (
 
 def _example(
     case_id: str = "case-1", trace: list[dict[str, Any]] | None = None
-) -> RubricExample:
-    return RubricExample(
-        rubric=Finding(
+) -> FindingExample:
+    return FindingExample(
+        finding=Finding(
             expected_behavior="call tool X",
             actual_behavior="called tool Y",
-            session_id=case_id,
+            trajectory_id=case_id,
         ),
-        eval_case_id=case_id,
-        trace=trace
+        trajectory_id=case_id,
+        turns=trace
         if trace is not None
         else [{"role": "user", "text": "hello"}],
     )
@@ -68,14 +68,14 @@ def _example(
 def _cluster(
     cluster_id: int = 0,
     label: str = "failed to call tool",
-    examples: list[RubricExample] | None = None,
+    examples: list[FindingExample] | None = None,
     item_count: int = 1,
 ) -> Cluster:
     return Cluster(
         cluster_id=cluster_id,
         label=label,
         examples=examples if examples is not None else [_example()],
-        item_count=item_count,
+        finding_count=item_count,
         finding_ids=[cluster_id],
     )
 
@@ -152,7 +152,7 @@ def test_a_verified_cluster_carries_an_explanation_and_a_refined_label() -> (
         == "Agent consistently calls tool Y instead of tool X on greeting."
     )
     assert outcomes[0].rejected is False
-    assert outcomes[0].examined_case_ids == ["case-1"]
+    assert outcomes[0].examined_trajectory_ids == ["case-1"]
     assert info == VerifyInfo(verified=1, rejected=0, skipped=0, failed=0)
 
 
@@ -275,7 +275,7 @@ def test_a_verdict_never_overwrites_the_clusters_label() -> None:
     )
     assert cluster.label == "failed to call tool"
     # Reporting what was read is the pass's job; marking the examples is the caller's.
-    assert [e.eval_case_id for e in cluster.examples] == ["case-2", "case-1"]
+    assert [e.trajectory_id for e in cluster.examples] == ["case-2", "case-1"]
     assert [e.examined for e in cluster.examples] == [False, False]
 
 
@@ -423,8 +423,8 @@ def test_every_response_unparseable_raises_like_any_other_outage() -> None:
 # --- evidence -----------------------------------------------------------------
 
 
-def test_evidence_is_sorted_by_eval_case_id_and_capped() -> None:
-    """Evidence samples at most MAX_EVIDENCE_TRACES cases, sorted by eval_case_id."""
+def test_evidence_is_sorted_by_trajectory_id_and_capped() -> None:
+    """Evidence samples at most MAX_EVIDENCE_TRAJECTORIES cases, sorted by trajectory_id."""
     examples = [
         _example("case-d"),
         _example("case-b"),
@@ -472,7 +472,7 @@ def test_examined_case_ids_name_the_traces_the_model_was_shown() -> None:
 
     assert info.verified == 1
     # The three lowest case ids were sampled; case-4 never reached the model.
-    assert outcomes[0].examined_case_ids == ["case-1", "case-2", "case-3"]
+    assert outcomes[0].examined_trajectory_ids == ["case-1", "case-2", "case-3"]
 
 
 def test_evidence_clips_content_and_keeps_the_turn_intact() -> None:
@@ -627,7 +627,7 @@ def test_traces_under_different_configurations_keep_their_own_instruction() -> (
     payload = _payload(call.prompt)
     assert "agent_definition" not in payload
     assert [
-        (e["eval_case_id"], e["system_prompt"]) for e in payload["evidence"]
+        (e["trajectory_id"], e["system_prompt"]) for e in payload["evidence"]
     ] == [
         ("case-1", "SPEC A"),
         ("case-2", "SPEC B"),
@@ -696,7 +696,7 @@ def test_a_trace_whose_session_recorded_no_configuration_is_shown_none() -> (
     payload = _payload(call.prompt)
     assert "agent_definition" not in payload
     assert {
-        e["eval_case_id"]: e.get("system_prompt") for e in payload["evidence"]
+        e["trajectory_id"]: e.get("system_prompt") for e in payload["evidence"]
     } == {
         "case-1": "ONLY SPEC",
         "case-2": None,
@@ -806,7 +806,7 @@ def test_a_cluster_whose_sessions_recorded_no_configuration_is_shown_none() -> (
 
     payload = _payload(call.prompt)
     assert "agent_definition" not in payload
-    assert [e["eval_case_id"] for e in payload["evidence"]] == [
+    assert [e["trajectory_id"] for e in payload["evidence"]] == [
         "case-1",
         "case-2",
     ]
@@ -862,7 +862,7 @@ def test_the_instructions_describe_every_payload_shape_the_prompt_can_take() -> 
         "per-parameter descriptions" in inputs
     )
     assert (
-        "each entry naming the conversation it came from in `eval_case_id`"
+        "each entry naming the conversation it came from in `trajectory_id`"
         in inputs
     )
 

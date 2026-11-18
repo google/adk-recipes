@@ -1,0 +1,110 @@
+.drawer-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  background: var(--scrim);
+  border-radius: var(--radius-stage);
+  overflow: hidden;
+  animation: fadeIn var(--dur-fast) ease;
+}
+
+.drawer-panel {
+  /* Above the scrim (`.sheet-scrim`, the tap-to-close target). */
+  position: relative;
+  z-index: 1;
+  width: 85%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-sheet);
+  backdrop-filter: blur(28px);
+  -webkit-backdrop-filter: blur(28px);
+  box-shadow: inset -1px 0 0 var(--border-subtle);
+  animation: slideInDrawer var(--dur-med) var(--ease-out);
+}
+
+.drawer-panel:focus {
+  outline: none;
+}
+
+@keyframes slideInDrawer {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+.drawer-panel > .sheet-header {
+  padding-top: calc(14px + env(safe-area-inset-top, 0px));
+}
+
+.drawer-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px 18px 24px;
+}
+
+.drawer-more {
+  align-self: flex-start;
+  margin-top: 6px;
+}
+
+.drawer-footer {
+  padding: 12px 18px calc(18px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--border-subtle);
+}
+
+.project-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--radius-inner);
+  background: var(--surface-inset);
+  overflow: hidden;
+}
+
+.project-list .ui-row {
+  border-radius: 0;
+  background: transparent;
+}
+
+.project-list li + li .ui-row {
+  box-shadow: inset 0 1px 0 var(--line);
+}
+
+.project-list .ui-row[data-pressable]:hover {
+  background: var(--surface-hover);
+}
+
+/* A project's folder takes its tint; a repository's branch and a one-off stay quiet. */
+.project-icon {
+  color: var(--icon-muted);
+}
+
+.project-icon[data-kind="project"] {
+  color: hsl(
+    var(--project-hue, 220) var(--tint-saturation) var(--tint-lightness)
+  );
+}
+
+.project-activity {
+  flex-shrink: 0;
+  font-size: var(--fs-meta);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+
+.project-activity[data-tone="attention"] {
+  color: var(--status-attention);
+}
+
+.project-activity[data-tone="running"] {
+  color: var(--status-running);
+}

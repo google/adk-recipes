@@ -46,7 +46,7 @@ _spec.loader.exec_module(load_test)
 # --- corpus -------------------------------------------------------------------
 #
 # The corpus is eval pages, not findings, so these go through the same
-# `eval_results_to_finding_set` the node does. That is the point of it: the ids the run
+# `eval_results_to_finding_set` the node does. That is the point of it: the ids the investigation
 # measures have to be the ids production assigns.
 
 
@@ -136,12 +136,12 @@ def test_corpus_pages_carry_the_evidence_attach_examples_needs():
     )
 
     (enriched,) = clustering.attach_examples(
-        [cluster], finding_set.findings, finding_set.sessions
+        [cluster], finding_set.findings, finding_set.turns_by_trajectory
     )
 
     assert len(enriched.examples) == clustering.MAX_EXAMPLES
-    assert all(e.eval_case_id for e in enriched.examples)
-    assert all(e.trace for e in enriched.examples)
+    assert all(e.trajectory_id for e in enriched.examples)
+    assert all(e.turns for e in enriched.examples)
 
 
 def test_corpus_is_deterministic_per_seed():
@@ -234,8 +234,8 @@ def _attempt() -> object:
 def test_score_counts_perfect_recovery():
     truth = {"0": "d1", "1": "d1", "2": "d2", "3": "d2"}
     clusters = [
-        Cluster(label="d1", finding_ids=[0, 1], item_count=2),
-        Cluster(label="d2", finding_ids=[2, 3], item_count=2),
+        Cluster(label="d1", finding_ids=[0, 1], finding_count=2),
+        Cluster(label="d2", finding_ids=[2, 3], finding_count=2),
     ]
     attempt = _attempt()
 
@@ -253,8 +253,8 @@ def test_score_flags_invented_and_duplicated_ids():
     validation discards a whole cluster for one bad id, which would hide them."""
     truth = {"0": "d1", "1": "d1"}
     parsed = [
-        Cluster(label="d1", finding_ids=[0, 1], item_count=2),
-        Cluster(label="ghost", finding_ids=[0, 99], item_count=2),
+        Cluster(label="d1", finding_ids=[0, 1], finding_count=2),
+        Cluster(label="ghost", finding_ids=[0, 99], finding_count=2),
     ]
     attempt = _attempt()
 
@@ -268,7 +268,7 @@ def test_score_flags_invented_and_duplicated_ids():
 
 def test_score_penalises_a_cluster_that_mixes_two_defects():
     truth = {"0": "d1", "1": "d1", "2": "d2"}
-    clusters = [Cluster(label="mixed", finding_ids=[0, 1, 2], item_count=3)]
+    clusters = [Cluster(label="mixed", finding_ids=[0, 1, 2], finding_count=3)]
     attempt = _attempt()
 
     load_test._score(attempt, clusters, clusters, truth)

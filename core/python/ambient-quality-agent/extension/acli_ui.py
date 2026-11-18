@@ -56,7 +56,7 @@ Buffering is unjustified: this step takes 2-3 minutes against 5-15 minutes for e
 Agent Runtime deploy, `--no-wait` exists, and skipping unchanged sources would save
 those 2-3 minutes without concurrency.
 
-TODO: b/559110247 - skip this step when the dashboard's sources are unchanged.
+TODO: skip this step when the dashboard's sources are unchanged.
 
 ## Why this step refuses to create the service
 
@@ -66,8 +66,8 @@ IAP, ignoring image changes so applies do not overwrite deployed code. Creating 
 service here would lack `AGENT_ENGINE_RESOURCE_ID`, fall back to the Compute Engine
 default service account, default to `all` ingress (rejected under
 `constraints/run.allowedIngress`), and break future `terraform apply` calls until
-imported or deleted. Because Cloud Run rejects `agents-cli deploy --update-only`
-(b/555632530), we enforce this check by querying Cloud Run before deploying.
+imported or deleted. Cloud Run rejects `agents-cli deploy --update-only`, so
+we enforce this check by querying Cloud Run before deploying.
 
 ## A missing service is skipped, not an error
 

@@ -585,7 +585,7 @@ def _compute_dead_judge_reason(metric: LLMMetric) -> str:
     """Computes why the eval service would error this judge on every session.
 
     Each shape was measured to fail every case, leaving the metric without a
-    verdict and failing the run. Refusing it at load names the problem before a
+    verdict and failing the investigation. Refusing it at load names the problem before a
     sweep stalls; agents-cli would fail these entries too, only later.
 
     Args:
