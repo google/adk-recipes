@@ -374,6 +374,9 @@ def _lex(command: str, mask: bool = False) -> list[str] | None:
         # a `;`, and keep any remaining `#` as an ordinary character, so the
         # classifier sees every command the shell will run.
         command = strip_comments(command, newline=" ; ")
+        # Before masking: once `$'...'` is rewritten as a plain single-quoted
+        # string, the left to right scan in `_mask_literals` reads it the way
+        # the shell does, so it no longer needs the `$'` fallback.
         command = _plain_dollar_quotes(command, mark=mask)
         if mask:
             # After comment removal, so an apostrophe inside a comment cannot
@@ -631,7 +634,13 @@ def _segment_verdict(
     nested_verdict: tuple[str, str] | None = None
     for text in _nested_commands(eff, live):
         if depth >= _MAX_DEPTH:
-            return ("ask", "command is nested too deeply to classify")
+            # Stop unwrapping, but still run the deny scan and this
+            # segment's own checks below, so a deny here is not lost.
+            nested_verdict = _stronger(
+                nested_verdict,
+                ("ask", "command is nested too deeply to classify"),
+            )
+            break
         nested_verdict = _stronger(nested_verdict, _classify(text, depth + 1))
     if nested_verdict is not None and nested_verdict[0] == "deny":
         return nested_verdict

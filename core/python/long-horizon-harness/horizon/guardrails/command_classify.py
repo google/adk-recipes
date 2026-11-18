@@ -21,6 +21,7 @@ commands so a benign segment can't smuggle a gated one (``ls && bq rm``).
 from __future__ import annotations
 
 import re
+import shlex
 
 _WRAPPER_RE = re.compile(
     r"""^(?:bash|sh|zsh)\s+-c\s+(['"])(.*)\1\s*$""", re.DOTALL
@@ -34,9 +35,27 @@ _SKIP_PREFIXES = frozenset({"env"})
 
 
 def strip_wrapper(command: str) -> str:
-    """Unwrap a single ``bash -c '...'`` / ``sh -c "..."`` shell wrapper."""
-    m = _WRAPPER_RE.match(command.strip())
-    return m.group(2).strip() if m else command.strip()
+    """Unwrap a single ``bash -c '...'`` / ``sh -c "..."`` shell wrapper.
+
+    The inner text is the argument the shell receives, read with the shell's
+    quoting rules. An argument built from several quoted pieces, such as
+    ``sh -c 'sh -c '"'"'rm -rf ~'"'"''``, unwraps to the command the shell
+    runs, not to the text between the first and last quote. A wrapper that
+    does not lex as exactly the shell, ``-c`` and one argument is left as is.
+    """
+    stripped = command.strip()
+    if not _WRAPPER_RE.match(stripped):
+        return stripped
+    try:
+        lx = shlex.shlex(stripped, posix=True, punctuation_chars=True)
+        lx.whitespace_split = True
+        lx.commenters = ""
+        tokens = list(lx)
+    except ValueError:
+        return stripped
+    if len(tokens) != 3:
+        return stripped
+    return tokens[2].strip()
 
 
 # Characters that end a word. A `#` starts a shell comment only when it is the

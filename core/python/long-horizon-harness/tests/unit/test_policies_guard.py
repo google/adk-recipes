@@ -1074,6 +1074,9 @@ def test_command_name_from_a_variable_asks():
         "echo '$(rm -rf ~)'",
         "git commit -m 'fix $(rm -rf ~) handling'",
         "printf '%s\\n' 'usage: $(rm -rf ~) is never run here'",
+        # `$'...'` is rewritten as plain single quotes before masking, so its
+        # text is read the same way.
+        "echo $'$(rm -rf ~)'",
     ],
 )
 def test_single_quoted_substitution_text_is_not_a_command(command: str):
@@ -1151,6 +1154,59 @@ def test_shell_spelling_does_not_hide_rm_rf_root(command: str):
         "deny",
         "recursive force-delete of a system/home root",
     )
+
+
+def _nested_shell_c(command: str, levels: int) -> str:
+    import shlex
+
+    for _ in range(levels):
+        command = "sh -c " + shlex.quote(command)
+    return command
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        # The argument of the outer `sh -c` is built from several quoted
+        # pieces, so the text between its first and last quote is not what
+        # the shell runs.
+        _nested_shell_c("rm -rf ~", 2),
+        _nested_shell_c("rm -rf ~", 3),
+        'sh -c "sh -c \\"rm -rf ~\\""',
+    ],
+)
+def test_wrapper_built_from_quoted_pieces_does_not_hide_rm_rf_root(
+    command: str,
+):
+    from horizon.guardrails.command_safety import classify
+
+    assert classify(command) == (
+        "deny",
+        "recursive force-delete of a system/home root",
+    )
+
+
+def test_strip_wrapper_returns_the_argument_the_shell_receives():
+    from horizon.guardrails.command_classify import strip_wrapper
+
+    assert strip_wrapper(_nested_shell_c("rm -rf ~", 2)) == "sh -c 'rm -rf ~'"
+    assert strip_wrapper("bash -c 'ls && bq rm x'") == "ls && bq rm x"
+    # Not a single wrapper: left as it is.
+    assert strip_wrapper("sh -c 'a' 'b'") == "sh -c 'a' 'b'"
+
+
+def test_depth_limit_keeps_the_deny_tier():
+    # At the nesting limit the segment's own checks still run, so a
+    # segment that is a deny on its own is not reported as only "ask".
+    from horizon.guardrails import command_safety
+
+    depth = command_safety._MAX_DEPTH
+    assert command_safety._segment_verdict(
+        ["rm", "-rf", "~", "$(true)"], False, depth=depth
+    ) == ("deny", "recursive force-delete of a system/home root")
+    assert command_safety._segment_verdict(
+        ["echo", "$(true)"], False, depth=depth
+    ) == ("ask", "command is nested too deeply to classify")
 
 
 def test_command_name_with_undecoded_escapes_asks():
