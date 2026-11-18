@@ -143,6 +143,7 @@ def _shell_decision(
     prefixes if any segment is not allowed; otherwise allow."""
     segments = split_segments(strip_wrapper(command)) or [command.strip()]
     deny_rule: PermissionRule | None = None
+    floor_denied = False
     ask_prefixes: list[str] = []
     for seg in segments:
         decision, rule = resolve_decision(
@@ -159,10 +160,16 @@ def _shell_decision(
         # overlay allow (user-approved) overrides it, so "approve for this session
         # / always" sticks. The catastrophic floor (command_safety deny + policy
         # seed) is enforced earlier in policies_guard (Layer C).
+        verdict = classify_command(seg)
+        # A command_safety "deny" is the catastrophic floor. Layer C enforces it
+        # on the whole command; enforce it here per segment too, so a segment
+        # Layer C did not see is still refused. No grant or overlay lifts it.
+        if verdict is not None and verdict[0] == "deny":
+            floor_denied = True
+            continue
         if decision == "allow" and (
             rule is None or rule.source not in {"grant", "overlay"}
         ):
-            verdict = classify_command(seg)
             if verdict is not None and verdict[0] == "ask":
                 decision = "ask_user"
                 rule = None
@@ -170,7 +177,7 @@ def _shell_decision(
             deny_rule = rule
         elif decision != "allow":
             ask_prefixes.append(command_prefix(seg))
-    if deny_rule is not None:
+    if deny_rule is not None or floor_denied:
         return ("deny", deny_rule, [])
     if ask_prefixes:
         return ("ask_user", None, list(dict.fromkeys(ask_prefixes)))
