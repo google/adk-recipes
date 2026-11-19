@@ -559,6 +559,13 @@ stale_policy:
       # checks links, and this failure is silent until someone looks.
       - assets
 
+      # LIVE EXTENSION BRANCH — standalone orphan branch hosting the
+      # `adk-tokenomics` agents-cli extension (`agents-cli extension add
+      # google/adk-recipes --ref adk-tokenomics`) and whitepaper reference
+      # target. Written by direct push and never merged into `main`, so
+      # without this entry the 90-day orphan clock would delete it.
+      - adk-tokenomics
+
       # Pre-emptive: neither exists in this repository today.
       #
       # gh-pages is where GitHub Pages serves from, written by a deploy job
