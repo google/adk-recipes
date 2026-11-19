@@ -1,0 +1,48 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "adk-tokenomics-plugin"
+version = "1.0.2"
+description = "Turnkey AI Unit Economics, BigQuery FinOps & Token Control Tower for Google ADK Agents"
+readme = "README.md"
+authors = [{ name = "Kartic Narayanan", email = "110996829+karthecoder@users.noreply.github.com" }]
+license = { text = "Apache-2.0" }
+requires-python = ">=3.10"
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/google/adk-recipes/tree/adk-tokenomics"
+Repository = "https://github.com/google/adk-recipes/tree/adk-tokenomics"
+Issues = "https://github.com/google/adk-recipes/issues"
+
+[project.optional-dependencies]
+adk = [
+    "google-adk>=1.0.0",
+    "google-genai>=1.0.0",
+    "python-dotenv>=1.0.0"
+]
+bigquery = [
+    "google-cloud-bigquery>=3.10.0",
+    "google-cloud-core>=2.3.0"
+]
+all = [
+    "google-adk>=1.0.0",
+    "google-genai>=1.0.0",
+    "python-dotenv>=1.0.0",
+    "google-cloud-bigquery>=3.10.0",
+    "google-cloud-core>=2.3.0"
+]
+
+[project.scripts]
+adk-tokenomics = "adk_tokenomics_plugin.cli:main"
+adk-finops = "adk_tokenomics_plugin.cli:main"
+token-tower = "adk_tokenomics_plugin.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["adk_tokenomics_plugin*"]
+
+[tool.setuptools.package-data]
+adk_tokenomics_plugin = ["web/*", "models_config.json"]

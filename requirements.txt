@@ -1,0 +1,11 @@
+# Core adk-tokenomics-plugin has zero required third-party runtime dependencies (pip install .).
+# Below are optional extras matching pyproject.toml ([adk] and [bigquery]):
+
+# Optional [adk] extra — live Google ADK agent runtime integration (pip install ".[adk]")
+google-adk>=1.0.0
+google-genai>=1.0.0
+python-dotenv>=1.0.0
+
+# Optional [bigquery] extra — fleet BigQuery sink & analytics queries (pip install ".[bigquery]")
+# google-cloud-bigquery>=3.10.0
+# google-cloud-core>=2.3.0
