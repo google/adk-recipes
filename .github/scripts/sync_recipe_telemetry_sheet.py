@@ -271,13 +271,18 @@ def _registry_coords() -> tuple[str, str, str]:
 
 
 def fetch_registry_tags(
-    category: str, name: str, token: str | None
+    category: str,
+    name: str,
+    token: str | None,
+    *,
+    project_id: str | None = None,
 ) -> tuple[int, str]:
     """Query Artifact Registry REST API v1 for a recipe's published tags."""
-    location, project_id, repo_name = _registry_coords()
+    location, default_project_id, repo_name = _registry_coords()
+    target_project = project_id or default_project_id
     pkg = urllib.parse.quote(f"{category}/{name}", safe="")
     base_url = (
-        f"https://artifactregistry.googleapis.com/v1/projects/{project_id}"
+        f"https://artifactregistry.googleapis.com/v1/projects/{target_project}"
         f"/locations/{location}/repositories/{repo_name}/packages/{pkg}/tags"
     )
     tags: list[str] = []
@@ -318,21 +323,29 @@ def fetch_registry_tags(
     return len(tags), latest_build
 
 
-_PULL_RESOURCE_PATTERNS = (
-    # GetTag / GetVersion: .../repositories/adk-recipes-registry/packages/python%2Fdeep-search/tags/20261114-...
-    re.compile(
-        r"adk-recipes-registry/packages/([a-z0-9_-]+(?:/|%2F)[a-z0-9_-]+)/(?:tags|versions)/([^\s/\"']+)",
-        re.IGNORECASE,
-    ),
-    # Docker-GetManifest: .../repositories/adk-recipes-registry/dockerImages/python%2Fdeep-search:tag or @sha256:...
-    re.compile(
-        r"adk-recipes-registry/(?:dockerImages/|manifests/)?([a-z0-9_-]+(?:/|%2F)[a-z0-9_-]+)(?:[:@]([^\s/\"']+))?",
-        re.IGNORECASE,
-    ),
-)
+def _pull_resource_patterns() -> tuple[re.Pattern[str], re.Pattern[str]]:
+    """Build pull resource regexes from the repo name parsed out of REGISTRY."""
+    _, _, repo_name = _registry_coords()
+    escaped_repo = re.escape(repo_name)
+    return (
+        # GetTag / GetVersion: .../repositories/<repo>/packages/python%2Fdeep-search/tags/20261114-...
+        re.compile(
+            rf"{escaped_repo}/packages/([a-z0-9_-]+(?:/|%2F)[a-z0-9_-]+)/(?:tags|versions)/([^\s/\"']+)",
+            re.IGNORECASE,
+        ),
+        # Docker-GetManifest: .../repositories/<repo>/dockerImages/python%2Fdeep-search:tag or @sha256:...
+        re.compile(
+            rf"{escaped_repo}/(?:dockerImages/|manifests/)?([a-z0-9_-]+(?:/|%2F)[a-z0-9_-]+)(?:[:@]([^\s/\"']+))?",
+            re.IGNORECASE,
+        ),
+    )
 
 
-def classify_pull_entry(entry: dict[str, Any]) -> tuple[str, str, str] | None:
+def classify_pull_entry(
+    entry: dict[str, Any],
+    *,
+    service_account: str = DEFAULT_SERVICE_ACCOUNT,
+) -> tuple[str, str, str] | None:
     """Extract (image_key, tag_bucket, caller_bucket) from a Cloud Logging entry.
 
     Returns:
@@ -346,7 +359,9 @@ def classify_pull_entry(entry: dict[str, Any]) -> tuple[str, str, str] | None:
     ua = str(req_meta.get("callerSuppliedUserAgent") or "").lower()
 
     # Ignore CI self-pulls (e.g. Trivy vulnerability scans in recipe-images.yml)
-    if principal == DEFAULT_SERVICE_ACCOUNT.lower() or "trivy" in ua:
+    if (
+        service_account and principal == service_account.lower()
+    ) or "trivy" in ua:
         return None
 
     candidates = [
@@ -356,8 +371,9 @@ def classify_pull_entry(entry: dict[str, Any]) -> tuple[str, str, str] | None:
     ]
     image_key = ""
     ref = "latest"
+    patterns = _pull_resource_patterns()
     for text in candidates:
-        for pat in _PULL_RESOURCE_PATTERNS:
+        for pat in patterns:
             match = pat.search(text)
             if match:
                 raw_key = urllib.parse.unquote(match.group(1)).lower()
@@ -385,7 +401,11 @@ def classify_pull_entry(entry: dict[str, Any]) -> tuple[str, str, str] | None:
 
 
 def fetch_pull_counts(
-    project_id: str, lookback_days: int, token: str | None
+    project_id: str,
+    lookback_days: int,
+    token: str | None,
+    *,
+    service_account: str = DEFAULT_SERVICE_ACCOUNT,
 ) -> dict[str, dict[str, int]]:
     """Query Cloud Logging for Artifact Registry pull events by recipe image."""
     if not token:
@@ -426,7 +446,7 @@ def fetch_pull_counts(
             )
             break
         for entry in body.get("entries") or []:
-            parsed = classify_pull_entry(entry)
+            parsed = classify_pull_entry(entry, service_account=service_account)
             if not parsed:
                 continue
             image_key, tag_bucket, caller_bucket = parsed
@@ -457,13 +477,16 @@ def collect_telemetry_rows(
     lookback_days: int = 30,
     token: str | None = None,
     now_utc: str | None = None,
+    service_account: str = DEFAULT_SERVICE_ACCOUNT,
 ) -> list[RecipeTelemetryRow]:
     """Build the complete segmented telemetry table across all active recipes."""
     timestamp = now_utc or dt.datetime.now(dt.UTC).strftime(
         "%Y-%m-%dT%H:%M:%SZ"
     )
     recipes = discover_recipes(repo_root)
-    pull_map = fetch_pull_counts(project_id, lookback_days, token)
+    pull_map = fetch_pull_counts(
+        project_id, lookback_days, token, service_account=service_account
+    )
     rows: list[RecipeTelemetryRow] = []
 
     for r in recipes:
@@ -471,7 +494,7 @@ def collect_telemetry_rows(
         tags_count, latest_tag = (0, "")
         if r["has_dockerfile"] and token:
             tags_count, latest_tag = fetch_registry_tags(
-                r["category"], r["name"], token
+                r["category"], r["name"], token, project_id=project_id
             )
         pulls = pull_map.get(image_key, {})
         pattern = f"gccl/<ver>-{r['name']}-<surface>-<channel>"
@@ -514,6 +537,7 @@ def sync_to_google_sheet(
     snapshot_tab: str = DEFAULT_SNAPSHOT_TAB,
     history_tab: str = DEFAULT_HISTORY_TAB,
     sheet_gid: str = "",
+    service_account: str = DEFAULT_SERVICE_ACCOUNT,
 ) -> bool:
     """Create missing tabs and sync the snapshot + history rows to Google Sheets."""
     meta_url = (
@@ -525,7 +549,7 @@ def sync_to_google_sheet(
         print(
             f"warning: Could not access Google Sheet {spreadsheet_id} "
             f"(HTTP {status}). Share the spreadsheet with "
-            f"{DEFAULT_SERVICE_ACCOUNT} as Editor and ensure "
+            f"{service_account} as Editor and ensure "
             "sheets.googleapis.com is enabled.",
             file=sys.stderr,
         )
@@ -595,12 +619,19 @@ def sync_to_google_sheet(
 
     clear_start_row = len(values) + 1
     clear_range = urllib.parse.quote(f"{snap_a1}!A{clear_start_row}:R", safe="")
-    _http_json(
+    c_status, c_body = _http_json(
         "POST",
         f"https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}/values/{clear_range}:clear",
         token,
         {},
     )
+    if c_status != 200:
+        print(
+            f"warning: Failed to clear trailing rows on '{resolved_snapshot_tab}' "
+            f"tab (HTTP {c_status}): {c_body}",
+            file=sys.stderr,
+        )
+        return False
 
     # 2. Append to the history tab (write headers first if newly created)
     hist_a1 = _a1_tab(history_tab)
@@ -705,6 +736,14 @@ def main() -> int:
         help="GCP project hosting the Artifact Registry and Cloud Logging.",
     )
     parser.add_argument(
+        "--service-account",
+        default=DEFAULT_SERVICE_ACCOUNT,
+        help=(
+            "CI service account email excluded from pull counts and shown in "
+            "Sheet permission hints."
+        ),
+    )
+    parser.add_argument(
         "--lookback-days",
         type=int,
         default=30,
@@ -740,6 +779,7 @@ def main() -> int:
         project_id=args.project_id,
         lookback_days=args.lookback_days,
         token=token,
+        service_account=args.service_account,
     )
 
     sheet_synced = False
@@ -751,6 +791,7 @@ def main() -> int:
             snapshot_tab=args.snapshot_tab,
             history_tab=args.history_tab,
             sheet_gid=args.sheet_gid,
+            service_account=args.service_account,
         )
 
     md = render_markdown_summary(

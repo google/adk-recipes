@@ -88,16 +88,18 @@ jobs:
         env:
           GCP_ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
           SPREADSHEET_ID: ${{ inputs.spreadsheet_id || '1-Asr-QrGUaBheoTkUASroNI9UA1rCgMV6jyxWGpLa7Q' }}
-          SHEET_GID: ${{ inputs.sheet_gid || '567149855' }}
+          SHEET_GID: ${{ github.event_name == 'schedule' && '567149855' || inputs.sheet_gid }}
           LOOKBACK_DAYS: ${{ inputs.lookback_days || '30' }}
           DRY_RUN: ${{ inputs.dry_run }}
           PROJECT_ID: ${{ env.GCP_PROJECT_ID }}
+          SERVICE_ACCOUNT: ${{ env.SERVICE_ACCOUNT }}
         run: |
           set -euo pipefail
           args=(
             --spreadsheet-id "${SPREADSHEET_ID}"
             --sheet-gid "${SHEET_GID}"
             --project-id "${PROJECT_ID}"
+            --service-account "${SERVICE_ACCOUNT}"
             --lookback-days "${LOOKBACK_DAYS}"
             --out-json "${RUNNER_TEMP}/recipe-telemetry.json"
             --out-md "${RUNNER_TEMP}/recipe-telemetry.md"

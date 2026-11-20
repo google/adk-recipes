@@ -145,10 +145,16 @@ def register_adk_telemetry() -> None:
             from google.adk.models import google_llm
             from google.adk.models.google_llm import Gemini
 
-            if hasattr(google_llm, "get_tracking_headers"):
+            try:
                 from google.adk.utils import _google_client_headers as gch
 
-                google_llm.get_tracking_headers = gch.get_tracking_headers
+                gch_get = getattr(gch, "get_tracking_headers", None)
+                if gch_get is not None and hasattr(
+                    google_llm, "get_tracking_headers"
+                ):
+                    google_llm.get_tracking_headers = gch_get
+            except Exception:  # noqa: S110
+                pass
 
             orig_fn = getattr(Gemini, "_tracking_headers", None)
             if orig_fn is not None and not getattr(
@@ -217,14 +223,15 @@ def setup_telemetry() -> None:
             f"service.namespace=<RECIPE_NAME>,service.version={commit_sha}",
         )
         path = _env("GENAI_TELEMETRY_PATH", "completions")
+        bucket_name = bucket.removeprefix("gs://").strip("/")
         os.environ.setdefault(
             "OTEL_INSTRUMENTATION_GENAI_UPLOAD_BASE_PATH",
-            f"gs://{bucket}/{path}",
+            f"gs://{bucket_name}/{path}",
         )
     else:
         logging.info(
             "Prompt-response logging disabled (set LOGS_BUCKET_NAME"
-            "=gs://your-bucket and"
+            "=your-bucket and"
             " OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT"
             "=NO_CONTENT to enable)"
         )

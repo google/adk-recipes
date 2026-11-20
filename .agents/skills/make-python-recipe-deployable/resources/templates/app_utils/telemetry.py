@@ -154,10 +154,16 @@ def register_adk_telemetry() -> None:
             from google.adk.models import google_llm
             from google.adk.models.google_llm import Gemini
 
-            if hasattr(google_llm, "get_tracking_headers"):
+            try:
                 from google.adk.utils import _google_client_headers as gch
 
-                google_llm.get_tracking_headers = gch.get_tracking_headers
+                gch_get = getattr(gch, "get_tracking_headers", None)
+                if gch_get is not None and hasattr(
+                    google_llm, "get_tracking_headers"
+                ):
+                    google_llm.get_tracking_headers = gch_get
+            except Exception:  # noqa: S110
+                pass
 
             orig_fn = getattr(Gemini, "_tracking_headers", None)
             if orig_fn is not None and not getattr(

@@ -94,7 +94,7 @@ def test_classify_pull_entry_segments_external_pull():
 
 
 def test_classify_pull_entry_ignores_ci_trivy_and_handles_get_tag():
-    ci_entry = {
+    ci_sa_entry = {
         "protoPayload": {
             "resourceName": (
                 "projects/adk-samples-repo-gcp-support/locations/us-west1/"
@@ -104,10 +104,44 @@ def test_classify_pull_entry_ignores_ci_trivy_and_handles_get_tag():
             "authenticationInfo": {
                 "principalEmail": sync.DEFAULT_SERVICE_ACCOUNT
             },
+            "requestMetadata": {"callerSuppliedUserAgent": "docker/27.0.3"},
+        }
+    }
+    assert sync.classify_pull_entry(ci_sa_entry) is None
+
+    trivy_entry = {
+        "protoPayload": {
+            "resourceName": (
+                "projects/adk-samples-repo-gcp-support/locations/us-west1/"
+                "repositories/adk-recipes-registry/dockerImages/"
+                "python/rag-agent-search:20261114-abc123def456"
+            ),
+            "authenticationInfo": {"principalEmail": ""},
             "requestMetadata": {"callerSuppliedUserAgent": "trivy/0.36.0"},
         }
     }
-    assert sync.classify_pull_entry(ci_entry) is None
+    assert sync.classify_pull_entry(trivy_entry) is None
+
+    custom_sa_entry = {
+        "protoPayload": {
+            "resourceName": (
+                "projects/adk-samples-repo-gcp-support/locations/us-west1/"
+                "repositories/adk-recipes-registry/dockerImages/"
+                "python/rag-agent-search:20261114-abc123def456"
+            ),
+            "authenticationInfo": {
+                "principalEmail": "custom-ci@example.iam.gserviceaccount.com"
+            },
+            "requestMetadata": {"callerSuppliedUserAgent": "docker/27.0.3"},
+        }
+    }
+    assert (
+        sync.classify_pull_entry(
+            custom_sa_entry,
+            service_account="custom-ci@example.iam.gserviceaccount.com",
+        )
+        is None
+    )
 
     get_tag_entry = {
         "protoPayload": {
@@ -125,6 +159,64 @@ def test_classify_pull_entry_ignores_ci_trivy_and_handles_get_tag():
         "latest",
         "external",
     )
+
+
+def test_classify_pull_entry_uses_repo_name_from_registry(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(
+        sync, "REGISTRY", "us-central1-docker.pkg.dev/other-proj/custom-repo"
+    )
+    entry = {
+        "protoPayload": {
+            "resourceName": (
+                "projects/other-proj/locations/us-central1/"
+                "repositories/custom-repo/packages/"
+                "python%2Fdeep-search/tags/20261114-abc123def456"
+            ),
+            "authenticationInfo": {"principalEmail": ""},
+            "requestMetadata": {"callerSuppliedUserAgent": "docker/27.0.3"},
+        }
+    }
+    assert sync.classify_pull_entry(entry) == (
+        "python/deep-search",
+        "pinned",
+        "external",
+    )
+
+
+def test_fetch_registry_tags_respects_project_id_override(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    seen_urls: list[str] = []
+
+    def fake_http_json(
+        method: str,
+        url: str,
+        token: str | None,
+        payload: dict[str, Any] | None = None,
+        timeout: int = 30,
+    ) -> tuple[int, dict[str, Any]]:
+        seen_urls.append(url)
+        return 200, {
+            "tags": [
+                {
+                    "name": (
+                        "projects/custom-proj/locations/us-west1/repositories/"
+                        "adk-recipes-registry/packages/python%2Falpha/tags/"
+                        "20261114-abcdef123456"
+                    )
+                }
+            ]
+        }
+
+    monkeypatch.setattr(sync, "_http_json", fake_http_json)
+    count, latest = sync.fetch_registry_tags(
+        "python", "alpha", "fake-token", project_id="custom-proj"
+    )
+    assert (count, latest) == (1, "20261114-abcdef123456")
+    assert seen_urls
+    assert "/v1/projects/custom-proj/" in seen_urls[0]
 
 
 def test_collect_telemetry_rows_combines_static_and_live_metrics(
@@ -148,15 +240,28 @@ def test_collect_telemetry_rows_combines_static_and_live_metrics(
         'language: "python"\ndeployable: false\n', encoding="utf-8"
     )
 
-    monkeypatch.setattr(
-        sync,
-        "fetch_registry_tags",
-        lambda cat, name, tok: (3, "20261114-123456789abc"),
-    )
-    monkeypatch.setattr(
-        sync,
-        "fetch_pull_counts",
-        lambda proj, days, tok: {
+    seen_tag_project_ids: list[str | None] = []
+    seen_pull_service_accounts: list[str] = []
+
+    def fake_fetch_registry_tags(
+        cat: str,
+        name: str,
+        tok: str | None,
+        *,
+        project_id: str | None = None,
+    ) -> tuple[int, str]:
+        seen_tag_project_ids.append(project_id)
+        return (3, "20261114-123456789abc")
+
+    def fake_fetch_pull_counts(
+        proj: str,
+        days: int,
+        tok: str | None,
+        *,
+        service_account: str = sync.DEFAULT_SERVICE_ACCOUNT,
+    ) -> dict[str, dict[str, int]]:
+        seen_pull_service_accounts.append(service_account)
+        return {
             "python/alpha-agent": {
                 "total": 12,
                 "latest": 4,
@@ -165,13 +270,23 @@ def test_collect_telemetry_rows_combines_static_and_live_metrics(
                 "cloud_run": 3,
                 "external": 2,
             }
-        },
-    )
+        }
+
+    monkeypatch.setattr(sync, "fetch_registry_tags", fake_fetch_registry_tags)
+    monkeypatch.setattr(sync, "fetch_pull_counts", fake_fetch_pull_counts)
 
     rows = sync.collect_telemetry_rows(
-        tmp_path, token="fake-token", now_utc="2026-11-14T00:00:00Z"
+        tmp_path,
+        project_id="my-custom-proj",
+        token="fake-token",
+        now_utc="2026-11-14T00:00:00Z",
+        service_account="custom-sa@example.iam.gserviceaccount.com",
     )
     assert len(rows) == 2
+    assert seen_tag_project_ids == ["my-custom-proj"]
+    assert seen_pull_service_accounts == [
+        "custom-sa@example.iam.gserviceaccount.com"
+    ]
 
     by_name = {r.name: r for r in rows}
     alpha = by_name["alpha-agent"]
@@ -239,19 +354,69 @@ def test_sync_to_google_sheet_creates_tabs_and_writes_rows(
     )
     assert ok is True
 
-    methods_and_urls = [(m, u) for m, u, _ in calls]
+    assert len(calls) == 5
     # 1. GET metadata
-    assert methods_and_urls[0][0] == "GET"
+    assert calls[0][0] == "GET"
     # 2. POST batchUpdate to create the two missing tabs
-    assert methods_and_urls[1][0] == "POST"
-    assert ":batchUpdate" in methods_and_urls[1][1]
+    assert calls[1][0] == "POST"
+    assert ":batchUpdate" in calls[1][1]
     assert len(calls[1][2]["requests"]) == 2
+    created_titles = [
+        r["addSheet"]["properties"]["title"] for r in calls[1][2]["requests"]
+    ]
+    assert created_titles == [
+        sync.DEFAULT_SNAPSHOT_TAB,
+        sync.DEFAULT_HISTORY_TAB,
+    ]
     # 3. PUT values on snapshot tab first (before clearing trailing rows)
-    assert methods_and_urls[2][0] == "PUT"
+    assert calls[2][0] == "PUT"
+    assert "%27Recipe%20Telemetry%27%21A1" in calls[2][1]
+    assert calls[2][2] == {"values": [sync.SHEET_HEADERS, row.to_sheet_row()]}
     # 4. POST :clear on trailing rows of snapshot tab
-    assert ":clear" in methods_and_urls[3][1]
-    # 5. POST :append on history tab
-    assert ":append" in methods_and_urls[4][1]
+    assert calls[3][0] == "POST"
+    assert "%27Recipe%20Telemetry%27%21A3%3AR:clear" in calls[3][1]
+    # 5. POST :append on history tab (includes header row because newly created)
+    assert calls[4][0] == "POST"
+    assert "%27Telemetry%20Log%27%21A1:append" in calls[4][1]
+    assert calls[4][2] == {"values": [sync.SHEET_HEADERS, row.to_sheet_row()]}
+
+
+def test_sync_to_google_sheet_returns_false_on_clear_failure(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    def fake_http_json(
+        method: str,
+        url: str,
+        token: str | None,
+        payload: dict[str, Any] | None = None,
+        timeout: int = 30,
+    ) -> tuple[int, dict[str, Any]]:
+        if method == "GET" and "fields=sheets.properties" in url:
+            return 200, {
+                "sheets": [
+                    {
+                        "properties": {
+                            "sheetId": 0,
+                            "title": sync.DEFAULT_SNAPSHOT_TAB,
+                        }
+                    },
+                    {
+                        "properties": {
+                            "sheetId": 1,
+                            "title": sync.DEFAULT_HISTORY_TAB,
+                        }
+                    },
+                ]
+            }
+        if ":clear" in url:
+            return 500, {"error": "internal error"}
+        return 200, {}
+
+    monkeypatch.setattr(sync, "_http_json", fake_http_json)
+    ok = sync.sync_to_google_sheet(
+        sync.DEFAULT_SPREADSHEET_ID, [], "fake-token"
+    )
+    assert ok is False
 
 
 def test_sync_to_google_sheet_fails_soft_on_403(
