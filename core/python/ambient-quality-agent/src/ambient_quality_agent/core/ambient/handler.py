@@ -37,6 +37,7 @@ Wiring::
     │     │                          └──► effective_config.resolve_engine_agent_key()
     │     │                        then effective_config.load_fresh_agent_config()
     │     ├─ task_fire ──► _launch_agent_investigation() ──► _launch_investigation()
+    │     │                  └─ scheduled one cancelled ──► no investigation
     │     └─ update ──► _schedule_delayed_update() ──► _build_engine_name()
     │                     ├──► _record_scheduled_investigation() ──► model.create_investigation()
     │                     ├──► _fail_unenqueued_investigation() ──► model.update_investigation()
@@ -222,8 +223,9 @@ async def dispatch_ambient_trigger(
     2. An `update` or `task_fire` is for one agent
        (`_resolve_trigger_agent_key`). One that matches no agent, or whose
        agent is not attached, starts nothing.
-    3. A `task_fire` always schedules an investigation. An `update` defers it
-       by enqueuing a delayed Cloud Task that fires back as a `task_fire`.
+    3. A `task_fire` schedules an investigation, unless a user cancelled the
+       scheduled one it was enqueued for. An `update` defers it by enqueuing a
+       delayed Cloud Task that fires back as a `task_fire`.
 
     A trigger that starts nothing returns a note rather than raising, so that
     Cloud Scheduler, Cloud Tasks and Pub/Sub do not deliver it again.
@@ -393,17 +395,37 @@ async def _launch_agent_investigation(
     Returns:
         The note logged for the launch.
     """
+    scheduled_investigation_id = (
+        compute_scheduled_investigation_id(trigger.dedup_id)
+        if trigger.type == "task_fire" and trigger.dedup_id
+        else None
+    )
+    if scheduled_investigation_id:
+        # The delayed task still fires after a user cancels the investigation
+        # it was scheduled for; starting a fresh one would undo the cancel.
+        scheduled = await asyncio.to_thread(
+            lambda: model.store_factory(context.state).get(
+                scheduled_investigation_id, include_events=False
+            )
+        )
+        if (
+            scheduled is not None
+            and scheduled.status == InvestigationStatus.CANCELLED
+        ):
+            note = (
+                f"Ambient {trigger.type} trigger for {config.resolve_agent_key()}: "
+                f"scheduled investigation {scheduled_investigation_id} was "
+                "cancelled; no investigation started."
+            )
+            logger.info("%s", note)
+            return note
     result = await _launch_investigation(
         context,
         idempotency_key=trigger.dedup_id,
         ambient=True,
         trigger_type=trigger.type,
         anchor=anchor,
-        scheduled_investigation_id=compute_scheduled_investigation_id(
-            trigger.dedup_id
-        )
-        if trigger.type == "task_fire" and trigger.dedup_id
-        else None,
+        scheduled_investigation_id=scheduled_investigation_id,
     )
     if "investigation_id" in result:
         note = (

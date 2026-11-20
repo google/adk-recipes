@@ -9,7 +9,7 @@ selected, determines whether to close the issue when a complete solution is
 provided, and prepares the response comment.
 
 Routing rules for Option 4:
-  Catch-all (docs, root configs, unmatched): @tommywagz
+  Catch-all (docs, root configs, unmatched): @tommywagz, @rohityan
   /.github/**          -> @happyhuman
   /core/python/**      -> @eliasecchig
   /core/go/**          -> @ToniCorinne
@@ -89,15 +89,17 @@ ROUTING_RULES: list[tuple[str, str]] = [
     ("plugins", "tommywagz"),
 ]
 
-DEFAULT_ASSIGNEE = "tommywagz"
+DEFAULT_ASSIGNEE = "tommywagz,rohityan"
 
 # Known developer usernames (without @ prefix)
 VALID_ASSIGNEES = {
     "eliasecchig",
     "ToniCorinne",
     "tommywagz",
+    "rohityan",
     "happyhuman",
     "maxgasztych",
+    "lspataroG",
 }
 
 FENCED_JSON = re.compile(
@@ -408,17 +410,11 @@ def parse_close_issue(decision: dict[str, Any], option: Option) -> bool:
 
 def process_response(
     decision: dict[str, Any],
+    allow_comment: bool = True,
 ) -> tuple[Option, str, str | None, bool]:
     """Process decision dict and return (option, response_body, assignee, close_issue)."""
     raw_opt = decision.get("option")
     option = parse_option(raw_opt)
-
-    response_body = str(decision.get("response") or "").strip()
-    if not response_body:
-        response_body = (
-            "Thank you for opening this issue! We have received your report "
-            "and are looking into it."
-        )
 
     path = decision.get("path")
     if path is not None:
@@ -430,8 +426,14 @@ def process_response(
 
     assignees_ci = {k.lower(): k for k in VALID_ASSIGNEES}
 
-    if option == Option.ACKNOWLEDGE_AND_ASSIGN:
-        # Determine assignee based on path routing
+    # Option 4 (acknowledge and assign) is silent — it assigns the maintainer
+    # without posting a generic, sycophantic bot comment on the issue.
+    # When allow_comment is False (e.g. during initial on-open routing), comments
+    # and issue closure are also suppressed.
+    if option == Option.ACKNOWLEDGE_AND_ASSIGN or not allow_comment:
+        response_body = ""
+        close_issue = False
+
         if path:
             assignee = resolve_assignee_from_path(path)
         elif raw_assignee and raw_assignee.lower() in assignees_ci:
@@ -439,9 +441,15 @@ def process_response(
         else:
             assignee = DEFAULT_ASSIGNEE
     else:
-        assignee = None
+        response_body = str(decision.get("response") or "").strip()
+        if not response_body:
+            response_body = (
+                "Could you please share additional details, reproduction steps, "
+                "or relevant error logs to help investigate this issue?"
+            )
+        close_issue = parse_close_issue(decision, option)
 
-    close_issue = parse_close_issue(decision, option)
+        assignee = None
 
     return option, response_body, assignee, close_issue
 
@@ -495,6 +503,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Path to $GITHUB_OUTPUT file",
     )
+    parser.add_argument(
+        "--no-comment",
+        action="store_true",
+        help="Suppress posting response comments and issue closure (e.g. during initial issue routing)",
+    )
     return parser
 
 
@@ -516,10 +529,14 @@ def main() -> int:
             infra_fault(CHECKER, f"failed to parse JSON from agy output: {exc}")
         )
 
-    option, response_body, assignee, close_issue = process_response(decision)
+    allow_comment = not args.no_comment
+    option, response_body, assignee, close_issue = process_response(
+        decision, allow_comment=allow_comment
+    )
 
     try:
-        _safe_write_text(args.comment_out, response_body + "\n")
+        content = (response_body + "\n") if response_body.strip() else ""
+        _safe_write_text(args.comment_out, content)
         _safe_write_text(args.assignee_out, (assignee or "") + "\n")
         if args.close_out:
             _safe_write_text(
@@ -531,6 +548,12 @@ def main() -> int:
     print(
         f"Issue #{args.issue_number}: selected Option {option.value} ({option.name})"
     )
+    if response_body.strip():
+        print(f"Generated response comment ({len(response_body)} chars).")
+    elif not allow_comment and option != Option.ACKNOWLEDGE_AND_ASSIGN:
+        print("No response comment generated (suppressed by --no-comment).")
+    else:
+        print("No response comment generated (Option 4 silent assignment).")
     if assignee:
         print(f"Assigned to developer: @{assignee}")
     else:

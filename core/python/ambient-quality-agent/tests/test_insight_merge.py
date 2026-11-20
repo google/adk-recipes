@@ -18,9 +18,11 @@ from __future__ import annotations
 
 import json
 import time
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from ambient_quality_agent.tools import genai_json
 from ambient_quality_agent.tools.insights import merge
 from ambient_quality_agent.tools.insights.clustering import Cluster
 
@@ -325,3 +327,29 @@ def test_merged_candidates_keep_the_input_order_whichever_call_finishes_first() 
     merged = merge.merge_clusters(clusters, model_call=call)
 
     assert [c.cluster_id for c in merged] == [0, 1, 2, 3]
+
+
+def test_a_merge_call_gets_the_default_per_attempt_timeout_and_retries(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A merge waits for all its calls, so one call stalled with no timeout
+    hangs the whole investigation."""
+    from .conftest import make_config
+
+    captured: dict[str, Any] = {}
+
+    class _FakeClient:
+        def __init__(self, **kwargs: Any) -> None:
+            captured["http_options"] = kwargs.get("http_options")
+            self.models = SimpleNamespace(
+                generate_content=lambda **kw: SimpleNamespace(text="{}")
+            )
+
+    monkeypatch.setattr("ambient_quality_agent.config.config", make_config())
+    monkeypatch.setattr("google.genai.Client", _FakeClient)
+
+    merge.call_merge_model("prompt")
+
+    http_options = captured["http_options"]
+    assert http_options.timeout == genai_json.CALL_TIMEOUT_MS
+    assert http_options.retry_options.attempts == genai_json.CHUNK_ATTEMPTS

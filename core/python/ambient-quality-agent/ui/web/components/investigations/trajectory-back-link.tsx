@@ -17,6 +17,7 @@
 import { Link } from "@tanstack/react-router";
 import { ArrowLeft } from "lucide-react";
 import { textStyle } from "@/lib/typography";
+import { isViewerMode } from "@/lib/viewer-mode";
 import { cn } from "@/lib/utils";
 
 /** Investigation segment a preview link carries in place of an investigation
@@ -45,6 +46,8 @@ export function TrajectoryBackLink({
   );
 
   if (investigationId === PREVIEW_INVESTIGATION_SEGMENT) {
+    // A read-only viewer serves no chat to go back to.
+    if (isViewerMode()) return null;
     return (
       <Link to="/c" className={className}>
         <ArrowLeft className="h-3 w-3" /> Back to chat

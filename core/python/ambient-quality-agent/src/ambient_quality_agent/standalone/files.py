@@ -98,8 +98,10 @@ class FileObjectStore:
     ) -> bool:
         return self._write(name, text.encode("utf-8"), overwrite=overwrite)
 
-    def write_bytes(self, name: str, data: bytes) -> None:
-        self._write(name, data, overwrite=True)
+    def write_bytes(
+        self, name: str, data: bytes, *, overwrite: bool = True
+    ) -> bool:
+        return self._write(name, data, overwrite=overwrite)
 
     def _write(self, name: str, data: bytes, *, overwrite: bool) -> bool:
         path = self._path(name)

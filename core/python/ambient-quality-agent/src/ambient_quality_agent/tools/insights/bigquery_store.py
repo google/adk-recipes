@@ -24,12 +24,16 @@ from typing import TYPE_CHECKING, Any
 
 from ambient_quality_agent.core.labels import build_request_labels
 from ambient_quality_agent.tools.insights import matching
+from ambient_quality_agent.tools.insights.bigquery_root_cause_store import (
+    ROOT_CAUSES_TABLE,
+)
 from ambient_quality_agent.tools.insights.models import (
     Insight,
     InsightOccurrence,
     InsightStatus,
     list_insight_columns,
     list_occurrence_columns,
+    list_root_cause_columns,
 )
 from google.cloud import bigquery
 
@@ -90,10 +94,10 @@ class BigQueryInsightStore:
         return f"{self._project_id}.{self._dataset}.{table}"
 
     def list_missing_columns(self) -> dict[str, list[str] | None]:
-        """Columns `Insight` and `InsightOccurrence` are stored in that the tables lack.
+        """Columns `Insight`, `InsightOccurrence`, and `RootCause` use that live tables lack.
 
         One entry per table, so one unreachable table does not hide whether the
-        other has drifted. `None` reads as `InvestigationStore.list_missing_columns`
+        others have drifted. `None` reads as `InvestigationStore.list_missing_columns`
         documents it.
 
         Returns:
@@ -105,6 +109,9 @@ class BigQueryInsightStore:
             ),
             _OCCURRENCES_TABLE: self._list_missing_columns_in(
                 _OCCURRENCES_TABLE, list_occurrence_columns()
+            ),
+            ROOT_CAUSES_TABLE: self._list_missing_columns_in(
+                ROOT_CAUSES_TABLE, list_root_cause_columns()
             ),
         }
 
@@ -218,7 +225,7 @@ class BigQueryInsightStore:
         1. Read this agent's open insights, most recently updated first.
         2. Pass them to `matching.match_candidates_by_scope`, which restricts
            each candidate to insights of the same attributed agent and delegates
-           selection to `matching.match_candidates`.
+           selection to `matching.match_all_candidates`.
 
         The judge is a `generateContent` call, so the query carries no AI.
 
@@ -286,7 +293,7 @@ ORDER BY updated_at DESC, insight_id
                 for row in rows
             ],
             functools.partial(
-                matching.match_candidates, model_call=self._match_call
+                matching.match_all_candidates, model_call=self._match_call
             ),
         )
         return {

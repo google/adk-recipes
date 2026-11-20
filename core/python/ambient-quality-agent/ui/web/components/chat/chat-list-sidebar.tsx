@@ -37,6 +37,7 @@ import { TopIssuesRail } from "@/components/insights/top-issues-rail";
 import { RecentInvestigationsRail } from "@/components/investigations/recent-investigations-rail";
 import { textStyle } from "@/lib/typography";
 import { forgetLastChat } from "@/lib/last-chat";
+import { isViewerMode } from "@/lib/viewer-mode";
 import { useAgentKey, useAgentSelection } from "@/lib/agent-selection";
 import { cn } from "@/lib/utils";
 import { DAY_MS } from "./chat-row";
@@ -55,6 +56,11 @@ import { RAIL_SCROLL_CLASS, useRailScroll } from "./use-rail-scroll";
 // Every route renders its own rail, so the chat search would reset on each
 // navigation, including the one a search result starts. It lives here instead.
 let savedChatQuery = "";
+
+// Fixed width, not a resizable panel, so the rail width stays consistent
+// across routes and does not jump on navigation.
+const RAIL_CLASS =
+  "sidebar-cq flex h-full min-h-0 w-full min-w-0 flex-col border-r bg-card/30";
 
 /** Clears the remembered chat search. For tests, which share the module. */
 export function resetChatSearchForTest(): void {
@@ -184,14 +190,34 @@ function ChatListSidebarInner({
     [refreshSessions, activeContextId, navigate],
   );
 
+  // A read-only viewer has no chats and no configuration: its rail keeps only
+  // the insights and investigations, and is named the sidebar.
+  if (isViewerMode())
+    return (
+      <nav aria-label="Sidebar" className={RAIL_CLASS}>
+        <div className="flex shrink-0 items-center justify-end p-2">
+          {onCollapse && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-9 w-9 shrink-0"
+              onClick={onCollapse}
+              aria-label="Hide sidebar"
+              title="Hide sidebar"
+            >
+              <PanelLeftClose className="h-4 w-4" />
+            </Button>
+          )}
+        </div>
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+          <TopIssuesRail />
+          <RecentInvestigationsRail />
+        </div>
+      </nav>
+    );
+
   return (
-    <nav
-      aria-label="Chats"
-      // Fixed width, not a resizable panel. It used to be one on the chat
-      // route only, so the rail jumped between 258px and 288px on every
-      // navigation and the saved size made the two drift further apart.
-      className="sidebar-cq flex h-full min-h-0 w-full min-w-0 flex-col border-r bg-card/30"
-    >
+    <nav aria-label="Chats" className={RAIL_CLASS}>
       <div className="flex shrink-0 items-center gap-1 p-2">
         <div className="min-w-0 flex-1">
           <NewConversationMenu onGeneral={goNew} />

@@ -47,9 +47,11 @@ def test_an_unbound_provider_refuses_rather_than_guessing() -> None:
     assert "backends.configure_providers()" in str(raised.value)
 
 
-@pytest.mark.parametrize("name", sorted(backends.PROVIDERS))
+@pytest.mark.parametrize(
+    "name", sorted(set(backends.PROVIDERS) - backends.PIPELINE_PROVIDERS)
+)
 def test_configuring_binds_every_provider(name: str) -> None:
-    """Every provider in `PROVIDERS` is bound.
+    """Every provider in `PROVIDERS` a backend owns is bound.
 
     Parametrized over the list `bind_providers` walks, so a provider added to the tree and
     forgotten in the list is not also forgotten here.
@@ -91,6 +93,16 @@ def test_a_backend_with_an_unknown_provider_is_refused_too() -> None:
         backends.bind_providers(extra)
 
 
+def test_a_backend_binding_a_pipeline_provider_is_refused() -> None:
+    """It would replace a test's fake fetcher or model call on every switch."""
+    with_fetcher = dict(backends.build_deployed_bindings()) | {
+        "telemetry_fetcher": lambda ctx: None
+    }
+
+    with pytest.raises(ValueError, match="telemetry_fetcher"):
+        backends.bind_providers(with_fetcher)
+
+
 def test_overriding_restores_what_was_there_rather_than_the_default() -> None:
     """Each provider gets back what it held on the way in, not the shipped default.
 
@@ -107,6 +119,83 @@ def test_overriding_restores_what_was_there_rather_than_the_default() -> None:
         assert getattr(target.module, target.attribute) is sentinel
     finally:
         setattr(target.module, target.attribute, original)
+
+
+@pytest.mark.parametrize("name", sorted(backends.PIPELINE_PROVIDERS))
+def test_configuring_leaves_the_pipeline_providers_alone(name: str) -> None:
+    """A test's fake fetcher or model call survives a backend switch.
+
+    Telemetry and model calls are the same in both backends, so binding one
+    would only replace whatever the caller had put there.
+    """
+    target = backends.PROVIDERS[name]
+    fake: Any = object()
+    original = getattr(target.module, target.attribute)
+    setattr(target.module, target.attribute, fake)
+    try:
+        with backends.override_providers(standalone=True):
+            assert getattr(target.module, target.attribute) is fake
+    finally:
+        setattr(target.module, target.attribute, original)
+
+
+def test_overriding_bindings_swaps_only_the_named_providers_and_restores_them() -> (
+    None
+):
+    """Given back on an exception too, so a failed offline run leaves nothing bound."""
+    fetcher = backends.PROVIDERS["telemetry_fetcher"]
+    writer = backends.PROVIDERS["insight_writer"]
+    original_fetcher = getattr(fetcher.module, fetcher.attribute)
+    original_writer = getattr(writer.module, writer.attribute)
+    fake: Any = object()
+
+    with (
+        pytest.raises(RuntimeError, match="boom"),
+        backends.override_bindings({"telemetry_fetcher": fake}),
+    ):
+        assert getattr(fetcher.module, fetcher.attribute) is fake
+        assert getattr(writer.module, writer.attribute) is original_writer
+        raise RuntimeError("boom")
+
+    assert getattr(fetcher.module, fetcher.attribute) is original_fetcher
+
+
+def test_overriding_an_unknown_binding_is_refused_before_binding_anything() -> (
+    None
+):
+    fetcher = backends.PROVIDERS["telemetry_fetcher"]
+    original = getattr(fetcher.module, fetcher.attribute)
+
+    with (
+        pytest.raises(ValueError, match="telemetry_fetchr"),
+        backends.override_bindings(
+            {"telemetry_fetcher": object(), "telemetry_fetchr": object()}
+        ),
+    ):
+        pass
+
+    assert getattr(fetcher.module, fetcher.attribute) is original
+
+
+def test_nested_bindings_are_refused_and_leave_the_outer_ones_in_place() -> (
+    None
+):
+    """The inner block would give the outer one's providers back early."""
+    fetcher = backends.PROVIDERS["telemetry_fetcher"]
+    original = getattr(fetcher.module, fetcher.attribute)
+    outer: Any = object()
+
+    with backends.override_bindings({"telemetry_fetcher": outer}):
+        with (
+            pytest.raises(RuntimeError, match="already"),
+            backends.override_bindings({"telemetry_fetcher": object()}),
+        ):
+            pass
+        assert getattr(fetcher.module, fetcher.attribute) is outer
+
+    assert getattr(fetcher.module, fetcher.attribute) is original
+    with backends.override_bindings({"telemetry_fetcher": outer}):
+        pass
 
 
 @pytest.mark.parametrize("name", sorted(backends.PROVIDERS))

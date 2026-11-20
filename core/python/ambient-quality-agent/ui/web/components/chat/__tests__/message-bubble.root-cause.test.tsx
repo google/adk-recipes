@@ -98,7 +98,7 @@ describe("MessageBubble — record_root_cause", () => {
     const { container } = render(
       <MessageBubble message={message([toolSegment(RECORDED)])} />,
     );
-    const lines = Array.from(container.querySelectorAll("pre > div")).map(
+    const lines = Array.from(container.querySelectorAll("pre > div > div")).map(
       (d) => d.textContent ?? "",
     );
     expect(lines).toContain('-        "Help the user."');

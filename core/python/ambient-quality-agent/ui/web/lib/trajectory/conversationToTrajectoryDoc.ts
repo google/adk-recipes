@@ -36,6 +36,7 @@ export function conversationToTrajectoryDoc(
         turn: item.turnIndex,
         agent: item.author ?? "unknown",
         text: item.text,
+        files: item.files,
         raw: item,
       });
     } else if (item.kind === "emptyResponse") {

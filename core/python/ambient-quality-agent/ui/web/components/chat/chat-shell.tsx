@@ -87,7 +87,11 @@ import {
 
 import { textStyle } from "@/lib/typography";
 import { cn, formatBytes } from "@/lib/utils";
-import { rememberTask, rememberConversation } from "@/lib/aqua-conversations";
+import {
+  listConversations,
+  rememberConversation,
+  rememberTask,
+} from "@/lib/aqua-conversations";
 import { useAgentSelection } from "@/lib/agent-selection";
 import { useLhaTasks } from "@/lib/horizon-tasks";
 import {
@@ -177,6 +181,8 @@ export interface ChatShellProps {
   /** A question typed on the dashboard, sent once the client is up. Lets the
    *  homepage keep an ask bar without owning a second chat implementation. */
   initialMessage?: string;
+  /** Insight identifier when this chat was started from an insight action. */
+  insightId?: string;
 }
 
 const MAX_FILE_BYTES = 20 * 1024 * 1024;
@@ -185,6 +191,7 @@ const IMAGE_PREFIX = "image/";
 export function ChatShell({
   contextId: contextIdProp,
   initialMessage,
+  insightId: insightIdProp,
 }: ChatShellProps = {}) {
   const [client, setClient] = useState<HorizonClient | null>(null);
   // The contextId the current client was booted for. Lets the boot effect skip
@@ -248,6 +255,13 @@ export function ChatShell({
   const { selectedKey, shownKey } = useAgentSelection();
   const shownKeyRef = useRef(shownKey);
   shownKeyRef.current = shownKey;
+  const trimmedInsightId = insightIdProp?.trim() || undefined;
+  const insightIdPropRef = useRef(trimmedInsightId);
+  insightIdPropRef.current = trimmedInsightId;
+  const insightIdRef = useRef<string | undefined>(trimmedInsightId);
+  if (trimmedInsightId) {
+    insightIdRef.current = trimmedInsightId;
+  }
   const {
     data: sessions,
     isLoading: sessionsLoading,
@@ -470,12 +484,16 @@ export function ChatShell({
     setDraft(loadDraft(contextIdProp));
     clearQueue();
 
+    insightIdRef.current = insightIdPropRef.current;
     const contextId = contextIdProp ?? newId();
 
     createLhaClient({
       contextId,
       signal: bootAbort.signal,
       resolveAgentKey: () => shownKeyRef.current,
+      resolveInsightId: () =>
+        insightIdRef.current ??
+        listConversations().find((c) => c.id === contextId)?.insightId,
     })
       .then((c) => {
         if (cancelled) return;
@@ -506,6 +524,7 @@ export function ChatShell({
   const onNewChat = useCallback(() => {
     sentInitialRef.current = null;
     initialTurnIdsRef.current = null;
+    insightIdRef.current = undefined;
     forgetLastChat(selectedKey);
     if (contextIdProp || trimmedInitialMessage) {
       // `search: {}` matters: without it the `?id=` or `?q=` of the current
@@ -669,7 +688,12 @@ export function ChatShell({
       // opening the app and typing nothing does not litter the list.
       const activeCid = client?.contextId ?? contextIdProp;
       if (activeCid) {
-        rememberConversation(activeCid, text, shownKeyRef.current);
+        rememberConversation(
+          activeCid,
+          text,
+          shownKeyRef.current,
+          insightIdRef.current,
+        );
       }
       // Built before the busy check so a message queued mid-turn keeps its
       // selection and file references; flushing text alone would send the

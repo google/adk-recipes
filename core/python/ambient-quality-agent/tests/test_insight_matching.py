@@ -291,6 +291,160 @@ def test_the_judge_runs_the_configured_match_model(
 
 
 # --------------------------------------------------------------------------- #
+# match_all_candidates                                                         #
+# --------------------------------------------------------------------------- #
+
+
+def build_all_judge(*rounds: list[tuple[int, int]]) -> Any:
+    """Creates a mock all-candidates judge answering one round per call.
+
+    Args:
+        *rounds: Per call, ``(candidate id, match)`` rows to answer with.
+
+    Returns:
+        Callable with recorded `prompts`.
+    """
+    prompts: list[str] = []
+    pending = [list(r) for r in rounds]
+
+    def call(prompt: str) -> str:
+        prompts.append(prompt)
+        rows = pending.pop(0) if pending else []
+        return json.dumps({"matches": [{"id": i, "match": m} for i, m in rows]})
+
+    call.prompts = prompts  # type: ignore[attr-defined]
+    return call
+
+
+def test_every_candidate_is_judged_in_one_call_per_window() -> None:
+    call = build_all_judge([(0, 2), (1, -1)])
+
+    hits = matching.match_all_candidates(
+        ["no tool call", "a new one"], LABELS, model_call=call
+    )
+
+    assert hits == {0: 2, 1: None}
+    (prompt,) = call.prompts
+    assert "c0: no tool call" in prompt and "c1: a new one" in prompt
+    assert all(f"{i}. {label}" in prompt for i, label in enumerate(LABELS))
+
+
+def test_later_windows_are_asked_only_about_the_unmatched() -> None:
+    existing = [f"label {n}" for n in range(5)]
+    call = build_all_judge([(0, 1), (1, -1)], [(0, 0)])
+
+    hits = matching.match_all_candidates(
+        ["first", "second"], existing, model_call=call, window=2
+    )
+
+    # Window 1 (labels 0-1) matched "first"; window 2 (labels 2-3) was asked
+    # only about "second" and matched its label 0, i.e. existing[2].
+    assert hits == {0: 1, 1: 2}
+    assert "c0: first" in call.prompts[0]
+    assert "c0: second" in call.prompts[1] and "first" not in call.prompts[1]
+    assert len(call.prompts) == 2
+
+
+def test_a_failed_window_costs_its_labels_only() -> None:
+    calls = {"n": 0}
+
+    def fail_first_window(prompt: str) -> str:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("503")
+        return json.dumps({"matches": [{"id": 0, "match": 0}]})
+
+    hits = matching.match_all_candidates(
+        ["x"], ["a", "b", "c", "d"], model_call=fail_first_window, window=2
+    )
+
+    assert hits == {0: 2}
+
+
+def test_no_window_answering_raises_rather_than_minting() -> None:
+    def fail_every_call(prompt: str) -> str:
+        raise RuntimeError("503")
+
+    with pytest.raises(matching.MatchUnavailable):
+        matching.match_all_candidates(["x"], LABELS, model_call=fail_every_call)
+
+
+def test_bad_ids_and_out_of_range_matches_are_ignored() -> None:
+    def return_malformed_rows(prompt: str) -> str:
+        return json.dumps(
+            {
+                "matches": [
+                    {"id": 7, "match": 0},
+                    {"id": 0, "match": 99},
+                    {"id": 1, "match": "two"},
+                    "garbage",
+                ]
+            }
+        )
+
+    hits = matching.match_all_candidates(
+        ["a", "b"], LABELS, model_call=return_malformed_rows
+    )
+
+    assert hits == {0: None, 1: None}
+
+
+def test_boolean_ids_and_matches_are_not_read_as_indices() -> None:
+    def return_booleans(prompt: str) -> str:
+        return json.dumps(
+            {"matches": [{"id": False, "match": 0}, {"id": 1, "match": False}]}
+        )
+
+    hits = matching.match_all_candidates(
+        ["a", "b"], LABELS, model_call=return_booleans
+    )
+
+    assert hits == {0: None, 1: None}
+
+
+def test_an_empty_store_or_no_candidates_asks_nothing() -> None:
+    call = build_all_judge()
+
+    assert matching.match_all_candidates(["x"], [], model_call=call) == {
+        0: None
+    }
+    assert matching.match_all_candidates([], LABELS, model_call=call) == {}
+    assert call.prompts == []
+
+
+def test_the_all_candidates_judge_runs_the_configured_match_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from .conftest import make_config
+
+    captured: dict[str, Any] = {}
+
+    class _FakeModels:
+        def generate_content(
+            self, *, model: str, contents: str, config: Any
+        ) -> Any:
+            del contents
+            captured["model"] = model
+            captured["schema"] = config.response_schema
+            return SimpleNamespace(text='{"matches": []}')
+
+    class _FakeClient:
+        def __init__(self, **kwargs: Any) -> None:
+            self.models = _FakeModels()
+
+    monkeypatch.setattr(
+        "ambient_quality_agent.config.config",
+        make_config(project_id="p", insights_match_model="match-model"),
+    )
+    monkeypatch.setattr("google.genai.Client", _FakeClient)
+
+    assert matching.call_all_match_model("prompt") == '{"matches": []}'
+
+    assert captured["model"] == "match-model"
+    assert "matches" in captured["schema"].properties
+
+
+# --------------------------------------------------------------------------- #
 # match_candidates_by_scope                                                    #
 # --------------------------------------------------------------------------- #
 

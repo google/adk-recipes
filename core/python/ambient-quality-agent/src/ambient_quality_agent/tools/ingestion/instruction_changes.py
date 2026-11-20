@@ -15,11 +15,11 @@
 """Decide which events carry an agent's changed system instruction.
 
 A system instruction can be very large, so repeating it on every event makes
-review prompts huge. A changed instruction is shown once per turn: on the first
-event the agent authors under it, and again each time it changes within the
-turn, including a return to the baseline. The baseline is the instruction in
-the agent's `AgentConfig`, which the review prompt already shows in the agent
-block.
+the trajectory the session reviewer reads huge. A changed instruction is shown
+once per turn: on the first event the agent authors under it, and again each
+time it changes within the turn, including a return to the baseline. The
+baseline is the instruction in the agent's `AgentConfig`, which the reviewer
+already sees as that agent's instruction.
 
 Tracking restarts from the baseline on every turn because the trajectory archive
 stores each turn as its own row, so each turn must read on its own.

@@ -25,10 +25,13 @@ import { counters } from "../__fixtures__/counters";
 import {
   ABSENT,
   agentLabel,
+  describeProgress,
+  extractCurrentProgress,
   formatInstant,
   hasFailures,
   extractReviewFocus,
   isAmbient,
+  isCancellable,
   resolveTriggerKind,
   isPastDue,
   metricsAllPassed,
@@ -423,6 +426,7 @@ describe("formatInvestigationStateWord", () => {
 
   it.each([
     [{ status: "skipped", error: "boom" }, "skipped"],
+    [{ status: "cancelled" }, "cancelled"],
     [{ status: "done", error: "boom" }, "failed"],
     [{ status: "failed", error: NO_DATA }, "no data"],
     [{ status: "failed" }, "failed"],
@@ -480,6 +484,56 @@ describe("a scheduled investigation", () => {
   });
 });
 
+describe("a running investigation's progress", () => {
+  const NOW = Date.parse("2026-09-14T08:00:00Z");
+  const review = {
+    stage: "Session review",
+    evaluated: 45,
+    total: 205,
+    findings: 12,
+    updated_at: "2026-09-14T07:58:00Z",
+  };
+  // Two hours in, and still saying how far it got: a long investigation.
+  const running = {
+    status: "running",
+    created_at: "2026-09-14T06:00:00Z",
+    progress: review,
+  };
+
+  it("is the newest stage row while the investigation is in flight", () => {
+    expect(extractCurrentProgress(running, NOW)).toBe(review);
+  });
+
+  it("is unknown before the first stage row and once the investigation settles", () => {
+    expect(
+      extractCurrentProgress({ ...running, progress: null }, NOW),
+    ).toBeNull();
+    expect(
+      extractCurrentProgress({ ...running, status: "done" }, NOW),
+    ).toBeNull();
+  });
+
+  it("is not claimed for a stalled investigation, whose last row says nothing about now", () => {
+    const stale = { ...review, updated_at: "2026-09-14T07:00:00Z" };
+    expect(
+      extractCurrentProgress({ ...running, progress: stale }, NOW),
+    ).toBeNull();
+  });
+
+  it("names each count its stage has, in words", () => {
+    expect(describeProgress(review)).toBe(
+      "45 of 205 trajectories, 12 findings",
+    );
+    const at = review.updated_at;
+    expect(
+      describeProgress({ stage: "Clustering", findings: 1, updated_at: at }),
+    ).toBe("1 finding");
+    expect(
+      describeProgress({ stage: "Verification", clusters: 3, updated_at: at }),
+    ).toBe("3 clusters");
+  });
+});
+
 describe("resolveTriggerKind", () => {
   it("tells custom and manual investigations apart, whatever their case", () => {
     expect(resolveTriggerKind({ trigger_type: "Custom" })).toBe("custom");
@@ -510,5 +564,37 @@ describe("extractReviewFocus", () => {
     ).toBeNull();
     expect(extractReviewFocus({ custom_overrides: null })).toBeNull();
     expect(extractReviewFocus({})).toBeNull();
+  });
+});
+
+describe("a cancelled investigation", () => {
+  const investigation = {
+    status: "cancelled",
+    error: null,
+    counters: counters({}),
+  };
+
+  it("is not a failure", () => {
+    expect(hasFailures(investigation)).toBe(false);
+  });
+
+  it("says why it has no counts", () => {
+    expect(noCountsText(investigation)).toBe(
+      "No counts: a cancelled investigation records none.",
+    );
+  });
+});
+
+describe("isCancellable", () => {
+  it.each([
+    ["scheduled", true],
+    ["pending", true],
+    ["RUNNING", true],
+    ["done", false],
+    ["failed", false],
+    ["skipped", false],
+    ["cancelled", false],
+  ])("is %s -> %s", (status, expected) => {
+    expect(isCancellable({ status })).toBe(expected);
   });
 });

@@ -24,6 +24,7 @@ import {
 } from "@/lib/aqua-api";
 import { useAgentKey } from "@/lib/agent-selection";
 import { useRailState } from "@/lib/rail-state";
+import { isViewerMode } from "@/lib/viewer-mode";
 import { startTour } from "@/lib/tour-state";
 import { AppearancePopover } from "@/components/chat/appearance-popover";
 import { FeedbackPopover } from "@/components/chat/feedback-popover";
@@ -59,6 +60,7 @@ export function TabBar() {
     latestInvestigation?.observed_agent_key ||
     insightsPage?.insights?.[0]?.observed_agent_key ||
     (typeof configuredName === "string" ? configuredName : "");
+  const viewer = isViewerMode();
 
   return (
     <div className="flex h-10 shrink-0 items-center justify-between border-b bg-background px-3">
@@ -76,8 +78,9 @@ export function TabBar() {
             size="icon"
             className="-ml-1 h-7 w-7 text-muted-foreground hover:text-foreground"
             onClick={toggleRail}
-            aria-label="Show chats"
-            title="Show chats"
+            // A read-only viewer's rail lists no chats.
+            aria-label={viewer ? "Show sidebar" : "Show chats"}
+            title={viewer ? "Show sidebar" : "Show chats"}
             // The rail hands focus here after collapsing or closing its drawer.
             data-rail-toggle=""
           >
@@ -119,17 +122,19 @@ export function TabBar() {
             Demo data
           </span>
         )}
-        <Button
-          asChild
-          variant="ghost"
-          size="icon"
-          className="h-8 w-8 text-muted-foreground hover:text-foreground"
-          title="Configuration"
-        >
-          <Link to="/config" aria-label="Configuration">
-            <Settings className="h-4 w-4" />
-          </Link>
-        </Button>
+        {!viewer && (
+          <Button
+            asChild
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 text-muted-foreground hover:text-foreground"
+            title="Configuration"
+          >
+            <Link to="/config" aria-label="Configuration">
+              <Settings className="h-4 w-4" />
+            </Link>
+          </Button>
+        )}
         <Button
           variant="ghost"
           size="icon"

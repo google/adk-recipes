@@ -183,7 +183,7 @@ def test_find_existing_insights_reads_open_labels_and_asks_the_judge() -> None:
         asked["existing"] = list(existing)
         return {0: 0, 1: None}
 
-    with mock.patch.object(matching, "match_candidates", judge):
+    with mock.patch.object(matching, "match_all_candidates", judge):
         result = store.find_existing_insights(
             [
                 _cluster("made no tool call"),
@@ -220,7 +220,7 @@ def test_find_existing_insights_with_an_empty_store_asks_nothing() -> None:
     def forbidden(*args, **kwargs):
         raise AssertionError("the judge was called against an empty store")
 
-    with mock.patch.object(matching, "match_candidates", forbidden):
+    with mock.patch.object(matching, "match_all_candidates", forbidden):
         assert store.find_existing_insights([_cluster("a")]) == {0: None}
 
 
@@ -252,7 +252,9 @@ def test_find_existing_insights_never_matches_across_agents() -> None:
         {"insight_id": "ins-sub", "agent_id": "sub_agent", "label": "same"},
     ]
 
-    with mock.patch.object(matching, "match_candidates", _match_equal_labels):
+    with mock.patch.object(
+        matching, "match_all_candidates", _match_equal_labels
+    ):
         result = _store(client).find_existing_insights(
             [
                 Cluster(label="same", agent_id="sub_agent"),
@@ -273,7 +275,9 @@ def test_an_unattributed_insight_matches_root_candidates_only() -> None:
         {"insight_id": "ins-legacy", "agent_id": None, "label": "same"},
     ]
 
-    with mock.patch.object(matching, "match_candidates", _match_equal_labels):
+    with mock.patch.object(
+        matching, "match_all_candidates", _match_equal_labels
+    ):
         result = _store(client).find_existing_insights(
             [
                 Cluster(label="same", agent_id=_AGENT),
