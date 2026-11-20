@@ -5,10 +5,11 @@
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue)](https://www.python.org/)
 [![Google ADK](https://img.shields.io/badge/Google%20ADK-BasePlugin-brightgreen)](https://adk.dev/)
+[![agents-cli](https://img.shields.io/badge/agents--cli-Extension%20v1.10%2B-4285F4)](https://github.com/google/agents-cli)
 [![OpenTelemetry](https://img.shields.io/badge/OpenTelemetry-GenAI%20FinOps-F5A800)](https://adk.dev/observability/metrics/)
 [![BigQuery](https://img.shields.io/badge/BigQuery-Native-669DF6)](https://cloud.google.com/bigquery)
 
-> **Disclaimer:** This is a personal project. The views, code, and opinions expressed here are my own and do not represent those of my current or past employers. This is not an officially supported Google product.
+> **Disclaimer:** Not an officially supported Google product. Not eligible for the [Google OSS Vulnerability Rewards Program](https://bughunters.google.com/open-source-security). Recipes are for demonstration and as starting points, not production use.
 
 ---
 
@@ -38,10 +39,10 @@ While Google ADK's built-in OpenTelemetry telemetry (`adk.dev/observability/metr
                    └──────────────────┬───────────────────┘
                                       ▼
 ┌────────────────────────────────────────────────────────────────────────────┐
-│                   ADK Tokenomics CLI & Web Observatory                     │
-│  • adk-tokenomics web     (Material 3 Dark Slate UI on localhost:8080)     │
-│  • adk-tokenomics profile (Turn Waterfall & 5 FinOps Optimization Rules)   │
-│  • adk-tokenomics assert  (Shift-Left CI/CD Financial & Token Budget Gate) │
+│            ADK Tokenomics CLI, Extension & Web Observatory                 │
+│  • agents-cli tokenomics web     | adk-tokenomics web     (M3 UI :8080)    │
+│  • agents-cli tokenomics profile | adk-tokenomics profile (5 FinOps Rules) │
+│  • agents-cli eval budget        | adk-tokenomics assert  (CI/CD Gate)     │
 └────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -125,6 +126,157 @@ When you run `adk-tokenomics profile`, [`TokenProfiler`](adk_tokenomics_plugin/c
 
 ## 🚀 Quickstart & Installation
 
+Choose **Option 1** if you build and evaluate agents with Google [`agents-cli`](https://github.com/google/agents-cli), or **Option 2** for standalone Python / `adk web` projects.
+
+### Option 1: End-to-End with Google `agents-cli` (`v1.10+`)
+
+Installing `adk-tokenomics` as an `agents-cli` extension contributes `agents-cli tokenomics <web|profile|assert>`, `agents-cli eval budget`, and the coding-agent FinOps skill (`.agents/skills/adk-tokenomics/SKILL.md`). Follow the steps below to go from a fresh project to live turn-level telemetry, profiling, and CI/CD budget gates:
+
+#### Step 1 — Prerequisites & Install the Extension
+
+```bash
+# 1. Install Google agents-cli (v1.10+; requires uv on PATH)
+uv tool install google-agents-cli
+
+# 2. Create a new ADK agent project (or cd into an existing agents-cli project)
+agents-cli create my-agent -y
+cd my-agent
+
+# 3. Add the adk-tokenomics extension at project scope (recommended)
+agents-cli extension add google/adk-recipes --ref adk-tokenomics
+
+# 4. Verify active extension scope, commands (eval.budget, tokenomics), and version range
+agents-cli extension list
+```
+
+> **Install scope & local checkouts:** Pass `--global` to `agents-cli extension add` to install at user scope across all projects instead of committing the extension to a single repo. To install from a local clone on disk, prefix the path with `local@` (`agents-cli extension add local@/path/to/adk-tokenomics-plugin` — a bare path is parsed as a GitHub `org/repo`).
+
+#### Step 2 — Add the Runtime Python SDK to the Agent Environment
+
+`agents-cli extension add` vendors the extension CLI under `extensions/adk-tokenomics/` so `agents-cli tokenomics` and `agents-cli eval budget` work immediately via `uv run --no-sync`. To record live token and USD traces inside your ADK agent, add `adk-tokenomics-plugin` to the project's Python environment so `app/agent.py` can import `ADKTokenomicsPlugin`:
+
+```bash
+# Project-scope install (local dev & CI evals — zero network/PyPI access, exact version lockstep):
+uv add --no-workspace ./extensions/adk-tokenomics
+
+# Optional: include BigQuery streaming sink dependencies
+uv add --no-workspace ./extensions/adk-tokenomics --extra bigquery
+```
+
+> **`--global` installs & Cloud Deployments (`agents-cli deploy`):**
+> - Installing with `--global` vendors the extension under `~/.config/agents-cli/extensions/adk-tokenomics` (`%APPDATA%\agents-cli\extensions\adk-tokenomics` on Windows) rather than `./extensions/adk-tokenomics`.
+> - `agents-cli deploy` excludes `/extensions/` from cloud uploads (via `.gcloudignore`).
+> - If you installed the extension with `--global`, or if you explicitly want runtime tokenomics telemetry inside a deployed Cloud Run / Agent Engine container, install the SDK from GitHub instead:
+>   ```bash
+>   uv add "adk-tokenomics-plugin @ git+https://github.com/google/adk-recipes.git@adk-tokenomics"
+>   # Or with BigQuery sink extras:
+>   uv add "adk-tokenomics-plugin[bigquery] @ git+https://github.com/google/adk-recipes.git@adk-tokenomics"
+>   ```
+
+#### Step 3 — Instrument `app/agent.py` (Opt-In via `.env`)
+
+Attach `ADKTokenomicsPlugin` to your `App` in `app/agent.py` behind an opt-in `TOKENOMICS_ENABLED=1` check so production deployments never require the package unless explicitly enabled:
+
+```python
+import os
+
+from dotenv import load_dotenv
+from google.adk.apps import App
+
+load_dotenv()  # agents-cli imports app/agent.py before reading .env
+
+plugins = []
+if os.getenv("TOKENOMICS_ENABLED") == "1":
+    from adk_tokenomics_plugin import ADKTokenomicsPlugin
+
+    plugins.append(
+        ADKTokenomicsPlugin(
+            app_name="app",
+            auto_export_path="artifacts/traces/live_adk_session.json",
+        )
+    )
+
+app = App(
+    name="app",
+    root_agent=root_agent,
+    plugins=plugins,
+)
+```
+
+Enable telemetry locally in your git-ignored `.env` file (or export `TOKENOMICS_ENABLED=1` in your shell / CI job):
+
+```bash
+echo "TOKENOMICS_ENABLED=1" >> .env
+```
+
+- **Why `load_dotenv()` first:** `agents-cli` imports `app/agent.py` before loading `.env`. `python-dotenv` already ships with `google-adk`, so no extra dependency is needed, and `.env` is excluded from git and `agents-cli deploy`.
+- **`app_name` label:** Recorded on every turn and BigQuery event row; matching `App(name=...)` keeps telemetry labels aligned, though they do not strictly have to match.
+- **Live working file vs. archived sessions:** `auto_export_path` (`artifacts/traces/live_adk_session.json`) holds the active in-progress session. When a new session starts or the process exits, finished sessions archive automatically as `artifacts/traces/<session_id>.json` (and `await plugin.close()` flushes queued BigQuery batches). Always point `profile`, `eval budget`, and `web` at the `artifacts/traces/` directory (or `.`), not the transient `live_adk_session.json` file. Relative `auto_export_path` values resolve from the agent process's working directory (the project root for `agents-cli playground`, `agents-cli eval`, and `adk web`); use an absolute path if launching from elsewhere.
+
+#### Step 4 — Generate Traces (`playground` or `eval`)
+
+Run your instrumented agent interactively or over your evaluation dataset to populate `artifacts/traces/<session_id>.json`:
+
+```bash
+# Workflow A — Interactive local playground + live Web Observatory streaming
+# Terminal 1: launch the Material 3 Dark Slate observatory (streams turns live as they complete)
+agents-cli tokenomics web --traces artifacts/traces/ --port 8080
+# Terminal 2: chat interactively with your agent (or run single-shot `agents-cli run "<prompt>"`)
+agents-cli playground
+
+# Workflow B — Automated evaluation inference (or `agents-cli eval run` to generate + grade quality)
+agents-cli eval generate
+```
+
+> **How `agents-cli eval generate` coexists with plugin traces:** `agents-cli eval generate` (and `eval run`) writes an evaluation transcript `artifacts/traces/traces_<timestamp>.json` alongside the plugin's `<session_id>.json` files. Because `traces_<timestamp>.json` contains no LLM token usage metadata, `eval budget` and `profile` automatically evaluate the instrumented `<session_id>.json` traces and report `traces_<timestamp>.json` as skipped (`skipped_artifacts` in JSON / `[INFO]` in text). If an agent ran *without* `ADKTokenomicsPlugin`, `eval budget` fails closed (`exit 1`) and running `profile` directly on `traces_<timestamp>.json` labels character-count approximations with an `⚠️ ESTIMATED` banner (`≈$` in the web UI).
+
+#### Step 5 — Profile Turn Waterfalls & Enforce CI/CD Budget Gates
+
+```bash
+# 1. Inspect the turn-by-turn context waterfall, sub-agent cost share & 5 FinOps rules
+# (Given a directory, profile analyzes the newest session; pass -t <file> for a specific session)
+agents-cli tokenomics profile -t artifacts/traces/
+agents-cli tokenomics profile -t artifacts/traces/ --format json
+
+# 2. Enforce pass/fail unit-economics gates across all sessions (exits 0 on pass, 1 on breach)
+# `--traces .` discovers both `artifacts/traces/` and `.adk/eval_history/`
+agents-cli eval budget \
+  --traces . \
+  --max-cost-per-turn 0.005 \
+  --max-tokens-per-turn 5000 \
+  --max-latency-ms 15000
+
+# Equivalent via the top-level tokenomics command (add --format json for CI pipelines):
+agents-cli tokenomics assert --traces artifacts/traces/ --max-cost-per-turn 0.005 --format json
+```
+
+> **Cache-rate gate tip:** Add `--min-cache-rate 0.60` only once your static prompt prefix exceeds ~1,024 tokens (where provider context caching activates); shorter prompts report a `0%` cache hit rate by design.
+
+#### Step 6 — Coding-Agent Skill & Extension Lifecycle (Sync, Update & Safe Uninstall)
+
+- **Autonomous Optimization via `.agents/skills/adk-tokenomics/SKILL.md`:** Coding agents (Gemini CLI, Claude Code, Antigravity, Cursor) automatically load the installed skill to instrument `app/agent.py`, run `agents-cli tokenomics profile --format json`, apply the 5 ADK FinOps fixes (`ContextCacheConfig`, `EventsCompactionConfig`, `SkillToolset`, `ThinkingConfig`, and sub-agent model tiering), and verify cost reductions with `agents-cli eval budget`.
+- **Team Clone Restore, Pin Updates & Safe Uninstall:**
+  ```bash
+  # Restore pinned extensions & skills after cloning a repo with committed agents-cli-extensions.yaml
+  agents-cli install
+
+  # Advance the extension SHA pin and refresh .agents/skills/adk-tokenomics/
+  agents-cli extension update adk-tokenomics
+
+  # Safe uninstall order (when SDK was added from ./extensions/adk-tokenomics):
+  # Remove the Python dependency FIRST so pyproject.toml/uv.lock never point at a deleted folder
+  uv remove adk-tokenomics-plugin
+  agents-cli extension remove adk-tokenomics
+  ```
+- **Operational Notes:**
+  - **`-h` vs. `--help`:** `agents-cli` answers `--help` itself with extension metadata, so pass `-h` to inspect tool flags (`agents-cli tokenomics profile -h`, `agents-cli eval budget -h`).
+  - **Shell-relative paths & `uv`:** Extension commands run via `uv run --no-sync` (`uv` must be on `PATH`, as it is for `agents-cli`), and relative path flags (`-t`/`--traces`, `--prompts-file`) resolve from the shell directory where you run the command.
+  - **Vendored folder & dual-scope updates:** Do not edit files inside `extensions/adk-tokenomics/` (`agents-cli extension update` replaces that directory). Avoid installing the extension in both project and `--global` scopes from different sources: `agents-cli extension update` runs across every scope, so `update --to <sha>` fails for any scope whose source lacks that commit (while still updating the other scope).
+
+---
+
+### Option 2: Standalone Python Package (`adk web` or Custom Runners)
+
 ```bash
 # Zero-cloud-dependency install (local web observatory, CLI profiler, and CI/CD assert)
 pip install -e .
@@ -136,28 +288,7 @@ pip install -e ".[bigquery]"
 adk-tokenomics --help
 ```
 
-### Using as a Google `agents-cli` Extension (`v1.10+`)
-
-You can also install `adk-tokenomics` directly into any [`agents-cli`](https://github.com/google/agents-cli) project (which adds `agents-cli tokenomics`, `agents-cli eval budget`, and installs the `adk-tokenomics` coding-agent skill into `.agents/skills/adk-tokenomics/`):
-
-```bash
-# Add at project scope (or pass --global for user scope)
-agents-cli extension add google/adk-recipes --ref adk-tokenomics
-
-# Run profiler, web observatory, and shift-left eval budget gates
-agents-cli tokenomics profile -t artifacts/traces/
-agents-cli tokenomics web --traces artifacts/traces/ --port 8080
-agents-cli eval budget --traces . --max-cost-per-turn 0.005
-```
-
-> **Extension notes:**
-> - `agents-cli` answers `--help` itself, so use `-h` to see this tool's flags (`agents-cli tokenomics profile -h`). Relative paths resolve from the directory you run the command in.
-> - To install from a local checkout instead of GitHub, use `agents-cli extension add local@/path/to/adk-tokenomics-plugin` (a bare path is read as a GitHub `org/repo`).
-> - Commands run through `uv` (`uv run --no-sync`), so `uv` must be on `PATH`, as it is for `agents-cli` itself.
-> - Don't edit files under `extensions/adk-tokenomics/`: `agents-cli extension update` replaces that folder.
-> - Avoid installing the extension in both scopes (project and `--global`) from different sources: `agents-cli extension update` applies to every scope, so `update --to <sha>` fails for a scope whose source doesn't have that commit (the other scope still updates).
-
-### Attaching to Any Google ADK Agent (`App` or `InMemoryRunner`)
+#### Attaching Directly to Any Google ADK Agent (`App` or `InMemoryRunner`)
 
 ```python
 from google.adk.apps import App
@@ -203,7 +334,17 @@ runner = InMemoryRunner(
 
 ## 🛠️ CLI Command Reference
 
-### 1. `adk-tokenomics web` — Interactive Visual Observatory
+Every CLI subcommand works identically whether invoked via the **`agents-cli` extension** (`adk-tokenomics` does not need to be on `PATH`) or via a **standalone Python install**:
+
+| Capability | `agents-cli` Extension Command | Standalone CLI Command | Flag Help |
+| :--- | :--- | :--- | :--- |
+| **Visual Web Observatory** | `agents-cli tokenomics web ...` | `adk-tokenomics web ...` | `agents-cli tokenomics web -h` |
+| **Context Waterfall & FinOps Advisor** | `agents-cli tokenomics profile ...` | `adk-tokenomics profile ...` | `agents-cli tokenomics profile -h` |
+| **CI/CD Financial & Token Budget Gate** | `agents-cli eval budget ...` *(or `agents-cli tokenomics assert ...`)* | `adk-tokenomics assert ...` | `agents-cli eval budget -h` |
+
+> **What `--traces` (`-t`) accepts across commands:** Pass a single trace file (`artifacts/traces/<session_id>.json`), a directory (`artifacts/traces/`), `.` (the project root, which searches `artifacts/traces/` and `.adk/eval_history/`), or omit `--traces` to default to `artifacts/traces/`. Under `agents-cli`, CLI remediation hints (`-> Run: agents-cli tokenomics profile -t <file>`) and BigQuery dependency hints (`uv add --no-workspace ./extensions/adk-tokenomics --extra bigquery && agents-cli install`) automatically match the extension invocation mode.
+
+### 1. `adk-tokenomics web` (`agents-cli tokenomics web`) — Interactive Visual Observatory
 Launches the embedded **Google Material 3 Dark Slate** web dashboard on `http://127.0.0.1:8080` (matching the look and feel of `adk web`).
 
 ```bash
@@ -232,7 +373,7 @@ adk-tokenomics web --host 0.0.0.0 --port 8080 --allowed-host "*.run.app" --allow
 
 ---
 
-### 2. `adk-tokenomics profile` — Turn-by-Turn Context Waterfall & FinOps Advisor
+### 2. `adk-tokenomics profile` (`agents-cli tokenomics profile`) — Turn-by-Turn Context Waterfall & FinOps Advisor
 Renders an ANSI turn-by-turn token waterfall in the terminal and runs the 5 optimization rules.
 
 ```bash
@@ -277,7 +418,7 @@ Example `custom_prompts.json` (both `"rules"` and `"prompts"` sections are optio
 
 ---
 
-### 3. `adk-tokenomics assert` — Shift-Left CI/CD Financial & Token Budget Gate
+### 3. `adk-tokenomics assert` (`agents-cli eval budget`) — Shift-Left CI/CD Financial & Token Budget Gate
 While `adk eval` captures `token_usage_v1` (`google-adk >= 2.10`) and `invocation_duration_v1` (`google-adk >= 2.7.0`) strictly as informational metrics without pass/fail thresholds or dollar pricing, `adk-tokenomics assert` enforces **pass/fail unit economics gates** in CI/CD pipelines. It accepts plugin session traces or native `adk eval` EvalSetResult files (automatically discovering `<dir>/.adk/eval_history/*.evalset_result.json` while skipping non-result `*.evalset.json` / `test_config.json` configs, and deduplicating turns when `live_adk_session.json`/`ci_eval.json` coexists with `<session_id>.json`) and **fails closed**: it exits with code `1` when artifacts are missing, empty (`0` turns), uninstrumented (`eval_cases` without token usage metadata), or unparseable (opt out for missing or `0`-turn trace artifacts with `--allow-empty`), when `--max-latency-ms` is set but no artifact reports latency, or when any budget threshold is breached. On failure, text output prints `-> Run: adk-tokenomics profile -t <file>` remediation hints and `--format json` includes `"failed_artifacts"`.
 
 ```bash
