@@ -16,6 +16,7 @@
 package com.google.adk.samples.agents.firestorerunner;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -55,5 +56,14 @@ public class FirestoreRunnerTest {
     assertNotNull(tools);
     assertEquals(1, tools.size());
     assertEquals("getCurrentTime", tools.get(0).name());
+  }
+
+  @Test
+  void testIsValidId() {
+    assertTrue(FirestoreRunner.isValidId("valid-id"));
+    assertFalse(FirestoreRunner.isValidId(null));
+    assertFalse(FirestoreRunner.isValidId(""));
+    assertFalse(FirestoreRunner.isValidId("   "));
+    assertFalse(FirestoreRunner.isValidId("<TODO: update-this-value>"));
   }
 }

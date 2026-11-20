@@ -67,7 +67,7 @@ public final class FirestoreRunner {
       String sessionId = System.getenv("SESSION_ID");
 
       Session session;
-      if (userId != null && !userId.isBlank() && sessionId != null && !sessionId.isBlank()) {
+      if (isValidId(userId) && isValidId(sessionId)) {
         String resumeUserId = userId;
         String resumeSessionId = sessionId;
         session =
@@ -125,6 +125,10 @@ public final class FirestoreRunner {
     // The Gemini API client leaves non-daemon OkHttp threads running; force
     // a clean exit instead of waiting on them to time out.
     System.exit(0);
+  }
+
+  static boolean isValidId(String id) {
+    return id != null && !id.isBlank() && !id.startsWith("<TODO");
   }
 
   @Schema(description = "Get the current time for a given city")
