@@ -1467,6 +1467,7 @@ def test_parse_env_example_handles_real_world_lines(tmp_path: Path):
         """,
     )
     env = md.parse_env_example(tmp_path / ".env.example")
+    assert "GOOGLE_CLOUD_PROJECT" not in env
     assert env["MODEL_NAME"] == "gemini-flash-latest"
     assert env["QUOTED"] == "with quotes"
     # A value containing '=' must survive intact.
@@ -3208,23 +3209,45 @@ def test_register_adk_telemetry_hooks_gemini_merge_tracking_headers(
 
     tel.register_adk_telemetry()
 
+    from google.adk.models.google_llm import Gemini
     from google.adk.utils import _google_client_headers as gch
 
+    expected = "gccl/20261114-abc123def456-demo-recipe-cloud_run-prebuilt"
+
     merged = gch.merge_tracking_headers({})
-    assert (
-        "gccl/20261114-abc123def456-demo-recipe-cloud_run-prebuilt"
-        in merged.get("x-goog-api-client", "")
+    assert expected in merged.get("x-goog-api-client", "")
+
+    gemini = Gemini(model="gemini-3.7-flash")
+    assert hasattr(gemini, "_merge_tracking_headers") or hasattr(
+        gemini, "_tracking_headers"
     )
+    if hasattr(gemini, "_merge_tracking_headers"):
+        gemini_merged = gemini._merge_tracking_headers({})
+        assert expected in gemini_merged.get("x-goog-api-client", "")
+    if hasattr(gemini, "_tracking_headers"):
+        gemini_headers = gemini._tracking_headers()
+        assert expected in gemini_headers.get("x-goog-api-client", "")
 
 
 def test_telemetry_disabled_in_ci_and_tests_and_opt_out(monkeypatch):
     tel = _load_telemetry_template()
-    for var in ("INTEGRATION_TEST", "PYTEST_CURRENT_TEST", "CI"):
+    tel.RECIPE_NAME = "demo-recipe"
+    for var in (
+        "INTEGRATION_TEST",
+        "PYTEST_CURRENT_TEST",
+        "CI",
+        "USAGE_ANALYTICS_ENABLED",
+    ):
         monkeypatch.delenv(var, raising=False)
 
-    monkeypatch.setenv("INTEGRATION_TEST", "1")
-    assert tel.build_tracking_headers() == {}
-    monkeypatch.delenv("INTEGRATION_TEST")
+    assert tel.build_tracking_headers() != {}
 
-    monkeypatch.setenv("USAGE_ANALYTICS_ENABLED", "false")
-    assert tel.build_tracking_headers() == {}
+    for env_var, env_val in (
+        ("INTEGRATION_TEST", "1"),
+        ("PYTEST_CURRENT_TEST", "tests/test_x.py::test_y"),
+        ("CI", "true"),
+        ("USAGE_ANALYTICS_ENABLED", "false"),
+    ):
+        monkeypatch.setenv(env_var, env_val)
+        assert tel.build_tracking_headers() == {}
+        monkeypatch.delenv(env_var)

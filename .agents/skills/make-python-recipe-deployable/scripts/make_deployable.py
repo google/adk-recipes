@@ -38,11 +38,13 @@ files for a recipe that cannot host them.
 
   - legacy-app-utils  [GATE]
         `<pkg>/app_utils/` must not contain the old ASP-era generation
-        (telemetry.py, typing.py, deploy.py, memory_config.py). Filenames do
-        not collide with the new set, but the two wire telemetry and services
-        differently: the old fast_api_app.py imports the old modules and
-        defines its own /feedback route, so overwriting the entrypoint either
-        orphans them or double-wires telemetry. NEEDS_INPUT, script STOPS.
+        (telemetry.py, typing.py, deploy.py, memory_config.py). Only
+        telemetry.py overlaps by filename with the new set (and is
+        distinguished by content via `_is_legacy_app_utils_file()`), but the
+        two wire telemetry and services differently: the old fast_api_app.py
+        imports the old modules and defines its own /feedback route, so
+        overwriting the entrypoint either orphans them or double-wires
+        telemetry. NEEDS_INPUT, script STOPS.
 
   - backing-infra  [GATE, advisory]
         Detects an existing infra/ or terraform/ directory, or imports of
@@ -55,7 +57,7 @@ files for a recipe that cannot host them.
         below.
 
   - serving-files
-        The five files from `deployability.required_files`, copied from
+        The six files from `deployability.required_files`, copied from
         resources/templates/ with `__AGENT_PACKAGE__` / `__PROJECT_NAME__`
         substituted. An existing file is never overwritten without --overwrite.
 
