@@ -59,6 +59,8 @@ env:
 jobs:
   sync-telemetry:
     name: Collect & sync recipe telemetry
+    # The weekly schedule would otherwise run and fail WIF auth in every fork.
+    if: github.repository == 'google/adk-recipes'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -96,11 +98,11 @@ jobs:
         run: |
           set -euo pipefail
           args=(
-            --spreadsheet-id "${SPREADSHEET_ID}"
-            --sheet-gid "${SHEET_GID}"
-            --project-id "${PROJECT_ID}"
-            --service-account "${SERVICE_ACCOUNT}"
-            --lookback-days "${LOOKBACK_DAYS}"
+            --spreadsheet-id="${SPREADSHEET_ID}"
+            --sheet-gid="${SHEET_GID}"
+            --project-id="${PROJECT_ID}"
+            --service-account="${SERVICE_ACCOUNT}"
+            --lookback-days="${LOOKBACK_DAYS}"
             --out-json "${RUNNER_TEMP}/recipe-telemetry.json"
             --out-md "${RUNNER_TEMP}/recipe-telemetry.md"
           )
@@ -126,3 +128,4 @@ jobs:
             ${{ runner.temp }}/recipe-telemetry.json
             ${{ runner.temp }}/recipe-telemetry.md
           retention-days: 30
+          if-no-files-found: ignore

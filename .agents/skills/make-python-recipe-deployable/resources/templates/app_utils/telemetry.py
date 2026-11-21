@@ -31,7 +31,7 @@ import threading
 
 RECIPE_NAME = "__PROJECT_NAME__"
 _SAFE_TOKEN_RE = re.compile(r"[^a-zA-Z0-9._-]+")
-_PLACEHOLDER_RE = re.compile(r"^<.*>$")
+_PLACEHOLDER_RE = re.compile(r"^<[^<>]+>$")
 _LOCK = threading.Lock()
 
 
@@ -110,7 +110,10 @@ def build_tracking_headers() -> dict[str, str]:
 
 def _merge_into_headers(base: dict[str, str] | None) -> dict[str, str]:
     """Merge ``build_tracking_headers()`` into ``base`` without duplicating tokens."""
-    out = dict(base or {})
+    try:
+        out = dict(base or {})
+    except Exception:
+        return {}
     try:
         extra = build_tracking_headers()
         if not extra:
@@ -118,7 +121,7 @@ def _merge_into_headers(base: dict[str, str] | None) -> dict[str, str]:
         key_lookup = {k.lower(): k for k in out}
         for key, val in extra.items():
             actual_key = key_lookup.get(key.lower(), key)
-            existing = out.get(actual_key, "").split()
+            existing = (out.get(actual_key) or "").split()
             for tok in val.split():
                 if tok not in existing:
                     existing.append(tok)
@@ -136,7 +139,7 @@ def register_adk_telemetry() -> None:
             from google.adk.utils import _google_client_headers as gch
 
             orig_get = getattr(gch, "get_tracking_headers", None)
-            if orig_get is not None and not getattr(
+            if callable(orig_get) and not getattr(
                 orig_get, "_adk_recipe_wrapped", False
             ):
 
@@ -158,7 +161,7 @@ def register_adk_telemetry() -> None:
                 from google.adk.utils import _google_client_headers as gch
 
                 gch_get = getattr(gch, "get_tracking_headers", None)
-                if gch_get is not None and hasattr(
+                if callable(gch_get) and hasattr(
                     google_llm, "get_tracking_headers"
                 ):
                     google_llm.get_tracking_headers = gch_get
@@ -166,7 +169,7 @@ def register_adk_telemetry() -> None:
                 pass
 
             orig_fn = getattr(Gemini, "_tracking_headers", None)
-            if orig_fn is not None and not getattr(
+            if callable(orig_fn) and not getattr(
                 orig_fn, "_adk_recipe_wrapped", False
             ):
 
@@ -179,18 +182,15 @@ def register_adk_telemetry() -> None:
                 Gemini._tracking_headers = _wrapped_tracking_headers  # type: ignore[method-assign]
 
             orig_merge = getattr(Gemini, "_merge_tracking_headers", None)
-            if orig_merge is not None and not getattr(
+            if callable(orig_merge) and not getattr(
                 orig_merge, "_adk_recipe_wrapped", False
             ):
 
                 def _wrapped_merge_tracking_headers(
-                    self: object,
-                    headers: dict[str, str] | None = None,
-                    *args: object,
-                    **kwargs: object,
+                    self: object, *args: object, **kwargs: object
                 ) -> dict[str, str]:
                     return _merge_into_headers(
-                        orig_merge(self, headers, *args, **kwargs)
+                        orig_merge(self, *args, **kwargs)
                     )
 
                 _wrapped_merge_tracking_headers._adk_recipe_wrapped = True  # type: ignore[attr-defined]

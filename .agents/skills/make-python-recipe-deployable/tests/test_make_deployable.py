@@ -3191,26 +3191,140 @@ def test_telemetry_headers_emit_single_segment_gccl_token(monkeypatch):
     assert "/" not in token[len("gccl/") :]
 
 
-def test_register_adk_telemetry_hooks_gemini_merge_tracking_headers(
-    monkeypatch,
+def test_legacy_asp_telemetry_still_trips_legacy_gate(
+    recipe: Path, monkeypatch
 ):
-    tel = _load_telemetry_template()
-    tel.RECIPE_NAME = "demo-recipe"
+    """An ASP-era telemetry.py defining setup_telemetry must still trip the
+    legacy-app-utils gate (even if it also mentions register_adk_telemetry)."""
+    monkeypatch.setattr(md, "load_policy", lambda _root: _policy())
+    monkeypatch.setattr(md, "find_repo_root", lambda _p: recipe)
+    app_utils = recipe / "app" / "app_utils"
+    app_utils.mkdir(parents=True, exist_ok=True)
+    (app_utils / "telemetry.py").write_text(
+        "def register_adk_telemetry():\n    pass\n\ndef setup_telemetry():\n    pass\n",
+        encoding="utf-8",
+    )
+    report = md.run(
+        recipe_dir=recipe,
+        apply=False,
+        overwrite=False,
+        data_dirs=[],
+        region="us-east1",
+    )
+    legacy = next(c for c in report.checks if c.id == "legacy-app-utils")
+    assert legacy.status == md.NEEDS_INPUT
+
+
+def _install_stub_adk(
+    monkeypatch, *, tracking_headers_as_property: bool = False
+):
+    """Install hermetic google.adk stubs into sys.modules (no google-adk dep)."""
+    import types
+
+    google_mod = types.ModuleType("google")
+    adk_mod = types.ModuleType("google.adk")
+    utils_mod = types.ModuleType("google.adk.utils")
+    gch_mod = types.ModuleType("google.adk.utils._google_client_headers")
+    models_mod = types.ModuleType("google.adk.models")
+    google_llm_mod = types.ModuleType("google.adk.models.google_llm")
+
+    def get_tracking_headers() -> dict[str, str]:
+        return {"x-goog-api-client": "google-adk/2.0.0"}
+
+    def merge_tracking_headers(
+        headers: dict[str, str] | None = None,
+    ) -> dict[str, str]:
+        base = dict(headers or {})
+        tracking = gch_mod.get_tracking_headers()
+        for k, v in tracking.items():
+            base[k] = f"{base[k]} {v}".strip() if k in base else v
+        return base
+
+    gch_mod.get_tracking_headers = get_tracking_headers  # type: ignore[attr-defined]
+    gch_mod.merge_tracking_headers = merge_tracking_headers  # type: ignore[attr-defined]
+    google_llm_mod.get_tracking_headers = get_tracking_headers  # type: ignore[attr-defined]
+
+    if tracking_headers_as_property:
+
+        class Gemini:
+            def __init__(self, model: str = "gemini-3.7-flash") -> None:
+                self.model = model
+
+            @property
+            def _tracking_headers(self) -> dict[str, str]:
+                return google_llm_mod.get_tracking_headers()
+
+            def _merge_tracking_headers(
+                self, headers: dict[str, str] | None = None
+            ) -> dict[str, str]:
+                return gch_mod.merge_tracking_headers(headers)
+
+    else:
+
+        class Gemini:  # type: ignore[no-redef]
+            def __init__(self, model: str = "gemini-3.7-flash") -> None:
+                self.model = model
+
+            def _tracking_headers(self) -> dict[str, str]:
+                return google_llm_mod.get_tracking_headers()
+
+            def _merge_tracking_headers(
+                self, headers: dict[str, str] | None = None
+            ) -> dict[str, str]:
+                return gch_mod.merge_tracking_headers(headers)
+
+    google_llm_mod.Gemini = Gemini  # type: ignore[attr-defined]
+    google_mod.adk = adk_mod  # type: ignore[attr-defined]
+    adk_mod.utils = utils_mod  # type: ignore[attr-defined]
+    adk_mod.models = models_mod  # type: ignore[attr-defined]
+    utils_mod._google_client_headers = gch_mod  # type: ignore[attr-defined]
+    models_mod.google_llm = google_llm_mod  # type: ignore[attr-defined]
+
+    for name, mod in (
+        ("google", google_mod),
+        ("google.adk", adk_mod),
+        ("google.adk.utils", utils_mod),
+        ("google.adk.utils._google_client_headers", gch_mod),
+        ("google.adk.models", models_mod),
+        ("google.adk.models.google_llm", google_llm_mod),
+    ):
+        monkeypatch.setitem(sys.modules, name, mod)
+
+    return gch_mod, google_llm_mod, Gemini
+
+
+def _clear_telemetry_env(monkeypatch) -> None:
     for var in (
         "INTEGRATION_TEST",
         "PYTEST_CURRENT_TEST",
         "CI",
         "USAGE_ANALYTICS_ENABLED",
+        "GOOGLE_CLOUD_AGENT_ENGINE_ID",
+        "K_SERVICE",
+        "KUBERNETES_SERVICE_HOST",
     ):
         monkeypatch.delenv(var, raising=False)
+
+
+def test_register_adk_telemetry_hooks_gemini_merge_tracking_headers(
+    monkeypatch,
+):
+    tel = _load_telemetry_template()
+    tel.RECIPE_NAME = "demo-recipe"
+    _clear_telemetry_env(monkeypatch)
     monkeypatch.setenv("K_SERVICE", "demo-service")
     monkeypatch.setenv("AGENT_VERSION", "20261114-abc123def456")
     monkeypatch.setenv("ADK_DEPLOY_CHANNEL", "prebuilt")
 
-    tel.register_adk_telemetry()
+    gch, _google_llm, Gemini = _install_stub_adk(monkeypatch)
 
-    from google.adk.models.google_llm import Gemini
-    from google.adk.utils import _google_client_headers as gch
+    tel.register_adk_telemetry()
+    # Calling twice must be idempotent (no double-wrapping).
+    wrapped_get = gch.get_tracking_headers
+    wrapped_merge = Gemini._merge_tracking_headers
+    tel.register_adk_telemetry()
+    assert gch.get_tracking_headers is wrapped_get
+    assert Gemini._merge_tracking_headers is wrapped_merge
 
     expected = "gccl/20261114-abc123def456-demo-recipe-cloud_run-prebuilt"
 
@@ -3218,15 +3332,79 @@ def test_register_adk_telemetry_hooks_gemini_merge_tracking_headers(
     assert expected in merged.get("x-goog-api-client", "")
 
     gemini = Gemini(model="gemini-3.7-flash")
-    assert hasattr(gemini, "_merge_tracking_headers") or hasattr(
-        gemini, "_tracking_headers"
+    gemini_merged = gemini._merge_tracking_headers({})
+    assert expected in gemini_merged.get("x-goog-api-client", "")
+    # 0-arg call must also succeed without positional-arg distortion.
+    assert expected in gemini._merge_tracking_headers().get(
+        "x-goog-api-client", ""
     )
-    if hasattr(gemini, "_merge_tracking_headers"):
-        gemini_merged = gemini._merge_tracking_headers({})
-        assert expected in gemini_merged.get("x-goog-api-client", "")
-    if hasattr(gemini, "_tracking_headers"):
-        gemini_headers = gemini._tracking_headers()
-        assert expected in gemini_headers.get("x-goog-api-client", "")
+    gemini_headers = gemini._tracking_headers()
+    assert expected in gemini_headers.get("x-goog-api-client", "")
+
+
+def test_register_adk_telemetry_preserves_property_descriptor_and_fails_open(
+    monkeypatch,
+):
+    tel = _load_telemetry_template()
+    tel.RECIPE_NAME = "demo-recipe"
+    _clear_telemetry_env(monkeypatch)
+    monkeypatch.setenv("K_SERVICE", "demo-service")
+    monkeypatch.setenv("AGENT_VERSION", "20261114-abc123def456")
+    monkeypatch.setenv("ADK_DEPLOY_CHANNEL", "prebuilt")
+
+    _gch, _google_llm, Gemini = _install_stub_adk(
+        monkeypatch, tracking_headers_as_property=True
+    )
+    tel.register_adk_telemetry()
+
+    assert isinstance(Gemini.__dict__["_tracking_headers"], property)
+    gemini = Gemini(model="gemini-3.7-flash")
+    expected = "gccl/20261114-abc123def456-demo-recipe-cloud_run-prebuilt"
+    assert expected in gemini._tracking_headers.get("x-goog-api-client", "")
+
+    # _merge_into_headers handles None header values and non-mapping inputs.
+    merged_none = tel._merge_into_headers({"x-goog-api-client": None})
+    assert expected in merged_none["x-goog-api-client"]
+    assert tel._merge_into_headers(123) == {}  # type: ignore[arg-type]
+
+    # Absent google.adk must fail open silently.
+    monkeypatch.setitem(sys.modules, "google.adk", None)
+    monkeypatch.setitem(sys.modules, "google.adk.utils", None)
+    monkeypatch.setitem(
+        sys.modules, "google.adk.utils._google_client_headers", None
+    )
+    monkeypatch.setitem(sys.modules, "google.adk.models", None)
+    monkeypatch.setitem(sys.modules, "google.adk.models.google_llm", None)
+    tel.register_adk_telemetry()
+
+
+def test_deployable_and_scaffold_telemetry_templates_stay_in_sync():
+    skills_dir = Path(__file__).resolve().parent.parent.parent
+    deploy_tpl = (
+        skills_dir
+        / "make-python-recipe-deployable"
+        / "resources"
+        / "templates"
+        / "app_utils"
+        / "telemetry.py"
+    ).read_text(encoding="utf-8")
+    scaffold_tpl = (
+        skills_dir
+        / "scaffold-python-recipe"
+        / "resources"
+        / "templates"
+        / "app"
+        / "app_utils"
+        / "telemetry.py"
+    ).read_text(encoding="utf-8")
+
+    deploy_body = deploy_tpl[deploy_tpl.index("_SAFE_TOKEN_RE =") :].strip()
+    scaffold_body = scaffold_tpl[
+        scaffold_tpl.index("_SAFE_TOKEN_RE =") : scaffold_tpl.index(
+            "def setup_telemetry("
+        )
+    ].strip()
+    assert deploy_body == scaffold_body
 
 
 def test_telemetry_disabled_in_ci_and_tests_and_opt_out(monkeypatch):

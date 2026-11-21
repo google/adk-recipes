@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import functools
 import json
 import os
 import re
@@ -63,6 +64,9 @@ DEFAULT_GCP_PROJECT = "adk-samples-repo-gcp-support"
 DEFAULT_SERVICE_ACCOUNT = (
     "wif-service-account@adk-samples-repo-gcp-support.iam.gserviceaccount.com"
 )
+
+_SPREADSHEET_ID_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+_PROJECT_ID_RE = re.compile(r"^[a-z][a-z0-9-]{4,28}[a-z0-9]$")
 
 _TELEMETRY_MARKERS = re.compile(
     r"\b(?:register_adk_telemetry|build_tracking_headers|build_usage_headers)\b|"
@@ -220,14 +224,53 @@ def discover_recipes(repo_root: Path) -> list[dict[str, Any]]:
     return recipes
 
 
+def _validate_spreadsheet_id(spreadsheet_id: str) -> str:
+    """Validate Google Sheet ID format before interpolating into API URLs."""
+    cleaned = spreadsheet_id.strip()
+    if not _SPREADSHEET_ID_RE.match(cleaned):
+        raise ValueError(f"Invalid Google Sheet ID: {spreadsheet_id!r}")
+    return cleaned
+
+
+def _validate_project_id(project_id: str) -> str:
+    """Validate GCP project ID format before interpolating into URLs/filters."""
+    cleaned = project_id.strip()
+    if not _PROJECT_ID_RE.match(cleaned):
+        raise ValueError(f"Invalid GCP project ID: {project_id!r}")
+    return cleaned
+
+
+def _col_letter(n: int) -> str:
+    """Convert a 1-based column index (e.g. 18 -> 'R') to A1 column letters."""
+    if n < 1:
+        raise ValueError(f"Column index must be >= 1, got {n}")
+    chars: list[str] = []
+    while n > 0:
+        n, rem = divmod(n - 1, 26)
+        chars.append(chr(ord("A") + rem))
+    return "".join(reversed(chars))
+
+
+def _md_cell(value: str) -> str:
+    """Escape pipe and backtick characters for a Markdown table cell."""
+    return value.replace("|", "\\|").replace("`", "'")
+
+
 def _http_json(
     method: str,
     url: str,
     token: str | None,
     payload: dict[str, Any] | None = None,
     timeout: int = 30,
+    *,
+    idempotent: bool | None = None,
 ) -> tuple[int, dict[str, Any]]:
-    """Execute an HTTP JSON request using stdlib urllib with 429/5xx backoff."""
+    """Execute an HTTP JSON request using stdlib urllib with 429/5xx backoff.
+
+    Only retries idempotent requests (GET/PUT/HEAD/OPTIONS/DELETE by default,
+    or POST calls explicitly marked ``idempotent=True``) so non-idempotent
+    writes like ``:append`` or ``:batchUpdate`` are never duplicated on timeout.
+    """
     headers = {"Accept": "application/json"}
     if token:
         headers["Authorization"] = f"Bearer {token}"
@@ -236,17 +279,32 @@ def _http_json(
         headers["Content-Type"] = "application/json"
         data = json.dumps(payload).encode("utf-8")
 
-    for attempt in range(4):
+    can_retry = (
+        method.upper() in ("GET", "PUT", "HEAD", "OPTIONS", "DELETE")
+        if idempotent is None
+        else idempotent
+    )
+    max_attempts = 4 if can_retry else 1
+
+    for attempt in range(max_attempts):
         req = urllib.request.Request(
             url, data=data, headers=headers, method=method
         )
         try:
             with urllib.request.urlopen(req, timeout=timeout) as resp:
                 raw = resp.read().decode("utf-8", errors="replace")
-                return resp.status, (json.loads(raw) if raw.strip() else {})
+                if not raw.strip():
+                    return resp.status, {}
+                try:
+                    return resp.status, json.loads(raw)
+                except json.JSONDecodeError:
+                    return resp.status, {"error": f"invalid json: {raw[:200]}"}
         except urllib.error.HTTPError as exc:
             raw = exc.read().decode("utf-8", errors="replace")
-            if exc.code in (429, 500, 502, 503, 504) and attempt < 3:
+            if (
+                exc.code in (429, 500, 502, 503, 504)
+                and attempt < max_attempts - 1
+            ):
                 time.sleep(2**attempt)
                 continue
             try:
@@ -255,7 +313,7 @@ def _http_json(
                 body = {"error": raw[:500]}
             return exc.code, body
         except Exception as exc:
-            if attempt < 3:
+            if attempt < max_attempts - 1:
                 time.sleep(2**attempt)
                 continue
             return 0, {"error": str(exc)}
@@ -279,11 +337,14 @@ def fetch_registry_tags(
 ) -> tuple[int, str]:
     """Query Artifact Registry REST API v1 for a recipe's published tags."""
     location, default_project_id, repo_name = _registry_coords()
-    target_project = project_id or default_project_id
+    target_project = _validate_project_id(project_id or default_project_id)
+    q_project = urllib.parse.quote(target_project, safe="")
+    q_location = urllib.parse.quote(location, safe="")
+    q_repo = urllib.parse.quote(repo_name, safe="")
     pkg = urllib.parse.quote(f"{category}/{name}", safe="")
     base_url = (
-        f"https://artifactregistry.googleapis.com/v1/projects/{target_project}"
-        f"/locations/{location}/repositories/{repo_name}/packages/{pkg}/tags"
+        f"https://artifactregistry.googleapis.com/v1/projects/{q_project}"
+        f"/locations/{q_location}/repositories/{q_repo}/packages/{pkg}/tags"
     )
     tags: list[str] = []
     page_token = ""
@@ -293,6 +354,12 @@ def fetch_registry_tags(
             url += f"&pageToken={urllib.parse.quote(page_token, safe='')}"
         status, body = _http_json("GET", url, token)
         if status != 200:
+            if status != 404:
+                print(
+                    f"warning: Artifact Registry tag lookup for {category}/{name} "
+                    f"returned HTTP {status}: {body}",
+                    file=sys.stderr,
+                )
             if not tags:
                 return 0, ""
             break
@@ -308,6 +375,13 @@ def fetch_registry_tags(
         page_token = str(body.get("nextPageToken") or "")
         if not page_token:
             break
+    else:
+        if page_token:
+            print(
+                f"warning: Artifact Registry tags for {category}/{name} "
+                "exceeded 10 pages (1,000 tags); count may be truncated.",
+                file=sys.stderr,
+            )
 
     if not tags:
         return 0, ""
@@ -323,9 +397,11 @@ def fetch_registry_tags(
     return len(tags), latest_build
 
 
-def _pull_resource_patterns() -> tuple[re.Pattern[str], re.Pattern[str]]:
-    """Build pull resource regexes from the repo name parsed out of REGISTRY."""
-    _, _, repo_name = _registry_coords()
+@functools.lru_cache(maxsize=8)
+def _pull_resource_patterns(
+    repo_name: str,
+) -> tuple[re.Pattern[str], re.Pattern[str]]:
+    """Build pull resource regexes from the Artifact Registry repository name."""
     escaped_repo = re.escape(repo_name)
     return (
         # GetTag / GetVersion: .../repositories/<repo>/packages/python%2Fdeep-search/tags/20261114-...
@@ -335,7 +411,7 @@ def _pull_resource_patterns() -> tuple[re.Pattern[str], re.Pattern[str]]:
         ),
         # Docker-GetManifest: .../repositories/<repo>/dockerImages/python%2Fdeep-search:tag or @sha256:...
         re.compile(
-            rf"{escaped_repo}/(?:dockerImages/|manifests/)?([a-z0-9_-]+(?:/|%2F)[a-z0-9_-]+)(?:[:@]([^\s/\"']+))?",
+            rf"{escaped_repo}/(?:dockerImages|manifests)/([a-z0-9_-]+(?:/|%2F)[a-z0-9_-]+)(?:[:@]([^\s/\"']+))?",
             re.IGNORECASE,
         ),
     )
@@ -370,23 +446,31 @@ def classify_pull_entry(
         json.dumps(proto.get("metadata") or {}),
     ]
     image_key = ""
-    ref = "latest"
-    patterns = _pull_resource_patterns()
+    ref = ""
+    fallback_key = ""
+    _, _, repo_name = _registry_coords()
+    patterns = _pull_resource_patterns(repo_name)
     for text in candidates:
         for pat in patterns:
             match = pat.search(text)
-            if match:
-                raw_key = urllib.parse.unquote(match.group(1)).lower()
-                if raw_key.startswith("packages/"):
-                    continue
+            if not match:
+                continue
+            raw_key = urllib.parse.unquote(match.group(1)).lower()
+            raw_ref = (match.group(2) or "").lower()
+            if raw_ref:
                 image_key = raw_key
-                ref = (match.group(2) or "latest").lower()
+                ref = raw_ref
                 break
+            if not fallback_key:
+                fallback_key = raw_key
         if image_key:
             break
 
     if not image_key:
-        return None
+        if not fallback_key:
+            return None
+        image_key = fallback_key
+        ref = "latest"
 
     tag_bucket = "latest" if ref == "latest" else "pinned"
 
@@ -410,11 +494,12 @@ def fetch_pull_counts(
     """Query Cloud Logging for Artifact Registry pull events by recipe image."""
     if not token:
         return {}
+    valid_project = _validate_project_id(project_id)
     since = (
         dt.datetime.now(dt.UTC) - dt.timedelta(days=lookback_days)
     ).strftime("%Y-%m-%dT%H:%M:%SZ")
     log_filter = (
-        f'logName="projects/{project_id}/logs/cloudaudit.googleapis.com%2Fdata_access" AND '
+        f'logName="projects/{valid_project}/logs/cloudaudit.googleapis.com%2Fdata_access" AND '
         'protoPayload.serviceName="artifactregistry.googleapis.com" AND '
         '(protoPayload.methodName="Docker-GetManifest" OR '
         'protoPayload.methodName="google.devtools.artifactregistry.v1.ArtifactRegistry.GetTag") AND '
@@ -424,7 +509,7 @@ def fetch_pull_counts(
     page_token: str | None = None
     for _ in range(10):  # cap pagination at 10 pages (10,000 newest entries)
         payload: dict[str, Any] = {
-            "resourceNames": [f"projects/{project_id}"],
+            "resourceNames": [f"projects/{valid_project}"],
             "filter": log_filter,
             "orderBy": "timestamp desc",
             "pageSize": 1000,
@@ -436,6 +521,7 @@ def fetch_pull_counts(
             "https://logging.googleapis.com/v2/entries:list",
             token,
             payload,
+            idempotent=True,
         )
         if status != 200:
             print(
@@ -467,6 +553,13 @@ def fetch_pull_counts(
         page_token = body.get("nextPageToken")
         if not page_token:
             break
+    else:
+        if page_token:
+            print(
+                "warning: Cloud Logging query exceeded 10 pages (10,000 "
+                "entries); pull counts may be truncated.",
+                file=sys.stderr,
+            )
     return counts
 
 
@@ -529,7 +622,7 @@ def _a1_tab(tab_title: str) -> str:
     return f"'{escaped}'"
 
 
-def sync_to_google_sheet(
+def sync_to_google_sheet_with_status(
     spreadsheet_id: str,
     rows: list[RecipeTelemetryRow],
     token: str,
@@ -538,43 +631,84 @@ def sync_to_google_sheet(
     history_tab: str = DEFAULT_HISTORY_TAB,
     sheet_gid: str = "",
     service_account: str = DEFAULT_SERVICE_ACCOUNT,
-) -> bool:
-    """Create missing tabs and sync the snapshot + history rows to Google Sheets."""
+) -> str:
+    """Create missing tabs and sync snapshot + history rows to Google Sheets.
+
+    Returns one of ``"synced"``, ``"permission_denied"``, or ``"error"``.
+    """
+    try:
+        valid_sheet_id = _validate_spreadsheet_id(spreadsheet_id)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return "error"
+
+    q_sheet = urllib.parse.quote(valid_sheet_id, safe="")
     meta_url = (
-        f"https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}"
-        "?fields=sheets.properties(sheetId,title)"
+        f"https://sheets.googleapis.com/v4/spreadsheets/{q_sheet}"
+        "?fields=sheets.properties(sheetId,title,gridProperties(rowCount,columnCount))"
     )
     status, meta = _http_json("GET", meta_url, token)
     if status != 200:
         print(
-            f"warning: Could not access Google Sheet {spreadsheet_id} "
+            f"warning: Could not access Google Sheet {valid_sheet_id} "
             f"(HTTP {status}). Share the spreadsheet with "
             f"{service_account} as Editor and ensure "
             "sheets.googleapis.com is enabled.",
             file=sys.stderr,
         )
-        return False
+        return "permission_denied" if status in (401, 403) else "error"
 
     sheets_list = meta.get("sheets") or []
-    existing_tabs = {
-        s.get("properties", {}).get("title")
-        for s in sheets_list
-        if s.get("properties", {}).get("title")
-    }
+    existing_tabs: set[str] = set()
+    tab_row_counts: dict[str, int | None] = {}
+    for s in sheets_list:
+        props = s.get("properties") or {}
+        title = props.get("title")
+        if title:
+            title_str = str(title)
+            existing_tabs.add(title_str)
+            grid = props.get("gridProperties") or {}
+            rc = grid.get("rowCount")
+            tab_row_counts[title_str] = int(rc) if rc is not None else None
 
     # If a target GID (e.g. 567149855) is provided and exists in the workbook,
     # resolve its current title dynamically.
     resolved_snapshot_tab = snapshot_tab
-    if sheet_gid and sheet_gid.strip().isdigit():
-        wanted_gid = int(sheet_gid.strip())
-        for s in sheets_list:
-            props = s.get("properties") or {}
-            if (
-                props.get("sheetId") is not None
-                and int(props["sheetId"]) == wanted_gid
-            ):
-                resolved_snapshot_tab = str(props["title"])
-                break
+    if sheet_gid and sheet_gid.strip():
+        gid_str = sheet_gid.strip()
+        if not gid_str.isdigit():
+            print(
+                f"warning: Ignoring non-numeric sheet_gid {sheet_gid!r}; "
+                f"falling back to snapshot tab '{snapshot_tab}'.",
+                file=sys.stderr,
+            )
+        else:
+            wanted_gid = int(gid_str)
+            matched = False
+            for s in sheets_list:
+                props = s.get("properties") or {}
+                if (
+                    props.get("sheetId") is not None
+                    and int(props["sheetId"]) == wanted_gid
+                ):
+                    resolved_snapshot_tab = str(props["title"])
+                    matched = True
+                    break
+            if not matched:
+                print(
+                    f"warning: Worksheet GID {wanted_gid} not found in "
+                    f"spreadsheet {valid_sheet_id}; falling back to snapshot "
+                    f"tab '{snapshot_tab}'.",
+                    file=sys.stderr,
+                )
+
+    if resolved_snapshot_tab == history_tab:
+        print(
+            f"error: Snapshot tab and history tab both resolve to "
+            f"'{resolved_snapshot_tab}'; refusing to overwrite history.",
+            file=sys.stderr,
+        )
+        return "error"
 
     requests: list[dict[str, Any]] = []
     for tab in (resolved_snapshot_tab, history_tab):
@@ -583,7 +717,7 @@ def sync_to_google_sheet(
 
     if requests:
         batch_url = (
-            f"https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}"
+            f"https://sheets.googleapis.com/v4/spreadsheets/{q_sheet}"
             ":batchUpdate"
         )
         b_status, b_body = _http_json(
@@ -595,17 +729,19 @@ def sync_to_google_sheet(
                 f"{b_body}",
                 file=sys.stderr,
             )
-            return False
+            return "permission_denied" if b_status in (401, 403) else "error"
 
     values = [SHEET_HEADERS] + [r.to_sheet_row() for r in rows]
     snap_a1 = _a1_tab(resolved_snapshot_tab)
+    end_col = _col_letter(len(SHEET_HEADERS))
 
-    # 1. Write the live snapshot tab FIRST, then clear only trailing rows in A:R
-    # so a transient failure never leaves the sheet blank and columns S:Z stay intact.
+    # 1. Write the live snapshot tab FIRST, then clear only trailing rows in
+    # A:<end_col> so a transient failure never leaves the sheet blank and
+    # user-owned columns beyond <end_col> stay intact.
     snap_range = urllib.parse.quote(f"{snap_a1}!A1", safe="")
     u_status, u_body = _http_json(
         "PUT",
-        f"https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}/values/{snap_range}?valueInputOption=RAW",
+        f"https://sheets.googleapis.com/v4/spreadsheets/{q_sheet}/values/{snap_range}?valueInputOption=RAW",
         token,
         {"values": values},
     )
@@ -615,36 +751,48 @@ def sync_to_google_sheet(
             f"{u_body}",
             file=sys.stderr,
         )
-        return False
+        return "permission_denied" if u_status in (401, 403) else "error"
 
     clear_start_row = len(values) + 1
-    clear_range = urllib.parse.quote(f"{snap_a1}!A{clear_start_row}:R", safe="")
-    c_status, c_body = _http_json(
-        "POST",
-        f"https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}/values/{clear_range}:clear",
-        token,
-        {},
-    )
-    if c_status != 200:
-        print(
-            f"warning: Failed to clear trailing rows on '{resolved_snapshot_tab}' "
-            f"tab (HTTP {c_status}): {c_body}",
-            file=sys.stderr,
+    existing_row_count = tab_row_counts.get(resolved_snapshot_tab)
+    if existing_row_count is None or clear_start_row <= existing_row_count:
+        clear_range = urllib.parse.quote(
+            f"{snap_a1}!A{clear_start_row}:{end_col}", safe=""
         )
-        return False
+        c_status, c_body = _http_json(
+            "POST",
+            f"https://sheets.googleapis.com/v4/spreadsheets/{q_sheet}/values/{clear_range}:clear",
+            token,
+            {},
+            idempotent=True,
+        )
+        if c_status != 200:
+            print(
+                f"warning: Failed to clear trailing rows on '{resolved_snapshot_tab}' "
+                f"tab (HTTP {c_status}): {c_body}",
+                file=sys.stderr,
+            )
+            return "permission_denied" if c_status in (401, 403) else "error"
 
-    # 2. Append to the history tab (write headers first if newly created)
+    # 2. Append to the history tab (write headers first if newly created or empty)
     hist_a1 = _a1_tab(history_tab)
+    need_headers = history_tab not in existing_tabs
+    if not need_headers:
+        probe_range = urllib.parse.quote(f"{hist_a1}!A1:A1", safe="")
+        p_status, p_body = _http_json(
+            "GET",
+            f"https://sheets.googleapis.com/v4/spreadsheets/{q_sheet}/values/{probe_range}",
+            token,
+        )
+        if p_status == 200 and not p_body.get("values"):
+            need_headers = True
+
     hist_range = urllib.parse.quote(f"{hist_a1}!A1", safe="")
-    hist_rows = (
-        values
-        if history_tab not in existing_tabs
-        else [r.to_sheet_row() for r in rows]
-    )
+    hist_rows = values if need_headers else [r.to_sheet_row() for r in rows]
     if hist_rows:
         a_status, a_body = _http_json(
             "POST",
-            f"https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}/values/{hist_range}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS",
+            f"https://sheets.googleapis.com/v4/spreadsheets/{q_sheet}/values/{hist_range}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS",
             token,
             {"values": hist_rows},
         )
@@ -654,9 +802,34 @@ def sync_to_google_sheet(
                 f"{a_body}",
                 file=sys.stderr,
             )
-            return False
+            return "permission_denied" if a_status in (401, 403) else "error"
 
-    return True
+    return "synced"
+
+
+def sync_to_google_sheet(
+    spreadsheet_id: str,
+    rows: list[RecipeTelemetryRow],
+    token: str,
+    *,
+    snapshot_tab: str = DEFAULT_SNAPSHOT_TAB,
+    history_tab: str = DEFAULT_HISTORY_TAB,
+    sheet_gid: str = "",
+    service_account: str = DEFAULT_SERVICE_ACCOUNT,
+) -> bool:
+    """Create missing tabs and sync the snapshot + history rows to Google Sheets."""
+    return (
+        sync_to_google_sheet_with_status(
+            spreadsheet_id,
+            rows,
+            token,
+            snapshot_tab=snapshot_tab,
+            history_tab=history_tab,
+            sheet_gid=sheet_gid,
+            service_account=service_account,
+        )
+        == "synced"
+    )
 
 
 def render_markdown_summary(
@@ -666,6 +839,7 @@ def render_markdown_summary(
     sheet_synced: bool,
     spreadsheet_id: str,
     dry_run: bool = False,
+    sync_status_text: str | None = None,
 ) -> str:
     """Render a concise GitHub Step Summary markdown report."""
     n_total = len(rows)
@@ -674,12 +848,14 @@ def render_markdown_summary(
     n_gccl = sum(1 for r in rows if r.has_gccl_telemetry)
     total_pulls = sum(r.pulls_window_total for r in rows)
 
-    if sheet_synced:
+    if sync_status_text is not None:
+        sync_status = sync_status_text
+    elif sheet_synced:
         sync_status = "Synced"
     elif dry_run:
         sync_status = "Skipped (dry run)"
     else:
-        sync_status = "Skipped / pending Sheet Editor grant"
+        sync_status = "Failed (see workflow logs)"
 
     lines = [
         "## 📊 Recipe Deployment & Usage Telemetry",
@@ -688,7 +864,7 @@ def render_markdown_summary(
         f"- **Containerized (`Dockerfile`):** {n_docker} ({n_deployable} marked `deployable: true`)",
         f"- **Instrumented with `gccl/` runtime header:** {n_gccl}",
         f"- **Artifact Registry pulls (last {lookback_days}d):** {total_pulls}",
-        f"- **Google Sheet sync (`{spreadsheet_id}`):** {sync_status}",
+        f"- **Google Sheet sync (`{_md_cell(spreadsheet_id)}`):** {sync_status}",
         "",
         "| Recipe | Lang | Deployable | Dockerfile | `gccl/` Header | Latest Tag | Pulls (Total / AE / CR / Ext) |",
         "|---|---|---|---|---|---|---|",
@@ -699,11 +875,11 @@ def render_markdown_summary(
             f"({r.pulls_agent_engine} / {r.pulls_cloud_run} / {r.pulls_external})"
         )
         lines.append(
-            f"| `{r.recipe_path}` | {r.language} | "
+            f"| `{_md_cell(r.recipe_path)}` | {_md_cell(r.language)} | "
             f"{'yes' if r.deployable else 'no'} | "
             f"{'yes' if r.has_dockerfile else 'no'} | "
             f"{'yes' if r.has_gccl_telemetry else 'no'} | "
-            f"`{r.latest_build_tag or '-'}` | {pulls_str} |"
+            f"`{_md_cell(r.latest_build_tag or '-')}` | {pulls_str} |"
         )
     return "\n".join(lines) + "\n"
 
@@ -773,19 +949,38 @@ def main() -> int:
         print("error: --lookback-days must be >= 1", file=sys.stderr)
         return 2
 
+    try:
+        project_id = _validate_project_id(args.project_id)
+        spreadsheet_id = (
+            _validate_spreadsheet_id(args.spreadsheet_id)
+            if args.spreadsheet_id.strip()
+            else ""
+        )
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
     token = args.access_token.strip() or None
     rows = collect_telemetry_rows(
         REPO_ROOT,
-        project_id=args.project_id,
+        project_id=project_id,
         lookback_days=args.lookback_days,
         token=token,
         service_account=args.service_account,
     )
 
-    sheet_synced = False
-    if not args.dry_run and token and args.spreadsheet_id:
-        sheet_synced = sync_to_google_sheet(
-            args.spreadsheet_id,
+    if args.dry_run:
+        sync_outcome = "dry_run"
+        sync_status_text = "Skipped (dry run)"
+    elif not token:
+        sync_outcome = "no_token"
+        sync_status_text = "Skipped (no access token)"
+    elif not spreadsheet_id:
+        sync_outcome = "no_sheet"
+        sync_status_text = "Skipped (no spreadsheet ID)"
+    else:
+        sync_outcome = sync_to_google_sheet_with_status(
+            spreadsheet_id,
             rows,
             token,
             snapshot_tab=args.snapshot_tab,
@@ -793,13 +988,19 @@ def main() -> int:
             sheet_gid=args.sheet_gid,
             service_account=args.service_account,
         )
+        sync_status_text = {
+            "synced": "Synced",
+            "permission_denied": "Skipped (permission denied — grant Sheet Editor access)",
+            "error": "Failed (see workflow logs)",
+        }[sync_outcome]
 
     md = render_markdown_summary(
         rows,
         lookback_days=args.lookback_days,
-        sheet_synced=sheet_synced,
-        spreadsheet_id=args.spreadsheet_id,
+        sheet_synced=(sync_outcome == "synced"),
+        spreadsheet_id=spreadsheet_id,
         dry_run=args.dry_run,
+        sync_status_text=sync_status_text,
     )
 
     if args.out_json:
@@ -811,7 +1012,7 @@ def main() -> int:
         Path(args.out_md).write_text(md, encoding="utf-8")
 
     print(md)
-    return 0
+    return 1 if sync_outcome == "error" else 0
 
 
 if __name__ == "__main__":

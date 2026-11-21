@@ -196,6 +196,8 @@ def test_fetch_registry_tags_respects_project_id_override(
         token: str | None,
         payload: dict[str, Any] | None = None,
         timeout: int = 30,
+        *,
+        idempotent: bool | None = None,
     ) -> tuple[int, dict[str, Any]]:
         seen_urls.append(url)
         return 200, {
@@ -318,6 +320,8 @@ def test_sync_to_google_sheet_creates_tabs_and_writes_rows(
         token: str | None,
         payload: dict[str, Any] | None = None,
         timeout: int = 30,
+        *,
+        idempotent: bool | None = None,
     ) -> tuple[int, dict[str, Any]]:
         calls.append((method, url, payload))
         if method == "GET" and "fields=sheets.properties" in url:
@@ -390,6 +394,8 @@ def test_sync_to_google_sheet_returns_false_on_clear_failure(
         token: str | None,
         payload: dict[str, Any] | None = None,
         timeout: int = 30,
+        *,
+        idempotent: bool | None = None,
     ) -> tuple[int, dict[str, Any]]:
         if method == "GET" and "fields=sheets.properties" in url:
             return 200, {
@@ -425,7 +431,7 @@ def test_sync_to_google_sheet_fails_soft_on_403(
     monkeypatch.setattr(
         sync,
         "_http_json",
-        lambda method, url, token, payload=None, timeout=30: (
+        lambda method, url, token, payload=None, timeout=30, **kwargs: (
             403,
             {"error": "permission denied"},
         ),
@@ -434,3 +440,273 @@ def test_sync_to_google_sheet_fails_soft_on_403(
         sync.DEFAULT_SPREADSHEET_ID, [], "fake-token"
     )
     assert ok is False
+    assert (
+        sync.sync_to_google_sheet_with_status(
+            sync.DEFAULT_SPREADSHEET_ID, [], "fake-token"
+        )
+        == "permission_denied"
+    )
+
+
+def test_classify_pull_entry_no_backtracking_and_checks_request_for_tag():
+    # Single-segment image or non-image collection paths must not backtrack.
+    bad_single = {
+        "protoPayload": {
+            "resourceName": (
+                "projects/adk-samples-repo-gcp-support/locations/us-west1/"
+                "repositories/adk-recipes-registry/dockerImages/single-name:latest"
+            )
+        }
+    }
+    assert sync.classify_pull_entry(bad_single) is None
+
+    bad_files = {
+        "protoPayload": {
+            "resourceName": (
+                "projects/adk-samples-repo-gcp-support/locations/us-west1/"
+                "repositories/adk-recipes-registry/files/python%2Fdeep-search"
+            )
+        }
+    }
+    assert sync.classify_pull_entry(bad_files) is None
+
+    # Untagged resourceName should still inspect request/metadata for pinned ref.
+    split_ref = {
+        "protoPayload": {
+            "resourceName": (
+                "projects/adk-samples-repo-gcp-support/locations/us-west1/"
+                "repositories/adk-recipes-registry/dockerImages/"
+                "python%2Fdeep-search"
+            ),
+            "request": {
+                "name": (
+                    "projects/adk-samples-repo-gcp-support/locations/us-west1/"
+                    "repositories/adk-recipes-registry/dockerImages/"
+                    "python%2Fdeep-search:20261114-abc123def456"
+                )
+            },
+            "authenticationInfo": {"principalEmail": ""},
+        }
+    }
+    assert sync.classify_pull_entry(split_ref) == (
+        "python/deep-search",
+        "pinned",
+        "external",
+    )
+
+
+def test_sync_skips_clear_when_sheet_has_no_trailing_rows(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    calls: list[tuple[str, str, Any]] = []
+
+    def fake_http_json(
+        method: str,
+        url: str,
+        token: str | None,
+        payload: dict[str, Any] | None = None,
+        timeout: int = 30,
+        *,
+        idempotent: bool | None = None,
+    ) -> tuple[int, dict[str, Any]]:
+        calls.append((method, url, payload))
+        if method == "GET" and "fields=sheets.properties" in url:
+            return 200, {
+                "sheets": [
+                    {
+                        "properties": {
+                            "sheetId": 567149855,
+                            "title": "Team's Telemetry",
+                            "gridProperties": {
+                                "rowCount": 2,
+                                "columnCount": 18,
+                            },
+                        }
+                    },
+                    {
+                        "properties": {
+                            "sheetId": 2,
+                            "title": sync.DEFAULT_HISTORY_TAB,
+                            "gridProperties": {
+                                "rowCount": 100,
+                                "columnCount": 18,
+                            },
+                        }
+                    },
+                ]
+            }
+        if method == "GET" and "A1%3AA1" in url:
+            # Existing history tab is empty -> headers must be written.
+            return 200, {}
+        return 200, {}
+
+    monkeypatch.setattr(sync, "_http_json", fake_http_json)
+
+    row = sync.RecipeTelemetryRow(
+        snapshot_utc="2026-11-14T00:00:00Z",
+        recipe_path="core/python/deep-search",
+        root="core",
+        category="python",
+        name="deep-search",
+        language="python",
+        deployable=True,
+        has_dockerfile=True,
+        has_gccl_telemetry=True,
+        gccl_token_pattern="gccl/<ver>-deep-search-<surface>-<channel>",
+        published_tags_count=1,
+        latest_build_tag="20261114-abcdef123456",
+        pulls_window_total=0,
+        pulls_latest_tag=0,
+        pulls_pinned_tag=0,
+        pulls_agent_engine=0,
+        pulls_cloud_run=0,
+        pulls_external=0,
+    )
+
+    ok = sync.sync_to_google_sheet(
+        sync.DEFAULT_SPREADSHEET_ID,
+        [row],
+        "fake-token",
+        sheet_gid="567149855",
+    )
+    assert ok is True
+    # No :clear call when len(values) == 2 == rowCount.
+    assert not any(":clear" in url for _, url, _ in calls)
+    # Single quote in tab title escaped as '' in A1 notation.
+    put_call = next(c for c in calls if c[0] == "PUT")
+    assert "%27Team%27%27s%20Telemetry%27%21A1" in put_call[1]
+    # Existing empty history tab receives headers + row.
+    append_call = next(c for c in calls if ":append" in c[1])
+    assert append_call[2] == {
+        "values": [sync.SHEET_HEADERS, row.to_sheet_row()]
+    }
+
+
+def test_sync_rejects_tab_collision_and_invalid_ids(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    assert (
+        sync.sync_to_google_sheet_with_status(
+            "bad/sheet?id=1", [], "fake-token"
+        )
+        == "error"
+    )
+
+    def fake_http_json(
+        method: str,
+        url: str,
+        token: str | None,
+        payload: dict[str, Any] | None = None,
+        timeout: int = 30,
+        *,
+        idempotent: bool | None = None,
+    ) -> tuple[int, dict[str, Any]]:
+        return 200, {
+            "sheets": [
+                {
+                    "properties": {
+                        "sheetId": 99,
+                        "title": sync.DEFAULT_HISTORY_TAB,
+                    }
+                }
+            ]
+        }
+
+    monkeypatch.setattr(sync, "_http_json", fake_http_json)
+    assert (
+        sync.sync_to_google_sheet_with_status(
+            sync.DEFAULT_SPREADSHEET_ID,
+            [],
+            "fake-token",
+            sheet_gid="99",
+        )
+        == "error"
+    )
+
+
+def test_http_json_does_not_retry_non_idempotent_post(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    import urllib.error
+
+    attempts = 0
+
+    def fake_urlopen(req, timeout=30):
+        nonlocal attempts
+        attempts += 1
+        raise urllib.error.HTTPError(
+            req.full_url, 503, "Service Unavailable", {}, None
+        )
+
+    monkeypatch.setattr(sync.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(sync.time, "sleep", lambda _s: None)
+
+    status, _ = sync._http_json(
+        "POST", "https://example.test/append", "tok", {}
+    )
+    assert status == 503
+    assert attempts == 1
+
+    attempts = 0
+    status, _ = sync._http_json(
+        "POST", "https://example.test/clear", "tok", {}, idempotent=True
+    )
+    assert status == 503
+    assert attempts == 4
+
+
+def test_col_letter_and_project_id_validation():
+    assert sync._col_letter(1) == "A"
+    assert sync._col_letter(18) == "R"
+    assert sync._col_letter(26) == "Z"
+    assert sync._col_letter(27) == "AA"
+    with pytest.raises(ValueError):
+        sync._validate_project_id("bad/project")
+    with pytest.raises(ValueError):
+        sync._validate_spreadsheet_id("../escape")
+
+
+def test_main_exits_nonzero_on_sheet_error_and_zero_on_403(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    monkeypatch.setattr(sync, "collect_telemetry_rows", lambda *a, **kw: [])
+
+    monkeypatch.setattr(
+        sync, "sync_to_google_sheet_with_status", lambda *a, **kw: "error"
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "sync_recipe_telemetry_sheet.py",
+            "--access-token",
+            "tok",
+            "--out-md",
+            str(tmp_path / "err.md"),
+        ],
+    )
+    assert sync.main() == 1
+    assert "Failed (see workflow logs)" in (tmp_path / "err.md").read_text(
+        encoding="utf-8"
+    )
+
+    monkeypatch.setattr(
+        sync,
+        "sync_to_google_sheet_with_status",
+        lambda *a, **kw: "permission_denied",
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "sync_recipe_telemetry_sheet.py",
+            "--access-token",
+            "tok",
+            "--out-md",
+            str(tmp_path / "perm.md"),
+        ],
+    )
+    assert sync.main() == 0
+    assert "permission denied" in (tmp_path / "perm.md").read_text(
+        encoding="utf-8"
+    )
