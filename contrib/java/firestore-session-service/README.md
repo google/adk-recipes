@@ -31,14 +31,27 @@ application instances.
 
 ## Configuration
 
-Copy the example environment file and export its values into your shell session (Java reads configuration directly from environment variables):
+Copy the example environment file and configure your environment:
 
 ```bash
 cp .env.example .env
-export $(grep -v '^#' .env | xargs)
 ```
 
-Alternatively, you can set the environment variables directly in your terminal.
+Edit `.env` to set `GOOGLE_CLOUD_PROJECT` to your Google Cloud project ID. Then export the variables into your shell session (Java reads configuration directly from environment variables):
+
+```bash
+set -a
+source .env
+set +a
+```
+
+Alternatively, you can export the environment variables directly in your terminal:
+
+```bash
+export GOOGLE_CLOUD_PROJECT="your-project-id"
+export GOOGLE_GENAI_USE_VERTEXAI=True
+export GOOGLE_CLOUD_LOCATION=global
+```
 
 To use Vertex AI, authenticate with Application Default Credentials:
 

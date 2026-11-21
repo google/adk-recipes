@@ -128,7 +128,14 @@ public final class FirestoreRunner {
   }
 
   static boolean isValidId(String id) {
-    return id != null && !id.isBlank() && !id.startsWith("<TODO");
+    if (id == null || id.isBlank()) {
+      return false;
+    }
+    String trimmed = id.trim();
+    if (trimmed.startsWith("\"") && trimmed.endsWith("\"") && trimmed.length() >= 2) {
+      trimmed = trimmed.substring(1, trimmed.length() - 1).trim();
+    }
+    return !trimmed.isBlank() && !trimmed.startsWith("<TODO");
   }
 
   @Schema(description = "Get the current time for a given city")

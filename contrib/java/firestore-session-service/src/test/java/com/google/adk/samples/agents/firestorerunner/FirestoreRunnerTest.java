@@ -65,5 +65,6 @@ public class FirestoreRunnerTest {
     assertFalse(FirestoreRunner.isValidId(""));
     assertFalse(FirestoreRunner.isValidId("   "));
     assertFalse(FirestoreRunner.isValidId("<TODO: update-this-value>"));
+    assertFalse(FirestoreRunner.isValidId("\"<TODO: update-this-value>\""));
   }
 }
