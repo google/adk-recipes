@@ -50,6 +50,9 @@ from ambient_quality_agent.tools.evaluation.results import (
     build_outcome_keys,
     walk_metric_results,
 )
+from ambient_quality_agent.tools.ingestion.trajectory_files import (
+    build_case_without_trajectory_files,
+)
 from ambient_quality_agent.tools.insights.findings import (
     Finding,
     FindingSet,
@@ -121,8 +124,10 @@ def build_request_dataset(dataset: EvaluationDataset) -> EvaluationDataset:
     responses from `responses` and renders a judge's `{prompt}` only from
     `EvalCase.prompt`, this derives both from the turns the same way `runner`
     does locally. A response or prompt a case already carries is left alone.
-    Returns a copy to avoid mutating the shared dataset used by other
-    evaluators in the sweep.
+    Metrics get placeholder text for trajectory files (see
+    `trajectory_files.build_case_without_trajectory_files`), applied before the
+    response and the prompt are derived. Returns a copy to avoid mutating the
+    shared dataset used by other evaluators in the sweep.
 
     Args:
         dataset: Original evaluation dataset.
@@ -132,7 +137,8 @@ def build_request_dataset(dataset: EvaluationDataset) -> EvaluationDataset:
         responses and prompts.
     """
     cases = []
-    for eval_case in dataset.eval_cases or []:
+    for original in dataset.eval_cases or []:
+        eval_case = build_case_without_trajectory_files(original)
         update: dict[str, Any] = {}
         if not eval_case.responses:
             # Provide a silent response so the SDK populates the 'response' key.

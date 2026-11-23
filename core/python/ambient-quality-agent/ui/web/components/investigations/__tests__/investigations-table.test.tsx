@@ -485,7 +485,111 @@ describe("InvestigationsTable", () => {
       ),
     );
   });
+
+  it("draws a running investigation apart, above the table, with its stage and progress", async () => {
+    // Two hours in, past STALE_AFTER_MS, but its sweep said how far it got a
+    // minute ago: a long investigation rather than a stalled one.
+    const router = renderTable([
+      running({
+        stage: "Session review",
+        evaluated: 45,
+        total: 205,
+        findings: 12,
+      }),
+      { ...INVESTIGATION, investigation_id: "fedcba9876" },
+    ]);
+
+    const row = await screen.findByRole("link", {
+      name: /45 of 205 trajectories, 12 findings/,
+    });
+    expect(row).toHaveTextContent("Running");
+    expect(row).toHaveTextContent("Session review");
+    expect(row).toHaveClass("motion-safe:animate-fade-in-up");
+    expect(
+      screen.getByRole("progressbar", { hidden: true, name: "Session review" }),
+    ).toHaveAttribute("aria-valuenow", "45");
+    // The table holds what has settled, so its columns hold only outcomes.
+    const table = screen.getByRole("table");
+    expect(within(table).queryByText("abcdef12")).toBeNull();
+    expect(within(table).getByText("fedcba98")).toBeInTheDocument();
+    expect(screen.queryByText("Stalled")).toBeNull();
+
+    await userEvent.click(row);
+    expect(router.state.location.pathname).toBe("/investigations/abcdef1234");
+  });
+
+  it("lines up several running investigations in one block, column by column", async () => {
+    renderTable([
+      running({ stage: "Clustering", findings: 37 }),
+      {
+        ...running({
+          stage: "Session review",
+          evaluated: 45,
+          total: 205,
+          findings: 12,
+        }),
+        investigation_id: "fedcba9876",
+      },
+    ]);
+
+    const [first, second] = await screen.findAllByRole("link", {
+      name: /Running/,
+    });
+    // One grid: each row takes its columns from the block, so stages, bars
+    // and counts start at the same place in every row.
+    expect(first.parentElement).toBe(second.parentElement);
+    expect(first.parentElement).toHaveClass("grid");
+    expect(first).toHaveClass("grid-cols-subgrid", "col-span-full");
+    expect(second).toHaveClass("grid-cols-subgrid", "col-span-full");
+  });
+
+  it("names a stage with nothing to measure against beside its own count, with a bar of no value", async () => {
+    renderTable([running({ stage: "Clustering", findings: 12 })]);
+
+    expect(
+      await screen.findByRole("link", { name: /Clustering/ }),
+    ).toHaveTextContent("Clustering12 findings");
+    expect(
+      screen.getByRole("progressbar", { hidden: true, name: "Clustering" }),
+    ).not.toHaveAttribute("aria-valuenow");
+    // Nothing has settled, so there is no empty table under it.
+    expect(screen.queryByRole("table")).toBeNull();
+  });
+
+  it("says a running investigation has not reported how far it got yet", async () => {
+    // Started a minute ago: with nothing reported, its start is its last sign
+    // of life.
+    renderTable([
+      {
+        ...running({ stage: "Session review" }),
+        created_at: new Date(Date.now() - 60_000).toISOString(),
+        progress: null,
+      },
+    ]);
+
+    expect(
+      await screen.findByRole("link", { name: /No progress reported yet/ }),
+    ).toHaveTextContent("Running");
+  });
 });
+
+/** An investigation started two hours ago that said how far it got a minute
+ *  ago. */
+function running(
+  progress: Omit<NonNullable<InvestigationListItem["progress"]>, "updated_at">,
+): InvestigationListItem {
+  return {
+    ...INVESTIGATION,
+    status: "running",
+    created_at: new Date(Date.now() - 2 * 3600_000).toISOString(),
+    finished_at: null,
+    counters: counters(),
+    progress: {
+      ...progress,
+      updated_at: new Date(Date.now() - 60_000).toISOString(),
+    },
+  };
+}
 
 describe("formatInvestigationOutcome and resolveInvestigationOutcomeTone", () => {
   const baseInvestigation: InvestigationListItem = {

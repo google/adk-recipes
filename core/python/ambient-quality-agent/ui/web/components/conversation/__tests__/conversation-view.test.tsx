@@ -83,6 +83,84 @@ describe("ConversationView", () => {
     expect(screen.getByText("(no response)")).toBeInTheDocument();
   });
 
+  it("renders a chip for a message that is only a file", () => {
+    render(
+      <ConversationView
+        conversation={{
+          trajectory_id: "case-03",
+          status: "ingested",
+          step_count: 1,
+          steps_returned: 1,
+          steps: [
+            {
+              turn_index: 0,
+              events: [
+                {
+                  author: "user",
+                  content: {
+                    role: "user",
+                    parts: [
+                      {
+                        file_data: {
+                          file_uri: "gs://jobs/receipt",
+                          mime_type: "image/jpeg",
+                        },
+                      },
+                    ],
+                  },
+                },
+              ],
+            },
+          ],
+        }}
+      />,
+    );
+
+    const chip = screen.getByText("image/jpeg");
+    expect(chip).toBeInTheDocument();
+    expect(chip.closest("li")).toHaveAttribute("title", "gs://jobs/receipt");
+  });
+
+  it("renders a bubble's text and its chip together", () => {
+    render(
+      <ConversationView
+        conversation={{
+          trajectory_id: "case-04",
+          status: "ingested",
+          step_count: 1,
+          steps_returned: 1,
+          steps: [
+            {
+              turn_index: 0,
+              events: [
+                {
+                  author: "user",
+                  content: {
+                    role: "user",
+                    parts: [
+                      { text: "Here is the receipt." },
+                      {
+                        file_data: {
+                          file_uri: "gs://jobs/receipt",
+                          mime_type: "image/jpeg",
+                        },
+                      },
+                    ],
+                  },
+                },
+              ],
+            },
+          ],
+        }}
+      />,
+    );
+
+    const bubble = screen.getByText("Here is the receipt.").closest("article");
+    const chips = screen.getByRole("list", { name: "Attached files" });
+    expect(bubble).toContainElement(chips);
+    expect(chips).toHaveTextContent("image/jpeg");
+  });
+
   it("shows an empty state when there are no turns or tool calls", () => {
     render(
       <ConversationView

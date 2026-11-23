@@ -16,7 +16,8 @@ ui/
 ├── web/                    the front end: React + Vite + Tailwind + shadcn
 ├── agents-cli-manifest.yaml
 ├── Dockerfile              a Node stage builds web/ into static_v2/
-├── requirements.txt
+├── pyproject.toml
+├── uv.lock
 ├── README.md               what this directory is, as an agents-cli project
 └── DASHBOARD.md            this file
 
@@ -53,6 +54,12 @@ there is, so declared any earlier it would shadow `/api/*`. `_OURS_404` and
 `_NOT_IMPLEMENTED_501` are the backstop against the failure that costs the most
 to debug — a data request answered with a page of HTML, which `fetch` reads as
 success and which then fails somewhere unrelated.
+
+## Serving read-only
+
+A host process that shows finished investigations serves
+`build_read_only_dashboard_app(backend)`; its docstring in `app.py` is the
+contract.
 
 ## How a click reaches the agent
 
@@ -94,11 +101,12 @@ and a **Retry** on every list.
 | `GET /api/investigations` | `{"investigations": [...]}` for the table — the most recent page |
 | `POST /api/investigations` | `{"investigation": {...}}` if one comes back, else `{"ok": true}`, or `{"error": ...}` |
 | `GET /api/investigations/{investigation_id}` | `{"investigation": {...}}` for one investigation, events included |
+| `POST /api/investigations/{investigation_id}/cancel` | `{"investigation": {...}}` with status `cancelled`, or `{"error": ...}` (409 if refused, 502 if the agent is unreachable) |
 | `GET /api/investigations/{investigation_id}/trajectories/{trajectory_id}` | `{"trajectory_bundle": {...}}` — one trajectory |
 | `GET /api/stats` | `{"stats": {...}, "window": {...}}` — investigations' counters, summed |
 | `GET /api/daily` | `{"days": [...]}` — per-day figures for the charts |
 | `GET /api/insights` | `{"insights": [...], "total", "next_page_token"}`; optional `status`, `investigationId`, `hasRootCause`, `pageToken` |
-| `GET /api/insights/{insight_id}` | `{"insight": {...}, "occurrences": [...], "next_page_token"}`; `includeTraces=1` adds the conversation traces |
+| `GET /api/insights/{insight_id}` | `{"insight": {...}, "occurrences": [...], "next_page_token"}`; `includeTraces=1` keeps the conversation turns a stored example carries |
 | `POST /api/insights/{insight_id}/dismiss` | `{"dismissed": true}` |
 | `POST /api/insights/{insight_id}/merge` | `{"merged": true}` |
 | `GET /api/source` | `{"available", "reason", ...}` — can findings cite code |
@@ -200,3 +208,16 @@ PYTHONPATH=../src GOOGLE_API_USE_CLIENT_CERTIFICATE=false \
 To use the AQA agent **as a tool** inside coding harnesses (Anthropic **Claude
 Code**, Google **Antigravity**), drive the same command routes from the command
 line with `src/ambient_quality_cli/aqua_cli.py`.
+
+## Viewer mode
+
+A shell whose `<head>` holds `<meta name="aqua-viewer" content="1">` is
+read-only: the front end hides chat, configuration and every control that
+writes, and the shell's first inline script keeps `localStorage` and
+`sessionStorage` in memory and hides IndexedDB and the Cache API. A host that
+sends a Content-Security-Policy must allow that inline script, for example by
+its hash. The script reaches only the page's own storage; the browser still
+keeps the history entries' URLs, which name insights, investigations and
+trajectories, and their `history.state`, and a service worker already
+registered on the origin still sees every request. For sensitive data, use a
+fresh browser profile or an incognito window, on a port no other app has used.

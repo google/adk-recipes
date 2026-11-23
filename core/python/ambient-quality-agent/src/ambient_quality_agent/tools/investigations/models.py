@@ -116,6 +116,18 @@ class InvestigationStatus(enum.StrEnum):
     """Exited before running the workflow because its idempotency marker was
     already claimed (`job_execution.execute_investigation`), or because its
     delayed trigger fired while another investigation was already running."""
+    CANCELLED = "cancelled"
+    """A user asked to stop it. A running investigation stops at its next
+    write; what it already stored stays."""
+
+
+class InvestigationCancelledError(Exception):
+    """Raised when a write is made for an investigation a user has cancelled.
+
+    Every write an investigation makes to its record checks the stored status
+    first (`core.investigation.model`), so this is how a running investigation
+    learns it was cancelled and stops.
+    """
 
 
 TERMINAL_STATUSES = frozenset(
@@ -123,6 +135,7 @@ TERMINAL_STATUSES = frozenset(
         InvestigationStatus.DONE,
         InvestigationStatus.FAILED,
         InvestigationStatus.SKIPPED,
+        InvestigationStatus.CANCELLED,
     }
 )
 """Statuses that end an investigation and stamp ``finished_at``."""

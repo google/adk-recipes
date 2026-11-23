@@ -29,6 +29,8 @@ Wiring::
     BigQueryJobFetcher ─┬─► BigQuery: query jobs, dry runs, result pages
         ▲ subclass      ├─► selector: wrap(), find_table_violation(),
         │               │             build_selector_table_ref()
+        │               ├─► trajectory_files: store_trajectory_files()
+        │               │     └─► TrajectoryFileStore ──► ObjectStore (jobs)
         │               ├─► TrajectoryRecorder: add(), flush()
         │               └─► MemoryGuard: should_stop()
         │
@@ -62,6 +64,11 @@ from ambient_quality_agent.tools.ingestion.models import (
     IngestionCounts,
     MappedRow,
     Page,
+)
+from ambient_quality_agent.tools.ingestion.trajectory_files import (
+    TrajectoryFilesReport,
+    TrajectoryFileStore,
+    store_trajectory_files,
 )
 from ambient_quality_agent.tools.trajectories.models import IngestStatus
 from ambient_quality_agent.tools.trajectories.recorder import (
@@ -366,6 +373,7 @@ class BigQueryJobFetcher(BaseFetcher):
         observed_project_id: str = "",
         memory_guard: Callable[[], bool] | None = None,
         recorder: TrajectoryRecorder | NullTrajectoryRecorder | None = None,
+        trajectory_file_store: TrajectoryFileStore | None = None,
         selector_sql: str = "",
         selector_ai_model: str = "",
         job_timeout_ms: int = DEFAULT_JOB_TIMEOUT_MS,
@@ -388,6 +396,10 @@ class BigQueryJobFetcher(BaseFetcher):
                 injected the way a logger is -- it knows which investigation and agent
                 the rows belong to, which a fetcher does not. Omitted outside a
                 sweep, and then nothing is written.
+            trajectory_file_store: Store for files attached to sampled
+                conversations (see `trajectory_files`). When omitted, top-level
+                files become text placeholders, and files in tool results
+                remain inline.
             selector_sql: Agent-authored SQL query targeting specific sessions
                 to review (see `ambient_quality_agent.tools.ingestion.selector`).
                 When empty, multi-turn ingestion defaults to random sampling
@@ -409,6 +421,7 @@ class BigQueryJobFetcher(BaseFetcher):
         )
         self._memory_truncated = False
         self._recorder = recorder or NullTrajectoryRecorder()
+        self._trajectory_file_store = trajectory_file_store
         self._selector_sql = selector_sql
         self._selector_ai_model = selector_ai_model
         self._job_timeout_ms = job_timeout_ms
@@ -723,6 +736,12 @@ class BigQueryJobFetcher(BaseFetcher):
         one case that gets an investigation trajectory and no trajectory bundle
         -- there is nothing to store.
 
+        Before classifying and recording a case, `store_trajectory_files`
+        replaces inline file bytes with object store links or text
+        placeholders, so neither the recorder nor the returned cases retain
+        top-level file bytes. A failed file write marks the row as partial,
+        just like an unreadable payload reference.
+
         Args:
             rows: Raw result rows for the page.
             metric_type: Ingestion scope (single-turn or multi-turn).
@@ -735,6 +754,7 @@ class BigQueryJobFetcher(BaseFetcher):
         total = len(rows)
         cases: list[EvalCase] = []
         revisions: dict[str, str] = {}
+        files = TrajectoryFilesReport()
         for index, row in enumerate(rows, start=1):
             if self._memory_guard():
                 logger.warning(
@@ -748,6 +768,13 @@ class BigQueryJobFetcher(BaseFetcher):
             if index % 100 == 0 or index == total:
                 logger.info("Mapping row %d/%d.", index, total)
             mapped = self._map_row(row, metric_type)
+            if mapped.case is not None:
+                stored = store_trajectory_files(
+                    mapped.case, self._trajectory_file_store
+                )
+                files.add(stored)
+                if stored.failed and not mapped.partial:
+                    mapped = dataclasses.replace(mapped, partial=True)
             # One classification, used twice: it picks the counter to bump and
             # it is the status the trajectory store keeps. A fetcher says what
             # it found; this says what became of it.
@@ -773,6 +800,14 @@ class BigQueryJobFetcher(BaseFetcher):
             cases.append(mapped.case)
             if mapped.agent_revision and mapped.case.eval_case_id:
                 revisions[mapped.case.eval_case_id] = mapped.agent_revision
+        if files.total:
+            logger.info(
+                "Trajectory files on this page: %d stored, %d not stored, "
+                "%d failed.",
+                files.stored,
+                files.not_stored,
+                files.failed,
+            )
         return cases, revisions
 
     def precheck_selector(

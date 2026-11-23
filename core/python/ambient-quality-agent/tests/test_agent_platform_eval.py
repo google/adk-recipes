@@ -20,12 +20,23 @@ from collections.abc import Iterator
 from unittest import mock
 
 import pytest
-from agentplatform._genai.types import EvaluationResult, PrebuiltMetric
+from agentplatform._genai.types import (
+    EvalCase,
+    EvaluationDataset,
+    EvaluationResult,
+    PrebuiltMetric,
+)
+from agentplatform._genai.types.evals import (
+    AgentData,
+    AgentEvent,
+    ConversationTurn,
+)
 from ambient_quality_agent.tools.evaluation.agent_platform_eval import (
     AgentPlatformEvalService,
     resolve_metrics,
 )
 from ambient_quality_agent.tools.evaluation.models import MetricType
+from google.genai.types import Content, FileData, Part
 
 _PROJECT = "test-project"
 _LOCATION = "us-central1"
@@ -117,7 +128,7 @@ def test_evaluate_calls_sdk_with_resolved_metrics(
     mock_client: mock.MagicMock,
 ) -> None:
     evaluator = _make_evaluator()
-    dataset = mock.MagicMock()
+    dataset = EvaluationDataset(eval_cases=[EvalCase(eval_case_id="c1")])
     metrics = [
         PrebuiltMetric.MULTI_TURN_TASK_SUCCESS,
         PrebuiltMetric.MULTI_TURN_TRAJECTORY_QUALITY,
@@ -127,7 +138,7 @@ def test_evaluate_calls_sdk_with_resolved_metrics(
 
     mock_client.evals.evaluate.assert_called_once()
     call = mock_client.evals.evaluate.call_args
-    assert call.kwargs["dataset"] is dataset
+    assert call.kwargs["dataset"] == dataset
     assert call.kwargs["metrics"] == metrics
     assert result is mock_client.evals.evaluate.return_value
 
@@ -177,8 +188,115 @@ def test_a_judge_model_is_resolved_in_the_evaluator_s_project_and_location(
         name="j", prompt_template="{response}", judge_model=given
     )
 
-    _make_evaluator().evaluate(mock.sentinel.dataset, [metric])
+    _make_evaluator().evaluate(EvaluationDataset(eval_cases=[]), [metric])
 
     (sent_metric,) = mock_client.evals.evaluate.call_args.kwargs["metrics"]
     assert sent_metric.judge_model == sent
     assert metric.judge_model == given, "the caller's metric is not mutated"
+
+
+_TRAJECTORY_FILE_URI = (
+    "gs://jobs/aqa-trajectory-files/agent-key/2026-11-10/" + "a" * 64
+)
+
+
+def _build_case_with_link(case_id: str, file_uri: str) -> EvalCase:
+    """Builds a case whose one user message links to a file.
+
+    Args:
+        case_id: The case id.
+        file_uri: The link.
+
+    Returns:
+        The case.
+    """
+    return EvalCase(
+        eval_case_id=case_id,
+        agent_data=AgentData(
+            turns=[
+                ConversationTurn(
+                    turn_index=0,
+                    events=[
+                        AgentEvent(
+                            author="user",
+                            content=Content(
+                                role="user",
+                                parts=[
+                                    Part(text="Look:"),
+                                    Part(
+                                        file_data=FileData(
+                                            file_uri=file_uri,
+                                            mime_type="application/octet-stream",
+                                        )
+                                    ),
+                                ],
+                            ),
+                        )
+                    ],
+                )
+            ]
+        ),
+    )
+
+
+def _list_part_texts(case: EvalCase) -> list[str | None]:
+    assert case.agent_data is not None
+    return [
+        part.text if part.text is not None else part.file_data.file_uri
+        for turn in case.agent_data.turns or []
+        for event in turn.events or []
+        for part in event.content.parts or []
+    ]
+
+
+def test_evaluate_sends_trajectory_file_links_as_placeholders_in_case_order(
+    mock_client: mock.MagicMock,
+) -> None:
+    """The judge model gets every `file_data` link, and one it cannot fetch
+    or one of an unsupported type fails every metric of the case."""
+    dataset = EvaluationDataset(
+        eval_cases=[
+            _build_case_with_link("linked", _TRAJECTORY_FILE_URI),
+            _build_case_with_link("agent-sent", "gs://agent/report.pdf"),
+            EvalCase(eval_case_id="empty"),
+        ]
+    )
+
+    _make_evaluator().evaluate(
+        dataset, [PrebuiltMetric.MULTI_TURN_TASK_SUCCESS]
+    )
+
+    sent = mock_client.evals.evaluate.call_args.kwargs["dataset"]
+    assert [case.eval_case_id for case in sent.eval_cases] == [
+        "linked",
+        "agent-sent",
+        "empty",
+    ]
+    assert _list_part_texts(sent.eval_cases[0]) == [
+        "Look:",
+        "<attachment: application/octet-stream>",
+    ]
+    assert _list_part_texts(sent.eval_cases[1]) == [
+        "Look:",
+        "gs://agent/report.pdf",
+    ]
+    assert dataset.eval_cases is not None
+    assert _list_part_texts(dataset.eval_cases[0]) == [
+        "Look:",
+        _TRAJECTORY_FILE_URI,
+    ], "the caller's dataset keeps its links"
+
+
+def test_evaluate_passes_a_dataset_without_cases_through(
+    mock_client: mock.MagicMock,
+) -> None:
+    """A dataset given as a GCS source holds no `eval_cases` to clean."""
+    dataset = EvaluationDataset(gcs_source={"uris": ["gs://b/cases.jsonl"]})
+
+    _make_evaluator().evaluate(
+        dataset, [PrebuiltMetric.MULTI_TURN_TASK_SUCCESS]
+    )
+
+    sent = mock_client.evals.evaluate.call_args.kwargs["dataset"]
+    assert sent is dataset
+    assert sent.eval_cases is None

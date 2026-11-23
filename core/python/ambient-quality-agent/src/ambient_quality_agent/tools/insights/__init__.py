@@ -25,7 +25,7 @@ Wiring::
     InsightWriter (Protocol) ◄── extends ── InsightStore (Protocol)
                                               ▲ implements
     match_candidates_by_scope() ◄────────── BigQueryInsightStore
-      └─► match_candidates(), per agent       │ query, load jobs
+      └─► match_all_candidates(), per agent   │ query, load jobs
                                               ▼
     BigQueryRootCauseStore ── load jobs ──► BigQuery ◄─ query ─ BigQueryInsightReader
       │ implements                                                │ implements

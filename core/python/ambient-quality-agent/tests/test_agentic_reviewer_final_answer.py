@@ -89,11 +89,40 @@ def test_each_parse_path_yields_the_validated_findings(
         '{"findings": "none"}',
         '{"findings": {}}',
         '{"findings": [',
+        '{"findings": ["called wrong tool"]}',
+        '{"findings": [123]}',
+        '{"findings": [{"defect": "wrong field name"}]}',
+        '{"findings": [{"agent_id": "worker", "expected_behavior": " ", "actual_behavior": ""}]}',
+        '["lookup", "refund"]',
+        'Checked:\n```json\n["lookup", "refund"]\n```',
         "",
     ],
 )
 def test_a_text_without_findings_json_parses_to_none(text: str) -> None:
     assert final_answer.parse_final_text(text, "s-1", set()) is None
+
+
+def test_explicit_empty_findings_lists_parse_to_empty_findings() -> None:
+    assert final_answer.parse_final_text('{"findings": []}', "s-1", set()) == (
+        [],
+        final_answer.FINAL_PARSE_STRICT,
+    )
+    assert final_answer.parse_final_text("[]", "s-1", set()) == (
+        [],
+        final_answer.FINAL_PARSE_ARRAY,
+    )
+
+
+def test_a_trailing_non_finding_array_does_not_mask_embedded_findings() -> None:
+    payload = _render_findings_json("called refund")
+    text = f'Result: {payload}\nInspected tools:\n```json\n["lookup", "refund"]\n```'
+
+    parsed = final_answer.parse_final_text(text, "s-1", {"worker"})
+
+    assert parsed is not None
+    findings, parse_path = parsed
+    assert parse_path == final_answer.FINAL_PARSE_EMBEDDED
+    assert [f.actual_behavior for f in findings] == ["called refund"]
 
 
 def test_the_findings_are_capped(monkeypatch: pytest.MonkeyPatch) -> None:

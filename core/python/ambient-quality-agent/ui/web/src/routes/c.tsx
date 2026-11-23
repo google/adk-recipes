@@ -12,16 +12,23 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 import { ChatRoute } from "@/components/chat/chat-route";
+import { isViewerMode } from "@/lib/viewer-mode";
 
 export const Route = createFileRoute("/c")({
+  // A read-only viewer serves no chat.
+  beforeLoad: () => {
+    if (isViewerMode()) throw redirect({ to: "/" });
+  },
   validateSearch: (
     search: Record<string, unknown>,
-  ): { id?: string; q?: string } => ({
+  ): { id?: string; q?: string; insightId?: string } => ({
     id: typeof search.id === "string" ? search.id : undefined,
     // A question typed on the dashboard, sent once the chat client is up.
     q: typeof search.q === "string" ? search.q : undefined,
+    insightId:
+      typeof search.insightId === "string" ? search.insightId : undefined,
   }),
   component: ChatRoute,
 });

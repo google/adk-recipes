@@ -182,3 +182,75 @@ def test_a_failed_load_reaches_the_caller(golden_root_cause: RootCause) -> None:
 
     with pytest.raises(RuntimeError, match="boom"):
         _store(client).save(golden_root_cause)
+
+
+def test_save_writes_context_id_and_null_when_empty() -> None:
+    """Verifies `context_id` is written when present and None when empty."""
+    client = mock.MagicMock()
+
+    _store(client).save(
+        RootCause(
+            root_cause_id="rc-1",
+            insight_id="ins-1",
+            occurrence_id="occ-1",
+            agent_revision="rev-1",
+            context_id="ctx-99",
+            summary="s",
+            created_at=_NOW,
+        )
+    )
+    row_with_ctx, _, _ = _saved(client)
+    assert row_with_ctx["context_id"] == "ctx-99"
+
+    client_empty = mock.MagicMock()
+    _store(client_empty).save(
+        RootCause(
+            root_cause_id="rc-2",
+            insight_id="ins-1",
+            occurrence_id="occ-1",
+            agent_revision="rev-1",
+            summary="s",
+            created_at=_NOW,
+        )
+    )
+    row_without_ctx, _, _ = _saved(client_empty)
+    assert row_without_ctx["context_id"] is None
+
+
+def test_save_omits_context_id_when_live_table_lacks_column(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Verifies un-migrated tables lacking `context_id` still accept root-cause writes."""
+    from types import SimpleNamespace
+
+    client = mock.MagicMock()
+    client.get_table.return_value = SimpleNamespace(
+        schema=[
+            SimpleNamespace(name=col)
+            for col in (
+                "root_cause_id",
+                "insight_id",
+                "occurrence_id",
+                "agent_revision",
+                "summary",
+                "edits",
+                "created_at",
+            )
+        ]
+    )
+
+    _store(client).save(
+        RootCause(
+            root_cause_id="rc-1",
+            insight_id="ins-1",
+            occurrence_id="occ-1",
+            agent_revision="rev-1",
+            context_id="ctx-99",
+            summary="s",
+            created_at=_NOW,
+        )
+    )
+
+    row, _, _ = _saved(client)
+    assert "context_id" not in row
+    assert "lacks column 'context_id'" in caplog.text

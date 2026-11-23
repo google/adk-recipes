@@ -61,6 +61,9 @@ dependencies = [
     # Direct: the code-metric library reads its `eval_config.yaml` with it.
     # Available transitively today, which is not a contract.
     "pyyaml>=6.0.3",
+    # The session reviewer's `grep` tool matches model-written patterns with
+    # a timeout, which the standard library's `re` cannot stop.
+    "regex>=2024.11.6",
 ]
 
 [project.optional-dependencies]
@@ -80,11 +83,14 @@ path = "src/ambient_quality_shared/__init__.py"
 packages = ["src/ambient_quality_agent", "src/ambient_quality_shared"]
 
 [tool.uv]
+exclude-newer = "7 days"
 override-dependencies = [
     "filelock>=4.2.1,<5",
-    "litellm>=1.88.6,<1.97",
-    "opentelemetry-api>=1.45.1,<1.46",
+    "joserfc>=1.7.6,<2",
+    "litellm>=1.100.4,<2",
+    "opentelemetry-api>=1.45.2,<1.46",
     "opentelemetry-sdk>=1.45.1,<1.46",
+    "pyasn1>=0.6.5,<1",
     "pyopenssl>=26.4,<27",
 ]
 
@@ -166,7 +172,7 @@ unresolved-import = "ignore"
 # Tests also assert on optional SDK eval-case fields (Content | None,
 # list | None) right after constructing them, where narrowing every access
 # would only add noise.
-include = ["tests/**", "quality/test_*.py", "tools/test_*.py"]
+include = ["tests/**", "quality/test_*.py", "tools/test_*.py", "tools_internal/**/test_*.py"]
 
 [tool.ty.overrides.rules]
 invalid-return-type = "ignore"

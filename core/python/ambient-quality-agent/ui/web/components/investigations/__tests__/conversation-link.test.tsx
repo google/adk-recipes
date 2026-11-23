@@ -21,7 +21,7 @@
  * reporting it as "no chat recorded" described a healthy deployment as if
  * something were missing.
  */
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
 import {
   RouterProvider,
@@ -39,7 +39,10 @@ function renderAt(contextId?: string | null, triggerType?: string | null) {
     getParentRoute: () => root,
     path: "/",
     component: () => (
-      <ConversationLink contextId={contextId} triggerType={triggerType} />
+      <>
+        <span>rendered</span>
+        <ConversationLink contextId={contextId} triggerType={triggerType} />
+      </>
     ),
   });
   const chat = createRoute({
@@ -99,6 +102,43 @@ describe("ConversationLink", () => {
     renderAt("", "scheduled");
 
     expect(screen.queryByRole("link")).toBeNull();
+    expect(await screen.findByText("ambient")).toBeTruthy();
+  });
+});
+
+describe("ConversationLink in viewer mode", () => {
+  afterEach(() => {
+    document.querySelector('meta[name="aqua-viewer"]')?.remove();
+  });
+
+  function enterViewerMode(): void {
+    const meta = document.createElement("meta");
+    meta.name = "aqua-viewer";
+    meta.content = "1";
+    document.head.prepend(meta);
+  }
+
+  it("links to no chat, which a viewer does not serve", async () => {
+    enterViewerMode();
+    renderAt("ctx-abc", "manual");
+
+    await screen.findByText("rendered");
+    expect(screen.queryByRole("link")).toBeNull();
+    expect(screen.queryByText(/chat/i)).toBeNull();
+  });
+
+  it("reports no missing chat, since a viewer serves none", async () => {
+    enterViewerMode();
+    renderAt(null, "manual");
+
+    await screen.findByText("rendered");
+    expect(screen.queryByText(/No chat recorded/i)).toBeNull();
+  });
+
+  it("still calls an ambient investigation ambient", async () => {
+    enterViewerMode();
+    renderAt(null, "scheduled");
+
     expect(await screen.findByText("ambient")).toBeTruthy();
   });
 });

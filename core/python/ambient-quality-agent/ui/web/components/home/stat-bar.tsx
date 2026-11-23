@@ -21,6 +21,7 @@ import { formatCron } from "@/lib/cron";
 import { textStyle } from "@/lib/typography";
 import { cn, formatSentenceCase } from "@/lib/utils";
 import { useAgentKey } from "@/lib/agent-selection";
+import { isViewerMode } from "@/lib/viewer-mode";
 
 const VERDICT: Record<AmbientVerdict, { value: string; tone: string }> = {
   watching: { value: "Watching", tone: "text-emerald-400" },
@@ -120,23 +121,28 @@ export function StatBar() {
   };
   const investigation = data.last_investigation;
   const healthy = data.verdict === "watching";
+  // A read-only viewer shows a finished snapshot, which nothing is watching:
+  // the live ambient status and its schedule would read as current.
+  const viewer = isViewerMode();
 
   return (
     <section
       aria-label="Ambient health"
       className={cn(
         "flex flex-wrap divide-x divide-border/60 rounded-xl border px-5",
-        !healthy && "border-amber-500/30 bg-amber-500/[0.03]",
+        !healthy && !viewer && "border-amber-500/30 bg-amber-500/[0.03]",
       )}
     >
-      <Cell
-        label="Ambient"
-        value={verdict.value}
-        tone={verdict.tone}
-        note={data.schedule ? formatCron(data.schedule) : data.reason}
-        // Where the schedule is edited.
-        to="/config"
-      />
+      {!viewer && (
+        <Cell
+          label="Ambient"
+          value={verdict.value}
+          tone={verdict.tone}
+          note={data.schedule ? formatCron(data.schedule) : data.reason}
+          // Where the schedule is edited.
+          to="/config"
+        />
+      )}
       <Cell
         label="Pass rate"
         value={

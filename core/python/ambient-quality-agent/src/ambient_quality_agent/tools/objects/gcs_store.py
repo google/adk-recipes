@@ -14,12 +14,15 @@
 
 """`ObjectStore` over a Cloud Storage bucket, the deployed implementation.
 
-Three buckets AQuA owns are kept this way, and the engine service account can
-read and write all three. The jobs bucket's one lifecycle rule is scoped to
-`aqa-idempotency-keys/`, so nothing kept there through this store expires; the
-UI service account can read it too. The source bucket's objects expire after
-`source_snapshot_retention_days`. The metrics bucket keeps noncurrent versions
-of the library for 14 days.
+AQuA owns three buckets accessed through this store by the engine service
+account (the UI service account also has read access to the jobs bucket):
+- Jobs bucket: prefix-scoped lifecycle rules expire `aqa-trajectory-files/` (one
+  day after the archived conversations that link to them),
+  `aqa-idempotency-keys/`, `tasks/`, `chat-titles/`, and `aqa-telemetry/`. The
+  goal, memories, and attached agent configurations match no rule and do not
+  expire.
+- Source bucket: objects expire after `source_snapshot_retention_days`.
+- Metrics bucket: noncurrent versions of the library expire after 14 days.
 """
 
 from __future__ import annotations
@@ -96,10 +99,20 @@ class GcsObjectStore:
         except api_exceptions.NotFound:
             return None
 
-    def write_bytes(self, name: str, data: bytes) -> None:
-        self._client().bucket(self._bucket_name).blob(name).upload_from_string(
-            data
+    def write_bytes(
+        self, name: str, data: bytes, *, overwrite: bool = True
+    ) -> bool:
+        from google.api_core import exceptions as api_exceptions
+
+        options: dict[str, Any] = (
+            {} if overwrite else {"if_generation_match": 0}
         )
+        blob = self._client().bucket(self._bucket_name).blob(name)
+        try:
+            blob.upload_from_string(data, **options)
+        except api_exceptions.PreconditionFailed:
+            return False
+        return True
 
     def delete(self, name: str) -> bool:
         from google.api_core import exceptions as api_exceptions

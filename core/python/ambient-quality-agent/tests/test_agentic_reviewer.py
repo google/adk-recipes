@@ -44,6 +44,7 @@ from ambient_quality_agent.tools.review.agentic_reviewer import (
     agent,
     final_answer,
     prompts,
+    toolsets,
 )
 from ambient_quality_agent.tools.review.agentic_reviewer.reviewer import (
     ReviewDeadlineError,
@@ -416,6 +417,16 @@ def _list_function_responses(
     ]
 
 
+@pytest.fixture
+def use_jq_toolset(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Select the jq toolset for tests that script `query_trajectory` calls.
+
+    Args:
+        monkeypatch: The test's monkeypatch fixture.
+    """
+    monkeypatch.setattr(prompts, "REVIEW_TOOLSET", toolsets.JQ)
+
+
 def _set_prune_watermark(monkeypatch: pytest.MonkeyPatch, tokens: int) -> None:
     """Set `config.review_prune_watermark_tokens` for one test.
 
@@ -431,6 +442,7 @@ def _set_prune_watermark(monkeypatch: pytest.MonkeyPatch, tokens: int) -> None:
     )
 
 
+@pytest.mark.usefixtures("use_jq_toolset")
 def test_tool_calls_then_a_text_answer_return_the_parsed_findings() -> None:
     client = FakeClient(
         [
@@ -455,6 +467,25 @@ def test_tool_calls_then_a_text_answer_return_the_parsed_findings() -> None:
     assert response.id is None
 
 
+def test_the_focus_reaches_the_model_through_review_session() -> None:
+    """A focus that stops short of the request leaves the review unscoped while
+    the user believes it is narrowed."""
+    client = FakeClient([_answer()])
+
+    agentic_reviewer.review_session(
+        _build_case(),
+        _build_revisions(),
+        session_review_focus="only refunds",
+        client=client,
+    )
+
+    ((_, config),) = client.models.requests
+    assert prompts.FOCUS_BLOCK.format(focus="only refunds") in str(
+        config.system_instruction
+    )
+
+
+@pytest.mark.usefixtures("use_jq_toolset")
 def test_the_request_carries_the_exact_instruction_and_declaration() -> None:
     client = FakeClient([_answer()])
 
@@ -476,12 +507,13 @@ def test_the_request_carries_the_exact_instruction_and_declaration() -> None:
     ]
     assert config.tool_config is None
     assert config.thinking_config == types.ThinkingConfig(
-        thinking_level=types.ThinkingLevel.LOW, include_thoughts=True
+        thinking_level=types.ThinkingLevel.HIGH, include_thoughts=True
     )
     assert config.automatic_function_calling.disable is True  # type: ignore[union-attr]
     assert config.labels["adk_agent_name"] == agent.AGENT_NAME  # type: ignore[index]
 
 
+@pytest.mark.usefixtures("use_jq_toolset")
 def test_calls_of_one_reply_run_in_parallel_and_answer_in_call_order(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -519,6 +551,7 @@ def test_calls_of_one_reply_run_in_parallel_and_answer_in_call_order(
     assert len(outcome.findings) == 1
 
 
+@pytest.mark.usefixtures("use_jq_toolset")
 def test_an_undeclared_tool_gets_an_error_result() -> None:
     client = FakeClient(
         [
@@ -591,6 +624,7 @@ def _list_sent_results(client: FakeClient) -> list[list[Any]]:
     ]
 
 
+@pytest.mark.usefixtures("use_jq_toolset")
 def test_every_older_result_is_stubbed_when_the_target_is_out_of_reach(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -630,6 +664,7 @@ def test_every_older_result_is_stubbed_when_the_target_is_out_of_reach(
     assert kept == full
 
 
+@pytest.mark.usefixtures("use_jq_toolset")
 def test_no_pruning_at_the_watermark(monkeypatch: pytest.MonkeyPatch) -> None:
     _set_prune_watermark(monkeypatch, 1_000)
     monkeypatch.setattr(agent, "KEEP_RECENT_RESULTS", 1)
@@ -652,6 +687,7 @@ def test_no_pruning_at_the_watermark(monkeypatch: pytest.MonkeyPatch) -> None:
     assert [response.response for response in last] == [{"output": text}] * 3
 
 
+@pytest.mark.usefixtures("use_jq_toolset")
 def test_pruning_stubs_the_oldest_results_until_the_target_and_keeps_them(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -687,6 +723,7 @@ def test_pruning_stubs_the_oldest_results_until_the_target_and_keeps_them(
     assert kept == [*full, {"output": "r5"}]
 
 
+@pytest.mark.usefixtures("use_jq_toolset")
 def test_pruning_never_stubs_results_the_model_has_not_read(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -712,6 +749,7 @@ def test_pruning_never_stubs_results_the_model_has_not_read(
     assert _list_sent_results(client)[2] == [stub, *[{"output": text}] * 3]
 
 
+@pytest.mark.usefixtures("use_jq_toolset")
 def test_pruning_never_stubs_a_result_smaller_than_its_stub(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -737,6 +775,7 @@ def test_pruning_never_stubs_a_result_smaller_than_its_stub(
     ]
 
 
+@pytest.mark.usefixtures("use_jq_toolset")
 def test_new_results_that_push_the_estimate_over_the_watermark_start_pruning(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -763,6 +802,7 @@ def test_new_results_that_push_the_estimate_over_the_watermark_start_pruning(
     assert sent[3] == [stub, *[{"output": text} for text in texts[1:]]]
 
 
+@pytest.mark.usefixtures("use_jq_toolset")
 def test_the_re_ask_prunes_from_the_first_runs_last_prompt_size(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -786,6 +826,29 @@ def test_the_re_ask_prunes_from_the_first_runs_last_prompt_size(
     assert sent[2] == [{"output": text} for text in texts]
     assert sent[3] == [stub, {"output": texts[1]}]
     assert outcome.reasked is True
+
+
+@pytest.mark.parametrize(
+    ("body", "chars"),
+    [
+        ({"output": "abc"}, 3),
+        ({"result": "abcd"}, 4),
+        ({"error": "ab"}, 2),
+        ({}, 0),
+    ],
+)
+def test_a_pruned_stub_counts_the_text_under_any_result_key(
+    body: dict[str, Any], chars: int
+) -> None:
+    response = types.FunctionResponse(name="read", id="call-1", response=body)
+
+    stub = agent._build_pruned_response(response)
+
+    assert stub == types.FunctionResponse(
+        name="read",
+        id="call-1",
+        response={"pruned": True, "chars": chars, "note": prompts.PRUNED_NOTE},
+    )
 
 
 def test_a_prose_answer_is_reasked_once_on_the_same_session() -> None:
@@ -845,23 +908,23 @@ def test_one_client_reviews_sessions_on_separate_event_loops() -> None:
 
 
 ARGON_INSTRUCTION_SHA256 = (
-    "b3f1eb73e5084e6322a3270f55e3e3a5cfea2d73643454f6cee9305f95692345"
+    "09cdc27e99fd61f6925ed8b9d25c97c9bd4d94f691ae95de8d0b985ad8b958bf"
 )
-"""SHA-256 hex digest of the system instruction with `ARGON_*` rules, validated
-on gemini-4-argon."""
+"""SHA-256 hex digest of the default (``grep_read``) system instruction with
+the `ARGON_*` rules. Promoting a new instruction must update it."""
 
 BASE_INSTRUCTION_SHA256 = (
-    "f450da14e603e930e371b7bb1f5f43b3fecf489b14ee9f4ddb062ca72d951469"
+    "edfacba5408f339a3619eb209102340eee0d76995b12446dee1cc7b936d7b967"
 )
-"""SHA-256 hex digest of the system instruction without `ARGON_*` rules,
-validated on claude-opus."""
+"""SHA-256 hex digest of the default (``grep_read``) system instruction without
+the `ARGON_*` rules. Promoting a new instruction must update it."""
 
 
 @pytest.mark.parametrize(
     ("argon_rules", "sha256"),
     [(True, ARGON_INSTRUCTION_SHA256), (False, BASE_INSTRUCTION_SHA256)],
 )
-def test_each_composed_instruction_is_the_validated_text(
+def test_each_composed_instruction_matches_its_pinned_digest(
     monkeypatch: pytest.MonkeyPatch, argon_rules: bool, sha256: str
 ) -> None:
     monkeypatch.setattr(prompts, "ARGON_RULES", argon_rules)
@@ -871,7 +934,7 @@ def test_each_composed_instruction_is_the_validated_text(
     assert hashlib.sha256(text.encode("utf-8")).hexdigest() == sha256
 
 
-def test_the_default_review_model_gets_the_argon_rules(
+def test_the_default_review_model_gets_the_base_instruction(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from ambient_quality_agent.config import DEFAULT_REVIEW_MODEL
@@ -881,7 +944,7 @@ def test_the_default_review_model_gets_the_argon_rules(
     text = prompts.resolve_system_instruction()
 
     assert hashlib.sha256(text.encode("utf-8")).hexdigest() == (
-        ARGON_INSTRUCTION_SHA256
+        BASE_INSTRUCTION_SHA256
     )
 
 
@@ -922,6 +985,7 @@ def test_an_override_reaches_the_prompt_with_the_session_rules(
     ).system_instruction == ("Review it.\n" + prompts.UNRECORDED_SCHEMAS_RULE)
 
 
+@pytest.mark.usefixtures("use_jq_toolset")
 def test_each_review_gets_its_own_query_tool(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -951,6 +1015,9 @@ def test_each_review_gets_its_own_query_tool(
     ("model", "sha256"),
     [
         ("gemini-4-argon", ARGON_INSTRUCTION_SHA256),
+        ("gemini-4-hydrogen", BASE_INSTRUCTION_SHA256),
+        ("gemini-4-carbon", BASE_INSTRUCTION_SHA256),
+        ("gemini-3.1-pro-preview", BASE_INSTRUCTION_SHA256),
         ("claude-opus-5-5", BASE_INSTRUCTION_SHA256),
     ],
 )
@@ -965,17 +1032,28 @@ def test_unset_argon_rules_follow_the_model_family(
     assert hashlib.sha256(text.encode("utf-8")).hexdigest() == sha256
 
 
-def test_set_argon_rules_apply_to_a_claude_model(
-    monkeypatch: pytest.MonkeyPatch,
+@pytest.mark.parametrize(
+    "model",
+    [
+        "gemini-4-argon",
+        "gemini-4-hydrogen",
+        "gemini-4-carbon",
+        "claude-opus-5-5",
+    ],
+)
+@pytest.mark.parametrize(
+    ("argon_rules", "sha256"),
+    [(True, ARGON_INSTRUCTION_SHA256), (False, BASE_INSTRUCTION_SHA256)],
+)
+def test_set_argon_rules_override_the_model_family(
+    monkeypatch: pytest.MonkeyPatch, model: str, argon_rules: bool, sha256: str
 ) -> None:
-    _use_review_model(monkeypatch, "claude-opus-5-5")
-    monkeypatch.setattr(prompts, "ARGON_RULES", True)
+    _use_review_model(monkeypatch, model)
+    monkeypatch.setattr(prompts, "ARGON_RULES", argon_rules)
 
     text = prompts.resolve_system_instruction()
 
-    assert hashlib.sha256(text.encode("utf-8")).hexdigest() == (
-        ARGON_INSTRUCTION_SHA256
-    )
+    assert hashlib.sha256(text.encode("utf-8")).hexdigest() == sha256
 
 
 def test_the_system_instruction_adds_the_attachment_note_and_focus() -> None:
@@ -1112,7 +1190,14 @@ def test_a_text_without_findings_json_is_asked_again() -> None:
 
 @pytest.mark.parametrize(
     "second",
-    ["still prose", '{"defects": []}', '{"findings": "none"}'],
+    [
+        "still prose",
+        '{"defects": []}',
+        '{"findings": "none"}',
+        '{"findings": ["called wrong tool"]}',
+        '{"findings": [{"defect": "wrong field name"}]}',
+        '```json\n["lookup", "refund"]\n```',
+    ],
     ids=str,
 )
 def test_a_second_answer_without_findings_json_raises(second: str) -> None:
@@ -1124,6 +1209,25 @@ def test_a_second_answer_without_findings_json_raises(second: str) -> None:
         _review(client)
 
     assert raised.value.final_text == second
+    assert len(client.models.requests) == 2
+
+
+def test_malformed_finding_entries_trigger_a_re_ask() -> None:
+    client = FakeClient(
+        [
+            _respond(
+                types.Part(
+                    text='{"findings": [{"defect": "refunded shipped order"}]}'
+                )
+            ),
+            _answer([FINDING]),
+        ]
+    )
+
+    outcome = _review(client)
+
+    assert len(outcome.findings) == 1
+    assert outcome.reasked is True
     assert len(client.models.requests) == 2
 
 
@@ -1196,6 +1300,7 @@ def _build_response_part(**response: Any) -> dict[str, Any]:
     return {"function_response": {"name": QUERY_TOOL, "response": response}}
 
 
+@pytest.mark.usefixtures("use_jq_toolset")
 def test_every_request_holds_the_exact_model_visible_content(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1290,7 +1395,7 @@ def test_every_request_holds_the_exact_model_visible_content(
             types.Tool(function_declarations=[build_query_declaration()])
         ]
         assert config.thinking_config == types.ThinkingConfig(
-            thinking_level=types.ThinkingLevel.LOW, include_thoughts=True
+            thinking_level=types.ThinkingLevel.HIGH, include_thoughts=True
         )
         assert config.automatic_function_calling == (
             types.AutomaticFunctionCallingConfig(disable=True)
@@ -1345,7 +1450,7 @@ def test_the_client_is_built_by_the_client_factory(
                 max_delay=240,
                 http_status_codes=genai_json.RETRY_STATUS_CODES,
             ),
-            "timeout_ms": genai_json.CALL_TIMEOUT_MS,
+            "timeout_ms": agent.REVIEW_DEADLINE_SECONDS * 1000,
         }
     ]
 
@@ -1616,6 +1721,155 @@ def test_a_timeout_inside_the_run_is_not_a_deadline_error(
     assert not isinstance(raised.value, ReviewDeadlineError)
 
 
+class HangOnceAsyncModels(FakeAsyncModels):
+    """Async models whose first `hangs` calls wait until cancelled."""
+
+    def __init__(self, models: FakeModels, hangs: int) -> None:
+        """Initialize with no calls made.
+
+        Args:
+            models: Underlying `FakeModels` that answer after the hangs.
+            hangs: Number of leading calls that never return.
+        """
+        super().__init__(models)
+        self.hangs = hangs
+        self.calls = 0
+
+    async def generate_content(self, **kwargs: Any) -> Any:
+        """Wait until cancelled for the first `hangs` calls, then answer.
+
+        Args:
+            **kwargs: Request arguments.
+
+        Returns:
+            The scripted response, after the hanging calls.
+        """
+        self.calls += 1
+        if self.calls <= self.hangs:
+            await asyncio.Event().wait()
+        return await super().generate_content(**kwargs)
+
+
+class ResponseMetadataPlugin(BasePlugin):
+    """Keeps the ``custom_metadata`` of every model response."""
+
+    def __init__(self) -> None:
+        """Initialize the plugin with no responses."""
+        super().__init__(name="response_metadata")
+        self.metadata: list[dict[str, Any] | None] = []
+
+    async def after_model_callback(
+        self, *, callback_context: Any, llm_response: Any
+    ) -> None:
+        """Keep the response's custom metadata.
+
+        Args:
+            callback_context: The model call's context; unused.
+            llm_response: The model response.
+        """
+        self.metadata.append(llm_response.custom_metadata)
+
+
+def test_a_model_call_that_hangs_once_is_retried_and_the_review_succeeds(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(agent, "MODEL_CALL_TIMEOUT_SECONDS", 0.1)
+    client = FakeClient([_answer([FINDING])])
+    hanging = HangOnceAsyncModels(client.models, hangs=1)
+    client._fake_aio.models = hanging
+    plugin = ResponseMetadataPlugin()
+
+    outcome = _review(client, plugins=(plugin,))
+
+    assert [finding.actual_behavior for finding in outcome.findings] == [
+        FINDING["actual_behavior"]
+    ]
+    assert hanging.calls == 2
+    assert plugin.metadata == [{agent.TIMEOUT_RETRIES_METADATA_KEY: 1}]
+
+
+def test_a_model_call_that_always_hangs_ends_at_the_review_deadline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(agent, "MODEL_CALL_TIMEOUT_SECONDS", 0.1)
+    monkeypatch.setattr(agent, "REVIEW_DEADLINE_SECONDS", 0.5)
+    client = FakeClient([])
+    hanging = HangOnceAsyncModels(client.models, hangs=10)
+    client._fake_aio.models = hanging
+
+    with pytest.raises(ReviewDeadlineError):
+        _review(client)
+
+    assert hanging.calls == agent.MODEL_CALL_ATTEMPTS
+
+
+def test_a_review_deadline_during_the_first_attempt_stops_the_retry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(agent, "MODEL_CALL_TIMEOUT_SECONDS", 1.0)
+    monkeypatch.setattr(agent, "REVIEW_DEADLINE_SECONDS", 0.2)
+    client = FakeClient([_answer()])
+    hanging = HangOnceAsyncModels(client.models, hangs=1)
+    client._fake_aio.models = hanging
+
+    with pytest.raises(ReviewDeadlineError):
+        _review(client)
+
+    assert hanging.calls == 1
+
+
+def test_quota_errors_are_retried_with_the_client_backoff(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Runs the retry options of `agent.create_client` on a real genai client
+    over a fake HTTP transport that answers 429 twice."""
+    import httpx
+    from ambient_quality_agent import clients
+
+    monkeypatch.setattr(agent, "QUOTA_RETRY_WAITS_SECONDS", (0.01, 0.02))
+    options: dict[str, Any] = {}
+    monkeypatch.setattr(
+        clients, "create_genai_client", lambda **kwargs: options.update(kwargs)
+    )
+    agent.create_client()
+    statuses: list[int] = []
+
+    def answer(request: httpx.Request) -> httpx.Response:
+        del request
+        if len(statuses) < 2:
+            statuses.append(429)
+            return httpx.Response(
+                429,
+                json={
+                    "error": {
+                        "code": 429,
+                        "message": "Resource exhausted.",
+                        "status": "RESOURCE_EXHAUSTED",
+                    }
+                },
+            )
+        statuses.append(200)
+        return httpx.Response(
+            200, json=_answer([FINDING]).model_dump(mode="json")
+        )
+
+    client = genai.Client(
+        api_key="test-key",
+        http_options=types.HttpOptions(
+            retry_options=options["retry_options"],
+            timeout=options["timeout_ms"],
+            async_client_args={"transport": httpx.MockTransport(answer)},
+        ),
+    )
+
+    outcome = _review(client)  # type: ignore[arg-type]
+
+    assert statuses == [429, 429, 200]
+    assert [finding.actual_behavior for finding in outcome.findings] == [
+        FINDING["actual_behavior"]
+    ]
+
+
 def test_the_unparsable_reply_error_names_the_finish_reason() -> None:
     reply = types.GenerateContentResponse(
         candidates=[
@@ -1863,6 +2117,7 @@ def fake_claude(monkeypatch: pytest.MonkeyPatch) -> type[FakeAnthropicVertex]:
     return FakeAnthropicVertex
 
 
+@pytest.mark.usefixtures("use_jq_toolset")
 def test_a_claude_model_runs_on_vertex_with_adaptive_thinking(
     fake_claude: type[FakeAnthropicVertex],
 ) -> None:
@@ -1884,7 +2139,10 @@ def test_a_claude_model_runs_on_vertex_with_adaptive_thinking(
 
     (client,) = fake_claude.created
     assert (client.project_id, client.region) == ("cfg-project", "global")
-    assert client.options == {"max_retries": 0, "timeout": 900.0}
+    assert client.options == {
+        "max_retries": 0,
+        "timeout": agent.REVIEW_DEADLINE_SECONDS,
+    }
     first, second = client.requests
     assert first["model"] == "claude-opus-5-5"
     assert first["thinking"] == {"type": "adaptive", "display": "summarized"}
@@ -1942,6 +2200,7 @@ def test_a_claude_model_runs_on_vertex_with_adaptive_thinking(
     ] * 2
 
 
+@pytest.mark.usefixtures("use_jq_toolset")
 def test_a_forced_claude_call_keeps_the_tools_and_chooses_none(
     fake_claude: type[FakeAnthropicVertex], monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -16,12 +16,16 @@
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Any
 
+from ambient_quality_agent.tools.insights.models import list_root_cause_columns
 from google.cloud import bigquery
 
 if TYPE_CHECKING:
     from ambient_quality_agent.tools.insights.models import RootCause
+
+logger = logging.getLogger(__name__)
 
 ROOT_CAUSES_TABLE = "insight_root_causes"
 """Append-only table name where queries resolve the latest record per occurrence."""
@@ -47,6 +51,7 @@ class BigQueryRootCauseStore:
         self._client = client
         self._project_id = project_id
         self._dataset = dataset
+        self._columns: frozenset[str] | None = None
 
     def _build_table_ref(self, table: str) -> str:
         """Returns a fully-qualified ``project.dataset.table`` reference.
@@ -58,6 +63,39 @@ class BigQueryRootCauseStore:
             Fully-qualified table identifier.
         """
         return f"{self._project_id}.{self._dataset}.{table}"
+
+    def _has_column(self, column: str) -> bool:
+        """Checks whether the live `ROOT_CAUSES_TABLE` schema declares `column`.
+
+        Caches the table schema on first write so rolling deployments against a
+        dataset that lacks an optional column omit it cleanly while logging a
+        warning. Mock clients with an empty schema default to the declared model
+        columns so offline tests validate the full row payload.
+
+        Args:
+            column: BigQuery column name to check.
+
+        Returns:
+            True if the column is present in the destination table schema.
+        """
+        if self._columns is None:
+            try:
+                table = self._client.get_table(
+                    self._build_table_ref(ROOT_CAUSES_TABLE)
+                )
+                schema = getattr(table, "schema", None) or ()
+                names = frozenset(
+                    field.name
+                    for field in schema
+                    if isinstance(getattr(field, "name", None), str)
+                )
+                self._columns = (
+                    names if names else frozenset(list_root_cause_columns())
+                )
+            except Exception:
+                # Defer missing-table or permission errors to load_table_from_json.
+                self._columns = frozenset(list_root_cause_columns())
+        return column in self._columns
 
     def save(self, record: RootCause) -> None:
         """Appends a diagnosis record to BigQuery.
@@ -76,6 +114,15 @@ class BigQueryRootCauseStore:
             "edits": [edit.model_dump(mode="json") for edit in record.edits],
             "created_at": record.created_at.isoformat(),
         }
+        if self._has_column("context_id"):
+            row["context_id"] = record.context_id or None
+        elif record.context_id:
+            logger.warning(
+                "root cause: %s lacks column 'context_id'; saving diagnosis %s "
+                "without conversation attribution",
+                self._build_table_ref(ROOT_CAUSES_TABLE),
+                record.root_cause_id,
+            )
         # Load jobs are immediately queryable, unlike streaming buffer inserts.
         self._client.load_table_from_json(
             [row],

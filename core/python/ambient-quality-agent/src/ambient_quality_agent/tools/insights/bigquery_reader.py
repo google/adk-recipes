@@ -48,6 +48,7 @@ from ambient_quality_agent.tools.insights.models import (
     OccurrenceState,
     ProposedEdit,
     RootCause,
+    list_root_cause_columns,
 )
 from ambient_quality_agent.tools.insights.reader import InsightOrder
 from google.api_core.exceptions import NotFound
@@ -126,6 +127,7 @@ class BigQueryInsightReader:
         self._dataset = dataset
         self._observed_agent_key = observed_agent_key
         self._root_causes_present: bool | None = None
+        self._root_cause_columns: frozenset[str] | None = None
 
     def _build_table_ref(self, table: str) -> str:
         """Fully-qualified ``project.dataset.table`` reference.
@@ -151,6 +153,30 @@ class BigQueryInsightReader:
         job_config = bigquery.QueryJobConfig(query_parameters=params)
         return self._client.query(sql, job_config=job_config).result()
 
+    def _probe_root_causes_table(self) -> None:
+        """Reads `ROOT_CAUSES_TABLE` metadata once and caches presence and columns."""
+        if self._root_causes_present is not None:
+            return
+        try:
+            table = self._client.get_table(
+                self._build_table_ref(ROOT_CAUSES_TABLE)
+            )
+            self._root_causes_present = True
+            schema = getattr(table, "schema", None) or ()
+            names = frozenset(
+                field.name
+                for field in schema
+                if isinstance(getattr(field, "name", None), str)
+            )
+            # Mock clients in offline tests expose an empty schema; default to
+            # the declared columns while real tables report their live schema.
+            self._root_cause_columns = (
+                names if names else frozenset(list_root_cause_columns())
+            )
+        except NotFound:
+            self._root_causes_present = False
+            self._root_cause_columns = frozenset()
+
     def _has_root_causes_table(self) -> bool:
         """Checks if `ROOT_CAUSES_TABLE` exists, caching the result.
 
@@ -160,13 +186,24 @@ class BigQueryInsightReader:
         Returns:
             True if `ROOT_CAUSES_TABLE` exists, False otherwise.
         """
-        if self._root_causes_present is None:
-            try:
-                self._client.get_table(self._build_table_ref(ROOT_CAUSES_TABLE))
-                self._root_causes_present = True
-            except NotFound:
-                self._root_causes_present = False
-        return self._root_causes_present
+        self._probe_root_causes_table()
+        return bool(self._root_causes_present)
+
+    def _has_root_cause_column(self, column: str) -> bool:
+        """Checks if `ROOT_CAUSES_TABLE` exists and declares `column`.
+
+        Args:
+            column: BigQuery column name on `ROOT_CAUSES_TABLE`.
+
+        Returns:
+            True if `ROOT_CAUSES_TABLE` exists and includes `column`.
+        """
+        self._probe_root_causes_table()
+        return bool(
+            self._root_causes_present
+            and self._root_cause_columns is not None
+            and column in self._root_cause_columns
+        )
 
     def _build_root_cause_marker(self) -> str:
         """Builds a SELECT expression yielding ``has_root_cause`` for each insight.
@@ -192,6 +229,25 @@ class BigQueryInsightReader:
             f"`{self._build_table_ref(ROOT_CAUSES_TABLE)}` rc "
             f"{self._build_root_cause_owner_join()} "
             f"WHERE {_ROOT_CAUSE_OWNER_ID} = i.insight_id) AS has_root_cause"
+        )
+
+    def _build_root_cause_context_ids(self) -> str:
+        """Builds a SELECT expression yielding ``root_cause_context_ids`` per insight.
+
+        Degrades to an empty string array when `ROOT_CAUSES_TABLE` or its
+        ``context_id`` column is absent.
+
+        Returns:
+            SQL expression evaluating to an ``ARRAY<STRING>`` column.
+        """
+        if not self._has_root_cause_column("context_id"):
+            return "CAST([] AS ARRAY<STRING>) AS root_cause_context_ids"
+        return (
+            "(SELECT ARRAY_AGG(DISTINCT rc.context_id IGNORE NULLS) FROM "  # noqa: S608 - trusted identifiers and fixed SQL; values are parameterized
+            f"`{self._build_table_ref(ROOT_CAUSES_TABLE)}` rc "
+            f"{self._build_root_cause_owner_join()} "
+            f"WHERE {_ROOT_CAUSE_OWNER_ID} = i.insight_id "
+            "AND rc.context_id != '') AS root_cause_context_ids"
         )
 
     def _build_root_cause_owner_join(self) -> str:
@@ -317,7 +373,8 @@ SELECT
   MAX(owned.created_at) AS last_investigation_at,
   ARRAY_AGG(owned.run_id IGNORE NULLS ORDER BY owned.created_at DESC LIMIT 1)[
     SAFE_OFFSET(0)] AS last_investigation_id,
-  {self._build_root_cause_marker()}
+  {self._build_root_cause_marker()},
+  {self._build_root_cause_context_ids()}
 FROM `{self._build_table_ref(_INSIGHTS_TABLE)}` i
 LEFT JOIN owned
   ON owned.owner_id = i.insight_id AND owned.agent_name = i.agent_name
@@ -427,7 +484,8 @@ SELECT
   MAX(owned.created_at) AS last_investigation_at,
   ARRAY_AGG(owned.run_id IGNORE NULLS ORDER BY owned.created_at DESC LIMIT 1)[
     SAFE_OFFSET(0)] AS last_investigation_id,
-  {self._build_root_cause_marker()}
+  {self._build_root_cause_marker()},
+  {self._build_root_cause_context_ids()}
 FROM `{self._build_table_ref(_INSIGHTS_TABLE)}` i
 LEFT JOIN owned
   ON owned.owner_id = i.insight_id AND owned.agent_name = i.agent_name
@@ -608,9 +666,14 @@ LIMIT @limit OFFSET @offset
                 "ORDER BY rc.created_at DESC, rc.root_cause_id) = 1\n"
             )
         )
+        context_column = (
+            "rc.context_id"
+            if self._has_root_cause_column("context_id")
+            else "CAST(NULL AS STRING) AS context_id"
+        )
         sql = f"""
 SELECT rc.root_cause_id, rc.insight_id, rc.occurrence_id, rc.agent_revision,
-       rc.summary, rc.edits, rc.created_at
+       {context_column}, rc.summary, rc.edits, rc.created_at
 FROM `{self._build_table_ref(ROOT_CAUSES_TABLE)}` rc
 {self._build_root_cause_owner_join()}
 WHERE {_ROOT_CAUSE_OWNER_ID} = @insight_id
@@ -785,6 +848,7 @@ def _row_to_view(row: Any) -> InsightView:
         last_investigation_id=row["last_investigation_id"],
         last_investigation_at=row["last_investigation_at"],
         has_root_cause=bool(row["has_root_cause"]),
+        root_cause_context_ids=list(row.get("root_cause_context_ids") or []),
     )
 
 
@@ -804,6 +868,7 @@ def _row_to_root_cause(row: Any) -> RootCause:
         # The column is nullable while the model field is not: a null and an
         # empty string both mean the single unnamed revision.
         agent_revision=row["agent_revision"] or "",
+        context_id=row.get("context_id") or "",
         summary=row["summary"],
         edits=_parse_edits(row["edits"]),
         created_at=row["created_at"],
