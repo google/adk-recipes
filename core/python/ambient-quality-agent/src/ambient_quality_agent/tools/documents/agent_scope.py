@@ -248,14 +248,31 @@ class AgentDocumentStore:
             return self._store.read_bytes(name)
         return data
 
-    def write_bytes(self, name: str, data: bytes) -> None:
+    def write_bytes(
+        self, name: str, data: bytes, *, overwrite: bool = True
+    ) -> bool:
         """Writes an object's raw content under the agent's prefix.
 
         Args:
             name: Object name relative to the agent's prefix.
             data: Content to write.
+            overwrite: When False, writes only if no object with that name
+                exists under the agent's prefix or in the inherited instance
+                documents.
+
+        Returns:
+            True if the object was written, False if `overwrite` was False and
+            the object already existed.
         """
-        self._store.write_bytes(self._prefix + name, data)
+        if (
+            not overwrite
+            and self._should_read_instance(name)
+            and self._store.read_bytes(name) is not None
+        ):
+            return False
+        return self._store.write_bytes(
+            self._prefix + name, data, overwrite=overwrite
+        )
 
     def delete(self, name: str) -> bool:
         """Deletes an object, and the instance's copy the agent reads.

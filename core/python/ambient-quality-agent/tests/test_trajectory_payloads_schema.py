@@ -44,6 +44,9 @@ from typing import Any
 from unittest import mock
 
 import pytest
+from ambient_quality_agent.tools.ingestion.trajectory_files import (
+    TRAJECTORY_FILES_PREFIX,
+)
 from ambient_quality_agent.tools.trajectories.bigquery_store import (
     MANIFESTS_TABLE,
     STEPS_TABLE,
@@ -74,6 +77,7 @@ SCHEMA_DIR = _REPO_ROOT / "terraform" / "modules" / "aqa" / "schemas"
 MODULE_DIR = _REPO_ROOT / "terraform" / "modules" / "aqa"
 PAYLOADS_TF = MODULE_DIR / "trajectory_payloads.tf"
 VARIABLES_TF = MODULE_DIR / "variables.tf"
+STORAGE_TF = MODULE_DIR / "storage.tf"
 
 _SECONDS_A_DAY = 24 * 60 * 60
 
@@ -358,6 +362,51 @@ def test_the_retention_override_falls_back_to_the_declared_default() -> None:
     )
 
 
+def _extract_lifecycle_rules(bucket: str) -> list[str]:
+    """Extracts the lifecycle rule blocks of one bucket in `storage.tf`.
+
+    Args:
+        bucket: The bucket resource's name, such as ``jobs``.
+
+    Returns:
+        The text of each ``lifecycle_rule`` block, in order.
+    """
+    module = STORAGE_TF.read_text(encoding="utf-8")
+    resource = module.split(f'resource "google_storage_bucket" "{bucket}"')[1]
+    resource = resource.split("\nresource ")[0]
+    return resource.split("lifecycle_rule {")[1:]
+
+
+def test_trajectory_files_expire_a_day_after_the_conversations_that_link_them() -> (
+    None
+):
+    """A file is written just before UTC midnight and its conversation row can
+    land in the next day's partition, so the file outlives the payload tables
+    by one day. Both read one retention local, so an override moves both."""
+    module = PAYLOADS_TF.read_text(encoding="utf-8")
+    assert "trajectory_payload_retention_days = coalesce(" in module
+    assert (
+        "trajectory_payload_expiration_ms = 24 * 60 * 60 * 1000 * "
+        "local.trajectory_payload_retention_days"
+    ) in module
+
+    [rule] = [
+        rule
+        for rule in _extract_lifecycle_rules("jobs")
+        if '"aqa-trajectory-files/"' in rule
+    ]
+    assert (
+        "age            = local.trajectory_payload_retention_days + 1" in rule
+    )
+    assert 'matches_prefix = ["aqa-trajectory-files/"]' in rule
+    assert 'type = "Delete"' in rule
+
+
+def test_the_trajectory_files_prefix_is_the_one_ingestion_writes() -> None:
+    rules = _extract_lifecycle_rules("jobs")
+    assert any(f'"{TRAJECTORY_FILES_PREFIX}"' in rule for rule in rules)
+
+
 @pytest.mark.parametrize("table_id", _TABLE_IDS)
 def test_the_deploy_guide_repeats_the_declared_layout(table_id: str) -> None:
     """`bq` reads only the schema out of a definition file, so the guide passes
@@ -467,3 +516,21 @@ def test_written_columns_fit_the_terraform_schema(table_id: str) -> None:
         f"{table_id} names {sorted(set(rows[table_id][0]) ^ set(columns))} "
         "on one side only"
     )
+
+
+def test_the_deploy_guide_expires_trajectory_files_a_day_after_the_payloads() -> (
+    None
+):
+    """The guide sets the lifecycle rule by hand, so its age is the one place
+    outside Terraform that repeats the retention."""
+    guide = (_REPO_ROOT / "extension" / "README.md").read_text(encoding="utf-8")
+    [rule] = [
+        line
+        for line in guide.splitlines()
+        if f'"matchesPrefix": ["{TRAJECTORY_FILES_PREFIX}"]' in line
+    ]
+    days = _declaration("trajectory_payloads")["partitioning"][
+        "expiration_days"
+    ]
+
+    assert f'"age": {days + 1},' in rule

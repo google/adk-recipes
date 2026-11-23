@@ -439,16 +439,15 @@ class BigQueryFetcher(BigQueryJobFetcher):
         Returns:
             Mapped row carrying the evaluation case and metadata.
         """
-        case = self._build_case(row, metric_type)
+        case = self.build_case(row, metric_type)
         return MappedRow(
             case=case,
             trajectory_id=str(case.eval_case_id or ""),
             session_id=row.get("session_id"),
         )
 
-    def _build_case(
-        self, row: Mapping[str, Any], metric_type: MetricType
-    ) -> EvalCase:
+    @staticmethod
+    def build_case(row: Mapping[str, Any], metric_type: MetricType) -> EvalCase:
         """Build one `EvalCase` for ``metric_type``.
 
         Each agent's `AgentConfig` carries its baseline instruction (see

@@ -28,6 +28,7 @@ from typing import Any
 from unittest import mock
 
 from ambient_quality_agent.tools.investigations.bigquery_store import (
+    EVENT_WRITE_TIMEOUT_SECONDS,
     EVENTS_TABLE,
     INVESTIGATIONS_TABLE,
     BigQueryInvestigationStore,
@@ -182,6 +183,28 @@ def test_append_event_writes_one_row_to_the_events_table() -> None:
     assert "status" not in row and "observed_agent_name" not in row
     # And it reads nothing first, which is what makes it cheap in a node.
     client.query.assert_not_called()
+
+
+def test_an_event_waits_a_bounded_time_for_its_load_job() -> None:
+    """A node writes its events while it works, some under a lock: a stalled
+    load job must cost the event, not wedge the node."""
+    client = mock.MagicMock()
+    _store(client).append_event("r1", "**step**\n", source="init")
+
+    client.load_table_from_json.return_value.result.assert_called_once_with(
+        timeout=EVENT_WRITE_TIMEOUT_SECONDS
+    )
+
+
+def test_a_snapshot_waits_for_its_load_job() -> None:
+    """A snapshot is the investigation's record, so its write is not given
+    up on."""
+    client = mock.MagicMock()
+    _store(client).append(Investigation(investigation_id="r1"))
+
+    client.load_table_from_json.return_value.result.assert_called_once_with(
+        timeout=None
+    )
 
 
 def test_get_asks_bigquery_for_the_newest_snapshot_and_the_events() -> None:

@@ -33,6 +33,7 @@ from ambient_quality_agent.core.session_state import ADKStateLike
 from ambient_quality_agent.tools.insights.findings import FindingSet
 from ambient_quality_agent.tools.investigations.models import (
     STAGE_EVENT_SOURCE,
+    InvestigationCancelledError,
     InvestigationCounters,
     StageProgress,
 )
@@ -77,7 +78,9 @@ def add_counts(state: ADKStateLike, **deltas: int) -> None:
 event_writer: Callable[[ADKStateLike, str, str], None] = (
     providers.build_unbound_provider("event_writer")
 )
-"""Swappable seam; tests replace it so a node never reaches BigQuery."""
+"""Swappable seam; tests replace it so a node never reaches BigQuery. Bound to
+`model.append_investigation_event`, which raises `InvestigationCancelledError`
+for a cancelled investigation."""
 
 
 class WorkflowState(BaseModel):
@@ -178,6 +181,10 @@ class WorkflowState(BaseModel):
     """Whether a negative verdict withholds the candidate it judged. ``None``
     carries "unset" to `config.is_verification_enforced`, which holds the
     default."""
+
+    store_trajectory_files: bool = True
+    """Whether ingestion copies the files a sampled conversation carries into
+    the jobs store (see `Config.store_trajectory_files`)."""
 
     standalone: bool = False
     """Whether AQA runs on its own, with nothing of it deployed (see
@@ -311,6 +318,7 @@ class WorkflowState(BaseModel):
             insights_auto_resolve_days=cfg.insights_auto_resolve_days,
             insights_verification_enabled=cfg.insights_verification_enabled,
             insights_verification_enforced=cfg.insights_verification_enforced,
+            store_trajectory_files=cfg.store_trajectory_files,
             standalone=cfg.standalone,
         )
 
@@ -343,7 +351,9 @@ class WorkflowState(BaseModel):
         3. Returned as a model-role `Event` so chat clients render it in the stream.
 
         Persisting the event is best-effort: losing a progress row does not fail
-        the investigation.
+        the investigation. A cancel is the exception: the write finds the
+        investigation cancelled (`model.append_investigation_event`) and raises,
+        which stops it.
 
         Args:
             state: Live session-backed State object.
@@ -352,6 +362,10 @@ class WorkflowState(BaseModel):
 
         Returns:
             Model-role Event containing the emitted text.
+
+        Raises:
+            InvestigationCancelledError: If a user has cancelled the
+                investigation.
         """
         log = list(state.get(PROGRESS_LOG_KEY) or [])
         log.append(text)
@@ -359,6 +373,8 @@ class WorkflowState(BaseModel):
         if state.get("investigation_id"):
             try:
                 event_writer(state, text, source)
+            except InvestigationCancelledError:
+                raise
             except Exception as exc:
                 logger.warning(
                     "investigations: could not record event row: %s", exc
@@ -373,13 +389,19 @@ class WorkflowState(BaseModel):
 
         Unlike `record_progress_event`, the row stays out of the progress log
         and the chat stream: a sweep writes one every few minutes, and only the
-        newest says anything. Best-effort for the same reason as there.
+        newest says anything. Best-effort for the same reason as there, with
+        the same exception: a sweep writes one after every page, so this is
+        where a cancelled investigation usually stops.
 
         Args:
             state: Workflow state carrying the ``investigation_id`` to write
                 under.
             progress: The stage and its counts so far, written as the row's
                 text in JSON.
+
+        Raises:
+            InvestigationCancelledError: If a user has cancelled the
+                investigation.
         """
         if not state.get("investigation_id"):
             return
@@ -389,6 +411,8 @@ class WorkflowState(BaseModel):
                 progress.model_dump_json(exclude_none=True),
                 STAGE_EVENT_SOURCE,
             )
+        except InvestigationCancelledError:
+            raise
         except Exception as exc:
             logger.warning(
                 "investigations: could not record stage row: %s", exc

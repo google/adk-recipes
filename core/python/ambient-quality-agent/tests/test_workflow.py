@@ -1472,7 +1472,9 @@ def test_investigation_end_to_end(
     assert fetched["summary"]["multi_turn_pages_evaluated"] >= 1
 
     # 4. Each node that emitted a progress event wrote its own row against the
-    #    run, so the detail view reports who said what.
+    #    run, so the detail view reports who said what. The multi-turn sweep
+    #    also wrote how far it got, before its page and after it: rows the
+    #    view keeps out of the events, and that say nothing once it is done.
     assert [e["source"] for e in fetched["events"]] == [
         "init",
         "eval_multi_turn",
@@ -1482,6 +1484,10 @@ def test_investigation_end_to_end(
     assert fetched["summary"]["events"] == [
         e["text"] for e in fetched["events"]
     ]
+    assert [r.get("source") for r in investigation_store.event_rows].count(
+        "stage"
+    ) == 2
+    assert fetched["progress"] is None
 
     # 5. ...and the list view carries the same investigation without those events.
     listed = asyncio.run(orchestrator.list_investigations(tc))["investigations"]

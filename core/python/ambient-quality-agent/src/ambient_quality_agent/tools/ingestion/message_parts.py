@@ -16,9 +16,9 @@
 
 Handles the typed parts written by the google-genai instrumentor and ADK,
 and native genai parts in snake_case or camelCase. Bytes embedded directly in a
-message part become text placeholders, so the eval case keeps no attachment
-payloads from them. Bytes nested deeper, such as inside
-``function_response.parts``, are not rewritten.
+message part (as inline data or a ``data:`` URI) are decoded into a native
+``inline_data`` part for `trajectory_files` to store and link. Undecodable data
+becomes an unknown-size text placeholder.
 
 The module also defines the ``function_response`` names that ingestion assigns
 to runtime failures; the review rules refer to them by name.
@@ -34,9 +34,10 @@ import logging
 import re
 import urllib.parse
 from collections.abc import Mapping
-from typing import Any, NamedTuple
+from typing import Any
 
 from google.genai.types import (
+    Blob,
     CodeExecutionResult,
     ExecutableCode,
     FileData,
@@ -64,12 +65,12 @@ _CODE_FIELDS = frozenset({"type", "code", "language"})
 _CODE_RESULT_FIELDS = frozenset({"type", "outcome", "output"})
 _TOOL_CALL_FIELDS = frozenset({"type", "arguments"})
 _TOOL_RESPONSE_FIELDS = frozenset({"type", "response"})
-_DEFAULT_MIME_TYPE = "application/octet-stream"
+DEFAULT_MIME_TYPE = "application/octet-stream"
 _DATA_URI_PREFIX = "data:"
 _PLACEHOLDER_MIME_TYPE = r"(?P<mime_type>[^,>]+)"
-_INLINE_DATA_DETAIL = r"(?P<digest>\d+ bytes, sha256:[0-9a-f]{8})|size unknown"
-_INLINE_DATA_PLACEHOLDER = re.compile(
-    rf"<attachment: {_PLACEHOLDER_MIME_TYPE}, (?:{_INLINE_DATA_DETAIL})>"
+_INLINE_DATA_DETAIL = r"\d+ bytes, sha256:[0-9a-f]{8}|size unknown"
+_UNKNOWN_SIZE_PLACEHOLDER = re.compile(
+    rf"<attachment: {_PLACEHOLDER_MIME_TYPE}, size unknown>"
 )
 # Every placeholder form this module emits: inline data, an uploaded file's ID,
 # or a bare MIME type.
@@ -88,15 +89,6 @@ RUNTIME_ERROR_RESPONSES = frozenset(
 recorded, not a tool result. The session review rules refer to them by name."""
 
 
-class InlineDataPlaceholder(NamedTuple):
-    """The details an inline-data placeholder records about its attachment."""
-
-    mime_type: str
-    has_digest: bool
-    """Whether the bytes were decoded, so the placeholder names their size and
-    digest."""
-
-
 def parse_part(part: Any, tool_call_ids: dict[str, str]) -> Part | None:
     """Convert one trace message part into a genai `Part`.
 
@@ -108,7 +100,8 @@ def parse_part(part: Any, tool_call_ids: dict[str, str]) -> Part | None:
        SDK's `Part` model (unknown fields ignored), supporting any part field
        (``text``, ``function_call``, ``function_response``, ``file_data``,
        ``executable_code``, ``thought``, ...). Inline data and ``data:`` file
-       URIs become a text placeholder (see `_build_inline_data_placeholder`).
+       URIs become a native ``inline_data`` part (see
+       `_build_inline_data_part`).
     3. Flat ``{"content": "..."}`` text fallback.
 
     Args:
@@ -141,7 +134,7 @@ def parse_part(part: Any, tool_call_ids: dict[str, str]) -> Part | None:
     if known:
         # Checked on the raw mapping: `Part` rejects data that is not base64,
         # such as ADK's "<not serializable>" sentinel, and would drop the part.
-        binary = _build_native_binary_placeholder(known)
+        binary = _build_native_binary_part(known)
         if binary is not None:
             return binary
         try:
@@ -211,9 +204,9 @@ def _parse_typed_part(
         data = part.get("content")
         if data is None:
             data = part.get("data")
-        return _build_inline_data_placeholder(data, part.get("mime_type"))
+        return _build_inline_data_part(data, part.get("mime_type"))
     if part_type == "file":
-        mime_type = part.get("mime_type") or _DEFAULT_MIME_TYPE
+        mime_type = part.get("mime_type") or DEFAULT_MIME_TYPE
         file_id = part.get("file_id")
         if file_id is None:
             return build_attachment_placeholder(mime_type)
@@ -233,14 +226,14 @@ def _parse_uri_part(uri: Any, mime_type: Any) -> Part:
         mime_type: The attachment's MIME type, if known.
 
     Returns:
-        A native ``file_data`` Part, an inline-data placeholder for a
-        ``data:`` URI, or a bare attachment placeholder when the URI is
-        missing.
+        A native ``file_data`` Part, an inline-data Part for a ``data:`` URI
+        (see `_build_inline_data_part`), or a bare attachment placeholder when
+        the URI is missing.
     """
     if not isinstance(uri, str) or not uri:
-        return build_attachment_placeholder(mime_type or _DEFAULT_MIME_TYPE)
+        return build_attachment_placeholder(mime_type or DEFAULT_MIME_TYPE)
     if _is_data_uri(uri):
-        return _data_uri_to_placeholder(uri, mime_type)
+        return _data_uri_to_part(uri, mime_type)
     return Part(file_data=FileData(file_uri=uri, mime_type=mime_type or None))
 
 
@@ -360,26 +353,27 @@ def _part_to_json_text(part: Mapping[str, Any]) -> Part:
     return Part(text=json.dumps(dict(part), default=str))
 
 
-def _build_native_binary_placeholder(fields: Mapping[str, Any]) -> Part | None:
-    """Replace a native part's embedded bytes with a placeholder.
+def _build_native_binary_part(fields: Mapping[str, Any]) -> Part | None:
+    """Convert a native part that embeds bytes.
 
     Args:
         fields: The part's non-null `Part` fields, in either spelling.
 
     Returns:
-        An inline-data placeholder for ``inline_data`` or a ``data:`` file
-        URI, or None if the part embeds no bytes.
+        An inline-data Part (see `_build_inline_data_part`) for
+        ``inline_data`` or a ``data:`` file URI, or None if the part embeds no
+        bytes.
     """
     inline = extract_field(fields, "inline_data", "inlineData")
     if isinstance(inline, Mapping):
-        return _build_inline_data_placeholder(
+        return _build_inline_data_part(
             inline.get("data"), extract_field(inline, "mime_type", "mimeType")
         )
     file_data = extract_field(fields, "file_data", "fileData")
     if isinstance(file_data, Mapping):
         uri = extract_field(file_data, "file_uri", "fileUri")
         if isinstance(uri, str) and _is_data_uri(uri):
-            return _data_uri_to_placeholder(
+            return _data_uri_to_part(
                 uri, extract_field(file_data, "mime_type", "mimeType")
             )
     return None
@@ -414,53 +408,66 @@ def _is_data_uri(uri: str) -> bool:
     return uri[: len(_DATA_URI_PREFIX)].lower() == _DATA_URI_PREFIX
 
 
-def _data_uri_to_placeholder(uri: str, mime_type: Any) -> Part:
-    """Replace a ``data:[<mediatype>][;base64],<payload>`` URI with a placeholder.
+def _data_uri_to_part(uri: str, mime_type: Any) -> Part:
+    """Convert a ``data:[<mediatype>][;base64],<payload>`` URI into inline data.
 
     Args:
         uri: The ``data:`` URI.
         mime_type: The part's MIME type, used when the URI names none.
 
     Returns:
-        An inline-data placeholder Part.
+        An inline-data Part (see `_build_inline_data_part`).
     """
     header, separator, payload = uri[len(_DATA_URI_PREFIX) :].partition(",")
     params = header.split(";")
     data_mime_type = params[0] or mime_type
     if not separator:
-        return _build_inline_data_placeholder(None, data_mime_type)
+        return _build_inline_data_part(None, data_mime_type)
     if params[-1].lower() == "base64":
         data = _decode_inline_data(payload)
     else:
         data = urllib.parse.unquote_to_bytes(payload)
-    return _build_inline_data_placeholder(data, data_mime_type)
+    return _build_inline_data_part(data, data_mime_type)
 
 
-def _build_inline_data_placeholder(data: Any, mime_type: Any) -> Part:
-    """Describe inline bytes as text, keeping the payload out of the eval case.
+def _build_inline_data_part(data: Any, mime_type: Any) -> Part:
+    """Convert inline data into a native ``inline_data`` part.
 
-    The digest keeps two different attachments of the same type and size
-    apart, because `trace_converter._add_contents` deduplicates messages by
-    their JSON. Data that cannot be decoded, such as every blob ADK writes to
-    ``gen_ai.*`` message attributes, has no digest, so such attachments are
-    told apart only by their message.
+    Undecodable data, such as ADK's ``"<not serializable>"`` sentinel in
+    ``gen_ai.*`` message attributes, becomes an unknown-size text placeholder.
 
     Args:
-        data: The bytes, or their base64 text.
+        data: Raw bytes or base64-encoded string.
         mime_type: The data's MIME type, if known.
 
     Returns:
-        A text Part naming the MIME type, size and a short SHA-256 digest, or
-        noting an unknown size when the data cannot be decoded.
+        A `Part` with ``inline_data`` holding the decoded bytes, or a text
+        `Part` noting an unknown size when ``data`` cannot be decoded.
     """
-    mime_type = mime_type or _DEFAULT_MIME_TYPE
+    mime_type = mime_type or DEFAULT_MIME_TYPE
     decoded = _decode_inline_data(data)
     if decoded is None:
         return Part(text=f"<attachment: {mime_type}, size unknown>")
-    digest = hashlib.sha256(decoded).hexdigest()[:8]
-    return Part(
-        text=f"<attachment: {mime_type}, {len(decoded)} bytes, sha256:{digest}>"
-    )
+    return Part(inline_data=Blob(data=decoded, mime_type=mime_type))
+
+
+def build_digest_placeholder_text(
+    mime_type: str, data: bytes, sha256_hex: str | None = None
+) -> str:
+    """Build placeholder text for inline bytes that are not stored.
+
+    Args:
+        mime_type: The bytes' MIME type.
+        data: Raw bytes.
+        sha256_hex: Precomputed hex SHA-256 digest of `data`, or None to
+            compute it.
+
+    Returns:
+        Placeholder text with the MIME type, byte length, and 8-character
+        SHA-256 prefix (to distinguish files of the same type and size).
+    """
+    digest = sha256_hex or hashlib.sha256(data).hexdigest()
+    return f"<attachment: {mime_type}, {len(data)} bytes, sha256:{digest[:8]}>"
 
 
 def build_attachment_placeholder(mime_type: str) -> Part:
@@ -488,24 +495,20 @@ def is_attachment_placeholder(text: str) -> bool:
     return bool(_ATTACHMENT_PLACEHOLDER.fullmatch(text))
 
 
-def parse_inline_data_placeholder(part: Part) -> InlineDataPlaceholder | None:
-    """Parse a placeholder from `_build_inline_data_placeholder`.
+def parse_unknown_size_placeholder(part: Part) -> str | None:
+    """Parse the unknown-size placeholder of `_build_inline_data_part`.
 
     Args:
         part: Parsed part.
 
     Returns:
-        The placeholder's MIME type and whether it carries a digest, or None
-        if the part's text is not exactly an inline-data placeholder.
+        The placeholder's MIME type, or None if the part's text is not exactly
+        an unknown-size placeholder.
     """
     if part.text is None:
         return None
-    match = _INLINE_DATA_PLACEHOLDER.fullmatch(part.text)
-    if match is None:
-        return None
-    return InlineDataPlaceholder(
-        mime_type=match["mime_type"], has_digest=match["digest"] is not None
-    )
+    match = _UNKNOWN_SIZE_PLACEHOLDER.fullmatch(part.text)
+    return None if match is None else match["mime_type"]
 
 
 def _decode_inline_data(data: Any) -> bytes | None:

@@ -18,15 +18,20 @@ Wiring::
 
     insight_correlation_node ── delete_failed_insights() ──► InsightWriter (Protocol)
         │ merge_finding_sets() ◄── state["finding_sets"]        ▲ implements
-        ▼                                                   BigQueryInsightStore,
-    clustering.cluster_and_label() ◄── model_call_factory()  InMemoryInsightStore
+        │                                                   BigQueryInsightStore,
+        │ _stage.StageReporter                              InMemoryInsightStore
+        │   write() as clustering and verification start,
+        │   keep_alive() from clustering through matching
+        ▼
+    clustering.cluster_and_label() ◄── model_call_factory()
         │ validate_clusters(), attach_examples()
         ▼
     merge.merge_clusters() ◄── merge_call_factory()
         │
         ▼
     _verify() ──► verification.verify_clusters() ◄── verification_call_factory()
-        │ _Verdicts.to_match, _build_match_candidate()
+        │ _build_cluster_without_turns(), _Verdicts.to_match,
+        │ _build_match_candidate()
         ▼
     InsightWriter.find_existing_insights()
         │
@@ -72,7 +77,7 @@ import logging
 
 from ambient_quality_agent import config as config_module
 from ambient_quality_agent.core._logging import log_node_run
-from ambient_quality_agent.core.nodes import _common
+from ambient_quality_agent.core.nodes import _common, _stage
 from ambient_quality_agent.core.state import WorkflowState, add_counts
 from ambient_quality_agent.tools.agent_revision import (
     AgentRevision,
@@ -98,6 +103,7 @@ from ambient_quality_agent.tools.insights.models import (
 from ambient_quality_agent.tools.insights.verification import VerifyInfo
 from ambient_quality_agent.tools.investigations.models import (
     CUSTOM_TRIGGER_TYPE,
+    StageProgress,
 )
 from google.adk.agents.context import Context
 from google.adk.events.event import Event
@@ -211,49 +217,65 @@ def insight_correlation_node(ctx: Context) -> Event:
         len(finding_set.agent_revisions),
     )
     if findings:
-        clusters, findings_skipped_to_errors = clustering.cluster_and_label(
-            findings,
-            root_agent_id=state["observed_agent_name"],
-            model_call=_common.model_call_factory(ctx),
-        )
-        clusters = clustering.validate_clusters(clusters, len(findings))
-        clustered = len({fid for c in clusters for fid in c.finding_ids})
-        clustering_info = ClusteringInfo(
-            errored_findings=findings_skipped_to_errors,
-            unclustered_findings=len(findings)
-            - findings_skipped_to_errors
-            - clustered,
-        )
-        clusters = clustering.attach_examples(
-            clusters, findings, finding_set.turns_by_trajectory
-        )
-        # After the evidence, so a folded candidate keeps a real trace, and
-        # before the store, which matches candidates against saved insights but
-        # never against each other -- two chunks' wordings of one defect would
-        # otherwise mint an insight each.
-        clusters = merge.merge_clusters(
-            clusters, model_call=_common.merge_call_factory(ctx)
-        )
-        verdicts = _verify(
-            clusters,
-            ctx,
-            agent_definitions=finding_set.agent_revisions,
-            enabled=verification_enabled,
-            enforced=verification_enforced,
-        )
-        # `find_existing_insights` keys its answer by position in the list it was
-        # given, so the candidate's own index has to be read back out of
-        # `to_match` -- a sighting filed under the wrong cluster would attach to
-        # someone else's insight.
-        to_match = verdicts.to_match
-        matches = store.find_existing_insights(
-            [
-                _build_match_candidate(
-                    clusters[index], verdicts.per_cluster[index]
+        reporter = _stage.StageReporter(state)
+        # Clustering, merging, verifying and matching are each one long model
+        # call that reports nothing until it returns.
+        with reporter.keep_alive():
+            reporter.write(
+                StageProgress(stage="Clustering", findings=len(findings))
+            )
+            clusters, findings_skipped_to_errors = clustering.cluster_and_label(
+                findings,
+                root_agent_id=state["observed_agent_name"],
+                model_call=_common.model_call_factory(ctx),
+            )
+            clusters = clustering.validate_clusters(clusters, len(findings))
+            clustered = len({fid for c in clusters for fid in c.finding_ids})
+            clustering_info = ClusteringInfo(
+                errored_findings=findings_skipped_to_errors,
+                unclustered_findings=len(findings)
+                - findings_skipped_to_errors
+                - clustered,
+            )
+            clusters = clustering.attach_examples(
+                clusters, findings, finding_set.turns_by_trajectory
+            )
+            # After the evidence, so a folded candidate keeps a real trace, and
+            # before the store, which matches candidates against saved insights but
+            # never against each other -- two chunks' wordings of one defect would
+            # otherwise mint an insight each.
+            clusters = merge.merge_clusters(
+                clusters, model_call=_common.merge_call_factory(ctx)
+            )
+            if verification_enabled and clusters:
+                reporter.write(
+                    StageProgress(stage="Verification", clusters=len(clusters))
                 )
-                for index in to_match
-            ]
-        )
+            verdicts = _verify(
+                clusters,
+                ctx,
+                agent_definitions=finding_set.agent_revisions,
+                enabled=verification_enabled,
+                enforced=verification_enforced,
+            )
+            # Verification has read the turns, and from here on only the store
+            # sees the examples. The trajectory archive keeps the conversation
+            # under the example's trajectory id and expires it after its
+            # retention period; a copy on the occurrence would never expire.
+            clusters = [_build_cluster_without_turns(c) for c in clusters]
+            # `find_existing_insights` keys its answer by position in the list it was
+            # given, so the candidate's own index has to be read back out of
+            # `to_match` -- a sighting filed under the wrong cluster would attach to
+            # someone else's insight.
+            to_match = verdicts.to_match
+            matches = store.find_existing_insights(
+                [
+                    _build_match_candidate(
+                        clusters[index], verdicts.per_cluster[index]
+                    )
+                    for index in to_match
+                ]
+            )
         matched_by_cluster = {
             to_match[position]: insight_id
             for position, insight_id in matches.items()
@@ -548,6 +570,28 @@ def _resolve_best_label(cluster: Cluster, verdict: _Verdict) -> str:
     verdict_record = verdict.analyses.get(verification.ANALYSIS_STEP)
     refined = verdict_record.refined_label if verdict_record else ""
     return refined or cluster.label
+
+
+def _build_cluster_without_turns(cluster: Cluster) -> Cluster:
+    """Builds a copy of the cluster whose examples carry no conversation turns.
+
+    Only the turns go: the finding and the trajectory id stay, and
+    model-written text in the finding can still quote the conversation.
+
+    Args:
+        cluster: The candidate, its examples' turns included.
+
+    Returns:
+        The candidate with every example's `turns` empty.
+    """
+    return cluster.model_copy(
+        update={
+            "examples": [
+                example.model_copy(update={"turns": []})
+                for example in cluster.examples
+            ]
+        }
+    )
 
 
 def _build_match_candidate(cluster: Cluster, verdict: _Verdict) -> Cluster:

@@ -1127,7 +1127,7 @@ def verify_clusters(
     trajectory ran under, as `FindingSet.agent_revisions` carries them.
 
     Raises the first exception when every attempted call failed, matching
-    `clustering.cluster_and_label` and the session reviewer: everything failing is
+    `clustering.cluster_and_label` and the review node: everything failing is
     an outage, not a sweep with no verdicts.
 
     Args:

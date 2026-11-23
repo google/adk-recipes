@@ -43,9 +43,10 @@ WORKFLOWS = Path(__file__).resolve().parents[3] / ".github" / "workflows"
 PR_REVIEW = WORKFLOWS / "_ai-pr-review-core.yml"
 ISSUE_TRIAGE = WORKFLOWS / "_ai-issue-triage-core.yml"
 ISSUE_RESPONSE = WORKFLOWS / "_ai-issue-response-core.yml"
+PROPOSAL_TRIAGE = WORKFLOWS / "_ai-recipe-proposal-triage-core.yml"
 
 # All workflows that hand an untrusted string to an agy agent.
-AGENT_WORKFLOWS = [PR_REVIEW, ISSUE_TRIAGE, ISSUE_RESPONSE]
+AGENT_WORKFLOWS = [PR_REVIEW, ISSUE_TRIAGE, ISSUE_RESPONSE, PROPOSAL_TRIAGE]
 
 
 def _load(path: Path) -> dict:
@@ -189,6 +190,12 @@ def test_the_job_that_can_write_holds_no_cloud_credential():
     [
         (PR_REVIEW, "review", "build_review", "post_review_comments.py"),
         (ISSUE_RESPONSE, "respond", "process", "process_issue_response.py"),
+        (
+            PROPOSAL_TRIAGE,
+            "triage",
+            "process",
+            "process_recipe_proposal_response.py",
+        ),
     ],
     ids=lambda item: getattr(item, "name", str(item)),
 )
@@ -415,7 +422,12 @@ def test_no_job_asks_for_more_than_every_caller_grants():
                     (f"{path.name}:{job_name}", _effective(doc, job))
                 )
 
-    for callee_name in (PR_REVIEW.name, ISSUE_TRIAGE.name, ISSUE_RESPONSE.name):
+    for callee_name in (
+        PR_REVIEW.name,
+        ISSUE_TRIAGE.name,
+        ISSUE_RESPONSE.name,
+        PROPOSAL_TRIAGE.name,
+    ):
         assert callers.get(callee_name), f"no caller found for {callee_name}"
         callee = _load(WORKFLOWS / callee_name)
 
@@ -447,6 +459,7 @@ def test_no_job_asks_for_more_than_every_caller_grants():
         (PR_REVIEW, "review"),
         (ISSUE_RESPONSE, "respond"),
         (ISSUE_TRIAGE, "triage"),
+        (PROPOSAL_TRIAGE, "triage"),
     ],
     ids=lambda item: getattr(item, "name", str(item)),
 )
@@ -480,6 +493,7 @@ def test_the_response_is_scanned_against_real_credential_material(path, job):
         (PR_REVIEW, "review"),
         (ISSUE_RESPONSE, "respond"),
         (ISSUE_TRIAGE, "triage"),
+        (PROPOSAL_TRIAGE, "triage"),
     ],
     ids=lambda item: getattr(item, "name", str(item)),
 )

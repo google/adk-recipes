@@ -83,7 +83,8 @@ class Cluster(BaseModel):
     can union two candidates; the occurrence records the newest of them."""
 
     examples: list[FindingExample] = Field(default_factory=list)
-    """Capped at `MAX_EXAMPLES`; persisted verbatim as JSON on the occurrence."""
+    """Capped at `MAX_EXAMPLES`; persisted as JSON on the occurrence, without
+    their turns (`insight_correlation`)."""
 
     @property
     def trajectory_count(self) -> int:
@@ -112,8 +113,8 @@ class ClusteringInfo(BaseModel):
 
 MAX_EXAMPLES = 10
 """Finding examples kept per cluster. Kept small because each example carries
-conversation turns and is persisted verbatim into the occurrence's JSON column,
-while a cluster can cover hundreds of findings."""
+its trajectory's conversation turns until insight correlation stores it, while
+a cluster can cover hundreds of findings."""
 
 CHUNK_CONCURRENCY = 4
 """Number of concurrent clustering llm calls."""

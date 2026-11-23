@@ -695,6 +695,10 @@ def _create_default_fetcher(
 ) -> BaseFetcher:
     """Construct the configured telemetry fetcher for preview execution.
 
+    Disables trajectory file storage so a preview does not copy files from
+    uninvestigated sessions. Top-level files become text placeholders, and
+    files in tool results remain inline.
+
     Args:
         config: Agent configuration.
         selector_sql: Raw selector SQL query.
@@ -709,6 +713,7 @@ def _create_default_fetcher(
         DetachedContext(state=state),
         recorder=recorder,
         job_timeout_ms=JOB_TIMEOUT_MS,
+        store_trajectory_files=False,
     )
 
 

@@ -122,4 +122,40 @@ describe("conversationToTrajectoryDoc", () => {
     expect(last.kind).toBe("assistant");
     expect(last.text).toBe("(no response)");
   });
+
+  it("copies a message's files onto its record", () => {
+    const doc = conversationToTrajectoryDoc({
+      trajectory_id: "case-file",
+      status: "ingested",
+      step_count: 1,
+      steps_returned: 1,
+      steps: [
+        {
+          turn_index: 0,
+          events: [
+            {
+              author: "user",
+              content: {
+                role: "user",
+                parts: [
+                  {
+                    file_data: {
+                      file_uri: "gs://jobs/receipt",
+                      mime_type: "image/jpeg",
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(doc.records).toHaveLength(1);
+    expect(doc.records[0].kind).toBe("user");
+    expect(doc.records[0].files).toEqual([
+      { mimeType: "image/jpeg", uri: "gs://jobs/receipt" },
+    ]);
+  });
 });

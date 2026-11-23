@@ -104,6 +104,20 @@ resource "google_storage_bucket" "jobs" {
       type = "Delete"
     }
   }
+
+  # End-user files copied during ingestion and linked from archived
+  # conversations. The extra day covers files written just before UTC midnight
+  # whose conversation row lands in the next day's partition, preventing the
+  # file from expiring before the row that links to it.
+  lifecycle_rule {
+    condition {
+      age            = local.trajectory_payload_retention_days + 1
+      matches_prefix = ["aqa-trajectory-files/"]
+    }
+    action {
+      type = "Delete"
+    }
+  }
 }
 
 # Code-metric library. Published code runs in the agent's process, so write

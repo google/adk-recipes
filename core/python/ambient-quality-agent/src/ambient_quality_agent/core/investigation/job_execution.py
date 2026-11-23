@@ -42,6 +42,11 @@ self-query (submitted by `job_scheduling`):
 2. Transition the investigation status to `RUNNING`.
 3. Run `investigation_workflow` via `run_investigation_graph` using the submit-time config snapshot.
 4. Record terminal `DONE` or `FAILED` status and summary back to the investigation registry.
+
+A user's cancel surfaces as `InvestigationCancelledError` from whichever write
+the investigation makes next (`model.update_investigation`,
+`model.append_investigation_event`), and `execute_investigation` ends it there,
+leaving it `CANCELLED`.
 """
 
 from __future__ import annotations
@@ -67,6 +72,7 @@ from ambient_quality_agent.tools import gcs
 from ambient_quality_agent.tools.investigations.models import (
     CUSTOM_TRIGGER_TYPE,
     CustomOverrides,
+    InvestigationCancelledError,
     InvestigationCounters,
 )
 from ambient_quality_agent.tools.observed_agent_config import effective_config
@@ -110,14 +116,16 @@ async def execute_investigation(
     3. Transition the investigation status to `RUNNING`.
     4. Execute the workflow graph with the submit-time configuration snapshot.
     5. Record the final status (`DONE`, `FAILED`, or `SKIPPED`) and summary.
+       If a write finds the investigation cancelled, stop and leave it
+       `CANCELLED`.
 
     Args:
         investigation_id: Unique identifier of the investigation.
         context: Launch context containing workflow state.
 
     Returns:
-        Dictionary reporting execution status ('done', 'failed', or 'skipped')
-        and associated investigation details.
+        Dictionary reporting execution status ('done', 'failed', 'skipped', or
+        'cancelled') and associated investigation details.
     """
     state = context.state
     record = await model.get_stored_investigation(state, investigation_id)
@@ -149,6 +157,10 @@ async def execute_investigation(
         return await _claim_marker_and_run(
             state, investigation_id, record, log_result_for_alerting
         )
+    except InvestigationCancelledError:
+        logger.info("Investigation %s stopped: cancelled.", investigation_id)
+        log_result_for_alerting({"status": InvestigationStatus.CANCELLED})
+        return {"status": "cancelled"}
     except BaseException as exc:
         # Graph-external failure handler: ensure cancellations or unexpected crashes
         # record a terminal FAILED state rather than leaving the investigation abandoned.
@@ -292,7 +304,7 @@ def _should_notify(
     """
     if trigger_type == CUSTOM_TRIGGER_TYPE:
         return False, ""
-    if status == InvestigationStatus.SKIPPED:
+    if status in (InvestigationStatus.SKIPPED, InvestigationStatus.CANCELLED):
         return False, ""
     if status != InvestigationStatus.DONE:
         return True, "the investigation failed"
@@ -395,6 +407,10 @@ async def run_investigation_graph(
         on success or error message on failure. The counters are stored in a
         column of their own rather than inside the summary, so they can be summed
         across investigations.
+
+    Raises:
+        InvestigationCancelledError: If a user cancelled the investigation
+            while it executed.
     """
     overrides = custom_overrides or CustomOverrides()
     try:
@@ -465,6 +481,9 @@ async def run_investigation_graph(
             "summary": summary,
             "counters": _extract_counters(final_state),
         }
+    except InvestigationCancelledError:
+        # Not a failure: `execute_investigation` ends a cancelled investigation.
+        raise
     except Exception as exc:
         logger.exception("Investigation run failed.")
         return {"status": "failed", "error": str(exc)}

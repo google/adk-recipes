@@ -27,11 +27,13 @@ Wiring::
     build_trajectory_json()
         ──► findings.extract_trajectory_turns()
         ──► _build_instruction_outline() ──► _list_outline_entries()
+              ──► grep_read.split_text_lines() (line numbers only)
         ──► _add_event_fields() ──► _add_text_fields() ──► _decode_json_text()
 """
 
 from __future__ import annotations
 
+import bisect
 import json
 import re
 from typing import TYPE_CHECKING, Any, Final
@@ -42,6 +44,7 @@ from ambient_quality_agent.tools.ingestion.message_parts import (
 from ambient_quality_agent.tools.insights.findings import (
     extract_trajectory_turns,
 )
+from ambient_quality_agent.tools.review.agentic_reviewer.tools import grep_read
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -67,15 +70,19 @@ _NO_VALUE: Final = object()
 
 
 def build_trajectory_json(
-    eval_case: Any, revisions: Sequence[AgentRevision]
+    eval_case: Any,
+    revisions: Sequence[AgentRevision],
+    *,
+    outline_line_numbers: bool = False,
 ) -> dict[str, Any]:
     """Build the trajectory JSON queried by the reviewer's tools.
 
     The JSON holds:
 
     - one entry per agent with ``agent_id``, ``instruction``,
-      ``instruction_outline`` (``[offset, header_line]`` pairs, where
-      ``offset`` is a character offset into ``instruction``), and
+      ``instruction_outline`` (``[position, header_line]`` pairs, where
+      ``position`` is a 1-based `read` line number when `outline_line_numbers`
+      is True, or a character offset into ``instruction`` otherwise), and
       ``tools`` (tool name when neither parameters nor description are
       recorded, otherwise the declaration dict);
     - the serialized turns, with ``event_id`` (``tN.eM``) as the first key on
@@ -87,6 +94,9 @@ def build_trajectory_json(
     Args:
         eval_case: Evaluation case containing the conversation turns.
         revisions: Agent definitions active during the session.
+        outline_line_numbers: True to give outline positions as `read` line
+            numbers, for the `grep` and `read` tools; False to give them as
+            character offsets, for the jq tool.
 
     Returns:
         Trajectory JSON ``{"agents": [...], "turns": [...]}``.
@@ -104,7 +114,8 @@ def build_trajectory_json(
                 "agent_id": revision.agent_id,
                 "instruction": revision.instruction,
                 "instruction_outline": _build_instruction_outline(
-                    str(revision.instruction or "")
+                    str(revision.instruction or ""),
+                    line_numbers=outline_line_numbers,
                 ),
                 "tools": [
                     tool.name
@@ -190,17 +201,25 @@ def has_attachment(trajectory_json: dict[str, Any]) -> bool:
     return False
 
 
-def _build_instruction_outline(instruction: str) -> list[list[int | str]]:
-    """Extract section headers from `instruction` with their character offsets.
+def _build_instruction_outline(
+    instruction: str, *, line_numbers: bool
+) -> list[list[int | str]]:
+    """Extract section headers from `instruction` with their positions.
 
     Args:
         instruction: Agent system instruction text.
+        line_numbers: True to use 1-based `read` line numbers as positions;
+            False to use character offsets.
 
     Returns:
-        ``[offset, header_line]`` pairs in text order.
+        ``[position, header_line]`` pairs in text order.
     """
+    entries = _list_outline_entries(instruction)
+    if not line_numbers:
+        return [[offset, line] for offset, line in entries]
+    starts = [start for start, _ in grep_read.split_text_lines(instruction)]
     return [
-        [offset, line] for offset, line in _list_outline_entries(instruction)
+        [bisect.bisect_right(starts, offset), line] for offset, line in entries
     ]
 
 
