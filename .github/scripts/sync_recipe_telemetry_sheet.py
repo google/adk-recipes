@@ -526,8 +526,10 @@ def fetch_pull_counts(
         if status != 200:
             print(
                 f"warning: Cloud Logging query returned HTTP {status}; "
-                "proceeding with collected pull counts. Ensure logging.googleapis.com "
-                "is enabled and wif-service-account has roles/logging.viewer.",
+                "proceeding with collected pull counts. Ensure "
+                "logging.googleapis.com is enabled, DATA_READ audit logs are "
+                "enabled for artifactregistry.googleapis.com, and "
+                f"{service_account} has roles/logging.privateLogViewer.",
                 file=sys.stderr,
             )
             break
@@ -993,6 +995,16 @@ def main() -> int:
             "permission_denied": "Skipped (permission denied — grant Sheet Editor access)",
             "error": "Failed (see workflow logs)",
         }[sync_outcome]
+        if (
+            sync_outcome == "permission_denied"
+            and os.environ.get("GITHUB_ACTIONS") == "true"
+        ):
+            print(
+                "::warning::Google Sheet telemetry sync skipped due to "
+                f"permission denied on {spreadsheet_id}. Share the sheet with "
+                f"{args.service_account} as Editor and ensure "
+                "sheets.googleapis.com is enabled."
+            )
 
     md = render_markdown_summary(
         rows,

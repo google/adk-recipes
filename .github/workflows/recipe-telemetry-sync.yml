@@ -18,6 +18,15 @@ name: 📊 Recipe Telemetry Sync
 # Logging via Workload Identity Federation, writes a Markdown report to the job
 # summary, and updates the "Recipe Telemetry" and "Telemetry Log" tabs on the
 # target Google Sheet (`1-Asr-QrGUaBheoTkUASroNI9UA1rCgMV6jyxWGpLa7Q`).
+#
+# Required GCP / Google Sheets setup on `adk-samples-repo-gcp-support`:
+#   - APIs enabled: `artifactregistry.googleapis.com`, `logging.googleapis.com`,
+#     `sheets.googleapis.com`.
+#   - `wif-service-account` granted `roles/logging.privateLogViewer` (Data
+#     Access audit logs are private and not covered by `roles/logging.viewer`).
+#   - Data Access (`DATA_READ`) audit logging enabled for
+#     `artifactregistry.googleapis.com`.
+#   - Target Google Sheet shared with `wif-service-account` as Editor.
 
 on:
   schedule:

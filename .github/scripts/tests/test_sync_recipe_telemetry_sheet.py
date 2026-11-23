@@ -667,7 +667,9 @@ def test_col_letter_and_project_id_validation():
 
 
 def test_main_exits_nonzero_on_sheet_error_and_zero_on_403(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
 ):
     monkeypatch.setattr(sync, "collect_telemetry_rows", lambda *a, **kw: [])
 
@@ -695,6 +697,7 @@ def test_main_exits_nonzero_on_sheet_error_and_zero_on_403(
         "sync_to_google_sheet_with_status",
         lambda *a, **kw: "permission_denied",
     )
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
     monkeypatch.setattr(
         sys,
         "argv",
@@ -706,7 +709,32 @@ def test_main_exits_nonzero_on_sheet_error_and_zero_on_403(
             str(tmp_path / "perm.md"),
         ],
     )
+    capsys.readouterr()
     assert sync.main() == 0
+    out = capsys.readouterr().out
+    assert "::warning::" in out
     assert "permission denied" in (tmp_path / "perm.md").read_text(
         encoding="utf-8"
     )
+
+
+def test_fetch_pull_counts_warns_with_private_log_viewer_role(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+):
+    monkeypatch.setattr(
+        sync,
+        "_http_json",
+        lambda *a, **kw: (403, {"error": {"message": "Permission denied"}}),
+    )
+    counts = sync.fetch_pull_counts(
+        "adk-samples-repo-gcp-support",
+        30,
+        "fake-token",
+        service_account="custom-sa@example.iam.gserviceaccount.com",
+    )
+    assert counts == {}
+    err = capsys.readouterr().err
+    assert "roles/logging.privateLogViewer" in err
+    assert "DATA_READ" in err
+    assert "custom-sa@example.iam.gserviceaccount.com" in err
