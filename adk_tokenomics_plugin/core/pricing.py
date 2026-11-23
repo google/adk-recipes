@@ -3,6 +3,7 @@ Tokenomics SDK - Rate Card & Pricing Engine
 Calculates granular turn costs and optimization ROI across all LLM vendors.
 """
 
+import logging
 import re
 from typing import Any, Dict, List, Mapping, Optional
 
@@ -11,6 +12,8 @@ from adk_tokenomics_plugin.core.config import (
     TokenomicsConfig,
     canonicalize_model_id,
 )
+
+logger = logging.getLogger(__name__)
 
 _PROVIDER_PREFIX_RE = re.compile(
     r"^(?:projects/[^/]+/locations/[^/]+/|publishers/[^/]+/models/|models/|vertex_ai/|anthropic/|openai/|together_ai/|fireworks_ai/|groq/|bedrock/|azure/|huggingface/)+"
@@ -30,6 +33,9 @@ _TIER_SUFFIX_TOKENS = {
     "pro",
     "opus",
     "sonnet",
+    "hydrogen",
+    "argon",
+    "neon",
 }
 
 
@@ -78,6 +84,7 @@ class PricingEngine:
         self.config = config or TokenomicsConfig()
         self._canonical_entries: List[Dict[str, Any]] = []
         self._prefix_keys: List[tuple[str, Dict[str, Any]]] = []
+        self._warned_estimated_models: set[str] = set()
         self._load_rates()
 
     @staticmethod
@@ -164,6 +171,7 @@ class PricingEngine:
                 self.pricing_table.setdefault(str(resolved_name), rate_entry)
 
         self._canonical_entries = list(canonical_by_id.values())
+        self._warned_estimated_models.clear()
         # Pre-sort normalized model-id keys longest-first for deterministic boundary-prefix matching
         prefix_candidates: Dict[str, Dict[str, Any]] = {}
         for k, v in self.pricing_table.items():
@@ -197,18 +205,69 @@ class PricingEngine:
         self._load_rates()
         return entry
 
+    def _resolve_estimated_fallback(
+        self,
+        raw_id: str,
+        canonical_id: Optional[str],
+        fallback_spec: Dict[str, Any],
+        match_kind: str,
+    ) -> Dict[str, Any]:
+        """Resolves a family or default fallback through the active rate card first, stamping pricing_estimated=True."""
+        base = self.pricing_table.get(canonical_id) if canonical_id else None
+        if base is not None:
+            in_r = float(base["input_per_million"])
+            cac_r = float(base["cached_per_million"])
+            out_r = float(base["output_per_million"])
+            name = str(base.get("name", fallback_spec["name"]))
+            provider = str(base.get("provider", fallback_spec["provider"]))
+        else:
+            in_r = float(fallback_spec["input_per_million"])
+            cac_r = float(fallback_spec["cached_per_million"])
+            out_r = float(fallback_spec["output_per_million"])
+            name = str(fallback_spec["name"])
+            provider = str(fallback_spec["provider"])
+
+        result: Dict[str, Any] = {
+            "id": None,
+            "matched_family_id": canonical_id,
+            "name": name,
+            "provider": provider,
+            "input_per_million": in_r,
+            "cached_per_million": cac_r,
+            "output_per_million": out_r,
+            "input": in_r,
+            "cached": cac_r,
+            "output": out_r,
+            "rate_card_match": match_kind,
+            "pricing_estimated": True,
+        }
+        if raw_id and raw_id not in self._warned_estimated_models:
+            self._warned_estimated_models.add(raw_id)
+            logger.warning(
+                "Model %r is not in the active rate card; estimating USD with %s rates "
+                "($%.4g / $%.4g / $%.4g per 1M tokens, match=%s). Register exact pricing in "
+                "models_config.json or via register_model() to silence this warning.",
+                raw_id,
+                name,
+                in_r,
+                cac_r,
+                out_r,
+                match_kind,
+            )
+        return result
+
     def get_rate(self, model_id: str) -> Dict[str, Any]:
         """Returns pricing rate card for a given 1P, 3P (Claude, OpenAI), or Open-Weight model ID."""
         raw_id = str(model_id or "").strip()
         if raw_id in self.pricing_table:
-            return dict(self.pricing_table[raw_id])
+            return {**self.pricing_table[raw_id], "rate_card_match": "exact", "pricing_estimated": False}
 
         norm_id = self._normalize_model_id(raw_id)
         if norm_id in self.pricing_table:
-            return dict(self.pricing_table[norm_id])
+            return {**self.pricing_table[norm_id], "rate_card_match": "exact", "pricing_estimated": False}
         last_seg = norm_id.split("/")[-1] if "/" in norm_id else norm_id
         if last_seg in self.pricing_table:
-            return dict(self.pricing_table[last_seg])
+            return {**self.pricing_table[last_seg], "rate_card_match": "exact", "pricing_estimated": False}
 
         # Case-insensitive exact lookup across registered keys
         mid_lower = raw_id.lower()
@@ -217,7 +276,7 @@ class PricingEngine:
         for k, v in self.pricing_table.items():
             k_low = k.lower()
             if k_low in (mid_lower, norm_lower, seg_lower):
-                return dict(v)
+                return {**v, "rate_card_match": "exact", "pricing_estimated": False}
 
         # Longest-prefix match against configured model keys at version/date boundary delimiters (-, @, :, _, .),
         # skipping parent matches when any suffix token denotes a distinct model tier (e.g. gpt-5-mini, gpt-5-pro).
@@ -232,11 +291,15 @@ class PricingEngine:
                     rem_tokens = [tok for tok in _BOUNDARY_TOKEN_SPLIT_RE.split(rem) if tok]
                     if any(tok in _TIER_SUFFIX_TOKENS for tok in rem_tokens):
                         continue
-                    return dict(v)
+                    return {**v, "rate_card_match": "prefix", "pricing_estimated": False}
 
         # Local self-hosted runtime prefix check
         if mid_lower.startswith(("ollama/", "vllm/", "hosted_vllm/", "local/")):
+            local_base = self.pricing_table.get("ollama/local-open-weight")
+            if local_base is not None:
+                return {**local_base, "rate_card_match": "local_open_weight", "pricing_estimated": False}
             return {
+                "id": None,
                 "name": "Local Open-Weight (Ollama/vLLM)",
                 "provider": "open_weight",
                 "input_per_million": 0.0,
@@ -245,55 +308,161 @@ class PricingEngine:
                 "input": 0.0,
                 "cached": 0.0,
                 "output": 0.0,
+                "rate_card_match": "local_open_weight",
+                "pricing_estimated": False,
             }
 
-        # Family fallback heuristics run strictly on the final '/' path segment (seg_lower)
+        # Family fallback heuristics run strictly on the final '/' path segment (seg_lower),
+        # delegating to active pricing_table canonical entries first so Rate Card edits propagate.
         if "haiku" in seg_lower:
-            return {"name": "Claude Haiku", "provider": "anthropic", "input_per_million": 0.80, "cached_per_million": 0.08, "output_per_million": 4.00, "input": 0.80, "cached": 0.08, "output": 4.00}
+            return self._resolve_estimated_fallback(
+                raw_id,
+                "claude-3-5-haiku",
+                {"name": "Claude Haiku", "provider": "anthropic", "input_per_million": 0.80, "cached_per_million": 0.08, "output_per_million": 4.00},
+                "family_heuristic",
+            )
         if "opus" in seg_lower:
-            return {"name": "Claude Opus", "provider": "anthropic", "input_per_million": 15.00, "cached_per_million": 1.50, "output_per_million": 75.00, "input": 15.00, "cached": 1.50, "output": 75.00}
+            return self._resolve_estimated_fallback(
+                raw_id,
+                "claude-opus-4",
+                {"name": "Claude Opus", "provider": "anthropic", "input_per_million": 15.00, "cached_per_million": 1.50, "output_per_million": 75.00},
+                "family_heuristic",
+            )
         if "claude" in seg_lower or "sonnet" in seg_lower:
-            return {"name": "Claude Sonnet", "provider": "anthropic", "input_per_million": 3.00, "cached_per_million": 0.30, "output_per_million": 15.00, "input": 3.00, "cached": 0.30, "output": 15.00}
+            sonnet_key = "claude-3-7-sonnet" if "claude-3-7-sonnet" in self.pricing_table else "claude-sonnet-5"
+            return self._resolve_estimated_fallback(
+                raw_id,
+                sonnet_key,
+                {"name": "Claude Sonnet", "provider": "anthropic", "input_per_million": 3.00, "cached_per_million": 0.30, "output_per_million": 15.00},
+                "family_heuristic",
+            )
         if "llama" in seg_lower:
             if "8b" in seg_lower:
-                return {"name": "Llama 8B (Open Weight)", "provider": "open_weight", "input_per_million": 0.05, "cached_per_million": 0.01, "output_per_million": 0.08, "input": 0.05, "cached": 0.01, "output": 0.08}
+                return self._resolve_estimated_fallback(
+                    raw_id,
+                    "meta/llama-3.1-8b-instruct",
+                    {"name": "Llama 8B (Open Weight)", "provider": "open_weight", "input_per_million": 0.05, "cached_per_million": 0.01, "output_per_million": 0.08},
+                    "family_heuristic",
+                )
             if "405b" in seg_lower:
-                return {"name": "Llama 405B (Open Weight)", "provider": "open_weight", "input_per_million": 1.80, "cached_per_million": 0.45, "output_per_million": 1.80, "input": 1.80, "cached": 0.45, "output": 1.80}
-            return {"name": "Llama 70B (Open Weight)", "provider": "open_weight", "input_per_million": 0.60, "cached_per_million": 0.15, "output_per_million": 0.60, "input": 0.60, "cached": 0.15, "output": 0.60}
+                return self._resolve_estimated_fallback(
+                    raw_id,
+                    "meta/llama-3.1-405b-instruct",
+                    {"name": "Llama 405B (Open Weight)", "provider": "open_weight", "input_per_million": 1.80, "cached_per_million": 0.45, "output_per_million": 1.80},
+                    "family_heuristic",
+                )
+            return self._resolve_estimated_fallback(
+                raw_id,
+                "meta/llama-3.3-70b-instruct",
+                {"name": "Llama 70B (Open Weight)", "provider": "open_weight", "input_per_million": 0.60, "cached_per_million": 0.15, "output_per_million": 0.60},
+                "family_heuristic",
+            )
         if "deepseek" in seg_lower:
             if "r1" in seg_lower:
-                return {"name": "DeepSeek R1 (Open Weight)", "provider": "open_weight", "input_per_million": 0.55, "cached_per_million": 0.14, "output_per_million": 2.19, "input": 0.55, "cached": 0.14, "output": 2.19}
-            return {"name": "DeepSeek V3 (Open Weight)", "provider": "open_weight", "input_per_million": 0.27, "cached_per_million": 0.07, "output_per_million": 1.10, "input": 0.27, "cached": 0.07, "output": 1.10}
+                return self._resolve_estimated_fallback(
+                    raw_id,
+                    "deepseek/deepseek-r1",
+                    {"name": "DeepSeek R1 (Open Weight)", "provider": "open_weight", "input_per_million": 0.55, "cached_per_million": 0.14, "output_per_million": 2.19},
+                    "family_heuristic",
+                )
+            return self._resolve_estimated_fallback(
+                raw_id,
+                "deepseek/deepseek-v3",
+                {"name": "DeepSeek V3 (Open Weight)", "provider": "open_weight", "input_per_million": 0.27, "cached_per_million": 0.07, "output_per_million": 1.10},
+                "family_heuristic",
+            )
         if "mistral" in seg_lower or "mixtral" in seg_lower:
             if "small" in seg_lower:
-                return {"name": "Mistral Small (Open Weight)", "provider": "open_weight", "input_per_million": 0.10, "cached_per_million": 0.025, "output_per_million": 0.30, "input": 0.10, "cached": 0.025, "output": 0.30}
-            return {"name": "Mistral Large (Open Weight)", "provider": "open_weight", "input_per_million": 2.00, "cached_per_million": 0.50, "output_per_million": 6.00, "input": 2.00, "cached": 0.50, "output": 6.00}
+                return self._resolve_estimated_fallback(
+                    raw_id,
+                    "mistralai/mistral-small",
+                    {"name": "Mistral Small (Open Weight)", "provider": "open_weight", "input_per_million": 0.10, "cached_per_million": 0.025, "output_per_million": 0.30},
+                    "family_heuristic",
+                )
+            return self._resolve_estimated_fallback(
+                raw_id,
+                "mistralai/mistral-large",
+                {"name": "Mistral Large (Open Weight)", "provider": "open_weight", "input_per_million": 2.00, "cached_per_million": 0.50, "output_per_million": 6.00},
+                "family_heuristic",
+            )
         if "qwen" in seg_lower:
-            return {"name": "Qwen (Open Weight)", "provider": "open_weight", "input_per_million": 0.35, "cached_per_million": 0.09, "output_per_million": 0.40, "input": 0.35, "cached": 0.09, "output": 0.40}
+            return self._resolve_estimated_fallback(
+                raw_id,
+                "qwen/qwen-2.5-72b-instruct",
+                {"name": "Qwen (Open Weight)", "provider": "open_weight", "input_per_million": 0.35, "cached_per_million": 0.09, "output_per_million": 0.40},
+                "family_heuristic",
+            )
         if "gemma" in seg_lower:
-            return {"name": "Gemma (Open Weight)", "provider": "open_weight", "input_per_million": 0.10, "cached_per_million": 0.025, "output_per_million": 0.20, "input": 0.10, "cached": 0.025, "output": 0.20}
+            return self._resolve_estimated_fallback(
+                raw_id,
+                "google/gemma-3-27b-it",
+                {"name": "Gemma (Open Weight)", "provider": "open_weight", "input_per_million": 0.10, "cached_per_million": 0.025, "output_per_million": 0.20},
+                "family_heuristic",
+            )
         if "gpt" in seg_lower or _OPENAI_REASONING_RE.search(seg_lower):
             if "mini" in seg_lower or "nano" in seg_lower:
-                return {"name": "OpenAI Mini", "provider": "openai", "input_per_million": 0.15, "cached_per_million": 0.075, "output_per_million": 0.60, "input": 0.15, "cached": 0.075, "output": 0.60}
+                return self._resolve_estimated_fallback(
+                    raw_id,
+                    "gpt-4o-mini",
+                    {"name": "OpenAI Mini", "provider": "openai", "input_per_million": 0.15, "cached_per_million": 0.075, "output_per_million": 0.60},
+                    "family_heuristic",
+                )
             if _PRO_TOKEN_RE.search(seg_lower):
-                return {"name": "OpenAI Pro", "provider": "openai", "input_per_million": 15.00, "cached_per_million": 3.75, "output_per_million": 120.00, "input": 15.00, "cached": 3.75, "output": 120.00}
+                return self._resolve_estimated_fallback(
+                    raw_id,
+                    None,
+                    {"name": "OpenAI Pro", "provider": "openai", "input_per_million": 15.00, "cached_per_million": 3.75, "output_per_million": 120.00},
+                    "family_heuristic",
+                )
             if seg_lower.startswith("gpt-5"):
-                return {"name": "OpenAI GPT-5", "provider": "openai", "input_per_million": 1.25, "cached_per_million": 0.125, "output_per_million": 10.00, "input": 1.25, "cached": 0.125, "output": 10.00}
-            return {"name": "GPT-4o", "provider": "openai", "input_per_million": 2.50, "cached_per_million": 1.25, "output_per_million": 10.00, "input": 2.50, "cached": 1.25, "output": 10.00}
+                return self._resolve_estimated_fallback(
+                    raw_id,
+                    "gpt-5",
+                    {"name": "OpenAI GPT-5", "provider": "openai", "input_per_million": 1.25, "cached_per_million": 0.125, "output_per_million": 10.00},
+                    "family_heuristic",
+                )
+            return self._resolve_estimated_fallback(
+                raw_id,
+                "gpt-4o",
+                {"name": "GPT-4o", "provider": "openai", "input_per_million": 2.50, "cached_per_million": 1.25, "output_per_million": 10.00},
+                "family_heuristic",
+            )
+        if "neon" in seg_lower:
+            return self._resolve_estimated_fallback(
+                raw_id,
+                "publishers/google/models/gemini-4-neon",
+                {"name": "Gemini 4 Neon", "provider": "google", "input_per_million": 4.00, "cached_per_million": 0.20, "output_per_million": 20.00},
+                "family_heuristic",
+            )
         if "argon" in seg_lower or _PRO_TOKEN_RE.search(seg_lower):
-            return {"name": "Gemini 4 Argon", "provider": "google", "input_per_million": 2.00, "cached_per_million": 0.10, "output_per_million": 10.00, "input": 2.00, "cached": 0.10, "output": 10.00}
+            return self._resolve_estimated_fallback(
+                raw_id,
+                "publishers/google/models/gemini-4-argon",
+                {"name": "Gemini 4 Argon", "provider": "google", "input_per_million": 2.00, "cached_per_million": 0.10, "output_per_million": 10.00},
+                "family_heuristic",
+            )
+        if "hydrogen" in seg_lower:
+            return self._resolve_estimated_fallback(
+                raw_id,
+                "publishers/google/models/gemini-4-hydrogen",
+                {"name": "Gemini 4 Hydrogen", "provider": "google", "input_per_million": 1.00, "cached_per_million": 0.10, "output_per_million": 4.00},
+                "family_heuristic",
+            )
+        if "flash" in seg_lower or "gemini" in seg_lower:
+            return self._resolve_estimated_fallback(
+                raw_id,
+                "publishers/google/models/gemini-3.8-flash",
+                {"name": "Gemini 3.8 Flash", "provider": "google", "input_per_million": 0.75, "cached_per_million": 0.075, "output_per_million": 3.75},
+                "family_heuristic",
+            )
 
-        # Default Gemini 3.8 Flash rate
-        return {
-            "name": "Gemini 3.8 Flash",
-            "provider": "google",
-            "input_per_million": 0.75,
-            "cached_per_million": 0.075,
-            "output_per_million": 3.75,
-            "input": 0.75,
-            "cached": 0.075,
-            "output": 3.75,
-        }
+        # Default fallback rate for unrecognized model IDs
+        return self._resolve_estimated_fallback(
+            raw_id,
+            "publishers/google/models/gemini-3.8-flash",
+            {"name": "Gemini 3.8 Flash", "provider": "google", "input_per_million": 0.75, "cached_per_million": 0.075, "output_per_million": 3.75},
+            "default_fallback",
+        )
 
     def get_rates(self, model_id: str) -> Dict[str, Any]:
         """Alias for get_rate."""
@@ -332,6 +501,8 @@ class PricingEngine:
             "hypothetical_uncached_cost": naive_hypothetical,
             "savings_dollars": savings_dollars,
             "savings_pct": savings_pct,
+            "pricing_estimated": bool(rates.get("pricing_estimated", False)),
+            "rate_card_match": str(rates.get("rate_card_match", "exact")),
             "rates_used": rates,
         }
 

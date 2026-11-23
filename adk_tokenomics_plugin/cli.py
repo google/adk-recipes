@@ -242,8 +242,10 @@ def _parse_assert_cli_thresholds(args: argparse.Namespace):
     """Parses raw string thresholds for 'assert', returning (parsed_dict, violations_list)."""
     violations: List[str] = []
     parsed_cost: Optional[float] = None
+    parsed_session_cost: Optional[float] = None
     parsed_cache: Optional[float] = None
     parsed_tokens: Optional[int] = None
+    parsed_session_tokens: Optional[int] = None
     parsed_latency: Optional[int] = None
 
     if args.max_cost_per_turn is not None:
@@ -255,6 +257,17 @@ def _parse_assert_cli_thresholds(args: argparse.Namespace):
         except ValueError:
             violations.append(
                 f"❌ [Invalid Threshold]: --max-cost-per-turn must be a finite non-negative number, got {args.max_cost_per_turn!r}"
+            )
+
+    if getattr(args, "max_session_cost", None) is not None:
+        try:
+            val = float(args.max_session_cost)
+            if not math.isfinite(val) or val < 0.0:
+                raise ValueError("non-finite or negative")
+            parsed_session_cost = val
+        except ValueError:
+            violations.append(
+                f"❌ [Invalid Threshold]: --max-session-cost must be a finite non-negative number, got {args.max_session_cost!r}"
             )
 
     if args.min_cache_rate is not None:
@@ -279,6 +292,17 @@ def _parse_assert_cli_thresholds(args: argparse.Namespace):
                 f"❌ [Invalid Threshold]: --max-tokens-per-turn must be a finite non-negative integer, got {args.max_tokens_per_turn!r}"
             )
 
+    if getattr(args, "max_session_tokens", None) is not None:
+        try:
+            ival = int(args.max_session_tokens)
+            if ival < 0:
+                raise ValueError("negative")
+            parsed_session_tokens = ival
+        except ValueError:
+            violations.append(
+                f"❌ [Invalid Threshold]: --max-session-tokens must be a finite non-negative integer, got {args.max_session_tokens!r}"
+            )
+
     if args.max_latency_ms is not None:
         try:
             ival = int(args.max_latency_ms)
@@ -292,8 +316,10 @@ def _parse_assert_cli_thresholds(args: argparse.Namespace):
 
     return {
         "max_cost_per_turn": parsed_cost,
+        "max_session_cost": parsed_session_cost,
         "min_cache_rate": parsed_cache,
         "max_tokens_per_turn": parsed_tokens,
+        "max_session_tokens": parsed_session_tokens,
         "max_latency_ms": parsed_latency,
     }, violations
 
@@ -353,8 +379,8 @@ def main():
     web_p.add_argument("-d", "--dataset", type=_bq_dataset_arg, default=None, help="BigQuery Dataset ID (default: $BQ_ANALYTICS_DATASET_ID or bq_adk_ds)")
     web_p.add_argument("-v", "--view", type=_bq_view_arg, default=None, help="BigQuery View ID (default: $BQ_ANALYTICS_VIEW_ID or v_llm_response)")
     web_p.add_argument("--table", type=_bq_table_arg, default=None, help="BigQuery Table ID (default: $BQ_ANALYTICS_TABLE_ID or adk_agent_events)")
-    web_p.add_argument("-t", "--traces", "--trace", "--traces-dir", dest="traces", help="Path to local trace JSON file or directory to inspect (e.g. artifacts/traces/)")
-    web_p.add_argument("--port", type=_port_int, default=8080, help="Port to listen on (default: 8080)")
+    web_p.add_argument("-t", "--traces", "--trace", "--traces-dir", dest="traces", help="Path to local trace JSON file or directory to inspect (forces local-trace mode unless --project is also set)")
+    web_p.add_argument("--port", type=_port_int, default=None, help="Port to listen on (default: 8080; auto-increments on localhost only when --port is omitted)")
     web_p.add_argument("--host", default="127.0.0.1", help="Host interface to bind to (default: 127.0.0.1)")
     web_p.add_argument(
         "--allowed-host",
@@ -391,19 +417,25 @@ def main():
     arena_p.add_argument("--cache-ratio", type=_unit_interval_float, default=0.75, help="Estimated context cache hit ratio 0.0-1.0 (default: 0.75)")
 
     # 4. ASSERT command
-    assert_p = subparsers.add_parser(
-        "assert",
-        help="Automated CI/CD financial budget and token regression test gate",
-        description=(
+    subprog_override = os.environ.get("ADK_TOKENOMICS_SUBPROG", "").strip() or None
+    assert_kwargs = {
+        "help": "Automated CI/CD financial budget and token regression test gate",
+        "description": (
             "Automated CI/CD financial budget and token regression test gate. "
             "Under agents-cli this is also available as `agents-cli eval budget`."
         ),
-    )
+    }
+    if subprog_override:
+        assert_kwargs["prog"] = subprog_override
+    assert_p = subparsers.add_parser("assert", **assert_kwargs)
     assert_p.add_argument("-t", "--traces", "--trace", "--traces-dir", dest="traces", help="Path to trace JSON file or directory (default: artifacts/traces/)")
     assert_p.add_argument("--max-cost-per-turn", default=None, help="Maximum allowed dollar cost per turn (e.g. 0.002)")
+    assert_p.add_argument("--max-session-cost", "--max-total-cost", dest="max_session_cost", default=None, help="Maximum allowed cumulative dollar cost per session (e.g. 0.05)")
     assert_p.add_argument("--min-cache-rate", default=None, help="Minimum required context cache hit rate 0.0-1.0 (e.g. 0.60)")
     assert_p.add_argument("--max-tokens-per-turn", default=None, help="Maximum allowed total tokens per turn (e.g. 8192)")
+    assert_p.add_argument("--max-session-tokens", "--max-total-tokens", dest="max_session_tokens", default=None, help="Maximum allowed cumulative total tokens per session (e.g. 50000)")
     assert_p.add_argument("--max-latency-ms", default=None, help="Maximum allowed average turn latency in milliseconds (e.g. 2000)")
+    assert_p.add_argument("--strict-pricing", action="store_true", help="Fail closed (exit 1) if any turn uses heuristic/estimated pricing for an unregistered model")
     assert_p.add_argument("--allow-empty", action="store_true", help="Exit 0 instead of 1 when no trace files are found")
     assert_p.add_argument("--format", choices=["text", "json"], default="text", help="Output format: text or json (default: text)")
 
@@ -445,7 +477,30 @@ def main():
 
         if args.traces:
             load_env_from_trace_ancestors(args.traces)
-        project_id = args.project if args.project is not None else (detect_default_gcp_project() or "")
+            env_exp_base = os.path.basename(os.environ.get("TOKENOMICS_AUTO_EXPORT_PATH", ""))
+            known_live_web = {"live_adk_session.json", "session.json", "ci_eval.json"}
+            if env_exp_base:
+                known_live_web.add(env_exp_base)
+            t_base = os.path.basename(str(args.traces).rstrip("/\\"))
+            is_live_json = t_base.startswith("live_") or t_base in known_live_web
+            if not os.path.exists(args.traces):
+                if str(args.traces).lower().endswith(".json") and not is_live_json:
+                    print(
+                        f"[ERROR] Trace file not found: {args.traces} (resolved to {os.path.abspath(args.traces)})",
+                        file=sys.stderr,
+                    )
+                    sys.exit(1)
+                print(
+                    f"[WARN] Local traces path '{args.traces}' does not exist yet; waiting for live session files...",
+                    file=sys.stderr,
+                )
+
+        # Only auto-detect GCP BigQuery project when --traces is omitted (or --project is explicitly passed)
+        project_id = (
+            args.project
+            if args.project is not None
+            else ("" if args.traces else (detect_default_gcp_project() or ""))
+        )
         dataset_id = args.dataset or get_default_dataset()
         table_id = args.table or get_default_table()
         view_id = args.view or get_default_view()
@@ -458,17 +513,30 @@ def main():
             view_id = validate_bq_identifier(view_id, "view_id")
             if args.allowed_hosts is not None:
                 validate_allowed_hosts(args.allowed_hosts)
+            env_allowed_hosts = os.environ.get("TOKENOMICS_ALLOWED_HOSTS", "").strip()
+            if env_allowed_hosts:
+                validate_allowed_hosts([env_allowed_hosts])
         except ValueError as ve:
             print(f"[ERROR] {ve}", file=sys.stderr)
             sys.exit(1)
 
-        # In container / 0.0.0.0 mode, bind strictly to the requested port ($PORT) instead of drifting
-        if args.host in ("127.0.0.1", "localhost") and not os.environ.get("K_SERVICE"):
-            resolved_port = find_available_port(args.port, args.host)
-            if resolved_port != args.port:
-                print(f"[INFO] Port {args.port} is in use; using available port {resolved_port}.")
+        explicit_port = args.port is not None
+        requested_port = args.port if explicit_port else 8080
+        if explicit_port:
+            if not os.environ.get("K_SERVICE") and is_port_in_use(requested_port, args.host):
+                print(
+                    f"[ERROR] Port {requested_port} is already in use on {args.host}. "
+                    "Specify an unused --port or omit --port to auto-select from 8080.",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
+            resolved_port = requested_port
+        elif args.host in ("127.0.0.1", "localhost") and not os.environ.get("K_SERVICE"):
+            resolved_port = find_available_port(requested_port, args.host)
+            if resolved_port != requested_port:
+                print(f"[INFO] Port {requested_port} is in use; using available port {resolved_port}.")
         else:
-            resolved_port = args.port
+            resolved_port = requested_port
 
         run_web_server(
             port=resolved_port,
@@ -584,9 +652,12 @@ def main():
         exit_code = run_cli_assertions(
             traces_path=args.traces,
             max_cost_per_turn=parsed_thresholds["max_cost_per_turn"],
+            max_session_cost=parsed_thresholds["max_session_cost"],
             min_cache_rate=parsed_thresholds["min_cache_rate"],
             max_tokens_per_turn=parsed_thresholds["max_tokens_per_turn"],
+            max_session_tokens=parsed_thresholds["max_session_tokens"],
             max_latency_ms=parsed_thresholds["max_latency_ms"],
+            strict_pricing=args.strict_pricing,
             allow_empty=args.allow_empty,
             output_format=args.format,
         )

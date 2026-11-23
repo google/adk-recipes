@@ -25,6 +25,7 @@ import threading
 EXTENSION_DIR_ENV = "AGENTS_CLI_EXTENSION_DIR"
 # Read by `adk_tokenomics_plugin.cli_profiler.cli_prog_name()` for usage lines and remediation hints.
 PROG_ENV = "ADK_TOKENOMICS_PROG"
+SUBPROG_ENV = "ADK_TOKENOMICS_SUBPROG"
 AGENTS_CLI_PROG = "agents-cli tokenomics"
 _PACKAGE_INIT = ("adk_tokenomics_plugin", "__init__.py")
 # Flags whose values are filesystem paths the user typed relative to their shell directory.
@@ -195,20 +196,48 @@ def bootstrap_sys_path(ext_root: Path | None = None) -> Path:
     return resolved_root
 
 
+def _strip_prog_override(argv: Sequence[str]) -> tuple[list[str], str | None]:
+    """Extract an internal `--prog-override <name>` flag passed by manifest command aliases (e.g. `eval.budget`)."""
+    cleaned: list[str] = []
+    prog_override: str | None = None
+    i = 0
+    items = list(argv)
+    while i < len(items):
+        tok = items[i]
+        if tok == "--":
+            cleaned.extend(items[i:])
+            break
+        if tok == "--prog-override" and i + 1 < len(items):
+            prog_override = items[i + 1].strip() or None
+            i += 2
+            continue
+        if tok.startswith("--prog-override="):
+            prog_override = tok.split("=", 1)[1].strip() or None
+            i += 1
+            continue
+        cleaned.append(tok)
+        i += 1
+    return cleaned, prog_override
+
+
 def run(argv: Sequence[str] | None = None) -> int:
     """Bootstrap `sys.path` and dispatch to `adk_tokenomics_plugin.cli.main`."""
     bootstrap_sys_path()
     from adk_tokenomics_plugin.cli import main
 
     prev_argv = sys.argv[:]
-    effective = resolve_user_relative_paths(prev_argv[1:] if argv is None else argv)
+    raw_effective = resolve_user_relative_paths(prev_argv[1:] if argv is None else argv)
+    effective, subprog_override = _strip_prog_override(raw_effective)
     under_agents_cli = bool(os.environ.get(EXTENSION_DIR_ENV))
     if _is_web_command(effective) and under_agents_cli:
         start_parent_watchdog()
     prev_prog = os.environ.get(PROG_ENV)
+    prev_subprog = os.environ.get(SUBPROG_ENV)
     if under_agents_cli and not (prev_prog or "").strip():
         # `adk-tokenomics` isn't on PATH for extension users; name the command they actually ran.
         os.environ[PROG_ENV] = AGENTS_CLI_PROG
+    if subprog_override:
+        os.environ[SUBPROG_ENV] = subprog_override
     try:
         sys.argv = [prev_argv[0] if prev_argv else "adk-tokenomics", *effective]
         try:
@@ -227,6 +256,10 @@ def run(argv: Sequence[str] | None = None) -> int:
             os.environ.pop(PROG_ENV, None)
         else:
             os.environ[PROG_ENV] = prev_prog
+        if prev_subprog is None:
+            os.environ.pop(SUBPROG_ENV, None)
+        else:
+            os.environ[SUBPROG_ENV] = prev_subprog
 
 
 if __name__ == "__main__":

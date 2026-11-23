@@ -3,7 +3,7 @@
 > **Turn-Level AI Unit Economics, Context Profiling, Automated Model Tiering, OpenTelemetry FinOps & CI/CD Budget Gating for Google ADK (Agent Development Kit).**
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-[![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue)](https://www.python.org/)
+[![Python](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.13-blue)](https://www.python.org/)
 [![Google ADK](https://img.shields.io/badge/Google%20ADK-BasePlugin-brightgreen)](https://adk.dev/)
 [![agents-cli](https://img.shields.io/badge/agents--cli-Extension%20v1.10%2B-4285F4)](https://github.com/google/agents-cli)
 [![OpenTelemetry](https://img.shields.io/badge/OpenTelemetry-GenAI%20FinOps-F5A800)](https://adk.dev/observability/metrics/)
@@ -88,24 +88,24 @@ Google ADK's built-in OpenTelemetry instrumentation (`adk.dev/observability/metr
 When you run `adk-tokenomics profile`, [`TokenProfiler`](adk_tokenomics_plugin/cli_profiler.py) evaluates every turn in the session against **5 configurable heuristics** defined in [`OptimizationRulesConfig`](adk_tokenomics_plugin/core/config.py) and runs counterfactual pricing simulations via [`PricingEngine`](adk_tokenomics_plugin/core/pricing.py):
 
 ### 1. 🎯 Sub-Agent Model Tiering (`model_tiering`)
-1. **Lightweight Turn Detection:** Flags any turn where `thinking_tokens == 0` and `output_tokens <= lightweight_turn_max_output_tokens` (default: **`600` tokens**).
+1. **Lightweight Turn Detection:** Flags turns on non-synthesis sub-agents where `thinking_tokens <= lightweight_turn_max_thinking_tokens` (default: **`256` tokens**) and `output_tokens <= lightweight_turn_max_output_tokens` (default: **`600` tokens**).
 2. **Dynamic Same-Provider Cloud Model Selection:** Inspects the turn's model provider (`google`, `anthropic`, `openai`, `open_weight`, or custom) and calls `PricingEngine.get_cheapest_model(provider=provider)` against the active rate card (default `include_self_hosted=False`, skipping zero-cost local entries) to pair heavy reasoning models with lower-cost routing/extraction models - for example:
-   - **Google Gemini:** `gemini-2.5-pro` / `gemini-4-argon` → `gemini-2.5-flash` / `gemini-3.8-flash`
+   - **Google Gemini:** `gemini-4-neon` / `gemini-4-argon` / `gemini-4-hydrogen` → `gemini-3.8-flash`
    - **Anthropic Claude:** `claude-opus-4` / `claude-3-7-sonnet` → `claude-3-5-haiku`
    - **OpenAI:** `gpt-5` / `gpt-4o` → `gpt-4o-mini`
    - **Open-Weight (MaaS) & Custom:** `meta/llama-3.3-70b-instruct` / `deepseek-r1` → `meta/llama-3.1-8b-instruct` (or any custom endpoint registered via `models_config.json` or `tower.register_model()`)
-3. **Counterfactual Cost Simulation:** Re-computes what each lightweight turn would have cost on the target lite model using its exact `fresh_tok`, `cached_tok`, and `output_tok`. If `projected_cost < actual_cost`, it outputs the specific turn/sub-agent labels (e.g., `Turn #1 [router_agent]`) and exact projected `%` and `$` savings.
+3. **Counterfactual Cost Simulation:** Re-computes what each lightweight turn would have cost on the target lite model using its exact `fresh_tok`, `cached_tok`, `output_tok`, and `think_tok`. If `projected_cost < actual_cost`, it outputs the specific turn/sub-agent labels (e.g., `Turn #1 [router_agent]`) and exact projected `%` and `$` savings.
 
 ### 2. ⚡ Prefix Context Caching (`context_caching`)
-- **Trigger:** Any turn where `cached_tokens == 0` and `fresh_tok > min_cache_tokens` (default: **`1,024` tokens**).
+- **Trigger:** Any non-warmup turn where `cached_tokens == 0` and `fresh_tok > min_cache_tokens` (default: **`1,024` tokens**). When `ADKTokenomicsPlugin` detects `ContextCacheConfig` is already attached to `App` and warm turns hit cache, redundant setup hints are suppressed automatically (and `0`-hit runs emit a prefix/region diagnostic instead).
 - **Action & ROI:** Multiplies uncached tokens by $(R_{\text{input}} - R_{\text{cached}})$ (typically **75%–95%** cache discount) to calculate exact missed dollar savings and recommends adding `ContextCacheConfig(min_tokens=1024, ttl_seconds=300)` to the ADK `App`.
 
 ### 3. 📦 Multi-Turn History Compaction (`history_compaction`)
-- **Trigger:** Max distinct user invocations/turns within any single `session_id` $\ge$ `compaction_turn_threshold` (default: **`4` turns**) OR new-user-invocation `fresh_tok` growth per `(session_id, sub_agent)` exceeds `compaction_growth_delta` (default: **`+350` tokens**, including when partial prefix caching is active).
+- **Trigger:** Max distinct user invocations/turns within any single `session_id` $\ge$ `compaction_turn_threshold` (default: **`4` turns**, with growing prompt context) OR new-user-invocation `fresh_tok` growth per `(session_id, sub_agent)` exceeds `compaction_growth_delta` (default: **`+350` tokens**), aware of `EventsCompactionConfig` when attached to `App`.
 - **Action:** Prices per-turn fresh tokens at each turn's actual model rate and recommends configuring `EventsCompactionConfig(compaction_interval=4, overlap_size=1)` on the ADK `App` to summarize older conversation events.
 
 ### 4. 🧩 Modular Skills Progressive Disclosure (`modular_skills`)
-- **Trigger:** Session `total_fresh > modular_skills_token_threshold` (default: **`5,000` tokens**).
+- **Trigger:** Single-turn `fresh_tok > modular_skills_token_threshold` (default: **`5,000` tokens**) when `SkillToolset` (`load_skill`) is not already active in the session.
 - **Action & ROI:** Estimates per-turn dollar savings across each turn's actual model rate assuming `modular_skills_reduction_ratio` (**`60%`**) of static system instructions are moved into on-demand ADK `SkillToolset` (`SKILL.md`) modules loaded via `load_skill`.
 
 ### 5. 🧠 Planner & Thinking Budget Tuning (`thinking_budget`)
@@ -116,7 +116,7 @@ When you run `adk-tokenomics profile`, [`TokenProfiler`](adk_tokenomics_plugin/c
 
 | FinOps Pillar | ❌ Unoptimized ADK Anti-Pattern | ✅ Optimized Google ADK Configuration |
 | :--- | :--- | :--- |
-| **`model_tiering`** | Frontier model (`gemini-2.5-pro` / `gemini-4-argon`) on every sub-agent | Route routers & lightweight fetchers to `gemini-2.5-flash` / `gemini-3.8-flash`; reserve Pro for synthesis |
+| **`model_tiering`** | Frontier model (`gemini-4-argon` / `gemini-4-neon`) on every sub-agent | Route routers & lightweight fetchers to `gemini-3.8-flash` / `gemini-4-hydrogen`; reserve Argon / Neon for synthesis |
 | **`context_caching`** | `App(...)` omits `context_cache_config`, re-billing static prompts every turn | `App(..., context_cache_config=ContextCacheConfig(min_tokens=1024, ttl_seconds=300))` |
 | **`history_compaction`** | `App(...)` omits `events_compaction_config`, accumulating unbounded chat history | `App(..., events_compaction_config=EventsCompactionConfig(compaction_interval=4, overlap_size=1))` |
 | **`modular_skills`** | 5,000+ tokens of static reference playbooks pasted into `LlmAgent(instruction=...)` | Slim `instruction` + `tools=[SkillToolset(skills=...)]` (`SKILL.md` loaded on demand via `load_skill`) |
@@ -149,7 +149,7 @@ agents-cli extension add google/adk-recipes --ref adk-tokenomics
 agents-cli extension list
 ```
 
-> **Install scope & local checkouts:** Pass `--global` to `agents-cli extension add` to install at user scope across all projects instead of committing the extension to a single repo. To install from a local clone on disk, prefix the path with `local@` (`agents-cli extension add local@/path/to/adk-tokenomics-plugin` — a bare path is parsed as a GitHub `org/repo`).
+> **Install scope, `v1.10+` floor & local checkouts:** Requires `agents-cli >= 1.10` (`<1.10` fails manifest validation because `skills:` was introduced in `v1.10`). Pass `--global` to `agents-cli extension add` to install at user scope across all projects instead of committing the extension to a single repo. To install from a local clone on disk, prefix the path with `local@` (`agents-cli extension add local@/path/to/adk-tokenomics-plugin` — a bare path is parsed as a GitHub `org/repo`).
 
 #### Step 2 — Add the Runtime Python SDK to the Agent Environment
 
@@ -211,6 +211,7 @@ echo "TOKENOMICS_ENABLED=1" >> .env
 
 - **Why `load_dotenv()` first:** `agents-cli` imports `app/agent.py` before loading `.env`. `python-dotenv` already ships with `google-adk`, so no extra dependency is needed, and `.env` is excluded from git and `agents-cli deploy`.
 - **`app_name` label:** Recorded on every turn and BigQuery event row; matching `App(name=...)` keeps telemetry labels aligned, though they do not strictly have to match.
+- **Trace privacy & `.gitignore`:** Local trace JSON files (`artifacts/traces/*.json`, written with mode `0600`) record user prompts and truncated agent responses by default. Add `artifacts/` to your project `.gitignore` (`echo "artifacts/" >> .gitignore`) so conversation content is never committed to git, or set `TOKENOMICS_REDACT_CONTENT=1` (or `ADKTokenomicsPlugin(..., redact_content=True)`) to redact prompt/response text while preserving full token, tool, and USD cost telemetry.
 - **Live working file vs. archived sessions:** `auto_export_path` (`artifacts/traces/live_adk_session.json`) holds the active in-progress session. When a new session starts or the process exits, finished sessions archive automatically as `artifacts/traces/<session_id>.json` (and `await plugin.close()` flushes queued BigQuery batches). Always point `profile`, `eval budget`, and `web` at the `artifacts/traces/` directory (or `.`), not the transient `live_adk_session.json` file. Relative `auto_export_path` values resolve from the agent process's working directory (the project root for `agents-cli playground`, `agents-cli eval`, and `adk web`); use an absolute path if launching from elsewhere.
 
 #### Step 4 — Generate Traces (`playground` or `eval`)
@@ -278,8 +279,11 @@ agents-cli tokenomics assert --traces artifacts/traces/ --max-cost-per-turn 0.00
 ### Option 2: Standalone Python Package (`adk web` or Custom Runners)
 
 ```bash
-# Zero-cloud-dependency install (local web observatory, CLI profiler, and CI/CD assert)
+# Zero-cloud-dependency install (local web observatory, CLI profiler, offline demo, and CI/CD assert)
 pip install -e .
+
+# Include Google ADK & GenAI SDKs to run live agents (e.g. `adk web examples`)
+pip install -e ".[adk]"
 
 # Optional: include BigQuery sink dependencies for fleet telemetry
 pip install -e ".[bigquery]"
@@ -425,20 +429,26 @@ While `adk eval` captures `token_usage_v1` (`google-adk >= 2.10`) and `invocatio
 adk-tokenomics assert \
   --traces artifacts/traces/ \
   --max-cost-per-turn 0.005 \
+  --max-session-cost 0.05 \
   --min-cache-rate 0.60 \
   --max-tokens-per-turn 5000 \
+  --max-session-tokens 50000 \
   --max-latency-ms 15000 \
+  --strict-pricing \
   --format json
 ```
 
-> **Cache-rate gate:** context caching only kicks in once prompts reach about 1,024 tokens. Agents with short prompts report a 0% cache-hit rate and will fail `--min-cache-rate`, so leave that flag out until your static prefix crosses that size.
+> **Cache-rate & zero-flag gate behavior:** `assert` / `eval budget` requires at least one gate flag (failing closed if invoked with zero thresholds on non-empty traces). Context caching only kicks in once prompts reach about 1,024 tokens; agents with short prompts report a 0% cache-hit rate and will fail `--min-cache-rate`, so leave that flag out until your static prefix crosses that size.
 
 | CLI Gate Flag | Evaluated Formula Across $N$ Turns | Fails (`exit 1`) When |
 | :--- | :--- | :--- |
 | `--max-cost-per-turn <float>` | $\frac{1}{N}\sum \text{total\_cost}$ | Average USD cost per turn exceeds threshold |
+| `--max-session-cost <float>` | $\max_{s} \sum_{t \in s} \text{total\_cost}_t$ | Cumulative USD cost of any session exceeds cap |
 | `--min-cache-rate <0.0–1.0>` | $\frac{\sum \text{cached\_tokens}}{\sum (\text{input\_tokens} + \text{cached\_tokens})}$ | Context cache hit ratio drops below minimum |
 | `--max-tokens-per-turn <int>` | $\frac{1}{N}\sum (\text{in} + \text{cached} + \text{out} + \text{think})$ | Average total tokens per turn exceeds cap |
+| `--max-session-tokens <int>` | $\max_{s} \sum_{t \in s} \text{total\_tokens}_t$ | Cumulative total tokens of any session exceeds cap |
 | `--max-latency-ms <int>` | $\frac{1}{N_{\text{lat}}}\sum \text{latency\_ms}$ over turns that report latency | Average latency (ms) exceeds budget, or no artifact reports latency (fail-closed) |
+| `--strict-pricing` | `any(turn.pricing_estimated)` | Any turn uses heuristic fallback pricing for an unregistered model ID |
 
 > **Phase 2 Roadmap (Post-MVP):** Multi-model Pareto evaluation (`arena`), fleet-wide BigQuery FinOps executive aggregation (`finops`), and managed Cloud Run deployment (`deploy cloud_run`) are planned for Phase 2 once multi-project production BigQuery telemetry sinks are standardized.
 
@@ -447,7 +457,7 @@ adk-tokenomics assert \
 ## ⚙️ Advanced Configuration & Extensibility
 
 ### Custom Model Registration (1P, 3P, or Self-Hosted Open-Weight)
-[`PricingEngine`](adk_tokenomics_plugin/core/pricing.py) ships with built-in rate cards in [`models_config.json`](adk_tokenomics_plugin/models_config.json) for **Google Gemini** (`gemini-3.8-flash`, `gemini-4-argon`), **Anthropic Claude** (`claude-3-5-haiku`, `claude-3-7-sonnet`, `claude-opus-4`), **OpenAI** (`gpt-4o-mini`, `gpt-4o`, `gpt-5`), and **Open-Weight** models (`llama-3.1-8b`, `llama-3.3-70b`, `deepseek-v3`, `deepseek-r1`, `mistral-small`, `qwen-2.5-72b`, `gemma-3-27b`, `ollama/local-open-weight`).
+[`PricingEngine`](adk_tokenomics_plugin/core/pricing.py) ships with built-in rate cards in [`models_config.json`](adk_tokenomics_plugin/models_config.json) for **Google Gemini** (`gemini-3.8-flash`, `gemini-4-hydrogen`, `gemini-4-argon`, `gemini-4-neon`), **Anthropic Claude** (`claude-3-5-haiku`, `claude-3-7-sonnet`, `claude-sonnet-5`, `claude-opus-4`), **OpenAI** (`gpt-4o-mini`, `gpt-4o`, `gpt-5`), and **Open-Weight** models (`llama-3.1-8b`, `llama-3.3-70b`, `llama-3.1-405b`, `deepseek-v3`, `deepseek-r1`, `mistral-small`, `mistral-large`, `qwen-2.5-72b`, `gemma-3-27b`, `ollama/local-open-weight`). Unregistered model IDs fall back to family/default rate cards and are explicitly flagged with `pricing_estimated: true` (`≈$` in the profiler and Web UI) plus a one-time warning.
 
 > **Dynamic Per-Turn Pricing & Rate-Card Customization:** Every LLM turn is priced dynamically using the exact model returned by that sub-agent's execution (`llm_response.model_version` / `llm_request.model`), with `TOKENOMICS_DEFAULT_MODEL` used only as a fallback when an event carries no model metadata. Packaged entries in `models_config.json` provide illustrative baseline rate cards for local simulation - override them anytime via `models_config.json`, the Web UI `Rate Card ⚙️` editor, or `tower.register_model()` to reflect current provider pricing or enterprise discounts.
 
@@ -477,12 +487,13 @@ All 5 heuristic thresholds are user-configurable via [`OptimizationRulesConfig`]
 | `compaction_growth_delta` | `int` | `350` | **`history_compaction`**: Per-turn `fresh_tok` growth per `(session_id, sub_agent)` that triggers compaction |
 | `compaction_interval` | `int` | `4` | **`history_compaction`**: Recommended `EventsCompactionConfig(compaction_interval=...)` rendered in hint |
 | `compaction_overlap` | `int` | `1` | **`history_compaction`**: Recommended `EventsCompactionConfig(overlap_size=...)` rendered in hint |
-| `modular_skills_token_threshold` | `int` | `5000` | **`modular_skills`**: Session `total_fresh` token threshold to recommend `SkillToolset` progressive disclosure |
+| `modular_skills_token_threshold` | `int` | `5000` | **`modular_skills`**: Single-turn `fresh_tok` threshold (without active `SkillToolset`) to recommend `SKILL.md` progressive disclosure |
 | `modular_skills_reduction_ratio` | `float` | `0.60` | **`modular_skills`**: Assumed static-prompt fraction (`0.0–1.0`) saved when estimating `SKILL.md` ROI |
 | `max_thinking_to_output_ratio` | `float` | `0.80` | **`thinking_budget`**: Maximum `thinking_tokens / output_tokens` ratio before recommending `ThinkingConfig` cap |
 | `recommended_thinking_budget` | `int` | `256` | **`thinking_budget`**: Noise floor (`> 256` tokens) and target `ThinkingConfig(thinking_budget=...)` value |
 | `enable_model_tiering_hint` | `bool` | `True` | **`model_tiering`**: Enables/disables counterfactual lite-model tiering simulation |
-| `lightweight_turn_max_output_tokens` | `int` | `600` | **`model_tiering`**: Max `output_tokens` (with `thinking_tokens == 0`) classified as a lightweight turn |
+| `lightweight_turn_max_output_tokens` | `int` | `600` | **`model_tiering`**: Max `output_tokens` classified as a lightweight turn |
+| `lightweight_turn_max_thinking_tokens` | `int` | `256` | **`model_tiering`**: Max `thinking_tokens` classified as a lightweight turn |
 | `recommended_lite_model` | `str \| None` | `None` | **`model_tiering`**: Explicit lite model ID override (when `None`, auto-selects cheapest same-provider cloud model) |
 
 ```python
@@ -551,6 +562,8 @@ class TestTravelAgentFinOps(TokenomicsTestCase):
                 session_id="test_s1",
                 app_name="router",
                 model_name="gemini-3.8-flash",
+                user_query="Find flights from SFO to NRT",
+                agent_response="Found 2 nonstop flight options.",
                 input_tokens=400,
                 cached_tokens=1600,
                 output_tokens=120,
@@ -577,7 +590,7 @@ from adk_tokenomics_plugin import track_tokens
 )
 async def summarize_chunks(prompt: str):
     return await genai_client.aio.models.generate_content(
-        model="gemini-2.5-flash",
+        model="gemini-3.8-flash",
         contents=prompt,
     )
 ```
@@ -589,7 +602,7 @@ async def summarize_chunks(prompt: str):
 | `memory` *(default in `dev`)* | `InMemorySink` + optional JSON trace export (`auto_export_path`) | Local `adk web` development, CLI profiling & CI/CD assertions |
 | `bigquery` *(default in `prod`)* | `BigQuerySink` (`adk_agent_events` + `v_llm_response` / `BigQueryAgentAnalyticsPlugin`) | Production fleet telemetry & Looker/BigQuery analytics |
 
-> **BigQuery Schema & Legacy v1.0.1 Flat-Table Compatibility:** `provision_bigquery_table()` and `BigQuerySink` default to the unified ADK event schema (`adk_agent_events` + `v_llm_response` via `CREATE VIEW IF NOT EXISTS`). Existing legacy v1.0.1 flat BigQuery tables stay **writable** automatically via `BigQuerySink` schema auto-detection (or `provision_bigquery_table(..., legacy_flat_schema=True)`), whereas ADK event tables (`adk_agent_events` / `agent_events` and `v_llm_response`) are **required** for `adk-tokenomics web`, `adk-tokenomics profile -s`, and `adk-tokenomics finops` analytics queries.
+> **BigQuery Schema & Legacy v1.0.1 Flat-Table Compatibility:** `provision_bigquery_table()` and `BigQuerySink` default to the unified ADK event schema (`adk_agent_events` + `v_llm_response` via `CREATE VIEW IF NOT EXISTS`). Existing legacy v1.0.1 flat BigQuery tables stay **writable** automatically via `BigQuerySink` schema auto-detection (or `provision_bigquery_table(..., legacy_flat_schema=True)`), whereas ADK event tables (`adk_agent_events` / `agent_events` and `v_llm_response`) are **required** for `adk-tokenomics web` and `adk-tokenomics profile -s` BigQuery analytics queries (as well as the Phase 2 `finops` command).
 
 | Configuration Target | Environment Variables Checked (in priority order) | Default Fallback |
 | :--- | :--- | :--- |
@@ -599,7 +612,7 @@ async def summarize_chunks(prompt: str):
 | **Analytics View** | `BQ_ANALYTICS_VIEW_ID`, `BIGQUERY_VIEW_ID`, `BIGQUERY_VIEW`, `BQ_VIEW_ID` | `v_llm_response` |
 | **SDK Mode & Sink** | `TOKENOMICS_MODE` (`dev` \| `prod`), `TOKENOMICS_SINK` (`memory` \| `bigquery`) | `dev` / `memory` (`bigquery` in `prod`) |
 | **Default Baseline Model** | `TOKENOMICS_DEFAULT_MODEL` | `publishers/google/models/gemini-3.8-flash` |
-| **App Name & Auto-Export** | `TOKENOMICS_APP_NAME`, `TOKENOMICS_AUTO_EXPORT_PATH` | `adk_agent` / unset |
+| **App Name, Export & Redaction** | `TOKENOMICS_APP_NAME`, `TOKENOMICS_AUTO_EXPORT_PATH`, `TOKENOMICS_REDACT_CONTENT` (`1` scrubs prompts/responses) | `adk_agent` / unset / `0` |
 | **Custom Rate Card Path** | `TOKENOMICS_MODELS_CONFIG_PATH`, `TOKENOMICS_MODELS_CONFIG`, `$XDG_CONFIG_HOME/adk-tokenomics/models_config.json` | Packaged `models_config.json` |
 | **Allowed Web Hosts** | `TOKENOMICS_ALLOWED_HOSTS` *(comma-separated hostnames, `host:port`, or `*.domain`; paired with `--allowed-host`)* | Loopback (`127.0.0.1`, `localhost`, `[::1]`) |
 

@@ -308,7 +308,16 @@ class TestAgentsCliExtensionManifestAndSkill(unittest.TestCase):
 
         self.assertEqual(
             added["eval.budget"]["run"],
-            ["uv", "run", "--no-sync", "python", "scripts/run_tokenomics.py", "assert"],
+            [
+                "uv",
+                "run",
+                "--no-sync",
+                "python",
+                "scripts/run_tokenomics.py",
+                "--prog-override",
+                "agents-cli eval budget",
+                "assert",
+            ],
         )
 
     def test_bundled_skill_passes_agents_cli_skill_validation(self):

@@ -20,10 +20,18 @@ DEFAULT_OPTIMIZATION_PROMPTS: Dict[str, str] = {
         "   -> Add `context_cache_config=ContextCacheConfig(min_tokens={min_cache_tokens}, ttl_seconds={cache_ttl_seconds})`\n"
         "   -> Active model rate card provides a {cache_discount_pct:.0f}% discount on cached prefix tokens (est. savings: ${estimated_cache_savings:.5f})."
     ),
+    "context_caching_configured_no_hits": (
+        "⚡ [Context Caching Diagnostic]: `ContextCacheConfig` is already enabled on `App`, but 0 cached tokens were observed in {turns_str}.\n"
+        "   -> Verify static system prompt prefix stability, provider min-token thresholds, or regional explicit-cache support (missed cache discount: ${estimated_cache_savings:.5f})."
+    ),
     "history_compaction": (
         "📦 [History Compaction]: Multi-turn context is accumulating across {total_turns} turns.\n"
         "   -> Add `events_compaction_config=EventsCompactionConfig(compaction_interval={compaction_interval}, overlap_size={compaction_overlap})`\n"
         "   -> Compacts older conversation events to prevent unbounded prompt growth across multi-turn sessions."
+    ),
+    "history_compaction_configured_growth": (
+        "📦 [History Compaction Diagnostic]: `EventsCompactionConfig` is already enabled on `App`, but context grew sharply across {total_turns} turns.\n"
+        "   -> Consider lowering `compaction_interval` (currently {compaction_interval}) so summarization runs earlier in multi-turn conversations."
     ),
     "modular_skills": (
         "🧩 [Modular Skills]: High uncached prompt volume detected ({total_fresh:,} fresh input tokens).\n"

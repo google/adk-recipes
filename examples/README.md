@@ -11,6 +11,8 @@ This directory provides a clean, easy-to-follow **3-agent Travel Concierge** bui
 
 ## 💬 Option 1: Chat Interactively in `adk web` + Live Token Control Tower
 
+> **Prerequisite for Live `adk web`:** Install the `[adk]` extra (`pip install -e ".[adk]"`). The offline demo in Option 2 requires zero external dependencies (`pip install -e .`).
+
 1. **Start the Token Control Tower Observatory** (Terminal 1):
    ```bash
    adk-tokenomics web --traces examples/artifacts/traces --port 8080

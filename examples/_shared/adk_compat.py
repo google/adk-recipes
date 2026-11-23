@@ -11,7 +11,7 @@ from __future__ import annotations
 import os
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from enum import StrEnum
+from enum import Enum
 from pathlib import Path
 from typing import Any
 
@@ -46,7 +46,7 @@ try:
 except Exception:
     HAS_GOOGLE_ADK = False
 
-    class _ThinkingLevel(StrEnum):
+    class _ThinkingLevel(str, Enum):
         MINIMAL = "MINIMAL"
         LOW = "LOW"
         MEDIUM = "MEDIUM"

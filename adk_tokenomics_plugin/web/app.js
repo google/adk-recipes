@@ -918,11 +918,12 @@ document.addEventListener('DOMContentLoaded', () => {
       }
       const agentResp = escapeHtml(rawResp.substring(0, 75)) + (rawResp.length > 75 ? '...' : '');
       const rawCost = Number(turn.estimated_cost !== undefined ? turn.estimated_cost : (turn.cost || 0));
-      // tokens_estimated: the source file had no token usage metadata (e.g. eval traces_<ts>.json),
-      // so tokens/cost are character-count estimates, not billed usage.
+      // tokens_estimated / pricing_estimated: mark character-count or heuristic-priced turns with ≈$
       const costStr = turn.tokens_estimated
         ? `<span title="Estimated from character counts: this trace has no token usage metadata">≈$${rawCost.toFixed(5)}</span>`
-        : `$${rawCost.toFixed(5)}`;
+        : (turn.pricing_estimated
+          ? `<span title="Estimated from heuristic rate card: model '${escapeHtml(turn.model_name || 'unknown')}' is not registered in models_config.json">≈$${rawCost.toFixed(5)}</span>`
+          : `$${rawCost.toFixed(5)}`);
       const rawLatencyMs = Number(turn.latency_ms || 0);
       const latencyStr = rawLatencyMs > 0 ? `${rawLatencyMs.toLocaleString()} ms` : '—';
       
@@ -993,7 +994,10 @@ document.addEventListener('DOMContentLoaded', () => {
     if (modalBqApp) modalBqApp.textContent = row.app_name || '-';
     if (modalBqModel) modalBqModel.textContent = row.model_name || 'Gemini 3.8 Flash';
     const costVal = row.estimated_cost !== undefined ? row.estimated_cost : (row.cost || 0);
-    if (modalBqCost) modalBqCost.textContent = '$' + Number(costVal).toFixed(5);
+    if (modalBqCost) {
+      const costPrefix = (row.tokens_estimated || row.pricing_estimated) ? '≈$' : '$';
+      modalBqCost.textContent = costPrefix + Number(costVal).toFixed(5);
+    }
     const latMs = Number(row.latency_ms || 0);
     if (modalBqLatency) modalBqLatency.textContent = latMs > 0 ? `${latMs.toLocaleString()} ms` : '—';
     if (modalBqTime) modalBqTime.textContent = row.timestamp || `Turn #${index + 1}`;
@@ -1033,7 +1037,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // 1. Total cost + Avg per turn
     const kpiTotalCostEl = document.getElementById('kpi-total-cost');
     if (kpiTotalCostEl) {
-      kpiTotalCostEl.textContent = `$${totalCost.toFixed(5)}`;
+      const kpiPrefix = (metrics && metrics._anyPricingEstimated) ? '≈$' : '$';
+      kpiTotalCostEl.textContent = `${kpiPrefix}${totalCost.toFixed(5)}`;
     }
     const kpiCostDescEl = document.getElementById('kpi-cost-desc');
     if (kpiCostDescEl) {
@@ -1573,17 +1578,17 @@ document.addEventListener('DOMContentLoaded', () => {
     const p = (m.pricing && typeof m.pricing === 'object') ? Object.assign({}, m.pricing) : {};
     const rawIn = hasOwnKey(p, 'input')
       ? p.input
-      : (hasOwnKey(p, 'input_per_million') ? p.input_per_million : (hasOwnKey(m, 'input_rate') ? m.input_rate : 0.75));
+      : (hasOwnKey(p, 'input_per_million') ? p.input_per_million : (hasOwnKey(m, 'input_rate') ? m.input_rate : 0));
     const inR = parseValidRateClient(rawIn, 'input');
 
     const rawCac = hasOwnKey(p, 'cached')
       ? p.cached
-      : (hasOwnKey(p, 'cached_per_million') ? p.cached_per_million : (hasOwnKey(m, 'cached_rate') ? m.cached_rate : Number((inR * 0.25).toFixed(6))));
+      : (hasOwnKey(p, 'cached_per_million') ? p.cached_per_million : (hasOwnKey(m, 'cached_rate') ? m.cached_rate : 0));
     const cacR = parseValidRateClient(rawCac, 'cached');
 
     const rawOut = hasOwnKey(p, 'output')
       ? p.output
-      : (hasOwnKey(p, 'output_per_million') ? p.output_per_million : (hasOwnKey(m, 'output_rate') ? m.output_rate : 3.75));
+      : (hasOwnKey(p, 'output_per_million') ? p.output_per_million : (hasOwnKey(m, 'output_rate') ? m.output_rate : 0));
     const outR = parseValidRateClient(rawOut, 'output');
 
     m.pricing = {
@@ -1658,7 +1663,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   const TIER_SUFFIX_TOKENS = new Set([
-    'mini', 'nano', 'lite', 'small', 'flash', 'haiku', 'micro', 'pro', 'opus', 'sonnet'
+    'mini', 'nano', 'lite', 'small', 'flash', 'haiku', 'micro', 'pro', 'opus', 'sonnet', 'hydrogen', 'argon', 'neon'
   ]);
   const PRO_TOKEN_RE = /(?:^|[-_.])pro(?:$|[-_.])/;
   const OPENAI_REASONING_RE = /^(?:o1|o3|o4)(?:$|[-_:@])/;
@@ -1693,12 +1698,12 @@ document.addEventListener('DOMContentLoaded', () => {
     );
   }
 
-  function findMatchingModelInRegistry(modelId) {
+  function resolveModelMatchInRegistry(modelId) {
     if (!modelId || !Array.isArray(globalModelsRegistry) || globalModelsRegistry.length === 0) {
       return null;
     }
     const exact = globalModelsRegistry.find(m => isModelMatchingActive(m, modelId));
-    if (exact) return exact;
+    if (exact) return { model: exact, matchKind: 'exact', pricingEstimated: false };
 
     const rawLower = String(modelId || '').trim().toLowerCase();
     const normLower = stripProviderPrefixes(modelId).toLowerCase();
@@ -1729,9 +1734,9 @@ document.addEventListener('DOMContentLoaded', () => {
           '-@:_'.includes(target.charAt(kLow.length))
         ) {
           const rem = target.slice(kLow.length).replace(/^[-@:_]+/, '');
-          const firstRemToken = rem ? rem.split(/[-@:_.]/)[0] : '';
-          if (TIER_SUFFIX_TOKENS.has(firstRemToken)) continue;
-          return candModel;
+          const remTokens = rem ? rem.split(/[-@:_.]/).filter(Boolean) : [];
+          if (remTokens.some(tok => TIER_SUFFIX_TOKENS.has(tok))) continue;
+          return { model: candModel, matchKind: 'prefix', pricingEstimated: false };
         }
       }
     }
@@ -1742,59 +1747,50 @@ document.addEventListener('DOMContentLoaded', () => {
       rawLower.startsWith('hosted_vllm/') ||
       rawLower.startsWith('local/')
     ) {
-      return globalModelsRegistry.find(m => String(m.id || '').toLowerCase().includes('ollama')) || null;
+      const locModel = globalModelsRegistry.find(m => String(m.id || '').toLowerCase().includes('ollama')) || null;
+      return locModel ? { model: locModel, matchKind: 'local_open_weight', pricingEstimated: false } : null;
     }
 
+    const wrapFam = (fn, kind) => {
+      const found = globalModelsRegistry.find(fn) || null;
+      return found ? { model: found, matchKind: kind || 'family_heuristic', pricingEstimated: true } : null;
+    };
+
     // Family fallback heuristics on the final '/' path segment (aligned with core/pricing.py)
-    if (segLower.includes('haiku')) {
-      return globalModelsRegistry.find(m => String(m.id || '').toLowerCase().includes('haiku')) || null;
-    }
-    if (segLower.includes('opus')) {
-      return globalModelsRegistry.find(m => String(m.id || '').toLowerCase().includes('opus')) || null;
-    }
-    if (segLower.includes('sonnet') || segLower.includes('claude')) {
-      return globalModelsRegistry.find(m => String(m.id || '').toLowerCase().includes('sonnet')) || null;
-    }
+    if (segLower.includes('haiku')) return wrapFam(m => String(m.id || '').toLowerCase().includes('haiku'));
+    if (segLower.includes('opus')) return wrapFam(m => String(m.id || '').toLowerCase().includes('opus'));
+    if (segLower.includes('sonnet') || segLower.includes('claude')) return wrapFam(m => String(m.id || '').toLowerCase().includes('sonnet'));
     if (segLower.includes('llama')) {
-      if (segLower.includes('8b')) {
-        return globalModelsRegistry.find(m => String(m.id || '').toLowerCase().includes('llama') && String(m.id || '').toLowerCase().includes('8b')) || null;
-      }
-      if (segLower.includes('405b')) {
-        return globalModelsRegistry.find(m => String(m.id || '').toLowerCase().includes('llama') && String(m.id || '').toLowerCase().includes('405b')) || null;
-      }
-      return globalModelsRegistry.find(m => String(m.id || '').toLowerCase().includes('llama') && String(m.id || '').toLowerCase().includes('70b')) || null;
+      if (segLower.includes('8b')) return wrapFam(m => String(m.id || '').toLowerCase().includes('llama') && String(m.id || '').toLowerCase().includes('8b'));
+      if (segLower.includes('405b')) return wrapFam(m => String(m.id || '').toLowerCase().includes('llama') && String(m.id || '').toLowerCase().includes('405b'));
+      return wrapFam(m => String(m.id || '').toLowerCase().includes('llama') && String(m.id || '').toLowerCase().includes('70b'));
     }
     if (segLower.includes('deepseek')) {
-      if (segLower.includes('r1')) {
-        return globalModelsRegistry.find(m => String(m.id || '').toLowerCase().includes('deepseek-r1')) || null;
-      }
-      return globalModelsRegistry.find(m => String(m.id || '').toLowerCase().includes('deepseek-v3')) || null;
+      if (segLower.includes('r1')) return wrapFam(m => String(m.id || '').toLowerCase().includes('deepseek-r1'));
+      return wrapFam(m => String(m.id || '').toLowerCase().includes('deepseek-v3'));
     }
     if (segLower.includes('mistral') || segLower.includes('mixtral')) {
-      if (segLower.includes('small')) {
-        return globalModelsRegistry.find(m => String(m.id || '').toLowerCase().includes('mistral-small')) || null;
-      }
-      return globalModelsRegistry.find(m => String(m.id || '').toLowerCase().includes('mistral-large')) || null;
+      if (segLower.includes('small')) return wrapFam(m => String(m.id || '').toLowerCase().includes('mistral-small'));
+      return wrapFam(m => String(m.id || '').toLowerCase().includes('mistral-large'));
     }
-    if (segLower.includes('qwen')) {
-      return globalModelsRegistry.find(m => String(m.id || '').toLowerCase().includes('qwen')) || null;
-    }
-    if (segLower.includes('gemma')) {
-      return globalModelsRegistry.find(m => String(m.id || '').toLowerCase().includes('gemma')) || null;
-    }
+    if (segLower.includes('qwen')) return wrapFam(m => String(m.id || '').toLowerCase().includes('qwen'));
+    if (segLower.includes('gemma')) return wrapFam(m => String(m.id || '').toLowerCase().includes('gemma'));
     if (segLower.includes('gpt') || OPENAI_REASONING_RE.test(segLower)) {
-      if (segLower.includes('mini') || segLower.includes('nano')) {
-        return globalModelsRegistry.find(m => String(m.id || '').toLowerCase().includes('gpt-4o-mini')) || null;
-      }
-      return globalModelsRegistry.find(m => String(m.id || '').toLowerCase() === 'gpt-4o') || null;
+      if (segLower.includes('mini') || segLower.includes('nano')) return wrapFam(m => String(m.id || '').toLowerCase().includes('gpt-4o-mini'));
+      if (PRO_TOKEN_RE.test(segLower)) return { model: null, matchKind: 'family_heuristic', pricingEstimated: true };
+      if (segLower.startsWith('gpt-5')) return wrapFam(m => String(m.id || '').toLowerCase() === 'gpt-5');
+      return wrapFam(m => String(m.id || '').toLowerCase() === 'gpt-4o');
     }
-    if (segLower.includes('argon') || PRO_TOKEN_RE.test(segLower)) {
-      return globalModelsRegistry.find(m => String(m.id || '').toLowerCase().includes('argon')) || null;
-    }
-    if (segLower.includes('flash')) {
-      return globalModelsRegistry.find(m => String(m.id || '').toLowerCase().includes('flash')) || null;
-    }
-    return null;
+    if (segLower.includes('neon')) return wrapFam(m => String(m.id || '').toLowerCase().includes('neon'));
+    if (segLower.includes('argon') || PRO_TOKEN_RE.test(segLower)) return wrapFam(m => String(m.id || '').toLowerCase().includes('argon'));
+    if (segLower.includes('hydrogen')) return wrapFam(m => String(m.id || '').toLowerCase().includes('hydrogen'));
+    if (segLower.includes('flash') || segLower.includes('gemini')) return wrapFam(m => String(m.id || '').toLowerCase().includes('flash'));
+    return { model: null, matchKind: 'default_fallback', pricingEstimated: true };
+  }
+
+  function findMatchingModelInRegistry(modelId) {
+    const res = resolveModelMatchInRegistry(modelId);
+    return res ? res.model : null;
   }
 
   function applyRegistryRatesToMetrics(data) {
@@ -1814,7 +1810,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
       turns.forEach(t => {
         const modelId = t.model_name || getActiveToolbarModelId() || '';
-        const matchedModel = hasRegistry ? findMatchingModelInRegistry(modelId) : null;
+        const matchInfo = hasRegistry ? resolveModelMatchInRegistry(modelId) : null;
+        const matchedModel = matchInfo ? matchInfo.model : null;
+        if (matchInfo) {
+          t.pricing_estimated = Boolean(matchInfo.pricingEstimated);
+          t.rate_card_match = matchInfo.matchKind;
+        }
         const cTok = Number(t.cached_tokens || 0);
         const pTok = Number(t.prompt_tokens || 0);
         const freshTok = (t.input_tokens !== undefined) ? Number(t.input_tokens) : Math.max(0, pTok - cTok);
@@ -1823,9 +1824,9 @@ document.addEventListener('DOMContentLoaded', () => {
         const origTurnCost = Number(t.estimated_cost ?? t.total_cost ?? t.cost ?? 0);
 
         if (matchedModel && matchedModel.pricing) {
-          const inRatePerM = Number(matchedModel.pricing.input ?? 0.75);
-          const cacRatePerM = Number(matchedModel.pricing.cached ?? 0.075);
-          const outRatePerM = Number(matchedModel.pricing.output ?? 3.75);
+          const inRatePerM = Number(matchedModel.pricing.input ?? 0);
+          const cacRatePerM = Number(matchedModel.pricing.cached ?? 0);
+          const outRatePerM = Number(matchedModel.pricing.output ?? 0);
           const newCost = (freshTok * inRatePerM + cTok * cacRatePerM + (oTok + thTok) * outRatePerM) / 1000000;
           const turnSavings = (cTok * Math.max(0, inRatePerM - cacRatePerM)) / 1000000;
           t.estimated_cost = newCost;
@@ -1834,9 +1835,8 @@ document.addEventListener('DOMContentLoaded', () => {
           t.savings_dollars = turnSavings;
           t.uncached_cost = newCost + turnSavings;
         } else if (t.savings_dollars === undefined) {
-          const fallbackSavings = (cTok * Math.max(0, 0.75 - 0.075)) / 1000000;
-          t.savings_dollars = fallbackSavings;
-          t.uncached_cost = Number(t.estimated_cost || t.total_cost || 0) + fallbackSavings;
+          t.savings_dollars = 0;
+          t.uncached_cost = Number(t.estimated_cost || t.total_cost || 0);
         }
 
         const appKey = t.app_name || 'agent';
@@ -1892,11 +1892,19 @@ document.addEventListener('DOMContentLoaded', () => {
         }
       });
 
+      const anyEstPricing = turns.some(t => Boolean(t.pricing_estimated) || Boolean(t.tokens_estimated));
+      data.pricing_estimated = turns.some(t => Boolean(t.pricing_estimated));
+      Object.defineProperty(metrics, '_anyPricingEstimated', {
+        value: anyEstPricing,
+        enumerable: false,
+        configurable: true,
+        writable: true
+      });
       if (hasRegistry) {
         const totalMetricTurns = Object.values(metrics).reduce((acc, m) => acc + Number((m && m.turns) || 0), 0);
         const useAggregateTokensForSim = Boolean(data.turns_truncated) || (totalMetricTurns > turns.length);
         globalModelsRegistry.forEach(m => {
-          const p = m.pricing || { input: 0.75, cached: 0.075, output: 3.75 };
+          const p = m.pricing || { input: 0, cached: 0, output: 0 };
           const inRate = Number(p.input || 0) / 1000000;
           const cacRate = Number(p.cached || 0) / 1000000;
           const outRate = Number(p.output || 0) / 1000000;
@@ -2140,7 +2148,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     globalModelsRegistry.forEach(m => {
       const tr = document.createElement('tr');
-      const pricing = m.pricing || { input: 0.75, cached: 0.075, output: 3.75 };
+      const pricing = m.pricing || { input: 0, cached: 0, output: 0 };
       const isActive = activeIds.some(aid => isModelMatchingActive(m, aid));
 
       if (isActive) {
@@ -2224,9 +2232,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const provVal = String(m.provider || 'google').trim().toLowerCase();
     ensureSelectOption(provSel, provVal, provVal);
 
-    document.getElementById('form-price-input').value = m.pricing ? m.pricing.input : 0.75;
-    document.getElementById('form-price-cached').value = m.pricing ? m.pricing.cached : 0.075;
-    document.getElementById('form-price-output').value = m.pricing ? m.pricing.output : 3.75;
+    document.getElementById('form-price-input').value = m.pricing ? m.pricing.input : 0;
+    document.getElementById('form-price-cached').value = m.pricing ? m.pricing.cached : 0;
+    document.getElementById('form-price-output').value = m.pricing ? m.pricing.output : 0;
 
     const tbSel = document.getElementById('form-thinking-budget');
     const rawTb = m.thinking_budget !== undefined && m.thinking_budget !== null ? String(m.thinking_budget).trim() : '0';

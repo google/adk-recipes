@@ -150,11 +150,23 @@ def run_demo(traces_dir: str | Path | None = None) -> dict[str, Any]:
     print(
         f" {'Reasoning / Thinking Tokens':<32} | {u_sum['thinking_tokens']:<24,} | {o_sum['thinking_tokens']:<24,}"
     )
-    print(
-        f" {'Profiler Warnings Fired':<32} | {f'{len(unopt_cli_recs)} warnings':<24} | {'0 warnings (Clean!)':<24}"
+    unopt_warn_label = f"{len(unopt_cli_recs)} warnings"
+    opt_warn_label = (
+        "0 warnings (Clean!)"
+        if len(opt_cli_recs) == 0
+        else f"{len(opt_cli_recs)} warnings"
+    )
+    unopt_gate_label = (
+        "✅ PASSED (exit 0)" if unopt_assert_ok else "❌ FAILED (exit 1)"
+    )
+    opt_gate_label = (
+        "✅ PASSED (exit 0)" if opt_assert_ok else "❌ FAILED (exit 1)"
     )
     print(
-        f" {'CI Budget Gate (`assert`)':<32} | {'❌ FAILED (exit 1)':<24} | {'✅ PASSED (exit 0)':<24}"
+        f" {'Profiler Warnings Fired':<32} | {unopt_warn_label:<24} | {opt_warn_label:<24}"
+    )
+    print(
+        f" {'CI Budget Gate (`assert`)':<32} | {unopt_gate_label:<24} | {opt_gate_label:<24}"
     )
     print("═" * 92)
     rel_traces = os.path.relpath(out_dir, Path.cwd())

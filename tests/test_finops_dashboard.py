@@ -605,13 +605,13 @@ class TestWebSecurityAndHttpBreakIt(_WebTestBase):
         disk_parsed = json.loads(
             _read_text(cfg_file), parse_constant=_forbid_const
         )
-        self.assertEqual(len(disk_parsed["models"]), 20)
+        self.assertEqual(len(disk_parsed["models"]), 22)
         with urllib.request.urlopen(
             f"http://127.0.0.1:{port}/api/models", timeout=3
         ) as resp:
             api_text = resp.read().decode("utf-8")
         api_parsed = json.loads(api_text, parse_constant=_forbid_const)
-        self.assertEqual(len(api_parsed["models"]), 20)
+        self.assertEqual(len(api_parsed["models"]), 22)
 
     def test_p1_2_concurrent_upserts_no_lost_updates_and_valid_json(self):
         _, port, tmp_web = self._start_live_server(copy_web=True)
@@ -1623,19 +1623,19 @@ function baseFetch(metricsFn, extra = {}) {
     assert.strictEqual(env.els['toolbar-turns-badge'].textContent, '5000 turns');
   }
 
-  // 9. P2-1: Client/server model rate parity for boundary tokens and tier suffixes
-  for (const [model, serverRatePerM] of [
-    ['deepseek-prover-v2', 0.27],
-    ['gpt-5-pro', 2.5],
-    ['o3-mini', 0.15],
-    ['gemini-3.8-flash-001', 0.75],
+  // 9. P2-1 + ISS-01: Client/server model rate parity for boundary tokens, tier suffixes, and ≈$ estimated badge
+  for (const [model, serverRatePerM, expectedPrefix] of [
+    ['deepseek-prover-v2', 0.27, '≈$'],
+    ['gpt-5-pro', 2.5, '≈$'],
+    ['o3-mini', 0.15, '≈$'],
+    ['gemini-3.8-flash-001', 0.75, '$'],
   ]) {
     const cost = serverRatePerM;
     const turns = [{ app_name: 'a', session_id: 's', model_name: model, prompt_tokens: 1e6, input_tokens: 1e6, cached_tokens: 0, output_tokens: 0, thinking_tokens: 0, estimated_cost: cost, savings_dollars: 0 }];
     const payload = { source: 'local_traces', active_session_id: 'global', metrics: { a: { name: 'a', turns: 1, input: 1e6, cached: 0, output: 0, thinking: 0, cost, savings_dollars: 0 } }, turns, simulations: {}, tool_counts: {} };
     const env = createEnv({ fetchImpl: baseFetch(() => jsonResp(payload)) });
     env.boot(); await settle();
-    assert.strictEqual(env.els['kpi-total-cost'].textContent, '$' + cost.toFixed(5), `Mismatch for ${model}`);
+    assert.strictEqual(env.els['kpi-total-cost'].textContent, expectedPrefix + cost.toFixed(5), `Mismatch for ${model}`);
   }
 
   console.log('ALL_FRONTEND_INVARIANTS_OK');
@@ -2116,7 +2116,7 @@ function jsonResp(obj, ok = true, status = 200) {
                     f"{base}/api/models", timeout=3
                 ) as r0:
                     d0 = json.loads(r0.read())
-                self.assertEqual(len(d0["models"]), 20)
+                self.assertEqual(len(d0["models"]), 22)
                 self.assertIn("config_path", d0)
                 self.assertIn("models_config_path", d0)
                 self.assertEqual(d0.get("writable_config_path"), user_cfg_path)
@@ -2124,10 +2124,10 @@ function jsonResp(obj, ok = true, status = 200) {
                     len(
                         server.TokenomicsWebHandler._build_sanitized_pricing_engine()._canonical_entries
                     ),
-                    20,
+                    22,
                 )
 
-                # 2. Delete claude-opus-4 -> purged from Web, PricingEngine, AND TokenomicsConfig (19 models)
+                # 2. Delete claude-opus-4 -> purged from Web, PricingEngine, AND TokenomicsConfig (21 models)
                 del_req = urllib.request.Request(
                     f"{base}/api/models?id=claude-opus-4",
                     headers=json_hdrs,
@@ -2135,7 +2135,7 @@ function jsonResp(obj, ok = true, status = 200) {
                 )
                 with urllib.request.urlopen(del_req, timeout=3) as r_del:
                     d_del = json.loads(r_del.read())
-                self.assertEqual(len(d_del["models"]), 19)
+                self.assertEqual(len(d_del["models"]), 21)
                 self.assertIn("claude-opus-4", d_del["deleted_ids"])
                 self.assertNotIn(
                     "claude-opus-4",
@@ -2165,7 +2165,7 @@ function jsonResp(obj, ok = true, status = 200) {
                 )
                 with urllib.request.urlopen(raw_req, timeout=3) as r_raw:
                     d_raw = json.loads(r_raw.read())
-                self.assertEqual(len(d_raw["models"]), 19)
+                self.assertEqual(len(d_raw["models"]), 21)
                 disk_after_raw = json.loads(_read_text(user_cfg_path))
                 self.assertIn(
                     "claude-opus-4", disk_after_raw.get("deleted_ids", [])
@@ -2191,7 +2191,7 @@ function jsonResp(obj, ok = true, status = 200) {
                 )
                 with urllib.request.urlopen(readd_req, timeout=3) as r_readd:
                     d_readd = json.loads(r_readd.read())
-                self.assertEqual(len(d_readd["models"]), 20)
+                self.assertEqual(len(d_readd["models"]), 22)
                 disk_after_readd = json.loads(_read_text(user_cfg_path))
                 self.assertNotIn(
                     "claude-opus-4", disk_after_readd.get("deleted_ids", [])
@@ -2229,7 +2229,7 @@ function jsonResp(obj, ok = true, status = 200) {
                 with urllib.request.urlopen(cust_req, timeout=3) as r_cust:
                     d_cust = json.loads(r_cust.read())
                 ids_after_cust = {m["id"]: m for m in d_cust["models"]}
-                self.assertEqual(len(ids_after_cust), 21)
+                self.assertEqual(len(ids_after_cust), 23)
                 self.assertIn("gemini-3.8-flash-custom-test", ids_after_cust)
                 self.assertIn(
                     "publishers/google/models/gemini-3.8-flash", ids_after_cust

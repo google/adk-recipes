@@ -28,14 +28,17 @@ agents-cli tokenomics profile -t artifacts/traces/ --format json
 # Profile a live BigQuery session directly
 agents-cli tokenomics profile -s <session_id> --project <gcp-project> --dataset bq_adk_ds
 
-# 2. Enforce shift-left CI/CD unit-economics gates (exits 0 on pass, 1 on breach/missing traces)
+# 2. Enforce shift-left CI/CD unit-economics gates (exits 0 on pass, 1 on breach/missing traces/zero flags)
 # Works on both ADKTokenomicsPlugin JSON traces and `.adk/eval_history/*.evalset_result.json`
 agents-cli eval budget \
   --traces . \
   --max-cost-per-turn 0.005 \
+  --max-session-cost 0.05 \
   --min-cache-rate 0.60 \
   --max-tokens-per-turn 5000 \
+  --max-session-tokens 50000 \
   --max-latency-ms 15000 \
+  --strict-pricing \
   --format json
 
 # Equivalent via the top-level tokenomics command:
@@ -47,7 +50,7 @@ agents-cli tokenomics web --traces artifacts/traces/ --port 8080 --no-browser
 
 > **Cache-rate gate:** `--min-cache-rate` only makes sense once prompts are large enough to be cached (context caching starts at about 1,024 prompt tokens). Agents with short prompts report a 0% cache-hit rate and will fail this gate, so leave `--min-cache-rate` out until your static prefix crosses that size.
 
-> **Fail-Closed CI Note:** `agents-cli eval budget` (and `agents-cli tokenomics assert`) fails closed (`exit 1`) if trace artifacts are missing, empty (`0` turns), or lack token usage metadata. Pass `--allow-empty` only when optional smoke suites intentionally emit zero LLM turns.
+> **Fail-Closed CI Note:** `agents-cli eval budget` (and `agents-cli tokenomics assert`) fails closed (`exit 1`) if no budget/strict flags are passed, or if trace artifacts are missing, empty (`0` turns), or lack token usage metadata. Pass `--allow-empty` only when optional smoke suites intentionally emit zero LLM turns, and add `--strict-pricing` to fail closed if any turn uses an unregistered model ID.
 
 > **What `--traces` accepts:** a single trace file, a folder, or `.` (the project root, which also searches `artifacts/traces/` and `.adk/eval_history/`); with no `--traces`, `artifacts/traces/` is used. Output is human-readable text by default; add `--format json` for machine-readable results. `agents-cli eval generate` writes a `traces_<timestamp>.json` next to the plugin's `<session_id>.json` files; it has no token usage, so it's skipped (and reported as skipped) whenever plugin session traces are present, and the gate fails closed if it's the only input. `profile` on such a file alone shows character-count **estimates**, clearly labeled.
 
@@ -88,16 +91,17 @@ To capture live per-turn sub-agent attribution, workflow stages (`Root`, `AgentT
 
        plugins.append(
            ADKTokenomicsPlugin(
-               app_name="my_agent",
+               app_name="app",
                auto_export_path="artifacts/traces/live_adk_session.json",
            )
        )
 
-   app = App(name="my_agent", root_agent=root_agent, plugins=plugins)
+   app = App(name="app", root_agent=root_agent, plugins=plugins)
    ```
    Turn it on locally by adding `TOKENOMICS_ENABLED=1` to the project `.env`, or by exporting it in your shell.
    `.env` is git-ignored and isn't uploaded on deploy, so the plugin stays off in production.
-   `python-dotenv` already ships with `google-adk`, so the import needs no extra dependency. `app_name` is only the label recorded on every turn (and BigQuery row); using your `App(name=...)` keeps them aligned, but it doesn't have to match.
+   > **Trace Privacy & `.gitignore`:** Local JSON trace files (`artifacts/traces/*.json`, written `0600`) store user prompts and truncated agent responses by default. Always add `artifacts/` to `.gitignore` (`echo "artifacts/" >> .gitignore`) so conversation content is never committed, or set `TOKENOMICS_REDACT_CONTENT=1` (or `ADKTokenomicsPlugin(..., redact_content=True)`) to scrub prompt/response text while keeping full token, tool, and cost telemetry.
+   `python-dotenv` already ships with `google-adk`, so the import needs no extra dependency. Keep `App(name="app", ...)` aligned with the `agents-cli` scaffold so A2A routes (`/a2a/app`) remain unchanged.
    Finished sessions archive automatically to `artifacts/traces/<session_id>.json` (and `await plugin.close()` flushes any queued BigQuery batches on shutdown).
    `auto_export_path` (`live_adk_session.json`) is only the **working file** for the session in progress. When a new session starts or the process exits, it's archived as `<session_id>.json`, so it's normally absent after a run. Its folder decides where archives go, so always point `profile`, `eval budget`, and `web` at the `artifacts/traces/` directory, not the live file. A relative `auto_export_path` resolves from the agent process's working directory (the project root for `agents-cli eval`, `agents-cli playground`, and `adk web` run from the project); use an absolute path if you launch the agent from somewhere else.
 
@@ -111,10 +115,10 @@ When `agents-cli tokenomics profile` flags an optimization opportunity, apply th
 
 | Profiler Rule | Unoptimized ADK Anti-Pattern | Target Google ADK Fix |
 | :--- | :--- | :--- |
-| **`model_tiering`** | Frontier Pro model used on simple deterministic routers or fetchers (`thinking_tokens == 0`, output `<= 600` tokens) | Set lightweight routing/extraction `LlmAgent(model="gemini-2.5-flash")` (or `gemini-3.8-flash`); reserve Pro models for synthesis/planning sub-agents |
+| **`model_tiering`** | Frontier model (`gemini-4-argon` / `gemini-4-neon`) used on simple deterministic routers or fetchers (`thinking_tokens <= 256`, output `<= 600` tokens) | **Ask for explicit developer confirmation first** (per project `GEMINI.md` rules), then route lightweight routing/extraction sub-agents to `gemini-3.8-flash` (or `gemini-4-hydrogen`), reserving `gemini-4-argon` / `gemini-4-neon` for complex synthesis and planning |
 | **`context_caching`** | `cached_tokens == 0` with `fresh_tok > 1024` (`App` omits cache config) | Pass `context_cache_config=ContextCacheConfig(min_tokens=1024, ttl_seconds=300)` to `App(...)` (`from google.adk.agents.context_cache_config import ContextCacheConfig`) |
 | **`history_compaction`** | `>= 4` user turns in a session or `+350` fresh-token per-turn growth | Pass `events_compaction_config=EventsCompactionConfig(compaction_interval=4, overlap_size=1)` to `App(...)` (`from google.adk.apps.app import EventsCompactionConfig`) |
-| **`modular_skills`** | `> 5,000` fresh input tokens caused by monolithic static playbooks in `instruction` | Keep `LlmAgent(instruction=...)` concise and move reference playbooks into on-demand `SkillToolset` (`SKILL.md`) modules loaded via `load_skill` |
+| **`modular_skills`** | Single-turn fresh input `> 5,000` tokens (without `SkillToolset` active) caused by monolithic static playbooks in `instruction` | Keep `LlmAgent(instruction=...)` concise and move reference playbooks into on-demand `SkillToolset` (`SKILL.md`) modules loaded via `load_skill` |
 | **`thinking_budget`** | `thinking_tokens > 256` and `thinking / output > 0.80x` | Bound reasoning via `planner=BuiltInPlanner(thinking_config=ThinkingConfig(thinking_budget=256))` (or `thinking_budget=0` on deterministic routers) |
 
 ---

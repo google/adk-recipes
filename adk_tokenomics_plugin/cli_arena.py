@@ -12,7 +12,9 @@ from adk_tokenomics_plugin.core.pricing import PricingEngine
 
 DEFAULT_MODELS = [
     "publishers/google/models/gemini-3.8-flash",
+    "publishers/google/models/gemini-4-hydrogen",
     "publishers/google/models/gemini-4-argon",
+    "publishers/google/models/gemini-4-neon",
     "claude-3-5-haiku",
     "claude-sonnet-5",
     "meta/llama-3.3-70b-instruct",

@@ -509,9 +509,11 @@ class TokenomicsWebHandler(http.server.SimpleHTTPRequestHandler):
             else (getattr(self, "pricing", None) or PricingEngine())
         )
         rate = engine.get_rate(model_name)
-        in_rate = float(rate.get("input", 0.75))
-        cache_rate = float(rate.get("cached", 0.075))
-        out_rate = float(rate.get("output", 3.75))
+        in_rate = float(rate.get("input", 0.0))
+        cache_rate = float(rate.get("cached", 0.0))
+        out_rate = float(rate.get("output", 0.0))
+        pricing_estimated = bool(rate.get("pricing_estimated", False))
+        rate_card_match = str(rate.get("rate_card_match", "exact"))
 
         if models_config and isinstance(models_config, dict):
             norm_query = PricingEngine._normalize_model_id(model_name)
@@ -527,14 +529,16 @@ class TokenomicsWebHandler(http.server.SimpleHTTPRequestHandler):
                 ) or norm_query in (m_id, short_id):
                     p = m.get("pricing", {})
                     in_rate = float(
-                        p.get("input_per_million", p.get("input", in_rate))
+                        p.get("input_per_million", p.get("input", 0.0))
                     )
                     cache_rate = float(
-                        p.get("cached_per_million", p.get("cached", cache_rate))
+                        p.get("cached_per_million", p.get("cached", 0.0))
                     )
                     out_rate = float(
-                        p.get("output_per_million", p.get("output", out_rate))
+                        p.get("output_per_million", p.get("output", 0.0))
                     )
+                    pricing_estimated = False
+                    rate_card_match = "exact"
                     break
 
         in_tok = max(0, int(input_tokens or 0))
@@ -567,6 +571,8 @@ class TokenomicsWebHandler(http.server.SimpleHTTPRequestHandler):
             "uncached_cost": uncached_cost,
             "savings_dollars": savings_dollars,
             "savings_pct": savings_pct,
+            "pricing_estimated": pricing_estimated,
+            "rate_card_match": rate_card_match,
         }
 
     def _empty_finops_summary(
@@ -3504,7 +3510,7 @@ code {{ background:rgba(0,0,0,0.4); padding:0.2rem 0.45rem; border-radius:5px; c
         elif "input_rate" in m:
             raw_in = m["input_rate"]
         else:
-            raw_in = 0.75
+            raw_in = 0.0
         in_r = TokenomicsWebHandler._parse_valid_rate(raw_in, "input")
 
         if "cached" in p:
@@ -3514,7 +3520,7 @@ code {{ background:rgba(0,0,0,0.4); padding:0.2rem 0.45rem; border-radius:5px; c
         elif "cached_rate" in m:
             raw_cac = m["cached_rate"]
         else:
-            raw_cac = round(in_r * 0.25, 6)
+            raw_cac = 0.0
         cac_r = TokenomicsWebHandler._parse_valid_rate(raw_cac, "cached")
 
         if "output" in p:
@@ -3524,7 +3530,7 @@ code {{ background:rgba(0,0,0,0.4); padding:0.2rem 0.45rem; border-radius:5px; c
         elif "output_rate" in m:
             raw_out = m["output_rate"]
         else:
-            raw_out = 3.75
+            raw_out = 0.0
         out_r = TokenomicsWebHandler._parse_valid_rate(raw_out, "output")
 
         m["pricing"] = {
@@ -4170,6 +4176,8 @@ code {{ background:rgba(0,0,0,0.4); padding:0.2rem 0.45rem; border-radius:5px; c
                         cost = float(cost_info["total_cost"])
                         savings_dollars = float(cost_info["savings_dollars"])
                         uncached_cost = float(cost_info["uncached_cost"])
+                        pricing_est = bool(cost_info.get("pricing_estimated", False))
+                        rate_match_kind = str(cost_info.get("rate_card_match", "exact"))
                     else:
                         cost = float(
                             rt.get("total_cost")
@@ -4179,6 +4187,8 @@ code {{ background:rgba(0,0,0,0.4); padding:0.2rem 0.45rem; border-radius:5px; c
                         )
                         savings_dollars = 0.0
                         uncached_cost = cost
+                        pricing_est = bool(rt.get("pricing_estimated", False))
+                        rate_match_kind = str(rt.get("rate_card_match", "exact"))
                     raw_tools = (
                         rt.get("tools_called")
                         if rt.get("tools_called") is not None
@@ -4294,6 +4304,8 @@ code {{ background:rgba(0,0,0,0.4); padding:0.2rem 0.45rem; border-radius:5px; c
                             "trace_file": fname,
                             "is_live_file": is_live_file,
                             "tokens_estimated": bool(rt.get("tokens_estimated")),
+                            "pricing_estimated": pricing_est,
+                            "rate_card_match": rate_match_kind,
                         }
                     )
             except Exception:
@@ -4363,7 +4375,7 @@ code {{ background:rgba(0,0,0,0.4); padding:0.2rem 0.45rem; border-radius:5px; c
             self._build_local_sessions_map(local_turns) if local_turns else {}
         )
 
-        if not explicit_trace and bool(getattr(self, "project_id", None)):
+        if bool(getattr(self, "project_id", None)):
             try:
                 from google.cloud import bigquery
 
@@ -4534,8 +4546,9 @@ code {{ background:rgba(0,0,0,0.4); padding:0.2rem 0.45rem; border-radius:5px; c
             else list(local_turns)
         )
 
-        # 1. If --traces was explicitly provided on CLI, or the requested session is a live local trace file
-        if explicit_trace or (
+        has_project = bool(getattr(self, "project_id", ""))
+        # 1. If --traces was explicitly provided (without --project, or with local matches), or the requested session is a live local trace file
+        if (explicit_trace and (not has_project or matched_local)) or (
             resolved_session_id != "global"
             and matched_local
             and any(t.get("is_live_file") for t in matched_local)
@@ -5211,16 +5224,16 @@ code {{ background:rgba(0,0,0,0.4); padding:0.2rem 0.45rem; border-radius:5px; c
                 m_name = str(m.get("name") or m.get("id") or "Model")
                 p_cfg = m.get("pricing") or {}
                 in_rate_per_m = float(
-                    p_cfg.get("input", p_cfg.get("input_per_million", 0.75))
+                    p_cfg.get("input", p_cfg.get("input_per_million", 0.0))
                 )
                 cac_rate_per_m = float(
                     p_cfg.get(
                         "cached",
-                        p_cfg.get("cached_per_million", in_rate_per_m * 0.25),
+                        p_cfg.get("cached_per_million", 0.0),
                     )
                 )
                 out_rate_per_m = float(
-                    p_cfg.get("output", p_cfg.get("output_per_million", 3.75))
+                    p_cfg.get("output", p_cfg.get("output_per_million", 0.0))
                 )
                 in_rate = in_rate_per_m / 1_000_000.0
                 cac_rate = cac_rate_per_m / 1_000_000.0
@@ -5242,6 +5255,9 @@ code {{ background:rgba(0,0,0,0.4); padding:0.2rem 0.45rem; border-radius:5px; c
         resolved_source = source or (
             "local_traces" if explicit_trace else "bigquery"
         )
+        any_pricing_estimated = any(
+            bool(t.get("pricing_estimated")) for t in turns if isinstance(t, Mapping)
+        )
         return {
             "source": resolved_source,
             "active_session_id": str(active_session_id or "global"),
@@ -5250,6 +5266,7 @@ code {{ background:rgba(0,0,0,0.4); padding:0.2rem 0.45rem; border-radius:5px; c
             "total_turns": total_turns_count,
             "turns_truncated": turns_truncated,
             "total_cost": total_cost,
+            "pricing_estimated": any_pricing_estimated,
             "savings_dollars": total_savings,
             "uncached_cost": total_cost + total_savings,
             "total_tokens": total_p + total_o + total_th,
@@ -5294,6 +5311,9 @@ def run_web_server(
     table_id = validate_bq_identifier(resolved_tbl, "table_id")
     view_id = validate_bq_identifier(resolved_vw, "view_id")
     validated_allowed_hosts = validate_allowed_hosts(allowed_hosts)
+    env_allowed = os.environ.get("TOKENOMICS_ALLOWED_HOSTS", "").strip()
+    if env_allowed:
+        validate_allowed_hosts([env_allowed])
 
     TokenomicsWebHandler.set_server_context(
         project_id=project_id,

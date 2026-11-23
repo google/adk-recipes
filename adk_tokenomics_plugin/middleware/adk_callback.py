@@ -104,6 +104,7 @@ class ADKTokenomicsPlugin(_ADKBasePlugin):
         app_name: str = "adk_agent",
         tower: Optional[Any] = None,
         auto_export_path: Optional[str] = None,
+        redact_content: Optional[bool] = None,
     ):
         try:
             super().__init__(name="adk_tokenomics_plugin")
@@ -113,6 +114,12 @@ class ADKTokenomicsPlugin(_ADKBasePlugin):
         self.tracker = resolved_tracker or TokenTracker()
         self.app_name = app_name if app_name != "adk_agent" else (os.environ.get("TOKENOMICS_APP_NAME") or app_name)
         self.auto_export_path = auto_export_path or os.environ.get("TOKENOMICS_AUTO_EXPORT_PATH")
+        if redact_content is None:
+            env_redact = os.environ.get("TOKENOMICS_REDACT_CONTENT", "").strip().lower()
+            self.redact_content: bool = env_redact in ("1", "true", "yes", "on")
+        else:
+            self.redact_content = bool(redact_content)
+        self._app_finops_config: Dict[str, Any] = {}
         self._active_export_session_id: Optional[str] = None
         self._last_exported_file_session_id: Optional[str] = None
         self._last_exported_file_path: Optional[str] = None
@@ -163,8 +170,36 @@ class ADKTokenomicsPlugin(_ADKBasePlugin):
                 names.update(cls._collect_agent_tree_names(wrapped, visited))
         return names
 
+    def _inspect_finops_config(self, ctx_or_app: Any = None, agent_obj: Any = None) -> None:
+        """Captures active App/InvocationContext FinOps configuration flags into plugin metadata."""
+        inv_ctx = (
+            getattr(ctx_or_app, "_invocation_context", None)
+            or getattr(ctx_or_app, "invocation_context", None)
+            if ctx_or_app is not None
+            else None
+        )
+        app_obj = getattr(ctx_or_app, "app", None) if ctx_or_app is not None else None
+        for source in (ctx_or_app, inv_ctx, app_obj):
+            if source is None:
+                continue
+            cache_cfg = getattr(source, "context_cache_config", None)
+            if cache_cfg is not None:
+                self._app_finops_config["context_cache_configured"] = True
+                min_tok = getattr(cache_cfg, "min_tokens", None)
+                if isinstance(min_tok, int) and not isinstance(min_tok, bool):
+                    self._app_finops_config["cache_min_tokens"] = min_tok
+            comp_cfg = getattr(source, "events_compaction_config", None)
+            if comp_cfg is not None:
+                self._app_finops_config["events_compaction_configured"] = True
+                comp_int = getattr(comp_cfg, "compaction_interval", None)
+                if isinstance(comp_int, int) and not isinstance(comp_int, bool) and comp_int >= 1:
+                    self._app_finops_config["compaction_interval"] = comp_int
+
+        if agent_obj is not None:
+            self._discover_agent_tools(agent_obj)
+
     def _discover_agent_tools(self, agent_obj: Any, _visited: Optional[set[int]] = None) -> None:
-        """Discovers any sub-agents wrapped inside `AgentTool` across the agent hierarchy."""
+        """Discovers any sub-agents wrapped inside `AgentTool` and `SkillToolset` instances across the agent hierarchy."""
         if agent_obj is None:
             return
         visited = _visited if _visited is not None else set()
@@ -174,6 +209,10 @@ class ADKTokenomicsPlugin(_ADKBasePlugin):
         visited.add(obj_id)
 
         for tool in getattr(agent_obj, "tools", None) or []:
+            cls_low = type(tool).__name__.lower()
+            t_name_low = str(getattr(tool, "name", "") or "").lower()
+            if "skilltoolset" in cls_low or t_name_low == "skill_toolset" or hasattr(tool, "skills"):
+                self._app_finops_config["skill_toolset_configured"] = True
             wrapped = getattr(tool, "agent", None)
             if wrapped is not None:
                 self._agent_tool_children.update(self._collect_agent_tree_names(wrapped))
@@ -182,8 +221,13 @@ class ADKTokenomicsPlugin(_ADKBasePlugin):
             self._discover_agent_tools(sub, visited)
 
     def attach_to_agent(self, agent_obj: Any, _visited: Optional[set[int]] = None) -> Any:
-        """Recursively attaches plugin callbacks to `agent_obj`, its `sub_agents`, and any `AgentTool`-wrapped agents."""
+        """Recursively attaches plugin callbacks to `agent_obj` (or an ADK `App`), its `sub_agents`, and `AgentTool` children."""
         if agent_obj is None:
+            return agent_obj
+        root_from_app = getattr(agent_obj, "root_agent", None)
+        if root_from_app is not None and root_from_app is not agent_obj and not hasattr(agent_obj, "parent_agent"):
+            self._inspect_finops_config(ctx_or_app=agent_obj, agent_obj=root_from_app)
+            self.attach_to_agent(root_from_app, _visited)
             return agent_obj
         visited = _visited if _visited is not None else set()
         obj_id = id(agent_obj)
@@ -303,19 +347,22 @@ class ADKTokenomicsPlugin(_ADKBasePlugin):
             cur = getattr(cur, "parent_agent", None)
             depth += 1
 
+        is_seq = any("Sequential" in a for a in ancestors)
         is_parallel = any("Parallel" in a for a in ancestors)
         is_loop = any("Loop" in a for a in ancestors)
-        is_seq = any("Sequential" in a for a in ancestors)
 
-        if is_parallel and is_loop:
-            return "AgentTool • Parallel • Loop" if is_agent_tool_child else "Parallel • Loop"
-        if is_parallel:
-            return "AgentTool • Parallel" if is_agent_tool_child else "Parallel"
-        if is_loop:
-            return "AgentTool • Loop" if is_agent_tool_child else "Loop"
+        flow_parts: List[str] = []
+        if is_agent_tool_child:
+            flow_parts.append("AgentTool")
         if is_seq:
-            return "AgentTool • Sequential" if is_agent_tool_child else "Sequential"
-        return "AgentTool" if is_agent_tool_child else "Sub-Agent"
+            flow_parts.append("Sequential")
+        if is_parallel:
+            flow_parts.append("Parallel")
+        if is_loop:
+            flow_parts.append("Loop")
+        if flow_parts:
+            return " • ".join(flow_parts)
+        return "Sub-Agent"
 
     def _get_or_create_turn_state(
         self, invocation_id: Optional[str], agent_name: Optional[str]
@@ -414,7 +461,7 @@ class ADKTokenomicsPlugin(_ADKBasePlugin):
         **kwargs
     ) -> Any:
         """ADK lifecycle hook invoked immediately when a user message is received."""
-        self._discover_agent_tools(getattr(invocation_context, "agent", None))
+        self._inspect_finops_config(invocation_context, getattr(invocation_context, "agent", None))
         raw_sid, invocation_id, agent_name = self._extract_context_keys(invocation_context)
         eff_sid, parent_inv_id = self._resolve_effective_session(raw_sid, invocation_id, agent_name)
         parsed_query = (
@@ -442,7 +489,7 @@ class ADKTokenomicsPlugin(_ADKBasePlugin):
         **kwargs
     ) -> Any:
         """ADK lifecycle hook invoked at the start of an invocation run."""
-        self._discover_agent_tools(getattr(invocation_context, "agent", None))
+        self._inspect_finops_config(invocation_context, getattr(invocation_context, "agent", None))
         raw_sid, invocation_id, agent_name = self._extract_context_keys(invocation_context)
         eff_sid, parent_inv_id = self._resolve_effective_session(raw_sid, invocation_id, agent_name)
         parsed_query = self._extract_user_query_from_context(invocation_context)
@@ -470,7 +517,7 @@ class ADKTokenomicsPlugin(_ADKBasePlugin):
         now = time.time()
         inv_ctx = getattr(callback_context, "_invocation_context", None) or getattr(callback_context, "invocation_context", None)
         agent_obj = getattr(callback_context, "agent", None) or (getattr(inv_ctx, "agent", None) if inv_ctx is not None else None)
-        self._discover_agent_tools(agent_obj)
+        self._inspect_finops_config(callback_context, agent_obj)
         raw_sid, invocation_id, agent_name = self._extract_context_keys(callback_context)
         eff_sid, parent_inv_id = self._resolve_effective_session(raw_sid, invocation_id, agent_name)
         self._turn_start_time = now
@@ -983,13 +1030,16 @@ class ADKTokenomicsPlugin(_ADKBasePlugin):
                             sk = fc_args.get("skill_name") or fc_args.get("name") or fc_args.get("skill")
                             if sk and str(sk) not in skills_active:
                                 skills_active.append(str(sk))
-                        arg_pairs = []
-                        for k, v in list(fc_args.items())[:3]:
-                            v_str = str(v)
-                            if len(v_str) > 36:
-                                v_str = v_str[:33] + "..."
-                            arg_pairs.append(f"{k}={v_str!r}")
-                        tool_call_previews.append(f"{t_name}({', '.join(arg_pairs)})")
+                        if not self.redact_content:
+                            arg_pairs = []
+                            for k, v in list(fc_args.items())[:3]:
+                                v_str = str(v)
+                                if len(v_str) > 36:
+                                    v_str = v_str[:33] + "..."
+                                arg_pairs.append(f"{k}={v_str!r}")
+                            tool_call_previews.append(f"{t_name}({', '.join(arg_pairs)})")
+                        else:
+                            tool_call_previews.append(t_name)
                     else:
                         tool_call_previews.append(t_name)
 
@@ -1024,13 +1074,24 @@ class ADKTokenomicsPlugin(_ADKBasePlugin):
 
         state_query = state.get("user_query") if state else None
         effective_query = user_query or state_query or self._last_user_query
-        if resolved_sub_agent and not effective_query.startswith(f"[{resolved_sub_agent}]"):
-            effective_query = f"[{resolved_sub_agent}] {effective_query}".strip()
+        if self.redact_content:
+            effective_query = f"[{resolved_sub_agent}] [REDACTED]" if resolved_sub_agent else "[REDACTED]"
+            recorded_response = (
+                f"🛠️ Tool call: {', '.join(tools_called)}"
+                if (tools_called and response_text.startswith("🛠️ Tool call:"))
+                else ("[REDACTED]" if response_text else "")
+            )
+        else:
+            if resolved_sub_agent and not effective_query.startswith(f"[{resolved_sub_agent}]"):
+                effective_query = f"[{resolved_sub_agent}] {effective_query}".strip()
+            recorded_response = response_text[:1000]
 
         raw_meta: Dict[str, Any] = {
             "usage": _serialize_usage(usage),
             "sub_agent": str(resolved_sub_agent or self.app_name),
         }
+        if self._app_finops_config:
+            raw_meta["app_finops_config"] = dict(self._app_finops_config)
         if state is not None and state.get("orchestration_flow"):
             raw_meta["orchestration_flow"] = str(state["orchestration_flow"])
         elif resolved_sub_agent and str(resolved_sub_agent) in self._agent_tool_children:
@@ -1051,7 +1112,7 @@ class ADKTokenomicsPlugin(_ADKBasePlugin):
             app_name=self.app_name,
             model_name=str(model_name),
             user_query=effective_query,
-            agent_response=response_text[:1000],
+            agent_response=recorded_response,
             input_tokens=fresh_input,
             cached_tokens=cached_tokens,
             output_tokens=candidates_tokens,

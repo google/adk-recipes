@@ -86,6 +86,21 @@ DEFAULT_MODELS_CONFIG = {
             "max_output_tokens": 8192
         },
         {
+            "id": "publishers/google/models/gemini-4-hydrogen",
+            "name": "Gemini 4 Hydrogen",
+            "provider": "google",
+            "pricing": {
+                "input": 1.00,
+                "cached": 0.10,
+                "output": 4.00,
+                "input_per_million": 1.00,
+                "cached_per_million": 0.10,
+                "output_per_million": 4.00
+            },
+            "thinking_budget": "low",
+            "max_output_tokens": 65536
+        },
+        {
             "id": "publishers/google/models/gemini-4-argon",
             "name": "Gemini 4 Argon",
             "provider": "google",
@@ -98,6 +113,21 @@ DEFAULT_MODELS_CONFIG = {
                 "output_per_million": 10.00
             },
             "thinking_budget": "medium",
+            "max_output_tokens": 65536
+        },
+        {
+            "id": "publishers/google/models/gemini-4-neon",
+            "name": "Gemini 4 Neon",
+            "provider": "google",
+            "pricing": {
+                "input": 4.00,
+                "cached": 0.20,
+                "output": 20.00,
+                "input_per_million": 4.00,
+                "cached_per_million": 0.20,
+                "output_per_million": 20.00
+            },
+            "thinking_budget": "high",
             "max_output_tokens": 65536
         },
         {
@@ -494,6 +524,7 @@ class OptimizationRulesConfig:
     recommended_thinking_budget: int = 256
     enable_model_tiering_hint: bool = True
     lightweight_turn_max_output_tokens: int = 600
+    lightweight_turn_max_thinking_tokens: int = 256
     recommended_lite_model: Optional[str] = None
 
     def __post_init__(self) -> None:
@@ -509,6 +540,7 @@ class OptimizationRulesConfig:
             "modular_skills_token_threshold",
             "recommended_thinking_budget",
             "lightweight_turn_max_output_tokens",
+            "lightweight_turn_max_thinking_tokens",
         )
         pos_int_fields = ("compaction_turn_threshold", "compaction_interval")
         for fname in nonneg_int_fields:

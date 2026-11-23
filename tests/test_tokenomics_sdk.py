@@ -1791,17 +1791,17 @@ class TestTokenomicsSDK(TokenomicsTestCase):
         with tempfile.TemporaryDirectory() as tmp_dir:
             user_cfg_path = os.path.join(tmp_dir, "models_config.json")
 
-            # 1. Default seeded catalog count == 20
+            # 1. Default seeded catalog count == 22
             with open(user_cfg_path, "w", encoding="utf-8") as f:
                 json.dump({"models": []}, f)
             base_models = TokenomicsConfig(models_config_path=user_cfg_path).get_models_config()["models"]
-            self.assertEqual(len(base_models), 20)
+            self.assertEqual(len(base_models), 22)
 
-            # 2. Deleting claude-opus-4 via deleted_ids suppresses seeded default (count == 19)
+            # 2. Deleting claude-opus-4 via deleted_ids suppresses seeded default (count == 21)
             with open(user_cfg_path, "w", encoding="utf-8") as f:
                 json.dump({"models": [], "deleted_ids": ["claude-opus-4"]}, f)
             after_del = TokenomicsConfig(models_config_path=user_cfg_path).get_models_config()["models"]
-            self.assertEqual(len(after_del), 19)
+            self.assertEqual(len(after_del), 21)
             self.assertNotIn("claude-opus-4", {m["id"] for m in after_del})
 
             # 3. Re-adding claude-opus-4 in user 'models' survives EVEN IF deleted_ids still lists it, AND when cleared (M-a)
@@ -1814,7 +1814,7 @@ class TestTokenomicsSDK(TokenomicsTestCase):
             with open(user_cfg_path, "w", encoding="utf-8") as f:
                 json.dump({"models": [readded_opus], "deleted_ids": ["claude-opus-4"]}, f)
             restored_with_stale_del = TokenomicsConfig(models_config_path=user_cfg_path).get_models_config()["models"]
-            self.assertEqual(len(restored_with_stale_del), 20)
+            self.assertEqual(len(restored_with_stale_del), 22)
             opus_entry = next(m for m in restored_with_stale_del if m["id"] == "claude-opus-4")
             self.assertEqual(opus_entry["pricing"]["input"], 12.0)
 
@@ -1834,7 +1834,7 @@ class TestTokenomicsSDK(TokenomicsTestCase):
             with open(user_cfg_path, "w", encoding="utf-8") as f:
                 json.dump({"models": [readded_opus, short_flash_override, custom_flash_variant], "deleted_ids": []}, f)
             with_custom_variant = TokenomicsConfig(models_config_path=user_cfg_path).get_models_config()["models"]
-            self.assertEqual(len(with_custom_variant), 21)
+            self.assertEqual(len(with_custom_variant), 23)
             by_id = {m["id"]: m for m in with_custom_variant}
             self.assertEqual(by_id["publishers/google/models/gemini-3.8-flash"]["pricing"]["input"], 0.70)
             self.assertEqual(by_id["gemini-3.8-flash-custom-test"]["pricing"]["input"], 0.42)

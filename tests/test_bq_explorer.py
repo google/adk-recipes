@@ -454,7 +454,7 @@ class TestBigQueryExplorer(unittest.TestCase):
         self.assertFalse(os.path.exists(os.path.join(REPO_ROOT, "models_config.json")))
         self.assertFalse(os.path.exists(os.path.join(REPO_ROOT, "adk_tokenomics_plugin", "web", "models_config.json")))
         with open(PACKAGED_MODELS_CFG, "r", encoding="utf-8") as cf:
-            self.assertEqual(len(json.load(cf).get("models", [])), 20)
+            self.assertEqual(len(json.load(cf).get("models", [])), 22)
 
         with tempfile.TemporaryDirectory() as tmp_web_dir:
             shutil.copy(PACKAGED_MODELS_CFG, os.path.join(tmp_web_dir, "models_config.json"))

@@ -18,6 +18,23 @@
       "allowed_max_output_tokens": [1024, 2048, 4096, 8192, 16384, 65536]
     },
     {
+      "id": "publishers/google/models/gemini-4-hydrogen",
+      "name": "Gemini 4 Hydrogen",
+      "provider": "google",
+      "pricing": {
+        "input": 1.0,
+        "cached": 0.1,
+        "output": 4.0,
+        "input_per_million": 1.0,
+        "cached_per_million": 0.1,
+        "output_per_million": 4.0
+      },
+      "thinking_budget": "low",
+      "max_output_tokens": 65536,
+      "allowed_thinking_budgets": ["off", "low", "medium", "high"],
+      "allowed_max_output_tokens": [1024, 2048, 4096, 8192, 16384, 32768, 65536]
+    },
+    {
       "id": "publishers/google/models/gemini-4-argon",
       "name": "Gemini 4 Argon",
       "provider": "google",
@@ -30,6 +47,23 @@
         "output_per_million": 10.0
       },
       "thinking_budget": "medium",
+      "max_output_tokens": 65536,
+      "allowed_thinking_budgets": ["low", "medium", "high"],
+      "allowed_max_output_tokens": [4096, 8192, 16384, 32768, 65536]
+    },
+    {
+      "id": "publishers/google/models/gemini-4-neon",
+      "name": "Gemini 4 Neon",
+      "provider": "google",
+      "pricing": {
+        "input": 4.0,
+        "cached": 0.2,
+        "output": 20.0,
+        "input_per_million": 4.0,
+        "cached_per_million": 0.2,
+        "output_per_million": 20.0
+      },
+      "thinking_budget": "high",
       "max_output_tokens": 65536,
       "allowed_thinking_budgets": ["low", "medium", "high"],
       "allowed_max_output_tokens": [4096, 8192, 16384, 32768, 65536]

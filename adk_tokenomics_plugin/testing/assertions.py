@@ -44,13 +44,29 @@ def _resolve_summary(tracker_or_summary: Union[TokenTracker, Dict[str, Any]], re
     raise TypeError(f"Expected TokenTracker or summary dict, got {type(tracker_or_summary).__name__}.")
 
 
+def _exceeds_float_limit(actual: float, limit: float) -> bool:
+    return actual > limit and not math.isclose(actual, limit, rel_tol=1e-9, abs_tol=1e-12)
+
+
+def _below_float_limit(actual: float, limit: float) -> bool:
+    return actual < limit and not math.isclose(actual, limit, rel_tol=1e-9, abs_tol=1e-12)
+
+
+def _format_usd_pair(actual: float, limit: float) -> Tuple[str, str]:
+    a5, l5 = f"{actual:.5f}", f"{limit:.5f}"
+    if a5 == l5:
+        return f"${actual:.8f}", f"${limit:.8f}"
+    return f"${a5}", f"${l5}"
+
+
 def assert_cost_under(tracker_or_summary: Union[TokenTracker, Dict[str, Any]], max_dollars: float, msg: str = ""):
     """Asserts that total accumulated dollar cost does not exceed (<=) the specified budget threshold."""
     limit = _require_finite_number(max_dollars, "max_dollars", min_val=0.0)
     summary = _resolve_summary(tracker_or_summary, "total_cost")
     actual_cost = _require_finite_number(summary["total_cost"], "summary['total_cost']", min_val=0.0)
-    err_msg = msg or f"Cost budget exceeded! Expected cost <= ${limit:.5f}, but was ${actual_cost:.5f}"
-    assert actual_cost <= limit, err_msg
+    actual_fmt, limit_fmt = _format_usd_pair(actual_cost, limit)
+    err_msg = msg or f"Cost budget exceeded! Expected cost <= {limit_fmt}, but was {actual_fmt}"
+    assert not _exceeds_float_limit(actual_cost, limit), err_msg
 
 
 def assert_cache_ratio_above(tracker_or_summary: Union[TokenTracker, Dict[str, Any]], min_ratio_pct: float, msg: str = ""):
@@ -59,7 +75,7 @@ def assert_cache_ratio_above(tracker_or_summary: Union[TokenTracker, Dict[str, A
     summary = _resolve_summary(tracker_or_summary, "cache_read_ratio_pct")
     actual_ratio = _require_finite_number(summary["cache_read_ratio_pct"], "summary['cache_read_ratio_pct']", min_val=0.0)
     err_msg = msg or f"Context caching efficiency too low! Expected >= {limit:.1f}%, but was {actual_ratio:.1f}%"
-    assert actual_ratio >= limit, err_msg
+    assert not _below_float_limit(actual_ratio, limit), err_msg
 
 
 def assert_token_budget(tracker_or_summary: Union[TokenTracker, Dict[str, Any]], max_tokens: int, msg: str = ""):
@@ -159,6 +175,8 @@ def _validate_cli_thresholds(
     min_cache_rate: Optional[float],
     max_tokens_per_turn: Optional[int],
     max_latency_ms: Optional[int],
+    max_session_cost: Optional[float] = None,
+    max_session_tokens: Optional[int] = None,
 ) -> List[str]:
     """Validates all CLI/SDK gate thresholds for finiteness and valid ranges (fail-closed on NaN/Inf/out-of-range)."""
     violations: List[str] = []
@@ -166,6 +184,11 @@ def _validate_cli_thresholds(
         if isinstance(max_cost_per_turn, bool) or not isinstance(max_cost_per_turn, (int, float)) or not math.isfinite(float(max_cost_per_turn)) or float(max_cost_per_turn) < 0.0:
             violations.append(
                 f"❌ [Invalid Threshold]: --max-cost-per-turn must be a finite non-negative number, got {max_cost_per_turn!r}"
+            )
+    if max_session_cost is not None:
+        if isinstance(max_session_cost, bool) or not isinstance(max_session_cost, (int, float)) or not math.isfinite(float(max_session_cost)) or float(max_session_cost) < 0.0:
+            violations.append(
+                f"❌ [Invalid Threshold]: --max-session-cost must be a finite non-negative number, got {max_session_cost!r}"
             )
     if min_cache_rate is not None:
         if isinstance(min_cache_rate, bool) or not isinstance(min_cache_rate, (int, float)) or not math.isfinite(float(min_cache_rate)) or not (0.0 <= float(min_cache_rate) <= 1.0):
@@ -176,6 +199,11 @@ def _validate_cli_thresholds(
         if isinstance(max_tokens_per_turn, bool) or not isinstance(max_tokens_per_turn, (int, float)) or not math.isfinite(float(max_tokens_per_turn)) or float(max_tokens_per_turn) < 0.0:
             violations.append(
                 f"❌ [Invalid Threshold]: --max-tokens-per-turn must be a finite non-negative integer, got {max_tokens_per_turn!r}"
+            )
+    if max_session_tokens is not None:
+        if isinstance(max_session_tokens, bool) or not isinstance(max_session_tokens, (int, float)) or not math.isfinite(float(max_session_tokens)) or float(max_session_tokens) < 0.0:
+            violations.append(
+                f"❌ [Invalid Threshold]: --max-session-tokens must be a finite non-negative integer, got {max_session_tokens!r}"
             )
     if max_latency_ms is not None:
         if isinstance(max_latency_ms, bool) or not isinstance(max_latency_ms, (int, float)) or not math.isfinite(float(max_latency_ms)) or float(max_latency_ms) < 0.0:
@@ -206,6 +234,9 @@ def run_cli_assertions(
     min_cache_rate: Optional[float] = None,
     max_tokens_per_turn: Optional[int] = None,
     max_latency_ms: Optional[int] = None,
+    max_session_cost: Optional[float] = None,
+    max_session_tokens: Optional[int] = None,
+    strict_pricing: bool = False,
     allow_empty: bool = False,
     output_format: str = "text",
 ) -> int:
@@ -220,6 +251,8 @@ def run_cli_assertions(
         min_cache_rate=min_cache_rate,
         max_tokens_per_turn=max_tokens_per_turn,
         max_latency_ms=max_latency_ms,
+        max_session_cost=max_session_cost,
+        max_session_tokens=max_session_tokens,
     )
     if threshold_violations:
         if output_format == "json":
@@ -287,12 +320,16 @@ def run_cli_assertions(
             else:
                 print("[WARN] No trace files found to assert (--allow-empty enabled).")
             return 0
-        msg = (
-            "❌ [Missing Telemetry]: No trace or eval files found to assert. "
-            "Checked --traces, ./artifacts/traces/, and ./.adk/eval_history/"
-        )
         if effective_path:
-            msg += f" (--traces resolved to {os.path.abspath(effective_path)})"
+            msg = (
+                f"❌ [Missing Telemetry]: No trace or eval files found to assert. "
+                f"Checked --traces {effective_path} (--traces resolved to {os.path.abspath(effective_path)})"
+            )
+        else:
+            msg = (
+                "❌ [Missing Telemetry]: No trace or eval files found to assert. "
+                "Checked ./artifacts/traces/ and ./.adk/eval_history/"
+            )
         if output_format == "json":
             print(json.dumps({
                 "passed": False,
@@ -319,6 +356,9 @@ def run_cli_assertions(
     total_tokens = 0
     total_latency_ms = 0.0
     latency_samples = 0
+    session_costs: Dict[str, float] = {}
+    session_tokens: Dict[str, int] = {}
+    unregistered_models: List[str] = []
     parse_errors: List[str] = []
     failed_artifacts: List[str] = []
     artifact_stats: List[Dict[str, Any]] = []
@@ -353,6 +393,9 @@ def run_cli_assertions(
             tf_tokens = 0
             tf_lat_ms = 0.0
             tf_lat_samples = 0
+            tf_session_costs: Dict[str, float] = {}
+            tf_session_tokens: Dict[str, int] = {}
+            tf_has_estimated_pricing = False
             file_key_counts: Counter[Tuple[Any, ...]] = Counter()
 
             for it in parsed_turns:
@@ -368,16 +411,26 @@ def run_cli_assertions(
                 m = str(it.get("model_name") or it.get("model") or pricing.config.default_model)
                 lat = _extract_turn_latency_ms(it.get("latency_ms"))
 
+                rate_meta = pricing.get_rate(m)
+                is_est_price = bool(rate_meta.get("pricing_estimated")) or bool(it.get("pricing_estimated"))
+                if is_est_price:
+                    tf_has_estimated_pricing = True
+                    if m not in unregistered_models:
+                        unregistered_models.append(m)
+
                 if (fresh_p + c + o + th) > 0:
                     cost = float(pricing.calculate_cost(m, fresh_p, c, o, th))
                 else:
                     cost = float(it.get("total_cost") or it.get("estimated_cost") or it.get("cost") or 0.0)
 
+                turn_sid = str(it.get("session_id") or os.path.basename(tf))
                 tf_turns += 1
                 tf_cost += cost
                 tf_prompt += prompt_total
                 tf_cached += c
                 tf_tokens += (prompt_total + o + th)
+                tf_session_costs[turn_sid] = tf_session_costs.get(turn_sid, 0.0) + cost
+                tf_session_tokens[turn_sid] = tf_session_tokens.get(turn_sid, 0) + (prompt_total + o + th)
                 tf_lat_ms += lat
                 if lat > 0:
                     tf_lat_samples += 1
@@ -405,6 +458,8 @@ def run_cli_assertions(
                 total_prompt += prompt_total
                 total_cached += c
                 total_tokens += (prompt_total + o + th)
+                session_costs[turn_sid] = session_costs.get(turn_sid, 0.0) + cost
+                session_tokens[turn_sid] = session_tokens.get(turn_sid, 0) + (prompt_total + o + th)
                 total_latency_ms += lat
                 # Latency 0 is treated as 'not reported' (matching TokenTracker.record_turn's None -> 0 coercion).
                 if lat > 0:
@@ -423,6 +478,9 @@ def run_cli_assertions(
                 "tokens": tf_tokens,
                 "lat_ms": tf_lat_ms,
                 "lat_samples": tf_lat_samples,
+                "max_session_cost": max(tf_session_costs.values(), default=0.0),
+                "max_session_tokens": max(tf_session_tokens.values(), default=0),
+                "pricing_estimated": tf_has_estimated_pricing,
             })
 
         except Exception as e:
@@ -443,43 +501,87 @@ def run_cli_assertions(
         for tf in target_files:
             _add_failed_artifact(tf)
 
+    has_any_gate = (
+        any(
+            x is not None
+            for x in (
+                max_cost_per_turn,
+                min_cache_rate,
+                max_tokens_per_turn,
+                max_latency_ms,
+                max_session_cost,
+                max_session_tokens,
+            )
+        )
+        or bool(strict_pricing)
+    )
+
     avg_cost_turn = (total_cost / total_turns) if total_turns > 0 else 0.0
     cache_rate = (total_cached / total_prompt * 100) if total_prompt > 0 else 0.0
     avg_tokens_turn = (total_tokens / total_turns) if total_turns > 0 else 0.0
     avg_latency_ms = (total_latency_ms / latency_samples) if latency_samples > 0 else 0.0
+    observed_max_session_cost = max(session_costs.values(), default=0.0)
+    observed_max_session_tokens = max(session_tokens.values(), default=0)
 
     if output_format != "json" and total_turns > 0:
-        print(f"\n📊 Evaluated Metrics across {total_turns} turn(s):")
-        print(f" • Avg Cost / Turn   : ${avg_cost_turn:.5f}")
-        print(f" • Cache Hit Rate    : {cache_rate:.1f}%")
-        print(f" • Avg Tokens / Turn : {avg_tokens_turn:,.0f}")
+        print(f"\n📊 Evaluated Metrics across {total_turns} turn(s) ({len(session_costs) or 1} session(s)):")
+        print(f" • Total / Max Session Cost : ${total_cost:.5f} / ${observed_max_session_cost:.5f}")
+        print(f" • Avg Cost / Turn          : ${avg_cost_turn:.5f}")
+        print(f" • Cache Hit Rate           : {cache_rate:.1f}%")
+        print(f" • Avg Tokens / Turn        : {avg_tokens_turn:,.0f}")
         if latency_samples > 0:
-            print(f" • Avg Latency / Turn: {avg_latency_ms:,.0f} ms ({latency_samples}/{total_turns} turns report latency)")
+            print(f" • Avg Latency / Turn       : {avg_latency_ms:,.0f} ms ({latency_samples}/{total_turns} turns report latency)")
+        if unregistered_models:
+            print(f" • ⚠️  Estimated Pricing    : {', '.join(unregistered_models)} (unregistered in rate card)")
 
     violations = list(parse_errors)
     cost_breach = False
+    session_cost_breach = False
     cache_breach = False
     tokens_breach = False
+    session_tokens_breach = False
     latency_breach = False
     missing_latency_breach = False
+    strict_pricing_breach = False
+
+    if total_turns > 0 and not has_any_gate:
+        violations.append(
+            "❌ [No Budget Thresholds Configured]: Specify at least one gate flag "
+            "(--max-cost-per-turn, --max-session-cost, --min-cache-rate, --max-tokens-per-turn, "
+            "--max-session-tokens, --max-latency-ms, or --strict-pricing)."
+        )
 
     if total_turns > 0:
-        if max_cost_per_turn is not None and avg_cost_turn > max_cost_per_turn:
+        if max_cost_per_turn is not None and _exceeds_float_limit(avg_cost_turn, float(max_cost_per_turn)):
             cost_breach = True
+            act_s, lim_s = _format_usd_pair(avg_cost_turn, float(max_cost_per_turn))
             violations.append(
-                f"❌ [Cost Regression]: Avg cost per turn (${avg_cost_turn:.5f}) exceeded max budget threshold (${max_cost_per_turn:.5f})"
+                f"❌ [Cost Regression]: Avg cost per turn ({act_s}) exceeded max budget threshold ({lim_s})"
             )
 
-        if min_cache_rate is not None and (cache_rate / 100.0) < min_cache_rate:
+        if max_session_cost is not None and _exceeds_float_limit(observed_max_session_cost, float(max_session_cost)):
+            session_cost_breach = True
+            act_s, lim_s = _format_usd_pair(observed_max_session_cost, float(max_session_cost))
+            violations.append(
+                f"❌ [Session Cost Regression]: Max session cost ({act_s}) exceeded max session budget ({lim_s})"
+            )
+
+        if min_cache_rate is not None and _below_float_limit(cache_rate / 100.0, float(min_cache_rate)):
             cache_breach = True
             violations.append(
                 f"❌ [Cache Degradation]: Cache hit rate ({cache_rate:.1f}%) fell below minimum required ({min_cache_rate * 100:.1f}%)"
             )
 
-        if max_tokens_per_turn is not None and avg_tokens_turn > max_tokens_per_turn:
+        if max_tokens_per_turn is not None and _exceeds_float_limit(avg_tokens_turn, float(max_tokens_per_turn)):
             tokens_breach = True
             violations.append(
                 f"❌ [Context Bloat]: Avg tokens per turn ({avg_tokens_turn:,.0f}) exceeded max threshold ({max_tokens_per_turn:,})"
+            )
+
+        if max_session_tokens is not None and observed_max_session_tokens > int(max_session_tokens):
+            session_tokens_breach = True
+            violations.append(
+                f"❌ [Session Context Bloat]: Max session tokens ({observed_max_session_tokens:,}) exceeded max session threshold ({int(max_session_tokens):,})"
             )
 
         if max_latency_ms is not None:
@@ -489,25 +591,45 @@ def run_cli_assertions(
                     "❌ [Missing Latency Telemetry]: --max-latency-ms was set, but none of the provided artifacts "
                     "report latency_ms, so the latency budget cannot be evaluated."
                 )
-            elif avg_latency_ms > max_latency_ms:
+            elif _exceeds_float_limit(avg_latency_ms, float(max_latency_ms)):
                 latency_breach = True
                 violations.append(
                     f"❌ [Latency Regression]: Avg latency per turn ({avg_latency_ms:,.0f} ms) exceeded max threshold ({max_latency_ms:,} ms)"
                 )
 
-    if cost_breach or cache_breach or tokens_breach or latency_breach or missing_latency_breach:
+        if strict_pricing and unregistered_models:
+            strict_pricing_breach = True
+            violations.append(
+                f"❌ [Unregistered Model Pricing]: --strict-pricing rejected heuristic pricing for unlisted model(s): "
+                f"{', '.join(unregistered_models)}. Add exact entries to models_config.json."
+            )
+
+    if (
+        cost_breach
+        or session_cost_breach
+        or cache_breach
+        or tokens_breach
+        or session_tokens_breach
+        or latency_breach
+        or missing_latency_breach
+        or strict_pricing_breach
+    ):
         for a_stat in artifact_stats:
             a_turns = a_stat["turns"]
             if a_turns <= 0:
                 continue
             a_file = a_stat["file"]
-            if cost_breach and max_cost_per_turn is not None and (a_stat["cost"] / a_turns) > max_cost_per_turn:
+            if cost_breach and max_cost_per_turn is not None and _exceeds_float_limit(a_stat["cost"] / a_turns, float(max_cost_per_turn)):
+                _add_failed_artifact(a_file)
+            if session_cost_breach and max_session_cost is not None and _exceeds_float_limit(a_stat["max_session_cost"], float(max_session_cost)):
                 _add_failed_artifact(a_file)
             if cache_breach and min_cache_rate is not None:
                 a_cache_ratio = (a_stat["cached"] / a_stat["prompt"]) if a_stat["prompt"] > 0 else 0.0
-                if a_cache_ratio < min_cache_rate:
+                if _below_float_limit(a_cache_ratio, float(min_cache_rate)):
                     _add_failed_artifact(a_file)
-            if tokens_breach and max_tokens_per_turn is not None and (a_stat["tokens"] / a_turns) > max_tokens_per_turn:
+            if tokens_breach and max_tokens_per_turn is not None and _exceeds_float_limit(a_stat["tokens"] / a_turns, float(max_tokens_per_turn)):
+                _add_failed_artifact(a_file)
+            if session_tokens_breach and max_session_tokens is not None and a_stat["max_session_tokens"] > int(max_session_tokens):
                 _add_failed_artifact(a_file)
             if missing_latency_breach and a_stat["lat_samples"] == 0:
                 _add_failed_artifact(a_file)
@@ -515,8 +637,10 @@ def run_cli_assertions(
                 latency_breach
                 and max_latency_ms is not None
                 and a_stat["lat_samples"] > 0
-                and (a_stat["lat_ms"] / a_stat["lat_samples"]) > max_latency_ms
+                and _exceeds_float_limit(a_stat["lat_ms"] / a_stat["lat_samples"], float(max_latency_ms))
             ):
+                _add_failed_artifact(a_file)
+            if strict_pricing_breach and a_stat.get("pricing_estimated"):
                 _add_failed_artifact(a_file)
 
         if not failed_artifacts:
@@ -527,14 +651,21 @@ def run_cli_assertions(
         result_payload: Dict[str, Any] = {
             "passed": len(violations) == 0,
             "total_turns": total_turns,
+            "total_cost": round(total_cost, 6),
+            "total_tokens": total_tokens,
+            "max_session_cost": round(observed_max_session_cost, 6),
+            "max_session_tokens": observed_max_session_tokens,
             "avg_cost_per_turn": round(avg_cost_turn, 6),
             "cache_hit_rate_pct": round(cache_rate, 2),
             "avg_tokens_per_turn": round(avg_tokens_turn, 1),
             "avg_latency_ms": round(avg_latency_ms, 1),
             "latency_samples": latency_samples,
+            "pricing_estimated": bool(unregistered_models),
             "failed_artifacts": failed_artifacts,
             "violations": violations,
         }
+        if unregistered_models:
+            result_payload["unregistered_models"] = unregistered_models
         if skipped_files:
             result_payload["skipped_artifacts"] = [
                 {"file": p, "reason": SKIPPED_EVAL_FILE_REASON} for p in skipped_files

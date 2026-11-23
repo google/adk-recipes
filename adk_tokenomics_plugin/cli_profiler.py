@@ -66,6 +66,8 @@ class TokenProfiler:
 
     def profile_session(self, turns: List[Dict[str, Any]], session_title: str = "Session Profile") -> List[str]:
         """Renders an ANSI-formatted turn-by-turn context waterfall and returns optimization recommendations."""
+        self.last_unregistered_models: List[str] = []
+        self.last_pricing_estimated: bool = False
         if not turns:
             self.last_agent_rollup = {}
             print(f"\n[WARN] No turn records found to profile for '{session_title}'.\n")
@@ -87,14 +89,21 @@ class TokenProfiler:
         total_cost = 0.0
 
         uncached_large_prompts = []
+        uncached_candidates_raw = []
+        cached_seen_by_agent: set[Tuple[str, str]] = set()
+        first_large_idx_by_agent: Dict[Tuple[str, str], int] = {}
         heavy_thinking_turns = []
         lightweight_turns = []
+        agent_max_output: Dict[str, int] = {}
         rapid_history_growth = False
+        history_grew = False
+        first_input_by_agent: Dict[Tuple[str, str], int] = {}
         prev_input_by_agent: Dict[Tuple[str, str], int] = {}
         prev_inv_by_agent: Dict[Tuple[str, str], Optional[str]] = {}
         agent_rollup: Dict[str, Dict[str, Any]] = {}
         session_seen_invs: Dict[str, set[str]] = {}
         session_none_turns: Dict[str, int] = {}
+        unregistered_models: List[str] = []
 
         for idx, t in enumerate(turns, 1):
             raw_query = str(t.get("user_query") or t.get("query") or f"Turn {idx}")
@@ -108,6 +117,11 @@ class TokenProfiler:
             output_tok = norm["output_tokens"]
             think_tok = norm["thinking_tokens"]
             model_name = str(t.get("model_name") or t.get("model") or self.pricing.config.default_model)
+
+            rate_meta = self.pricing.get_rate(model_name)
+            turn_price_est = bool(rate_meta.get("pricing_estimated")) or bool(t.get("pricing_estimated"))
+            if turn_price_est and model_name not in unregistered_models:
+                unregistered_models.append(model_name)
 
             if (fresh_tok + cached_tok + output_tok + think_tok) > 0:
                 cost = self.pricing.calculate_cost(model_name, fresh_tok, cached_tok, output_tok, think_tok)
@@ -155,12 +169,17 @@ class TokenProfiler:
             ag_entry["thinking"] += think_tok
             ag_entry["cost"] += cost
 
+            agent_key = (sess_key, sub_agent)
+            agent_max_output[sub_agent] = max(agent_max_output.get(sub_agent, 0), output_tok)
+
             if cached_tok > 0:
                 hit_rate = (cached_tok / (fresh_tok + cached_tok)) * 100
                 status = f"🟢 Cached ({hit_rate:.0f}%)"
+                cached_seen_by_agent.add(agent_key)
             elif fresh_tok > self.rules.min_cache_tokens:
                 status = f"⚠️  No-Cache (>{self.rules.min_cache_tokens})"
-                uncached_large_prompts.append((idx, fresh_tok, model_name))
+                first_large_idx_by_agent.setdefault(agent_key, idx)
+                uncached_candidates_raw.append((idx, fresh_tok, model_name, agent_key))
             else:
                 status = "⚪ Direct Text"
 
@@ -172,7 +191,7 @@ class TokenProfiler:
 
             if (
                 self.rules.enable_model_tiering_hint
-                and think_tok == 0
+                and think_tok <= self.rules.lightweight_turn_max_thinking_tokens
                 and output_tok <= self.rules.lightweight_turn_max_output_tokens
             ):
                 lightweight_turns.append({
@@ -183,13 +202,18 @@ class TokenProfiler:
                     "fresh_tok": fresh_tok,
                     "cached_tok": cached_tok,
                     "output_tok": output_tok,
+                    "think_tok": think_tok,
                     "cost": cost,
                 })
 
-            agent_key = (sess_key, sub_agent)
             has_seen_agent = agent_key in prev_inv_by_agent
             prev_inv = prev_inv_by_agent.get(agent_key)
             is_new_user_turn = (not has_seen_agent) or (inv_id is None) or (prev_inv is None) or (inv_id != prev_inv)
+            if is_new_user_turn:
+                if agent_key not in first_input_by_agent:
+                    first_input_by_agent[agent_key] = (fresh_tok + cached_tok)
+                elif (fresh_tok + cached_tok) > first_input_by_agent[agent_key]:
+                    history_grew = True
             if (
                 is_new_user_turn
                 and agent_key in prev_input_by_agent
@@ -200,7 +224,8 @@ class TokenProfiler:
                 prev_input_by_agent[agent_key] = fresh_tok
                 prev_inv_by_agent[agent_key] = inv_id
 
-            row = f"{idx:<6} | {query:<24} | {fresh_tok:<9,d} | {cached_tok:<9,d} | {output_tok:<8,d} | {think_tok:<7,d} | ${cost:<9.5f} | {status}"
+            cost_cell = f"≈${cost:<8.5f}" if (turn_price_est or t.get("tokens_estimated")) else f"${cost:<9.5f}"
+            row = f"{idx:<6} | {query:<24} | {fresh_tok:<9,d} | {cached_tok:<9,d} | {output_tok:<8,d} | {think_tok:<7,d} | {cost_cell} | {status}"
             print(row)
 
         print("-" * 105)
@@ -227,6 +252,21 @@ class TokenProfiler:
                 )
             print("─" * 121)
         self.last_agent_rollup = agent_rollup
+        self.last_unregistered_models = unregistered_models
+        self.last_pricing_estimated = bool(unregistered_models)
+
+        # Exclude an agent's cold cache-warming first turn above min_cache_tokens when a subsequent turn on that agent hit cache
+        for idx_u, tok_u, m_u, ag_key_u in uncached_candidates_raw:
+            if ag_key_u in cached_seen_by_agent and first_large_idx_by_agent.get(ag_key_u) == idx_u:
+                continue
+            uncached_large_prompts.append((idx_u, tok_u, m_u))
+
+        # Exclude lightweight candidate turns belonging to a sub-agent whose main turns in this session are heavy synthesis
+        filtered_lightweight = [
+            lw
+            for lw in lightweight_turns
+            if agent_max_output.get(str(lw.get("sub_agent") or ""), 0) <= self.rules.lightweight_turn_max_output_tokens
+        ]
 
         max_per_session_user_turns = max(
             (len(session_seen_invs[sk]) + session_none_turns[sk] for sk in session_seen_invs),
@@ -244,8 +284,9 @@ class TokenProfiler:
             total_output=total_output,
             total_thinking=total_thinking,
             heavy_thinking_turns=heavy_thinking_turns,
-            lightweight_turns=lightweight_turns,
+            lightweight_turns=filtered_lightweight,
             turns=turns,
+            history_grew=history_grew,
         )
         self._print_optimization_recommendations(recommendations)
         if not recommendations and total_cached == 0 and 0 < max_prompt_tokens <= self.rules.min_cache_tokens:
@@ -291,12 +332,44 @@ class TokenProfiler:
         heavy_thinking_turns: Optional[List[Any]] = None,
         lightweight_turns: Optional[List[Any]] = None,
         turns: Optional[List[Dict[str, Any]]] = None,
+        history_grew: Optional[bool] = None,
     ) -> List[str]:
         """Evaluates configured heuristics and custom callbacks to produce formatted optimization recommendations."""
         recs: List[str] = []
         default_model = self.pricing.config.default_model
 
-        if uncached_prompts and self.prompts.get("context_caching"):
+        app_finops_cfg: Dict[str, Any] = {}
+        skills_already_active = False
+        max_turn_fresh = 0
+        if turns:
+            for t in turns:
+                if not isinstance(t, Mapping):
+                    continue
+                t_norm = normalize_turn_tokens(t)
+                max_turn_fresh = max(max_turn_fresh, t_norm["fresh_tokens"])
+                if t.get("skills_active"):
+                    skills_already_active = True
+                for tc in (t.get("tools_called") or []):
+                    if "load_skill" in str(tc).lower():
+                        skills_already_active = True
+                rm = t.get("raw_json")
+                if isinstance(rm, Mapping):
+                    af = rm.get("app_finops_config")
+                    if isinstance(af, Mapping):
+                        app_finops_cfg.update(af)
+                        if af.get("skill_toolset_configured"):
+                            skills_already_active = True
+
+        cache_cfg_active = bool(app_finops_cfg.get("context_cache_configured"))
+        comp_cfg_active = bool(app_finops_cfg.get("events_compaction_configured"))
+        comp_cfg_interval = app_finops_cfg.get("compaction_interval")
+        eff_comp_interval = (
+            int(comp_cfg_interval)
+            if isinstance(comp_cfg_interval, int) and comp_cfg_interval >= 1
+            else self.rules.compaction_interval
+        )
+
+        if uncached_prompts and not (cache_cfg_active and total_cached > 0):
             normalized_uncached = []
             total_cache_savings = 0.0
             discounts = []
@@ -314,17 +387,43 @@ class TokenProfiler:
 
             turns_str = ", ".join(f"Turn #{turn} ({tok:,} tokens)" for turn, tok in normalized_uncached)
             avg_discount_pct = (sum(discounts) / len(discounts)) if discounts else self.pricing.get_cache_discount_pct(default_model)
-            recs.append(
-                self.prompts["context_caching"].format(
-                    turns_str=turns_str,
-                    min_cache_tokens=self.rules.min_cache_tokens,
-                    cache_ttl_seconds=self.rules.cache_ttl_seconds,
-                    cache_discount_pct=avg_discount_pct,
-                    estimated_cache_savings=total_cache_savings,
+            if cache_cfg_active and total_cached == 0 and self.prompts.get("context_caching_configured_no_hits"):
+                recs.append(
+                    self.prompts["context_caching_configured_no_hits"].format(
+                        turns_str=turns_str,
+                        min_cache_tokens=self.rules.min_cache_tokens,
+                        cache_ttl_seconds=self.rules.cache_ttl_seconds,
+                        cache_discount_pct=avg_discount_pct,
+                        estimated_cache_savings=total_cache_savings,
+                    )
                 )
-            )
+            elif self.prompts.get("context_caching"):
+                recs.append(
+                    self.prompts["context_caching"].format(
+                        turns_str=turns_str,
+                        min_cache_tokens=self.rules.min_cache_tokens,
+                        cache_ttl_seconds=self.rules.cache_ttl_seconds,
+                        cache_discount_pct=avg_discount_pct,
+                        estimated_cache_savings=total_cache_savings,
+                    )
+                )
 
-        if (rapid_growth or total_turns >= self.rules.compaction_turn_threshold) and self.prompts.get("history_compaction"):
+        effective_history_grew = True if history_grew is None else bool(history_grew)
+        if comp_cfg_active:
+            if rapid_growth and total_turns > eff_comp_interval and self.prompts.get("history_compaction_configured_growth"):
+                est_compaction_savings = self._estimate_fresh_token_savings(0.35, total_fresh, turns)
+                compaction_msg = self.prompts["history_compaction_configured_growth"].format(
+                    total_turns=total_turns,
+                    compaction_interval=eff_comp_interval,
+                    compaction_overlap=self.rules.compaction_overlap,
+                )
+                if "est. savings:" not in compaction_msg and est_compaction_savings > 0:
+                    compaction_msg = f"{compaction_msg} (est. savings: ${est_compaction_savings:.5f}/session)."
+                recs.append(compaction_msg)
+        elif (
+            rapid_growth
+            or (total_turns >= self.rules.compaction_turn_threshold and effective_history_grew)
+        ) and self.prompts.get("history_compaction"):
             est_compaction_savings = self._estimate_fresh_token_savings(0.35, total_fresh, turns)
             compaction_msg = self.prompts["history_compaction"].format(
                 total_turns=total_turns,
@@ -335,7 +434,12 @@ class TokenProfiler:
                 compaction_msg = f"{compaction_msg} (est. savings: ${est_compaction_savings:.5f}/session)."
             recs.append(compaction_msg)
 
-        if total_fresh > self.rules.modular_skills_token_threshold and self.prompts.get("modular_skills"):
+        should_flag_modular_skills = (
+            (not skills_already_active and max_turn_fresh > self.rules.modular_skills_token_threshold)
+            if turns is not None
+            else (total_fresh > self.rules.modular_skills_token_threshold)
+        )
+        if should_flag_modular_skills and self.prompts.get("modular_skills"):
             est_skills_savings = self._estimate_fresh_token_savings(
                 self.rules.modular_skills_reduction_ratio,
                 total_fresh,
@@ -420,7 +524,7 @@ class TokenProfiler:
                         lw["fresh_tok"],
                         lw["cached_tok"],
                         lw["output_tok"],
-                        0,
+                        lw.get("think_tok", 0),
                     )
                     if proj_cost < cur_cost:
                         tierable_labels.append(lw["label"])
@@ -1177,8 +1281,11 @@ def _build_profiler_config(
         cleaned_pf = str(prompts_config_path).strip()
         if not cleaned_pf or not os.path.isfile(cleaned_pf):
             raise FileNotFoundError(f"Prompts config file not found: {prompts_config_path}")
-        with open(cleaned_pf, "r", encoding="utf-8") as pf:
-            loaded_pf = json.load(pf)
+        try:
+            with open(cleaned_pf, "r", encoding="utf-8") as pf:
+                loaded_pf = json.load(pf)
+        except Exception as exc:
+            raise ValueError(f"Failed to parse --prompts-file '{prompts_config_path}': {exc}") from exc
         if not isinstance(loaded_pf, dict):
             raise ValueError(
                 f"Prompts config file '{prompts_config_path}' must contain a JSON object (dict), got {type(loaded_pf).__name__}."
@@ -1283,6 +1390,11 @@ def profile_from_trace_file(
             optimization_prompts=optimization_prompts,
             cli_rule_overrides=cli_rule_overrides,
         )
+    except (FileNotFoundError, ValueError) as cfg_err:
+        _emit_profile_error(str(cfg_err), output_format=output_format)
+        return None
+
+    try:
         with open(file_path, "r", encoding="utf-8") as f:
             data = json.load(f)
 
@@ -1313,11 +1425,21 @@ def profile_from_trace_file(
             if tokens_estimated:
                 payload["tokens_estimated"] = True
                 payload["warning"] = ESTIMATED_TOKENS_WARNING
+            if getattr(profiler, "last_pricing_estimated", False):
+                payload["pricing_estimated"] = True
+                payload["unregistered_models"] = list(getattr(profiler, "last_unregistered_models", []))
             print(json.dumps(payload, indent=2))
             return recs
         if tokens_estimated:
             print(f"\n⚠️  ESTIMATED: {ESTIMATED_TOKENS_WARNING}")
-        return profiler.profile_session(turns, session_title=os.path.basename(file_path))
+        recs = profiler.profile_session(turns, session_title=os.path.basename(file_path))
+        if getattr(profiler, "last_pricing_estimated", False):
+            unreg_str = ", ".join(getattr(profiler, "last_unregistered_models", []))
+            print(
+                f" ⚠️  ESTIMATED PRICING: Unregistered model(s) [{unreg_str}] were priced via heuristic fallback "
+                "(marked ≈$). Add exact entries to models_config.json or Rate Card.\n"
+            )
+        return recs
     except Exception as e:
         _emit_profile_error(f"Failed to profile trace file {file_path}: {e}", output_format=output_format)
         return None
@@ -1414,16 +1536,17 @@ def _infer_bq_orchestration_flow(
     is_loop = "loop" in combined_low
     is_seq = "sequential" in combined_low
 
-    if is_parallel and is_loop:
-        return "AgentTool • Parallel • Loop" if is_agent_tool else "Parallel • Loop"
-    if is_parallel:
-        return "AgentTool • Parallel" if is_agent_tool else "Parallel"
-    if is_loop:
-        return "AgentTool • Loop" if is_agent_tool else "Loop"
-    if is_seq:
-        return "AgentTool • Sequential" if is_agent_tool else "Sequential"
+    flow_parts: List[str] = []
     if is_agent_tool:
-        return "AgentTool"
+        flow_parts.append("AgentTool")
+    if is_seq:
+        flow_parts.append("Sequential")
+    if is_parallel:
+        flow_parts.append("Parallel")
+    if is_loop:
+        flow_parts.append("Loop")
+    if flow_parts:
+        return " • ".join(flow_parts)
     inv_root = root_agent_by_inv.get(inv_id) or session_root_agent
     if inv_root and sub_agent and sub_agent != inv_root:
         return "Sub-Agent"
@@ -1774,16 +1897,27 @@ def profile_from_bigquery(
             buf = io.StringIO()
             with redirect_stdout(buf):
                 recs = profiler.profile_session(turns, session_title=f"BigQuery Session: {session_id}")
-            print(json.dumps({
+            bq_payload: Dict[str, Any] = {
                 "session_id": session_id,
                 "source": f"{project_id}.{dataset_id}.{active_tbl}",
                 "total_turns": len(turns),
                 "sub_agent_breakdown": getattr(profiler, "last_agent_rollup", {}),
                 "recommendations": recs,
                 "turns": turns,
-            }, indent=2, default=str))
+            }
+            if getattr(profiler, "last_pricing_estimated", False):
+                bq_payload["pricing_estimated"] = True
+                bq_payload["unregistered_models"] = list(getattr(profiler, "last_unregistered_models", []))
+            print(json.dumps(bq_payload, indent=2, default=str))
             return recs
-        return profiler.profile_session(turns, session_title=f"BigQuery Session: {session_id}")
+        recs = profiler.profile_session(turns, session_title=f"BigQuery Session: {session_id}")
+        if getattr(profiler, "last_pricing_estimated", False):
+            unreg_str = ", ".join(getattr(profiler, "last_unregistered_models", []))
+            print(
+                f" ⚠️  ESTIMATED PRICING: Unregistered model(s) [{unreg_str}] were priced via heuristic fallback "
+                "(marked ≈$). Add exact entries to models_config.json or Rate Card.\n"
+            )
+        return recs
     except Exception as e:
         _emit_profile_error(f"BigQuery profiling query failed: {e}", output_format=output_format)
         return None

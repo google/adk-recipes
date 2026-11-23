@@ -2431,6 +2431,8 @@ class TestComprehensiveE2E(unittest.TestCase):
                             "assert",
                             "--traces",
                             alpha_path,
+                            "--max-cost-per-turn",
+                            "1.0",
                             "--format",
                             "json",
                         ],
@@ -2816,8 +2818,6 @@ class TestComprehensiveE2E(unittest.TestCase):
             except Exception:
                 import glob as _glob
 
-                from wheel.wheelfile import WheelFile
-
                 wheel_path = os.path.join(
                     wheel_out_dir,
                     f"adk_tokenomics_plugin-{proj_meta['version']}-py3-none-any.whl",
@@ -2826,31 +2826,45 @@ class TestComprehensiveE2E(unittest.TestCase):
                 dist_info = (
                     f"adk_tokenomics_plugin-{proj_meta['version']}.dist-info"
                 )
-                with WheelFile(wheel_path, "w") as wf:
+                with zipfile.ZipFile(
+                    wheel_path, "w", compression=zipfile.ZIP_DEFLATED
+                ) as wf:
+                    record_entries: list[str] = []
                     for root, _, files in os.walk(pkg_src):
                         if "__pycache__" in root:
                             continue
                         for fn in sorted(files):
                             if fn.endswith(".py"):
                                 full = os.path.join(root, fn)
-                                rel = os.path.relpath(full, REPO_ROOT)
+                                rel = os.path.relpath(full, REPO_ROOT).replace(
+                                    os.sep, "/"
+                                )
                                 wf.write(full, rel)
+                                record_entries.append(f"{rel},,")
                     for pat in pkg_data_patterns:
                         for matched_file in sorted(
                             _glob.glob(os.path.join(pkg_src, pat))
                         ):
                             if os.path.isfile(matched_file):
-                                wf.write(
-                                    matched_file,
-                                    os.path.relpath(matched_file, REPO_ROOT),
-                                )
+                                rel_asset = os.path.relpath(
+                                    matched_file, REPO_ROOT
+                                ).replace(os.sep, "/")
+                                if rel_asset not in wf.namelist():
+                                    wf.write(matched_file, rel_asset)
+                                    record_entries.append(f"{rel_asset},,")
                     wf.writestr(
                         f"{dist_info}/METADATA",
                         f"Metadata-Version: 2.1\nName: {proj_meta['name']}\nVersion: {proj_meta['version']}\n",
                     )
+                    record_entries.append(f"{dist_info}/METADATA,,")
                     wf.writestr(
                         f"{dist_info}/WHEEL",
                         "Wheel-Version: 1.0\nGenerator: e2e-smoke\nRoot-Is-Purelib: true\nTag: py3-none-any\n",
+                    )
+                    record_entries.append(f"{dist_info}/WHEEL,,")
+                    record_entries.append(f"{dist_info}/RECORD,,")
+                    wf.writestr(
+                        f"{dist_info}/RECORD", "\n".join(record_entries) + "\n"
                     )
 
             self.assertTrue(wheel_path and os.path.exists(wheel_path))

@@ -1152,12 +1152,22 @@ class TestTokenomicsCLI(unittest.TestCase):
         self.assertIn("setup()", setup_src)
         self.assertNotIn("extras_require", setup_src)
 
-        import setuptools  # type: ignore
+        try:
+            import setuptools  # type: ignore
 
-        find_pkgs_fn = getattr(setuptools, "find_packages", None)
+            find_pkgs_fn = getattr(setuptools, "find_packages", None)
+        except ImportError:
+            find_pkgs_fn = None
+
         if callable(find_pkgs_fn):
             discovered = set(find_pkgs_fn(where=REPO_ROOT, include=["adk_tokenomics_plugin*"]))
-            self.assertTrue(expected_packages.issubset(discovered))
+        else:
+            discovered = {
+                os.path.relpath(root, REPO_ROOT).replace(os.sep, ".")
+                for root, _, files in os.walk(os.path.join(REPO_ROOT, "adk_tokenomics_plugin"))
+                if "__init__.py" in files
+            }
+        self.assertTrue(expected_packages.issubset(discovered))
 
     def test_evalset_invocation_latency_not_multiplied(self):
         from adk_tokenomics_plugin.testing.assertions import run_cli_assertions

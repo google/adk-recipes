@@ -6,6 +6,7 @@ schema: agents-cli-extension/v1alpha1
 name: adk-tokenomics
 description: Turn-level AI unit economics, context waterfall profiler, Material 3 FinOps web observatory, and shift-left CI/CD budget gates for Google ADK agents.
 requires:
+  # Note: `skills:` requires agents-cli >= 1.10; older (<1.10) binaries reject `skills` at schema parse time.
   agents_cli: ">=1.10,<2"
   on_incompatible: warn
 
@@ -20,7 +21,7 @@ commands:
       run: ["uv", "run", "--no-sync", "python", "scripts/run_tokenomics.py"]
       description: "ADK Tokenomics Control Tower: web, profile, or assert. For the tool's own flags use -h (e.g. `agents-cli tokenomics profile -h`)."
     eval.budget:
-      run: ["uv", "run", "--no-sync", "python", "scripts/run_tokenomics.py", "assert"]
+      run: ["uv", "run", "--no-sync", "python", "scripts/run_tokenomics.py", "--prog-override", "agents-cli eval budget", "assert"]
       description: "Enforce token, cache-hit, latency, and USD cost gates on ADK eval or session traces. For the tool's own flags use `agents-cli eval budget -h`."
 
 skills:

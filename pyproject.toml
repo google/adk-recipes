@@ -34,6 +34,11 @@ all = [
     "google-cloud-bigquery>=3.10.0",
     "google-cloud-core>=2.3.0"
 ]
+dev = [
+    "pytest>=7.0.0",
+    "setuptools>=61.0",
+    "wheel>=0.40.0"
+]
 
 [project.scripts]
 adk-tokenomics = "adk_tokenomics_plugin.cli:main"
